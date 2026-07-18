@@ -91,6 +91,7 @@ const SELLPIA_SALE_SUMMARY_URL = "https://kiditem.sellpia.com/sale_summary.html?
 const SELLPIA_PRODUCT_PROFIT_URL = "https://kiditem.sellpia.com/stat_prd_profit.html#none";
 // 매일 자동수집 알람 + 캐시 키(웹앱이 열릴 때 백엔드로 flush).
 const SELLPIA_SALES_CACHE_KEY = "sellpiaSaleSummaryCache";
+const SELLPIA_SALES_ORGANIZATION_KEY = "sellpiaSaleSummaryOrganizationId";
 const SELLPIA_SALES_ALARM = "sellpiaSaleSummaryDaily";
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
 const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
@@ -225,6 +226,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         collectKakaoOrders: true,
         collectSellpiaDeliTracking: true,
         collectSellpiaSaleSummary: true,
+        collectSellpiaSaleSummaryAuthoritativeV1: true,
         collectSellpiaProductProfit: true,
         collectSellpiaInventory: true,
         collectSellpiaInventoryV2: true,
@@ -265,11 +267,18 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
 
   // 판매현황(몰별 매출) 수집 — 읽기 전용(비파괴). 대시보드 '몰별 매출' 섹션 적재용.
   if (msg?.action === "collectSellpiaSaleSummary") {
-    collectSellpiaSaleSummary({
-      startDate: typeof msg.startDate === "string" ? msg.startDate : null,
-      endDate: typeof msg.endDate === "string" ? msg.endDate : null,
-      keepTabOnLoginError: true, // 대화형: 로그인 유도 위해 탭 유지 (무인 알람은 미지정=닫음)
-    })
+    const organizationId = normalizeSellpiaSalesOrganizationId(msg.organizationId);
+    if (!organizationId) {
+      sendResponse({ success: false, error: "판매현황 수집 조직 정보가 없습니다." });
+      return false;
+    }
+    chrome.storage.local
+      .set({ [SELLPIA_SALES_ORGANIZATION_KEY]: organizationId })
+      .then(() => collectSellpiaSaleSummary({
+        startDate: typeof msg.startDate === "string" ? msg.startDate : null,
+        endDate: typeof msg.endDate === "string" ? msg.endDate : null,
+        keepTabOnLoginError: true, // 대화형: 로그인 유도 위해 탭 유지 (무인 알람은 미지정=닫음)
+      }))
       .then((result) => sendResponse(result))
       .catch((error) => {
         sendResponse({ success: false, error: error?.message || "셀피아 판매현황 수집 실패" });
@@ -292,16 +301,37 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
 
   // 매일 자동수집 알람이 캐시해둔 판매현황 payload 조회(웹앱이 백엔드로 flush).
   if (msg?.action === "getSellpiaSalesCache") {
+    const organizationId = normalizeSellpiaSalesOrganizationId(msg.organizationId);
+    if (!organizationId) {
+      sendResponse({ success: false, error: "판매현황 캐시 조직 정보가 없습니다." });
+      return false;
+    }
     chrome.storage.local
       .get(SELLPIA_SALES_CACHE_KEY)
-      .then((o) => sendResponse({ success: true, cache: o?.[SELLPIA_SALES_CACHE_KEY] ?? null }))
+      .then((o) => {
+        const cache = o?.[SELLPIA_SALES_CACHE_KEY] ?? null;
+        sendResponse({
+          success: true,
+          cache: cache?.organizationId === organizationId ? cache : null,
+        });
+      })
       .catch((error) => sendResponse({ success: false, error: error?.message || String(error) }));
     return true;
   }
 
   if (msg?.action === "clearSellpiaSalesCache") {
+    const organizationId = normalizeSellpiaSalesOrganizationId(msg.organizationId);
+    if (!organizationId) {
+      sendResponse({ success: false, error: "판매현황 캐시 조직 정보가 없습니다." });
+      return false;
+    }
     chrome.storage.local
-      .remove(SELLPIA_SALES_CACHE_KEY)
+      .get(SELLPIA_SALES_CACHE_KEY)
+      .then((o) => {
+        const cache = o?.[SELLPIA_SALES_CACHE_KEY] ?? null;
+        if (cache?.organizationId !== organizationId) return;
+        return chrome.storage.local.remove(SELLPIA_SALES_CACHE_KEY);
+      })
       .then(() => sendResponse({ success: true }))
       .catch((error) => sendResponse({ success: false, error: error?.message || String(error) }));
     return true;
@@ -4855,10 +4885,22 @@ async function collectSellpiaSaleSummary(options = {}) {
 async function scrapeSellpiaSaleSummary(startDate, endDate) {
   try {
     const p = (n) => String(n).padStart(2, "0");
-    const d = new Date();
-    const end = endDate || `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-    const s0 = new Date(d.getTime() - 92 * 24 * 60 * 60 * 1000); // 기본 최근 92일(약 3개월) — 일/주/월 집계용 이력 누적
-    const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
+    const toYmdUtc = (date) => `${date.getUTCFullYear()}-${p(date.getUTCMonth() + 1)}-${p(date.getUTCDate())}`;
+    const parseYmd = (value) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      return Number.isNaN(parsed.getTime()) || toYmdUtc(parsed) !== value ? null : parsed;
+    };
+    const todayKst = toYmdUtc(new Date(Date.now() + 9 * 60 * 60 * 1000));
+    const end = endDate || todayKst;
+    const endAnchor = parseYmd(end);
+    if (!endAnchor) return { success: false, error: "셀피아 판매현황 종료일이 올바르지 않습니다." };
+    const defaultStart = toYmdUtc(new Date(endAnchor.getTime() - 92 * 24 * 60 * 60 * 1000));
+    const start = startDate || defaultStart; // 기본 최근 93일(양 끝 포함) — 일/주/월 집계용 이력 누적
+    const startAnchor = parseYmd(start);
+    if (!startAnchor || startAnchor > endAnchor) {
+      return { success: false, error: "셀피아 판매현황 수집 기간이 올바르지 않습니다." };
+    }
     const body = new URLSearchParams({
       mode: "selldate", // 판매일자별 집계
       s_date: start,
@@ -4888,35 +4930,102 @@ async function scrapeSellpiaSaleSummary(startDate, endDate) {
     } catch {
       return { success: false, error: "셀피아 판매현황 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
     }
+
+    // 이 API의 정상 seller=all 응답은 `{ sellerId: { YYYY-MM-DD: metrics } }`
+    // 형태다. 배열/null/error envelope를 빈 매출로 오인하면 백엔드의 권위 범위
+    // 교체가 기존 데이터를 지우므로, plain object 이외에는 한 행도 수락하지 않는다.
+    const isPlainObject = (value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+      const proto = Object.getPrototypeOf(value);
+      return proto === Object.prototype || proto === null;
+    };
+    if (!isPlainObject(data)) {
+      return { success: false, error: "셀피아 판매현황 응답 형식이 예상과 다릅니다." };
+    }
+    const sellerIds = Object.keys(data);
+    if (sellerIds.length === 0) {
+      return {
+        success: true,
+        payload: {
+          range: { from: start, to: end },
+          sellers: [],
+          provenance: {
+            source: "sellpia_sale_summary",
+            mode: "selldate",
+            sellerScope: "all",
+            responseShape: "empty_object",
+            explicitEmpty: true,
+          },
+        },
+        sellerCount: 0,
+        range: { start, end },
+      };
+    }
+
     // seller id→판매처명 매핑 소스(provider_list.js.html?mode=more)가 대용량이라 로딩 대기.
     for (let i = 0; i < 30 && typeof provider_list_all === "undefined"; i++) {
       await new Promise((r) => setTimeout(r, 100));
     }
     const nameOf = (id) => {
       try {
-        if (typeof provider_list_all !== "undefined" && provider_list_all[id]) return String(provider_list_all[id]);
-        if (typeof provider_list_s !== "undefined" && provider_list_s[id]) return String(provider_list_s[id]);
+        if (
+          typeof provider_list_all !== "undefined" &&
+          Object.prototype.hasOwnProperty.call(provider_list_all, id) &&
+          provider_list_all[id]
+        ) return String(provider_list_all[id]);
+        if (
+          typeof provider_list_s !== "undefined" &&
+          Object.prototype.hasOwnProperty.call(provider_list_s, id) &&
+          provider_list_s[id]
+        ) return String(provider_list_s[id]);
       } catch { /* 전역 미로딩 */ }
       return "";
     };
+    const parseMetric = (value) => {
+      if (typeof value === "number") return Number.isFinite(value) ? value : null;
+      if (typeof value !== "string") return null;
+      const normalized = value.trim();
+      if (!/^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(normalized)) return null;
+      const parsed = Number(normalized.replace(/,/g, ""));
+      return Number.isFinite(parsed) ? parsed : null;
+    };
     const sellers = [];
-    for (const sellerId of Object.keys(data || {})) {
-      const dayMap = data[sellerId] || {};
+    for (const sellerId of sellerIds) {
+      const sellerName = nameOf(sellerId).trim();
+      const dayMap = data[sellerId];
+      if (!sellerId.trim() || sellerId.length > 64 || !sellerName || !isPlainObject(dayMap)) {
+        return { success: false, error: "셀피아 판매현황에 알 수 없는 판매처 응답이 포함되어 있습니다." };
+      }
+      const dateKeys = Object.keys(dayMap);
+      if (dateKeys.length === 0) {
+        return { success: false, error: "셀피아 판매현황에 일자 데이터가 없는 판매처가 포함되어 있습니다." };
+      }
       const days = [];
-      for (const date of Object.keys(dayMap)) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-        const v = dayMap[date] || {};
+      for (const date of dateKeys) {
+        const parsedDate = parseYmd(date);
+        const v = dayMap[date];
+        if (!parsedDate || parsedDate < startAnchor || parsedDate > endAnchor || !isPlainObject(v)) {
+          return { success: false, error: "셀피아 판매현황에 유효하지 않은 일자 응답이 포함되어 있습니다." };
+        }
+        if (!("price" in v) || !("amount" in v) || !("buy_price" in v)) {
+          return { success: false, error: "셀피아 판매현황 일자 응답에 필수 매출 항목이 없습니다." };
+        }
+        const price = parseMetric(v.price);
+        const amount = parseMetric(v.amount);
+        const buyPrice = parseMetric(v.buy_price);
+        if (price === null || amount === null || buyPrice === null) {
+          return { success: false, error: "셀피아 판매현황 일자 응답의 매출 값이 올바르지 않습니다." };
+        }
         days.push({
           date,
-          price: Number(v.price) || 0,
-          amount: Number(v.amount) || 0,
-          buyPrice: Number(v.buy_price) || 0,
+          price,
+          amount,
+          buyPrice,
         });
       }
-      if (!days.length) continue;
       sellers.push({
         sellerId: String(sellerId),
-        sellerName: nameOf(sellerId) || "판매처 " + sellerId,
+        sellerName,
         days,
       });
     }
@@ -5337,11 +5446,35 @@ chrome.runtime.onStartup.addListener(ensureSellpiaSalesAlarm);
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm?.name !== SELLPIA_SALES_ALARM) return;
   try {
+    const binding = await chrome.storage.local.get(SELLPIA_SALES_ORGANIZATION_KEY);
+    const organizationId = normalizeSellpiaSalesOrganizationId(
+      binding?.[SELLPIA_SALES_ORGANIZATION_KEY],
+    );
+    if (!organizationId) return;
     const result = await collectSellpiaSaleSummary({});
-    if (result?.success && result.payload && Array.isArray(result.payload.sellers) && result.payload.sellers.length) {
+    const sellers = result?.payload?.sellers;
+    const explicitEmpty =
+      Array.isArray(sellers) &&
+      sellers.length === 0 &&
+      result.payload?.provenance?.source === "sellpia_sale_summary" &&
+      result.payload?.provenance?.mode === "selldate" &&
+      result.payload?.provenance?.sellerScope === "all" &&
+      result.payload?.provenance?.responseShape === "empty_object" &&
+      result.payload?.provenance?.explicitEmpty === true;
+    if (result?.success && Array.isArray(sellers) && (sellers.length > 0 || explicitEmpty)) {
       await chrome.storage.local.set({
-        [SELLPIA_SALES_CACHE_KEY]: { payload: result.payload, capturedAt: Date.now() },
+        [SELLPIA_SALES_CACHE_KEY]: {
+          organizationId,
+          payload: result.payload,
+          capturedAt: Date.now(),
+        },
       });
     }
   } catch { /* 셀피아 미로그인 등 실패 시 캐시 미갱신 */ }
 });
+
+function normalizeSellpiaSalesOrganizationId(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized && normalized.length <= 128 ? normalized : null;
+}

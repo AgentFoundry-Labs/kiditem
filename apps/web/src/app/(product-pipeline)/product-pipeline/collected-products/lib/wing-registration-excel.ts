@@ -96,8 +96,14 @@ export interface WingVariant {
 export interface WingProduct {
   /** 카테고리 셀 값: "[displayCategoryCode] 대>중>소" 형식 */
   categoryCell: string;
-  /** 등록상품명 */
+  /** 노출상품명 — 구매자에게 보이는 이름. 쿠팡 기준에 맞게 변경될 수 있다. 최대 100자. */
   productName: string;
+  /**
+   * 등록상품명(판매자관리용) — 노출상품명과 별개인 판매자 내부 관리용 이름. 최대 100자.
+   * 라이브 실측: 노출상품명 `선인장 딸깍 키링 1p 휴대용 열쇠고리...` 에 대해
+   * 등록상품명은 셀피아 원본명 `3000선인장딸깍키링` 이 들어간다.
+   */
+  sellerProductName?: string;
   /** 브랜드명 (없으면 '노브랜드' 등 카테고리 정책에 맞게) */
   brand: string;
   /** 제조사 */
@@ -109,7 +115,8 @@ export interface WingProduct {
   /** 추가이미지 URL 목록 */
   additionalImageUrls?: string[];
   /** 상세설명(상세페이지 이미지 URL) */
-  detailImageUrl?: string;
+  /** 상세설명 이미지들(순서 유지, 쿠팡 상한 9장). */
+  detailImageUrls?: string[];
   /** 상품고시정보 카테고리명 (예: "기타 재화") */
   noticeCategory: string;
   /** 상품고시정보값1~14 */
@@ -146,7 +153,12 @@ export interface WingCategoryPreset {
  *  - 필수 구매옵션: 색상, 수량(개)
  *  - 검색옵션(구성품·용량·캐릭터·물총발사 방식 등)은 전부 선택
  *  - 상품고시정보 카테고리 = "어린이제품"(실제 등록 상품 기준. 완구는 어린이제품 고시)
- *  - 브랜드=해피프랜즈, 제조사=kiditem (실제 등록 상품 기준)
+ *  - 브랜드=노브랜드, 제조사=해피프랜즈
+ *
+ * 브랜드/제조사는 라이브 실측(WING vendorInventoryId=16290876620, 판매중)으로 정정했다.
+ * 실제 등록 상품은 브랜드칸을 비우고 `브랜드없음(또는 자체제작)` 을 체크한 뒤
+ * **제조사에 `해피프랜즈`** 를 넣는다. 이전 값(브랜드=해피프랜즈, 제조사=kiditem)은
+ * 두 필드가 뒤바뀐 것이었고, 그 탓에 브랜드명이 카탈로그 검색창까지 흘러간 사고가 있었다.
  */
 export const WING_TOY_WATERGUN_PRESET: WingCategoryPreset = {
   categoryCell: '[77390] 완구/취미>스포츠/야외완구>물총',
@@ -162,8 +174,10 @@ export const WING_TOY_WATERGUN_PRESET: WingCategoryPreset = {
     '상세페이지 참조',
   ],
   requiredPurchaseOptionTypes: ['색상', '수량'],
-  defaultBrand: '해피프랜즈',
-  defaultMaker: 'kiditem',
+  // 엑셀 양식은 브랜드칸을 비울 수 없어 `노브랜드` 를 쓴다.
+  // (단일 등록 경로는 확장이 `브랜드없음(또는 자체제작)` 체크박스를 대신 누른다)
+  defaultBrand: '노브랜드',
+  defaultMaker: '해피프랜즈',
 };
 
 function emptyRow(): string[] {
@@ -211,7 +225,8 @@ export function buildProductRows(product: WingProduct): string[][] {
     if (product.additionalImageUrls?.length) {
       row[WING_COL.imgAddl] = product.additionalImageUrls.join(',');
     }
-    if (product.detailImageUrl) row[WING_COL.detail] = product.detailImageUrl;
+    // 엑셀 양식은 상세 이미지 1칸이라 첫 장만 넣는다(확장 직접등록은 전량 업로드).
+    if (product.detailImageUrls?.length) row[WING_COL.detail] = product.detailImageUrls[0];
 
     return row;
   });

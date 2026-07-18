@@ -129,6 +129,7 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   assert.match(worker, /collectSellpiaInventory:\s*true/);
   assert.match(worker, /collectSellpiaInventoryV2:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
+  assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
   assert.match(worker, /collectSellpiaProductProfit:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaProductStock/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
@@ -143,9 +144,9 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest publishes Rocket confirmation evidence at version 0.1.77', () => {
+test('order collector manifest publishes authoritative Sellpia sales evidence at version 0.1.78', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.77');
+  assert.equal(manifest.version, '0.1.78');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
 });

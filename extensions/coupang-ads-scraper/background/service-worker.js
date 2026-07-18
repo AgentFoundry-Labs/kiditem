@@ -6,6 +6,7 @@ importScripts(
   "collection-window.js",
   "collection-runs.js",
   "interactive-tabs.js",
+  "wing-image-fetch.js",
   "../utils/coupang-seller-detail.js",
   "../shared/coupang-catalog-collector.js?revision=2",
   "coupang-catalog-import.js",
@@ -116,6 +117,12 @@ const collectionRuns = KidItemCollectionRuns.create({
 });
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
 const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
+const wingImageFetch = KidItemWingImageFetch.create({
+  runtimeId: chrome.runtime.id,
+  fetchFn: fetch,
+  FileReaderCtor: FileReader,
+});
+chrome.runtime.onMessage.addListener(wingImageFetch.handleMessage);
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
@@ -264,6 +271,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  if (msg.action === "reportCollectionTargetProgress") {
+    const runId = typeof msg.runId === "string" ? msg.runId : null;
+    const progress = msg.progress;
+    if (!runId || !progress || typeof progress !== "object") {
+      sendResponse({ success: false, error: "invalid collection progress" });
+      return;
+    }
+    const incoming = KidItemCollectionWindow.normalizeProgress(progress);
+    if (!incoming) {
+      sendResponse({ success: false, error: "invalid collection progress" });
+      return;
+    }
+    collectionSessions
+      .get(runId)
+      .then((session) => {
+        if (!session) throw new Error("collection session not found");
+        if (["succeeded", "failed", "cancelled"].includes(session.status)) {
+          return { ignored: true };
+        }
+        const normalized = KidItemCollectionWindow.normalizeProgress(
+          incoming,
+          session.progress || {},
+        );
+        return collectionSessions
+          .progress(runId, normalized)
+          .then(() => ({ ignored: false }));
+      })
+      .then((result) => sendResponse({ success: true, ...result }))
+      .catch((error) =>
+        sendResponse({ success: false, error: error?.message || "progress update failed" }),
+      );
+    return true;
+  }
+
   if (msg.action === "syncToServer") {
     const payload = msg.payload || {};
     authedFetch(`/api/ads/extension/sync`, {
@@ -341,7 +382,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       producer,
       restartStrategy: "web",
     })
-      .then(({ runId: preparedRunId }) => {
+      .then(({ runId: preparedRunId, producer: preparedProducer }) => {
         sendResponse({
           success: true,
           started: true,
@@ -354,6 +395,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
             runId: preparedRunId,
             targets: urls,
             startedAt,
+            producer: preparedProducer,
           })
           .catch((error) => {
             chrome.storage.local.set({
@@ -727,13 +769,22 @@ async function registerToWingForm(message) {
       action: "fillWingForm",
       product,
     });
+    // 채움이 실패했으면 성공으로 보고하지 않는다. 예전에는 ok:true 로 덮어써서
+    // "폼은 열렸는데 아무것도 안 채워졌고 에러도 없는" 상태가 됐다.
+    if (!fill?.ok) {
+      return {
+        ok: false,
+        tabId: tab.id,
+        fill,
+        error: fill?.error || "WING 폼 자동 채우기에 실패했습니다. 열린 탭에서 직접 입력해 주세요.",
+      };
+    }
     return { ok: true, tabId: tab.id, fill };
   } catch (e) {
-    // content script 미준비여도 탭은 열렸으니 수동 입력 가능 → ok 로 보되 사유 전달
     return {
-      ok: true,
+      ok: false,
       tabId: tab.id,
-      fill: { ok: false, error: e?.message || "content script 미응답 (확장 리로드 필요)" },
+      error: `${e?.message || "content script 미응답"} — 확장을 리로드(chrome://extensions)한 뒤 다시 시도하세요.`,
     };
   }
 }
@@ -1615,7 +1666,9 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
         ? "cancelled"
         : attentionRequired
           ? "attention_required"
-          : "done",
+          : failed > 0
+            ? "error"
+            : "done",
       startedAt,
       heartbeatAt: Date.now(),
       endedAt: Date.now(),
@@ -1629,6 +1682,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   if (cancelled) {
     await collectionSessions.cancel(runId, { closeManagedTab: true });
   }
+  else if (!attentionRequired && failed > 0) await collectionSessions.fail(runId);
   else if (!attentionRequired) await collectionSessions.succeed(runId);
   if (await isWingSalesRankCancelled(runId)) {
     cancelled = true;
@@ -1636,7 +1690,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   }
   notifyDashboard();
   return {
-    success: !cancelled && !attentionRequired,
+    success: !cancelled && !attentionRequired && failed === 0,
     completed,
     failed,
     total,
@@ -4005,6 +4059,7 @@ async function handleScrapeTargets(
     runId: prepared.runId,
     targets: urls,
     startedAt,
+    producer: prepared.producer,
   });
 }
 

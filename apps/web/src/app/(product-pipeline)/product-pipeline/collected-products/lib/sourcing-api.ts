@@ -77,6 +77,12 @@ export interface ProductDetailResponse {
   updated_at: string;
 }
 
+export interface RegistrationImages {
+  primary: string[];
+  thumbnail: string[];
+  detail: string[];
+}
+
 export interface ProductBasics {
   name: string;
   category: string;
@@ -101,6 +107,13 @@ export interface ProductBasics {
   rocketUnitCost: number;
   thumbnailUrls: string[];
   thumbnailPreviewUrls?: string[];
+  /**
+   * Channel-registration images split by `ContentAsset.role`. Absent/empty when
+   * the candidate has no role-tagged assets. Never contains `role = 'source'`
+   * rows — those are raw scrape originals that fail the Coupang 1,000x1,000 spec.
+   */
+  /** role 별 등록 이미지. 구버전 응답·다른 화면의 로컬 초안에는 없을 수 있다. */
+  registrationImages?: RegistrationImages;
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationId: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
@@ -299,6 +312,15 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
   };
 }
 
+function normalizeRegistrationImages(value: unknown): RegistrationImages {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    primary: collectImageUrls(raw.primary),
+    thumbnail: collectImageUrls(raw.thumbnail),
+    detail: collectImageUrls(raw.detail),
+  };
+}
+
 function normalizeProductBasics(
   value: unknown,
   fallback: {
@@ -348,6 +370,7 @@ function normalizeProductBasics(
     rocketUnitCost: numberOrZero(basics.rocketUnitCost),
     thumbnailUrls,
     thumbnailPreviewUrls: explicitThumbnailUrls,
+    registrationImages: normalizeRegistrationImages(basics.registrationImages),
     selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,
     selectedThumbnailGenerationId:
       typeof basics.selectedThumbnailGenerationId === 'string'

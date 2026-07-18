@@ -4,8 +4,9 @@
 // 리버스한 순서대로 폼을 채운다. ⚠️ 제출(상품등록)은 절대 자동으로 누르지 않는다 — 사용자가 확인 후 직접.
 //
 // product 형태(WingProduct, wing-registration-flow.ts):
-//   { categoryCell:"[77390] 완구/취미>스포츠/야외완구>물총", productName, brand, maker,
-//     searchKeyword, searchOptions:[{type,value}], additionalImageUrls:[], detailImageUrl,
+//   { categoryCell:"[64687] 생활용품>생활소품>열쇠고리/키홀더", productName, sellerProductName,
+//     brand, maker,
+//     searchKeyword, searchOptions:[{type,value}], additionalImageUrls:[], detailImageUrls:[],
 //     noticeCategory, noticeValues:[], variants:[{ purchaseOptions:[{type,value}], salePrice, origPrice, stock, representativeImageUrl }] }
 
 (function () {
@@ -37,33 +38,611 @@
   const byPlaceholder = (ph) => document.querySelector(`input[placeholder="${ph}"], textarea[placeholder="${ph}"]`);
   const btnByText = (text, root = document) =>
     [...root.querySelectorAll('button')].find((b) => (b.textContent || '').trim() === text);
-  const elByExactText = (text) =>
-    [...document.querySelectorAll('li,div,span,button,a')].find(
-      (e) => (e.textContent || '').trim() === text,
+  /**
+   * 공백을 모두 제거하고 비교한다.
+   * 카테고리 제안은 `생활용품>생활소품>열쇠고리/키홀더` 로 보이지만 DOM 은 `>` 주변이나
+   * 중첩 요소 사이에 공백/개행을 넣는다. trim 만으로는 절대 일치하지 않아
+   * 제안이 화면에 떠 있는데도 클릭을 못 하는 문제가 있었다.
+   */
+  const normText = (s) => (s || '').replace(/\s+/g, '');
+  const elByExactText = (text) => {
+    const target = normText(text);
+    const matches = [...document.querySelectorAll('li,div,span,button,a')].filter(
+      (e) => normText(e.textContent) === target && e.offsetParent !== null,
     );
+    // 같은 텍스트를 감싸는 조상이 여럿 걸리므로 가장 안쪽(마지막) 요소를 클릭 대상으로 쓴다.
+    return matches[matches.length - 1] || null;
+  };
+
+  /**
+   * WING 의 '판매가 일괄입력' / '재고수량 일괄입력' 처리.
+   * 버튼을 누르면 number 인풋이 하나 새로 뜨고, 값을 넣고 '확인'을 누르면 전 옵션 행에 적용된다.
+   * 행별 입력칸을 직접 찾는 것보다 DOM 변화에 훨씬 덜 민감하다.
+   */
+  async function bulkFillByButton(buttonText, value) {
+    const trigger = btnByText(buttonText);
+    if (!trigger) return false;
+
+    const before = document.querySelectorAll('input[type="number"]').length;
+    trigger.click();
+
+    const input = await waitFor(
+      () => {
+        const nums = [...document.querySelectorAll('input[type="number"]')];
+        return nums.length > before ? nums[nums.length - 1] : null;
+      },
+      { timeout: 5000 },
+    );
+    if (!input) return false;
+
+    setReactValue(input, String(value));
+    await sleep(400);
+
+    // 일괄입력 다이얼로그의 적용 버튼은 '확인'이 아니라 **'저장'** 이다.
+    // ⚠️ 문서 전역에서 '확인'을 찾아 누르면 화면에 없는 별점 설문의 확인이 눌려
+    //    "별점을 선택해주세요" 모달이 뜨고 이후 작업이 전부 막힌다. 반드시 이 입력칸을
+    //    감싸는 다이얼로그 안에서 '저장'만 찾는다.
+    const save = btnWithinAncestors(input, '저장');
+    if (!save) return false;
+    save.click();
+    await sleep(900);
+    return true;
+  }
+
+  function blobToFile(blob, url) {
+    const mime = blob.type || 'image/jpeg';
+    const ext = (mime.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+    const base = (url.split('/').pop() || 'image').split('?')[0];
+    return new File([blob], /\.\w+$/.test(base) ? base : `${base}.${ext}`, { type: mime });
+  }
+
+  /**
+   * 이미지 bytes 를 File 로 받아온다.
+   *
+   * 라이브 확인: wing.coupang.com 에서 로컬 MinIO(localhost:9000) 로의 fetch 가 **직접 성공**한다.
+   * 그래서 직접 받는 것을 1순위로 두고, 실패할 때만 background 중계로 넘어간다.
+   * (예전에는 background 중계 → data URL → fetch(dataUrl) 3단계를 거쳤는데,
+   *  마지막 단계가 페이지 CSP 에 막혀 이미지가 조용히 실패했다.)
+   */
+  async function fetchImageFile(url) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return blobToFile(await res.blob(), url);
+    } catch (_) {
+      /* 아래 background 중계로 폴백 */
+    }
+
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: 'fetchImageAsDataUrl', url }, (res) => {
+        if (chrome.runtime.lastError || !res?.ok || !res.dataUrl) return resolve(null);
+        try {
+          const [head, b64] = String(res.dataUrl).split(',');
+          const mime = (head.match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+          const bin = atob(b64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+          resolve(blobToFile(new Blob([bytes], { type: mime }), url));
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  /**
+   * ★ 쿠팡 이미지 업로더는 React 가 아니라 **Dropzone.js**(Vue 래퍼)다.
+   *
+   * 라이브 확인한 DOM:
+   *   <div id="image-uploader-492" class="customdropzone dz-clickable">
+   *     <div class="dz-message"><div class="dropzone-custom-content">…
+   *
+   * Dropzone 은 `clickable` 모드에서 **hiddenFileInput 을 `document.body` 직속 자식으로**
+   * 만들어 둔다. 라이브 확인: `image/` accept 를 가진 file input 두 개의 부모가 전부 `BODY`.
+   * 즉 **파일 input 은 드롭존의 자손이 아니다.** 그래서
+   *   - input 조상을 타고 올라가 드롭존을 찾는 방식은 **원리적으로 실패**하고
+   *   - `input.files = dt.files` + `change` 도 Dropzone 이 듣지 않아 무시된다
+   *     (Dropzone 은 자기 input 의 change 만 자기 핸들러로 듣는데, 우리가 만든 이벤트는
+   *      files 를 이미 세팅한 뒤라 내부 큐(`addFile`)를 타지 않는다).
+   *
+   * 결론: **드롭존 엘리먼트에 직접 drop 을 쏴야 한다.** 문서 순서 = 대표(0) / 추가(1).
+   */
+  const DROP_ZONE_SELECTOR = '.customdropzone, .dropzone';
+
+  function visibleDropZones() {
+    return [...document.querySelectorAll(DROP_ZONE_SELECTOR)].filter((z) => z.offsetParent !== null);
+  }
+
+  /** '추가이미지 (n/9)' 카운터의 n. 없으면 null. */
+  function readExtraImageCounter() {
+    const m = (document.body.innerText || '').match(/추가\s*이미지[^(]{0,20}\((\d+)\s*\/\s*(\d+)\)/);
+    return m ? Number(m[1]) : null;
+  }
+
+  /**
+   * 성공 판정 스코프. 드롭존이 속한 `.element-row`(대표이미지 / 추가이미지 한 덩어리)로 좁힌다.
+   * body 전체를 보면 숨은 모달의 img 80여 개가 섞여 판정이 무뎌진다.
+   */
+  function uploadScope(zone, input) {
+    if (zone) return zone.closest('.element-row') || zone.parentElement || zone;
+    return input?.parentElement || document.body;
+  }
+
+  /**
+   * 업로드 성공 판정용 스냅샷.
+   * ⚠️ Dropzone 은 미리보기를 blob:/data: 로 만들지 않는다 — 드롭 즉시 쿠팡 CDN 으로
+   *    업로드하고 `//image.coupangcdn.com/image/vendor_inventory/…` 를 src 로 넣는다.
+   *    (라이브 확인) 따라서 blob: 만 세면 대표이미지는 영영 실패로 잡힌다.
+   *    **src 가 비어 있지 않은 img 의 수**를 센다.
+   * 아이콘 img 도 같이 세지지만 전/후 차이로만 판단하므로 문제되지 않는다.
+   */
+  function uploadSnapshot(scope) {
+    const imgs = scope ? [...scope.querySelectorAll('img')] : [];
+    return {
+      counter: readExtraImageCounter(),
+      imgs: imgs.length,
+      loaded: imgs.filter((im) => (im.getAttribute('src') || '').trim() !== '').length,
+      ready: imgs.filter(
+        (im) =>
+          (im.getAttribute('src') || '').trim() !== '' &&
+          im.complete &&
+          Number(im.naturalWidth) > 0,
+      ).length,
+    };
+  }
+
+  /** 스냅샷이 "업로드가 실제로 반영됐다"고 볼 만큼 변했는가. */
+  function uploadAccepted(before, after) {
+    if (before.counter !== null && after.counter !== null && after.counter > before.counter) return true;
+    if (after.loaded > before.loaded) return true;
+    return after.imgs > before.imgs;
+  }
+
+  /** 드롭은 쿠팡 CDN 업로드를 동반하므로 장당 넉넉히 기다린다. */
+  async function waitForUploadAccepted(scope, before, timeout) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      await sleep(400);
+      if (uploadAccepted(before, uploadSnapshot(scope))) return true;
+    }
+    return false;
+  }
+
+  function makeDataTransfer(files) {
+    const dt = new DataTransfer();
+    for (const file of files) dt.items.add(file);
+    return dt;
+  }
+
+  /**
+   * dragenter → dragover → drop 을 **같은 DataTransfer** 로 디스패치한다.
+   * Dropzone 은 drop 핸들러에서 `e.dataTransfer.files` 를 읽으므로 이 셋이면 충분하다.
+   * DragEvent 생성자가 dataTransfer 를 못 받는 환경에서는 Event 에 직접 붙인다.
+   */
+  function dispatchDropSequence(zone, files) {
+    const dt = makeDataTransfer(files);
+    for (const type of ['dragenter', 'dragover', 'drop']) {
+      let ev;
+      try {
+        ev = new DragEvent(type, { bubbles: true, cancelable: true, composed: true, dataTransfer: dt });
+      } catch (_) {
+        ev = new Event(type, { bubbles: true, cancelable: true });
+      }
+      if (!ev.dataTransfer) {
+        try {
+          Object.defineProperty(ev, 'dataTransfer', { value: dt });
+        } catch (_) {}
+      }
+      zone.dispatchEvent(ev);
+    }
+  }
+
+  /**
+   * 이미지 파일들을 n 번째 업로더에 넣는다(0=대표, 1=추가).
+   *
+   * 1순위: 드롭존 드래그앤드롭 — 라이브에서 유일하게 동작하는 경로.
+   * 2순위: 예전 `input.files` + `change` 폴백. 현재 WING 에서는 안 먹지만
+   *        업로더가 교체될 경우를 대비해 남긴다.
+   * 성공/실패는 카운터·미리보기 변화로 판정해 steps 로그에 남긴다.
+   *
+   * ⚠️ 인덱스가 안 맞으면 **차라리 실패시킨다.** 대표이미지를 추가이미지 칸에 넣는 것은
+   *    조용한 오등록이라 실패보다 나쁘다. 다른 인덱스 드롭존으로 재시도하지 않는다.
+   */
+  async function uploadImagesToInput(inputIndex, urls, log = () => {}) {
+    const tag = inputIndex === 0 ? 'rep' : 'extra';
+
+    const zone = visibleDropZones()[inputIndex] || null;
+    const target =
+      [...document.querySelectorAll('input[type="file"]')].filter((el) => /image\//.test(el.accept || ''))[
+        inputIndex
+      ] || null;
+    if (!zone && !target) {
+      log(`image:${tag}:noTarget`);
+      return false;
+    }
+
+    const files = (await Promise.all(urls.slice(0, 10).map(fetchImageFile))).filter(Boolean);
+    if (files.length === 0) {
+      log(`image:${tag}:fetchFailed`);
+      return false;
+    }
+    // 대표이미지는 1장만 받는다. multiple 은 추가이미지(최대 9장).
+    const payload = inputIndex === 0 ? files.slice(0, 1) : files.slice(0, 9);
+
+    const scope = uploadScope(zone, target);
+    const before = uploadSnapshot(scope);
+    const timeout = 8000 + 4000 * payload.length;
+
+    // 1) 드롭존 드래그앤드롭
+    if (zone) {
+      dispatchDropSequence(zone, payload);
+      if (await waitForUploadAccepted(scope, before, timeout)) {
+        log(`image:${tag}:drop:${payload.length}`);
+        return true;
+      }
+      log(`image:${tag}:dropRejected`);
+    } else {
+      log(`image:${tag}:noDropZone`);
+    }
+
+    // 2) 폴백: DataTransfer + change
+    if (target) {
+      target.files = makeDataTransfer(payload).files;
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+      if (await waitForUploadAccepted(scope, before, timeout)) {
+        log(`image:${tag}:change:${payload.length}`);
+        return true;
+      }
+    }
+
+    log(`image:${tag}:notAccepted`);
+    return false;
+  }
+
+  /**
+   * WING HTML 상세설명이 참조할 수 있는 쿠팡 vendor_inventory CDN URL 만 허용한다.
+   * 로컬 MinIO URL 을 HTML 에 직접 넣으면 판매 페이지의 구매자 브라우저에서는 열리지 않는다.
+   */
+  function normalizeVendorInventoryCdnUrl(value) {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    try {
+      const raw = value.trim().startsWith('//') ? `https:${value.trim()}` : value.trim();
+      const url = new URL(raw, window.location.href);
+      if (!/^image\d*\.coupangcdn\.com$/i.test(url.hostname)) return null;
+      if (!url.pathname.startsWith('/image/vendor_inventory/')) return null;
+      if (!/^https?:$/.test(url.protocol)) return null;
+      if (url.port || url.username || url.password) return null;
+      url.protocol = 'https:';
+      url.hash = '';
+      return url.href;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function buildDetailHtml(cdnUrl) {
+    return `<center> <img src="${cdnUrl}"> </center>`;
+  }
+
+  function isVisible(el) {
+    if (!el || el.isConnected === false) return false;
+    if (typeof el.getClientRects === 'function' && el.getClientRects().length > 0) return true;
+    return el.offsetParent !== null;
+  }
+
+  /**
+   * uploadV2 응답 message 의 허용 형태: `vendor_inventory/...` 단일 상대 경로.
+   * URL, 배열, traversal, query/hash, 공백·역슬래시가 섞인 값은 모두 거부한다.
+   */
+  function normalizeVendorInventoryPath(value) {
+    if (typeof value !== 'string') return null;
+    if (value !== value.trim()) return null;
+    const path = value;
+    if (!path || path.length > 2048) return null;
+    if (!path.startsWith('vendor_inventory/')) return null;
+    if (!/^[A-Za-z0-9._/-]+$/.test(path)) return null;
+    if (path.includes('\\') || path.includes('?') || path.includes('#')) return null;
+    const segments = path.split('/');
+    if (segments.some((segment) => !segment || segment === '.' || segment === '..')) return null;
+    return path;
+  }
+
+  /**
+   * 긴 이미지를 WING 의 단일 파일 업로드 API 로 보내 CDN URL 한 개를 얻는다.
+   * 상세 이미지 모달(auto-split-image)은 15,760px 이미지를 여러 장으로 쪼개므로 쓰지 않는다.
+   * 이 호출은 CDN staging 만 수행하며 상품등록/임시저장은 절대 누르지 않는다.
+   */
+  async function uploadDetailImageToCoupang(sourceUrl, log) {
+    const file = await fetchImageFile(sourceUrl);
+    if (!file) {
+      log('detailFetchFailed');
+      return null;
+    }
+
+    const form = new FormData();
+    form.append('multipartFile', file, file.name);
+    let response;
+    try {
+      response = await fetch('/tenants/seller-web/file/resize/uploadV2', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: form,
+      });
+    } catch (_) {
+      log('detailCdnUploadNetworkFailed');
+      return null;
+    }
+
+    if (!response.ok) {
+      log(`detailCdnUploadHttp:${response.status}`);
+      return null;
+    }
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (_) {
+      log('detailCdnUploadInvalidJson');
+      return null;
+    }
+
+    if (!payload || payload.success !== true) {
+      log('detailCdnUploadRejected');
+      return null;
+    }
+    const path = normalizeVendorInventoryPath(payload.message);
+    if (!path) {
+      log('detailCdnUploadInvalidPath');
+      return null;
+    }
+    return normalizeVendorInventoryCdnUrl(
+      `https://image.coupangcdn.com/image/${path}`,
+    );
+  }
+
+  function findDetailDescriptionSection() {
+    const faq = document.querySelector('a[data-faq-id="264"]');
+    const byFaq = faq?.closest?.('.form-section');
+    if (byFaq) return byFaq;
+
+    const title = [...document.querySelectorAll('h2,h3,strong,span,div')].find(
+      (element) =>
+        (element.textContent || '').trim() === '상세설명' &&
+        element.children.length === 0,
+    );
+    return title?.closest?.('.form-section') || null;
+  }
+
+  function isControlDisabled(control) {
+    if (!control) return true;
+    const className = typeof control.className === 'string' ? control.className : '';
+    return Boolean(
+      control.disabled ||
+      control.hasAttribute?.('disabled') ||
+      control.getAttribute?.('aria-disabled') === 'true' ||
+      /(?:^|\s)disabled(?:\s|$)/.test(className),
+    );
+  }
+
+  /**
+   * staging 업로드에서 얻은 쿠팡 CDN URL 한 개를 최종 HTML 상세설명으로 저장한다.
+   * 상품등록/임시저장 버튼은 누르지 않는다.
+   */
+  async function applyDetailHtml(cdnUrl, log) {
+    const normalized = normalizeVendorInventoryCdnUrl(cdnUrl);
+    if (!normalized) {
+      log('detailHtmlInvalidCdn');
+      return false;
+    }
+
+    const section = findDetailDescriptionSection();
+    const htmlTab = section?.querySelector('#tab-content-2');
+    const htmlTabLabel = section?.querySelector('#tab-content-2 + label');
+    if (!section || !htmlTab || !htmlTabLabel) {
+      log('detailHtmlNoPanel');
+      return false;
+    }
+
+    htmlTabLabel.click();
+    const textarea = await waitFor(() => {
+      const candidate = section.querySelector('.html-area-content textarea');
+      return htmlTab.checked && candidate && isVisible(candidate) ? candidate : null;
+    }, { timeout: 5000 });
+    if (!textarea) {
+      log('detailHtmlNoTextarea');
+      return false;
+    }
+
+    const html = buildDetailHtml(normalized);
+    setReactValue(textarea, html);
+    textarea.dispatchEvent(new Event('blur', { bubbles: true }));
+
+    // #panel-contents 는 section 의 조상이다. section 내부에서는 로컬 클래스만 사용한다.
+    const save = section.querySelector('a.applyHtml');
+    if (!save) {
+      log('detailHtmlNoSave');
+      return false;
+    }
+    const enabledSave = await waitFor(
+      () => (!isControlDisabled(save) ? save : null),
+      { timeout: 5000 },
+    );
+    if (!enabledSave) {
+      log('detailHtmlSaveDisabled');
+      return false;
+    }
+    enabledSave.click();
+
+    // 라이브 WING 은 저장 중 applyHtml 을 활성화하고 revision 반영이 끝나면 다시 disabled 로
+    // 되돌린다. 그 복귀 신호와 textarea 의 exact HTML/CDN URL 을 함께 검증한다.
+    const applied = await waitFor(
+      () =>
+        htmlTab.checked &&
+        textarea.value === html &&
+        textarea.value.includes(normalized) &&
+        isControlDisabled(save),
+      { timeout: 10000 },
+    );
+    if (!applied) {
+      log('detailHtmlNotApplied');
+      return false;
+    }
+    log('detailHtml:1');
+    return true;
+  }
+
+  /**
+   * 특정 요소를 감싸는 조상들을 타고 올라가며 그 안에서만 버튼을 찾는다.
+   * 문서 전체 검색(btnByText)은 같은 라벨의 다른 버튼을 집을 위험이 있다.
+   */
+  function btnWithinAncestors(el, text, maxDepth = 8) {
+    let node = el?.parentElement || null;
+    for (let i = 0; i < maxDepth && node; i += 1) {
+      const found = btnByText(text, node);
+      if (found) return found;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  /**
+   * 일괄입력 다이얼로그의 '확인'을 고른다.
+   *
+   * 페이지에는 '확인' 버튼이 둘이다:
+   *   - 별점 설문의 '확인'  → 누르면 "별점을 선택해주세요" 모달이 떠서 이후가 전부 막힌다
+   *   - 일괄입력 다이얼로그의 '확인' → 같은 컨테이너에 '취소'가 함께 있다
+   * 다이얼로그는 포털로 렌더돼 입력칸의 조상 체인에 없을 수 있으므로,
+   * "취소와 짝을 이루는 확인"이라는 구조로 식별한다.
+   */
+  function findDialogConfirm() {
+    const confirms = [...document.querySelectorAll('button')].filter(
+      (b) => (b.textContent || '').trim() === '확인' && b.offsetParent !== null,
+    );
+    for (const btn of confirms) {
+      let node = btn.parentElement;
+      for (let i = 0; i < 4 && node; i += 1) {
+        if (btnByText('취소', node)) return btn;
+        node = node.parentElement;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * WING 이 띄우는 방해 모달을 닫는다.
+   * '별점을 선택해주세요' 는 페이지 만족도 설문(폼 하단 '페이지 별점을 주세요!')에서 뜬다.
+   * 등록과 무관하지만 오버레이가 클릭을 가로막아 이후 단계가 전부 실패한다.
+   */
+  // 등록과 무관하게 뜨는 안내 모달들. 오버레이가 클릭을 막아 이후 단계가 전부 실패한다.
+  //  - '별점을 선택해주세요.'            : 페이지 만족도 설문
+  //  - '선택한 옵션이 없습니다...'        : 상품명 입력 시 도는 쿠팡 자동 카탈로그 매칭 안내
+  const KNOWN_MODAL_TEXTS = [
+    '별점을선택해주세요.',
+    '선택한옵션이없습니다.옵션을선택해주세요!',
+    '최대9개까지업로드할수있습니다.',
+  ];
+
+  function dismissBlockingModal() {
+    // 텍스트를 "포함"하는 요소로 찾으면 body 같은 거대 컨테이너까지 걸려,
+    // 조상을 타고 올라가다 엉뚱한 '확인'(예: 별점 설문)을 눌러 모달을 오히려 띄운다.
+    // 반드시 그 문구만 담은 말단 요소로 한정한다.
+    const hit = [...document.querySelectorAll('div,p,span,h2,h3')].find((e) => {
+      const t = (e.textContent || '').replace(/\s+/g, '');
+      return KNOWN_MODAL_TEXTS.includes(t) && e.offsetParent !== null;
+    });
+    if (!hit) return false;
+
+    // 모달 컨테이너(가까운 조상 3단계) 안의 '확인'만 누른다. 못 찾으면 아무것도 안 한다.
+    let node = hit.parentElement;
+    for (let i = 0; i < 3 && node; i += 1) {
+      const confirm = btnByText('확인', node);
+      if (confirm) {
+        confirm.click();
+        return true;
+      }
+      node = node.parentElement;
+    }
+    return false;
+  }
+
+  /**
+   * 채우는 동안 별점 모달이 다시 떠도 계속 걷어낸다.
+   * 고정 시점 호출만으로는 중간에 뜬 모달을 놓쳐 이후 단계가 전부 막혔다.
+   */
+  function startModalWatchdog() {
+    const timer = setInterval(dismissBlockingModal, 700);
+    return () => clearInterval(timer);
+  }
+
+  /**
+   * 옵션 값 한 개를 해당 입력칸에 넣고 그 행의 '추가' 버튼을 누른다.
+   * 색상/수량이 각자 다른 행이므로 입력칸 기준으로 같은 행의 버튼을 찾아야 한다.
+   */
+  async function addOptionValue(placeholder, value) {
+    const input = byPlaceholder(placeholder);
+    if (!input) return false;
+    setReactValue(input, value);
+    await sleep(300);
+
+    let el = input.closest('div');
+    let addBtn = null;
+    for (let i = 0; i < 6 && el && !addBtn; i++) {
+      addBtn = btnByText('추가', el);
+      el = el.parentElement;
+    }
+    if (!addBtn) return false;
+    addBtn.click();
+    await sleep(800);
+    return true;
+  }
 
   async function fillWingForm(product) {
     const steps = [];
     const log = (s) => steps.push(s);
+    let detailUploadError = null;
+
+    // formV2 는 React 앱이라 탭 로드 완료 후에도 폼이 한참 뒤에 그려진다.
+    // 고정 대기(background 의 2.5초)로는 부족해 예전엔 모든 셀렉터가 null 이 되어
+    // "아무것도 안 채워졌는데 에러도 없는" 상태가 됐다. 실제 요소가 나타날 때까지 기다린다.
+    const ready = await waitFor(() => byPlaceholder('카테고리명 입력'), { timeout: 60000 });
+    if (!ready) {
+      return { ok: false, error: 'WING 상품등록 폼이 준비되지 않았습니다(60초 대기 초과).', steps };
+    }
+    log('formReady');
 
     // 1) 판매방식: 판매자배송(기본 체크). 로켓그로스 건드리지 않음.
     //    (formV2 는 판매자배송이 기본 체크되어 있어 별도 조작 불필요)
 
-    // 2) 브랜드 없음(또는 자체제작)
+    // 2) 브랜드: 항상 '브랜드 없음(또는 자체제작)' 을 체크한다.
+    //    브랜드명을 입력하려 했다가 셀렉터가 '카탈로그 매칭하기' 검색창을 잡아
+    //    거기에 브랜드명이 들어가는 사고가 있었다. 자체제작이므로 체크가 정답이다.
     const selfMade = document.querySelector('input[name="selfMade"]');
     if (selfMade && !selfMade.checked) {
       selfMade.click();
       log('brandNone');
     }
 
-    // 3) 노출상품명
-    const nameInput =
-      document.querySelector('input[name="InputWithCounter_2"]') ||
-      byPlaceholder('상품 모델(해당 시) + 상품 유형 + 핵심 특징');
-    if (nameInput && product.productName) {
-      setReactValue(nameInput, product.productName);
-      log('name');
+    // 2-1) 등록상품명(판매자관리용): 노출상품명과 별개의 판매자 내부 관리용 이름이다.
+    //      기본은 접혀 있어서 `#feature-switch-ProductName` 을 눌러야 입력칸이 렌더된다.
+    //      (라이브 실측: 판매중 상품에 `3000선인장딸깍키링` 처럼 셀피아 상품명이 들어가 있다)
+    if (product.sellerProductName) {
+      const toggle = document.querySelector('#feature-switch-ProductName span.cursor-pointer');
+      if (toggle) {
+        toggle.click();
+        const sellerNameInput = await waitFor(
+          () => document.querySelector('input[name="InputWithCounter_3"]'),
+          { timeout: 5000 },
+        );
+        if (sellerNameInput) {
+          setReactValue(sellerNameInput, String(product.sellerProductName).slice(0, 100));
+          log('sellerProductName');
+        } else {
+          log('sellerProductNameNoInput');
+        }
+      } else {
+        log('sellerProductNameNoToggle');
+      }
     }
+
 
     // 4) 카테고리: "[코드] 대>중>소" → leaf 로 검색해 전체 경로 제안 클릭
     const pathText = String(product.categoryCell || '').replace(/^\[\d+\]\s*/, '').trim();
@@ -84,72 +663,104 @@
       await sleep(800);
     }
 
-    // 5) 옵션: 첫 variant 의 구매옵션(색상·수량) 값 입력 + 추가
+    // 4-1) 제조사: 카테고리를 고르기 전에는 렌더되지 않으므로 반드시 이 순서여야 한다.
+    //      브랜드는 '브랜드 없음' 체크로 비우지만 제조사는 별개 필드다.
+    //      (라이브 실측: 브랜드=브랜드없음 체크, 제조사=`해피프랜즈`. 과거에 이 값을
+    //       브랜드로 오해해 카탈로그 검색창에 넣은 사고가 있었다 — 제조사가 제자리다)
+    if (product.maker) {
+      const makerInput = byPlaceholder('제조사를 알 수 없는 경우 브랜드명을 입력해주세요.');
+      if (makerInput) {
+        setReactValue(makerInput, String(product.maker));
+        log('maker');
+      } else {
+        log('makerNoInput');
+      }
+    }
+
+    // 5) 옵션: 색상과 수량은 **서로 다른 입력칸**이다.
+    //    색상 = placeholder '옵션값 입력' (텍스트)
+    //    수량 = placeholder '숫자만 입력' (숫자 + '개' 단위 셀렉트)
+    //    예전에는 둘 다 '옵션값 입력' 에 넣어 수량이 색상칸으로 들어갔다.
     const variant = (product.variants || [])[0];
     if (variant && Array.isArray(variant.purchaseOptions)) {
       for (const opt of variant.purchaseOptions) {
-        // 현재 열려있는 옵션값 입력(마지막 것) 사용
-        const optInputs = [...document.querySelectorAll('input[placeholder="옵션값 입력"]')];
-        const target = optInputs[optInputs.length - 1];
-        if (!target) break;
-        setReactValue(target, String(opt.value));
-        await sleep(200);
-        // 같은 행의 '추가' 버튼
-        let el = target.closest('div');
-        let addBtn = null;
-        for (let i = 0; i < 5 && el && !addBtn; i++) {
-          addBtn = btnByText('추가', el);
-          el = el.parentElement;
-        }
-        if (addBtn) {
-          addBtn.click();
-          log('option:' + opt.type + '=' + opt.value);
-          await sleep(600);
+        const isQuantity = String(opt.type || '').includes('수량');
+        const placeholder = isQuantity ? '숫자만 입력' : '옵션값 입력';
+        // 수량은 숫자만 받는다. '1개' 같은 값이 와도 숫자만 남긴다.
+        const value = isQuantity
+          ? String(opt.value || '').replace(/[^\d]/g, '') || '1'
+          : String(opt.value || '');
+        if (await addOptionValue(placeholder, value)) {
+          log('option:' + opt.type + '=' + value);
+        } else {
+          log('optionFailed:' + opt.type);
         }
       }
     }
 
-    // 6) 이미지: "이미지 URL주소로 등록" — 대표+추가 이미지 URL
-    const imageUrls = [
-      variant && variant.representativeImageUrl,
-      ...(product.additionalImageUrls || []),
-    ].filter(Boolean);
-    const imageUrlBtn = btnByText('이미지 URL주소로 등록');
-    if (imageUrlBtn && imageUrls.length) {
-      imageUrlBtn.click();
-      await sleep(600);
-      // 열린 URL 입력 영역에 주소들 입력 (모달/인풋 구조는 라이브에서 확정 필요)
-      const urlBox =
-        byPlaceholder('이미지 URL을 입력하세요.') ||
-        document.querySelector('textarea, input[type="text"][placeholder*="URL"]');
-      if (urlBox) {
-        setReactValue(urlBox, imageUrls.join('\n'));
-        log('imageUrls:' + imageUrls.length);
-        const confirm = btnByText('등록') || btnByText('확인') || btnByText('적용');
-        if (confirm) confirm.click();
+    // 5-1) 판매가·재고수량: 옵션 행마다 채우지 않고 WING 의 '일괄입력' 버튼을 쓴다.
+    //      둘 다 등록 필수값인데 기존에는 아예 입력하지 않아 등록이 반려됐다.
+    if (variant) {
+      if (Number(variant.salePrice) > 0 && (await bulkFillByButton('판매가 일괄입력', variant.salePrice))) {
+        log('salePrice:' + variant.salePrice);
       }
-      await sleep(600);
+      if (Number(variant.stock) > 0 && (await bulkFillByButton('재고수량 일괄입력', variant.stock))) {
+        log('stock:' + variant.stock);
+      }
     }
 
-    // 7) 상세설명: "텍스트(HTML) 추가" — detailImageUrl(또는 상세 HTML)
-    //    현재는 상세페이지 이미지 URL 을 <img> 로 감싸 삽입 시도.
-    if (product.detailImageUrl) {
-      const htmlBtn = btnByText('텍스트(HTML) 추가');
-      if (htmlBtn) {
-        htmlBtn.click();
-        await sleep(600);
-        const htmlBox = document.querySelector('textarea');
-        if (htmlBox) {
-          setReactValue(htmlBox, `<img src="${product.detailImageUrl}" style="max-width:100%" />`);
-          log('detailHtml');
-          const apply = btnByText('등록') || btnByText('적용') || btnByText('확인');
-          if (apply) apply.click();
-        }
+    // 6) 이미지: 파일로 직접 업로드한다.
+    //    자체 제작 썸네일·상세페이지는 로컬 MinIO(localhost:9000)에 있어 쿠팡이 URL 로
+    //    가져갈 수 없다. 그래서 URL 방식이 아니라 bytes 를 받아 file input 에 넣는다.
+    const repUrl = variant && variant.representativeImageUrl;
+    const extraUrls = (product.additionalImageUrls || []).filter(Boolean);
+    //    업로드 성공/실패는 uploadImagesToInput 이 카운터·미리보기 변화로 판정해 직접 로그를 남긴다.
+    if (repUrl) await uploadImagesToInput(0, [repUrl], log);
+    if (extraUrls.length) await uploadImagesToInput(1, extraUrls, log);
+
+    // 7) 상세설명: 긴 이미지 bytes 를 WING 단일 파일 API(uploadV2)에 staging 업로드해
+    //    쿠팡 CDN URL 한 개를 얻은 뒤, 최종값은 반드시 HTML 작성 탭에 centered <img> 로 저장한다.
+    //    MinIO(localhost) URL 을 HTML 에 직접 넣거나 이미지 등록 타입으로 끝내지 않는다.
+    const detailUrls = (product.detailImageUrls || []).filter(Boolean);
+    if (detailUrls.length > 1) {
+      log(`detailSourceMultiple:${detailUrls.length}`);
+      detailUploadError =
+        '상세설명 원본은 긴 이미지 한 장이어야 합니다. 여러 이미지가 전달되어 HTML 적용을 중단했습니다.';
+    } else if (detailUrls.length === 1) {
+      const cdnUrl = await uploadDetailImageToCoupang(detailUrls[0], log);
+      const ok = cdnUrl ? await applyDetailHtml(cdnUrl, log) : false;
+      if (!ok) {
+        log('detailHtmlFailed');
+        detailUploadError =
+          '상세설명을 쿠팡 CDN 이미지 기반 HTML로 적용하지 못했습니다. 열린 WING 탭에서 HTML 작성을 확인해 주세요.';
       }
+    }
+
+    // 3') 노출상품명 — **맨 마지막에** 넣는다.
+    //    상품명을 입력하면 쿠팡이 '카탈로그 매칭' 자동검색을 돌려 결과 카드들을 렌더한다.
+    //    그 상태에서 카테고리/옵션 단계를 진행하면 검색결과 영역의 요소를 잘못 집어
+    //    "선택한 옵션이 없습니다"·"별점을 선택해주세요" 모달이 떴다.
+    const nameInput =
+      document.querySelector('input[name="InputWithCounter_2"]') ||
+      byPlaceholder('상품 모델(해당 시) + 상품 유형 + 핵심 특징');
+    if (nameInput && product.productName) {
+      setReactValue(nameInput, product.productName);
+      log('name');
+      // 상품명 입력은 쿠팡 자동 카탈로그 매칭을 돌린다. 그 결과 안내 모달이 뜨면 닫는다.
+      await sleep(2500);
+      if (dismissBlockingModal()) log('dismissedCatalogModal');
+      await sleep(600);
+      if (dismissBlockingModal()) log('dismissedModal2');
     }
 
     // 8) 상품정보제공고시 / 배송 / 반품 — 기본값 존재. 고시 값은 라이브에서 필드별 매핑 필요.
     //    ⚠️ 상품등록/임시저장 버튼은 누르지 않는다.
+
+    // 상세페이지가 요청됐는데 최종 HTML 타입으로 적용되지 않았다면 전체 성공으로 보고하지 않는다.
+    // 폼은 열린 채로 남겨 사용자가 보정할 수 있고, 웹에는 실패 이유와 steps 가 전달된다.
+    if (detailUploadError) {
+      return { ok: false, error: detailUploadError, steps };
+    }
 
     return { ok: true, steps };
   }

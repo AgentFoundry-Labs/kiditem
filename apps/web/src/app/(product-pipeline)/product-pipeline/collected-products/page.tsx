@@ -179,7 +179,7 @@ export default function SourcingPage() {
       const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       downloadWingExcel(bytes, `쿠팡WING_일괄등록_${stamp}.xlsx`);
       toast.success(`${productCount}개 상품의 쿠팡 WING 일괄등록 엑셀을 만들었어요`, {
-        description: '완구(물총) 카테고리 기준 · WING > 상품 일괄등록에 업로드하세요',
+        description: '카테고리 자동 제안 · 상세페이지는 포함되지 않으므로 WING에서 추가하세요.',
       });
       return true;
     } catch (err) {
@@ -207,7 +207,7 @@ export default function SourcingPage() {
         description:
           ids.length > 1
             ? '단일 직접 등록은 1개씩 진행됩니다 (첫 상품). 열린 WING 탭에서 확인 후 등록하세요.'
-            : '완구(물총) 카테고리 기준 · 열린 WING 탭에서 확인 후 등록하세요.',
+            : '자동 제안된 카테고리와 입력값을 열린 WING 탭에서 확인 후 등록하세요.',
       });
       setQuickProcessModalOpen(false);
       setQuickProcessTargetIds([]);
@@ -322,7 +322,7 @@ export default function SourcingPage() {
               ) : (
                 <Store size={15} />
               )}
-              쿠팡 WING 등록 (엑셀)
+              쿠팡 WING 엑셀 (상세 제외)
             </button>
           </div>
         )}
@@ -492,7 +492,7 @@ function QuickProcessSelectedDialog({
             쿠팡 WING 상품 등록
           </button>
           <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
-            완구(물총) 카테고리 · WING 상품등록 페이지를 열어 직접 입력
+            카테고리 자동 제안 · WING 상품등록 페이지를 열어 직접 입력
           </p>
         </div>
 
