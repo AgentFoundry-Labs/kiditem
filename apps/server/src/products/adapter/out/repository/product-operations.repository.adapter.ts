@@ -291,7 +291,7 @@ implements ProductOperationsRepositoryPort {
               organizationId: input.organizationId,
               productVariantId: recipe.productVariantId,
               sellpiaInventorySkuId: recipe.sellpiaInventorySkuId,
-              quantity: 1,
+              quantity: recipe.quantity,
               source: 'deterministic',
               confirmedBy: null,
               confirmedAt,

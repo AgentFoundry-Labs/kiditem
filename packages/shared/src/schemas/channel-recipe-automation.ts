@@ -15,6 +15,9 @@ export const ChannelRecipeAutomationReasonSchema = z.enum([
   'exact_unique_code',
   'unique_physical_barcode',
   'exact_unique_name_option',
+  'exact_unique_name',
+  'high_confidence_name',
+  'identifier_name_mismatch',
   'quantity_review',
   'conflict',
   'ambiguous',
@@ -39,12 +42,12 @@ export const ChannelRecipeAutomationItemSchema = z.object({
 }).strict().superRefine((item, ctx) => {
   if (
     item.decision === 'auto_apply'
-    && (!item.sellpiaInventorySkuId || item.recommendedQuantity !== 1)
+    && (!item.sellpiaInventorySkuId || item.recommendedQuantity === null)
   ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['recommendedQuantity'],
-      message: 'auto_apply requires one Sellpia SKU with quantity 1',
+      message: 'auto_apply requires one Sellpia SKU with a positive quantity',
     });
   }
 });
@@ -68,17 +71,6 @@ export const ChannelRecipeAutomationProductGroupSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['autoApplyProductVariantIds'],
       message: 'auto_apply requires at least one automatic variant',
-    });
-  }
-
-  if (
-    group.decision !== 'auto_apply'
-    && group.autoApplyProductVariantIds.length > 0
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['autoApplyProductVariantIds'],
-      message: 'non-auto product groups must not contain automatic variants',
     });
   }
 

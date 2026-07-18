@@ -319,10 +319,16 @@ function AutomationRecipeSummary({ item }: { item: ChannelRecipeAutomationItem }
 }
 
 function automationReasonLabel(item: ChannelRecipeAutomationItem): string {
+  const quantity = item.decision === 'auto_apply' && item.recommendedQuantity
+    ? ` · 수량 ${item.recommendedQuantity}`
+    : '';
   switch (item.reason) {
-    case 'exact_unique_code': return '자동 매칭 가능 · 상품코드 정확 일치';
-    case 'unique_physical_barcode': return '자동 매칭 가능 · 고유 바코드 일치';
-    case 'exact_unique_name_option': return '자동 매칭 가능 · 상품명+옵션 정확 일치';
+    case 'exact_unique_code': return `자동 매칭 가능 · 상품코드 정확 일치${quantity}`;
+    case 'unique_physical_barcode': return `자동 매칭 가능 · 고유 바코드 일치${quantity}`;
+    case 'exact_unique_name_option': return `자동 매칭 가능 · 상품명+옵션 정확 일치${quantity}`;
+    case 'exact_unique_name': return `자동 매칭 가능 · 상품명 완전 일치${quantity}`;
+    case 'high_confidence_name': return `자동 매칭 가능 · 고신뢰 상품명 일치${quantity}`;
+    case 'identifier_name_mismatch': return '상품코드와 상품명 불일치 검토';
     case 'quantity_review': return '수량 확인 필요';
     case 'ambiguous': return '중복 후보';
     case 'conflict': return '증거 충돌';

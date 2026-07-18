@@ -10,6 +10,7 @@ export type SellpiaRecipeEvidenceSku = {
 };
 
 export interface SellpiaRecipeEvidencePort {
+  listActiveForMatching(organizationId: string): Promise<SellpiaRecipeEvidenceSku[]>;
   findByCodes(organizationId: string, codes: string[]): Promise<SellpiaRecipeEvidenceSku[]>;
   findByNormalizedBarcodes(
     organizationId: string,

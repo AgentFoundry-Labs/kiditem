@@ -46,17 +46,20 @@ React Query + apiClient
 - Matching confirms channel listing -> `MasterProduct` before channel option ->
   `ProductVariant`. Candidate evidence never confirms identity.
 - Matching may explicitly apply a version-fenced deterministic preview to
-  create only empty central recipes with one Sellpia component at quantity `1`.
-  Existing recipes and every review/blocked result remain untouched.
+  create only empty central recipes with one Sellpia component and a backend-
+  verified positive integer quantity. Safe child variants apply independently;
+  existing recipes and every review/blocked child remain untouched.
 
 ## Boundary Rules
 
 - Product list/detail and its recipe picker use Products APIs. They never call
   the Inventory SKU collection route directly.
 - Do not infer product, variant, or channel identity from display text,
-  barcode, normalized name, or candidate rank. Recipe automation is limited to
-  the exact create-if-empty policy above; product-name-only evidence,
-  similarity, rank, raw aliases, pack/BOM uncertainty, and AI cannot apply it.
+  barcode, normalized name, or candidate rank. Recipe automation never changes
+  those identity links; it may select one physical SKU for an empty recipe only
+  through name-cross-checked exact identifiers, unique exact names, or a unique
+  high-confidence name with sufficient runner-up margin. Unverified pack/BOM,
+  duplicates, conflicts, raw aliases, close-ranked names, and AI stay review-only.
 - Do not edit Sellpia stock, source prices, or channel prices in catalog routes.
 - Do not recreate channel-owned component quantities. Manual complete recipe
   edits live on product detail; matching exposes only the narrow deterministic

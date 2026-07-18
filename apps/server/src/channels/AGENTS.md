@@ -117,15 +117,17 @@ barcode; names, raw aliases, and AI never confirm an identity link.
 Recipe automation is one separate, explicitly invoked account command. Its
 version-fenced preview is the command read model; the web does not require a
 second confirmation dialog. Channels may ask Products to create an empty
-central `ProductVariantComponent` recipe only when every child option in the
-selected account's product group is linked and is either already configured or
-selects one active Sellpia SKU without conflict by an exact code, a unique
-physical barcode, or a strict exact normalized product-name plus option match.
-One unresolved child withholds every new automatic recipe for that product. The
-command may create only quantity `1` and never overwrites an existing recipe.
-Existing recipes, pack/BOM uncertainty, duplicate identifiers, conflicting
-evidence, product-name-only matches, similarity, rank, raw aliases, and AI are
-never automatic.
+central `ProductVariantComponent` recipe when one linked variant selects one
+active Sellpia SKU without conflict. Automatic evidence includes an exact code
+or unique physical barcode that also passes product-name cross-checking, a
+unique exact normalized name, or a unique high-confidence contained/fuzzy name
+whose score and runner-up margin pass the domain thresholds. An explicit,
+integer channel-pack to Sellpia-unit ratio may produce a positive quantity;
+unverifiable multi-pack and BOM composition remain review-only. Safe child
+variants are applied even when a sibling remains unresolved, and the product
+row retains its review/blocked status. The command never overwrites an existing
+recipe. Duplicate identifiers, conflicting or close-ranked evidence, raw
+aliases, and AI are never automatic.
 
 A linked variant's confirmed recipe is the only capacity input. An unmatched,
 configuration-required, or review-required

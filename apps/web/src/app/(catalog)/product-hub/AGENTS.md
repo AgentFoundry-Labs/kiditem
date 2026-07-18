@@ -36,22 +36,25 @@ Consult this document first instead of relying on memorized knowledge.
   category strip, filters, metric columns, and product rows. Metrics without a
   product/variant fact source render `미수집`; do not derive them from
   organization/date/seller aggregates.
-- Command-center counts use the list response summary for the full filtered
-  result. Do not label or calculate command-center metrics as current-page
-  values; pagination applies only to the product rows.
+- Command-center counts use a dedicated unfiltered operations-list summary for
+  the whole catalog. Search, category, active, advertising, inventory, ABC, and
+  page parameters affect only the product rows, their displayed result count,
+  and pagination; they must never change the command-center numbers.
 - Reorder counts and row badges use the Analytics-owned depletion projection
   hydrated by Products. Link the evidence to
   `/stock-ops?tab=product-outflow`; label shared coverage as `공유 SKU 기준`.
   Do not synthesize an imminent-stock threshold when no policy exists.
 - Search, filters, period, and page on `/product-hub` are URL-authoritative.
+  Period may refresh both global and row projections, but list filters are not
+  sent to the global command-center query.
 - Product create/edit mutations invalidate only the product operations list and
   affected detail keys.
 - Manual variant recipe edits are complete atomic replacements owned by the
   product detail route. Operators select confirmed physical Inventory
   identities through a focused search; a component is saved by
-  `sellpiaInventorySkuId` and positive integer quantity. Matching may only
-  invoke the separate version-fenced create-if-empty command for one component
-  at quantity `1` after an explicit confirmation dialog.
+  `sellpiaInventorySkuId` and positive integer quantity. Matching may invoke
+  the separate version-fenced create-if-empty command for one component with a
+  backend-verified positive integer quantity.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
 - Candidate generation on `/product-hub/matching` never confirms an identity
@@ -79,10 +82,11 @@ Consult this document first instead of relying on memorized knowledge.
   inputs.
 - Do not infer product or variant identity from display text. Normalized names
   and AI never auto-confirm publication or matching links. Recipe automation
-  may use only a strict exact normalized product-name plus option pair when it
-  uniquely selects one SKU, has no conflicting evidence or pack/BOM
-  uncertainty, and writes quantity `1`; product-name-only, similarity, rank,
-  raw aliases, and AI remain review-only.
+  may select one physical SKU for an empty recipe through name-cross-checked
+  exact identifiers, unique exact normalized names, or a unique high-confidence
+  name with sufficient runner-up margin. Quantities above one require an
+  explicit integer pack ratio; ambiguity, conflicts, unverified pack/BOM, raw
+  aliases, close-ranked names, and AI remain review-only.
 - Channel rows may show inherited recipe status and capacity. Manual complete
   recipe edits belong to `/product-hub/[masterProductId]`; matching owns only
   the narrow create-if-empty automation workflow.

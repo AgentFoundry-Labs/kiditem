@@ -58,6 +58,29 @@ describe('<ProductInventoryMatchingTable>', () => {
       option: expect.objectContaining({ id: OPTION_A }),
     }));
   });
+
+  it('shows the inferred component quantity for an automatic name match', async () => {
+    const user = userEvent.setup();
+    render(
+      <ProductInventoryMatchingTable
+        products={[product()]}
+        options={[option(OPTION_A, '블루', VARIANT_ID)]}
+        productGroups={[{ ...group(), decision: 'auto_apply', autoApplyProductVariantIds: [VARIANT_ID] }]}
+        automationItemsByOptionId={new Map([[OPTION_A, {
+          ...automationItem(),
+          decision: 'auto_apply',
+          reason: 'high_confidence_name',
+          recommendedQuantity: 2,
+        }]])}
+        onEditProduct={vi.fn()}
+        onEditVariant={vi.fn()}
+        onShowRecipeSuggestion={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '상품별 확인' }));
+    expect(screen.getByText('자동 매칭 가능 · 고신뢰 상품명 일치 · 수량 2')).toBeInTheDocument();
+  });
 });
 
 function product(): ChannelProductMatchingQueueRow {

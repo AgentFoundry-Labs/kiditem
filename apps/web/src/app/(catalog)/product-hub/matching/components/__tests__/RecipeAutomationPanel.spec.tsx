@@ -82,7 +82,7 @@ describe('<RecipeAutomationPanel>', () => {
     const user = userEvent.setup();
     render(<RecipeAutomationPanel channelAccountId={ACCOUNT_ID} />);
 
-    expect(screen.getByText('자동 적용 가능 1')).toBeInTheDocument();
+    expect(screen.getByText('자동 적용 대상 1')).toBeInTheDocument();
     expect(screen.getByText('운영자 검토 1')).toBeInTheDocument();
     expect(screen.getByText('연결·매칭 필요 2')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '상품·재고 자동 매칭' }));
@@ -133,5 +133,28 @@ describe('<RecipeAutomationPanel>', () => {
 
     render(<RecipeAutomationPanel channelAccountId={ACCOUNT_ID} />);
     expect(screen.getByRole('button', { name: '상품·재고 자동 매칭' })).toBeDisabled();
+  });
+
+  it('enables application for a safe child even when its product still needs review', () => {
+    const current = useChannelRecipeAutomationPreview(ACCOUNT_ID);
+    vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue({
+      ...current,
+      data: {
+        ...current!.data!,
+        summary: {
+          ...current!.data!.summary,
+          autoApplyProducts: 1,
+          autoApply: 1,
+          operatorReviewProducts: 1,
+        },
+        productGroups: [{
+          ...current!.data!.productGroups[0]!,
+          decision: 'operator_review',
+        }],
+      },
+    } as ReturnType<typeof useChannelRecipeAutomationPreview>);
+
+    render(<RecipeAutomationPanel channelAccountId={ACCOUNT_ID} />);
+    expect(screen.getByRole('button', { name: '상품·재고 자동 매칭' })).toBeEnabled();
   });
 });

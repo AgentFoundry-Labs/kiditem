@@ -56,7 +56,8 @@ export class ChannelRecipeAutomationService {
       generatedAt: new Date().toISOString(),
       summary: {
         products: productGroups.length,
-        autoApplyProducts: countDecision(productGroups, 'auto_apply'),
+        autoApplyProducts: productGroups.filter((group) =>
+          group.autoApplyProductVariantIds.length > 0).length,
         operatorReviewProducts: countDecision(productGroups, 'operator_review'),
         blockedProducts: countDecision(productGroups, 'blocked'),
         alreadyConfiguredProducts: countDecision(productGroups, 'already_configured'),
@@ -92,7 +93,7 @@ export class ChannelRecipeAutomationService {
       recipes: automaticItems.map((item) => ({
         productVariantId: item.productVariantId,
         sellpiaInventorySkuId: item.sellpiaInventorySkuId!,
-        quantity: 1 as const,
+        quantity: item.recommendedQuantity!,
       })),
     });
     const appliedIds = new Set(result.appliedProductVariantIds);
@@ -156,6 +157,9 @@ function automationReason(
     case 'unique_code': return 'exact_unique_code';
     case 'unique_barcode': return 'unique_physical_barcode';
     case 'exact_name_option': return 'exact_unique_name_option';
+    case 'exact_name': return 'exact_unique_name';
+    case 'high_confidence_name': return 'high_confidence_name';
+    case 'identifier_name_mismatch': return 'identifier_name_mismatch';
     case 'already_configured': return 'already_configured';
     case 'quantity_review': return 'quantity_review';
     case 'conflict': return 'conflict';

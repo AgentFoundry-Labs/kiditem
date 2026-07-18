@@ -38,12 +38,12 @@ export function classifyRecipeAutomationProductGroups(
     const decision = product.masterProductId === null
       ? 'blocked'
       : groupDecision(childDecisions);
-    const autoApplyProductVariantIds = decision === 'auto_apply'
-      ? [...new Set(product.options.flatMap((option) => {
+    const autoApplyProductVariantIds = product.masterProductId === null
+      ? []
+      : [...new Set(product.options.flatMap((option) => {
         const item = itemsByOptionId.get(option.channelListingOptionId);
         return item?.decision === 'auto_apply' ? [item.productVariantId] : [];
-      }))].sort()
-      : [];
+      }))].sort();
 
     return {
       channelListingId: product.channelListingId,

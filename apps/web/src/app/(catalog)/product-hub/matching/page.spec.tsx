@@ -300,7 +300,7 @@ describe('/product-hub/matching', () => {
     expect(screen.getByRole('combobox', { name: '상품·재고 상태' })).toHaveValue('auto_apply');
     expect(screen.getAllByText('자동 매칭 가능')).toHaveLength(2);
     await userEvent.click(screen.getByRole('button', { name: '상품별 확인' }));
-    expect(screen.getByText('자동 매칭 가능 · 상품코드 정확 일치')).toBeInTheDocument();
+    expect(screen.getByText('자동 매칭 가능 · 상품코드 정확 일치 · 수량 1')).toBeInTheDocument();
     expect(screen.getByText('option-unready')).toBeInTheDocument();
   });
 

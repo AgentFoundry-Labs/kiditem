@@ -28,6 +28,17 @@ export class SellpiaInventorySkuReadRepositoryAdapter
 implements SellpiaInventorySkuReadRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
+  async listActiveForMatching(
+    organizationId: string,
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    const rows = await this.prisma.sellpiaInventorySku.findMany({
+      where: activeSellpiaWhere(organizationId),
+      select: SELLPIA_INVENTORY_SKU_SELECT,
+      orderBy: [{ code: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map(toReadModel);
+  }
+
   async findByIds(
     organizationId: string,
     ids: string[],

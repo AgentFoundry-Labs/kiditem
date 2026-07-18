@@ -54,16 +54,17 @@ React Query + apiClient
 
 - Do not recreate channel-owned component recipes or arbitrary quantity inputs.
   The only recipe mutation here is the explicit version-fenced command that
-  creates an empty central recipe as one active Sellpia SKU at quantity `1`.
-- The automatic command is product-atomic for new recipes: if any child option
-  is unlinked, blocked, conflicted, ambiguous, or needs review, every new
-  automatic recipe for that product stays unapplied. Existing confirmed links
-  and recipes remain untouched.
+  creates an empty central recipe as one active Sellpia SKU with a backend-
+  verified positive integer quantity.
+- The automatic command applies each safe child variant independently. A
+  product with unresolved children remains review/blocked while safe siblings
+  are applied. Existing confirmed links and recipes remain untouched.
 - Automatic recipe evidence must uniquely and non-conflictingly select the same
-  SKU by exact code, verified unique physical barcode, or strict exact
-  normalized product-name plus option. Existing recipes, pack/BOM uncertainty,
-  duplicate identifiers, conflicts, product-name-only matches, similarity,
-  rank, raw aliases, and AI remain untouched for operator review.
+  SKU by a name-cross-checked exact code/barcode, exact normalized identity, or
+  high-confidence name score with sufficient runner-up margin. Quantities above
+  one require an explicit integer pack ratio. Unverifiable pack/BOM,
+  duplicates, conflicts, close-ranked names, raw aliases, and AI stay under
+  operator review.
 - Matching candidates never auto-confirm identity from rank, normalized name,
   or AI evidence. The only automatic identity decision is the backend catalog
   publication boundary's unique, non-conflicting typed seller SKU or safely

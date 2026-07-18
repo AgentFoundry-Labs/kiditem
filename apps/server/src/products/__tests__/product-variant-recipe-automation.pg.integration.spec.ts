@@ -33,7 +33,7 @@ describe('ProductVariantRecipeAutomationService (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('creates deterministic quantity-one components only for empty variants', async () => {
+  it('creates deterministic positive-quantity components only for empty variants', async () => {
     const empty = await createVariant(TEST_ORGANIZATION_ID, 'EMPTY');
     const configured = await createVariant(TEST_ORGANIZATION_ID, 'CONFIGURED');
     const activeA = await createSku(TEST_ORGANIZATION_ID, 'SP-A');
@@ -52,7 +52,7 @@ describe('ProductVariantRecipeAutomationService (PG integration)', () => {
     await expect(service.applyIfEmpty({
       organizationId: TEST_ORGANIZATION_ID,
       recipes: [
-        { productVariantId: empty, sellpiaInventorySkuId: activeA, quantity: 1 },
+        { productVariantId: empty, sellpiaInventorySkuId: activeA, quantity: 2 },
         { productVariantId: configured, sellpiaInventorySkuId: activeB, quantity: 1 },
       ],
     })).resolves.toEqual({
@@ -63,7 +63,7 @@ describe('ProductVariantRecipeAutomationService (PG integration)', () => {
       where: { productVariantId: empty },
     })).toEqual([expect.objectContaining({
       sellpiaInventorySkuId: activeA,
-      quantity: 1,
+      quantity: 2,
       source: 'deterministic',
       confirmedBy: null,
     })]);

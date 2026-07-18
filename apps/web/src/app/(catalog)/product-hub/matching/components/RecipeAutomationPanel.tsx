@@ -16,7 +16,7 @@ export function RecipeAutomationPanel({ channelAccountId }: {
   const data = preview.data;
   const disabled = !channelAccountId
     || !data
-    || data.summary.autoApplyProducts === 0
+    || data.summary.autoApply === 0
     || preview.isLoading
     || preview.isFetching
     || apply.isPending;
@@ -43,7 +43,7 @@ export function RecipeAutomationPanel({ channelAccountId }: {
         <div>
           <h2 className="text-base font-extrabold text-slate-900">상품·재고 자동 매칭</h2>
           <p className="mt-1 text-sm text-slate-600">
-            상품과 모든 하위 옵션이 안전한 경우에만 확정 기준 Sellpia SKU를 수량 1로 연결합니다.
+            코드·바코드·완전일치·유일한 고신뢰 상품명과 검증된 구성 수량만 자동 연결합니다. 애매한 하위 옵션은 상품별 검토로 남습니다.
           </p>
         </div>
         <button
@@ -67,7 +67,7 @@ export function RecipeAutomationPanel({ channelAccountId }: {
         </p>
       ) : data ? (
         <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="자동 적용 가능" value={data.summary.autoApplyProducts} tone="emerald" />
+          <Metric label="자동 적용 대상" value={data.summary.autoApplyProducts} tone="emerald" />
           <Metric label="운영자 검토" value={data.summary.operatorReviewProducts} tone="amber" />
           <Metric label="연결·매칭 필요" value={data.summary.blockedProducts} tone="slate" />
           <Metric label="구성 완료" value={data.summary.alreadyConfiguredProducts} tone="purple" />

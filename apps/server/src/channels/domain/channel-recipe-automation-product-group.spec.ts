@@ -21,21 +21,21 @@ describe('classifyRecipeAutomationProductGroups', () => {
     })]);
   });
 
-  it('withholds every automatic variant when one child needs operator review', () => {
+  it('keeps safe child variants actionable when a sibling needs operator review', () => {
     expect(classifyRecipeAutomationProductGroups([
       product([option('option-a', 'variant-a'), option('option-b', 'variant-b')]),
     ], [autoItem, reviewItem])).toEqual([expect.objectContaining({
       decision: 'operator_review',
-      autoApplyProductVariantIds: [],
+      autoApplyProductVariantIds: ['variant-a'],
     })]);
   });
 
-  it('blocks a product containing an unlinked option', () => {
+  it('keeps linked safe children actionable when another option is unlinked', () => {
     expect(classifyRecipeAutomationProductGroups([
       product([option('option-a', 'variant-a'), option('option-b', null)]),
     ], [autoItem])).toEqual([expect.objectContaining({
       decision: 'blocked',
-      autoApplyProductVariantIds: [],
+      autoApplyProductVariantIds: ['variant-a'],
     })]);
   });
 

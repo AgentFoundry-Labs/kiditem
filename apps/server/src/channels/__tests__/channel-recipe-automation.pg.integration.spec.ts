@@ -60,7 +60,7 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
     ] });
   });
 
-  it('previews without mutation and applies only empty deterministic quantity-one recipes', async () => {
+  it('previews without mutation and applies only empty deterministic verified recipes', async () => {
     const auto = await createVariant('AUTO');
     const review = await createVariant('REVIEW');
     const conflict = await createVariant('CONFLICT');
@@ -79,8 +79,12 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
     await createSku('SP-NAME-B', 'Exact duplicate', null, null, 2);
     const configuredSku = await createSku('SP-CONFIGURED', 'Configured', null, null, 1);
 
-    await createOption(auto, { sellerSku: 'SP-AUTO', displayName: 'Auto listing' });
-    await createOption(review, { sellerSku: 'SP-REVIEW', itemName: '블루 4개입' });
+    await createOption(auto, { sellerSku: 'SP-AUTO', displayName: 'Physical auto' });
+    await createOption(review, {
+      sellerSku: 'SP-REVIEW',
+      displayName: 'Physical review',
+      itemName: '블루 4개입',
+    });
     await createOption(conflict, { sellerSku: 'SP-CONFLICT-A', modelNumber: 'SP-CONFLICT-B' });
     await createOption(ambiguous, { barcode: '001234567890' });
     await createOption(duplicateName, { displayName: 'Exact duplicate' });
@@ -154,7 +158,7 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
     })).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('applies a safe single-option product but withholds a partially safe product', async () => {
+  it('applies safe child options while leaving an uncertain sibling for review', async () => {
     const groupedMaster = await prisma.masterProduct.create({ data: {
       organizationId: TEST_ORGANIZATION_ID,
       code: `MP-GROUP-${randomUUID()}`,
@@ -167,7 +171,7 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
         code: `PV-GROUP-${label}-${randomUUID()}`,
         name: label,
       } })).id));
-    await createSku('SP-GROUP-AUTO', 'Grouped auto', null, null, 11);
+    const groupedAutoSku = await createSku('SP-GROUP-AUTO', 'Grouped auto', null, null, 11);
     await createSku('SP-GROUP-REVIEW', 'Grouped review', null, null, 12);
     const groupedListing = await prisma.channelListing.create({ data: {
       organizationId: TEST_ORGANIZATION_ID,
@@ -199,23 +203,31 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
 
     const singleVariant = await createVariant('SAFE-SINGLE');
     const singleSku = await createSku('SP-SAFE-SINGLE', 'Safe single', null, null, 13);
-    await createOption(singleVariant, { sellerSku: 'SP-SAFE-SINGLE' });
+    await createOption(singleVariant, {
+      sellerSku: 'SP-SAFE-SINGLE',
+      displayName: 'Safe single',
+    });
     const stockBefore = await stockSnapshot();
 
     const preview = await service.preview(TEST_ORGANIZATION_ID, ACCOUNT_ID);
     expect(preview.productGroups.find((group) =>
       group.channelListingId === groupedListing.id)).toMatchObject({
       decision: 'operator_review',
-      autoApplyProductVariantIds: [],
+      autoApplyProductVariantIds: [groupedVariants[0]],
     });
 
     await service.apply(TEST_ORGANIZATION_ID, {
       channelAccountId: ACCOUNT_ID,
       proposalVersion: preview.proposalVersion,
     });
-    expect(await prisma.productVariantComponent.count({
+    expect(await prisma.productVariantComponent.findMany({
       where: { productVariantId: { in: groupedVariants } },
-    })).toBe(0);
+    })).toEqual([expect.objectContaining({
+      productVariantId: groupedVariants[0],
+      sellpiaInventorySkuId: groupedAutoSku,
+      quantity: 1,
+      source: 'deterministic',
+    })]);
     expect(await prisma.productVariantComponent.findMany({
       where: { productVariantId: singleVariant },
     })).toEqual([expect.objectContaining({
