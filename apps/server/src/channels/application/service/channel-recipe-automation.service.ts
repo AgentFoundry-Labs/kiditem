@@ -109,8 +109,10 @@ function toPreviewItem(
       ?? null,
     sellpiaCode: singleProposal?.code ?? existing?.code ?? null,
     recommendedQuantity: suggestion.recommendedQuantity,
-    evidenceLabels: proposals.flatMap((proposal) => proposal.evidence.map((evidence) =>
-      `${evidence.kind}: ${evidence.channelValue}`)),
+    evidenceLabels: existing
+      ? [`source: ${existing.source}`]
+      : proposals.flatMap((proposal) => proposal.evidence.map((evidence) =>
+        `${evidence.kind}: ${evidence.channelValue}`)),
   };
 }
 

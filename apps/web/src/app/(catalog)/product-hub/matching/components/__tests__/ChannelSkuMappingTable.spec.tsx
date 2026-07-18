@@ -90,6 +90,35 @@ describe('<ChannelSkuMappingTable>', () => {
     expect(screen.getByText(longDisplayName)).toHaveClass('break-words');
     expect(screen.getByText(longExternalId)).toHaveClass('break-all');
   });
+
+  it('shows deterministic automation reasons without allowing long evidence to overlap cells', () => {
+    const row = configurationRequiredOptionRow();
+    const item = {
+      productVariantId: row.option.productVariantId!,
+      masterProductId: row.listing.masterProductId!,
+      channelListingOptionIds: [row.option.id],
+      decision: 'auto_apply' as const,
+      reason: 'exact_unique_name_option' as const,
+      sellpiaInventorySkuId: '77777777-7777-4777-8777-777777777777',
+      sellpiaCode: 'SP-WITHOUT-BREAKS-'.repeat(20),
+      recommendedQuantity: 1,
+      evidenceLabels: [],
+    };
+    render(
+      <ChannelSkuMappingTable
+        level="options"
+        products={[]}
+        options={[row]}
+        automationItemsByOptionId={new Map([[row.option.id, item]])}
+        onEditProduct={vi.fn()}
+        onEditVariant={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('자동 매칭 가능 · 상품명+옵션 정확 일치'))
+      .toHaveClass('break-words');
+    expect(screen.getByText(item.sellpiaCode)).toHaveClass('break-all');
+  });
 });
 
 function productRow() {

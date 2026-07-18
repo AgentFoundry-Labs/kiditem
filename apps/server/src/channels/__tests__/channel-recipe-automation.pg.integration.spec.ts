@@ -113,6 +113,8 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
     expect(preview.items.find((item) => item.productVariantId === auto)).toMatchObject({
       decision: 'auto_apply', sellpiaInventorySkuId: autoSku, recommendedQuantity: 1,
     });
+    expect(preview.items.find((item) => item.productVariantId === configured))
+      .toMatchObject({ decision: 'already_configured', evidenceLabels: ['source: manual'] });
 
     await expect(service.apply(TEST_ORGANIZATION_ID, {
       channelAccountId: ACCOUNT_ID,

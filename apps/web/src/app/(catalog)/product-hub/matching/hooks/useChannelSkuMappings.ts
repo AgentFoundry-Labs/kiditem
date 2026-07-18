@@ -3,6 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
+  applyChannelRecipeAutomation,
+  getChannelRecipeAutomationPreview,
   importCoupangWingCatalog,
   linkChannelListingOption,
   linkChannelListingProduct,
@@ -12,6 +14,7 @@ import {
   listChannelVariantCandidates,
 } from '../lib/channel-sku-matching-api';
 import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
+import type { ApplyChannelRecipeAutomationInput } from '@kiditem/shared/channel-recipe-automation';
 
 export function useChannelAccounts() {
   return useQuery({ queryKey: queryKeys.channelAccounts.active(), queryFn: listChannelAccounts });
@@ -29,6 +32,35 @@ export function useChannelProductMappings(params: { channelAccountId?: string; s
       search: normalizedSearch,
     }),
     enabled: Boolean(params.channelAccountId),
+  });
+}
+
+export function useChannelRecipeAutomationPreview(channelAccountId?: string) {
+  return useQuery({
+    queryKey: queryKeys.channelProductMappings.recipeAutomationPreview(
+      channelAccountId ?? '',
+    ),
+    queryFn: () => getChannelRecipeAutomationPreview(channelAccountId!),
+    enabled: Boolean(channelAccountId),
+  });
+}
+
+export function useApplyChannelRecipeAutomation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ApplyChannelRecipeAutomationInput) =>
+      applyChannelRecipeAutomation(input),
+    onSuccess: (_response, input) => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.channelProductMappings.recipeAutomationPreview(
+          input.channelAccountId,
+        ),
+      }),
+    ]),
   });
 }
 

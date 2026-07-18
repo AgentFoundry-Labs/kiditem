@@ -7,6 +7,7 @@ import type {
   ChannelOptionMatchingQueueRow,
   ChannelProductMatchingQueueRow,
 } from '@kiditem/shared/channel-product-matching';
+import type { ChannelRecipeAutomationItem } from '@kiditem/shared/channel-recipe-automation';
 
 type Props = {
   level: 'products' | 'options';
@@ -15,6 +16,7 @@ type Props = {
   onEditProduct: (row: ChannelProductMatchingQueueRow) => void;
   onEditVariant: (row: ChannelOptionMatchingQueueRow) => void;
   onShowRecipeSuggestion?: (row: ChannelOptionMatchingQueueRow) => void;
+  automationItemsByOptionId?: Map<string, ChannelRecipeAutomationItem>;
   loading?: boolean;
 };
 
@@ -25,6 +27,7 @@ export function ChannelSkuMappingTable({
   onEditProduct,
   onEditVariant,
   onShowRecipeSuggestion,
+  automationItemsByOptionId,
   loading = false,
 }: Props) {
   if (loading) {
@@ -38,7 +41,12 @@ export function ChannelSkuMappingTable({
   return level === 'products' ? (
     <ProductRows rows={products} onEdit={onEditProduct} />
   ) : (
-    <OptionRows rows={options} onEdit={onEditVariant} onShowRecipeSuggestion={onShowRecipeSuggestion} />
+    <OptionRows
+      rows={options}
+      onEdit={onEditVariant}
+      onShowRecipeSuggestion={onShowRecipeSuggestion}
+      automationItemsByOptionId={automationItemsByOptionId}
+    />
   );
 }
 
@@ -79,10 +87,11 @@ function ProductRows({ rows, onEdit }: {
   );
 }
 
-function OptionRows({ rows, onEdit, onShowRecipeSuggestion }: {
+function OptionRows({ rows, onEdit, onShowRecipeSuggestion, automationItemsByOptionId }: {
   rows: ChannelOptionMatchingQueueRow[];
   onEdit: (row: ChannelOptionMatchingQueueRow) => void;
   onShowRecipeSuggestion?: (row: ChannelOptionMatchingQueueRow) => void;
+  automationItemsByOptionId?: Map<string, ChannelRecipeAutomationItem>;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -108,7 +117,15 @@ function OptionRows({ rows, onEdit, onShowRecipeSuggestion }: {
                 <td className="overflow-hidden break-all px-4 py-4 font-mono text-xs text-slate-600">{row.listing.externalId}</td>
                 <td className="overflow-hidden px-4 py-4"><p className="break-words font-semibold text-slate-900">{row.option.itemName ?? '옵션명 없음'}</p><p className="mt-1 break-all font-mono text-xs text-slate-500">{row.option.sellerSku ?? row.option.externalOptionId}</p></td>
                 <td className="overflow-hidden px-4 py-4">{row.linkedVariant ? <><p className="break-words font-bold text-slate-900">{operatorProductReference(row.linkedVariant.code, row.linkedVariant.name)}</p><p className="mt-1 break-words text-xs text-slate-500">{row.linkedVariant.optionLabel ?? '옵션 설명 없음'}</p></> : <span className="text-xs font-semibold text-slate-500">미연결</span>}</td>
-                <td className="px-4 py-4"><VariantRecipeSummary row={row} /></td>
+                <td className="overflow-hidden px-4 py-4">
+                  {automationItemsByOptionId?.get(row.option.id) ? (
+                    <AutomationRecipeSummary
+                      item={automationItemsByOptionId.get(row.option.id)!}
+                    />
+                  ) : (
+                    <VariantRecipeSummary row={row} />
+                  )}
+                </td>
                 <td className="px-4 py-4"><div className="flex flex-wrap gap-2"><button type="button" aria-label="옵션 연결" disabled={!row.listing.masterProductId} title={!row.listing.masterProductId ? '상품을 먼저 연결해 주세요.' : undefined} onClick={() => onEdit(row)} className="rounded-xl border border-[var(--primary,#7048e8)] px-3 py-2 text-xs font-bold text-[var(--primary,#7048e8)] disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400">운영 옵션 연결</button>{row.option.productVariantId && row.listing.masterProductId && onShowRecipeSuggestion ? <button type="button" onClick={() => onShowRecipeSuggestion(row)} className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">Sellpia 후보</button> : null}</div></td>
               </tr>
             ))}
@@ -117,4 +134,34 @@ function OptionRows({ rows, onEdit, onShowRecipeSuggestion }: {
       </div>
     </div>
   );
+}
+
+function AutomationRecipeSummary({ item }: { item: ChannelRecipeAutomationItem }) {
+  return (
+    <div className="space-y-1.5 text-xs">
+      <p className="break-words font-bold text-slate-800">
+        {automationReasonLabel(item)}
+      </p>
+      {item.sellpiaCode ? (
+        <p className="break-all font-mono text-slate-500">{item.sellpiaCode}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function automationReasonLabel(item: ChannelRecipeAutomationItem): string {
+  switch (item.reason) {
+    case 'exact_unique_code': return '자동 매칭 가능 · 상품코드 정확 일치';
+    case 'unique_physical_barcode': return '자동 매칭 가능 · 고유 바코드 일치';
+    case 'exact_unique_name_option': return '자동 매칭 가능 · 상품명+옵션 정확 일치';
+    case 'quantity_review': return '수량 확인 필요';
+    case 'ambiguous': return '중복 후보';
+    case 'conflict': return '증거 충돌';
+    case 'name_review_only': return '상품명 후보 검토';
+    case 'no_match': return '매칭 정보 없음';
+    case 'already_configured':
+      return item.evidenceLabels.includes('source: deterministic')
+        ? '자동 구성 완료'
+        : '운영자 구성 완료';
+  }
 }

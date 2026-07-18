@@ -12,8 +12,13 @@ import { MappingSummaryCards } from './components/MappingSummaryCards';
 import { ProductLinkDialog } from './components/ProductLinkDialog';
 import { VariantLinkDialog } from './components/VariantLinkDialog';
 import { RecipeSuggestionDialog } from './components/RecipeSuggestionDialog';
+import { RecipeAutomationPanel } from './components/RecipeAutomationPanel';
 import { Pagination } from '@/components/ui/Pagination';
-import { useChannelAccounts, useChannelProductMappings } from './hooks/useChannelSkuMappings';
+import {
+  useChannelAccounts,
+  useChannelProductMappings,
+  useChannelRecipeAutomationPreview,
+} from './hooks/useChannelSkuMappings';
 import type {
   ChannelOptionMatchingQueueRow,
   ChannelProductMatchingCounts,
@@ -96,6 +101,11 @@ export default function MatchingPage() {
     channelAccountId: selectedAccount?.id,
     search: debouncedSearch,
   });
+  const automationPreviewQuery = useChannelRecipeAutomationPreview(selectedAccount?.id);
+  const automationItemsByOptionId = useMemo(() => new Map(
+    (automationPreviewQuery.data?.items ?? []).flatMap((item) =>
+      item.channelListingOptionIds.map((optionId) => [optionId, item] as const)),
+  ), [automationPreviewQuery.data?.items]);
   const data = mappingsQuery.data;
   const counts = data?.counts ?? EMPTY_COUNTS;
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
@@ -107,9 +117,12 @@ export default function MatchingPage() {
     if (status === 'configuration_required') return row.recipeStatus === 'configuration_required';
     if (status === 'review_required') return row.recipeStatus === 'review_required';
     if (status === 'recipe_confirmed') return row.recipeStatus === 'matched';
+    if (status === 'auto_apply') return automationItemsByOptionId.get(row.option.id)?.decision === 'auto_apply';
+    if (status === 'operator_review') return automationItemsByOptionId.get(row.option.id)?.decision === 'operator_review';
+    if (status === 'blocked') return automationItemsByOptionId.get(row.option.id)?.decision === 'blocked';
     if (status === 'needs_review') return row.recipeStatus === 'configuration_required' || row.recipeStatus === 'review_required';
     return true;
-  }), [data?.options, status]);
+  }), [automationItemsByOptionId, data?.options, status]);
   const filteredRows = level === 'products' ? filteredProducts : filteredOptions;
   const pageRows = filteredRows.slice((page - 1) * 50, page * 50);
 
@@ -149,6 +162,10 @@ export default function MatchingPage() {
         <MappingSummaryCards counts={counts} loading={mappingsQuery.isLoading && !data} />
       ) : null}
 
+      {!accountsQuery.error && selectedAccount && !mappingsQuery.error ? (
+        <RecipeAutomationPanel channelAccountId={selectedAccount.id} />
+      ) : null}
+
       <section aria-label="상품 매칭 필터" className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(240px,360px)_minmax(280px,1fr)]">
           <label className="space-y-1.5 text-xs font-semibold text-slate-600">
@@ -169,7 +186,7 @@ export default function MatchingPage() {
           <button type="button" aria-pressed={level === 'products'} onClick={() => { setLevel('products'); setStatus('all'); updateUrl({ level: 'products', status: 'all' }); }} className={`rounded-lg px-4 py-2 text-sm font-bold ${level === 'products' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-600'}`}>1 상품 연결</button>
           <button type="button" aria-pressed={level === 'options'} onClick={() => { setLevel('options'); setStatus('all'); updateUrl({ level: 'options', status: 'all' }); }} className={`rounded-lg px-4 py-2 text-sm font-bold ${level === 'options' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-600'}`}>2 옵션 연결</button>
         </div>
-        <label className="block max-w-xs space-y-1.5 text-xs font-semibold text-slate-600"><span>큐 상태</span><select aria-label="큐 상태" value={status} onChange={(event) => { setStatus(event.target.value); updateUrl({ status: event.target.value }); }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">{(level === 'products' ? [['all', '전체'], ['linked', '연결됨'], ['unlinked', '미연결']] : [['all', '전체'], ['unlinked', '미연결'], ['configuration_required', '재고 연결 필요'], ['review_required', '검토 필요'], ['recipe_confirmed', '레시피 완료'], ['needs_review', '검토 대기']]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="block max-w-xs space-y-1.5 text-xs font-semibold text-slate-600"><span>큐 상태</span><select aria-label="큐 상태" value={status} onChange={(event) => { setStatus(event.target.value); updateUrl({ status: event.target.value }); }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">{(level === 'products' ? [['all', '전체'], ['linked', '연결됨'], ['unlinked', '미연결']] : [['all', '전체'], ['unlinked', '미연결'], ['auto_apply', '자동 적용 가능'], ['operator_review', '운영자 검토'], ['blocked', '매칭 없음/충돌'], ['configuration_required', '재고 연결 필요'], ['review_required', '검토 필요'], ['recipe_confirmed', '구성 완료'], ['needs_review', '검토 대기']]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       </section>
 
       {accountsQuery.error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{friendlyError(accountsQuery.error)}</p> : null}
@@ -186,6 +203,7 @@ export default function MatchingPage() {
           onEditProduct={setProductTarget}
           onEditVariant={setVariantTarget}
           onShowRecipeSuggestion={setSuggestionTarget}
+          automationItemsByOptionId={automationItemsByOptionId}
         />
       ) : null}
       {selectedAccount && !mappingsQuery.error && filteredRows.length > 50 ? <Pagination page={page} limit={50} total={filteredRows.length} onPageChange={(nextPage) => updateUrl({ page: String(nextPage) }, false)} /> : null}

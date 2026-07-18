@@ -226,6 +226,8 @@ export const queryKeys = {
       [...queryKeys.channelProductMappings.all, 'variant-candidates', channelListingOptionId, params] as const,
     recipeSuggestion: (channelListingOptionId: string) =>
       [...queryKeys.channelProductMappings.all, 'recipe-suggestion', channelListingOptionId] as const,
+    recipeAutomationPreview: (channelAccountId: string) =>
+      [...queryKeys.channelProductMappings.all, 'recipe-automation-preview', channelAccountId] as const,
   },
   channelSkuAvailability: {
     all: ['channelSkuAvailability'] as const,
