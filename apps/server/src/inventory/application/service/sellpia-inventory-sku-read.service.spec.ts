@@ -47,6 +47,28 @@ describe('SellpiaInventorySkuReadService', () => {
       ['아기컵', '빨대컵'],
     );
   });
+
+  it('keeps only unique 8-14 digit normalized physical barcodes', async () => {
+    const repository = makeRepository();
+    const service = new SellpiaInventorySkuReadService(repository);
+
+    await service.findByNormalizedBarcodes(organizationId, [
+      '001234567890',
+      '001234567890',
+      '1234567',
+      '123456789012345',
+      '1234-5678',
+      '',
+    ]);
+    await expect(service.findByNormalizedBarcodes(organizationId, ['bad', '123']))
+      .resolves.toEqual([]);
+
+    expect(repository.findByNormalizedBarcodes).toHaveBeenCalledOnce();
+    expect(repository.findByNormalizedBarcodes).toHaveBeenCalledWith(
+      organizationId,
+      ['001234567890'],
+    );
+  });
 });
 
 function makeRepository() {
@@ -56,6 +78,9 @@ function makeRepository() {
     findByCodes: vi.fn<SellpiaInventorySkuReadRepositoryPort['findByCodes']>()
       .mockResolvedValue([]),
     findByBarcodes: vi.fn<SellpiaInventorySkuReadRepositoryPort['findByBarcodes']>()
+      .mockResolvedValue([]),
+    findByNormalizedBarcodes: vi
+      .fn<SellpiaInventorySkuReadRepositoryPort['findByNormalizedBarcodes']>()
       .mockResolvedValue([]),
     findByNormalizedNames: vi
       .fn<SellpiaInventorySkuReadRepositoryPort['findByNormalizedNames']>()

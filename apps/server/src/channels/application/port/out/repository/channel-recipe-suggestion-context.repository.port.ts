@@ -12,11 +12,15 @@ export type ChannelRecipeSuggestionContext = {
     itemName: string | null;
     sellerSku: string | null;
     modelNumber: string | null;
+    barcode: string | null;
   }>;
   existingComponents: Array<{
     sellpiaInventorySkuId: string;
     code: string;
     quantity: number;
+    source: 'manual' | 'deterministic';
+    confirmedBy: string | null;
+    confirmedAt: Date | string;
   }>;
 };
 

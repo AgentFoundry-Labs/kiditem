@@ -49,6 +49,32 @@ implements SellpiaInventorySkuReadRepositoryPort {
     return this.findActive({ organizationId, barcode: { in: barcodes } });
   }
 
+  async findByNormalizedBarcodes(
+    organizationId: string,
+    normalizedBarcodes: string[],
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    const rows = await this.prisma.$queryRaw<SelectedSellpiaInventorySku[]>(Prisma.sql`
+      SELECT
+        id,
+        code,
+        name,
+        option_name AS "optionName",
+        barcode,
+        current_stock AS "currentStock",
+        purchase_price AS "purchasePrice",
+        sale_price AS "salePrice",
+        is_active AS "isActive",
+        last_import_run_id AS "lastImportRunId"
+      FROM sellpia_inventory_skus
+      WHERE organization_id = ${organizationId}::uuid
+        AND is_active = true
+        AND regexp_replace(coalesce(barcode, ''), '[^0-9]', '', 'g')
+          IN (${Prisma.join(normalizedBarcodes)})
+      ORDER BY code ASC, id ASC
+    `);
+    return rows.map(toReadModel);
+  }
+
   async findByNormalizedNames(
     organizationId: string,
     normalizedNames: string[],

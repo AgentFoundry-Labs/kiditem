@@ -28,6 +28,10 @@ export interface SellpiaInventorySkuReadPort {
     organizationId: string,
     barcodes: string[],
   ): Promise<SellpiaInventorySkuReadModel[]>;
+  findByNormalizedBarcodes(
+    organizationId: string,
+    normalizedBarcodes: string[],
+  ): Promise<SellpiaInventorySkuReadModel[]>;
   findByNormalizedNames(
     organizationId: string,
     normalizedNames: string[],

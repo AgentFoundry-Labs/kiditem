@@ -39,6 +39,17 @@ export class SellpiaInventorySkuReadService implements SellpiaInventorySkuReadPo
       this.repository.findByBarcodes(organizationId, values));
   }
 
+  findByNormalizedBarcodes(
+    organizationId: string,
+    normalizedBarcodes: string[],
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    const validBarcodes = [...new Set(normalizedBarcodes
+      .map((value) => value.trim())
+      .filter((value) => /^\d{8,14}$/.test(value)))];
+    if (validBarcodes.length === 0) return Promise.resolve([]);
+    return this.repository.findByNormalizedBarcodes(organizationId, validBarcodes);
+  }
+
   findByNormalizedNames(
     organizationId: string,
     normalizedNames: string[],

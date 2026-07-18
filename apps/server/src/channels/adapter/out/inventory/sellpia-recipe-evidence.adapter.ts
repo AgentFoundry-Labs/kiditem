@@ -19,6 +19,16 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
     return (await this.inventory.findByCodes(organizationId, codes)).map(toEvidenceSku);
   }
 
+  async findByNormalizedBarcodes(
+    organizationId: string,
+    normalizedBarcodes: string[],
+  ): Promise<SellpiaRecipeEvidenceSku[]> {
+    return (await this.inventory.findByNormalizedBarcodes(
+      organizationId,
+      normalizedBarcodes,
+    )).map(toEvidenceSku);
+  }
+
   async findByNormalizedNames(
     organizationId: string,
     normalizedNames: string[],
@@ -32,6 +42,7 @@ function toEvidenceSku(sku: {
   code: string;
   name: string;
   optionName: string | null;
+  barcode: string | null;
   currentStock: number;
 }): SellpiaRecipeEvidenceSku {
   return {
@@ -39,6 +50,7 @@ function toEvidenceSku(sku: {
     code: sku.code,
     name: sku.name,
     optionName: sku.optionName,
+    barcode: sku.barcode,
     currentStock: sku.currentStock,
   };
 }
