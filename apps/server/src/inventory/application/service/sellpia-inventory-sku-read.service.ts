@@ -15,6 +15,12 @@ export class SellpiaInventorySkuReadService implements SellpiaInventorySkuReadPo
     private readonly repository: SellpiaInventorySkuReadRepositoryPort,
   ) {}
 
+  listActiveForMatching(
+    organizationId: string,
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    return this.repository.listActiveForMatching(organizationId);
+  }
+
   findByIds(
     organizationId: string,
     ids: string[],

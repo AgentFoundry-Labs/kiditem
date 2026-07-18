@@ -28,6 +28,11 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           {state.errorMessage}
         </div>
       ) : null}
+      {state.overviewErrorMessage ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {state.overviewErrorMessage}
+        </div>
+      ) : null}
 
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -102,9 +107,9 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         </div>
       </header>
 
-      {data ? (
+      {state.overviewData ? (
         <ProductOperationsCommandCenter
-          data={data}
+          data={state.overviewData}
           onShowOutOfStock={() => state.setInventoryStatus('out_of_stock')}
         />
       ) : null}

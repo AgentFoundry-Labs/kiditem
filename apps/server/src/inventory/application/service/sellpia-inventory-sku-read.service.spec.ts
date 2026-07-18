@@ -5,6 +5,15 @@ import { SellpiaInventorySkuReadService } from './sellpia-inventory-sku-read.ser
 const organizationId = '00000000-0000-4000-8000-000000000001';
 
 describe('SellpiaInventorySkuReadService', () => {
+  it('delegates an organization-scoped active matching inventory read', async () => {
+    const repository = makeRepository();
+    const service = new SellpiaInventorySkuReadService(repository);
+
+    await service.listActiveForMatching(organizationId);
+
+    expect(repository.listActiveForMatching).toHaveBeenCalledWith(organizationId);
+  });
+
   it('trims and deduplicates requested Sellpia codes', async () => {
     const repository = makeRepository();
     const service = new SellpiaInventorySkuReadService(repository);
@@ -84,6 +93,9 @@ function makeRepository() {
       .mockResolvedValue([]),
     findByNormalizedNames: vi
       .fn<SellpiaInventorySkuReadRepositoryPort['findByNormalizedNames']>()
+      .mockResolvedValue([]),
+    listActiveForMatching: vi
+      .fn<SellpiaInventorySkuReadRepositoryPort['listActiveForMatching']>()
       .mockResolvedValue([]),
     search: vi.fn<SellpiaInventorySkuReadRepositoryPort['search']>()
       .mockResolvedValue([]),

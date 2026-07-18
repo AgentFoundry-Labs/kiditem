@@ -114,14 +114,26 @@ auto-confirmed. Wing publication may reuse an existing Products identity only
 from a unique, non-conflicting typed seller SKU or safely normalized typed
 barcode; names, raw aliases, and AI never confirm an identity link.
 
-Recipe automation is a separate, explicitly invoked command. It must first
-return a version-fenced preview and may ask Products to create an empty central
-`ProductVariantComponent` recipe only when one active Sellpia SKU is selected
-without conflict by an exact code, a unique physical barcode, or a strict exact
-normalized product-name plus option match. It may create only quantity `1`.
-Existing recipes, pack/BOM uncertainty, duplicate identifiers, conflicting
-evidence, product-name-only matches, similarity, rank, raw aliases, and AI are
-never automatic.
+Recipe automation keeps the separate, explicitly invoked account command for
+operator reruns and review. In addition, a complete Rocket PO catalog
+publication immediately runs the same deterministic policy, scoped only to
+product groups containing options published by that collection, before Supply
+reads capacity. The Rocket path recomputes fresh evidence server-side and
+reports applied/review/blocked counts in the catalog response; incomplete or
+vendor-mismatched collections never invoke it. The version-fenced preview
+remains the operator command read model, and the web does not require a second
+confirmation dialog. Channels may ask Products to create an empty central
+`ProductVariantComponent` recipe when one linked variant selects one active
+Sellpia SKU without conflict. Automatic evidence includes an exact code
+or unique physical barcode that also passes product-name cross-checking, a
+unique exact normalized name, or a unique high-confidence contained/fuzzy name
+whose score and runner-up margin pass the domain thresholds. An explicit,
+integer channel-pack to Sellpia-unit ratio may produce a positive quantity;
+unverifiable multi-pack and BOM composition remain review-only. Safe child
+variants are applied even when a sibling remains unresolved, and the product
+row retains its review/blocked status. Neither entrypoint overwrites an existing
+recipe. Duplicate identifiers, conflicting or close-ranked evidence, raw
+aliases, and AI are never automatic.
 
 A linked variant's confirmed recipe is the only capacity input. An unmatched,
 configuration-required, or review-required
@@ -141,7 +153,8 @@ clearing confirmed product or variant links.
 - `GET /api/channels/sku-availability`
 - `GET /api/channels/product-mappings/recipe-automation/preview`
 - `POST /api/channels/product-mappings/recipe-automation/apply`
-- matching queue reads expose product-level and option-level rows separately;
+- matching queue reads retain product and option relations, while the operator
+  workspace groups option rows beneath their product;
 - product link commands accept only nullable `masterProductId`;
 - option link commands accept only nullable `productVariantId`.
 
@@ -200,6 +213,12 @@ explicit deterministic command through that Products port.
   physical stock, or inferred quantities.
 - Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and
   `channel='rocket'`). Never infer the channel from an account display name.
+- Wing and Rocket currently share one Coupang vendor identity even though their
+  operational accounts remain separate rows. A Rocket publication checks both
+  active primary Wing and selected Rocket `vendorId` values. Missing values may
+  claim the single vendor identity from one complete authenticated Supplier Hub
+  PO evidence run inside the account-scoped publication lock; any non-empty
+  mismatch remains a conflict.
 - Rocket purchase-order collection may publish completed account-scoped
   `ChannelProduct`/`ChannelSku` identities and calculate component-capacity
   previews. It must not add reservation, confirmation, provider submission,

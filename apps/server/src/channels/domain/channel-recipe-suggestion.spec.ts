@@ -30,6 +30,7 @@ const input = (overrides: Partial<ChannelRecipeSuggestionInput> = {}): ChannelRe
   barcodeEvidence: [],
   nameOptionEvidence: [],
   nameEvidence: [],
+  similarityEvidence: [],
   ...overrides,
 });
 
@@ -72,22 +73,41 @@ describe('classifyChannelRecipeSuggestion', () => {
     })]);
   });
 
-  it('requires quantity review when exact code evidence accompanies set language', () => {
+  it('infers quantity one when exact code evidence accompanies a one-unit sell label', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: '2개 세트' }],
-      codeEvidence: [{ kind: 'model_number_code', channelValue: 'SP-001', sku: sku() }],
+      codeEvidence: [{
+        kind: 'model_number_code',
+        channelValue: 'SP-001',
+        sku: sku({ name: '키즈 식판 2개 세트' }),
+      }],
     }));
-    expect(result.status).toBe('quantity_review');
-    expect(result.automationDecision).toBe('operator_review');
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(1);
   });
 
-  it('recognizes Korean pack quantities without relying on an ASCII word boundary', () => {
+  it('infers an integer component ratio from explicit channel and Sellpia pack counts', () => {
     const result = classifyChannelRecipeSuggestion(input({
-      options: [{ ...input().options[0], itemName: '블루 4개입' }],
+      options: [{ ...input().options[0], itemName: '블루 10개입' }],
+      codeEvidence: [{
+        kind: 'seller_sku_code',
+        channelValue: 'SP-001',
+        sku: sku({ name: '키즈 식판 5개입' }),
+      }],
+    }));
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(2);
+  });
+
+  it('keeps a multi-unit channel pack under review when the Sellpia unit has no pack evidence', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], itemName: '블루 10개입' }],
       codeEvidence: [{ kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() }],
     }));
     expect(result.status).toBe('quantity_review');
+    expect(result.recommendedQuantity).toBeNull();
   });
 
   it('auto-applies one unique physical barcode candidate', () => {
@@ -217,13 +237,94 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(result.automationDecision).toBe('blocked');
   });
 
-  it('keeps normalized-name evidence review-only and returns no-match without evidence', () => {
+  it('auto-applies one unique exact normalized product name', () => {
     const nameOnly = classifyChannelRecipeSuggestion(input({
       nameEvidence: [{ channelValue: '키즈 식판', normalizedValue: '키즈식판', sku: sku() }],
     }));
-    expect(nameOnly.status).toBe('name_review_only');
-    expect(nameOnly.automationDecision).toBe('operator_review');
+    expect(nameOnly.status).toBe('exact_name');
+    expect(nameOnly.automationDecision).toBe('auto_apply');
+    expect(nameOnly.recommendedQuantity).toBe(1);
     expect(nameOnly.proposals[0]?.evidence[0]?.kind).toBe('normalized_name');
+  });
+
+  it('auto-applies one unique contained or high-confidence fuzzy name candidate', () => {
+    const contained = classifyChannelRecipeSuggestion(input({
+      similarityEvidence: [
+        {
+          kind: 'contained_name',
+          channelValue: '키즈 식판 어린이 식기',
+          normalizedValue: '키즈식판어린이식기',
+          score: 0.68,
+          sku: sku(),
+        },
+        {
+          kind: 'fuzzy_name',
+          channelValue: '키즈 식판 어린이 식기',
+          normalizedValue: '키즈식판어린이식기',
+          score: 0.64,
+          sku: sku({
+            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+            code: 'SP-002',
+          }),
+        },
+      ],
+    }));
+    expect(contained).toMatchObject({
+      status: 'high_confidence_name',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
+    });
+
+    const fuzzy = classifyChannelRecipeSuggestion(input({
+      similarityEvidence: [{
+        kind: 'fuzzy_name',
+        channelValue: '키즈 식판 블루',
+        normalizedValue: '키즈식판블루',
+        score: 0.86,
+        sku: sku(),
+      }],
+    }));
+    expect(fuzzy).toMatchObject({
+      status: 'high_confidence_name',
+      automationDecision: 'auto_apply',
+    });
+  });
+
+  it('keeps close fuzzy candidates for operator review instead of guessing', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      similarityEvidence: [
+        {
+          kind: 'fuzzy_name', channelValue: '키즈 식판 블루',
+          normalizedValue: '키즈식판블루', score: 0.86, sku: sku(),
+        },
+        {
+          kind: 'fuzzy_name', channelValue: '키즈 식판 블루',
+          normalizedValue: '키즈식판블루', score: 0.82,
+          sku: sku({
+            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+            code: 'SP-002',
+          }),
+        },
+      ],
+    }));
+    expect(result.status).toBe('name_review_only');
+    expect(result.automationDecision).toBe('operator_review');
+  });
+
+  it('requires review when an exact identifier points to a name-incompatible SKU', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      codeEvidence: [{
+        kind: 'model_number_code',
+        channelValue: 'SP-001',
+        nameCompatibilityScore: 0.1,
+        sku: sku({ name: '전혀 다른 상품' }),
+      }],
+    }));
+    expect(result.status).toBe('identifier_name_mismatch');
+    expect(result.automationDecision).toBe('operator_review');
+  });
+
+  it('returns no-match without evidence', () => {
 
     expect(classifyChannelRecipeSuggestion(input())).toMatchObject({
       status: 'no_match',

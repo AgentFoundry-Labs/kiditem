@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from 'sonner';
 import {
   useApplyChannelRecipeAutomation,
   useChannelRecipeAutomationPreview,
@@ -22,6 +23,8 @@ describe('<RecipeAutomationPanel>', () => {
     vi.clearAllMocks();
     apply.mockResolvedValue({
       proposalVersion: 'a'.repeat(64),
+      appliedProducts: 1,
+      skippedProducts: 3,
       appliedVariants: 129,
       affectedOptions: 129,
       skippedExistingVariants: 0,
@@ -36,6 +39,11 @@ describe('<RecipeAutomationPanel>', () => {
         proposalVersion: 'a'.repeat(64),
         generatedAt: '2026-07-18T00:00:00.000Z',
         summary: {
+          products: 4,
+          autoApplyProducts: 1,
+          operatorReviewProducts: 1,
+          blockedProducts: 2,
+          alreadyConfiguredProducts: 0,
           variants: 2245,
           affectedOptions: 2245,
           autoApply: 129,
@@ -43,6 +51,14 @@ describe('<RecipeAutomationPanel>', () => {
           blocked: 1955,
           alreadyConfigured: 0,
         },
+        productGroups: [{
+          channelListingId: '44444444-4444-4444-8444-444444444444',
+          masterProductId: '22222222-2222-4222-8222-222222222222',
+          channelListingOptionIds: Array.from({ length: 129 }, (_, index) => `option-${index}`),
+          productVariantIds: ['11111111-1111-4111-8111-111111111111'],
+          decision: 'auto_apply',
+          autoApplyProductVariantIds: ['11111111-1111-4111-8111-111111111111'],
+        }],
         items: [{
           productVariantId: '11111111-1111-4111-8111-111111111111',
           masterProductId: '22222222-2222-4222-8222-222222222222',
@@ -62,20 +78,22 @@ describe('<RecipeAutomationPanel>', () => {
     } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>);
   });
 
-  it('previews deterministic counts and requires an explicit Radix confirmation', async () => {
+  it('runs the current safe product proposal with one explicit click', async () => {
     const user = userEvent.setup();
     render(<RecipeAutomationPanel channelAccountId={ACCOUNT_ID} />);
 
-    expect(screen.getByText('자동 적용 가능 129')).toBeInTheDocument();
-    expect(screen.getByText('수량·상품 검토 161')).toBeInTheDocument();
-    expect(screen.getByText('매칭 정보 없음 1,955')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '확정 기준 자동 매칭' }));
-    expect(screen.getByText(/기존 레시피는 덮어쓰지 않으며/)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '129개 운영 옵션 적용' }));
+    expect(screen.getByText('자동 적용 대상 1')).toBeInTheDocument();
+    expect(screen.getByText('운영자 검토 1')).toBeInTheDocument();
+    expect(screen.getByText('연결·매칭 필요 2')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '상품·재고 자동 매칭' }));
     expect(apply).toHaveBeenCalledWith({
       channelAccountId: ACCOUNT_ID,
       proposalVersion: 'a'.repeat(64),
     });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(toast.success).toHaveBeenCalledWith(
+      '상품 1개, 운영 옵션 129개에 재고 연결을 적용했습니다.',
+    );
   });
 
   it('disables application when no variant is auto-eligible', () => {
@@ -84,7 +102,27 @@ describe('<RecipeAutomationPanel>', () => {
         channelAccountId: ACCOUNT_ID,
         proposalVersion: 'a'.repeat(64),
         generatedAt: '2026-07-18T00:00:00.000Z',
-        summary: { variants: 1, affectedOptions: 1, autoApply: 0, operatorReview: 0, blocked: 1, alreadyConfigured: 0 },
+        summary: {
+          products: 1,
+          autoApplyProducts: 0,
+          operatorReviewProducts: 0,
+          blockedProducts: 1,
+          alreadyConfiguredProducts: 0,
+          variants: 1,
+          affectedOptions: 1,
+          autoApply: 0,
+          operatorReview: 0,
+          blocked: 1,
+          alreadyConfigured: 0,
+        },
+        productGroups: [{
+          channelListingId: '44444444-4444-4444-8444-444444444444',
+          masterProductId: null,
+          channelListingOptionIds: ['55555555-5555-4555-8555-555555555555'],
+          productVariantIds: [],
+          decision: 'blocked',
+          autoApplyProductVariantIds: [],
+        }],
         items: [],
       },
       isLoading: false,
@@ -94,6 +132,29 @@ describe('<RecipeAutomationPanel>', () => {
     } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>);
 
     render(<RecipeAutomationPanel channelAccountId={ACCOUNT_ID} />);
-    expect(screen.getByRole('button', { name: '확정 기준 자동 매칭' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '상품·재고 자동 매칭' })).toBeDisabled();
+  });
+
+  it('enables application for a safe child even when its product still needs review', () => {
+    const current = useChannelRecipeAutomationPreview(ACCOUNT_ID);
+    vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue({
+      ...current,
+      data: {
+        ...current!.data!,
+        summary: {
+          ...current!.data!.summary,
+          autoApplyProducts: 1,
+          autoApply: 1,
+          operatorReviewProducts: 1,
+        },
+        productGroups: [{
+          ...current!.data!.productGroups[0]!,
+          decision: 'operator_review',
+        }],
+      },
+    } as ReturnType<typeof useChannelRecipeAutomationPreview>);
+
+    render(<RecipeAutomationPanel channelAccountId={ACCOUNT_ID} />);
+    expect(screen.getByRole('button', { name: '상품·재고 자동 매칭' })).toBeEnabled();
   });
 });

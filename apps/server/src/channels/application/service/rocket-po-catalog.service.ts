@@ -13,6 +13,7 @@ import {
   ROCKET_PO_CATALOG_REPOSITORY_PORT,
   type RocketPoCatalogRepositoryPort,
 } from '../port/out/repository/rocket-po-catalog.repository.port';
+import { ChannelRecipeAutomationService } from './channel-recipe-automation.service';
 
 const ARTIFACT_FILE_NAME = 'rocket-po-catalog.json' as const;
 
@@ -21,6 +22,7 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
   constructor(
     @Inject(ROCKET_PO_CATALOG_REPOSITORY_PORT)
     private readonly repository: RocketPoCatalogRepositoryPort,
+    private readonly recipeAutomation: ChannelRecipeAutomationService,
   ) {}
 
   async publishAndResolve(input: {
@@ -42,12 +44,15 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
       return { blockingReason: null, catalog: null, identities: [] };
     }
     const accountVendorId = account.vendorId?.trim() ?? '';
+    const sharedCoupangVendorId = account.sharedCoupangVendorId?.trim() ?? '';
     const evidenceVendorId = request.collection.vendorId.trim();
-    if (accountVendorId.length === 0
-      || (evidenceVendorId.length > 0 && accountVendorId !== evidenceVendorId)) {
+    const configuredVendorIds = [accountVendorId, sharedCoupangVendorId]
+      .filter((vendorId) => vendorId.length > 0);
+    if (evidenceVendorId.length > 0
+      && configuredVendorIds.some((vendorId) => vendorId !== evidenceVendorId)) {
       return { blockingReason: 'vendor_mismatch', catalog: null, identities: [] };
     }
-    const vendorId = evidenceVendorId || accountVendorId;
+    const vendorId = evidenceVendorId || configuredVendorIds[0]!;
 
     const rows = [...request.rows].sort((left, right) =>
       left.poLineId.localeCompare(right.poLineId));
@@ -59,10 +64,38 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
       vendorId,
       fileName: ARTIFACT_FILE_NAME,
       artifactHash,
+      collection: request.collection,
       rows,
     });
+    const recipeAutomation = await this.recipeAutomation.applySafeForOptions({
+      organizationId: input.organizationId,
+      channelAccountId: request.channelAccountId,
+      channelListingOptionIds: published.identities.map(({ channelSkuId }) => channelSkuId),
+    });
     const { identities, ...catalog } = published;
-    return { blockingReason: null, catalog, identities };
+    return {
+      blockingReason: null,
+      catalog: { ...catalog, recipeAutomation },
+      identities,
+    };
+  }
+
+  listSavedPos(input: {
+    organizationId: string;
+    channelAccountId: string;
+    from: string;
+    to: string;
+    status?: string;
+  }) {
+    return this.repository.listSavedPos(input);
+  }
+
+  loadSavedCollection(input: {
+    organizationId: string;
+    channelAccountId: string;
+    sourceImportRunId: string;
+  }) {
+    return this.repository.loadSavedCollection(input);
   }
 }
 

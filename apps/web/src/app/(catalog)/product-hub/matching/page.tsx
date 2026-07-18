@@ -6,7 +6,10 @@ import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { friendlyError } from '@/lib/api-error';
-import { ChannelSkuMappingTable } from './components/ChannelSkuMappingTable';
+import {
+  ProductInventoryMatchingTable,
+  productMatchingDecision,
+} from './components/ProductInventoryMatchingTable';
 import { CoupangWingCatalogImportDialog } from './components/CoupangWingCatalogImportDialog';
 import { MappingSummaryCards } from './components/MappingSummaryCards';
 import { ProductLinkDialog } from './components/ProductLinkDialog';
@@ -43,8 +46,6 @@ export default function MatchingPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedAccountId = searchParams.get('channelAccountId') ?? '';
-  const urlLevel = searchParams.get('level') === 'options' ? 'options' : 'products';
-  const [level, setLevel] = useState<'products' | 'options'>(urlLevel);
   const urlStatus = searchParams.get('status') ?? 'all';
   const [status, setStatus] = useState(urlStatus);
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
@@ -93,7 +94,6 @@ export default function MatchingPage() {
       setSearchText(nextSearch);
       setDebouncedSearch(nextSearch);
     }
-    setLevel(urlLevel);
     setStatus(urlStatus);
   }, [searchParams.toString()]);
 
@@ -106,25 +106,35 @@ export default function MatchingPage() {
     (automationPreviewQuery.data?.items ?? []).flatMap((item) =>
       item.channelListingOptionIds.map((optionId) => [optionId, item] as const)),
   ), [automationPreviewQuery.data?.items]);
+  const automationGroupsByListingId = useMemo(() => new Map(
+    (automationPreviewQuery.data?.productGroups ?? []).map((group) => [
+      group.channelListingId,
+      group,
+    ] as const),
+  ), [automationPreviewQuery.data?.productGroups]);
   const data = mappingsQuery.data;
   const counts = data?.counts ?? EMPTY_COUNTS;
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
-  const filteredProducts = useMemo(() => (data?.products ?? []).filter((row) => (
-    status === 'linked' ? Boolean(row.listing.masterProductId) : status === 'unlinked' ? !row.listing.masterProductId : true
-  )), [data?.products, status]);
-  const filteredOptions = useMemo(() => (data?.options ?? []).filter((row) => {
-    if (status === 'unlinked') return !row.option.productVariantId;
-    if (status === 'configuration_required') return row.recipeStatus === 'configuration_required';
-    if (status === 'review_required') return row.recipeStatus === 'review_required';
-    if (status === 'recipe_confirmed') return row.recipeStatus === 'matched';
-    if (status === 'auto_apply') return automationItemsByOptionId.get(row.option.id)?.decision === 'auto_apply';
-    if (status === 'operator_review') return automationItemsByOptionId.get(row.option.id)?.decision === 'operator_review';
-    if (status === 'blocked') return automationItemsByOptionId.get(row.option.id)?.decision === 'blocked';
-    if (status === 'needs_review') return row.recipeStatus === 'configuration_required' || row.recipeStatus === 'review_required';
-    return true;
-  }), [automationItemsByOptionId, data?.options, status]);
-  const filteredRows = level === 'products' ? filteredProducts : filteredOptions;
-  const pageRows = filteredRows.slice((page - 1) * 50, page * 50);
+  const optionsByListingId = useMemo(() => {
+    const grouped = new Map<string, ChannelOptionMatchingQueueRow[]>();
+    for (const option of data?.options ?? []) {
+      const rows = grouped.get(option.listing.id) ?? [];
+      rows.push(option);
+      grouped.set(option.listing.id, rows);
+    }
+    return grouped;
+  }, [data?.options]);
+  const filteredProducts = useMemo(() => (data?.products ?? []).filter((row) => {
+    if (status === 'all') return true;
+    return productMatchingDecision(
+      row,
+      optionsByListingId.get(row.listing.id) ?? [],
+      automationGroupsByListingId.get(row.listing.id),
+    ) === status;
+  }), [automationGroupsByListingId, data?.products, optionsByListingId, status]);
+  const pageRows = filteredProducts.slice((page - 1) * 50, page * 50);
+  const pageListingIds = new Set(pageRows.map((row) => row.listing.id));
+  const pageOptions = (data?.options ?? []).filter((row) => pageListingIds.has(row.listing.id));
 
   const refresh = async () => {
     try {
@@ -142,7 +152,7 @@ export default function MatchingPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">상품 매칭 센터</h1>
           <p className="mt-1 text-sm text-slate-500">
-            채널 상품을 KidItem 상품에 먼저 연결하고, 채널 옵션을 해당 상품의 판매 옵션에 연결합니다.
+            상품 한 행에서 운영 상품, 하위 옵션, Sellpia 재고 연결 상태를 함께 확인하고 처리합니다.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -182,11 +192,18 @@ export default function MatchingPage() {
             </span>
           </label>
         </div>
-        <div role="group" aria-label="매칭 단계" className="inline-flex rounded-xl bg-slate-100 p-1">
-          <button type="button" aria-pressed={level === 'products'} onClick={() => { setLevel('products'); setStatus('all'); updateUrl({ level: 'products', status: 'all' }); }} className={`rounded-lg px-4 py-2 text-sm font-bold ${level === 'products' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-600'}`}>1 상품 연결</button>
-          <button type="button" aria-pressed={level === 'options'} onClick={() => { setLevel('options'); setStatus('all'); updateUrl({ level: 'options', status: 'all' }); }} className={`rounded-lg px-4 py-2 text-sm font-bold ${level === 'options' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-600'}`}>2 옵션 연결</button>
-        </div>
-        <label className="block max-w-xs space-y-1.5 text-xs font-semibold text-slate-600"><span>큐 상태</span><select aria-label="큐 상태" value={status} onChange={(event) => { setStatus(event.target.value); updateUrl({ status: event.target.value }); }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">{(level === 'products' ? [['all', '전체'], ['linked', '연결됨'], ['unlinked', '미연결']] : [['all', '전체'], ['unlinked', '미연결'], ['auto_apply', '자동 적용 가능'], ['operator_review', '운영자 검토'], ['blocked', '매칭 없음/충돌'], ['configuration_required', '재고 연결 필요'], ['review_required', '검토 필요'], ['recipe_confirmed', '구성 완료'], ['needs_review', '검토 대기']]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="block max-w-xs space-y-1.5 text-xs font-semibold text-slate-600">
+          <span>상품·재고 상태</span>
+          <select aria-label="상품·재고 상태" value={status} onChange={(event) => { setStatus(event.target.value); updateUrl({ status: event.target.value }); }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">
+            {[
+              ['all', '전체'],
+              ['auto_apply', '자동 매칭 가능'],
+              ['operator_review', '운영자 검토'],
+              ['blocked', '연결·매칭 필요'],
+              ['already_configured', '재고 구성 완료'],
+            ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
       </section>
 
       {accountsQuery.error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{friendlyError(accountsQuery.error)}</p> : null}
@@ -195,10 +212,10 @@ export default function MatchingPage() {
       {isRefreshing ? <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-500"><Loader2 size={13} className="animate-spin text-purple-600" /> 목록 갱신 중</div> : null}
 
       {!accountsQuery.error && selectedAccount && !mappingsQuery.error ? (
-        <ChannelSkuMappingTable
-          level={level}
-          products={level === 'products' ? pageRows as ChannelProductMatchingQueueRow[] : []}
-          options={level === 'options' ? pageRows as ChannelOptionMatchingQueueRow[] : []}
+        <ProductInventoryMatchingTable
+          products={pageRows}
+          options={pageOptions}
+          productGroups={automationPreviewQuery.data?.productGroups ?? []}
           loading={mappingsQuery.isLoading && !data}
           onEditProduct={setProductTarget}
           onEditVariant={setVariantTarget}
@@ -206,7 +223,7 @@ export default function MatchingPage() {
           automationItemsByOptionId={automationItemsByOptionId}
         />
       ) : null}
-      {selectedAccount && !mappingsQuery.error && filteredRows.length > 50 ? <Pagination page={page} limit={50} total={filteredRows.length} onPageChange={(nextPage) => updateUrl({ page: String(nextPage) }, false)} /> : null}
+      {selectedAccount && !mappingsQuery.error && filteredProducts.length > 50 ? <Pagination page={page} limit={50} total={filteredProducts.length} onPageChange={(nextPage) => updateUrl({ page: String(nextPage) }, false)} /> : null}
 
       <CoupangWingCatalogImportDialog open={importOpen} account={selectedAccount?.channel === 'coupang' ? selectedAccount : null} onOpenChange={setImportOpen} onSuccess={() => void mappingsQuery.refetch()} />
       {productTarget ? <ProductLinkDialog open row={productTarget} onOpenChange={(next) => { if (!next) setProductTarget(null); }} /> : null}

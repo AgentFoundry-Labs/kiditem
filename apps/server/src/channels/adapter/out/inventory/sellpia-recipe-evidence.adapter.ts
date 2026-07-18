@@ -15,6 +15,12 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
     private readonly inventory: SellpiaInventorySkuReadPort,
   ) {}
 
+  async listActiveForMatching(
+    organizationId: string,
+  ): Promise<SellpiaRecipeEvidenceSku[]> {
+    return (await this.inventory.listActiveForMatching(organizationId)).map(toEvidenceSku);
+  }
+
   async findByCodes(organizationId: string, codes: string[]): Promise<SellpiaRecipeEvidenceSku[]> {
     return (await this.inventory.findByCodes(organizationId, codes)).map(toEvidenceSku);
   }

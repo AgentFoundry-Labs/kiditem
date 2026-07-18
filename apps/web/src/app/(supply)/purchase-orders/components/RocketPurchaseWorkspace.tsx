@@ -1,27 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import {
-  ROCKET_SHORTAGE_REASONS,
-  ROCKET_PO_DETAIL_LIMIT,
-  ROCKET_PO_LIST_PAGE_LIMIT,
-} from '@kiditem/shared/rocket-purchase-preview';
-import { collectRocketPoRowsForConfirmationFromExtension } from '@/lib/rocket-sales-collection';
-import { friendlyError } from '@/lib/api-error';
-import { downloadBlob } from '@/lib/browser-download';
-import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
-import {
-  confirmRocketPurchase,
-  previewRocketPurchases,
-  releaseRocketPurchaseConfirmation,
-} from '../lib/rocket-purchase-preview-api';
-import { buildRocketConfirmationWorkbook } from '../lib/rocket-confirmation-workbook';
+import { useRef } from 'react';
+import { ROCKET_SHORTAGE_REASONS } from '@kiditem/shared/rocket-purchase-preview';
+import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
+import { useRocketPurchaseWorkflow } from '../hooks/useRocketPurchaseWorkflow';
+import { RocketDeterministicMatchingPanel } from './RocketDeterministicMatchingPanel';
 import type {
-  RocketPoCatalogRow,
-  RocketPoCollectionEvidence,
-  RocketPurchaseConfirmationResponse,
   RocketPurchasePreviewReason,
-  RocketPurchasePreviewResponse,
   RocketShortageReason,
 } from '@kiditem/shared/rocket-purchase-preview';
 
@@ -44,55 +29,10 @@ function previewReasonLabel(
   return PREVIEW_REASON_LABELS[reason];
 }
 
-interface CollectionRunSummary {
-  collection: RocketPoCollectionEvidence;
-  poCount: number;
-  rowCount: number;
-  uniqueRowPoCount: number;
-  rowsMatchEvidenceVendor: boolean;
-}
-
 function normalizeReviewQuantity(value: string, maxQuantity: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.min(maxQuantity, Math.max(0, Math.trunc(parsed)));
-}
-
-function editFingerprint(quantities: Record<string, number>): string {
-  return JSON.stringify(Object.entries(quantities).sort(([left], [right]) =>
-    left.localeCompare(right)));
-}
-
-function collectionIsIncomplete(summary: CollectionRunSummary): boolean {
-  const { collection } = summary;
-  const requiresVendorEvidence = summary.poCount > 0 || summary.rowCount > 0;
-  return (requiresVendorEvidence && collection.vendorId.length === 0)
-    || collection.truncated
-    || collection.failedPoNumbers.length > 0
-    || collection.listPagesRead >= ROCKET_PO_LIST_PAGE_LIMIT
-    || collection.detailPoCount >= ROCKET_PO_DETAIL_LIMIT
-    || collection.totalListPages > collection.listPagesRead
-    || collection.detailPoCount !== summary.uniqueRowPoCount
-    || !summary.rowsMatchEvidenceVendor;
-}
-
-function aggregateCollectionWarning(
-  summary: CollectionRunSummary | null,
-  preview: RocketPurchasePreviewResponse | null,
-  hasConfiguredVendorId: boolean,
-): string | null {
-  if (!summary) return null;
-  const previewReasons = new Set(preview?.rows.map(({ reason }) => reason) ?? []);
-  if (collectionIsIncomplete(summary) || previewReasons.has('collection_incomplete')) {
-    return '수집 범위가 불완전합니다. 누락된 PO를 확인한 뒤 다시 계산해 주세요. 공급사 식별 정보도 확인해 주세요.';
-  }
-  if (previewReasons.has('vendor_mismatch')) {
-    if (!hasConfiguredVendorId) {
-      return '선택한 로켓 채널 계정에 공급사 ID가 설정되지 않았습니다. 로켓 계정 설정을 확인해 주세요.';
-    }
-    return '선택한 로켓 채널 계정과 수집한 PO의 공급사가 일치하지 않습니다.';
-  }
-  return null;
 }
 
 export function RocketPurchaseWorkspace({
@@ -100,214 +40,54 @@ export function RocketPurchaseWorkspace({
   hasConfiguredVendorId = true,
   from,
   to,
+  savedSourceImportRunId = null,
+  onCatalogSaved,
+  onActivity,
 }: {
   channelAccountId: string;
   hasConfiguredVendorId?: boolean;
   /** 입고예정일 조회 범위. 로켓 발주 캘린더(RocketOrdersWorkspace)가 단일 소스다. */
   from: string;
   to: string;
+  savedSourceImportRunId?: string | null;
+  onCatalogSaved?: () => void;
+  onActivity?: (activity: RocketOrderActivityInput) => void;
 }) {
-  const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
-  const [preview, setPreview] = useState<RocketPurchasePreviewResponse | null>(null);
-  const [previewDirty, setPreviewDirty] = useState(false);
-  const [validatedEditFingerprint, setValidatedEditFingerprint] = useState('');
-  const [sourceRows, setSourceRows] = useState<RocketPoCatalogRow[]>([]);
-  const [collectionRun, setCollectionRun] = useState<CollectionRunSummary | null>(null);
-  const [shortageReasons, setShortageReasons] = useState<Record<string, RocketShortageReason>>({});
-  const [confirmationKey, setConfirmationKey] = useState('');
-  const [confirmation, setConfirmation] = useState<RocketPurchaseConfirmationResponse | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [releaseReason, setReleaseReason] = useState('');
-  const [releasing, setReleasing] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const recalculate = async () => {
-    setLoading(true);
-    setError(null);
-    setPreview(null);
-    setSourceRows([]);
-    setCollectionRun(null);
-    setConfirmation(null);
-    setConfirmationKey('');
-    setShortageReasons({});
-    setReleaseReason('');
-    try {
-      const collected = await collectRocketPoRowsForConfirmationFromExtension({ from, to });
-      setCollectionRun({
-        collection: collected.collection,
-        poCount: collected.poCount,
-        rowCount: collected.rows.length,
-        uniqueRowPoCount: new Set(collected.rows.map(({ poNumber }) => poNumber)).size,
-        rowsMatchEvidenceVendor: collected.rows.every(
-          ({ vendorId }) => vendorId === collected.collection.vendorId,
-        ),
-      });
-      const retainedEdits = Object.fromEntries(collected.rows.flatMap((row) => {
-        if (!Object.hasOwn(editedQuantities, row.poLineId)) return [];
-        return [[row.poLineId, editedQuantities[row.poLineId]!]];
-      }));
-      const result = await previewRocketPurchases({
-        channelAccountId,
-        collection: collected.collection,
-        rows: collected.rows,
-        editedQuantities: retainedEdits,
-        clampEditedQuantities: true,
-      });
-      const effectiveEdits = Object.fromEntries(result.rows.map((row) => [
-        row.poLineId,
-        row.editedQuantity ?? row.recommendedQuantity,
-      ]));
-      setEditedQuantities(effectiveEdits);
-      setValidatedEditFingerprint(editFingerprint(effectiveEdits));
-      setPreviewDirty(false);
-      setSourceRows(collected.rows);
-      setConfirmationKey(globalThis.crypto.randomUUID());
-      setShortageReasons({});
-      setPreview(result);
-    } catch (cause) {
-      setError(friendlyError(cause) ?? '로켓 발주 미리보기를 계산하지 못했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const revalidateEditedQuantities = async () => {
-    if (!collectionRun || sourceRows.length === 0) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await previewRocketPurchases({
-        channelAccountId,
-        collection: collectionRun.collection,
-        rows: sourceRows,
-        editedQuantities,
-        clampEditedQuantities: true,
-      });
-      const effectiveEdits = Object.fromEntries(result.rows.map((row) => [
-        row.poLineId,
-        row.editedQuantity ?? row.recommendedQuantity,
-      ]));
-      setPreview(result);
-      setEditedQuantities(effectiveEdits);
-      setValidatedEditFingerprint(editFingerprint(effectiveEdits));
-      setPreviewDirty(false);
-    } catch (cause) {
-      setPreviewDirty(true);
-      setError(friendlyError(cause) ?? '수량을 다시 검증하지 못했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const collectionWarning = aggregateCollectionWarning(
-    collectionRun,
+  const templateInputRef = useRef<HTMLInputElement>(null);
+  const {
+    editedQuantities,
+    setEditedQuantities,
     preview,
+    previewDirty,
+    setPreviewDirty,
+    collectionRun,
+    shortageReasons,
+    setShortageReasons,
+    confirmation,
+    confirming,
+    releaseReason,
+    setReleaseReason,
+    releasing,
+    templateFile,
+    setTemplateFile,
+    loading,
+    error,
+    collectionWarning,
+    canConfirm,
+    canRedownload,
+    recalculate,
+    revalidateEditedQuantities,
+    confirmAndDownload,
+    releaseConfirmation,
+  } = useRocketPurchaseWorkflow({
+    channelAccountId,
     hasConfiguredVendorId,
-  );
-  const reviewedQuantities = preview
-    ? Object.fromEntries(preview.rows.map((row) => [
-        row.poLineId,
-        editedQuantities[row.poLineId] ?? row.recommendedQuantity,
-      ]))
-    : {};
-  const canConfirm = Boolean(
-    preview?.catalog
-    && preview.rows.length > 0
-    && sourceRows.length === preview.rows.length
-    && sourceRows.every((row) => row.confirmation && row.barcode.length > 0)
-    && !previewDirty
-    && validatedEditFingerprint === editFingerprint(reviewedQuantities)
-    && preview.rows.every((row) => (
-      (reviewedQuantities[row.poLineId] ?? 0) >= row.orderQuantity
-      || Boolean(shortageReasons[row.poLineId])
-    ))
-    && !collectionWarning
-    && confirmationKey
-    && confirmation === null,
-  );
-  const canRedownload = confirmation?.status === 'active';
-
-  const downloadConfirmationWorkbook = async (
-    result: RocketPurchaseConfirmationResponse,
-  ): Promise<void> => {
-    const workbook = buildRocketConfirmationWorkbook({
-      sourceRows,
-      confirmedRows: result.rows,
-    });
-    downloadBlob(workbook.blob, workbook.fileName);
-    try {
-      await saveRocketConfirmFile({
-        id: `rocket-confirmation-${result.confirmationId}`,
-        fileName: workbook.fileName,
-        createdAt: Date.now(),
-        blob: workbook.blob,
-        totalRows: workbook.summary.totalRows,
-        fullyConfirmed: workbook.summary.fullyConfirmedRows,
-        shortRows: workbook.summary.shortRows,
-      });
-    } catch {
-      setError('엑셀은 다운로드됐지만 로컬 파일 이력에 저장하지 못했습니다.');
-    }
-  };
-
-  const confirmAndDownload = async () => {
-    if (canRedownload) {
-      setConfirming(true);
-      setError(null);
-      try {
-        await downloadConfirmationWorkbook(confirmation);
-      } catch {
-        setError(
-          '확정은 완료됐지만 엑셀 생성에 실패했습니다. 다시 다운로드하거나 확정을 해제해 주세요.',
-        );
-      } finally {
-        setConfirming(false);
-      }
-      return;
-    }
-    if (!preview || !collectionRun || !canConfirm) return;
-    setConfirming(true);
-    setError(null);
-    try {
-      const result = await confirmRocketPurchase({
-        idempotencyKey: confirmationKey,
-        channelAccountId,
-        collection: collectionRun.collection,
-        rows: sourceRows,
-        editedQuantities: reviewedQuantities,
-        shortageReasons,
-      });
-      setConfirmation(result);
-      try {
-        await downloadConfirmationWorkbook(result);
-      } catch {
-        setError(
-          '확정은 완료됐지만 엑셀 생성에 실패했습니다. 다시 다운로드하거나 확정을 해제해 주세요.',
-        );
-      }
-    } catch (cause) {
-      setError(friendlyError(cause) ?? '로켓 발주를 확정하지 못했습니다.');
-    } finally {
-      setConfirming(false);
-    }
-  };
-
-  const releaseConfirmation = async () => {
-    if (confirmation?.status !== 'active' || !releaseReason.trim()) return;
-    setReleasing(true);
-    setError(null);
-    try {
-      setConfirmation(await releaseRocketPurchaseConfirmation({
-        confirmationId: confirmation.confirmationId,
-        reason: releaseReason.trim(),
-      }));
-    } catch (cause) {
-      setError(friendlyError(cause) ?? '로켓 발주 예약을 종료하지 못했습니다.');
-    } finally {
-      setReleasing(false);
-    }
-  };
+    from,
+    to,
+    savedSourceImportRunId,
+    onCatalogSaved,
+    onActivity,
+  });
 
   return (
     <section aria-label="쿠팡 로켓 발주 미리보기" className="space-y-4">
@@ -319,6 +99,39 @@ export function RocketPurchaseWorkspace({
             {from} ~ {to}
           </span>{' '}
           <span className="text-[var(--text-tertiary,#94a3b8)]">(위 캘린더 기준)</span>
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="block min-w-64 flex-1 text-xs font-semibold text-slate-600">
+            <span className="mb-1 block">쿠팡 원본 양식</span>
+            <input
+              ref={templateInputRef}
+              aria-label="쿠팡 원본 양식"
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={(event) => setTemplateFile(event.target.files?.[0] ?? null)}
+              className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs file:mr-3 file:rounded file:border-0 file:bg-violet-50 file:px-2 file:py-1 file:font-semibold file:text-violet-700"
+            />
+          </label>
+          {templateFile ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTemplateFile(null);
+                if (templateInputRef.current) templateInputRef.current.value = '';
+              }}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600"
+            >
+              원본 양식 선택 해제
+            </button>
+          ) : null}
+          {templateFile ? (
+            <span className="max-w-full truncate text-xs text-slate-600" title={templateFile.name}>
+              선택됨: {templateFile.name}
+            </span>
+          ) : null}
+          <p className="w-full text-[11px] text-slate-500">
+            선택하면 쿠팡 원본 파일의 형식을 유지해 채우고, 선택하지 않으면 표준 23열 파일을 생성합니다.
+          </p>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
@@ -404,6 +217,13 @@ export function RocketPurchaseWorkspace({
             </p>
           ) : null}
         </div>
+      ) : null}
+
+      {preview?.catalog ? (
+        <RocketDeterministicMatchingPanel
+          channelAccountId={channelAccountId}
+          latestAutomation={preview.catalog.recipeAutomation}
+        />
       ) : null}
 
       {preview && preview.rows.length === 0 ? (

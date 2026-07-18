@@ -307,6 +307,9 @@ export const ChannelRecipeSuggestionStatusSchema = z.enum([
   'unique_code',
   'unique_barcode',
   'exact_name_option',
+  'exact_name',
+  'high_confidence_name',
+  'identifier_name_mismatch',
   'quantity_review',
   'conflict',
   'ambiguous',
@@ -324,9 +327,12 @@ export const ChannelRecipeSuggestionEvidenceSchema = z.object({
     'physical_barcode',
     'normalized_name',
     'normalized_name_option',
+    'contained_name',
+    'fuzzy_name',
   ]),
   channelValue: z.string().min(1),
   normalizedValue: z.string().min(1),
+  score: z.number().min(0).max(1).optional(),
 }).strict();
 export type ChannelRecipeSuggestionEvidence = z.infer<
   typeof ChannelRecipeSuggestionEvidenceSchema
@@ -380,14 +386,14 @@ export const ChannelRecipeSuggestionResponseSchema = z.object({
     const proposal = response.proposals[0];
     if (
       response.proposals.length !== 1
-      || response.recommendedQuantity !== 1
+      || response.recommendedQuantity === null
       || proposal?.requiresQuantityConfirmation !== false
-      || proposal.recommendedQuantity !== 1
+      || proposal.recommendedQuantity !== response.recommendedQuantity
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['proposals'],
-        message: 'automatic recipes require exactly one quantity-one proposal',
+        message: 'automatic recipes require exactly one positive-quantity proposal',
       });
     }
   }

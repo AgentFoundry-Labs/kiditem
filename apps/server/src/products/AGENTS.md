@@ -40,13 +40,13 @@ compatibility CRUD. It never owns physical stock.
 - Manual recipe writes replace the complete `ProductVariantComponent` set and
   validate positive quantities and tenant ownership. The only automatic writer
   is the locked create-if-empty capability: it accepts one active,
-  organization-owned Sellpia component with quantity `1`, marks its source
+  organization-owned Sellpia component with a positive integer quantity, marks its source
   deterministic, and preserves every existing recipe. Channels may invoke it
   only from a matching version-fenced preview based on a unique,
-  non-conflicting exact code, verified unique physical barcode, or strict exact
-  normalized product-name plus option match. Pack/BOM uncertainty, duplicates,
-  conflicts, product-name-only evidence, similarity, rank, raw aliases, and AI
-  remain non-automatic.
+  non-conflicting identifier with name cross-check, exact normalized identity,
+  or high-confidence unique name match. Quantities above one require an
+  explicit integer pack ratio. Unverifiable pack/BOM composition, duplicates,
+  conflicts, close-ranked names, raw aliases, and AI remain non-automatic.
 - Product-level inventory is a read projection over distinct linked
   `SellpiaInventorySku` rows hydrated through `InventoryAvailabilityPort`.
   Variant capacity uses common `availableStock`; physical stock and active

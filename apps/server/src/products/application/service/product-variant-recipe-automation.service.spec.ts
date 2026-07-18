@@ -8,7 +8,7 @@ const variantId = '00000000-0000-4000-8000-000000000002';
 const skuId = '00000000-0000-4000-8000-000000000003';
 
 describe('ProductVariantRecipeAutomationService', () => {
-  it('delegates one-component quantity-one deterministic recipes', async () => {
+  it('delegates one-component positive-integer deterministic recipes', async () => {
     const repository = makeRepository();
     repository.applyDeterministicRecipesIfEmpty.mockResolvedValue({
       appliedProductVariantIds: [variantId],
@@ -18,7 +18,7 @@ describe('ProductVariantRecipeAutomationService', () => {
 
     await expect(service.applyIfEmpty({
       organizationId,
-      recipes: [{ productVariantId: variantId, sellpiaInventorySkuId: skuId, quantity: 1 }],
+      recipes: [{ productVariantId: variantId, sellpiaInventorySkuId: skuId, quantity: 2 }],
     })).resolves.toEqual({
       appliedProductVariantIds: [variantId],
       skippedExistingProductVariantIds: [],
@@ -35,8 +35,8 @@ describe('ProductVariantRecipeAutomationService', () => {
       ],
     },
     {
-      name: 'a non-quantity-one recipe',
-      recipes: [{ productVariantId: variantId, sellpiaInventorySkuId: skuId, quantity: 2 }],
+      name: 'a non-positive recipe',
+      recipes: [{ productVariantId: variantId, sellpiaInventorySkuId: skuId, quantity: 0 }],
     },
     {
       name: 'an invalid identifier',

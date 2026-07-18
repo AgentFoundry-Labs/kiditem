@@ -51,7 +51,11 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
 
   it('scopes lookup to the organization and proposes exact code evidence without writing a recipe', async () => {
     const product = await createProduct(TEST_ORGANIZATION_ID, 'KI-UNIQUE');
-    const option = await createOption({ productVariantId: product.variantId, sellerSku: 'SP-UNIQUE' });
+    const option = await createOption({
+      productVariantId: product.variantId,
+      sellerSku: 'SP-UNIQUE',
+      displayName: 'Unique stock',
+    });
     const foreign = await createOption({
       organizationId: OTHER_ORGANIZATION_ID, accountId: OTHER_ACCOUNT_ID, productVariantId: null, externalId: 'OTHER',
     });
@@ -226,13 +230,13 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     await expect(automationContexts.listContexts(
       TEST_ORGANIZATION_ID,
       ACCOUNT_ID,
-    )).resolves.toEqual([
-      expect.objectContaining({ productVariantId: own.variantId }),
-    ]);
+    )).resolves.toMatchObject({
+      variants: [expect.objectContaining({ productVariantId: own.variantId })],
+    });
     await expect(automationContexts.listContexts(
       TEST_ORGANIZATION_ID,
       OTHER_ACCOUNT_ID,
-    )).resolves.toEqual([]);
+    )).resolves.toMatchObject({ products: [], variants: [] });
   });
 
   async function createProduct(organizationId: string, code: string) {

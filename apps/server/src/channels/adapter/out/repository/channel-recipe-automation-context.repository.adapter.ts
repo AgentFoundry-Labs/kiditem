@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
+  ChannelRecipeAutomationAccountContext,
   ChannelRecipeAutomationContext,
   ChannelRecipeAutomationContextRepositoryPort,
 } from '../../../application/port/out/repository/channel-recipe-automation-context.repository.port';
@@ -19,12 +20,11 @@ implements ChannelRecipeAutomationContextRepositoryPort {
   async listContexts(
     organizationId: string,
     channelAccountId: string,
-  ): Promise<ChannelRecipeAutomationContext[]> {
+  ): Promise<ChannelRecipeAutomationAccountContext> {
     const selectedOptions = await this.prisma.channelListingOption.findMany({
       where: {
         organizationId,
         isActive: true,
-        productVariantId: { not: null },
         listing: {
           is: {
             organizationId,
@@ -56,13 +56,37 @@ implements ChannelRecipeAutomationContextRepositoryPort {
           },
         },
       },
-      select: { id: true, productVariantId: true },
+      select: {
+        id: true,
+        productVariantId: true,
+        listing: { select: { id: true, masterProductId: true } },
+      },
       orderBy: { id: 'asc' },
     });
+    const productsById = new Map<string, ChannelRecipeAutomationAccountContext['products'][number]>();
+    for (const option of selectedOptions) {
+      const product = productsById.get(option.listing.id) ?? {
+        channelListingId: option.listing.id,
+        masterProductId: option.listing.masterProductId,
+        options: [],
+      };
+      product.options.push({
+        channelListingOptionId: option.id,
+        productVariantId: option.productVariantId,
+      });
+      productsById.set(option.listing.id, product);
+    }
+    const products = [...productsById.values()]
+      .map((product) => ({
+        ...product,
+        options: product.options.sort((left, right) =>
+          left.channelListingOptionId.localeCompare(right.channelListingOptionId)),
+      }))
+      .sort((left, right) => left.channelListingId.localeCompare(right.channelListingId));
     const variantIds = [...new Set(selectedOptions
       .map((option) => option.productVariantId)
       .filter((id): id is string => id !== null))].sort();
-    if (variantIds.length === 0) return [];
+    if (variantIds.length === 0) return { products, variants: [] };
 
     const allLinkedOptions = await this.prisma.channelListingOption.findMany({
       where: {
@@ -113,7 +137,7 @@ implements ChannelRecipeAutomationContextRepositoryPort {
       optionsByVariant.set(option.productVariantId, options);
     }
 
-    return variantIds.flatMap((productVariantId) => {
+    const variants = variantIds.flatMap((productVariantId): ChannelRecipeAutomationContext[] => {
       const options = optionsByVariant.get(productVariantId) ?? [];
       const variant = options[0]?.productVariant;
       if (!variant) return [];
@@ -139,6 +163,7 @@ implements ChannelRecipeAutomationContextRepositoryPort {
         })),
       }];
     });
+    return { products, variants };
   }
 }
 

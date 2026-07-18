@@ -236,6 +236,58 @@ describe('ProcurementService — PO status lifecycle', () => {
 });
 
 describe('ProcurementController purchase submission boundary', () => {
+  it('routes saved Rocket PO list and collection reads through the account-scoped catalog port', async () => {
+    const catalog = {
+      listSavedPos: vi.fn().mockResolvedValue([]),
+      loadSavedCollection: vi.fn().mockResolvedValue({ rows: [] }),
+    };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: Record<string, unknown>,
+      previews: Record<string, unknown>,
+      confirmations: Record<string, unknown>,
+      commitments: Record<string, unknown>,
+      catalog: typeof catalog,
+    ) => ProcurementController;
+    const controller = new Controller({}, {}, {}, {}, {}, catalog);
+    const channelAccountId = '11111111-1111-4111-8111-111111111111';
+    const sourceImportRunId = '22222222-2222-4222-8222-222222222222';
+
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'listSavedRocketPos',
+        channelAccountId,
+        from: '2026-07-01',
+        to: '2026-07-31',
+        rocketStatus: '거래처확인요청',
+      } as never,
+    );
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'loadSavedRocketCollection',
+        channelAccountId,
+        sourceImportRunId,
+      } as never,
+    );
+
+    expect(catalog.listSavedPos).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      channelAccountId,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      status: '거래처확인요청',
+    });
+    expect(catalog.loadSavedCollection).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      channelAccountId,
+      sourceImportRunId,
+    });
+  });
+
   it('routes Rocket confirmation and release through the Supply-owned action endpoint', async () => {
     const confirmations = {
       confirm: vi.fn().mockResolvedValue({ status: 'active' }),

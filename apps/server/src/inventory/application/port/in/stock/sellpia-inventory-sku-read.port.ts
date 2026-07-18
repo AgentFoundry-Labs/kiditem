@@ -16,6 +16,9 @@ export type SellpiaInventorySkuReadModel = {
 };
 
 export interface SellpiaInventorySkuReadPort {
+  listActiveForMatching(
+    organizationId: string,
+  ): Promise<SellpiaInventorySkuReadModel[]>;
   findByIds(
     organizationId: string,
     ids: string[],

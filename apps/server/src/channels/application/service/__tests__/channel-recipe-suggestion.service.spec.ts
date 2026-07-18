@@ -25,6 +25,7 @@ describe('ChannelRecipeSuggestionService', () => {
       }]),
       findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
       findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
     };
     const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
 
@@ -65,6 +66,7 @@ describe('ChannelRecipeSuggestionService', () => {
         barcode: null,
         currentStock: 8,
       }]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
     };
     const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
 
@@ -103,6 +105,7 @@ describe('ChannelRecipeSuggestionService', () => {
         { ...barcodeSku, sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000006', code: 'SP-002' },
       ]),
       findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
     };
     const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
     await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
@@ -123,12 +126,13 @@ describe('ChannelRecipeSuggestionService', () => {
     });
   });
 
-  it('deduplicates evidence into exactly three reads for a context batch', async () => {
+  it('deduplicates exact evidence and loads active name candidates once per context batch', async () => {
     const repository = { getContext: vi.fn() };
     const evidence = {
       findByCodes: vi.fn().mockResolvedValue([]),
       findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
       findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
     };
     const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
     const sharedOption = {
@@ -158,6 +162,69 @@ describe('ChannelRecipeSuggestionService', () => {
     expect(evidence.findByCodes).toHaveBeenCalledOnce();
     expect(evidence.findByNormalizedBarcodes).toHaveBeenCalledOnce();
     expect(evidence.findByNormalizedNames).toHaveBeenCalledOnce();
+    expect(evidence.listActiveForMatching).toHaveBeenCalledOnce();
+  });
+
+  it('auto-applies one unique high-confidence active-inventory name candidate', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      productVariantId: '00000000-0000-4000-8000-000000000003',
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: '동물인형 목욕타올 1p 어린이 샤워 타올',
+        itemName: '1개', sellerSku: null, modelNumber: null, barcode: null,
+      }],
+      existingComponents: [],
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([{
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+        code: '914-1', name: '동물인형목욕타올', optionName: null,
+        barcode: null, currentStock: 8,
+      }]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'high_confidence_name', automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
+    });
+  });
+
+  it('cross-checks an exact code candidate against the channel product name', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      productVariantId: '00000000-0000-4000-8000-000000000003',
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: '스타워즈 합체 광선검', itemName: '단품',
+        sellerSku: null, modelNumber: '9726-1', barcode: null,
+      }],
+      existingComponents: [],
+    };
+    const wrongSku = {
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+      code: '9726-1', name: '입체 오리 청소 세트', optionName: null,
+      barcode: null, currentStock: 8,
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([wrongSku]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([wrongSku]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'identifier_name_mismatch', automationDecision: 'operator_review',
+    });
   });
 
   it('does not query Inventory when the scoped context is missing', async () => {
@@ -166,6 +233,7 @@ describe('ChannelRecipeSuggestionService', () => {
       findByCodes: vi.fn(),
       findByNormalizedBarcodes: vi.fn(),
       findByNormalizedNames: vi.fn(),
+      listActiveForMatching: vi.fn(),
     };
     const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
 
@@ -173,5 +241,6 @@ describe('ChannelRecipeSuggestionService', () => {
     expect(evidence.findByCodes).not.toHaveBeenCalled();
     expect(evidence.findByNormalizedBarcodes).not.toHaveBeenCalled();
     expect(evidence.findByNormalizedNames).not.toHaveBeenCalled();
+    expect(evidence.listActiveForMatching).not.toHaveBeenCalled();
   });
 });

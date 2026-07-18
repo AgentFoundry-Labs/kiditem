@@ -45,8 +45,8 @@ function validateInput(input: {
     if (!UUID.test(recipe.productVariantId) || !UUID.test(recipe.sellpiaInventorySkuId)) {
       throw new BadRequestException('Recipe variant and Sellpia SKU IDs must be UUIDs');
     }
-    if (recipe.quantity !== 1) {
-      throw new BadRequestException('Deterministic recipes require exactly one component quantity');
+    if (!Number.isSafeInteger(recipe.quantity) || recipe.quantity <= 0) {
+      throw new BadRequestException('Deterministic recipe quantity must be a positive integer');
     }
     if (variantIds.has(recipe.productVariantId)) {
       throw new BadRequestException('Each ProductVariant can have only one deterministic recipe');

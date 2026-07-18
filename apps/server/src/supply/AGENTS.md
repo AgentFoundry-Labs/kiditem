@@ -67,7 +67,9 @@ Route shape is frozen.
   checks; application services depend on `application/port/out/*` contracts
   only.
 - `previewRocket` publishes complete Rocket PO catalog evidence through the
-  Channels-owned port, resolves confirmed component recipes through
+  Channels-owned port. That publication applies only freshly evaluated safe
+  deterministic recipes for the published Rocket options, then Supply resolves
+  confirmed component recipes through
   `CHANNEL_SKU_AVAILABILITY_PORT`, and applies the Inventory freshness gate
   before calculating quantities.
 - Rocket allocation replaces any earlier projected stock with Inventory's

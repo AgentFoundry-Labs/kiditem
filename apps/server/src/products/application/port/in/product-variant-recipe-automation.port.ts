@@ -5,7 +5,7 @@ export const PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT = Symbol(
 export type DeterministicVariantRecipeInput = {
   productVariantId: string;
   sellpiaInventorySkuId: string;
-  quantity: 1;
+  quantity: number;
 };
 
 export type DeterministicVariantRecipeApplyResult = {

@@ -8,6 +8,11 @@ import {
   normalizeRecipeIdentityText,
 } from '../../domain/channel-recipe-suggestion';
 import {
+  createChannelRecipeNameIndex,
+  rankChannelRecipeNameCandidates,
+  scoreChannelRecipeNameCandidate,
+} from '../../domain/channel-recipe-name-matcher';
+import {
   SELLPIA_RECIPE_EVIDENCE_PORT,
   type SellpiaRecipeEvidencePort,
 } from '../port/out/cross-domain/sellpia-recipe-evidence.port';
@@ -49,6 +54,7 @@ export class ChannelRecipeSuggestionService {
     organizationId: string,
     contexts: ChannelRecipeAutomationContext[],
   ): Promise<ChannelRecipeSuggestionResponse[]> {
+    if (contexts.length === 0) return [];
     const allOptions = contexts.flatMap((context) => context.allLinkedOptions);
     const codeValues = distinct(allOptions.flatMap((option) => [
       option.sellerSku,
@@ -58,16 +64,28 @@ export class ChannelRecipeSuggestionService {
       normalizePhysicalBarcode(option.barcode)));
     const nameValues = distinct(allOptions.map((option) =>
       normalizeRecipeIdentityText(option.listingName)));
-    const [skusByCode, skusByBarcode, skusByName] = await Promise.all([
+    const [skusByCode, skusByBarcode, skusByName, activeMatchingSkus] = await Promise.all([
       this.evidence.findByCodes(organizationId, codeValues),
       this.evidence.findByNormalizedBarcodes(organizationId, barcodeValues),
       this.evidence.findByNormalizedNames(organizationId, nameValues),
+      this.evidence.listActiveForMatching(organizationId),
     ]);
+    const matchingNameIndex = createChannelRecipeNameIndex(activeMatchingSkus);
 
     return contexts.map((context) => {
       const codeEvidence = context.allLinkedOptions.flatMap((option) => [
-        ...evidenceForCode(option.sellerSku, 'seller_sku_code', skusByCode),
-        ...evidenceForCode(option.modelNumber, 'model_number_code', skusByCode),
+        ...evidenceForCode(
+          option.sellerSku,
+          'seller_sku_code',
+          skusByCode,
+          context.allLinkedOptions,
+        ),
+        ...evidenceForCode(
+          option.modelNumber,
+          'model_number_code',
+          skusByCode,
+          context.allLinkedOptions,
+        ),
       ]);
       const barcodeEvidence = context.allLinkedOptions.flatMap((option) => {
         const normalizedValue = normalizePhysicalBarcode(option.barcode);
@@ -78,12 +96,20 @@ export class ChannelRecipeSuggestionService {
             kind: 'unique_physical_barcode' as const,
             channelValue: option.barcode!,
             normalizedValue,
+            nameCompatibilityScore: scoreChannelRecipeNameCandidate(
+              context.allLinkedOptions,
+              sku,
+            ).score,
             sku,
           }));
       });
       const { nameOptionEvidence, nameEvidence } = evidenceForNames(
         context.allLinkedOptions,
         skusByName,
+      );
+      const similarityEvidence = rankChannelRecipeNameCandidates(
+        context.allLinkedOptions,
+        matchingNameIndex,
       );
       return ChannelRecipeSuggestionResponseSchema.parse(classifyChannelRecipeSuggestion({
         channelListingOptionId: context.selectedChannelListingOptionIds[0]!,
@@ -95,6 +121,7 @@ export class ChannelRecipeSuggestionService {
         barcodeEvidence,
         nameOptionEvidence,
         nameEvidence,
+        similarityEvidence,
       }));
     });
   }
@@ -104,11 +131,13 @@ function evidenceForCode(
   channelValue: string | null,
   kind: 'seller_sku_code' | 'model_number_code',
   skus: Awaited<ReturnType<SellpiaRecipeEvidencePort['findByCodes']>>,
+  options: ChannelRecipeAutomationContext['allLinkedOptions'],
 ) {
   if (!channelValue?.trim()) return [];
   return skus.filter((sku) => sku.code === channelValue.trim()).map((sku) => ({
     kind,
     channelValue: channelValue.trim(),
+    nameCompatibilityScore: scoreChannelRecipeNameCandidate(options, sku).score,
     sku,
   }));
 }

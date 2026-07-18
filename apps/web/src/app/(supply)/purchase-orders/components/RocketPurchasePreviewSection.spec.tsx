@@ -15,16 +15,22 @@ const secondRocketAccountId = '33333333-3333-4333-8333-333333333333';
 function renderSection({
   from = '2026-07-16',
   to = '2026-07-22',
+  onAccountChange,
 }: {
   from?: string;
   to?: string;
+  onAccountChange?: (account: { id: string; vendorId: string | null }) => void;
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RocketPurchasePreviewSection from={from} to={to} />
+      <RocketPurchasePreviewSection
+        from={from}
+        to={to}
+        onAccountChange={onAccountChange}
+      />
     </QueryClientProvider>,
   );
 }
@@ -82,5 +88,15 @@ describe('<RocketPurchasePreviewSection>', () => {
     await waitFor(() => expect(selector).toHaveValue(secondRocketAccountId));
     expect(screen.queryByLabelText('조회 시작일')).not.toBeInTheDocument();
     expect(screen.getByText('2026-07-16 ~ 2026-07-22')).toBeInTheDocument();
+  });
+
+  it('reports the selected Rocket account to the saved calendar owner', async () => {
+    const onAccountChange = vi.fn();
+    renderSection({ onAccountChange });
+
+    await waitFor(() => expect(onAccountChange).toHaveBeenCalledWith({
+      id: rocketAccountId,
+      vendorId: 'ROCKET',
+    }));
   });
 });

@@ -142,8 +142,12 @@ export const queryKeys = {
     search: (params: Record<string, string>) => [...queryKeys.orders.all, 'search', params] as const,
     compare: (params: Record<string, string>) => [...queryKeys.orders.all, 'compare', params] as const,
     sync: (params: Record<string, string>) => [...queryKeys.orders.all, 'sync', params] as const,
-    rocketPoList: (params: { from: string; to: string; status: string }) =>
-      [...queryKeys.orders.all, 'rocket-po-list', params] as const,
+    rocketSavedPoList: (params: {
+      channelAccountId: string;
+      from: string;
+      to: string;
+      status: string;
+    }) => [...queryKeys.orders.all, 'rocket-saved-po-list', params] as const,
     collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
     collectionMallAction: (action: string) =>
       [...queryKeys.orders.collectionMalls(), action] as const,

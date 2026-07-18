@@ -15,19 +15,28 @@ const skuId = '00000000-0000-4000-8000-000000000401';
 describe('ChannelRecipeAutomationService', () => {
   it('sorts variant items and builds stable preview counts and a SHA-256 fence', async () => {
     const { service, contextRepository, suggestions } = makeService();
-    contextRepository.listContexts.mockResolvedValue([
+    const optionC = '00000000-0000-4000-8000-000000000303';
+    contextRepository.listContexts.mockResolvedValue(accountContext([
       context(variantB, productB, [optionB]),
-      context(variantA, productA, [optionA, '00000000-0000-4000-8000-000000000303']),
-    ]);
+      context(variantA, productA, [optionA, optionC]),
+    ], [
+      topology('00000000-0000-4000-8000-000000000501', productB, [[optionB, variantB]]),
+      topology('00000000-0000-4000-8000-000000000502', productA, [[optionA, variantA], [optionC, variantA]]),
+    ]));
     suggestions.suggestBatch.mockResolvedValue([
       suggestion(optionB, variantB, productB, 'quantity_review', 'operator_review'),
-      suggestion(optionA, variantA, productA, 'unique_code', 'auto_apply'),
+      suggestion(optionA, variantA, productA, 'unique_code', 'auto_apply', 2),
     ]);
 
     const preview = await service.preview(organizationId, channelAccountId);
 
     expect(preview.items.map((item) => item.productVariantId)).toEqual([variantA, variantB]);
     expect(preview.summary).toEqual({
+      products: 2,
+      autoApplyProducts: 1,
+      operatorReviewProducts: 1,
+      blockedProducts: 0,
+      alreadyConfiguredProducts: 0,
       variants: 2,
       affectedOptions: 3,
       autoApply: 1,
@@ -35,6 +44,10 @@ describe('ChannelRecipeAutomationService', () => {
       blocked: 0,
       alreadyConfigured: 0,
     });
+    expect(preview.productGroups).toEqual([
+      expect.objectContaining({ decision: 'operator_review', autoApplyProductVariantIds: [] }),
+      expect.objectContaining({ decision: 'auto_apply', autoApplyProductVariantIds: [variantA] }),
+    ]);
     expect(preview.proposalVersion).toMatch(/^[a-f0-9]{64}$/);
     expect(contextRepository.listContexts).toHaveBeenCalledWith(
       organizationId,
@@ -44,12 +57,15 @@ describe('ChannelRecipeAutomationService', () => {
 
   it('rejects stale previews and applies only current automatic items', async () => {
     const { service, contextRepository, suggestions, products } = makeService();
-    contextRepository.listContexts.mockResolvedValue([
+    contextRepository.listContexts.mockResolvedValue(accountContext([
       context(variantA, productA, [optionA]),
       context(variantB, productB, [optionB]),
-    ]);
+    ], [
+      topology('00000000-0000-4000-8000-000000000501', productA, [[optionA, variantA]]),
+      topology('00000000-0000-4000-8000-000000000502', productB, [[optionB, variantB]]),
+    ]));
     suggestions.suggestBatch.mockResolvedValue([
-      suggestion(optionA, variantA, productA, 'unique_code', 'auto_apply'),
+      suggestion(optionA, variantA, productA, 'unique_code', 'auto_apply', 2),
       suggestion(optionB, variantB, productB, 'quantity_review', 'operator_review'),
     ]);
     products.applyIfEmpty.mockResolvedValue({
@@ -68,6 +84,8 @@ describe('ChannelRecipeAutomationService', () => {
       proposalVersion: preview.proposalVersion,
     })).resolves.toEqual({
       proposalVersion: preview.proposalVersion,
+      appliedProducts: 1,
+      skippedProducts: 1,
       appliedVariants: 1,
       affectedOptions: 1,
       skippedExistingVariants: 0,
@@ -77,7 +95,94 @@ describe('ChannelRecipeAutomationService', () => {
       recipes: [{
         productVariantId: variantA,
         sellpiaInventorySkuId: skuId,
+        quantity: 2,
+      }],
+    });
+  });
+
+  it('applies safe child recipes when one sibling still needs review', async () => {
+    const { service, contextRepository, suggestions, products } = makeService();
+    contextRepository.listContexts.mockResolvedValue(accountContext([
+      context(variantA, productA, [optionA]),
+      context(variantB, productA, [optionB]),
+    ], [
+      topology('00000000-0000-4000-8000-000000000501', productA, [
+        [optionA, variantA],
+        [optionB, variantB],
+      ]),
+    ]));
+    suggestions.suggestBatch.mockResolvedValue([
+      suggestion(optionA, variantA, productA, 'unique_code', 'auto_apply'),
+      suggestion(optionB, variantB, productA, 'quantity_review', 'operator_review'),
+    ]);
+    products.applyIfEmpty.mockResolvedValue({
+      appliedProductVariantIds: [variantA],
+      skippedExistingProductVariantIds: [],
+    });
+
+    const preview = await service.preview(organizationId, channelAccountId);
+    expect(preview.productGroups).toEqual([expect.objectContaining({
+      decision: 'operator_review',
+      autoApplyProductVariantIds: [variantA],
+    })]);
+    expect(preview.summary.autoApplyProducts).toBe(1);
+
+    await expect(service.apply(organizationId, {
+      channelAccountId,
+      proposalVersion: preview.proposalVersion,
+    })).resolves.toMatchObject({
+      appliedProducts: 1,
+      skippedProducts: 0,
+      appliedVariants: 1,
+    });
+    expect(products.applyIfEmpty).toHaveBeenCalledWith({
+      organizationId,
+      recipes: [{
+        productVariantId: variantA,
+        sellpiaInventorySkuId: skuId,
         quantity: 1,
+      }],
+    });
+  });
+
+  it('automatically applies only product groups selected by newly published channel options', async () => {
+    const { service, contextRepository, suggestions, products } = makeService();
+    contextRepository.listContexts.mockResolvedValue(accountContext([
+      context(variantA, productA, [optionA]),
+      context(variantB, productB, [optionB]),
+    ], [
+      topology('00000000-0000-4000-8000-000000000501', productA, [[optionA, variantA]]),
+      topology('00000000-0000-4000-8000-000000000502', productB, [[optionB, variantB]]),
+    ]));
+    suggestions.suggestBatch.mockResolvedValue([
+      suggestion(optionA, variantA, productA, 'unique_code', 'auto_apply', 2),
+      suggestion(optionB, variantB, productB, 'unique_code', 'auto_apply', 3),
+    ]);
+    products.applyIfEmpty.mockResolvedValue({
+      appliedProductVariantIds: [variantA],
+      skippedExistingProductVariantIds: [],
+    });
+
+    await expect(service.applySafeForOptions({
+      organizationId,
+      channelAccountId,
+      channelListingOptionIds: [optionA],
+    })).resolves.toEqual({
+      evaluatedProducts: 1,
+      appliedProducts: 1,
+      appliedVariants: 1,
+      affectedOptions: 1,
+      operatorReviewProducts: 0,
+      blockedProducts: 0,
+      alreadyConfiguredProducts: 0,
+      skippedExistingVariants: 0,
+    });
+    expect(products.applyIfEmpty).toHaveBeenCalledWith({
+      organizationId,
+      recipes: [{
+        productVariantId: variantA,
+        sellpiaInventorySkuId: skuId,
+        quantity: 2,
       }],
     });
   });
@@ -116,12 +221,35 @@ function context(productVariantId: string, masterProductId: string, optionIds: s
   };
 }
 
+function accountContext(
+  variants: ReturnType<typeof context>[],
+  products: ReturnType<typeof topology>[],
+) {
+  return { products, variants };
+}
+
+function topology(
+  channelListingId: string,
+  masterProductId: string | null,
+  options: Array<[string, string | null]>,
+) {
+  return {
+    channelListingId,
+    masterProductId,
+    options: options.map(([channelListingOptionId, productVariantId]) => ({
+      channelListingOptionId,
+      productVariantId,
+    })),
+  };
+}
+
 function suggestion(
   channelListingOptionId: string,
   productVariantId: string,
   masterProductId: string,
   status: 'unique_code' | 'quantity_review',
   automationDecision: 'auto_apply' | 'operator_review',
+  quantity = 1,
 ) {
   const automatic = automationDecision === 'auto_apply';
   return {
@@ -130,7 +258,7 @@ function suggestion(
     masterProductId,
     status,
     automationDecision,
-    recommendedQuantity: automatic ? 1 : null,
+    recommendedQuantity: automatic ? quantity : null,
     reason: automatic ? 'One exact code' : 'Review quantity',
     existingComponents: [],
     proposals: [{
@@ -145,7 +273,7 @@ function suggestion(
         normalizedValue: 'SP-001',
       }],
       requiresQuantityConfirmation: !automatic,
-      recommendedQuantity: automatic ? 1 : null,
+      recommendedQuantity: automatic ? quantity : null,
     }],
   };
 }

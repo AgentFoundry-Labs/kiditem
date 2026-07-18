@@ -1,24 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
 import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { RocketPurchaseWorkspace } from './RocketPurchaseWorkspace';
-import { RocketInventoryCommitmentList } from './RocketInventoryCommitmentList';
 
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 export function RocketPurchasePreviewSection({
   from,
   to,
+  savedSourceImportRunId = null,
+  onAccountChange,
+  onCatalogSaved,
+  onActivity,
 }: {
   /** 입고예정일 조회 범위 — 로켓 발주 캘린더가 단일 소스다. */
   from: string;
   to: string;
+  savedSourceImportRunId?: string | null;
+  onAccountChange?: (account: { id: string; vendorId: string | null }) => void;
+  onCatalogSaved?: () => void;
+  onActivity?: (activity: RocketOrderActivityInput) => void;
 }) {
   const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
   const accountsQuery = useQuery({
@@ -29,6 +37,14 @@ export function RocketPurchasePreviewSection({
   const selectedAccount = accounts.find(({ id }) => id === selectedRocketAccountId)
     ?? accounts[0]
     ?? null;
+
+  useEffect(() => {
+    if (!selectedAccount) return;
+    onAccountChange?.({
+      id: selectedAccount.id,
+      vendorId: selectedAccount.vendorId ?? null,
+    });
+  }, [onAccountChange, selectedAccount]);
 
   return (
     <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
@@ -62,8 +78,10 @@ export function RocketPurchasePreviewSection({
             hasConfiguredVendorId={Boolean(selectedAccount.vendorId?.trim())}
             from={from}
             to={to}
+            savedSourceImportRunId={savedSourceImportRunId}
+            onCatalogSaved={onCatalogSaved}
+            onActivity={onActivity}
           />
-          <RocketInventoryCommitmentList channelAccountId={selectedAccount.id} />
         </>
       ) : accountsQuery.isLoading ? (
         <p className="text-sm text-slate-500">로켓 계정을 불러오는 중입니다.</p>

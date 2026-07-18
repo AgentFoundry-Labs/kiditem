@@ -102,4 +102,31 @@ describe('useProductHubPageState', () => {
     expect(apiSource).toContain('/api/products/masters');
     expect(apiSource).not.toContain('/api/inventory/sellpia-skus');
   });
+
+  it('requests an unfiltered overview independently from list filters', () => {
+    navigation.params = new URLSearchParams(
+      'search=%EC%9A%B0%EC%82%B0&inventoryStatus=out_of_stock&activeStatus=inactive&periodDays=7&category=%EC%99%84%EA%B5%AC&abcGrade=A&adStatus=active&page=4',
+    );
+
+    renderHook(() => useProductHubPageState());
+
+    expect(useQuery).toHaveBeenCalledTimes(2);
+    const overviewOptions = vi.mocked(useQuery).mock.calls[1]?.[0] as {
+      queryKey: readonly unknown[];
+      queryFn: () => Promise<unknown>;
+    };
+    expect(overviewOptions.queryKey).toEqual([
+      'products',
+      'operations',
+      'list',
+      {
+        page: '1',
+        limit: '1',
+        periodDays: '7',
+        activeStatus: 'all',
+        adStatus: 'all',
+      },
+    ]);
+    expect(overviewOptions.queryFn.toString()).toContain('/api/products/masters');
+  });
 });

@@ -3,6 +3,9 @@ export type ChannelRecipeSuggestionStatus =
   | 'unique_code'
   | 'unique_barcode'
   | 'exact_name_option'
+  | 'exact_name'
+  | 'high_confidence_name'
+  | 'identifier_name_mismatch'
   | 'quantity_review'
   | 'conflict'
   | 'ambiguous'
@@ -20,7 +23,9 @@ export type ChannelRecipeSuggestionEvidenceKind =
   | 'model_number_code'
   | 'physical_barcode'
   | 'normalized_name'
-  | 'normalized_name_option';
+  | 'normalized_name_option'
+  | 'contained_name'
+  | 'fuzzy_name';
 
 export type ChannelRecipeSuggestionSku = {
   sellpiaInventorySkuId: string;
@@ -33,6 +38,7 @@ export type ChannelRecipeSuggestionSku = {
 type CodeEvidence = {
   kind: 'seller_sku_code' | 'model_number_code';
   channelValue: string;
+  nameCompatibilityScore?: number | null;
   sku: ChannelRecipeSuggestionSku;
 };
 
@@ -40,6 +46,7 @@ type BarcodeEvidence = {
   kind: 'unique_physical_barcode';
   channelValue: string;
   normalizedValue: string;
+  nameCompatibilityScore?: number | null;
   sku: ChannelRecipeSuggestionSku;
 };
 
@@ -54,6 +61,14 @@ type NameOptionEvidence = {
 type NameEvidence = {
   channelValue: string;
   normalizedValue: string;
+  sku: ChannelRecipeSuggestionSku;
+};
+
+type SimilarityEvidence = {
+  kind: 'normalized_name' | 'contained_name' | 'fuzzy_name';
+  channelValue: string;
+  normalizedValue: string;
+  score: number;
   sku: ChannelRecipeSuggestionSku;
 };
 
@@ -81,12 +96,14 @@ export type ChannelRecipeSuggestionInput = {
   barcodeEvidence: BarcodeEvidence[];
   nameOptionEvidence: NameOptionEvidence[];
   nameEvidence: NameEvidence[];
+  similarityEvidence: SimilarityEvidence[];
 };
 
 type ProposalEvidence = {
   kind: ChannelRecipeSuggestionEvidenceKind;
   channelValue: string;
   normalizedValue: string;
+  score?: number;
 };
 
 type StrongEvidence = {
@@ -170,23 +187,44 @@ export function classifyChannelRecipeSuggestion(
 
   if (skuIds.size === 1) {
     const sku = strongEvidence[0]!.sku;
-    if (!compatibleUnit(input.options.flatMap((option) => [option.listingName, option.itemName]), sku)) {
+    if (identifierNameMismatch(input)) {
+      return decision(base, strongEvidence, 'identifier_name_mismatch', 'operator_review', null,
+        'The exact identifier points to a Sellpia SKU with an incompatible product name');
+    }
+    const quantity = inferRecipeQuantity(
+      input.options.flatMap((option) => [option.listingName, option.itemName]),
+      sku,
+    );
+    if (quantity === null) {
       return decision(base, strongEvidence, 'quantity_review', 'operator_review', null,
-        'Deterministic evidence has an incompatible pack signature requiring quantity review');
+        'The channel pack cannot be converted to a verified Sellpia unit quantity');
     }
     const status = automaticStatus(strongEvidence);
-    return decision(base, strongEvidence, status, 'auto_apply', 1, automaticReason(status));
+    return decision(base, strongEvidence, status, 'auto_apply', quantity, automaticReason(status));
   }
 
   if (input.nameEvidence.length > 0) {
-    return {
-      ...base,
-      status: 'name_review_only',
-      automationDecision: 'operator_review',
-      recommendedQuantity: null,
-      reason: 'Normalized listing names are review-only evidence',
-      proposals: proposalsFromLooseNameEvidence(input.nameEvidence),
-    };
+    const exactSkuIds = new Set(input.nameEvidence.map((item) =>
+      item.sku.sellpiaInventorySkuId));
+    if (exactSkuIds.size === 1) {
+      const quantity = inferRecipeQuantity(
+        input.options.flatMap((option) => [option.listingName, option.itemName]),
+        input.nameEvidence[0]!.sku,
+      );
+      if (quantity !== null) {
+        return looseNameDecision(base, input.nameEvidence, 'exact_name', 'auto_apply', quantity,
+          'One unique exact normalized Sellpia product name was found');
+      }
+      return looseNameDecision(base, input.nameEvidence, 'quantity_review', 'operator_review', null,
+        'The exact-name channel pack cannot be converted to a verified Sellpia unit quantity');
+    }
+  }
+
+  const similarityDecision = decideSimilarity(base, input);
+  if (similarityDecision) return similarityDecision;
+  if (input.nameEvidence.length > 0) {
+    return looseNameDecision(base, input.nameEvidence, 'name_review_only', 'operator_review', null,
+      'Several Sellpia SKUs share the exact normalized product name');
   }
   return {
     ...base,
@@ -243,13 +281,146 @@ function hasAmbiguousIdentifier(evidence: StrongEvidence[]): boolean {
   return [...identifiers.values()].some((skuIds) => skuIds.size > 1);
 }
 
-function compatibleUnit(
+export function inferRecipeQuantity(
   channelValues: Array<string | null>,
   sku: ChannelRecipeSuggestionSku,
-): boolean {
-  const channel = packSignature(...channelValues);
-  const physical = packSignature(sku.name, sku.optionName);
-  return channel.length === 0 || JSON.stringify(channel) === JSON.stringify(physical);
+): number | null {
+  const channel = packCounts(channelValues);
+  const physical = packCounts([sku.name, sku.optionName]);
+  const channelMulti = channel.filter((count) => count > 1);
+  if (channelMulti.length === 0) return 1;
+  const physicalMulti = physical.filter((count) => count > 1);
+  if (physicalMulti.length === 0) return null;
+  if (channelMulti.some((count) => physicalMulti.includes(count))) return 1;
+  const channelCount = Math.max(...channelMulti);
+  const physicalCount = Math.max(...physicalMulti);
+  const quantity = channelCount / physicalCount;
+  return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : null;
+}
+
+function packCounts(values: Array<string | null>): number[] {
+  const counts = new Set<number>();
+  const token = /(\d+)\s*(?:개입|개|입|팩|pcs?|p|ea|세트|묶음|권|매|장|봉)(?![\p{L}\p{N}])/giu;
+  for (const value of values) {
+    if (!value) continue;
+    for (const match of value.normalize('NFKC').matchAll(token)) {
+      const count = Number(match[1]);
+      if (Number.isSafeInteger(count) && count > 0) counts.add(count);
+    }
+    for (const match of value.matchAll(/(\d+)\s*\+\s*(\d+)/gu)) {
+      const count = Number(match[1]) + Number(match[2]);
+      if (Number.isSafeInteger(count) && count > 0) counts.add(count);
+    }
+  }
+  return [...counts].sort((left, right) => left - right);
+}
+
+function identifierNameMismatch(input: ChannelRecipeSuggestionInput): boolean {
+  if (input.nameOptionEvidence.length > 0) return false;
+  const scores = [
+    ...input.codeEvidence.map((item) => item.nameCompatibilityScore),
+    ...input.barcodeEvidence.map((item) => item.nameCompatibilityScore),
+  ].filter((score): score is number => score !== null && score !== undefined);
+  return scores.length > 0 && Math.max(...scores) < 0.35;
+}
+
+function looseNameDecision(
+  base: Pick<ChannelRecipeSuggestionResponse,
+    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+  evidence: NameEvidence[],
+  status: ChannelRecipeSuggestionStatus,
+  automationDecision: ChannelRecipeAutomationDecision,
+  recommendedQuantity: number | null,
+  reason: string,
+): ChannelRecipeSuggestionResponse {
+  return {
+    ...base,
+    status,
+    automationDecision,
+    recommendedQuantity,
+    reason,
+    proposals: proposalsFromLooseNameEvidence(evidence, recommendedQuantity),
+  };
+}
+
+function decideSimilarity(
+  base: Pick<ChannelRecipeSuggestionResponse,
+    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+  input: ChannelRecipeSuggestionInput,
+): ChannelRecipeSuggestionResponse | null {
+  const evidence = bestSimilarityPerSku(input.similarityEvidence);
+  const best = evidence[0];
+  if (!best) return null;
+  const runnerUp = evidence[1];
+  const margin = runnerUp ? best.score - runnerUp.score : 1;
+  const automatic = best.kind === 'normalized_name'
+    || (best.kind === 'contained_name'
+      && best.score >= 0.6
+      && runnerUp?.kind !== 'normalized_name'
+      && runnerUp?.kind !== 'contained_name')
+    || (best.kind === 'fuzzy_name' && best.score >= 0.82 && margin >= 0.12);
+  if (!automatic) {
+    return similarityDecision(base, evidence, 'name_review_only', 'operator_review', null,
+      'Name candidates are close or below the automatic confidence threshold');
+  }
+  const quantity = inferRecipeQuantity(
+    input.options.flatMap((option) => [option.listingName, option.itemName]),
+    best.sku,
+  );
+  if (quantity === null) {
+    return similarityDecision(base, evidence, 'quantity_review', 'operator_review', null,
+      'The matched name has an unverified channel-to-Sellpia pack ratio');
+  }
+  return similarityDecision(base, [best], 'high_confidence_name', 'auto_apply', quantity,
+    best.kind === 'normalized_name'
+      ? 'One unique exact normalized product identity was found'
+      : 'One unique high-confidence Sellpia name candidate was found');
+}
+
+function bestSimilarityPerSku(evidence: SimilarityEvidence[]): SimilarityEvidence[] {
+  const bySku = new Map<string, SimilarityEvidence>();
+  for (const item of evidence) {
+    const previous = bySku.get(item.sku.sellpiaInventorySkuId);
+    if (!previous || item.score > previous.score) {
+      bySku.set(item.sku.sellpiaInventorySkuId, item);
+    }
+  }
+  return [...bySku.values()].sort((left, right) =>
+    similarityPriority(right.kind) - similarityPriority(left.kind)
+      || right.score - left.score
+      || left.sku.code.localeCompare(right.sku.code));
+}
+
+function similarityPriority(kind: SimilarityEvidence['kind']): number {
+  switch (kind) {
+    case 'normalized_name': return 3;
+    case 'contained_name': return 2;
+    case 'fuzzy_name': return 1;
+  }
+}
+
+function similarityDecision(
+  base: Pick<ChannelRecipeSuggestionResponse,
+    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+  evidence: SimilarityEvidence[],
+  status: ChannelRecipeSuggestionStatus,
+  automationDecision: ChannelRecipeAutomationDecision,
+  recommendedQuantity: number | null,
+  reason: string,
+): ChannelRecipeSuggestionResponse {
+  return {
+    ...base,
+    status,
+    automationDecision,
+    recommendedQuantity,
+    reason,
+    proposals: evidence.map((item) => proposal(item.sku, [{
+      kind: item.kind,
+      channelValue: item.channelValue,
+      normalizedValue: item.normalizedValue,
+      score: item.score,
+    }], automationDecision === 'auto_apply' ? recommendedQuantity : null)),
+  };
 }
 
 function automaticStatus(
@@ -298,6 +469,7 @@ function proposalsFromStrongEvidence(
 
 function proposalsFromLooseNameEvidence(
   nameEvidence: NameEvidence[],
+  recommendedQuantity: number | null,
 ): ChannelRecipeSuggestionResponse['proposals'] {
   const bySku = new Map<string, NameEvidence[]>();
   for (const item of nameEvidence) {
@@ -312,7 +484,7 @@ function proposalsFromLooseNameEvidence(
       channelValue: item.channelValue,
       normalizedValue: item.normalizedValue,
     })),
-    null,
+    recommendedQuantity,
   )).sort((left, right) => left.code.localeCompare(right.code));
 }
 
