@@ -117,6 +117,46 @@ describe('RocketPoCatalogService', () => {
     expect(repo.publish).not.toHaveBeenCalled();
   });
 
+  it('uses complete Supplier Hub evidence to claim an unconfigured Rocket vendor once', async () => {
+    const repo = repository();
+    repo.findActiveRocketAccount.mockResolvedValue({
+      vendorId: null,
+      sharedCoupangVendorId: 'VENDOR-1',
+    });
+    const service = new RocketPoCatalogService(repo);
+
+    const result = await service.publishAndResolve({
+      organizationId,
+      userId,
+      request: request(),
+    });
+
+    expect(result.blockingReason).toBeNull();
+    expect(repo.publish).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId,
+      channelAccountId,
+      vendorId: 'VENDOR-1',
+    }));
+  });
+
+  it('blocks Supplier Hub evidence that differs from the shared Wing vendor', async () => {
+    const repo = repository();
+    repo.findActiveRocketAccount.mockResolvedValue({
+      vendorId: null,
+      sharedCoupangVendorId: 'OTHER-VENDOR',
+    });
+    const service = new RocketPoCatalogService(repo);
+
+    const result = await service.publishAndResolve({
+      organizationId,
+      userId,
+      request: request(),
+    });
+
+    expect(result.blockingReason).toBe('vendor_mismatch');
+    expect(repo.publish).not.toHaveBeenCalled();
+  });
+
   it('blocks an exact Rocket vendor mismatch before catalog publication', async () => {
     const repo = repository();
     repo.findActiveRocketAccount.mockResolvedValue({ vendorId: 'OTHER-VENDOR' });

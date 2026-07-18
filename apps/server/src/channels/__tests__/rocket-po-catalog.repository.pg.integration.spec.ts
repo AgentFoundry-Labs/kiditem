@@ -136,12 +136,67 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
 
     await prisma.channelAccount.update({
       where: { id: ACCOUNT_ID },
+      data: { vendorId: null },
+    });
+    await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Shared Wing account',
+        vendorId: 'OTHER-VENDOR',
+        status: 'active',
+        isPrimary: true,
+      },
+    });
+    await expect(repository.publish(
+      publishInput('7'.repeat(64), row('P-SHARED-CONFLICT')),
+    )).rejects.toBeInstanceOf(ConflictException);
+
+    await prisma.channelAccount.update({
+      where: { id: ACCOUNT_ID },
       data: { status: 'inactive' },
     });
     await expect(repository.publish(
       publishInput('d'.repeat(64), row('P-1')),
     )).rejects.toThrow(/active Rocket/i);
     expect(await prisma.sourceImportRun.count()).toBe(0);
+  });
+
+  it('claims a missing Rocket vendor from complete evidence exactly once', async () => {
+    await prisma.channelAccount.update({
+      where: { id: ACCOUNT_ID },
+      data: { vendorId: null },
+    });
+    const wingAccount = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Shared Wing account',
+        vendorId: null,
+        status: 'active',
+        isPrimary: true,
+      },
+    });
+
+    const published = await repository.publish(
+      publishInput('9'.repeat(64), row('P-FIRST-CLAIM')),
+    );
+
+    await expect(prisma.channelAccount.findUniqueOrThrow({
+      where: { id: ACCOUNT_ID },
+      select: { vendorId: true },
+    })).resolves.toEqual({ vendorId: VENDOR_ID });
+    await expect(prisma.channelAccount.findUniqueOrThrow({
+      where: { id: wingAccount.id },
+      select: { vendorId: true },
+    })).resolves.toEqual({ vendorId: VENDOR_ID });
+    await expect(prisma.rocketPoCatalogSnapshot.count({
+      where: { sourceImportRunId: published.run.id },
+    })).resolves.toBe(1);
+    await expect(repository.publish({
+      ...publishInput('8'.repeat(64), row('P-CONFLICT')),
+      vendorId: 'OTHER-VENDOR',
+    })).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('stores, lists, and reloads exact completed collection evidence inside the account boundary', async () => {

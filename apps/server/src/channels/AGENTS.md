@@ -200,6 +200,12 @@ explicit deterministic command through that Products port.
   physical stock, or inferred quantities.
 - Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and
   `channel='rocket'`). Never infer the channel from an account display name.
+- Wing and Rocket currently share one Coupang vendor identity even though their
+  operational accounts remain separate rows. A Rocket publication checks both
+  active primary Wing and selected Rocket `vendorId` values. Missing values may
+  claim the single vendor identity from one complete authenticated Supplier Hub
+  PO evidence run inside the account-scoped publication lock; any non-empty
+  mismatch remains a conflict.
 - Rocket purchase-order collection may publish completed account-scoped
   `ChannelProduct`/`ChannelSku` identities and calculate component-capacity
   previews. It must not add reservation, confirmation, provider submission,

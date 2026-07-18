@@ -11,7 +11,10 @@ export interface RocketPoCatalogRepositoryPort {
   findActiveRocketAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ vendorId: string | null } | null>;
+  }): Promise<{
+    vendorId: string | null;
+    sharedCoupangVendorId: string | null;
+  } | null>;
 
   publish(input: {
     organizationId: string;

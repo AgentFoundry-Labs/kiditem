@@ -33,11 +33,11 @@ implements RocketPoCatalogRepositoryPort {
     private readonly productProvisioner: ChannelCatalogProductProvisioningPort,
   ) {}
 
-  findActiveRocketAccount(input: {
+  async findActiveRocketAccount(input: {
     organizationId: string;
     channelAccountId: string;
   }) {
-    return this.prisma.channelAccount.findFirst({
+    const account = await this.prisma.channelAccount.findFirst({
       where: {
         id: input.channelAccountId,
         organizationId: input.organizationId,
@@ -46,6 +46,21 @@ implements RocketPoCatalogRepositoryPort {
       },
       select: { vendorId: true },
     });
+    if (!account) return null;
+    const sharedCoupangAccount = await this.prisma.channelAccount.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        channel: 'coupang',
+        status: 'active',
+        isPrimary: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: { vendorId: true },
+    });
+    return {
+      vendorId: account.vendorId,
+      sharedCoupangVendorId: sharedCoupangAccount?.vendorId ?? null,
+    };
   }
 
   publish(input: PublishInput) {
@@ -67,8 +82,53 @@ implements RocketPoCatalogRepositoryPort {
         select: { vendorId: true },
       });
       if (!account) throw new NotFoundException('Active Rocket channel account not found');
-      if (account.vendorId?.trim() !== input.vendorId) {
+      const sharedCoupangAccount = await tx.channelAccount.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channel: 'coupang',
+          status: 'active',
+          isPrimary: true,
+        },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, vendorId: true },
+      });
+      const persistedVendorId = account.vendorId?.trim() ?? '';
+      const sharedCoupangVendorId = sharedCoupangAccount?.vendorId?.trim() ?? '';
+      if (
+        (persistedVendorId.length > 0 && persistedVendorId !== input.vendorId)
+        || (sharedCoupangVendorId.length > 0 && sharedCoupangVendorId !== input.vendorId)
+      ) {
         throw new ConflictException('Rocket vendor identity changed before publication');
+      }
+      if (persistedVendorId.length === 0) {
+        const claimed = await tx.channelAccount.updateMany({
+          where: {
+            id: input.channelAccountId,
+            organizationId: input.organizationId,
+            channel: 'rocket',
+            status: 'active',
+            vendorId: account.vendorId,
+          },
+          data: { vendorId: input.vendorId },
+        });
+        if (claimed.count !== 1) {
+          throw new ConflictException('Rocket vendor identity changed before publication');
+        }
+      }
+      if (sharedCoupangAccount && sharedCoupangVendorId.length === 0) {
+        const claimed = await tx.channelAccount.updateMany({
+          where: {
+            id: sharedCoupangAccount.id,
+            organizationId: input.organizationId,
+            channel: 'coupang',
+            status: 'active',
+            vendorId: sharedCoupangAccount.vendorId,
+          },
+          data: { vendorId: input.vendorId },
+        });
+        if (claimed.count !== 1) {
+          throw new ConflictException('Rocket vendor identity changed before publication');
+        }
       }
 
       const products = productsFromRows(input.rows);
