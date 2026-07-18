@@ -291,31 +291,79 @@ export const DashboardTrendItemSchema = z.object({
 // ─── Sellpia 판매현황(몰별 매출) ──────────────────────────────────────────
 // 대시보드 '몰별 매출' 섹션: 쿠팡 로켓(쿠팡-직배송) 단독 + 쿠팡윙·기타몰 합산(드릴다운).
 // 소스: Sellpia sale_summary(order_search.ajax.html, mode=selldate, 주문일자 기준)를
-// 확장이 판매처(seller)별로 수집 → POST /api/dashboard/sellpia-sales/ingest 로 적재.
+// 확장이 판매처(seller)별로 수집 → POST /api/sellpia-sales/ingest 로 적재.
 
 // Ingest 요청(확장 스크랩 결과) — 판매처별 일자 배열.
+const SellpiaYmdSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, '유효한 캘린더 날짜여야 합니다.');
+
 export const SellpiaSalesIngestDaySchema = z.object({
-  date: z.string(), // YYYY-MM-DD (KST 캘린더 일자)
-  price: z.number(), // 판매금액
-  amount: z.number(), // 판매수량
-  buyPrice: z.number(), // 매입금액
+  date: SellpiaYmdSchema, // YYYY-MM-DD (KST 캘린더 일자)
+  price: z.number().finite(), // 판매금액
+  amount: z.number().finite(), // 판매수량
+  buyPrice: z.number().finite(), // 매입금액
 });
 export const SellpiaSalesIngestSellerSchema = z.object({
-  sellerId: z.string().min(1),
-  sellerName: z.string().min(1),
-  days: z.array(SellpiaSalesIngestDaySchema),
+  sellerId: z.string().min(1).max(64).regex(/\S/),
+  sellerName: z.string().min(1).max(200).regex(/\S/),
+  days: z.array(SellpiaSalesIngestDaySchema).min(1).max(100),
+});
+export const SellpiaSalesExplicitEmptyProvenanceSchema = z.object({
+  source: z.literal('sellpia_sale_summary'),
+  mode: z.literal('selldate'),
+  sellerScope: z.literal('all'),
+  responseShape: z.literal('empty_object'),
+  explicitEmpty: z.literal(true),
 });
 export const SellpiaSalesIngestPayloadSchema = z.object({
-  range: z.object({ from: z.string(), to: z.string() }),
-  sellers: z.array(SellpiaSalesIngestSellerSchema),
+  range: z.object({ from: SellpiaYmdSchema, to: SellpiaYmdSchema }),
+  sellers: z.array(SellpiaSalesIngestSellerSchema).max(100),
+  // sellers=[] 는 원천의 정확한 seller=all 응답이 `{}`였다는 증명이 있을 때만
+  // 권위 범위 교체/coverage 저장에 사용할 수 있다.
+  provenance: SellpiaSalesExplicitEmptyProvenanceSchema.optional(),
+  // 원천 수집 시각이 없으면 늦게 도착한 구버전 payload가 최신 스냅샷을 덮을 수 있다.
+  capturedAt: zIsoDate,
+}).superRefine((payload, ctx) => {
+  if (payload.sellers.length === 0 && !payload.provenance) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['provenance'],
+      message: '빈 판매현황은 원천 응답의 명시적 빈 결과 증명이 필요합니다.',
+    });
+  }
+  if (payload.sellers.length > 0 && payload.provenance) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['provenance'],
+      message: '명시적 빈 결과 증명은 판매처가 없을 때만 사용할 수 있습니다.',
+    });
+  }
+  if (payload.range.from > payload.range.to) {
+    ctx.addIssue({ code: 'custom', path: ['range', 'from'], message: '시작일은 종료일 이후일 수 없습니다.' });
+    return;
+  }
+  const days = Math.floor(
+    (Date.parse(`${payload.range.to}T00:00:00.000Z`) -
+      Date.parse(`${payload.range.from}T00:00:00.000Z`)) /
+      (24 * 60 * 60 * 1000),
+  ) + 1;
+  if (days > 100) {
+    ctx.addIssue({ code: 'custom', path: ['range'], message: '수집 범위는 최대 100일입니다.' });
+  }
 });
 export const SellpiaSalesIngestResultSchema = z.object({
   upserted: z.number().int().nonnegative(),
+  // 응답 시점에 coverage가 확인된 요청 범위 내 날짜(최신 legacy fact만 보호된 날은 제외).
   businessDates: z.array(z.string()),
   sellerCount: z.number().int().nonnegative(),
 });
 
-// Read 응답: GET /api/dashboard/sellpia-sales?from&to
+// Read 응답: GET /api/sellpia-sales?from&to
 export const SellpiaSalesDailyPointSchema = z.object({
   date: z.string(), // YYYY-MM-DD
   revenue: z.number(),
@@ -341,7 +389,12 @@ export const SellpiaSalesSummarySchema = z.object({
   rocket: SellpiaSalesGroupSchema, // 쿠팡 로켓(쿠팡-직배송) 단독
   others: SellpiaSalesGroupSchema, // 쿠팡윙 + 기타 전체몰 합산 (malls = 드릴다운)
   totalRevenue: z.number(),
+  totalCost: z.number(), // 셀피아 매입금액 합계
+  adCost: z.number(), // 같은 기간에 수집된 쿠팡 광고비
+  netProfit: z.number(), // totalRevenue - totalCost - adCost
+  profitRate: z.number(), // netProfit / totalRevenue * 100 (소수점 한 자리)
   lastCapturedAt: zIsoDate.nullable(),
+  // 조회 범위의 마감일(어제까지)이 모두 coverage 됐는지. 오늘 단일 조회는 당일 coverage 필요.
   hasData: z.boolean(),
 });
 
@@ -458,6 +511,7 @@ export type WingAdSummary = z.infer<typeof WingAdSummarySchema>;
 // Sellpia 판매현황(몰별 매출)
 export type SellpiaSalesIngestDay = z.infer<typeof SellpiaSalesIngestDaySchema>;
 export type SellpiaSalesIngestSeller = z.infer<typeof SellpiaSalesIngestSellerSchema>;
+export type SellpiaSalesExplicitEmptyProvenance = z.infer<typeof SellpiaSalesExplicitEmptyProvenanceSchema>;
 export type SellpiaSalesIngestPayload = z.infer<typeof SellpiaSalesIngestPayloadSchema>;
 export type SellpiaSalesIngestResult = z.infer<typeof SellpiaSalesIngestResultSchema>;
 export type SellpiaSalesDailyPoint = z.infer<typeof SellpiaSalesDailyPointSchema>;
