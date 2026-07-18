@@ -5,8 +5,6 @@ import {
   Bell,
   CalendarDays,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Download,
   Info,
   Loader2,
@@ -19,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
+import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import {
   ROCKET_SHORTAGE_REASONS,
@@ -32,7 +31,7 @@ import {
   type RocketComputedRow,
   type RocketSavedPo,
 } from '../lib/rocket-confirm-api';
-import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
+import type { RocketDecisionWorkspaceContext } from './RocketOrdersWorkspace';
 
 type Busy = null | 'collect' | 'preview' | 'download' | 'fill';
 
@@ -42,8 +41,6 @@ interface Activity {
   status: 'info' | 'success' | 'error';
   message: string;
 }
-
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 function clockLabel(at: number): string {
   const d = new Date(at);
@@ -56,21 +53,16 @@ function pad(n: number) {
 function ymd(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-function currentMonthKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
-}
 function monthRange(month: string): { from: string; to: string } {
   const [y, m] = month.split('-').map(Number);
   return { from: `${month}-01`, to: ymd(new Date(y, m, 0)) };
 }
-function shiftMonth(month: string, delta: number): string {
-  const [y, m] = month.split('-').map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
-}
-
-export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
+export function RocketConfirmPanel({
+  onSaved,
+  activeMonth,
+  onOrdersChanged,
+  renderOrderExplorer,
+}: { onSaved: () => void } & RocketDecisionWorkspaceContext) {
   const [busy, setBusy] = useState<Busy>(null);
   const [rows, setRows] = useState<RocketComputedRow[] | null>(null);
   const [poCount, setPoCount] = useState(0);
@@ -78,16 +70,14 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
   const [commitPending, setCommitPending] = useState(false);
 
   // 월 달력 — 기본값: 이번 달. 저장된 발주(rocket_purchase_orders)를 입고예정일별로 표시.
-  const [viewMonth, setViewMonth] = useState(currentMonthKey);
   const [savedPos, setSavedPos] = useState<RocketSavedPo[]>([]);
   const [savedLoading, setSavedLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
-  // 오늘 이후 입고예정일 = 아직 확정·납품해야 할 "앞으로 할 작업" → 배경 강조.
-  const [todayKey] = useState(() => ymd(new Date()));
 
   // 이 페이지 작업 알림(수집/미리보기/다운로드/예약 — 진행·완료·오류).
   const [activities, setActivities] = useState<Activity[]>([]);
   const activitySeq = useRef(0);
+  const previewSeq = useRef(0);
   const logActivity = useCallback((status: Activity['status'], message: string) => {
     activitySeq.current += 1;
     setActivities((prev) => [{ id: activitySeq.current, at: Date.now(), status, message }, ...prev].slice(0, 40));
@@ -107,30 +97,27 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
   }, []);
 
   useEffect(() => {
-    void reloadSaved(viewMonth);
-  }, [viewMonth, reloadSaved]);
+    previewSeq.current += 1;
+    setSelectedDate('');
+    setRows(null);
+    setPoCount(0);
+    setCommitResult(null);
+    setBusy((current) => (current === 'preview' ? null : current));
+    void reloadSaved(activeMonth);
+  }, [activeMonth, reloadSaved]);
 
-  // 입고예정일별 집계(달력 배지용)
+  // 저장본은 실시간 조회가 비는 날짜를 보완하고, 날짜 클릭 미리보기의 기준이 된다.
   const byDate = useMemo(() => {
-    const map = new Map<string, { count: number; qty: number }>();
+    const map = new Map<string, { count: number; qty: number; amount: number }>();
     for (const po of savedPos) {
-      const cur = map.get(po.businessDate) ?? { count: 0, qty: 0 };
+      const cur = map.get(po.businessDate) ?? { count: 0, qty: 0, amount: 0 };
       cur.count += 1;
       cur.qty += po.orderQty;
+      cur.amount += po.orderAmount;
       map.set(po.businessDate, cur);
     }
     return map;
   }, [savedPos]);
-
-  const cells = useMemo(() => {
-    const [year, month] = viewMonth.split('-').map(Number);
-    const firstWeekday = new Date(year, month - 1, 1).getDay();
-    const days = new Date(year, month, 0).getDate();
-    const list: Array<{ day: number; date: string } | null> = [];
-    for (let i = 0; i < firstWeekday; i += 1) list.push(null);
-    for (let d = 1; d <= days; d += 1) list.push({ day: d, date: `${viewMonth}-${pad(d)}` });
-    return list;
-  }, [viewMonth]);
 
   const monthTotal = useMemo(
     () => savedPos.reduce((acc, po) => ({ po: acc.po + 1, qty: acc.qty + po.orderQty }), { po: 0, qty: 0 }),
@@ -139,12 +126,15 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
 
   // 저장된 하루치를 재고 매칭해 미리보기(재수집 없음)
   async function selectDay(date: string) {
+    previewSeq.current += 1;
+    const requestId = previewSeq.current;
     setSelectedDate(date);
     setBusy('preview');
     setRows(null);
     setCommitResult(null);
     try {
       const preview = await previewSavedRocketConfirm(date);
+      if (requestId !== previewSeq.current) return;
       setRows(preview.rows);
       setPoCount(new Set(preview.rows.map((r) => r.poNumber)).size);
       if (preview.rows.length === 0) {
@@ -154,34 +144,49 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
         logActivity('success', `${date} 미리보기 — ${preview.rows.length}행 (미매칭 ${preview.rows.filter((r) => r.available === null).length})`);
       }
     } catch (error) {
+      if (requestId !== previewSeq.current) return;
       const message = error instanceof Error ? error.message : '미리보기 실패';
       toast.error(message);
       logActivity('error', `${date} 미리보기 실패 — ${message}`);
     } finally {
-      setBusy(null);
+      if (requestId === previewSeq.current) setBusy(null);
     }
+  }
+
+  function handleExplorerDateSelection(date: string | null) {
+    if (date) {
+      void selectDay(date);
+      return;
+    }
+    previewSeq.current += 1;
+    setSelectedDate('');
+    setRows(null);
+    setPoCount(0);
+    setCommitResult(null);
+    setBusy((current) => (current === 'preview' ? null : current));
   }
 
   // 쿠팡에서 이 달치를 한 번 수집해 DB 에 저장(이후엔 달력에서 클릭만 하면 됨)
   async function collectMonth() {
     setBusy('collect');
-    logActivity('info', `${viewMonth} 쿠팡에서 수집 시작…`);
+    logActivity('info', `${activeMonth} 쿠팡에서 수집 시작…`);
     try {
-      const { from, to } = monthRange(viewMonth);
+      const { from, to } = monthRange(activeMonth);
       const { rows: scraped, poCount: count } = await collectRocketPoRowsFromExtension(from, to);
       if (!scraped.length) {
         toast.error('해당 월 거래처확인요청 발주가 없습니다.');
-        logActivity('info', `${viewMonth} 거래처확인요청 발주 없음`);
+        logActivity('info', `${activeMonth} 거래처확인요청 발주 없음`);
         return;
       }
       await previewRocketConfirm(scraped); // 계산 겸 rocket_purchase_orders 에 저장
-      await reloadSaved(viewMonth);
-      toast.success(`${viewMonth} 수집·저장 완료 — 발주 ${formatNumber(count)}건. 날짜를 클릭하면 미리보기가 나옵니다.`);
-      logActivity('success', `${viewMonth} 수집·저장 완료 — 발주 ${formatNumber(count)}건`);
+      await reloadSaved(activeMonth);
+      onOrdersChanged();
+      toast.success(`${activeMonth} 수집·저장 완료 — 발주 ${formatNumber(count)}건. 날짜를 클릭하면 미리보기가 나옵니다.`);
+      logActivity('success', `${activeMonth} 수집·저장 완료 — 발주 ${formatNumber(count)}건`);
     } catch (error) {
       const message = error instanceof Error ? error.message : '수집 실패';
       toast.error(message);
-      logActivity('error', `${viewMonth} 수집 실패 — ${message}`);
+      logActivity('error', `${activeMonth} 수집 실패 — ${message}`);
     } finally {
       setBusy(null);
     }
@@ -279,8 +284,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
         { qty: 0, amt: 0, short: 0 },
       )
     : null;
-
-  const monthLabel = `${viewMonth.split('-')[0]}년 ${Number(viewMonth.split('-')[1])}월`;
+  const savedDays = useMemo(() => Object.fromEntries(byDate), [byDate]);
 
   return (
     <div className="space-y-3">
@@ -311,107 +315,16 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
         </div>
 
         <div className="p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setViewMonth((m) => shiftMonth(m, -1))}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
-              aria-label="이전 달"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <div className="flex items-center gap-2 text-sm font-semibold tabular-nums text-slate-900">
-              {monthLabel}
-              {savedLoading ? <Loader2 size={13} className="animate-spin text-purple-500" /> : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => setViewMonth((m) => shiftMonth(m, 1))}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
-              aria-label="다음 달"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1">
-            {WEEKDAYS.map((w, i) => (
-              <div
-                key={w}
-                className={cn(
-                  'py-1 text-center text-xs font-medium',
-                  i === 0 ? 'text-rose-400' : i === 6 ? 'text-blue-400' : 'text-slate-400',
-                )}
-              >
-                {w}
-              </div>
-            ))}
-            {cells.map((cell, index) => {
-              if (!cell) return <div key={`blank-${index}`} />;
-              const info = byDate.get(cell.date);
-              const has = Boolean(info);
-              const selected = cell.date === selectedDate;
-              // 오늘 이후 입고예정일 + 발주 있음 = 앞으로 확정·납품해야 할 작업 → 강조.
-              const upcoming = has && cell.date >= todayKey;
-              return (
-                <button
-                  key={cell.date}
-                  type="button"
-                  onClick={() => has && void selectDay(cell.date)}
-                  disabled={!has || busy !== null}
-                  className={cn(
-                    'flex min-h-[3.75rem] flex-col items-center justify-start gap-1 rounded-lg border px-1 py-1.5 text-center transition-colors',
-                    selected
-                      ? 'border-purple-500 bg-purple-50 ring-1 ring-purple-300'
-                      : upcoming
-                        ? 'border-blue-300 bg-blue-50 hover:border-blue-400 hover:bg-blue-100/70'
-                        : has
-                          ? 'border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50'
-                          : 'border-transparent bg-transparent',
-                    busy !== null && has && 'pointer-events-none opacity-60',
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'text-xs tabular-nums',
-                      selected
-                        ? 'font-bold text-purple-700'
-                        : upcoming
-                          ? 'font-bold text-blue-700'
-                          : has
-                            ? 'font-semibold text-slate-700'
-                            : 'text-slate-300',
-                    )}
-                  >
-                    {cell.day}
-                  </span>
-                  {info ? (
-                    <span
-                      className={cn(
-                        'rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums',
-                        selected
-                          ? 'bg-purple-600 text-white'
-                          : upcoming
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-purple-100 text-purple-700',
-                      )}
-                    >
-                      {formatNumber(info.count)}건
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
+          {renderOrderExplorer({
+            disabled: busy !== null,
+            onSelectDate: handleExplorerDateSelection,
+            savedDays,
+          })}
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
-            <span className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm border border-blue-300 bg-blue-50" />
-                오늘 이후(확정·납품 예정)
-              </span>
-              <span className="text-slate-300">·</span>
-              날짜 클릭 → 저장된 발주를 재고와 매칭해 미리보기(재수집 없음)
+            <span>
+              날짜 클릭 → 선택일 발주 목록 + 저장 발주 재고 매칭 미리보기
+              {savedLoading ? <Loader2 size={13} className="ml-1.5 inline animate-spin text-purple-500" /> : null}
             </span>
             <label
               className={cn(
@@ -438,7 +351,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
       </div>
 
       {/* 우: 이 페이지 작업 알림(진행·완료·오류) */}
-      <aside className="flex max-h-[520px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white lg:col-span-1">
+      <aside className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white lg:col-span-1">
         <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
           <div className="flex items-center gap-2">
             <Bell size={15} className="text-slate-500" />

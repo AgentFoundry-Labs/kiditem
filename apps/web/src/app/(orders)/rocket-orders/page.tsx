@@ -6,7 +6,9 @@ import { RocketConfirmPanel } from './components/RocketConfirmPanel';
 export default function RocketOrdersPage() {
   return (
     <RocketOrdersWorkspace
-      decisionWorkspace={<RocketConfirmPanel onSaved={() => {}} />}
+      decisionWorkspace={(workspace) => (
+        <RocketConfirmPanel onSaved={() => {}} {...workspace} />
+      )}
     />
   );
 }

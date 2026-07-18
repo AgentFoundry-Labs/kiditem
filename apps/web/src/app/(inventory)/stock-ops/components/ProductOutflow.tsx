@@ -11,7 +11,7 @@ import type {
   SellpiaProductTrend,
 } from '@kiditem/shared/dashboard';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatNumber, formatDateTime } from '@/lib/utils';
+import { cn, formatNumber, formatDateTime, timeAgo } from '@/lib/utils';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import {
   fetchSellpiaProductSales,
@@ -25,6 +25,14 @@ import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshne
 const AUTO_SYNC_KEY = 'kiditem-sellpia-product-sales-autosync';
 const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
 
+// 재고 동기화 버튼에 표시할 셀피아 재고 최신성 상태 배지
+const STOCK_FRESHNESS_META: Record<string, { label: string; className: string }> = {
+  fresh: { label: '최신', className: 'bg-emerald-100 text-emerald-700' },
+  refresh_required: { label: '갱신 필요', className: 'bg-amber-100 text-amber-800' },
+  syncing: { label: '갱신 중', className: 'bg-blue-100 text-blue-700' },
+  failed: { label: '실패', className: 'bg-red-100 text-red-700' },
+};
+
 // 정렬 키: 고정 지표('avg2m'|'currentStock') 또는 특정 연월("YYYY-MM").
 type SortKey = 'avg2m' | 'currentStock' | string;
 type FilterKey = 'all' | 'reorder' | 'dead' | 'anomaly' | 'A' | 'B' | 'C';
@@ -37,8 +45,9 @@ function todayKst(): string {
 
 export default function ProductOutflow() {
   const queryClient = useQueryClient();
-  const { requestRefresh } = useSellpiaInventoryFreshness({ enabled: true });
+  const { requestRefresh, state: freshnessState } = useSellpiaInventoryFreshness({ enabled: true });
   const [syncing, setSyncing] = useState(false);
+  const [stockSyncing, setStockSyncing] = useState(false);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('avg2m');
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -83,6 +92,22 @@ export default function ProductOutflow() {
     }
   }, [invalidate, syncStock]);
 
+  // 재고만 동기화 — 판매 수집과 분리해 셀피아 재고 엑셀 백그라운드 재수집만 요청한다.
+  const runStockSync = useCallback(async () => {
+    setStockSyncing(true);
+    try {
+      const ok = await syncStock();
+      invalidate();
+      if (ok) toast.success('셀피아 재고 동기화를 시작했습니다.');
+      else toast.error('셀피아 재고 동기화 요청에 실패했습니다.');
+    } finally {
+      setStockSyncing(false);
+    }
+  }, [syncStock, invalidate]);
+  const stockBusy = stockSyncing || freshnessState?.status === 'syncing';
+  const stockMeta = freshnessState ? STOCK_FRESHNESS_META[freshnessState.status] : null;
+  const stockAge = freshnessState?.lastVerifiedAt ? timeAgo(freshnessState.lastVerifiedAt) : null;
+
   // 마운트 시 하루 1회 자동 수집. 확장 없으면 조용히 스킵.
   useEffect(() => {
     if (autoRan.current) return;
@@ -115,14 +140,31 @@ export default function ProductOutflow() {
           )}
           <span className="text-[11px] text-slate-300">· 메이크샵 주문 기준</span>
         </div>
-        <button
-          onClick={runSync}
-          disabled={syncing}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 hover:bg-slate-700 disabled:opacity-50"
-        >
-          {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          {syncing ? '수집 중...' : '지금 수집'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={runStockSync}
+            disabled={stockBusy}
+            title="셀피아 재고(현재고) 다시 동기화"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold px-2.5 py-1.5 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {stockBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            <span>재고 동기화</span>
+            {stockMeta && (
+              <span className={cn('rounded-full px-1.5 py-0.5 text-[11px] font-semibold', stockMeta.className)}>
+                {stockMeta.label}
+              </span>
+            )}
+            {stockAge && <span className="font-normal text-slate-400">{stockAge}</span>}
+          </button>
+          <button
+            onClick={runSync}
+            disabled={syncing}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 hover:bg-slate-700 disabled:opacity-50"
+          >
+            {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {syncing ? '수집 중...' : '지금 수집'}
+          </button>
+        </div>
       </div>
 
       {isLoading ? (

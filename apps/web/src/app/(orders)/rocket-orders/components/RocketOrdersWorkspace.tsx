@@ -17,7 +17,6 @@ import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { listRocketPosFromExtension, type RocketPoSummary } from '../lib/rocket-confirm-api';
 import { RocketConfirmFileList } from './RocketConfirmFileList';
-import { RocketWeekCalendar, type RocketCalDay } from './RocketWeekCalendar';
 import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
 import type { RocketChartPoint } from './RocketOrdersChart';
 
@@ -38,6 +37,25 @@ const STATUS_OPTIONS = [
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const EMPTY_ROCKET_POS: RocketPoSummary[] = [];
 
+interface RocketCalDay {
+  date: string;
+  count: number;
+  qty: number;
+  amount: number;
+}
+
+export interface RocketOrderExplorerRenderOptions {
+  disabled: boolean;
+  onSelectDate: (date: string | null) => void;
+  savedDays: Record<string, MonthDayData>;
+}
+
+export interface RocketDecisionWorkspaceContext {
+  activeMonth: string;
+  onOrdersChanged: () => void;
+  renderOrderExplorer: (options: RocketOrderExplorerRenderOptions) => ReactNode;
+}
+
 // 워크플로 단계 (로켓 물류 발주)
 const STAGES = [
   { icon: Rocket, label: '신규 주문', desc: '거래확인서요청 발주' },
@@ -52,11 +70,6 @@ function ymd(d: Date) {
 }
 function todayYmd() {
   return ymd(new Date());
-}
-function plusDaysYmd(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return ymd(d);
 }
 function datesInRange(from: string, to: string): string[] {
   if (!from || !to || to < from) return [];
@@ -88,14 +101,14 @@ function shiftMonthBounds(dateStr: string, delta: number) {
 export function RocketOrdersWorkspace({
   decisionWorkspace,
 }: {
-  decisionWorkspace: ReactNode;
+  decisionWorkspace: (workspace: RocketDecisionWorkspaceContext) => ReactNode;
 }) {
-  // 입고예정일 기준 (기본: 다음 7일) — 상태로 숨기지 않고 전체 발주를 조회
-  const [from, setFrom] = useState(todayYmd());
-  const [to, setTo] = useState(plusDaysYmd(6));
+  // 입고예정일 기준 (기본: 이번 달 전체) — 월 달력과 차트가 같은 범위를 사용한다.
+  const [from, setFrom] = useState(() => monthBounds(todayYmd()).start);
+  const [to, setTo] = useState(() => monthBounds(todayYmd()).end);
   const [status, setStatus] = useState('');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [view, setView] = useState<'week' | 'month' | 'chart'>('week');
+  const [view, setView] = useState<'month' | 'chart'>('month');
   const [openPo, setOpenPo] = useState<number | null>(null);
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
@@ -122,22 +135,13 @@ export function RocketOrdersWorkspace({
   }, [orders]);
   const calDays: RocketCalDay[] = useMemo(() => datesInRange(from, to).map((date) => {
     const pos = byDate.get(date) ?? [];
-    const dow = dowOf(date);
     return {
       date,
-      weekday: WEEKDAYS[dow],
-      dow,
       count: pos.length,
       qty: pos.reduce((s, o) => s + o.orderQty, 0),
       amount: pos.reduce((s, o) => s + o.orderAmount, 0),
     };
   }), [byDate, from, to]);
-  const datesWithOrders = useMemo(() => [...byDate.keys()].sort(), [byDate]);
-  const visibleDates = useMemo(
-    () => (selectedDay ? [selectedDay] : datesWithOrders),
-    [datesWithOrders, selectedDay],
-  );
-
   const scoped = useMemo(
     () => (selectedDay ? byDate.get(selectedDay) ?? [] : orders),
     [byDate, orders, selectedDay],
@@ -159,34 +163,183 @@ export function RocketOrdersWorkspace({
     }
     return record;
   }, [byDate]);
-  const chartData: RocketChartPoint[] = useMemo(() => calDays.map((d) => ({
-    date: d.date,
-    label: d.date.slice(5).replace('-', '/'),
-    count: d.count,
-    qty: d.qty,
-    amount: d.amount,
-  })), [calDays]);
-
-  function gotoWeek() {
-    setView('week');
-    setFrom(todayYmd());
-    setTo(plusDaysYmd(6));
-    setSelectedDay(null);
+  function selectOrderDay(date: string | null, onSelectDate: (date: string | null) => void) {
+    setSelectedDay(date);
+    setOpenPo(null);
+    onSelectDate(date);
   }
-  function gotoMonth() {
-    // 데이터가 있으면 가장 이른 입고예정일의 달로, 없으면 현재 from 의 달로.
-    const firstDate = datesWithOrders.find((d) => d !== '미정');
-    const b = monthBounds(firstDate || from || todayYmd());
+
+  function resetToCurrentMonth(onSelectDate: (date: string | null) => void) {
+    const b = monthBounds(todayYmd());
     setFrom(b.start);
     setTo(b.end);
-    setSelectedDay(null);
+    selectOrderDay(null, onSelectDate);
     setView('month');
   }
-  function onShiftMonth(delta: number) {
+  function onShiftMonth(delta: number, onSelectDate: (date: string | null) => void) {
     const b = shiftMonthBounds(from, delta);
     setFrom(b.start);
     setTo(b.end);
-    setSelectedDay(null);
+    selectOrderDay(null, onSelectDate);
+  }
+
+  function renderOrderExplorer({
+    disabled,
+    onSelectDate,
+    savedDays,
+  }: RocketOrderExplorerRenderOptions) {
+    const selectDate = (date: string | null) => selectOrderDay(date, onSelectDate);
+    const mergedMonthData: Record<string, MonthDayData> = {
+      ...savedDays,
+      ...dayDataRecord,
+    };
+    const mergedRangeDays = calDays.map((day) => {
+      const saved = savedDays[day.date];
+      return day.count > 0 || !saved ? day : { ...day, ...saved };
+    });
+    const hasRangeOrders = mergedRangeDays.some((day) => day.count > 0);
+    const hasMonthOrders = Object.values(mergedMonthData).some((day) => day.count > 0);
+    const mergedChartData: RocketChartPoint[] = mergedRangeDays.map((day) => ({
+      date: day.date,
+      label: day.date.slice(5).replace('-', '/'),
+      count: day.count,
+      qty: day.qty,
+      amount: day.amount,
+    }));
+
+    return (
+      <div className={cn('space-y-3', disabled && 'pointer-events-none opacity-60')}>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5">
+          <span className="text-xs font-medium text-slate-400">입고예정일</span>
+          <input
+            type="date"
+            aria-label="입고예정일 시작"
+            value={from}
+            onChange={(e) => {
+              setFrom(e.target.value);
+              selectDate(null);
+            }}
+            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
+          />
+          <span className="text-slate-400">~</span>
+          <input
+            type="date"
+            aria-label="입고예정일 종료"
+            value={to}
+            onChange={(e) => {
+              setTo(e.target.value);
+              selectDate(null);
+            }}
+            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => resetToCurrentMonth(onSelectDate)}
+            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-purple-600 hover:bg-purple-50"
+          >
+            이번 달
+          </button>
+          <select
+            aria-label="발주 상태"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              selectDate(null);
+            }}
+            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
+          >
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+          <div className="ml-auto flex items-center gap-4 text-sm">
+            <span className="text-slate-500">
+              발주 <b className="tabular-nums text-slate-900">{formatNumber(scoped.length)}</b>건
+            </span>
+            <span className="text-slate-500">
+              수량 <b className="tabular-nums text-slate-900">{formatNumber(totalQty)}</b>개
+            </span>
+            <span className="text-slate-500">
+              금액 <b className="tabular-nums text-purple-700">{formatKRW(totalAmount)}</b>원
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="mr-1 text-xs font-medium text-slate-400">보기</span>
+            {(
+              [
+                ['month', '월 달력'],
+                ['chart', '차트'],
+              ] as const
+            ).map(([nextView, label]) => (
+              <button
+                key={nextView}
+                type="button"
+                onClick={() => {
+                  if (nextView === 'month') setView('month');
+                  else setView('chart');
+                }}
+                className={cn(
+                  'rounded-lg border px-3 py-1.5 text-sm font-medium',
+                  view === nextView
+                    ? 'border-purple-300 bg-purple-50 text-purple-700'
+                    : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-slate-400">실시간 조회 우선 · 저장된 발주로 빈 날짜 보완</span>
+        </div>
+
+        {isError ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
+            <p className="text-sm font-medium text-amber-800">실시간 발주 목록을 불러오지 못했습니다</p>
+            <p className="mt-1 text-xs text-amber-600">
+              {error instanceof Error ? error.message : '주문수집 확장 + supplier.coupang.com 로그인을 확인하세요.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
+            >
+              <RefreshCw size={13} /> 다시 시도
+            </button>
+          </div>
+        ) : null}
+
+        {view === 'month' ? (
+          <>
+            <RocketMonthCalendar
+              monthAnchor={from}
+              data={mergedMonthData}
+              selected={selectedDay}
+              onSelect={selectDate}
+              onShiftMonth={(delta) => onShiftMonth(delta, onSelectDate)}
+            />
+            {!hasMonthOrders ? (
+              <p className="px-1 text-xs text-slate-400">
+                이 달엔 해당 발주가 없습니다 · 달력의 이전/다음 버튼으로 다른 달을 확인해보세요.
+              </p>
+            ) : null}
+          </>
+        ) : null}
+        {view === 'chart' && hasRangeOrders ? <RocketOrdersChart data={mergedChartData} /> : null}
+
+        {!isLoading && view === 'chart' && !hasRangeOrders ? (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-8 text-center text-sm text-slate-400">
+            차트로 표시할 실시간 발주 데이터가 없습니다.
+          </div>
+        ) : null}
+
+        <p className="px-1 text-xs text-slate-400">
+          날짜를 선택하면 해당 날짜의 발주 목록과 재고 매칭 미리보기만 아래에 표시됩니다.
+        </p>
+      </div>
+    );
   }
 
   function renderPoRow(po: RocketPoSummary) {
@@ -244,6 +397,42 @@ export function RocketOrdersWorkspace({
     );
   }
 
+  function renderSelectedOrderList() {
+    if (!selectedDay) return null;
+    const dayPos = byDate.get(selectedDay) ?? [];
+    if (!dayPos.length) {
+      return (
+        <div className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center">
+          <p className="text-sm font-medium text-slate-600">{selectedDay} 실시간 발주 목록이 없습니다.</p>
+          <p className="mt-1 text-xs text-slate-400">
+            저장된 발주만 있는 날짜라면 위 재고 매칭 미리보기에서 내용을 확인할 수 있습니다.
+          </p>
+        </div>
+      );
+    }
+
+    const dow = dowOf(selectedDay);
+    const dayQty = dayPos.reduce((sum, order) => sum + order.orderQty, 0);
+    const dayAmount = dayPos.reduce((sum, order) => sum + order.orderAmount, 0);
+    return (
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <span className={cn(dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-700')}>
+              {selectedDay} ({WEEKDAYS[dow]})
+            </span>
+            <span className="text-[11px] font-normal text-slate-400">입고예정 · 선택일 발주</span>
+          </div>
+          <div className="text-xs text-slate-500">
+            {dayPos.length}건 · {formatNumber(dayQty)}개 ·{' '}
+            <b className="text-purple-600">{formatKRW(dayAmount)}</b>원
+          </div>
+        </div>
+        {dayPos.map(renderPoRow)}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -285,162 +474,14 @@ export function RocketOrdersWorkspace({
         })}
       </div>
 
-      {decisionWorkspace}
+      {decisionWorkspace({
+        activeMonth: (from || todayYmd()).slice(0, 7),
+        onOrdersChanged: () => void refetch(),
+        renderOrderExplorer,
+      })}
 
-      {/* 필터 (입고예정일 기준) */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
-        <span className="text-xs font-medium text-slate-400">입고예정일</span>
-        <input
-          type="date"
-          value={from}
-          onChange={(e) => {
-            setFrom(e.target.value);
-            setSelectedDay(null);
-          }}
-          className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
-        />
-        <span className="text-slate-400">~</span>
-        <input
-          type="date"
-          value={to}
-          onChange={(e) => {
-            setTo(e.target.value);
-            setSelectedDay(null);
-          }}
-          className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
-        />
-        <button
-          type="button"
-          onClick={() => {
-            setFrom(todayYmd());
-            setTo(plusDaysYmd(6));
-            setSelectedDay(null);
-          }}
-          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-purple-600 hover:bg-purple-50"
-        >
-          다음 7일
-        </button>
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
-        >
-          {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <div className="ml-auto flex items-center gap-4 text-sm">
-          <span className="text-slate-500">발주 <b className="tabular-nums text-slate-900">{formatNumber(scoped.length)}</b>건</span>
-          <span className="text-slate-500">수량 <b className="tabular-nums text-slate-900">{formatNumber(totalQty)}</b>개</span>
-          <span className="text-slate-500">금액 <b className="tabular-nums text-purple-700">{formatKRW(totalAmount)}</b>원</span>
-        </div>
-      </div>
-
-      {isLoading && <PageSkeleton variant="table" />}
-
-      {isError && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
-          <p className="text-sm font-medium text-amber-800">발주 목록을 불러오지 못했습니다</p>
-          <p className="mt-1 text-xs text-amber-600">
-            {error instanceof Error ? error.message : '주문수집 확장 + supplier.coupang.com 로그인을 확인하세요.'}
-          </p>
-          <button
-            onClick={() => refetch()}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
-          >
-            <RefreshCw size={13} /> 다시 시도
-          </button>
-        </div>
-      )}
-
-      {data && !isError && orders.length === 0 && view !== 'month' && (
-        <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-slate-400">
-          <Rocket size={32} className="mx-auto mb-3 opacity-20" />
-          <p className="text-sm font-medium">해당 조건의 발주가 없습니다</p>
-          <p className="mt-1 text-xs text-slate-400">입고예정일 범위를 바꾸거나 상태를 전체로 바꿔보세요.</p>
-        </div>
-      )}
-
-      {/* 보기 토글 (주 달력 / 월 달력 / 차트) + 시각화 */}
-      {data && !isError && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <span className="mr-1 text-xs font-medium text-slate-400">보기</span>
-            {(
-              [
-                ['week', '주 달력'],
-                ['month', '월 달력'],
-                ['chart', '차트'],
-              ] as const
-            ).map(([v, label]) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => (v === 'week' ? gotoWeek() : v === 'month' ? gotoMonth() : setView('chart'))}
-                className={cn(
-                  'rounded-lg border px-3 py-1.5 text-sm font-medium',
-                  view === v
-                    ? 'border-purple-300 bg-purple-50 text-purple-700'
-                    : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50',
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {view === 'week' && orders.length > 0 && (
-            <RocketWeekCalendar days={calDays} selected={selectedDay} onSelect={setSelectedDay} />
-          )}
-          {view === 'month' && (
-            <>
-              <RocketMonthCalendar
-                monthAnchor={from}
-                data={dayDataRecord}
-                selected={selectedDay}
-                onSelect={setSelectedDay}
-                onShiftMonth={onShiftMonth}
-              />
-              {data && !isError && orders.length === 0 && (
-                <p className="px-1 pt-0.5 text-xs text-slate-400">
-                  이 달엔 해당 발주가 없습니다 · 위 <b>‹ ›</b> 로 다른 달을 보거나 상태/기간을 바꿔보세요.
-                </p>
-              )}
-            </>
-          )}
-          {view === 'chart' && orders.length > 0 && <RocketOrdersChart data={chartData} />}
-        </div>
-      )}
-
-      {/* 발주 리스트 (입고예정일별 그룹) */}
-      {orders.length > 0 &&
-        visibleDates.map((date) => {
-          const dayPos = byDate.get(date) ?? [];
-          if (!dayPos.length) return null;
-          const dow = date === '미정' ? -1 : dowOf(date);
-          const dQty = dayPos.reduce((s, o) => s + o.orderQty, 0);
-          const dAmt = dayPos.reduce((s, o) => s + o.orderAmount, 0);
-          return (
-            <div key={date} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-              <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <span
-                    className={cn(
-                      dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-700',
-                    )}
-                  >
-                    {date === '미정' ? '입고예정일 미정' : `${date} (${WEEKDAYS[dow]})`}
-                  </span>
-                  <span className="text-[11px] font-normal text-slate-400">입고예정</span>
-                </div>
-                <div className="text-xs text-slate-500">
-                  {dayPos.length}건 · {formatNumber(dQty)}개 ·{' '}
-                  <b className="text-purple-600">{formatKRW(dAmt)}</b>원
-                </div>
-              </div>
-              {dayPos.map(renderPoRow)}
-            </div>
-          );
-        })}
+      {/* 날짜를 선택한 경우에만 해당 날짜의 실시간 발주 목록을 표시한다. */}
+      {selectedDay && renderSelectedOrderList()}
 
       {/* 기존 생성 파일 이력 (목록 · 재다운로드 · 삭제) */}
       <RocketConfirmFileList refreshKey={0} />

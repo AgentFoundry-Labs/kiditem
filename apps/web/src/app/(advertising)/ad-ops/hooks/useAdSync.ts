@@ -55,12 +55,14 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
 
       const nextRunId = requestedRunId ?? crypto.randomUUID();
       setRunId(nextRunId);
-      toast.info('광고 동기화를 백그라운드에서 시작합니다.');
       const session = await runReadinessExtensionCollection({
         check: AD_SYNC_CHECK,
         producer: 'advertising.ad_sync',
         extensionId,
         runId: nextRunId,
+        onStarted: () => {
+          toast.info('광고 동기화를 백그라운드에서 시작합니다.');
+        },
       });
 
       if (session.status === 'succeeded') {
