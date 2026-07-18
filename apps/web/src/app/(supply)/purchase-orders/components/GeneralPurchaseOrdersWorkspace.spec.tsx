@@ -20,10 +20,6 @@ vi.mock('../hooks/usePurchaseOrderSubmission', () => ({
   usePurchaseOrderSubmission: vi.fn(),
 }));
 
-vi.mock('./RocketPurchasePreviewSection', () => ({
-  RocketPurchasePreviewSection: () => <section>로켓 검토 미리보기</section>,
-}));
-
 describe('GeneralPurchaseOrdersWorkspace deep links', () => {
   beforeEach(() => {
     vi.mocked(usePurchaseOrderSubmission).mockReturnValue({
@@ -75,16 +71,16 @@ describe('GeneralPurchaseOrdersWorkspace deep links', () => {
     expect(row).toHaveClass('bg-purple-50');
   });
 
-  it('preserves the former page heading and optional compact Rocket preview', async () => {
+  it('preserves the general purchase-order page heading without a duplicate Rocket preview', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
-        <GeneralPurchaseOrdersWorkspace headingLevel={1} includeRocketPreview />
+        <GeneralPurchaseOrdersWorkspace headingLevel={1} />
       </QueryClientProvider>,
     );
 
     expect(await screen.findByRole('heading', { level: 1, name: '발주 관리' }))
       .toBeInTheDocument();
-    expect(screen.getByText('로켓 검토 미리보기')).toBeInTheDocument();
+    expect(screen.queryByText('로켓 검토 미리보기')).not.toBeInTheDocument();
   });
 });

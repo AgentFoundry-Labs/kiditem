@@ -1,11 +1,12 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RocketInventoryCommitmentList } from './RocketInventoryCommitmentList';
 
 const mocks = vi.hoisted(() => ({
   settle: vi.fn(),
   release: vi.fn(),
   invalidate: vi.fn(),
+  showItems: true,
 }));
 
 vi.mock('../hooks/use-rocket-inventory-commitments', () => ({
@@ -14,7 +15,8 @@ vi.mock('../hooks/use-rocket-inventory-commitments', () => ({
       isLoading: false,
       isError: false,
       data: {
-        items: [{
+        get items() {
+          return mocks.showItems ? [{
           confirmationId: '11111111-1111-4111-8111-111111111111',
           confirmationLineId: '22222222-2222-4222-8222-222222222222',
           channelAccountId: '33333333-3333-4333-8333-333333333333',
@@ -61,7 +63,8 @@ vi.mock('../hooks/use-rocket-inventory-commitments', () => ({
           orderLineItemId: '66666666-6666-4666-8666-666666666666',
           canRelease: true,
           canSettle: true,
-        }],
+          }] : [];
+        },
         nextCursor: null,
       },
       refetch: vi.fn(),
@@ -73,14 +76,28 @@ vi.mock('../hooks/use-rocket-inventory-commitments', () => ({
 }));
 
 describe('<RocketInventoryCommitmentList>', () => {
+  beforeEach(() => {
+    mocks.showItems = true;
+  });
+
   it('renders persisted stock levels in an overflow-safe table with final-order actions', () => {
     render(<RocketInventoryCommitmentList channelAccountId="33333333-3333-4333-8333-333333333333" />);
 
+    expect(screen.getByRole('heading', { name: '처리 필요한 재고 약정' })).toBeInTheDocument();
     expect(screen.getByRole('table').parentElement).toHaveClass('overflow-x-auto');
     expect(screen.getByRole('table')).toHaveClass('min-w-[1420px]', 'table-fixed');
     expect(screen.getByText('SP-1: 100 / 80 /')).toBeInTheDocument();
     expect(screen.getByText('20')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '정산' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '취소' })).toBeDisabled();
+  });
+
+  it('does not render an empty commitment-history section', () => {
+    mocks.showItems = false;
+
+    render(<RocketInventoryCommitmentList channelAccountId="33333333-3333-4333-8333-333333333333" />);
+
+    expect(screen.queryByRole('region', { name: '로켓 재고 약정' })).not.toBeInTheDocument();
+    expect(screen.queryByText('재고 약정 내역')).not.toBeInTheDocument();
   });
 });

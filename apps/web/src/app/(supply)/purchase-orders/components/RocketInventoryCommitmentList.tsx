@@ -22,6 +22,8 @@ export function RocketInventoryCommitmentList({
     useRocketInventoryCommitments(channelAccountId);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const actionableItems = (query.data?.items ?? []).filter((row) =>
+    (row.finalOrderCommitment ?? row.requestCommitment)?.status === 'active');
 
   const perform = async (
     row: RocketPurchaseCommitmentListItem,
@@ -50,21 +52,21 @@ export function RocketInventoryCommitmentList({
     }
   };
 
+  if (query.isLoading || (!query.isError && actionableItems.length === 0)) {
+    return null;
+  }
+
   return (
     <section aria-label="로켓 재고 약정" className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
       <div>
-        <h3 className="font-bold text-slate-900">재고 약정 내역</h3>
+        <h3 className="font-bold text-slate-900">처리 필요한 재고 약정</h3>
         <p className="text-xs text-slate-500">
-          요청서 확정과 PA 주문 전환 상태는 새로고침 후에도 유지됩니다. 실제 출고가 반영된 새 Sellpia 재고를 수집한 뒤 정산하세요.
+          새로고침 후에도 유지되는 활성 약정입니다. 실제 출고가 반영된 새 Sellpia 재고를 수집한 뒤 정산하거나, 취소 사유를 남겨 종료하세요.
         </p>
       </div>
       {error ? <p role="alert" className="text-sm text-rose-700">{error}</p> : null}
-      {query.isLoading ? (
-        <p className="py-4 text-sm text-slate-500">약정을 불러오는 중입니다.</p>
-      ) : query.isError ? (
+      {query.isError ? (
         <button type="button" onClick={() => void query.refetch()} className="text-sm font-semibold text-violet-700">약정 다시 불러오기</button>
-      ) : !query.data?.items.length ? (
-        <p className="py-4 text-sm text-slate-500">아직 생성된 로켓 재고 약정이 없습니다.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="min-w-[1420px] table-fixed text-sm">
@@ -80,7 +82,7 @@ export function RocketInventoryCommitmentList({
               </tr>
             </thead>
             <tbody>
-              {query.data.items.map((row) => (
+              {actionableItems.map((row) => (
                 <CommitmentRow
                   key={row.confirmationLineId}
                   row={row}
