@@ -1,16 +1,26 @@
 export type ChannelRecipeSuggestionStatus =
   | 'already_configured'
   | 'unique_code'
+  | 'unique_barcode'
+  | 'exact_name_option'
   | 'quantity_review'
   | 'conflict'
   | 'ambiguous'
   | 'name_review_only'
   | 'no_match';
 
+export type ChannelRecipeAutomationDecision =
+  | 'auto_apply'
+  | 'operator_review'
+  | 'blocked'
+  | 'already_configured';
+
 export type ChannelRecipeSuggestionEvidenceKind =
   | 'seller_sku_code'
   | 'model_number_code'
-  | 'normalized_name';
+  | 'physical_barcode'
+  | 'normalized_name'
+  | 'normalized_name_option';
 
 export type ChannelRecipeSuggestionSku = {
   sellpiaInventorySkuId: string;
@@ -23,6 +33,21 @@ export type ChannelRecipeSuggestionSku = {
 type CodeEvidence = {
   kind: 'seller_sku_code' | 'model_number_code';
   channelValue: string;
+  sku: ChannelRecipeSuggestionSku;
+};
+
+type BarcodeEvidence = {
+  kind: 'unique_physical_barcode';
+  channelValue: string;
+  normalizedValue: string;
+  sku: ChannelRecipeSuggestionSku;
+};
+
+type NameOptionEvidence = {
+  productValue: string;
+  optionValue: string | null;
+  normalizedProductValue: string;
+  normalizedOptionValue: string | null;
   sku: ChannelRecipeSuggestionSku;
 };
 
@@ -42,14 +67,33 @@ export type ChannelRecipeSuggestionInput = {
     itemName: string | null;
     sellerSku: string | null;
     modelNumber: string | null;
+    barcode: string | null;
   }>;
   existingComponents: Array<{
     sellpiaInventorySkuId: string;
     code: string;
     quantity: number;
+    source: 'manual' | 'deterministic';
+    confirmedBy: string | null;
+    confirmedAt: Date | string;
   }>;
   codeEvidence: CodeEvidence[];
+  barcodeEvidence: BarcodeEvidence[];
+  nameOptionEvidence: NameOptionEvidence[];
   nameEvidence: NameEvidence[];
+};
+
+type ProposalEvidence = {
+  kind: ChannelRecipeSuggestionEvidenceKind;
+  channelValue: string;
+  normalizedValue: string;
+};
+
+type StrongEvidence = {
+  identifier: string;
+  source: 'code' | 'barcode' | 'name_option';
+  sku: ChannelRecipeSuggestionSku;
+  evidence: ProposalEvidence;
 };
 
 export type ChannelRecipeSuggestionResponse = {
@@ -57,6 +101,8 @@ export type ChannelRecipeSuggestionResponse = {
   productVariantId: string | null;
   masterProductId: string | null;
   status: ChannelRecipeSuggestionStatus;
+  automationDecision: ChannelRecipeAutomationDecision;
+  recommendedQuantity: number | null;
   reason: string;
   existingComponents: ChannelRecipeSuggestionInput['existingComponents'];
   proposals: Array<{
@@ -65,19 +111,29 @@ export type ChannelRecipeSuggestionResponse = {
     name: string;
     optionName: string | null;
     currentStock: number;
-    evidence: Array<{
-      kind: ChannelRecipeSuggestionEvidenceKind;
-      channelValue: string;
-      normalizedValue: string;
-    }>;
-    requiresQuantityConfirmation: true;
+    evidence: ProposalEvidence[];
+    requiresQuantityConfirmation: boolean;
+    recommendedQuantity: number | null;
   }>;
 };
 
-const BUNDLE_LANGUAGE = /(?:\bbundle\b|\bset\b|세트|묶음|구성)/iu;
+const PACK_TOKEN = /(?:\d+\s*(?:개입|개|입|팩|pcs?|p)(?![\p{L}\p{N}])|x\s*\d+|세트|묶음|구성|\bbundle\b|\bset\b)/giu;
+
+export function normalizeRecipeIdentityText(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.normalize('NFKC').toLocaleLowerCase().replace(/\s/gu, '');
+  return normalized || null;
+}
 
 export function normalizeRecipeSuggestionName(value: string): string {
-  return value.normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, '');
+  return normalizeRecipeIdentityText(value) ?? '';
+}
+
+export function packSignature(...values: Array<string | null>): string[] {
+  return [...new Set(values
+    .flatMap((value) => value?.normalize('NFKC').toLocaleLowerCase().match(PACK_TOKEN) ?? [])
+    .map((value) => value.replace(/\s/gu, '')))]
+    .sort();
 }
 
 export function classifyChannelRecipeSuggestion(
@@ -90,100 +146,180 @@ export function classifyChannelRecipeSuggestion(
     existingComponents: input.existingComponents,
   };
   if (input.existingComponents.length > 0) {
-    return { ...base, status: 'already_configured', reason: 'Existing recipe components are preserved', proposals: [] };
-  }
-
-  const codeEvidenceBySku = groupCodeEvidence(input.codeEvidence);
-  const codeProposals = proposalsFromCodeEvidence(codeEvidenceBySku);
-  if (codeProposals.length > 0) {
-    const status = classifyCodeEvidence(input, codeEvidenceBySku);
     return {
       ...base,
-      status,
-      reason: codeReason(status),
-      proposals: codeProposals,
+      status: 'already_configured',
+      automationDecision: 'already_configured',
+      recommendedQuantity: null,
+      reason: 'Existing recipe components are preserved',
+      proposals: [],
     };
   }
 
-  const nameProposals = proposalsFromNameEvidence(input.nameEvidence);
-  if (nameProposals.length > 0) {
+  const strongEvidence = collectStrongEvidence(input);
+  if (hasAmbiguousIdentifier(strongEvidence)) {
+    return decision(base, strongEvidence, 'ambiguous', 'blocked', null,
+      'One deterministic identifier resolves to multiple Sellpia SKUs');
+  }
+
+  const skuIds = new Set(strongEvidence.map((item) => item.sku.sellpiaInventorySkuId));
+  if (skuIds.size > 1) {
+    return decision(base, strongEvidence, 'conflict', 'blocked', null,
+      'Deterministic identifiers resolve to different Sellpia SKUs');
+  }
+
+  if (skuIds.size === 1) {
+    const sku = strongEvidence[0]!.sku;
+    if (!compatibleUnit(input.options.flatMap((option) => [option.listingName, option.itemName]), sku)) {
+      return decision(base, strongEvidence, 'quantity_review', 'operator_review', null,
+        'Deterministic evidence has an incompatible pack signature requiring quantity review');
+    }
+    const status = automaticStatus(strongEvidence);
+    return decision(base, strongEvidence, status, 'auto_apply', 1, automaticReason(status));
+  }
+
+  if (input.nameEvidence.length > 0) {
     return {
       ...base,
       status: 'name_review_only',
+      automationDecision: 'operator_review',
+      recommendedQuantity: null,
       reason: 'Normalized listing names are review-only evidence',
-      proposals: nameProposals,
+      proposals: proposalsFromLooseNameEvidence(input.nameEvidence),
     };
   }
-  return { ...base, status: 'no_match', reason: 'No deterministic Sellpia evidence was found', proposals: [] };
+  return {
+    ...base,
+    status: 'no_match',
+    automationDecision: 'blocked',
+    recommendedQuantity: null,
+    reason: 'No deterministic Sellpia evidence was found',
+    proposals: [],
+  };
 }
 
-function classifyCodeEvidence(
-  input: ChannelRecipeSuggestionInput,
-  evidenceBySku: Map<string, CodeEvidence[]>,
-): Extract<ChannelRecipeSuggestionStatus, 'unique_code' | 'quantity_review' | 'conflict' | 'ambiguous'> {
-  const identifierMatches = new Map<string, Set<string>>();
-  for (const evidence of input.codeEvidence) {
-    const key = `${evidence.kind}:${evidence.channelValue}`;
-    const matches = identifierMatches.get(key) ?? new Set<string>();
-    matches.add(evidence.sku.sellpiaInventorySkuId);
-    identifierMatches.set(key, matches);
+function collectStrongEvidence(input: ChannelRecipeSuggestionInput): StrongEvidence[] {
+  return [
+    ...input.codeEvidence.map((item): StrongEvidence => ({
+      identifier: `${item.kind}:${item.channelValue}`,
+      source: 'code',
+      sku: item.sku,
+      evidence: {
+        kind: item.kind,
+        channelValue: item.channelValue,
+        normalizedValue: item.channelValue,
+      },
+    })),
+    ...input.barcodeEvidence.map((item): StrongEvidence => ({
+      identifier: `physical_barcode:${item.normalizedValue}`,
+      source: 'barcode',
+      sku: item.sku,
+      evidence: {
+        kind: 'physical_barcode',
+        channelValue: item.channelValue,
+        normalizedValue: item.normalizedValue,
+      },
+    })),
+    ...input.nameOptionEvidence.map((item): StrongEvidence => ({
+      identifier: `name_option:${item.normalizedProductValue}:${item.normalizedOptionValue ?? ''}`,
+      source: 'name_option',
+      sku: item.sku,
+      evidence: {
+        kind: 'normalized_name_option',
+        channelValue: joinIdentity(item.productValue, item.optionValue),
+        normalizedValue: joinIdentity(item.normalizedProductValue, item.normalizedOptionValue),
+      },
+    })),
+  ];
+}
+
+function hasAmbiguousIdentifier(evidence: StrongEvidence[]): boolean {
+  const identifiers = new Map<string, Set<string>>();
+  for (const item of evidence) {
+    const skuIds = identifiers.get(item.identifier) ?? new Set<string>();
+    skuIds.add(item.sku.sellpiaInventorySkuId);
+    identifiers.set(item.identifier, skuIds);
   }
-  if ([...identifierMatches.values()].some((matches) => matches.size > 1)) return 'ambiguous';
-  if (evidenceBySku.size > 1) return 'conflict';
-  const hasBundleLanguage = input.options.some((option) =>
-    [option.listingName, option.itemName].some((value) => value !== null && BUNDLE_LANGUAGE.test(value)));
-  return hasBundleLanguage ? 'quantity_review' : 'unique_code';
+  return [...identifiers.values()].some((skuIds) => skuIds.size > 1);
 }
 
-function groupCodeEvidence(codeEvidence: CodeEvidence[]): Map<string, CodeEvidence[]> {
-  const bySku = new Map<string, CodeEvidence[]>();
-  for (const evidence of codeEvidence) {
-    const values = bySku.get(evidence.sku.sellpiaInventorySkuId) ?? [];
-    values.push(evidence);
-    bySku.set(evidence.sku.sellpiaInventorySkuId, values);
-  }
-  return bySku;
+function compatibleUnit(
+  channelValues: Array<string | null>,
+  sku: ChannelRecipeSuggestionSku,
+): boolean {
+  const channel = packSignature(...channelValues);
+  const physical = packSignature(sku.name, sku.optionName);
+  return channel.length === 0 || JSON.stringify(channel) === JSON.stringify(physical);
 }
 
-function proposalsFromCodeEvidence(
-  evidenceBySku: Map<string, CodeEvidence[]>,
+function automaticStatus(
+  evidence: StrongEvidence[],
+): Extract<ChannelRecipeSuggestionStatus, 'unique_code' | 'unique_barcode' | 'exact_name_option'> {
+  if (evidence.some((item) => item.source === 'code')) return 'unique_code';
+  if (evidence.some((item) => item.source === 'barcode')) return 'unique_barcode';
+  return 'exact_name_option';
+}
+
+function decision(
+  base: Pick<ChannelRecipeSuggestionResponse,
+    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+  evidence: StrongEvidence[],
+  status: ChannelRecipeSuggestionStatus,
+  automationDecision: ChannelRecipeAutomationDecision,
+  recommendedQuantity: number | null,
+  reason: string,
+): ChannelRecipeSuggestionResponse {
+  return {
+    ...base,
+    status,
+    automationDecision,
+    recommendedQuantity,
+    reason,
+    proposals: proposalsFromStrongEvidence(evidence, recommendedQuantity),
+  };
+}
+
+function proposalsFromStrongEvidence(
+  evidence: StrongEvidence[],
+  recommendedQuantity: number | null,
 ): ChannelRecipeSuggestionResponse['proposals'] {
-  return [...evidenceBySku.values()].map((evidence) => {
-    const sku = evidence[0]!.sku;
-    return proposal(sku, evidence.map((item) => ({
-      kind: item.kind,
-      channelValue: item.channelValue,
-      normalizedValue: item.channelValue,
-    })));
-  }).sort((left, right) => left.code.localeCompare(right.code));
+  const bySku = new Map<string, StrongEvidence[]>();
+  for (const item of evidence) {
+    const values = bySku.get(item.sku.sellpiaInventorySkuId) ?? [];
+    values.push(item);
+    bySku.set(item.sku.sellpiaInventorySkuId, values);
+  }
+  return [...bySku.values()].map((items) => proposal(
+    items[0]!.sku,
+    items.map((item) => item.evidence),
+    recommendedQuantity,
+  )).sort((left, right) => left.code.localeCompare(right.code));
 }
 
-function proposalsFromNameEvidence(
+function proposalsFromLooseNameEvidence(
   nameEvidence: NameEvidence[],
 ): ChannelRecipeSuggestionResponse['proposals'] {
   const bySku = new Map<string, NameEvidence[]>();
-  for (const evidence of nameEvidence) {
-    const values = bySku.get(evidence.sku.sellpiaInventorySkuId) ?? [];
-    values.push(evidence);
-    bySku.set(evidence.sku.sellpiaInventorySkuId, values);
+  for (const item of nameEvidence) {
+    const values = bySku.get(item.sku.sellpiaInventorySkuId) ?? [];
+    values.push(item);
+    bySku.set(item.sku.sellpiaInventorySkuId, values);
   }
-  return [...bySku.values()].map((evidence) => proposal(
-    evidence[0]!.sku,
-    evidence.map((item) => ({
-      kind: 'normalized_name' as const,
+  return [...bySku.values()].map((items) => proposal(
+    items[0]!.sku,
+    items.map((item) => ({
+      kind: 'normalized_name',
       channelValue: item.channelValue,
       normalizedValue: item.normalizedValue,
     })),
+    null,
   )).sort((left, right) => left.code.localeCompare(right.code));
 }
 
 function proposal(
   sku: ChannelRecipeSuggestionSku,
-  evidence: Array<{
-    kind: ChannelRecipeSuggestionEvidenceKind;
-    channelValue: string;
-    normalizedValue: string;
-  }>,
+  evidence: ProposalEvidence[],
+  recommendedQuantity: number | null,
 ): ChannelRecipeSuggestionResponse['proposals'][number] {
   return {
     sellpiaInventorySkuId: sku.sellpiaInventorySkuId,
@@ -191,21 +327,22 @@ function proposal(
     name: sku.name,
     optionName: sku.optionName,
     currentStock: sku.currentStock,
-    evidence: evidence.map((item) => ({
-      kind: item.kind,
-      channelValue: item.channelValue,
-      normalizedValue: item.normalizedValue,
-    })),
-    requiresQuantityConfirmation: true,
+    evidence,
+    requiresQuantityConfirmation: recommendedQuantity === null,
+    recommendedQuantity,
   };
 }
 
-function codeReason(status: ChannelRecipeSuggestionStatus): string {
+function joinIdentity(productValue: string, optionValue: string | null): string {
+  return optionValue === null ? productValue : `${productValue} / ${optionValue}`;
+}
+
+function automaticReason(
+  status: Extract<ChannelRecipeSuggestionStatus, 'unique_code' | 'unique_barcode' | 'exact_name_option'>,
+): string {
   switch (status) {
     case 'unique_code': return 'One exact Sellpia code candidate was found';
-    case 'quantity_review': return 'Exact code evidence has bundle or set language requiring quantity review';
-    case 'conflict': return 'Exact code identifiers resolve to different Sellpia SKUs';
-    case 'ambiguous': return 'An exact code identifier resolves to multiple Sellpia SKUs';
-    default: return 'No deterministic Sellpia evidence was found';
+    case 'unique_barcode': return 'One unique physical barcode candidate was found';
+    case 'exact_name_option': return 'One exact normalized product and option candidate was found';
   }
 }

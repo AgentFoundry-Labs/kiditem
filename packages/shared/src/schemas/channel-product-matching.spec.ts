@@ -59,12 +59,14 @@ const createOptionQueueRow = ({
 });
 
 describe('channel product and variant matching contracts', () => {
-  it('requires every recipe proposal to retain quantity confirmation', () => {
+  it('accepts a quantity-one automatic proposal and rejects incomplete automatic evidence', () => {
     const response = {
       channelListingOptionId: optionId,
       productVariantId: variantId,
       masterProductId: productId,
       status: 'unique_code',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
       reason: 'One exact Sellpia code candidate was found',
       existingComponents: [],
       proposals: [{
@@ -73,13 +75,15 @@ describe('channel product and variant matching contracts', () => {
         evidence: [{
           kind: 'seller_sku_code', channelValue: 'SP-001', normalizedValue: 'SP-001',
         }],
-        requiresQuantityConfirmation: true,
+        requiresQuantityConfirmation: false,
+        recommendedQuantity: 1,
       }],
     };
     expect(ChannelRecipeSuggestionResponseSchema.parse(response)).toEqual(response);
     expect(() => ChannelRecipeSuggestionResponseSchema.parse({
       ...response,
-      proposals: [{ ...response.proposals[0], requiresQuantityConfirmation: false }],
+      recommendedQuantity: null,
+      proposals: [{ ...response.proposals[0], recommendedQuantity: null }],
     })).toThrow();
     expect(() => ChannelRecipeSuggestionResponseSchema.parse({
       ...response,
@@ -91,6 +95,45 @@ describe('channel product and variant matching contracts', () => {
         }],
       }],
     })).toThrow();
+  });
+
+  it('keeps review proposals quantity-unconfirmed and exposes configured source metadata', () => {
+    const review = {
+      channelListingOptionId: optionId,
+      productVariantId: variantId,
+      masterProductId: productId,
+      status: 'quantity_review',
+      automationDecision: 'operator_review',
+      recommendedQuantity: null,
+      reason: 'Pack quantity requires review',
+      existingComponents: [],
+      proposals: [{
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+        code: 'SP-001', name: '키즈 식판', optionName: null, currentStock: 7,
+        evidence: [{
+          kind: 'model_number_code', channelValue: 'SP-001', normalizedValue: 'SP-001',
+        }],
+        requiresQuantityConfirmation: true,
+        recommendedQuantity: null,
+      }],
+    };
+    expect(ChannelRecipeSuggestionResponseSchema.parse(review)).toEqual(review);
+
+    expect(ChannelRecipeSuggestionResponseSchema.parse({
+      ...review,
+      status: 'already_configured',
+      automationDecision: 'already_configured',
+      reason: 'Existing recipe components are preserved',
+      existingComponents: [{
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+        code: 'SP-001',
+        quantity: 1,
+        source: 'deterministic',
+        confirmedBy: null,
+        confirmedAt: '2026-07-18T00:00:00.000Z',
+      }],
+      proposals: [],
+    }).existingComponents[0]?.source).toBe('deterministic');
   });
   it('freezes candidate reasons without treating suggestions as confirmation', () => {
     expect(ChannelMatchCandidateReasonSchema.options).toEqual([
