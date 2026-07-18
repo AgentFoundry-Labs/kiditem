@@ -5,6 +5,9 @@ import {
   RocketPurchaseConfirmationResponseSchema,
   RocketPurchasePreviewRequestSchema,
   RocketPurchasePreviewResponseSchema,
+  RocketSavedPoCollectionSchema,
+  RocketSavedPoListRequestSchema,
+  RocketSavedPoSummarySchema,
 } from './rocket-purchase-preview';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
@@ -55,6 +58,46 @@ function request() {
 }
 
 describe('Rocket purchase preview contract', () => {
+  it('parses account-scoped saved PO summaries and exact saved collection evidence', () => {
+    const summary = RocketSavedPoSummarySchema.parse({
+      sourceImportRunId: RUN_ID,
+      poNumber: '10000001',
+      orderedAt: '2026-07-18 09:00:00',
+      plannedDeliveryDate: '2026-07-20',
+      status: '거래처확인요청',
+      vendorId: 'A00123',
+      centerName: '덕평1센터',
+      inboundType: '택배',
+      firstProductName: '키즈 식판',
+      skuCount: 2,
+      orderQuantity: 8,
+      orderAmount: 79_200,
+      collectedAt: '2026-07-18T01:00:00.000Z',
+    });
+    const collection = RocketSavedPoCollectionSchema.parse({
+      sourceImportRunId: RUN_ID,
+      channelAccountId: ACCOUNT_ID,
+      collection: request().collection,
+      rows: request().rows,
+    });
+
+    expect(summary.poNumber).toBe('10000001');
+    expect(collection.rows).toEqual(request().rows);
+  });
+
+  it('rejects malformed or reversed saved PO list ranges', () => {
+    expect(() => RocketSavedPoListRequestSchema.parse({
+      channelAccountId: ACCOUNT_ID,
+      from: '2026/07/01',
+      to: '2026-07-31',
+    })).toThrow();
+    expect(() => RocketSavedPoListRequestSchema.parse({
+      channelAccountId: ACCOUNT_ID,
+      from: '2026-07-31',
+      to: '2026-07-01',
+    })).toThrow(/on or after/i);
+  });
+
   it('accepts bounded completeness evidence and a strict client request', () => {
     expect(RocketPurchasePreviewRequestSchema.parse(request())).toEqual(request());
     expect(() => RocketPurchasePreviewRequestSchema.parse({

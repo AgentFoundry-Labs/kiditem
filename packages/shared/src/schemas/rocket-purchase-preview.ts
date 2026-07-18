@@ -58,6 +58,51 @@ export const RocketPoCatalogRowSchema = z.object({
 }).strict();
 export type RocketPoCatalogRow = z.infer<typeof RocketPoCatalogRowSchema>;
 
+export const RocketSavedPoListRequestSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  from: isoDay,
+  to: isoDay,
+  status: boundedText(80).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.to < value.from) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['to'],
+      message: 'to must be on or after from',
+    });
+  }
+});
+export type RocketSavedPoListRequest = z.infer<
+  typeof RocketSavedPoListRequestSchema
+>;
+
+export const RocketSavedPoSummarySchema = z.object({
+  sourceImportRunId: z.string().uuid(),
+  poNumber: requiredText(80),
+  orderedAt: boundedText(40),
+  plannedDeliveryDate: isoDay,
+  status: boundedText(80),
+  vendorId: boundedText(120),
+  centerName: boundedText(120),
+  inboundType: boundedText(80),
+  firstProductName: requiredText(240),
+  skuCount: z.number().int().nonnegative(),
+  orderQuantity: z.number().int().nonnegative(),
+  orderAmount: z.number().int().nonnegative(),
+  collectedAt: z.string().datetime(),
+}).strict();
+export type RocketSavedPoSummary = z.infer<typeof RocketSavedPoSummarySchema>;
+
+export const RocketSavedPoCollectionSchema = z.object({
+  sourceImportRunId: z.string().uuid(),
+  channelAccountId: z.string().uuid(),
+  collection: RocketPoCollectionEvidenceSchema,
+  rows: z.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT),
+}).strict();
+export type RocketSavedPoCollection = z.infer<
+  typeof RocketSavedPoCollectionSchema
+>;
+
 const RocketPurchaseRequestBaseSchema = z.object({
   channelAccountId: z.string().uuid(),
   collection: RocketPoCollectionEvidenceSchema,
