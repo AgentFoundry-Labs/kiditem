@@ -20,14 +20,10 @@ import {
 } from '@kiditem/shared/channel-product-matching';
 import { CoupangWingCatalogImportResponseSchema, type CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 import { apiClient } from '@/lib/api-client';
-import {
-  ApplyChannelRecipeAutomationInputSchema,
-  ApplyChannelRecipeAutomationResponseSchema,
-  ChannelRecipeAutomationPreviewSchema,
-  type ApplyChannelRecipeAutomationInput,
-  type ApplyChannelRecipeAutomationResponse,
-  type ChannelRecipeAutomationPreview,
-} from '@kiditem/shared/channel-recipe-automation';
+export {
+  applyChannelRecipeAutomation,
+  getChannelRecipeAutomationPreview,
+} from '@/lib/channel-recipe-automation-api';
 
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
@@ -76,25 +72,6 @@ export function getChannelRecipeSuggestion(
     `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/recipe-suggestions`,
     ChannelRecipeSuggestionResponseSchema,
   );
-}
-
-export function getChannelRecipeAutomationPreview(
-  channelAccountId: string,
-): Promise<ChannelRecipeAutomationPreview> {
-  return apiClient.getParsed(
-    `/api/channels/product-mappings/recipe-automation/preview?channelAccountId=${encodeURIComponent(channelAccountId)}`,
-    ChannelRecipeAutomationPreviewSchema,
-  );
-}
-
-export async function applyChannelRecipeAutomation(
-  input: ApplyChannelRecipeAutomationInput,
-): Promise<ApplyChannelRecipeAutomationResponse> {
-  const response = await apiClient.post<unknown>(
-    '/api/channels/product-mappings/recipe-automation/apply',
-    ApplyChannelRecipeAutomationInputSchema.parse(input),
-  );
-  return ApplyChannelRecipeAutomationResponseSchema.parse(response);
 }
 
 export async function linkChannelListingProduct(
