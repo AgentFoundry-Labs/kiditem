@@ -221,6 +221,16 @@ describe('AdAction flow (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await prisma.sellpiaInventoryState.createMany({
+      data: [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID].map(
+        (organizationId) => ({
+          organizationId,
+          requestedGeneration: 1n,
+          verifiedGeneration: 1n,
+          lastVerifiedAt: new Date(),
+        }),
+      ),
+    });
   });
 
   describe('generateActions — 5 rules', () => {
