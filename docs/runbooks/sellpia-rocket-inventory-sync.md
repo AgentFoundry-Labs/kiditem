@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Release `0.1.20` keeps Sellpia as the physical inventory authority and adds an
+Release `0.1.21` keeps Sellpia as the physical inventory authority and adds an
 operator-confirmed Rocket capacity commitment after the deterministic preview.
 Rocket collection may persist observed channel identities, calculate how much
 can be fulfilled from a fresh Sellpia snapshot, persist an internal component
@@ -27,31 +27,35 @@ authenticated Rocket PO collection
   -> Supply reads a fresh Inventory capacity snapshot
   -> deterministic in-memory preview
   -> operator reviews every quantity and shortage reason
-  -> Supply reruns preview under lock and persists component allocations
+  -> Supply reruns preview under lock and Inventory creates rocket_request commitment
   -> browser downloads official workbook
-  -> no provider submit / no Sellpia stock write
+  -> Orders collects PA and Inventory replaces request with rocket_final_order
+  -> newer Sellpia snapshot proves movement, then operator settles final commitment
+  -> no provider submit / no direct Sellpia stock write
 ```
 
 Inventory owns freshness, publication, physical `SellpiaInventorySku`, and
 `currentStock`. Channels owns Rocket `ChannelAccount` and observed listing/SKU
 identity. Products owns the operator-confirmed `ProductVariantComponent`
-recipes. Supply owns the preview calculation, Rocket confirmation/allocation
-lifecycle, and the ordinary purchase-order submission boundary; it may compare
-Inventory's opaque fence but does not derive freshness or write inventory state.
+recipes. Supply owns the preview calculation and Rocket decision/workbook audit.
+Orders owns PA persistence in the general order spine. Inventory owns the common
+commitment lifecycle and all availability math; Supply and Orders do not derive
+freshness or write inventory state.
 
 ## Rocket Collection Contract
 
 1. Use an active organization-owned `ChannelAccount` whose stored channel is
    exactly `rocket`. Never infer Rocket from its display name.
-2. In the existing decision area on `/rocket-orders` (or the additive
-   `/purchase-orders?tab=rocket` preview), choose the account and collect the
-   intended ETA range through the order-collector extension.
+2. In the existing decision area on `/rocket-orders`, choose the account and
+   collect the intended ETA range through the order-collector extension.
 3. The extension returns a caller UUID `collectionRunId`, the non-display
    `vendorId`, page/detail counts, truncation, failed PO numbers, and stable PO
    line identities. `vendorName` is never accepted as identity.
-4. Collection is incomplete when vendor IDs are missing/mixed, any requested PO
-   detail failed, or the 20-list-page/40-detail-page safety limits truncate the
-   result.
+4. Collection is incomplete when non-empty results have missing/mixed vendor
+   IDs, any requested PO detail failed, or the 20-list-page/40-detail-page
+   safety limits truncate the result. A complete zero-PO result legitimately
+   has no collected vendor ID; after validating the selected active account,
+   the server returns an empty result without publishing a catalog artifact.
 5. Channels validates organization, account, active status, channel, and vendor
    identity, canonicalizes the artifact, and calculates its SHA-256 on the
    server. A duplicate completed artifact is reused.
@@ -78,20 +82,22 @@ Rows are allocated in stable ETA, PO, and line order. For each confirmed
 component:
 
 ```text
-component capacity = floor(currentStock / component quantity per sale)
+availableStock = max(currentStock - activeCommitmentQuantity, 0)
+component capacity = floor(availableStock / component quantity per sale)
 row capacity = min(PO order quantity, minimum remaining component capacity)
 ```
 
 Shared components are consumed once in memory across all preview rows. Edited
 quantities are validated against recomputed remaining capacity. During
-recollection, retained edits are first clamped against a fresh unedited
-baseline and then jointly clamped in the same stable allocation order.
+recollection, all retained edits are sent once and jointly clamped in the same
+stable allocation order. Any later edit marks the UI preview dirty and disables
+confirmation until a whole-preview revalidation returns effective quantities.
 
 Explicit block reasons cover incomplete collection, vendor mismatch, missing
 mapping, inactive component, and insufficient capacity. Missing mapping is not
 treated as a confirmed zero-capacity recipe.
 
-## Confirmation And Release
+## Request Confirmation, PA Collection, And Settlement
 
 1. Review every row quantity. Every line must have an explicit value; every
    quantity below the PO order quantity must use one controlled shortage reason.
@@ -101,17 +107,28 @@ treated as a confirmed zero-capacity recipe.
    the current completed source run and Inventory generation, and compares the
    current channel option/variant/component recipe with the preview.
 4. Supply persists `RocketPurchaseConfirmation`, line decisions, and immutable
-   component allocations. Active allocations reduce later previews; Sellpia
+   component audit allocations; Inventory creates one `rocket_request`
+   commitment per positive line in the same transaction. Active common
+   commitments reduce every later availability projection; Sellpia
    `currentStock` is unchanged.
 5. Only after the server commit succeeds does the browser generate and download
    the 23-column official workbook. Replaying the same key and input returns the
    existing confirmation; changed input with the same key is rejected.
-6. When the decision is cancelled, or after the physical movement appears in a
-   completed Sellpia snapshot, enter an explicit reason and choose **예약
-   종료**. Release records actor/time/reason and stops subtracting the allocation.
-   Recalculate before confirming again. Do not infer that an arbitrary newer
-   snapshot contains this PO; the operator closes the reservation only with
-   actual operational evidence.
+6. The server commitment list remains available after refresh. If the request
+   is cancelled before PA, enter a reason and release its confirmation.
+7. In `/order-collection`, select the same Rocket channel account and collect
+   the Coupang PA order. Orders persists `SourceImportRun`, `Order`, and
+   `OrderLineItem`, then Supply reconciles account + PO + product + barcode and
+   Inventory atomically replaces `rocket_request` with `rocket_final_order`.
+   Only after that commit may the 17-column Sellpia workbook enter file history.
+8. PA replay is idempotent. A barcode mismatch, missing/ambiguous request,
+   capacity conflict, or order persistence failure rolls back the entire import
+   and produces no workbook.
+9. A final-order commitment remains active until either the order is cancelled
+   (release with reason) or a strictly newer completed Sellpia snapshot shows
+   the real shipment. After verifying that evidence, choose **정산**. Settlement
+   stops the logical hold while the newer physical `currentStock` already
+   contains the decrease, so stock is not subtracted twice.
 
 This confirmation is KidItem's internal decision and capacity commitment. It is
 not proof of Coupang acceptance and does not call a marketplace provider.
@@ -120,16 +137,15 @@ not proof of Coupang acceptance and does not call a marketplace provider.
 
 | Route | Responsibility |
 |---|---|
-| `/purchase-orders?tab=rocket` | Additive account selection, authenticated collection, completeness evidence, editable deterministic preview, confirmation/workbook, and release. |
-| `/rocket-orders` | Preserved `c9e7caf8` calendar/list/file-history UI with the stale capacity-decision placeholder replaced by the same Sellpia preview contract. |
+| `/rocket-orders` | Preserved `c9e7caf8` calendar/list/file-history UI with the stale capacity-decision placeholder replaced by authenticated collection, completeness evidence, editable deterministic preview, confirmation/workbook, and release. |
+| `/purchase-orders` | General supplier purchase-order operations only. |
 | `/product-hub/matching` | Baseline Coupang/Rocket SKU queue and exact Sellpia component-recipe confirmation workspace. |
 | `/inventory-hub?tab=sellpia-sync` | Shared Sellpia freshness status, current basis, attempts, warnings, and manual fallback. |
-| `/stock-ops` | Baseline inventory analysis: Sellpia/channel zero stock, bottlenecks, mapping attention, inventory value, freshness, transfer, and return records. |
+| `/stock-ops?tab=product-outflow` | Direct Sellpia SKU sales/depletion with current stock, active commitment, available stock, mapping state, and operating-product destinations. |
 
-The two Rocket routes keep their own layouts and do not redirect to each other.
-They may consume the same Supply contract. On `/rocket-orders`, integrate it
-only at the existing capacity-decision placeholder; do not replace the
-calendar/list/file-history shell.
+On `/rocket-orders`, integrate the Supply-owned contract only at the existing
+capacity-decision placeholder; do not replace the calendar/list/file-history
+shell or expose a duplicate Rocket review workspace under `/purchase-orders`.
 
 ## Record-Only Operations
 
@@ -164,19 +180,21 @@ for a real-world stock change.
 | SKU is unmapped | Open `/product-hub/matching` and confirm the entire recipe; do not infer quantity from a title. |
 | Recipe component inactive | Review and replace/confirm the recipe. Persisted mapping remains diagnosable and appears in `needs_review`. |
 | `SELLPIA_SYNC_REQUIRED` | Wait for the automatic Sellpia refresh and recompute from the fresh generation. |
-| Edited quantity rejected | Recompute the preview and keep the edit within the jointly allocated remaining capacity. |
+| Edited quantity rejected | Keep the preview dirty, run **수량 다시 검증**, and use the jointly returned effective quantities. |
 | Confirmation reports stale generation/source/recipe | Recollect and recompute. Do not reuse old rows or override the fence. |
 | Idempotency conflict | Keep the existing decision or create a new confirmation intent with a new UUID after operator review. |
 | Workbook generation fails after confirmation | The server allocation is still active. Retry the same intent to regenerate, or explicitly release it with a reason. |
 | Capacity is no longer needed | Release the active confirmation with an explicit reason, then recompute. |
+| PA reconciliation missing/ambiguous | Verify the same Rocket account, PO/product/barcode, and one active request commitment. Do not download or manually link the order. |
+| Final commitment cannot settle | Collect a newer full Sellpia snapshot and verify the real shipment first. Do not release merely to make availability increase. |
 
 ## Verification
 
 ```bash
 rtk npm exec --workspace=packages/shared vitest -- run src/schemas/rocket-purchase-preview.spec.ts
 rtk npm exec --workspace=apps/server vitest -- run src/inventory src/channels src/supply
-rtk npm run test:integration --workspace=apps/server -- src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-confirmation.pg.integration.spec.ts
-rtk npm exec --workspace=apps/web vitest -- run src/app/\(supply\)/purchase-orders src/app/\(orders\)/rocket-orders/lib/rocket-purchase-decision-boundary.spec.ts
+rtk npm run test:integration --workspace=apps/server -- src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-confirmation.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-commitment-query.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
+rtk npm exec --workspace=apps/web vitest -- run src/app/\(supply\)/purchase-orders src/app/\(orders\)/rocket-orders src/app/\(orders\)/order-collection src/app/\(inventory\)/stock-ops
 rtk node --test extensions/tests/order-collector-rocket-sales-contract.test.mjs extensions/tests/order-collector-action-coverage.test.mjs
 rtk npm run build --workspace=packages/shared
 rtk npm run build --workspace=apps/server
@@ -198,14 +216,15 @@ any marketplace provider/physical-stock side effect is reachable.
 ## Final Report Format
 
 ```text
-Release: 0.1.20
+Release: 0.1.21
 Rocket account/vendor: <sanitized account id>; matched <yes/no>
 Collection: complete <yes/no>; list pages <n>; details <n>; failed <count>; truncated <yes/no>
 Catalog publication: <new|duplicate>; rows <count>
 Sellpia freshness generation: <decimal string>
 Preview: rows <count>; blocked <count>; edited bounds verified <yes/no>
 Confirmation: <not executed|active id>; idempotent <yes/no>; shortage reasons <verified/not applicable>
-Shared-component allocation: <quantity>; release <not executed|released with reason>
+Common commitment: <request|final|released|settled>; current/active/available <n/n/n>
+PA reconciliation: <not executed|committed import id>; replay <not tested|idempotent>
 Workbook: <not generated|downloaded>; rows <count>
 Provider/physical-stock actions invoked: 0
 Automated gates: <commands and result>

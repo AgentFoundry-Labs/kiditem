@@ -2,14 +2,48 @@ import type {
   CreateMasterProductInput,
   CreateProductVariantInput,
   MasterProductOperationsDetail,
+  MasterProductOperationsListItem,
   MasterProductOperationsListQuery,
   MasterProductOperationsListResponse,
   ProductVariantDetail,
+  ProductVariantComponentDetail,
   ReplaceProductVariantRecipeInput,
   ProductVariantRecipeComponentInput,
   UpdateMasterProductInput,
   UpdateProductVariantInput,
 } from '@kiditem/shared/product-operations';
+
+export type ProductOperationsRepositoryComponent = Omit<
+  ProductVariantComponentDetail,
+  'currentStock' | 'activeCommitmentQuantity' | 'availableStock' | 'isActive'
+>;
+
+export type ProductOperationsRepositoryVariant = Omit<
+  ProductVariantDetail,
+  'components' | 'capacity' | 'warningState'
+> & {
+  components: ProductOperationsRepositoryComponent[];
+};
+
+export type ProductOperationsRepositoryDetail = Omit<
+  MasterProductOperationsDetail,
+  'inventoryStatus' | 'inventoryUnits' | 'variants'
+> & {
+  variants: ProductOperationsRepositoryVariant[];
+};
+
+export type ProductOperationsRepositoryListItem = Omit<
+  MasterProductOperationsListItem,
+  'depletion' | 'variantSummary' | 'inventoryUnits' | 'inventoryStatus'
+> & {
+  variants: ProductOperationsRepositoryVariant[];
+};
+
+export type ProductOperationsRepositoryListResult = {
+  items: ProductOperationsRepositoryListItem[];
+  page: number;
+  limit: number;
+};
 
 export type NormalizedCreateProductVariant = Omit<
   CreateProductVariantInput,
@@ -36,37 +70,37 @@ export interface ProductOperationsRepositoryPort {
   listProducts(
     organizationId: string,
     query: MasterProductOperationsListQuery,
-  ): Promise<MasterProductOperationsListResponse>;
+  ): Promise<ProductOperationsRepositoryListResult>;
   getProduct(
     organizationId: string,
     masterProductId: string,
-  ): Promise<MasterProductOperationsDetail>;
+  ): Promise<ProductOperationsRepositoryDetail>;
   createProduct(input: {
     organizationId: string;
     userId: string;
     product: NormalizedCreateMasterProduct;
-  }): Promise<MasterProductOperationsDetail>;
+  }): Promise<ProductOperationsRepositoryDetail>;
   updateProduct(
     organizationId: string,
     masterProductId: string,
     input: UpdateMasterProductInput,
-  ): Promise<MasterProductOperationsDetail>;
+  ): Promise<ProductOperationsRepositoryDetail>;
   createVariant(input: {
     organizationId: string;
     userId: string;
     masterProductId: string;
     variant: NormalizedCreateProductVariant;
-  }): Promise<ProductVariantDetail>;
+  }): Promise<ProductOperationsRepositoryVariant>;
   updateVariant(
     organizationId: string,
     productVariantId: string,
     input: UpdateProductVariantInput,
-  ): Promise<ProductVariantDetail>;
+  ): Promise<ProductOperationsRepositoryVariant>;
   replaceRecipe(input: {
     organizationId: string;
     userId: string;
     productVariantId: string;
     components: ProductVariantRecipeComponentInput[];
     expectedRecipe: ReplaceProductVariantRecipeInput['expectedRecipe'];
-  }): Promise<ProductVariantDetail>;
+  }): Promise<ProductOperationsRepositoryVariant>;
 }

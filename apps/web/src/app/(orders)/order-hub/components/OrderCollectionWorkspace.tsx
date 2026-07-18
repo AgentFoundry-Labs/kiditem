@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { z } from 'zod';
+import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
+import { apiClient } from '@/lib/api-client';
 import { friendlyError } from '@/lib/api-error';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
 import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
@@ -63,6 +66,7 @@ import {
 } from '../../order-collection/lib/order-tracking-actions';
 
 const COLLECT_ALL_CONCURRENCY = 4;
+const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
@@ -83,6 +87,7 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
   const [bulkAction, setBulkAction] = useState<GeneratedFilesBulkAction>(null);
   const [sellpiaPostProcessing, setSellpiaPostProcessing] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
 
   const mallAccountsQuery = useQuery({
     queryKey: queryKeys.orders.collectionMalls(),
@@ -90,6 +95,15 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
     meta: { suppressGlobalErrorToast: true },
   });
   const mallAccounts = mallAccountsQuery.data ?? [];
+  const rocketAccountsQuery = useQuery({
+    queryKey: queryKeys.channelAccounts.active(),
+    queryFn: () => apiClient.getParsed('/api/channels/accounts', ChannelAccountListSchema),
+  });
+  const rocketAccounts = (rocketAccountsQuery.data ?? [])
+    .filter((account) => account.channel === 'rocket');
+  const selectedRocketAccount = rocketAccounts.find(
+    ({ id }) => id === selectedRocketAccountId,
+  ) ?? rocketAccounts[0] ?? null;
   const sessionControls = useOrderCollectionSessionControls(mallAccounts);
   const collectionSession = sessionControls.session;
   const mallLoading = mallAccountsQuery.isLoading;
@@ -175,8 +189,13 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
   }, []);
 
   const collectBrowserMall = useMemo(
-    () => createBrowserMallCollector({ mallAccounts, addGeneratedFile, setPreviewId }),
-    [addGeneratedFile, mallAccounts],
+    () => createBrowserMallCollector({
+      mallAccounts,
+      rocketChannelAccountId: selectedRocketAccount?.id ?? null,
+      addGeneratedFile,
+      setPreviewId,
+    }),
+    [addGeneratedFile, mallAccounts, selectedRocketAccount?.id],
   );
 
   const refreshMallAccounts = useCallback(() => {
@@ -598,6 +617,21 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {selectedRocketAccount ? (
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+              <span>로켓 계정</span>
+              <select
+                aria-label="주문 수집 로켓 채널 계정"
+                value={selectedRocketAccount.id}
+                onChange={(event) => setSelectedRocketAccountId(event.target.value)}
+                className="max-w-52 rounded-lg border border-slate-300 bg-white px-2 py-2"
+              >
+                {rocketAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+              </select>
+            </label>
+          ) : (
+            <span className="text-xs font-semibold text-amber-700">로켓 채널 계정 없음</span>
+          )}
           <SellpiaWorkspaceFreshnessStatus />
           <button
             type="button"

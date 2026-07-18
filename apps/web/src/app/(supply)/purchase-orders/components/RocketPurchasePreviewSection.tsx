@@ -8,6 +8,7 @@ import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory'
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { RocketPurchaseWorkspace } from './RocketPurchaseWorkspace';
+import { RocketInventoryCommitmentList } from './RocketInventoryCommitmentList';
 
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
@@ -61,6 +62,7 @@ export function RocketPurchasePreviewSection({
             from={from}
             to={to}
           />
+          <RocketInventoryCommitmentList channelAccountId={selectedAccount.id} />
         </>
       ) : accountsQuery.isLoading ? (
         <p className="text-sm text-slate-500">로켓 계정을 불러오는 중입니다.</p>

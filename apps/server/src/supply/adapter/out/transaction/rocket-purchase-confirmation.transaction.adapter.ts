@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -16,8 +17,12 @@ import {
   type RocketPurchasePreviewRow,
 } from '@kiditem/shared/rocket-purchase-preview';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { RocketPurchaseCommitmentReadPort } from '../../../application/port/out/repository/rocket-purchase-commitment-read.port';
+import {
+  INVENTORY_COMMITMENT_PORT,
+  type InventoryCommitmentPort,
+} from '../../../../inventory/application/port/in/stock/inventory-commitment.port';
 import type { RocketPurchaseConfirmationTransactionPort } from '../../../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
+import { mapRocketRequestCommitment } from '../../../mapper/rocket-inventory-commitment.mapper';
 
 const LOCK_NAMESPACE = 'rocket-purchase-confirmation';
 
@@ -27,6 +32,7 @@ type ConfirmationRecord = Prisma.RocketPurchaseConfirmationGetPayload<{
 
 type ConfirmationDecision = {
   source: RocketPurchasePreviewRow;
+  barcode: string | null;
   confirmedQuantity: number;
   shortageReason: string | null;
   allocations: Array<{
@@ -38,28 +44,12 @@ type ConfirmationDecision = {
 
 @Injectable()
 export class RocketPurchaseConfirmationTransactionAdapter
-implements RocketPurchaseConfirmationTransactionPort, RocketPurchaseCommitmentReadPort {
-  constructor(private readonly prisma: PrismaService) {}
-
-  async findActiveQuantities(input: {
-    organizationId: string;
-    sellpiaInventorySkuIds: string[];
-  }): Promise<Record<string, number>> {
-    if (input.sellpiaInventorySkuIds.length === 0) return {};
-    const rows = await this.prisma.rocketPurchaseConfirmationAllocation.groupBy({
-      by: ['sellpiaInventorySkuId'],
-      where: {
-        organizationId: input.organizationId,
-        sellpiaInventorySkuId: { in: input.sellpiaInventorySkuIds },
-        confirmationLine: { confirmation: { status: 'active' } },
-      },
-      _sum: { quantity: true },
-    });
-    return Object.fromEntries(rows.map((row) => [
-      row.sellpiaInventorySkuId,
-      row._sum.quantity ?? 0,
-    ]));
-  }
+implements RocketPurchaseConfirmationTransactionPort {
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_COMMITMENT_PORT)
+    private readonly inventoryCommitments: InventoryCommitmentPort,
+  ) {}
 
   async confirm(
     input: Parameters<RocketPurchaseConfirmationTransactionPort['confirm']>[0],
@@ -94,11 +84,6 @@ implements RocketPurchaseConfirmationTransactionPort, RocketPurchaseCommitmentRe
         channelAccountId: request.channelAccountId,
         sourceImportRunId: input.sourceImportRunId,
       });
-      await assertInventoryGeneration(
-        tx,
-        input.organizationId,
-        input.preview.inventoryGeneration,
-      );
       const decisions = buildDecisions(request, input.preview.rows);
       await assertCurrentRecipes(
         tx,
@@ -106,7 +91,14 @@ implements RocketPurchaseConfirmationTransactionPort, RocketPurchaseCommitmentRe
         request.channelAccountId,
         decisions,
       );
-      await assertAndLockCapacity(tx, input.organizationId, decisions);
+      if (
+        decisions.some(({ confirmedQuantity }) => confirmedQuantity > 0)
+        && input.preview.inventoryGeneration === null
+      ) {
+        throw new ConflictException(
+          'A collected Sellpia inventory generation is required for positive confirmation.',
+        );
+      }
 
       const created = await tx.rocketPurchaseConfirmation.create({
         data: {
@@ -139,6 +131,7 @@ implements RocketPurchaseConfirmationTransactionPort, RocketPurchaseCommitmentRe
               poLineId: decision.source.poLineId,
               poNumber: decision.source.poNumber,
               productNo: decision.source.productNo,
+              barcode: decision.barcode,
               productName: decision.source.productName,
               orderQuantity: decision.source.orderQuantity,
               confirmedQuantity: decision.confirmedQuantity,
@@ -184,6 +177,19 @@ implements RocketPurchaseConfirmationTransactionPort, RocketPurchaseCommitmentRe
         },
         include: { lines: { include: { allocations: true } } },
       });
+      for (const line of created.lines) {
+        if (line.confirmedQuantity === 0) continue;
+        await this.inventoryCommitments.createRocketRequest(
+          mapRocketRequestCommitment({
+            transaction: tx,
+            organizationId: input.organizationId,
+            userId: input.userId,
+            channelAccountId: request.channelAccountId,
+            inventoryGeneration: input.preview.inventoryGeneration!,
+            line,
+          }),
+        );
+      }
       return confirmationResponse(created, false);
     }, { maxWait: 10_000, timeout: 30_000 });
   }
@@ -219,6 +225,19 @@ implements RocketPurchaseConfirmationTransactionPort, RocketPurchaseCommitmentRe
         },
         include: { lines: { include: { allocations: true } } },
       });
+      const sourceIds = existing.lines
+        .filter(({ confirmedQuantity }) => confirmedQuantity > 0)
+        .map(({ id }) => id);
+      if (sourceIds.length > 0) {
+        await this.inventoryCommitments.releaseBySourceIds({
+          transaction: tx,
+          organizationId: input.organizationId,
+          userId: input.userId,
+          kind: 'rocket_request',
+          sourceIds,
+          reason: input.reason,
+        });
+      }
       return confirmationResponse(released, false);
     }, { maxWait: 10_000, timeout: 30_000 });
   }
@@ -266,25 +285,6 @@ async function assertSourceArtifact(
   }
 }
 
-async function assertInventoryGeneration(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  generation: string | null,
-): Promise<void> {
-  if (generation === null) return;
-  const states = await tx.$queryRaw<Array<{ verifiedGeneration: bigint }>>`
-    SELECT verified_generation AS "verifiedGeneration"
-    FROM sellpia_inventory_states
-    WHERE organization_id = ${organizationId}::uuid
-    FOR UPDATE
-  `;
-  if (states[0]?.verifiedGeneration !== BigInt(generation)) {
-    throw new ConflictException(
-      'Sellpia inventory generation changed after Rocket preview.',
-    );
-  }
-}
-
 function buildDecisions(
   request: ReturnType<typeof RocketPurchaseConfirmationRequestSchema.parse>,
   previewRows: RocketPurchasePreviewRow[],
@@ -314,6 +314,7 @@ function buildDecisions(
     }
     return {
       source,
+      barcode: requestRow.barcode.trim() || null,
       confirmedQuantity,
       shortageReason: request.shortageReasons[requestRow.poLineId] ?? null,
       allocations: source.components.map((component) => ({
@@ -366,61 +367,6 @@ async function assertCurrentRecipes(
     ) {
       throw new ConflictException(
         'ProductVariant recipe changed after Rocket preview.',
-      );
-    }
-  }
-}
-
-async function assertAndLockCapacity(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  decisions: ConfirmationDecision[],
-): Promise<void> {
-  const requested = new Map<string, number>();
-  for (const allocation of decisions.flatMap(({ allocations }) => allocations)) {
-    requested.set(
-      allocation.sellpiaInventorySkuId,
-      (requested.get(allocation.sellpiaInventorySkuId) ?? 0) + allocation.quantity,
-    );
-  }
-  const ids = [...requested.keys()].sort();
-  if (ids.length === 0) return;
-  await tx.$queryRaw`
-    SELECT id
-    FROM sellpia_inventory_skus
-    WHERE organization_id = ${organizationId}::uuid
-      AND id IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})
-    ORDER BY id
-    FOR UPDATE
-  `;
-  const [inventorySkus, committedRows] = await Promise.all([
-    tx.sellpiaInventorySku.findMany({
-      where: { organizationId, id: { in: ids } },
-      select: { id: true, currentStock: true, isActive: true },
-    }),
-    tx.rocketPurchaseConfirmationAllocation.groupBy({
-      by: ['sellpiaInventorySkuId'],
-      where: {
-        organizationId,
-        sellpiaInventorySkuId: { in: ids },
-        confirmationLine: { confirmation: { status: 'active' } },
-      },
-      _sum: { quantity: true },
-    }),
-  ]);
-  const inventoryById = new Map(inventorySkus.map((sku) => [sku.id, sku]));
-  const committedById = new Map(committedRows.map((row) => [
-    row.sellpiaInventorySkuId,
-    row._sum.quantity ?? 0,
-  ]));
-  for (const [id, quantity] of requested) {
-    const sku = inventoryById.get(id);
-    const available = sku?.isActive
-      ? sku.currentStock - (committedById.get(id) ?? 0)
-      : 0;
-    if (!sku || available < quantity) {
-      throw new ConflictException(
-        'Rocket confirmation exceeds current component capacity.',
       );
     }
   }

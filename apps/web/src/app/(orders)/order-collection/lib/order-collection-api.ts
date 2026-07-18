@@ -10,6 +10,8 @@ export interface OrderCollectionConversionResult {
   productRows: number | null;
   outputRows: number | null;
   skippedRows: number | null;
+  importRunId?: string | null;
+  reconciledRows?: number | null;
 }
 
 export interface BrowserOrderRowsPayload {

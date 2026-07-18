@@ -1,4 +1,5 @@
 export * from './picking.repository.port';
+export * from './inventory-commitment.repository.port';
 export * from './sellpia-import-run.repository.port';
 export * from './sellpia-snapshot-publication.repository.port';
 export * from './sellpia-inventory-freshness.repository.port';

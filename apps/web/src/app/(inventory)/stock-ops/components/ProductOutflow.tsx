@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowDownRight, ArrowUpRight, Loader2, Minus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import Link from 'next/link';
 import type {
   SellpiaProductAbcGrade,
   SellpiaProductSalesRow,
@@ -25,9 +26,9 @@ import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshne
 const AUTO_SYNC_KEY = 'kiditem-sellpia-product-sales-autosync';
 const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
 
-// 정렬 키: 고정 지표('avg2m'|'currentStock') 또는 특정 연월("YYYY-MM").
-type SortKey = 'avg2m' | 'currentStock' | string;
-type FilterKey = 'all' | 'reorder' | 'dead' | 'anomaly' | 'A' | 'B' | 'C';
+// 정렬 키: 고정 지표('avg2m'|'availableStock') 또는 특정 연월("YYYY-MM").
+type SortKey = 'avg2m' | 'availableStock' | string;
+type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C';
 
 function todayKst(): string {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -112,6 +113,9 @@ export default function ProductOutflow() {
           )}
           {data?.lastCapturedAt && (
             <span className="text-xs text-slate-300">· 수집 {formatDateTime(data.lastCapturedAt)}</span>
+          )}
+          {data?.stockGeneration && (
+            <span className="text-xs text-slate-400">· 재고 세대 {data.stockGeneration} · 검증 {data.stockCapturedAt ? formatDateTime(data.stockCapturedAt) : '미확인'}</span>
           )}
           <span className="text-[11px] text-slate-300">· 메이크샵 주문 기준</span>
         </div>
@@ -215,6 +219,7 @@ function ProductOutflowTable({
       { key: 'all', label: '전체', count: summary.productCount, tone: 'slate' },
     ];
     if (hasStock) chips.push({ key: 'reorder', label: '발주 필요', count: summary.reorderCount, tone: 'amber' });
+    chips.push({ key: 'mapping', label: '매칭 필요', count: summary.inventoryResolutionCounts.mappingRequiredSalesRows, tone: 'orange' });
     chips.push({ key: 'dead', label: '악성재고', count: summary.deadStockCount, tone: 'rose' });
     chips.push({ key: 'anomaly', label: '이상치', count: summary.anomalyCount, tone: 'orange' });
     chips.push({ key: 'A', label: 'A등급', count: summary.abcCounts.a, tone: 'emerald' });
@@ -235,6 +240,7 @@ function ProductOutflowTable({
       );
     }
     if (filter === 'reorder') list = list.filter((p) => p.needsReorder);
+    else if (filter === 'mapping') list = list.filter((p) => p.inventoryResolution.status === 'mapping_required');
     else if (filter === 'dead') list = list.filter((p) => p.deadStock);
     else if (filter === 'anomaly') list = list.filter((p) => p.anomaly);
     else if (filter === 'A' || filter === 'B' || filter === 'C') list = list.filter((p) => p.abcGrade === filter);
@@ -256,7 +262,9 @@ function ProductOutflowTable({
 
     const valOf = (vm: RowVM): number => {
       if (sortKey === 'avg2m') return vm.row.avg2m;
-      if (sortKey === 'currentStock') return vm.row.currentStock ?? -1;
+      if (sortKey === 'availableStock') return vm.row.inventoryResolution.status === 'matched'
+        ? vm.row.inventoryResolution.availableStock
+        : -1;
       return vm.monthMap.get(sortKey) ?? 0; // 특정 연월
     };
     return vms.sort((a, b) => valOf(b) - valOf(a) || b.row.totalQty - a.row.totalQty);
@@ -315,7 +323,7 @@ function ProductOutflowTable({
         )}
       </div>
 
-      <div className="rounded-xl border border-slate-100 overflow-auto max-h-[76vh] [scrollbar-width:thin]">
+      <div className="max-h-[76vh] overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 [scrollbar-width:thin]">
         <table className="text-sm border-separate border-spacing-0 min-w-max">
           <thead className="sticky top-0 z-20">
             <tr className="text-slate-500 text-xs bg-slate-50">
@@ -323,9 +331,16 @@ function ProductOutflowTable({
               <th className="bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 whitespace-nowrap">매입처</th>
               {hasStock && (
                 <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
-                  <HeaderSort k="currentStock">현재고</HeaderSort>
+                  현재고
                 </th>
               )}
+              {hasStock && <th className="bg-slate-50 px-3 py-2 text-right font-semibold border-b border-slate-200 whitespace-nowrap">약정</th>}
+              {hasStock && (
+                <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
+                  <HeaderSort k="availableStock">가용재고</HeaderSort>
+                </th>
+              )}
+              <th className="min-w-[220px] bg-slate-50 px-3 py-2 text-left font-semibold border-b border-slate-200 whitespace-nowrap">운영 상품</th>
               {hasStock && <th className="bg-slate-50 px-3 py-2 text-right font-semibold border-b border-slate-200 whitespace-nowrap">발주</th>}
               <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
                 <HeaderSort k="avg2m">월평균</HeaderSort>
@@ -364,11 +379,12 @@ function TrendIcon({ trend }: { trend: SellpiaProductTrend }) {
 
 function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDesc: string[]; hasStock: boolean; sortKey: SortKey }) {
   const { row: p, monthMap, anomalySet, peakYm } = vm;
+  const resolution = p.inventoryResolution;
   const rowBg = p.deadStock ? 'bg-rose-50/40' : 'bg-white';
   return (
     <tr className={cn('border-t border-slate-50 group', rowBg)}>
       <td className={cn('sticky left-0 z-10 px-3 py-2 border-b border-slate-50 max-w-[300px]', rowBg, 'group-hover:bg-slate-50')}>
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           <span className={cn('inline-flex items-center justify-center w-4 h-4 rounded text-[10px] font-bold ring-1', ABC_STYLE[p.abcGrade])}>
             {p.abcGrade}
           </span>
@@ -393,22 +409,59 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
               {p.seasonTag}
             </span>
           )}
+          {resolution.status === 'matched' && resolution.salesRowCount > 1 ? (
+            <span className="whitespace-nowrap rounded bg-violet-50 px-1 py-px text-[10px] font-semibold text-violet-700">판매 행 {resolution.salesRowCount}개 수요 합산</span>
+          ) : null}
         </div>
       </td>
       <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap border-b border-slate-50">{p.providerName ?? '-'}</td>
       {hasStock && (
         <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-800 border-b border-slate-50">
-          {p.currentStock === null ? '—' : formatNumber(p.currentStock)}
+          {resolution.status === 'matched' ? formatNumber(resolution.currentStock) : '—'}
         </td>
       )}
       {hasStock && (
+        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-600 border-b border-slate-50">
+          {resolution.status === 'matched' ? formatNumber(resolution.activeCommitmentQuantity) : '—'}
+        </td>
+      )}
+      {hasStock && (
+        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold text-slate-900 border-b border-slate-50">
+          {resolution.status === 'matched' ? formatNumber(resolution.availableStock) : '—'}
+        </td>
+      )}
+      <td className="max-w-[280px] px-3 py-2 border-b border-slate-50">
+        {resolution.status === 'matched' ? (
+          resolution.destinations.length === 0 ? (
+            <span className="whitespace-nowrap text-xs font-semibold text-slate-400">운영 상품 미연결</span>
+          ) : (
+            <div className="min-w-0 space-y-0.5" title={resolution.destinations.map((destination) => `${destination.masterProductName} · ${destination.productVariantName}`).join('\n')}>
+              {resolution.destinations.slice(0, 2).map((destination) => (
+                <Link key={destination.productVariantId} href={`/product-hub/${destination.masterProductId}`} className="block truncate text-xs font-semibold text-violet-700 hover:underline">
+                  {destination.masterProductName} · {destination.productVariantName}
+                </Link>
+              ))}
+              {resolution.destinations.length > 2 ? <span className="text-[10px] text-slate-500">외 {resolution.destinations.length - 2}개</span> : null}
+            </div>
+          )
+        ) : resolution.status === 'mapping_required' ? (
+          <span className="whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-800">
+            매칭 필요 · {resolution.reason === 'not_found' ? 'SKU 없음' : resolution.reason === 'inactive_candidate' ? '비활성 SKU' : '바코드 중복'}
+          </span>
+        ) : (
+          <span className="whitespace-nowrap text-xs font-semibold text-slate-400">재고 미수집</span>
+        )}
+      </td>
+      {hasStock && (
         <td className="px-3 py-2 text-right whitespace-nowrap border-b border-slate-50">
-          {p.needsReorder ? (
+          {resolution.status !== 'matched' ? (
+            <span className="text-xs font-semibold text-amber-700">{resolution.status === 'mapping_required' ? '매칭 필요' : '재고 미수집'}</span>
+          ) : p.needsReorder ? (
             <span className="inline-flex items-center rounded-full bg-amber-500 text-white text-[11px] font-bold px-2 py-0.5">발주 필요</span>
-          ) : p.monthsOfStockLeft === null ? (
+          ) : p.monthsOfAvailableStockLeft === null ? (
             <span className="text-xs text-slate-300">—</span>
           ) : (
-            <span className="text-xs tabular-nums text-slate-500">{p.monthsOfStockLeft}개월</span>
+            <span className="text-xs tabular-nums text-slate-500">{p.monthsOfAvailableStockLeft}개월</span>
           )}
         </td>
       )}

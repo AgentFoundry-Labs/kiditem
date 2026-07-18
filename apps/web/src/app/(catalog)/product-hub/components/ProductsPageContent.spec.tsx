@@ -26,6 +26,12 @@ const state = vi.hoisted(() => ({
       healthUpdatedAt: null,
       isActive: true,
       updatedAt: '2026-07-16T01:00:00.000Z',
+      depletion: {
+        coverage: 'shared' as const,
+        needsReorder: true,
+        reorderSkuCount: 1,
+        minMonthsOfAvailableStockLeft: 0.5,
+      },
       variantSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 17,
       inventoryStatus: 'configuration_required' as const,
@@ -51,6 +57,9 @@ const state = vi.hoisted(() => ({
         review_required: 14,
       },
       negativeProfitCount: 8,
+      reorderProductCount: 12,
+      depletionCoveredProductCount: 54,
+      sharedDepletionProductCount: 7,
     },
   },
   errorMessage: null as string | null,
@@ -127,10 +136,10 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
     expect(screen.getByText(/KI-001/)).toBeInTheDocument();
     expect(screen.getAllByText('재고 연결 필요').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('미수집').length).toBeGreaterThan(0);
+    expect(screen.getByText(/공유 SKU 기준/)).toBeInTheDocument();
     const inventoryCard = screen.getByText('재고관리').closest('article');
     expect(inventoryCard).not.toBeNull();
-    expect(within(inventoryCard!).getAllByText('미수집').length).toBeGreaterThan(0);
+    expect(within(inventoryCard!).getByText('기준 미정')).toBeInTheDocument();
     expect(inventoryCard).not.toHaveTextContent('17');
   });
 

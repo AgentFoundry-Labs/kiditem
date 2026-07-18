@@ -98,7 +98,8 @@ Coupang provider
   -> product and variant evidence/candidate reads
   -> operator-confirmed product and variant links
   -> linked ProductVariantComponent recipe
-  -> sellableStock = min(floor(component.currentStock / component.quantity))
+  -> InventoryAvailabilityPort common availability batch
+  -> sellableStock = min(floor(component.availableStock / component.quantity))
 ```
 
 Matching reads completed `coupang_wing_catalog` and `coupang_rocket_po_catalog`
@@ -115,9 +116,10 @@ safely normalized typed barcode; names, raw aliases, and AI never confirm it.
 A linked variant's confirmed recipe is the only capacity input. An unmatched,
 configuration-required, or review-required
 SKU has `sellableStock = null`; zero is reserved for a mapped recipe whose
-current Sellpia component capacity is zero. Mixed recipes expose all component
-capacities and bottlenecks. Capacity is a read projection and never reserves or
-deducts stock.
+available Sellpia component capacity is zero. Mixed recipes expose physical
+stock, active commitments, available stock, component capacities, and
+bottlenecks. Capacity is a read projection and never reserves or deducts
+physical stock.
 
 Matching state is derived from nullable links and linked-recipe validity. Do not
 restore persisted `mappingStatus`. Recollection updates provider facts without

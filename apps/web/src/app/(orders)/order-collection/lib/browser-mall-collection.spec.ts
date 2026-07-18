@@ -65,6 +65,7 @@ describe('createBrowserMallCollector', () => {
     });
     const collector = createBrowserMallCollector({
       mallAccounts: [ACCOUNT],
+      rocketChannelAccountId: null,
       addGeneratedFile: vi.fn(),
       setPreviewId: vi.fn(),
     });
@@ -94,6 +95,7 @@ describe('createBrowserMallCollector', () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
     const collector = createBrowserMallCollector({
       mallAccounts: [ACCOUNT],
+      rocketChannelAccountId: null,
       addGeneratedFile: vi.fn(),
       setPreviewId: vi.fn(),
     });

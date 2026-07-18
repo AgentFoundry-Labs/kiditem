@@ -17,10 +17,6 @@ import {
   type SellpiaInventoryFreshnessGatePort,
 } from '../../../inventory/application/port/in/stock/sellpia-inventory-freshness-gate.port';
 import {
-  ROCKET_PURCHASE_COMMITMENT_READ_PORT,
-  type RocketPurchaseCommitmentReadPort,
-} from '../port/out/repository/rocket-purchase-commitment-read.port';
-import {
   RocketPreviewQuantityExceededError,
   previewRocketCapacity,
   resolveRocketPreviewEditedQuantity,
@@ -36,8 +32,6 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     private readonly availability: ChannelSkuAvailabilityPort,
     @Inject(SELLPIA_INVENTORY_FRESHNESS_GATE_PORT)
     private readonly freshness: SellpiaInventoryFreshnessGatePort,
-    @Inject(ROCKET_PURCHASE_COMMITMENT_READ_PORT)
-    private readonly commitments: RocketPurchaseCommitmentReadPort,
   ) {}
 
   async preview(input: {
@@ -68,6 +62,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
             poNumber: row.poNumber,
             productNo: row.productNo,
             productName: row.productName,
+            plannedDeliveryDate: row.plannedDeliveryDate,
             orderQuantity: row.orderQty,
             recommendedQuantity: 0,
             maxQuantity: 0,
@@ -108,6 +103,8 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
           sellpiaInventorySkuId: component.sellpiaInventorySkuId,
           quantity: component.quantity,
           currentStock: component.currentStock,
+          activeCommitmentQuantity: component.activeCommitmentQuantity,
+          availableStock: component.availableStock,
           isActive: component.isActive,
         })) ?? [],
       };
@@ -117,17 +114,12 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       .flatMap(({ components }) => components
         .map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))];
     let inventoryGeneration: string | null = null;
-    let committedQuantities: Record<string, number> = {};
     if (sellpiaInventorySkuIds.length > 0) {
       const gated = await this.freshness.readFreshCapacity({
         organizationId: input.organizationId,
         sellpiaInventorySkuIds,
       });
       inventoryGeneration = gated.generation;
-      committedQuantities = await this.commitments.findActiveQuantities({
-        organizationId: input.organizationId,
-        sellpiaInventorySkuIds,
-      });
       const inventorySkuById = new Map(gated.inventorySkus.map((sku) =>
         [sku.sellpiaInventorySkuId, sku]));
       for (const row of previewRows) {
@@ -138,6 +130,9 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
           return {
             ...component,
             currentStock: inventorySku?.currentStock ?? 0,
+            activeCommitmentQuantity:
+              inventorySku?.activeCommitmentQuantity ?? 0,
+            availableStock: inventorySku?.availableStock ?? 0,
             isActive: inventorySku?.isActive ?? false,
           };
         });
@@ -151,7 +146,6 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       rows: translatePreviewPolicy(() => previewRocketCapacity({
         rows: previewRows,
         editedQuantities: request.editedQuantities,
-        committedQuantities,
         clampEditedQuantities: request.clampEditedQuantities,
       })),
     };

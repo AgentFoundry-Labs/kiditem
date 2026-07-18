@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -15,6 +15,7 @@ import {
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { RocketPurchasePreviewSection } from '@/app/(supply)/purchase-orders/components/RocketPurchasePreviewSection';
 import { listRocketPosFromExtension, type RocketPoSummary } from '../lib/rocket-confirm-api';
 import { RocketConfirmFileList } from './RocketConfirmFileList';
 import { RocketWeekCalendar, type RocketCalDay } from './RocketWeekCalendar';
@@ -85,15 +86,7 @@ function shiftMonthBounds(dateStr: string, delta: number) {
   return { start: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), end: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)) };
 }
 
-export function RocketOrdersWorkspace({
-  decisionWorkspace,
-}: {
-  /**
-   * 납품 판단 워크스페이스. 이 화면의 입고예정일 범위(from/to)를 그대로 받아
-   * 같은 범위로 수집·검토하도록 render prop 으로 넘긴다(날짜 입력 이중화 방지).
-   */
-  decisionWorkspace: (range: { from: string; to: string }) => ReactNode;
-}) {
+export function RocketOrdersWorkspace() {
   // 입고예정일 기준 (기본: 다음 7일) — 상태로 숨기지 않고 전체 발주를 조회
   const [from, setFrom] = useState(todayYmd());
   const [to, setTo] = useState(plusDaysYmd(6));
@@ -289,7 +282,7 @@ export function RocketOrdersWorkspace({
         })}
       </div>
 
-      {decisionWorkspace({ from, to })}
+      <RocketPurchasePreviewSection from={from} to={to} />
 
       {/* 필터 (입고예정일 기준) */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">

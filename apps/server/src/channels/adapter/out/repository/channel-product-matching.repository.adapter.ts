@@ -562,6 +562,8 @@ function toOptionQueueRow(
     option.productVariant.components.map((component) => ({
       sellpiaInventorySkuId: component.sellpiaInventorySkuId,
       currentStock: component.sellpiaInventorySku.currentStock,
+      activeCommitmentQuantity: 0,
+      availableStock: component.sellpiaInventorySku.currentStock,
       quantity: component.quantity,
       isActive: component.sellpiaInventorySku.isActive,
     })),

@@ -28,12 +28,14 @@ export interface BrowserMallCollectionResult {
 
 interface BrowserMallCollectorOptions {
   mallAccounts: OrderCollectionMallAccount[];
+  rocketChannelAccountId: string | null;
   addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
   setPreviewId: (id: string) => void;
 }
 
 export function createBrowserMallCollector({
   mallAccounts,
+  rocketChannelAccountId,
   addGeneratedFile,
   setPreviewId,
 }: BrowserMallCollectorOptions) {
@@ -414,6 +416,9 @@ export function createBrowserMallCollector({
       collectCoupangDirectFromExtension,
       convertCoupangDirectToSellpiaFile,
     } = await import('./coupang-directship-api');
+    if (!rocketChannelAccountId) {
+      throw new Error('활성 쿠팡 로켓 채널 계정을 먼저 선택해 주세요.');
+    }
     const data = await collectCoupangDirectFromExtension(run);
     if (data.pos.length === 0) {
       toast('발주확정 쿠팡직배송 신규 발주가 없습니다.');
@@ -426,9 +431,13 @@ export function createBrowserMallCollector({
       const matchingPos = data.pos.filter((po) => String(po.transport ?? '').toUpperCase() === transport);
       if (matchingPos.length === 0) continue;
       const result = await convertCoupangDirectToSellpiaFile(data, transport, {
+        channelAccountId: rocketChannelAccountId,
         download: false,
         signal: run.signal,
       });
+      if (!result.importRunId) {
+        throw new Error('PA 주문 영속화 결과를 확인하지 못해 파일 생성을 중단했습니다.');
+      }
       const itemRows = result.outputRows ?? 0;
       const orderNumbers = coupangDirectOrderNumbers(matchingPos);
       const poCount = orderNumbers.length || result.sourceRows || matchingPos.length;

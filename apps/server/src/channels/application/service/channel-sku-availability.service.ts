@@ -6,6 +6,11 @@ import type {
 } from '@kiditem/shared/channel-sku-availability';
 import { projectVariantCapacity } from '../../../products/domain/product-variant-capacity';
 import type { ChannelSkuAvailabilityPort } from '../port/in/channel-sku-availability.port';
+import type { InventorySkuAvailability } from '@kiditem/shared/inventory-commitment';
+import {
+  INVENTORY_AVAILABILITY_PORT,
+  type InventoryAvailabilityPort,
+} from '../../../inventory/application/port/in/stock/inventory-availability.port';
 import {
   CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT,
   type ChannelAvailabilityRepositoryRow,
@@ -17,6 +22,8 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
   constructor(
     @Inject(CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT)
     private readonly repository: ChannelProductMatchingRepositoryPort,
+    @Inject(INVENTORY_AVAILABILITY_PORT)
+    private readonly inventory: InventoryAvailabilityPort,
   ) {}
 
   async list(
@@ -27,7 +34,7 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
       channelAccountId: query.channelAccountId,
       search: query.search?.trim() || undefined,
     });
-    const projected = rows.map(toAvailabilityItem);
+    const projected = await this.projectRows(organizationId, rows);
     const selected = projected
       .filter((item) => matchesStatus(item, query.status))
       .filter((item) => query.hasBottleneck !== true
@@ -62,7 +69,8 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
     const rows = await this.repository.listAvailabilityRows(organizationId, {
       optionIds: [...new Set(ids)],
     });
-    const byId = new Map(rows.map((row) => [row.option.id, toAvailabilityItem(row)]));
+    const projected = await this.projectRows(organizationId, rows);
+    const byId = new Map(projected.map((item) => [item.sku.id, item]));
     return ids.flatMap((id) => {
       const item = byId.get(id);
       return item ? [item] : [];
@@ -77,17 +85,49 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
     const rows = await this.repository.listAvailabilityRows(organizationId, {
       listingIds: [...new Set(ids)],
     });
-    return rows.map(toAvailabilityItem);
+    return this.projectRows(organizationId, rows);
+  }
+
+  private async projectRows(
+    organizationId: string,
+    rows: ChannelAvailabilityRepositoryRow[],
+  ): Promise<ChannelSkuAvailabilityItem[]> {
+    const sellpiaInventorySkuIds = [...new Set(rows.flatMap((row) =>
+      row.variant?.components.map(({ sellpiaInventorySkuId }) =>
+        sellpiaInventorySkuId) ?? []))].sort((left, right) =>
+      left.localeCompare(right));
+    const availability = await this.inventory.findBySkuIds({
+      organizationId,
+      sellpiaInventorySkuIds,
+    });
+    const inventoryBySkuId = new Map(availability.items.map((item) => [
+      item.sellpiaInventorySkuId,
+      item,
+    ]));
+    return rows.map((row) => toAvailabilityItem(row, inventoryBySkuId));
   }
 }
 
 function toAvailabilityItem(
   row: ChannelAvailabilityRepositoryRow,
+  inventoryBySkuId: ReadonlyMap<string, InventorySkuAvailability>,
 ): ChannelSkuAvailabilityItem {
+  const components = row.variant?.components.map((component) => {
+    const inventory = inventoryBySkuId.get(component.sellpiaInventorySkuId);
+    return {
+      ...component,
+      currentStock: inventory?.currentStock ?? 0,
+      activeCommitmentQuantity: inventory?.activeCommitmentQuantity ?? 0,
+      availableStock: inventory?.availableStock ?? 0,
+      isActive: inventory?.isActive ?? false,
+    };
+  }) ?? [];
   const projection = row.variant
-    ? projectVariantCapacity(row.variant.components.map((component) => ({
+    ? projectVariantCapacity(components.map((component) => ({
       sellpiaInventorySkuId: component.sellpiaInventorySkuId,
       currentStock: component.currentStock,
+      activeCommitmentQuantity: component.activeCommitmentQuantity,
+      availableStock: component.availableStock,
       quantity: component.quantity,
       isActive: component.isActive,
     })))
@@ -105,10 +145,10 @@ function toAvailabilityItem(
       ? 'unmatched' as const
       : 'needs_review' as const;
   const sellableStock = mappingStatus === 'matched' ? projection!.capacity : null;
-  const componentCapacities = row.variant?.components.map((component) => ({
+  const componentCapacities = components.map((component) => ({
     component,
-    capacity: Math.floor(component.currentStock / component.quantity),
-  })) ?? [];
+    capacity: Math.floor(component.availableStock / component.quantity),
+  }));
 
   return {
     channelAccount: row.channelAccount,
@@ -144,6 +184,8 @@ function toAvailabilityItem(
       optionName: component.optionName,
       barcode: component.barcode,
       currentStock: component.currentStock,
+      activeCommitmentQuantity: component.activeCommitmentQuantity,
+      availableStock: component.availableStock,
       purchasePrice: component.purchasePrice,
       isActive: component.isActive,
       quantity: component.quantity,
@@ -155,7 +197,7 @@ function toAvailabilityItem(
       ? ['variant_inactive']
       : recipeStatus === 'configuration_required'
       ? ['configuration_required']
-      : row.variant?.components.some((component) => !component.isActive)
+      : components.some((component) => !component.isActive)
         ? ['component_inactive']
         : [],
   };

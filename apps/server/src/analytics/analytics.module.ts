@@ -45,5 +45,6 @@ import { SellpiaProductSalesModule } from './sellpia-product-sales/sellpia-produ
     SellpiaSalesModule,
     SellpiaProductSalesModule,
   ],
+  exports: [SellpiaProductSalesModule],
 })
 export class AnalyticsModule {}

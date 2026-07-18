@@ -9,6 +9,8 @@
 
 | Model | Table | Description |
 |---|---|---|
+| InventoryCommitment | `inventory_commitments` | Physical-stock-independent commitment that reduces common available Sellpia capacity. |
+| InventoryCommitmentAllocation | `inventory_commitment_allocations` | Component-level Sellpia SKU quantity held by one inventory commitment. |
 | PickingItem | `picking_items` | - |
 | PickingList | `picking_lists` | - |
 | ReturnTransfer | `return_transfers` | - |
@@ -25,6 +27,35 @@
 
 ```mermaid
 erDiagram
+  InventoryCommitment {
+    String id PK
+    String organizationId FK
+    String kind
+    String sourceId
+    String businessKey
+    Int unitQuantity
+    String status
+    BigInt inventoryGeneration
+    String predecessorCommitmentId FK
+    String createdBy FK
+    String releasedBy FK
+    DateTime releasedAt
+    String releaseReason
+    String settledBy FK
+    DateTime settledAt
+    String settlementReason
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  InventoryCommitmentAllocation {
+    String id PK
+    String organizationId FK
+    String commitmentId FK
+    String sellpiaInventorySkuId FK
+    Int unitsPerItem
+    Int quantity
+    DateTime createdAt
+  }
   PickingItem {
     String id PK
     String organizationId FK
@@ -192,7 +223,10 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  InventoryCommitment o|--o{ InventoryCommitment : "predecessor"
+  InventoryCommitment ||--o{ InventoryCommitmentAllocation : "commitment"
   PickingList ||--o{ PickingItem : "pickingList"
+  SellpiaInventorySku ||--o{ InventoryCommitmentAllocation : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ StockTransfer : "sellpiaInventorySku"
@@ -205,6 +239,11 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
+| InventoryCommitment | creator | references external | Core | User |
+| InventoryCommitment | organization | references external | Core | Organization |
+| InventoryCommitment | releaser | references external | Core | User |
+| InventoryCommitment | settler | references external | Core | User |
+| InventoryCommitmentAllocation | organization | references external | Core | Organization |
 | PickingItem | organization | references external | Core | Organization |
 | PickingList | organization | references external | Core | Organization |
 | ReturnTransfer | organization | references external | Core | Organization |

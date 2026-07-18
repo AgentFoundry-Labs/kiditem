@@ -12,6 +12,11 @@ manage local generated-file history.
   `@/lib/extension-bridge`.
 - Backend conversion/upload flows use `apiClient.fetchRaw()` for file/blob
   responses.
+- Coupang Rocket PA collection sends the selected active Rocket
+  `channelAccountId`. The backend must persist `SourceImportRun`, `Order`, and
+  `OrderLineItem` and reconcile the request commitment before the 17-column
+  Sellpia workbook is accepted into local file history. Missing import headers
+  or any reconciliation failure is a hard failure with no downloadable file.
 - Local generated file history and seen-row detection may use browser storage
   for operator convenience only.
 - Before invoking the irreversible Sellpia extension submit, durably prepare
@@ -41,6 +46,8 @@ manage local generated-file history.
 
 - Do not scrape marketplace pages from the web app directly.
 - Do not treat localStorage or IndexedDB rows as durable order records.
+- For PA, server `SourceImportRun` and `Order` rows are durable truth; local
+  generated-file history is only a convenience cache.
 - Do not expose unmasked personal data in preview tables unless backend and
   route policy explicitly allow it.
 - Keep extension capabilities aligned with `extensions/order-collector`.

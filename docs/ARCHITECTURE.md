@@ -369,9 +369,9 @@ Notable route subtrees:
 
 - `/rocket-orders` remains the preserved Rocket operations screen and is not a
   compatibility redirect. Its existing `납품 수량 판단 추후 연동` placeholder
-  consumes the deterministic Sellpia freshness/component-capacity preview.
-  `/purchase-orders?tab=rocket` may expose the same preview contract without
-  replacing either layout.
+  consumes the deterministic Sellpia freshness/component-capacity preview and
+  is the only operator-facing Rocket review route. `/purchase-orders` remains
+  the general supplier purchase-order screen.
 
 - The baseline tab ownership is exact: `/inventory-hub` has `status`, `po`,
   `io`, `sellpia-sync`, `rocket-events`, `ledger`, `audits`, and `assets`;
@@ -492,7 +492,7 @@ existing content asset, a succeeded generation candidate, or an external URL
 that first passes the guarded fetch/storage boundary. Asset deletion and GC
 must reject active generation usage or any thumbnail selection.
 
-## Sellpia Freshness, Purchase Fence, And Channel Capacity (`0.1.19`–`0.1.20`)
+## Sellpia Freshness, Common Commitments, And Channel Capacity (`0.1.19`–`0.1.21`)
 
 Sellpia is the upstream stock authority. Inventory owns one persisted
 organization-scoped `SellpiaInventoryState`, the fixed source binding, server
@@ -513,7 +513,8 @@ not estimate, reserve, increment, or decrement it.
 | Channel product/option | `ChannelListing` / `ChannelListingOption` | `channel_listings` / `channel_listing_options` | Organization + ChannelAccount + provider identity, with nullable links to MasterProduct/ProductVariant. Provider metadata is never inventory truth. |
 | External submission intent | `PurchaseOrderSubmissionAttempt` | `purchase_order_submission_attempts` | Organization + purchase order + idempotency key; records freshness generation, provider terminal/unknown outcome, and authenticated reconciliation. |
 | Rocket confirmation | `RocketPurchaseConfirmation` / `RocketPurchaseConfirmationLine` | `rocket_purchase_confirmations` / `rocket_purchase_confirmation_lines` | Organization + Rocket account + completed source run + UUID idempotency key; records every explicit line decision and confirmation/release actor. |
-| Rocket component allocation | `RocketPurchaseConfirmationAllocation` | `rocket_purchase_confirmation_allocations` | Immutable component recipe snapshot for one confirmed line. Active parent confirmations reduce available capacity without writing physical stock. |
+| Rocket component allocation | `RocketPurchaseConfirmationAllocation` | `rocket_purchase_confirmation_allocations` | Immutable Supply audit snapshot for one confirmed line; not a second capacity ledger. |
+| Common inventory commitment | `InventoryCommitment` / `InventoryCommitmentAllocation` | `inventory_commitments` / `inventory_commitment_allocations` | Inventory-owned logical hold and component quantities. Active rows reduce common available capacity without writing physical stock; request rows may be replaced by final-order rows, released, or settled. |
 
 Freshness has four public states: `fresh`, `refresh_required`, `syncing`, and
 `failed`. A verified snapshot is fresh for strictly less than 10 minutes;
@@ -564,7 +565,8 @@ still-null listing/option links in the same transaction. Raw aliases,
 normalized names, similarity/AI, and manual-search results never auto-confirm
 identity or a recipe. Operator-confirmed recipes remain the capacity truth.
 Capacity is
-`min(floor(currentStock / quantity))`; inactive components keep their stored
+`min(floor(availableStock / quantity))`, where
+`availableStock = max(currentStock - activeCommitmentQuantity, 0)`; inactive components keep their stored
 recipe visible in `needs_review` instead of being silently removed.
 
 Rocket `0.1.19` introduced preview-only allocation. In `0.1.20`, a complete
@@ -572,12 +574,40 @@ extension collection also carries allowlisted official-workbook fields. Supply
 reruns the canonical preview under an organization lock, fences the Inventory
 generation and completed source artifact, verifies that channel/variant recipe
 identity has not changed, and persists explicit line decisions plus immutable
-component allocations. Active allocations are subtracted from later previews.
+component allocations. In `0.1.21`, the same transaction creates an
+Inventory-owned `rocket_request` commitment. Active common commitments—not
+Supply allocation aggregation—are subtracted from every Inventory, Products,
+Channels, Analytics, and Rocket availability projection.
 Idempotent replay returns the existing record; input drift conflicts. An
-authenticated release with an explicit reason restores capacity by status only.
+authenticated provisional release with an explicit reason restores capacity by
+status only.
 Confirmation creates the official workbook in the browser after the server
 commit. It never submits to a marketplace provider or writes
 `SellpiaInventorySku.currentStock`.
+
+Coupang PA collection belongs to Orders. The selected Rocket account and
+transport are validated, and `SourceImportRun`, `Order`, and `OrderLineItem`
+are persisted with deterministic identities. In the same Prisma transaction,
+Orders calls Supply's reconciliation port; Supply resolves exactly one active
+confirmation line by account/PO/product and asks Inventory to replace the
+request commitment with `rocket_final_order`. A barcode mismatch, ambiguous
+confirmation, capacity conflict, or persistence failure rolls back the entire
+import and no Sellpia workbook is returned. Replays are idempotent.
+
+A final-order commitment is not a physical stock decrement. After Sellpia
+shows the actual shipment in a strictly newer verified full snapshot, the
+operator settles that commitment; cancellation releases it with an audit
+reason. Settlement removes the logical hold while the newer `currentStock`
+already contains the physical decrease, preventing double subtraction.
+
+Analytics owns direct Sellpia SKU sales facts and depletion policy, but reads
+Inventory's common availability. Exact product code, exact option code, and a
+unique normalized barcode are deterministic resolution signals; missing,
+inactive, or ambiguous candidates remain `mapping_required`, never synthetic
+zero stock. Products reuses this projection for operating-product summary
+badges while `/stock-ops?tab=product-outflow` preserves every linked product/
+variant destination. The screens remain separate and manual
+`MasterProduct.abcGrade` is not overwritten by sales-derived ABC.
 
 The frontend preserves the operations sidebar and route compositions from
 `c9e7caf875ca82574ae566a27fe0afa35c988918` and independently
@@ -585,11 +615,10 @@ reachable product, order, inventory, fulfillment, supplier, and finance
 screens. One shared coordinator/drawer supplies Sellpia freshness, while pages
 may expose compact status and sync controls without rearranging baseline
 layouts. Product list, detail, matching, and read-only options keep their exact
-baseline ownership. Rocket preview is wired into the existing decision
-placeholder on `/rocket-orders` and may also appear at
-`/purchase-orders?tab=rocket`; the same Supply-owned confirmation workspace is
-available in both compositions. Marketplace provider submission remains
-disabled.
+baseline ownership. The Supply-owned Rocket preview and confirmation workspace
+is wired only into the existing decision placeholder on `/rocket-orders`;
+`/purchase-orders` remains the general supplier purchase-order screen.
+Marketplace provider submission remains disabled.
 
 Exact operation and recovery steps live in the
 [freshness runbook](runbooks/sellpia-inventory-freshness.md),
