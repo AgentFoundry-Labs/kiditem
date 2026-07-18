@@ -99,7 +99,20 @@ function mockQueries(accounts: ChannelAccountListItem[] = [account()]) {
       channelAccountId: ACCOUNT_ID,
       proposalVersion: 'a'.repeat(64),
       generatedAt: '2026-07-18T00:00:00.000Z',
-      summary: { variants: 0, affectedOptions: 0, autoApply: 0, operatorReview: 0, blocked: 0, alreadyConfigured: 0 },
+      summary: {
+        products: 1,
+        autoApplyProducts: 0,
+        operatorReviewProducts: 0,
+        blockedProducts: 1,
+        alreadyConfiguredProducts: 0,
+        variants: 0,
+        affectedOptions: 0,
+        autoApply: 0,
+        operatorReview: 0,
+        blocked: 0,
+        alreadyConfigured: 0,
+      },
+      productGroups: [],
       items: [],
     },
     isLoading: false,
@@ -107,6 +120,45 @@ function mockQueries(accounts: ChannelAccountListItem[] = [account()]) {
     error: null,
     refetch: vi.fn(),
   } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>);
+}
+
+function recipePreview(input: {
+  decision: 'auto_apply' | 'operator_review' | 'blocked' | 'already_configured';
+  masterProductId: string | null;
+}) {
+  return {
+    data: {
+      channelAccountId: ACCOUNT_ID,
+      proposalVersion: 'a'.repeat(64),
+      generatedAt: '2026-07-18T00:00:00.000Z',
+      summary: {
+        products: 1,
+        autoApplyProducts: input.decision === 'auto_apply' ? 1 : 0,
+        operatorReviewProducts: input.decision === 'operator_review' ? 1 : 0,
+        blockedProducts: input.decision === 'blocked' ? 1 : 0,
+        alreadyConfiguredProducts: input.decision === 'already_configured' ? 1 : 0,
+        variants: 0,
+        affectedOptions: response.options.length,
+        autoApply: 0,
+        operatorReview: 0,
+        blocked: 0,
+        alreadyConfigured: 0,
+      },
+      productGroups: [{
+        channelListingId: LISTING_ID,
+        masterProductId: input.masterProductId,
+        channelListingOptionIds: response.options.map((row) => row.option.id),
+        productVariantIds: [],
+        decision: input.decision,
+        autoApplyProductVariantIds: [],
+      }],
+      items: [],
+    },
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>;
 }
 
 describe('/product-hub/matching', () => {
@@ -123,33 +175,27 @@ describe('/product-hub/matching', () => {
     expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0]).toEqual(expect.objectContaining({ search: 'KI-1' }));
   });
 
-  it('restores a needs-review option queue from the URL and excludes confirmed recipes', () => {
-    const reviewOptions = Array.from({ length: 51 }, (_, index) => ({
-      ...response.options[2],
-      option: { ...response.options[2]!.option, id: `66666666-6666-4666-8666-${String(index + 1).padStart(12, '0')}` },
-      recipeStatus: 'configuration_required' as const,
-      capacity: null,
+  it('restores a product-level operator review queue from the URL', () => {
+    navigation.params = new URLSearchParams(`channelAccountId=${ACCOUNT_ID}&status=operator_review&search=SP-1`);
+    vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue(recipePreview({
+      decision: 'operator_review',
+      masterProductId: null,
     }));
-    navigation.params = new URLSearchParams('channelAccountId=55555555-5555-4555-8555-555555555555&level=options&status=needs_review&search=SP-1&page=2');
-    vi.mocked(useChannelProductMappings).mockReturnValue({ data: { ...response, options: [...reviewOptions, response.options[2]!] }, isLoading: false, isFetching: false, error: null, refetch } as unknown as ReturnType<typeof useChannelProductMappings>);
     render(<MatchingPage />);
     expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0]).toEqual(expect.objectContaining({ search: 'SP-1' }));
-    expect(screen.getByRole('button', { name: '2 옵션 연결' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getAllByText('재고 연결 필요')).not.toHaveLength(0);
-    expect(screen.queryByText('판매 가능 12')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '상품·재고 상태' })).toHaveValue('operator_review');
+    expect(screen.getAllByText('운영자 검토')).toHaveLength(2);
+    expect(screen.getByText('채널 우산')).toBeInTheDocument();
   });
 
-  it('resets URL page state when account, level, status, or search changes', async () => {
+  it('resets URL page state when account, status, or search changes', async () => {
     const user = userEvent.setup();
-    navigation.params = new URLSearchParams('channelAccountId=55555555-5555-4555-8555-555555555555&level=products&status=all&search=old&page=4');
+    navigation.params = new URLSearchParams('channelAccountId=55555555-5555-4555-8555-555555555555&status=all&search=old&page=4');
     render(<MatchingPage />);
     await user.selectOptions(screen.getByRole('combobox', { name: '채널 계정' }), '55555555-5555-4555-8555-555555555555');
     expect(navigation.replace).toHaveBeenLastCalledWith(expect.stringContaining('page=1'));
     navigation.replace.mockClear();
-    await user.click(screen.getByRole('button', { name: '2 옵션 연결' }));
-    expect(navigation.replace).toHaveBeenLastCalledWith(expect.stringContaining('page=1'));
-    navigation.replace.mockClear();
-    await user.selectOptions(screen.getByRole('combobox', { name: '큐 상태' }), 'review_required');
+    await user.selectOptions(screen.getByRole('combobox', { name: '상품·재고 상태' }), 'operator_review');
     expect(navigation.replace).toHaveBeenLastCalledWith(expect.stringContaining('page=1'));
     navigation.replace.mockClear();
     await user.type(screen.getByLabelText('채널 상품·옵션 검색'), ' next');
@@ -157,23 +203,23 @@ describe('/product-hub/matching', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('preserves the shared shell and explains the two confirmation levels', () => {
+  it('preserves the shared shell and explains the product-centered workspace', () => {
     const { container } = render(<MatchingPage />);
     expect(container.querySelector('main')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '상품 매칭 센터' })).toBeInTheDocument();
-    expect(screen.getByText('채널 상품을 KidItem 상품에 먼저 연결하고, 채널 옵션을 해당 상품의 판매 옵션에 연결합니다.')).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: '매칭 단계' })).toBeInTheDocument();
+    expect(screen.getByText('상품 한 행에서 운영 상품, 하위 옵션, Sellpia 재고 연결 상태를 함께 확인하고 처리합니다.')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: '매칭 단계' })).not.toBeInTheDocument();
   });
 
   it('opens product confirmation first, then gates option confirmation on the product link', async () => {
     const user = userEvent.setup();
     render(<MatchingPage />);
 
-    await user.click(screen.getByRole('button', { name: '상품 연결' }));
+    await user.click(screen.getByRole('button', { name: '상품별 확인' }));
+    await user.click(screen.getByRole('button', { name: '운영 상품 연결' }));
     expect(screen.getByText('상품 확인 대화상자 listing-1')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '2 옵션 연결' }));
-    const optionButtons = screen.getAllByRole('button', { name: '옵션 연결' });
+    const optionButtons = screen.getAllByRole('button', { name: '운영 옵션 연결' });
     expect(optionButtons[0]).toBeDisabled();
     await user.click(optionButtons[1]);
     expect(screen.getByText('옵션 확인 대화상자 option-ready')).toBeInTheDocument();
@@ -182,22 +228,56 @@ describe('/product-hub/matching', () => {
   it('keeps recipe capacity read-only and links to the central recipe editor', async () => {
     const user = userEvent.setup();
     render(<MatchingPage />);
-    await user.click(screen.getByRole('button', { name: '2 옵션 연결' }));
+    await user.click(screen.getByRole('button', { name: '상품별 확인' }));
 
     expect(screen.getByText('판매 가능 12')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '중앙 레시피 보기' })).toHaveAttribute('href', `/product-hub/${PRODUCT_ID}#variants`);
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
   });
 
-  it('restores an automatic-match filter and shows the deterministic row reason', () => {
+  it('restores an automatic-match filter and shows the deterministic row reason', async () => {
     const linked = response.options[2]!;
-    navigation.params = new URLSearchParams(`channelAccountId=${ACCOUNT_ID}&level=options&status=auto_apply`);
+    navigation.params = new URLSearchParams(`channelAccountId=${ACCOUNT_ID}&status=auto_apply`);
+    vi.mocked(useChannelProductMappings).mockReturnValue({
+      data: {
+        ...response,
+        products: [{
+          ...response.products[0]!,
+          listing: { ...response.products[0]!.listing, masterProductId: PRODUCT_ID },
+          linkedProduct: { id: PRODUCT_ID, code: 'KI-1', name: '키즈 우산' },
+        }],
+      },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch,
+    } as unknown as ReturnType<typeof useChannelProductMappings>);
     vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue({
       data: {
         channelAccountId: ACCOUNT_ID,
         proposalVersion: 'a'.repeat(64),
         generatedAt: '2026-07-18T00:00:00.000Z',
-        summary: { variants: 1, affectedOptions: 1, autoApply: 1, operatorReview: 0, blocked: 0, alreadyConfigured: 0 },
+        summary: {
+          products: 1,
+          autoApplyProducts: 1,
+          operatorReviewProducts: 0,
+          blockedProducts: 0,
+          alreadyConfiguredProducts: 0,
+          variants: 1,
+          affectedOptions: 1,
+          autoApply: 1,
+          operatorReview: 0,
+          blocked: 0,
+          alreadyConfigured: 0,
+        },
+        productGroups: [{
+          channelListingId: LISTING_ID,
+          masterProductId: PRODUCT_ID,
+          channelListingOptionIds: [linked.option.id],
+          productVariantIds: [linked.option.productVariantId!],
+          decision: 'auto_apply',
+          autoApplyProductVariantIds: [linked.option.productVariantId!],
+        }],
         items: [{
           productVariantId: linked.option.productVariantId!,
           masterProductId: PRODUCT_ID,
@@ -217,9 +297,11 @@ describe('/product-hub/matching', () => {
     } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>);
 
     render(<MatchingPage />);
-    expect(screen.getByRole('combobox', { name: '큐 상태' })).toHaveValue('auto_apply');
+    expect(screen.getByRole('combobox', { name: '상품·재고 상태' })).toHaveValue('auto_apply');
+    expect(screen.getAllByText('자동 매칭 가능')).toHaveLength(2);
+    await userEvent.click(screen.getByRole('button', { name: '상품별 확인' }));
     expect(screen.getByText('자동 매칭 가능 · 상품코드 정확 일치')).toBeInTheDocument();
-    expect(screen.queryByText('option-unready')).not.toBeInTheDocument();
+    expect(screen.getByText('option-unready')).toBeInTheDocument();
   });
 
   it('refreshes by refetching and debounces trimmed search without any automatic mutation', async () => {
