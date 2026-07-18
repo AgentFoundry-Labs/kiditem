@@ -70,5 +70,6 @@ const REPOSITORY_PORT_BINDINGS = [
     // port bindings
     ...REPOSITORY_PORT_BINDINGS,
   ],
+  exports: [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT],
 })
 export class DashboardModule {}

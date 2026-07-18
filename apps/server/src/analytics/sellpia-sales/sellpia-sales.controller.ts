@@ -1,17 +1,17 @@
 import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import { SellpiaSalesService, parseCalendarDate } from './sellpia-sales.service';
+import { SellpiaSalesIngestBodyDto, SellpiaSalesQueryDto } from './dto/sellpia-sales.dto';
 import type {
   SellpiaSalesSummary,
   SellpiaSalesIngestResult,
 } from '@kiditem/shared/dashboard';
-import { SellpiaSalesService, parseCalendarDate } from './sellpia-sales.service';
-import { SellpiaSalesIngestBodyDto, SellpiaSalesQueryDto } from './dto/sellpia-sales.dto';
 
 @Controller('sellpia-sales')
 export class SellpiaSalesController {
   constructor(private readonly service: SellpiaSalesService) {}
 
-  // 확장 스크랩 결과 적재. 멱등(같은 날짜/판매처 재수집 시 덮어씀).
+  // 확장 스크랩 결과 적재. 요청 범위를 원자 교체하므로 재수집은 멱등이다.
   @Post('ingest')
   async ingest(
     @Body() body: SellpiaSalesIngestBodyDto,
