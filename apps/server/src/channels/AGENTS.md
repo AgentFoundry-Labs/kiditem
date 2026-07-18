@@ -114,11 +114,15 @@ auto-confirmed. Wing publication may reuse an existing Products identity only
 from a unique, non-conflicting typed seller SKU or safely normalized typed
 barcode; names, raw aliases, and AI never confirm an identity link.
 
-Recipe automation is a separate, explicitly invoked command. It must first
-return a version-fenced preview and may ask Products to create an empty central
-`ProductVariantComponent` recipe only when one active Sellpia SKU is selected
-without conflict by an exact code, a unique physical barcode, or a strict exact
-normalized product-name plus option match. It may create only quantity `1`.
+Recipe automation is one separate, explicitly invoked account command. Its
+version-fenced preview is the command read model; the web does not require a
+second confirmation dialog. Channels may ask Products to create an empty
+central `ProductVariantComponent` recipe only when every child option in the
+selected account's product group is linked and is either already configured or
+selects one active Sellpia SKU without conflict by an exact code, a unique
+physical barcode, or a strict exact normalized product-name plus option match.
+One unresolved child withholds every new automatic recipe for that product. The
+command may create only quantity `1` and never overwrites an existing recipe.
 Existing recipes, pack/BOM uncertainty, duplicate identifiers, conflicting
 evidence, product-name-only matches, similarity, rank, raw aliases, and AI are
 never automatic.
@@ -141,7 +145,8 @@ clearing confirmed product or variant links.
 - `GET /api/channels/sku-availability`
 - `GET /api/channels/product-mappings/recipe-automation/preview`
 - `POST /api/channels/product-mappings/recipe-automation/apply`
-- matching queue reads expose product-level and option-level rows separately;
+- matching queue reads retain product and option relations, while the operator
+  workspace groups option rows beneath their product;
 - product link commands accept only nullable `masterProductId`;
 - option link commands accept only nullable `productVariantId`.
 

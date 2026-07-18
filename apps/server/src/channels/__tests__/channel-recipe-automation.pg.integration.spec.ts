@@ -101,6 +101,11 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
     const preview = await service.preview(TEST_ORGANIZATION_ID, ACCOUNT_ID);
 
     expect(preview.summary).toEqual({
+      products: 7,
+      autoApplyProducts: 1,
+      operatorReviewProducts: 1,
+      blockedProducts: 4,
+      alreadyConfiguredProducts: 1,
       variants: 7,
       affectedOptions: 7,
       autoApply: 1,
@@ -149,6 +154,78 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
     })).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('applies a safe single-option product but withholds a partially safe product', async () => {
+    const groupedMaster = await prisma.masterProduct.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: `MP-GROUP-${randomUUID()}`,
+      name: 'Grouped product',
+    } });
+    const groupedVariants = await Promise.all(['AUTO', 'REVIEW'].map(async (label) =>
+      (await prisma.productVariant.create({ data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: groupedMaster.id,
+        code: `PV-GROUP-${label}-${randomUUID()}`,
+        name: label,
+      } })).id));
+    await createSku('SP-GROUP-AUTO', 'Grouped auto', null, null, 11);
+    await createSku('SP-GROUP-REVIEW', 'Grouped review', null, null, 12);
+    const groupedListing = await prisma.channelListing.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: ACCOUNT_ID,
+      externalId: randomUUID(),
+      masterProductId: groupedMaster.id,
+      displayName: 'Grouped listing',
+    } });
+    await prisma.channelListingOption.createMany({ data: [
+      {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: groupedListing.id,
+        externalOptionId: randomUUID(),
+        productVariantId: groupedVariants[0],
+        sellerSku: 'SP-GROUP-AUTO',
+        itemName: null,
+        rawJson: { source: 'coupang_catalog_browser' },
+      },
+      {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: groupedListing.id,
+        externalOptionId: randomUUID(),
+        productVariantId: groupedVariants[1],
+        sellerSku: 'SP-GROUP-REVIEW',
+        itemName: '4개입',
+        rawJson: { source: 'coupang_catalog_browser' },
+      },
+    ] });
+
+    const singleVariant = await createVariant('SAFE-SINGLE');
+    const singleSku = await createSku('SP-SAFE-SINGLE', 'Safe single', null, null, 13);
+    await createOption(singleVariant, { sellerSku: 'SP-SAFE-SINGLE' });
+    const stockBefore = await stockSnapshot();
+
+    const preview = await service.preview(TEST_ORGANIZATION_ID, ACCOUNT_ID);
+    expect(preview.productGroups.find((group) =>
+      group.channelListingId === groupedListing.id)).toMatchObject({
+      decision: 'operator_review',
+      autoApplyProductVariantIds: [],
+    });
+
+    await service.apply(TEST_ORGANIZATION_ID, {
+      channelAccountId: ACCOUNT_ID,
+      proposalVersion: preview.proposalVersion,
+    });
+    expect(await prisma.productVariantComponent.count({
+      where: { productVariantId: { in: groupedVariants } },
+    })).toBe(0);
+    expect(await prisma.productVariantComponent.findMany({
+      where: { productVariantId: singleVariant },
+    })).toEqual([expect.objectContaining({
+      sellpiaInventorySkuId: singleSku,
+      quantity: 1,
+      source: 'deterministic',
+    })]);
+    expect(await stockSnapshot()).toEqual(stockBefore);
+  });
+
   it('returns no preview rows for a foreign account under the current organization', async () => {
     await expect(service.preview(TEST_ORGANIZATION_ID, OTHER_ACCOUNT_ID))
       .resolves.toMatchObject({ items: [], summary: { variants: 0 } });
@@ -192,10 +269,15 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
     displayName?: string;
     itemName?: string | null;
   }) {
+    const variant = await prisma.productVariant.findUniqueOrThrow({
+      where: { id: productVariantId },
+      select: { masterProductId: true },
+    });
     const listing = await prisma.channelListing.create({ data: {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: ACCOUNT_ID,
       externalId: randomUUID(),
+      masterProductId: variant.masterProductId,
       displayName: input.displayName ?? randomUUID(),
     } });
     return prisma.channelListingOption.create({ data: {

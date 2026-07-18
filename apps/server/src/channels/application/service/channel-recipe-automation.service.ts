@@ -5,6 +5,7 @@ import {
   ApplyChannelRecipeAutomationResponseSchema,
   ChannelRecipeAutomationPreviewSchema,
   type ChannelRecipeAutomationItem,
+  type ChannelRecipeAutomationProductGroup,
   type ChannelRecipeAutomationReason,
 } from '@kiditem/shared/channel-recipe-automation';
 import {
@@ -12,6 +13,7 @@ import {
   type ProductVariantRecipeAutomationPort,
 } from '../../../products/application/port/in/product-variant-recipe-automation.port';
 import type { ChannelRecipeSuggestionResponse } from '../../domain/channel-recipe-suggestion';
+import { classifyRecipeAutomationProductGroups } from '../../domain/channel-recipe-automation-product-group';
 import {
   CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT,
   type ChannelRecipeAutomationContext,
@@ -30,22 +32,34 @@ export class ChannelRecipeAutomationService {
   ) {}
 
   async preview(organizationId: string, channelAccountId: string) {
-    const contexts = await this.contexts.listContexts(organizationId, channelAccountId);
-    const suggestions = await this.suggestions.suggestBatch(organizationId, contexts);
+    const accountContext = await this.contexts.listContexts(organizationId, channelAccountId);
+    const suggestions = await this.suggestions.suggestBatch(
+      organizationId,
+      accountContext.variants,
+    );
     const suggestionByVariant = new Map(suggestions.map((suggestion) => [
       suggestion.productVariantId,
       suggestion,
     ]));
-    const items = contexts.map((context) => toPreviewItem(
+    const items = accountContext.variants.map((context) => toPreviewItem(
       context,
       requiredSuggestion(suggestionByVariant, context.productVariantId),
     )).sort((left, right) => left.productVariantId.localeCompare(right.productVariantId));
+    const productGroups = classifyRecipeAutomationProductGroups(
+      accountContext.products,
+      items,
+    );
 
     return ChannelRecipeAutomationPreviewSchema.parse({
       channelAccountId,
-      proposalVersion: proposalVersion(items),
+      proposalVersion: proposalVersion(items, productGroups),
       generatedAt: new Date().toISOString(),
       summary: {
+        products: productGroups.length,
+        autoApplyProducts: countDecision(productGroups, 'auto_apply'),
+        operatorReviewProducts: countDecision(productGroups, 'operator_review'),
+        blockedProducts: countDecision(productGroups, 'blocked'),
+        alreadyConfiguredProducts: countDecision(productGroups, 'already_configured'),
         variants: items.length,
         affectedOptions: items.reduce(
           (sum, item) => sum + item.channelListingOptionIds.length,
@@ -56,6 +70,7 @@ export class ChannelRecipeAutomationService {
         blocked: countDecision(items, 'blocked'),
         alreadyConfigured: countDecision(items, 'already_configured'),
       },
+      productGroups,
       items,
     });
   }
@@ -68,7 +83,10 @@ export class ChannelRecipeAutomationService {
         'Recipe automation preview changed; refresh and review again',
       );
     }
-    const automaticItems = preview.items.filter((item) => item.decision === 'auto_apply');
+    const safeVariantIds = new Set(preview.productGroups.flatMap((group) =>
+      group.autoApplyProductVariantIds));
+    const automaticItems = preview.items.filter((item) =>
+      item.decision === 'auto_apply' && safeVariantIds.has(item.productVariantId));
     const result = await this.products.applyIfEmpty({
       organizationId,
       recipes: automaticItems.map((item) => ({
@@ -78,8 +96,12 @@ export class ChannelRecipeAutomationService {
       })),
     });
     const appliedIds = new Set(result.appliedProductVariantIds);
+    const appliedProducts = preview.productGroups.filter((group) =>
+      group.autoApplyProductVariantIds.some((id) => appliedIds.has(id))).length;
     return ApplyChannelRecipeAutomationResponseSchema.parse({
       proposalVersion: preview.proposalVersion,
+      appliedProducts,
+      skippedProducts: preview.productGroups.length - appliedProducts,
       appliedVariants: result.appliedProductVariantIds.length,
       affectedOptions: automaticItems
         .filter((item) => appliedIds.has(item.productVariantId))
@@ -144,14 +166,17 @@ function automationReason(
 }
 
 function countDecision(
-  items: ChannelRecipeAutomationItem[],
+  items: Array<{ decision: ChannelRecipeAutomationItem['decision'] }>,
   decision: ChannelRecipeAutomationItem['decision'],
 ) {
   return items.filter((item) => item.decision === decision).length;
 }
 
-function proposalVersion(items: ChannelRecipeAutomationItem[]): string {
-  const stable = items.map((item) => ({
+function proposalVersion(
+  items: ChannelRecipeAutomationItem[],
+  productGroups: ChannelRecipeAutomationProductGroup[],
+): string {
+  const stableItems = items.map((item) => ({
     productVariantId: item.productVariantId,
     channelListingOptionIds: [...item.channelListingOptionIds].sort(),
     decision: item.decision,
@@ -159,5 +184,16 @@ function proposalVersion(items: ChannelRecipeAutomationItem[]): string {
     sellpiaInventorySkuId: item.sellpiaInventorySkuId,
     recommendedQuantity: item.recommendedQuantity,
   }));
-  return createHash('sha256').update(JSON.stringify(stable)).digest('hex');
+  const stableProductGroups = productGroups.map((group) => ({
+    channelListingId: group.channelListingId,
+    masterProductId: group.masterProductId,
+    channelListingOptionIds: group.channelListingOptionIds,
+    productVariantIds: group.productVariantIds,
+    decision: group.decision,
+    autoApplyProductVariantIds: group.autoApplyProductVariantIds,
+  }));
+  return createHash('sha256').update(JSON.stringify({
+    items: stableItems,
+    productGroups: stableProductGroups,
+  })).digest('hex');
 }
