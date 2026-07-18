@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyChannelRecipeAutomation,
@@ -14,16 +14,37 @@ vi.mock('@/lib/channel-recipe-automation-api', () => ({
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 
-function renderPanel() {
+function renderPanel(latestAutomation?: {
+  evaluatedProducts: number;
+  appliedProducts: number;
+  appliedVariants: number;
+  affectedOptions: number;
+  operatorReviewProducts: number;
+  blockedProducts: number;
+  alreadyConfiguredProducts: number;
+  skippedExistingVariants: number;
+}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <RocketDeterministicMatchingPanel
         channelAccountId={ACCOUNT_ID}
+        latestAutomation={latestAutomation}
       />
     </QueryClientProvider>,
   );
 }
+
+const AUTOMATION_RESULT = {
+  evaluatedProducts: 4,
+  appliedProducts: 1,
+  appliedVariants: 2,
+  affectedOptions: 2,
+  operatorReviewProducts: 1,
+  blockedProducts: 1,
+  alreadyConfiguredProducts: 1,
+  skippedExistingVariants: 0,
+};
 
 describe('<RocketDeterministicMatchingPanel>', () => {
   beforeEach(() => {
@@ -68,5 +89,36 @@ describe('<RocketDeterministicMatchingPanel>', () => {
       .toHaveAttribute('href', `/product-hub/matching?channelAccountId=${ACCOUNT_ID}&status=operator_review`);
     expect(screen.getByRole('link', { name: '연결·매칭 필요 1' }))
       .toHaveAttribute('href', `/product-hub/matching?channelAccountId=${ACCOUNT_ID}&status=blocked`);
+  });
+
+  it('shows what the current Rocket collection automatically applied before capacity preview', async () => {
+    renderPanel(AUTOMATION_RESULT);
+
+    expect(await screen.findByText('자동 적용 상품 1개 · 운영 옵션 2개')).toBeInTheDocument();
+    expect(screen.getByText('운영자 검토 1개 · 연결·매칭 필요 1개')).toBeInTheDocument();
+  });
+
+  it('refreshes account-wide matching totals after a later collection changes recipes', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <RocketDeterministicMatchingPanel
+          channelAccountId={ACCOUNT_ID}
+          latestAutomation={AUTOMATION_RESULT}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(getChannelRecipeAutomationPreview).toHaveBeenCalledTimes(1));
+
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <RocketDeterministicMatchingPanel
+          channelAccountId={ACCOUNT_ID}
+          latestAutomation={{ ...AUTOMATION_RESULT, appliedProducts: 2 }}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(getChannelRecipeAutomationPreview).toHaveBeenCalledTimes(2));
   });
 });

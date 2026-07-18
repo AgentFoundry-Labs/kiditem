@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ScopedChannelRecipeAutomationResultSchema } from './channel-recipe-automation.js';
 import { CompletedSourceArtifactRunSchema } from './source-import.js';
 
 export const ROCKET_PO_LIST_PAGE_LIMIT = 20;
@@ -273,6 +274,7 @@ export const RocketPoCatalogPublicationSchema = z.object({
     createdSkuCount: z.number().int().nonnegative(),
     updatedSkuCount: z.number().int().nonnegative(),
   }).strict(),
+  recipeAutomation: ScopedChannelRecipeAutomationResultSchema,
 }).strict();
 export type RocketPoCatalogPublication = z.infer<
   typeof RocketPoCatalogPublicationSchema

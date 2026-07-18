@@ -2,9 +2,9 @@
 
 import { useRef } from 'react';
 import { ROCKET_SHORTAGE_REASONS } from '@kiditem/shared/rocket-purchase-preview';
+import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { useRocketPurchaseWorkflow } from '../hooks/useRocketPurchaseWorkflow';
 import { RocketDeterministicMatchingPanel } from './RocketDeterministicMatchingPanel';
-import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import type {
   RocketPurchasePreviewReason,
   RocketShortageReason,
@@ -222,6 +222,7 @@ export function RocketPurchaseWorkspace({
       {preview?.catalog ? (
         <RocketDeterministicMatchingPanel
           channelAccountId={channelAccountId}
+          latestAutomation={preview.catalog.recipeAutomation}
         />
       ) : null}
 

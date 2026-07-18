@@ -25,7 +25,7 @@ export interface RocketPoCatalogRepositoryPort {
     artifactHash: string;
     collection: RocketPoCollectionEvidence;
     rows: RocketPoCatalogRow[];
-  }): Promise<RocketPoCatalogPublication & {
+  }): Promise<Omit<RocketPoCatalogPublication, 'recipeAutomation'> & {
     identities: RocketPoCatalogIdentity[];
   }>;
 

@@ -13,6 +13,7 @@ import {
   ROCKET_PO_CATALOG_REPOSITORY_PORT,
   type RocketPoCatalogRepositoryPort,
 } from '../port/out/repository/rocket-po-catalog.repository.port';
+import { ChannelRecipeAutomationService } from './channel-recipe-automation.service';
 
 const ARTIFACT_FILE_NAME = 'rocket-po-catalog.json' as const;
 
@@ -21,6 +22,7 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
   constructor(
     @Inject(ROCKET_PO_CATALOG_REPOSITORY_PORT)
     private readonly repository: RocketPoCatalogRepositoryPort,
+    private readonly recipeAutomation: ChannelRecipeAutomationService,
   ) {}
 
   async publishAndResolve(input: {
@@ -65,8 +67,17 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
       collection: request.collection,
       rows,
     });
+    const recipeAutomation = await this.recipeAutomation.applySafeForOptions({
+      organizationId: input.organizationId,
+      channelAccountId: request.channelAccountId,
+      channelListingOptionIds: published.identities.map(({ channelSkuId }) => channelSkuId),
+    });
     const { identities, ...catalog } = published;
-    return { blockingReason: null, catalog, identities };
+    return {
+      blockingReason: null,
+      catalog: { ...catalog, recipeAutomation },
+      identities,
+    };
   }
 
   listSavedPos(input: {

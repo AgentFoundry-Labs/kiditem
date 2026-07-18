@@ -130,3 +130,17 @@ export const ApplyChannelRecipeAutomationResponseSchema = z.object({
 export type ApplyChannelRecipeAutomationResponse = z.infer<
   typeof ApplyChannelRecipeAutomationResponseSchema
 >;
+
+export const ScopedChannelRecipeAutomationResultSchema = z.object({
+  evaluatedProducts: z.number().int().nonnegative(),
+  appliedProducts: z.number().int().nonnegative(),
+  appliedVariants: z.number().int().nonnegative(),
+  affectedOptions: z.number().int().nonnegative(),
+  operatorReviewProducts: z.number().int().nonnegative(),
+  blockedProducts: z.number().int().nonnegative(),
+  alreadyConfiguredProducts: z.number().int().nonnegative(),
+  skippedExistingVariants: z.number().int().nonnegative(),
+}).strict();
+export type ScopedChannelRecipeAutomationResult = z.infer<
+  typeof ScopedChannelRecipeAutomationResultSchema
+>;

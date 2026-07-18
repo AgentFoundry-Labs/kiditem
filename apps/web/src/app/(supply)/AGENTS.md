@@ -32,8 +32,9 @@ logged-in order-collector extension
 'releaseRocketConfirmation' | 'listSavedRocketPos' |
 'loadSavedRocketCollection' | 'listRocketCommitments' |
 'settleRocketFinalOrderCommitments' | 'releaseRocketFinalOrderCommitments', ... }
-  -> immutable PO catalog evidence, current-inventory preview, internal capacity
-     allocation, official workbook download, release
+  -> immutable PO catalog evidence, collection-scoped safe recipe automation,
+     current-inventory preview, internal capacity allocation, official workbook
+     download, release
 ```
 
 ## State Rules
@@ -66,10 +67,11 @@ logged-in order-collector extension
 - Changing the selected Rocket ChannelAccount remounts account-scoped errors,
   preview rows, and edits. The `/rocket-orders` calendar owns the date range,
   so that range remains unchanged while the selected account changes.
-- Rocket's deterministic matching panel is read-only. Each product-level status
-  deep-links to `/product-hub/matching` with both `channelAccountId` and
-  `status`; only the product matching center owns the explicit automatic
-  matching command and focused corrections.
+- Rocket's deterministic matching panel is read-only. It displays the safe
+  recipes applied by the current completed collection and the remaining review
+  or blocked counts. Each product-level status deep-links to
+  `/product-hub/matching` with both `channelAccountId` and `status`; the product
+  matching center owns explicit reruns and focused corrections.
 - Confirmation stays disabled until the backend has published a complete
   catalog, all rows include authoritative workbook fields, and the operator has
   reviewed every quantity/shortage reason.

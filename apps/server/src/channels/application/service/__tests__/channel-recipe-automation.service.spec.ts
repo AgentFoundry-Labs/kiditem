@@ -144,6 +144,48 @@ describe('ChannelRecipeAutomationService', () => {
       }],
     });
   });
+
+  it('automatically applies only product groups selected by newly published channel options', async () => {
+    const { service, contextRepository, suggestions, products } = makeService();
+    contextRepository.listContexts.mockResolvedValue(accountContext([
+      context(variantA, productA, [optionA]),
+      context(variantB, productB, [optionB]),
+    ], [
+      topology('00000000-0000-4000-8000-000000000501', productA, [[optionA, variantA]]),
+      topology('00000000-0000-4000-8000-000000000502', productB, [[optionB, variantB]]),
+    ]));
+    suggestions.suggestBatch.mockResolvedValue([
+      suggestion(optionA, variantA, productA, 'unique_code', 'auto_apply', 2),
+      suggestion(optionB, variantB, productB, 'unique_code', 'auto_apply', 3),
+    ]);
+    products.applyIfEmpty.mockResolvedValue({
+      appliedProductVariantIds: [variantA],
+      skippedExistingProductVariantIds: [],
+    });
+
+    await expect(service.applySafeForOptions({
+      organizationId,
+      channelAccountId,
+      channelListingOptionIds: [optionA],
+    })).resolves.toEqual({
+      evaluatedProducts: 1,
+      appliedProducts: 1,
+      appliedVariants: 1,
+      affectedOptions: 1,
+      operatorReviewProducts: 0,
+      blockedProducts: 0,
+      alreadyConfiguredProducts: 0,
+      skippedExistingVariants: 0,
+    });
+    expect(products.applyIfEmpty).toHaveBeenCalledWith({
+      organizationId,
+      recipes: [{
+        productVariantId: variantA,
+        sellpiaInventorySkuId: skuId,
+        quantity: 2,
+      }],
+    });
+  });
 });
 
 function makeService() {

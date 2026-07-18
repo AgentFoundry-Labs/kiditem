@@ -134,6 +134,16 @@ function catalogPublication(rowCount = 0): RocketPoCatalogPublication {
       createdSkuCount: 0,
       updatedSkuCount: 0,
     },
+    recipeAutomation: {
+      evaluatedProducts: 0,
+      appliedProducts: 0,
+      appliedVariants: 0,
+      affectedOptions: 0,
+      operatorReviewProducts: 0,
+      blockedProducts: 0,
+      alreadyConfiguredProducts: 0,
+      skippedExistingVariants: 0,
+    },
   };
 }
 

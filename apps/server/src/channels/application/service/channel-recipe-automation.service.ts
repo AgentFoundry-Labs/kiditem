@@ -4,6 +4,7 @@ import {
   ApplyChannelRecipeAutomationInputSchema,
   ApplyChannelRecipeAutomationResponseSchema,
   ChannelRecipeAutomationPreviewSchema,
+  ScopedChannelRecipeAutomationResultSchema,
   type ChannelRecipeAutomationItem,
   type ChannelRecipeAutomationProductGroup,
   type ChannelRecipeAutomationReason,
@@ -12,7 +13,6 @@ import {
   PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT,
   type ProductVariantRecipeAutomationPort,
 } from '../../../products/application/port/in/product-variant-recipe-automation.port';
-import type { ChannelRecipeSuggestionResponse } from '../../domain/channel-recipe-suggestion';
 import { classifyRecipeAutomationProductGroups } from '../../domain/channel-recipe-automation-product-group';
 import {
   CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT,
@@ -20,6 +20,7 @@ import {
   type ChannelRecipeAutomationContextRepositoryPort,
 } from '../port/out/repository/channel-recipe-automation-context.repository.port';
 import { ChannelRecipeSuggestionService } from './channel-recipe-suggestion.service';
+import type { ChannelRecipeSuggestionResponse } from '../../domain/channel-recipe-suggestion';
 
 @Injectable()
 export class ChannelRecipeAutomationService {
@@ -110,6 +111,64 @@ export class ChannelRecipeAutomationService {
       skippedExistingVariants: result.skippedExistingProductVariantIds.length,
     });
   }
+
+  async applySafeForOptions(input: {
+    organizationId: string;
+    channelAccountId: string;
+    channelListingOptionIds: string[];
+  }) {
+    const selectedOptionIds = new Set(input.channelListingOptionIds);
+    if (selectedOptionIds.size === 0) {
+      return ScopedChannelRecipeAutomationResultSchema.parse(emptyScopedResult());
+    }
+    const preview = await this.preview(input.organizationId, input.channelAccountId);
+    const productGroups = preview.productGroups.filter((group) =>
+      group.channelListingOptionIds.some((id) => selectedOptionIds.has(id)));
+    const safeVariantIds = new Set(productGroups.flatMap((group) =>
+      group.autoApplyProductVariantIds));
+    const automaticItems = preview.items.filter((item) =>
+      item.decision === 'auto_apply' && safeVariantIds.has(item.productVariantId));
+    const result = automaticItems.length > 0
+      ? await this.products.applyIfEmpty({
+        organizationId: input.organizationId,
+        recipes: automaticItems.map((item) => ({
+          productVariantId: item.productVariantId,
+          sellpiaInventorySkuId: item.sellpiaInventorySkuId!,
+          quantity: item.recommendedQuantity!,
+        })),
+      })
+      : {
+        appliedProductVariantIds: [],
+        skippedExistingProductVariantIds: [],
+      };
+    const appliedIds = new Set(result.appliedProductVariantIds);
+    return ScopedChannelRecipeAutomationResultSchema.parse({
+      evaluatedProducts: productGroups.length,
+      appliedProducts: productGroups.filter((group) =>
+        group.autoApplyProductVariantIds.some((id) => appliedIds.has(id))).length,
+      appliedVariants: result.appliedProductVariantIds.length,
+      affectedOptions: automaticItems
+        .filter((item) => appliedIds.has(item.productVariantId))
+        .reduce((sum, item) => sum + item.channelListingOptionIds.length, 0),
+      operatorReviewProducts: countDecision(productGroups, 'operator_review'),
+      blockedProducts: countDecision(productGroups, 'blocked'),
+      alreadyConfiguredProducts: countDecision(productGroups, 'already_configured'),
+      skippedExistingVariants: result.skippedExistingProductVariantIds.length,
+    });
+  }
+}
+
+function emptyScopedResult() {
+  return {
+    evaluatedProducts: 0,
+    appliedProducts: 0,
+    appliedVariants: 0,
+    affectedOptions: 0,
+    operatorReviewProducts: 0,
+    blockedProducts: 0,
+    alreadyConfiguredProducts: 0,
+    skippedExistingVariants: 0,
+  };
 }
 
 function toPreviewItem(

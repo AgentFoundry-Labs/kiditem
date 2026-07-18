@@ -114,18 +114,24 @@ auto-confirmed. Wing publication may reuse an existing Products identity only
 from a unique, non-conflicting typed seller SKU or safely normalized typed
 barcode; names, raw aliases, and AI never confirm an identity link.
 
-Recipe automation is one separate, explicitly invoked account command. Its
-version-fenced preview is the command read model; the web does not require a
-second confirmation dialog. Channels may ask Products to create an empty
-central `ProductVariantComponent` recipe when one linked variant selects one
-active Sellpia SKU without conflict. Automatic evidence includes an exact code
+Recipe automation keeps the separate, explicitly invoked account command for
+operator reruns and review. In addition, a complete Rocket PO catalog
+publication immediately runs the same deterministic policy, scoped only to
+product groups containing options published by that collection, before Supply
+reads capacity. The Rocket path recomputes fresh evidence server-side and
+reports applied/review/blocked counts in the catalog response; incomplete or
+vendor-mismatched collections never invoke it. The version-fenced preview
+remains the operator command read model, and the web does not require a second
+confirmation dialog. Channels may ask Products to create an empty central
+`ProductVariantComponent` recipe when one linked variant selects one active
+Sellpia SKU without conflict. Automatic evidence includes an exact code
 or unique physical barcode that also passes product-name cross-checking, a
 unique exact normalized name, or a unique high-confidence contained/fuzzy name
 whose score and runner-up margin pass the domain thresholds. An explicit,
 integer channel-pack to Sellpia-unit ratio may produce a positive quantity;
 unverifiable multi-pack and BOM composition remain review-only. Safe child
 variants are applied even when a sibling remains unresolved, and the product
-row retains its review/blocked status. The command never overwrites an existing
+row retains its review/blocked status. Neither entrypoint overwrites an existing
 recipe. Duplicate identifiers, conflicting or close-ranked evidence, raw
 aliases, and AI are never automatic.
 

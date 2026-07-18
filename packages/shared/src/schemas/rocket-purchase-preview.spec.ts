@@ -3,6 +3,7 @@ import {
   RocketPurchaseConfirmationRequestSchema,
   RocketPurchaseConfirmationReleaseRequestSchema,
   RocketPurchaseConfirmationResponseSchema,
+  RocketPoCatalogPublicationSchema,
   RocketPurchasePreviewRequestSchema,
   RocketPurchasePreviewResponseSchema,
   RocketSavedPoCollectionSchema,
@@ -58,6 +59,54 @@ function request() {
 }
 
 describe('Rocket purchase preview contract', () => {
+  it('publishes the scoped deterministic recipe automation result with the Rocket catalog', () => {
+    const publication = RocketPoCatalogPublicationSchema.parse({
+      run: {
+        id: RUN_ID,
+        sourceType: 'coupang_rocket_po_catalog',
+        channelAccountId: ACCOUNT_ID,
+        fileName: 'rocket-po-catalog.json',
+        fileHash: 'a'.repeat(64),
+        status: 'completed',
+        rowCount: 1,
+        importedAt: '2026-07-19T00:00:00.000Z',
+        lastVerifiedAt: null,
+        verificationCount: 0,
+        lastTrigger: null,
+        freshnessGeneration: null,
+        manualFreshExportConfirmedAt: null,
+        manualFreshExportConfirmedBy: null,
+        qualityReport: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: '2026-07-19T00:00:00.000Z',
+        updatedAt: '2026-07-19T00:00:00.000Z',
+      },
+      duplicate: false,
+      changes: {
+        createdProductCount: 1,
+        updatedProductCount: 0,
+        createdSkuCount: 1,
+        updatedSkuCount: 0,
+      },
+      recipeAutomation: {
+        evaluatedProducts: 1,
+        appliedProducts: 1,
+        appliedVariants: 1,
+        affectedOptions: 1,
+        operatorReviewProducts: 0,
+        blockedProducts: 0,
+        alreadyConfiguredProducts: 0,
+        skippedExistingVariants: 0,
+      },
+    });
+
+    expect(publication.recipeAutomation).toMatchObject({
+      appliedProducts: 1,
+      appliedVariants: 1,
+    });
+  });
+
   it('parses account-scoped saved PO summaries and exact saved collection evidence', () => {
     const summary = RocketSavedPoSummarySchema.parse({
       sourceImportRunId: RUN_ID,
