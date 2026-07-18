@@ -1,45 +1,31 @@
-import { useState } from 'react';
-import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
-import type { ReadinessCheck } from '@kiditem/shared/readiness';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import {
+  detectRankExtensionGate,
+  rankExtensionGateMessage,
+  runWingSalesRankCheck,
+} from '@/app/(advertising)/rank-tracking/lib/rank-extension';
+import { useAuth } from '@/hooks/useAuth';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
 import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
-import { ingestSellpiaSales } from '@/lib/sellpia-sales-api';
+import {
+  ingestSellpiaSales,
+  sellpiaSalesErrorMessage,
+} from '@/lib/sellpia-sales-api';
 import {
   readinessCollectionProducer,
   runReadinessExtensionCollection,
 } from './readiness-extension-collection';
+import type { ReadinessCheck } from '@kiditem/shared/readiness';
+import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
 
 interface UseReadinessCollectionOptions {
   refetchReadiness: () => Promise<unknown>;
-}
-
-const AD_SYNC_CHECK: ReadinessCheck = {
-  key: 'ad_sync',
-  label: '광고 동기화 (캠페인별 상품)',
-  status: 'missing',
-  detail: '운영중 캠페인별 상품 수집',
-  lastSyncedAt: null,
-  count: null,
-  collector: 'extension',
-  collectEndpoint: null,
-  scrapeUrls: [
-    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
-  ],
-  referenceDate: null,
-  expectedDates: null,
-  missingDates: null,
-};
-
-function collectHref(check: ReadinessCheck): string {
-  if (check.key === 'wing_sales') return '/sales-analysis?tab=wing-daily';
-  if (check.key === 'rocket_sales') return '/sales-analysis?tab=rocket-daily';
-  if (check.key === 'coupang_ads') return '/ad-ops';
-  return '/dashboard';
 }
 
 function makeRunId(): string {
@@ -49,20 +35,67 @@ function makeRunId(): string {
   return crypto.randomUUID();
 }
 
+function announceSession(session: BrowserCollectionSessionView) {
+  if (session.status === 'succeeded') {
+    toast.success(`${session.progress.completed}/${session.progress.total}개 수집 완료`);
+  } else if (session.status === 'attention_required') {
+    toast.warning(session.attention?.message ?? '브라우저 확인이 필요합니다.');
+  } else if (session.status === 'cancelled') {
+    toast.info('브라우저 수집이 중단되었습니다.');
+  } else if (session.status === 'failed') {
+    toast.error(session.progress.label ?? '브라우저 수집에 실패했습니다.');
+  }
+}
+
+function sellpiaCollectionRange(check: ReadinessCheck): {
+  startDate: string;
+  endDate: string;
+} | undefined {
+  const targetDates = check.missingDates?.length
+    ? [...check.missingDates]
+    : check.expectedDates?.length
+      ? [check.expectedDates[0]!]
+      : check.referenceDate
+        ? [check.referenceDate]
+        : [];
+  const sorted = [...targetDates].sort();
+  if (sorted.length === 0) return undefined;
+  const nextReferenceDate = check.referenceDate
+    ? new Date(`${check.referenceDate}T00:00:00.000Z`)
+    : null;
+  if (nextReferenceDate && !Number.isNaN(nextReferenceDate.getTime())) {
+    nextReferenceDate.setUTCDate(nextReferenceDate.getUTCDate() + 1);
+  }
+  return {
+    startDate: sorted[0]!,
+    // readiness는 어제까지 판정하지만 홈의 월 누적 합계는 오늘까지 조회한다.
+    endDate: nextReferenceDate && !Number.isNaN(nextReferenceDate.getTime())
+      ? nextReferenceDate.toISOString().slice(0, 10)
+      : sorted.at(-1)!,
+  };
+}
+
 export function useReadinessCollection({
   refetchReadiness,
 }: UseReadinessCollectionOptions) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [activeSession, setActiveSession] =
     useState<BrowserCollectionSessionView | null>(null);
+  const [wingRunId, setWingRunId] = useState<string | null>(null);
+  const settledWingRunIdRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const wingSessionQuery = useBrowserCollectionSession(wingRunId);
+  const wingSession =
+    wingSessionQuery.data?.producer === 'advertising.wing_rank'
+      ? wingSessionQuery.data
+      : null;
 
   const invalidateCollectedData = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
       queryClient.invalidateQueries({ queryKey: ['traffic'] }),
-      queryClient.invalidateQueries({ queryKey: ['readiness'] }),
     ]);
   };
 
@@ -81,17 +114,25 @@ export function useReadinessCollection({
     }
   };
 
-  const announceSession = (session: BrowserCollectionSessionView) => {
-    if (session.status === 'succeeded') {
-      toast.success(`${session.progress.completed}/${session.progress.total}개 수집 완료`);
-    } else if (session.status === 'attention_required') {
-      toast.warning(session.attention?.message ?? '브라우저 확인이 필요합니다.');
-    } else if (session.status === 'cancelled') {
-      toast.info('브라우저 수집이 중단되었습니다.');
-    } else if (session.status === 'failed') {
-      toast.error(session.progress.label ?? '브라우저 수집에 실패했습니다.');
+  useEffect(() => {
+    if (!wingSession) return;
+    setActiveSession(wingSession);
+    if (
+      wingSession.status === 'running' ||
+      wingSession.status === 'attention_required'
+    ) {
+      return;
     }
-  };
+    if (settledWingRunIdRef.current === wingSession.runId) return;
+    settledWingRunIdRef.current = wingSession.runId;
+    announceSession(wingSession);
+    setPendingKey((current) => (current === 'wing_kpi' ? null : current));
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+      queryClient.invalidateQueries({ queryKey: ['traffic'] }),
+    ]).then(() => refetchReadiness());
+  }, [queryClient, refetchReadiness, wingSession]);
 
   const runExtensionCollection = async (
     check: ReadinessCheck,
@@ -127,16 +168,73 @@ export function useReadinessCollection({
     if (check.key === 'wing_sales') {
       setPendingKey(check.key);
       try {
-        const payload = await collectSellpiaSaleSummaryFromExtension();
+        const organizationId = user?.organizationId;
+        if (!organizationId) {
+          throw new Error('판매현황을 저장할 조직 정보가 없습니다. 다시 로그인해주세요.');
+        }
+        const collectionRange = sellpiaCollectionRange(check);
+        const payload = await collectSellpiaSaleSummaryFromExtension({
+          ...(collectionRange ?? {}),
+          organizationId,
+        });
         const result = await ingestSellpiaSales(payload);
         toast.success(`셀피아 판매현황 ${result.businessDates.length}일 수집 완료`);
         await invalidateCollectedData();
         await refetchReadiness();
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : '셀피아 판매현황 수집 실패',
-        );
+        toast.error(sellpiaSalesErrorMessage(error, '셀피아 판매현황 수집 실패'));
       } finally {
+        setPendingKey(null);
+      }
+      return;
+    }
+
+    if (check.key === 'wing_kpi') {
+      const producer = readinessCollectionProducer(check.key);
+      if (producer !== 'advertising.wing_rank') {
+        toast.error('지원하지 않는 브라우저 수집 항목입니다.');
+        return;
+      }
+
+      setPendingKey(check.key);
+      setActiveSession(null);
+      settledWingRunIdRef.current = null;
+      try {
+        const gate = await detectRankExtensionGate();
+        if (gate.status !== 'ready') {
+          if (gate.status === 'missing' || gate.status === 'chrome_required') {
+            await recordMissingBrowserCollection(
+              producer,
+              { checkKey: check.key, trigger: 'readiness' },
+              requestedRunId,
+            );
+          }
+          const message =
+            rankExtensionGateMessage(gate) ??
+            'Wing 판매순위 수집 확장프로그램을 확인할 수 없습니다.';
+          if (gate.status === 'outdated') toast.error(message);
+          else toast.warning(message);
+          setPendingKey(null);
+          return;
+        }
+
+        const runId = requestedRunId ?? makeRunId();
+        const result = await runWingSalesRankCheck(gate.extensionId, runId);
+        if (!result.started) {
+          toast.info('순위를 확인할 자사 상품이 없습니다.');
+          setPendingKey(null);
+          return;
+        }
+        setWingRunId(result.runId ?? runId);
+        toast.info(
+          `자사 상품 ${result.productTotal ?? 0}개의 Wing 판매순위 수집을 시작했습니다.`,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Wing 판매순위 일괄 확인 시작 실패',
+        );
         setPendingKey(null);
       }
       return;
@@ -171,13 +269,6 @@ export function useReadinessCollection({
         extensionId,
         requestedRunId,
       );
-      if (check.key === 'coupang_ads' && session.status === 'succeeded') {
-        await runExtensionCollection(
-          AD_SYNC_CHECK,
-          'advertising.ad_sync',
-          extensionId,
-        );
-      }
 
       await invalidateCollectedData();
       await refetchReadiness();

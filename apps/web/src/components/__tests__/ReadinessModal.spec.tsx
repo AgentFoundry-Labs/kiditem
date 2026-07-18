@@ -55,6 +55,13 @@ vi.mock('@/app/(advertising)/ad-ops/hooks/useAdSync', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({
+  useSellpiaInventoryFreshness: () => ({
+    state: null,
+    requestRefresh: vi.fn(),
+  }),
+}));
+
 vi.mock('../readiness/useReadinessCollection', () => ({
   useReadinessCollection: () => ({
     pendingKey: null,
@@ -78,7 +85,7 @@ const SESSION_DISMISSED_KEY = 'kiditem.readiness.dismissed';
 function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
+      queries: { retry: false, staleTime: 60_000 },
       mutations: { retry: false },
     },
   });
@@ -182,7 +189,26 @@ describe('ReadinessModal', () => {
     expect(screen.queryByRole('button', { name: '오늘 하루 보지 않기' })).not.toBeInTheDocument();
   });
 
-  it('does not expose a Rocket sales action without a supported ingestion endpoint', async () => {
+  it('fetches fresh readiness when a controlled modal is reopened', async () => {
+    const onClose = vi.fn();
+    const queryClient = makeQueryClient();
+    queryClient.setQueryData(['readiness'], makeReadinessResponse());
+    const view = render(<ReadinessModal open={false} onClose={onClose} />, {
+      wrapper: wrapper(queryClient),
+    });
+
+    expect(mockApiGet).not.toHaveBeenCalled();
+    view.rerender(<ReadinessModal open onClose={onClose} />);
+
+    expect(await screen.findByRole('button', { name: '대시보드 열기' })).toBeInTheDocument();
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+
+    view.rerender(<ReadinessModal open={false} onClose={onClose} />);
+    view.rerender(<ReadinessModal open onClose={onClose} />);
+    await waitFor(() => expect(mockApiGet).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not render the retired Rocket row from a cached readiness response', async () => {
     const response = makeReadinessResponse();
     mockApiGet.mockResolvedValue({
       ...response,
@@ -197,8 +223,10 @@ describe('ReadinessModal', () => {
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
-    expect(await screen.findByText('조회 전용')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '매출 동기화' })).not.toBeInTheDocument();
+    const openDashboard = await screen.findByRole('button', { name: '대시보드 열기' });
+    expect(screen.queryByText('쿠팡 로켓')).not.toBeInTheDocument();
+    expect(screen.queryByText('조회 전용')).not.toBeInTheDocument();
+    await waitFor(() => expect(openDashboard).toBeEnabled());
   });
 
   it('opens from collectionRun and renders explicit browser controls', async () => {
