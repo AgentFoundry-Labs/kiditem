@@ -67,6 +67,8 @@ function repository() {
       },
       identities: [{ poLineId: '1001:P-1:8801234567890:1', channelSkuId: 'sku-1' }],
     }),
+    listSavedPos: vi.fn().mockResolvedValue([]),
+    loadSavedCollection: vi.fn().mockResolvedValue(null),
   } satisfies Record<keyof RocketPoCatalogRepositoryPort, ReturnType<typeof vi.fn>>;
 }
 
@@ -185,5 +187,20 @@ describe('RocketPoCatalogService', () => {
     expect(firstPublish.artifactHash).toMatch(/^[a-f0-9]{64}$/);
     expect(secondPublish.artifactHash).toBe(firstPublish.artifactHash);
     expect(firstPublish).not.toHaveProperty('clientHash');
+  });
+
+  it('passes the complete provider collection evidence into durable publication', async () => {
+    const repo = repository();
+    const service = new RocketPoCatalogService(repo);
+
+    await service.publishAndResolve({
+      organizationId,
+      userId,
+      request: request(),
+    });
+
+    expect(repo.publish).toHaveBeenCalledWith(expect.objectContaining({
+      collection: request().collection,
+    }));
   });
 });

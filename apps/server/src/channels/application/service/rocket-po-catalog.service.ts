@@ -59,10 +59,29 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
       vendorId,
       fileName: ARTIFACT_FILE_NAME,
       artifactHash,
+      collection: request.collection,
       rows,
     });
     const { identities, ...catalog } = published;
     return { blockingReason: null, catalog, identities };
+  }
+
+  listSavedPos(input: {
+    organizationId: string;
+    channelAccountId: string;
+    from: string;
+    to: string;
+    status?: string;
+  }) {
+    return this.repository.listSavedPos(input);
+  }
+
+  loadSavedCollection(input: {
+    organizationId: string;
+    channelAccountId: string;
+    sourceImportRunId: string;
+  }) {
+    return this.repository.loadSavedCollection(input);
   }
 }
 
