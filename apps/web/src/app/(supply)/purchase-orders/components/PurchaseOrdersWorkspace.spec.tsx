@@ -11,17 +11,12 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('./GeneralPurchaseOrdersWorkspace', () => ({
-  GeneralPurchaseOrdersWorkspace: ({ orderId, supplierId, includeRocketPreview }: {
+  GeneralPurchaseOrdersWorkspace: ({ orderId, supplierId }: {
     orderId?: string;
     supplierId?: string;
-    includeRocketPreview?: boolean;
   }) => (
-    <div data-testid="general-workspace"><h1>발주 관리</h1>general {orderId} {supplierId} preview {String(includeRocketPreview)}</div>
+    <div data-testid="general-workspace"><h1>발주 관리</h1>general {orderId} {supplierId}</div>
   ),
-}));
-
-vi.mock('./RocketPurchaseOrdersWorkspace', () => ({
-  RocketPurchaseOrdersWorkspace: () => <h1>로켓 발주 수량 검토</h1>,
 }));
 
 describe('<PurchaseOrdersWorkspace>', () => {
@@ -38,19 +33,18 @@ describe('<PurchaseOrdersWorkspace>', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByRole('heading', { level: 1, name: '발주 관리' })).toBeInTheDocument();
     expect(screen.getByTestId('general-workspace')).toHaveTextContent(
-      'general po-1 supplier-1 preview undefined',
+      'general po-1 supplier-1',
     );
     expect(screen.queryByText('발주 운영')).not.toBeInTheDocument();
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 
-  it('mounts the purchase-order-owned Rocket preview without changing the general default', () => {
+  it('does not expose a duplicate Rocket workspace for the obsolete tab query', () => {
     navigation.params = new URLSearchParams('tab=rocket');
     render(<PurchaseOrdersWorkspace />);
 
-    expect(screen.getByRole('heading', { level: 1, name: '로켓 발주 수량 검토' })).toBeInTheDocument();
-    expect(screen.queryByText(/general/)).not.toBeInTheDocument();
-    expect(screen.queryByText('발주 운영')).not.toBeInTheDocument();
-    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: '발주 관리' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '로켓 발주 수량 검토' }))
+      .not.toBeInTheDocument();
   });
 });

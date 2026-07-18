@@ -53,6 +53,13 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
       hasData: false,
       hasStock: false,
       stockCapturedAt: null,
+      stockGeneration: null,
+      inventoryResolutionCounts: {
+        matchedSalesRows: 0,
+        mappingRequiredSalesRows: 0,
+        matchedSkus: 0,
+        unlinkedSkus: 0,
+      },
       reorderCount: 0,
       deadStockCount: 0,
       anomalyCount: 0,
@@ -115,8 +122,24 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
           seasonTag: '여름',
           anomaly: false,
           anomalyReason: null,
-          currentStock: 200,
-          monthsOfStockLeft: 0.5,
+          inventoryResolution: {
+            status: 'matched',
+            sellpiaInventorySkuId: '11111111-1111-4111-8111-111111111111',
+            currentStock: 200,
+            activeCommitmentQuantity: 50,
+            availableStock: 150,
+            salesRowCount: 2,
+            destinations: [{
+              masterProductId: '21111111-1111-4111-8111-111111111111',
+              masterProductCode: 'MP-1',
+              masterProductName: '운영 상품',
+              productVariantId: '31111111-1111-4111-8111-111111111111',
+              productVariantCode: 'PV-1',
+              productVariantName: '기본 옵션',
+              unitsPerVariant: 1,
+            }],
+          },
+          monthsOfAvailableStockLeft: 0.38,
           reorderPoint: 600,
           needsReorder: true,
         },
@@ -144,8 +167,16 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
           seasonTag: null,
           anomaly: true,
           anomalyReason: '저가 대량(단가 50원)',
-          currentStock: 50,
-          monthsOfStockLeft: null,
+          inventoryResolution: {
+            status: 'matched',
+            sellpiaInventorySkuId: '41111111-1111-4111-8111-111111111111',
+            currentStock: 50,
+            activeCommitmentQuantity: 0,
+            availableStock: 50,
+            salesRowCount: 1,
+            destinations: [],
+          },
+          monthsOfAvailableStockLeft: null,
           reorderPoint: 0,
           needsReorder: false,
         },
@@ -156,6 +187,13 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
       hasData: true,
       hasStock: true,
       stockCapturedAt: '2026-07-17T00:30:00.000Z',
+      stockGeneration: '12',
+      inventoryResolutionCounts: {
+        matchedSalesRows: 3,
+        mappingRequiredSalesRows: 0,
+        matchedSkus: 2,
+        unlinkedSkus: 1,
+      },
       reorderCount: 1,
       deadStockCount: 1,
       anomalyCount: 1,
@@ -174,6 +212,9 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     expect(screen.getByText('악성 · 재고 정체(2개월+ 미판매)')).toBeInTheDocument();
     expect(screen.getByText('이상치 · 저가 대량(단가 50원)')).toBeInTheDocument();
     expect(screen.getByTitle('이상치(일회성 벌크) — 평균·발주 산정 제외')).toHaveTextContent('60,000');
+    expect(screen.getByText('판매 행 2개 수요 합산')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '운영 상품 · 기본 옵션' })).toHaveAttribute('href', '/product-hub/21111111-1111-4111-8111-111111111111');
+    expect(screen.getByText('운영 상품 미연결')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /이상치\s*1/ }));
     await waitFor(() => expect(screen.queryByText('발주 대상 상품')).not.toBeInTheDocument());

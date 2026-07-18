@@ -2,13 +2,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
+import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
 import type { PrismaService } from '../../../prisma/prisma.service';
+import { InventoryCommitmentRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
+import { InventoryCommitmentService } from '../../../inventory/application/service/inventory-commitment.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
 } from '../../../test-helpers/real-prisma';
 
 describe('SellpiaProductSalesService canonical inventory projection (PG)', () => {
@@ -18,7 +22,14 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    service = new SellpiaProductSalesService(prisma as unknown as PrismaService);
+    const prismaService = prisma as unknown as PrismaService;
+    const inventory = new InventoryCommitmentService(
+      new InventoryCommitmentRepositoryAdapter(prismaService),
+    );
+    service = new SellpiaProductSalesService(
+      prismaService,
+      new SellpiaProductInventoryReader(prismaService, inventory),
+    );
   });
 
   afterAll(async () => {
@@ -32,6 +43,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
 
   it('uses active organization-scoped inventory with code, option-code, then unique-barcode precedence', async () => {
     const verifiedAt = new Date('2026-07-17T02:03:04.000Z');
+    await seedInventoryState(prisma, verifiedAt);
     const ownRun = await prisma.sourceImportRun.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -81,22 +93,35 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     });
 
     const result = await service.getSummary(TEST_ORGANIZATION_ID);
-    const stockByProductCode = Object.fromEntries(
-      result.products.map((product) => [product.productCode, product.currentStock]),
+    const byProductCode = Object.fromEntries(
+      result.products.map((product) => [product.productCode, product]),
     );
 
-    expect(stockByProductCode).toEqual({
-      'P-PRIMARY': 7,
-      'MISSING-OPTION': 9,
-      'MISSING-BARCODE': 11,
-      'INACTIVE-CODE': 0,
-      'DUPLICATE-BARCODE': 0,
+    expect(byProductCode['P-PRIMARY'].inventoryResolution).toMatchObject({
+      status: 'matched', currentStock: 7, availableStock: 7,
+    });
+    expect(byProductCode['MISSING-OPTION'].inventoryResolution).toMatchObject({
+      status: 'matched', currentStock: 9, availableStock: 9,
+    });
+    expect(byProductCode['MISSING-BARCODE'].inventoryResolution).toMatchObject({
+      status: 'matched', currentStock: 11, availableStock: 11,
+    });
+    expect(byProductCode['INACTIVE-CODE'].inventoryResolution).toEqual({
+      status: 'mapping_required',
+      reason: 'inactive_candidate',
+      candidateCount: 1,
+    });
+    expect(byProductCode['DUPLICATE-BARCODE'].inventoryResolution).toEqual({
+      status: 'mapping_required',
+      reason: 'ambiguous_barcode',
+      candidateCount: 2,
     });
     expect(result.hasStock).toBe(true);
     expect(result.stockCapturedAt).toBe(verifiedAt.toISOString());
   });
 
   it('preserves PR 329 depletion, ABC, dead-stock, season, anomaly, and reorder metrics on canonical inventory', async () => {
+    await seedInventoryState(prisma, new Date('2026-07-17T03:00:00.000Z'));
     const importRun = await prisma.sourceImportRun.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -138,13 +163,22 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       avg2m: 400,
       abcGrade: 'A',
       trend: 'flat',
-      currentStock: 200,
-      monthsOfStockLeft: 0.5,
+      inventoryResolution: {
+        status: 'matched',
+        currentStock: 200,
+        activeCommitmentQuantity: 0,
+        availableStock: 200,
+      },
+      monthsOfAvailableStockLeft: 0.5,
       reorderPoint: 600,
       needsReorder: true,
     });
     expect(byCode.DEAD).toMatchObject({
-      currentStock: 50,
+      inventoryResolution: {
+        status: 'matched',
+        currentStock: 50,
+        availableStock: 50,
+      },
       deadStock: true,
       deadStockReason: '재고 정체(2개월+ 미판매)',
       needsReorder: false,
@@ -169,7 +203,71 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       anomalyCount: 1,
     });
   });
+
+  it('uses common available stock for depletion while preserving physical stock', async () => {
+    await seedInventoryState(prisma, new Date('2026-07-17T04:00:00.000Z'));
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'COMMITTED',
+        name: 'Committed inventory',
+        currentStock: 100,
+      },
+    });
+    const commitment = await prisma.inventoryCommitment.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        kind: 'rocket_request',
+        sourceId: '31000000-0000-4000-8000-000000000001',
+        businessKey: 'coupang-rocket:test:committed',
+        unitQuantity: 80,
+        status: 'active',
+        inventoryGeneration: 1n,
+        createdBy: TEST_USER_ID,
+      },
+    });
+    await prisma.inventoryCommitmentAllocation.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        commitmentId: commitment.id,
+        sellpiaInventorySkuId: sku.id,
+        unitsPerItem: 1,
+        quantity: 80,
+      },
+    });
+    await prisma.sellpiaProductMonthlySales.createMany({
+      data: previousKstYearMonths(2).map((yearMonth) => ({
+        ...sales('COMMITTED', '', null),
+        yearMonth,
+        orderQty: 100,
+      })),
+    });
+
+    const result = await service.getSummary(TEST_ORGANIZATION_ID);
+
+    expect(result.products[0]).toMatchObject({
+      inventoryResolution: {
+        status: 'matched',
+        currentStock: 100,
+        activeCommitmentQuantity: 80,
+        availableStock: 20,
+      },
+      monthsOfAvailableStockLeft: 0.2,
+      needsReorder: true,
+    });
+  });
 });
+
+async function seedInventoryState(prisma: PrismaClient, verifiedAt: Date) {
+  await prisma.sellpiaInventoryState.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      lastVerifiedAt: verifiedAt,
+    },
+  });
+}
 
 function inventory(
   code: string,

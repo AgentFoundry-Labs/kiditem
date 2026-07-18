@@ -21,6 +21,7 @@ interface CollectResponse {
 export async function collectRocketPoRowsFromExtension(
   from: string,
   to: string,
+  localRunId: string = crypto.randomUUID(),
 ): Promise<{ rows: RocketConfirmSourceRow[]; poCount: number }> {
   const extensionId = await detectOrderCollectionExtensionId(1200, 'collectRocketPoRows');
   if (!extensionId) {
@@ -30,7 +31,9 @@ export async function collectRocketPoRowsFromExtension(
   }
   const res = await sendToExtension<CollectResponse>(
     extensionId,
-    { action: 'collectRocketPoRows', from, to },
+    // runId 는 자동수집 메시지 계약이다(order-collector-action-coverage). 확장이
+    // 수집 세션을 취소/종료하려면 웹이 만든 로컬 runId 를 알아야 한다.
+    { action: 'collectRocketPoRows', from, to, runId: localRunId },
     190000,
   );
   if (!res?.success || !res.rows) {

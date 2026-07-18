@@ -19,8 +19,8 @@ import owner-domain services or take mutation authority from them.
 - Sellpia 상품별 소진(재고관리): `POST /api/sellpia-product-sales/ingest`,
   `GET /api/sellpia-product-sales`
   (확장이 Sellpia stat_prd_profit 을 상품×월별로 수집해 적재하는 monthly-fact
-  ingest 레인 + Inventory가 소유하는 활성 `SellpiaInventorySku` 현재고 read + 상품별
-  1/2개월 평균 소진량·ABC·악성재고·시즌·현재고·발주 read)
+  ingest 레인 + Inventory가 소유하는 공통 가용재고 read + 상품별
+  1/2개월 평균 소진량·ABC·악성재고·시즌·현재고·약정·가용재고·발주 read)
 
 ## Main Data Models
 
@@ -38,6 +38,11 @@ hydration.
 - If an owner domain changes read schema or mutation semantics consumed by
   analytics, update analytics readers in the same PR or record an explicit
   compatibility decision.
+- 상품별 소진의 재고 매칭은 상품코드 exact → 옵션코드 exact → 유일한
+  바코드 순서만 허용한다. 미수집, 미연결, inactive, 중복 바코드를 품절 0으로
+  바꾸지 않으며, 발주·악성재고 계산은 확정 매칭된 공통 `availableStock`만 쓴다.
+- 같은 Sellpia SKU로 resolve된 판매 행은 소진·발주 계산 전에 SKU 단위로 합산한다.
+  `reorderCount`와 `deadStockCount`는 distinct SKU를 한 번만 센다.
 
 ## Cross-Domain Reads
 

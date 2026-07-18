@@ -27,10 +27,10 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 19 |
-| [Channels](erd/channels.md) | 18 |
+| [Channels](erd/channels.md) | 20 |
 | [Core](erd/core.md) | 12 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 11 |
+| [Inventory](erd/inventory.md) | 13 |
 | [Orders](erd/orders.md) | 10 |
 | [Sourcing](erd/sourcing.md) | 10 |
 | [Supply](erd/supply.md) | 9 |
@@ -95,6 +95,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | CoupangWingSalesRankDailySnapshot | Channels | `coupang_wing_sales_rank_daily_snapshots` | Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다. |
 | CoupangWingTrackedProduct | Channels | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | Channels | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
+| RocketPoCatalogLine | Channels | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
+| RocketPoCatalogSnapshot | Channels | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
 | RocketPurchaseOrder | Channels | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | SellpiaProductMonthlySales | Channels | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
@@ -116,6 +118,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ProcessingCost | Finance | `processing_costs` | - |
 | ProfitLoss | Finance | `profit_loss` | 월간 손익. organizationId+listingId+year+month unique. |
 | SalesPlan | Finance | `sales_plans` | - |
+| InventoryCommitment | Inventory | `inventory_commitments` | Physical-stock-independent commitment that reduces common available Sellpia capacity. |
+| InventoryCommitmentAllocation | Inventory | `inventory_commitment_allocations` | Component-level Sellpia SKU quantity held by one inventory commitment. |
 | PickingItem | Inventory | `picking_items` | - |
 | PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
@@ -1201,6 +1205,35 @@ erDiagram
     String reason
     DateTime calculatedAt
   }
+  InventoryCommitment {
+    String id PK
+    String organizationId FK
+    String kind
+    String sourceId
+    String businessKey
+    Int unitQuantity
+    String status
+    BigInt inventoryGeneration
+    String predecessorCommitmentId FK
+    String createdBy FK
+    String releasedBy FK
+    DateTime releasedAt
+    String releaseReason
+    String settledBy FK
+    DateTime settledAt
+    String settlementReason
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  InventoryCommitmentAllocation {
+    String id PK
+    String organizationId FK
+    String commitmentId FK
+    String sellpiaInventorySkuId FK
+    Int unitsPerItem
+    Int quantity
+    DateTime createdAt
+  }
   LegalEntity {
     String id PK
     String organizationId FK
@@ -1354,6 +1387,7 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId FK
+    String sourceImportRunId FK
     String externalOrderId
     String externalNumber
     String customerName
@@ -1387,6 +1421,7 @@ erDiagram
     Int totalPrice
     String status
     String externalLineId
+    String externalBarcode
     Json metadata
     DateTime createdAt
     DateTime updatedAt
@@ -1642,6 +1677,49 @@ erDiagram
     DateTime reviewedAt
     DateTime createdAt
   }
+  RocketPoCatalogLine {
+    String id PK
+    String organizationId FK
+    String snapshotId FK
+    String poLineId
+    String poNumber
+    String vendorId
+    String productNo
+    String barcode
+    String productName
+    Int orderQty
+    DateTime plannedDeliveryDate
+    String poStatusCode
+    String businessDateBasis
+    Boolean hasConfirmation
+    String center
+    String inboundType
+    String poStatus
+    String returnManager
+    String returnContact
+    String returnAddress
+    Int purchasePrice
+    Int supplyPrice
+    Int vat
+    Int totalPurchase
+    String poRegisteredAt
+    String xdock
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  RocketPoCatalogSnapshot {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String sourceImportRunId FK
+    String collectionRunId
+    String vendorId
+    Int listPagesRead
+    Int totalListPages
+    Int detailPoCount
+    DateTime createdAt
+    DateTime updatedAt
+  }
   RocketPurchaseConfirmation {
     String id PK
     String organizationId FK
@@ -1675,6 +1753,7 @@ erDiagram
     String poLineId
     String poNumber
     String productNo
+    String barcode
     String productName
     Int orderQuantity
     Int confirmedQuantity
@@ -2361,6 +2440,7 @@ erDiagram
   ChannelAccount ||--o{ Order : "channelAccount"
   ChannelAccount ||--o{ OrderReturn : "channelAccount"
   ChannelAccount ||--o{ ProductPreparation : "channelAccount"
+  ChannelAccount ||--o{ RocketPoCatalogSnapshot : "channelAccount"
   ChannelAccount ||--o{ RocketPurchaseConfirmation : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
@@ -2423,6 +2503,8 @@ erDiagram
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
+  InventoryCommitment o|--o{ InventoryCommitment : "predecessor"
+  InventoryCommitment ||--o{ InventoryCommitmentAllocation : "commitment"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
   MasterProduct ||--o{ ProcessingCost : "master"
@@ -2487,6 +2569,8 @@ erDiagram
   Organization ||--o{ DetailPageRevision : "organization"
   Organization ||--o{ ExecutionWorker : "organization"
   Organization ||--o{ GradeHistory : "organization"
+  Organization ||--o{ InventoryCommitment : "organization"
+  Organization ||--o{ InventoryCommitmentAllocation : "organization"
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ LiveCommerceBroadcastDailySnapshot : "organization"
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
@@ -2511,6 +2595,8 @@ erDiagram
   Organization ||--o{ PurchaseOrderSubmissionAttempt : "organization"
   Organization ||--o{ ReturnTransfer : "organization"
   Organization ||--o{ Review : "organization"
+  Organization ||--o{ RocketPoCatalogLine : "organization"
+  Organization ||--o{ RocketPoCatalogSnapshot : "organization"
   Organization ||--o{ RocketPurchaseConfirmation : "organization"
   Organization ||--o{ RocketPurchaseConfirmationAllocation : "organization"
   Organization ||--o{ RocketPurchaseConfirmationLine : "organization"
@@ -2559,8 +2645,10 @@ erDiagram
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
+  RocketPoCatalogSnapshot ||--o{ RocketPoCatalogLine : "snapshot"
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
+  SellpiaInventorySku ||--o{ InventoryCommitmentAllocation : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ProductVariantComponent : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PurchaseOrderItem : "sellpiaInventorySku"
@@ -2573,6 +2661,8 @@ erDiagram
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   SourceImportRun o|--o{ ChannelScrapeRun : "sourceImportRun"
+  SourceImportRun o|--o{ Order : "sourceImportRun"
+  SourceImportRun ||--|| RocketPoCatalogSnapshot : "sourceImportRun"
   SourceImportRun ||--o{ RocketPurchaseConfirmation : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaInventorySku : "lastImportRun"
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
@@ -2612,6 +2702,9 @@ erDiagram
   User o|--o{ ContentWorkspaceThumbnailSelection : "createdByUser"
   User o|--o{ DetailPageArtifact : "createdByUser"
   User o|--o{ DetailPageRevision : "createdByUser"
+  User ||--o{ InventoryCommitment : "creator"
+  User o|--o{ InventoryCommitment : "releaser"
+  User o|--o{ InventoryCommitment : "settler"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
   User o|--o{ ProductPreparation : "createdByUser"

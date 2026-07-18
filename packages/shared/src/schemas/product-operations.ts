@@ -155,9 +155,20 @@ export const ProductVariantSummarySchema = z.object({
 }).strict();
 export type ProductVariantSummary = z.infer<typeof ProductVariantSummarySchema>;
 
+export const ProductDepletionProjectionSchema = z.object({
+  coverage: z.enum(['ready', 'shared', 'no_direct_sales']),
+  needsReorder: z.boolean(),
+  reorderSkuCount: z.number().int().nonnegative(),
+  minMonthsOfAvailableStockLeft: z.number().nonnegative().nullable(),
+}).strict();
+export type ProductDepletionProjection = z.infer<
+  typeof ProductDepletionProjectionSchema
+>;
+
 export const MasterProductOperationsListItemSchema =
   MasterProductOperationsMetadataSchema.extend({
     updatedAt: zIsoDate,
+    depletion: ProductDepletionProjectionSchema,
     variantSummary: ProductVariantSummarySchema,
     inventoryUnits: z.number().int().nonnegative(),
     inventoryStatus: ProductInventoryStatusSchema,
@@ -191,6 +202,9 @@ export const ProductOperationsListSummarySchema = z.object({
     review_required: z.number().int().nonnegative(),
   }).strict(),
   negativeProfitCount: z.number().int().nonnegative(),
+  reorderProductCount: z.number().int().nonnegative(),
+  depletionCoveredProductCount: z.number().int().nonnegative(),
+  sharedDepletionProductCount: z.number().int().nonnegative(),
 }).strict();
 export type ProductOperationsListSummary = z.infer<
   typeof ProductOperationsListSummarySchema
@@ -215,6 +229,8 @@ export const ProductVariantComponentDetailSchema = z.object({
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
   currentStock: z.number().int().nonnegative(),
+  activeCommitmentQuantity: z.number().int().nonnegative(),
+  availableStock: z.number().int().nonnegative(),
   isActive: z.boolean(),
   quantity: z.number().int().positive(),
   source: ProductVariantComponentSourceSchema,
@@ -236,7 +252,21 @@ export const ProductVariantDetailSchema = z.object({
   components: z.array(ProductVariantComponentDetailSchema).max(50),
   capacity: z.number().int().nonnegative().nullable(),
   warningState: ProductVariantWarningStateSchema,
-}).strict();
+}).strict().superRefine((variant, ctx) => {
+  variant.components.forEach((component, index) => {
+    const expectedAvailableStock = Math.max(
+      component.currentStock - component.activeCommitmentQuantity,
+      0,
+    );
+    if (component.availableStock !== expectedAvailableStock) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['components', index, 'availableStock'],
+        message: 'availableStock must equal currentStock minus activeCommitmentQuantity',
+      });
+    }
+  });
+});
 export type ProductVariantDetail = z.infer<typeof ProductVariantDetailSchema>;
 
 export const ProductChannelListingSummarySchema = z.object({

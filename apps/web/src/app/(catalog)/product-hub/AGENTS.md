@@ -25,6 +25,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 /product-hub/matching
   -> /api/channels/product-mappings
+  -> /api/channels/product-mappings/recipe-automation/preview
+  -> /api/channels/product-mappings/recipe-automation/apply
   -> queryKeys.channelProductMappings
 ```
 
@@ -34,20 +36,30 @@ Consult this document first instead of relying on memorized knowledge.
   category strip, filters, metric columns, and product rows. Metrics without a
   product/variant fact source render `미수집`; do not derive them from
   organization/date/seller aggregates.
-- Command-center counts use the list response summary for the full filtered
-  result. Do not label or calculate command-center metrics as current-page
-  values; pagination applies only to the product rows.
+- Command-center counts use a dedicated unfiltered operations-list summary for
+  the whole catalog. Search, category, active, advertising, inventory, ABC, and
+  page parameters affect only the product rows, their displayed result count,
+  and pagination; they must never change the command-center numbers.
+- Reorder counts and row badges use the Analytics-owned depletion projection
+  hydrated by Products. Link the evidence to
+  `/stock-ops?tab=product-outflow`; label shared coverage as `공유 SKU 기준`.
+  Do not synthesize an imminent-stock threshold when no policy exists.
 - Search, filters, period, and page on `/product-hub` are URL-authoritative.
+  Period may refresh both global and row projections, but list filters are not
+  sent to the global command-center query.
 - Product create/edit mutations invalidate only the product operations list and
   affected detail keys.
-- Variant recipes are complete atomic replacements owned by the product detail
-  route. Operators select confirmed physical Inventory identities through a
-  focused search; a component is saved by `sellpiaInventorySkuId` and positive
-  integer quantity.
+- Manual variant recipe edits are complete atomic replacements owned by the
+  product detail route. Operators select confirmed physical Inventory
+  identities through a focused search; a component is saved by
+  `sellpiaInventorySkuId` and positive integer quantity. Matching may invoke
+  the separate version-fenced create-if-empty command for one component with a
+  backend-verified positive integer quantity.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
-- Candidate generation on `/product-hub/matching` never confirms a link.
-  Product and variant mutations require explicit operator confirmation.
+- Candidate generation on `/product-hub/matching` never confirms an identity
+  link. Product/variant link mutations and deterministic recipe application
+  require explicit operator confirmation.
 - Products owns transaction-aware creation or exact reuse of channel-origin
   products and variants during catalog publication. Channels owns typed exact
   evidence extraction and the final still-null listing/option link writes.
@@ -63,12 +75,21 @@ Consult this document first instead of relying on memorized knowledge.
 - Product list/detail never read `/api/inventory/sellpia-skus`; options is the
   only product-hub route that owns the Sellpia inventory collection. The detail
   recipe picker uses the Products-owned focused candidate endpoint.
+- Product operations and product-outflow remain separate screens over the same
+  depletion projection. Manual `MasterProduct.abcGrade` is not overwritten by
+  sales-derived ABC.
 - Do not create catalog-owned stock balances or editable Sellpia stock/price
   inputs.
-- Do not infer product, variant, or recipe identity from display text.
-  Normalized names and AI never auto-confirm publication or matching links.
-- Channel rows may show inherited recipe status and capacity, but recipe edits
-  belong only to `/product-hub/[masterProductId]`.
+- Do not infer product or variant identity from display text. Normalized names
+  and AI never auto-confirm publication or matching links. Recipe automation
+  may select one physical SKU for an empty recipe through name-cross-checked
+  exact identifiers, unique exact normalized names, or a unique high-confidence
+  name with sufficient runner-up margin. Quantities above one require an
+  explicit integer pack ratio; ambiguity, conflicts, unverified pack/BOM, raw
+  aliases, close-ranked names, and AI remain review-only.
+- Channel rows may show inherited recipe status and capacity. Manual complete
+  recipe edits belong to `/product-hub/[masterProductId]`; matching owns only
+  the narrow create-if-empty automation workflow.
 - All API calls use `apiClient` + React Query and never send `organizationId`.
 - Keep all edited UI light-only; do not add `dark:` variants.
 

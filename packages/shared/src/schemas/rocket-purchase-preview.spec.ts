@@ -3,8 +3,12 @@ import {
   RocketPurchaseConfirmationRequestSchema,
   RocketPurchaseConfirmationReleaseRequestSchema,
   RocketPurchaseConfirmationResponseSchema,
+  RocketPoCatalogPublicationSchema,
   RocketPurchasePreviewRequestSchema,
   RocketPurchasePreviewResponseSchema,
+  RocketSavedPoCollectionSchema,
+  RocketSavedPoListRequestSchema,
+  RocketSavedPoSummarySchema,
 } from './rocket-purchase-preview';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
@@ -55,6 +59,94 @@ function request() {
 }
 
 describe('Rocket purchase preview contract', () => {
+  it('publishes the scoped deterministic recipe automation result with the Rocket catalog', () => {
+    const publication = RocketPoCatalogPublicationSchema.parse({
+      run: {
+        id: RUN_ID,
+        sourceType: 'coupang_rocket_po_catalog',
+        channelAccountId: ACCOUNT_ID,
+        fileName: 'rocket-po-catalog.json',
+        fileHash: 'a'.repeat(64),
+        status: 'completed',
+        rowCount: 1,
+        importedAt: '2026-07-19T00:00:00.000Z',
+        lastVerifiedAt: null,
+        verificationCount: 0,
+        lastTrigger: null,
+        freshnessGeneration: null,
+        manualFreshExportConfirmedAt: null,
+        manualFreshExportConfirmedBy: null,
+        qualityReport: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: '2026-07-19T00:00:00.000Z',
+        updatedAt: '2026-07-19T00:00:00.000Z',
+      },
+      duplicate: false,
+      changes: {
+        createdProductCount: 1,
+        updatedProductCount: 0,
+        createdSkuCount: 1,
+        updatedSkuCount: 0,
+      },
+      recipeAutomation: {
+        evaluatedProducts: 1,
+        appliedProducts: 1,
+        appliedVariants: 1,
+        affectedOptions: 1,
+        operatorReviewProducts: 0,
+        blockedProducts: 0,
+        alreadyConfiguredProducts: 0,
+        skippedExistingVariants: 0,
+      },
+    });
+
+    expect(publication.recipeAutomation).toMatchObject({
+      appliedProducts: 1,
+      appliedVariants: 1,
+    });
+  });
+
+  it('parses account-scoped saved PO summaries and exact saved collection evidence', () => {
+    const summary = RocketSavedPoSummarySchema.parse({
+      sourceImportRunId: RUN_ID,
+      poNumber: '10000001',
+      orderedAt: '2026-07-18 09:00:00',
+      plannedDeliveryDate: '2026-07-20',
+      status: '거래처확인요청',
+      vendorId: 'A00123',
+      centerName: '덕평1센터',
+      inboundType: '택배',
+      firstProductName: '키즈 식판',
+      skuCount: 2,
+      orderQuantity: 8,
+      orderAmount: 79_200,
+      collectedAt: '2026-07-18T01:00:00.000Z',
+    });
+    const collection = RocketSavedPoCollectionSchema.parse({
+      sourceImportRunId: RUN_ID,
+      channelAccountId: ACCOUNT_ID,
+      collection: request().collection,
+      rows: request().rows,
+    });
+
+    expect(summary.poNumber).toBe('10000001');
+    expect(collection.rows).toEqual(request().rows);
+  });
+
+  it('rejects malformed or reversed saved PO list ranges', () => {
+    expect(() => RocketSavedPoListRequestSchema.parse({
+      channelAccountId: ACCOUNT_ID,
+      from: '2026/07/01',
+      to: '2026-07-31',
+    })).toThrow();
+    expect(() => RocketSavedPoListRequestSchema.parse({
+      channelAccountId: ACCOUNT_ID,
+      from: '2026-07-31',
+      to: '2026-07-01',
+    })).toThrow(/on or after/i);
+  });
+
   it('accepts bounded completeness evidence and a strict client request', () => {
     expect(RocketPurchasePreviewRequestSchema.parse(request())).toEqual(request());
     expect(() => RocketPurchasePreviewRequestSchema.parse({
@@ -147,6 +239,7 @@ describe('Rocket purchase preview contract', () => {
         poNumber: '1001',
         productNo: 'P-1',
         productName: '로켓 상품',
+        plannedDeliveryDate: '2026-07-20',
         orderQuantity: 4,
         recommendedQuantity: 0,
         maxQuantity: 0,
@@ -174,6 +267,7 @@ describe('Rocket purchase preview contract', () => {
         poNumber: '1001',
         productNo: 'P-1',
         productName: '로켓 상품',
+        plannedDeliveryDate: '2026-07-20',
         orderQuantity: 4,
         recommendedQuantity: 4,
         maxQuantity: 5,
@@ -186,6 +280,8 @@ describe('Rocket purchase preview contract', () => {
           sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
           quantity: 1,
           currentStock: 5,
+          activeCommitmentQuantity: 1,
+          availableStock: 4,
           isActive: true,
         }],
       }],
@@ -211,6 +307,7 @@ describe('Rocket purchase preview contract', () => {
           poNumber: '1001',
           productNo: 'P-1',
           productName: '로켓 상품',
+          plannedDeliveryDate: '2026-07-20',
           orderQuantity: 4,
           recommendedQuantity: 0,
           maxQuantity: 0,
@@ -226,6 +323,60 @@ describe('Rocket purchase preview contract', () => {
       expect(parsed.rows[0]?.reason).toBe(reason);
     },
   );
+
+  it('requires the planned delivery date in preview responses', () => {
+    expect(() => RocketPurchasePreviewResponseSchema.parse({
+      collectionRunId: RUN_ID,
+      catalog: null,
+      inventoryGeneration: null,
+      rows: [{
+        poLineId: request().rows[0]!.poLineId,
+        poNumber: '1001',
+        productNo: 'P-1',
+        productName: '로켓 상품',
+        orderQuantity: 4,
+        recommendedQuantity: 0,
+        maxQuantity: 0,
+        editedQuantity: null,
+        reason: 'collection_incomplete',
+        channelSkuId: null,
+        masterProductId: null,
+        productVariantId: null,
+        components: [],
+      }],
+    })).toThrow(/plannedDeliveryDate/i);
+  });
+
+  it('rejects component availability that is inconsistent with active commitments', () => {
+    expect(() => RocketPurchasePreviewResponseSchema.parse({
+      collectionRunId: RUN_ID,
+      catalog: null,
+      inventoryGeneration: '12',
+      rows: [{
+        poLineId: request().rows[0]!.poLineId,
+        poNumber: '1001',
+        productNo: 'P-1',
+        productName: '로켓 상품',
+        plannedDeliveryDate: '2026-07-20',
+        orderQuantity: 4,
+        recommendedQuantity: 4,
+        maxQuantity: 5,
+        editedQuantity: null,
+        reason: null,
+        channelSkuId: ACCOUNT_ID,
+        masterProductId: MASTER_PRODUCT_ID,
+        productVariantId: PRODUCT_VARIANT_ID,
+        components: [{
+          sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+          quantity: 1,
+          currentStock: 5,
+          activeCommitmentQuantity: 1,
+          availableStock: 5,
+          isActive: true,
+        }],
+      }],
+    })).toThrow(/availableStock/i);
+  });
 
   it('requires an explicit reviewed quantity and shortage reason for every confirmation line', () => {
     const poLineId = request().rows[0]!.poLineId;

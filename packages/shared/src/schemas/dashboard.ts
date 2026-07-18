@@ -439,6 +439,52 @@ export const SellpiaProductSalesMonthPointSchema = z.object({
 });
 export const SellpiaProductAbcGradeSchema = z.enum(['A', 'B', 'C']);
 export const SellpiaProductTrendSchema = z.enum(['up', 'down', 'flat']);
+export const SellpiaProductDestinationSchema = z.object({
+  masterProductId: z.string().uuid(),
+  masterProductCode: z.string().min(1),
+  masterProductName: z.string().min(1),
+  productVariantId: z.string().uuid(),
+  productVariantCode: z.string().min(1),
+  productVariantName: z.string().min(1),
+  unitsPerVariant: z.number().int().positive(),
+}).strict();
+
+export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
+  'status',
+  [
+    z.object({
+      status: z.literal('not_collected'),
+    }).strict(),
+    z.object({
+      status: z.literal('mapping_required'),
+      reason: z.enum(['not_found', 'inactive_candidate', 'ambiguous_barcode']),
+      candidateCount: z.number().int().nonnegative(),
+    }).strict(),
+    z.object({
+      status: z.literal('matched'),
+      sellpiaInventorySkuId: z.string().uuid(),
+      currentStock: z.number().int().nonnegative(),
+      activeCommitmentQuantity: z.number().int().nonnegative(),
+      availableStock: z.number().int().nonnegative(),
+      salesRowCount: z.number().int().positive(),
+      destinations: z.array(SellpiaProductDestinationSchema),
+    }).strict(),
+  ],
+).superRefine((resolution, ctx) => {
+  if (resolution.status !== 'matched') return;
+  const expectedAvailableStock = Math.max(
+    resolution.currentStock - resolution.activeCommitmentQuantity,
+    0,
+  );
+  if (resolution.availableStock !== expectedAvailableStock) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['availableStock'],
+      message: 'availableStock must equal currentStock minus activeCommitmentQuantity',
+    });
+  }
+});
+
 export const SellpiaProductSalesRowSchema = z.object({
   productCode: z.string(),
   optionCode: z.string(),
@@ -461,9 +507,9 @@ export const SellpiaProductSalesRowSchema = z.object({
   seasonTag: z.string().nullable(), // 시즌 분류(여름/겨울/어린이날/신학기/상시), 근거 부족 시 null
   anomaly: z.boolean(), // 이상치(일회성 벌크/저가 대량) 포함 — 평균/ABC/발주는 이상치 제외로 산정
   anomalyReason: z.string().nullable(), // 이상치 사유
-  // ─── 재고 소진(발주) — 재고 수집(2단계) 후 채워짐. 미수집 시 null/false ───
-  currentStock: z.number().nullable(), // 현재고(on-hand), null=미수집
-  monthsOfStockLeft: z.number().nullable(), // 현재고 ÷ 월평균 소진(개월). null=미수집/무판매
+  // ─── 재고 소진(발주) — 수집/매칭/가용재고 상태를 명시적으로 구분 ───
+  inventoryResolution: SellpiaProductInventoryResolutionSchema,
+  monthsOfAvailableStockLeft: z.number().nonnegative().nullable(),
   reorderPoint: z.number().nullable(), // 발주점 = 월평균 × (리드타임+안전)
   needsReorder: z.boolean(), // 발주 필요(현재고 ≤ 발주점)
 });
@@ -479,8 +525,15 @@ export const SellpiaProductSalesSummarySchema = z.object({
   // ─── 재고관리 요약 ───
   hasStock: z.boolean(), // 재고(현재고) 수집 여부
   stockCapturedAt: zIsoDate.nullable(), // 재고 수집 시각
-  reorderCount: z.number(), // 발주 필요 상품 수
-  deadStockCount: z.number(), // 악성재고 상품 수
+  stockGeneration: z.string().regex(/^\d+$/).nullable(),
+  inventoryResolutionCounts: z.object({
+    matchedSalesRows: z.number().int().nonnegative(),
+    mappingRequiredSalesRows: z.number().int().nonnegative(),
+    matchedSkus: z.number().int().nonnegative(),
+    unlinkedSkus: z.number().int().nonnegative(),
+  }).strict(),
+  reorderCount: z.number().int().nonnegative(), // 발주 필요 distinct SKU 수
+  deadStockCount: z.number().int().nonnegative(), // 악성재고 distinct SKU 수
   anomalyCount: z.number(), // 이상치 포함 상품 수
   abcCounts: z.object({ a: z.number(), b: z.number(), c: z.number() }),
   leadTimeMonths: z.number(), // 발주점 산정 리드타임(개월) — 에코
@@ -527,5 +580,9 @@ export type SellpiaProductSalesIngestResult = z.infer<typeof SellpiaProductSales
 export type SellpiaProductSalesMonthPoint = z.infer<typeof SellpiaProductSalesMonthPointSchema>;
 export type SellpiaProductAbcGrade = z.infer<typeof SellpiaProductAbcGradeSchema>;
 export type SellpiaProductTrend = z.infer<typeof SellpiaProductTrendSchema>;
+export type SellpiaProductDestination = z.infer<typeof SellpiaProductDestinationSchema>;
+export type SellpiaProductInventoryResolution = z.infer<
+  typeof SellpiaProductInventoryResolutionSchema
+>;
 export type SellpiaProductSalesRow = z.infer<typeof SellpiaProductSalesRowSchema>;
 export type SellpiaProductSalesSummary = z.infer<typeof SellpiaProductSalesSummarySchema>;

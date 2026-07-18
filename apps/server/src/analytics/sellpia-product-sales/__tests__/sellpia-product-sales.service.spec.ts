@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import type { SellpiaProductSalesIngestBodyDto } from '../dto/sellpia-product-sales.dto';
+import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
 
 const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
@@ -11,12 +12,33 @@ function makePrisma() {
   const deleteMany = vi.fn(() => Promise.resolve({ count: 0 }));
   const findMany = vi.fn(async () => [] as unknown[]);
   const inventoryFindMany = vi.fn(async () => [] as unknown[]);
+  const destinationFindMany = vi.fn(async () => [] as unknown[]);
+  const inventoryAvailability = vi.fn(async () => ({
+    snapshot: { collected: false, generation: null, verifiedAt: null },
+    items: [],
+  }));
   const prisma = {
     sellpiaProductMonthlySales: { upsert, createMany, deleteMany, findMany },
     sellpiaInventorySku: { findMany: inventoryFindMany },
+    productVariantComponent: { findMany: destinationFindMany },
     $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   };
-  return { prisma, upsert, createMany, deleteMany, findMany, inventoryFindMany };
+  const inventoryReader = new SellpiaProductInventoryReader(
+    prisma as never,
+    { findBySkuIds: inventoryAvailability } as never,
+  );
+  const service = new SellpiaProductSalesService(prisma as never, inventoryReader);
+  return {
+    prisma,
+    service,
+    upsert,
+    createMany,
+    deleteMany,
+    findMany,
+    inventoryFindMany,
+    destinationFindMany,
+    inventoryAvailability,
+  };
 }
 
 function row(o: {
@@ -47,8 +69,7 @@ describe('SellpiaProductSalesService.ingest', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('조직 범위 전체를 원자적으로 교체(deleteMany + 벌크 createMany)한다', async () => {
-    const { prisma, deleteMany, createMany } = makePrisma();
-    const service = new SellpiaProductSalesService(prisma as never);
+    const { prisma, service, deleteMany, createMany } = makePrisma();
     const body: SellpiaProductSalesIngestBodyDto = {
       range: { from: '2026-05-16', to: '2026-07-15' },
       products: [
@@ -88,8 +109,7 @@ describe('SellpiaProductSalesService.ingest', () => {
   });
 
   it('페이로드 내 (상품·옵션·연월) 중복은 마지막 값으로 병합한다', async () => {
-    const { prisma, createMany } = makePrisma();
-    const service = new SellpiaProductSalesService(prisma as never);
+    const { prisma, service, createMany } = makePrisma();
     await service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-06-01', to: '2026-06-30' },
       products: [
@@ -112,7 +132,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
   afterEach(() => vi.useRealTimers());
 
   it('완결 월 기준 1개월/2개월/월평균 소진량 + 월별 추이를 산정한다(현재월 제외)', async () => {
-    const { prisma, findMany } = makePrisma();
+    const { service, findMany } = makePrisma();
     findMany.mockResolvedValueOnce([
       row({ productCode: '9882', yearMonth: '2026-05', orderQty: 133 }),
       row({ productCode: '9882', yearMonth: '2026-06', orderQty: 13030 }),
@@ -121,7 +141,6 @@ describe('SellpiaProductSalesService.getSummary', () => {
       row({ productCode: '3189', yearMonth: '2026-06', orderQty: 453, productName: '지도' }),
     ]);
 
-    const service = new SellpiaProductSalesService(prisma as never);
     const out = await service.getSummary(ORGANIZATION_ID);
 
     expect(out.months).toEqual(['2026-05', '2026-06', '2026-07']);
@@ -150,7 +169,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
   });
 
   it('재고관리 파생 지표(ABC/현재고 미수집/요약 카운트)를 채운다', async () => {
-    const { prisma, findMany } = makePrisma();
+    const { service, findMany } = makePrisma();
     findMany.mockResolvedValueOnce([
       row({ productCode: '9882', yearMonth: '2026-05', orderQty: 133 }),
       row({ productCode: '9882', yearMonth: '2026-06', orderQty: 13030 }), // 지배적 → A
@@ -158,16 +177,16 @@ describe('SellpiaProductSalesService.getSummary', () => {
       row({ productCode: '3189', yearMonth: '2026-06', orderQty: 453, productName: '지도' }),
     ]);
 
-    const service = new SellpiaProductSalesService(prisma as never);
     const out = await service.getSummary(ORGANIZATION_ID);
 
-    // 재고 미수집 → 전 상품 현재고 null, 발주 없음
+    // 재고 미수집 → 명시적 not_collected, 발주 없음
     expect(out.hasStock).toBe(false);
     expect(out.stockCapturedAt).toBeNull();
+    expect(out.stockGeneration).toBeNull();
     expect(out.reorderCount).toBe(0);
     expect(out.leadTimeMonths).toBe(1);
     for (const p of out.products) {
-      expect(p.currentStock).toBeNull();
+      expect(p.inventoryResolution).toEqual({ status: 'not_collected' });
       expect(p.needsReorder).toBe(false);
       expect(p.reorderPoint).toBeNull();
     }
@@ -183,58 +202,88 @@ describe('SellpiaProductSalesService.getSummary', () => {
   });
 
   it('재고 수집 시 현재고 조인 + 발주 알림을 산정한다', async () => {
-    const { prisma, findMany, inventoryFindMany } = makePrisma();
+    const {
+      service,
+      findMany,
+      inventoryFindMany,
+      inventoryAvailability,
+    } = makePrisma();
     findMany.mockResolvedValueOnce([
       row({ productCode: '9882', yearMonth: '2026-05', orderQty: 400 }),
       row({ productCode: '9882', yearMonth: '2026-06', orderQty: 400 }), // 월평균 400 → 발주점 600
       row({ productCode: '3189', yearMonth: '2026-05', orderQty: 400, productName: '지도' }),
       row({ productCode: '3189', yearMonth: '2026-06', orderQty: 400, productName: '지도' }),
     ]);
-    inventoryFindMany.mockResolvedValueOnce([
-      { code: '9882', barcode: '880-9882', currentStock: 200, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } }, // 200 ≤ 600 → 발주
-      { code: '3189', barcode: '880-3189', currentStock: 5000, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T01:00:00Z') } }, // 충분
-    ]);
+    const inventoryRows = [
+      inventoryRow(1, '9882', 200, '880-9882'),
+      inventoryRow(2, '3189', 5000, '880-3189'),
+    ];
+    inventoryFindMany.mockResolvedValueOnce(inventoryRows);
+    inventoryAvailability.mockResolvedValueOnce(collectedInventory(inventoryRows));
 
-    const service = new SellpiaProductSalesService(prisma as never);
     const out = await service.getSummary(ORGANIZATION_ID);
     expect(out.hasStock).toBe(true);
     expect(out.stockCapturedAt).toBe('2026-07-16T01:00:00.000Z');
+    expect(out.stockGeneration).toBe('12');
     expect(inventoryFindMany).toHaveBeenCalledWith({
-      where: { organizationId: ORGANIZATION_ID, isActive: true },
+      where: { organizationId: ORGANIZATION_ID },
       select: {
+        id: true,
         code: true,
         barcode: true,
-        currentStock: true,
-        lastImportRun: { select: { lastVerifiedAt: true } },
+        isActive: true,
       },
     });
+    expect(inventoryAvailability).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      sellpiaInventorySkuIds: inventoryRows.map(({ id }) => id),
+    });
     const byCode = Object.fromEntries(out.products.map((p) => [p.productCode, p]));
-    expect(byCode['9882'].currentStock).toBe(200);
+    expect(byCode['9882'].inventoryResolution).toMatchObject({
+      status: 'matched',
+      currentStock: 200,
+      activeCommitmentQuantity: 0,
+      availableStock: 200,
+    });
     expect(byCode['9882'].reorderPoint).toBe(600);
     expect(byCode['9882'].needsReorder).toBe(true);
-    expect(byCode['9882'].monthsOfStockLeft).toBe(0.5);
-    expect(byCode['3189'].currentStock).toBe(5000);
+    expect(byCode['9882'].monthsOfAvailableStockLeft).toBe(0.5);
+    expect(byCode['3189'].inventoryResolution).toMatchObject({
+      status: 'matched',
+      currentStock: 5000,
+      availableStock: 5000,
+    });
     expect(byCode['3189'].needsReorder).toBe(false);
     expect(out.reorderCount).toBe(1);
   });
 
-  it('재고 수집됐지만 매칭 없는 상품은 현재고 0(품절)', async () => {
-    const { prisma, findMany, inventoryFindMany } = makePrisma();
+  it('재고 수집됐지만 매칭 없는 상품은 품절로 만들지 않고 검토 대상으로 남긴다', async () => {
+    const {
+      service,
+      findMany,
+      inventoryFindMany,
+      inventoryAvailability,
+    } = makePrisma();
     findMany.mockResolvedValueOnce([
       row({ productCode: '9882', yearMonth: '2026-06', orderQty: 100 }),
     ]);
     inventoryFindMany.mockResolvedValueOnce([
-      { code: '0000', barcode: null, currentStock: 10, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } },
+      inventoryRow(1, '0000', 10, null),
     ]);
-    const service = new SellpiaProductSalesService(prisma as never);
+    inventoryAvailability.mockResolvedValueOnce(collectedInventory([]));
     const out = await service.getSummary(ORGANIZATION_ID);
     expect(out.hasStock).toBe(true);
-    expect(out.products[0].currentStock).toBe(0); // 매칭 없음 → 0
+    expect(out.products[0].inventoryResolution).toEqual({
+      status: 'mapping_required',
+      reason: 'not_found',
+      candidateCount: 0,
+    });
+    expect(out.products[0].reorderPoint).toBeNull();
+    expect(out.products[0].needsReorder).toBe(false);
   });
 
   it('데이터 없으면 hasData=false', async () => {
-    const { prisma } = makePrisma();
-    const service = new SellpiaProductSalesService(prisma as never);
+    const { service } = makePrisma();
     const out = await service.getSummary(ORGANIZATION_ID);
     expect(out.hasData).toBe(false);
     expect(out.products).toEqual([]);
@@ -242,29 +291,40 @@ describe('SellpiaProductSalesService.getSummary', () => {
   });
 
   it('상품코드 우선, 옵션코드 폴백, 고유 바코드 순으로 현재고를 찾는다', async () => {
-    const { prisma, findMany, inventoryFindMany } = makePrisma();
+    const {
+      service,
+      findMany,
+      inventoryFindMany,
+      inventoryAvailability,
+    } = makePrisma();
     findMany.mockResolvedValueOnce([
       { ...row({ productCode: 'P-PRIMARY', optionCode: 'OPT-OTHER', yearMonth: '2026-06', orderQty: 10 }), barcode: 'BAR-1' },
       { ...row({ productCode: 'P-MISSING', optionCode: 'OPT-FALLBACK', yearMonth: '2026-06', orderQty: 10 }), barcode: 'BAR-2' },
       { ...row({ productCode: 'P-BARCODE', optionCode: '', yearMonth: '2026-06', orderQty: 10 }), barcode: 'BAR-3' },
       { ...row({ productCode: 'P-DUP-BARCODE', optionCode: '', yearMonth: '2026-06', orderQty: 10 }), barcode: 'BAR-DUP' },
     ]);
-    inventoryFindMany.mockResolvedValueOnce([
-      { code: 'P-PRIMARY', barcode: 'BAR-X', currentStock: 11, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } },
-      { code: 'OPT-OTHER', barcode: 'BAR-1', currentStock: 99, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } },
-      { code: 'OPT-FALLBACK', barcode: 'BAR-X2', currentStock: 22, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } },
-      { code: 'SKU-BARCODE', barcode: 'BAR-3', currentStock: 33, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } },
-      { code: 'SKU-DUP-1', barcode: 'BAR-DUP', currentStock: 44, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } },
-      { code: 'SKU-DUP-2', barcode: 'BAR-DUP', currentStock: 55, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } },
-    ]);
+    const inventoryRows = [
+      inventoryRow(1, 'P-PRIMARY', 11, 'BAR-X'),
+      inventoryRow(2, 'OPT-OTHER', 99, 'BAR-1'),
+      inventoryRow(3, 'OPT-FALLBACK', 22, 'BAR-X2'),
+      inventoryRow(4, 'SKU-BARCODE', 33, 'BAR-3'),
+      inventoryRow(5, 'SKU-DUP-1', 44, 'BAR-DUP'),
+      inventoryRow(6, 'SKU-DUP-2', 55, 'BAR-DUP'),
+    ];
+    inventoryFindMany.mockResolvedValueOnce(inventoryRows);
+    inventoryAvailability.mockResolvedValueOnce(collectedInventory(inventoryRows));
 
-    const out = await new SellpiaProductSalesService(prisma as never).getSummary(ORGANIZATION_ID);
+    const out = await service.getSummary(ORGANIZATION_ID);
     const byCode = Object.fromEntries(out.products.map((product) => [product.productCode, product]));
 
-    expect(byCode['P-PRIMARY'].currentStock).toBe(11);
-    expect(byCode['P-MISSING'].currentStock).toBe(22);
-    expect(byCode['P-BARCODE'].currentStock).toBe(33);
-    expect(byCode['P-DUP-BARCODE'].currentStock).toBe(0);
+    expect(byCode['P-PRIMARY'].inventoryResolution).toMatchObject({ currentStock: 11 });
+    expect(byCode['P-MISSING'].inventoryResolution).toMatchObject({ currentStock: 22 });
+    expect(byCode['P-BARCODE'].inventoryResolution).toMatchObject({ currentStock: 33 });
+    expect(byCode['P-DUP-BARCODE'].inventoryResolution).toEqual({
+      status: 'mapping_required',
+      reason: 'ambiguous_barcode',
+      candidateCount: 2,
+    });
   });
 
   it('재고 상품코드가 `{상품코드}-{옵션번호}` 결합형이면 결합 키로 현재고를 조인한다', async () => {
@@ -283,3 +343,38 @@ describe('SellpiaProductSalesService.getSummary', () => {
     expect(out.products[0].currentStock).toBe(42);
   });
 });
+
+function inventoryRow(
+  index: number,
+  code: string,
+  currentStock: number,
+  barcode: string | null,
+) {
+  return {
+    id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+    code,
+    barcode,
+    currentStock,
+    isActive: true,
+  };
+}
+
+function collectedInventory(
+  rows: Array<ReturnType<typeof inventoryRow>>,
+) {
+  return {
+    snapshot: {
+      collected: true as const,
+      generation: '12',
+      verifiedAt: '2026-07-16T01:00:00.000Z',
+    },
+    items: rows.map((row) => ({
+      sellpiaInventorySkuId: row.id,
+      currentStock: row.currentStock,
+      activeCommitmentQuantity: 0,
+      availableStock: row.currentStock,
+      isActive: row.isActive,
+      generation: '12',
+    })),
+  };
+}

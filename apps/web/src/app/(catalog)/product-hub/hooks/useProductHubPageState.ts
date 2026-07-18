@@ -102,10 +102,32 @@ export function useProductHubPageState() {
     [queryParams],
   );
 
-  const { data, error, isFetching, isLoading, isPlaceholderData, refetch } = useQuery({
+  const overviewParams = useMemo(() => new URLSearchParams({
+    page: '1',
+    limit: '1',
+    periodDays: String(periodDays),
+    activeStatus: 'all',
+    adStatus: 'all',
+  }), [periodDays]);
+  const overviewQueryKeyParams = useMemo(
+    () => Object.fromEntries(overviewParams.entries()),
+    [overviewParams],
+  );
+
+  const listQuery = useQuery({
     queryKey: queryKeys.products.operations.list(queryKeyParams),
     queryFn: () => apiClient.getParsed(
       `/api/products/masters?${queryParams.toString()}`,
+      MasterProductOperationsListResponseSchema,
+    ),
+    placeholderData: (previousData) => previousData,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  });
+  const overviewQuery = useQuery({
+    queryKey: queryKeys.products.operations.list(overviewQueryKeyParams),
+    queryFn: () => apiClient.getParsed(
+      `/api/products/masters?${overviewParams.toString()}`,
       MasterProductOperationsListResponseSchema,
     ),
     placeholderData: (previousData) => previousData,
@@ -128,19 +150,23 @@ export function useProductHubPageState() {
     activeStatus,
     adStatus,
     category,
-    data,
-    errorMessage: error
-      ? (isApiError(error) ? error.detail : '상품 운영 목록을 불러오지 못했습니다.')
+    data: listQuery.data,
+    errorMessage: listQuery.error
+      ? (isApiError(listQuery.error) ? listQuery.error.detail : '상품 운영 목록을 불러오지 못했습니다.')
       : null,
     goToPage,
     handleSearch,
-    isFetching,
-    isLoading,
-    isPlaceholderData,
+    isFetching: listQuery.isFetching || overviewQuery.isFetching,
+    isLoading: listQuery.isLoading,
+    isPlaceholderData: listQuery.isPlaceholderData,
     inventoryStatus,
+    overviewData: overviewQuery.data,
+    overviewErrorMessage: overviewQuery.error
+      ? (isApiError(overviewQuery.error) ? overviewQuery.error.detail : '전체 상품 운영 현황을 불러오지 못했습니다.')
+      : null,
     page,
     periodDays,
-    refetch,
+    refetch: listQuery.refetch,
     search,
     setAbcGrade: (value: string) => {
       updateListParams({ abcGrade: value || undefined, page: '1' });
@@ -161,6 +187,6 @@ export function useProductHubPageState() {
       updateListParams({ periodDays: String(value), page: '1' });
     },
     setSearch,
-    totalPages: Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE)),
+    totalPages: Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / PAGE_SIZE)),
   };
 }

@@ -42,6 +42,9 @@ inventory/
 - Idempotent browser order-transmission intents and post-submit generation
   fencing under `/api/inventory/sellpia-freshness/order-transmission-intents/*`
 - Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
+- Physical-stock-independent commitments that reduce common available Sellpia
+  capacity for cross-domain workflows. These records never mutate
+  `SellpiaInventorySku.currentStock`.
 - Unshipped reads: `/api/unshipped/*`
 - Warehouses: `/api/warehouses/*`
 - Record-only stock transfers: `/api/stock-transfers/*`
@@ -56,6 +59,8 @@ Route shape is frozen.
   current quantity in `currentStock`.
 - `SourceImportRun` records workbook provenance, idempotency, and attempt
   fencing.
+- `InventoryCommitment` and `InventoryCommitmentAllocation` own auditable,
+  line-level holds against Sellpia SKU capacity independently of physical stock.
 - `Warehouse` is warehouse metadata.
 - `StockTransfer`, `PickingItem`, and `ReturnTransfer` reference
   `SellpiaInventorySku`; they record operations and never adjust `currentStock`.
@@ -82,6 +87,16 @@ change stock.
 - `InventoryModule` exports a read-only Sellpia inventory-SKU capability for
   product recipes, matching evidence, and capacity consumers. It never exposes
   `MasterProduct` as a physical inventory type.
+- `InventoryModule` exports organization-fenced availability and commitment
+  ports. Other domains pass structured source identity; Inventory canonicalizes
+  business keys and owns commitment lifecycle transitions.
+- Availability terms are fixed: `currentStock` is the latest physical Sellpia
+  snapshot, `activeCommitmentQuantity` is the sum of active logical holds, and
+  `availableStock = max(currentStock - activeCommitmentQuantity, 0)`.
+- The commitment port creates `rocket_request`, atomically replaces it with
+  `rocket_final_order`, bulk-reads request/final lineage, releases cancellations,
+  and settles final orders only after a strictly newer verified Sellpia
+  generation. None of these transitions writes `currentStock`.
 - `InventoryModule` exports `SELLPIA_INVENTORY_REFRESH_REQUEST_PORT` for
   deterministic order/purchase refresh requests and
   `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT` for the final fresh-and-active
@@ -127,8 +142,10 @@ change stock.
 - Every single-resource read/write includes `organizationId`; DTOs do not carry
   organization id.
 - Route declaration order keeps static paths before `/:id`.
-- No controller or service may expose receive, issue, adjust, reserve, release,
-  restock, stock-ledger, or Rocket stock-event mutations.
+- No controller or service may mutate physical `currentStock` through receive,
+  issue, adjust, reserve, release, restock, stock-ledger, or Rocket stock-event
+  operations. Inventory-owned commitments may reserve, replace, release, and
+  settle logical capacity through the exported commitment port only.
 - Transfer, picking, and return completion updates operational record fields
   only; they do not write `SellpiaInventorySku.currentStock`.
 - Product operations reads must enter through Products APIs. The Inventory SKU

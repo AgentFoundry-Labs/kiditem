@@ -9,10 +9,14 @@ import { downloadBlob } from '@/lib/browser-download';
 import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
 import {
   confirmRocketPurchase,
+  loadSavedRocketCollection,
   previewRocketPurchases,
   releaseRocketPurchaseConfirmation,
 } from '../lib/rocket-purchase-preview-api';
-import { buildRocketConfirmationWorkbook } from '../lib/rocket-confirmation-workbook';
+import {
+  buildRocketConfirmationWorkbook,
+  fillRocketConfirmationWorkbook,
+} from '../lib/rocket-confirmation-workbook';
 import { RocketPurchaseWorkspace } from './RocketPurchaseWorkspace';
 import type {
   RocketPoCatalogPublication,
@@ -28,14 +32,22 @@ vi.mock('../lib/rocket-purchase-preview-api', () => ({
   previewRocketPurchases: vi.fn(),
   confirmRocketPurchase: vi.fn(),
   releaseRocketPurchaseConfirmation: vi.fn(),
+  loadSavedRocketCollection: vi.fn(),
+}));
+vi.mock('./RocketDeterministicMatchingPanel', () => ({
+  RocketDeterministicMatchingPanel: () => <div>결정적 매칭 패널</div>,
 }));
 vi.mock('../lib/rocket-confirmation-workbook', () => ({
   buildRocketConfirmationWorkbook: vi.fn(),
+  fillRocketConfirmationWorkbook: vi.fn(),
 }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
 vi.mock('@/lib/rocket-confirm-file-store', () => ({ saveRocketConfirmFile: vi.fn() }));
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
+// 입고예정일 범위는 상위(로켓 발주 캘린더 / 단독 화면)가 소유하고 props 로 내려준다.
+const FROM = '2026-07-16';
+const TO = '2026-07-16';
 const lineA = {
   poLineId: '1001:P-A:8800000000001:1',
   poNumber: '1001',
@@ -81,6 +93,7 @@ function previewRow(
     poNumber: row.poNumber,
     productNo: row.productNo,
     productName: row.productName,
+    plannedDeliveryDate: row.plannedDeliveryDate,
     orderQuantity: row.orderQty,
     recommendedQuantity: Math.min(row.orderQty, maxQuantity),
     maxQuantity,
@@ -120,6 +133,16 @@ function catalogPublication(rowCount = 0): RocketPoCatalogPublication {
       updatedProductCount: 0,
       createdSkuCount: 0,
       updatedSkuCount: 0,
+    },
+    recipeAutomation: {
+      evaluatedProducts: 0,
+      appliedProducts: 0,
+      appliedVariants: 0,
+      affectedOptions: 0,
+      operatorReviewProducts: 0,
+      blockedProducts: 0,
+      alreadyConfiguredProducts: 0,
+      skippedExistingVariants: 0,
     },
   };
 }
@@ -161,11 +184,21 @@ describe('RocketPurchaseWorkspace', () => {
         shortRows: 1,
       },
     });
+    vi.mocked(fillRocketConfirmationWorkbook).mockReturnValue({
+      blob: new Blob(['filled-workbook']),
+      fileName: '쿠팡_원본_확정_20260717.xlsx',
+      summary: {
+        totalRows: 1,
+        confirmedQuantity: 3,
+        fullyConfirmedRows: 1,
+        shortRows: 0,
+      },
+    });
     vi.mocked(saveRocketConfirmFile).mockResolvedValue();
   });
 
   it('keeps confirmation disabled until a complete preview has been reviewed', () => {
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     expect(screen.getByRole('button', { name: '미리보기 다시 계산' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
@@ -186,7 +219,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [confirmationLineA],
       poCount: 1,
     });
-    vi.mocked(previewRocketPurchases).mockResolvedValue({
+    const initialPreview = {
       collectionRunId: '22222222-2222-4222-8222-222222222222',
       catalog: catalogPublication(1),
       inventoryGeneration: '12',
@@ -199,10 +232,22 @@ describe('RocketPurchaseWorkspace', () => {
           sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
           quantity: 1,
           currentStock: 3,
+          activeCommitmentQuantity: 0,
+          availableStock: 3,
           isActive: true,
         }],
       }],
-    });
+    };
+    vi.mocked(previewRocketPurchases)
+      .mockResolvedValueOnce(initialPreview)
+      .mockResolvedValueOnce({
+        ...initialPreview,
+        rows: [{
+          ...initialPreview.rows[0]!,
+          editedQuantity: 2,
+          recommendedQuantity: 2,
+        }],
+      });
     vi.mocked(confirmRocketPurchase).mockResolvedValue({
       confirmationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       status: 'active',
@@ -222,7 +267,7 @@ describe('RocketPurchaseWorkspace', () => {
       }],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     expect(collectRocketPoRowsForConfirmationFromExtension).toHaveBeenCalled();
@@ -230,6 +275,9 @@ describe('RocketPurchaseWorkspace', () => {
     await user.clear(quantity);
     await user.type(quantity, '2');
     expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '수량 다시 검증' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: '수량 다시 검증' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled());
     await user.selectOptions(
       screen.getByRole('combobox', { name: '1001 납품부족사유' }),
       '협력사 재고부족 - 수요예측 오류',
@@ -254,6 +302,89 @@ describe('RocketPurchaseWorkspace', () => {
     }));
     expect(screen.getByText(/확정 완료/)).toBeInTheDocument();
     expect(screen.getByRole('table')).toHaveClass('table-fixed');
+  });
+
+  it('fills a selected Coupang source workbook instead of replacing its layout', async () => {
+    vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 1,
+        failedPoNumbers: [],
+      },
+      rows: [confirmationLineA],
+      poCount: 1,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      collectionRunId: '22222222-2222-4222-8222-222222222222',
+      catalog: catalogPublication(1),
+      inventoryGeneration: '12',
+      rows: [{
+        ...previewRow(lineA, 3),
+        channelSkuId: '66666666-6666-4666-8666-666666666666',
+        productVariantId: '88888888-8888-4888-8888-888888888888',
+        components: [{
+          sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
+          quantity: 1,
+          currentStock: 3,
+          activeCommitmentQuantity: 0,
+          availableStock: 3,
+          isActive: true,
+        }],
+      }],
+    });
+    vi.mocked(confirmRocketPurchase).mockResolvedValue({
+      confirmationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      status: 'active',
+      duplicate: false,
+      inventoryGeneration: '12',
+      confirmedAt: '2026-07-17T00:00:00.000Z',
+      totals: {
+        lineCount: 1,
+        orderQuantity: 3,
+        confirmedQuantity: 3,
+        allocatedQuantity: 3,
+      },
+      rows: [{
+        poLineId: lineA.poLineId,
+        confirmedQuantity: 3,
+        shortageReason: null,
+      }],
+    });
+    const user = userEvent.setup();
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
+
+    const template = new File(
+      [new Uint8Array([1, 2, 3])],
+      '쿠팡_원본.xlsx',
+      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+    );
+    await user.upload(screen.getByLabelText('쿠팡 원본 양식'), template);
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+    await user.click(await screen.findByRole('button', { name: '확정 후 엑셀 다운로드' }));
+
+    expect(fillRocketConfirmationWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      template: expect.any(ArrayBuffer),
+      templateFileName: '쿠팡_원본.xlsx',
+      sourceRows: [confirmationLineA],
+    }));
+    expect(buildRocketConfirmationWorkbook).not.toHaveBeenCalled();
+    expect(downloadBlob).toHaveBeenCalledWith(
+      expect.any(Blob),
+      '쿠팡_원본_확정_20260717.xlsx',
+    );
+
+    await user.click(screen.getByRole('button', { name: '원본 양식 선택 해제' }));
+    await user.click(screen.getByRole('button', { name: '엑셀 다시 다운로드' }));
+
+    expect(fillRocketConfirmationWorkbook).toHaveBeenCalledTimes(1);
+    expect(buildRocketConfirmationWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      sourceRows: [confirmationLineA],
+    }));
+    expect(downloadBlob).toHaveBeenLastCalledWith(expect.any(Blob), '발주확정_20260717.xlsx');
   });
 
   it('releases an active allocation only with an explicit operator reason', async () => {
@@ -282,6 +413,8 @@ describe('RocketPurchaseWorkspace', () => {
           sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
           quantity: 1,
           currentStock: 3,
+          activeCommitmentQuantity: 0,
+          availableStock: 3,
           isActive: true,
         }],
       }],
@@ -311,7 +444,7 @@ describe('RocketPurchaseWorkspace', () => {
       releasedAt: '2026-07-17T01:00:00.000Z',
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     await user.click(await screen.findByRole('button', { name: '확정 후 엑셀 다운로드' }));
@@ -354,6 +487,8 @@ describe('RocketPurchaseWorkspace', () => {
           sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
           quantity: 1,
           currentStock: 3,
+          activeCommitmentQuantity: 0,
+          availableStock: 3,
           isActive: true,
         }],
       }],
@@ -381,7 +516,7 @@ describe('RocketPurchaseWorkspace', () => {
         throw new Error('workbook failed');
       });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     await user.click(await screen.findByRole('button', { name: '확정 후 엑셀 다운로드' }));
@@ -395,23 +530,55 @@ describe('RocketPurchaseWorkspace', () => {
     expect(downloadBlob).toHaveBeenCalledTimes(1);
   });
 
-  it('initializes the query range from the local calendar day without UTC conversion', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 6, 16, 0, 30));
-    const isoSpy = vi.spyOn(Date.prototype, 'toISOString')
-      .mockReturnValue('1999-01-01T00:00:00.000Z');
+  it('shows the query range given by the parent instead of owning its own date inputs', () => {
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from="2026-07-16" to="2026-07-22" />);
 
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    // 범위는 상위(캘린더/단독 화면)가 소유한다 — 여기서는 날짜 입력을 두지 않는다.
+    expect(screen.queryByLabelText('조회 시작일')).toBeNull();
+    expect(screen.queryByLabelText('조회 종료일')).toBeNull();
+    expect(screen.getByText('2026-07-16 ~ 2026-07-22')).toBeInTheDocument();
+  });
 
-    expect(screen.getByLabelText('조회 시작일')).toHaveValue('2026-07-16');
-    expect(screen.getByLabelText('조회 종료일')).toHaveValue('2026-07-16');
-    isoSpy.mockRestore();
-    vi.useRealTimers();
+  it('loads a selected saved snapshot and re-previews inventory without extension recollection', async () => {
+    const savedRunId = '77777777-7777-4777-8777-777777777777';
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue({
+      sourceImportRunId: savedRunId,
+      channelAccountId: ACCOUNT_ID,
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 1,
+        failedPoNumbers: [],
+      },
+      rows: [confirmationLineA],
+    });
+
+    render(
+      <RocketPurchaseWorkspace
+        channelAccountId={ACCOUNT_ID}
+        from={FROM}
+        to={TO}
+        savedSourceImportRunId={savedRunId}
+      />,
+    );
+
+    await waitFor(() => expect(loadSavedRocketCollection).toHaveBeenCalledWith({
+      channelAccountId: ACCOUNT_ID,
+      sourceImportRunId: savedRunId,
+    }));
+    expect(collectRocketPoRowsForConfirmationFromExtension).not.toHaveBeenCalled();
+    expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
+      channelAccountId: ACCOUNT_ID,
+      rows: [confirmationLineA],
+    }));
   });
 
   it('collects evidence then sends only a preview action', async () => {
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -424,40 +591,6 @@ describe('RocketPurchaseWorkspace', () => {
   });
 
   it('shows a clear no-PO state and collection evidence for a legitimate zero-row run', async () => {
-    const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
-
-    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
-
-    expect(await screen.findByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
-      .toBeInTheDocument();
-    expect(screen.getByText(/목록 1\/1페이지/)).toBeInTheDocument();
-    expect(screen.getByText(/PO 0건/)).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('warns when the backend blocks an otherwise locally complete zero-row collection', async () => {
-    vi.mocked(previewRocketPurchases).mockResolvedValue({
-      collectionRunId: '22222222-2222-4222-8222-222222222222',
-      catalog: null,
-      inventoryGeneration: null,
-      rows: [],
-    });
-    const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
-
-    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '서버가 수집 결과를 차단했습니다.',
-    );
-    expect(screen.getByText('수집 결과가 차단되어 검토할 수 없습니다.')).toBeInTheDocument();
-    expect(screen.queryByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
-      .not.toBeInTheDocument();
-  });
-
-  it('does not present a backend-blocked zero-row collection as a normal no-PO result', async () => {
     vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
       collection: {
         collectionRunId: '22222222-2222-4222-8222-222222222222',
@@ -478,14 +611,19 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('수집 범위가 불완전합니다.');
-    expect(screen.getByText('수집 결과가 차단되어 검토할 수 없습니다.')).toBeInTheDocument();
-    expect(screen.queryByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
-      .not.toBeInTheDocument();
+    expect(await screen.findByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
+      .toBeInTheDocument();
+    expect(screen.getByText(
+      '거래확인서요청 상태만 검토합니다. 조회 기간을 바꾼 뒤 다시 계산해 보세요.',
+    )).toBeInTheDocument();
+    expect(screen.getByText(/목록 1\/1페이지/)).toBeInTheDocument();
+    expect(screen.getByText(/PO 0건/)).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it.each([
@@ -533,7 +671,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -572,7 +710,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -600,7 +738,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [previewRow(lineA, 3)],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -638,13 +776,52 @@ describe('RocketPurchaseWorkspace', () => {
         rows: [{ ...previewRow(lineA, 0), reason }],
       });
       const user = userEvent.setup();
-      render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+      render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
       await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
       expect(await screen.findByRole('alert')).toHaveTextContent(warning);
     },
   );
+
+  it('distinguishes a missing Rocket account vendor ID from an actual vendor mismatch', async () => {
+    vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 1,
+        failedPoNumbers: [],
+      },
+      rows: [lineA],
+      poCount: 1,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      collectionRunId: '22222222-2222-4222-8222-222222222222',
+      catalog: null,
+      inventoryGeneration: null,
+      rows: [{ ...previewRow(lineA, 0), reason: 'vendor_mismatch' }],
+    });
+    const user = userEvent.setup();
+    render(
+      <RocketPurchaseWorkspace
+        channelAccountId={ACCOUNT_ID}
+        hasConfiguredVendorId={false}
+        from={FROM}
+        to={TO}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '선택한 로켓 채널 계정에 공급사 ID가 설정되지 않았습니다.',
+    );
+    expect(screen.getByText('공급사 ID 설정 필요')).toBeInTheDocument();
+    expect(screen.queryByText('채널 계정 불일치')).not.toBeInTheDocument();
+  });
 
   it('renders every preview reason as Korean operator guidance', async () => {
     const reasonRows = [
@@ -689,10 +866,12 @@ describe('RocketPurchaseWorkspace', () => {
       rows,
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
+    expect(screen.getAllByRole('columnheader')).toHaveLength(10);
+    expect(screen.getByRole('table').querySelectorAll('col')).toHaveLength(10);
     for (const [, message] of reasonRows) {
       expect(await screen.findByText(message)).toBeInTheDocument();
     }
@@ -719,7 +898,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [previewRow(lineA, 3)],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     const quantity = await screen.findByRole('spinbutton', { name: '1001 검토수량' });
 
@@ -732,7 +911,7 @@ describe('RocketPurchaseWorkspace', () => {
     expect(quantity).toHaveValue(0);
   });
 
-  it('gets an unedited fresh max before dropping and clamping retained edits', async () => {
+  it('sends retained edits once and lets the server clamp them against fresh capacity', async () => {
     vi.mocked(collectRocketPoRowsFromExtension)
       .mockResolvedValueOnce({
         collection: {
@@ -771,12 +950,6 @@ describe('RocketPurchaseWorkspace', () => {
         collectionRunId: '33333333-3333-4333-8333-333333333333',
         catalog: null,
         inventoryGeneration: null,
-        rows: [previewRow(lineB, 2)],
-      })
-      .mockResolvedValueOnce({
-        collectionRunId: '33333333-3333-4333-8333-333333333333',
-        catalog: null,
-        inventoryGeneration: null,
         rows: [{
           ...previewRow(lineB, 2),
           editedQuantity: 2,
@@ -784,7 +957,7 @@ describe('RocketPurchaseWorkspace', () => {
         }],
       });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     const editA = await screen.findByRole('spinbutton', { name: '1001 검토수량' });
@@ -795,15 +968,15 @@ describe('RocketPurchaseWorkspace', () => {
     await user.type(editB, '4');
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
-    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(3));
-    expect(vi.mocked(previewRocketPurchases).mock.calls[1]?.[0].editedQuantities)
-      .toEqual({});
-    expect(vi.mocked(previewRocketPurchases).mock.calls[2]?.[0].editedQuantities)
-      .toEqual({ [lineB.poLineId]: 2 });
+    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(previewRocketPurchases).mock.calls[1]?.[0]).toMatchObject({
+      editedQuantities: { [lineB.poLineId]: 3 },
+      clampEditedQuantities: true,
+    });
     expect(screen.getByRole('spinbutton', { name: '1002 검토수량' })).toHaveValue(2);
   });
 
-  it('asks the server to jointly clamp retained edits that share component stock', async () => {
+  it('blocks confirmation until the server jointly revalidates edits that share component stock', async () => {
     vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
       collection: {
         collectionRunId: '22222222-2222-4222-8222-222222222222',
@@ -825,7 +998,6 @@ describe('RocketPurchaseWorkspace', () => {
     };
     vi.mocked(previewRocketPurchases)
       .mockResolvedValueOnce(baseline)
-      .mockResolvedValueOnce(baseline)
       .mockResolvedValueOnce({
         ...baseline,
         rows: [
@@ -842,7 +1014,7 @@ describe('RocketPurchaseWorkspace', () => {
         ],
       });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     const editA = await screen.findByRole('spinbutton', { name: '1001 검토수량' });
@@ -851,10 +1023,11 @@ describe('RocketPurchaseWorkspace', () => {
     await user.type(editA, '10');
     await user.clear(editB);
     await user.type(editB, '9');
-    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+    expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: '수량 다시 검증' }));
 
-    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(3));
-    expect(vi.mocked(previewRocketPurchases).mock.calls[2]?.[0]).toMatchObject({
+    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(previewRocketPurchases).mock.calls[1]?.[0]).toMatchObject({
       editedQuantities: {
         [lineA.poLineId]: 3,
         [lineB.poLineId]: 3,
@@ -863,6 +1036,7 @@ describe('RocketPurchaseWorkspace', () => {
     });
     expect(screen.getByRole('spinbutton', { name: '1001 검토수량' })).toHaveValue(3);
     expect(screen.getByRole('spinbutton', { name: '1002 검토수량' })).toHaveValue(0);
+    expect(collectRocketPoRowsForConfirmationFromExtension).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

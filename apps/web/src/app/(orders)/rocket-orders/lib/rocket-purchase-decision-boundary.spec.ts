@@ -18,9 +18,9 @@ describe('Rocket purchase decision boundary', () => {
       routeRoot,
       'components/RocketConfirmPanel.tsx',
     ), 'utf8');
-    const purchaseSource = readFileSync(resolve(
+    const purchaseWorkspaceSource = readFileSync(resolve(
       webRoot,
-      'src/app/(supply)/purchase-orders/components/RocketPurchaseOrdersWorkspace.tsx',
+      'src/app/(supply)/purchase-orders/components/PurchaseOrdersWorkspace.tsx',
     ), 'utf8');
     const previewSectionSource = readFileSync(resolve(
       webRoot,
@@ -29,6 +29,10 @@ describe('Rocket purchase decision boundary', () => {
     const previewSource = readFileSync(resolve(
       webRoot,
       'src/app/(supply)/purchase-orders/components/RocketPurchaseWorkspace.tsx',
+    ), 'utf8');
+    const previewWorkflowSource = readFileSync(resolve(
+      webRoot,
+      'src/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow.ts',
     ), 'utf8');
     const previewApiSource = readFileSync(resolve(
       webRoot,
@@ -41,16 +45,21 @@ describe('Rocket purchase decision boundary', () => {
 
     expect(pageSource).toContain('RocketOrdersWorkspace');
     // /rocket-orders 의 판단 슬롯은 orders 도메인 발주확정 패널(재고매칭·품절판정·엑셀생성)을 쓴다.
-    // supply 도메인 미리보기(RocketPurchasePreviewSection)는 /purchase-orders?tab=rocket 에 그대로 남는다.
+    // supply 도메인 미리보기(RocketPurchasePreviewSection)는 page 가 아니라 workspace 내부에서 렌더된다.
     expect(pageSource).toContain('decisionWorkspace={(workspace) =>');
     expect(pageSource).toContain('<RocketConfirmPanel');
     expect(pageSource).toContain('{...workspace}');
+    expect(pageSource).not.toContain('RocketPurchasePreviewSection');
     expect(pageSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(pageSource).not.toContain('redirect(');
     expect(pageSource).not.toMatch(/useQuery|useState|listRocketPosFromExtension/);
     expect(operationsSource).toContain('쿠팡 로켓 발주');
     expect(operationsSource).toContain("const [status, setStatus] = useState('');");
-    expect(operationsSource).toContain('전체 발주 실시간 조회 · 입고예정일별 분류');
+    // 데이터 소스는 저장된 발주(listSavedRocketPos) 기준으로 통일한다.
+    expect(operationsSource).toContain('수집·저장된 발주 조회 · 입고예정일별 분류');
+    expect(operationsSource).toContain('listSavedRocketPos');
+    expect(operationsSource).not.toContain('listRocketPosFromExtension');
+    // 저장 발주 빈 상태 문구는 머지된 워크스페이스의 실제 문구를 기준으로 검증한다.
     expect(operationsSource).toContain('이 달엔 해당 발주가 없습니다');
     expect(operationsSource).toContain('신규 주문');
     expect(operationsSource).toContain('납품 판단');
@@ -63,19 +72,27 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain('selectedDay &&');
     expect(operationsSource).not.toContain('visibleDates.map');
     expect(operationsSource).toContain('<RocketConfirmFileList');
-    expect(purchaseSource).toContain('로켓 발주 수량 검토');
-    expect(purchaseSource).toContain('<RocketPurchasePreviewSection />');
-    expect(purchaseSource).not.toContain('RocketOrdersWorkspace');
+    // supply 워크스페이스는 로켓 탭을 더 이상 소유하지 않는다.
+    expect(purchaseWorkspaceSource).not.toContain('RocketPurchaseOrdersWorkspace');
+    expect(purchaseWorkspaceSource).not.toContain("activeTab === 'rocket'");
+    expect(purchaseWorkspaceSource).not.toContain('RocketOrdersWorkspace');
+    // orders 워크스페이스는 판단 슬롯(decisionWorkspace)과 supply 미리보기를 함께 렌더한다.
     expect(operationsSource).toContain('decisionWorkspace({');
+    expect(operationsSource).toContain('<RocketPurchasePreviewSection');
+    expect(operationsSource).toContain('savedSourceImportRunId={selectedSavedSourceImportRunId}');
     expect(operationsSource).not.toContain('납품 수량 판단은 추후 연동합니다');
     expect(operationsSource).not.toContain('재고 매핑 기반 판단은 추후 연동');
     expect(previewSectionSource).toContain('<RocketPurchaseWorkspace');
+    expect(previewSectionSource).not.toContain('<RocketInventoryCommitmentList');
     expect(previewSource).toContain('미리보기 다시 계산');
     expect(previewSource).toContain('확정 후 엑셀 다운로드');
-    expect(previewSource).toContain('releaseRocketPurchaseConfirmation');
+    expect(previewWorkflowSource).toContain('releaseRocketPurchaseConfirmation');
+    expect(previewWorkflowSource).toContain('loadSavedRocketCollection');
     expect(previewSource).not.toMatch(/providerSubmit|currentStock\s*=/);
     expect(previewApiSource).toContain("action: 'confirmRocket'");
     expect(previewApiSource).toContain("action: 'releaseRocketConfirmation'");
+    expect(previewApiSource).toContain("action: 'listSavedRocketPos'");
+    expect(previewApiSource).toContain("action: 'loadSavedRocketCollection'");
     expect(previewApiSource).not.toContain('/api/orders/rocket');
     expect(extensionSource).toContain('collectRocketPoRowsEvidenceV1: true');
     expect(extensionSource).toContain('collectRocketPoRowsConfirmationV1: true');

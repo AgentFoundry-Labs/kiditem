@@ -33,6 +33,9 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
               orderBy: { createdAt: 'asc' },
               select: {
                 quantity: true,
+                source: true,
+                confirmedBy: true,
+                confirmedAt: true,
                 sellpiaInventorySku: { select: { id: true, code: true } },
               },
             },
@@ -46,7 +49,7 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
       ? await this.prisma.channelListingOption.findMany({
         where: { organizationId, productVariantId: selected.productVariantId, isActive: true },
         select: {
-          id: true, itemName: true, sellerSku: true, modelNumber: true,
+          id: true, itemName: true, sellerSku: true, modelNumber: true, barcode: true,
           listing: { select: { displayName: true, channelName: true } },
         },
         orderBy: { id: 'asc' },
@@ -54,7 +57,7 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
       : await this.prisma.channelListingOption.findMany({
         where: { id: selected.id, organizationId },
         select: {
-          id: true, itemName: true, sellerSku: true, modelNumber: true,
+          id: true, itemName: true, sellerSku: true, modelNumber: true, barcode: true,
           listing: { select: { displayName: true, channelName: true } },
         },
       });
@@ -68,12 +71,21 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
         itemName: option.itemName,
         sellerSku: option.sellerSku,
         modelNumber: option.modelNumber,
+        barcode: option.barcode,
       })),
       existingComponents: (selected.productVariant?.components ?? []).map((component) => ({
         sellpiaInventorySkuId: component.sellpiaInventorySku.id,
         code: component.sellpiaInventorySku.code,
         quantity: component.quantity,
+        source: recipeSource(component.source),
+        confirmedBy: component.confirmedBy,
+        confirmedAt: component.confirmedAt,
       })),
     };
   }
+}
+
+function recipeSource(value: string): 'manual' | 'deterministic' {
+  if (value === 'manual' || value === 'deterministic') return value;
+  throw new Error(`Unsupported product variant component source: ${value}`);
 }

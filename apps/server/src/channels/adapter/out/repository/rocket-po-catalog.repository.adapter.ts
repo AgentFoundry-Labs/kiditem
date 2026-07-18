@@ -1,14 +1,25 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   CompletedSourceArtifactRun,
 } from '@kiditem/shared/source-import';
 import type { RocketPoCatalogRow } from '@kiditem/shared/rocket-purchase-preview';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT,
+  type ChannelCatalogProductProvisioningPort,
+} from '../../../../products/application/port/in/channel-catalog-product-provisioning.port';
 import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
+import { publishCatalogOperationalProducts } from './channel-catalog-operational-product-publication';
+import {
+  ensureRocketPoCatalogSnapshot,
+  listSavedRocketPos,
+  loadSavedRocketCollection,
+  ROCKET_PO_CATALOG_SOURCE_TYPE,
+} from './rocket-po-catalog-snapshot.repository';
 
-const SOURCE_TYPE = 'coupang_rocket_po_catalog';
+const SOURCE_TYPE = ROCKET_PO_CATALOG_SOURCE_TYPE;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
 
 type PublishInput = Parameters<RocketPoCatalogRepositoryPort['publish']>[0];
@@ -16,13 +27,17 @@ type PublishInput = Parameters<RocketPoCatalogRepositoryPort['publish']>[0];
 @Injectable()
 export class RocketPoCatalogRepositoryAdapter
 implements RocketPoCatalogRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT)
+    private readonly productProvisioner: ChannelCatalogProductProvisioningPort,
+  ) {}
 
-  findActiveRocketAccount(input: {
+  async findActiveRocketAccount(input: {
     organizationId: string;
     channelAccountId: string;
   }) {
-    return this.prisma.channelAccount.findFirst({
+    const account = await this.prisma.channelAccount.findFirst({
       where: {
         id: input.channelAccountId,
         organizationId: input.organizationId,
@@ -31,6 +46,21 @@ implements RocketPoCatalogRepositoryPort {
       },
       select: { vendorId: true },
     });
+    if (!account) return null;
+    const sharedCoupangAccount = await this.prisma.channelAccount.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        channel: 'coupang',
+        status: 'active',
+        isPrimary: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: { vendorId: true },
+    });
+    return {
+      vendorId: account.vendorId,
+      sharedCoupangVendorId: sharedCoupangAccount?.vendorId ?? null,
+    };
   }
 
   publish(input: PublishInput) {
@@ -52,10 +82,56 @@ implements RocketPoCatalogRepositoryPort {
         select: { vendorId: true },
       });
       if (!account) throw new NotFoundException('Active Rocket channel account not found');
-      if (account.vendorId?.trim() !== input.vendorId) {
+      const sharedCoupangAccount = await tx.channelAccount.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channel: 'coupang',
+          status: 'active',
+          isPrimary: true,
+        },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, vendorId: true },
+      });
+      const persistedVendorId = account.vendorId?.trim() ?? '';
+      const sharedCoupangVendorId = sharedCoupangAccount?.vendorId?.trim() ?? '';
+      if (
+        (persistedVendorId.length > 0 && persistedVendorId !== input.vendorId)
+        || (sharedCoupangVendorId.length > 0 && sharedCoupangVendorId !== input.vendorId)
+      ) {
         throw new ConflictException('Rocket vendor identity changed before publication');
       }
+      if (persistedVendorId.length === 0) {
+        const claimed = await tx.channelAccount.updateMany({
+          where: {
+            id: input.channelAccountId,
+            organizationId: input.organizationId,
+            channel: 'rocket',
+            status: 'active',
+            vendorId: account.vendorId,
+          },
+          data: { vendorId: input.vendorId },
+        });
+        if (claimed.count !== 1) {
+          throw new ConflictException('Rocket vendor identity changed before publication');
+        }
+      }
+      if (sharedCoupangAccount && sharedCoupangVendorId.length === 0) {
+        const claimed = await tx.channelAccount.updateMany({
+          where: {
+            id: sharedCoupangAccount.id,
+            organizationId: input.organizationId,
+            channel: 'coupang',
+            status: 'active',
+            vendorId: sharedCoupangAccount.vendorId,
+          },
+          data: { vendorId: input.vendorId },
+        });
+        if (claimed.count !== 1) {
+          throw new ConflictException('Rocket vendor identity changed before publication');
+        }
+      }
 
+      const products = productsFromRows(input.rows);
       const duplicate = await tx.sourceImportRun.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -66,6 +142,11 @@ implements RocketPoCatalogRepositoryPort {
         },
       });
       if (duplicate) {
+        await publishIdentities(tx, this.productProvisioner, input, {
+          sourceImportRunId: duplicate.id,
+          products,
+        });
+        await ensureRocketPoCatalogSnapshot(tx, input, duplicate.id);
         return {
           run: toCompletedRun(duplicate),
           duplicate: true,
@@ -86,13 +167,11 @@ implements RocketPoCatalogRepositoryPort {
           createdBy: input.userId,
         },
       });
-      const identities = await upsertChannelCatalogIdentities(tx, {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        lastImportRunId: sourceRun.id,
-        rawSource: SOURCE_TYPE,
-        products: productsFromRows(input.rows),
+      const identities = await publishIdentities(tx, this.productProvisioner, input, {
+        sourceImportRunId: sourceRun.id,
+        products,
       });
+      await ensureRocketPoCatalogSnapshot(tx, input, sourceRun.id);
       const completed = await tx.sourceImportRun.update({
         where: { id: sourceRun.id },
         data: {
@@ -109,7 +188,43 @@ implements RocketPoCatalogRepositoryPort {
       };
     }, TRANSACTION_OPTIONS);
   }
+
+  listSavedPos(input: Parameters<RocketPoCatalogRepositoryPort['listSavedPos']>[0]) {
+    return listSavedRocketPos(this.prisma, input);
+  }
+
+  loadSavedCollection(
+    input: Parameters<RocketPoCatalogRepositoryPort['loadSavedCollection']>[0],
+  ) {
+    return loadSavedRocketCollection(this.prisma, input);
+  }
 }
+
+async function publishIdentities(
+  tx: Prisma.TransactionClient,
+  productProvisioner: ChannelCatalogProductProvisioningPort,
+  input: PublishInput,
+  context: {
+    sourceImportRunId: string;
+    products: ReturnType<typeof productsFromRows>;
+  },
+) {
+  const identities = await upsertChannelCatalogIdentities(tx, {
+    organizationId: input.organizationId,
+    channelAccountId: input.channelAccountId,
+    lastImportRunId: context.sourceImportRunId,
+    rawSource: SOURCE_TYPE,
+    products: context.products,
+  });
+  await publishCatalogOperationalProducts(tx, productProvisioner, {
+    organizationId: input.organizationId,
+    userId: input.userId,
+    products: context.products,
+    persistedListings: identities.persistedListings,
+  });
+  return identities;
+}
+
 
 function productsFromRows(rows: RocketPoCatalogRow[]) {
   const byProduct = new Map<string, RocketPoCatalogRow>();

@@ -23,13 +23,14 @@ import {
 const repoRoot = join(__dirname, "..", "..");
 
 describe("data migration registry", () => {
-  it("registers baseline metadata and the 0.1.19 freshness backfill", () => {
+  it("registers baseline metadata, freshness, and inventory commitment backfills", () => {
     expect(DATA_MIGRATION_IDS).toEqual([
       "v0.1.4:001_record_agent_os_operator_backbone_release",
       "v0.1.6:001_record_rocket_read_model_release",
       "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
       "v0.1.18:001_migrate_representative_keyword_overrides",
       "v0.1.19:001_sellpia_inventory_freshness",
+      "v0.1.21:001_backfill_inventory_commitments",
       "v0.1.21:001_repair_ad_campaign_daily_business_dates",
       "v0.1.21:002_repair_coupang_ads_daily_conversions",
       "v0.1.21:003_repair_ad_campaign_target_conversions",
@@ -37,23 +38,52 @@ describe("data migration registry", () => {
       "v0.1.21:005_remove_ambiguous_ad_campaign_account_kpis",
     ]);
     expect(
-      DATA_MIGRATION_IDS.slice(0, -1).some((id) =>
+      DATA_MIGRATION_IDS.filter((id) =>
         /backfill|normalize|rewrite|repoint|verify/.test(id),
       ),
-    ).toBe(false);
+    ).toEqual(["v0.1.21:001_backfill_inventory_commitments"]);
   });
 
-  it("registers the ad campaign repair for the current 0.1.21 release", () => {
+  it("registers the 0.1.21 ad campaign repairs and inventory commitment backfill", () => {
+    const migrationIds = dataMigrations.map((migration) => migration.id);
+
+    expect(migrationIds).toContain(
+      "v0.1.21:001_repair_ad_campaign_daily_business_dates",
+    );
+    expect(migrationIds).toContain(
+      "v0.1.21:005_remove_ambiguous_ad_campaign_account_kpis",
+    );
+    expect(migrationIds).toContain("v0.1.21:001_backfill_inventory_commitments");
+  });
+
+  it("stops registering migrations at 0.1.21 and keeps later root releases migration-free", () => {
     const rootVersion = normalizeReleaseVersion(
       readFileSync(join(repoRoot, "VERSION"), "utf8"),
     );
-    expect(rootVersion).toBe("0.1.21");
-    expect(
-      dataMigrations.map((migration) => migration.releaseVersion),
-    ).toContain("0.1.19");
-    expect(dataMigrations.map((migration) => migration.releaseVersion)).toContain(
-      rootVersion,
+    const releaseVersions = dataMigrations.map(
+      (migration) => migration.releaseVersion,
     );
+    const toParts = (version: string) => version.split(".").map(Number);
+    const compare = (a: string, b: string) => {
+      const left = toParts(a);
+      const right = toParts(b);
+      for (let index = 0; index < Math.max(left.length, right.length); index++) {
+        const diff = (left[index] ?? 0) - (right[index] ?? 0);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    };
+
+    expect(releaseVersions).toContain("0.1.19");
+    expect(releaseVersions).toContain("0.1.21");
+
+    const latestMigrationRelease = [...releaseVersions].sort(compare).at(-1);
+    expect(latestMigrationRelease).toBe("0.1.21");
+    expect(compare(rootVersion, "0.1.21")).toBeGreaterThanOrEqual(0);
+    if (rootVersion !== "0.1.21") {
+      expect(releaseVersions).not.toContain(rootVersion);
+    }
+
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(
         true,

@@ -619,6 +619,81 @@ model RocketPurchaseOrder {
 }
 
 /// @namespace Channels
+/// @describe Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here.
+model RocketPoCatalogSnapshot {
+  id                String @id @default(uuid()) @db.Uuid
+  organizationId    String @map("organization_id") @db.Uuid
+  channelAccountId  String @map("channel_account_id") @db.Uuid
+  sourceImportRunId String @map("source_import_run_id") @db.Uuid
+  collectionRunId   String @map("collection_run_id") @db.Uuid
+
+  vendorId      String @map("vendor_id")
+  listPagesRead Int    @map("list_pages_read")
+  totalListPages Int   @map("total_list_pages")
+  detailPoCount Int    @map("detail_po_count")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount        @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun       @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines           RocketPoCatalogLine[]
+
+  @@unique([id, organizationId], map: "rocket_po_catalog_snapshots_id_org_key")
+  @@unique([sourceImportRunId, organizationId], map: "rocket_po_catalog_snapshots_run_org_key")
+  @@unique([organizationId, channelAccountId, collectionRunId], map: "rocket_po_catalog_snapshots_org_account_collection_key")
+  @@index([organizationId, channelAccountId, createdAt])
+  @@index([channelAccountId])
+  @@index([sourceImportRunId])
+  @@map("rocket_po_catalog_snapshots")
+}
+
+/// @namespace Channels
+/// @describe Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot.
+model RocketPoCatalogLine {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  snapshotId     String @map("snapshot_id") @db.Uuid
+
+  poLineId              String   @map("po_line_id")
+  poNumber              String   @map("po_number")
+  vendorId              String   @map("vendor_id")
+  productNo             String   @map("product_no")
+  barcode               String
+  productName           String   @map("product_name")
+  orderQty              Int      @map("order_qty")
+  plannedDeliveryDate   DateTime @map("planned_delivery_date") @db.Date
+  poStatusCode          String?  @map("po_status_code")
+  businessDateBasis     String?  @map("business_date_basis")
+  hasConfirmation       Boolean  @default(false) @map("has_confirmation")
+  center                String?
+  inboundType           String?  @map("inbound_type")
+  poStatus              String?  @map("po_status")
+  returnManager         String?  @map("return_manager")
+  returnContact         String?  @map("return_contact")
+  returnAddress         String?  @map("return_address")
+  purchasePrice         Int?     @map("purchase_price")
+  supplyPrice           Int?     @map("supply_price")
+  vat                   Int?
+  totalPurchase         Int?     @map("total_purchase")
+  poRegisteredAt        String?  @map("po_registered_at")
+  xdock                 String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshot     RocketPoCatalogSnapshot  @relation(fields: [snapshotId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([snapshotId, poLineId], map: "rocket_po_catalog_lines_snapshot_line_key")
+  @@index([snapshotId])
+  @@index([organizationId, plannedDeliveryDate])
+  @@index([organizationId, poNumber])
+  @@map("rocket_po_catalog_lines")
+}
+
+/// @namespace Channels
 /// @describe Sellpia 판매현황(sale_summary) 몰별·일별 매출 fact. order_search.ajax.html(mode=selldate, 주문일자 기준)에서 판매처(seller)별로 수집. channelGroup 으로 rocket(쿠팡-직배송) / others(쿠팡윙+기타 전체몰) 버킷을 구분해 대시보드 '몰별 매출' 섹션에 표시한다. price=판매금액, buy_price=매입금액, amount=판매수량.
 model SellpiaSalesDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid

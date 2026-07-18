@@ -21,6 +21,8 @@ vi.mock('./components/RocketOrdersWorkspace', () => ({
     <main>
       <h1>쿠팡 로켓 발주</h1>
       <div>달력 · 발주 목록 · 기존 생성 파일 이력</div>
+      {/* 워크스페이스 셸이 셀피아 수량 미리보기까지 소유한다. */}
+      <section>Sellpia 수량 미리보기</section>
       {decisionWorkspace({
         activeMonth: '2026-07',
         onOrdersChanged: vi.fn(),
@@ -53,6 +55,7 @@ describe('/rocket-orders', () => {
     expect(screen.getByRole('heading', { level: 1, name: '쿠팡 로켓 발주' }))
       .toBeInTheDocument();
     expect(screen.getByText('달력 · 발주 목록 · 기존 생성 파일 이력')).toBeInTheDocument();
+    expect(screen.getByText('Sellpia 수량 미리보기')).toBeInTheDocument();
     expect(screen.getByText('발주확정 양식 생성')).toBeInTheDocument();
     expect(screen.getByText('통합 월 달력 · 차트')).toBeInTheDocument();
     // supply 도메인 미리보기 화면은 /rocket-orders 에서는 렌더하지 않는다(단독 화면에만 존재).

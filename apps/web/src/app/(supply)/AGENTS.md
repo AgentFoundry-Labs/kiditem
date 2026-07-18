@@ -13,12 +13,10 @@ state, finance settlement state, or catalog product editing.
 - Purchase-order counts and status filters
 - Coupang Rocket collection, component-capacity preview, confirmation,
   workbook, and allocation-release workspace
-- Active Rocket ChannelAccount selector on the real `/purchase-orders` route
-- Canonical `/purchase-orders?tab=general|rocket` workspace with one heading
-  and inactive-tab unmounting
-- The Rocket tab is an additive deterministic preview. The same preview contract
-  is also wired into the capacity-decision placeholder on the preserved
-  `/rocket-orders` screen; neither route redirects to or replaces the other.
+- Supply-owned Rocket preview components and action contracts composed into the
+  capacity-decision placeholder on the preserved `/rocket-orders` screen
+- `/purchase-orders` remains the general supplier purchase-order workspace;
+  Rocket review is not duplicated there.
 
 ## Data Flow
 
@@ -30,9 +28,13 @@ React Query + apiClient
 
 logged-in order-collector extension
   -> collectRocketPoRows with a browser-created runId
-  -> POST /api/purchase-orders { action: 'previewRocket' | 'confirmRocket' |
-     'releaseRocketConfirmation', ... }
-  -> preview, internal capacity allocation, official workbook download, release
+-> POST /api/purchase-orders { action: 'previewRocket' | 'confirmRocket' |
+'releaseRocketConfirmation' | 'listSavedRocketPos' |
+'loadSavedRocketCollection' | 'listRocketCommitments' |
+'settleRocketFinalOrderCommitments' | 'releaseRocketFinalOrderCommitments', ... }
+  -> immutable PO catalog evidence, collection-scoped safe recipe automation,
+     current-inventory preview, internal capacity allocation, official workbook
+     download, release
 ```
 
 ## State Rules
@@ -51,28 +53,38 @@ logged-in order-collector extension
   error because provider failures may persist a terminal attempt before the API
   rejects.
 - General purchase filters and paging belong in the route and preserve
-  `orderId`/`supplierId`; backend owns status transitions and totals. The
-  top-level `tab` query key is URL-authoritative and preserves those filters.
+  `orderId`/`supplierId`; backend owns status transitions and totals.
 - Keep purchase-order creation payloads aligned with backend DTO semantics.
 - Rocket preview quantities are editable only up to the backend-recomputed
-  maximum. Recalculation must collect a fresh evidence run instead of reusing
-  stale browser rows.
-- Every recollection first sends an unedited preview to learn the current gated
-  backend maxima. Edit keys are intersected with the fresh PO line IDs, clamped
-  to that response, and only then reapplied with the backend's explicit joint
-  clamp mode when retained edits exist. UI state uses the effective edited
-  quantities returned by that second preview because multiple rows may share
-  the same component stock.
-- Changing the selected Rocket ChannelAccount remounts the workspace so dates,
-  errors, preview rows, and edits never cross account boundaries.
+  maximum. Explicit new collection creates fresh provider evidence. A completed
+  persisted catalog snapshot may be reopened, but every reopen reruns Inventory
+  freshness and capacity; persisted inventory quantities are never reused.
+- Recollection intersects retained edit keys with fresh PO lines and sends all
+  retained edits once using the backend's joint clamp mode. UI state uses the
+  returned effective quantities because multiple rows may share component
+  stock. Any later edit marks the preview dirty and confirmation stays disabled
+  until one whole-preview revalidation succeeds.
+- Changing the selected Rocket ChannelAccount remounts account-scoped errors,
+  preview rows, and edits. The `/rocket-orders` calendar owns the date range,
+  so that range remains unchanged while the selected account changes.
+- Rocket's deterministic matching panel is read-only. It displays the safe
+  recipes applied by the current completed collection and the remaining review
+  or blocked counts. Each product-level status deep-links to
+  `/product-hub/matching` with both `channelAccountId` and `status`; the product
+  matching center owns explicit reruns and focused corrections.
 - Confirmation stays disabled until the backend has published a complete
   catalog, all rows include authoritative workbook fields, and the operator has
   reviewed every quantity/shortage reason.
 - Confirmation uses a browser-created UUID idempotency key and downloads the
-  workbook only after the server persists the allocation. Allocation release
-  requires an explicit operator reason after cancellation or after the real
-  stock movement appears in Sellpia, then requires a fresh preview before
-  reconfirming.
+  workbook only after the server persists the allocation. Persisted request/
+  final commitments remain durable after refresh but are not rendered as a
+  separate operator list on the Rocket review page. Provisional cancellation is a release;
+  final-order settlement requires a newer Sellpia snapshot proving the
+  movement, while final-order cancellation requires an explicit release
+  reason.
+- Commitment and preview tables use scoped horizontal overflow, explicit
+  minimum widths, truncated product names, and non-wrapping identifiers/actions.
+  Do not apply these rules to every table globally.
 
 ## Boundary Rules
 

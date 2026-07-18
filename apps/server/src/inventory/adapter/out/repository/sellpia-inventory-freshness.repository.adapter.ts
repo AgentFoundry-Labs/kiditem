@@ -14,6 +14,7 @@ import type {
   SellpiaInventoryStatePatch,
 } from '../../../application/port/out/repository/sellpia-inventory-freshness.repository.port';
 import type { SellpiaInventoryFreshnessState } from '../../../domain/policy/sellpia-inventory-freshness.policy';
+import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
 const SOURCE_TYPE = 'sellpia_inventory';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -33,10 +34,7 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     ) => Promise<T>,
   ): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
-      const lockKey = `inventory-sellpia:${input.organizationId}:${SOURCE_TYPE}`;
-      await tx.$queryRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-      `;
+      await lockSellpiaInventoryTransaction(tx, input.organizationId);
       const initialState = input.createInitialState();
       await tx.sellpiaInventoryState.upsert({
         where: { organizationId: input.organizationId },
@@ -401,14 +399,47 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
 
   findInventorySkus(
     sellpiaInventorySkuIds: string[],
-  ): Promise<Array<{ id: string; isActive: boolean; currentStock: number }>> {
-    return this.tx.sellpiaInventorySku.findMany({
+  ): Promise<Array<{
+    id: string;
+    isActive: boolean;
+    currentStock: number;
+    activeCommitmentQuantity: number;
+  }>> {
+    return this.findInventorySkusWithCommitments(sellpiaInventorySkuIds);
+  }
+
+  private async findInventorySkusWithCommitments(
+    sellpiaInventorySkuIds: string[],
+  ) {
+    const inventorySkus = await this.tx.sellpiaInventorySku.findMany({
       where: {
         organizationId: this.organizationId,
         id: { in: sellpiaInventorySkuIds },
       },
       select: { id: true, isActive: true, currentStock: true },
     });
+    const commitmentTotals = await this.tx.inventoryCommitmentAllocation.groupBy({
+      by: ['sellpiaInventorySkuId'],
+      where: {
+        organizationId: this.organizationId,
+        sellpiaInventorySkuId: { in: sellpiaInventorySkuIds },
+        commitment: {
+          is: {
+            status: 'active',
+            organizationId: this.organizationId,
+          },
+        },
+      },
+      _sum: { quantity: true },
+    });
+    const activeBySkuId = new Map(commitmentTotals.map((total) => [
+      total.sellpiaInventorySkuId,
+      total._sum.quantity ?? 0,
+    ]));
+    return inventorySkus.map((sku) => ({
+      ...sku,
+      activeCommitmentQuantity: activeBySkuId.get(sku.id) ?? 0,
+    }));
   }
 }
 

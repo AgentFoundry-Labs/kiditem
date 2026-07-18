@@ -70,8 +70,8 @@ Important ownership rules:
   operational surfaces.
 - `/rocket-orders` keeps its `c9e7caf8` shell and replaces the existing
   `납품 수량 판단 추후 연동` placeholder with the deterministic Sellpia
-  freshness/component-capacity preview. `/purchase-orders?tab=rocket` may expose
-  the same preview capability without replacing either route's layout.
+  freshness/component-capacity preview. `/purchase-orders` remains the general
+  supplier purchase-order screen and does not expose a duplicate Rocket view.
 - `/product-hub/options` keeps the dedicated complete, read-only Sellpia
   inventory table.
 

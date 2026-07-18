@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ChannelsModule } from '../channels/channels.module';
+import { PrismaModule } from '../prisma/prisma.module';
+import { SupplyModule } from '../supply/supply.module';
 import { OrdersController } from './controllers/orders.controller';
 import { OrdersService } from './services/orders.service';
 import { ReturnsController } from './controllers/returns.controller';
@@ -17,9 +19,13 @@ import { ReturnTransfersController } from './return-transfers/return-transfers.c
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
 import { RocketPoController } from './controllers/rocket-po.controller';
 import { RocketPoConfirmService } from './services/rocket-po-confirm.service';
+import { CoupangDirectOrderCollectionService } from './application/service/coupang-direct-order-collection.service';
+import { CoupangDirectOrderCollectionTransactionAdapter } from './adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
+import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from './application/port/in/coupang-direct-order-collection.port';
+import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/port/out/transaction/coupang-direct-order-collection.transaction.port';
 
 @Module({
-  imports: [ChannelsModule],
+  imports: [ChannelsModule, PrismaModule, SupplyModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
@@ -40,6 +46,16 @@ import { RocketPoConfirmService } from './services/rocket-po-confirm.service';
     ReviewsService,
     ReturnTransfersService,
     RocketPoConfirmService,
+    CoupangDirectOrderCollectionService,
+    CoupangDirectOrderCollectionTransactionAdapter,
+    {
+      provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
+      useExisting: CoupangDirectOrderCollectionService,
+    },
+    {
+      provide: COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT,
+      useExisting: CoupangDirectOrderCollectionTransactionAdapter,
+    },
   ],
 })
 export class OrdersModule {}

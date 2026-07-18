@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductsPageContent from './ProductsPageContent';
+import type { MasterProductOperationsListResponse } from '@kiditem/shared/product-operations';
 
 const state = vi.hoisted(() => ({
   abcGrade: '',
@@ -26,6 +27,12 @@ const state = vi.hoisted(() => ({
       healthUpdatedAt: null,
       isActive: true,
       updatedAt: '2026-07-16T01:00:00.000Z',
+      depletion: {
+        coverage: 'shared' as const,
+        needsReorder: true,
+        reorderSkuCount: 1,
+        minMonthsOfAvailableStockLeft: 0.5,
+      },
       variantSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 17,
       inventoryStatus: 'configuration_required' as const,
@@ -51,8 +58,13 @@ const state = vi.hoisted(() => ({
         review_required: 14,
       },
       negativeProfitCount: 8,
+      reorderProductCount: 12,
+      depletionCoveredProductCount: 54,
+      sharedDepletionProductCount: 7,
     },
   },
+  overviewData: undefined as MasterProductOperationsListResponse | undefined,
+  overviewErrorMessage: null as string | null,
   errorMessage: null as string | null,
   goToPage: vi.fn(),
   handleSearch: vi.fn((event: { preventDefault: () => void }) => event.preventDefault()),
@@ -74,6 +86,7 @@ const state = vi.hoisted(() => ({
   totalPages: 3,
 }));
 const defaultData = state.data;
+state.overviewData = defaultData;
 
 vi.mock('../hooks/useProductHubPageState', () => ({
   PAGE_SIZE: 50,
@@ -88,6 +101,8 @@ describe('<ProductsPageContent>', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.data = defaultData;
+    state.overviewData = defaultData;
+    state.overviewErrorMessage = null;
     state.errorMessage = null;
   });
 
@@ -127,10 +142,10 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
     expect(screen.getByText(/KI-001/)).toBeInTheDocument();
     expect(screen.getAllByText('재고 연결 필요').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('미수집').length).toBeGreaterThan(0);
+    expect(screen.getByText(/공유 SKU 기준/)).toBeInTheDocument();
     const inventoryCard = screen.getByText('재고관리').closest('article');
     expect(inventoryCard).not.toBeNull();
-    expect(within(inventoryCard!).getAllByText('미수집').length).toBeGreaterThan(0);
+    expect(within(inventoryCard!).getByText('기준 미정')).toBeInTheDocument();
     expect(inventoryCard).not.toHaveTextContent('17');
   });
 
@@ -182,6 +197,27 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getAllByText('9').length).toBeGreaterThan(0);
     expect(screen.getAllByText('29').length).toBeGreaterThan(0);
     expect(screen.getAllByText('8').length).toBeGreaterThan(0);
+  });
+
+  it('keeps overview metrics global while filters change only the product list result', () => {
+    state.data = {
+      ...defaultData,
+      total: 9,
+      summary: {
+        ...defaultData.summary,
+        abcGradeCounts: { A: 1, B: 2, C: 6 },
+        channelConnectionCounts: { connected: 8, unconnected: 1 },
+      },
+    };
+    state.overviewData = defaultData;
+
+    render(<ProductsPageContent headingLevel={1} />);
+
+    const catalogCard = screen.getByText('카탈로그 상품 전체').closest('article');
+    expect(catalogCard).not.toBeNull();
+    expect(within(catalogCard!).getByText('126')).toBeInTheDocument();
+    expect(within(catalogCard!).getByText('120')).toBeInTheDocument();
+    expect(screen.getByText('9개 표시')).toBeInTheDocument();
   });
 
   it('shows a load error without also claiming a valid empty result', () => {

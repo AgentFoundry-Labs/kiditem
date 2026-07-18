@@ -1,0 +1,48 @@
+name: Develop Validation
+
+on:
+  push:
+    branches:
+      - develop
+
+concurrency:
+  group: develop-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-validation:
+    name: Develop full validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build deployable workspaces
+        run: |
+          npm run build --workspace=packages/shared
+          npm run build --workspace=packages/templates
+          npm run build --workspace=apps/server
+          npm run build --workspace=apps/web
+
+      - name: Test integration runtime helpers
+        run: npm exec --workspace=apps/server vitest -- run src/test-helpers/__tests__/postgres-global-setup.spec.ts src/test-helpers/__tests__/real-prisma.spec.ts
+
+      - name: Run PostgreSQL integration tests
+        run: npm run test:integration

@@ -136,7 +136,7 @@ describe('computeSeasonTag', () => {
 describe('computeReorder', () => {
   it('현재고 미수집(null)이면 계산 보류', () => {
     expect(computeReorder(null, 400)).toEqual({
-      monthsOfStockLeft: null,
+      monthsOfAvailableStockLeft: null,
       reorderPoint: null,
       needsReorder: false,
     });
@@ -146,16 +146,16 @@ describe('computeReorder', () => {
     const r = computeReorder(200, 400);
     expect(r.reorderPoint).toBe(600);
     expect(r.needsReorder).toBe(true);
-    expect(r.monthsOfStockLeft).toBe(0.5);
+    expect(r.monthsOfAvailableStockLeft).toBe(0.5);
   });
   it('재고 충분하면 발주 아님', () => {
     const r = computeReorder(2000, 400);
     expect(r.needsReorder).toBe(false);
-    expect(r.monthsOfStockLeft).toBe(5);
+    expect(r.monthsOfAvailableStockLeft).toBe(5);
   });
   it('무판매(월평균 0)면 발주 대상 아님, 잔여 개월수 null', () => {
     const r = computeReorder(100, 0);
     expect(r.needsReorder).toBe(false);
-    expect(r.monthsOfStockLeft).toBeNull();
+    expect(r.monthsOfAvailableStockLeft).toBeNull();
   });
 });

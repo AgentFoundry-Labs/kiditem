@@ -16,6 +16,9 @@ export type SellpiaInventorySkuReadModel = {
 };
 
 export interface SellpiaInventorySkuReadPort {
+  listActiveForMatching(
+    organizationId: string,
+  ): Promise<SellpiaInventorySkuReadModel[]>;
   findByIds(
     organizationId: string,
     ids: string[],
@@ -27,6 +30,10 @@ export interface SellpiaInventorySkuReadPort {
   findByBarcodes(
     organizationId: string,
     barcodes: string[],
+  ): Promise<SellpiaInventorySkuReadModel[]>;
+  findByNormalizedBarcodes(
+    organizationId: string,
+    normalizedBarcodes: string[],
   ): Promise<SellpiaInventorySkuReadModel[]>;
   findByNormalizedNames(
     organizationId: string,

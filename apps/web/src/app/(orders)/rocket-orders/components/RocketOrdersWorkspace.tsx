@@ -1,8 +1,10 @@
 'use client';
 
-import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
+import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-preview';
 import {
   ChevronDown,
   ChevronRight,
@@ -15,9 +17,12 @@ import {
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { listRocketPosFromExtension, type RocketPoSummary } from '../lib/rocket-confirm-api';
+import { RocketPurchasePreviewSection } from '@/app/(supply)/purchase-orders/components/RocketPurchasePreviewSection';
+import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
 import { RocketConfirmFileList } from './RocketConfirmFileList';
+import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
 import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
+import { useRocketOrderActivity } from '../hooks/useRocketOrderActivity';
 import type { RocketChartPoint } from './RocketOrdersChart';
 
 const RocketOrdersChart = dynamic(
@@ -35,7 +40,7 @@ const STATUS_OPTIONS = [
 ];
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-const EMPTY_ROCKET_POS: RocketPoSummary[] = [];
+const EMPTY_ROCKET_POS: RocketSavedPoSummary[] = [];
 
 interface RocketCalDay {
   date: string;
@@ -109,11 +114,35 @@ export function RocketOrdersWorkspace({
   const [status, setStatus] = useState('');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [view, setView] = useState<'month' | 'chart'>('month');
-  const [openPo, setOpenPo] = useState<number | null>(null);
+  // 발주 행 키는 `${sourceImportRunId}:${poNumber}` 문자열이다.
+  const [openPo, setOpenPo] = useState<string | null>(null);
+  // 로켓 채널 계정 선택 / 저장 수집본 재미리보기 (product-centered 재고 매칭)
+  const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
+  const [selectedSavedSourceImportRunId, setSelectedSavedSourceImportRunId] = useState<string | null>(null);
+  const { events, record: recordActivity } = useRocketOrderActivity();
+
+  const handleRocketAccountChange = useCallback((account: { id: string }) => {
+    setSelectedRocketAccountId(account.id);
+  }, []);
+
+  useEffect(() => {
+    setSelectedSavedSourceImportRunId(null);
+  }, [selectedRocketAccountId]);
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: queryKeys.orders.rocketPoList({ from, to, status }),
-    queryFn: () => listRocketPosFromExtension(from, to, status),
+    queryKey: queryKeys.orders.rocketSavedPoList({
+      channelAccountId: selectedRocketAccountId,
+      from,
+      to,
+      status,
+    }),
+    queryFn: () => listSavedRocketPos({
+      channelAccountId: selectedRocketAccountId,
+      from,
+      to,
+      status: status || undefined,
+    }),
+    enabled: selectedRocketAccountId.length > 0,
     meta: { suppressGlobalErrorToast: true },
     staleTime: 0,
     retry: false,
@@ -124,9 +153,9 @@ export function RocketOrdersWorkspace({
 
   // 입고예정일별 그룹
   const byDate = useMemo(() => {
-    const next = new Map<string, RocketPoSummary[]>();
+    const next = new Map<string, RocketSavedPoSummary[]>();
     for (const order of orders) {
-      const key = order.eta || '미정';
+      const key = order.plannedDeliveryDate || '미정';
       const arr = next.get(key);
       if (arr) arr.push(order);
       else next.set(key, [order]);
@@ -138,7 +167,7 @@ export function RocketOrdersWorkspace({
     return {
       date,
       count: pos.length,
-      qty: pos.reduce((s, o) => s + o.orderQty, 0),
+      qty: pos.reduce((s, o) => s + o.orderQuantity, 0),
       amount: pos.reduce((s, o) => s + o.orderAmount, 0),
     };
   }), [byDate, from, to]);
@@ -148,7 +177,7 @@ export function RocketOrdersWorkspace({
   );
   const { totalAmount, totalQty } = useMemo(() => ({
     totalAmount: scoped.reduce((s, o) => s + o.orderAmount, 0),
-    totalQty: scoped.reduce((s, o) => s + o.orderQty, 0),
+    totalQty: scoped.reduce((s, o) => s + o.orderQuantity, 0),
   }), [scoped]);
 
   // 달력/차트용 일자 데이터
@@ -157,7 +186,7 @@ export function RocketOrdersWorkspace({
     for (const [date, pos] of byDate) {
       record[date] = {
         count: pos.length,
-        qty: pos.reduce((s, o) => s + o.orderQty, 0),
+        qty: pos.reduce((s, o) => s + o.orderQuantity, 0),
         amount: pos.reduce((s, o) => s + o.orderAmount, 0),
       };
     }
@@ -292,14 +321,14 @@ export function RocketOrdersWorkspace({
               </button>
             ))}
           </div>
-          <span className="text-xs text-slate-400">실시간 조회 우선 · 저장된 발주로 빈 날짜 보완</span>
+          <span className="text-xs text-slate-400">수집·저장된 발주 조회 · 확정 발주로 빈 날짜 보완</span>
         </div>
 
         {isError ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
-            <p className="text-sm font-medium text-amber-800">실시간 발주 목록을 불러오지 못했습니다</p>
+            <p className="text-sm font-medium text-amber-800">저장된 발주 목록을 불러오지 못했습니다</p>
             <p className="mt-1 text-xs text-amber-600">
-              {error instanceof Error ? error.message : '주문수집 확장 + supplier.coupang.com 로그인을 확인하세요.'}
+              {error instanceof Error ? error.message : '서버에 저장된 로켓 발주 수집본과 채널 계정을 확인하세요.'}
             </p>
             <button
               type="button"
@@ -331,7 +360,7 @@ export function RocketOrdersWorkspace({
 
         {!isLoading && view === 'chart' && !hasRangeOrders ? (
           <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-8 text-center text-sm text-slate-400">
-            차트로 표시할 실시간 발주 데이터가 없습니다.
+            차트로 표시할 발주 데이터가 없습니다.
           </div>
         ) : null}
 
@@ -342,17 +371,18 @@ export function RocketOrdersWorkspace({
     );
   }
 
-  function renderPoRow(po: RocketPoSummary) {
-    const open = openPo === po.poSeq;
+  function renderPoRow(po: RocketSavedPoSummary) {
+    const poKey = `${po.sourceImportRunId}:${po.poNumber}`;
+    const open = openPo === poKey;
     const isNew = po.status === '거래처확인요청';
     return (
-      <Fragment key={po.poSeq}>
+      <Fragment key={poKey}>
         <div
           className={cn(
             'grid cursor-pointer grid-cols-[110px_minmax(0,1fr)_88px_120px_130px] items-center gap-2 border-b border-slate-100 px-4 py-2.5 text-sm hover:bg-slate-50',
             open && 'bg-purple-50/50',
           )}
-          onClick={() => setOpenPo(open ? null : po.poSeq)}
+          onClick={() => setOpenPo(open ? null : poKey)}
         >
           <div className="flex items-center gap-1 font-mono text-[11px] text-slate-500">
             {open ? (
@@ -360,11 +390,11 @@ export function RocketOrdersWorkspace({
             ) : (
               <ChevronRight size={13} className="flex-none text-slate-400" />
             )}
-            {po.poSeq}
+            {po.poNumber}
           </div>
           <div className="min-w-0">
             <div className="truncate text-slate-800">
-              {po.firstSkuName || '—'}
+              {po.firstProductName || '—'}
               {po.skuCount > 1 && <span className="text-slate-400"> 외 {po.skuCount - 1}종</span>}
             </div>
             <div className="text-[11px] text-slate-400">
@@ -373,7 +403,7 @@ export function RocketOrdersWorkspace({
               {po.orderedAt && ` · 발주 ${po.orderedAt}`}
             </div>
           </div>
-          <div className="text-right tabular-nums text-slate-600">{formatNumber(po.orderQty)}개</div>
+          <div className="text-right tabular-nums text-slate-600">{formatNumber(po.orderQuantity)}개</div>
           <div className="text-right font-semibold tabular-nums text-slate-800">{formatKRW(po.orderAmount)}원</div>
           <div className="text-center">
             <span
@@ -391,6 +421,13 @@ export function RocketOrdersWorkspace({
             <div className="text-[11px] text-slate-400">
               품목 {formatNumber(po.skuCount)}종 · 아래 납품 판단에서 Sellpia 구성 수량을 검토합니다.
             </div>
+            <button
+              type="button"
+              onClick={() => setSelectedSavedSourceImportRunId(po.sourceImportRunId)}
+              className="mt-2 rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-xs font-bold text-purple-700 hover:bg-purple-50"
+            >
+              저장 수집본으로 미리보기
+            </button>
           </div>
         )}
       </Fragment>
@@ -403,7 +440,7 @@ export function RocketOrdersWorkspace({
     if (!dayPos.length) {
       return (
         <div className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center">
-          <p className="text-sm font-medium text-slate-600">{selectedDay} 실시간 발주 목록이 없습니다.</p>
+          <p className="text-sm font-medium text-slate-600">{selectedDay} 발주 목록이 없습니다.</p>
           <p className="mt-1 text-xs text-slate-400">
             저장된 발주만 있는 날짜라면 위 재고 매칭 미리보기에서 내용을 확인할 수 있습니다.
           </p>
@@ -412,7 +449,7 @@ export function RocketOrdersWorkspace({
     }
 
     const dow = dowOf(selectedDay);
-    const dayQty = dayPos.reduce((sum, order) => sum + order.orderQty, 0);
+    const dayQty = dayPos.reduce((sum, order) => sum + order.orderQuantity, 0);
     const dayAmount = dayPos.reduce((sum, order) => sum + order.orderAmount, 0);
     return (
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -428,7 +465,11 @@ export function RocketOrdersWorkspace({
             <b className="text-purple-600">{formatKRW(dayAmount)}</b>원
           </div>
         </div>
-        {dayPos.map(renderPoRow)}
+        <div data-testid="rocket-po-table-scroll" className="overflow-x-auto">
+          <div className="min-w-[760px]">
+            {dayPos.map(renderPoRow)}
+          </div>
+        </div>
       </div>
     );
   }
@@ -443,7 +484,7 @@ export function RocketOrdersWorkspace({
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">쿠팡 로켓 발주</h1>
-            <div className="text-sm text-slate-500">전체 발주 실시간 조회 · 입고예정일별 분류</div>
+            <div className="text-sm text-slate-500">수집·저장된 발주 조회 · 입고예정일별 분류</div>
           </div>
         </div>
         <button
@@ -451,7 +492,7 @@ export function RocketOrdersWorkspace({
           disabled={isFetching}
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
         >
-          <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} /> 불러오기
+          <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} /> 저장 발주 새로고침
         </button>
       </div>
 
@@ -474,13 +515,26 @@ export function RocketOrdersWorkspace({
         })}
       </div>
 
+      {/* 재고 매칭 미리보기 (product-centered) + 이 페이지 작업 활동 로그 */}
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <RocketPurchasePreviewSection
+          from={from}
+          to={to}
+          savedSourceImportRunId={selectedSavedSourceImportRunId}
+          onAccountChange={handleRocketAccountChange}
+          onCatalogSaved={() => void refetch()}
+          onActivity={recordActivity}
+        />
+        <RocketOrderActivityPanel events={events} />
+      </div>
+
       {decisionWorkspace({
         activeMonth: (from || todayYmd()).slice(0, 7),
         onOrdersChanged: () => void refetch(),
         renderOrderExplorer,
       })}
 
-      {/* 날짜를 선택한 경우에만 해당 날짜의 실시간 발주 목록을 표시한다. */}
+      {/* 날짜를 선택한 경우에만 해당 날짜의 발주 목록을 표시한다. */}
       {selectedDay && renderSelectedOrderList()}
 
       {/* 기존 생성 파일 이력 (목록 · 재다운로드 · 삭제) */}

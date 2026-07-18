@@ -224,6 +224,7 @@ model RocketPurchaseConfirmationLine {
   poLineId               String   @map("po_line_id") @db.VarChar(300)
   poNumber               String   @map("po_number") @db.VarChar(80)
   productNo              String   @map("product_no") @db.VarChar(60)
+  barcode                String?  @db.VarChar(80)
   productName            String   @map("product_name") @db.VarChar(240)
   orderQuantity          Int      @map("order_quantity")
   confirmedQuantity      Int      @map("confirmed_quantity")

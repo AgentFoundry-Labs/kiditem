@@ -9,12 +9,15 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { upsertChannelCatalogIdentities } from '../adapter/out/repository/channel-catalog-identity-upsert';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
+import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
+import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -23,15 +26,21 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let repository: ChannelProductMatchingRepositoryAdapter;
   let service: ChannelProductMatchingService;
+  let availabilityService: ChannelSkuAvailabilityService;
   let completedRunId: string;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new ChannelProductMatchingRepositoryAdapter(
-      prisma as unknown as PrismaService,
+    const prismaService = prisma as unknown as PrismaService;
+    repository = new ChannelProductMatchingRepositoryAdapter(prismaService);
+    availabilityService = new ChannelSkuAvailabilityService(
+      repository,
+      new InventoryCommitmentService(
+        new InventoryCommitmentRepositoryAdapter(prismaService),
+      ),
     );
-    service = new ChannelProductMatchingService(repository);
+    service = new ChannelProductMatchingService(repository, availabilityService);
   });
 
   afterAll(async () => {
@@ -41,6 +50,14 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+        lastVerifiedAt: new Date(),
+      },
+    });
     await prisma.channelAccount.createMany({
       data: [
         {
@@ -212,7 +229,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SP-ACTIVE',
         name: 'Active',
-        currentStock: 8,
+        currentStock: 10,
       },
     });
     const inactiveSku = await prisma.sellpiaInventorySku.create({
@@ -224,7 +241,25 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         isActive: false,
       },
     });
-    const configured = await createProduct('KI-CONFIGURED', 'Configured', activeSku.id, 3);
+    const configured = await createProduct('KI-CONFIGURED', 'Configured', activeSku.id, 2);
+    await prisma.inventoryCommitment.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        kind: 'rocket_request',
+        sourceId: randomUUID(),
+        businessKey: `matching-capacity:${randomUUID()}`,
+        unitQuantity: 4,
+        status: 'active',
+        createdBy: TEST_USER_ID,
+        allocations: {
+          create: {
+            sellpiaInventorySkuId: activeSku.id,
+            unitsPerItem: 1,
+            quantity: 4,
+          },
+        },
+      },
+    });
     const review = await createProduct('KI-REVIEW', 'Review');
     await prisma.productVariantComponent.create({
       data: {
@@ -267,7 +302,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     ]));
     expect(byExternalId.get('O-MATCHED')).toMatchObject({
       recipeStatus: 'matched',
-      capacity: 2,
+      capacity: 3,
     });
     expect(byExternalId.get('O-REVIEW')).toMatchObject({
       recipeStatus: 'review_required',
@@ -320,7 +355,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       recipeStatus: 'review_required',
       capacity: null,
     });
-    const availability = await new ChannelSkuAvailabilityService(repository).findByChannelSkuIds(
+    const availability = await availabilityService.findByChannelSkuIds(
       TEST_ORGANIZATION_ID,
       [option.id],
     );

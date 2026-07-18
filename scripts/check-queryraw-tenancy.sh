@@ -10,6 +10,9 @@
 #   - `FOR UPDATE` row locks on UUID primary key (id = ${uuid}::uuid FOR UPDATE) —
 #     tenancy is enforced by the subsequent Prisma findFirst({ id, organizationId }).
 #   - `nextval('...')` sequence calls — globally scoped sequence, no tenant data.
+#   - Explicitly reviewed organization-scoped advisory locks with the exact
+#     `queryraw-tenancy-exempt: organization-scoped advisory lock` marker. These
+#     serialize by a key containing organizationId and do not read tenant rows.
 #
 # Exits 1 if any non-exempt site is missing the binding.
 # Uses ripgrep (rg) — BSD grep lacks reliable multi-line context.
@@ -91,6 +94,13 @@ for file in "${FILES[@]}"; do
       continue
     fi
 
+    # Exempt: explicitly reviewed organization-scoped advisory lock. Keep this
+    # marker narrow so unrelated raw SQL cannot bypass the tenant-row binding.
+    if echo "$window" | rg -q 'queryraw-tenancy-exempt: organization-scoped advisory lock' \
+      && echo "$window" | rg -q 'pg_advisory_xact_lock'; then
+      continue
+    fi
+
     # Not compliant, not exempt.
     file_failed=true
     break
@@ -108,7 +118,7 @@ if [ ${#FAILURES[@]} -gt 0 ]; then
   done
   echo ""
   echo "Every \$queryRaw must bind WHERE organization_id = \${organizationId}::uuid"
-  echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence.)"
+  echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence, explicitly reviewed organization-scoped advisory lock.)"
   exit 1
 fi
 

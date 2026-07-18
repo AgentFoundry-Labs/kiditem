@@ -31,8 +31,15 @@ the image build fails if that runtime asset cannot be resolved.
 
 ## CI/CD Gates
 
-- PR checks run workflow lint, deploy shell lint, app lint, app builds, real
-  Postgres integration tests, and reconstruction/release/convention scanners.
+- PR checks intentionally run only one fast `git diff --check` hygiene job.
+  Authors run the scoped `AGENTS.md` verification and PR body guards locally;
+  builds and integration tests do not block the PR feedback loop.
+- Every push to `develop` runs one clean dependency install, all deployable
+  workspace builds, and the real Postgres integration suite. A newer push
+  cancels an obsolete run so only the latest accumulated `develop` HEAD is
+  validated.
+- Workflow, deploy shell, Compose, and Terraform changes keep their focused
+  local syntax checks; those checks are no longer repeated for unrelated PRs.
 - Image builds are centralized in `.github/workflows/build-image.yml`.
 - Staging deploy pushes `:staging` as a convenience tag but deploys the digest
   reference emitted by the build job.
