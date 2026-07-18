@@ -11,6 +11,8 @@ import { CategoriesModule } from '../categories/categories.module';
 import { ProductsModule } from '../products.module';
 import { InventoryModule } from '../../inventory/inventory.module';
 import { AnalyticsModule } from '../../analytics/analytics.module';
+import { PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT } from '../application/port/in/product-variant-recipe-automation.port';
+import { ProductVariantRecipeAutomationService } from '../application/service/product-variant-recipe-automation.service';
 
 describe('Products architecture', () => {
   it('publishes the eight product-operation routes', () => {
@@ -60,5 +62,17 @@ describe('Products architecture', () => {
     expect(exports).not.toContain(ChannelCatalogProductProvisioningService);
     expect(exports).not.toContain(ChannelCatalogProductProvisioningRepositoryAdapter);
     expect(exports).not.toContain(CHANNEL_CATALOG_PRODUCT_PROVISIONING_REPOSITORY_PORT);
+  });
+
+  it('exports the Products-owned deterministic recipe capability', () => {
+    const providers = Reflect.getMetadata('providers', ProductsModule) ?? [];
+    expect(providers).toContain(ProductVariantRecipeAutomationService);
+    expect(providers).toContainEqual({
+      provide: PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT,
+      useExisting: ProductVariantRecipeAutomationService,
+    });
+    const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
+    expect(exports).toContain(PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT);
+    expect(exports).not.toContain(ProductVariantRecipeAutomationService);
   });
 });
