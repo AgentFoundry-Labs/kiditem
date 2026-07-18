@@ -13,7 +13,10 @@ import {
   previewRocketPurchases,
   releaseRocketPurchaseConfirmation,
 } from '../lib/rocket-purchase-preview-api';
-import { buildRocketConfirmationWorkbook } from '../lib/rocket-confirmation-workbook';
+import {
+  buildRocketConfirmationWorkbook,
+  fillRocketConfirmationWorkbook,
+} from '../lib/rocket-confirmation-workbook';
 import { RocketPurchaseWorkspace } from './RocketPurchaseWorkspace';
 import type {
   RocketPoCatalogPublication,
@@ -36,6 +39,7 @@ vi.mock('./RocketDeterministicMatchingPanel', () => ({
 }));
 vi.mock('../lib/rocket-confirmation-workbook', () => ({
   buildRocketConfirmationWorkbook: vi.fn(),
+  fillRocketConfirmationWorkbook: vi.fn(),
 }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
 vi.mock('@/lib/rocket-confirm-file-store', () => ({ saveRocketConfirmFile: vi.fn() }));
@@ -170,6 +174,16 @@ describe('RocketPurchaseWorkspace', () => {
         shortRows: 1,
       },
     });
+    vi.mocked(fillRocketConfirmationWorkbook).mockReturnValue({
+      blob: new Blob(['filled-workbook']),
+      fileName: '쿠팡_원본_확정_20260717.xlsx',
+      summary: {
+        totalRows: 1,
+        confirmedQuantity: 3,
+        fullyConfirmedRows: 1,
+        shortRows: 0,
+      },
+    });
     vi.mocked(saveRocketConfirmFile).mockResolvedValue();
   });
 
@@ -278,6 +292,89 @@ describe('RocketPurchaseWorkspace', () => {
     }));
     expect(screen.getByText(/확정 완료/)).toBeInTheDocument();
     expect(screen.getByRole('table')).toHaveClass('table-fixed');
+  });
+
+  it('fills a selected Coupang source workbook instead of replacing its layout', async () => {
+    vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 1,
+        failedPoNumbers: [],
+      },
+      rows: [confirmationLineA],
+      poCount: 1,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      collectionRunId: '22222222-2222-4222-8222-222222222222',
+      catalog: catalogPublication(1),
+      inventoryGeneration: '12',
+      rows: [{
+        ...previewRow(lineA, 3),
+        channelSkuId: '66666666-6666-4666-8666-666666666666',
+        productVariantId: '88888888-8888-4888-8888-888888888888',
+        components: [{
+          sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
+          quantity: 1,
+          currentStock: 3,
+          activeCommitmentQuantity: 0,
+          availableStock: 3,
+          isActive: true,
+        }],
+      }],
+    });
+    vi.mocked(confirmRocketPurchase).mockResolvedValue({
+      confirmationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      status: 'active',
+      duplicate: false,
+      inventoryGeneration: '12',
+      confirmedAt: '2026-07-17T00:00:00.000Z',
+      totals: {
+        lineCount: 1,
+        orderQuantity: 3,
+        confirmedQuantity: 3,
+        allocatedQuantity: 3,
+      },
+      rows: [{
+        poLineId: lineA.poLineId,
+        confirmedQuantity: 3,
+        shortageReason: null,
+      }],
+    });
+    const user = userEvent.setup();
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
+
+    const template = new File(
+      [new Uint8Array([1, 2, 3])],
+      '쿠팡_원본.xlsx',
+      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+    );
+    await user.upload(screen.getByLabelText('쿠팡 원본 양식'), template);
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+    await user.click(await screen.findByRole('button', { name: '확정 후 엑셀 다운로드' }));
+
+    expect(fillRocketConfirmationWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      template: expect.any(ArrayBuffer),
+      templateFileName: '쿠팡_원본.xlsx',
+      sourceRows: [confirmationLineA],
+    }));
+    expect(buildRocketConfirmationWorkbook).not.toHaveBeenCalled();
+    expect(downloadBlob).toHaveBeenCalledWith(
+      expect.any(Blob),
+      '쿠팡_원본_확정_20260717.xlsx',
+    );
+
+    await user.click(screen.getByRole('button', { name: '원본 양식 선택 해제' }));
+    await user.click(screen.getByRole('button', { name: '엑셀 다시 다운로드' }));
+
+    expect(fillRocketConfirmationWorkbook).toHaveBeenCalledTimes(1);
+    expect(buildRocketConfirmationWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      sourceRows: [confirmationLineA],
+    }));
+    expect(downloadBlob).toHaveBeenLastCalledWith(expect.any(Blob), '발주확정_20260717.xlsx');
   });
 
   it('releases an active allocation only with an explicit operator reason', async () => {

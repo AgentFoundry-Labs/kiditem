@@ -16,7 +16,10 @@ import {
   previewRocketPurchases,
   releaseRocketPurchaseConfirmation,
 } from '../lib/rocket-purchase-preview-api';
-import { buildRocketConfirmationWorkbook } from '../lib/rocket-confirmation-workbook';
+import {
+  buildRocketConfirmationWorkbook,
+  fillRocketConfirmationWorkbook,
+} from '../lib/rocket-confirmation-workbook';
 import type {
   RocketPoCatalogRow,
   RocketPoCollectionEvidence,
@@ -99,6 +102,7 @@ export function useRocketPurchaseWorkflow({
   const [confirming, setConfirming] = useState(false);
   const [releaseReason, setReleaseReason] = useState('');
   const [releasing, setReleasing] = useState(false);
+  const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -221,6 +225,7 @@ export function useRocketPurchaseWorkflow({
     if (!collectionRun || sourceRows.length === 0) return;
     setLoading(true);
     setError(null);
+    onActivity?.({ status: 'started', message: '검토수량을 현재 재고 기준으로 다시 검증하고 있습니다.' });
     try {
       const result = await previewRocketPurchases({
         channelAccountId,
@@ -237,9 +242,12 @@ export function useRocketPurchaseWorkflow({
       setEditedQuantities(effectiveEdits);
       setValidatedEditFingerprint(editFingerprint(effectiveEdits));
       setPreviewDirty(false);
+      onActivity?.({ status: 'succeeded', message: '검토수량 재검증을 완료했습니다.' });
     } catch (cause) {
       setPreviewDirty(true);
-      setError(friendlyError(cause) ?? '수량을 다시 검증하지 못했습니다.');
+      const message = friendlyError(cause) ?? '수량을 다시 검증하지 못했습니다.';
+      setError(message);
+      onActivity?.({ status: 'failed', message });
     } finally {
       setLoading(false);
     }
@@ -276,10 +284,17 @@ export function useRocketPurchaseWorkflow({
   const downloadConfirmationWorkbook = async (
     result: RocketPurchaseConfirmationResponse,
   ): Promise<void> => {
-    const workbook = buildRocketConfirmationWorkbook({
-      sourceRows,
-      confirmedRows: result.rows,
-    });
+    const workbook = templateFile
+      ? fillRocketConfirmationWorkbook({
+          template: await templateFile.arrayBuffer(),
+          templateFileName: templateFile.name,
+          sourceRows,
+          confirmedRows: result.rows,
+        })
+      : buildRocketConfirmationWorkbook({
+          sourceRows,
+          confirmedRows: result.rows,
+        });
     downloadBlob(workbook.blob, workbook.fileName);
     try {
       await saveRocketConfirmFile({
@@ -300,12 +315,14 @@ export function useRocketPurchaseWorkflow({
     if (canRedownload) {
       setConfirming(true);
       setError(null);
+      onActivity?.({ status: 'started', message: '확정 엑셀을 다시 생성하고 있습니다.' });
       try {
         await downloadConfirmationWorkbook(confirmation);
+        onActivity?.({ status: 'succeeded', message: '확정 엑셀을 다시 다운로드했습니다.' });
       } catch {
-        setError(
-          '확정은 완료됐지만 엑셀 생성에 실패했습니다. 다시 다운로드하거나 확정을 해제해 주세요.',
-        );
+        const message = '확정은 완료됐지만 엑셀 생성에 실패했습니다. 다시 다운로드하거나 확정을 해제해 주세요.';
+        setError(message);
+        onActivity?.({ status: 'failed', message });
       } finally {
         setConfirming(false);
       }
@@ -314,6 +331,7 @@ export function useRocketPurchaseWorkflow({
     if (!preview || !collectionRun || !canConfirm) return;
     setConfirming(true);
     setError(null);
+    onActivity?.({ status: 'started', message: '검토수량을 확정하고 재고를 예약하고 있습니다.' });
     try {
       const result = await confirmRocketPurchase({
         idempotencyKey: confirmationKey,
@@ -324,15 +342,19 @@ export function useRocketPurchaseWorkflow({
         shortageReasons,
       });
       setConfirmation(result);
+      onActivity?.({ status: 'succeeded', message: '검토수량을 확정하고 재고를 예약했습니다.' });
       try {
         await downloadConfirmationWorkbook(result);
+        onActivity?.({ status: 'succeeded', message: '쿠팡 발주확정 엑셀을 다운로드했습니다.' });
       } catch {
-        setError(
-          '확정은 완료됐지만 엑셀 생성에 실패했습니다. 다시 다운로드하거나 확정을 해제해 주세요.',
-        );
+        const message = '확정은 완료됐지만 엑셀 생성에 실패했습니다. 다시 다운로드하거나 확정을 해제해 주세요.';
+        setError(message);
+        onActivity?.({ status: 'failed', message });
       }
     } catch (cause) {
-      setError(friendlyError(cause) ?? '로켓 발주를 확정하지 못했습니다.');
+      const message = friendlyError(cause) ?? '로켓 발주를 확정하지 못했습니다.';
+      setError(message);
+      onActivity?.({ status: 'failed', message });
     } finally {
       setConfirming(false);
     }
@@ -342,13 +364,17 @@ export function useRocketPurchaseWorkflow({
     if (confirmation?.status !== 'active' || !releaseReason.trim()) return;
     setReleasing(true);
     setError(null);
+    onActivity?.({ status: 'started', message: '로켓 발주 재고 예약을 종료하고 있습니다.' });
     try {
       setConfirmation(await releaseRocketPurchaseConfirmation({
         confirmationId: confirmation.confirmationId,
         reason: releaseReason.trim(),
       }));
+      onActivity?.({ status: 'succeeded', message: '로켓 발주 재고 예약을 종료했습니다.' });
     } catch (cause) {
-      setError(friendlyError(cause) ?? '로켓 발주 예약을 종료하지 못했습니다.');
+      const message = friendlyError(cause) ?? '로켓 발주 예약을 종료하지 못했습니다.';
+      setError(message);
+      onActivity?.({ status: 'failed', message });
     } finally {
       setReleasing(false);
     }
@@ -368,6 +394,8 @@ export function useRocketPurchaseWorkflow({
     releaseReason,
     setReleaseReason,
     releasing,
+    templateFile,
+    setTemplateFile,
     loading,
     error,
     collectionWarning,

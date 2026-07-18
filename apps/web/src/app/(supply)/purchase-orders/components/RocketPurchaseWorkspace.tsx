@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import { ROCKET_SHORTAGE_REASONS } from '@kiditem/shared/rocket-purchase-preview';
 import { useRocketPurchaseWorkflow } from '../hooks/useRocketPurchaseWorkflow';
 import { RocketDeterministicMatchingPanel } from './RocketDeterministicMatchingPanel';
@@ -52,6 +53,7 @@ export function RocketPurchaseWorkspace({
   onCatalogSaved?: () => void;
   onActivity?: (activity: RocketOrderActivityInput) => void;
 }) {
+  const templateInputRef = useRef<HTMLInputElement>(null);
   const {
     editedQuantities,
     setEditedQuantities,
@@ -66,6 +68,8 @@ export function RocketPurchaseWorkspace({
     releaseReason,
     setReleaseReason,
     releasing,
+    templateFile,
+    setTemplateFile,
     loading,
     error,
     collectionWarning,
@@ -95,6 +99,39 @@ export function RocketPurchaseWorkspace({
             {from} ~ {to}
           </span>{' '}
           <span className="text-[var(--text-tertiary,#94a3b8)]">(위 캘린더 기준)</span>
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="block min-w-64 flex-1 text-xs font-semibold text-slate-600">
+            <span className="mb-1 block">쿠팡 원본 양식</span>
+            <input
+              ref={templateInputRef}
+              aria-label="쿠팡 원본 양식"
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={(event) => setTemplateFile(event.target.files?.[0] ?? null)}
+              className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs file:mr-3 file:rounded file:border-0 file:bg-violet-50 file:px-2 file:py-1 file:font-semibold file:text-violet-700"
+            />
+          </label>
+          {templateFile ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTemplateFile(null);
+                if (templateInputRef.current) templateInputRef.current.value = '';
+              }}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600"
+            >
+              원본 양식 선택 해제
+            </button>
+          ) : null}
+          {templateFile ? (
+            <span className="max-w-full truncate text-xs text-slate-600" title={templateFile.name}>
+              선택됨: {templateFile.name}
+            </span>
+          ) : null}
+          <p className="w-full text-[11px] text-slate-500">
+            선택하면 쿠팡 원본 파일의 형식을 유지해 채우고, 선택하지 않으면 표준 23열 파일을 생성합니다.
+          </p>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button

@@ -14,11 +14,7 @@ const HEADER = [
   '총발주 매입금', '입고예정일', '발주등록일시', 'Xdock',
 ] as const;
 
-export function buildRocketConfirmationWorkbook(input: {
-  sourceRows: RocketPoCatalogRow[];
-  confirmedRows: RocketPurchaseConfirmationResponse['rows'];
-  now?: Date;
-}): {
+interface RocketConfirmationWorkbookResult {
   blob: Blob;
   fileName: string;
   summary: {
@@ -27,7 +23,21 @@ export function buildRocketConfirmationWorkbook(input: {
     fullyConfirmedRows: number;
     shortRows: number;
   };
-} {
+}
+
+const TEMPLATE_MATCH_HEADERS = [
+  '발주번호',
+  '상품번호',
+  '상품바코드',
+  '확정수량',
+  '납품부족사유',
+] as const;
+
+export function buildRocketConfirmationWorkbook(input: {
+  sourceRows: RocketPoCatalogRow[];
+  confirmedRows: RocketPurchaseConfirmationResponse['rows'];
+  now?: Date;
+}): RocketConfirmationWorkbookResult {
   const confirmedByLineId = new Map(input.confirmedRows.map((row) => [row.poLineId, row]));
   if (confirmedByLineId.size !== input.sourceRows.length) {
     throw new Error('Rocket confirmation rows do not match the collected source evidence.');
@@ -103,6 +113,152 @@ export function buildRocketConfirmationWorkbook(input: {
       shortRows,
     },
   };
+}
+
+export function fillRocketConfirmationWorkbook(input: {
+  template: ArrayBuffer;
+  templateFileName: string;
+  sourceRows: RocketPoCatalogRow[];
+  confirmedRows: RocketPurchaseConfirmationResponse['rows'];
+  now?: Date;
+}): RocketConfirmationWorkbookResult {
+  const confirmedByLineId = validateConfirmedRows(input.sourceRows, input.confirmedRows);
+  const workbook = XLSX.read(input.template, { type: 'array', cellStyles: true });
+  const sheet = workbook.Sheets[PRODUCT_SHEET];
+  if (!sheet?.['!ref']) {
+    throw new Error(`Rocket confirmation template is missing the ${PRODUCT_SHEET} sheet.`);
+  }
+
+  const range = XLSX.utils.decode_range(sheet['!ref']);
+  let headerRow = -1;
+  let headerIndex = new Map<string, number>();
+  for (let row = range.s.r; row <= range.e.r; row += 1) {
+    const candidate = new Map<string, number>();
+    for (let column = range.s.c; column <= range.e.c; column += 1) {
+      const value = sheet[XLSX.utils.encode_cell({ r: row, c: column })]?.v;
+      if (typeof value === 'string') candidate.set(value, column);
+    }
+    if (candidate.has('발주번호')) {
+      headerRow = row;
+      headerIndex = candidate;
+      break;
+    }
+  }
+  if (headerRow < 0) {
+    throw new Error('Rocket confirmation template is missing the 발주번호 header.');
+  }
+  for (const header of TEMPLATE_MATCH_HEADERS) {
+    if (!headerIndex.has(header)) {
+      throw new Error(`Rocket confirmation template is missing the ${header} header.`);
+    }
+  }
+
+  const poColumn = headerIndex.get('발주번호')!;
+  const productColumn = headerIndex.get('상품번호')!;
+  const barcodeColumn = headerIndex.get('상품바코드')!;
+  const quantityColumn = headerIndex.get('확정수량')!;
+  const reasonColumn = headerIndex.get('납품부족사유')!;
+  const templateRowsByKey = new Map<string, number[]>();
+  let templateRowCount = 0;
+  for (let row = headerRow + 1; row <= range.e.r; row += 1) {
+    const values = [poColumn, productColumn, barcodeColumn].map((column) =>
+      sheet[XLSX.utils.encode_cell({ r: row, c: column })]?.v);
+    if (values.every(isBlankCellValue)) continue;
+    if (values.some(isBlankCellValue)) {
+      throw new Error('Rocket confirmation template rows do not match the collected source evidence.');
+    }
+    const key = sourceMatchKey(values[0], values[1], values[2]);
+    const rows = templateRowsByKey.get(key) ?? [];
+    rows.push(row);
+    templateRowsByKey.set(key, rows);
+    templateRowCount += 1;
+  }
+  if (templateRowCount !== input.sourceRows.length) {
+    throw new Error('Rocket confirmation template rows do not match the collected source evidence.');
+  }
+
+  const occurrenceByKey = new Map<string, number>();
+  let confirmedQuantity = 0;
+  let fullyConfirmedRows = 0;
+  let shortRows = 0;
+  for (const source of input.sourceRows) {
+    const key = sourceMatchKey(source.poNumber, source.productNo, source.barcode);
+    const occurrence = occurrenceByKey.get(key) ?? 0;
+    occurrenceByKey.set(key, occurrence + 1);
+    const templateRow = templateRowsByKey.get(key)?.[occurrence];
+    const confirmed = confirmedByLineId.get(source.poLineId);
+    if (templateRow === undefined || !confirmed) {
+      throw new Error('Rocket confirmation template rows do not match the collected source evidence.');
+    }
+    writeTemplateCell(sheet, templateRow, quantityColumn, confirmed.confirmedQuantity);
+    writeTemplateCell(sheet, templateRow, reasonColumn, confirmed.shortageReason ?? '');
+    confirmedQuantity += confirmed.confirmedQuantity;
+    if (confirmed.confirmedQuantity < source.orderQty) shortRows += 1;
+    else fullyConfirmedRows += 1;
+  }
+
+  const bytes = XLSX.write(workbook, {
+    type: 'array',
+    bookType: 'xlsx',
+    cellStyles: true,
+  }) as ArrayBuffer;
+  const now = input.now ?? new Date();
+  return {
+    blob: new Blob([bytes], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }),
+    fileName: `${templateFileStem(input.templateFileName)}_확정_${calendarStamp(now)}.xlsx`,
+    summary: {
+      totalRows: input.sourceRows.length,
+      confirmedQuantity,
+      fullyConfirmedRows,
+      shortRows,
+    },
+  };
+}
+
+function validateConfirmedRows(
+  sourceRows: RocketPoCatalogRow[],
+  confirmedRows: RocketPurchaseConfirmationResponse['rows'],
+): Map<string, RocketPurchaseConfirmationResponse['rows'][number]> {
+  const confirmedByLineId = new Map(confirmedRows.map((row) => [row.poLineId, row]));
+  if (
+    confirmedRows.length !== sourceRows.length
+    || confirmedByLineId.size !== sourceRows.length
+    || sourceRows.some(({ poLineId }) => !confirmedByLineId.has(poLineId))
+  ) {
+    throw new Error('Rocket confirmation rows do not match the collected source evidence.');
+  }
+  return confirmedByLineId;
+}
+
+function isBlankCellValue(value: unknown): boolean {
+  return value === undefined || value === null || value === '';
+}
+
+function sourceMatchKey(poNumber: unknown, productNo: unknown, barcode: unknown): string {
+  return JSON.stringify([String(poNumber), String(productNo), String(barcode)]);
+}
+
+function writeTemplateCell(
+  sheet: XLSX.WorkSheet,
+  row: number,
+  column: number,
+  value: string | number,
+): void {
+  const address = XLSX.utils.encode_cell({ r: row, c: column });
+  const existing = sheet[address] ?? {};
+  const { w: _formattedValue, ...preserved } = existing;
+  sheet[address] = {
+    ...preserved,
+    t: typeof value === 'number' ? 'n' : 's',
+    v: value,
+  };
+}
+
+function templateFileStem(fileName: string): string {
+  const stem = fileName.replace(/\.xlsx$/i, '') || '쿠팡_원본';
+  return stem.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
 }
 
 function calendarStamp(date: Date): string {
