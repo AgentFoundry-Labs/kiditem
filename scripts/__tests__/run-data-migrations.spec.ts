@@ -39,17 +39,18 @@ describe("data migration registry", () => {
     ).toBe(false);
   });
 
-  it("registers the root 0.1.21 release migration", () => {
+  it("keeps the root 0.1.22 release migration-free", () => {
     const rootVersion = normalizeReleaseVersion(
       readFileSync(join(repoRoot, "VERSION"), "utf8"),
     );
-    expect(rootVersion).toBe("0.1.21");
-    expect(
-      dataMigrations.map((migration) => migration.releaseVersion),
-    ).toContain("0.1.19");
-    expect(
-      dataMigrations.map((migration) => migration.releaseVersion),
-    ).toContain(rootVersion);
+    const releaseVersions = dataMigrations.map(
+      (migration) => migration.releaseVersion,
+    );
+
+    expect(rootVersion).toBe("0.1.22");
+    expect(releaseVersions).toContain("0.1.19");
+    expect(releaseVersions).toContain("0.1.21");
+    expect(releaseVersions).not.toContain(rootVersion);
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(
         true,

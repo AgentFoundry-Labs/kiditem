@@ -3,6 +3,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  applyChannelRecipeAutomation,
+  getChannelRecipeAutomationPreview,
   linkChannelListingOption,
   linkChannelListingProduct,
   listChannelProductCandidates,
@@ -10,6 +12,8 @@ import {
   listChannelVariantCandidates,
 } from '../lib/channel-sku-matching-api';
 import {
+  useApplyChannelRecipeAutomation,
+  useChannelRecipeAutomationPreview,
   useChannelProductCandidates,
   useChannelProductMappings,
   useChannelVariantCandidates,
@@ -19,6 +23,8 @@ import {
 
 vi.mock('../lib/channel-sku-matching-api', () => ({
   importCoupangWingCatalog: vi.fn(),
+  applyChannelRecipeAutomation: vi.fn(),
+  getChannelRecipeAutomationPreview: vi.fn(),
   linkChannelListingOption: vi.fn(),
   linkChannelListingProduct: vi.fn(),
   listChannelAccounts: vi.fn(),
@@ -29,6 +35,7 @@ vi.mock('../lib/channel-sku-matching-api', () => ({
 
 const LISTING_ID = '11111111-1111-4111-8111-111111111111';
 const OPTION_ID = '22222222-2222-4222-8222-222222222222';
+const ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
 
 describe('channel product matching hooks', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -89,6 +96,57 @@ describe('channel product matching hooks', () => {
     });
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelProductMappings'] });
+  });
+
+  it('waits for an account before previewing recipe automation', async () => {
+    vi.mocked(getChannelRecipeAutomationPreview).mockResolvedValue({
+      channelAccountId: ACCOUNT_ID,
+      proposalVersion: 'a'.repeat(64),
+      generatedAt: '2026-07-18T00:00:00.000Z',
+      summary: { variants: 0, affectedOptions: 0, autoApply: 0, operatorReview: 0, blocked: 0, alreadyConfigured: 0 },
+      items: [],
+    });
+    const client = createClient();
+    const waiting = renderHook(() => useChannelRecipeAutomationPreview(undefined), {
+      wrapper: wrapper(client),
+    });
+    expect(waiting.result.current.fetchStatus).toBe('idle');
+    waiting.unmount();
+
+    const loaded = renderHook(() => useChannelRecipeAutomationPreview(ACCOUNT_ID), {
+      wrapper: wrapper(client),
+    });
+    await waitFor(() => expect(loaded.result.current.isSuccess).toBe(true));
+    expect(getChannelRecipeAutomationPreview).toHaveBeenCalledWith(ACCOUNT_ID);
+  });
+
+  it('posts the exact preview version and invalidates every inventory consumer', async () => {
+    vi.mocked(applyChannelRecipeAutomation).mockResolvedValue({
+      proposalVersion: 'a'.repeat(64),
+      appliedVariants: 7,
+      affectedOptions: 9,
+      skippedExistingVariants: 0,
+    });
+    const client = createClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const hook = renderHook(() => useApplyChannelRecipeAutomation(), {
+      wrapper: wrapper(client),
+    });
+
+    await act(async () => {
+      await hook.result.current.mutateAsync({
+        channelAccountId: ACCOUNT_ID,
+        proposalVersion: 'a'.repeat(64),
+      });
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelProductMappings'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelSkuAvailability'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['products', 'operations'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['inventory'] });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['channelProductMappings', 'recipe-automation-preview', ACCOUNT_ID],
+    });
   });
 });
 

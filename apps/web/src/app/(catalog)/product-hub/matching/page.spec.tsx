@@ -1,7 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useChannelAccounts, useChannelProductMappings } from './hooks/useChannelSkuMappings';
+import {
+  useChannelAccounts,
+  useChannelProductMappings,
+  useChannelRecipeAutomationPreview,
+} from './hooks/useChannelSkuMappings';
 import MatchingPage from './page';
 import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import type { ChannelProductMatchingQueueResponse } from '@kiditem/shared/channel-product-matching';
@@ -16,6 +20,13 @@ vi.mock('next/navigation', () => ({
 vi.mock('./hooks/useChannelSkuMappings', () => ({
   useChannelAccounts: vi.fn(),
   useChannelProductMappings: vi.fn(),
+  useChannelRecipeAutomationPreview: vi.fn(),
+}));
+
+vi.mock('./components/RecipeAutomationPanel', () => ({
+  RecipeAutomationPanel: ({ channelAccountId }: { channelAccountId: string }) => (
+    <div>자동 매칭 패널 {channelAccountId}</div>
+  ),
 }));
 
 vi.mock('./components/CoupangWingCatalogImportDialog', () => ({
@@ -83,6 +94,19 @@ function account(overrides: Partial<ChannelAccountListItem> = {}): ChannelAccoun
 function mockQueries(accounts: ChannelAccountListItem[] = [account()]) {
   vi.mocked(useChannelAccounts).mockReturnValue({ data: accounts, isLoading: false, error: null } as unknown as ReturnType<typeof useChannelAccounts>);
   vi.mocked(useChannelProductMappings).mockReturnValue({ data: response, isLoading: false, isFetching: false, error: null, refetch } as unknown as ReturnType<typeof useChannelProductMappings>);
+  vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue({
+    data: {
+      channelAccountId: ACCOUNT_ID,
+      proposalVersion: 'a'.repeat(64),
+      generatedAt: '2026-07-18T00:00:00.000Z',
+      summary: { variants: 0, affectedOptions: 0, autoApply: 0, operatorReview: 0, blocked: 0, alreadyConfigured: 0 },
+      items: [],
+    },
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>);
 }
 
 describe('/product-hub/matching', () => {
@@ -163,6 +187,39 @@ describe('/product-hub/matching', () => {
     expect(screen.getByText('판매 가능 12')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '중앙 레시피 보기' })).toHaveAttribute('href', `/product-hub/${PRODUCT_ID}#variants`);
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+  });
+
+  it('restores an automatic-match filter and shows the deterministic row reason', () => {
+    const linked = response.options[2]!;
+    navigation.params = new URLSearchParams(`channelAccountId=${ACCOUNT_ID}&level=options&status=auto_apply`);
+    vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue({
+      data: {
+        channelAccountId: ACCOUNT_ID,
+        proposalVersion: 'a'.repeat(64),
+        generatedAt: '2026-07-18T00:00:00.000Z',
+        summary: { variants: 1, affectedOptions: 1, autoApply: 1, operatorReview: 0, blocked: 0, alreadyConfigured: 0 },
+        items: [{
+          productVariantId: linked.option.productVariantId!,
+          masterProductId: PRODUCT_ID,
+          channelListingOptionIds: [linked.option.id],
+          decision: 'auto_apply',
+          reason: 'exact_unique_code',
+          sellpiaInventorySkuId: '77777777-7777-4777-8777-777777777777',
+          sellpiaCode: 'SP-1',
+          recommendedQuantity: 1,
+          evidenceLabels: [],
+        }],
+      },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>);
+
+    render(<MatchingPage />);
+    expect(screen.getByRole('combobox', { name: '큐 상태' })).toHaveValue('auto_apply');
+    expect(screen.getByText('자동 매칭 가능 · 상품코드 정확 일치')).toBeInTheDocument();
+    expect(screen.queryByText('option-unready')).not.toBeInTheDocument();
   });
 
   it('refreshes by refetching and debounces trimmed search without any automatic mutation', async () => {

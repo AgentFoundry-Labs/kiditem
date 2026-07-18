@@ -36,7 +36,8 @@ describe('Rocket purchase decision boundary', () => {
     ), 'utf8');
 
     expect(pageSource).toContain('RocketOrdersWorkspace');
-    expect(pageSource).toContain('decisionWorkspace={<RocketPurchasePreviewSection />');
+    expect(pageSource).toContain('<RocketOrdersWorkspace />');
+    expect(pageSource).not.toContain('RocketPurchasePreviewSection');
     expect(pageSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(pageSource).not.toContain('redirect(');
     expect(pageSource).not.toMatch(/useQuery|useState|listRocketPosFromExtension/);
@@ -54,7 +55,9 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain('<RocketConfirmFileList');
     expect(purchaseWorkspaceSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(purchaseWorkspaceSource).not.toContain("activeTab === 'rocket'");
-    expect(operationsSource).toContain('{decisionWorkspace}');
+    expect(operationsSource).toContain(
+      '<RocketPurchasePreviewSection from={from} to={to} />',
+    );
     expect(operationsSource).not.toContain('납품 수량 판단은 추후 연동합니다');
     expect(operationsSource).not.toContain('재고 매핑 기반 판단은 추후 연동');
     expect(previewSectionSource).toContain('<RocketPurchaseWorkspace');

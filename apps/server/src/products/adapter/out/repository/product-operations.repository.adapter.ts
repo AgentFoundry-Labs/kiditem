@@ -248,6 +248,67 @@ implements ProductOperationsRepositoryPort {
     }
   }
 
+  async applyDeterministicRecipesIfEmpty(
+    input: Parameters<ProductOperationsRepositoryPort['applyDeterministicRecipesIfEmpty']>[0],
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const recipes = [...input.recipes]
+          .sort((left, right) => left.productVariantId.localeCompare(right.productVariantId));
+        const variantIds = recipes.map((recipe) => recipe.productVariantId);
+        const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT id
+          FROM product_variants
+          WHERE organization_id = ${input.organizationId}::uuid
+            AND id IN (${Prisma.join(variantIds)})
+          ORDER BY id ASC
+          FOR UPDATE
+        `);
+        if (locked.length !== variantIds.length) {
+          throw new NotFoundException('One or more ProductVariants were not found');
+        }
+
+        const existing = await tx.productVariantComponent.findMany({
+          where: {
+            organizationId: input.organizationId,
+            productVariantId: { in: variantIds },
+          },
+          select: { productVariantId: true },
+        });
+        const existingVariantIds = new Set(existing.map((row) => row.productVariantId));
+        const pending = recipes.filter((recipe) =>
+          !existingVariantIds.has(recipe.productVariantId));
+        await validateActiveRecipeSkuIds(
+          tx,
+          input.organizationId,
+          [...new Set(pending.map((recipe) => recipe.sellpiaInventorySkuId))],
+        );
+
+        if (pending.length > 0) {
+          const confirmedAt = new Date();
+          await tx.productVariantComponent.createMany({
+            data: pending.map((recipe) => ({
+              organizationId: input.organizationId,
+              productVariantId: recipe.productVariantId,
+              sellpiaInventorySkuId: recipe.sellpiaInventorySkuId,
+              quantity: 1,
+              source: 'deterministic',
+              confirmedBy: null,
+              confirmedAt,
+            })),
+          });
+        }
+        return {
+          appliedProductVariantIds: pending.map((recipe) => recipe.productVariantId),
+          skippedExistingProductVariantIds: variantIds.filter((id) =>
+            existingVariantIds.has(id)),
+        };
+      }, TRANSACTION_OPTIONS);
+    } catch (error) {
+      throw translateMutationError(error);
+    }
+  }
+
   async replaceRecipe(input: {
     organizationId: string;
     userId: string;
@@ -394,6 +455,14 @@ async function validateRecipeSkus(
   if (ids.length !== components.length) {
     throw new BadRequestException('ProductVariant component SKUs must be unique');
   }
+  await validateActiveRecipeSkuIds(tx, organizationId, ids);
+}
+
+async function validateActiveRecipeSkuIds(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  ids: string[],
+): Promise<void> {
   if (ids.length === 0) return;
   const rows = await tx.sellpiaInventorySku.findMany({
     where: { organizationId, id: { in: ids } },

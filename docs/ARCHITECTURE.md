@@ -492,7 +492,7 @@ existing content asset, a succeeded generation candidate, or an external URL
 that first passes the guarded fetch/storage boundary. Asset deletion and GC
 must reject active generation usage or any thumbnail selection.
 
-## Sellpia Freshness, Common Commitments, And Channel Capacity (`0.1.19`–`0.1.21`)
+## Sellpia Freshness, Common Commitments, And Channel Capacity (`0.1.19`–`0.1.22`)
 
 Sellpia is the upstream stock authority. Inventory owns one persisted
 organization-scoped `SellpiaInventoryState`, the fixed source binding, server
@@ -563,7 +563,22 @@ reuse an active product/variant, otherwise Products creates deterministic
 channel-origin identities with no component recipe. Channels then writes only
 still-null listing/option links in the same transaction. Raw aliases,
 normalized names, similarity/AI, and manual-search results never auto-confirm
-identity or a recipe. Operator-confirmed recipes remain the capacity truth.
+an identity link.
+
+In `0.1.22`, Channels also owns a read-only deterministic recipe preview and an
+explicit version-fenced apply command for already-linked variants. The preview
+batches organization/account-fenced evidence and classifies exact code, unique
+physical barcode, and strict exact normalized product-name plus option matches.
+Only when every deterministic identifier agrees on one active Sellpia SKU, pack
+signatures do not require quantity review, and the central recipe is empty may
+Channels invoke Products' locked create-if-empty port. Products writes exactly
+one `ProductVariantComponent` with quantity `1`, deterministic source, and no
+actor confirmation; it skips and preserves recipes created before or during
+the command. Existing recipes, duplicate or conflicting evidence, pack/BOM
+uncertainty, product-name-only matches, similarity, rank, raw aliases, and AI
+remain non-automatic. Inventory remains the sole physical-stock writer.
+
+Confirmed manual or deterministic recipes remain the capacity truth.
 Capacity is
 `min(floor(availableStock / quantity))`, where
 `availableStock = max(currentStock - activeCommitmentQuantity, 0)`; inactive components keep their stored

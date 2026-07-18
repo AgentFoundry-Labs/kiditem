@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ChannelRecipeAutomationDecisionSchema } from './channel-recipe-automation.js';
 import { zIsoDate } from './common.js';
 
 export const ChannelMatchCandidateReasonSchema = z.enum([
@@ -304,6 +305,8 @@ export type ChannelProductMatchingCounts = z.infer<
 export const ChannelRecipeSuggestionStatusSchema = z.enum([
   'already_configured',
   'unique_code',
+  'unique_barcode',
+  'exact_name_option',
   'quantity_review',
   'conflict',
   'ambiguous',
@@ -315,7 +318,13 @@ export type ChannelRecipeSuggestionStatus = z.infer<
 >;
 
 export const ChannelRecipeSuggestionEvidenceSchema = z.object({
-  kind: z.enum(['seller_sku_code', 'model_number_code', 'normalized_name']),
+  kind: z.enum([
+    'seller_sku_code',
+    'model_number_code',
+    'physical_barcode',
+    'normalized_name',
+    'normalized_name_option',
+  ]),
   channelValue: z.string().min(1),
   normalizedValue: z.string().min(1),
 }).strict();
@@ -328,11 +337,16 @@ export const ChannelRecipeSuggestionResponseSchema = z.object({
   productVariantId: z.string().uuid().nullable(),
   masterProductId: z.string().uuid().nullable(),
   status: ChannelRecipeSuggestionStatusSchema,
+  automationDecision: ChannelRecipeAutomationDecisionSchema,
+  recommendedQuantity: z.number().int().positive().nullable(),
   reason: z.string().min(1),
   existingComponents: z.array(z.object({
     sellpiaInventorySkuId: z.string().uuid(),
     code: z.string().min(1),
     quantity: z.number().int().positive(),
+    source: z.enum(['manual', 'deterministic']),
+    confirmedBy: z.string().uuid().nullable(),
+    confirmedAt: zIsoDate,
   }).strict()),
   proposals: z.array(z.object({
     sellpiaInventorySkuId: z.string().uuid(),
@@ -341,7 +355,8 @@ export const ChannelRecipeSuggestionResponseSchema = z.object({
     optionName: z.string().min(1).nullable(),
     currentStock: z.number().int(),
     evidence: z.array(ChannelRecipeSuggestionEvidenceSchema),
-    requiresQuantityConfirmation: z.literal(true),
+    requiresQuantityConfirmation: z.boolean(),
+    recommendedQuantity: z.number().int().positive().nullable(),
   }).strict()),
 }).strict().superRefine((response, ctx) => {
   if (response.status === 'already_configured' && response.proposals.length !== 0) {
@@ -350,6 +365,31 @@ export const ChannelRecipeSuggestionResponseSchema = z.object({
       path: ['proposals'],
       message: 'already configured recipes cannot include proposals',
     });
+  }
+  if (
+    response.status === 'already_configured'
+    && response.automationDecision !== 'already_configured'
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['automationDecision'],
+      message: 'already configured recipes require the already_configured decision',
+    });
+  }
+  if (response.automationDecision === 'auto_apply') {
+    const proposal = response.proposals[0];
+    if (
+      response.proposals.length !== 1
+      || response.recommendedQuantity !== 1
+      || proposal?.requiresQuantityConfirmation !== false
+      || proposal.recommendedQuantity !== 1
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['proposals'],
+        message: 'automatic recipes require exactly one quantity-one proposal',
+      });
+    }
   }
 });
 export type ChannelRecipeSuggestionResponse = z.infer<

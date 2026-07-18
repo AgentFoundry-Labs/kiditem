@@ -66,6 +66,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/channels/__tests__/channel-catalog-import.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-publication.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-product-matching.pg.integration.spec.ts",
+  "apps/server/src/channels/__tests__/channel-recipe-automation.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-recipe-suggestion.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts",
@@ -78,6 +79,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/inventory/__tests__/stock-transfers-tenant-boundary.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/channel-catalog-product-provisioning.repository.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts",
+  "apps/server/src/products/__tests__/product-variant-recipe-automation.pg.integration.spec.ts",
   "apps/server/src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts",
   "apps/server/src/test-helpers/finance-seeds.ts",
   "apps/server/src/supply/__tests__/purchase-order-submission.pg.integration.spec.ts",
@@ -120,10 +122,10 @@ function modelBlock(source, modelName) {
 }
 
 describe("Sellpia authoritative final-schema contract", () => {
-  it("keeps the 0.1.8 rebuild boundary through release 0.1.21", () => {
+  it("keeps the 0.1.8 rebuild boundary through release 0.1.22", () => {
     assert.equal(
       readFileSync(join(repoRoot, "VERSION"), "utf8").trim(),
-      "0.1.21",
+      "0.1.22",
     );
     assert.match(
       migrationRegistry,

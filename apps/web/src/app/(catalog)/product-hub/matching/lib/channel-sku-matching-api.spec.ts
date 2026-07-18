@@ -3,20 +3,23 @@ import { apiClient } from '@/lib/api-client';
 import {
   linkChannelListingOption,
   linkChannelListingProduct,
+  applyChannelRecipeAutomation,
   getChannelRecipeSuggestion,
+  getChannelRecipeAutomationPreview,
   listChannelProductCandidates,
   listChannelProductMappings,
   listChannelVariantCandidates,
 } from './channel-sku-matching-api';
 
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { getParsed: vi.fn(), put: vi.fn(), uploadParsed: vi.fn() },
+  apiClient: { getParsed: vi.fn(), post: vi.fn(), put: vi.fn(), uploadParsed: vi.fn() },
 }));
 
 const LISTING_ID = '11111111-1111-4111-8111-111111111111';
 const OPTION_ID = '22222222-2222-4222-8222-222222222222';
 const PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
 const VARIANT_ID = '44444444-4444-4444-8444-444444444444';
+const ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
 
 describe('channel product matching API', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -68,6 +71,37 @@ describe('channel product matching API', () => {
       expect.any(Object),
     );
     expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
+  it('reads and applies a version-fenced account recipe preview', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValue({
+      channelAccountId: ACCOUNT_ID,
+      proposalVersion: 'a'.repeat(64),
+      generatedAt: '2026-07-18T00:00:00.000Z',
+      summary: { variants: 0, affectedOptions: 0, autoApply: 0, operatorReview: 0, blocked: 0, alreadyConfigured: 0 },
+      items: [],
+    });
+    vi.mocked(apiClient.post).mockResolvedValue({
+      proposalVersion: 'a'.repeat(64),
+      appliedVariants: 1,
+      affectedOptions: 2,
+      skippedExistingVariants: 0,
+    });
+
+    await getChannelRecipeAutomationPreview(`${ACCOUNT_ID}/unsafe`);
+    await applyChannelRecipeAutomation({
+      channelAccountId: ACCOUNT_ID,
+      proposalVersion: 'a'.repeat(64),
+    });
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      `/api/channels/product-mappings/recipe-automation/preview?channelAccountId=${encodeURIComponent(`${ACCOUNT_ID}/unsafe`)}`,
+      expect.any(Object),
+    );
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/channels/product-mappings/recipe-automation/apply',
+      { channelAccountId: ACCOUNT_ID, proposalVersion: 'a'.repeat(64) },
+    );
   });
 
   it('confirms listing-to-product and option-to-variant separately', async () => {

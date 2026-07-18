@@ -145,6 +145,11 @@
       "import": "./dist/channel-product-matching.js",
       "require": "./dist/channel-product-matching.cjs"
     },
+    "./channel-recipe-automation": {
+      "types": "./dist/channel-recipe-automation.d.ts",
+      "import": "./dist/channel-recipe-automation.js",
+      "require": "./dist/channel-recipe-automation.cjs"
+    },
     "./source-import": {
       "types": "./dist/source-import.d.ts",
       "import": "./dist/source-import.js",
@@ -267,6 +272,7 @@
       "inventory-commitment": ["dist/inventory-commitment.d.ts"],
       "product-operations": ["dist/product-operations.d.ts"],
       "channel-product-matching": ["dist/channel-product-matching.d.ts"],
+      "channel-recipe-automation": ["dist/channel-recipe-automation.d.ts"],
       "source-import": ["dist/source-import.d.ts"],
       "sellpia-inventory-freshness": ["dist/sellpia-inventory-freshness.d.ts"],
       "rocket-purchase-preview": ["dist/rocket-purchase-preview.d.ts"],

@@ -6,14 +6,17 @@ import { ChannelProductMatchingController } from '../channel-product-matching.co
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const listingId = '00000000-0000-4000-8000-000000000002';
 const optionId = '00000000-0000-4000-8000-000000000003';
+const channelAccountId = '00000000-0000-4000-8000-000000000004';
 
 describe('ChannelProductMatchingController', () => {
-  it('publishes the read-only recipe suggestion route with matching routes', () => {
+  it('publishes recipe suggestion and explicit preview/apply routes with matching routes', () => {
     expect(Reflect.getMetadata('path', ChannelProductMatchingController)).toBe(
       'channels/product-mappings',
     );
     const routes = [
       ['list', '/', RequestMethod.GET],
+      ['previewRecipeAutomation', 'recipe-automation/preview', RequestMethod.GET],
+      ['applyRecipeAutomation', 'recipe-automation/apply', RequestMethod.POST],
       ['productCandidates', ':channelListingId/candidates', RequestMethod.GET],
       ['linkProduct', ':channelListingId/master-product', RequestMethod.PUT],
       ['variantCandidates', 'options/:channelListingOptionId/candidates', RequestMethod.GET],
@@ -38,7 +41,12 @@ describe('ChannelProductMatchingController', () => {
       linkOption: vi.fn(),
     };
     const recipeSuggestions = { suggest: vi.fn() };
-    const controller = new ChannelProductMatchingController(service as never, recipeSuggestions as never);
+    const recipeAutomation = { preview: vi.fn(), apply: vi.fn() };
+    const controller = new ChannelProductMatchingController(
+      service as never,
+      recipeSuggestions as never,
+      recipeAutomation as never,
+    );
 
     await controller.list(organizationId, {});
     await controller.productCandidates(listingId, organizationId, {});
@@ -46,6 +54,11 @@ describe('ChannelProductMatchingController', () => {
     await controller.linkProduct(listingId, organizationId, { masterProductId: null });
     await controller.linkOption(optionId, organizationId, { productVariantId: null });
     await controller.recipeSuggestionsForOption(optionId, organizationId);
+    await controller.previewRecipeAutomation(organizationId, channelAccountId);
+    await controller.applyRecipeAutomation(organizationId, {
+      channelAccountId,
+      proposalVersion: 'a'.repeat(64),
+    });
 
     expect(service.list).toHaveBeenCalledWith(organizationId, {});
     expect(service.productCandidates).toHaveBeenCalledWith(organizationId, listingId, {});
@@ -61,5 +74,10 @@ describe('ChannelProductMatchingController', () => {
       { productVariantId: null },
     );
     expect(recipeSuggestions.suggest).toHaveBeenCalledWith(organizationId, optionId);
+    expect(recipeAutomation.preview).toHaveBeenCalledWith(organizationId, channelAccountId);
+    expect(recipeAutomation.apply).toHaveBeenCalledWith(organizationId, {
+      channelAccountId,
+      proposalVersion: 'a'.repeat(64),
+    });
   });
 });

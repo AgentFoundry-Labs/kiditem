@@ -33,7 +33,7 @@ describe('ChannelProductMatchingService', () => {
         barcodes: [],
       }],
     });
-    const service = new ChannelProductMatchingService(repository);
+    const service = new ChannelProductMatchingService(repository, makeAvailability());
 
     const result = await service.productCandidates(
       organizationId,
@@ -59,7 +59,7 @@ describe('ChannelProductMatchingService', () => {
       aiSuggestion: null,
       candidates: [],
     });
-    const service = new ChannelProductMatchingService(repository);
+    const service = new ChannelProductMatchingService(repository, makeAvailability());
 
     await expect(service.variantCandidates(
       organizationId,
@@ -71,7 +71,7 @@ describe('ChannelProductMatchingService', () => {
 
   it('passes product and option confirmation through organization-scoped commands', async () => {
     const repository = makeRepository();
-    const service = new ChannelProductMatchingService(repository);
+    const service = new ChannelProductMatchingService(repository, makeAvailability());
 
     await service.linkProduct(organizationId, listingId, { masterProductId: productId });
     await service.linkOption(organizationId, optionId, { productVariantId: variantId });
@@ -96,7 +96,7 @@ describe('ChannelProductMatchingService', () => {
 
   it('rejects malformed link commands without touching persistence', async () => {
     const repository = makeRepository();
-    const service = new ChannelProductMatchingService(repository);
+    const service = new ChannelProductMatchingService(repository, makeAvailability());
 
     await expect(service.linkProduct(organizationId, listingId, {
       masterProductId: 'not-a-uuid',
@@ -106,6 +106,58 @@ describe('ChannelProductMatchingService', () => {
     })).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.linkProduct).not.toHaveBeenCalled();
     expect(repository.linkOption).not.toHaveBeenCalled();
+  });
+
+  it('hydrates matching capacity from common commitment-aware availability', async () => {
+    const repository = makeRepository();
+    repository.listQueue.mockResolvedValue({
+      products: [],
+      options: [{
+        channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
+        listing: { id: listingId, externalId: 'P-1', masterProductId: productId },
+        option: {
+          id: optionId,
+          externalOptionId: 'O-1',
+          itemName: '기본',
+          sellerSku: 'SP-1',
+          barcode: null,
+          productVariantId: variantId,
+          updatedAt: '2026-07-18T00:00:00.000Z',
+        },
+        linkedVariant: {
+          id: variantId,
+          masterProductId: productId,
+          code: 'PV-1',
+          name: '기본',
+          optionLabel: null,
+        },
+        recipeStatus: 'matched',
+        capacity: 5,
+      }],
+      counts: {
+        products: { all: 0, linked: 0, unlinked: 0 },
+        options: { all: 1, linked: 1, unlinked: 0, recipeConfirmed: 1, configurationRequired: 0, reviewRequired: 0 },
+      },
+    });
+    const availability = makeAvailability();
+    availability.findByChannelSkuIds.mockResolvedValue([{
+      sku: { id: optionId, sellableStock: 3 },
+      recipeStatus: 'matched',
+      components: [{
+        currentStock: 10,
+        activeCommitmentQuantity: 4,
+        availableStock: 6,
+        quantity: 2,
+        componentCapacity: 3,
+        isBottleneck: true,
+      }],
+    }]);
+    const service = new ChannelProductMatchingService(repository, availability as never);
+
+    const result = await service.list(organizationId);
+
+    expect(result.options[0]).toMatchObject({ recipeStatus: 'matched', capacity: 3 });
+    expect(availability.findByChannelSkuIds).toHaveBeenCalledWith(organizationId, [optionId]);
   });
 });
 
@@ -133,5 +185,13 @@ function makeRepository() {
     listAvailabilityRows: vi.fn().mockResolvedValue([]),
   } as unknown as {
     [K in keyof ChannelProductMatchingRepositoryPort]: ReturnType<typeof vi.fn>;
+  };
+}
+
+function makeAvailability() {
+  return {
+    list: vi.fn(),
+    findByChannelSkuIds: vi.fn().mockResolvedValue([]),
+    findByListingIds: vi.fn(),
   };
 }

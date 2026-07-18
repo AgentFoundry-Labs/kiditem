@@ -30,6 +30,7 @@ export default defineConfig({
     'src/inventory-commitment.ts',
     'src/product-operations.ts',
     'src/channel-product-matching.ts',
+    'src/channel-recipe-automation.ts',
     'src/source-import.ts',
     'src/sellpia-inventory-freshness.ts',
     'src/rocket-purchase-preview.ts',
