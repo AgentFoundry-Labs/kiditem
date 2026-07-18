@@ -26,6 +26,8 @@ React Query + apiClient
   -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
   -> GET /api/channels/product-mappings
   -> GET/PUT product and option candidate/confirmation endpoints
+  -> GET /api/channels/product-mappings/recipe-automation/preview
+  -> POST /api/channels/product-mappings/recipe-automation/apply
   -> queryKeys.products.operations, inventory, channelProductMappings
 ```
 
@@ -43,16 +45,22 @@ React Query + apiClient
   organization-fenced component relations.
 - Matching confirms channel listing -> `MasterProduct` before channel option ->
   `ProductVariant`. Candidate evidence never confirms identity.
+- Matching may explicitly apply a version-fenced deterministic preview to
+  create only empty central recipes with one Sellpia component at quantity `1`.
+  Existing recipes and every review/blocked result remain untouched.
 
 ## Boundary Rules
 
 - Product list/detail and its recipe picker use Products APIs. They never call
   the Inventory SKU collection route directly.
-- Do not infer product, variant, recipe, or channel identity from display text,
-  barcode, normalized name, or candidate rank.
+- Do not infer product, variant, or channel identity from display text,
+  barcode, normalized name, or candidate rank. Recipe automation is limited to
+  the exact create-if-empty policy above; product-name-only evidence,
+  similarity, rank, raw aliases, pack/BOM uncertainty, and AI cannot apply it.
 - Do not edit Sellpia stock, source prices, or channel prices in catalog routes.
-- Do not recreate channel-owned component quantities; central recipe edits live
-  only on product detail.
+- Do not recreate channel-owned component quantities. Manual complete recipe
+  edits live on product detail; matching exposes only the narrow deterministic
+  create-if-empty command.
 - Never send `organizationId`; backend session scope owns it.
 - Sourcing candidates, generated content workspaces, marketplace ingest,
   Rocket operations, and purchase orders remain in their owner domains.

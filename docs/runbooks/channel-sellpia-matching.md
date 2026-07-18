@@ -4,16 +4,18 @@
 
 Use this runbook to collect marketplace identities, review Sellpia evidence,
 and explicitly confirm the physical component recipe consumed by a sale. The
-workflow has exactly three stages:
+workflow has four stages:
 
 1. collect and finalize account-scoped marketplace identities;
-2. review read-only evidence and recipe proposals;
-3. confirm the complete Bill of Materials (BOM) on product detail.
+2. review the version-fenced deterministic preview;
+3. explicitly apply only safe create-if-empty recipes;
+4. confirm every remaining Bill of Materials (BOM) on product detail.
 
 `SellpiaInventorySku` is the physical Sellpia product-code snapshot.
 `ProductVariantComponent` is the central, reusable recipe for one KidItem
-variant. They are never interchangeable, and no evidence automatically writes
-a recipe.
+variant. They are never interchangeable. A recipe changes only through a
+version-fenced explicit automation command or an operator's manual complete
+replacement.
 
 Inventory freshness and publication are owned by
 [Sellpia Inventory Freshness Operations](sellpia-inventory-freshness.md).
@@ -38,11 +40,12 @@ Inventory freshness and publication are owned by
   than one unit of a component.
 - Recipe reads and writes are organization-scoped. Inactive or foreign
   Sellpia identities cannot be confirmed as components.
-- Matching is a read-only proposal surface for recipes. It may show evidence,
-  candidates, and existing recipe status, but it must not save components or
-  quantities.
-- Product detail is the only recipe mutation surface. An operator saves the
-  complete replacement recipe there after confirming the full BOM.
+- Matching may preview evidence and existing recipe status without mutation.
+  Its only write is the version-fenced, explicitly invoked deterministic
+  command, which creates an empty recipe as exactly one active Sellpia
+  component with quantity `1` and never replaces an existing recipe.
+- Product detail remains the only manual recipe mutation surface. An operator
+  saves the complete replacement recipe there after confirming the full BOM.
 - A later channel recollection may change channel identity links but must not
   rewrite the central product-variant recipe.
 
@@ -67,31 +70,55 @@ exact vendor identity, collection completeness, and canonical artifact hash
 before moving to evidence review. A partial collection does not inactivate
 older identities.
 
-## Stage 2 — Review Read-Only Evidence
+## Stage 2 — Review The Version-Fenced Preview
 
 Open `/product-hub/matching` to review a channel option’s identity evidence,
 candidate Sellpia rows, active state, and current recipe status. This stage
-proposes work; it does not create or edit a recipe.
+proposes work; loading or filtering it does not create or edit a recipe. The
+preview version hashes its business decisions, so changed evidence makes an
+older apply request conflict instead of silently applying stale results.
 
 | Evidence | Meaning | Operator action |
 | --- | --- | --- |
-| Exact Sellpia code | A seller SKU, model, or explicit option token exactly identifies a Sellpia code. | Treat it as a proposal; verify the physical item and BOM before confirming a recipe. |
-| Exact physical-barcode evidence | A uniquely verified physical barcode identifies one active Sellpia row. | Treat it as a proposal and verify the physical item and BOM. |
+| Exact Sellpia code | A typed seller SKU or model number exactly identifies one active Sellpia code. | It may be automatic only when all deterministic evidence agrees, the recipe is empty, and pack signatures do not require review. |
+| Exact physical-barcode evidence | A valid 8–14 digit typed barcode uniquely identifies one active physical Sellpia row. | It may be automatic under the same empty-recipe, no-conflict, quantity-1 rules. |
 | Stored generic barcode | A value stored on marketplace or catalog metadata without physical-barcode provenance. | It is not proof of a physical barcode and cannot confirm a recipe. |
-| Normalized name | Formatting-normalized registered/Sellpia names agree. | Review-only evidence; never identity or quantity proof. |
+| Strict normalized product name + option | NFKC, case-folded, whitespace-free product and option values exactly identify one active Sellpia row. | It may be automatic only as a complete pair under the same no-conflict and pack-signature rules. |
+| Product name only | Only the formatting-normalized product name agrees. | Review-only evidence; never identity or quantity proof. |
 | Similarity, AI, search, or manual candidate | A potentially useful candidate based on text or operator search. | Review-only; verify independently. |
 
-Exact code evidence is stronger than name similarity, but it remains a
-proposal. Neither exact code nor any barcode field automatically creates a
-`quantity=1` recipe. Normalized names intentionally remain review-only: they
-do not establish identity, pack size, or BOM quantity.
+Automatic eligibility requires all deterministic identifiers to resolve to the
+same single active Sellpia SKU. One identifier resolving to several SKUs is
+ambiguous; different identifiers resolving to different SKUs is a conflict.
+Pack, set, bundle, or multi-unit signatures that disagree require quantity
+review. Product-name-only matches, similarity, AI, candidate rank, raw aliases,
+and every uncertain BOM remain non-automatic.
 
 Use `/product-hub/options` to inspect the complete read-only Sellpia inventory
 and its recipe-coverage counters. It can show confirmed destinations and
 unlinked SKU counts, but it cannot edit stock, identity, linkage, or recipe
 quantity.
 
-## Stage 3 — Confirm The Full Recipe On Product Detail
+## Stage 3 — Explicitly Apply Safe Empty Recipes
+
+1. Filter the preview by automatic reason and inspect representative rows for
+   exact code, unique physical barcode, and strict product-name plus option.
+2. Verify that each candidate is one physical sale unit, has no hidden
+   multi-component BOM, and does not contradict its channel option.
+3. Open the confirmation dialog and apply the exact displayed proposal version.
+4. The backend re-computes the preview. If it changed, refresh and review again.
+5. Products locks each variant and creates one deterministic component with
+   quantity `1` only when its recipe is still empty. Concurrent or existing
+   recipes are skipped and preserved.
+6. Refresh the matching, product operations, reverse-link, product-outflow, and
+   Rocket preview screens. Confirm capacity now uses common availability and
+   that `SellpiaInventorySku.currentStock` did not change.
+
+Do not apply the batch when a sampled automatic row has a wrong physical item,
+unrepresented pack size, or hidden BOM. Tighten the deterministic rule first
+and generate a new preview.
+
+## Stage 4 — Confirm Remaining Recipes On Product Detail
 
 1. From the proposal, open the destination product detail and choose the
    specific KidItem variant.
@@ -139,8 +166,9 @@ sellableStock = minimum component capacity
 | Coupang collection is interrupted | Finalize or resolve the collection before starting the recipe campaign. Do not rely on a partial queue. |
 | Account not found or wrong channel | Select an active organization-owned account with the expected exact channel. |
 | Workbook or collection artifact is rejected | Correct the provider artifact and retry. Existing metadata and recipes remain intact. |
-| Exact code or barcode looks convincing | Treat it as a proposal; verify physical identity and the entire BOM on product detail. |
-| Only normalized-name/similarity/AI evidence exists | Review candidates, verify independently, then explicitly confirm the recipe on product detail. |
+| Preview version conflicts on apply | Refresh the preview, inspect the changed decisions, and explicitly confirm the new version. |
+| Exact code/barcode/name+option candidate has pack or BOM uncertainty | Do not automate it. Verify physical identity and the complete BOM on product detail. |
+| Only product-name/similarity/AI evidence exists | Review candidates, verify independently, then explicitly confirm the recipe on product detail. |
 | Stored barcode is the only evidence | Obtain physical-barcode provenance; a generic stored value is not enough. |
 | Component is inactive or foreign | Select a valid active, organization-owned Sellpia SKU and explicitly replace the full recipe. |
 | Capacity is unavailable | Verify the complete active recipe and refresh Sellpia when stale. Do not substitute zero or edit stock. |
@@ -150,8 +178,9 @@ sellableStock = minimum component capacity
 ```bash
 rtk npm exec vitest -- run packages/shared/src/schemas/inventory-snapshot.spec.ts
 rtk npm exec --workspace=apps/server vitest -- run src/inventory/adapter/out/repository/inventory-sku-snapshot-list.repository.adapter.spec.ts
+rtk npm run test:integration --workspace=apps/server -- src/channels/__tests__/channel-recipe-automation.pg.integration.spec.ts
 rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/inventory-sku-snapshot-list.repository.pg.integration.spec.ts
-rtk npm exec --workspace=apps/web vitest -- run 'src/app/(catalog)/product-hub/components/ProductOptionsWorkspace.spec.tsx' 'src/app/(catalog)/product-hub/options/page.spec.tsx'
+rtk npm exec --workspace=apps/web vitest -- run 'src/app/(catalog)/product-hub'
 rtk npm run check:idor
 rtk npm run check:tenant-scope
 rtk npm run build --workspace=packages/shared
@@ -160,15 +189,18 @@ rtk npm run build --workspace=apps/web
 ```
 
 Acceptance must show that recipe coverage is exhaustive for the requested
-active-status scope, linkage is organization-fenced, matching is read-only for
-recipe proposals, and only product detail mutates the operator-confirmed BOM.
+active-status scope, linkage is organization-fenced, preview reads do not
+mutate, deterministic apply creates only empty quantity-1 recipes, product
+detail remains the only complete replacement surface, and physical stock is
+unchanged.
 
 ## Blockers
 
 Stop and report when the active organization/account cannot be established,
-the Coupang collection is unfinished, channel or physical identity provenance
-is incomplete, the BOM cannot be checked component by component, a foreign or
-inactive component would be used, or a non-Inventory path would write stock.
+the Coupang collection is unfinished, sampled automatic evidence contradicts
+the physical item or BOM, channel or physical identity provenance is incomplete,
+the BOM cannot be checked component by component, a foreign or inactive
+component would be used, or a non-Inventory path would write stock.
 
 ## Final Report Format
 
@@ -177,8 +209,10 @@ Organization: <sanitized id>
 Channel account: <sanitized id>; channel <coupang|rocket>
 Collection: <Wing workbook|Rocket collection>; finalized <yes/no>; rows <count>
 Evidence reviewed: exact code <n>; verified physical barcode <n>; normalized name <n>; candidate/AI <n>
-Operator-confirmed recipes: <component shapes>
-Recipe mutations outside product detail: 0
+Preview: auto code <n>; auto barcode <n>; auto name+option <n>; quantity review <n>; conflict/ambiguous <n>; name review <n>; no match <n>
+Applied: variants <n>; affected options <n>; skipped existing <n>
+Operator-confirmed remaining recipes: <component shapes>
+Recipe automation writes: empty recipe only; one component; quantity 1
 Non-Inventory currentStock writes: 0
 Automated gates: <commands and result>
 Blockers: <none or exact blocker>
