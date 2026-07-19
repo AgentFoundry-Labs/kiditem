@@ -367,12 +367,7 @@ describe('SellpiaProductSalesService.findAbcGradesByProductVariantIds', () => {
       },
     ]);
 
-    const result = await (service as unknown as {
-      findAbcGradesByProductVariantIds(input: {
-        organizationId: string;
-        productVariantIds: string[];
-      }): Promise<Map<string, string[]>>;
-    }).findAbcGradesByProductVariantIds({
+    const result = await service.findAbcGradesByProductVariantIds({
       organizationId: ORGANIZATION_ID,
       productVariantIds: ['variant-confirmed'],
     });
@@ -399,18 +394,88 @@ describe('SellpiaProductSalesService.findAbcGradesByProductVariantIds', () => {
     inventoryAvailability.mockResolvedValueOnce(collectedInventory([sku]));
     destinationFindMany.mockResolvedValueOnce([]);
 
-    const result = await (service as unknown as {
-      findAbcGradesByProductVariantIds(input: {
-        organizationId: string;
-        productVariantIds: string[];
-      }): Promise<Map<string, string[]>>;
-    }).findAbcGradesByProductVariantIds({
+    const result = await service.findAbcGradesByProductVariantIds({
       organizationId: ORGANIZATION_ID,
       productVariantIds: ['variant-without-recipe'],
     });
 
     expect(result.has('variant-without-recipe')).toBe(false);
   });
+
+  it('returns no grade while the Sellpia inventory snapshot is not collected', async () => {
+    const {
+      service,
+      findMany,
+      inventoryFindMany,
+      inventoryAvailability,
+      destinationFindMany,
+    } = makePrisma();
+    const sku = inventoryRow(1, 'SELLPIA-1', 20, '880-1');
+    findMany.mockResolvedValueOnce([
+      { ...row({ productCode: 'SELLPIA-1', optionCode: '', yearMonth: '2026-06', orderQty: 100 }), barcode: '880-1' },
+    ]);
+    inventoryFindMany.mockResolvedValueOnce([sku]);
+    destinationFindMany.mockResolvedValueOnce([
+      {
+        sellpiaInventorySkuId: sku.id,
+        quantity: 1,
+        productVariant: {
+          id: 'variant-confirmed',
+          code: 'VARIANT-1',
+          name: '기본 옵션',
+          masterProduct: {
+            id: 'master-1',
+            code: 'CP-LISTING-1',
+            name: '채널 원본 상품',
+          },
+        },
+      },
+    ]);
+
+    const result = await service.findAbcGradesByProductVariantIds({
+      organizationId: ORGANIZATION_ID,
+      productVariantIds: ['variant-confirmed'],
+    });
+
+    expect(result.has('variant-confirmed')).toBe(false);
+    expect(inventoryAvailability).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      sellpiaInventorySkuIds: [sku.id],
+    });
+  });
+
+  it.each(['inactive', 'unresolved'] as const)(
+    'returns no grade for an %s Sellpia SKU resolution',
+    async (resolution) => {
+      const {
+        service,
+        findMany,
+        inventoryFindMany,
+        inventoryAvailability,
+      } = makePrisma();
+      const inactiveSku = {
+        ...inventoryRow(1, 'SELLPIA-1', 20, '880-1'),
+        isActive: false,
+      };
+      findMany.mockResolvedValueOnce([
+        { ...row({ productCode: 'SELLPIA-1', optionCode: '', yearMonth: '2026-06', orderQty: 100 }), barcode: '880-1' },
+      ]);
+      const candidates = resolution === 'inactive' ? [inactiveSku] : [];
+      inventoryFindMany.mockResolvedValueOnce(candidates);
+      inventoryAvailability.mockResolvedValueOnce(collectedInventory(candidates));
+
+      const result = await service.findAbcGradesByProductVariantIds({
+        organizationId: ORGANIZATION_ID,
+        productVariantIds: ['variant-confirmed'],
+      });
+
+      expect(result.has('variant-confirmed')).toBe(false);
+      expect(inventoryAvailability).toHaveBeenCalledWith({
+        organizationId: ORGANIZATION_ID,
+        sellpiaInventorySkuIds: [],
+      });
+    },
+  );
 });
 
 function inventoryRow(
