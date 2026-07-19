@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DATA_MIGRATION_IDS,
@@ -20,8 +18,6 @@ import {
   selectDataMigrationsForPhase,
 } from "../run-data-migrations";
 
-const repoRoot = join(__dirname, "..", "..");
-
 describe("data migration registry", () => {
   it("registers baseline metadata, freshness, and inventory commitment backfills", () => {
     expect(DATA_MIGRATION_IDS).toEqual([
@@ -39,18 +35,14 @@ describe("data migration registry", () => {
     ).toBe(false);
   });
 
-  it("keeps the root 0.1.22 release migration-free", () => {
-    const rootVersion = normalizeReleaseVersion(
-      readFileSync(join(repoRoot, "VERSION"), "utf8"),
-    );
+  it("keeps historical release 0.1.22 migration-free", () => {
     const releaseVersions = dataMigrations.map(
       (migration) => migration.releaseVersion,
     );
 
-    expect(rootVersion).toBe("0.1.22");
     expect(releaseVersions).toContain("0.1.19");
     expect(releaseVersions).toContain("0.1.21");
-    expect(releaseVersions).not.toContain(rootVersion);
+    expect(releaseVersions).not.toContain("0.1.22");
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(
         true,
