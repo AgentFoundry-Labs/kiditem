@@ -20,6 +20,8 @@ interface ThumbnailWorkspaceTabProps {
   thumbnailUrl?: string | null;
   thumbnailSourceCandidateId?: string | null;
   selectedRegistrationThumbnailUrl: string | null;
+  /** 실제로 저장된 대표 썸네일. `등록 대표` 배지의 유일한 근거다(폴백 없음). */
+  savedRepresentativeThumbnailUrl?: string | null;
   thumbnailPreviewImages: string[];
   onPreviewThumbnail: (url: string | null) => void;
   onThumbnailPreviewImagesChange: (images: string[]) => void;
@@ -37,6 +39,7 @@ export default function ThumbnailWorkspaceTab({
   thumbnailUrl = null,
   thumbnailSourceCandidateId = null,
   selectedRegistrationThumbnailUrl,
+  savedRepresentativeThumbnailUrl = null,
   thumbnailPreviewImages,
   onPreviewThumbnail,
   onThumbnailPreviewImagesChange,
@@ -220,7 +223,7 @@ export default function ThumbnailWorkspaceTab({
         thumbnailUrls={thumbnailPreviewImages}
         availableOptions={availableSourceOptions}
         selectedUrl={selectedSourceUrl}
-        savedRepresentativeUrl={selectedRegistrationThumbnailUrl}
+        savedRepresentativeUrl={savedRepresentativeThumbnailUrl}
         onSelect={(url) => {
           setSelectedSourceUrl(url);
         }}

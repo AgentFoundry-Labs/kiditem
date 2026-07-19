@@ -64,6 +64,8 @@ interface Props {
     selectedDetailPageRevisionId?: string | null;
   }) => Promise<void> | void;
   selectedRegistrationThumbnailUrl: string | null;
+  /** 저장된 대표 썸네일. `등록 대표` 배지의 유일한 근거(폴백 없음). */
+  savedRepresentativeThumbnailUrl?: string | null;
   mobilePreviewData: ProductRegistrationPreviewData;
   onPreviewThumbnail: (url: string | null) => void;
   thumbnailPreviewImages: string[];
@@ -112,6 +114,7 @@ export default function ProductTabContent({
   onSelectAgent,
   onApplyRegistrationDetailPage,
   selectedRegistrationThumbnailUrl,
+  savedRepresentativeThumbnailUrl = null,
   thumbnailPreviewImages,
   mobilePreviewData,
   onPreviewThumbnail,
@@ -272,6 +275,7 @@ export default function ProductTabContent({
           thumbnailUrl={thumbnailUrl}
           thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
           selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+          savedRepresentativeThumbnailUrl={savedRepresentativeThumbnailUrl}
           thumbnailPreviewImages={thumbnailPreviewImages}
           onPreviewThumbnail={onPreviewThumbnail}
           onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}

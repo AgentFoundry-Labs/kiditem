@@ -355,6 +355,8 @@ describe('ThumbnailWorkspaceTab', () => {
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
+        // 배지는 편집용 선택값이 아니라 **저장된 대표**만 근거로 삼는다.
+        savedRepresentativeThumbnailUrl="https://cdn.example.com/source.jpg"
         thumbnailPreviewImages={['https://cdn.example.com/other.jpg', 'https://cdn.example.com/source.jpg']}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}

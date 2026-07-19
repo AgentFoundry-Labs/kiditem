@@ -102,6 +102,15 @@ export function ProductWorkspaceScreen({
   const [selectedBoldVerticalId, setSelectedBoldVerticalId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedRegistrationThumbnailUrl, setSelectedRegistrationThumbnailUrl] = useState<string | null>(null);
+  /**
+   * 실제로 **저장된** 대표 썸네일. `selectedRegistrationThumbnailUrl` 과 분리한다.
+   *
+   * 후자는 편집용 선택값이라 아무것도 저장돼 있지 않으면 첫 썸네일로 폴백하는데,
+   * 그 값을 `등록 대표` 배지에 그대로 쓰면 **저장한 적 없는 이미지에 배지가 붙는다.**
+   * 사용자가 "이미 대표로 지정했다" 고 오인하게 만든 원인이라 표시용 근거를 분리했다.
+   * 폴백 없이 서버가 준 값만 담는다.
+   */
+  const [savedRepresentativeThumbnailUrl, setSavedRepresentativeThumbnailUrl] = useState<string | null>(null);
   const [selectedThumbnailGenerationId, setSelectedThumbnailGenerationId] = useState<string | null>(null);
   const [selectedThumbnailGenerationCandidateId, setSelectedThumbnailGenerationCandidateId] = useState<string | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
@@ -323,6 +332,11 @@ export function ProductWorkspaceScreen({
       } else {
         throw new Error('저장 가능한 썸네일 구성이 없습니다.');
       }
+      // 배지는 서버 저장이 끝난 뒤에만 갱신한다. 위의 setSelectedRegistrationThumbnailUrl 처럼
+      // 낙관적으로 먼저 반영하면 저장이 실패해도 `등록 대표` 가 붙어버린다.
+      if (input.selectedThumbnail) {
+        setSavedRepresentativeThumbnailUrl(input.selectedThumbnail.url);
+      }
       toast.success('썸네일 구성을 저장했습니다.');
     } catch (err) {
       toast.error(isApiError(err) ? err.detail : '썸네일 구성 저장에 실패했습니다.');
@@ -367,6 +381,13 @@ export function ProductWorkspaceScreen({
       basicInfo?.selectedThumbnailUrl ??
       fetchedData.product.productPreparation?.selectedThumbnailUrl ??
       nextEditData.thumbnails[0] ??
+      null,
+    );
+    // 배지용 값에는 `nextEditData.thumbnails[0]` 폴백을 **넣지 않는다**.
+    // 저장된 대표가 없으면 null 이어야 배지가 안 붙는다.
+    setSavedRepresentativeThumbnailUrl(
+      basicInfo?.selectedThumbnailUrl ??
+      fetchedData.product.productPreparation?.selectedThumbnailUrl ??
       null,
     );
     setSelectedThumbnailGenerationId(
@@ -635,6 +656,7 @@ export function ProductWorkspaceScreen({
                 ? (input) => selectDetailPageMutation.mutateAsync(input).then(() => undefined)
                 : undefined}
               selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+              savedRepresentativeThumbnailUrl={savedRepresentativeThumbnailUrl}
               thumbnailPreviewImages={thumbnailPreviewImages}
               mobilePreviewData={mobilePreviewData}
               onPreviewThumbnail={setThumbnailPreviewUrl}
