@@ -198,6 +198,7 @@ const workspaceData: ProductWorkspaceData = {
     image_urls: [],
     thumbnail_url: null,
     status: 'sourced',
+    contentWorkspaceId: null,
   } as ProductWorkspaceData['product'],
   detailPageData: placeholderDetailPageData,
   editedHtml: null,

@@ -106,7 +106,11 @@ export class SelectContentWorkspaceThumbnailDto {
   sourceThumbnailCandidateId?: string;
 
   @IsOptional()
-  @IsUrl({ require_protocol: true, protocols: ['http', 'https'] })
+  // `require_tld: false` 는 필수다. 여기 들어오는 값은 우리 오브젝트 스토리지 URL 이고,
+  // 로컬/개발 MinIO 는 `http://localhost:9000/...` 처럼 TLD 가 없다. 기본값
+  // (`require_tld: true`)이면 정상 저장 요청이 전부 400 으로 막힌다 — 라이브에서
+  // `대표 썸네일 등록` 이 조용히 실패하던 원인이다.
+  @IsUrl({ require_protocol: true, protocols: ['http', 'https'], require_tld: false })
   externalUrl?: string;
 
   @Validate(ExactlyOneWorkspaceThumbnailSourceConstraint)
@@ -116,7 +120,11 @@ export class SelectContentWorkspaceThumbnailDto {
 export class ReplaceContentWorkspaceThumbnailGalleryDto {
   @IsArray()
   @ArrayMaxSize(20)
-  @IsUrl({ require_protocol: true, protocols: ['http', 'https'] }, { each: true })
+  // 위 `externalUrl` 과 같은 이유로 `require_tld: false`.
+  @IsUrl(
+    { require_protocol: true, protocols: ['http', 'https'], require_tld: false },
+    { each: true },
+  )
   thumbnailUrls!: string[];
 }
 

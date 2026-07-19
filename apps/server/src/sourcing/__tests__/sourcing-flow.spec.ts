@@ -34,18 +34,31 @@ function makeSellpiaSalePrices() {
   return { findSalePricesByNormalizedNames: vi.fn().mockResolvedValue([]) };
 }
 
+// 후보 상세 응답의 `contentWorkspaceId` 조회. 읽기 전용이라 기본값은 "워크스페이스 없음".
+function makeRegistrationContentWorkspaces() {
+  return {
+    findCandidateWorkspaceId: vi.fn().mockResolvedValue(null),
+    resolveSourceSelections: vi.fn(),
+    validateSourceSelections: vi.fn(),
+    ensureCandidateWorkspace: vi.fn(),
+    branchToListing: vi.fn(),
+  };
+}
+
 describe('SourcingService — candidate ingest', () => {
   let service: SourcingService;
   let repo: ReturnType<typeof makeCandidateRepo>;
   let gateway: ReturnType<typeof makeGateway>;
   let alerts: ReturnType<typeof makeAlerts>;
   let sellpiaSalePrices: ReturnType<typeof makeSellpiaSalePrices>;
+  let registrationContentWorkspaces: ReturnType<typeof makeRegistrationContentWorkspaces>;
 
   beforeEach(() => {
     repo = makeCandidateRepo();
     gateway = makeGateway();
     alerts = makeAlerts();
     sellpiaSalePrices = makeSellpiaSalePrices();
+    registrationContentWorkspaces = makeRegistrationContentWorkspaces();
     service = new SourcingService(
       repo as any,
       gateway as any,
@@ -54,6 +67,7 @@ describe('SourcingService — candidate ingest', () => {
         listRegistrationImages: vi.fn().mockResolvedValue({ primary: [], thumbnail: [], detail: [] }),
       } as any,
       sellpiaSalePrices as any,
+      registrationContentWorkspaces as any,
     );
   });
 

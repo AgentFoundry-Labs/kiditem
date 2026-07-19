@@ -73,6 +73,14 @@ export interface ProductDetailResponse {
   images: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   basicInfo: ProductBasics;
   productPreparation: ProductPreparationSelection | null;
+  /**
+   * 후보가 이미 소유한 `ContentWorkspace.id`. 아직 없으면 `null`.
+   *
+   * `ProductPreparation` 이 없는 후보는 이 값이 썸네일 구성을 저장할 수 있는
+   * 유일한 위치다(= `ContentAsset role='thumbnail'` 갤러리 소유자).
+   * 구버전 응답에는 없을 수 있어 `null` 로 정규화한다.
+   */
+  contentWorkspaceId: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -583,6 +591,10 @@ export const productsApi = {
       images: Array.isArray(p.images) ? p.images : [],
       basicInfo,
       productPreparation,
+      contentWorkspaceId:
+        typeof p.contentWorkspaceId === 'string' && p.contentWorkspaceId
+          ? p.contentWorkspaceId
+          : null,
       created_at: p.createdAt || '',
       updated_at: p.updatedAt || '',
     };

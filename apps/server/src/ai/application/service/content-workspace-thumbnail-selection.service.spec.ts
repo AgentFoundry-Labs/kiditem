@@ -6,6 +6,8 @@ import type { ContentWorkspaceThumbnailSelectionRepositoryPort } from '../port/o
 function setup() {
   const repository = {
     assertActiveWorkspace: vi.fn().mockResolvedValue(undefined),
+    // 기본값은 "우리가 가진 URL 이 아님" — 진짜 외부 URL 경로가 그대로 유지된다.
+    findOwnedAssetIdByUrl: vi.fn().mockResolvedValue(null),
     selectCurrent: vi.fn().mockResolvedValue({
       selectionId: 'selection-1',
       contentAssetId: 'asset-1',
@@ -70,6 +72,32 @@ describe('ContentWorkspaceThumbnailSelectionService', () => {
       userId: null,
       selection: { sourceThumbnailGenerationId: 'generation-1' },
     })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  // 워크스페이스 썸네일 갤러리가 방금 만든 자산을 대표로 고르면 URL 이 그대로 넘어온다.
+  // 그 URL 은 우리 오브젝트 스토리지 주소이므로 다시 내려받으면 안 된다. 로컬 MinIO 는
+  // `http://localhost:9000/...` 이라 SSRF 가드에 막혀 400 이 났고, 그게 `대표 썸네일 등록`
+  // 이 조용히 실패하던 마지막 원인이었다.
+  it('adopts an already-owned storage URL without re-fetching it', async () => {
+    const { service, repository, fetcher, storage } = setup();
+    (repository.findOwnedAssetIdByUrl as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce('asset-owned-1');
+
+    await service.setCurrent({
+      organizationId: 'org-1',
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      selection: { externalUrl: 'http://localhost:9000/kiditem/thumb.png' },
+    });
+
+    expect(fetcher.fetchImage).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
+    expect(repository.selectCurrent).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      selection: { kind: 'content_asset', contentAssetId: 'asset-owned-1' },
+    });
   });
 
   it('fetches and stores an external URL before adopting the managed asset', async () => {

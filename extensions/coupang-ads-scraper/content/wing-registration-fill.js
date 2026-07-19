@@ -515,9 +515,15 @@
     }
 
     htmlTabLabel.click();
+    // 활성 탭 판정에 `htmlTab.checked` 를 쓰면 안 된다. 라이브 WING 의 `#tab-content-*`
+    // 라디오는 **어느 것도 checked 가 되지 않는다**(라디오 3개 모두 prop/attr/`:checked`
+    // 전부 false). 탭 전환은 React state 로만 이뤄지고 라디오는 장식이다.
+    // 그래서 예전 조건은 항상 거짓이라 여기서 늘 멈췄다.
+    // `.html-area-content textarea` 는 HTML 작성 탭에서만 렌더되므로(다른 탭에서는
+    // 아예 없음 — 라이브 확인) 이게 정확한 활성 신호다.
     const textarea = await waitFor(() => {
       const candidate = section.querySelector('.html-area-content textarea');
-      return htmlTab.checked && candidate && isVisible(candidate) ? candidate : null;
+      return candidate && isVisible(candidate) ? candidate : null;
     }, { timeout: 5000 });
     if (!textarea) {
       log('detailHtmlNoTextarea');
@@ -545,13 +551,16 @@
     enabledSave.click();
 
     // 라이브 WING 은 저장 중 applyHtml 을 활성화하고 revision 반영이 끝나면 다시 disabled 로
-    // 되돌린다. 그 복귀 신호와 textarea 의 exact HTML/CDN URL 을 함께 검증한다.
+    // 되돌린다. 그 복귀 신호와 textarea 안의 CDN URL 을 함께 검증한다.
+    //
+    // ⚠️ `textarea.value === html` 로 **정확히 일치**를 요구하면 안 된다. 저장 직후 WING 이
+    // HTML 을 자기 형식으로 다시 찍어내며 개행을 넣는다(라이브 실측):
+    //   보낸 값 `<center> <img src="..."> </center>`
+    //   저장 후 `<center> \n <img src="..."> \n</center>`
+    // 그래서 정확 일치는 영원히 거짓이고, 실제로 저장이 됐는데도 실패로 보고했다.
+    // 우리가 보장해야 하는 것은 "그 CDN 이미지가 상세설명에 들어갔다"이므로 URL 포함으로 본다.
     const applied = await waitFor(
-      () =>
-        htmlTab.checked &&
-        textarea.value === html &&
-        textarea.value.includes(normalized) &&
-        isControlDisabled(save),
+      () => textarea.value.includes(normalized) && isControlDisabled(save),
       { timeout: 10000 },
     );
     if (!applied) {

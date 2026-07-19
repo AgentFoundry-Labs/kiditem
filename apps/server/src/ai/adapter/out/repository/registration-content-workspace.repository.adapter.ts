@@ -112,6 +112,23 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     );
   }
 
+  async findCandidateWorkspaceId(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<string | null> {
+    const existing = await this.prisma.contentWorkspace.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        ownerType: 'sourcing_candidate',
+        sourceCandidateId: input.sourceCandidateId,
+        status: 'active',
+        isDeleted: false,
+      },
+      select: { id: true },
+    });
+    return existing?.id ?? null;
+  }
+
   async ensureCandidateWorkspace(
     transaction: object,
     input: {

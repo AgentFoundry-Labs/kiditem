@@ -21,6 +21,10 @@ import {
   SOURCING_SELLPIA_SALE_PRICE_PORT,
   type SellpiaSalePricePort,
 } from '../port/out/cross-domain/sellpia-sale-price.port';
+import {
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+  type RegistrationContentWorkspacePort,
+} from '../port/out/cross-domain/registration-content-workspace.port';
 import type {
   CreateProductGenerationCommand,
   ReceiveExtensionDataInput,
@@ -73,6 +77,8 @@ export class SourcingService {
     private readonly candidateContentAssets: CandidateContentAssetPort,
     @Inject(SOURCING_SELLPIA_SALE_PRICE_PORT)
     private readonly sellpiaSalePrices: SellpiaSalePricePort,
+    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
+    private readonly registrationContentWorkspaces: RegistrationContentWorkspacePort,
   ) {}
 
   async receiveExtensionData(
@@ -449,7 +455,7 @@ export class SourcingService {
     // Registration images come from ContentAsset.role, not from the scrape
     // originals on the candidate row. Missing assets stay empty so the caller
     // can fall back explicitly instead of shipping an off-spec source image.
-    const [registrationImages, salePriceMatches] = await Promise.all([
+    const [registrationImages, salePriceMatches, contentWorkspaceId] = await Promise.all([
       this.candidateContentAssets.listRegistrationImages({
         organizationId,
         sourceCandidateId: productId,
@@ -457,11 +463,19 @@ export class SourcingService {
       nameKey === null
         ? Promise.resolve([])
         : this.sellpiaSalePrices.findSalePricesByNormalizedNames(organizationId, [nameKey]),
+      // 후보가 이미 가진 content workspace. 없으면 null 이고, 읽기 경로에서
+      // 새로 만들지 않는다. 워크스페이스 화면은 이 값이 있어야 썸네일 구성을
+      // 저장할 수 있다 — ProductPreparation 이 없는 후보의 유일한 저장 위치다.
+      this.registrationContentWorkspaces.findCandidateWorkspaceId({
+        organizationId,
+        sourceCandidateId: productId,
+      }),
     ]);
     const sellpiaSalePrice =
       salePriceMatches.find((match) => match.normalizedName === nameKey)?.salePrice ?? null;
     return {
       ...row,
+      contentWorkspaceId,
       basicInfo: buildProductBasics({
         candidate: row,
         preparation: row.productPreparation,

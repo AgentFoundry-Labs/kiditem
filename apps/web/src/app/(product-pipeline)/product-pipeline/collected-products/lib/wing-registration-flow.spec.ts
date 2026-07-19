@@ -125,10 +125,10 @@ describe('candidateToWingProduct — content_assets.role image mapping', () => {
     expect(product.detailImageUrls).toEqual(['http://localhost:9000/rendered/detail-780.jpg']);
   });
 
-  it('저장된 썸네일이 없으면 워크스페이스에 보이는 상품 이미지로 추가이미지를 채운다', () => {
-    // 저장을 누르지 않았거나 preparation 이 없어 저장 경로가 막힌 후보는
-    // thumbnailPreviewUrls / registrationImages.thumbnail 이 모두 비어 0/9 가 됐다.
-    // 사용자는 썸네일 탭에 뜬 이미지가 그대로 들어갈 것을 기대한다.
+  it('저장된 썸네일이 없으면 상품 이미지로 채우지 않고 비워 둔다', () => {
+    // 추가이미지 = 저장된 **썸네일 구성**에서 대표 1장을 뺀 나머지다.
+    // 상품 이미지(thumbnailUrls) 전체를 밀어 넣는 폴백은 사용자가 거부한 동작이다.
+    // 비어 있으면 저장이 안 된 것이고, 고칠 곳은 저장 경로지 이 읽기 로직이 아니다.
     const product = candidateToWingProduct(
       detail(basics({
         selectedThumbnailUrl: 'http://localhost:9000/img/a.png',
@@ -144,29 +144,33 @@ describe('candidateToWingProduct — content_assets.role image mapping', () => {
       '[64687] 생활용품>생활소품>열쇠고리/키홀더',
     );
 
-    // 대표이미지는 제외하고 나머지가 추가이미지가 된다.
-    expect(product.additionalImageUrls).toEqual([
-      'http://localhost:9000/img/b.png',
-      'http://localhost:9000/img/c.png',
-    ]);
+    expect(product.additionalImageUrls).toEqual([]);
   });
 
-  it('저장된 썸네일이 있으면 그쪽이 우선이고 화면 이미지로 덮이지 않는다', () => {
+  it('저장된 썸네일에서 대표 1장을 뺀 나머지가 추가이미지가 된다', () => {
     const product = candidateToWingProduct(
       detail(basics({
-        selectedThumbnailUrl: 'http://localhost:9000/img/a.png',
+        selectedThumbnailUrl: 'http://localhost:9000/saved/rep.png',
+        // 상품 이미지는 추가이미지 소스가 아니다 — 섞여 들어오면 안 된다.
         thumbnailUrls: [
           'http://localhost:9000/img/a.png',
           'http://localhost:9000/img/ignored.png',
         ],
-        thumbnailPreviewUrls: ['http://localhost:9000/saved/picked.png'],
+        thumbnailPreviewUrls: [
+          'http://localhost:9000/saved/rep.png',
+          'http://localhost:9000/saved/picked-1.png',
+          'http://localhost:9000/saved/picked-2.png',
+        ],
         registrationImages: { primary: [], thumbnail: [], detail: [] },
       })),
       undefined,
       '[64687] 생활용품>생활소품>열쇠고리/키홀더',
     );
 
-    expect(product.additionalImageUrls).toEqual(['http://localhost:9000/saved/picked.png']);
+    expect(product.additionalImageUrls).toEqual([
+      'http://localhost:9000/saved/picked-1.png',
+      'http://localhost:9000/saved/picked-2.png',
+    ]);
   });
 
   it('never uses role=detail section images as the Coupang detail description', () => {

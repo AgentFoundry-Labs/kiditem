@@ -147,8 +147,15 @@ export function ProductWorkspaceScreen({
     ? productPreparation.id
     : null;
   const detailGenerationProductId = productId;
+  // 후보가 이미 소유한 워크스페이스까지 본다. 수집상품 상세 라우트는 워크스페이스 id 를
+  // prop 으로 넘길 수 없고(후보 id 만 안다), preparation 이 없으면
+  // `sourceContentWorkspaceId` 도 없다. 그 상태에서는 `대표 썸네일 등록` 이 계속
+  // disabled 라 저장 자체가 불가능했다 — 저장 위치가 실재하는데도 화면이 몰랐던 것이다.
   const detailGenerationContentWorkspaceId =
-    contentWorkspaceId ?? productPreparation?.sourceContentWorkspaceId ?? null;
+    contentWorkspaceId
+    ?? productPreparation?.sourceContentWorkspaceId
+    ?? product?.contentWorkspaceId
+    ?? null;
   const detailGenerationSourceCandidateId =
     detailGenerationContentWorkspaceId ? null : productId;
   const effectiveContentWorkspaceId = detailGenerationContentWorkspaceId;
