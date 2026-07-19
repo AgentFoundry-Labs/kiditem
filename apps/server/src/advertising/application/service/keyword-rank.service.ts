@@ -17,11 +17,11 @@ import {
   type UpdateKeywordTrackerInput,
   type UpsertKeywordTrackerInput,
 } from "../port/out/repository/keyword-rank.repository.port";
-import type { SellpiaProductAbcGrade } from "@kiditem/shared/dashboard";
 import {
-  SELLPIA_ABC_GRADE_PORT,
-  type SellpiaAbcGradePort,
-} from "../port/out/cross-domain/sellpia-abc-grade.port";
+  SELLPIA_VARIANT_ABC_GRADE_READ_PORT,
+  type SellpiaVariantAbcGradeReadPort,
+} from "../../../analytics/application/port/in/sellpia-variant-abc-grade-read.port";
+import type { SellpiaProductAbcGrade } from "@kiditem/shared/dashboard";
 
 export type ProductKeywordRankStatus =
   "rising" | "falling" | "steady" | "out_of_range" | "not_collected";
@@ -41,7 +41,7 @@ export interface ProductKeywordRankRow {
   skuId: string | null;
   productName: string | null;
   /** 재고분석 '상품별 소진'과 동일한 ABC 등급. 셀피아 연결분만 채워짐. */
-  abcGrade: SellpiaProductAbcGrade | null;
+  abcGrades: SellpiaProductAbcGrade[];
   currentSalesRank: number | null;
   previousSalesRank: number | null;
   rankChange: number | null;
@@ -83,8 +83,8 @@ export class KeywordRankService {
   constructor(
     @Inject(KEYWORD_RANK_REPOSITORY_PORT)
     private readonly keywordRankRepo: KeywordRankRepositoryPort,
-    @Inject(SELLPIA_ABC_GRADE_PORT)
-    private readonly sellpiaAbcGrade: SellpiaAbcGradePort,
+    @Inject(SELLPIA_VARIANT_ABC_GRADE_READ_PORT)
+    private readonly sellpiaVariantAbcGrades: SellpiaVariantAbcGradeReadPort,
   ) {}
 
   listTrackers(organizationId: string): Promise<KeywordTrackerRow[]> {
@@ -156,11 +156,10 @@ export class KeywordRankService {
 
   /** 자사 카탈로그 전체의 대표 키워드별 Wing 최근 28일 판매량순 현황. */
   async getProductRankOverview(days: number, organizationId: string) {
-    const [overrides, ownItems, snapshots, abcByCode] = await Promise.all([
+    const [overrides, ownItems, snapshots] = await Promise.all([
       this.keywordRankRepo.listRepresentativeKeywordOverrides(organizationId),
       this.keywordRankRepo.listOwnVendorItems(organizationId),
       this.keywordRankRepo.findWingSalesRankSnapshots(organizationId, days),
-      this.sellpiaAbcGrade.getAbcGradeByCode(organizationId),
     ]);
     const dedupedOwnItems = [
       ...new Map(ownItems.map((item) => [item.vendorItemId, item])).values(),
@@ -168,6 +167,17 @@ export class KeywordRankService {
     const ownByVendorItemId = new Map(
       dedupedOwnItems.map((item) => [item.vendorItemId, item]),
     );
+    const abcGradesByVariant =
+      await this.sellpiaVariantAbcGrades.findAbcGradesByProductVariantIds({
+        organizationId,
+        productVariantIds: [
+          ...new Set(
+            dedupedOwnItems.flatMap((item) =>
+              item.productVariantId ? [item.productVariantId] : [],
+            ),
+          ),
+        ],
+      });
     const products = applyObservedCategories(dedupedOwnItems, snapshots);
     const manualKeywordByVendorItemId = new Map(
       overrides.map((override) => [override.vendorItemId, override.keyword]),
@@ -234,9 +244,9 @@ export class KeywordRankService {
         // Wing 스냅샷 productName 은 SERP 수집 과정에서 옵션값("1개")이 섞여
         // 들어오는 경우가 있어 후순위로 둔다.
         productName: ownItem?.productName ?? latest?.productName ?? null,
-        abcGrade: ownItem?.masterCode
-          ? (abcByCode.get(ownItem.masterCode) ?? null)
-          : null,
+        abcGrades: ownItem?.productVariantId
+          ? (abcGradesByVariant.get(ownItem.productVariantId) ?? [])
+          : [],
         currentSalesRank,
         previousSalesRank,
         rankChange,
@@ -531,10 +541,20 @@ function collapseDuplicateProductNames(
     const representative = [...group].sort(compareGroupRepresentatives)[0];
     return {
       ...representative,
+      abcGrades: sortAbcGrades(
+        new Set(group.flatMap((row) => row.abcGrades)),
+      ),
       groupedVendorItemIds: group.map((row) => row.vendorItemId),
       groupedOptionCount: group.length,
     };
   });
+}
+
+function sortAbcGrades(
+  grades: ReadonlySet<SellpiaProductAbcGrade>,
+): SellpiaProductAbcGrade[] {
+  const order: Record<SellpiaProductAbcGrade, number> = { A: 0, B: 1, C: 2 };
+  return [...grades].sort((left, right) => order[left] - order[right]);
 }
 
 function compareGroupRepresentatives(

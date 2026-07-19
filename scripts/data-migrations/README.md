@@ -4,6 +4,15 @@ Durable persisted-data rewrites live here. Schema shape remains Prisma-owned;
 this directory is only for data backfills, persisted href rewrites, and similar
 state changes that must run once per shared environment.
 
+## Release Train Assignment
+
+Root `VERSION` is the open deployable release train. Multiple compatible schema
+and data PRs may share it; do not bump it for each migration. A migration added
+before promotion uses the open train version in its directory, `id`, and
+`releaseVersion`. Once that train reaches `main`, its migration set is
+immutable. Fixes use a new idempotent migration in the next train. Follow
+[`docs/runbooks/release-train-versioning.md`](../../docs/runbooks/release-train-versioning.md).
+
 ## Layout
 
 ```text

@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # product-hub/matching — Channel Product Matching
 
 `app/(catalog)/product-hub/matching/` owns `/product-hub/matching`, the operator
@@ -15,13 +13,8 @@ its options instead of switching between peer workspaces.
 React Query + apiClient
   -> GET /api/channels/accounts
   -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
-  -> GET /api/channels/product-mappings
-  -> GET /api/channels/product-mappings/:channelListingId/candidates
-  -> PUT /api/channels/product-mappings/:channelListingId/master-product
-  -> GET /api/channels/product-mappings/options/:channelListingOptionId/candidates
-  -> PUT /api/channels/product-mappings/options/:channelListingOptionId/product-variant
-  -> GET /api/channels/product-mappings/recipe-automation/preview
-  -> POST /api/channels/product-mappings/recipe-automation/apply
+  -> /api/channels/product-mappings (queue, candidates, confirmations)
+  -> /api/channels/product-mappings/recipe-automation (preview, apply)
 ```
 
 ## State Rules
@@ -52,6 +45,8 @@ React Query + apiClient
 
 ## Boundary Rules
 
+- Recipe and identity safety policy is inherited from the catalog guide; this
+  route adds no arbitrary quantity or component editor.
 - Do not recreate channel-owned component recipes or arbitrary quantity inputs.
   The only recipe mutation here is the explicit version-fenced command that
   creates an empty central recipe as one active Sellpia SKU with a backend-

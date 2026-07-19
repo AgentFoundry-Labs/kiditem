@@ -59,6 +59,35 @@ test('validates data migration release folder and registry inclusion', () => {
   assert.match(result.errors.join('\n'), /is not registered/);
 });
 
+test('accepts a higher VERSION when starting a release train', () => {
+  const result = analyzePrReleaseContract({
+    files: ['VERSION'],
+    prBody: 'Release decision: start VERSION 0.1.2 release train after 0.1.1 promotion\n',
+    rootVersion: '0.1.2',
+    baseVersion: '0.1.1',
+    migrationIndex: '',
+  });
+
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects a VERSION change that does not increase the base version', () => {
+  for (const rootVersion of ['0.1.1', '0.1.0']) {
+    const result = analyzePrReleaseContract({
+      files: ['VERSION'],
+      prBody: `Release decision: start VERSION ${rootVersion} release train\n`,
+      rootVersion,
+      baseVersion: '0.1.1',
+      migrationIndex: '',
+    });
+
+    assert.match(
+      result.errors.join('\n'),
+      /must be higher than base VERSION 0\.1\.1/,
+    );
+  }
+});
+
 test('allows historical migration releases in develop to main promotion PRs', () => {
   const result = analyzePrReleaseContract({
     files: [

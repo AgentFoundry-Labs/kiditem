@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # product-hub — Product Operations Center
 
 `app/(catalog)/product-hub/` owns the KidItem product operations workflows:
@@ -49,12 +47,12 @@ Consult this document first instead of relying on memorized knowledge.
   sent to the global command-center query.
 - Product create/edit mutations invalidate only the product operations list and
   affected detail keys.
-- Manual variant recipe edits are complete atomic replacements owned by the
-  product detail route. Operators select confirmed physical Inventory
-  identities through a focused search; a component is saved by
-  `sellpiaInventorySkuId` and positive integer quantity. Matching may invoke
-  the separate version-fenced create-if-empty command for one component with a
-  backend-verified positive integer quantity.
+- Product detail owns manual complete recipe replacement through the focused
+  physical Inventory candidate search. Manual variant recipe edits are complete
+  atomic replacements: operators select confirmed physical Inventory identities,
+  and a component is saved by `sellpiaInventorySkuId` and positive integer
+  quantity. Matching may invoke the separate version-fenced create-if-empty
+  command for one component with a backend-verified positive integer quantity.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
 - Candidate generation on `/product-hub/matching` never confirms an identity
@@ -87,9 +85,10 @@ Consult this document first instead of relying on memorized knowledge.
   name with sufficient runner-up margin. Quantities above one require an
   explicit integer pack ratio; ambiguity, conflicts, unverified pack/BOM, raw
   aliases, close-ranked names, and AI remain review-only.
-- Channel rows may show inherited recipe status and capacity. Manual complete
-  recipe edits belong to `/product-hub/[masterProductId]`; matching owns only
-  the narrow create-if-empty automation workflow.
+- Channel rows may show inherited recipe status and capacity; the catalog guide
+  owns recipe and matching safety policy. Manual complete recipe edits belong to
+  `/product-hub/[masterProductId]`; matching owns only the narrow
+  create-if-empty automation workflow.
 - All API calls use `apiClient` + React Query and never send `organizationId`.
 - Keep all edited UI light-only; do not add `dark:` variants.
 

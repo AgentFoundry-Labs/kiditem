@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # apps/server — NestJS Backend
 
 `apps/server/` is the NestJS API on port 4000. It owns HTTP entrypoints,
@@ -66,35 +64,14 @@ Products owns `MasterProduct`, `ProductVariant`, and the central
 `SellpiaInventorySku.currentStock`; Channels may link listings/options to
 products/variants but must not persist a second recipe or stock balance.
 
-## Scoped Guides
+## Scoped Guide Discovery
 
-Do not rely on this table or remembered backend rules as a complete index.
+Do not rely on remembered backend rules as a complete index.
 Before editing a backend file, use `rg --files -g AGENTS.md apps/server/src`
 and read every applicable guide in path order: `apps/server/AGENTS.md`, then
 the nearest owner-domain or nested surface guide that contains the target file.
 If the work expands into another owner domain or nested surface, rerun
 discovery and read the newly applicable guide before editing there.
-
-Common owner-domain guides:
-
-| Path | Focus |
-|---|---|
-| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | ad operations and daily facts |
-| [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS platform runtime |
-| [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | media AI, prompts, provider ports, sinks |
-| [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | reporting/read models |
-| [`src/analytics/dashboard/AGENTS.md`](src/analytics/dashboard/AGENTS.md) | dashboard raw-SQL read model |
-| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel |
-| [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | guards, decorators, Supabase auth |
-| [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | marketplace catalog import, matching, and sync |
-| [`src/chat/AGENTS.md`](src/chat/AGENTS.md) | CopilotKit and Claude CLI adapter |
-| [`src/finance/AGENTS.md`](src/finance/AGENTS.md) | finance aggregation and payments |
-| [`src/inventory/AGENTS.md`](src/inventory/AGENTS.md) | stock single-writer and inventory ops |
-| [`src/orders/AGENTS.md`](src/orders/AGENTS.md) | order/return channel-agnostic spine |
-| [`src/products/AGENTS.md`](src/products/AGENTS.md) | categories compatibility only |
-| [`src/rules/AGENTS.md`](src/rules/AGENTS.md) | rules evaluation and Agent OS delegation |
-| [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | discovery, candidate inbox, registration preparation |
-| [`src/supply/AGENTS.md`](src/supply/AGENTS.md) | suppliers and procurement |
 
 ## Global HTTP Rules
 
@@ -124,14 +101,6 @@ Common owner-domain guides:
   domain service from `application/service/**`.
 - Prisma belongs in outgoing repository/query adapters or documented legacy
   CRUD services.
-- Production raw SQL uses Prisma tagged templates only. No
-  `$queryRawUnsafe` or `$executeRawUnsafe`.
-- Organization/customer boundary is `Organization` / `organizationId`; do not
-  add `tenantId` to code, schema, DTOs, or routes.
-- Use focused shared subpaths such as `@kiditem/shared/inventory`; do not
-  expand the `@kiditem/shared` root barrel for new domains.
-- Do not add substantial behavior to 700+ line services/components. Changes to
-  500+ line files require explicit reconstruction classification in review.
 
 ## Port Directory Rules
 

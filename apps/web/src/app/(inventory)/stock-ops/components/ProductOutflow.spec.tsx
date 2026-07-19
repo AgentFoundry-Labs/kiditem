@@ -8,6 +8,12 @@ const productSalesApi = vi.hoisted(() => ({
 }));
 const productProfitCollection = vi.hoisted(() => vi.fn());
 const requestRefresh = vi.hoisted(() => vi.fn());
+const freshness = vi.hoisted(() => ({
+  state: {
+    status: 'refresh_required',
+    lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+  },
+}));
 
 vi.mock('@/lib/sellpia-product-sales-api', () => ({
   fetchSellpiaProductSales: productSalesApi.fetch,
@@ -17,7 +23,7 @@ vi.mock('@/lib/sellpia-product-sales-collection', () => ({
   collectSellpiaProductProfitFromExtension: productProfitCollection,
 }));
 vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({
-  useSellpiaInventoryFreshness: () => ({ requestRefresh }),
+  useSellpiaInventoryFreshness: () => ({ requestRefresh, state: freshness.state }),
 }));
 vi.mock('@/lib/browser-storage', () => ({
   safeStorageGet: () => '2026-07-17',
@@ -76,6 +82,10 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
       months: [],
     });
     requestRefresh.mockResolvedValue({ status: 'refresh_required' });
+    freshness.state = {
+      status: 'refresh_required',
+      lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+    };
   });
 
   afterEach(() => {
@@ -90,6 +100,40 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     await waitFor(() => expect(productProfitCollection).toHaveBeenCalledTimes(1));
     expect(productSalesApi.ingest).toHaveBeenCalledTimes(1);
     expect(requestRefresh).toHaveBeenCalledWith('manual_request');
+  });
+
+  it('refreshes Sellpia stock separately without collecting or ingesting product profit', async () => {
+    let completeRefresh: (() => void) | undefined;
+    requestRefresh.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        completeRefresh = () => resolve({ status: 'syncing' });
+      }),
+    );
+    renderProductOutflow();
+
+    const stockRefresh = screen.getByRole('button', { name: /재고 동기화/ });
+    expect(screen.getByText('갱신 필요')).toBeInTheDocument();
+    fireEvent.click(stockRefresh);
+
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
+    expect(stockRefresh).toBeDisabled();
+    expect(productProfitCollection).not.toHaveBeenCalled();
+    expect(productSalesApi.ingest).not.toHaveBeenCalled();
+
+    completeRefresh?.();
+    await waitFor(() => expect(stockRefresh).toBeEnabled());
+  });
+
+  it('renders shared syncing freshness as a disabled stock refresh action', () => {
+    freshness.state = {
+      status: 'syncing',
+      lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+    };
+    renderProductOutflow();
+
+    expect(screen.getByText('갱신 중')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /재고 동기화/ })).toBeDisabled();
+    expect(requestRefresh).not.toHaveBeenCalled();
   });
 
   it('renders PR 329 depletion and stock signals from the canonical inventory summary', async () => {

@@ -4,6 +4,7 @@ import { SellpiaProductSalesService } from './sellpia-product-sales.service';
 import { InventoryModule } from '../../inventory/inventory.module';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from './sellpia-product-depletion-read.port';
+import { SELLPIA_VARIANT_ABC_GRADE_READ_PORT } from '../application/port/in/sellpia-variant-abc-grade-read.port';
 
 // Sellpia 상품별 이익현황(stat_prd_profit) 월별 소진 ingest + read.
 // analytics owner 의 daily/monthly-fact ingest 예외 레인(traffic upload·sellpia-sales 와 동일 성격).
@@ -18,9 +19,14 @@ import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from './sellpia-product-depletion
       provide: SELLPIA_PRODUCT_DEPLETION_READ_PORT,
       useExisting: SellpiaProductSalesService,
     },
+    {
+      provide: SELLPIA_VARIANT_ABC_GRADE_READ_PORT,
+      useExisting: SellpiaProductSalesService,
+    },
   ],
-  // SellpiaProductSalesService 는 advertising 의 ABC 등급 크로스도메인 포트가
-  // useExisting 으로 바인딩하므로 클래스 토큰도 계속 export 한다.
-  exports: [SellpiaProductSalesService, SELLPIA_PRODUCT_DEPLETION_READ_PORT],
+  exports: [
+    SELLPIA_PRODUCT_DEPLETION_READ_PORT,
+    SELLPIA_VARIANT_ABC_GRADE_READ_PORT,
+  ],
 })
 export class SellpiaProductSalesModule {}

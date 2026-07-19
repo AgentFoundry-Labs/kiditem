@@ -207,7 +207,9 @@ describe("BatchRankCheck", () => {
       expect(mockCollectionSession).toHaveBeenCalledWith(RUN_ID_2);
     });
     expect(screen.getByText("Wing 로그인이 필요합니다.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "확인 탭 열기" })).toBeInTheDocument();
+    const attentionAction = screen.getByRole("button", { name: "확인 탭 열기" });
+    expect(attentionAction).toBeInTheDocument();
+    expect(attentionAction.closest('.fixed')).toHaveClass('bottom-4', 'right-4');
     expect(screen.getByRole("button", { name: "처음부터 재실행" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "중단" })).toBeInTheDocument();
     expect(

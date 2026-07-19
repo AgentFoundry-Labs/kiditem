@@ -183,6 +183,17 @@ export function analyzePrReleaseContract({
     errors.push(`Root VERSION must be semver, got "${rootVersion}"`);
   }
 
+  if (
+    files.includes('VERSION') &&
+    isSemver(version) &&
+    isSemver(base) &&
+    compareSemver(version, base) <= 0
+  ) {
+    errors.push(
+      `Root VERSION ${version} must be higher than base VERSION ${base} when VERSION changes.`,
+    );
+  }
+
   if (requiredReasons.length > 0 && !hasReleaseDecision(prBody)) {
     errors.push('Release decision: field is required for persisted schema/data/release changes.');
   }
@@ -231,7 +242,7 @@ function main() {
     files,
     prBody,
     rootVersion: readFileSync(path.join(root, 'VERSION'), 'utf8'),
-    baseVersion: allowHistoricalMigrationVersions ? readVersionAtRef(base) : '',
+    baseVersion: readVersionAtRef(base),
     migrationIndex: readFileSync(path.join(root, 'scripts/data-migrations/index.ts'), 'utf8'),
     allowHistoricalMigrationVersions,
   });

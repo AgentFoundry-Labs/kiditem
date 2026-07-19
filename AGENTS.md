@@ -26,10 +26,11 @@ kiditem/
 ## Instruction Map
 
 `AGENTS.md` is the shared instruction authority. The most-specific
-`AGENTS.md` wins, then parent files. `CLAUDE.md` is only a compatibility shim
-and should normally contain `@AGENTS.md`.
+`AGENTS.md` wins, then parent files. Every directory that contains `AGENTS.md`
+also contains a `CLAUDE.md` compatibility shim whose only content is
+`@AGENTS.md`.
 
-Before editing, do not rely on memorized rules or this table alone. Use
+Before editing, do not rely on memorized rules or a remembered path map. Use
 `rg --files -g AGENTS.md` to discover scoped guides for the target path, then
 read every applicable `AGENTS.md` from the repo root down to the nearest one
 under the target directory. If the work moves to another directory or creates a
@@ -40,18 +41,8 @@ Keep `Folder Map` sections only when the structure itself is a contract,
 exception, or ownership boundary. Do not add maps that only repeat discoverable
 file lists; use `rg --files` for exploration instead.
 
-Common entrypoints:
-
-| Work area | Guide |
-|---|---|
-| `apps/server/src/{domain}/` | [`apps/server/AGENTS.md`](apps/server/AGENTS.md) plus domain guide |
-| `apps/web/src/app/{route}/` | [`apps/web/AGENTS.md`](apps/web/AGENTS.md) plus route guide |
-| `agents/` | [`agents/AGENTS.md`](agents/AGENTS.md) |
-| `packages/shared/` | [`packages/shared/AGENTS.md`](packages/shared/AGENTS.md) |
-| `packages/templates/` | [`packages/templates/AGENTS.md`](packages/templates/AGENTS.md) |
-| `prisma/` | [`prisma/AGENTS.md`](prisma/AGENTS.md) |
-| `scripts/` | [`scripts/AGENTS.md`](scripts/AGENTS.md) |
-| `extensions/` | [`extensions/AGENTS.md`](extensions/AGENTS.md) |
+Keep every active root-to-leaf instruction chain below 28 KiB. Run
+`npm run check:agents-hygiene` after changing `AGENTS.md` or `CLAUDE.md`.
 
 ## Session Boundaries
 
@@ -80,7 +71,7 @@ Common entrypoints:
   identifiers before interpolation.
 - Organization/customer boundary is `Organization` / `organizationId`.
   `OrganizationMembership` owns active organization and role; do not add
-  `User.organizationId`.
+  `tenantId` or `User.organizationId`.
 - `LegalEntity` is tax/settlement identity. `ChannelAccount` is
   marketplace/store identity.
 - Mutating services include `organizationId`; single-resource reads use
@@ -105,14 +96,20 @@ business rewrites.
 
 ## Release + Data
 
-- Root [`VERSION`](VERSION) is the deployable app release source of truth.
+- Root [`VERSION`](VERSION) identifies the active deployable release train, not
+  an individual feature or schema diff. Open a higher SemVer once after the
+  prior train is promoted; all PRs in the open train keep that version.
 - Package-local `version` fields are package metadata, not release boundaries.
+- Compatible schema-only changes keep the open train version and record the
+  exact `db:push` / backfill decision in the PR `Release decision:` field.
 - Durable data migrations live under
-  `scripts/data-migrations/v<VERSION>/<sequence>_<name>.ts`.
-- Persisted schema/data behavior changes must bump `VERSION` or explain why the
-  current version remains valid.
+  `scripts/data-migrations/v<VERSION>/<sequence>_<name>.ts`. Once a train has
+  reached `main`, its migration set is immutable; corrections use a later
+  train.
 - Pulling code does not update the DB; see
-  [`prisma/AGENTS.md`](prisma/AGENTS.md#pulling-code-does-not-update-db).
+  [`prisma/AGENTS.md`](prisma/AGENTS.md#data--migration-flow). Follow
+  [`docs/runbooks/release-train-versioning.md`](docs/runbooks/release-train-versioning.md)
+  to start, build, and promote a train.
 
 ## CI/CD + Infrastructure
 

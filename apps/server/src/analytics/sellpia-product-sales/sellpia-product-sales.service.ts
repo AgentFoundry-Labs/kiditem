@@ -21,6 +21,7 @@ import {
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 import type { SellpiaProductDepletionReadPort } from './sellpia-product-depletion-read.port';
 import { buildProductDepletionProjections } from './sellpia-product-depletion-projection';
+import type { SellpiaVariantAbcGradeReadPort } from '../application/port/in/sellpia-variant-abc-grade-read.port';
 
 const INT4_MAX = 2_147_483_647;
 // createMany 벌크 청크. 14열 × 2000행 = 28k 바인드 < PG 65535 파라미터 한도.
@@ -36,7 +37,10 @@ const DEFAULT_MONTHS = 13; // 1년치(완결 12개월 + 진행 월) — 시즌 �
  * 평균은 현재 월(진행 중)을 제외한 완결 월에서 산정한다. 메이크샵 주문 기준.
  */
 @Injectable()
-export class SellpiaProductSalesService implements SellpiaProductDepletionReadPort {
+export class SellpiaProductSalesService implements
+  SellpiaProductDepletionReadPort,
+  SellpiaVariantAbcGradeReadPort
+{
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryReader: SellpiaProductInventoryReader,
@@ -343,6 +347,35 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       input.monthsWindow,
     );
     return buildProductDepletionProjections(masterProductIds, summary.products);
+  }
+
+  async findAbcGradesByProductVariantIds(input: {
+    organizationId: string;
+    productVariantIds: string[];
+  }): Promise<Map<string, SellpiaProductAbcGrade[]>> {
+    const requestedVariantIds = new Set(input.productVariantIds);
+    if (requestedVariantIds.size === 0) return new Map();
+
+    const summary = await this.getSummary(input.organizationId);
+    const gradesByVariant = new Map<string, Set<SellpiaProductAbcGrade>>();
+    for (const product of summary.products) {
+      if (product.inventoryResolution.status !== 'matched') continue;
+      for (const destination of product.inventoryResolution.destinations) {
+        if (!requestedVariantIds.has(destination.productVariantId)) continue;
+        const grades = gradesByVariant.get(destination.productVariantId) ?? new Set();
+        grades.add(product.abcGrade);
+        gradesByVariant.set(destination.productVariantId, grades);
+      }
+    }
+    const gradeOrder: Record<SellpiaProductAbcGrade, number> = {
+      A: 0,
+      B: 1,
+      C: 2,
+    };
+    return new Map([...gradesByVariant].map(([productVariantId, grades]) => [
+      productVariantId,
+      [...grades].sort((left, right) => gradeOrder[left] - gradeOrder[right]),
+    ]));
   }
 }
 

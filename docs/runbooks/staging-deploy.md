@@ -352,6 +352,11 @@ The deployable app release is recorded in root [`VERSION`](../../VERSION).
 Package-local `version` fields are package metadata and are not the staging
 release boundary.
 
+Select and advance that value through the
+[Release Train Versioning](release-train-versioning.md) runbook. A staging
+deployment reports the already assembled train version; deployment itself does
+not bump it. Git SHA and digest refs remain the exact runtime identity.
+
 Image naming:
 
 ```text

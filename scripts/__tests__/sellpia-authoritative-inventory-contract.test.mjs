@@ -123,11 +123,7 @@ function modelBlock(source, modelName) {
 }
 
 describe("Sellpia authoritative final-schema contract", () => {
-  it("keeps the 0.1.8 rebuild boundary through release 0.1.25", () => {
-    assert.equal(
-      readFileSync(join(repoRoot, "VERSION"), "utf8").trim(),
-      "0.1.25",
-    );
+  it("keeps the 0.1.8 rebuild boundary through release 0.1.22", () => {
     assert.match(
       migrationRegistry,
       /v0\.1\.19\/001_sellpia_inventory_freshness/,

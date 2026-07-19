@@ -75,6 +75,10 @@ An optional Rocket baseline requires all three of
 
 ## Deploy
 
+The promoted commit already contains the selected release-train `VERSION`.
+Follow [Release Train Versioning](release-train-versioning.md) before promotion;
+the production workflow reports that version and does not change it.
+
 Run the workflow manually:
 
 ```text

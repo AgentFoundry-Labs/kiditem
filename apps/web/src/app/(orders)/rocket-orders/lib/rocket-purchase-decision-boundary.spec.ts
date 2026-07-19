@@ -59,7 +59,7 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain('수집·저장된 발주 조회 · 입고예정일별 분류');
     expect(operationsSource).toContain('listSavedRocketPos');
     expect(operationsSource).not.toContain('listRocketPosFromExtension');
-    // 저장 발주 빈 상태 문구는 머지된 워크스페이스의 실제 문구를 기준으로 검증한다.
+    // 저장 발주 빈 상태 문구는 양쪽 워크스페이스 판본에 공통으로 존재하는 문구를 기준으로 검증한다.
     expect(operationsSource).toContain('이 달엔 해당 발주가 없습니다');
     expect(operationsSource).toContain('신규 주문');
     expect(operationsSource).toContain('납품 판단');

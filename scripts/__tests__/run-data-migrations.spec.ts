@@ -56,10 +56,7 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain("v0.1.21:001_backfill_inventory_commitments");
   });
 
-  it("stops registering migrations at 0.1.21 and keeps later root releases migration-free", () => {
-    const rootVersion = normalizeReleaseVersion(
-      readFileSync(join(repoRoot, "VERSION"), "utf8"),
-    );
+  it("keeps historical release 0.1.22 migration-free and stops registering at 0.1.21", () => {
     const releaseVersions = dataMigrations.map(
       (migration) => migration.releaseVersion,
     );
@@ -76,9 +73,14 @@ describe("data migration registry", () => {
 
     expect(releaseVersions).toContain("0.1.19");
     expect(releaseVersions).toContain("0.1.21");
+    expect(releaseVersions).not.toContain("0.1.22");
 
     const latestMigrationRelease = [...releaseVersions].sort(compare).at(-1);
     expect(latestMigrationRelease).toBe("0.1.21");
+
+    const rootVersion = normalizeReleaseVersion(
+      readFileSync(join(repoRoot, "VERSION"), "utf8"),
+    );
     expect(compare(rootVersion, "0.1.21")).toBeGreaterThanOrEqual(0);
     if (rootVersion !== "0.1.21") {
       expect(releaseVersions).not.toContain(rootVersion);

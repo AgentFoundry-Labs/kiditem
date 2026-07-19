@@ -41,6 +41,9 @@ the image build fails if that runtime asset cannot be resolved.
 - Workflow, deploy shell, Compose, and Terraform changes keep their focused
   local syntax checks; those checks are no longer repeated for unrelated PRs.
 - Image builds are centralized in `.github/workflows/build-image.yml`.
+- Root `VERSION` is selected once for the release train before promotion and is
+  reported as release metadata; deploy jobs do not bump it. Git SHA and image
+  digest refs remain the exact build and runtime identities.
 - Staging deploy pushes `:staging` as a convenience tag but deploys the digest
   reference emitted by the build job.
 - Production deploy pushes `:production-candidate` as a convenience tag but
