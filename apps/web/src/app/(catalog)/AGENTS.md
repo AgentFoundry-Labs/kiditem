@@ -26,6 +26,8 @@ React Query + apiClient
   -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
   -> GET /api/channels/product-mappings
   -> GET/PUT product and option candidate/confirmation endpoints
+  -> GET /api/channels/product-mappings/recipe-automation/preview
+  -> POST /api/channels/product-mappings/recipe-automation/apply
   -> queryKeys.products.operations, inventory, channelProductMappings
 ```
 
@@ -43,16 +45,25 @@ React Query + apiClient
   organization-fenced component relations.
 - Matching confirms channel listing -> `MasterProduct` before channel option ->
   `ProductVariant`. Candidate evidence never confirms identity.
+- Matching may explicitly apply a version-fenced deterministic preview to
+  create only empty central recipes with one Sellpia component and a backend-
+  verified positive integer quantity. Safe child variants apply independently;
+  existing recipes and every review/blocked child remain untouched.
 
 ## Boundary Rules
 
 - Product list/detail and its recipe picker use Products APIs. They never call
   the Inventory SKU collection route directly.
-- Do not infer product, variant, recipe, or channel identity from display text,
-  barcode, normalized name, or candidate rank.
+- Do not infer product, variant, or channel identity from display text,
+  barcode, normalized name, or candidate rank. Recipe automation never changes
+  those identity links; it may select one physical SKU for an empty recipe only
+  through name-cross-checked exact identifiers, unique exact names, or a unique
+  high-confidence name with sufficient runner-up margin. Unverified pack/BOM,
+  duplicates, conflicts, raw aliases, close-ranked names, and AI stay review-only.
 - Do not edit Sellpia stock, source prices, or channel prices in catalog routes.
-- Do not recreate channel-owned component quantities; central recipe edits live
-  only on product detail.
+- Do not recreate channel-owned component quantities. Manual complete recipe
+  edits live on product detail; matching exposes only the narrow deterministic
+  create-if-empty command.
 - Never send `organizationId`; backend session scope owns it.
 - Sourcing candidates, generated content workspaces, marketplace ingest,
   Rocket operations, and purchase orders remain in their owner domains.

@@ -85,6 +85,30 @@ describe('SellpiaInventorySkuReadRepositoryAdapter', () => {
     }));
   });
 
+  it('uses a tenant-fenced tagged query and preserves normalized barcode duplicates', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([
+      stagedSku('sku-1', 'SP-1', 'First', '001-2345-6789'),
+      stagedSku('sku-2', 'SP-2', 'Second', '00123456789'),
+    ]);
+    const repository = new SellpiaInventorySkuReadRepositoryAdapter({
+      $queryRaw: queryRaw,
+    } as unknown as PrismaService);
+
+    const rows = await repository.findByNormalizedBarcodes(
+      organizationId,
+      ['00123456789'],
+    );
+
+    const statement = queryRaw.mock.calls[0]?.[0];
+    expect(statement.text).toContain('FROM sellpia_inventory_skus');
+    expect(statement.text).toContain('organization_id =');
+    expect(statement.text).toContain('is_active = true');
+    expect(statement.text).toContain("regexp_replace(coalesce(barcode, ''), '[^0-9]', '', 'g')");
+    expect(statement.values).toEqual([organizationId, '00123456789']);
+    expect(rows.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId))
+      .toEqual(['sku-1', 'sku-2']);
+  });
+
   it('batch-reads active tenant SKUs by the strict normalized-name expression', async () => {
     const queryRaw = vi.fn().mockResolvedValue([
       stagedSku('sku-1', 'SP-1', '아기 컵+빨대'),

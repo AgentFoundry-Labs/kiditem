@@ -36,11 +36,14 @@ import { ChannelCatalogImportService } from '../application/service/channel-cata
 import { ChannelProductMatchingController } from '../adapter/in/http/channel-product-matching.controller';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
+import { ChannelRecipeAutomationContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-automation-context.repository.adapter';
 import { SellpiaRecipeEvidenceAdapter } from '../adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { ChannelRecipeSuggestionService } from '../application/service/channel-recipe-suggestion.service';
+import { ChannelRecipeAutomationService } from '../application/service/channel-recipe-automation.service';
 import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from '../application/port/out/repository/channel-product-matching.repository.port';
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from '../application/port/out/repository/channel-recipe-suggestion-context.repository.port';
+import { CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT } from '../application/port/out/repository/channel-recipe-automation-context.repository.port';
 import { SELLPIA_RECIPE_EVIDENCE_PORT } from '../application/port/out/cross-domain/sellpia-recipe-evidence.port';
 import { ChannelSkuAvailabilityController } from '../adapter/in/http/channel-sku-availability.controller';
 import {
@@ -128,9 +131,11 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
     expect(providers).toContain(ChannelProductMatchingService);
     expect(providers).toContain(ChannelRecipeSuggestionService);
+    expect(providers).toContain(ChannelRecipeAutomationService);
     expect(providers).toContain(ChannelSkuAvailabilityService);
     expect(providers).toContain(ChannelProductMatchingRepositoryAdapter);
     expect(providers).toContain(ChannelRecipeSuggestionContextRepositoryAdapter);
+    expect(providers).toContain(ChannelRecipeAutomationContextRepositoryAdapter);
     expect(providers).toContain(SellpiaRecipeEvidenceAdapter);
     expect(providers).toContain(RocketPoCatalogService);
     expect(providers).toContain(RocketPoCatalogRepositoryAdapter);
@@ -171,6 +176,11 @@ describe('ChannelsModule canonical owner wiring', () => {
       providers,
       CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT,
       ChannelRecipeSuggestionContextRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT,
+      ChannelRecipeAutomationContextRepositoryAdapter,
     );
     expectBinding(providers, SELLPIA_RECIPE_EVIDENCE_PORT, SellpiaRecipeEvidenceAdapter);
     expectBinding(

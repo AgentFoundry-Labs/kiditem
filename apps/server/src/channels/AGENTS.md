@@ -30,6 +30,8 @@ channels/
 - Coupang product, order, and return sync entrypoints
 - Registered-product listing read model: `/api/channels/listings`
 - Channel product and option matching capabilities
+- Version-fenced deterministic recipe preview/apply commands for already-linked
+  variants whose central recipe is still empty
 - Channel SKU availability: `GET /api/channels/sku-availability`
 - Channel dashboard read APIs
 - The `CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT` consumed by Sourcing
@@ -107,11 +109,31 @@ rows plus product-detail chunks already atomically published by the running Wing
 browser collection. An incomplete workbook import remains excluded, and only a
 complete full snapshot may drive absence/deactivation reconciliation. Channels
 owns candidate ranking and atomic product/variant link updates.
-Candidate rows are live suggestions only and are never persisted or
-auto-confirmed. Outside the publication boundary, normalized names, barcodes,
-rank, and AI are evidence only. Wing publication may reuse an existing
-Products identity only from a unique, non-conflicting typed seller SKU or
-safely normalized typed barcode; names, raw aliases, and AI never confirm it.
+Candidate rows are live identity suggestions only and are never persisted or
+auto-confirmed. Wing publication may reuse an existing Products identity only
+from a unique, non-conflicting typed seller SKU or safely normalized typed
+barcode; names, raw aliases, and AI never confirm an identity link.
+
+Recipe automation keeps the separate, explicitly invoked account command for
+operator reruns and review. In addition, a complete Rocket PO catalog
+publication immediately runs the same deterministic policy, scoped only to
+product groups containing options published by that collection, before Supply
+reads capacity. The Rocket path recomputes fresh evidence server-side and
+reports applied/review/blocked counts in the catalog response; incomplete or
+vendor-mismatched collections never invoke it. The version-fenced preview
+remains the operator command read model, and the web does not require a second
+confirmation dialog. Channels may ask Products to create an empty central
+`ProductVariantComponent` recipe when one linked variant selects one active
+Sellpia SKU without conflict. Automatic evidence includes an exact code
+or unique physical barcode that also passes product-name cross-checking, a
+unique exact normalized name, or a unique high-confidence contained/fuzzy name
+whose score and runner-up margin pass the domain thresholds. An explicit,
+integer channel-pack to Sellpia-unit ratio may produce a positive quantity;
+unverifiable multi-pack and BOM composition remain review-only. Safe child
+variants are applied even when a sibling remains unresolved, and the product
+row retains its review/blocked status. Neither entrypoint overwrites an existing
+recipe. Duplicate identifiers, conflicting or close-ranked evidence, raw
+aliases, and AI are never automatic.
 
 A linked variant's confirmed recipe is the only capacity input. An unmatched,
 configuration-required, or review-required
@@ -129,13 +151,17 @@ clearing confirmed product or variant links.
 
 - `POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing`
 - `GET /api/channels/sku-availability`
-- matching queue reads expose product-level and option-level rows separately;
+- `GET /api/channels/product-mappings/recipe-automation/preview`
+- `POST /api/channels/product-mappings/recipe-automation/apply`
+- matching queue reads retain product and option relations, while the operator
+  workspace groups option rows beneath their product;
 - product link commands accept only nullable `masterProductId`;
 - option link commands accept only nullable `productVariantId`.
 
 Channel component replacement endpoints are not a final ownership surface.
-Products owns complete recipe replacement; Channels only confirms or clears
-product and variant links.
+Products owns complete recipe replacement and the narrow create-if-empty recipe
+writer. Channels owns identity links and orchestrates the version-fenced,
+explicit deterministic command through that Products port.
 
 ## Cross-Domain Ports
 
@@ -176,7 +202,9 @@ product and variant links.
   result errors.
 - Product and option link commands validate tenant ownership and parent-child
   consistency atomically. They never create a recipe or write
-  `SellpiaInventorySku.currentStock`.
+  `SellpiaInventorySku.currentStock`; only the separate version-fenced recipe
+  automation command may invoke Products' create-if-empty writer under the
+  deterministic policy above.
 - Wing catalog collection attaches provider media to the listing content
   workspace. In the same publication transaction it may call Products to
   create/reuse channel-origin identities, then write only still-null listing
@@ -185,6 +213,12 @@ product and variant links.
   physical stock, or inferred quantities.
 - Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and
   `channel='rocket'`). Never infer the channel from an account display name.
+- Wing and Rocket currently share one Coupang vendor identity even though their
+  operational accounts remain separate rows. A Rocket publication checks both
+  active primary Wing and selected Rocket `vendorId` values. Missing values may
+  claim the single vendor identity from one complete authenticated Supplier Hub
+  PO evidence run inside the account-scoped publication lock; any non-empty
+  mismatch remains a conflict.
 - Rocket purchase-order collection may publish completed account-scoped
   `ChannelProduct`/`ChannelSku` identities and calculate component-capacity
   previews. It must not add reservation, confirmation, provider submission,

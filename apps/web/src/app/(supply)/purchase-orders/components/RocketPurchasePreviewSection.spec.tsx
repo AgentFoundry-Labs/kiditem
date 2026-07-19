@@ -12,18 +12,25 @@ vi.mock('@/lib/api-client', () => ({
 const rocketAccountId = '11111111-1111-4111-8111-111111111111';
 const secondRocketAccountId = '33333333-3333-4333-8333-333333333333';
 
-function localCalendarDay(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-function renderSection() {
+function renderSection({
+  from = '2026-07-16',
+  to = '2026-07-22',
+  onAccountChange,
+}: {
+  from?: string;
+  to?: string;
+  onAccountChange?: (account: { id: string; vendorId: string | null }) => void;
+} = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RocketPurchasePreviewSection />
+      <RocketPurchasePreviewSection
+        from={from}
+        to={to}
+        onAccountChange={onAccountChange}
+      />
     </QueryClientProvider>,
   );
 }
@@ -71,18 +78,25 @@ describe('<RocketPurchasePreviewSection>', () => {
     expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
   });
 
-  it('remounts account-scoped workspace state when the Rocket account changes', async () => {
+  it('keeps the calendar-owned range while remounting account-scoped workspace state', async () => {
     const user = userEvent.setup();
     renderSection();
     const selector = await screen.findByRole('combobox', { name: '로켓 채널 계정' });
-    const startDate = screen.getByLabelText('조회 시작일');
-    await user.clear(startDate);
-    await user.type(startDate, '2026-01-01');
 
     await user.selectOptions(selector, secondRocketAccountId);
 
-    await waitFor(() => expect(screen.getByLabelText('조회 시작일'))
-      .toHaveValue(localCalendarDay(new Date())));
-    expect(selector).toHaveValue(secondRocketAccountId);
+    await waitFor(() => expect(selector).toHaveValue(secondRocketAccountId));
+    expect(screen.queryByLabelText('조회 시작일')).not.toBeInTheDocument();
+    expect(screen.getByText('2026-07-16 ~ 2026-07-22')).toBeInTheDocument();
+  });
+
+  it('reports the selected Rocket account to the saved calendar owner', async () => {
+    const onAccountChange = vi.fn();
+    renderSection({ onAccountChange });
+
+    await waitFor(() => expect(onAccountChange).toHaveBeenCalledWith({
+      id: rocketAccountId,
+      vendorId: 'ROCKET',
+    }));
   });
 });

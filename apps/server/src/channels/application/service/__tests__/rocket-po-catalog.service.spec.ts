@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { RocketPoCatalogRepositoryPort } from '../../port/out/repository/rocket-po-catalog.repository.port';
 import { RocketPoCatalogService } from '../rocket-po-catalog.service';
+import type { RocketPoCatalogRepositoryPort } from '../../port/out/repository/rocket-po-catalog.repository.port';
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const userId = '22222222-2222-4222-8222-222222222222';
@@ -67,7 +67,32 @@ function repository() {
       },
       identities: [{ poLineId: '1001:P-1:8801234567890:1', channelSkuId: 'sku-1' }],
     }),
+    listSavedPos: vi.fn().mockResolvedValue([]),
+    loadSavedCollection: vi.fn().mockResolvedValue(null),
   } satisfies Record<keyof RocketPoCatalogRepositoryPort, ReturnType<typeof vi.fn>>;
+}
+
+function recipeAutomation() {
+  return {
+    applySafeForOptions: vi.fn().mockResolvedValue({
+      evaluatedProducts: 1,
+      appliedProducts: 1,
+      appliedVariants: 1,
+      affectedOptions: 1,
+      operatorReviewProducts: 0,
+      blockedProducts: 0,
+      alreadyConfiguredProducts: 0,
+      skippedExistingVariants: 0,
+    }),
+  };
+}
+
+function service(repo = repository(), automation = recipeAutomation()) {
+  return {
+    repo,
+    automation,
+    service: new RocketPoCatalogService(repo, automation as never),
+  };
 }
 
 describe('RocketPoCatalogService', () => {
@@ -77,10 +102,9 @@ describe('RocketPoCatalogService', () => {
     { collection: { ...request().collection, vendorId: '' } },
     { collection: { ...request().collection, detailPoCount: 0 } },
   ])('blocks incomplete collection evidence without publishing identities', async (override) => {
-    const repo = repository();
-    const service = new RocketPoCatalogService(repo);
+    const { repo, service: catalogService } = service();
 
-    const result = await service.publishAndResolve({
+    const result = await catalogService.publishAndResolve({
       organizationId,
       userId,
       request: request(override),
@@ -94,9 +118,9 @@ describe('RocketPoCatalogService', () => {
   it('accepts a complete empty collection without vendor identity or publication', async () => {
     const repo = repository();
     repo.findActiveRocketAccount.mockResolvedValue({ vendorId: null });
-    const service = new RocketPoCatalogService(repo);
+    const { service: catalogService, automation } = service(repo);
 
-    const result = await service.publishAndResolve({
+    const result = await catalogService.publishAndResolve({
       organizationId,
       userId,
       request: request({
@@ -113,14 +137,55 @@ describe('RocketPoCatalogService', () => {
     expect(result.catalog).toBeNull();
     expect(result.identities).toEqual([]);
     expect(repo.publish).not.toHaveBeenCalled();
+    expect(automation.applySafeForOptions).not.toHaveBeenCalled();
+  });
+
+  it('uses complete Supplier Hub evidence to claim an unconfigured Rocket vendor once', async () => {
+    const repo = repository();
+    repo.findActiveRocketAccount.mockResolvedValue({
+      vendorId: null,
+      sharedCoupangVendorId: 'VENDOR-1',
+    });
+    const { service: catalogService } = service(repo);
+
+    const result = await catalogService.publishAndResolve({
+      organizationId,
+      userId,
+      request: request(),
+    });
+
+    expect(result.blockingReason).toBeNull();
+    expect(repo.publish).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId,
+      channelAccountId,
+      vendorId: 'VENDOR-1',
+    }));
+  });
+
+  it('blocks Supplier Hub evidence that differs from the shared Wing vendor', async () => {
+    const repo = repository();
+    repo.findActiveRocketAccount.mockResolvedValue({
+      vendorId: null,
+      sharedCoupangVendorId: 'OTHER-VENDOR',
+    });
+    const { service: catalogService } = service(repo);
+
+    const result = await catalogService.publishAndResolve({
+      organizationId,
+      userId,
+      request: request(),
+    });
+
+    expect(result.blockingReason).toBe('vendor_mismatch');
+    expect(repo.publish).not.toHaveBeenCalled();
   });
 
   it('blocks an exact Rocket vendor mismatch before catalog publication', async () => {
     const repo = repository();
     repo.findActiveRocketAccount.mockResolvedValue({ vendorId: 'OTHER-VENDOR' });
-    const service = new RocketPoCatalogService(repo);
+    const { service: catalogService } = service(repo);
 
-    const result = await service.publishAndResolve({
+    const result = await catalogService.publishAndResolve({
       organizationId,
       userId,
       request: request(),
@@ -137,9 +202,9 @@ describe('RocketPoCatalogService', () => {
   it('rejects a missing, inactive, foreign, or non-Rocket account as unavailable', async () => {
     const repo = repository();
     repo.findActiveRocketAccount.mockResolvedValue(null);
-    const service = new RocketPoCatalogService(repo);
+    const { service: catalogService } = service(repo);
 
-    await expect(service.publishAndResolve({
+    await expect(catalogService.publishAndResolve({
       organizationId,
       userId,
       request: request(),
@@ -149,7 +214,7 @@ describe('RocketPoCatalogService', () => {
 
   it('computes a server canonical hash independent of run ID and row order', async () => {
     const repo = repository();
-    const service = new RocketPoCatalogService(repo);
+    const { service: catalogService } = service(repo);
     const second = {
       ...request().rows[0],
       poLineId: '1002:P-2::1',
@@ -158,7 +223,7 @@ describe('RocketPoCatalogService', () => {
       barcode: '',
     };
 
-    await service.publishAndResolve({
+    await catalogService.publishAndResolve({
       organizationId,
       userId,
       request: request({
@@ -166,7 +231,7 @@ describe('RocketPoCatalogService', () => {
         rows: [second, request().rows[0]],
       }),
     });
-    await service.publishAndResolve({
+    await catalogService.publishAndResolve({
       organizationId,
       userId,
       request: request({
@@ -185,5 +250,42 @@ describe('RocketPoCatalogService', () => {
     expect(firstPublish.artifactHash).toMatch(/^[a-f0-9]{64}$/);
     expect(secondPublish.artifactHash).toBe(firstPublish.artifactHash);
     expect(firstPublish).not.toHaveProperty('clientHash');
+  });
+
+  it('passes the complete provider collection evidence into durable publication', async () => {
+    const repo = repository();
+    const { service: catalogService } = service(repo);
+
+    await catalogService.publishAndResolve({
+      organizationId,
+      userId,
+      request: request(),
+    });
+
+    expect(repo.publish).toHaveBeenCalledWith(expect.objectContaining({
+      collection: request().collection,
+    }));
+  });
+
+  it('applies safe recipes for the newly published Rocket options before returning the catalog', async () => {
+    const { service: catalogService, automation } = service();
+
+    const result = await catalogService.publishAndResolve({
+      organizationId,
+      userId,
+      request: request(),
+    });
+
+    expect(automation.applySafeForOptions).toHaveBeenCalledWith({
+      organizationId,
+      channelAccountId,
+      channelListingOptionIds: ['sku-1'],
+    });
+    expect(result.catalog).toEqual(expect.objectContaining({
+      recipeAutomation: expect.objectContaining({
+        appliedProducts: 1,
+        appliedVariants: 1,
+      }),
+    }));
   });
 });

@@ -20,6 +20,10 @@ import {
 } from '@kiditem/shared/channel-product-matching';
 import { CoupangWingCatalogImportResponseSchema, type CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 import { apiClient } from '@/lib/api-client';
+export {
+  applyChannelRecipeAutomation,
+  getChannelRecipeAutomationPreview,
+} from '@/lib/channel-recipe-automation-api';
 
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 

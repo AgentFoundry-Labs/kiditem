@@ -13,6 +13,7 @@ import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapte
 import { SellpiaInventorySkuReadService } from '../../inventory/application/service/sellpia-inventory-sku-read.service';
 import { SellpiaRecipeEvidenceAdapter } from '../adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
+import { ChannelRecipeAutomationContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-automation-context.repository.adapter';
 import { ChannelRecipeSuggestionService } from '../application/service/channel-recipe-suggestion.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
@@ -21,6 +22,7 @@ const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
 describe('ChannelRecipeSuggestionService (PG integration)', () => {
   let prisma: PrismaClient;
   let service: ChannelRecipeSuggestionService;
+  let automationContexts: ChannelRecipeAutomationContextRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -33,6 +35,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       new ChannelRecipeSuggestionContextRepositoryAdapter(prismaService),
       new SellpiaRecipeEvidenceAdapter(read),
     );
+    automationContexts = new ChannelRecipeAutomationContextRepositoryAdapter(prismaService);
   });
 
   afterAll(async () => { await prisma?.$disconnect(); });
@@ -48,7 +51,11 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
 
   it('scopes lookup to the organization and proposes exact code evidence without writing a recipe', async () => {
     const product = await createProduct(TEST_ORGANIZATION_ID, 'KI-UNIQUE');
-    const option = await createOption({ productVariantId: product.variantId, sellerSku: 'SP-UNIQUE' });
+    const option = await createOption({
+      productVariantId: product.variantId,
+      sellerSku: 'SP-UNIQUE',
+      displayName: 'Unique stock',
+    });
     const foreign = await createOption({
       organizationId: OTHER_ORGANIZATION_ID, accountId: OTHER_ACCOUNT_ID, productVariantId: null, externalId: 'OTHER',
     });
@@ -58,7 +65,9 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     const beforeComponents = await prisma.productVariantComponent.count();
 
     await expect(service.suggest(TEST_ORGANIZATION_ID, option.id)).resolves.toMatchObject({
-      status: 'unique_code', proposals: [{ sellpiaInventorySkuId: sku.id, requiresQuantityConfirmation: true }],
+      status: 'unique_code',
+      automationDecision: 'auto_apply',
+      proposals: [{ sellpiaInventorySkuId: sku.id, requiresQuantityConfirmation: false }],
     });
     await expect(service.suggest(TEST_ORGANIZATION_ID, foreign.id)).rejects.toBeInstanceOf(NotFoundException);
     expect(await prisma.productVariantComponent.count()).toBe(beforeComponents);
@@ -104,7 +113,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     expect(await prisma.productVariantComponent.count()).toBe(beforeComponents);
   });
 
-  it('reports shared-variant code conflicts, preserves existing recipes, and keeps names review-only', async () => {
+  it('reports shared-variant code conflicts, preserves existing recipes, and auto-matches an exact optionless name', async () => {
     const product = await createProduct(TEST_ORGANIZATION_ID, 'KI-CONFLICT');
     const first = await createOption({ productVariantId: product.variantId, sellerSku: 'SP-A' });
     await createOption({ productVariantId: product.variantId, sellerSku: 'SP-B', externalId: 'SECOND' });
@@ -128,9 +137,106 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     const named = await createProduct(TEST_ORGANIZATION_ID, 'KI-NAMED');
     const namedOption = await createOption({ productVariantId: named.variantId, sellerSku: null, externalId: 'NAMED', displayName: ' Name only ' });
     await expect(service.suggest(TEST_ORGANIZATION_ID, namedOption.id)).resolves.toMatchObject({
-      status: 'name_review_only',
-      proposals: [{ evidence: [{ kind: 'normalized_name' }], requiresQuantityConfirmation: true }],
+      status: 'exact_name_option',
+      automationDecision: 'auto_apply',
+      proposals: [{ evidence: [{ kind: 'normalized_name_option' }], requiresQuantityConfirmation: false }],
     });
+  });
+
+  it('uses typed barcodes only and keeps duplicate active barcodes ambiguous', async () => {
+    const product = await createProduct(TEST_ORGANIZATION_ID, 'KI-BARCODE');
+    const rawOnly = await createOption({
+      productVariantId: product.variantId,
+      externalId: 'RAW-BARCODE',
+      rawJson: { barcode: '001234567890' },
+    });
+    await prisma.sellpiaInventorySku.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'SP-RAW',
+      name: 'Different name',
+      barcode: '001234567890',
+      currentStock: 3,
+    } });
+    await expect(service.suggest(TEST_ORGANIZATION_ID, rawOnly.id)).resolves.toMatchObject({
+      status: 'no_match', automationDecision: 'blocked',
+    });
+
+    const typed = await createOption({
+      productVariantId: product.variantId,
+      externalId: 'TYPED-BARCODE',
+      barcode: '001-2345-6789-0',
+    });
+    await prisma.sellpiaInventorySku.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'SP-DUP',
+      name: 'Another name',
+      barcode: '001234567890',
+      currentStock: 2,
+    } });
+    await expect(service.suggest(TEST_ORGANIZATION_ID, typed.id)).resolves.toMatchObject({
+      status: 'ambiguous', automationDecision: 'blocked',
+    });
+  });
+
+  it('rejects duplicate exact names and code/name disagreement', async () => {
+    const duplicated = await createProduct(TEST_ORGANIZATION_ID, 'KI-DUP-NAME');
+    const duplicatedOption = await createOption({
+      productVariantId: duplicated.variantId,
+      externalId: 'DUP-NAME',
+      displayName: '키즈 식판',
+      itemName: '블루',
+    });
+    await prisma.sellpiaInventorySku.createMany({ data: [
+      { organizationId: TEST_ORGANIZATION_ID, code: 'SP-NAME-A', name: '키즈 식판', optionName: '블루', currentStock: 2 },
+      { organizationId: TEST_ORGANIZATION_ID, code: 'SP-NAME-B', name: '키즈 식판', optionName: '블루', currentStock: 3 },
+    ] });
+    await expect(service.suggest(TEST_ORGANIZATION_ID, duplicatedOption.id)).resolves.toMatchObject({
+      status: 'ambiguous', automationDecision: 'blocked',
+    });
+
+    const conflict = await createProduct(TEST_ORGANIZATION_ID, 'KI-CODE-NAME');
+    const conflictOption = await createOption({
+      productVariantId: conflict.variantId,
+      externalId: 'CODE-NAME',
+      sellerSku: 'SP-CODE',
+      displayName: '엄격 이름',
+      itemName: null,
+    });
+    await prisma.sellpiaInventorySku.createMany({ data: [
+      { organizationId: TEST_ORGANIZATION_ID, code: 'SP-CODE', name: 'Other', currentStock: 2 },
+      { organizationId: TEST_ORGANIZATION_ID, code: 'SP-NAME', name: '엄격 이름', currentStock: 3 },
+    ] });
+    await expect(service.suggest(TEST_ORGANIZATION_ID, conflictOption.id)).resolves.toMatchObject({
+      status: 'conflict', automationDecision: 'blocked',
+    });
+  });
+
+  it('batch context lookup is account and organization fenced and groups one row per variant', async () => {
+    const own = await createProduct(TEST_ORGANIZATION_ID, 'KI-BATCH');
+    await createOption({
+      productVariantId: own.variantId,
+      externalId: 'BATCH',
+      rawJson: { source: 'coupang_catalog_browser' },
+    });
+    const foreign = await createProduct(OTHER_ORGANIZATION_ID, 'KI-FOREIGN-BATCH');
+    await createOption({
+      organizationId: OTHER_ORGANIZATION_ID,
+      accountId: OTHER_ACCOUNT_ID,
+      productVariantId: foreign.variantId,
+      externalId: 'FOREIGN-BATCH',
+      rawJson: { source: 'coupang_catalog_browser' },
+    });
+
+    await expect(automationContexts.listContexts(
+      TEST_ORGANIZATION_ID,
+      ACCOUNT_ID,
+    )).resolves.toMatchObject({
+      variants: [expect.objectContaining({ productVariantId: own.variantId })],
+    });
+    await expect(automationContexts.listContexts(
+      TEST_ORGANIZATION_ID,
+      OTHER_ACCOUNT_ID,
+    )).resolves.toMatchObject({ products: [], variants: [] });
   });
 
   async function createProduct(organizationId: string, code: string) {
@@ -147,6 +253,9 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     productVariantId,
     sellerSku = null,
     modelNumber = null,
+    barcode = null,
+    itemName = null,
+    rawJson,
     externalId = 'OPTION',
     displayName = 'Listing',
   }: {
@@ -155,6 +264,9 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     productVariantId: string | null;
     sellerSku?: string | null;
     modelNumber?: string | null;
+    barcode?: string | null;
+    itemName?: string | null;
+    rawJson?: Record<string, unknown>;
     externalId?: string;
     displayName?: string;
   }) {
@@ -162,7 +274,15 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       organizationId, channelAccountId: accountId, externalId: `${externalId}-P`, displayName,
     } });
     return prisma.channelListingOption.create({ data: {
-      organizationId, listingId: listing.id, externalOptionId: `${externalId}-O`, productVariantId, sellerSku, modelNumber,
+      organizationId,
+      listingId: listing.id,
+      externalOptionId: `${externalId}-O`,
+      productVariantId,
+      sellerSku,
+      modelNumber,
+      barcode,
+      itemName,
+      rawJson,
     } });
   }
 });

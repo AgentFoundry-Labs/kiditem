@@ -23,6 +23,8 @@
 | CoupangWingSalesRankDailySnapshot | `coupang_wing_sales_rank_daily_snapshots` | Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다. |
 | CoupangWingTrackedProduct | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
+| RocketPoCatalogLine | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
+| RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
 | RocketPurchaseOrder | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | SellpiaProductMonthlySales | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
@@ -341,6 +343,49 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  RocketPoCatalogLine {
+    String id PK
+    String organizationId FK
+    String snapshotId FK
+    String poLineId
+    String poNumber
+    String vendorId
+    String productNo
+    String barcode
+    String productName
+    Int orderQty
+    DateTime plannedDeliveryDate
+    String poStatusCode
+    String businessDateBasis
+    Boolean hasConfirmation
+    String center
+    String inboundType
+    String poStatus
+    String returnManager
+    String returnContact
+    String returnAddress
+    Int purchasePrice
+    Int supplyPrice
+    Int vat
+    Int totalPurchase
+    String poRegisteredAt
+    String xdock
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  RocketPoCatalogSnapshot {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String sourceImportRunId FK
+    String collectionRunId
+    String vendorId
+    Int listPagesRead
+    Int totalListPages
+    Int detailPoCount
+    DateTime createdAt
+    DateTime updatedAt
+  }
   RocketPurchaseOrder {
     String id PK
     String organizationId FK
@@ -411,6 +456,7 @@ erDiagram
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
   CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
+  RocketPoCatalogSnapshot ||--o{ RocketPoCatalogLine : "snapshot"
 ```
 
 ## External References
@@ -442,6 +488,10 @@ erDiagram
 | CoupangWingSalesRankDailySnapshot | organization | references external | Core | Organization |
 | CoupangWingTrackedProduct | organization | references external | Core | Organization |
 | CoupangWingTrackedProductDailySnapshot | organization | references external | Core | Organization |
+| RocketPoCatalogLine | organization | references external | Core | Organization |
+| RocketPoCatalogSnapshot | channelAccount | references external | Core | ChannelAccount |
+| RocketPoCatalogSnapshot | organization | references external | Core | Organization |
+| RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPurchaseOrder | organization | references external | Core | Organization |
 | RocketSupplyDailySnapshot | organization | references external | Core | Organization |
 | SellpiaProductMonthlySales | organization | references external | Core | Organization |

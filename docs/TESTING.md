@@ -248,24 +248,30 @@ duplicate persistent server.
 
 ## CI 통합
 
-PR 은 `.github/workflows/pr-checks.yml` 에서 최소 운영 게이트를 통과해야 한다.
+PR 대기 시간을 줄이기 위해 `.github/workflows/pr-checks.yml` 은 아래의 단일
+저비용 검증만 수행한다. 빌드, lint, PostgreSQL 통합 테스트, repository scanner 는
+PR workflow 에서 반복하지 않는다. PR 작성자는 `AGENTS.md` 의 변경 유형별 검증과
+PR body guard 를 로컬에서 완료한 뒤 공유한다.
 
-| Job | 역할 |
-|---|---|
-| `GitHub Actions lint` | workflow syntax/actionlint 검증 |
-| `Deploy shell lint` | 배포 shell script `bash -n` + `shellcheck` |
-| `Lint apps/server`, `Lint apps/web` | workspace lint |
-| `Build apps/server`, `Build apps/web`, `Build packages/shared` | deployable package build |
-| `PostgreSQL integration` | Testcontainers Postgres 17 기반 real DB integration suite |
-| `PR review guardrails` | reconstruction/release/convention/script scanner |
+| Workflow / Job                                 | 실행 시점                     | 역할                                                                                                    |
+| ---------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `PR Checks / PR hygiene`                       | `develop` 또는 `main` 대상 PR | PR diff 의 whitespace error 검증 (`git diff --check`)                                                   |
+| `Develop Validation / Develop full validation` | `develop` push                | 한 번의 dependency install 뒤 deployable workspace 전체 build 와 real PostgreSQL integration suite 실행 |
 
-모든 PR 은 `PostgreSQL integration` job 에서 아래 루트 명령을 실행한다. Job 은
-Testcontainers 의 동적 Postgres lifecycle 을 그대로 사용하므로 고정 port 나 별도
-Compose service 를 공유하지 않는다.
+`Develop Validation` 은 새 merge 가 들어오면 이전 실행을 취소하고 최신 `develop`
+HEAD 만 검증한다. 이 job 은 아래 workspace build 를 순서대로 수행한 뒤
+Testcontainers 의 동적 Postgres lifecycle 로 통합 테스트를 실행한다.
 
 ```bash
+npm run build --workspace=packages/shared
+npm run build --workspace=packages/templates
+npm run build --workspace=apps/server
+npm run build --workspace=apps/web
 npm run test:integration
 ```
+
+검증 실패는 staging 또는 `main` promotion 전에 fix-forward 한다. Release image 는
+별도 build workflow 에서 다시 clean build 하므로 배포 산출물 계약은 유지된다.
 
 ## FAQ
 

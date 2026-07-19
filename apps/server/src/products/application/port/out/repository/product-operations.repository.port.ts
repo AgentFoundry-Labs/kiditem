@@ -12,6 +12,10 @@ import type {
   UpdateMasterProductInput,
   UpdateProductVariantInput,
 } from '@kiditem/shared/product-operations';
+import type {
+  DeterministicVariantRecipeApplyResult,
+  DeterministicVariantRecipeInput,
+} from '../../in/product-variant-recipe-automation.port';
 
 export type ProductOperationsRepositoryComponent = Omit<
   ProductVariantComponentDetail,
@@ -67,6 +71,10 @@ export const PRODUCT_OPERATIONS_REPOSITORY_PORT = Symbol(
 );
 
 export interface ProductOperationsRepositoryPort {
+  applyDeterministicRecipesIfEmpty(input: {
+    organizationId: string;
+    recipes: DeterministicVariantRecipeInput[];
+  }): Promise<DeterministicVariantRecipeApplyResult>;
   listProducts(
     organizationId: string,
     query: MasterProductOperationsListQuery,

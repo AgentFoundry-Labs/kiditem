@@ -14,6 +14,8 @@ model Organization {
   legalEntities                   LegalEntity[]
   channelAccounts                 ChannelAccount[]
   sourceImportRuns                SourceImportRun[]
+  rocketPoCatalogSnapshots        RocketPoCatalogSnapshot[]
+  rocketPoCatalogLines            RocketPoCatalogLine[]
   orders                          Order[]
   purchaseOrders                  PurchaseOrder[]
   purchaseOrderSubmissionAttempts PurchaseOrderSubmissionAttempt[]
@@ -307,6 +309,7 @@ model ChannelAccount {
   channelScrapeRuns               ChannelScrapeRun[]
   channelAccountDailyKpiSnapshots ChannelAccountDailyKpiSnapshot[]
   rocketPurchaseConfirmations     RocketPurchaseConfirmation[]
+  rocketPoCatalogSnapshots        RocketPoCatalogSnapshot[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")
@@ -351,6 +354,7 @@ model SourceImportRun {
   channelScrapeRuns                   ChannelScrapeRun[]
   lastCompletedSellpiaInventoryStates SellpiaInventoryState[]      @relation("SellpiaInventoryStateLastCompletedRun")
   rocketPurchaseConfirmations         RocketPurchaseConfirmation[]
+  rocketPoCatalogSnapshot              RocketPoCatalogSnapshot?
   orders                              Order[]
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))

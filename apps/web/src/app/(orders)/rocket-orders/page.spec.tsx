@@ -3,17 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import RocketOrdersPage from './page';
 
 vi.mock('./components/RocketOrdersWorkspace', () => ({
-  RocketOrdersWorkspace: ({ decisionWorkspace }: { decisionWorkspace: React.ReactNode }) => (
+  RocketOrdersWorkspace: () => (
     <main>
       <h1>쿠팡 로켓 발주</h1>
       <div>달력 · 발주 목록 · 기존 생성 파일 이력</div>
-      {decisionWorkspace}
+      <section>Sellpia 수량 미리보기</section>
     </main>
   ),
-}));
-
-vi.mock('@/app/(supply)/purchase-orders/components/RocketPurchasePreviewSection', () => ({
-  RocketPurchasePreviewSection: () => <section>Sellpia 수량 미리보기</section>,
 }));
 
 describe('/rocket-orders', () => {

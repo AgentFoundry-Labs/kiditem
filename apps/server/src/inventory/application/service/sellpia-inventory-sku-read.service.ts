@@ -15,6 +15,12 @@ export class SellpiaInventorySkuReadService implements SellpiaInventorySkuReadPo
     private readonly repository: SellpiaInventorySkuReadRepositoryPort,
   ) {}
 
+  listActiveForMatching(
+    organizationId: string,
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    return this.repository.listActiveForMatching(organizationId);
+  }
+
   findByIds(
     organizationId: string,
     ids: string[],
@@ -37,6 +43,17 @@ export class SellpiaInventorySkuReadService implements SellpiaInventorySkuReadPo
   ): Promise<SellpiaInventorySkuReadModel[]> {
     return this.readIdentifiers(barcodes, (values) =>
       this.repository.findByBarcodes(organizationId, values));
+  }
+
+  findByNormalizedBarcodes(
+    organizationId: string,
+    normalizedBarcodes: string[],
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    const validBarcodes = [...new Set(normalizedBarcodes
+      .map((value) => value.trim())
+      .filter((value) => /^\d{8,14}$/.test(value)))];
+    if (validBarcodes.length === 0) return Promise.resolve([]);
+    return this.repository.findByNormalizedBarcodes(organizationId, validBarcodes);
   }
 
   findByNormalizedNames(

@@ -2,6 +2,8 @@ import type {
   RocketPoCatalogPublication,
   RocketPurchasePreviewReason,
   RocketPurchasePreviewRequest,
+  RocketSavedPoCollection,
+  RocketSavedPoSummary,
 } from '@kiditem/shared/rocket-purchase-preview';
 
 export type RocketPoCatalogIdentity = {
@@ -24,6 +26,20 @@ export interface RocketPoCatalogPort {
     userId: string;
     request: RocketPurchasePreviewRequest;
   }): Promise<RocketPoCatalogResolution>;
+
+  listSavedPos(input: {
+    organizationId: string;
+    channelAccountId: string;
+    from: string;
+    to: string;
+    status?: string;
+  }): Promise<RocketSavedPoSummary[]>;
+
+  loadSavedCollection(input: {
+    organizationId: string;
+    channelAccountId: string;
+    sourceImportRunId: string;
+  }): Promise<RocketSavedPoCollection | null>;
 }
 
 export const ROCKET_PO_CATALOG_PORT = Symbol('ROCKET_PO_CATALOG_PORT');

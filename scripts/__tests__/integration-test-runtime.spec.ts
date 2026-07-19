@@ -24,6 +24,15 @@ function readWorkflowJobSource(workflowSource: string, jobName: string): string 
   return lines.slice(jobStart, jobEnd).join('\n');
 }
 
+function readWorkflowJobNames(workflowSource: string): string[] {
+  const jobsSource = workflowSource.split('\njobs:\n')[1] ?? '';
+
+  return jobsSource
+    .split('\n')
+    .filter((line) => /^  [\w-]+:$/.test(line))
+    .map((line) => line.trim().slice(0, -1));
+}
+
 describe('integration test runtime contract', () => {
   it('delegates focused integration runs without manual database scripts', () => {
     const packageJson = JSON.parse(readRepoFile('package.json')) as {
@@ -40,25 +49,58 @@ describe('integration test runtime contract', () => {
     expect(packageJson.devDependencies).toHaveProperty('@testcontainers/postgresql');
   });
 
-  it('runs the real Postgres suite in a dedicated PR job', () => {
-    const workflowSource = readRepoFile('.github/workflows/pr-checks.yml');
-    const jobSource = readWorkflowJobSource(workflowSource, 'postgres-integration');
+  it('keeps PR checks lightweight and validates develop with the real Postgres suite', () => {
+    const prWorkflowSource = readRepoFile('.github/workflows/pr-checks.yml');
+    const prJobSource = readWorkflowJobSource(prWorkflowSource, 'pr-hygiene');
 
-    expect(jobSource).not.toBe('');
-    expect(jobSource).toContain('runs-on: ubuntu-latest');
-    expect(jobSource).toContain('timeout-minutes: 15');
-    expect(jobSource).toContain('contents: read');
-    expect(jobSource).toContain(
+    expect(readWorkflowJobNames(prWorkflowSource)).toEqual(['pr-hygiene']);
+    expect(prJobSource).toContain('runs-on: ubuntu-latest');
+    expect(prJobSource).toContain('run: git diff --check "${BASE_SHA}...HEAD"');
+    expect(prWorkflowSource).not.toContain('actions/setup-node');
+    expect(prWorkflowSource).not.toContain('npm ci');
+    expect(prWorkflowSource).not.toContain('npm run build');
+    expect(prWorkflowSource).not.toContain('test:integration');
+
+    const developWorkflowSource = readRepoFile(
+      '.github/workflows/develop-validation.yml',
+    );
+    const developJobSource = readWorkflowJobSource(
+      developWorkflowSource,
+      'full-validation',
+    );
+
+    expect(readWorkflowJobNames(developWorkflowSource)).toEqual([
+      'full-validation',
+    ]);
+    expect(developWorkflowSource).toContain('push:');
+    expect(developWorkflowSource).toContain('      - develop');
+    expect(developWorkflowSource).toContain('cancel-in-progress: true');
+    expect(developJobSource).toContain('runs-on: ubuntu-latest');
+    expect(developJobSource).toContain('timeout-minutes: 20');
+    expect(developJobSource).toContain('contents: read');
+    expect(developJobSource).toContain(
       'DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci',
     );
-    expect(jobSource).toContain('node-version: 22');
-    expect(jobSource).toContain('cache: npm');
-    expect(jobSource).toContain('run: npm ci --ignore-scripts');
-    expect(jobSource).toContain('run: npx prisma generate');
-    expect(jobSource).toContain(
+    expect(developJobSource).toContain('node-version: 22');
+    expect(developJobSource).toContain('cache: npm');
+    expect(developJobSource).toContain('run: npm ci --ignore-scripts');
+    expect(developJobSource).toContain('run: npx prisma generate');
+    expect(developJobSource).toContain(
+      'npm run build --workspace=packages/shared',
+    );
+    expect(developJobSource).toContain(
+      'npm run build --workspace=packages/templates',
+    );
+    expect(developJobSource).toContain(
+      'npm run build --workspace=apps/server',
+    );
+    expect(developJobSource).toContain(
+      'npm run build --workspace=apps/web',
+    );
+    expect(developJobSource).toContain(
       'run: npm exec --workspace=apps/server vitest -- run src/test-helpers/__tests__/postgres-global-setup.spec.ts src/test-helpers/__tests__/real-prisma.spec.ts',
     );
-    expect(jobSource).toContain('run: npm run test:integration');
+    expect(developJobSource).toContain('run: npm run test:integration');
   });
 
   it('removes the legacy fixed-port database lifecycle files', () => {
