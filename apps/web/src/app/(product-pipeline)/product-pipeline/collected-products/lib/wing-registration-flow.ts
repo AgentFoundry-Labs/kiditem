@@ -109,11 +109,22 @@ export function candidateToWingProduct(
   //
   // 원본 수집 이미지(role=source)나 1688 원본은 섞지 않는다 — 규격도 안 맞고
   // 사용자가 고른 것도 아니다. 둘 다 비면 추가이미지는 비워 둔다.
-  const additionalImageUrls = [
+  //
+  // 저장된 썸네일이 하나도 없으면 **워크스페이스 썸네일 탭에 보이는 상품 이미지**로 대체한다.
+  // 사용자는 화면에 뜬 이미지들이 그대로 추가이미지로 들어갈 것을 기대하는데, 저장을 누르지
+  // 않으면(또는 preparation 이 없어 저장 버튼이 없으면) 위 두 소스가 모두 비어 0/9 가 됐다.
+  // `b.thumbnailUrls` 는 presenter 가 `sourcing_candidate_images`(role=product)로 만든,
+  // 화면에 실제로 렌더되는 바로 그 집합이다. 1688 원본(role=source)은 여기 포함되지 않는다.
+  const savedThumbnails = [
     ...new Set([...(b.thumbnailPreviewUrls ?? []), ...(roleImages?.thumbnail ?? [])]),
-  ]
-    .filter((url) => url && url !== repImage)
-    .slice(0, 9);
+  ].filter((url) => url && url !== repImage);
+  const displayedThumbnails = (b.thumbnailUrls ?? []).filter(
+    (url) => url && url !== repImage,
+  );
+  const additionalImageUrls = (savedThumbnails.length > 0
+    ? savedThumbnails
+    : displayedThumbnails
+  ).slice(0, 9);
   // 상세설명은 렌더된 긴 이미지 **1장**이다.
   // role=detail 섹션 이미지를 낱장으로 올리면 쿠팡 상세설명이 조각조각 나뉜다 —
   // 라이브에서 확인된 오답이라 여기서는 쓰지 않는다.
