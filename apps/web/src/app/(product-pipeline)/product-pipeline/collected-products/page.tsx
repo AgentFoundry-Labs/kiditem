@@ -31,10 +31,14 @@ import {
   type QuickProcessTask,
   type SourcingSort,
 } from './lib/sourcing-api';
+import WingRegistrationConfirmDialog from './components/wing/WingRegistrationConfirmDialog';
 import {
   downloadWingExcel,
   generateWingExcelForCandidates,
-  registerSingleProductToWing,
+  prepareWingRegistration,
+  submitWingRegistration,
+  type WingRegistrationDraft,
+  type WingRegistrationOverrides,
 } from './lib/wing-registration-flow';
 import {
   emptyStateCopyForSourceFilter,
@@ -55,6 +59,10 @@ export default function SourcingPage() {
   const [quickProcessTargetIds, setQuickProcessTargetIds] = useState<string[]>([]);
   const [quickProcessingIds, setQuickProcessingIds] = useState<Set<string>>(() => new Set());
   const [wingGenerating, setWingGenerating] = useState(false);
+  // 등록 확인 모달의 초안. `null` 이면 모달이 닫혀 있다. 초안이 있다는 것은
+  // 카테고리 추론과 상세설명 렌더가 이미 성공했다는 뜻이다.
+  const [wingDraft, setWingDraft] = useState<WingRegistrationDraft | null>(null);
+  const [wingSubmitting, setWingSubmitting] = useState(false);
 
   const scrape = useScrapeUrl();
   const platform = platformForSourceFilter(sourceFilter);
@@ -196,31 +204,47 @@ export default function SourcingPage() {
     }
   };
 
+  const wingErrorMessage = (err: unknown, fallback: string): string =>
+    isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback;
+
   // 모달(단일 작업) = 엑셀이 아니라 WING 상품등록 페이지를 열어 직접 채우는 방식.
+  //
+  // 확장으로 넘기기 전에 등록 확인 모달을 한 번 거친다. 노출상품명·옵션·가격·재고는
+  // WING 폼이 열린 뒤에는 고치기 어려우므로 여기서 확정받는다.
   const handleModalWingRegister = async () => {
     const ids = [...quickProcessTargetIds];
     if (ids.length === 0 || wingGenerating) return;
     setWingGenerating(true);
     try {
-      await registerSingleProductToWing(ids[0]);
+      const draft = await prepareWingRegistration(ids[0]);
+      setWingDraft(draft);
+    } catch (err) {
+      toast.error(wingErrorMessage(err, '쿠팡 WING 등록 준비에 실패했습니다.'));
+    } finally {
+      setWingGenerating(false);
+    }
+  };
+
+  // 사용자가 고친 값(`overrides`)을 그대로 넘긴다. 초안의 원본 payload 를 보내면
+  // 모달이 장식이 된다 — `submitWingRegistration` 이 override 를 반영해 전송한다.
+  const handleWingConfirm = async (overrides: WingRegistrationOverrides) => {
+    if (!wingDraft || wingSubmitting) return;
+    setWingSubmitting(true);
+    try {
+      await submitWingRegistration(wingDraft, overrides);
       toast.success('쿠팡 WING 상품등록 페이지를 열고 자동 입력을 시작했어요', {
         description:
-          ids.length > 1
+          quickProcessTargetIds.length > 1
             ? '단일 직접 등록은 1개씩 진행됩니다 (첫 상품). 열린 WING 탭에서 확인 후 등록하세요.'
-            : '자동 제안된 카테고리와 입력값을 열린 WING 탭에서 확인 후 등록하세요.',
+            : '확인한 값으로 자동 입력됩니다. 열린 WING 탭에서 최종 확인 후 등록하세요.',
       });
+      setWingDraft(null);
       setQuickProcessModalOpen(false);
       setQuickProcessTargetIds([]);
     } catch (err) {
-      toast.error(
-        isApiError(err)
-          ? err.detail
-          : err instanceof Error
-            ? err.message
-            : '쿠팡 WING 직접 등록에 실패했습니다.',
-      );
+      toast.error(wingErrorMessage(err, '쿠팡 WING 직접 등록에 실패했습니다.'));
     } finally {
-      setWingGenerating(false);
+      setWingSubmitting(false);
     }
   };
 
@@ -367,6 +391,16 @@ export default function SourcingPage() {
         onClose={closeQuickProcessModal}
         onConfirm={(task) => quickProcessMutation.mutate({ ids: quickProcessTargetIds, task })}
         onWingRegister={handleModalWingRegister}
+      />
+
+      <WingRegistrationConfirmDialog
+        draft={wingDraft}
+        isSubmitting={wingSubmitting}
+        onCancel={() => {
+          if (wingSubmitting) return;
+          setWingDraft(null);
+        }}
+        onConfirm={handleWingConfirm}
       />
     </div>
   );

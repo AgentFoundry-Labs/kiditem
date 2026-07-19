@@ -436,7 +436,7 @@ export class SourcingService {
     const { page, limit } = paginationParams(query);
     const sort = query.sort === 'oldest' ? 'oldest' : query.sort === 'name_asc' ? 'name_asc' : 'newest';
     const platform = query.platform ? (PLATFORM_MAP[query.platform.toLowerCase()] || query.platform) : undefined;
-    return this.candidates.listSourced({
+    const listed = await this.candidates.listSourced({
       organizationId,
       page,
       limit,
@@ -444,6 +444,29 @@ export class SourcingService {
       platform,
       sourcePlatforms: platform ? undefined : [...COLLECTED_PRODUCT_INBOX_PLATFORMS],
     });
+    // 카드가 보여줄 **저장된 대표 썸네일**. `sourcing_candidates.thumbnail_url` 은
+    // 수집 원본이라 대표를 바꿔 저장해도 그대로다 — 대표는 준비(ProductPreparation)
+    // 또는 후보 워크스페이스가 소유한다. 상세(`getProduct`)와 같은 우선순위를 쓴다:
+    // 준비가 이기고, 없으면 워크스페이스 선택이다.
+    //
+    // 후보 원본 URL 은 덮어쓰지 않고 별도 필드로 내보낸다. 원본은 그대로 남아야
+    // 하고, 조용한 대체는 어떤 이미지가 왜 보이는지를 지운다.
+    //
+    // 페이지 전체를 한 번에 읽는다. 후보별 조회는 N+1 이다.
+    const workspaceThumbnails = await this.candidateContentAssets.findCurrentThumbnails({
+      organizationId,
+      sourceCandidateIds: listed.items.map((item) => item.id),
+    });
+    return {
+      ...listed,
+      items: listed.items.map((item) => ({
+        ...item,
+        selectedThumbnailUrl:
+          item.productPreparation?.selectedThumbnailUrl
+          ?? workspaceThumbnails.get(item.id)?.url
+          ?? null,
+      })),
+    };
   }
 
   async getProduct(productId: string, organizationId: string) {

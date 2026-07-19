@@ -35,4 +35,13 @@ export interface CandidateContentAssetPort {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<CandidateCurrentThumbnail | null>;
+  /**
+   * 배치판. 수집상품 **목록**은 카드마다 저장된 대표를 보여줘야 하는데,
+   * 후보별 단건 조회를 돌리면 N+1 이 된다. 목록 경로는 이쪽만 쓴다.
+   * 대표가 없는 후보는 맵에 없다.
+   */
+  findCurrentThumbnails(input: {
+    organizationId: string;
+    sourceCandidateIds: string[];
+  }): Promise<Map<string, CandidateCurrentThumbnail>>;
 }

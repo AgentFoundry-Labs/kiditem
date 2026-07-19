@@ -30,6 +30,11 @@ export interface SourcedProduct {
   imageUrl?: string | null;
   images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   productPreparation?: ProductPreparationSelection | null;
+  /**
+   * 저장된 대표 썸네일. 서버가 준비(ProductPreparation) → 후보 워크스페이스
+   * 순으로 계산해 내려준다. 없으면 `null` 이고 카드는 수집 원본으로 떨어진다.
+   */
+  selectedThumbnailUrl?: string | null;
   thumbnailPreviewUrls?: string[];
   rejectedAt?: string | null;
   rejectedReason?: string | null;
@@ -518,7 +523,14 @@ export const productsApi = {
         ? preparationRecord.registrationInput as Record<string, unknown>
         : {};
       const thumbnailPreviewUrls = collectImageUrls(registrationInput.thumbnailUrls);
+      // 서버가 계산한 **저장된 대표 썸네일**(준비 → 후보 워크스페이스 순).
+      // 이게 없으면 준비가 없는 후보의 대표 선택이 카드에 반영되지 않고
+      // `sourcing_candidates.thumbnail_url`(수집 원본)이 계속 보인다.
+      const selectedThumbnailUrl = typeof p.selectedThumbnailUrl === 'string' && p.selectedThumbnailUrl.trim()
+        ? p.selectedThumbnailUrl.trim()
+        : null;
       const thumbnailUrl = productPreparation?.selectedThumbnailUrl ??
+        selectedThumbnailUrl ??
         selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
       const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
       return {
@@ -535,6 +547,7 @@ export const productsApi = {
         imageUrl: p.imageUrl ?? null,
         images: Array.isArray(p.images) ? p.images : [],
         productPreparation,
+        selectedThumbnailUrl,
         thumbnailPreviewUrls,
         rejectedAt: p.rejectedAt ?? null,
         rejectedReason: p.rejectedReason ?? null,

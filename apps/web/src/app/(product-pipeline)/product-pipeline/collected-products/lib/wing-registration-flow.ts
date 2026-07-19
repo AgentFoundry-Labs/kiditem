@@ -276,17 +276,159 @@ export interface WingSingleRegistrationResult {
 }
 
 /**
- * 단일 상품 직접 등록: 확장이 쿠팡 WING 상품등록(formV2) 페이지를 열어 자동으로 채운다.
- * 엑셀을 거치지 않고 페이지를 직접 조작하는 경로(단일 작업용).
- * 실제 폼 채움은 확장 content-script(wing-registration-fill)가 수행한다.
+ * 등록 확인 모달이 사용자에게 보여주고 **고치게 하는** 값들.
  *
- * 상세설명은 저장된 상세페이지를 780px(쿠팡 권장) 이미지 1장으로 렌더해 넘긴다.
- * 확장은 이 로컬 이미지를 CDN 업로드의 원본으로만 쓰고, WING 최종 상태는 HTML 로 만든다.
+ * 확장으로 넘어가기 직전의 마지막 편집 지점이다. WING 폼이 열린 뒤에는
+ * 자동채움이 끝날 때까지 사용자가 개입할 수 없어서, 노출상품명/옵션/가격/재고를
+ * 여기서 확정받는다.
+ *
+ * 가격·재고는 문자열이 아니라 숫자다 — 입력 컴포넌트가 문자열을 다루더라도
+ * 이 경계에서는 파싱이 끝나 있어야 검증 규칙이 한곳에 모인다.
  */
-export async function registerSingleProductToWing(
+export interface WingRegistrationOverrides {
+  /** 노출상품명(구매자에게 보이는 이름). 100자 이하. */
+  productName: string;
+  /** 등록상품명(판매자관리용). 기본값은 원본 수집명. */
+  sellerProductName: string;
+  /** 구매옵션 `색상` 값. */
+  colorValue: string;
+  /** 구매옵션 `수량` 값. */
+  quantityValue: string;
+  /** 판매가(원). 10원 단위, 0보다 커야 한다. */
+  salePrice: number;
+  /** 정상가(할인율 기준가, 원). 0이면 판매가를 그대로 쓴다. */
+  origPrice: number;
+  /** 재고수량. 0 이상 정수. */
+  stock: number;
+}
+
+/** 확장으로 넘기기 전 확인 모달이 필요로 하는 전체 컨텍스트. */
+export interface WingRegistrationDraft {
+  /** 자동 조립된 등록 payload. 사용자가 고친 값은 아직 반영 전이다. */
+  product: WingProduct;
+  /** 모달 기본값. `product` 에서 뽑아낸 편집 가능한 부분집합. */
+  overrides: WingRegistrationOverrides;
+  /** 확장 메시지를 받을 확장 ID. prepare 단계에서 이미 확인해 둔다. */
+  extensionId: string;
+  /** 렌더된 상세설명 이미지 URL(이 경로의 필수값). */
+  detailImageUrl: string;
+}
+
+const PURCHASE_OPTION_COLOR = '색상';
+const PURCHASE_OPTION_QUANTITY = '수량';
+
+const findOptionValue = (product: WingProduct, type: string): string =>
+  product.variants[0]?.purchaseOptions.find((option) => option.type === type)?.value ?? '';
+
+/**
+ * 자동 조립된 `WingProduct` 에서 모달 기본값을 뽑아낸다.
+ *
+ * 노출상품명은 `buildWingDisplayName()` 결과, 등록상품명은 원본 수집명,
+ * 나머지는 첫 variant 값이다. 여기서 값을 지어내지 않는다 — 비어 있으면
+ * 비어 있는 채로 보여주고 사용자가 채우게 한다.
+ */
+export function buildWingRegistrationOverrides(product: WingProduct): WingRegistrationOverrides {
+  const variant = product.variants[0];
+  return {
+    productName: product.productName ?? '',
+    sellerProductName: product.sellerProductName ?? '',
+    colorValue: findOptionValue(product, PURCHASE_OPTION_COLOR),
+    quantityValue: findOptionValue(product, PURCHASE_OPTION_QUANTITY),
+    salePrice: variant?.salePrice ?? 0,
+    origPrice: variant?.origPrice ?? 0,
+    stock: variant?.stock ?? 0,
+  };
+}
+
+/**
+ * 모달 입력 검증. 확인 버튼을 누르기 전에 전부 통과해야 한다.
+ *
+ * 반환값은 사람이 읽는 한국어 메시지 목록이고, 빈 배열이면 통과다.
+ * WING 폼이 열린 뒤에 실패하면 원인을 알기 어려우니 여기서 전부 막는다.
+ */
+export function validateWingRegistrationOverrides(
+  overrides: WingRegistrationOverrides,
+): string[] {
+  const errors: string[] = [];
+  const productName = overrides.productName.trim();
+  if (!productName) errors.push('노출상품명을 입력하세요.');
+  else if (productName.length > WING_DISPLAY_NAME_MAX) {
+    errors.push(`노출상품명은 ${WING_DISPLAY_NAME_MAX}자 이하여야 합니다 (현재 ${productName.length}자).`);
+  }
+  if (!overrides.sellerProductName.trim()) errors.push('등록상품명(판매자관리용)을 입력하세요.');
+
+  if (!Number.isFinite(overrides.salePrice) || overrides.salePrice <= 0) {
+    errors.push('판매가는 0원보다 커야 합니다.');
+  } else if (overrides.salePrice % 10 !== 0) {
+    errors.push('판매가는 10원 단위여야 합니다.');
+  }
+  if (!Number.isFinite(overrides.origPrice) || overrides.origPrice < 0) {
+    errors.push('정상가는 0원 이상이어야 합니다.');
+  } else if (overrides.origPrice % 10 !== 0) {
+    errors.push('정상가는 10원 단위여야 합니다.');
+  }
+
+  if (!Number.isFinite(overrides.stock) || overrides.stock < 0 || !Number.isInteger(overrides.stock)) {
+    errors.push('재고수량은 0 이상의 정수여야 합니다.');
+  }
+  return errors;
+}
+
+/**
+ * 사용자가 고친 값을 등록 payload 에 실제로 반영한다.
+ *
+ * ⚠️ 이 함수를 건너뛰고 원본 `product` 를 보내면 모달은 장식이 된다.
+ * 확인 경로는 반드시 이 결과를 확장에 넘겨야 한다.
+ *
+ * 옵션은 첫 variant 의 `색상`/`수량` 만 덮어쓴다. 값이 비면 그 옵션 자체를 뺀다 —
+ * 빈 문자열 옵션은 WING 에서 유효하지 않다.
+ */
+export function applyWingRegistrationOverrides(
+  product: WingProduct,
+  overrides: WingRegistrationOverrides,
+): WingProduct {
+  const variant = product.variants[0];
+  if (!variant) return product;
+  const salePrice = overrides.salePrice;
+  const purchaseOptions = [
+    ...(overrides.colorValue.trim()
+      ? [{ type: PURCHASE_OPTION_COLOR, value: overrides.colorValue.trim() }]
+      : []),
+    ...(overrides.quantityValue.trim()
+      ? [{ type: PURCHASE_OPTION_QUANTITY, value: overrides.quantityValue.trim() }]
+      : []),
+  ];
+  return {
+    ...product,
+    productName: overrides.productName.trim(),
+    sellerProductName: overrides.sellerProductName.trim(),
+    variants: [
+      {
+        ...variant,
+        purchaseOptions,
+        salePrice,
+        // 정상가를 비워 두면 할인율 기준가가 없다는 뜻이므로 판매가를 그대로 쓴다.
+        origPrice: overrides.origPrice > 0 ? overrides.origPrice : salePrice,
+        stock: overrides.stock,
+      },
+      ...product.variants.slice(1),
+    ],
+  };
+}
+
+/**
+ * 등록 확인 모달에 넘길 초안을 만든다. **확장 탭을 열지 않는다.**
+ *
+ * 카테고리 추론과 상세설명 렌더는 실패 가능성이 있어 모달을 띄우기 전에 끝낸다 —
+ * 사용자가 값을 다 고친 뒤에 "카테고리를 못 정했다" 로 막히면 입력이 버려진다.
+ *
+ * 판매가 0 은 여기서 막지 않는다. 모달에서 사용자가 채울 수 있게 된 값이라,
+ * 조회 시점에 차단하면 고칠 기회 자체가 사라진다.
+ */
+export async function prepareWingRegistration(
   candidateId: string,
   preset: WingCategoryPreset = WING_TOY_WATERGUN_PRESET,
-): Promise<WingSingleRegistrationResult> {
+): Promise<WingRegistrationDraft> {
   if (!isChromeExtensionRuntimeAvailable()) {
     throw new Error('쿠팡 WING 직접 등록은 Chrome 확장에서 실행됩니다. Chrome에서 이 페이지를 열고 다시 시도하세요.');
   }
@@ -307,16 +449,39 @@ export async function registerSingleProductToWing(
   const detailImageUrl = requireRenderedDetailImage(rendered);
 
   const product = candidateToWingProduct(detail, preset, categoryCell, detailImageUrl);
-  // 판매가 0 은 WING 탭을 열기 전에 막는다. 열고 나서 0원으로 남으면 사용자는
-  // "자동채움이 실패했다" 고 읽지만 실제 원인은 우리 데이터가 비어 있는 것이다.
+  return {
+    product,
+    overrides: buildWingRegistrationOverrides(product),
+    extensionId,
+    detailImageUrl,
+  };
+}
+
+/**
+ * 확인된 값으로 확장에 등록을 넘긴다.
+ *
+ * 실제 폼 채움은 확장 content-script(wing-registration-fill)가 수행한다.
+ * 상세설명은 저장된 상세페이지를 780px(쿠팡 권장) 이미지 1장으로 렌더해 넘긴다.
+ * 확장은 이 로컬 이미지를 CDN 업로드의 원본으로만 쓰고, WING 최종 상태는 HTML 로 만든다.
+ */
+export async function submitWingRegistration(
+  draft: WingRegistrationDraft,
+  overrides: WingRegistrationOverrides,
+): Promise<WingSingleRegistrationResult> {
+  const errors = validateWingRegistrationOverrides(overrides);
+  if (errors.length > 0) throw new Error(errors.join(' '));
+  const product = applyWingRegistrationOverrides(draft.product, overrides);
+  // 판매가 0 은 WING 탭을 열기 전에 막는다. 모달 검증이 이미 걸러내지만,
+  // 확장으로 나가는 마지막 지점이라 방어적으로 한 번 더 확인한다.
   requireSalePrice(product.variants[0]?.salePrice ?? 0, product.productName);
-  const res = await sendToExtension<{ ok?: boolean; error?: string }>(extensionId, {
+  const res = await sendToExtension<{ ok?: boolean; error?: string }>(draft.extensionId, {
     action: 'registerToWingForm',
     product,
   }, WING_FORM_FILL_TIMEOUT_MS);
   if (!res?.ok) {
     throw new Error(res?.error || '쿠팡 WING 상품등록 페이지 열기에 실패했습니다. 확장을 리로드했는지 확인하세요.');
   }
+  const detailImageUrl = draft.detailImageUrl;
   return { detailImage: { status: 'rendered', imageUrl: detailImageUrl } };
 }
 

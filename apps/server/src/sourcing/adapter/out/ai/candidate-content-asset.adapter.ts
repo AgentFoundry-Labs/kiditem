@@ -29,4 +29,11 @@ export class CandidateContentAssetAdapter implements CandidateContentAssetPort {
   }): Promise<CandidateCurrentThumbnail | null> {
     return this.assets.findCurrentThumbnail(input);
   }
+
+  findCurrentThumbnails(input: {
+    organizationId: string;
+    sourceCandidateIds: string[];
+  }): Promise<Map<string, CandidateCurrentThumbnail>> {
+    return this.assets.findCurrentThumbnails(input);
+  }
 }

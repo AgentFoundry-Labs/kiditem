@@ -82,6 +82,17 @@ export class ContentAssetService implements CandidateContentAssetPort {
   }
 
   /**
+   * 배치판. 수집상품 목록이 후보마다 대표 썸네일을 되읽어야 하는데, 단건
+   * 조회를 반복하면 페이지당 수십 번의 쿼리가 된다.
+   */
+  findCurrentThumbnails(input: {
+    organizationId: string;
+    sourceCandidateIds: string[];
+  }): Promise<Map<string, CandidateCurrentThumbnail>> {
+    return this.repository.findCandidateCurrentThumbnails(input);
+  }
+
+  /**
    * Replace the ordered `role='thumbnail'` gallery owned by one content workspace.
    *
    * This is the write side of `listRegistrationImages().thumbnail`. A candidate

@@ -1,13 +1,29 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { sendToExtension } from '@/lib/extension-bridge';
 import {
+  applyWingRegistrationOverrides,
   buildWingDisplayName,
+  buildWingRegistrationOverrides,
   candidateToWingProduct,
   requireRenderedDetailImage,
   stripLeadingPriceCode,
+  submitWingRegistration,
+  validateWingRegistrationOverrides,
   WING_DISPLAY_NAME_MAX,
   WING_FORM_FILL_TIMEOUT_MS,
 } from './wing-registration-flow';
 import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
+import type { WingProduct } from './wing-registration-excel';
+
+vi.mock('@/lib/extension-bridge', () => ({
+  detectExtensionId: vi.fn(),
+  isChromeExtensionRuntimeAvailable: vi.fn(() => true),
+  sendToExtension: vi.fn(),
+}));
+
+beforeEach(() => {
+  vi.mocked(sendToExtension).mockReset();
+});
 
 const SOURCE_IMAGE = 'https://cbu01.alicdn.com/img/original-source.jpg';
 
@@ -324,5 +340,137 @@ describe('WING 노출상품명 조립', () => {
     expect(product.productName).toBe('선인장딸깍키링 1p  휴대용 열쇠고리');
     // 등록상품명(판매자관리용)은 수집 원본(`detail.name`)을 다듬지 않고 그대로 쓴다.
     expect(product.sellerProductName).toBe('딸깍이 키링');
+  });
+});
+
+/**
+ * 등록 확인 모달 → 확장 payload.
+ *
+ * 모달만 띄우고 원본 값을 보내면 확인 절차가 장식이 된다. 고친 값이 실제로
+ * `registerToWingForm` payload 에 실려야 한다.
+ */
+describe('쿠팡 등록 확인 모달 값 반영', () => {
+  const product = (): WingProduct =>
+    candidateToWingProduct(
+      detail(basics({ name: '4000선인장딸깍키링', keywords: ['휴대용', '열쇠고리'] })),
+      undefined,
+      '[77390] 완구/취미>스포츠/야외완구>물총',
+      'http://localhost:9000/rendered/detail-780.jpg',
+    );
+
+  it('자동 조립된 값을 모달 기본값으로 꺼낸다', () => {
+    const overrides = buildWingRegistrationOverrides(product());
+
+    expect(overrides.productName).toBe('선인장딸깍키링 1p  휴대용 열쇠고리');
+    expect(overrides.sellerProductName).toBe('딸깍이 키링');
+    expect(overrides.colorValue).toBe('단일');
+    expect(overrides.quantityValue).toBe('1');
+    expect(overrides.salePrice).toBe(2200);
+    expect(overrides.stock).toBe(999);
+  });
+
+  it('사용자가 고친 값이 등록 payload 에 실린다', () => {
+    const applied = applyWingRegistrationOverrides(product(), {
+      productName: '  손으로 고친 노출상품명 2p  ',
+      sellerProductName: '내부관리명-001',
+      colorValue: '핑크',
+      quantityValue: '2',
+      salePrice: 3900,
+      origPrice: 5900,
+      stock: 30,
+    });
+
+    expect(applied.productName).toBe('손으로 고친 노출상품명 2p');
+    expect(applied.sellerProductName).toBe('내부관리명-001');
+    expect(applied.variants[0].purchaseOptions).toEqual([
+      { type: '색상', value: '핑크' },
+      { type: '수량', value: '2' },
+    ]);
+    expect(applied.variants[0].salePrice).toBe(3900);
+    expect(applied.variants[0].origPrice).toBe(5900);
+    expect(applied.variants[0].stock).toBe(30);
+    // 모달이 다루지 않는 값(카테고리·상세설명·추가이미지)은 그대로 유지된다.
+    expect(applied.categoryCell).toBe('[77390] 완구/취미>스포츠/야외완구>물총');
+    expect(applied.detailImageUrls).toEqual(['http://localhost:9000/rendered/detail-780.jpg']);
+  });
+
+  it('정상가를 비우면 판매가를 할인율 기준가로 쓴다', () => {
+    const applied = applyWingRegistrationOverrides(product(), {
+      ...buildWingRegistrationOverrides(product()),
+      salePrice: 3900,
+      origPrice: 0,
+    });
+
+    expect(applied.variants[0].origPrice).toBe(3900);
+  });
+
+  it('빈 옵션값은 옵션 자체를 뺀다 (빈 문자열 옵션은 WING 에서 무효)', () => {
+    const applied = applyWingRegistrationOverrides(product(), {
+      ...buildWingRegistrationOverrides(product()),
+      colorValue: '  ',
+      quantityValue: '3',
+    });
+
+    expect(applied.variants[0].purchaseOptions).toEqual([{ type: '수량', value: '3' }]);
+  });
+
+  it('판매가·노출상품명·재고를 검증한다', () => {
+    const base = buildWingRegistrationOverrides(product());
+
+    expect(validateWingRegistrationOverrides(base)).toEqual([]);
+    expect(validateWingRegistrationOverrides({ ...base, salePrice: 0 })).toContain(
+      '판매가는 0원보다 커야 합니다.',
+    );
+    expect(validateWingRegistrationOverrides({ ...base, salePrice: 3905 })).toContain(
+      '판매가는 10원 단위여야 합니다.',
+    );
+    expect(validateWingRegistrationOverrides({ ...base, stock: -1 })).toContain(
+      '재고수량은 0 이상의 정수여야 합니다.',
+    );
+    expect(validateWingRegistrationOverrides({ ...base, productName: '' })).toContain(
+      '노출상품명을 입력하세요.',
+    );
+    expect(
+      validateWingRegistrationOverrides({ ...base, productName: '가'.repeat(101) }).join(' '),
+    ).toMatch(/노출상품명은 100자 이하/);
+  });
+
+  it('검증에 걸리는 값은 확장으로 나가지 않는다', async () => {
+    const draft = {
+      product: product(),
+      overrides: buildWingRegistrationOverrides(product()),
+      extensionId: 'ext-1',
+      detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
+    };
+
+    await expect(
+      submitWingRegistration(draft, { ...draft.overrides, salePrice: 0 }),
+    ).rejects.toThrow(/판매가는 0원보다 커야 합니다/);
+    expect(sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('확인한 값 그대로 확장에 전달한다', async () => {
+    vi.mocked(sendToExtension).mockResolvedValueOnce({ ok: true });
+    const draft = {
+      product: product(),
+      overrides: buildWingRegistrationOverrides(product()),
+      extensionId: 'ext-1',
+      detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
+    };
+
+    await submitWingRegistration(draft, {
+      ...draft.overrides,
+      productName: '확인한 노출상품명',
+      salePrice: 4900,
+      stock: 12,
+    });
+
+    const [extensionId, message] = vi.mocked(sendToExtension).mock.calls[0];
+    expect(extensionId).toBe('ext-1');
+    expect(message).toMatchObject({ action: 'registerToWingForm' });
+    const sent = (message as { product: WingProduct }).product;
+    expect(sent.productName).toBe('확인한 노출상품명');
+    expect(sent.variants[0].salePrice).toBe(4900);
+    expect(sent.variants[0].stock).toBe(12);
   });
 });

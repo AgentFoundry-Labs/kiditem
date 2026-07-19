@@ -37,4 +37,13 @@ export interface CandidateContentAssetPort {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<CandidateCurrentThumbnail | null>;
+  /**
+   * `findCurrentThumbnail` 의 배치판. 수집상품 목록처럼 후보 여러 개의 대표를
+   * 한 번에 읽어야 하는 경로 전용이다 — 단건 조회를 반복하면 N+1 이 된다.
+   * 대표가 없는 후보는 맵에 없다.
+   */
+  findCurrentThumbnails(input: {
+    organizationId: string;
+    sourceCandidateIds: string[];
+  }): Promise<Map<string, CandidateCurrentThumbnail>>;
 }

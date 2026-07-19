@@ -150,6 +150,14 @@ export interface ContentAssetLibraryRepositoryPort {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<CandidateCurrentThumbnailRow | null>;
+  /**
+   * 배치판. 목록 화면은 후보마다 단건 조회를 돌리면 N+1 이 되므로 반드시
+   * 이쪽을 쓴다. 선택이 없는 후보는 맵에서 빠진다(빈 값을 만들지 않는다).
+   */
+  findCandidateCurrentThumbnails(input: {
+    organizationId: string;
+    sourceCandidateIds: string[];
+  }): Promise<Map<string, CandidateCurrentThumbnailRow>>;
   replaceWorkspaceThumbnailGallery(
     input: ReplaceWorkspaceThumbnailGalleryInput,
   ): Promise<{ urls: string[] }>;

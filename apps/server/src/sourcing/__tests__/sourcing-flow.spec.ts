@@ -66,6 +66,7 @@ describe('SourcingService — candidate ingest', () => {
       {
         listRegistrationImages: vi.fn().mockResolvedValue({ primary: [], thumbnail: [], detail: [] }),
         findCurrentThumbnail: vi.fn().mockResolvedValue(null),
+        findCurrentThumbnails: vi.fn().mockResolvedValue(new Map()),
       } as any,
       sellpiaSalePrices as any,
       registrationContentWorkspaces as any,
