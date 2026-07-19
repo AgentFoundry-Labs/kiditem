@@ -74,7 +74,7 @@ describe('ProductKeywordRankOverview pagination', () => {
     renderOverview();
 
     expect(await screen.findByText('상품 1')).toBeInTheDocument();
-    const pagination = screen.getByRole('button', { name: '다음' }).parentElement?.parentElement;
+    const pagination = screen.getByRole('navigation', { name: '순위 결과 페이지' });
     expect(pagination).toHaveClass('relative', 'flex', 'items-center', 'justify-center');
     expect(screen.getByText('1 / 2')).toBeInTheDocument();
 

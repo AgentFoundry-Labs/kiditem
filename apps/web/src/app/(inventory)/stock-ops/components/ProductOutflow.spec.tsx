@@ -124,6 +124,18 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     await waitFor(() => expect(stockRefresh).toBeEnabled());
   });
 
+  it('renders shared syncing freshness as a disabled stock refresh action', () => {
+    freshness.state = {
+      status: 'syncing',
+      lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+    };
+    renderProductOutflow();
+
+    expect(screen.getByText('갱신 중')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /재고 동기화/ })).toBeDisabled();
+    expect(requestRefresh).not.toHaveBeenCalled();
+  });
+
   it('renders PR 329 depletion and stock signals from the canonical inventory summary', async () => {
     productSalesApi.fetch.mockResolvedValueOnce({
       range: { from: '2026-05', to: '2026-06' },
