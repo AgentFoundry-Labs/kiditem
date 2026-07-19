@@ -561,6 +561,68 @@ export async function submitWingRegistration(
   };
 }
 
+/**
+ * 등록 확정 직후, 등록상품 목록에 **실제로 올라왔는지** 폴링해서 확인한다.
+ *
+ * `confirm-external` 이 200 을 돌려줘도 그것만으로 목록 반영을 단정하지 않는다.
+ * 목록은 별도 조회 경로(`/api/channels/listings`)를 타고, 사용자가 실제로 보는 것은
+ * 그쪽이다. 확정 응답만 믿고 등록상품 화면으로 보내면 "성공했다더니 빈 목록"이
+ * 나올 수 있어서, 조회 경로에서 한 번 더 확인한 뒤에만 이동한다.
+ *
+ * `externalListingId` 로 검색한다(백엔드 `search` 가 `externalId` 를 포함한다).
+ * 시간 안에 못 찾으면 **예외를 던지지 않고 `false`** 를 돌려준다 — 쿠팡 등록은 이미
+ * 끝난 상태라 여기서 실패를 던지면 등록 자체가 실패한 것처럼 보인다.
+ */
+export const REGISTERED_LISTING_POLL_INTERVAL_MS = 1_000;
+export const REGISTERED_LISTING_POLL_TIMEOUT_MS = 20_000;
+
+export interface WaitForRegisteredListingDeps {
+  /** 목록 조회. 기본값은 `/api/channels/listings` 검색. */
+  fetchListings?: (externalListingId: string) => Promise<{ items: Array<{ externalId: string }> }>;
+  sleep?: (ms: number) => Promise<void>;
+  intervalMs?: number;
+  timeoutMs?: number;
+}
+
+const defaultFetchListings = (externalListingId: string) => {
+  const qs = new URLSearchParams({
+    page: '1',
+    limit: '5',
+    tab: 'registered',
+    search: externalListingId,
+  });
+  return apiClient.get<{ items: Array<{ externalId: string }> }>(
+    `/api/channels/listings?${qs}`,
+  );
+};
+
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+export async function waitForRegisteredListing(
+  externalListingId: string,
+  deps: WaitForRegisteredListingDeps = {},
+): Promise<boolean> {
+  const id = externalListingId.trim();
+  if (!id) return false;
+  const fetchListings = deps.fetchListings ?? defaultFetchListings;
+  const sleep = deps.sleep ?? defaultSleep;
+  const intervalMs = deps.intervalMs ?? REGISTERED_LISTING_POLL_INTERVAL_MS;
+  const timeoutMs = deps.timeoutMs ?? REGISTERED_LISTING_POLL_TIMEOUT_MS;
+  // 최소 1회는 조회한다. timeout 이 0 이어도 "확인조차 안 함"이 되지 않도록 한다.
+  const attempts = Math.max(1, Math.ceil(timeoutMs / Math.max(1, intervalMs)));
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const res = await fetchListings(id);
+      if (res.items.some((item) => item.externalId === id)) return true;
+    } catch {
+      // 조회 실패는 재시도한다. 등록은 이미 끝났고, 목록 조회가 잠깐 흔들렸을 뿐일 수 있다.
+    }
+    if (attempt < attempts - 1) await sleep(intervalMs);
+  }
+  return false;
+}
+
 /** 브라우저 다운로드. */
 export function downloadWingExcel(bytes: Uint8Array, filename: string): void {
   const blob = new Blob([bytes as BlobPart], {

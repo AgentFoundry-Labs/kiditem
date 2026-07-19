@@ -15,6 +15,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   collectedProductDetailHref,
   collectedProductEditorHref,
+  REGISTERED_PRODUCTS_ROOT,
 } from '../_shared/lib/product-pipeline-routes';
 import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
@@ -38,6 +39,7 @@ import {
   isConfirmedWingRegistration,
   prepareWingRegistration,
   submitWingRegistration,
+  waitForRegisteredListing,
   type WingRegistrationDraft,
   type WingRegistrationOverrides,
 } from './lib/wing-registration-flow';
@@ -251,9 +253,22 @@ export default function SourcingPage() {
             channel: 'coupang',
           });
           await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
-          toast.success('쿠팡에 등록하고 등록상품 목록에 올렸어요', {
-            description: `등록상품ID ${externalListingId}`,
-          });
+
+          // 확정 응답만으로 "목록에 떴다"고 단정하지 않는다. 사용자가 실제로 보는
+          // 조회 경로에서 확인될 때까지 폴링하고, 확인된 뒤에만 등록상품 화면으로 보낸다.
+          const listed = await waitForRegisteredListing(externalListingId);
+          if (listed) {
+            toast.success('쿠팡에 등록하고 등록상품 목록에 올렸어요', {
+              description: `등록상품ID ${externalListingId} — 등록상품 화면으로 이동합니다.`,
+            });
+            router.push(REGISTERED_PRODUCTS_ROOT);
+          } else {
+            // 확정은 됐는데 목록 조회에서 아직 안 보인다. 이동시키면 빈 화면을 보게 되므로
+            // 여기 남겨 두고 사실만 알린다.
+            toast.warning('등록은 됐지만 등록상품 목록에서 아직 확인되지 않아요', {
+              description: `등록상품ID ${externalListingId} — 등록상품 화면에서 새로고침해 주세요.`,
+            });
+          }
         } catch (err) {
           // 쿠팡 등록은 이미 끝났다. 목록 반영만 실패한 상태를 정확히 알린다.
           toast.warning('쿠팡 등록은 됐지만 등록상품 목록 반영에 실패했어요', {

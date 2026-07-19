@@ -9,6 +9,7 @@ import {
   stripLeadingPriceCode,
   submitWingRegistration,
   validateWingRegistrationOverrides,
+  waitForRegisteredListing,
   WING_DISPLAY_NAME_MAX,
   WING_FORM_FILL_TIMEOUT_MS,
 } from './wing-registration-flow';
@@ -474,5 +475,73 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(sent.productName).toBe('확인한 노출상품명');
     expect(sent.variants[0].salePrice).toBe(4900);
     expect(sent.variants[0].stock).toBe(12);
+  });
+});
+
+describe('waitForRegisteredListing', () => {
+  const noSleep = () => Promise.resolve();
+
+  it('등록상품ID 가 목록 조회에 나타나면 true 를 돌려준다', async () => {
+    const fetchListings = vi.fn().mockResolvedValue({ items: [{ externalId: '16311492950' }] });
+    await expect(
+      waitForRegisteredListing('16311492950', { fetchListings, sleep: noSleep }),
+    ).resolves.toBe(true);
+    expect(fetchListings).toHaveBeenCalledWith('16311492950');
+  });
+
+  it('처음엔 비어 있어도 나타날 때까지 폴링한다', async () => {
+    const fetchListings = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValue({ items: [{ externalId: '16311492950' }] });
+    await expect(
+      waitForRegisteredListing('16311492950', { fetchListings, sleep: noSleep }),
+    ).resolves.toBe(true);
+    expect(fetchListings).toHaveBeenCalledTimes(3);
+  });
+
+  // 쿠팡 등록은 이미 끝났다. 목록에 못 떠도 예외를 던져 등록 실패처럼 보이게 하지 않는다.
+  it('제한 시간 안에 못 찾으면 던지지 않고 false 를 돌려준다', async () => {
+    const fetchListings = vi.fn().mockResolvedValue({ items: [] });
+    await expect(
+      waitForRegisteredListing('16311492950', {
+        fetchListings,
+        sleep: noSleep,
+        intervalMs: 10,
+        timeoutMs: 30,
+      }),
+    ).resolves.toBe(false);
+    expect(fetchListings).toHaveBeenCalledTimes(3);
+  });
+
+  it('다른 등록상품ID 만 돌아오면 성공으로 치지 않는다', async () => {
+    const fetchListings = vi.fn().mockResolvedValue({ items: [{ externalId: '16302076562' }] });
+    await expect(
+      waitForRegisteredListing('16311492950', {
+        fetchListings,
+        sleep: noSleep,
+        intervalMs: 10,
+        timeoutMs: 10,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it('조회가 실패해도 재시도한다', async () => {
+    const fetchListings = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('네트워크 오류'))
+      .mockResolvedValue({ items: [{ externalId: '16311492950' }] });
+    await expect(
+      waitForRegisteredListing('16311492950', { fetchListings, sleep: noSleep }),
+    ).resolves.toBe(true);
+  });
+
+  it('빈 등록상품ID 는 조회하지 않는다', async () => {
+    const fetchListings = vi.fn();
+    await expect(
+      waitForRegisteredListing('  ', { fetchListings, sleep: noSleep }),
+    ).resolves.toBe(false);
+    expect(fetchListings).not.toHaveBeenCalled();
   });
 });
