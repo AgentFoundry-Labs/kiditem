@@ -328,6 +328,7 @@ erDiagram
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
+| Organization | organization | referenced by external | Channels | RocketPoReservation |
 | Organization | organization | referenced by external | Channels | RocketPurchaseOrder |
 | Organization | organization | referenced by external | Channels | RocketSupplyDailySnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaProductMonthlySales |
