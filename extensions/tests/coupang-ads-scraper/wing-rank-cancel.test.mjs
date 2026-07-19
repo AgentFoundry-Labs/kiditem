@@ -47,3 +47,11 @@ test("Wing rank pauses the whole session on login or bounded upstream exhaustion
   assert.match(source, /"rate_limited"/);
   assert.match(source, /break;/);
 });
+
+test("Wing catalog rate limiting uses paced searches and bounded asymmetric retries", () => {
+  assert.match(source, /const WING_CATALOG_PAGE_DELAY_MS = 2200;/);
+  assert.match(source, /const COUPANG_KEYWORD_SEARCH_DELAY_MS = 1500;/);
+  assert.match(source, /const MAX_ATTEMPTS = 4;/);
+  assert.match(source, /response\?\.status === 429 \? 4000 : 1000/);
+  assert.match(source, /await sleep\(baseMs \* 2 \*\* \(attempt - 1\)\);/);
+});
