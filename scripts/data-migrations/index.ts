@@ -4,6 +4,7 @@ import { recordSellpiaRocketInventorySyncRelease } from "./v0.1.7/001_record_sel
 import { migrateRepresentativeKeywordOverrides } from "./v0.1.18/001_migrate_representative_keyword_overrides";
 import { sellpiaInventoryFreshnessMigration } from "./v0.1.19/001_sellpia_inventory_freshness";
 import { backfillInventoryCommitments } from "./v0.1.21/001_backfill_inventory_commitments";
+import { dedupeDetailPageArtifacts } from "./v0.1.24/001_dedupe_detail_page_artifacts";
 import type { DataMigration } from "./types";
 
 export {
@@ -22,6 +23,7 @@ export const dataMigrations: readonly DataMigration[] = [
   migrateRepresentativeKeywordOverrides,
   sellpiaInventoryFreshnessMigration,
   backfillInventoryCommitments,
+  dedupeDetailPageArtifacts,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

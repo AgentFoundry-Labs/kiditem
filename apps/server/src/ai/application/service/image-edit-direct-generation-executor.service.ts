@@ -10,6 +10,10 @@ import {
   type ImageEditDirectOutput,
 } from '../../domain/direct-generation';
 import {
+  GENERATED_IMAGE_VALIDATOR_PORT,
+  type GeneratedImageValidatorPort,
+} from '../port/out/provider/generated-image-validator.port';
+import {
   IMAGE_EDIT_MEDIA_PORT,
   type ImageEditMediaPort,
 } from '../port/out/provider/image-edit-media.port';
@@ -32,7 +36,8 @@ export interface ImageEditDirectGenerationCommand {
   organizationId: string;
   model: string;
   input: unknown;
-  logId?: string | null;
+  jobId: string;
+  signal?: AbortSignal;
 }
 
 @Injectable()
@@ -44,11 +49,14 @@ export class ImageEditDirectGenerationExecutorService {
     private readonly imageEditMedia: ImageEditMediaPort,
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage: ImageStoragePort,
+    @Inject(GENERATED_IMAGE_VALIDATOR_PORT)
+    private readonly generatedImageValidator: GeneratedImageValidatorPort,
   ) {}
 
   async execute(
     command: ImageEditDirectGenerationCommand,
   ): Promise<ImageEditDirectOutput> {
+    command.signal?.throwIfAborted();
     if (!command.model || command.model.length === 0) {
       throw new DirectAiGenerationError(
         'model_required',
@@ -76,10 +84,22 @@ export class ImageEditDirectGenerationExecutorService {
       imageUrl: parsed.data.image_url,
       imageUrls: parsed.data.image_urls,
       userPrompt: parsed.data.user_prompt,
+      signal: command.signal,
     });
-    const output = this.validateOutput({ image_url: result.imageUrl });
+    const validatedImage = await this.generatedImageValidator.validate({
+      buffer: result.buffer,
+      declaredMimeType: result.mimeType,
+    });
+    command.signal?.throwIfAborted();
+    const storageKey = `tmp/image-edits/${command.organizationId}/${command.jobId}.${validatedImage.extension}`;
+    const imageUrl = await this.imageStorage.save(
+      storageKey,
+      validatedImage.buffer,
+      validatedImage.mimeType,
+    );
+    const output = this.validateOutput({ image_url: imageUrl });
     this.logger.debug(
-      `image_edit direct=${command.logId ?? '(inline)'} preset=${parsed.data.preset} output=${result.storageKey ?? result.imageUrl}`,
+      `image_edit direct=${command.jobId} preset=${parsed.data.preset} output=${storageKey}`,
     );
     return output;
   }

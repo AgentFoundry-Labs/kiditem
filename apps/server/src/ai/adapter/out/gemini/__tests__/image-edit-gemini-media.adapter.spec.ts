@@ -55,7 +55,7 @@ function requestParts(generateContent: ReturnType<typeof vi.fn>) {
 }
 
 describe('ImageEditGeminiMediaAdapter', () => {
-  it('edits one image with the direct AI model and stores the generated image', async () => {
+  it('returns provider bytes without storing the generated image', async () => {
     const { adapter, generateContent, imageFetcher, storage } = makeAdapter();
 
     const result = await adapter.editImage({
@@ -66,7 +66,10 @@ describe('ImageEditGeminiMediaAdapter', () => {
       userPrompt: 'crisp edges',
     });
 
-    expect(imageFetcher.fetchImage).toHaveBeenCalledWith('https://source.example.com/product.jpg');
+    expect(imageFetcher.fetchImage).toHaveBeenCalledWith(
+      'https://source.example.com/product.jpg',
+      { signal: undefined },
+    );
     expect(generateContent).toHaveBeenCalledWith(expect.objectContaining({
       model: 'gemini-image-direct',
     }));
@@ -74,15 +77,10 @@ describe('ImageEditGeminiMediaAdapter', () => {
     expect(prompt).toContain('pure white (#FFFFFF) background');
     expect(prompt).toContain('checkerboard');
     expect(prompt).toContain('Additional: crisp edges');
-    expect(storage.save).toHaveBeenCalledWith(
-      expect.stringMatching(/^tmp\/image-edits\/org-1\/remove_background-[\w-]+\.png$/),
-      Buffer.from('output'),
-      'image/png',
-    );
-    expect(result).toMatchObject({
-      imageUrl: expect.stringContaining('https://cdn.example.com/tmp/image-edits/org-1/'),
+    expect(storage.save).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      buffer: Buffer.from('output'),
       mimeType: 'image/png',
-      fileSize: 6,
     });
   });
 
@@ -99,7 +97,10 @@ describe('ImageEditGeminiMediaAdapter', () => {
       ],
     });
 
-    expect(imageFetcher.fetchImage).toHaveBeenCalledWith('https://source.example.com/blue.jpg');
+    expect(imageFetcher.fetchImage).toHaveBeenCalledWith(
+      'https://source.example.com/blue.jpg',
+      { signal: undefined },
+    );
     const parts = requestParts(generateContent);
     expect(parts.filter((part) => part.inlineData).map((part) => part.inlineData?.mimeType))
       .toEqual(['image/png', 'image/jpeg']);
@@ -121,5 +122,21 @@ describe('ImageEditGeminiMediaAdapter', () => {
         userPrompt: 'make it brighter',
       }),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('does not fetch or invoke Gemini when already cancelled', async () => {
+    const { adapter, generateContent, imageFetcher } = makeAdapter();
+    const controller = new AbortController();
+    controller.abort('cancelled');
+
+    await expect(adapter.editImage({
+      organizationId: 'org-1',
+      model: 'gemini-image-direct',
+      preset: 'custom',
+      imageUrl: 'https://source.example.com/product.jpg',
+      signal: controller.signal,
+    })).rejects.toBe('cancelled');
+    expect(imageFetcher.fetchImage).not.toHaveBeenCalled();
+    expect(generateContent).not.toHaveBeenCalled();
   });
 });

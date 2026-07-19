@@ -6,6 +6,7 @@ import { StorageModule } from '../../common/storage/storage.module';
 import { AiModule } from '../ai.module';
 import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing-registration-capability.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
+import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direct-job.repository.adapter';
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../../channels/application/port/out/cross-domain/catalog-media-publication.port';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/direct-output/thumbnail-generation-sink.adapter';
@@ -13,6 +14,7 @@ import { AiOperationAlertAdapter } from '../adapter/out/automation/operation-ale
 import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailImageGenerationAdapter } from '../adapter/out/gemini/thumbnail-image-generation.adapter';
 import { ThumbnailReferenceImagesService } from '../adapter/out/gemini/thumbnail-reference-images.adapter';
+import { SharpGeneratedImageValidatorAdapter } from '../adapter/out/image-validation/sharp-generated-image-validator.adapter';
 import { ContentArchiveRepositoryAdapter } from '../adapter/out/repository/content-archive.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
@@ -43,11 +45,13 @@ import { AI_WORKSPACE_ARCHIVE_PORT } from '../application/port/in/workspace';
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from '../application/port/in/workspace/registration-content-workspace.port';
 import { AI_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain';
 import {
+  GENERATED_IMAGE_VALIDATOR_PORT,
   THUMBNAIL_IMAGE_GENERATION_PORT,
   THUMBNAIL_REFERENCE_IMAGES_PORT,
   THUMBNAIL_VISION_PROVIDER_PORT,
 } from '../application/port/out/provider';
 import {
+  AI_DIRECT_JOB_REPOSITORY_PORT,
   CONTENT_ARCHIVE_REPOSITORY_PORT,
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
@@ -67,6 +71,8 @@ import {
   DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
   THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
 } from '../application/port/out/sink';
+import { AI_DIRECT_JOB_WAKE_PORT } from '../application/port/out/runtime';
+import { AiDirectJobWorkerService } from '../application/service/ai-direct-job-worker.service';
 
 const IMPORTS_KEY = 'imports';
 const PROVIDERS_KEY = 'providers';
@@ -97,6 +103,8 @@ describe('AiModule hexagonal wiring contract', () => {
 
     [
       [DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT, DetailPageContentGenerationSinkAdapter],
+      [AI_DIRECT_JOB_REPOSITORY_PORT, AiDirectJobRepositoryAdapter],
+      [AI_DIRECT_JOB_WAKE_PORT, AiDirectJobWorkerService],
       [THUMBNAIL_DIRECT_OUTPUT_SINK_PORT, ThumbnailGenerationSinkAdapter],
       [AI_OPERATION_ALERT_PORT, AiOperationAlertAdapter],
       [CONTENT_ARCHIVE_REPOSITORY_PORT, ContentArchiveRepositoryAdapter],
@@ -111,6 +119,7 @@ describe('AiModule hexagonal wiring contract', () => {
       [SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT, SourcingWorkspaceArchiveRepositoryAdapter],
       [THUMBNAIL_ANALYSIS_REPOSITORY_PORT, ThumbnailAnalysisRepositoryAdapter],
       [THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT, ThumbnailGenerationLedgerRepositoryAdapter],
+      [GENERATED_IMAGE_VALIDATOR_PORT, SharpGeneratedImageValidatorAdapter],
       [THUMBNAIL_IMAGE_GENERATION_PORT, ThumbnailImageGenerationAdapter],
       [THUMBNAIL_REFERENCE_IMAGES_PORT, ThumbnailReferenceImagesService],
       [THUMBNAIL_TRACKING_REPOSITORY_PORT, ThumbnailTrackingRepositoryAdapter],

@@ -1,99 +1,98 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { ZodError } from 'zod';
+import { Inject, Injectable } from '@nestjs/common';
+import type { AiDirectJobModels } from '../../domain/direct-job/ai-direct-job.schema';
 import {
   DetailPageGenerateDirectInputSchema,
   type DetailPageGenerateDirectInput,
 } from '../../domain/direct-generation';
 import {
-  DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
-  type DetailPageDirectOutputSinkPort,
-} from '../port/out/sink/detail-page-direct-output-sink.port';
-import { DetailPageDirectGenerationExecutorService } from './detail-page-direct-generation-executor.service';
+  AI_DIRECT_JOB_REPOSITORY_PORT,
+  type AiDirectJobRepositoryPort,
+  type CreateAiDirectJobInput,
+} from '../port/out/repository/ai-direct-job.repository.port';
+import {
+  AI_DIRECT_JOB_WAKE_PORT,
+  type AiDirectJobWakePort,
+} from '../port/out/runtime';
+import {
+  AI_DIRECT_JOB_RUNTIME_CONFIG,
+  type AiDirectJobRuntimeConfig,
+} from './ai-direct-job.config';
 
 @Injectable()
 export class DetailPageDirectGenerationJobService {
-  private readonly logger = new Logger(DetailPageDirectGenerationJobService.name);
-
   constructor(
-    private readonly executor: DetailPageDirectGenerationExecutorService,
-    @Inject(DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT)
-    private readonly sink: DetailPageDirectOutputSinkPort,
+    @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
+    private readonly repository: AiDirectJobRepositoryPort,
+    @Inject(AI_DIRECT_JOB_WAKE_PORT)
+    private readonly worker: AiDirectJobWakePort,
+    @Inject(AI_DIRECT_JOB_RUNTIME_CONFIG)
+    private readonly config: AiDirectJobRuntimeConfig,
   ) {}
 
-  schedule(input: {
+  prepareGenerate(input: {
+    payload: DetailPageGenerateDirectInput | Record<string, unknown>;
+    models: AiDirectJobModels;
+  }): Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'> {
+    const parsed = DetailPageGenerateDirectInputSchema.parse(input.payload);
+    if (!('text' in input.models) || !('vision' in input.models)) {
+      throw Object.assign(
+        new Error('Detail page direct job requires image, text, and vision models.'),
+        { code: 'model_required' },
+      );
+    }
+    return {
+      jobType: 'detail_page_generate',
+      payload: {
+        jobType: 'detail_page_generate',
+        models: input.models,
+        input: parsed,
+      },
+      status: 'held',
+      scheduledFor: new Date(Date.now() + this.config.heldRecoveryMs),
+    };
+  }
+
+  async release(input: { organizationId: string; jobId: string }): Promise<void> {
+    const released = await this.repository.release(input);
+    if (!released) {
+      throw new Error(`Failed to release detail-page AI direct job ${input.jobId}.`);
+    }
+    this.worker.wake();
+  }
+
+  async cancelHeld(input: { organizationId: string; jobId: string; reason: string }): Promise<void> {
+    await this.repository.cancel(input);
+  }
+
+  async cancelByGeneration(input: {
     organizationId: string;
     generationId: string;
-    payload: DetailPageGenerateDirectInput | Record<string, unknown>;
-  }): void {
-    setImmediate(() => {
-      this.process(input).catch((err) => {
-        this.logger.error(
-          `detail-page direct AI job crashed (${input.generationId}): ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      });
+    reason: string;
+  }): Promise<number> {
+    return this.repository.cancelBySource({
+      organizationId: input.organizationId,
+      sourceResourceId: input.generationId,
+      jobTypes: ['detail_page_generate'],
+      reason: input.reason,
     });
   }
 
-  async process(input: {
+  async schedule(input: {
     organizationId: string;
     generationId: string;
     payload: DetailPageGenerateDirectInput | Record<string, unknown>;
-  }): Promise<void> {
-    const directJobId = this.directJobId(input.generationId);
-    try {
-      const parsed = DetailPageGenerateDirectInputSchema.parse(input.payload);
-      const textModel = process.env.AI_TEXT_MODEL?.trim() ?? '';
-      const output = await this.executor.execute({
-        organizationId: input.organizationId,
-        generationInput: parsed,
-        textModel,
-        modelPlan: {
-          image: process.env.AI_IMAGE_MODEL?.trim() || undefined,
-          vision: process.env.AI_IMAGE_ANALYSIS_MODEL?.trim() || undefined,
-        },
-      });
-      await this.sink.applySuccess({
-        organizationId: input.organizationId,
-        requestId: directJobId,
-        runId: undefined,
-        sourceResourceId: input.generationId,
-        output,
-      });
-    } catch (err) {
-      const normalized = normalizeDirectAiError(err);
-      await this.sink.applyFailure({
-        organizationId: input.organizationId,
-        requestId: directJobId,
-        runId: undefined,
-        sourceResourceId: input.generationId,
-        errorCode: normalized.errorCode,
-        errorMessage: normalized.errorMessage,
-      });
-    }
+    models: AiDirectJobModels;
+  }): Promise<{ jobId: string }> {
+    const prepared = this.prepareGenerate(input);
+    const job = await this.repository.create({
+      ...prepared,
+      organizationId: input.organizationId,
+      sourceResourceId: input.generationId,
+    });
+    await this.release({
+      organizationId: input.organizationId,
+      jobId: job.id,
+    });
+    return { jobId: job.id };
   }
-
-  private directJobId(generationId: string): string {
-    return `direct-ai:detail-page:${generationId}`;
-  }
-}
-
-function normalizeDirectAiError(err: unknown): {
-  errorCode: string;
-  errorMessage: string;
-} {
-  if (err instanceof ZodError) {
-    const issue = err.issues[0];
-    return {
-      errorCode: 'direct_ai_input_invalid',
-      errorMessage: issue
-        ? `${issue.path.join('.') || '<root>'}: ${issue.message}`
-        : 'Direct detail-page AI input failed schema validation.',
-    };
-  }
-  return {
-    errorCode: 'direct_ai_execution_failed',
-    errorMessage: err instanceof Error ? err.message : String(err),
-  };
 }

@@ -64,11 +64,15 @@ export async function looksLikeSafetyLabelImage(buffer: Buffer): Promise<boolean
   if (stats.activeRows >= 30 && stats.rowGroups >= 3) score += 1;
   if (stats.barcodeStripeColumns >= 20 && stats.barcodeTransitions >= 18) score += 2;
 
-  return score >= 5 || (
-    stats.whiteRatio >= 0.5 &&
-    stats.inkRatio >= 0.045 &&
-    stats.barcodeStripeColumns >= 28 &&
-    stats.barcodeTransitions >= 24
+  // Dense retail packaging can contain many dark vertical edges and text,
+  // which makes it look barcode-like. A compliance label is still expected
+  // to be predominantly light paper before density signals can classify it.
+  return stats.whiteRatio >= 0.42 && (
+    score >= 5 || (
+      stats.inkRatio >= 0.045 &&
+      stats.barcodeStripeColumns >= 28 &&
+      stats.barcodeTransitions >= 24
+    )
   );
 }
 

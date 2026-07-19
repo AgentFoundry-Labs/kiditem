@@ -13,6 +13,10 @@ import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   type ContentAssetLibraryRepositoryPort,
 } from '../../../application/port/out/repository/content-asset-library.repository.port';
+import {
+  AI_DIRECT_JOB_REPOSITORY_PORT,
+  type AiDirectJobRepositoryPort,
+} from '../../../application/port/out/repository/ai-direct-job.repository.port';
 
 const detailPageGenerationInclude = {
   generationGroup: {
@@ -29,6 +33,8 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
     private readonly prisma: PrismaService,
     @Inject(CONTENT_ASSET_LIBRARY_REPOSITORY_PORT)
     private readonly contentAssets: ContentAssetLibraryRepositoryPort,
+    @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
+    private readonly directJobs: AiDirectJobRepositoryPort,
   ) {}
 
   async findActiveContentWorkspace(input: {
@@ -51,14 +57,14 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
     });
   }
 
-  private async createInputGenerationGroup(input: {
+  private async createInputGenerationGroup(scope: Prisma.TransactionClient, input: {
     organizationId: string;
     contentWorkspaceId: string;
     triggeredByUserId: string | null;
     rawTitle: string;
     templateId: string;
   }): Promise<string> {
-    const group = await this.prisma.contentGenerationGroup.create({
+    const group = await scope.contentGenerationGroup.create({
       data: {
         organizationId: input.organizationId,
         contentWorkspaceId: input.contentWorkspaceId,
@@ -120,49 +126,61 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
       contentAssetId?: string | null;
       label?: string | null;
     }>;
-  }): Promise<{ status: 'created'; row: DetailPageGenerationSnapshot }> {
-    const generationGroupId = input.generationGroupId ??
-      await this.createInputGenerationGroup({
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.contentWorkspaceId,
-        triggeredByUserId: input.triggeredByUserId,
-        rawTitle: input.rawTitle,
-        templateId: input.templateId,
-      });
-    const row = await this.prisma.contentGeneration.create({
-      data: {
-        organizationId: input.organizationId,
-        contentType: 'detail_page',
-        generationGroupId,
-        contentWorkspaceId: input.contentWorkspaceId,
-        sourceCandidateId: input.sourceCandidateId,
-        triggeredByUserId: input.triggeredByUserId,
-        templateId: input.templateId,
-        generationInput: input.rawInput as Prisma.InputJsonValue,
-        generationResult: {
+    directJob: Parameters<DetailPageGenerationRepositoryPort['openProcessingGenerationLedger']>[0]['directJob'];
+  }): Promise<{ status: 'created'; row: DetailPageGenerationSnapshot; directJobId: string }> {
+    return this.prisma.$transaction(async (tx) => {
+      const generationGroupId = input.generationGroupId ??
+        await this.createInputGenerationGroup(tx, {
+          organizationId: input.organizationId,
+          contentWorkspaceId: input.contentWorkspaceId,
+          triggeredByUserId: input.triggeredByUserId,
+          rawTitle: input.rawTitle,
           templateId: input.templateId,
-          result: {},
-          imageUrls: input.imageUrls,
-          processedImages: {},
+        });
+      const row = await tx.contentGeneration.create({
+        data: {
+          organizationId: input.organizationId,
+          contentType: 'detail_page',
+          generationGroupId,
+          contentWorkspaceId: input.contentWorkspaceId,
+          sourceCandidateId: input.sourceCandidateId,
+          triggeredByUserId: input.triggeredByUserId,
+          templateId: input.templateId,
+          generationInput: input.rawInput as Prisma.InputJsonValue,
+          generationResult: {
+            templateId: input.templateId,
+            result: {},
+            imageUrls: input.imageUrls,
+            processedImages: {},
+          },
+          generatedTitle: input.rawTitle.slice(0, 80),
+          status: 'PROCESSING',
         },
-        generatedTitle: input.rawTitle.slice(0, 80),
-        status: 'PROCESSING',
-      },
-      include: detailPageGenerationInclude,
+        include: detailPageGenerationInclude,
+      });
+      const inputAssets = await this.contentAssets.recordDetailPageInputAssetsInScope(tx, {
+        organizationId: input.organizationId,
+        generationGroupId,
+        createdByUserId: input.triggeredByUserId,
+        imageUrls: input.imageUrls,
+      });
+      await this.recordGenerationSources(tx, {
+        organizationId: input.organizationId,
+        contentGenerationId: row.id,
+        sourceReferences: input.sourceReferences,
+        inputAssets,
+      });
+      const directJob = await this.directJobs.createInScope(tx, {
+        ...input.directJob,
+        organizationId: input.organizationId,
+        sourceResourceId: row.id,
+      });
+      return {
+        status: 'created' as const,
+        row: row as DetailPageGenerationSnapshot,
+        directJobId: directJob.id,
+      };
     });
-    const inputAssets = await this.contentAssets.recordDetailPageInputAssets({
-      organizationId: input.organizationId,
-      generationGroupId,
-      createdByUserId: input.triggeredByUserId,
-      imageUrls: input.imageUrls,
-    });
-    await this.recordGenerationSources({
-      organizationId: input.organizationId,
-      contentGenerationId: row.id,
-      sourceReferences: input.sourceReferences,
-      inputAssets,
-    });
-    return { status: 'created', row: row as DetailPageGenerationSnapshot };
   }
 
   async markGenerationRejectedByParent(input: {
@@ -318,7 +336,7 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
     });
   }
 
-  private async recordGenerationSources(input: {
+  private async recordGenerationSources(scope: Prisma.TransactionClient, input: {
     organizationId: string;
     contentGenerationId: string;
     sourceReferences: Array<{
@@ -359,7 +377,7 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
     }));
     const rows = [...explicitRows, ...inputAssetRows];
     if (rows.length === 0) return;
-    await this.prisma.contentGenerationSource.createMany({
+    await scope.contentGenerationSource.createMany({
       skipDuplicates: true,
       data: rows,
     });

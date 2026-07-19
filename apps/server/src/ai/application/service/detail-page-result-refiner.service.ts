@@ -24,6 +24,7 @@ export class DetailPageResultRefinerService {
     templateId: DetailPageTemplateId;
     rawInput: Pick<DetailPageRawInput, 'rawDescription' | 'rawOptions' | 'imageUrls'>;
     visionModel?: string;
+    signal?: AbortSignal;
   }): Promise<KidsPlayfulImageContext> {
     return this.kidsPlayful.prepareKidsPlayfulImageContext(input);
   }
@@ -39,7 +40,7 @@ export class DetailPageResultRefinerService {
   refineBoldVerticalGeneration(
     parsed: BoldVerticalGeneration,
     rawInput: DetailPageRawInput,
-    options: { visionModel?: string } = {},
+    options: { visionModel?: string; signal?: AbortSignal } = {},
   ): Promise<BoldVerticalGeneration> {
     return this.boldVertical.refineBoldVerticalGeneration(parsed, rawInput, options);
   }

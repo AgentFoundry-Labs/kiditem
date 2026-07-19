@@ -318,9 +318,11 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     };
     const firstRepository = new ThumbnailGenerationLedgerRepositoryAdapter(
       pausedPrisma as unknown as PrismaService,
+      {} as never,
     );
     const secondRepository = new ThumbnailGenerationLedgerRepositoryAdapter(
       prisma as unknown as PrismaService,
+      {} as never,
     );
 
     const first = firstRepository.removeCandidate({

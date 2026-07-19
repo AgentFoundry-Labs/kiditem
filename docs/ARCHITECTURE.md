@@ -117,7 +117,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
 | `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, daily facts, strategy/action generation. |
 | `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |
-| `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI provider, content-workspace ownership/branching, and Agent OS output boundaries. |
+| `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Guards, decorators, middleware, and `/api/auth/me`. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
@@ -453,6 +453,31 @@ groups or ungrouped routes.
 Frontend route code must not add `app/api/**/route.ts`, import Prisma/`pg`/DB
 clients, send `organizationId` in API payloads, or call backend APIs with raw
 `fetch`.
+
+## Durable Direct AI Media Execution
+
+Thumbnail generation, detail-page generation, image edit, and thumbnail
+re-edit use the AI-owned `AiDirectJob` ledger. These fixed workflows do not
+create Agent OS runs.
+
+```text
+request
+  -> transaction: domain ledger + input provenance + held AiDirectJob
+  -> operation alert / parent-child registration
+  -> release to pending
+  -> claim with FOR UPDATE SKIP LOCKED + lease
+  -> provider and media execution with AbortSignal
+  -> validated output checkpoint
+  -> atomic domain sink projection
+  -> succeeded
+```
+
+The worker reclaims held jobs after the recovery window and running or
+projecting jobs after lease expiry. A projecting job reuses its checkpoint and
+does not call the model again. Cancellation updates the direct-job queue before
+the domain ledger or alert, and the lease heartbeat aborts in-flight provider
+and image-download work. Gemini adapters receive the model captured at enqueue
+time and never select an environment fallback during execution.
 
 ## Account-Scoped Registration And Content Ownership (`0.1.8`)
 

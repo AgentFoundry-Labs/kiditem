@@ -6,9 +6,13 @@ export interface FetchedImage {
   storageKey: string | null;
 }
 
+export interface ImageFetchOptions {
+  signal?: AbortSignal;
+}
+
 export interface ImageFetchPort {
-  fetchImage(rawUrl: string): Promise<FetchedImage>;
-  fetchTrustedStorageImage(rawUrl: string): Promise<FetchedImage>;
+  fetchImage(rawUrl: string, options?: ImageFetchOptions): Promise<FetchedImage>;
+  fetchTrustedStorageImage(rawUrl: string, options?: ImageFetchOptions): Promise<FetchedImage>;
   assertSupportedMime(mimeType: string): void;
   extForMime(mimeType: string): string;
 }

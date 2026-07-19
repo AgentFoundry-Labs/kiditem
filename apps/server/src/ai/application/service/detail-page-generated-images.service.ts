@@ -31,7 +31,7 @@ const MAX_KIDS_PLAYFUL_USAGE_IMAGES = 1;
 const MAX_KIDS_PLAYFUL_DETAIL_IMAGES = 1;
 
 interface DetailPageGeneratedImageModelPlan {
-  image?: string;
+  image: string;
 }
 
 @Injectable()
@@ -50,8 +50,10 @@ export class DetailPageGeneratedImagesService {
     rawInput: DetailPageRawInput;
     productName: string;
     excludedImageIndices?: number[];
-    modelPlan?: DetailPageGeneratedImageModelPlan;
+    modelPlan: DetailPageGeneratedImageModelPlan;
+    signal?: AbortSignal;
   }): Promise<Record<string, string>> {
+    input.signal?.throwIfAborted();
     if (!this.heroImageService) return {};
     const processedImages: Record<string, string> = {};
     const sourcePolicy = buildNormalSectionSourcePolicy(
@@ -73,6 +75,7 @@ export class DetailPageGeneratedImagesService {
       subhead: pickHeroSubhead(input.parsed, input.templateId),
       imageUrls: heroBannerSourceImageUrls,
       model: input.modelPlan?.image,
+      signal: input.signal,
     });
 
     await this.generateInto(
@@ -81,6 +84,7 @@ export class DetailPageGeneratedImagesService {
       'detail hero image',
       generateHero,
     );
+    input.signal?.throwIfAborted();
 
     if (input.templateId === 'bold-vertical') {
       const bold = input.parsed as BoldVerticalGeneration;
@@ -104,6 +108,7 @@ export class DetailPageGeneratedImagesService {
           ]),
           fallbackImageUrls: heroProductSourceImageUrls,
           model: input.modelPlan?.image,
+          signal: input.signal,
         },
       );
 
@@ -126,14 +131,17 @@ export class DetailPageGeneratedImagesService {
           heightLabel: bold.size?.heightLabel ?? '',
           widthLabel: bold.size?.widthLabel ?? '',
           model: input.modelPlan?.image,
+          signal: input.signal,
         }),
       );
 
       await this.generateBoldVerticalSectionImages(input, processedImages);
+      input.signal?.throwIfAborted();
     }
 
     if (input.templateId === 'kids-playful') {
       await this.generateKidsPlayfulSectionImages(input, processedImages);
+      input.signal?.throwIfAborted();
     }
 
     return processedImages;
@@ -151,6 +159,7 @@ export class DetailPageGeneratedImagesService {
       preferredImageUrls: string[];
       fallbackImageUrls: string[];
       model?: string;
+      signal?: AbortSignal;
     },
   ): Promise<void> {
     if (!this.heroImageService) return;
@@ -171,12 +180,14 @@ export class DetailPageGeneratedImagesService {
           ageGroup: input.ageGroup,
           imageUrls,
           model: input.model,
+          signal: input.signal,
         });
         if (url) {
           processedImages[GENERATED_HERO_PRODUCT_IMAGE_KEY] = url;
           return;
         }
       } catch (error) {
+        if (input.signal?.aborted) throw error;
         this.logger.warn(
           `detail hero product image attempt ${attemptIndex + 1} skipped: ${
             error instanceof Error ? error.message : String(error)
@@ -192,7 +203,8 @@ export class DetailPageGeneratedImagesService {
       parsed: DetailPageParsedGeneration;
       rawInput: DetailPageRawInput;
       excludedImageIndices?: number[];
-      modelPlan?: DetailPageGeneratedImageModelPlan;
+      modelPlan: DetailPageGeneratedImageModelPlan;
+      signal?: AbortSignal;
     },
     processedImages: Record<string, string>,
   ): Promise<void> {
@@ -223,6 +235,7 @@ export class DetailPageGeneratedImagesService {
         ]),
         fallbackImageUrls: sourcePolicy.normalImageUrls,
         model: input.modelPlan?.image,
+        signal: input.signal,
       });
     }
 
@@ -263,6 +276,7 @@ export class DetailPageGeneratedImagesService {
             usageStep,
             variant: index + 1,
             model: input.modelPlan?.image,
+            signal: input.signal,
           }),
         );
       }
@@ -289,6 +303,7 @@ export class DetailPageGeneratedImagesService {
             ),
             variant: index + 1,
             model: input.modelPlan?.image,
+            signal: input.signal,
           }),
         );
       }
@@ -307,6 +322,7 @@ export class DetailPageGeneratedImagesService {
       preferredImageUrls: string[];
       fallbackImageUrls: string[];
       model?: string;
+      signal?: AbortSignal;
     },
   ): Promise<void> {
     if (!this.heroImageService) return;
@@ -327,12 +343,14 @@ export class DetailPageGeneratedImagesService {
           ageGroup: input.ageGroup,
           imageUrls,
           model: input.model,
+          signal: input.signal,
         });
         if (url) {
           processedImages[GENERATED_COLOR_GUIDE_IMAGE_KEY] = url;
           return;
         }
       } catch (error) {
+        if (input.signal?.aborted) throw error;
         this.logger.warn(
           `detail color guide image attempt ${attemptIndex + 1} skipped: ${
             error instanceof Error ? error.message : String(error)
@@ -348,7 +366,8 @@ export class DetailPageGeneratedImagesService {
       parsed: DetailPageParsedGeneration;
       rawInput: DetailPageRawInput;
       excludedImageIndices?: number[];
-      modelPlan?: DetailPageGeneratedImageModelPlan;
+      modelPlan: DetailPageGeneratedImageModelPlan;
+      signal?: AbortSignal;
     },
     processedImages: Record<string, string>,
   ): Promise<void> {
@@ -382,9 +401,11 @@ export class DetailPageGeneratedImagesService {
             usageStep: scenario.caption,
             variant: index + 1,
             model: input.modelPlan?.image,
+            signal: input.signal,
           });
           if (url) processedImages[key] = url;
-        } catch {
+        } catch (error) {
+          if (input.signal?.aborted) throw error;
           // Generated usage images are best-effort; the section can still show text.
         }
       }
@@ -412,9 +433,11 @@ export class DetailPageGeneratedImagesService {
           imageUrls: sourceImages,
           variant: index + 1,
           model: input.modelPlan?.image,
+          signal: input.signal,
         });
         if (url) processedImages[key] = url;
-      } catch {
+      } catch (error) {
+        if (input.signal?.aborted) throw error;
         // Generated detail images are best-effort; raw images or placeholders remain valid.
       }
     }

@@ -1,10 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import {
   ThumbnailImageFetcherService,
   MAX_FETCH_BYTES,
   MAX_REDIRECTS,
 } from '../adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
+
+const lookupMock = vi.hoisted(() => vi.fn());
+
+vi.mock('node:dns/promises', () => ({
+  lookup: lookupMock,
+}));
 
 class StorageStub {
   publicUrl = 'http://storage.local/kiditem';
@@ -29,7 +35,61 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+beforeEach(() => {
+  lookupMock.mockReset();
+  lookupMock.mockResolvedValue([
+    { address: '93.184.216.34', family: 4 },
+  ]);
+});
+
 describe('ThumbnailImageFetcherService SSRF guards', () => {
+  it('rejects a hostname that resolves to a private address before fetching', async () => {
+    const { fetcher } = makeService();
+    lookupMock.mockResolvedValueOnce([
+      { address: '169.254.169.254', family: 4 },
+    ]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      fetcher.fetchImage('https://attacker.example/image.png'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch when the caller signal is already aborted', async () => {
+    const { fetcher } = makeService();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    controller.abort('cancelled');
+
+    await expect(fetcher.fetchImage(
+      'https://example.com/image.png',
+      { signal: controller.signal },
+    )).rejects.toBe('cancelled');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('validates the resolved address again for every redirect hop', async () => {
+    const { fetcher } = makeService();
+    lookupMock
+      .mockResolvedValueOnce([{ address: '93.184.216.34', family: 4 }])
+      .mockResolvedValueOnce([{ address: '10.0.0.8', family: 4 }]);
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response('', {
+        status: 302,
+        headers: { location: 'https://private.example/image.png' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      fetcher.fetchImage('https://public.example/image.png'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects localhost and loopback hosts', async () => {
     const { fetcher } = makeService();
     await expect(fetcher.fetchImage('http://localhost/x.jpg')).rejects.toBeInstanceOf(
@@ -93,6 +153,29 @@ describe('ThumbnailImageFetcherService SSRF guards', () => {
     await expect(fetcher.fetchImage('https://example.com/x.png')).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+
+  it('cancels the response stream as soon as the byte ceiling is exceeded', async () => {
+    const { fetcher } = makeService();
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(MAX_FETCH_BYTES));
+        controller.enqueue(new Uint8Array(1));
+      },
+      cancel,
+    });
+    vi.stubGlobal('fetch', async () =>
+      new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }),
+    );
+
+    await expect(
+      fetcher.fetchImage('https://example.com/stream.png'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(cancel).toHaveBeenCalled();
   });
 
   it('stops after bounded redirects', async () => {

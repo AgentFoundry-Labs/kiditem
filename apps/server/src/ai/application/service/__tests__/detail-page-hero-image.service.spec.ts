@@ -37,20 +37,43 @@ function makePortBackedService(input?: {
     extractKey: vi.fn().mockReturnValue(null),
     ...input?.storage,
   };
+  const generatedImageValidator = {
+    validate: vi.fn().mockResolvedValue({
+      buffer: Buffer.from('validated-image'),
+      mimeType: 'image/webp',
+      extension: 'webp',
+      width: 1200,
+      height: 675,
+      fileSize: 15,
+    }),
+  };
 
   return {
-    service: new DetailPageHeroImageService(media, storage, imageFetcher),
+    service: new DetailPageHeroImageService(
+      media,
+      storage,
+      imageFetcher,
+      generatedImageValidator,
+    ),
     media,
     imageFetcher,
     storage,
+    generatedImageValidator,
   };
 }
 
 describe('DetailPageHeroImageService', () => {
   it('generates hero images through the detail-page media port and stores the returned buffer', async () => {
-    const { service, media, imageFetcher, storage } = makePortBackedService();
+    const {
+      service,
+      media,
+      imageFetcher,
+      storage,
+      generatedImageValidator,
+    } = makePortBackedService();
 
     const url = await service.generateHeroBanner({
+      model: 'gemini-image-model',
       organizationId: 'org-1',
       productName: '말랑이 세트',
       category: '완구',
@@ -63,7 +86,10 @@ describe('DetailPageHeroImageService', () => {
     });
 
     expect(url).toBe('https://cdn.example.com/generated.png');
-    expect(imageFetcher.fetchImage).toHaveBeenCalledWith('https://example.com/source.jpg');
+    expect(imageFetcher.fetchImage).toHaveBeenCalledWith(
+      'https://example.com/source.jpg',
+      { signal: undefined },
+    );
     expect(media.generateImage).toHaveBeenCalledWith(expect.objectContaining({
       aspectRatio: '16:9',
       imageSize: '2K',
@@ -77,16 +103,21 @@ describe('DetailPageHeroImageService', () => {
       ],
     }));
     expect(storage.save).toHaveBeenCalledWith(
-      expect.stringMatching(/^detail-page-hero-banners\/org-1\/.+\.png$/),
-      Buffer.from('generated-image'),
-      'image/png',
+      expect.stringMatching(/^detail-page-hero-banners\/org-1\/.+\.webp$/),
+      Buffer.from('validated-image'),
+      'image/webp',
     );
+    expect(generatedImageValidator.validate).toHaveBeenCalledWith({
+      buffer: Buffer.from('generated-image'),
+      declaredMimeType: 'image/png',
+    });
   });
 
   it('filters color image selections returned by the detail-page media port', async () => {
     const { service } = makePortBackedService();
 
     await expect(service.inferColorImageSelection({
+      model: 'gemini-vision-model',
       productName: '말랑이 세트',
       category: '완구',
       description: '',
@@ -103,6 +134,7 @@ describe('DetailPageHeroImageService', () => {
     const { service, media, storage } = makePortBackedService();
 
     await expect(service.generateHeroProductImage({
+      model: 'gemini-image-model',
       organizationId: 'org-1',
       productName: '퐁퐁 버블팝',
       category: '완구',
@@ -118,9 +150,9 @@ describe('DetailPageHeroImageService', () => {
       prompt: expect.stringContaining('do NOT output one giant single unit'),
     }));
     expect(storage.save).toHaveBeenCalledWith(
-      expect.stringMatching(/^detail-page-hero-products\/org-1\/.+\.png$/),
-      Buffer.from('generated-image'),
-      'image/png',
+      expect.stringMatching(/^detail-page-hero-products\/org-1\/.+\.webp$/),
+      Buffer.from('validated-image'),
+      'image/webp',
     );
   });
 });

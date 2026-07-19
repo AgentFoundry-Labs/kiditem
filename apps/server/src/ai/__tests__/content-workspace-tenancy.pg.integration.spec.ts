@@ -385,6 +385,7 @@ describe('AI content ownership constraints (PG integration)', () => {
     );
     const ledger = new ThumbnailGenerationLedgerRepositoryAdapter(
       prisma as unknown as PrismaService,
+      {} as never,
     );
 
     const adoption = selectionRepository.selectCurrent({
