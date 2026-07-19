@@ -42,6 +42,35 @@ describe('ai direct job configuration', () => {
     });
   });
 
+  it.each([
+    [
+      'AI_IMAGE_MODEL',
+      'gemini-3.1-flash-image-preview',
+      'gemini-3.1-flash-image',
+    ],
+    [
+      'AI_IMAGE_ANALYSIS_MODEL',
+      'models/gemini-3.1-flash-lite-preview',
+      'gemini-3.1-flash-lite',
+    ],
+  ] as const)(
+    'rejects deprecated direct-job model %s and points to its stable replacement',
+    (name, deprecated, replacement) => {
+      const env: NodeJS.ProcessEnv = {
+        AI_IMAGE_MODEL: 'gemini-3.1-flash-image',
+        AI_TEXT_MODEL: 'gemini-2.5-flash',
+        AI_IMAGE_ANALYSIS_MODEL: 'gemini-3.1-flash-lite',
+        [name]: deprecated,
+      };
+
+      expect(() =>
+        resolveAiDirectJobModels('detail_page_generate', env),
+      ).toThrow(
+        `${name} ${deprecated} is deprecated or unavailable. Set ${name}=${replacement}.`,
+      );
+    },
+  );
+
   it.each(['0', '-1', '1.5', 'not-a-number'])(
     'rejects an invalid worker interval override: %s',
     (value) => {
@@ -57,7 +86,7 @@ describe('ai direct job configuration', () => {
     expect(resolveAiDirectJobRuntimeConfig({})).toEqual({
       workerIntervalMs: 1_000,
       leaseMs: 60_000,
-      providerTimeoutMs: 120_000,
+      providerTimeoutMs: 20 * 60_000,
       heldRecoveryMs: 30_000,
       retryDelaysMs: [5_000, 30_000, 120_000],
     });

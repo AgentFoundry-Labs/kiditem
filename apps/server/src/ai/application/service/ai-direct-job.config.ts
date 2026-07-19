@@ -16,6 +16,15 @@ export const AI_DIRECT_JOB_RUNTIME_CONFIG = Symbol(
   'AI_DIRECT_JOB_RUNTIME_CONFIG',
 );
 
+const DEPRECATED_DIRECT_AI_MODELS = new Map<string, string>([
+  ['gemini-2.5-flash-image-preview', 'gemini-3.1-flash-image'],
+  ['models/gemini-2.5-flash-image-preview', 'gemini-3.1-flash-image'],
+  ['gemini-3.1-flash-image-preview', 'gemini-3.1-flash-image'],
+  ['models/gemini-3.1-flash-image-preview', 'gemini-3.1-flash-image'],
+  ['gemini-3.1-flash-lite-preview', 'gemini-3.1-flash-lite'],
+  ['models/gemini-3.1-flash-lite-preview', 'gemini-3.1-flash-lite'],
+]);
+
 export function resolveAiDirectJobModels(
   jobType: AiDirectJobType,
   env: NodeJS.ProcessEnv = process.env,
@@ -40,7 +49,7 @@ export function resolveAiDirectJobRuntimeConfig(
       1_000,
     ),
     leaseMs: positiveInt(env.AI_DIRECT_JOB_LEASE_MS, 60_000),
-    providerTimeoutMs: positiveInt(env.AI_PROVIDER_TIMEOUT_MS, 120_000),
+    providerTimeoutMs: positiveInt(env.AI_PROVIDER_TIMEOUT_MS, 20 * 60_000),
     heldRecoveryMs: 30_000,
     retryDelaysMs: [5_000, 30_000, 120_000],
   };
@@ -52,6 +61,15 @@ function requireEnv(name: string, env: NodeJS.ProcessEnv): string {
     throw Object.assign(
       new ServiceUnavailableException(
         `${name} is required for direct AI jobs.`,
+      ),
+      { code: 'model_required' },
+    );
+  }
+  const replacement = DEPRECATED_DIRECT_AI_MODELS.get(value);
+  if (replacement) {
+    throw Object.assign(
+      new ServiceUnavailableException(
+        `${name} ${value} is deprecated or unavailable. Set ${name}=${replacement}.`,
       ),
       { code: 'model_required' },
     );

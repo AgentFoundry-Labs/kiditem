@@ -1,8 +1,15 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 
 const DEPRECATED_IMAGE_MODELS = new Map<string, string>([
-  ['gemini-2.5-flash-image-preview', 'gemini-3.1-flash-image-preview'],
-  ['models/gemini-2.5-flash-image-preview', 'gemini-3.1-flash-image-preview'],
+  ['gemini-2.5-flash-image-preview', 'gemini-3.1-flash-image'],
+  ['models/gemini-2.5-flash-image-preview', 'gemini-3.1-flash-image'],
+  ['gemini-3.1-flash-image-preview', 'gemini-3.1-flash-image'],
+  ['models/gemini-3.1-flash-image-preview', 'gemini-3.1-flash-image'],
+]);
+
+const DEPRECATED_ANALYSIS_MODELS = new Map<string, string>([
+  ['gemini-3.1-flash-lite-preview', 'gemini-3.1-flash-lite'],
+  ['models/gemini-3.1-flash-lite-preview', 'gemini-3.1-flash-lite'],
 ]);
 
 export function requireGeminiApiKey(): string {
@@ -24,13 +31,25 @@ export function requireGeminiImageModel(): string {
 }
 
 export function requireGeminiVisionModel(): string {
-  const model = process.env.AI_IMAGE_ANALYSIS_MODEL;
+  const model = process.env.AI_IMAGE_ANALYSIS_MODEL?.trim();
   if (!model) throw new ServiceUnavailableException('thumbnail_ai_vision_model_not_configured');
+  const replacement = DEPRECATED_ANALYSIS_MODELS.get(model);
+  if (replacement) {
+    throw new ServiceUnavailableException(
+      `AI_IMAGE_ANALYSIS_MODEL ${model} is deprecated or unavailable. Set AI_IMAGE_ANALYSIS_MODEL=${replacement}.`,
+    );
+  }
   return model;
 }
 
 export function requireGeminiVerifyModel(): string {
-  const model = process.env.AI_IMAGE_ANALYSIS_VERIFY_MODEL;
+  const model = process.env.AI_IMAGE_ANALYSIS_VERIFY_MODEL?.trim();
   if (!model) throw new ServiceUnavailableException('thumbnail_ai_verify_model_not_configured');
+  const replacement = DEPRECATED_ANALYSIS_MODELS.get(model);
+  if (replacement) {
+    throw new ServiceUnavailableException(
+      `AI_IMAGE_ANALYSIS_VERIFY_MODEL ${model} is deprecated or unavailable. Set AI_IMAGE_ANALYSIS_VERIFY_MODEL=${replacement}.`,
+    );
+  }
   return model;
 }
