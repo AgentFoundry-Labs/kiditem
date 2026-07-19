@@ -83,6 +83,9 @@ export interface RegistrationImages {
   detail: string[];
 }
 
+/** 서버 `ProductBasics.salePriceSource` 와 같은 값 집합이다. */
+export type SalePriceSource = 'input' | 'sellpia' | 'none';
+
 export interface ProductBasics {
   name: string;
   category: string;
@@ -102,6 +105,14 @@ export interface ProductBasics {
   boxSetQuantity: string;
   originalPrice: number;
   salePrice: number;
+  /**
+   * `salePrice` 출처. 서버 파생 값이라 읽기 전용이다(수정 API 로 보내지 않는다).
+   *   - `input`:   수기 입력값
+   *   - `sellpia`: 이름이 정확히 일치한 셀피아 재고 SKU 판매가 폴백
+   *   - `none`:    매칭 실패. `salePrice` 는 0이다.
+   * 구버전 응답에는 없을 수 있다.
+   */
+  salePriceSource?: SalePriceSource;
   discountRate: number;
   rocketBundleQuantity: number;
   rocketUnitCost: number;
@@ -321,6 +332,15 @@ function normalizeRegistrationImages(value: unknown): RegistrationImages {
   };
 }
 
+const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'sellpia', 'none'];
+
+/** 서버가 값을 안 줬거나 모르는 값이면 출처 미상 → `none`. 추측하지 않는다. */
+function normalizeSalePriceSource(value: unknown): SalePriceSource {
+  return SALE_PRICE_SOURCES.includes(value as SalePriceSource)
+    ? (value as SalePriceSource)
+    : 'none';
+}
+
 function normalizeProductBasics(
   value: unknown,
   fallback: {
@@ -328,7 +348,6 @@ function normalizeProductBasics(
     category: string;
     description?: string | null;
     tags?: string[];
-    salePrice?: number | null;
     thumbnailUrls: string[];
     preparation: ProductPreparationSelection | null;
   },
@@ -364,7 +383,8 @@ function normalizeProductBasics(
     boxSetStatus: typeof basics.boxSetStatus === 'string' ? basics.boxSetStatus : '',
     boxSetQuantity: typeof basics.boxSetQuantity === 'string' ? basics.boxSetQuantity : '',
     originalPrice: numberOrZero(basics.originalPrice),
-    salePrice: numberOrZero(basics.salePrice) || fallback.salePrice || 0,
+    salePrice: numberOrZero(basics.salePrice),
+    salePriceSource: normalizeSalePriceSource(basics.salePriceSource),
     discountRate: numberOrZero(basics.discountRate),
     rocketBundleQuantity: numberOrZero(basics.rocketBundleQuantity),
     rocketUnitCost: numberOrZero(basics.rocketUnitCost),
@@ -541,7 +561,6 @@ export const productsApi = {
       category: p.category || '',
       description: p.description || '',
       tags: Array.isArray(p.tags) ? p.tags.filter((tag: unknown): tag is string => typeof tag === 'string') : [],
-      salePrice: p.sellPrice || null,
       thumbnailUrls: images,
       preparation: productPreparation,
     });

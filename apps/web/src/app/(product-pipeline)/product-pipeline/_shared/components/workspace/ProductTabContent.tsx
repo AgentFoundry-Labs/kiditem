@@ -159,14 +159,16 @@ export default function ProductTabContent({
     setIsBasicEditing(false);
   };
   const saveBasicEditing = async () => {
-    const input = productBasicsInputFromDraft(basicDraft);
+    const input = productBasicsInputFromDraft(basicDraft, basicInfo);
     setIsBasicSaving(true);
     try {
       await onCommitBasicInfo?.(input);
       updateField('name', input.name ?? '');
       updateField('category', input.category ?? '');
       updateField('tags', input.tags ?? []);
-      updateField('salePrice', input.salePrice ?? 0);
+      // salePrice 가 payload 에 없으면 = 손대지 않은 셀피아 폴백이라 서버 값이
+      // 그대로다. 0 으로 덮으면 화면에서만 가격이 사라진다.
+      if (input.salePrice !== undefined) updateField('salePrice', input.salePrice);
       updateField('originalPrice', input.originalPrice ?? 0);
       updateField('discountRate', input.discountRate ?? 0);
       setIsBasicEditing(false);

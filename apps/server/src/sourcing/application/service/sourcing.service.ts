@@ -17,6 +17,10 @@ import {
   SOURCING_CANDIDATE_CONTENT_ASSET_PORT,
   type CandidateContentAssetPort,
 } from '../port/out/cross-domain/candidate-content-asset.port';
+import {
+  SOURCING_SELLPIA_SALE_PRICE_PORT,
+  type SellpiaSalePricePort,
+} from '../port/out/cross-domain/sellpia-sale-price.port';
 import type {
   CreateProductGenerationCommand,
   ReceiveExtensionDataInput,
@@ -24,6 +28,7 @@ import type {
 } from '../port/in/sourcing.commands';
 import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import { detectSourcingScrapePlatform } from '../../domain/sourcing-url';
+import { sellpiaNameJoinKey } from '../../domain/sellpia-name-key';
 import { buildProductBasics } from './product-basics.presenter';
 
 const PLATFORM_MAP: Record<string, string> = {
@@ -66,6 +71,8 @@ export class SourcingService {
     private readonly operationAlerts: OperationAlertPort,
     @Inject(SOURCING_CANDIDATE_CONTENT_ASSET_PORT)
     private readonly candidateContentAssets: CandidateContentAssetPort,
+    @Inject(SOURCING_SELLPIA_SALE_PRICE_PORT)
+    private readonly sellpiaSalePrices: SellpiaSalePricePort,
   ) {}
 
   async receiveExtensionData(
@@ -436,19 +443,30 @@ export class SourcingService {
   async getProduct(productId: string, organizationId: string) {
     const row = await this.candidates.findById(productId, organizationId);
     if (!row) throw new NotFoundException('Sourcing candidate not found');
+    // 수기 판매가가 비어 있을 때만 쓸 셀피아 폴백. 이름이 정확히 일치할 때만
+    // 채워지고, 실패하면 조용히 0원으로 남는다(추정 금지).
+    const nameKey = sellpiaNameJoinKey(row.name);
     // Registration images come from ContentAsset.role, not from the scrape
     // originals on the candidate row. Missing assets stay empty so the caller
     // can fall back explicitly instead of shipping an off-spec source image.
-    const registrationImages = await this.candidateContentAssets.listRegistrationImages({
-      organizationId,
-      sourceCandidateId: productId,
-    });
+    const [registrationImages, salePriceMatches] = await Promise.all([
+      this.candidateContentAssets.listRegistrationImages({
+        organizationId,
+        sourceCandidateId: productId,
+      }),
+      nameKey === null
+        ? Promise.resolve([])
+        : this.sellpiaSalePrices.findSalePricesByNormalizedNames(organizationId, [nameKey]),
+    ]);
+    const sellpiaSalePrice =
+      salePriceMatches.find((match) => match.normalizedName === nameKey)?.salePrice ?? null;
     return {
       ...row,
       basicInfo: buildProductBasics({
         candidate: row,
         preparation: row.productPreparation,
         registrationImages,
+        sellpiaSalePrice,
       }),
     };
   }

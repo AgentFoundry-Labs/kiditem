@@ -5,6 +5,7 @@ import { AiModule } from "../ai/ai.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
+import { InventoryModule } from "../inventory/inventory.module";
 import { Sourcing1688NewProductModelController } from "./adapter/in/http/sourcing-1688-new-product-model.controller";
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
@@ -59,6 +60,7 @@ import { ChannelProductRegistrationAdapter } from "./adapter/out/channels/channe
 import { CoupangMomentumAdapter } from "./adapter/out/advertising/coupang-momentum.adapter";
 import { RegistrationContentWorkspaceAdapter } from "./adapter/out/ai/registration-content-workspace.adapter";
 import { CandidateContentAssetAdapter } from "./adapter/out/ai/candidate-content-asset.adapter";
+import { SellpiaSalePriceAdapter } from "./adapter/out/inventory/sellpia-sale-price.adapter";
 import { SourcingPlaywrightRuntimeHandler } from "./adapter/out/runtime/sourcing-playwright-runtime.handler";
 import { Direct1688ImageSearchAdapter } from "./adapter/out/1688/direct-1688-image-search.adapter";
 import { Direct1688KeywordSearchAdapter } from "./adapter/out/1688/direct-1688-keyword-search.adapter";
@@ -96,6 +98,7 @@ import { CHANNEL_PRODUCT_REGISTRATION_PORT } from "./application/port/out/cross-
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "./application/port/out/cross-domain/registration-content-workspace.port";
 import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cross-domain/candidate-content-asset.port";
+import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-domain/sellpia-sale-price.port";
 import {
   LINKFOX_ECHOTIK_SHADOW_PORT,
   MARKET_SHADOW_SIGNAL_PORT,
@@ -129,6 +132,7 @@ import {
     AdvertisingModule,
     AutomationModule,
     ChannelsModule,
+    InventoryModule,
   ],
   controllers: [
     SourcingExtensionIngestController,
@@ -187,6 +191,7 @@ import {
     CoupangMomentumAdapter,
     RegistrationContentWorkspaceAdapter,
     CandidateContentAssetAdapter,
+    SellpiaSalePriceAdapter,
     SourcingPlaywrightRuntimeHandler,
     Direct1688ImageSearchAdapter,
     Direct1688KeywordSearchAdapter,
@@ -294,6 +299,10 @@ import {
     {
       provide: SOURCING_CANDIDATE_CONTENT_ASSET_PORT,
       useExisting: CandidateContentAssetAdapter,
+    },
+    {
+      provide: SOURCING_SELLPIA_SALE_PRICE_PORT,
+      useExisting: SellpiaSalePriceAdapter,
     },
     {
       provide: MARKET_SHADOW_SIGNAL_PORT,

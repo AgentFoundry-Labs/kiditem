@@ -30,19 +30,31 @@ function makeAlerts() {
   return { start: vi.fn().mockResolvedValue({}) };
 }
 
+function makeSellpiaSalePrices() {
+  return { findSalePricesByNormalizedNames: vi.fn().mockResolvedValue([]) };
+}
+
 describe('SourcingService — candidate ingest', () => {
   let service: SourcingService;
   let repo: ReturnType<typeof makeCandidateRepo>;
   let gateway: ReturnType<typeof makeGateway>;
   let alerts: ReturnType<typeof makeAlerts>;
+  let sellpiaSalePrices: ReturnType<typeof makeSellpiaSalePrices>;
 
   beforeEach(() => {
     repo = makeCandidateRepo();
     gateway = makeGateway();
     alerts = makeAlerts();
-    service = new SourcingService(repo as any, gateway as any, alerts as any, {
-      listRegistrationImages: vi.fn().mockResolvedValue({ primary: [], thumbnail: [], detail: [] }),
-    } as any);
+    sellpiaSalePrices = makeSellpiaSalePrices();
+    service = new SourcingService(
+      repo as any,
+      gateway as any,
+      alerts as any,
+      {
+        listRegistrationImages: vi.fn().mockResolvedValue({ primary: [], thumbnail: [], detail: [] }),
+      } as any,
+      sellpiaSalePrices as any,
+    );
   });
 
   it('detail page ingest → upsertSourced (new sourceUrl)', async () => {
@@ -431,6 +443,93 @@ describe('SourcingService — candidate ingest', () => {
   it('getProduct findById null → NotFoundException', async () => {
     repo.findById.mockResolvedValueOnce(null);
     await expect(service.getProduct('cand-x', 'org-1')).rejects.toThrow('Sourcing candidate not found');
+  });
+
+  describe('getProduct 셀피아 판매가 폴백', () => {
+    const candidateRow = {
+      id: 'cand-1',
+      name: '4000 과일바구니 딸깍이 키링',
+      description: null,
+      category: null,
+      tags: [],
+      rawData: {},
+      thumbnailUrl: null,
+      imageUrl: null,
+      images: [],
+      productPreparation: null,
+    };
+
+    it('후보 이름을 정규화해 인자로 받은 organizationId 로만 조회한다', async () => {
+      repo.findById.mockResolvedValueOnce(candidateRow);
+
+      await service.getProduct('cand-1', 'org-1');
+
+      // NFKC → 소문자 → 공백 제거. Inventory 의 DB 술어와 같은 규칙이어야 한다.
+      expect(sellpiaSalePrices.findSalePricesByNormalizedNames).toHaveBeenCalledWith('org-1', [
+        '4000과일바구니딸깍이키링',
+      ]);
+    });
+
+    it('수기 판매가가 비어 있으면 셀피아 값으로 채우고 출처를 밝힌다', async () => {
+      repo.findById.mockResolvedValueOnce(candidateRow);
+      sellpiaSalePrices.findSalePricesByNormalizedNames.mockResolvedValueOnce([
+        { normalizedName: '4000과일바구니딸깍이키링', salePrice: 4000 },
+      ]);
+
+      const result = await service.getProduct('cand-1', 'org-1');
+
+      expect(result.basicInfo.salePrice).toBe(4000);
+      expect(result.basicInfo.salePriceSource).toBe('sellpia');
+    });
+
+    it('수기 판매가가 있으면 셀피아 매칭이 있어도 덮어쓰지 않는다', async () => {
+      repo.findById.mockResolvedValueOnce({
+        ...candidateRow,
+        productPreparation: {
+          registrationInput: { salePrice: 12900 },
+          selectedThumbnailUrl: null,
+          selectedDetailPageGenerationId: null,
+        },
+      });
+      sellpiaSalePrices.findSalePricesByNormalizedNames.mockResolvedValueOnce([
+        { normalizedName: '4000과일바구니딸깍이키링', salePrice: 4000 },
+      ]);
+
+      const result = await service.getProduct('cand-1', 'org-1');
+
+      expect(result.basicInfo.salePrice).toBe(12900);
+      expect(result.basicInfo.salePriceSource).toBe('input');
+    });
+
+    it('매칭이 없으면 조용히 0원으로 남긴다', async () => {
+      repo.findById.mockResolvedValueOnce(candidateRow);
+
+      const result = await service.getProduct('cand-1', 'org-1');
+
+      expect(result.basicInfo.salePrice).toBe(0);
+      expect(result.basicInfo.salePriceSource).toBe('none');
+    });
+
+    it('다른 이름으로 돌아온 행은 이 후보 값으로 쓰지 않는다', async () => {
+      repo.findById.mockResolvedValueOnce(candidateRow);
+      sellpiaSalePrices.findSalePricesByNormalizedNames.mockResolvedValueOnce([
+        { normalizedName: '전혀다른상품', salePrice: 9900 },
+      ]);
+
+      const result = await service.getProduct('cand-1', 'org-1');
+
+      expect(result.basicInfo.salePrice).toBe(0);
+      expect(result.basicInfo.salePriceSource).toBe('none');
+    });
+
+    it('이름이 공백뿐이면 조회 자체를 하지 않는다', async () => {
+      repo.findById.mockResolvedValueOnce({ ...candidateRow, name: '   ' });
+
+      const result = await service.getProduct('cand-1', 'org-1');
+
+      expect(sellpiaSalePrices.findSalePricesByNormalizedNames).not.toHaveBeenCalled();
+      expect(result.basicInfo.salePriceSource).toBe('none');
+    });
   });
 
   it('listProducts forwards platform map + sort', async () => {

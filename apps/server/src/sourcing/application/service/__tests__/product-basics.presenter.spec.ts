@@ -107,6 +107,62 @@ describe('buildProductBasics', () => {
     expect(result.thumbnailPreviewUrls).toEqual([]);
   });
 
+  describe('salePrice 셀피아 폴백', () => {
+    const candidate = {
+      id: 'candidate-1',
+      name: '4000과일바구니딸깍이키링',
+      description: null,
+      category: null,
+      tags: [],
+      rawData: {},
+      thumbnailUrl: null,
+      imageUrl: null,
+      images: [],
+    };
+
+    it('수기 입력 판매가가 있으면 셀피아 값을 무시한다', () => {
+      const result = buildProductBasics({
+        candidate,
+        preparation: {
+          registrationInput: { salePrice: 12900 },
+          selectedThumbnailUrl: null,
+          selectedDetailPageGenerationId: null,
+        },
+        sellpiaSalePrice: 4000,
+      });
+
+      // 사용자가 고친 값을 폴백이 덮어쓰면 안 된다.
+      expect(result.salePrice).toBe(12900);
+      expect(result.salePriceSource).toBe('input');
+    });
+
+    it('수기 입력이 없으면 셀피아 판매가로 폴백한다', () => {
+      const result = buildProductBasics({
+        candidate,
+        preparation: {
+          registrationInput: { salePrice: 0 },
+          selectedThumbnailUrl: null,
+          selectedDetailPageGenerationId: null,
+        },
+        sellpiaSalePrice: 4000,
+      });
+
+      expect(result.salePrice).toBe(4000);
+      expect(result.salePriceSource).toBe('sellpia');
+    });
+
+    it('둘 다 없으면 0원으로 남기고 추정하지 않는다', () => {
+      const result = buildProductBasics({
+        candidate,
+        preparation: null,
+        sellpiaSalePrice: null,
+      });
+
+      expect(result.salePrice).toBe(0);
+      expect(result.salePriceSource).toBe('none');
+    });
+  });
+
   describe('registrationImages', () => {
     const candidate = {
       id: 'candidate-1',
