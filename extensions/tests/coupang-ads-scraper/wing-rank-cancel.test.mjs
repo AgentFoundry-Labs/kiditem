@@ -44,16 +44,25 @@ test("Wing sales-rank collection supports cooperative cancellation", () => {
 });
 
 test("Wing rank pauses the whole session on login or bounded upstream exhaustion", () => {
-  assert.match(source, /async function startWingSalesRankCheck\(options = \{\}\)/);
-  assert.match(source, /options\.forceRestart/);
-  assert.match(source, /producer:\s*"advertising\.wing_rank"/);
-  assert.match(source, /executeWingCatalogSearchWithRetry/);
-  assert.match(source, /response\?\.status === 429/);
-  assert.match(source, /response\?\.status >= 500/);
-  assert.match(source, /attentionRequired/);
-  assert.match(source, /"marketplace_login"/);
-  assert.match(source, /"rate_limited"/);
-  assert.match(source, /break;/);
+  const wingRank = functionSource(
+    'startWingSalesRankCheck',
+    'runWingSalesRankBatch',
+  );
+  const wingCatalogSearch = functionSource(
+    'searchWingCatalogProducts',
+    'searchCoupangKeywordSuggestions',
+  );
+
+  assert.match(wingRank, /options\.forceRestart/);
+  assert.match(wingRank, /producer:\s*"advertising\.wing_rank"/);
+  assert.match(wingRank, /runWingSalesRankBatch\(targets, productTotal, runId, startedAt\)/);
+  assert.match(wingCatalogSearch, /executeWingCatalogSearchWithRetry/);
+  assert.match(wingCatalogSearch, /response\?\.status === 429/);
+  assert.match(wingCatalogSearch, /response\?\.status >= 500/);
+  assert.match(wingCatalogSearch, /collectionRuns\.requireAttention/);
+  assert.match(wingCatalogSearch, /"marketplace_login"/);
+  assert.match(wingCatalogSearch, /"rate_limited"/);
+  assert.match(wingCatalogSearch, /break;/);
 });
 
 test("Wing catalog rate limiting uses paced searches and bounded asymmetric retries", () => {
@@ -85,6 +94,10 @@ test("Wing catalog rate limiting uses paced searches and bounded asymmetric retr
   assert.match(
     keywordSearch,
     /await sleep\(COUPANG_KEYWORD_SEARCH_DELAY_MS\);[\s\S]*?response = await executeCoupangKeywordSuggestionSearch\(/,
+  );
+  assert.match(
+    retry,
+    /const retryable =\s*response\?\.status === 429 \|\| response\?\.status >= 500;/,
   );
   assert.match(
     retry,
