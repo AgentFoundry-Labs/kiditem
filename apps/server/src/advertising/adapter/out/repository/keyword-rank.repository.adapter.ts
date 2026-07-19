@@ -137,13 +137,13 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         externalOptionId: true,
         sellerSku: true,
         itemName: true,
+        productVariantId: true,
         listing: {
           select: {
             externalId: true,
             channelName: true,
             displayName: true,
             category: true,
-            masterProduct: { select: { code: true } },
           },
         },
       },
@@ -163,7 +163,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
             row.listing.displayName ??
             row.listing.externalId,
           category: row.listing.category,
-          masterCode: row.listing.masterProduct?.code ?? null,
+          productVariantId: row.productVariantId,
         });
       } else if (!previous.category && row.listing.category) {
         previous.category = row.listing.category;

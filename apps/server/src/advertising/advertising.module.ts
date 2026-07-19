@@ -4,8 +4,6 @@ import { AgentOsModule } from "../agent-os/agent-os.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { SellpiaProductSalesModule } from "../analytics/sellpia-product-sales/sellpia-product-sales.module";
-import { SellpiaProductSalesService } from "../analytics/sellpia-product-sales/sellpia-product-sales.service";
-import { SELLPIA_ABC_GRADE_PORT } from "./application/port/out/cross-domain/sellpia-abc-grade.port";
 
 import { AdvertisingActionsController } from "./adapter/in/http/advertising-actions.controller";
 import { AdvertisingCampaignsController } from "./adapter/in/http/advertising-campaigns.controller";
@@ -150,10 +148,6 @@ const REPOSITORY_PORT_BINDINGS = [
   {
     provide: KEYWORD_RANK_REPOSITORY_PORT,
     useExisting: KeywordRankRepositoryAdapter,
-  },
-  {
-    provide: SELLPIA_ABC_GRADE_PORT,
-    useExisting: SellpiaProductSalesService,
   },
   {
     provide: WING_TRACKED_PRODUCT_REPOSITORY_PORT,

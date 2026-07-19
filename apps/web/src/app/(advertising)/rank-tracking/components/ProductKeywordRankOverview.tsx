@@ -33,6 +33,29 @@ import RepresentativeKeywordCell from "./RepresentativeKeywordCell";
 const PERIOD_OPTIONS = [7, 14, 30] as const;
 const PAGE_SIZE = 50;
 
+export function AbcGradeBadges({
+  grades,
+}: {
+  grades: Array<"A" | "B" | "C">;
+}) {
+  return grades.map((grade) => (
+    <span
+      key={grade}
+      className={cn(
+        "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-bold ring-1",
+        grade === "A"
+          ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+          : grade === "B"
+            ? "bg-sky-50 text-sky-700 ring-sky-200"
+            : "bg-slate-100 text-slate-500 ring-slate-200",
+      )}
+      title={`재고분석 ABC 등급: ${grade}`}
+    >
+      {grade}
+    </span>
+  ));
+}
+
 function RankValue({ row }: { row: ProductKeywordRankRow }) {
   if (row.status === "not_collected") {
     return (
@@ -341,21 +364,7 @@ export default function ProductKeywordRankOverview() {
                   <tr key={row.vendorItemId}>
                     <td className="max-w-[350px] px-5 py-3">
                       <div className="flex items-center gap-1.5">
-                        {row.abcGrade && (
-                          <span
-                            className={cn(
-                              "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-bold ring-1",
-                              row.abcGrade === "A"
-                                ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                                : row.abcGrade === "B"
-                                  ? "bg-sky-50 text-sky-700 ring-sky-200"
-                                  : "bg-slate-100 text-slate-500 ring-slate-200",
-                            )}
-                            title={`재고분석 ABC 등급: ${row.abcGrade}`}
-                          >
-                            {row.abcGrade}
-                          </span>
-                        )}
+                        <AbcGradeBadges grades={row.abcGrades} />
                         <span className="truncate font-semibold text-slate-800">
                           {row.productName ?? "상품명 미확인"}
                         </span>

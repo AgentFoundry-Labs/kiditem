@@ -22,4 +22,20 @@ describe('SellpiaProductSalesModule wiring', () => {
     expect(binding?.useExisting).toBe(SellpiaProductSalesService);
     expect(exports).toContain(SELLPIA_PRODUCT_DEPLETION_READ_PORT);
   });
+
+  it('publishes a second typed Analytics read port without exporting its concrete service', () => {
+    const providers: unknown[] = Reflect.getMetadata('providers', SellpiaProductSalesModule) ?? [];
+    const exports: unknown[] = Reflect.getMetadata('exports', SellpiaProductSalesModule) ?? [];
+    const symbolExports = exports.filter((value) => typeof value === 'symbol');
+    const abcBinding = providers.find((provider) =>
+      typeof provider === 'object'
+      && provider !== null
+      && 'provide' in provider
+      && typeof (provider as { provide: unknown }).provide === 'symbol'
+      && (provider as { provide: symbol }).provide !== SELLPIA_PRODUCT_DEPLETION_READ_PORT);
+
+    expect(abcBinding).toMatchObject({ useExisting: SellpiaProductSalesService });
+    expect(symbolExports).toHaveLength(2);
+    expect(exports).not.toContain(SellpiaProductSalesService);
+  });
 });

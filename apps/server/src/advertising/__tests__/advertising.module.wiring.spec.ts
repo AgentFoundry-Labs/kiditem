@@ -5,6 +5,7 @@ import { PrismaModule } from "../../prisma/prisma.module";
 import { AgentOsModule } from "../../agent-os/agent-os.module";
 import { AutomationModule } from "../../automation/automation.module";
 import { ChannelsModule } from "../../channels/channels.module";
+import { SellpiaProductSalesModule } from "../../analytics/sellpia-product-sales/sellpia-product-sales.module";
 
 import { AdvertisingActionsController } from "../adapter/in/http/advertising-actions.controller";
 import { AdvertisingCampaignsController } from "../adapter/in/http/advertising-campaigns.controller";
@@ -92,9 +93,15 @@ describe("AdvertisingModule capability wiring", () => {
   it("imports ChannelsModule for the exported ChannelSku availability port", () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, AdvertisingModule) ?? [];
-    expect(imports).toHaveLength(4);
+    expect(imports).toHaveLength(5);
     expect(new Set(imports)).toEqual(
-      new Set([PrismaModule, AgentOsModule, AutomationModule, ChannelsModule]),
+      new Set([
+        PrismaModule,
+        AgentOsModule,
+        AutomationModule,
+        ChannelsModule,
+        SellpiaProductSalesModule,
+      ]),
     );
   });
 
@@ -185,6 +192,9 @@ describe("AdvertisingModule capability wiring", () => {
     expect(tokenProviders).toHaveLength(19);
     for (const provider of tokenProviders) {
       expect(provider.useExisting).toBeDefined();
+      expect((provider.useExisting as { name?: string }).name).not.toBe(
+        "SellpiaProductSalesService",
+      );
     }
   });
 
