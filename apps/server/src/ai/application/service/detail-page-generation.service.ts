@@ -61,6 +61,7 @@ import {
   type DetailPageGenerationRepositoryPort,
 } from '../port/out/repository/detail-page-generation.repository.port';
 import { DetailPageDirectGenerationJobService } from './detail-page-direct-generation-job.service';
+import { resolveAiDirectJobModels } from './ai-direct-job.config';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -256,10 +257,32 @@ export class DetailPageGenerationService {
     preferContentWorkspaceAlert?: boolean;
     operationAlert: GenerationAlertLink;
   }): Promise<DetailPageGenerationDto> {
+    const models = resolveAiDirectJobModels('detail_page_generate');
     const primarySourceCandidateId =
       input.sourceCandidateId ??
       input.sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
         ?.sourceCandidateId ?? null;
+    const directPayload = {
+      templateId: input.templateId,
+      raw: {
+        rawTitle: input.rawInput.rawTitle,
+        rawCategory: input.rawInput.rawCategory,
+        rawDescription: input.rawInput.rawDescription,
+        rawOptions: input.rawInput.rawOptions,
+        imageUrls: input.rawInput.imageUrls,
+        ageGroup: input.rawInput.ageGroup,
+        detailImageCount: input.rawInput.detailImageCount,
+        usageSectionMode: input.rawInput.usageSectionMode,
+        kcCertificationStatus: input.rawInput.kcCertificationStatus,
+        kcCertificationNumber: input.rawInput.kcCertificationNumber,
+      },
+      heroImageMode: input.heroImageMode,
+      generationMode: input.rawInput.generationMode ?? 'full',
+      ...(input.existingResult !== undefined
+        ? { existingResult: input.existingResult }
+        : {}),
+    };
+    const directJob = this.directGenerationJobs.prepareGenerate({ payload: directPayload, models });
 
     const opened = await this.repository.openProcessingGenerationLedger({
       organizationId: input.organizationId,
@@ -272,6 +295,7 @@ export class DetailPageGenerationService {
       imageUrls: input.imageUrls,
       rawTitle: input.rawTitle,
       sourceReferences: input.sourceReferences,
+      directJob,
     });
     const row = opened.row;
 
@@ -283,6 +307,11 @@ export class DetailPageGenerationService {
         childId: row.id,
       });
       if (childStart.status !== 'started') {
+        await this.directGenerationJobs.cancelHeld({
+          organizationId: input.organizationId,
+          jobId: opened.directJobId,
+          reason: 'Parent product generation is not accepting detail child jobs.',
+        });
         await this.repository.markGenerationRejectedByParent({
           organizationId: input.organizationId,
           generationId: row.id,
@@ -331,6 +360,11 @@ export class DetailPageGenerationService {
         generationId: row.id,
       })
     ) {
+      await this.directGenerationJobs.cancelHeld({
+        organizationId: input.organizationId,
+        jobId: opened.directJobId,
+        reason: DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+      });
       await this.repository.markGenerationCancelledIfProcessing({
         organizationId: input.organizationId,
         generationId: row.id,
@@ -340,29 +374,9 @@ export class DetailPageGenerationService {
       return this.query.getById(row.id, input.organizationId);
     }
 
-    this.directGenerationJobs.schedule({
+    await this.directGenerationJobs.release({
       organizationId: input.organizationId,
-      generationId: row.id,
-      payload: {
-        templateId: input.templateId,
-        raw: {
-          rawTitle: input.rawInput.rawTitle,
-          rawCategory: input.rawInput.rawCategory,
-          rawDescription: input.rawInput.rawDescription,
-          rawOptions: input.rawInput.rawOptions,
-          imageUrls: input.rawInput.imageUrls,
-          ageGroup: input.rawInput.ageGroup,
-          detailImageCount: input.rawInput.detailImageCount,
-          usageSectionMode: input.rawInput.usageSectionMode,
-          kcCertificationStatus: input.rawInput.kcCertificationStatus,
-          kcCertificationNumber: input.rawInput.kcCertificationNumber,
-        },
-        heroImageMode: input.heroImageMode,
-        generationMode: input.rawInput.generationMode ?? 'full',
-        ...(input.existingResult !== undefined
-          ? { existingResult: input.existingResult }
-          : {}),
-      },
+      jobId: opened.directJobId,
     });
 
     return this.query.getById(row.id, input.organizationId);
@@ -608,6 +622,11 @@ export class DetailPageGenerationService {
       };
     }
 
+    await this.directGenerationJobs.cancelByGeneration({
+      organizationId: input.organizationId,
+      generationId: row.id,
+      reason: input.reason,
+    });
     const updated = await this.repository.cancelProcessingGeneration({
       organizationId: input.organizationId,
       generationId: row.id,

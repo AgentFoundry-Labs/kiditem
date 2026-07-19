@@ -72,6 +72,9 @@ ai/
 - `ContentGenerationAssetUsage` stores the current asset usage set for one
   generation.
 - `ThumbnailGeneration` is the thumbnail generation ledger.
+- `AiDirectJob` is the durable execution ledger for direct thumbnail,
+  detail-page, image-edit, and thumbnail re-edit work. It owns claims, leases,
+  retries, validated output checkpoints, cancellation, and recovery.
 
 Thumbnail analysis, generation, editing, tracking, and Wing registration use
 `ContentWorkspace.id` as `contentWorkspaceId`. `sourceCandidateId` is
@@ -87,10 +90,14 @@ orchestration and calls them as a child tool/action.
 
 ```text
 HTTP/service request
-  -> create domain ledger or operation-alert task
-  -> direct generation job scheduler
-  -> direct executor performs provider/media work
-  -> sink validates and projects output into domain rows
+  -> atomically create the domain ledger, input provenance, and held AiDirectJob
+  -> create the operation alert or parent-child link
+  -> release the AiDirectJob
+  -> worker claims with FOR UPDATE SKIP LOCKED and a lease
+  -> executor performs provider/media work with the worker AbortSignal
+  -> worker checkpoints validated output
+  -> sink atomically projects output into domain rows
+  -> worker marks the job succeeded and closes the alert
 ```
 
 Direct executors return validated output and do not update AI domain tables.
@@ -98,6 +105,13 @@ Sinks own the `ContentGeneration` / `ThumbnailGeneration` terminal projection,
 generated asset usage, `DetailPageArtifact` creation, and alert closure. Image
 edit has no content ledger, so its direct job writes result/error metadata to
 the operation alert that backs `/api/image-ai/tasks/:taskId`.
+
+`projecting` jobs resume from their checkpoint without invoking a model again.
+Held jobs become recoverable after the hold timeout, and expired running or
+projecting leases can be reclaimed. Queue cancellation is applied before the
+domain/alert cancellation projection and aborts a claiming worker through its
+lease heartbeat. Direct jobs are deterministic execution infrastructure and
+must never create Agent OS runs.
 
 Historical Agent OS rows for `detail_page_generate`, `thumbnail_generate`, and
 `image_edit` are retired by the v0.1.2 data migration. New producer code must

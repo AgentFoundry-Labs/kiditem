@@ -162,7 +162,7 @@ export async function saveEditorResult(prisma: PrismaService, input: SaveEditorR
  * service can mapper-render it back to the API without a second query.
  */
 export async function createPendingEditJob(
-  prisma: PrismaService,
+  prisma: Prisma.TransactionClient | PrismaService,
   args: {
     organizationId: string;
     contentWorkspaceId: string;
@@ -197,7 +197,7 @@ export async function createPendingEditJob(
  * cloning the candidate or its generation job.
  */
 export async function createPendingCandidateJob(
-  prisma: PrismaService,
+  prisma: Prisma.TransactionClient | PrismaService,
   args: {
     organizationId: string;
     sourceCandidateId: string;
@@ -267,7 +267,7 @@ export async function createPendingCandidateJob(
  * inbox cards.
  */
 export async function createPendingStandaloneJob(
-  prisma: PrismaService,
+  prisma: Prisma.TransactionClient | PrismaService,
   args: {
     organizationId: string;
     originalUrl: string;
@@ -788,7 +788,7 @@ export async function applyDirectSuccessResult(
  * working on candidates.
  */
 export async function persistPendingInputImages(
-  prisma: PrismaService,
+  prisma: Prisma.TransactionClient | PrismaService,
   args: {
     generationId: string;
     organizationId: string;

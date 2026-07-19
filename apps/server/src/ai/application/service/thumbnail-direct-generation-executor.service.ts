@@ -16,7 +16,8 @@ export class ThumbnailDirectGenerationExecutorService {
   async execute(input: {
     organizationId: string;
     generationInput: ThumbnailGenerateDirectInput;
-    model?: string;
+    model: string;
+    signal?: AbortSignal;
   }): Promise<ThumbnailGenerateDirectOutput> {
     const inputs = input.generationInput.inputs.map(toEditorInput);
     const candidates: ThumbnailEditorCandidate[] =
@@ -30,6 +31,7 @@ export class ThumbnailDirectGenerationExecutorService {
             productName: input.generationInput.productName ?? null,
             category: input.generationInput.category ?? null,
             hasStyleReference: input.generationInput.hasStyleReference,
+            signal: input.signal,
           })
         : await this.editorAi.generateEdit(inputs, input.organizationId, {
             model: input.model,
@@ -41,6 +43,7 @@ export class ThumbnailDirectGenerationExecutorService {
             productDescription: input.generationInput.productDescription,
             productName: input.generationInput.productName ?? null,
             category: input.generationInput.category ?? null,
+            signal: input.signal,
           });
 
     if (candidates.length === 0) {

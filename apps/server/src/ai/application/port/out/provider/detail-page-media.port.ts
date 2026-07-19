@@ -9,11 +9,12 @@ export interface DetailPageMediaImage {
 export interface GenerateDetailPageImageInput {
   images: DetailPageMediaImage[];
   prompt: string;
-  model?: string;
+  model: string;
   aspectRatio: '16:9' | '4:3' | '1:1';
   imageSize: '2K';
   noImageErrorCode: string;
   logContext: string;
+  signal?: AbortSignal;
 }
 
 export interface GeneratedDetailPageImage {
@@ -24,7 +25,8 @@ export interface GeneratedDetailPageImage {
 export interface CompleteDetailPageVisionJsonInput {
   images: DetailPageMediaImage[];
   prompt: string;
-  model?: string;
+  model: string;
+  signal?: AbortSignal;
 }
 
 export interface DetailPageMediaPort {

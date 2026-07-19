@@ -362,7 +362,7 @@ model ContentGeneration {
   sources                        ContentGenerationSource[]     @relation("ContentGenerationSources")
   sourceLinks                    ContentGenerationSource[]     @relation("ContentGenerationDerivedSources")
   baseForGroups                  ContentGenerationGroup[]      @relation("ContentGenerationGroupBase")
-  sourceDetailPageArtifacts      DetailPageArtifact[]          @relation("DetailPageArtifactSourceGeneration")
+  sourceDetailPageArtifact       DetailPageArtifact?           @relation("DetailPageArtifactSourceGeneration")
   detailPageRevisions            DetailPageRevision[]          @relation("DetailPageRevisionContentGeneration")
   selectedForProductPreparations ProductPreparation[]          @relation("ProductPreparationSelectedDetailPageGeneration")
 
@@ -393,7 +393,7 @@ model DetailPageArtifact {
   id                        String    @id @default(uuid()) @db.Uuid
   organizationId            String    @map("organization_id") @db.Uuid
   contentWorkspaceId        String    @map("content_workspace_id") @db.Uuid
-  sourceContentGenerationId String?   @map("source_content_generation_id") @db.Uuid
+  sourceContentGenerationId String?   @unique(map: "detail_page_artifacts_source_generation_key") @map("source_content_generation_id") @db.Uuid
   currentRevisionId         String?   @map("current_revision_id") @db.Uuid
   title                     String?
   status                    String    @default("draft")
@@ -418,13 +418,44 @@ model DetailPageArtifact {
   @@unique([id, organizationId], map: "detail_page_artifacts_id_org_key")
   @@index([organizationId])
   @@index([contentWorkspaceId])
-  @@index([sourceContentGenerationId])
   @@index([currentRevisionId])
   @@index([createdByUserId])
   @@index([organizationId, contentWorkspaceId])
   @@index([organizationId, status])
   @@index([organizationId, isDeleted])
   @@map("detail_page_artifacts")
+}
+
+/// @namespace AI
+/// @describe Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work.
+model AiDirectJob {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  jobType          String    @map("job_type")
+  sourceResourceId String    @map("source_resource_id") @db.Uuid
+  status           String    @default("held")
+  payload          Json
+  result           Json?
+  attempts         Int       @default(0)
+  maxAttempts      Int       @default(3) @map("max_attempts")
+  scheduledFor     DateTime  @default(now()) @map("scheduled_for") @db.Timestamptz
+  claimedAt        DateTime? @map("claimed_at") @db.Timestamptz
+  claimedBy        String?   @map("claimed_by")
+  leaseExpiresAt   DateTime? @map("lease_expires_at") @db.Timestamptz
+  finishedAt       DateTime? @map("finished_at") @db.Timestamptz
+  lastErrorCode    String?   @map("last_error_code")
+  lastErrorMessage String?   @map("last_error_message")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, jobType, sourceResourceId], map: "ai_direct_jobs_source_key")
+  @@index([status, scheduledFor])
+  @@index([status, leaseExpiresAt])
+  @@index([organizationId, status])
+  @@index([organizationId, sourceResourceId])
+  @@map("ai_direct_jobs")
 }
 
 /// @namespace AI

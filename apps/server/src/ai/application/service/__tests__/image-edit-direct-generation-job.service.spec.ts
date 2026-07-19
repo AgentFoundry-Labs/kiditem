@@ -1,145 +1,164 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ImageEditDirectGenerationJobService } from '../image-edit-direct-generation-job.service';
 
-const ORG = 'organization-1';
-const TASK_ID = 'image-job-1';
+const ORG = '11111111-1111-4111-8111-111111111111';
+const TASK_ID = '22222222-2222-4222-8222-222222222222';
 const OPERATION_KEY = `image-edit:${TASK_ID}`;
 
-function makeAlert(status = 'running') {
+function job(status = 'running', result: unknown = null) {
   return {
-    id: 'alert-1',
+    id: TASK_ID,
     organizationId: ORG,
-    operationKey: OPERATION_KEY,
+    jobType: 'image_edit',
+    sourceResourceId: TASK_ID,
     status,
-    progress: 0.2,
-    metadata: {},
+    payload: {
+      jobType: 'image_edit',
+      models: { image: 'gemini-image-model' },
+      input: { image_url: 'https://storage.example.com/input.png', preset: 'custom' },
+    },
+    result,
+    attempts: 1,
+    maxAttempts: 3,
+    scheduledFor: new Date(),
+    claimedAt: new Date(),
+    claimedBy: 'worker-1',
+    leaseExpiresAt: new Date(),
+    finishedAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 }
 
 function makeService() {
-  const executor = {
-    execute: vi.fn().mockResolvedValue({
-      image_url: 'https://cdn.example.com/edited.png',
-    }),
+  const repository = {
+    create: vi.fn().mockResolvedValue(job('held')),
+    release: vi.fn().mockResolvedValue(true),
+    findById: vi.fn().mockResolvedValue(job()),
+    cancel: vi.fn().mockResolvedValue(job('cancelled')),
+    failOrReschedule: vi.fn().mockResolvedValue(undefined),
   };
+  const inputAssets = {
+    persistImageEditInputs: vi.fn(async ({ payload }) => payload),
+  };
+  const worker = { wake: vi.fn() };
   const operationAlerts = {
-    start: vi.fn(),
-    findByOperationKey: vi.fn().mockResolvedValue(makeAlert()),
-    succeed: vi.fn().mockResolvedValue(makeAlert('succeeded')),
-    fail: vi.fn().mockResolvedValue(makeAlert('failed')),
-    cancel: vi.fn().mockResolvedValue(makeAlert('cancelled')),
+    start: vi.fn().mockResolvedValue({}),
+    cancel: vi.fn().mockResolvedValue({ status: 'cancelled' }),
   };
-
   return {
-    executor,
+    repository,
+    inputAssets,
+    worker,
     operationAlerts,
     service: new ImageEditDirectGenerationJobService(
-      executor as never,
+      repository as never,
+      inputAssets as never,
+      worker as never,
+      {
+        workerIntervalMs: 1_000,
+        leaseMs: 60_000,
+        providerTimeoutMs: 120_000,
+        heldRecoveryMs: 30_000,
+        retryDelaysMs: [5_000, 30_000, 120_000],
+      },
       operationAlerts as never,
     ),
   };
 }
 
-function runProcess(
-  service: ImageEditDirectGenerationJobService,
-  input: {
-    organizationId: string;
-    taskId: string;
-    operationKey: string;
-    payload: { image_url: string; preset: string };
-  },
-) {
-  return (
-    service as unknown as {
-      process(command: typeof input): Promise<void>;
-    }
-  ).process(input);
-}
-
-describe('ImageEditDirectGenerationJobService cancellation', () => {
+describe('ImageEditDirectGenerationJobService', () => {
   beforeEach(() => {
     process.env.AI_IMAGE_MODEL = 'gemini-image-model';
   });
 
-  it('marks a running direct image edit task cancelled', async () => {
-    const { service, operationAlerts } = makeService();
+  it('creates, alerts, releases, and wakes a durable image-edit job', async () => {
+    const { service, repository, operationAlerts, worker } = makeService();
 
-    const result = await service.cancel({
+    const result = await service.schedule({
       organizationId: ORG,
-      taskId: TASK_ID,
-      actorUserId: 'user-1',
-      reason: '사용자 요청',
+      triggeredByUserId: 'user-1',
+      payload: {
+        image_url: 'https://storage.example.com/input.png',
+        preset: 'custom',
+      },
     });
 
-    expect(operationAlerts.cancel).toHaveBeenCalledWith(
-      ORG,
-      OPERATION_KEY,
+    expect(result.taskId).toMatch(/[0-9a-f-]{36}/);
+    expect(repository.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: '사용자 요청',
-        metadata: expect.objectContaining({
-          errorCode: 'user_cancelled',
-          errorMessage: '사용자 요청',
-          cancel: expect.objectContaining({
-            requestedByUserId: 'user-1',
-            reason: '사용자 요청',
-          }),
-        }),
+        organizationId: ORG,
+        jobType: 'image_edit',
+        status: 'held',
       }),
     );
-    expect(result).toEqual({
+    expect(operationAlerts.start).toHaveBeenCalled();
+    expect(repository.release).toHaveBeenCalled();
+    expect(worker.wake).toHaveBeenCalled();
+  });
+
+  it('marks a running durable task and its alert cancelled', async () => {
+    const { service, repository, operationAlerts } = makeService();
+
+    await expect(
+      service.cancel({
+        organizationId: ORG,
+        taskId: TASK_ID,
+        actorUserId: 'user-1',
+        reason: '사용자 요청',
+      }),
+    ).resolves.toEqual({
       status: 'cancelled',
       jobId: TASK_ID,
       operationKey: OPERATION_KEY,
       preserved: false,
     });
+
+    expect(repository.cancel).toHaveBeenCalledWith({
+      organizationId: ORG,
+      jobId: TASK_ID,
+      reason: '사용자 요청',
+    });
+    expect(operationAlerts.cancel).toHaveBeenCalledWith(
+      ORG,
+      OPERATION_KEY,
+      expect.objectContaining({ message: '사용자 요청' }),
+    );
   });
 
-  it('does not call the provider when the task was cancelled before processing', async () => {
-    const { service, executor, operationAlerts } = makeService();
-    operationAlerts.findByOperationKey.mockResolvedValueOnce(makeAlert('cancelled'));
+  it('maps a checkpointed projecting job to a readable succeeded result', async () => {
+    const { service, repository } = makeService();
+    repository.findById.mockResolvedValueOnce(
+      job('projecting', { image_url: 'https://storage.example.com/output.png' }),
+    );
 
-    await runProcess(service, {
-      organizationId: ORG,
+    await expect(service.getStatus(ORG, TASK_ID)).resolves.toMatchObject({
       taskId: TASK_ID,
-      operationKey: OPERATION_KEY,
-      payload: { image_url: 'https://example.com/a.png', preset: 'enhance' },
+      status: 'succeeded',
+      output: { image_url: 'https://storage.example.com/output.png' },
     });
-
-    expect(executor.execute).not.toHaveBeenCalled();
-    expect(operationAlerts.succeed).not.toHaveBeenCalled();
-    expect(operationAlerts.fail).not.toHaveBeenCalled();
   });
 
-  it('ignores a late success when the task is cancelled during provider execution', async () => {
-    const { service, operationAlerts } = makeService();
-    operationAlerts.findByOperationKey
-      .mockResolvedValueOnce(makeAlert('running'))
-      .mockResolvedValueOnce(makeAlert('cancelled'));
+  it('preserves a success when cancellation loses the terminal race', async () => {
+    const { service, repository, operationAlerts } = makeService();
+    repository.findById.mockResolvedValueOnce(
+      job('succeeded', { image_url: 'https://storage.example.com/output.png' }),
+    );
 
-    await runProcess(service, {
-      organizationId: ORG,
-      taskId: TASK_ID,
-      operationKey: OPERATION_KEY,
-      payload: { image_url: 'https://example.com/a.png', preset: 'enhance' },
+    await expect(
+      service.cancel({
+        organizationId: ORG,
+        taskId: TASK_ID,
+        actorUserId: 'user-1',
+        reason: '사용자 요청',
+      }),
+    ).resolves.toMatchObject({
+      status: 'already_terminal',
+      preserved: true,
     });
-
-    expect(operationAlerts.succeed).not.toHaveBeenCalled();
-  });
-
-  it('ignores a late failure when the task is cancelled during provider execution', async () => {
-    const { service, executor, operationAlerts } = makeService();
-    executor.execute.mockRejectedValueOnce(new Error('provider failed'));
-    operationAlerts.findByOperationKey
-      .mockResolvedValueOnce(makeAlert('running'))
-      .mockResolvedValueOnce(makeAlert('cancelled'));
-
-    await runProcess(service, {
-      organizationId: ORG,
-      taskId: TASK_ID,
-      operationKey: OPERATION_KEY,
-      payload: { image_url: 'https://example.com/a.png', preset: 'enhance' },
-    });
-
-    expect(operationAlerts.fail).not.toHaveBeenCalled();
+    expect(repository.cancel).not.toHaveBeenCalled();
+    expect(operationAlerts.cancel).not.toHaveBeenCalled();
   });
 });

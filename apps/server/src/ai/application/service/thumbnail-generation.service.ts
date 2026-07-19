@@ -201,6 +201,12 @@ export class ThumbnailGenerationService {
     organizationId: string,
     triggeredByUserId: string | null = null,
   ): Promise<ThumbnailGenerationItem> {
+    await this.generationJobs.cancelAgentRequestForGeneration({
+      organizationId,
+      generationId: id,
+      reason: 'Thumbnail generation cancelled by user.',
+      actorUserId: triggeredByUserId,
+    });
     const change = await this.lifecycle.markCancelled({
       generationId: id,
       organizationId,
@@ -245,6 +251,12 @@ export class ThumbnailGenerationService {
       };
     }
 
+    await this.generationJobs.cancelAgentRequestForGeneration({
+      organizationId: input.organizationId,
+      generationId: row.id,
+      reason: input.reason,
+      actorUserId: input.actorUserId,
+    });
     const change = await this.lifecycle.markCancelled({
       organizationId: input.organizationId,
       generationId: row.id,
@@ -268,12 +280,6 @@ export class ThumbnailGenerationService {
         preserved: false,
       };
     }
-    await this.generationJobs.cancelAgentRequestForGeneration({
-      organizationId: input.organizationId,
-      generationId: row.id,
-      reason: input.reason,
-      actorUserId: input.actorUserId,
-    });
     await this.operationAlerts.cancel(input.organizationId, this.editJobOperationKey(row.id), {
       message: input.reason,
       metadata: {
@@ -410,7 +416,7 @@ export class ThumbnailGenerationService {
         metadata: { method, purpose, variantKey: variantKey ?? 'auto' },
       });
 
-      this.scheduleEditJob(generation.id, organizationId, purpose, variantKey);
+      await this.scheduleEditJob(generation.id, organizationId, purpose, variantKey);
       items.push(toThumbnailGenerationItem(generation as GenerationRow, workspace));
     }
     return items;
@@ -470,7 +476,7 @@ export class ThumbnailGenerationService {
       },
     });
 
-    this.scheduleEditJob(id, organizationId, purpose, variantKey);
+    await this.scheduleEditJob(id, organizationId, purpose, variantKey);
     return { ok: true };
   }
 
@@ -479,17 +485,13 @@ export class ThumbnailGenerationService {
     organizationId: string,
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
-  ): void {
-    this.generationJobs.scheduleEditJob(generationId, organizationId, purpose, variantKey);
-  }
-
-  private async processEditJob(
-    id: string,
-    organizationId: string,
-    purpose: 'compliance' | 'quality',
-    variantKey: 'auto' | 'with-box' | 'no-box' | null,
   ): Promise<void> {
-    await this.generationJobs.processEditJob(id, organizationId, purpose, variantKey);
+    return this.generationJobs.scheduleEditJob(
+      generationId,
+      organizationId,
+      purpose,
+      variantKey,
+    );
   }
 
   async createAutoBatch(

@@ -50,6 +50,18 @@ export class ContentAssetService {
     return this.repository.recordDetailPageInputAssets(input);
   }
 
+  recordDetailPageInputAssetsTx(
+    scope: ContentAssetLibraryWriteScope,
+    input: {
+      organizationId: string;
+      generationGroupId: string;
+      createdByUserId: string | null;
+      imageUrls: string[];
+    },
+  ): Promise<PersistedContentAssetRef[]> {
+    return this.repository.recordDetailPageInputAssetsInScope(scope, input);
+  }
+
   recordDetailPageGeneratedAssets(input: {
     organizationId: string;
     generationGroupId: string;
@@ -57,6 +69,18 @@ export class ContentAssetService {
     processedImages: Record<string, string>;
   }): Promise<void> {
     return this.repository.recordDetailPageGeneratedAssets(input);
+  }
+
+  recordDetailPageGeneratedAssetsTx(
+    scope: ContentAssetLibraryWriteScope,
+    input: {
+      organizationId: string;
+      generationGroupId: string;
+      contentGenerationId: string;
+      processedImages: Record<string, string>;
+    },
+  ): Promise<void> {
+    return this.repository.recordDetailPageGeneratedAssetsInScope(scope, input);
   }
 
   syncGenerationImageUsages(input: {

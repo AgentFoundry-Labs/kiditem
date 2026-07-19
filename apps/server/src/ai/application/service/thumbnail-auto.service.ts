@@ -23,7 +23,7 @@ export class ThumbnailAutoService {
   ): Promise<AutoBatchResult> {
     // No cohort-level alert here. The previous implementation marked a cohort
     // alert as `succeeded` immediately after `createAutoBatch()`, which only
-    // performs `setImmediate(processEditJob)` per job — the actual work was
+    // schedules each edit through the durable direct-job worker — the actual work is
     // still running or could later fail. Users saw a misleading "completed"
     // banner. Per-generation operation alerts (now created for every method,
     // including `auto`) are the source of truth for completion. This is an

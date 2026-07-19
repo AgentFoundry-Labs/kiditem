@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import {
-  cancelImageEditTask,
+  cancelImageEditTaskAndRecoverResult,
   isImageEditPollingCancelled,
   pollImageEditTaskResult,
   submitImageCrop,
@@ -276,7 +276,10 @@ export function AIImageEditPanel({
         });
         activeTaskIdRef.current = taskId;
         if (cancelRequestedRef.current) {
-          await cancelImageEditTask(taskId, '사용자 요청');
+          const preservedResult = await cancelImageEditTaskAndRecoverResult(taskId);
+          if (preservedResult && mountedRef.current) {
+            onEditComplete(preservedResult.image_url);
+          }
           return;
         }
         const result = await pollImageEditTaskResult(taskId, {
@@ -345,7 +348,10 @@ export function AIImageEditPanel({
       return;
     }
     try {
-      await cancelImageEditTask(taskId, '사용자 요청');
+      const preservedResult = await cancelImageEditTaskAndRecoverResult(taskId);
+      if (preservedResult && mountedRef.current) {
+        onEditComplete(preservedResult.image_url);
+      }
       setError(null);
     } catch (err) {
       cancelRequestedRef.current = false;
@@ -359,7 +365,7 @@ export function AIImageEditPanel({
         setCancelling(false);
       }
     }
-  }, [isBusy, onGeneratingChange]);
+  }, [isBusy, onEditComplete, onGeneratingChange]);
 
   const busy = loading || cropping || cancelling;
 

@@ -9,6 +9,7 @@
 
 | Model | Table | Description |
 |---|---|---|
+| AiDirectJob | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
 | ContentAsset | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
 | ContentGeneration | `content_generations` | - |
 | ContentGenerationAssetUsage | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
@@ -33,6 +34,26 @@
 
 ```mermaid
 erDiagram
+  AiDirectJob {
+    String id PK
+    String organizationId FK
+    String jobType
+    String sourceResourceId
+    String status
+    Json payload
+    Json result
+    Int attempts
+    Int maxAttempts
+    DateTime scheduledFor
+    DateTime claimedAt
+    String claimedBy
+    DateTime leaseExpiresAt
+    DateTime finishedAt
+    String lastErrorCode
+    String lastErrorMessage
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ContentAsset {
     String id PK
     String organizationId FK
@@ -148,7 +169,7 @@ erDiagram
     String id PK
     String organizationId FK
     String contentWorkspaceId FK
-    String sourceContentGenerationId FK
+    String sourceContentGenerationId FK,UK
     String currentRevisionId FK
     String title
     String status
@@ -365,7 +386,7 @@ erDiagram
   ContentGeneration o|--o{ ContentGenerationGroup : "baseContentGeneration"
   ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
   ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
-  ContentGeneration o|--o{ DetailPageArtifact : "sourceContentGeneration"
+  ContentGeneration o|--o| DetailPageArtifact : "sourceContentGeneration"
   ContentGeneration o|--o{ DetailPageRevision : "contentGeneration"
   ContentGeneration o|--o{ ProductPreparation : "selectedDetailPageGeneration"
   ContentGenerationGroup o|--o{ ContentAsset : "originGenerationGroup"
@@ -403,6 +424,7 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
+| AiDirectJob | organization | references external | Core | Organization |
 | ContentAsset | createdByUser | references external | Core | User |
 | ContentAsset | organization | references external | Core | Organization |
 | ContentGeneration | organization | references external | Core | Organization |

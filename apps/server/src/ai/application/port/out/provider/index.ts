@@ -1,5 +1,6 @@
 export * from './coupang-product-sales-scrape.port';
 export * from './detail-page-media.port';
+export * from './generated-image-validator.port';
 export * from './image-edit-media.port';
 export * from './image-fetch.port';
 export * from './text-completion.port';

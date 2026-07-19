@@ -2,6 +2,7 @@ import type { EditAnalysisResult } from '@kiditem/shared/ai';
 import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../../../domain/model/thumbnail-editor';
 import type { ThumbnailGenerationListScope } from '../../../../domain/thumbnail-generation-subject';
 import type { ThumbnailAnalysisContext } from '../../../../domain/thumbnail-generation-inputs';
+import type { CreateAiDirectJobInput } from './ai-direct-job.repository.port';
 
 export const THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT = Symbol('THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT');
 
@@ -146,6 +147,31 @@ export interface SaveEditorResultInput {
   triggeredByUserId?: string | null;
 }
 
+export type OpenPendingThumbnailDirectGenerationInput = {
+  organizationId: string;
+  originalUrl: string;
+  method: string;
+  inputMeta: unknown;
+  triggeredByUserId?: string | null;
+  inputImages: ThumbnailEditorInputImage[];
+  directJob: Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'>;
+} & (
+  | {
+      subject: 'editor';
+      contentWorkspaceId: string;
+      editAnalysis: EditAnalysisResult | null;
+    }
+  | {
+      subject: 'candidate';
+      sourceCandidateId: string;
+      contentWorkspaceId?: string | null;
+    }
+  | {
+      subject: 'standalone';
+      contentWorkspaceId?: string | null;
+    }
+);
+
 export interface ThumbnailGenerationLedgerRepositoryPort {
   findWorkspaceForThumbnailEditor(
     contentWorkspaceId: string,
@@ -212,6 +238,10 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
   ): Promise<{ grade: string; overallScore: number } | null>;
 
   saveEditorResult(input: SaveEditorResultInput): Promise<string>;
+  openPendingDirectGeneration(input: OpenPendingThumbnailDirectGenerationInput): Promise<{
+    generationId: string;
+    directJobId: string;
+  }>;
   openPendingEditorJob(input: {
     organizationId: string;
     contentWorkspaceId: string;

@@ -43,6 +43,7 @@ model Organization {
   productPreparations                 ProductPreparation[]
   detailPageArtifacts                 DetailPageArtifact[]
   detailPageRevisions                 DetailPageRevision[]
+  aiDirectJobs                        AiDirectJob[]
 
   // Workflow & Agent
   workflowTemplates WorkflowTemplate[]
