@@ -108,7 +108,15 @@ export interface ContentAssetLibraryRepositoryPort {
   recordDetailPageInputAssets(
     input: RecordDetailPageInputAssetsInput,
   ): Promise<PersistedContentAssetRef[]>;
+  recordDetailPageInputAssetsInScope(
+    scope: ContentAssetLibraryWriteScope,
+    input: RecordDetailPageInputAssetsInput,
+  ): Promise<PersistedContentAssetRef[]>;
   recordDetailPageGeneratedAssets(input: RecordDetailPageGeneratedAssetsInput): Promise<void>;
+  recordDetailPageGeneratedAssetsInScope(
+    scope: ContentAssetLibraryWriteScope,
+    input: RecordDetailPageGeneratedAssetsInput,
+  ): Promise<void>;
   syncGenerationImageUsages(
     input: SyncGenerationImageUsagesInput,
   ): Promise<PersistedContentAssetRef[]>;

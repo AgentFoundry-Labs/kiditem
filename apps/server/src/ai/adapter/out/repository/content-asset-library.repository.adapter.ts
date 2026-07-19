@@ -99,17 +99,33 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     input: RecordDetailPageInputAssetsInput,
   ): Promise<PersistedContentAssetRef[]> {
     return this.prisma.$transaction((tx) =>
-      this.upsertGroupImageAssetsTx(tx, {
-        organizationId: input.organizationId,
-        generationGroupId: input.generationGroupId,
-        createdByUserId: input.createdByUserId,
-        imageUrls: input.imageUrls,
-        role: 'source',
-      }),
+      this.recordDetailPageInputAssetsInScope(tx, input),
     );
   }
 
+  recordDetailPageInputAssetsInScope(
+    scope: ContentAssetLibraryWriteScope,
+    input: RecordDetailPageInputAssetsInput,
+  ): Promise<PersistedContentAssetRef[]> {
+    return this.upsertGroupImageAssetsTx(scope, {
+      organizationId: input.organizationId,
+      generationGroupId: input.generationGroupId,
+      createdByUserId: input.createdByUserId,
+      imageUrls: input.imageUrls,
+      role: 'source',
+    });
+  }
+
   async recordDetailPageGeneratedAssets(
+    input: RecordDetailPageGeneratedAssetsInput,
+  ): Promise<void> {
+    return this.prisma.$transaction((tx) =>
+      this.recordDetailPageGeneratedAssetsInScope(tx, input),
+    );
+  }
+
+  async recordDetailPageGeneratedAssetsInScope(
+    scope: ContentAssetLibraryWriteScope,
     input: RecordDetailPageGeneratedAssetsInput,
   ): Promise<void> {
     const entries = Object.entries(input.processedImages)
@@ -121,19 +137,17 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
 
     const imageUrls = entries.map(([, url]) => url);
     const roleByUrl = new Map(entries.map(([role, url]) => [url, role]));
-    await this.prisma.$transaction(async (tx) => {
-      const assets = await this.upsertGroupImageAssetsTx(tx, {
-        organizationId: input.organizationId,
-        generationGroupId: input.generationGroupId,
-        createdByUserId: null,
-        imageUrls,
-        roleForUrl: (url) => roleByUrl.get(url) ?? null,
-      });
-      await this.replaceGenerationAssetUsagesTx(tx, {
-        organizationId: input.organizationId,
-        contentGenerationId: input.contentGenerationId,
-        contentAssetIds: assets.map((asset) => asset.id),
-      });
+    const assets = await this.upsertGroupImageAssetsTx(scope, {
+      organizationId: input.organizationId,
+      generationGroupId: input.generationGroupId,
+      createdByUserId: null,
+      imageUrls,
+      roleForUrl: (url) => roleByUrl.get(url) ?? null,
+    });
+    await this.replaceGenerationAssetUsagesTx(scope, {
+      organizationId: input.organizationId,
+      contentGenerationId: input.contentGenerationId,
+      contentAssetIds: assets.map((asset) => asset.id),
     });
   }
 

@@ -29,6 +29,7 @@ import {
 import { ProductGenerationAlertService } from './product-generation-alert.service';
 import { ThumbnailGenerationLifecycleService } from './thumbnail-generation-lifecycle.service';
 import { ThumbnailDirectGenerationJobService } from './thumbnail-direct-generation-job.service';
+import { resolveAiDirectJobModels } from './ai-direct-job.config';
 
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -98,7 +99,10 @@ export class ThumbnailGenerationJobService {
   async enqueueEditorGeneration(
     input: ThumbnailEditorGenerationEnqueueInput,
   ): Promise<ThumbnailGenerationEnqueueResult> {
-    const generation = await this.ledger.openPendingEditorJob({
+    const models = resolveAiDirectJobModels('thumbnail_generate');
+    const directJob = this.directGenerationJobs.prepareGenerate({ payload: input.directPayload, models });
+    const opened = await this.ledger.openPendingDirectGeneration({
+      subject: 'editor',
       organizationId: input.organizationId,
       contentWorkspaceId: input.contentWorkspaceId,
       originalUrl: input.originalUrl,
@@ -106,13 +110,10 @@ export class ThumbnailGenerationJobService {
       inputMeta: input.inputMeta,
       editAnalysis: null,
       triggeredByUserId: input.triggeredByUserId,
-    });
-
-    await this.ledger.persistPendingInputImages({
-      generationId: generation.id,
-      organizationId: input.organizationId,
       inputImages: input.inputs,
+      directJob,
     });
+    const generation = { id: opened.generationId };
 
     await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
@@ -153,10 +154,9 @@ export class ThumbnailGenerationJobService {
       },
     });
 
-    this.directGenerationJobs.schedule({
+    await this.directGenerationJobs.release({
       organizationId: input.organizationId,
-      generationId: generation.id,
-      payload: input.directPayload,
+      jobId: opened.directJobId,
     });
 
     return { generationId: generation.id, status: 'pending' };
@@ -165,6 +165,7 @@ export class ThumbnailGenerationJobService {
   async enqueueCandidateGeneration(
     input: ThumbnailCandidateGenerationEnqueueInput,
   ): Promise<ThumbnailGenerationEnqueueResult> {
+    const models = resolveAiDirectJobModels('thumbnail_generate');
     const candidate = await this.ledger.findSourceCandidateForJob(input.sourceCandidateId, input.organizationId);
     if (!candidate) {
       throw new BadRequestException('sourceCandidateId 에 해당하는 소싱 후보를 찾을 수 없습니다');
@@ -180,8 +181,10 @@ export class ThumbnailGenerationJobService {
           },
         }
       : input.inputMeta;
-
-    const generation = await this.ledger.openPendingCandidateJob({
+    const inputImages = this.attachCandidateImageRefs(input.inputs, candidate.images);
+    const directJob = this.directGenerationJobs.prepareGenerate({ payload: input.directPayload, models });
+    const opened = await this.ledger.openPendingDirectGeneration({
+      subject: 'candidate',
       organizationId: input.organizationId,
       sourceCandidateId: input.sourceCandidateId,
       originalUrl: input.originalUrl,
@@ -189,15 +192,10 @@ export class ThumbnailGenerationJobService {
       inputMeta,
       contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
-    });
-
-    const inputImages = this.attachCandidateImageRefs(input.inputs, candidate.images);
-
-    await this.ledger.persistPendingInputImages({
-      generationId: generation.id,
-      organizationId: input.organizationId,
       inputImages,
+      directJob,
     });
+    const generation = { id: opened.generationId };
 
     await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
@@ -223,6 +221,11 @@ export class ThumbnailGenerationJobService {
         childId: generation.id,
       });
       if (childStart.status !== 'started') {
+        await this.directGenerationJobs.cancelHeld({
+          organizationId: input.organizationId,
+          jobId: opened.directJobId,
+          reason: 'Parent product generation is not accepting thumbnail child jobs.',
+        });
         await this.lifecycle.markCancelled({
           organizationId: input.organizationId,
           generationId: generation.id,
@@ -271,6 +274,11 @@ export class ThumbnailGenerationJobService {
         generationId: generation.id,
       }))
     ) {
+      await this.directGenerationJobs.cancelHeld({
+        organizationId: input.organizationId,
+        jobId: opened.directJobId,
+        reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+      });
       await this.lifecycle.markCancelled({
         organizationId: input.organizationId,
         generationId: generation.id,
@@ -282,10 +290,9 @@ export class ThumbnailGenerationJobService {
       return { generationId: generation.id, status: 'cancelled' };
     }
 
-    this.directGenerationJobs.schedule({
+    await this.directGenerationJobs.release({
       organizationId: input.organizationId,
-      generationId: generation.id,
-      payload: input.directPayload,
+      jobId: opened.directJobId,
     });
 
     return { generationId: generation.id, status: 'pending' };
@@ -312,20 +319,20 @@ export class ThumbnailGenerationJobService {
   async enqueueStandaloneGeneration(
     input: ThumbnailStandaloneGenerationEnqueueInput,
   ): Promise<ThumbnailGenerationEnqueueResult> {
-    const generation = await this.ledger.openPendingStandaloneJob({
+    const models = resolveAiDirectJobModels('thumbnail_generate');
+    const directJob = this.directGenerationJobs.prepareGenerate({ payload: input.directPayload, models });
+    const opened = await this.ledger.openPendingDirectGeneration({
+      subject: 'standalone',
       organizationId: input.organizationId,
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
       contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
-    });
-
-    await this.ledger.persistPendingInputImages({
-      generationId: generation.id,
-      organizationId: input.organizationId,
       inputImages: input.inputs,
+      directJob,
     });
+    const generation = { id: opened.generationId };
 
     await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
@@ -368,27 +375,27 @@ export class ThumbnailGenerationJobService {
       },
     });
 
-    this.directGenerationJobs.schedule({
+    await this.directGenerationJobs.release({
       organizationId: input.organizationId,
-      generationId: generation.id,
-      payload: input.directPayload,
+      jobId: opened.directJobId,
     });
 
     return { generationId: generation.id, status: 'pending' };
   }
 
-  scheduleEditJob(
+  async scheduleEditJob(
     generationId: string,
     organizationId: string,
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
-  ): void {
-    setImmediate(() => {
-      this.processEditJob(generationId, organizationId, purpose, variantKey).catch((err) => {
-        this.logger.error(
-          `편집 job 백그라운드 처리 실패 (${generationId}): ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+  ): Promise<void> {
+    const models = resolveAiDirectJobModels('thumbnail_reedit');
+    await this.directGenerationJobs.scheduleReedit({
+      organizationId,
+      generationId,
+      purpose,
+      variantKey: variantKey ?? 'auto',
+      models,
     });
   }
 
@@ -398,7 +405,11 @@ export class ThumbnailGenerationJobService {
     reason: string;
     actorUserId?: string | null;
   }): Promise<void> {
-    void input;
+    await this.directGenerationJobs.cancelByGeneration({
+      organizationId: input.organizationId,
+      generationId: input.generationId,
+      reason: input.reason,
+    });
   }
 
   async processEditJob(
@@ -406,7 +417,10 @@ export class ThumbnailGenerationJobService {
     organizationId: string,
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
+    model: string,
+    signal?: AbortSignal,
   ): Promise<void> {
+    signal?.throwIfAborted();
     const locked = await this.lifecycle.startAttempt({
       generationId: id,
       organizationId,
@@ -451,6 +465,7 @@ export class ThumbnailGenerationJobService {
             role: toInputRole(row.role ?? 'product'),
             sortOrder: row.sortOrder,
             source: row.source ?? 're-edit',
+            signal,
           }),
         );
       }
@@ -466,6 +481,8 @@ export class ThumbnailGenerationJobService {
         inputImages,
         organizationId,
         {
+          model,
+          signal,
           purpose,
           editCase,
           userPrompt: promptOverride ? undefined : variantInstruction(variantKey),
@@ -509,6 +526,7 @@ export class ThumbnailGenerationJobService {
         });
       }
     } catch (err) {
+      if (signal?.aborted) throw err;
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`편집 처리 실패 (${id}): ${message}`);
       await this.lifecycle.failRunningGeneration({

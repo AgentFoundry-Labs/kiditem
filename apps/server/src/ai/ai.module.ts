@@ -32,6 +32,7 @@ import { DetailPageContentGenerationSinkAdapter } from './adapter/out/direct-out
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { AiOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from './adapter/out/repository/ai-catalog-media-publication.repository.adapter';
+import { AiDirectJobRepositoryAdapter } from './adapter/out/repository/ai-direct-job.repository.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
@@ -40,6 +41,7 @@ import { ImageEditGeminiMediaAdapter } from './adapter/out/gemini/image-edit-gem
 import { ThumbnailImageGenerationAdapter } from './adapter/out/gemini/thumbnail-image-generation.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
+import { SharpGeneratedImageValidatorAdapter } from './adapter/out/image-validation/sharp-generated-image-validator.adapter';
 import { DetailPageTemplateStylesAdapter } from './adapter/out/runtime/detail-page-template-styles.adapter';
 import { ThumbnailGenerationEventAdapter } from './adapter/out/repository/thumbnail-generation-event.adapter';
 import { ContentArchiveRepositoryAdapter } from './adapter/out/repository/content-archive.repository.adapter';
@@ -103,6 +105,14 @@ import { ContentWorkspaceThumbnailSelectionService } from './application/service
 import { RegistrationContentWorkspaceService } from './application/service/registration-content-workspace.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
 import { AiGenerationCancellationService } from './application/service/ai-generation-cancellation.service';
+import { AiDirectJobInputAssetsService } from './application/service/ai-direct-job-input-assets.service';
+import { AiDirectJobPayloadHydratorService } from './application/service/ai-direct-job-payload-hydrator.service';
+import { AiDirectJobProcessorService } from './application/service/ai-direct-job-processor.service';
+import { AiDirectJobWorkerService } from './application/service/ai-direct-job-worker.service';
+import {
+  AI_DIRECT_JOB_RUNTIME_CONFIG,
+  resolveAiDirectJobRuntimeConfig,
+} from './application/service/ai-direct-job.config';
 
 // application/port — in
 import { AI_WING_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/wing-registration.port';
@@ -123,6 +133,7 @@ import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/event';
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
   DETAIL_PAGE_MEDIA_PORT,
+  GENERATED_IMAGE_VALIDATOR_PORT,
   IMAGE_EDIT_MEDIA_PORT,
   IMAGE_FETCH_PORT,
   TEXT_COMPLETION_PORT,
@@ -131,6 +142,7 @@ import {
   THUMBNAIL_VISION_PROVIDER_PORT,
 } from './application/port/out/provider';
 import {
+  AI_DIRECT_JOB_REPOSITORY_PORT,
   CONTENT_ARCHIVE_REPOSITORY_PORT,
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
@@ -147,6 +159,7 @@ import {
   THUMBNAIL_WING_REPOSITORY_PORT,
 } from './application/port/out/repository';
 import {
+  AI_DIRECT_JOB_WAKE_PORT,
   DETAIL_PAGE_TEMPLATE_STYLES_PORT,
   WING_AUTOMATION_PORT,
 } from './application/port/out/runtime';
@@ -183,6 +196,10 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ImageAiService,
     ImageEditDirectGenerationExecutorService,
     ImageEditDirectGenerationJobService,
+    AiDirectJobInputAssetsService,
+    AiDirectJobPayloadHydratorService,
+    AiDirectJobProcessorService,
+    AiDirectJobWorkerService,
     AiGenerationCancellationService,
     ImageAssetOperationService,
     DetailPageAiService,
@@ -226,6 +243,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailWingService,
     AiWingRegistrationCapabilityAdapter,
     AiCatalogMediaPublicationRepositoryAdapter,
+    AiDirectJobRepositoryAdapter,
 
     // outgoing adapters
     DetailPageContentGenerationSinkAdapter,
@@ -252,6 +270,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailWingRepositoryAdapter,
     ThumbnailGenerationEventAdapter,
     ThumbnailImageFetcherService,
+    SharpGeneratedImageValidatorAdapter,
     ThumbnailReferenceImagesService,
     DetailPageTemplateStylesAdapter,
     WingAutomationRunner,
@@ -261,6 +280,18 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     {
       provide: DETAIL_PAGE_TEMPLATE_STYLES_PORT,
       useExisting: DetailPageTemplateStylesAdapter,
+    },
+    {
+      provide: AI_DIRECT_JOB_RUNTIME_CONFIG,
+      useFactory: resolveAiDirectJobRuntimeConfig,
+    },
+    {
+      provide: AI_DIRECT_JOB_REPOSITORY_PORT,
+      useExisting: AiDirectJobRepositoryAdapter,
+    },
+    {
+      provide: AI_DIRECT_JOB_WAKE_PORT,
+      useExisting: AiDirectJobWorkerService,
     },
     { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
     { provide: COUPANG_PRODUCT_SALES_SCRAPE_PORT, useExisting: CoupangProductSalesScrapeAdapter },
@@ -279,6 +310,10 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
       useExisting: ThumbnailGenerationSinkAdapter,
     },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
+    {
+      provide: GENERATED_IMAGE_VALIDATOR_PORT,
+      useExisting: SharpGeneratedImageValidatorAdapter,
+    },
     { provide: IMAGE_EDIT_MEDIA_PORT, useExisting: ImageEditGeminiMediaAdapter },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
     { provide: THUMBNAIL_IMAGE_GENERATION_PORT, useExisting: ThumbnailImageGenerationAdapter },

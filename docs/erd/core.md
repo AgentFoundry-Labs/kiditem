@@ -293,6 +293,7 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | AgentTaskSession |
 | Organization | organization | referenced by external | AgentOS | AgentToolInvocation |
 | Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
+| Organization | organization | referenced by external | AI | AiDirectJob |
 | Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
 | Organization | organization | referenced by external | AI | ContentGenerationAssetUsage |

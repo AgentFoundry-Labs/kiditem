@@ -7,13 +7,12 @@ export interface ImageEditMediaCommand {
   imageUrl?: string;
   imageUrls?: string[];
   userPrompt?: string;
+  signal?: AbortSignal;
 }
 
 export interface ImageEditMediaResult {
-  imageUrl: string;
-  storageKey: string | null;
+  buffer: Buffer;
   mimeType: string;
-  fileSize: number;
 }
 
 export interface ImageEditMediaPort {

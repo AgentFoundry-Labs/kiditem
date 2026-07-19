@@ -32,6 +32,18 @@ export interface PollImageEditTaskOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+export interface ImageEditTaskCancellationResult {
+  status: 'cancelled' | 'already_terminal' | 'not_found';
+  jobId: string;
+  operationKey: string | null;
+  preserved: boolean;
+}
+
+export interface CancelImageEditTaskOptions {
+  reason?: string;
+  sleep?: (ms: number) => Promise<void>;
+}
+
 interface ImageEditTaskStatus {
   status: string;
   output?: unknown;
@@ -54,11 +66,29 @@ export async function submitImageCrop(
 export async function cancelImageEditTask(
   taskId: string,
   reason = '사용자 요청',
-): Promise<unknown> {
-  return apiClient.post(
+): Promise<ImageEditTaskCancellationResult> {
+  return apiClient.post<ImageEditTaskCancellationResult>(
     `/api/image-ai/tasks/${encodeURIComponent(taskId)}/cancel`,
     { reason },
   );
+}
+
+export async function cancelImageEditTaskAndRecoverResult(
+  taskId: string,
+  options: CancelImageEditTaskOptions = {},
+): Promise<{ image_url: string } | null> {
+  const cancellation = await cancelImageEditTask(
+    taskId,
+    options.reason ?? '사용자 요청',
+  );
+  if (cancellation.status !== 'already_terminal' || !cancellation.preserved) {
+    return null;
+  }
+
+  return pollImageEditTaskResult(taskId, {
+    maxAttempts: 3,
+    sleep: options.sleep ?? (async () => undefined),
+  });
 }
 
 export async function pollImageEditTaskResult(

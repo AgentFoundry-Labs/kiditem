@@ -4,6 +4,7 @@ import type {
   DetailPageSourceReference,
   DetailPageTemplateId,
 } from '../../../service/detail-page-ai.types';
+import type { CreateAiDirectJobInput } from './ai-direct-job.repository.port';
 
 export const DETAIL_PAGE_GENERATION_REPOSITORY_PORT = Symbol(
   'DETAIL_PAGE_GENERATION_REPOSITORY_PORT',
@@ -61,6 +62,7 @@ export interface DetailPageCancellableGenerationSnapshot {
 export type DetailPageOpenProcessingGenerationLedgerResult = {
   status: 'created';
   row: DetailPageGenerationSnapshot;
+  directJobId: string;
 };
 
 export interface DetailPageGenerationRepositoryPort {
@@ -87,6 +89,7 @@ export interface DetailPageGenerationRepositoryPort {
     imageUrls: string[];
     rawTitle: string;
     sourceReferences: DetailPageSourceReference[];
+    directJob: Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'>;
   }): Promise<DetailPageOpenProcessingGenerationLedgerResult>;
   markGenerationRejectedByParent(input: {
     organizationId: string;

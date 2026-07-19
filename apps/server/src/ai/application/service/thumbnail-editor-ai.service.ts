@@ -24,6 +24,10 @@ import {
 } from '../../domain/prompts/thumbnail-prompt-scenarios';
 import { buildLayoutBlock } from '../../domain/prompts/thumbnail-layout-presets';
 import {
+  GENERATED_IMAGE_VALIDATOR_PORT,
+  type GeneratedImageValidatorPort,
+} from '../port/out/provider/generated-image-validator.port';
+import {
   IMAGE_FETCH_PORT,
   type ImageFetchPort,
 } from '../port/out/provider/image-fetch.port';
@@ -61,10 +65,12 @@ interface ResolveInputOptions {
   role: ThumbnailInputRole;
   sortOrder: number;
   source?: string;
+  signal?: AbortSignal;
 }
 
 interface GenerateEditOptions {
   model?: string;
+  signal?: AbortSignal;
   purpose: ThumbnailEditorPurpose;
   editCase: ThumbnailEditorEditCase;
   composition?: string;
@@ -91,6 +97,7 @@ interface GenerateEditOptions {
 
 interface GenerateCreativeOptions {
   model?: string;
+  signal?: AbortSignal;
   sceneType?: string;
   styleType?: string;
   productDescription?: string;
@@ -118,6 +125,8 @@ export class ThumbnailEditorAiService {
     private readonly references: ThumbnailReferenceImagesPort,
     @Inject(THUMBNAIL_IMAGE_GENERATION_PORT)
     private readonly imageGeneration: ThumbnailImageGenerationPort,
+    @Inject(GENERATED_IMAGE_VALIDATOR_PORT)
+    private readonly generatedImageValidator: GeneratedImageValidatorPort,
   ) {}
 
   async resolveInputImage(
@@ -147,8 +156,8 @@ export class ThumbnailEditorAiService {
 
     const ownKey = this.storage.extractKey(input);
     const fetched = ownKey
-      ? await this.imageFetcher.fetchTrustedStorageImage(input)
-      : await this.imageFetcher.fetchImage(input);
+      ? await this.imageFetcher.fetchTrustedStorageImage(input, { signal: options.signal })
+      : await this.imageFetcher.fetchImage(input, { signal: options.signal });
     if (ownKey) {
       return {
         data: fetched.buffer.toString('base64'),
@@ -196,6 +205,7 @@ export class ThumbnailEditorAiService {
       'edit',
       includeReferences,
       options.model,
+      options.signal,
     );
   }
 
@@ -211,6 +221,7 @@ export class ThumbnailEditorAiService {
       'creative',
       false,
       options.model,
+      options.signal,
     );
   }
 
@@ -221,8 +232,13 @@ export class ThumbnailEditorAiService {
     method: ThumbnailEditorMode,
     includeReferences: boolean,
     model: string | undefined,
+    signal?: AbortSignal,
   ): Promise<ThumbnailEditorCandidate[]> {
     if (inputs.length === 0) throw new BadRequestException('상품 사진이 필요합니다');
+    signal?.throwIfAborted();
+    if (!model?.trim()) {
+      throw new ServiceUnavailableException('thumbnail_image_model_not_configured');
+    }
 
     // The asset directory may be missing; in that case `referenceParts` is an
     // empty array and the request is unchanged. Creative mode intentionally
@@ -234,6 +250,7 @@ export class ThumbnailEditorAiService {
 
     const parts = await this.imageGeneration.generateImageParts({
       model,
+      signal,
       parts: [
         ...referenceParts,
         ...inputs.flatMap((img) => [
@@ -248,17 +265,23 @@ export class ThumbnailEditorAiService {
       if (!('inlineData' in part)) continue;
       const inlineData = part.inlineData;
       if (!inlineData?.data) continue;
-      const mimeType = inlineData.mimeType ?? 'image/png';
-      const buffer = Buffer.from(inlineData.data, 'base64');
-      this.imageFetcher.assertSupportedMime(mimeType);
-      const key = this.candidateStorageKey(organizationId, mimeType);
-      const url = await this.storage.save(key, buffer, mimeType);
+      const validated = await this.generatedImageValidator.validate({
+        buffer: Buffer.from(inlineData.data, 'base64'),
+        declaredMimeType: inlineData.mimeType ?? 'image/png',
+      });
+      signal?.throwIfAborted();
+      const key = this.candidateStorageKey(organizationId, validated.extension);
+      const url = await this.storage.save(
+        key,
+        validated.buffer,
+        validated.mimeType,
+      );
       candidates.push({
         url,
         storageKey: key,
-        filename: `${method}-${candidates.length + 1}.${this.imageFetcher.extForMime(mimeType)}`,
-        mimeType,
-        fileSize: buffer.length,
+        filename: `${method}-${candidates.length + 1}.${validated.extension}`,
+        mimeType: validated.mimeType,
+        fileSize: validated.fileSize,
       });
     }
 
@@ -371,7 +394,7 @@ export class ThumbnailEditorAiService {
     return `thumbnail-inputs/${organizationId}/${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
   }
 
-  private candidateStorageKey(organizationId: string, mimeType: string): string {
-    return `thumbnail-generations/${organizationId}/${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
+  private candidateStorageKey(organizationId: string, extension: string): string {
+    return `thumbnail-generations/${organizationId}/${randomUUID()}.${extension}`;
   }
 }

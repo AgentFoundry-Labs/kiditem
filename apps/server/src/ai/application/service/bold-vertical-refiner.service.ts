@@ -50,7 +50,7 @@ export class BoldVerticalRefinerService {
   async refineBoldVerticalGeneration(
     parsed: BoldVerticalGeneration,
     rawInput: DetailPageRawInput,
-    options: { visionModel?: string } = {},
+    options: { visionModel?: string; signal?: AbortSignal } = {},
   ): Promise<BoldVerticalGeneration> {
     const withProductTitleHeadings = this.applyBoldVerticalProductTitleHeadings(
       parsed,
@@ -235,7 +235,7 @@ export class BoldVerticalRefinerService {
   private async refineBoldVerticalColorSubtitle(
     parsed: BoldVerticalGeneration,
     rawInput: DetailPageRawInput,
-    options: { visionModel?: string },
+    options: { visionModel?: string; signal?: AbortSignal },
   ): Promise<BoldVerticalGeneration> {
     if (colorPreference(rawInput) === 'none') return this.applyBoldVerticalNoColor(parsed);
     if (!this.heroImageService) return parsed;
@@ -247,6 +247,7 @@ export class BoldVerticalRefinerService {
         options: rawInput.rawOptions,
         imageUrls: pickSectionSourceImages(parsed.color?.imageIndices ?? [], rawInput.imageUrls),
         model: options.visionModel,
+        signal: options.signal,
       });
       return this.applyBoldVerticalColorSubtitle(parsed, subtitle);
     } catch {
@@ -257,7 +258,7 @@ export class BoldVerticalRefinerService {
   private async refineBoldVerticalColorImages(
     parsed: BoldVerticalGeneration,
     rawInput: DetailPageRawInput,
-    options: { visionModel?: string },
+    options: { visionModel?: string; signal?: AbortSignal },
   ): Promise<BoldVerticalGeneration> {
     if (colorPreference(rawInput) === 'none') return this.applyBoldVerticalNoColor(parsed);
     if (!this.heroImageService) return parsed;
@@ -269,6 +270,7 @@ export class BoldVerticalRefinerService {
         options: rawInput.rawOptions,
         imageUrls: rawInput.imageUrls,
         model: options.visionModel,
+        signal: options.signal,
       });
       if (imageIndices.length === 0) return parsed;
       return {
@@ -317,7 +319,7 @@ export class BoldVerticalRefinerService {
   private async refineBoldVerticalDetailImageOrder(
     parsed: BoldVerticalGeneration,
     rawInput: { rawDescription?: string; rawOptions?: string; imageUrls: string[] },
-    options: { visionModel?: string },
+    options: { visionModel?: string; signal?: AbortSignal },
   ): Promise<BoldVerticalGeneration> {
     if (packagePreference(rawInput) === 'none') {
       return { ...parsed, packageImageIndices: [], packageLabel: '' };
@@ -327,6 +329,7 @@ export class BoldVerticalRefinerService {
       ? await this.heroImageService.inferPackageImagePositions({
         imageUrls: rawInput.imageUrls,
         model: options.visionModel,
+        signal: options.signal,
       }).catch(() => [])
       : [];
     const highConfidencePackageImageIndices = Array.from(new Set([

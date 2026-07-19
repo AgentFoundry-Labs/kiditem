@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -7,6 +7,10 @@ import type {
   ThumbnailGenerationLedgerRow,
   ThumbnailGenerationParentAlertLink,
 } from '../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
+import {
+  AI_DIRECT_JOB_REPOSITORY_PORT,
+  type AiDirectJobRepositoryPort,
+} from '../../../application/port/out/repository/ai-direct-job.repository.port';
 import { readProductGenerationAlertLink } from '../../../application/service/product-generation-alert-link';
 import {
   findActiveJobForWorkspace,
@@ -44,7 +48,11 @@ import {
 
 @Injectable()
 export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGenerationLedgerRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
+    private readonly directJobs: AiDirectJobRepositoryPort,
+  ) {}
 
   findWorkspaceForThumbnailEditor(contentWorkspaceId: string, organizationId: string) {
     return findWorkspaceForThumbnailEditor(this.prisma, contentWorkspaceId, organizationId);
@@ -132,6 +140,49 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
     return saveEditorResult(this.prisma, {
       ...input,
       inputMeta: input.inputMeta as Prisma.InputJsonValue | null | undefined,
+    });
+  }
+
+  async openPendingDirectGeneration(
+    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingDirectGeneration']>[0],
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const common = {
+        organizationId: input.organizationId,
+        originalUrl: input.originalUrl,
+        method: input.method,
+        inputMeta: input.inputMeta as Prisma.InputJsonValue,
+        triggeredByUserId: input.triggeredByUserId,
+      };
+      const generation =
+        input.subject === 'editor'
+          ? await createPendingEditJob(tx, {
+              ...common,
+              contentWorkspaceId: input.contentWorkspaceId,
+              editAnalysis: input.editAnalysis,
+            })
+          : input.subject === 'candidate'
+            ? await createPendingCandidateJob(tx, {
+                ...common,
+                sourceCandidateId: input.sourceCandidateId,
+                contentWorkspaceId: input.contentWorkspaceId,
+              })
+            : await createPendingStandaloneJob(tx, {
+                ...common,
+                contentWorkspaceId: input.contentWorkspaceId,
+              });
+
+      await persistPendingInputImages(tx, {
+        generationId: generation.id,
+        organizationId: input.organizationId,
+        inputImages: input.inputImages,
+      });
+      const directJob = await this.directJobs.createInScope(tx, {
+        ...input.directJob,
+        organizationId: input.organizationId,
+        sourceResourceId: generation.id,
+      });
+      return { generationId: generation.id, directJobId: directJob.id };
     });
   }
 

@@ -74,13 +74,22 @@ function makeAgentRunnerStub(
 
 function makeDirectDetailGenerationJobsStub() {
   return {
+    prepareGenerate: vi.fn().mockReturnValue({
+      jobType: 'detail_page_generate',
+      payload: { jobType: 'detail_page_generate' },
+      status: 'held',
+      scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
+    }),
+    release: vi.fn(),
+    cancelHeld: vi.fn(),
+    cancelByGeneration: vi.fn(),
     schedule: vi.fn(),
     process: vi.fn(),
   };
 }
 
 async function flushInlineExecutor() {
-  await new Promise((resolve) => setImmediate(resolve));
+  await Promise.resolve();
 }
 
 function makeResultRefiner(heroImageService?: unknown): DetailPageResultRefinerService {
@@ -211,7 +220,7 @@ function makeGenerationRepository(prisma: ReturnType<typeof makePrisma>): Detail
           data: sourceRows,
         });
       }
-      return { status: 'created', row };
+      return { status: 'created', row, directJobId: 'direct-job-1' };
     }),
     markGenerationRejectedByParent: vi.fn().mockImplementation((input) =>
       prisma.contentGeneration.updateMany({
@@ -501,13 +510,19 @@ function makeGenerationRow(overrides: Record<string, unknown> = {}) {
 
 describe('DetailPageAiService', () => {
   const previousModel = process.env.AI_TEXT_MODEL;
+  const previousImageModel = process.env.AI_IMAGE_MODEL;
+  const previousVisionModel = process.env.AI_IMAGE_ANALYSIS_MODEL;
 
   beforeEach(() => {
     process.env.AI_TEXT_MODEL = 'gemini-test';
+    process.env.AI_IMAGE_MODEL = 'gemini-image-test';
+    process.env.AI_IMAGE_ANALYSIS_MODEL = 'gemini-vision-test';
   });
 
   afterEach(() => {
     process.env.AI_TEXT_MODEL = previousModel;
+    process.env.AI_IMAGE_MODEL = previousImageModel;
+    process.env.AI_IMAGE_ANALYSIS_MODEL = previousVisionModel;
     vi.restoreAllMocks();
   });
 
@@ -582,10 +597,8 @@ describe('DetailPageAiService', () => {
 
     expect(agentRunner.runByType).not.toHaveBeenCalled();
     expect(agentRunner.executeRequest).not.toHaveBeenCalled();
-    expect(directGenerationJobs.schedule).toHaveBeenCalledWith(
+    expect(directGenerationJobs.prepareGenerate).toHaveBeenCalledWith(
       expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        generationId: GENERATION_ID,
         payload: expect.objectContaining({
           templateId: 'bold-vertical',
           heroImageMode: 'llm-pick',
@@ -600,6 +613,10 @@ describe('DetailPageAiService', () => {
         }),
       }),
     );
+    expect(directGenerationJobs.release).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      jobId: 'direct-job-1',
+    });
 
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -859,7 +876,7 @@ describe('DetailPageAiService', () => {
     await flushInlineExecutor();
 
     expect(agentRunner.executeRequest).not.toHaveBeenCalled();
-    expect(directGenerationJobs.schedule).toHaveBeenCalledTimes(1);
+    expect(directGenerationJobs.release).toHaveBeenCalledTimes(1);
   });
 
   it('uses the newest non-image detail-page generation as the base for image-only runs', async () => {
@@ -1493,12 +1510,10 @@ describe('DetailPageAiService', () => {
     );
     expect(agentRunner.runByType).not.toHaveBeenCalled();
     expect(agentRunner.executeRequest).not.toHaveBeenCalled();
-    expect(directGenerationJobs.schedule).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        generationId: GENERATION_ID,
-      }),
-    );
+    expect(directGenerationJobs.release).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      jobId: 'direct-job-1',
+    });
     expect(operationAlerts.fail).not.toHaveBeenCalled();
     expect(operationAlerts.succeed).not.toHaveBeenCalled();
   });
@@ -1628,15 +1643,17 @@ describe('DetailPageAiService', () => {
     });
     expect(textCompletion.complete).not.toHaveBeenCalled();
     expect(agentRunner.runByType).not.toHaveBeenCalled();
-    expect(directGenerationJobs.schedule).toHaveBeenCalledWith(
+    expect(directGenerationJobs.prepareGenerate).toHaveBeenCalledWith(
       expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        generationId: GENERATION_ID,
         payload: expect.objectContaining({
           templateId: 'kids-playful',
         }),
       }),
     );
+    expect(directGenerationJobs.release).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      jobId: 'direct-job-1',
+    });
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,

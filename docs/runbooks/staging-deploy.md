@@ -175,9 +175,9 @@ STAGING_S3_BUCKET=kiditem-staging-assets
 STAGING_S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
 STAGING_S3_PUBLIC_URL=https://<project-ref>.supabase.co/storage/v1/object/public/kiditem-staging-assets
 STAGING_AI_TEXT_MODEL=gemini-2.5-flash
-STAGING_AI_IMAGE_MODEL=gemini-3.1-flash-image-preview
-STAGING_AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview
-STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL=gemini-3.1-flash-lite-preview
+STAGING_AI_IMAGE_MODEL=gemini-3.1-flash-image
+STAGING_AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite
+STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL=gemini-3.1-flash-lite
 STAGING_AGENT_RUNTIME_WORKER_ENABLED=1
 STAGING_AGENT_DEFAULT_MODEL=gemini-2.5-flash
 STAGING_NAVER_API_HUB_BASE_URL=https://naverapihub.apigw.ntruss.com
@@ -246,9 +246,9 @@ gh variable set STAGING_S3_BUCKET --env staging --body "kiditem-staging-assets"
 gh variable set STAGING_S3_ENDPOINT --env staging --body "https://<project-ref>.storage.supabase.co/storage/v1/s3"
 gh variable set STAGING_S3_PUBLIC_URL --env staging --body "https://<project-ref>.supabase.co/storage/v1/object/public/kiditem-staging-assets"
 gh variable set STAGING_AI_TEXT_MODEL --env staging --body "gemini-2.5-flash"
-gh variable set STAGING_AI_IMAGE_MODEL --env staging --body "gemini-3.1-flash-image-preview"
-gh variable set STAGING_AI_IMAGE_ANALYSIS_MODEL --env staging --body "gemini-3.1-flash-lite-preview"
-gh variable set STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL --env staging --body "gemini-3.1-flash-lite-preview"
+gh variable set STAGING_AI_IMAGE_MODEL --env staging --body "gemini-3.1-flash-image"
+gh variable set STAGING_AI_IMAGE_ANALYSIS_MODEL --env staging --body "gemini-3.1-flash-lite"
+gh variable set STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL --env staging --body "gemini-3.1-flash-lite"
 gh variable set STAGING_AGENT_RUNTIME_WORKER_ENABLED --env staging --body "1"
 gh variable set STAGING_AGENT_DEFAULT_MODEL --env staging --body "gemini-2.5-flash"
 gh variable set STAGING_NAVER_API_HUB_BASE_URL --env staging --body "https://naverapihub.apigw.ntruss.com"

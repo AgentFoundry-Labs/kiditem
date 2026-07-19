@@ -11,6 +11,8 @@ interface GeminiResponse {
   }>;
 }
 
+const PROVIDER_TIMEOUT_MS = 120_000;
+
 /**
  * `TEXT_COMPLETION_PORT` 의 concrete adapter — Gemini Generative Language API
  * (`generativelanguage.googleapis.com/v1beta`) 호출을 캡슐화.
@@ -21,6 +23,7 @@ interface GeminiResponse {
 @Injectable()
 export class GeminiTextCompletionAdapter implements TextCompletionPort {
   async complete(request: TextCompletionRequest): Promise<TextCompletionResult> {
+    request.signal?.throwIfAborted();
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       throw new HttpException(
@@ -47,6 +50,9 @@ export class GeminiTextCompletionAdapter implements TextCompletionPort {
         systemInstruction: { parts: [{ text: request.system }] },
         generationConfig,
       }),
+      signal: request.signal
+        ? AbortSignal.any([request.signal, AbortSignal.timeout(PROVIDER_TIMEOUT_MS)])
+        : AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     });
 
     if (!res.ok) {

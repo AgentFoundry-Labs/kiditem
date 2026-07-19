@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   Inject,
@@ -31,9 +30,6 @@ import {
 } from '../../../application/port/out/storage/image-storage.port';
 import { requireGeminiApiKey } from './thumbnail-gemini-config';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp') = require('sharp');
-
 interface InlineImagePart {
   inlineData: {
     data: string;
@@ -42,6 +38,8 @@ interface InlineImagePart {
 }
 
 type GeminiPart = InlineImagePart | { text: string };
+
+const PROVIDER_TIMEOUT_MS = 120_000;
 
 @Injectable()
 export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
@@ -56,6 +54,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
   ) {}
 
   async editImage(command: ImageEditMediaCommand): Promise<ImageEditMediaResult> {
+    command.signal?.throwIfAborted();
     if (!command.model) {
       throw new ServiceUnavailableException('image_edit_model_not_configured');
     }
@@ -70,6 +69,8 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
       contents: [{ role: 'user', parts }],
       config: {
         responseModalities: [Modality.TEXT, Modality.IMAGE],
+        abortSignal: command.signal,
+        httpOptions: { timeout: PROVIDER_TIMEOUT_MS },
       },
     });
 
@@ -85,21 +86,9 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
       throw new ServiceUnavailableException('image_edit_returned_no_image');
     }
 
-    const responseMimeType = inlineData.mimeType ?? 'image/png';
-    this.imageFetcher.assertSupportedMime(responseMimeType);
-    const normalized = await this.normalizeOutputImage(
-      Buffer.from(inlineData.data, 'base64'),
-      responseMimeType,
-      preset,
-    );
-    const storageKey = this.outputStorageKey(command.organizationId, preset, normalized.mimeType);
-    const imageUrl = await this.storage.save(storageKey, normalized.buffer, normalized.mimeType);
-
     return {
-      imageUrl,
-      storageKey,
-      mimeType: normalized.mimeType,
-      fileSize: normalized.buffer.length,
+      buffer: Buffer.from(inlineData.data, 'base64'),
+      mimeType: inlineData.mimeType ?? 'image/png',
     };
   }
 
@@ -107,7 +96,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
     if (!command.imageUrl) {
       throw new BadRequestException('image_url is required');
     }
-    const image = await this.resolveInlineImage(command.imageUrl);
+    const image = await this.resolveInlineImage(command.imageUrl, command.signal);
     return [
       image,
       {
@@ -125,7 +114,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
       throw new BadRequestException('color_guide requires at least two image URLs');
     }
     const images = await Promise.all(
-      imageUrls.map((imageUrl) => this.resolveInlineImage(imageUrl)),
+      imageUrls.map((imageUrl) => this.resolveInlineImage(imageUrl, command.signal)),
     );
     return [
       ...images,
@@ -133,7 +122,8 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
     ];
   }
 
-  private async resolveInlineImage(source: string): Promise<InlineImagePart> {
+  private async resolveInlineImage(source: string, signal?: AbortSignal): Promise<InlineImagePart> {
+    signal?.throwIfAborted();
     const dataImage = parseDataImageUrl(source);
     if (dataImage) {
       const mimeType = dataImage.mimeType.toLowerCase();
@@ -152,44 +142,14 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
 
     const ownKey = this.storage.extractKey(source);
     const fetched = ownKey
-      ? await this.imageFetcher.fetchTrustedStorageImage(source)
-      : await this.imageFetcher.fetchImage(source);
+      ? await this.imageFetcher.fetchTrustedStorageImage(source, { signal })
+      : await this.imageFetcher.fetchImage(source, { signal });
     return {
       inlineData: {
         data: fetched.buffer.toString('base64'),
         mimeType: fetched.mimeType,
       },
     };
-  }
-
-  private outputStorageKey(
-    organizationId: string,
-    preset: string,
-    mimeType: string,
-  ): string {
-    const safePreset = preset.replace(/[^a-z0-9_-]/gi, '_') || 'custom';
-    return `tmp/image-edits/${organizationId}/${safePreset}-${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
-  }
-
-  private async normalizeOutputImage(
-    buffer: Buffer,
-    mimeType: string,
-    preset: string,
-  ): Promise<{ buffer: Buffer; mimeType: string }> {
-    if (preset !== 'remove_background') return { buffer, mimeType };
-
-    try {
-      return {
-        buffer: await sharp(buffer)
-          .flatten({ background: '#FFFFFF' })
-          .png()
-          .toBuffer(),
-        mimeType: 'image/png',
-      };
-    } catch (error) {
-      this.logger.warn(`Failed to flatten remove_background output: ${error instanceof Error ? error.message : String(error)}`);
-      return { buffer, mimeType };
-    }
   }
 
   private getClient(): GoogleGenAI {

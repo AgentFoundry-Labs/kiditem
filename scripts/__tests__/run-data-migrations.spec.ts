@@ -23,7 +23,7 @@ import {
 const repoRoot = join(__dirname, "..", "..");
 
 describe("data migration registry", () => {
-  it("registers baseline metadata, freshness, and inventory commitment backfills", () => {
+  it("registers the release migration chain in order", () => {
     expect(DATA_MIGRATION_IDS).toEqual([
       "v0.1.4:001_record_agent_os_operator_backbone_release",
       "v0.1.6:001_record_rocket_read_model_release",
@@ -31,6 +31,7 @@ describe("data migration registry", () => {
       "v0.1.18:001_migrate_representative_keyword_overrides",
       "v0.1.19:001_sellpia_inventory_freshness",
       "v0.1.21:001_backfill_inventory_commitments",
+      "v0.1.24:001_dedupe_detail_page_artifacts",
       "v0.1.25:001_repair_ad_campaign_daily_business_dates",
       "v0.1.25:002_repair_coupang_ads_daily_conversions",
       "v0.1.25:003_repair_ad_campaign_target_conversions",
@@ -94,12 +95,12 @@ describe("data migration registry", () => {
     }
   });
 
-  it("has no preservation migration in an automatic schema phase", () => {
-    expect(selectDataMigrationsForPhase(dataMigrations, "pre-schema")).toEqual(
-      [],
-    );
+  it("runs artifact deduplication before schema constraints and other migrations after", () => {
+    expect(selectDataMigrationsForPhase(dataMigrations, "pre-schema").map(({ id }) => id)).toEqual([
+      "v0.1.24:001_dedupe_detail_page_artifacts",
+    ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
-      dataMigrations,
+      dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
     );
   });
 

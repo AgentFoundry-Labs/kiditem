@@ -273,6 +273,7 @@ interface GenerateDto {
   packagingImage?: string;
   supplementaryLabel?: string;
   colorImages?: string[];
+  colorCount?: number;
   bundleImages?: string[];
   bundleLabels?: string[];
   pieceCount?: number;
@@ -322,6 +323,10 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
     packagingImage: isBundle ? undefined : (packagingValue ?? undefined),
     supplementaryLabel: editCase === 'compose' ? supplementaryLabel : undefined,
     colorImages: editCase === 'color-variants' ? colorValues : undefined,
+    colorCount:
+      editCase === 'color-variants' && colorValues.length > 0
+        ? colorValues.length
+        : undefined,
     bundleImages: isBundle ? bundleValues : undefined,
     bundleLabels: isBundle ? bundleLabels : undefined,
     pieceCount: pieceCount ?? undefined,
@@ -329,7 +334,10 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
     purpose,
     mode,
     userPrompt: userPrompt || undefined,
-    sceneType: mode === 'creative' ? sceneType : undefined,
+    sceneType:
+      mode === 'creative' && sceneType !== 'custom-reference'
+        ? sceneType
+        : undefined,
     styleType: mode === 'creative' ? styleType : undefined,
     productDescription: mode === 'creative' ? productDescription || undefined : undefined,
     layout: layout && layout !== 'auto' ? layout : undefined,

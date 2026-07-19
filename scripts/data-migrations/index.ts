@@ -4,6 +4,7 @@ import { recordSellpiaRocketInventorySyncRelease } from "./v0.1.7/001_record_sel
 import { migrateRepresentativeKeywordOverrides } from "./v0.1.18/001_migrate_representative_keyword_overrides";
 import { sellpiaInventoryFreshnessMigration } from "./v0.1.19/001_sellpia_inventory_freshness";
 import { backfillInventoryCommitments } from "./v0.1.21/001_backfill_inventory_commitments";
+import { dedupeDetailPageArtifacts } from "./v0.1.24/001_dedupe_detail_page_artifacts";
 import { repairAdCampaignDailyBusinessDates } from "./v0.1.25/001_repair_ad_campaign_daily_business_dates";
 import { repairCoupangAdsDailyConversions } from "./v0.1.25/002_repair_coupang_ads_daily_conversions";
 import { repairAdCampaignTargetConversions } from "./v0.1.25/003_repair_ad_campaign_target_conversions";
@@ -27,6 +28,7 @@ export const dataMigrations: readonly DataMigration[] = [
   migrateRepresentativeKeywordOverrides,
   sellpiaInventoryFreshnessMigration,
   backfillInventoryCommitments,
+  dedupeDetailPageArtifacts,
   repairAdCampaignDailyBusinessDates,
   repairCoupangAdsDailyConversions,
   repairAdCampaignTargetConversions,

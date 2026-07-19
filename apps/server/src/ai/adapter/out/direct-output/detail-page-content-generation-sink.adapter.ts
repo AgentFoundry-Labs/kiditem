@@ -26,11 +26,6 @@ const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'cancelled',
 ]);
 
-interface ContentWorkspaceWriter {
-  contentWorkspace: {
-    updateMany(args: unknown): Promise<{ count: number }>;
-  };
-}
 /**
  * Real `DetailPageDirectOutputSinkPort` adapter — applies validated
  * detail-page generation output back onto the originating `ContentGeneration`
@@ -125,43 +120,89 @@ export class DetailPageContentGenerationSinkAdapter
 
     const processedImages = input.output.processedImages ?? {};
 
-    if (Object.keys(processedImages).length > 0) {
-      await this.contentAssets.recordDetailPageGeneratedAssets({
-        organizationId: input.organizationId,
-        contentGenerationId: row.id,
-        generationGroupId: row.generationGroupId,
-        processedImages,
+    const applied = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.contentGeneration.updateMany({
+        where: {
+          id: row.id,
+          organizationId: input.organizationId,
+          status: 'PROCESSING',
+        },
+        data: { status: 'APPLYING' },
       });
-    }
+      if (claimed.count === 0) return null;
 
-    const detailPageArtifactId = await this.ensureDetailPageArtifact({
-      organizationId: input.organizationId,
-      row,
-      productName,
-      requestId: input.requestId,
-      runId: input.runId,
-    });
+      const artifact = row.detailPageArtifactId
+        ? await tx.detailPageArtifact.findFirstOrThrow({
+            where: {
+              id: row.detailPageArtifactId,
+              organizationId: input.organizationId,
+            },
+            select: { id: true },
+          })
+        : await tx.detailPageArtifact.create({
+            data: {
+              organizationId: input.organizationId,
+              contentWorkspaceId: row.contentWorkspaceId,
+              sourceContentGenerationId: row.id,
+              title: productName,
+              status: 'generated',
+              createdByUserId: row.triggeredByUserId,
+              metadata: {
+                source: 'detail_page_generation_success',
+                ...projectionMetadata(input.requestId, input.runId),
+              },
+            },
+            select: { id: true },
+          });
 
-    const updated = await this.prisma.contentGeneration.updateMany({
-      where: {
-        id: row.id,
-        organizationId: input.organizationId,
-        status: { notIn: [...TERMINAL_CONTENT_GENERATION_STATUSES] },
-      },
-      data: {
-        detailPageArtifactId,
-        generatedTitle: productName,
-        generationResult: {
-          templateId: input.output.templateId,
-          result: input.output.result,
-          imageUrls: input.output.imageUrls,
+      if (Object.keys(processedImages).length > 0) {
+        await this.contentAssets.recordDetailPageGeneratedAssetsTx(tx, {
+          organizationId: input.organizationId,
+          contentGenerationId: row.id,
+          generationGroupId: row.generationGroupId,
           processedImages,
-        } as Prisma.InputJsonValue,
-        status: 'READY',
-        errorMessage: null,
-      },
+        });
+      }
+
+      await tx.contentWorkspace.updateMany({
+        where: {
+          id: row.contentWorkspaceId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        data: {
+          currentDetailPageArtifactId: artifact.id,
+          status: 'active',
+        },
+      });
+
+      const finalized = await tx.contentGeneration.updateMany({
+        where: {
+          id: row.id,
+          organizationId: input.organizationId,
+          status: 'APPLYING',
+        },
+        data: {
+          detailPageArtifactId: artifact.id,
+          generatedTitle: productName,
+          generationResult: {
+            templateId: input.output.templateId,
+            result: input.output.result,
+            imageUrls: input.output.imageUrls,
+            processedImages,
+          } as Prisma.InputJsonValue,
+          status: 'READY',
+          errorMessage: null,
+        },
+      });
+      if (finalized.count !== 1) {
+        throw new Error(
+          `detail_page_generate ${row.id}: APPLYING claim was lost before finalize`,
+        );
+      }
+      return { artifactId: artifact.id };
     });
-    if (updated.count === 0) {
+    if (!applied) {
       this.logger.debug(
         `detail_page_generate success: ContentGeneration ${row.id} became terminal before apply; no-op.`,
       );
@@ -193,50 +234,6 @@ export class DetailPageContentGenerationSinkAdapter
     this.logger.log(
       `detail_page_generate applied success → ContentGeneration ${row.id} READY (request=${input.requestId}).`,
     );
-  }
-
-  private async ensureDetailPageArtifact(input: {
-    organizationId: string;
-    row: {
-      id: string;
-      detailPageArtifactId: string | null;
-      contentWorkspaceId: string;
-      triggeredByUserId: string | null;
-    };
-    productName: string;
-    requestId: string;
-    runId: string | undefined;
-  }): Promise<string> {
-    if (input.row.detailPageArtifactId) return input.row.detailPageArtifactId;
-    const contentWorkspaceId = input.row.contentWorkspaceId;
-
-    const artifact = await this.prisma.detailPageArtifact.create({
-      data: {
-        organizationId: input.organizationId,
-        contentWorkspaceId,
-        sourceContentGenerationId: input.row.id,
-        title: input.productName,
-        status: 'generated',
-        createdByUserId: input.row.triggeredByUserId,
-        metadata: {
-          source: 'detail_page_generation_success',
-          ...projectionMetadata(input.requestId, input.runId),
-        },
-      },
-      select: { id: true },
-    });
-    await (this.prisma as unknown as ContentWorkspaceWriter).contentWorkspace.updateMany({
-      where: {
-        id: contentWorkspaceId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      data: {
-        currentDetailPageArtifactId: artifact.id,
-        status: 'active',
-      },
-    });
-    return artifact.id;
   }
 
   async applyFailure(input: {

@@ -26,7 +26,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
-| [AI](erd/ai.md) | 19 |
+| [AI](erd/ai.md) | 20 |
 | [Channels](erd/channels.md) | 21 |
 | [Core](erd/core.md) | 12 |
 | [Finance](erd/finance.md) | 5 |
@@ -62,6 +62,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentToolInvocation | AgentOS | `agent_tool_invocations` | Durable capability/tool invocation audit record. |
 | WorkflowRun | AgentOS | `workflow_runs` | Workflow run record. Workflow runner triggers Agent OS via AgentRunnerPort with sourceWorkflowRunId. |
 | WorkflowTemplate | AgentOS | `workflow_templates` | Workflow definition. Trigger config + nodes/edges. |
+| AiDirectJob | AI | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
 | ContentAsset | AI | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
 | ContentGeneration | AI | `content_generations` | - |
 | ContentGenerationAssetUsage | AI | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
@@ -528,6 +529,26 @@ erDiagram
     String errorMessage
     DateTime startedAt
     DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AiDirectJob {
+    String id PK
+    String organizationId FK
+    String jobType
+    String sourceResourceId
+    String status
+    Json payload
+    Json result
+    Int attempts
+    Int maxAttempts
+    DateTime scheduledFor
+    DateTime claimedAt
+    String claimedBy
+    DateTime leaseExpiresAt
+    DateTime finishedAt
+    String lastErrorCode
+    String lastErrorMessage
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1123,7 +1144,7 @@ erDiagram
     String id PK
     String organizationId FK
     String contentWorkspaceId FK
-    String sourceContentGenerationId FK
+    String sourceContentGenerationId FK,UK
     String currentRevisionId FK
     String title
     String status
@@ -2491,7 +2512,7 @@ erDiagram
   ContentGeneration o|--o{ ContentGenerationGroup : "baseContentGeneration"
   ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
   ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
-  ContentGeneration o|--o{ DetailPageArtifact : "sourceContentGeneration"
+  ContentGeneration o|--o| DetailPageArtifact : "sourceContentGeneration"
   ContentGeneration o|--o{ DetailPageRevision : "contentGeneration"
   ContentGeneration o|--o{ ProductPreparation : "selectedDetailPageGeneration"
   ContentGenerationGroup o|--o{ ContentAsset : "originGenerationGroup"
@@ -2548,6 +2569,7 @@ erDiagram
   Organization ||--o{ AgentRuntimeState : "organization"
   Organization ||--o{ AgentTaskSession : "organization"
   Organization ||--o{ AgentToolInvocation : "organization"
+  Organization ||--o{ AiDirectJob : "organization"
   Organization ||--o{ Alert : "organization"
   Organization ||--o{ BusinessRule : "organization"
   Organization ||--o{ CandidateImage : "organization"
