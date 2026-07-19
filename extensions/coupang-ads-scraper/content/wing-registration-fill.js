@@ -55,9 +55,81 @@
   };
 
   /**
+   * 옵션 목록 표(`.option-content`)의 체크박스들.
+   *
+   * 라이브 실측(formV2, 2026-07): 이 표는 `<table>` 이 아니라 div 그리드다.
+   *   .option-content
+   *     .option-pane-table-head  … span.sc-common-check > input  ← 전체선택
+   *     .option-pane-table-content
+   *       .option-pane-table-row > .option-pane-table-cell.checkbox > span.sc-common-check > input
+   *
+   * ⚠️ `.option-content` 안에는 '판매자 자동가격조정'·'묶음배송' 토글도 checkbox 로 들어 있다.
+   *    그것들은 `label > input` 이라 `span.sc-common-check > input` 로 좁히면 걸리지 않는다.
+   */
+  const OPTION_ROOT_SELECTOR = '.option-content';
+  const OPTION_SELECT_ALL_SELECTOR =
+    '.option-pane-table-head span.sc-common-check > input[type="checkbox"]';
+  const OPTION_ROW_CHECK_SELECTOR =
+    '.option-pane-table-content .option-pane-table-cell.checkbox span.sc-common-check > input[type="checkbox"]';
+
+  function optionRowChecks() {
+    const root = document.querySelector(OPTION_ROOT_SELECTOR);
+    return root ? [...root.querySelectorAll(OPTION_ROW_CHECK_SELECTOR)] : [];
+  }
+
+  /**
+   * 일괄입력 전에 옵션 행을 선택한다.
+   *
+   * ⭐ 라이브 실증: **행을 선택하지 않으면 일괄입력이 조용히 무시된다.**
+   *    다이얼로그는 정상적으로 뜨고 '저장'도 눌리지만 행의 판매가/재고수량은 빈 채로 남는다.
+   *    (재고수량 999 를 미선택 상태로 저장 → 행 입력칸 여전히 빈값,
+   *     전체선택 후 동일 저장 → 999 반영. 판매가도 동일)
+   *    에러도 토스트도 없어서 "자동채움이 됐는데 값만 없는" 상태가 된다.
+   *
+   * 전체선택 체크박스는 React 상태를 거쳐 각 행에 전파되므로 한 틱 기다린 뒤 확인한다.
+   */
+  async function selectAllOptionRows(log = () => {}) {
+    const root = document.querySelector(OPTION_ROOT_SELECTOR);
+    if (!root) {
+      log('optionSelect:noTable');
+      return false;
+    }
+    if (optionRowChecks().length === 0) {
+      log('optionSelect:noRows');
+      return false;
+    }
+
+    const selectAll = root.querySelector(OPTION_SELECT_ALL_SELECTOR);
+    if (selectAll && !selectAll.checked) selectAll.click();
+
+    const settled = await waitFor(
+      () => {
+        const rows = optionRowChecks();
+        return rows.length > 0 && rows.every((row) => row.checked) ? rows.length : null;
+      },
+      { timeout: 4000, interval: 200 },
+    );
+    if (settled) {
+      log(`optionSelect:${settled}`);
+      return true;
+    }
+
+    // 전체선택이 전파되지 않으면 행 체크박스를 하나씩 누른다.
+    for (const row of optionRowChecks()) {
+      if (!row.checked) row.click();
+    }
+    const rows = optionRowChecks();
+    const ok = rows.length > 0 && rows.every((row) => row.checked);
+    log(ok ? `optionSelect:rows:${rows.length}` : 'optionSelect:failed');
+    return ok;
+  }
+
+  /**
    * WING 의 '판매가 일괄입력' / '재고수량 일괄입력' 처리.
    * 버튼을 누르면 number 인풋이 하나 새로 뜨고, 값을 넣고 '확인'을 누르면 전 옵션 행에 적용된다.
    * 행별 입력칸을 직접 찾는 것보다 DOM 변화에 훨씬 덜 민감하다.
+   *
+   * ⚠️ 호출 전에 반드시 `selectAllOptionRows()` 로 행을 선택해야 한다(위 주석 참조).
    */
   async function bulkFillByButton(buttonText, value) {
     const trigger = btnByText(buttonText);
@@ -574,6 +646,123 @@
   }
 
   /**
+   * 상품정보제공고시.
+   *
+   * 라이브 실측(formV2, 2026-07 / 카테고리 = 생활용품>생활소품>열쇠고리/키홀더):
+   *   .notice-category-section
+   *     .notice-category-option-section
+   *       .selection-wrapper > .selection
+   *         ul.selection-collapse > li.init.option   ← 현재 선택값(클릭하면 펼쳐진다)
+   *         ul.selection-expand   > li.option        ← 16개 고시 카테고리
+   *       > span.sc-common-check > input[type=checkbox]  ← '전체 상품 상세페이지 참조'
+   *     .notice-category-input-wrapper …             ← 항목별 행(각자 '상품 상세페이지 참조')
+   *
+   * 전체 체크박스를 누르면 항목별 체크박스가 전부 따라 켜지는 것을 실측 확인했다.
+   */
+  const NOTICE_SECTION_SELECTOR = '.notice-category-option-section';
+
+  /**
+   * ⚠️ **의도적으로 `product.noticeCategory` 를 쓰지 않는다.**
+   *
+   * 프리셋(WING_TOY_WATERGUN_PRESET)의 고시 카테고리는 `어린이제품` 인데, 실제로 등록하는
+   * 상품은 열쇠고리처럼 완구가 아닌 것이 섞여 있다. 카테고리 → 고시 스키마 매핑이 아직
+   * 없는 상태(재기획서 B4)에서 프리셋 값을 그대로 밀면 **틀린 고시 카테고리로 등록**된다.
+   * 고시 항목은 카테고리마다 이름·개수가 달라서 값 매핑도 함께 틀어진다.
+   *
+   * 그래서 매핑이 생기기 전까지는 어느 상품에나 유효한 `기타 재화`(품명 및 모델명 /
+   * 인증·허가 사항 / 제조국 / 제조자 / 소비자상담 전화번호 5항목) + `전체 상품 상세페이지 참조`
+   * 를 **안전한 기본값**으로 고정한다. 억지 추론보다 상세페이지 참조가 정확하다.
+   * 카테고리별 매핑이 들어오면 이 상수를 payload 기반 선택으로 교체할 것.
+   */
+  const NOTICE_DEFAULT_CATEGORY = '기타 재화';
+
+  function noticeSection() {
+    return document.querySelector(NOTICE_SECTION_SELECTOR);
+  }
+
+  /** 고시 카테고리 드롭다운에서 `label` 을 고른다. */
+  async function selectNoticeCategory(section, label) {
+    const current = section.querySelector('ul.selection-collapse li.init.option');
+    if (!current) return false;
+    if (normText(current.textContent) === normText(label)) return true;
+
+    current.click();
+    const option = await waitFor(
+      () => {
+        const expand = section.querySelector('ul.selection-expand');
+        if (!expand) return null;
+        return (
+          [...expand.querySelectorAll('li.option')].find(
+            (li) => normText(li.textContent) === normText(label),
+          ) || null
+        );
+      },
+      { timeout: 5000 },
+    );
+    if (!option) return false;
+    option.click();
+
+    return Boolean(
+      await waitFor(
+        () => {
+          const now = section.querySelector('ul.selection-collapse li.init.option');
+          return now && normText(now.textContent) === normText(label);
+        },
+        { timeout: 5000 },
+      ),
+    );
+  }
+
+  /**
+   * 고시 카테고리를 고르고 '전체 상품 상세페이지 참조'를 켠다.
+   *
+   * ⚠️ 체크박스 탐색은 반드시 `.notice-category-option-section` 안으로 한정한다.
+   *    문서 전역에서 찾으면 화면 우하단 '페이지 별점주기' 위젯 같은 무관한 컨트롤을 건드려
+   *    모달이 뜨고 이후 단계가 전부 막힌다(과거 사고).
+   */
+  async function fillProductNotice(log) {
+    const section = await waitFor(noticeSection, { timeout: 8000 });
+    if (!section) {
+      log('noticeNoSection');
+      return false;
+    }
+
+    if (!(await selectNoticeCategory(section, NOTICE_DEFAULT_CATEGORY))) {
+      log('noticeCategoryFailed');
+      return false;
+    }
+    log('noticeCategory:' + NOTICE_DEFAULT_CATEGORY);
+
+    const referAll = section.querySelector(':scope > span.sc-common-check > input[type="checkbox"]');
+    if (!referAll) {
+      log('noticeNoReferAll');
+      return false;
+    }
+    if (!referAll.checked) referAll.click();
+
+    // 항목별 행은 `.notice-category-option-section` 이 아니라 그 부모
+    // `.notice-category-section` 아래에 있다(라이브 실측: 기타 재화 = 5행).
+    const noticeRoot = section.closest('.notice-category-section') || section.parentElement;
+    const applied = await waitFor(
+      () => {
+        const rows = [
+          ...noticeRoot.querySelectorAll(
+            '.notice-category-input-wrapper span.sc-common-check > input[type="checkbox"]',
+          ),
+        ];
+        return rows.length > 0 && rows.every((row) => row.checked) ? rows.length : null;
+      },
+      { timeout: 4000, interval: 200 },
+    );
+    if (!applied) {
+      log('noticeReferAllNotApplied');
+      return false;
+    }
+    log(`noticeReferAll:${applied}`);
+    return true;
+  }
+
+  /**
    * 옵션 값 한 개를 해당 입력칸에 넣고 그 행의 '추가' 버튼을 누른다.
    * 색상/수량이 각자 다른 행이므로 입력칸 기준으로 같은 행의 버튼을 찾아야 한다.
    */
@@ -700,12 +889,22 @@
 
     // 5-1) 판매가·재고수량: 옵션 행마다 채우지 않고 WING 의 '일괄입력' 버튼을 쓴다.
     //      둘 다 등록 필수값인데 기존에는 아예 입력하지 않아 등록이 반려됐다.
+    //
+    //      순서는 **선택 → 일괄입력 → 저장** 이다. 행 선택을 빼먹으면 일괄입력이 조용히
+    //      무시되어 옵션표가 빈 채로 남는다(selectAllOptionRows 주석의 라이브 실증 참조).
     if (variant) {
-      if (Number(variant.salePrice) > 0 && (await bulkFillByButton('판매가 일괄입력', variant.salePrice))) {
-        log('salePrice:' + variant.salePrice);
-      }
-      if (Number(variant.stock) > 0 && (await bulkFillByButton('재고수량 일괄입력', variant.stock))) {
-        log('stock:' + variant.stock);
+      const selected = await selectAllOptionRows(log);
+      if (!selected) {
+        log('bulkFillSkipped:noSelection');
+      } else {
+        if (Number(variant.salePrice) > 0 && (await bulkFillByButton('판매가 일괄입력', variant.salePrice))) {
+          log('salePrice:' + variant.salePrice);
+        }
+        // 판매가 저장 뒤 표가 다시 그려지면서 선택이 풀릴 수 있어 재고 전에 다시 확인한다.
+        await selectAllOptionRows(log);
+        if (Number(variant.stock) > 0 && (await bulkFillByButton('재고수량 일괄입력', variant.stock))) {
+          log('stock:' + variant.stock);
+        }
       }
     }
 
@@ -753,8 +952,12 @@
       if (dismissBlockingModal()) log('dismissedModal2');
     }
 
-    // 8) 상품정보제공고시 / 배송 / 반품 — 기본값 존재. 고시 값은 라이브에서 필드별 매핑 필요.
+    // 8) 상품정보제공고시: `기타 재화` + `전체 상품 상세페이지 참조`.
+    //    이전에는 이 섹션을 아예 건드리지 않아 `선택하세요` 로 남아 등록이 막혔다.
+    //    카테고리 고정 이유는 NOTICE_DEFAULT_CATEGORY 주석 참조.
+    //    배송/반품은 계정 기본값이 이미 채워져 있어 손대지 않는다.
     //    ⚠️ 상품등록/임시저장 버튼은 누르지 않는다.
+    await fillProductNotice(log);
 
     // 상세페이지가 요청됐는데 최종 HTML 타입으로 적용되지 않았다면 전체 성공으로 보고하지 않는다.
     // 폼은 열린 채로 남겨 사용자가 보정할 수 있고, 웹에는 실패 이유와 steps 가 전달된다.

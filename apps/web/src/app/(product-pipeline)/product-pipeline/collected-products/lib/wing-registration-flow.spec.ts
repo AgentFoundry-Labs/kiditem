@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildWingDisplayName,
   candidateToWingProduct,
   requireRenderedDetailImage,
+  stripLeadingPriceCode,
+  WING_DISPLAY_NAME_MAX,
   WING_FORM_FILL_TIMEOUT_MS,
 } from './wing-registration-flow';
 import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
@@ -255,5 +258,67 @@ describe('candidateToWingProduct — content_assets.role image mapping', () => {
     const product = candidateToWingProduct(detail(stale));
 
     expect(product.variants[0].representativeImageUrl).toBe(SOURCE_IMAGE);
+  });
+});
+
+describe('WING 노출상품명 조립', () => {
+  it('라이브 판매중 상품과 같은 형식으로 조립한다', () => {
+    // 실측 기준: `선인장 딸깍 키링 1p  휴대용 열쇠고리 핸드토이 스트레스해소`
+    expect(
+      buildWingDisplayName('선인장 딸깍 키링', ['휴대용', '열쇠고리', '핸드토이', '스트레스해소']),
+    ).toBe('선인장 딸깍 키링 1p  휴대용 열쇠고리 핸드토이 스트레스해소');
+  });
+
+  it('선행 가격 코드를 노출상품명에서 제거한다', () => {
+    expect(buildWingDisplayName('4000과일바구니딸깍이키링', ['열쇠고리'])).toBe(
+      '과일바구니딸깍이키링 1p  열쇠고리',
+    );
+    expect(stripLeadingPriceCode('3000선인장딸깍키링')).toBe('선인장딸깍키링');
+  });
+
+  it('선행 가격이 아닌 숫자는 건드리지 않는다', () => {
+    expect(stripLeadingPriceCode('2단 필통')).toBe('2단 필통');
+    expect(stripLeadingPriceCode('3000')).toBe('3000');
+    expect(stripLeadingPriceCode('12345678키링')).toBe('12345678키링');
+  });
+
+  it('수량을 {n}p 토큰으로 넣는다', () => {
+    expect(buildWingDisplayName('딸깍 키링', ['열쇠고리'], 3)).toBe('딸깍 키링 3p  열쇠고리');
+    expect(buildWingDisplayName('딸깍 키링', ['열쇠고리'], 0)).toBe('딸깍 키링 1p  열쇠고리');
+  });
+
+  it('상품명에 이미 있는 키워드와 중복 키워드는 뺀다', () => {
+    expect(
+      buildWingDisplayName('선인장 딸깍 키링', ['딸깍', '휴대용', '휴 대 용', '열쇠고리']),
+    ).toBe('선인장 딸깍 키링 1p  휴대용 열쇠고리');
+  });
+
+  it('키워드가 없으면 형식을 지어내지 않고 선행 가격만 뗀 원본을 쓴다', () => {
+    expect(buildWingDisplayName('4000과일바구니딸깍이키링', [])).toBe('과일바구니딸깍이키링');
+    expect(buildWingDisplayName('딸깍 키링', ['', '   '])).toBe('딸깍 키링');
+  });
+
+  it('100자를 넘기지 않고, 잘린 키워드 조각을 남기지 않는다', () => {
+    const long = buildWingDisplayName('키링', ['가'.repeat(40), '나'.repeat(40), '다'.repeat(40)]);
+
+    expect(long.length).toBeLessThanOrEqual(WING_DISPLAY_NAME_MAX);
+    expect(long).toBe(`키링 1p  ${'가'.repeat(40)} ${'나'.repeat(40)}`);
+  });
+
+  it('상품명만으로 100자를 넘으면 잘라낸다', () => {
+    const name = '가'.repeat(140);
+
+    expect(buildWingDisplayName(name, ['열쇠고리'])).toHaveLength(WING_DISPLAY_NAME_MAX);
+    expect(buildWingDisplayName(name, [])).toHaveLength(WING_DISPLAY_NAME_MAX);
+  });
+
+  it('수집상품 매핑은 노출상품명만 다듬고 등록상품명은 원본을 유지한다', () => {
+    const product = candidateToWingProduct(
+      detail(basics({ name: '4000선인장딸깍키링', keywords: ['휴대용', '열쇠고리'] })),
+    );
+
+    expect(product.productName).toBe('선인장딸깍키링 1p  휴대용 열쇠고리');
+    // 등록상품명(판매자관리용)은 수집 원본(`detail.name`)을 다듬지 않고 그대로 쓴다.
+    expect(product.sellerProductName).toBe('딸깍이 키링');
   });
 });

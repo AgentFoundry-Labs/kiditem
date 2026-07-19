@@ -72,6 +72,74 @@ export function requireRenderedDetailImage(
   return rendered.imageUrl;
 }
 
+/** 노출상품명 상한(쿠팡 WING). */
+export const WING_DISPLAY_NAME_MAX = 100;
+
+/**
+ * 선행 가격 숫자를 떼어낸다.
+ *
+ * 셀피아 수집명은 `4000과일바구니딸깍이키링` 처럼 **매입가를 접두어로** 달고 온다.
+ * 이 숫자는 판매자 내부 코드지 구매자용 정보가 아니므로 노출상품명에서는 제거한다.
+ * (등록상품명(판매자관리용)에는 원본 그대로 남긴다 — `sellerProductName`)
+ *
+ * 3~6자리 숫자가 **맨 앞**에 있고 뒤에 숫자가 아닌 글자가 이어질 때만 떼어낸다.
+ * `2단 필통` 처럼 1~2자리 수식어나 `3000` 만 있는 이름은 건드리지 않는다.
+ */
+export function stripLeadingPriceCode(rawName: string): string {
+  const name = (rawName ?? '').trim();
+  const stripped = name.replace(/^\d{3,6}(?=\D)/, '').trim();
+  return stripped || name;
+}
+
+/**
+ * 노출상품명 조립: `{상품명} {수량}p  {용도·특징 키워드}` (최대 100자).
+ *
+ * 라이브 판매중 상품 실측 형식:
+ *   `선인장 딸깍 키링 1p  휴대용 열쇠고리 핸드토이 스트레스해소`
+ * 수량 토큰 뒤는 **공백 두 칸**이다(라이브 그대로 유지).
+ *
+ * ⚠️ 없는 정보는 지어내지 않는다. 키워드가 하나도 없으면 형식을 만들 수 없으므로
+ *    선행 가격만 제거한 원본을 그대로 쓴다.
+ */
+export function buildWingDisplayName(
+  rawName: string,
+  keywords: readonly string[],
+  quantity = 1,
+): string {
+  const base = stripLeadingPriceCode(rawName);
+  if (!base) return '';
+
+  const compact = (value: string) => value.replace(/\s+/g, '');
+  const baseCompact = compact(base);
+  const seen = new Set<string>();
+  const usable = keywords
+    .map((keyword) => (keyword ?? '').trim())
+    .filter((keyword) => {
+      if (!keyword) return false;
+      // 상품명에 이미 들어 있는 말을 뒤에 또 붙이면 어색하고 100자만 잡아먹는다.
+      if (baseCompact.includes(compact(keyword))) return false;
+      const key = compact(keyword);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+  if (usable.length === 0) return base.slice(0, WING_DISPLAY_NAME_MAX);
+
+  const count = Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+  const head = `${base} ${count}p`;
+  if (head.length >= WING_DISPLAY_NAME_MAX) return head.slice(0, WING_DISPLAY_NAME_MAX);
+
+  // 키워드는 잘린 조각을 남기지 않도록 **통째로 들어가는 것까지만** 붙인다.
+  let out = head;
+  for (const [index, keyword] of usable.entries()) {
+    const next = index === 0 ? `${out}  ${keyword}` : `${out} ${keyword}`;
+    if (next.length > WING_DISPLAY_NAME_MAX) break;
+    out = next;
+  }
+  return out === head ? head : out;
+}
+
 /**
  * ProductBasics(수집상품 상세) → WingProduct 매핑.
  *
@@ -132,12 +200,13 @@ export function candidateToWingProduct(
   const salePrice = normalizePrice(b.salePrice || detail.price_krw || 0);
   const origPrice = normalizePrice(b.originalPrice || salePrice);
   const colorValue = b.colorVariantNames?.trim() || '단일';
+  const quantity = 1;
 
   // 물총 필수 구매옵션 = 색상 + 수량. MVP 는 단일 SKU 로 채운다.
   const variant: WingVariant = {
     purchaseOptions: [
       { type: '색상', value: colorValue },
-      { type: '수량', value: '1' },
+      { type: '수량', value: String(quantity) },
     ],
     salePrice,
     origPrice,
@@ -148,9 +217,16 @@ export function candidateToWingProduct(
   const noticeValues = [...preset.defaultNoticeValues];
   if (noticeValues.length > 0) noticeValues[0] = b.name || noticeValues[0]; // 품명 및 모델명
 
+  const rawName = b.name || detail.name;
   return {
     categoryCell: categoryCell ?? preset.categoryCell,
-    productName: b.name || detail.name,
+    // 노출상품명은 구매자용이라 셀피아 수집명을 그대로 쓰지 않는다.
+    // `{상품명} {수량}p  {키워드}` 로 조립하고 선행 가격 코드를 뗀다.
+    productName: buildWingDisplayName(
+      rawName,
+      b.keywords.length ? b.keywords : b.tags,
+      quantity,
+    ),
     // 등록상품명(판매자관리용)에는 편집 전 원본 수집명을 넣는다. 노출상품명(`b.name`)은
     // 판매용으로 다듬어진 이름이라 판매자 내부 조회에는 원본이 더 쓸모 있다.
     // 둘이 같아지는 경우(편집 전)는 그대로 둔다 — 빈 값보다 낫다.
