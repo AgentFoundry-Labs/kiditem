@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { KeywordRankRepositoryPort } from "../../port/out/repository/keyword-rank.repository.port";
 import {
   buildMockKeywordRankRepo,
@@ -37,12 +37,16 @@ const snapshot = (
 describe("KeywordRankService Wing sales rank overview", () => {
   let repo: MockKeywordRankRepo;
   let service: KeywordRankService;
+  const findAbcGradesByProductVariantIds = vi.fn();
 
   beforeEach(() => {
     repo = buildMockKeywordRankRepo();
     service = new KeywordRankService(
       repo as unknown as KeywordRankRepositoryPort,
+      { findAbcGradesByProductVariantIds } as never,
     );
+    findAbcGradesByProductVariantIds.mockReset();
+    findAbcGradesByProductVariantIds.mockResolvedValue(new Map());
     repo.listTrackers.mockResolvedValue([]);
     repo.listRepresentativeKeywordOverrides.mockResolvedValue([]);
     repo.listOwnVendorItems.mockResolvedValue([]);
@@ -56,12 +60,14 @@ describe("KeywordRankService Wing sales rank overview", () => {
         skuId: "wing:V-1",
         productName: "12000 2in1라켓볼세트",
         category: "완구 > 스포츠완구 > 라켓놀이",
+        productVariantId: "variant-1",
       },
       {
         vendorItemId: "V-2",
         skuId: "wing:V-2",
         productName: "캐릭터 연필세트 12자루",
         category: "문구 > 필기구 > 연필",
+        productVariantId: "variant-2",
       },
     ]);
     repo.findWingSalesRankSnapshots.mockResolvedValue([
@@ -127,12 +133,14 @@ describe("KeywordRankService Wing sales rank overview", () => {
         skuId: "wing:V-1",
         productName: "투명 슬라임",
         category: "완구 > 촉감완구 > 슬라임",
+        productVariantId: "variant-1",
       },
       {
         vendorItemId: "V-2",
         skuId: "wing:V-2",
         productName: "투명 슬라임 6개",
         category: "완구 > 촉감완구 > 슬라임",
+        productVariantId: "variant-2",
       },
     ]);
 
@@ -158,12 +166,14 @@ describe("KeywordRankService Wing sales rank overview", () => {
         skuId: "wing:V-1",
         productName: "어린이 비눗방울 모음전",
         category: "완구 > 야외완구 > 비눗방울",
+        productVariantId: "variant-1",
       },
       {
         vendorItemId: "V-2",
         skuId: "wing:V-2",
         productName: "어린이 비눗방울   모음전",
         category: "완구 > 야외완구 > 비눗방울",
+        productVariantId: "variant-2",
       },
     ]);
     repo.findWingSalesRankSnapshots.mockResolvedValue([
@@ -194,6 +204,79 @@ describe("KeywordRankService Wing sales rank overview", () => {
     });
   });
 
+  it("links CP-* channel products to Analytics ABC grades by confirmed variant", async () => {
+    repo.listOwnVendorItems.mockResolvedValue([
+      {
+        vendorItemId: "V-1",
+        skuId: "wing:V-1",
+        productName: "채널 원본 상품",
+        category: null,
+        productVariantId: "variant-confirmed",
+      },
+    ]);
+    findAbcGradesByProductVariantIds.mockResolvedValue(
+      new Map([["variant-confirmed", ["A"]]]),
+    );
+
+    const result = await service.getProductRankOverview(30, "organization-1");
+
+    expect(findAbcGradesByProductVariantIds).toHaveBeenCalledWith({
+      organizationId: "organization-1",
+      productVariantIds: ["variant-confirmed"],
+    });
+    expect(result.rows[0].abcGrades).toEqual(["A"]);
+  });
+
+  it("preserves the union of deterministic ABC grades when product names collapse", async () => {
+    repo.listOwnVendorItems.mockResolvedValue([
+      {
+        vendorItemId: "V-1",
+        skuId: "wing:V-1",
+        productName: "동일 상품명",
+        category: null,
+        productVariantId: "variant-a",
+      },
+      {
+        vendorItemId: "V-2",
+        skuId: "wing:V-2",
+        productName: "동일 상품명",
+        category: null,
+        productVariantId: "variant-c",
+      },
+    ]);
+    findAbcGradesByProductVariantIds.mockResolvedValue(
+      new Map([
+        ["variant-a", ["A"]],
+        ["variant-c", ["C"]],
+      ]),
+    );
+
+    const result = await service.getProductRankOverview(30, "organization-1");
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].abcGrades).toEqual(["A", "C"]);
+  });
+
+  it("keeps the catalog product name ahead of Wing option-like snapshot names", async () => {
+    repo.listOwnVendorItems.mockResolvedValue([
+      {
+        vendorItemId: "V-1",
+        skuId: "wing:V-1",
+        productName: "리스팅 채널 상품명",
+        category: null,
+        productVariantId: null,
+      },
+    ]);
+    repo.findWingSalesRankSnapshots.mockResolvedValue([
+      snapshot("상품", "2026-07-13", 1, { productName: "1개" }),
+    ]);
+
+    const result = await service.getProductRankOverview(30, "organization-1");
+
+    expect(result.rows[0].productName).toBe("리스팅 채널 상품명");
+    expect(result.rows[0].abcGrades).toEqual([]);
+  });
+
   it("resumes with only uncollected targets and puts primary keywords first", async () => {
     repo.listOwnVendorItems.mockResolvedValue([
       {
@@ -201,12 +284,14 @@ describe("KeywordRankService Wing sales rank overview", () => {
         skuId: "wing:V-1",
         productName: "투명 슬라임",
         category: "완구 > 촉감완구 > 슬라임",
+        productVariantId: "variant-1",
       },
       {
         vendorItemId: "V-2",
         skuId: "wing:V-2",
         productName: "캐릭터 연필세트",
         category: "문구 > 필기구 > 연필",
+        productVariantId: "variant-2",
       },
     ]);
     repo.findWingSalesRankSnapshots.mockResolvedValue([

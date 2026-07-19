@@ -3,6 +3,74 @@ import { KeywordRankRepositoryAdapter } from '../keyword-rank.repository.adapter
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 
 describe('KeywordRankRepositoryAdapter', () => {
+  it('returns confirmed variants while preserving listing-name precedence over option names', async () => {
+    const findMany = vi.fn(async () => [
+      {
+        externalOptionId: 'V-CHANNEL',
+        sellerSku: null,
+        itemName: '1개',
+        productVariantId: 'variant-channel',
+        listing: {
+          externalId: 'external-channel',
+          channelName: '채널 상품명',
+          displayName: '표시 상품명',
+          category: '완구',
+        },
+      },
+      {
+        externalOptionId: 'V-DISPLAY',
+        sellerSku: null,
+        itemName: '단품',
+        productVariantId: null,
+        listing: {
+          externalId: 'external-display',
+          channelName: null,
+          displayName: '표시 상품명',
+          category: null,
+        },
+      },
+      {
+        externalOptionId: 'V-EXTERNAL',
+        sellerSku: null,
+        itemName: '세트',
+        productVariantId: null,
+        listing: {
+          externalId: 'external-fallback',
+          channelName: null,
+          displayName: null,
+          category: null,
+        },
+      },
+    ]);
+    const adapter = new KeywordRankRepositoryAdapter({
+      channelListingOption: { findMany },
+    } as unknown as PrismaService);
+
+    const result = await adapter.listOwnVendorItems('organization-1');
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ organizationId: 'organization-1' }),
+      select: expect.objectContaining({ productVariantId: true }),
+    }));
+    expect(result).toEqual([
+      expect.objectContaining({
+        vendorItemId: 'V-CHANNEL',
+        productName: '채널 상품명',
+        productVariantId: 'variant-channel',
+      }),
+      expect.objectContaining({
+        vendorItemId: 'V-DISPLAY',
+        productName: '표시 상품명',
+        productVariantId: null,
+      }),
+      expect.objectContaining({
+        vendorItemId: 'V-EXTERNAL',
+        productName: 'external-fallback',
+        productVariantId: null,
+      }),
+    ]);
+  });
+
   it('replaces the complete organization, keyword, and business-date scope', async () => {
     type DeleteWhere = {
       organizationId: string;

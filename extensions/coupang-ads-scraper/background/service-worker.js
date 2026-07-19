@@ -29,10 +29,10 @@ const WING_CATALOG_SEARCH_ENDPOINT = "/tenants/seller-web/pre-matching/search";
 const COUPANG_SEARCH_URL = "https://www.coupang.com/np/search";
 const COUPANG_AUTOCOMPLETE_ENDPOINT = "/np/search/autoComplete";
 const WING_CATALOG_MAX_PAGES = 5;
-const WING_CATALOG_PAGE_DELAY_MS = 1200;
+const WING_CATALOG_PAGE_DELAY_MS = 2200;
 const WING_RANK_STALE_AFTER_MS = 5 * 60 * 1000;
 const WING_RANK_RESUME_ALARM = "wing-sales-rank-resume";
-const COUPANG_KEYWORD_SEARCH_DELAY_MS = 900;
+const COUPANG_KEYWORD_SEARCH_DELAY_MS = 1500;
 const COUPANG_RANK_MAX_PAGES = 3;
 const COUPANG_RANK_PAGE_RENDER_DELAY_MS = 1200;
 const COUPANG_OVERLAP_PRODUCT_DETAIL_LIMIT = 200;
@@ -3419,13 +3419,18 @@ async function getOrCreateWingCatalogTab() {
 }
 
 async function executeWingCatalogSearchWithRetry(tabId, payload) {
+  // 요청 제한(429)은 참을성 있게 지수 백오프로 재시도한다. 카탈로그가 커지면
+  // 페이지 수가 많아 짧은 재시도로는 계속 429에 걸린다.
+  const MAX_ATTEMPTS = 4;
   let response = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     response = await executeWingCatalogSearch(tabId, payload);
     const retryable =
       response?.status === 429 || response?.status >= 500;
-    if (!retryable || attempt === 2) return response;
-    await sleep(1000 * attempt);
+    if (!retryable || attempt === MAX_ATTEMPTS) return response;
+    // 429 는 더 길게 대기(4s→8s→16s), 5xx 는 1s→2s→4s.
+    const baseMs = response?.status === 429 ? 4000 : 1000;
+    await sleep(baseMs * 2 ** (attempt - 1));
   }
   return response;
 }

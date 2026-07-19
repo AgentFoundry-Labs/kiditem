@@ -38,6 +38,8 @@ export interface OwnVendorItem {
   skuId: string;
   productName: string;
   category: string | null;
+  /** 중앙 Sellpia SKU recipe 가 확정된 ProductVariant 연결. */
+  productVariantId: string | null;
 }
 
 export interface RepresentativeKeywordOverrideRow {

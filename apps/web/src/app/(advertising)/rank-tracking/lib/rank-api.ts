@@ -73,6 +73,7 @@ export interface ProductKeywordRankRow {
   groupedOptionCount: number;
   skuId: string | null;
   productName: string | null;
+  abcGrades: Array<"A" | "B" | "C">;
   currentSalesRank: number | null;
   previousSalesRank: number | null;
   /** 양수 = 순위 상승, 음수 = 하락. */
