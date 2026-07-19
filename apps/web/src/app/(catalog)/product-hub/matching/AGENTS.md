@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # product-hub/matching — Channel Product Matching
 
 `app/(catalog)/product-hub/matching/` owns `/product-hub/matching`, the operator
@@ -15,29 +13,21 @@ its options instead of switching between peer workspaces.
 React Query + apiClient
   -> GET /api/channels/accounts
   -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
-  -> GET /api/channels/product-mappings
-  -> GET /api/channels/product-mappings/:channelListingId/candidates
-  -> PUT /api/channels/product-mappings/:channelListingId/master-product
-  -> GET /api/channels/product-mappings/options/:channelListingOptionId/candidates
-  -> PUT /api/channels/product-mappings/options/:channelListingOptionId/product-variant
-  -> GET /api/channels/product-mappings/recipe-automation/preview
-  -> POST /api/channels/product-mappings/recipe-automation/apply
+  -> /api/channels/product-mappings (queue, candidates, confirmations)
+  -> /api/channels/product-mappings/recipe-automation (preview, apply)
 ```
 
 ## State Rules
 
 - React Query owns accounts, queue rows, candidates, import, and confirmations.
-- Candidate queries are read-only suggestions with evidence. Opening, ranking,
-  or searching candidates never changes confirmed identity.
 - A product must be explicitly confirmed before any of its channel options can
   be linked; both actions live inside the expanded product row.
 - Variant candidates are limited to the listing's confirmed `MasterProduct`.
 - Link and unlink mutations are separate explicit operator actions and
   invalidate product-mapping and channel-availability query families.
-- Recipe status and capacity are inherited summaries. Manual complete recipe
-  replacement links to `/product-hub/[masterProductId]#variants`; one explicit
-  `상품·재고 자동 매칭` account command may apply the current version-fenced
-  deterministic proposal to empty recipes without a second confirmation dialog.
+- Recipe status and capacity are inherited summaries. Manual replacement links
+  to `/product-hub/[masterProductId]#variants`; `상품·재고 자동 매칭` applies the
+  current version-fenced proposal without a second confirmation dialog.
 - Coupang and Rocket catalog rows share the matching queue. Only Coupang
   accounts receive a Wing workbook, and the initial account selection prefers
   Coupang Wing before Rocket so a populated Wing queue is not hidden by an empty
@@ -52,24 +42,8 @@ React Query + apiClient
 
 ## Boundary Rules
 
-- Do not recreate channel-owned component recipes or arbitrary quantity inputs.
-  The only recipe mutation here is the explicit version-fenced command that
-  creates an empty central recipe as one active Sellpia SKU with a backend-
-  verified positive integer quantity.
-- The automatic command applies each safe child variant independently. A
-  product with unresolved children remains review/blocked while safe siblings
-  are applied. Existing confirmed links and recipes remain untouched.
-- Automatic recipe evidence must uniquely and non-conflictingly select the same
-  SKU by a name-cross-checked exact code/barcode, exact normalized identity, or
-  high-confidence name score with sufficient runner-up margin. Quantities above
-  one require an explicit integer pack ratio. Unverifiable pack/BOM,
-  duplicates, conflicts, close-ranked names, raw aliases, and AI stay under
-  operator review.
-- Matching candidates never auto-confirm identity from rank, normalized name,
-  or AI evidence. The only automatic identity decision is the backend catalog
-  publication boundary's unique, non-conflicting typed seller SKU or safely
-  normalized barcode policy; raw aliases and names are never confirming.
-- Do not send `organizationId`; backend session scope owns it.
+- Recipe and identity safety policy is inherited from the catalog guide; this
+  route adds no arbitrary quantity or component editor.
 - Wing and Rocket collection must preserve already confirmed links.
 - Rocket order collection, purchase preview, and order handling remain outside
   this route.

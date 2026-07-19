@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 function git(args) {
   return execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -8,6 +9,18 @@ function git(args) {
 
 function listTracked(pattern) {
   const output = git(['ls-files', pattern]);
+  return output ? output.split('\n').filter(Boolean) : [];
+}
+
+function listRepositoryFiles(patterns) {
+  const output = git([
+    'ls-files',
+    '--cached',
+    '--others',
+    '--exclude-standard',
+    '--',
+    ...patterns,
+  ]);
   return output ? output.split('\n').filter(Boolean) : [];
 }
 
@@ -45,17 +58,68 @@ export function findStaleInstructionLines(file, content) {
   return findings;
 }
 
-function checkClaudeShims() {
+export function findClaudeShimFindings(agentFiles, claudeContents) {
   const findings = [];
-  for (const file of listTracked('*CLAUDE.md')) {
-    if (!existsSync(file)) continue;
-    const content = readFileSync(file, 'utf8').trim();
-    if (content !== '@AGENTS.md') {
+  const agentFileSet = new Set(agentFiles);
+  for (const agentFile of agentFiles) {
+    const claudeFile = join(dirname(agentFile), 'CLAUDE.md');
+    if (!claudeContents.has(claudeFile)) {
       findings.push({
-        file,
+        file: claudeFile,
+        line: 1,
+        name: 'missing CLAUDE.md shim',
+        text: 'Every AGENTS.md must have a same-directory CLAUDE.md containing only @AGENTS.md',
+      });
+      continue;
+    }
+    if (claudeContents.get(claudeFile).trim() !== '@AGENTS.md') {
+      findings.push({
+        file: claudeFile,
         line: 1,
         name: 'CLAUDE.md drift',
         text: 'CLAUDE.md must contain only @AGENTS.md',
+      });
+    }
+  }
+  for (const claudeFile of claudeContents.keys()) {
+    const agentFile = join(dirname(claudeFile), 'AGENTS.md');
+    if (!agentFileSet.has(agentFile)) {
+      findings.push({
+        file: claudeFile,
+        line: 1,
+        name: 'orphan CLAUDE.md shim',
+        text: 'CLAUDE.md shim requires a same-directory AGENTS.md',
+      });
+    }
+  }
+  return findings;
+}
+
+export function findInstructionChainSizeFindings(
+  agentContents,
+  limitBytes = 28 * 1024,
+) {
+  const findings = [];
+  for (const agentFile of agentContents.keys()) {
+    const chain = [];
+    let directory = dirname(agentFile);
+    while (true) {
+      const candidate = join(directory, 'AGENTS.md');
+      if (agentContents.has(candidate)) chain.unshift(candidate);
+      if (directory === '.') break;
+      directory = dirname(directory);
+    }
+
+    const size = chain.reduce(
+      (total, file) => total + Buffer.byteLength(agentContents.get(file)),
+      0,
+    );
+    if (size > limitBytes) {
+      findings.push({
+        file: agentFile,
+        line: 1,
+        name: 'AGENTS.md active chain too large',
+        text: `Active AGENTS.md chain is ${size} bytes; limit is ${limitBytes} bytes`,
       });
     }
   }
@@ -75,9 +139,13 @@ function checkTrackedClaudeDirectory() {
 
 export function runChecks() {
   const findings = [];
-  for (const file of [...listTracked('AGENTS.md'), ...listTracked('**/AGENTS.md')]) {
-    if (!existsSync(file)) continue;
-    findings.push(...findStaleInstructionLines(file, readFileSync(file, 'utf8')));
+  const agentFiles = listRepositoryFiles(['AGENTS.md', '**/AGENTS.md'])
+    .filter((file) => existsSync(file));
+  const agentContents = new Map(
+    agentFiles.map((file) => [file, readFileSync(file, 'utf8')]),
+  );
+  for (const [file, content] of agentContents) {
+    findings.push(...findStaleInstructionLines(file, content));
   }
 
   for (const file of listTracked('.github/PULL_REQUEST_TEMPLATE.md')) {
@@ -85,7 +153,13 @@ export function runChecks() {
     findings.push(...findStaleInstructionLines(file, readFileSync(file, 'utf8')));
   }
 
-  findings.push(...checkClaudeShims());
+  const claudeContents = new Map(
+    listRepositoryFiles(['CLAUDE.md', '**/CLAUDE.md'])
+      .filter((file) => existsSync(file))
+      .map((file) => [file, readFileSync(file, 'utf8')]),
+  );
+  findings.push(...findClaudeShimFindings(agentFiles, claudeContents));
+  findings.push(...findInstructionChainSizeFindings(agentContents));
   findings.push(...checkTrackedClaudeDirectory());
   return findings;
 }

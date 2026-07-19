@@ -112,6 +112,12 @@ npm run data:migrate                    # when release data migrations exist
 npm run graphify:schema
 ```
 
+Compatible schema changes share the open root release-train `VERSION`; they do
+not bump it per Prisma diff. Use a versioned data migration only when persisted
+rows need an idempotent rewrite. Never append a new migration to a train already
+promoted to `main`; open the next train first. See
+[`docs/runbooks/release-train-versioning.md`](../docs/runbooks/release-train-versioning.md).
+
 Prisma `db push` changes schema only. Durable persisted-data rewrites live under
 `scripts/data-migrations/v<app-version>/<sequence>_<name>.ts`, run through
 `npm run data:migrate`, and record `data_migration_runs`.

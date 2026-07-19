@@ -42,8 +42,8 @@ Inventory freshness and publication are owned by
   Sellpia identities cannot be confirmed as components.
 - Matching may preview evidence and existing recipe status without mutation.
   Its only write is the version-fenced, explicitly invoked deterministic
-  command, which creates an empty recipe as exactly one active Sellpia
-  component with quantity `1` and never replaces an existing recipe.
+  command, which creates an empty recipe as one active Sellpia component with a
+  verified positive integer quantity and never replaces an existing recipe.
 - Product detail remains the only manual recipe mutation surface. An operator
   saves the complete replacement recipe there after confirming the full BOM.
 - A later channel recollection may change channel identity links but must not
@@ -80,19 +80,22 @@ older apply request conflict instead of silently applying stale results.
 
 | Evidence | Meaning | Operator action |
 | --- | --- | --- |
-| Exact Sellpia code | A typed seller SKU or model number exactly identifies one active Sellpia code. | It may be automatic only when all deterministic evidence agrees, the recipe is empty, and pack signatures do not require review. |
-| Exact physical-barcode evidence | A valid 8–14 digit typed barcode uniquely identifies one active physical Sellpia row. | It may be automatic under the same empty-recipe, no-conflict, quantity-1 rules. |
+| Exact Sellpia code | A typed seller SKU or model number exactly identifies one active Sellpia code. | It may be automatic when all deterministic evidence agrees, the product name is compatible, the recipe is empty, and the pack ratio is verified. |
+| Exact physical-barcode evidence | A valid 8–14 digit typed barcode uniquely identifies one active physical Sellpia row. | It may be automatic under the same name-compatible, empty-recipe, no-conflict, verified-ratio rules. |
 | Stored generic barcode | A value stored on marketplace or catalog metadata without physical-barcode provenance. | It is not proof of a physical barcode and cannot confirm a recipe. |
-| Strict normalized product name + option | NFKC, case-folded, whitespace-free product and option values exactly identify one active Sellpia row. | It may be automatic only as a complete pair under the same no-conflict and pack-signature rules. |
-| Product name only | Only the formatting-normalized product name agrees. | Review-only evidence; never identity or quantity proof. |
-| Similarity, AI, search, or manual candidate | A potentially useful candidate based on text or operator search. | Review-only; verify independently. |
+| Strict normalized product name + option | NFKC, case-folded, whitespace-free product and option values exactly identify one active Sellpia row. | It may be automatic as a unique complete pair under the same empty-recipe and verified-ratio rules. |
+| Unique exact normalized product name | One active Sellpia row has the exact normalized product name. | It may be automatic when unique and its pack ratio is verified; duplicate exact names require review. |
+| Unique contained name | One contained-name candidate leads and scores at least `0.6`. | It may be automatic only when the runner-up is neither another normalized-name nor contained-name candidate and the pack ratio is verified. |
+| Unique fuzzy name | One fuzzy candidate scores at least `0.82` with a runner-up margin of at least `0.12`. | It may be automatic only with a verified pack ratio; lower or close scores require review. |
+| AI, generic search, or manual candidate | A potentially useful candidate without the policy's deterministic threshold evidence. | Review-only; verify independently. |
 
-Automatic eligibility requires all deterministic identifiers to resolve to the
-same single active Sellpia SKU. One identifier resolving to several SKUs is
-ambiguous; different identifiers resolving to different SKUs is a conflict.
-Pack, set, bundle, or multi-unit signatures that disagree require quantity
-review. Product-name-only matches, similarity, AI, candidate rank, raw aliases,
-and every uncertain BOM remain non-automatic.
+Automatic eligibility requires the applicable evidence to resolve to one active
+Sellpia SKU without ambiguity or conflict. Exact identifiers also require a
+compatible product name. A channel pack with no multi-unit count uses quantity
+`1`; matching channel and Sellpia pack counts also use `1`; otherwise the
+largest channel count divided by the largest Sellpia count must be a positive
+integer. Missing physical pack evidence, non-integer ratios, uncertain BOMs,
+AI, raw aliases, and below-threshold or close-ranked names remain review-only.
 
 Use `/product-hub/options` to inspect the complete read-only Sellpia inventory
 and its recipe-coverage counters. It can show confirmed destinations and
@@ -103,13 +106,14 @@ quantity.
 
 1. Filter the preview by automatic reason and inspect representative rows for
    exact code, unique physical barcode, and strict product-name plus option.
-2. Verify that each candidate is one physical sale unit, has no hidden
-   multi-component BOM, and does not contradict its channel option.
-3. Open the confirmation dialog and apply the exact displayed proposal version.
+2. Verify that each candidate has one physical component, no hidden
+   multi-component BOM, and a correct displayed channel-to-Sellpia unit ratio.
+3. Invoke `상품·재고 자동 매칭` for the exact displayed proposal version. The
+   command is the explicit action and does not open a second confirmation dialog.
 4. The backend re-computes the preview. If it changed, refresh and review again.
-5. Products locks each variant and creates one deterministic component with
-   quantity `1` only when its recipe is still empty. Concurrent or existing
-   recipes are skipped and preserved.
+5. Products locks each variant and creates one deterministic component with the
+   policy's verified positive integer quantity only when its recipe is still
+   empty. Concurrent or existing recipes are skipped and preserved.
 6. Refresh the matching, product operations, reverse-link, product-outflow, and
    Rocket preview screens. Confirm capacity now uses common availability and
    that `SellpiaInventorySku.currentStock` did not change.
@@ -149,11 +153,12 @@ replacement component.
 For a confirmed active recipe:
 
 ```text
-component capacity = floor(SellpiaInventorySku.currentStock / component.quantity)
+availableStock = max(currentStock - activeCommitmentQuantity, 0)
+component capacity = floor(availableStock / component.quantity)
 sellableStock = minimum component capacity
 ```
 
-- A recipe `B -> X x 8` has capacity `floor(X.currentStock / 8)`.
+- A recipe `B -> X x 8` has capacity `floor(X.availableStock / 8)`.
 - A mixed recipe reports the minimum capacity and its bottleneck component.
 - Unmapped, review-only, or inactive-component recipes are not safe sellable
   quantities. Keep them visible for correction.
@@ -166,9 +171,10 @@ sellableStock = minimum component capacity
 | Coupang collection is interrupted | Finalize or resolve the collection before starting the recipe campaign. Do not rely on a partial queue. |
 | Account not found or wrong channel | Select an active organization-owned account with the expected exact channel. |
 | Workbook or collection artifact is rejected | Correct the provider artifact and retry. Existing metadata and recipes remain intact. |
-| Preview version conflicts on apply | Refresh the preview, inspect the changed decisions, and explicitly confirm the new version. |
+| Preview version conflicts on apply | Refresh the preview, inspect the changed decisions, and invoke the command with the new version. |
 | Exact code/barcode/name+option candidate has pack or BOM uncertainty | Do not automate it. Verify physical identity and the complete BOM on product detail. |
-| Only product-name/similarity/AI evidence exists | Review candidates, verify independently, then explicitly confirm the recipe on product detail. |
+| Exact/contained/fuzzy name evidence is duplicated, below threshold, or close-ranked | Review candidates, verify independently, then explicitly confirm the recipe on product detail. |
+| AI or generic search evidence is the only evidence | Treat it as review-only and confirm the complete recipe on product detail. |
 | Stored barcode is the only evidence | Obtain physical-barcode provenance; a generic stored value is not enough. |
 | Component is inactive or foreign | Select a valid active, organization-owned Sellpia SKU and explicitly replace the full recipe. |
 | Capacity is unavailable | Verify the complete active recipe and refresh Sellpia when stale. Do not substitute zero or edit stock. |
@@ -176,6 +182,7 @@ sellableStock = minimum component capacity
 ## Verification
 
 ```bash
+rtk npm exec --workspace=apps/server vitest -- run src/channels/domain/channel-recipe-suggestion.spec.ts
 rtk npm exec vitest -- run packages/shared/src/schemas/inventory-snapshot.spec.ts
 rtk npm exec --workspace=apps/server vitest -- run src/inventory/adapter/out/repository/inventory-sku-snapshot-list.repository.adapter.spec.ts
 rtk npm run test:integration --workspace=apps/server -- src/channels/__tests__/channel-recipe-automation.pg.integration.spec.ts
@@ -190,8 +197,9 @@ rtk npm run build --workspace=apps/web
 
 Acceptance must show that recipe coverage is exhaustive for the requested
 active-status scope, linkage is organization-fenced, preview reads do not
-mutate, deterministic apply creates only empty quantity-1 recipes, product
-detail remains the only complete replacement surface, and physical stock is
+mutate, deterministic apply creates only empty one-component recipes with the
+verified recommended quantity, product detail remains the only complete
+replacement surface, capacity uses available stock, and physical stock is
 unchanged.
 
 ## Blockers
@@ -208,11 +216,11 @@ component would be used, or a non-Inventory path would write stock.
 Organization: <sanitized id>
 Channel account: <sanitized id>; channel <coupang|rocket>
 Collection: <Wing workbook|Rocket collection>; finalized <yes/no>; rows <count>
-Evidence reviewed: exact code <n>; verified physical barcode <n>; normalized name <n>; candidate/AI <n>
-Preview: auto code <n>; auto barcode <n>; auto name+option <n>; quantity review <n>; conflict/ambiguous <n>; name review <n>; no match <n>
+Evidence reviewed: exact code <n>; verified physical barcode <n>; exact name <n>; high-confidence name <n>; candidate/AI <n>
+Preview: auto code <n>; auto barcode <n>; auto exact name <n>; auto high-confidence name <n>; quantity review <n>; conflict/ambiguous <n>; name review <n>; no match <n>
 Applied: variants <n>; affected options <n>; skipped existing <n>
 Operator-confirmed remaining recipes: <component shapes>
-Recipe automation writes: empty recipe only; one component; quantity 1
+Recipe automation writes: empty recipe only; one component; quantities <distribution>
 Non-Inventory currentStock writes: 0
 Automated gates: <commands and result>
 Blockers: <none or exact blocker>

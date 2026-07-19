@@ -1,24 +1,8 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # apps/web — Next.js Frontend
 
 `apps/web/` is the Next.js frontend. It owns UI routes, client-side state,
 React Query data access, and browser-only integrations. It does not own backend
 API routes or database access.
-
-## Route Shape
-
-```text
-app/(group-name)/{domain}/
-├── page.tsx
-├── components/
-├── hooks/
-└── lib/
-```
-
-Route-group private shared code can live in `app/(group)/_shared/`. Global
-`src/components`, `src/hooks`, and `src/lib` are only for code used by 2+
-domains.
 
 ## Scoped Guide Discovery
 

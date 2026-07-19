@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/catalog — Product Operations and Channel Matching
 
 `app/(catalog)/` owns KidItem product metadata, product variants and their
@@ -13,57 +11,29 @@ confirmation. Public URLs remain under `/product-hub`.
   `/product-hub/matching`
 - Dedicated read-only Sellpia option table under `/product-hub/options`
 
-## Data Flow
-
-```text
-React Query + apiClient
-  -> GET/POST/PATCH /api/products/masters
-  -> GET /api/products/masters/:masterProductId
-  -> PUT /api/products/variants/:productVariantId/components
-  -> GET /api/products/recipe-component-candidates (focused recipe picker)
-  -> GET /api/inventory/sellpia-skus (options table only)
-  -> GET /api/channels/accounts
-  -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
-  -> GET /api/channels/product-mappings
-  -> GET/PUT product and option candidate/confirmation endpoints
-  -> GET /api/channels/product-mappings/recipe-automation/preview
-  -> POST /api/channels/product-mappings/recipe-automation/apply
-  -> queryKeys.products.operations, inventory, channelProductMappings
-```
-
-## State Rules
+## Domain Contracts
 
 - `MasterProduct` is KidItem product metadata; `ProductVariant` is a sellable
   KidItem option. Neither is a physical Sellpia inventory row.
-- `/product-hub` preserves the staged operations composition. Metrics without
-  a product-level fact source render `미수집`; page-derived metrics say
-  `현재 페이지` explicitly.
-- Variant recipes are complete atomic replacements of confirmed
-  `SellpiaInventorySku` components and positive integer quantities.
 - `/product-hub/options` owns the complete read-only Sellpia inventory
   collection and publishes product/variant destinations only from confirmed,
   organization-fenced component relations.
 - Matching confirms channel listing -> `MasterProduct` before channel option ->
-  `ProductVariant`. Candidate evidence never confirms identity.
-- Matching may explicitly apply a version-fenced deterministic preview to
-  create only empty central recipes with one Sellpia component and a backend-
-  verified positive integer quantity. Safe child variants apply independently;
-  existing recipes and every review/blocked child remain untouched.
-
-## Boundary Rules
-
-- Product list/detail and its recipe picker use Products APIs. They never call
-  the Inventory SKU collection route directly.
-- Do not infer product, variant, or channel identity from display text,
-  barcode, normalized name, or candidate rank. Recipe automation never changes
-  those identity links; it may select one physical SKU for an empty recipe only
-  through name-cross-checked exact identifiers, unique exact names, or a unique
-  high-confidence name with sufficient runner-up margin. Unverified pack/BOM,
-  duplicates, conflicts, raw aliases, close-ranked names, and AI stay review-only.
-- Do not edit Sellpia stock, source prices, or channel prices in catalog routes.
-- Do not recreate channel-owned component quantities. Manual complete recipe
-  edits live on product detail; matching exposes only the narrow deterministic
-  create-if-empty command.
-- Never send `organizationId`; backend session scope owns it.
+  `ProductVariant`; candidates and ranking are evidence only and never confirm
+  either identity.
+- Products owns complete atomic variant recipes. Manual replacement lives on
+  product detail. Matching exposes only an explicit version-fenced command that
+  may create an empty recipe with one active Sellpia component and a verified
+  positive integer channel-to-Sellpia pack ratio.
+- Automatic recipe evidence must select one SKU without conflict through a
+  name-compatible exact code or physical barcode, a unique exact normalized
+  name, or a unique contained/fuzzy name above the domain thresholds and
+  runner-up margin. Ambiguous identifiers, incompatible names, unverifiable
+  pack/BOM data, raw aliases, close-ranked names, and AI remain review-only.
+- Safe child variants apply independently; existing links and recipes are never
+  overwritten. Recipe automation never changes product or variant identity.
+- Product list/detail and its focused recipe picker use Products APIs; only the
+  options route reads the full Inventory SKU collection.
+- Catalog routes do not edit Sellpia stock, source prices, or channel prices.
 - Sourcing candidates, generated content workspaces, marketplace ingest,
   Rocket operations, and purchase orders remain in their owner domains.
