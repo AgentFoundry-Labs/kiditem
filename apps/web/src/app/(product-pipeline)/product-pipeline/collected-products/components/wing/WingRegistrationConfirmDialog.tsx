@@ -152,7 +152,7 @@ export default function WingRegistrationConfirmDialog({
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400"
               />
             </Field>
-            <Field label="재고수량">
+            <Field label="재고수량" hint="판매 가능 수량">
               <input
                 type="text"
                 inputMode="numeric"
@@ -209,10 +209,12 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block">
+    // grid cell 에서 세로로 stretch 되므로 flex-col + mt-auto 로 입력칸을 바닥에 정렬한다.
+    // hint 유무·줄수가 달라도(예: 재고칸 hint 가 없거나 짧아도) 한 행의 입력칸 baseline 이 맞는다.
+    <label className="flex h-full flex-col">
       <span className="mb-1 block text-[12px] font-black text-slate-700">{label}</span>
       {hint && <span className="mb-1 block text-[11px] font-semibold text-slate-400">{hint}</span>}
-      {children}
+      <div className="mt-auto">{children}</div>
     </label>
   );
 }

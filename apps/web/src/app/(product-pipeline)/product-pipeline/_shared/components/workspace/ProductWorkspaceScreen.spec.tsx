@@ -546,6 +546,33 @@ describe('ProductWorkspaceScreen', () => {
       ));
     });
 
+    it('saves basic information to the candidate itself when no preparation exists', async () => {
+      // 회귀: 준비(ProductPreparation)가 0행인 후보는 예전에 `수정` 저장 콜백이
+      // 아예 제공되지 않아 기본정보가 읽기 전용이었다. 이제 채널 계정 선택 없이도
+      // 후보 자체(PATCH /api/sourcing/candidates/:id/basic-info)에 저장한다.
+      apiClientPatchMock.mockResolvedValue({ ok: true });
+
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      await screen.findByTestId('product-tab-content');
+      expect(productTabContentProps.at(-1)?.onCommitBasicInfo).toBeDefined();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'mock-save-basic' }));
+
+      await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
+        '/api/sourcing/candidates/candidate-1/basic-info',
+        { name: '수정 상품명', salePrice: 13900 },
+      ));
+    });
+
     it('restores a previously saved gallery from registrationImages.thumbnail', async () => {
       renderWithQueryClient(
         <ProductWorkspaceScreen

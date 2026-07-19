@@ -198,6 +198,70 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     expect(row?.productPreparations).toEqual([preparation]);
     expect(row?.productPreparation).not.toHaveProperty('masterId');
   });
+
+  describe('updateManualBasics', () => {
+    it('merges into prior manualBasics and syncs real columns, org-scoped', async () => {
+      const prisma = {
+        sourcingCandidate: {
+          findFirst: vi.fn().mockResolvedValue({
+            rawData: { source_platform: 'ALIBABA_1688', manualBasics: { keywords: ['기존키워드'], salePrice: 4900 } },
+          }),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+      };
+      const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+
+      const ok = await repository.updateManualBasics({
+        organizationId: 'org-1',
+        candidateId: 'candidate-1',
+        basics: { name: '새 상품명', category: '문구 > 키링', description: '설명', tags: ['태그'], salePrice: 5900 },
+      });
+
+      expect(ok).toBe(true);
+      // 조회는 id+org+isDeleted 로 스코프(IDOR 방지).
+      expect(prisma.sourcingCandidate.findFirst).toHaveBeenCalledWith({
+        where: { id: 'candidate-1', organizationId: 'org-1', isDeleted: false },
+        select: { rawData: true },
+      });
+      const updateArg = prisma.sourcingCandidate.updateMany.mock.calls[0][0];
+      expect(updateArg.where).toEqual({ id: 'candidate-1', organizationId: 'org-1', isDeleted: false });
+      // 부분 저장이 기존 키워드를 지우지 않고 salePrice 만 갱신한다.
+      expect(updateArg.data.rawData.manualBasics).toEqual({
+        keywords: ['기존키워드'],
+        salePrice: 5900,
+        name: '새 상품명',
+        category: '문구 > 키링',
+        description: '설명',
+        tags: ['태그'],
+      });
+      // 스크랩 원본(source_platform)은 보존된다.
+      expect(updateArg.data.rawData.source_platform).toBe('ALIBABA_1688');
+      // 카드/헤더가 읽는 실컬럼도 함께 갱신한다.
+      expect(updateArg.data.name).toBe('새 상품명');
+      expect(updateArg.data.category).toBe('문구 > 키링');
+      expect(updateArg.data.description).toBe('설명');
+      expect(updateArg.data.tags).toEqual(['태그']);
+    });
+
+    it('returns false without writing when the candidate is missing', async () => {
+      const prisma = {
+        sourcingCandidate: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          updateMany: vi.fn(),
+        },
+      };
+      const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+
+      const ok = await repository.updateManualBasics({
+        organizationId: 'org-1',
+        candidateId: 'missing',
+        basics: { salePrice: 1000 },
+      });
+
+      expect(ok).toBe(false);
+      expect(prisma.sourcingCandidate.updateMany).not.toHaveBeenCalled();
+    });
+  });
 });
 
 function listPrisma() {

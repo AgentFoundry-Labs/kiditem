@@ -521,6 +521,27 @@ export class SourcingService {
     };
   }
 
+  /**
+   * `ProductPreparation` 없이도 후보(수집상품)의 기본정보를 저장한다.
+   *
+   * 채널 계정 선택(=등록 준비)을 강제하지 않고 후보 자체에 수기 편집을 남긴다.
+   * 준비가 생기면 registrationInput 이 이 값을 이어받아 우선한다(프리젠터 우선순위).
+   */
+  async updateCandidateBasicInfo(
+    candidateId: string,
+    organizationId: string,
+    input: Record<string, unknown>,
+  ): Promise<{ ok: true }> {
+    const { basePreparationUpdatedAt: _ignored, ...basics } = input;
+    const updated = await this.candidates.updateManualBasics({
+      organizationId,
+      candidateId,
+      basics,
+    });
+    if (!updated) throw new NotFoundException('Sourcing candidate not found');
+    return { ok: true };
+  }
+
   // ── helpers ──
   private extractCostCny(data: FlatExtensionData): number | null {
     if (data.price != null) {

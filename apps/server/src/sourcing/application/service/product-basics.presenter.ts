@@ -93,6 +93,12 @@ const strings = (value: unknown): string[] =>
 const num = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0;
 
+/** 앞 값이 비어 있으면 뒤 값으로 폴백하는 문자열 배열 선택. */
+const pickStrings = (primary: unknown, fallback: unknown): string[] => {
+  const primaryValues = strings(primary);
+  return primaryValues.length > 0 ? primaryValues : strings(fallback);
+};
+
 /**
  * 후보의 content workspace 에 저장된 대표 썸네일. `ProductPreparation` 이 없는
  * 후보는 여기에만 대표를 남길 수 있어서, 이 값이 없으면 저장한 대표가 재진입 후
@@ -124,6 +130,11 @@ export function buildProductBasics({
   sellpiaSalePrice?: number | null;
 }): ProductBasics {
   const raw = toRecord(candidate.rawData);
+  // `ProductPreparation` 이 없는 후보가 기본정보를 저장하는 곳. 후보 워크스페이스
+  // 화면의 `수정` 저장이 여기에 쓴다(= `PATCH /api/sourcing/candidates/:id/basic-info`).
+  // 우선순위는 준비 registrationInput > 수기 manualBasics > 스크랩 raw/컬럼 이다 —
+  // 준비가 생기면 registrationInput 이 이기고, 그 전까지는 manualBasics 가 이긴다.
+  const manual = toRecord(raw.manualBasics);
   const input = toRecord(preparation?.registrationInput);
   const inputTags = strings(input.tags);
   const inputOptions = strings(input.optionNames);
@@ -138,8 +149,9 @@ export function buildProductBasics({
   ].filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
 
   // 수기 입력이 항상 이긴다. 셀피아 판매가는 수기 값이 비어 있을 때만 채우는
-  // 폴백이며, 사용자가 고친 값을 절대 덮어쓰지 않는다.
-  const inputSalePrice = num(input.salePrice);
+  // 폴백이며, 사용자가 고친 값을 절대 덮어쓰지 않는다. 준비 registrationInput 이
+  // 없으면 후보 수기 저장값(manual)도 사용자 입력으로 취급한다.
+  const inputSalePrice = num(input.salePrice) || num(manual.salePrice);
   const fallbackSalePrice = num(sellpiaSalePrice);
   const salePrice = inputSalePrice > 0 ? inputSalePrice : fallbackSalePrice;
   const salePriceSource: SalePriceSource =
@@ -149,25 +161,27 @@ export function buildProductBasics({
     name: str(input.name) ?? str(input.title) ?? candidate.name,
     category: str(input.category) ?? candidate.category ?? '',
     description: str(input.description) ?? candidate.description ?? '',
-    target: str(input.target) ?? str(raw.target) ?? '',
-    ageGroup: str(input.ageGroup) ?? str(raw.ageGroup) ?? '',
+    target: str(input.target) ?? str(manual.target) ?? str(raw.target) ?? '',
+    ageGroup: str(input.ageGroup) ?? str(manual.ageGroup) ?? str(raw.ageGroup) ?? '',
     tags: inputTags.length > 0 ? inputTags : strings(candidate.tags),
-    keywords: strings(input.keywords),
-    optionNames: inputOptions.length > 0 ? inputOptions : strings(raw.optionNames ?? raw.options),
-    kcCertificationStatus: str(input.kcCertificationStatus) ?? str(raw.kcCertificationStatus) ?? '',
-    kcCertificationNumber: str(input.kcCertificationNumber) ?? str(raw.kcCertificationNumber) ?? '',
-    kcCertificationImageUrl: str(input.kcCertificationImageUrl) ?? str(raw.kcCertificationImageUrl) ?? '',
-    productSize: str(input.productSize) ?? str(raw.productSize) ?? '',
-    colorVariantStatus: str(input.colorVariantStatus) ?? str(raw.colorVariantStatus) ?? '',
-    colorVariantNames: str(input.colorVariantNames) ?? str(raw.colorVariantNames) ?? '',
-    boxSetStatus: str(input.boxSetStatus) ?? str(raw.boxSetStatus) ?? '',
-    boxSetQuantity: str(input.boxSetQuantity) ?? str(raw.boxSetQuantity) ?? '',
-    originalPrice: num(input.originalPrice),
+    keywords: pickStrings(input.keywords, manual.keywords),
+    optionNames: inputOptions.length > 0
+      ? inputOptions
+      : pickStrings(manual.optionNames, raw.optionNames ?? raw.options),
+    kcCertificationStatus: str(input.kcCertificationStatus) ?? str(manual.kcCertificationStatus) ?? str(raw.kcCertificationStatus) ?? '',
+    kcCertificationNumber: str(input.kcCertificationNumber) ?? str(manual.kcCertificationNumber) ?? str(raw.kcCertificationNumber) ?? '',
+    kcCertificationImageUrl: str(input.kcCertificationImageUrl) ?? str(manual.kcCertificationImageUrl) ?? str(raw.kcCertificationImageUrl) ?? '',
+    productSize: str(input.productSize) ?? str(manual.productSize) ?? str(raw.productSize) ?? '',
+    colorVariantStatus: str(input.colorVariantStatus) ?? str(manual.colorVariantStatus) ?? str(raw.colorVariantStatus) ?? '',
+    colorVariantNames: str(input.colorVariantNames) ?? str(manual.colorVariantNames) ?? str(raw.colorVariantNames) ?? '',
+    boxSetStatus: str(input.boxSetStatus) ?? str(manual.boxSetStatus) ?? str(raw.boxSetStatus) ?? '',
+    boxSetQuantity: str(input.boxSetQuantity) ?? str(manual.boxSetQuantity) ?? str(raw.boxSetQuantity) ?? '',
+    originalPrice: num(input.originalPrice) || num(manual.originalPrice),
     salePrice,
     salePriceSource,
-    discountRate: num(input.discountRate),
-    rocketBundleQuantity: num(input.rocketBundleQuantity),
-    rocketUnitCost: num(input.rocketUnitCost),
+    discountRate: num(input.discountRate) || num(manual.discountRate),
+    rocketBundleQuantity: num(input.rocketBundleQuantity) || num(manual.rocketBundleQuantity),
+    rocketUnitCost: num(input.rocketUnitCost) || num(manual.rocketUnitCost),
     thumbnailUrls: [...new Set(thumbnailUrls)],
     thumbnailPreviewUrls: [...new Set(thumbnailPreviewUrls)],
     registrationImages: {

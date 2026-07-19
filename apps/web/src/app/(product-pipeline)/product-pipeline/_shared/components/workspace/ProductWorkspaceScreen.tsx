@@ -253,8 +253,23 @@ export function ProductWorkspaceScreen({
     },
   });
 
+  // 준비(ProductPreparation)가 없는 후보는 후보 자체에 저장한다. 채널 계정 선택을
+  // 강제하지 않고도 기본정보를 편집·저장할 수 있게 한다.
+  const updateCandidateBasicInfoMutation = useMutation({
+    mutationFn: (input: UpdateProductBasicsInput) =>
+      candidatesApi.updateCandidateBasicInfo(productId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
+    },
+  });
+
   const handleCommitBasicInfo = async (input: UpdateProductBasicsInput) => {
-    await updateBasicInfoMutation.mutateAsync(input);
+    if (editablePreparationId) {
+      await updateBasicInfoMutation.mutateAsync(input);
+    } else {
+      await updateCandidateBasicInfoMutation.mutateAsync(input);
+    }
   };
 
   const kcAutoFilledRef = useRef<string | null>(null);
@@ -643,7 +658,9 @@ export function ProductWorkspaceScreen({
               basicInfo={product?.basicInfo ?? null}
               costCny={product?.cost_cny ?? null}
               updateField={updateField}
-              onCommitBasicInfo={editablePreparationId ? handleCommitBasicInfo : undefined}
+              // 준비가 있으면 준비에, 없어도 후보 워크스페이스(수집상품)면 후보에 저장한다.
+              // 등록상품(showCandidateActions=false)은 후보가 아니라 저장 대상이 없어 읽기 전용.
+              onCommitBasicInfo={editablePreparationId || showCandidateActions ? handleCommitBasicInfo : undefined}
               nameLength={nameLength}
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}

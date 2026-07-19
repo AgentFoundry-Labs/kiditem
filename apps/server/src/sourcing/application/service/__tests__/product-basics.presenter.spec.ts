@@ -163,6 +163,95 @@ describe('buildProductBasics', () => {
     });
   });
 
+  describe('rawData.manualBasics 수기 오버레이 (preparation 없는 후보 저장 경로)', () => {
+    const candidate = {
+      id: 'candidate-1',
+      name: '4000과일바구니딸깍이키링',
+      description: '수집 설명',
+      category: '수집 카테고리',
+      tags: ['수집태그'],
+      thumbnailUrl: null,
+      imageUrl: null,
+      images: [],
+    };
+
+    it('preparation 이 없으면 manualBasics 로 저장한 값을 되읽는다', () => {
+      // 회귀: ProductPreparation 이 0행인 후보는 채널 계정 선택 없이 후보 자체에
+      // 기본정보를 저장한다(PATCH /api/sourcing/candidates/:id/basic-info →
+      // rawData.manualBasics). 프리젠터가 이 오버레이를 읽지 못하면 저장 후
+      // 재진입 시 값이 사라진다.
+      const result = buildProductBasics({
+        candidate: {
+          ...candidate,
+          rawData: {
+            manualBasics: {
+              keywords: ['과일바구니', '키링'],
+              target: '초등학생',
+              ageGroup: 'age-8-plus',
+              kcCertificationStatus: 'exists',
+              kcCertificationNumber: 'CB061R1234-1001',
+              productSize: '높이: 5cm',
+              colorVariantStatus: 'multiple',
+              colorVariantNames: '핑크, 옐로',
+              boxSetStatus: 'none',
+              optionNames: ['단품'],
+              salePrice: 4900,
+              originalPrice: 5900,
+              discountRate: 17,
+              rocketBundleQuantity: 2,
+              rocketUnitCost: 1500,
+            },
+          },
+        },
+        preparation: null,
+      });
+
+      expect(result.keywords).toEqual(['과일바구니', '키링']);
+      expect(result.target).toBe('초등학생');
+      expect(result.ageGroup).toBe('age-8-plus');
+      expect(result.kcCertificationStatus).toBe('exists');
+      expect(result.kcCertificationNumber).toBe('CB061R1234-1001');
+      expect(result.productSize).toBe('높이: 5cm');
+      expect(result.colorVariantStatus).toBe('multiple');
+      expect(result.colorVariantNames).toBe('핑크, 옐로');
+      expect(result.optionNames).toEqual(['단품']);
+      expect(result.salePrice).toBe(4900);
+      expect(result.salePriceSource).toBe('input');
+      expect(result.originalPrice).toBe(5900);
+      expect(result.discountRate).toBe(17);
+      expect(result.rocketBundleQuantity).toBe(2);
+      expect(result.rocketUnitCost).toBe(1500);
+    });
+
+    it('manualBasics 판매가는 셀피아 폴백보다 우선한다(수기 입력 취급)', () => {
+      const result = buildProductBasics({
+        candidate: { ...candidate, rawData: { manualBasics: { salePrice: 4900 } } },
+        preparation: null,
+        sellpiaSalePrice: 4000,
+      });
+
+      expect(result.salePrice).toBe(4900);
+      expect(result.salePriceSource).toBe('input');
+    });
+
+    it('preparation registrationInput 이 있으면 manualBasics 보다 우선한다', () => {
+      const result = buildProductBasics({
+        candidate: {
+          ...candidate,
+          rawData: { manualBasics: { keywords: ['수기키워드'], salePrice: 4900 } },
+        },
+        preparation: {
+          registrationInput: { keywords: ['등록키워드'], salePrice: 9900 },
+          selectedThumbnailUrl: null,
+          selectedDetailPageGenerationId: null,
+        },
+      });
+
+      expect(result.keywords).toEqual(['등록키워드']);
+      expect(result.salePrice).toBe(9900);
+    });
+  });
+
   describe('registrationImages', () => {
     const candidate = {
       id: 'candidate-1',

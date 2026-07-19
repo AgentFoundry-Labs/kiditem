@@ -705,6 +705,17 @@ export const candidatesApi = {
   },
   quickProcess: (id: string, task: QuickProcessTask = 'all') =>
     apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
+  /**
+   * `ProductPreparation` 이 없는 후보의 기본정보를 후보 자체에 저장한다.
+   * 채널 계정 선택 없이도 저장 가능하며, 준비가 생기면 registrationInput 이 이어받는다.
+   */
+  updateCandidateBasicInfo: (candidateId: string, body: UpdateProductBasicsInput) => {
+    const { basePreparationUpdatedAt: _ignored, ...basics } = body;
+    return apiClient.patch<{ ok: true }>(
+      `/api/sourcing/candidates/${encodeURIComponent(candidateId)}/basic-info`,
+      basics,
+    );
+  },
   updateBasicInfo: (preparationId: string, body: UpdateProductBasicsInput) => {
     const { basePreparationUpdatedAt, ...registrationInput } = body;
     return apiClient.patch<ProductPreparationCommandResult>(
