@@ -172,6 +172,129 @@ export class ProductRegistrationService {
     }
   }
 
+  /**
+   * 이미 마켓에 등록된 상품을 우리 등록상품으로 확정한다.
+   *
+   * 쿠팡 WING 등록은 Open API 가 아니라 확장이 WING 화면을 직접 조작해 수행한다.
+   * 그래서 서버가 provider create 를 부르는 `submit()` 경로를 탈 수 없다. 대신
+   * **이미 발급된 등록상품ID를 근거로** 같은 finalize 트랜잭션(=`ChannelListing` 생성)만
+   * 재사용한다. provider 호출은 일어나지 않는다.
+   *
+   * 두 갈래가 이 경로를 쓴다:
+   *  - 확장이 자동 제출 후 완료를 **확증**하고 등록상품ID를 돌려준 경우
+   *  - 사용자가 WING 에서 직접 등록한 뒤 등록상품ID를 입력해 "등록됨으로 표시" 한 경우
+   *
+   * `externalListingId` 는 사용자/확장이 주는 값이므로 신뢰 경계다. 여기서는 형식만
+   * 검사하고, 소유권·중복·교차 후보 충돌은 채널의 `resolveListing` 이 판정한다.
+   */
+  async confirmExternalRegistration(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    input: {
+      channelAccountId: string;
+      displayName: string;
+      externalListingId: string;
+      channel?: string;
+      evidence?: unknown;
+    },
+  ): Promise<ProductPreparationCommandResult> {
+    const externalListingId = input.externalListingId.trim();
+    if (!externalListingId) {
+      throw new Error('등록상품ID가 비어 있습니다.');
+    }
+
+    const draft = await this.preparations.createOrGetActiveDraft(
+      {
+        organizationId,
+        sourceCandidateId: candidateId,
+        createdByUserId: userId,
+        input: {
+          channelAccountId: input.channelAccountId,
+          displayName: input.displayName,
+          registrationInput: {
+            source: 'coupang-wing-extension',
+            externalListingId,
+            evidence: input.evidence ?? null,
+          },
+        },
+      },
+      (tx) => this.contentWorkspaces.ensureCandidateWorkspace(tx, {
+        organizationId,
+        sourceCandidateId: candidateId,
+        displayName: input.displayName,
+        createdByUserId: userId,
+      }),
+      (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
+    );
+
+    const claim = await this.preparations.claimForSubmission(
+      organizationId,
+      draft.preparationId,
+      userId,
+      (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
+    );
+    if (claim.status === 'registered') return claim;
+    const submission = claim;
+    const submissionLeaseToken = submission.submissionLeaseToken;
+    if (!submissionLeaseToken) {
+      throw new Error('Claimed product preparation is missing its submission lease.');
+    }
+
+    try {
+      // provider create 를 부르지 않는다. 외부에서 이미 끝난 등록의 결과만 기록한다.
+      await this.preparations.recordProviderResult(
+        organizationId,
+        draft.preparationId,
+        submissionLeaseToken,
+        {
+          providerSubmissionId: null,
+          externalListingId,
+          channel: input.channel?.trim() || 'coupang',
+          rawResult: {
+            source: 'coupang-wing-extension',
+            confirmedAt: new Date().toISOString(),
+            evidence: input.evidence ?? null,
+          },
+        },
+      );
+    } catch (error) {
+      return this.fail(organizationId, draft.preparationId, submissionLeaseToken, error);
+    }
+
+    try {
+      return await this.preparations.finalizeRegistered(
+        organizationId,
+        draft.preparationId,
+        submissionLeaseToken,
+        async (tx) => {
+          const listing = await this.channels.resolveListing(tx, {
+            ...this.toSubmissionInput(organizationId, submission),
+            externalListingId,
+            displayName: submission.displayName,
+          });
+          await this.contentWorkspaces.branchToListing(tx, {
+            organizationId,
+            sourceWorkspaceId: submission.sourceContentWorkspaceId,
+            listingId: listing.listingId,
+            displayName: submission.displayName,
+            createdByUserId: userId,
+            selectedThumbnailUrl: submission.selectedThumbnailUrl,
+            selectedThumbnailGenerationId: submission.selectedThumbnailGenerationId,
+            selectedThumbnailGenerationCandidateId:
+              submission.selectedThumbnailGenerationCandidateId,
+            selectedDetailPageArtifactId: submission.selectedDetailPageArtifactId,
+            selectedDetailPageRevisionId: submission.selectedDetailPageRevisionId,
+            selectedDetailPageGenerationId: submission.selectedDetailPageGenerationId,
+          });
+          return { listingId: listing.listingId };
+        },
+      );
+    } catch (error) {
+      return this.fail(organizationId, draft.preparationId, submissionLeaseToken, error);
+    }
+  }
+
   async cancel(
     organizationId: string,
     preparationId: string,

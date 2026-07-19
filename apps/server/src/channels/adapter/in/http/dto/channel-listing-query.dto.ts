@@ -31,3 +31,13 @@ export class ChannelListingQueryDto extends PaginationQueryDto {
   @IsIn(CHANNEL_LISTING_TABS)
   tab?: (typeof CHANNEL_LISTING_TABS)[number];
 }
+
+/**
+ * 삭제 게이트 입력. 비밀번호 외에 아무것도 받지 않는다 —
+ * 대상 판정에 쓰이는 값은 전부 서버가 DB 에서 읽는다.
+ */
+export class ChannelListingDeletionDto {
+  @IsString()
+  @MaxLength(128)
+  password!: string;
+}

@@ -703,6 +703,26 @@ export const candidatesApi = {
     }
     return { preparationId: result.preparationId, status: result.status };
   },
+  /**
+   * 이미 마켓에 등록된 상품을 등록상품으로 확정한다.
+   *
+   * 쿠팡 WING 등록은 확장이 화면을 조작해 수행하므로 서버의 provider create 경로를
+   * 탈 수 없다. 이 호출은 **이미 발급된 등록상품ID** 를 근거로 `ChannelListing` 만
+   * 만들어 등록상품 목록에 올린다. 서버가 provider 를 호출하지 않는다.
+   */
+  confirmExternalRegistration: (
+    candidateId: string,
+    body: {
+      channelAccountId: string;
+      displayName: string;
+      externalListingId: string;
+      channel?: string;
+    },
+  ) =>
+    apiClient.post<{ preparationId: string; status: string; listingId?: string }>(
+      `/api/sourcing/candidates/${candidateId}/registration/confirm-external`,
+      body,
+    ),
   quickProcess: (id: string, task: QuickProcessTask = 'all') =>
     apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
   /**

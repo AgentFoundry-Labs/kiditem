@@ -517,6 +517,15 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "deleteWingProduct") {
+    deleteWingProduct(msg)
+      .then((result) => sendResponse(result))
+      .catch((e) =>
+        sendResponse({ ok: false, error: e?.message || "WING 상품 삭제 실패" }),
+      );
+    return true;
+  }
+
   if (msg.action === "registerToWingForm") {
     registerToWingForm(msg)
       .then((result) => sendResponse(result))
@@ -755,6 +764,9 @@ async function registerToWingForm(message) {
   if (!product || typeof product !== "object") {
     return { ok: false, error: "product 데이터가 없습니다." };
   }
+  // ⚠️ 웹의 등록 확인 모달에서 "상품등록까지 자동 실행"을 켠 경우에만 true 가 실려 온다.
+  //    엄격한 === true 비교로만 켠다. 값이 없거나 truthy 한 다른 값이면 제출하지 않는다.
+  const autoSubmit = message.autoSubmit === true;
   const url =
     "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
   const tab = await interactiveTabs.createTab({
@@ -768,6 +780,7 @@ async function registerToWingForm(message) {
     const fill = await chrome.tabs.sendMessage(tab.id, {
       action: "fillWingForm",
       product,
+      autoSubmit,
     });
     // 채움이 실패했으면 성공으로 보고하지 않는다. 예전에는 ok:true 로 덮어써서
     // "폼은 열렸는데 아무것도 안 채워졌고 에러도 없는" 상태가 됐다.
@@ -779,7 +792,56 @@ async function registerToWingForm(message) {
         error: fill?.error || "WING 폼 자동 채우기에 실패했습니다. 열린 탭에서 직접 입력해 주세요.",
       };
     }
-    return { ok: true, tabId: tab.id, fill };
+    // 제출까지 요청받았으면 제출 결과를 그대로 올려보낸다. 성공을 확증하지 못한 경우
+    // (status:'unknown') 웹이 등록상품으로 올리지 않도록 submission 을 그대로 전달한다.
+    return { ok: true, tabId: tab.id, fill, submission: fill.submission || { attempted: false } };
+  } catch (e) {
+    return {
+      ok: false,
+      tabId: tab.id,
+      error: `${e?.message || "content script 미응답"} — 확장을 리로드(chrome://extensions)한 뒤 다시 시도하세요.`,
+    };
+  }
+}
+
+/**
+ * 등록상품 1건을 WING 에서 삭제한다. ⚠️ 되돌릴 수 없다.
+ *
+ * 웹은 **서버가 인가한** externalId 만 넘긴다(사용자가 화면에서 고른 값이 아니다).
+ * 여기서는 그 ID 로 검색된 목록 화면을 열어 content script 에 넘기기만 한다.
+ * 대상이 정확히 1건이 아니면 content script 가 아무것도 하지 않고 실패로 돌려준다.
+ */
+async function deleteWingProduct(message) {
+  const externalId = String(message?.externalId || "").trim();
+  if (!/^\d{6,20}$/.test(externalId)) {
+    return { ok: false, error: "삭제 대상 등록상품ID가 올바르지 않습니다." };
+  }
+  // 검색어를 URL 에 실어 대상 1건만 남은 목록을 연다. 전체 목록에서 찾게 하면
+  // 페이지네이션 때문에 행을 못 찾거나 동명이인 행이 섞인다.
+  const url =
+    "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list" +
+    `?searchType=VENDOR_INVENTORY_ID&keyword=${encodeURIComponent(externalId)}`;
+  const tab = await interactiveTabs.createTab({
+    url,
+    reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
+  });
+  await waitForTabComplete(tab.id, 60000);
+  await new Promise((r) => setTimeout(r, 2500));
+  try {
+    const result = await chrome.tabs.sendMessage(tab.id, {
+      action: "deleteWingProduct",
+      externalId,
+      displayName: message?.displayName || null,
+    });
+    if (!result?.ok) {
+      return {
+        ok: false,
+        tabId: tab.id,
+        result,
+        error: result?.error || "WING 상품 삭제에 실패했습니다. 열린 탭에서 직접 확인하세요.",
+      };
+    }
+    return { ok: true, tabId: tab.id, result };
   } catch (e) {
     return {
       ok: false,

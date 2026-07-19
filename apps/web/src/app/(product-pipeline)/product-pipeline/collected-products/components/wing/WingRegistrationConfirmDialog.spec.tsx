@@ -16,6 +16,7 @@ const draft = {
     origPrice: 5900,
     stock: 100,
   },
+  channelAccountId: '11111111-1111-4111-8111-111111111111',
 } satisfies WingRegistrationDraft;
 
 describe('WingRegistrationConfirmDialog', () => {

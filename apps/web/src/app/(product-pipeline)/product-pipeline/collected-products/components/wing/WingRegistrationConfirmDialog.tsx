@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Store, X } from 'lucide-react';
+import { AlertTriangle, Loader2, Store, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   validateWingRegistrationOverrides,
@@ -30,14 +30,19 @@ export default function WingRegistrationConfirmDialog({
   draft: WingRegistrationDraft | null;
   isSubmitting: boolean;
   onCancel: () => void;
-  onConfirm: (overrides: WingRegistrationOverrides) => void;
+  onConfirm: (overrides: WingRegistrationOverrides, autoSubmit: boolean) => void;
 }) {
   const [overrides, setOverrides] = useState<WingRegistrationOverrides | null>(null);
+  // ⚠️ 기본값은 반드시 OFF. 켜야만 확장이 WING 의 '상품등록' 버튼까지 누른다.
+  const [autoSubmit, setAutoSubmit] = useState(false);
 
   // 초안이 바뀌면(=다른 상품을 열면) 입력을 그 상품의 기본값으로 되돌린다.
   // 이전 상품에서 고친 값이 남아 있으면 엉뚱한 상품에 실린다.
+  // 자동 제출 옵트인도 함께 끈다 — 이전 상품에서 켠 값이 다음 상품에 남으면
+  // 확인 없이 쿠팡에 등록되는 사고가 난다.
   useEffect(() => {
     setOverrides(draft ? { ...draft.overrides } : null);
+    setAutoSubmit(false);
   }, [draft]);
 
   if (!draft || !overrides) return null;
@@ -175,24 +180,71 @@ export default function WingRegistrationConfirmDialog({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isSubmitting}
-            className="inline-flex h-10 items-center rounded-lg border border-slate-200 px-4 text-sm font-black text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+        <div className="space-y-3 border-t border-slate-200 px-5 py-4">
+          {/*
+            상품등록까지 자동 실행 — 옵트인.
+            꺼져 있으면 지금처럼 폼만 채우고 WING 탭을 열어 둔 채 멈춘다(기존 동작).
+            켜면 확장이 폼 하단 '상품등록'(수정 화면은 '수정 및 검수 요청')을 눌러
+            **쿠팡에 실제로 등록**한다. 되돌리려면 쿠팡에서 직접 삭제해야 한다.
+          */}
+          <label
+            className={cn(
+              'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition',
+              autoSubmit
+                ? 'border-rose-300 bg-rose-50'
+                : 'border-slate-200 bg-slate-50 hover:bg-slate-100',
+            )}
           >
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={() => onConfirm(overrides)}
-            disabled={isSubmitting || errors.length > 0}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSubmitting ? <Loader2 size={15} className="animate-spin" /> : <Store size={15} />}
-            확인하고 WING 등록 시작
-          </button>
+            <input
+              type="checkbox"
+              checked={autoSubmit}
+              disabled={isSubmitting}
+              onChange={(event) => setAutoSubmit(event.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-rose-600"
+            />
+            <span className="text-[12px] leading-relaxed">
+              <span className="block font-black text-slate-900">상품등록까지 자동 실행</span>
+              <span
+                className={cn(
+                  'block font-semibold',
+                  autoSubmit ? 'text-rose-700' : 'text-slate-500',
+                )}
+              >
+                {autoSubmit ? (
+                  <>
+                    <AlertTriangle size={12} className="mr-1 inline align-text-bottom" />
+                    켜짐 — 폼을 채운 뒤 <b>쿠팡에 실제로 등록됩니다.</b> 취소하려면 쿠팡에서 직접
+                    삭제해야 합니다.
+                  </>
+                ) : (
+                  '꺼짐 — 폼만 채우고 멈춥니다. WING 탭에서 내용을 확인한 뒤 직접 등록하세요.'
+                )}
+              </span>
+            </span>
+          </label>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isSubmitting}
+              className="inline-flex h-10 items-center rounded-lg border border-slate-200 px-4 text-sm font-black text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirm(overrides, autoSubmit)}
+              disabled={isSubmitting || errors.length > 0}
+              className={cn(
+                'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-50',
+                autoSubmit ? 'bg-rose-600 hover:bg-rose-700' : 'bg-[#ff5a1f] hover:bg-[#ef4f18]',
+              )}
+            >
+              {isSubmitting ? <Loader2 size={15} className="animate-spin" /> : <Store size={15} />}
+              {autoSubmit ? '확인하고 쿠팡에 등록' : '확인하고 WING 등록 시작'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

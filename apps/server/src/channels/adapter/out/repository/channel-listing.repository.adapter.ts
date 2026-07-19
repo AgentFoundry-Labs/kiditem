@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
+  ChannelListingDeletionTarget,
   ChannelListingListResult,
   ChannelListingQuery,
   ChannelListingRepositoryPort,
@@ -87,12 +88,20 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
           }
         : {}),
     };
+    /**
+     * 등록 최신순은 `createdAt` 기준이다.
+     *
+     * 예전에는 `updatedAt` 으로 정렬했는데, 카탈로그 재수집(`channel-catalog-identity-upsert`)이
+     * 배치 전체의 `updated_at` 을 NOW() 로 갱신한다. 그래서 새로 등록한 상품이 없어도
+     * 목록 순서가 통째로 뒤섞였고, "최종 등록일 최신순" 이라는 라벨과도 맞지 않았다.
+     * 등록 시점은 `createdAt` 만이 안정적으로 보존한다.
+     */
     const orderBy: Prisma.ChannelListingOrderByWithRelationInput[] =
       query.sort === 'oldest'
-        ? [{ updatedAt: 'asc' }, { id: 'asc' }]
+        ? [{ createdAt: 'asc' }, { id: 'asc' }]
         : query.sort === 'name_asc'
-          ? [{ displayName: 'asc' }, { updatedAt: 'desc' }]
-          : [{ updatedAt: 'desc' }, { id: 'desc' }];
+          ? [{ displayName: 'asc' }, { createdAt: 'desc' }]
+          : [{ createdAt: 'desc' }, { id: 'desc' }];
 
     const [total, rows, groupedCounts, accounts] = await this.prisma.$transaction([
       this.prisma.channelListing.count({ where }),
@@ -145,6 +154,48 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     });
     if (!row) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
     return toSummary(row);
+  }
+
+  async findDeletionTarget(
+    organizationId: string,
+    listingId: string,
+  ): Promise<ChannelListingDeletionTarget | null> {
+    // 단일 리소스 읽기는 { id, organizationId } 스코프다. id 만으로 찾으면 IDOR 이다.
+    const row = await this.prisma.channelListing.findFirst({
+      where: { id: listingId, organizationId },
+      select: {
+        id: true,
+        externalId: true,
+        displayName: true,
+        channelName: true,
+        channelAccountId: true,
+        sourceCandidateId: true,
+        isActive: true,
+        channelAccount: { select: { channel: true } },
+      },
+    });
+    if (!row) return null;
+    return {
+      id: row.id,
+      externalId: row.externalId,
+      displayName: row.displayName ?? row.channelName,
+      channel: row.channelAccount.channel,
+      channelAccountId: row.channelAccountId,
+      sourceCandidateId: row.sourceCandidateId,
+      isActive: row.isActive,
+    };
+  }
+
+  async deactivate(organizationId: string, listingId: string): Promise<void> {
+    // 하드 삭제하지 않는다. 주문/정산/광고가 이 리스팅을 참조하고 있고,
+    // 기존 '삭제됨' 탭이 isActive=false 를 그대로 읽는다.
+    const result = await this.prisma.channelListing.updateMany({
+      where: { id: listingId, organizationId },
+      data: { isActive: false, status: 'deleted' },
+    });
+    if (result.count !== 1) {
+      throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+    }
   }
 }
 

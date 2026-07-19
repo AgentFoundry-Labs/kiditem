@@ -1,7 +1,11 @@
 // wing-registration-fill.js
 // 쿠팡 WING 상품등록(formV2) 페이지 자동 채움 — 단일 상품 직접 등록.
-// background(service-worker)가 formV2 탭을 열고 { action: 'fillWingForm', product } 를 보내면
-// 리버스한 순서대로 폼을 채운다. ⚠️ 제출(상품등록)은 절대 자동으로 누르지 않는다 — 사용자가 확인 후 직접.
+// background(service-worker)가 formV2 탭을 열고 { action: 'fillWingForm', product, autoSubmit } 를 보내면
+// 리버스한 순서대로 폼을 채운다.
+//
+// ⚠️ 제출(상품등록)은 **기본적으로 절대 누르지 않는다**. 사용자가 확인 후 직접 누른다.
+//    웹의 등록 확인 모달에서 "상품등록까지 자동 실행"을 켠 경우에만 `autoSubmit: true` 가 실려 오고,
+//    그때만 submitWingForm() 이 폼 하단의 제출 버튼을 누른다. 옵트인이 아니면 버튼을 찾지도 않는다.
 //
 // product 형태(WingProduct, wing-registration-flow.ts):
 //   { categoryCell:"[64687] 생활용품>생활소품>열쇠고리/키홀더", productName, sellerProductName,
@@ -793,7 +797,139 @@
     return true;
   }
 
-  async function fillWingForm(product) {
+  /**
+   * ─────────────────────────────────────────────────────────────────────────
+   * 제출(상품등록) — 옵트인 전용. 이 아래 코드는 autoSubmit === true 일 때만 실행된다.
+   * ─────────────────────────────────────────────────────────────────────────
+   */
+
+  // 신규 등록 화면은 '상품등록', 이미 등록된 상품 수정 화면은 '수정 및 검수 요청'.
+  // **완전일치**로만 찾는다. 부분일치를 쓰면 '임시저장', '판매요청', 별점 위젯의 '등록' 이
+  // 전부 걸린다.
+  const SUBMIT_BUTTON_TEXTS = ['상품등록', '수정 및 검수 요청'];
+
+  /**
+   * ⚠️⚠️ 절대 누르면 안 되는 버튼들.
+   *
+   * 과거에 문서 전역에서 버튼을 찾다가 '페이지 별점주기' 위젯의 `등록`
+   * (`#report-rating-trigger`)을 눌러 "별점을 선택해주세요" 모달이 뜨고 이후 작업이
+   * 전부 막힌 이력이 있다. 완전일치 텍스트만으로도 '등록' != '상품등록' 이라 걸리지
+   * 않지만, 위젯 문구가 바뀌어도 안전하도록 id/class 기반 거부를 한 겹 더 둔다.
+   */
+  const FORBIDDEN_SUBMIT_PATTERN = /report-rating|rating|survey|feedback|nps/i;
+
+  // 눌렀을 때 등록이 아닌 다른 일이 벌어지는 버튼들. 실수로라도 대상이 되면 안 된다.
+  const NEVER_CLICK_TEXTS = ['임시저장', '판매요청', '삭제', '취소', '등록'];
+
+  function isForbiddenSubmitTarget(button) {
+    let node = button;
+    for (let i = 0; i < 6 && node; i += 1) {
+      const id = typeof node.id === 'string' ? node.id : '';
+      const className = typeof node.className === 'string' ? node.className : '';
+      if (FORBIDDEN_SUBMIT_PATTERN.test(id) || FORBIDDEN_SUBMIT_PATTERN.test(className)) {
+        return true;
+      }
+      node = node.parentElement;
+    }
+    return false;
+  }
+
+  /**
+   * 폼 하단 액션바의 제출 버튼을 찾는다.
+   *
+   * 범위를 좁히는 순서:
+   *   1) 화면에 보이는 버튼만(offsetParent)
+   *   2) 텍스트 **완전일치** (SUBMIT_BUTTON_TEXTS)
+   *   3) 별점/설문 위젯 조상 거부 (isForbiddenSubmitTarget)
+   *   4) 비활성 버튼 거부
+   * 여러 개가 남으면 문서 순서상 마지막(= 폼 하단 액션바)을 쓴다.
+   */
+  function findSubmitButton() {
+    const candidates = [...document.querySelectorAll('button')].filter((b) => {
+      const text = (b.textContent || '').trim();
+      if (!SUBMIT_BUTTON_TEXTS.includes(text)) return false;
+      // SUBMIT_BUTTON_TEXTS 가 나중에 넓어져도 이 문구들은 절대 통과하지 못하게 막는다.
+      if (NEVER_CLICK_TEXTS.includes(text)) return false;
+      if (b.offsetParent === null) return false;
+      if (isForbiddenSubmitTarget(b)) return false;
+      if (b.disabled === true) return false;
+      if (typeof b.hasAttribute === 'function' && b.hasAttribute('disabled')) return false;
+      return true;
+    });
+    return candidates.length ? candidates[candidates.length - 1] : null;
+  }
+
+  // 등록 성공 안내에서 등록상품ID(쿠팡 vendorInventoryId, 10자리 이상 숫자)를 뽑는다.
+  function extractRegisteredProductId() {
+    const fromUrl = /vendorInventoryId=(\d{8,})/.exec(location.href || '');
+    if (fromUrl) return fromUrl[1];
+    const body = (document.body && document.body.innerText) || '';
+    const match = /등록상품ID[^0-9]{0,10}(\d{8,})/.exec(body) || /상품번호[^0-9]{0,10}(\d{8,})/.exec(body);
+    return match ? match[1] : null;
+  }
+
+  const SUBMIT_SUCCESS_TEXTS = ['상품이등록되었습니다', '등록이완료', '등록되었습니다', '검수요청이완료'];
+
+  function hasSubmitSuccessText() {
+    const body = ((document.body && document.body.innerText) || '').replace(/\s+/g, '');
+    return SUBMIT_SUCCESS_TEXTS.some((t) => body.includes(t));
+  }
+
+  /**
+   * 폼 제출. 성공을 **확증하지 못하면 ok:false + status:'unknown'** 으로 돌려준다.
+   * 추측으로 성공을 보고하면 웹이 실제로 등록되지 않은 상품을 등록상품 목록에 올린다.
+   */
+  async function submitWingForm(log) {
+    const button = findSubmitButton();
+    if (!button) {
+      log('submit:noButton');
+      return {
+        attempted: true,
+        clicked: false,
+        ok: false,
+        status: 'no_button',
+        externalListingId: null,
+        error: '상품등록 버튼을 찾지 못했습니다. 열린 WING 탭에서 직접 등록해 주세요.',
+      };
+    }
+
+    const label = (button.textContent || '').trim();
+    log(`submit:click:${label}`);
+    button.click();
+
+    // 제출 직후 확인 모달이 뜨는 화면이 있다. 알려진 모달만 걷어낸다.
+    await sleep(1500);
+    if (dismissBlockingModal()) log('submit:dismissedModal');
+
+    for (let i = 0; i < 20; i += 1) {
+      if (hasSubmitSuccessText()) {
+        const externalListingId = extractRegisteredProductId();
+        log(externalListingId ? `submit:ok:${externalListingId}` : 'submit:ok:noId');
+        return {
+          attempted: true,
+          clicked: true,
+          ok: true,
+          status: 'registered',
+          label,
+          externalListingId,
+        };
+      }
+      await sleep(1000);
+    }
+
+    log('submit:unconfirmed');
+    return {
+      attempted: true,
+      clicked: true,
+      ok: false,
+      status: 'unknown',
+      label,
+      externalListingId: extractRegisteredProductId(),
+      error: '상품등록 버튼을 눌렀지만 완료 안내를 확인하지 못했습니다. WING 탭에서 등록 결과를 직접 확인해 주세요.',
+    };
+  }
+
+  async function fillWingForm(product, autoSubmit = false) {
     const steps = [];
     const log = (s) => steps.push(s);
     let detailUploadError = null;
@@ -970,16 +1106,23 @@
 
     // 상세페이지가 요청됐는데 최종 HTML 타입으로 적용되지 않았다면 전체 성공으로 보고하지 않는다.
     // 폼은 열린 채로 남겨 사용자가 보정할 수 있고, 웹에는 실패 이유와 steps 가 전달된다.
+    // ⚠️ 이 경우 autoSubmit 이 켜져 있어도 제출하지 않는다. 반쯤 채워진 폼을 쿠팡에 올리면 안 된다.
     if (detailUploadError) {
       return { ok: false, error: detailUploadError, steps };
     }
 
-    return { ok: true, steps };
+    // 9) 제출 — **옵트인일 때만**. autoSubmit 이 아니면 제출 버튼을 찾지도 않는다.
+    if (autoSubmit === true) {
+      const submission = await submitWingForm(log);
+      return { ok: true, steps, submission };
+    }
+
+    return { ok: true, steps, submission: { attempted: false } };
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg && msg.action === 'fillWingForm') {
-      fillWingForm(msg.product || {})
+      fillWingForm(msg.product || {}, msg.autoSubmit === true)
         .then((r) => sendResponse(r))
         .catch((e) => sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }));
       return true; // async response

@@ -440,6 +440,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
       product: product(),
       overrides: buildWingRegistrationOverrides(product()),
       extensionId: 'ext-1',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
       detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
     };
 
@@ -455,6 +456,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
       product: product(),
       overrides: buildWingRegistrationOverrides(product()),
       extensionId: 'ext-1',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
       detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
     };
 

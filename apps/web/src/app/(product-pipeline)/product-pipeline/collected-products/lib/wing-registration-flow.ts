@@ -1,3 +1,4 @@
+import { apiClient } from '@/lib/api-client';
 import {
   detectExtensionId,
   isChromeExtensionRuntimeAvailable,
@@ -273,6 +274,39 @@ export async function generateWingExcelForCandidates(
  */
 export interface WingSingleRegistrationResult {
   detailImage: { status: 'rendered'; imageUrl: string };
+  /** `autoSubmit` 을 켠 경우의 제출 결과. 끈 경우 `{ attempted: false }`. */
+  submission: WingSubmissionResult;
+}
+
+/**
+ * 확장이 돌려주는 제출 결과.
+ *
+ * `status`
+ *  - `not_attempted` : 옵트인을 켜지 않아 제출 버튼을 찾지도 않았다(기본).
+ *  - `no_button`     : 제출 버튼을 못 찾아 아무것도 누르지 않았다.
+ *  - `registered`    : 완료 안내를 확인했다. 이때만 등록상품으로 올린다.
+ *  - `unknown`       : 눌렀지만 완료를 확증하지 못했다. **성공으로 취급하지 않는다.**
+ */
+export interface WingSubmissionResult {
+  attempted: boolean;
+  clicked?: boolean;
+  ok?: boolean;
+  status?: 'no_button' | 'registered' | 'unknown';
+  label?: string;
+  externalListingId?: string | null;
+  error?: string;
+}
+
+/** 등록상품으로 올려도 되는 확증된 성공인지. 추측은 전부 false. */
+export function isConfirmedWingRegistration(
+  submission: WingSubmissionResult | undefined,
+): submission is WingSubmissionResult & { externalListingId: string } {
+  return (
+    submission?.ok === true
+    && submission.status === 'registered'
+    && typeof submission.externalListingId === 'string'
+    && submission.externalListingId.trim().length > 0
+  );
 }
 
 /**
@@ -310,6 +344,11 @@ export interface WingRegistrationDraft {
   overrides: WingRegistrationOverrides;
   /** 확장 메시지를 받을 확장 ID. prepare 단계에서 이미 확인해 둔다. */
   extensionId: string;
+  /**
+   * 등록 대상 쿠팡 WING 채널 계정.
+   * 등록 성공 후 `ChannelListing` 을 만들 때 필요하다 — 계정 없이는 등록상품 정체성이 없다.
+   */
+  channelAccountId: string;
   /** 렌더된 상세설명 이미지 URL(이 경로의 필수값). */
   detailImageUrl: string;
 }
@@ -448,13 +487,37 @@ export async function prepareWingRegistration(
   const rendered = await renderCandidateDetailImage(candidateId);
   const detailImageUrl = requireRenderedDetailImage(rendered);
 
+  // 등록 성공 시 ChannelListing 을 만들 계정을 미리 확정한다. 활성 쿠팡 Wing 계정이
+  // 없으면 WING 탭을 열기 전에 멈춘다 — 등록만 되고 우리 목록에 못 올리는 상태를 막는다.
+  const channelAccountId = await resolveWingChannelAccountId();
+
   const product = candidateToWingProduct(detail, preset, categoryCell, detailImageUrl);
   return {
     product,
     overrides: buildWingRegistrationOverrides(product),
     extensionId,
+    channelAccountId,
     detailImageUrl,
   };
+}
+
+/**
+ * 등록 대상 쿠팡 Wing 채널 계정을 고른다.
+ *
+ * Wing 과 Rocket 은 별개의 `ChannelAccount` 행이다. 계정 표시명으로 채널을 추측하지
+ * 않고 `channel === 'coupang'` 만 본다(rocket 은 별도 채널값).
+ */
+async function resolveWingChannelAccountId(): Promise<string> {
+  const accounts = await apiClient.get<Array<{ id: string; channel: string; name: string }>>(
+    '/api/channels/accounts',
+  );
+  const wing = accounts.find((account) => account.channel === 'coupang');
+  if (!wing) {
+    throw new Error(
+      '활성화된 쿠팡 Wing 채널 계정이 없습니다. 설정에서 쿠팡 계정을 먼저 연결하세요.',
+    );
+  }
+  return wing.id;
 }
 
 /**
@@ -467,6 +530,11 @@ export async function prepareWingRegistration(
 export async function submitWingRegistration(
   draft: WingRegistrationDraft,
   overrides: WingRegistrationOverrides,
+  /**
+   * 옵트인. `true` 일 때만 확장이 WING 의 '상품등록' 버튼까지 누른다.
+   * ⚠️ 엄격한 `=== true` 로만 켠다 — 기본값·누락·다른 truthy 값은 전부 "누르지 않음".
+   */
+  autoSubmit = false,
 ): Promise<WingSingleRegistrationResult> {
   const errors = validateWingRegistrationOverrides(overrides);
   if (errors.length > 0) throw new Error(errors.join(' '));
@@ -474,15 +542,23 @@ export async function submitWingRegistration(
   // 판매가 0 은 WING 탭을 열기 전에 막는다. 모달 검증이 이미 걸러내지만,
   // 확장으로 나가는 마지막 지점이라 방어적으로 한 번 더 확인한다.
   requireSalePrice(product.variants[0]?.salePrice ?? 0, product.productName);
-  const res = await sendToExtension<{ ok?: boolean; error?: string }>(draft.extensionId, {
+  const res = await sendToExtension<{
+    ok?: boolean;
+    error?: string;
+    submission?: WingSubmissionResult;
+  }>(draft.extensionId, {
     action: 'registerToWingForm',
     product,
+    autoSubmit: autoSubmit === true,
   }, WING_FORM_FILL_TIMEOUT_MS);
   if (!res?.ok) {
     throw new Error(res?.error || '쿠팡 WING 상품등록 페이지 열기에 실패했습니다. 확장을 리로드했는지 확인하세요.');
   }
   const detailImageUrl = draft.detailImageUrl;
-  return { detailImage: { status: 'rendered', imageUrl: detailImageUrl } };
+  return {
+    detailImage: { status: 'rendered', imageUrl: detailImageUrl },
+    submission: res.submission ?? { attempted: false },
+  };
 }
 
 /** 브라우저 다운로드. */

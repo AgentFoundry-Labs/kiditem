@@ -35,6 +35,7 @@ import WingRegistrationConfirmDialog from './components/wing/WingRegistrationCon
 import {
   downloadWingExcel,
   generateWingExcelForCandidates,
+  isConfirmedWingRegistration,
   prepareWingRegistration,
   submitWingRegistration,
   type WingRegistrationDraft,
@@ -227,17 +228,54 @@ export default function SourcingPage() {
 
   // 사용자가 고친 값(`overrides`)을 그대로 넘긴다. 초안의 원본 payload 를 보내면
   // 모달이 장식이 된다 — `submitWingRegistration` 이 override 를 반영해 전송한다.
-  const handleWingConfirm = async (overrides: WingRegistrationOverrides) => {
+  const handleWingConfirm = async (
+    overrides: WingRegistrationOverrides,
+    autoSubmit: boolean,
+  ) => {
     if (!wingDraft || wingSubmitting) return;
+    const candidateId = quickProcessTargetIds[0];
     setWingSubmitting(true);
     try {
-      await submitWingRegistration(wingDraft, overrides);
-      toast.success('쿠팡 WING 상품등록 페이지를 열고 자동 입력을 시작했어요', {
-        description:
-          quickProcessTargetIds.length > 1
-            ? '단일 직접 등록은 1개씩 진행됩니다 (첫 상품). 열린 WING 탭에서 확인 후 등록하세요.'
-            : '확인한 값으로 자동 입력됩니다. 열린 WING 탭에서 최종 확인 후 등록하세요.',
-      });
+      const result = await submitWingRegistration(wingDraft, overrides, autoSubmit);
+
+      // 확장이 등록 완료를 **확증**했을 때만 등록상품으로 올린다.
+      // status:'unknown'(눌렀지만 완료를 못 봄)은 성공으로 취급하지 않는다 —
+      // 실제로 등록되지 않은 상품이 등록상품 목록에 뜨는 게 더 나쁘다.
+      if (isConfirmedWingRegistration(result.submission)) {
+        const externalListingId = result.submission.externalListingId;
+        try {
+          await candidatesApi.confirmExternalRegistration(candidateId, {
+            channelAccountId: wingDraft.channelAccountId,
+            displayName: overrides.productName.trim() || wingDraft.product.productName,
+            externalListingId,
+            channel: 'coupang',
+          });
+          await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+          toast.success('쿠팡에 등록하고 등록상품 목록에 올렸어요', {
+            description: `등록상품ID ${externalListingId}`,
+          });
+        } catch (err) {
+          // 쿠팡 등록은 이미 끝났다. 목록 반영만 실패한 상태를 정확히 알린다.
+          toast.warning('쿠팡 등록은 됐지만 등록상품 목록 반영에 실패했어요', {
+            description: `등록상품ID ${externalListingId} — 등록상품 화면에서 "등록됨으로 표시"로 다시 시도하세요. (${wingErrorMessage(err, '알 수 없는 오류')})`,
+          });
+        }
+      } else if (result.submission.attempted) {
+        // 제출을 시도했지만 확증하지 못했다.
+        toast.warning('상품등록 결과를 확인하지 못했어요', {
+          description:
+            result.submission.error
+            ?? '열린 WING 탭에서 등록 여부를 직접 확인한 뒤, 등록됐다면 등록상품 화면에서 "등록됨으로 표시"를 눌러 주세요.',
+        });
+      } else {
+        toast.success('쿠팡 WING 상품등록 페이지를 열고 자동 입력을 시작했어요', {
+          description:
+            quickProcessTargetIds.length > 1
+              ? '단일 직접 등록은 1개씩 진행됩니다 (첫 상품). 열린 WING 탭에서 확인 후 등록하세요.'
+              : '확인한 값으로 자동 입력됩니다. 열린 WING 탭에서 최종 확인 후 등록하세요.',
+        });
+      }
+
       setWingDraft(null);
       setQuickProcessModalOpen(false);
       setQuickProcessTargetIds([]);
