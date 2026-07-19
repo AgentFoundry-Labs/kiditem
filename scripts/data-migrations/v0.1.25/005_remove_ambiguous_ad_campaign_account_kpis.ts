@@ -38,8 +38,8 @@ function rawSnapshotKey(organizationId: string, id: string): string {
  * account totals live under `source='coupang_ads', kpiType='coupang_ads_daily'`.
  */
 export const removeAmbiguousAdCampaignAccountKpis: DataMigration = {
-  id: "v0.1.21:005_remove_ambiguous_ad_campaign_account_kpis",
-  releaseVersion: "0.1.21",
+  id: "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
+  releaseVersion: "0.1.25",
   name: "Remove ambiguous per-campaign account and listing projections",
   async run(tx) {
     const listingRows = await tx.channelListingDailySnapshot.findMany({

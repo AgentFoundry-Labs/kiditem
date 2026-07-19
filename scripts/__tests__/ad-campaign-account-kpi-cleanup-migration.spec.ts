@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { removeAmbiguousAdCampaignAccountKpis } from "../data-migrations/v0.1.21/005_remove_ambiguous_ad_campaign_account_kpis";
+import { removeAmbiguousAdCampaignAccountKpis } from "../data-migrations/v0.1.25/005_remove_ambiguous_ad_campaign_account_kpis";
 
 function listingRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -86,10 +86,10 @@ function txFor(rows: ReturnType<typeof listingRow>[] = []) {
 }
 
 describe("ad campaign account KPI cleanup migration", () => {
-  it("has the durable v0.1.21 migration identity", () => {
+  it("has the durable v0.1.25 migration identity", () => {
     expect(removeAmbiguousAdCampaignAccountKpis).toMatchObject({
-      id: "v0.1.21:005_remove_ambiguous_ad_campaign_account_kpis",
-      releaseVersion: "0.1.21",
+      id: "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
+      releaseVersion: "0.1.25",
     });
   });
 

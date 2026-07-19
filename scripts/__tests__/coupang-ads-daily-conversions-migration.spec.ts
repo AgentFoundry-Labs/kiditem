@@ -6,7 +6,7 @@ import {
   repairCoupangAdsDailyNormalizedJson,
   type CoupangAdsDailyCampaignEvidenceRun,
   type CoupangAdsDailyCandidate,
-} from "../data-migrations/v0.1.21/002_repair_coupang_ads_daily_conversions";
+} from "../data-migrations/v0.1.25/002_repair_coupang_ads_daily_conversions";
 
 const businessDate = new Date("2026-07-17T00:00:00.000Z");
 const updatedAt = new Date("2026-07-18T00:00:00.000Z");
@@ -115,10 +115,10 @@ function txFor(
 }
 
 describe("Coupang ads daily conversions migration", () => {
-  it("uses the durable v0.1.21 migration identity", () => {
+  it("uses the durable v0.1.25 migration identity", () => {
     expect(repairCoupangAdsDailyConversions).toMatchObject({
-      id: "v0.1.21:002_repair_coupang_ads_daily_conversions",
-      releaseVersion: "0.1.21",
+      id: "v0.1.25:002_repair_coupang_ads_daily_conversions",
+      releaseVersion: "0.1.25",
     });
   });
 

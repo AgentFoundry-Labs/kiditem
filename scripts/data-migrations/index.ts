@@ -4,11 +4,11 @@ import { recordSellpiaRocketInventorySyncRelease } from "./v0.1.7/001_record_sel
 import { migrateRepresentativeKeywordOverrides } from "./v0.1.18/001_migrate_representative_keyword_overrides";
 import { sellpiaInventoryFreshnessMigration } from "./v0.1.19/001_sellpia_inventory_freshness";
 import { backfillInventoryCommitments } from "./v0.1.21/001_backfill_inventory_commitments";
-import { repairAdCampaignDailyBusinessDates } from "./v0.1.21/001_repair_ad_campaign_daily_business_dates";
-import { repairCoupangAdsDailyConversions } from "./v0.1.21/002_repair_coupang_ads_daily_conversions";
-import { repairAdCampaignTargetConversions } from "./v0.1.21/003_repair_ad_campaign_target_conversions";
-import { rekeyAdCampaignProductTargets } from "./v0.1.21/004_rekey_ad_campaign_product_targets";
-import { removeAmbiguousAdCampaignAccountKpis } from "./v0.1.21/005_remove_ambiguous_ad_campaign_account_kpis";
+import { repairAdCampaignDailyBusinessDates } from "./v0.1.25/001_repair_ad_campaign_daily_business_dates";
+import { repairCoupangAdsDailyConversions } from "./v0.1.25/002_repair_coupang_ads_daily_conversions";
+import { repairAdCampaignTargetConversions } from "./v0.1.25/003_repair_ad_campaign_target_conversions";
+import { rekeyAdCampaignProductTargets } from "./v0.1.25/004_rekey_ad_campaign_product_targets";
+import { removeAmbiguousAdCampaignAccountKpis } from "./v0.1.25/005_remove_ambiguous_ad_campaign_account_kpis";
 import type { DataMigration } from "./types";
 
 export {

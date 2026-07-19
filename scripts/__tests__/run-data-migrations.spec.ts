@@ -31,11 +31,11 @@ describe("data migration registry", () => {
       "v0.1.18:001_migrate_representative_keyword_overrides",
       "v0.1.19:001_sellpia_inventory_freshness",
       "v0.1.21:001_backfill_inventory_commitments",
-      "v0.1.21:001_repair_ad_campaign_daily_business_dates",
-      "v0.1.21:002_repair_coupang_ads_daily_conversions",
-      "v0.1.21:003_repair_ad_campaign_target_conversions",
-      "v0.1.21:004_rekey_ad_campaign_product_targets",
-      "v0.1.21:005_remove_ambiguous_ad_campaign_account_kpis",
+      "v0.1.25:001_repair_ad_campaign_daily_business_dates",
+      "v0.1.25:002_repair_coupang_ads_daily_conversions",
+      "v0.1.25:003_repair_ad_campaign_target_conversions",
+      "v0.1.25:004_rekey_ad_campaign_product_targets",
+      "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -44,19 +44,19 @@ describe("data migration registry", () => {
     ).toEqual(["v0.1.21:001_backfill_inventory_commitments"]);
   });
 
-  it("registers the 0.1.21 ad campaign repairs and inventory commitment backfill", () => {
+  it("registers the 0.1.25 ad campaign repairs and the 0.1.21 inventory commitment backfill", () => {
     const migrationIds = dataMigrations.map((migration) => migration.id);
 
     expect(migrationIds).toContain(
-      "v0.1.21:001_repair_ad_campaign_daily_business_dates",
+      "v0.1.25:001_repair_ad_campaign_daily_business_dates",
     );
     expect(migrationIds).toContain(
-      "v0.1.21:005_remove_ambiguous_ad_campaign_account_kpis",
+      "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
     );
     expect(migrationIds).toContain("v0.1.21:001_backfill_inventory_commitments");
   });
 
-  it("keeps historical release 0.1.22 migration-free and stops registering at 0.1.21", () => {
+  it("keeps historical release 0.1.22 migration-free and never registers ahead of the root VERSION", () => {
     const releaseVersions = dataMigrations.map(
       (migration) => migration.releaseVersion,
     );
@@ -75,16 +75,17 @@ describe("data migration registry", () => {
     expect(releaseVersions).toContain("0.1.21");
     expect(releaseVersions).not.toContain("0.1.22");
 
-    const latestMigrationRelease = [...releaseVersions].sort(compare).at(-1);
-    expect(latestMigrationRelease).toBe("0.1.21");
-
+    // Migrations for the open release train carry the root VERSION in their
+    // path, id, and releaseVersion, so the newest registered release may equal
+    // the root version but must never run ahead of it.
     const rootVersion = normalizeReleaseVersion(
       readFileSync(join(repoRoot, "VERSION"), "utf8"),
     );
-    expect(compare(rootVersion, "0.1.21")).toBeGreaterThanOrEqual(0);
-    if (rootVersion !== "0.1.21") {
-      expect(releaseVersions).not.toContain(rootVersion);
-    }
+    const latestMigrationRelease = [...releaseVersions].sort(compare).at(-1);
+    expect(latestMigrationRelease).toBeDefined();
+    expect(
+      compare(latestMigrationRelease as string, rootVersion),
+    ).toBeLessThanOrEqual(0);
 
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(

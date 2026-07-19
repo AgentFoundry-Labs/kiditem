@@ -200,7 +200,7 @@ function projectionKey(parts: Array<string | null>): string {
 }
 
 /**
- * Freeze the v0.1.21 replay semantics beside the migration. Historical data
+ * Freeze the v0.1.25 replay semantics beside the migration. Historical data
  * migrations must not change when the live ingest normalizers evolve later.
  */
 export function buildAdCampaignDailyRepairPlan(
@@ -457,8 +457,8 @@ function kstStartedDate(run: { startedAt: Date }): string {
 }
 
 export const repairAdCampaignDailyBusinessDates: DataMigration = {
-  id: "v0.1.21:001_repair_ad_campaign_daily_business_dates",
-  releaseVersion: "0.1.21",
+  id: "v0.1.25:001_repair_ad_campaign_daily_business_dates",
+  releaseVersion: "0.1.25",
   name: "Repair Coupang ad campaign daily business dates from raw evidence",
   async run(tx) {
     const oneDayRuns = await tx.channelScrapeRun.findMany({

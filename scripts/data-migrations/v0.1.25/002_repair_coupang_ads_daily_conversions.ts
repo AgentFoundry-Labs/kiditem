@@ -402,8 +402,8 @@ function evidenceScopeKey(
 }
 
 export const repairCoupangAdsDailyConversions: DataMigration = {
-  id: "v0.1.21:002_repair_coupang_ads_daily_conversions",
-  releaseVersion: "0.1.21",
+  id: "v0.1.25:002_repair_coupang_ads_daily_conversions",
+  releaseVersion: "0.1.25",
   name: "Repair Coupang ads daily conversions from exact sales evidence",
   async run(tx) {
     const rows = await tx.channelAccountDailyKpiSnapshot.findMany({

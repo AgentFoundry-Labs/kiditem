@@ -4,7 +4,7 @@ import {
   hasNonCampaignListingSignal,
   repairAdCampaignDailyBusinessDates,
   type AdCampaignRepairRunInput,
-} from "../data-migrations/v0.1.21/001_repair_ad_campaign_daily_business_dates";
+} from "../data-migrations/v0.1.25/001_repair_ad_campaign_daily_business_dates";
 
 const wrongDate = new Date("2026-07-18T00:00:00.000Z");
 const requestedDate = new Date("2026-07-17T00:00:00.000Z");
@@ -97,10 +97,10 @@ function listingSignalRow(overrides: Record<string, unknown> = {}) {
 }
 
 describe("ad campaign daily business-date migration", () => {
-  it("uses the durable v0.1.21 migration identity", () => {
+  it("uses the durable v0.1.25 migration identity", () => {
     expect(repairAdCampaignDailyBusinessDates).toMatchObject({
-      id: "v0.1.21:001_repair_ad_campaign_daily_business_dates",
-      releaseVersion: "0.1.21",
+      id: "v0.1.25:001_repair_ad_campaign_daily_business_dates",
+      releaseVersion: "0.1.25",
     });
   });
 

@@ -180,8 +180,8 @@ export function resolveRevenueShapedCampaignTargetConversion(input: {
 }
 
 export const repairAdCampaignTargetConversions: DataMigration = {
-  id: "v0.1.21:003_repair_ad_campaign_target_conversions",
-  releaseVersion: "0.1.21",
+  id: "v0.1.25:003_repair_ad_campaign_target_conversions",
+  releaseVersion: "0.1.25",
   name: "Repair campaign target conversions from observed count headers",
   async run(tx) {
     const candidates = await tx.$queryRaw<

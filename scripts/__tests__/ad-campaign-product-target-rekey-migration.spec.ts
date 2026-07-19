@@ -3,7 +3,7 @@ import {
   buildCampaignQualifiedProductTargetKeys,
   rekeyAdCampaignProductTargets,
   type LegacyCampaignProductTarget,
-} from "../data-migrations/v0.1.21/004_rekey_ad_campaign_product_targets";
+} from "../data-migrations/v0.1.25/004_rekey_ad_campaign_product_targets";
 
 const businessDate = new Date("2026-07-17T00:00:00.000Z");
 const updatedAt = new Date("2026-07-18T01:00:00.000Z");
@@ -74,10 +74,10 @@ function txFor(rows: LegacyCampaignProductTarget[]) {
 }
 
 describe("ad campaign product target rekey migration", () => {
-  it("uses the durable v0.1.21 migration identity", () => {
+  it("uses the durable v0.1.25 migration identity", () => {
     expect(rekeyAdCampaignProductTargets).toMatchObject({
-      id: "v0.1.21:004_rekey_ad_campaign_product_targets",
-      releaseVersion: "0.1.21",
+      id: "v0.1.25:004_rekey_ad_campaign_product_targets",
+      releaseVersion: "0.1.25",
     });
   });
 

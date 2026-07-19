@@ -5,7 +5,7 @@ import {
   resolveRevenueShapedCampaignTargetConversion,
   type CampaignTargetRawSnapshot,
   type RevenueShapedCampaignTargetCandidate,
-} from "../data-migrations/v0.1.21/003_repair_ad_campaign_target_conversions";
+} from "../data-migrations/v0.1.25/003_repair_ad_campaign_target_conversions";
 
 const businessDate = new Date("2026-07-17T00:00:00.000Z");
 
@@ -61,10 +61,10 @@ function rawSnapshot(
 }
 
 describe("ad campaign target conversions migration", () => {
-  it("uses the durable v0.1.21 migration identity", () => {
+  it("uses the durable v0.1.25 migration identity", () => {
     expect(repairAdCampaignTargetConversions).toMatchObject({
-      id: "v0.1.21:003_repair_ad_campaign_target_conversions",
-      releaseVersion: "0.1.21",
+      id: "v0.1.25:003_repair_ad_campaign_target_conversions",
+      releaseVersion: "0.1.25",
     });
   });
 

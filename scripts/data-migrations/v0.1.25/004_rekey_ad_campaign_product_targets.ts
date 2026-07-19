@@ -144,8 +144,8 @@ function isDailyProjectionEvidence(row: RawProductCampaignEvidence): boolean {
 }
 
 export const rekeyAdCampaignProductTargets: DataMigration = {
-  id: "v0.1.21:004_rekey_ad_campaign_product_targets",
-  releaseVersion: "0.1.21",
+  id: "v0.1.25:004_rekey_ad_campaign_product_targets",
+  releaseVersion: "0.1.25",
   name: "Rekey Coupang campaign product targets by campaign identity",
   async run(tx) {
     const rows = await tx.$queryRaw<LegacyCampaignProductTarget[]>(Prisma.sql`
