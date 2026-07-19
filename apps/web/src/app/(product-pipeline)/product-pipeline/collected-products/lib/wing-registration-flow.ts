@@ -43,6 +43,24 @@ const TEMPLATE_URL = '/coupang-wing-bulk-template-v4.6.xlsm';
  */
 export const WING_FORM_FILL_TIMEOUT_MS = 180_000;
 
+/**
+ * 판매가는 `ProductPreparation.registrationInput.salePrice` 하나에서만 온다.
+ * 등록준비 폼에서 값을 넣지 않으면 0 이 되고, 그대로 보내면 확장이 '판매가 일괄입력'을
+ * 건너뛰어 WING 옵션표가 0원인 채로 남는다. 화면상으로는 "안 채워진" 것처럼 보이지만
+ * 실제로는 우리 데이터가 비어 있는 것이라, 조용히 넘기지 말고 여기서 막는다.
+ *
+ * 셀피아 가격을 자동으로 끌어오는 배선은 아직 없다(재기획서 B6 참조).
+ */
+export function requireSalePrice(salePrice: number, productName: string): number {
+  if (!Number.isFinite(salePrice) || salePrice <= 0) {
+    throw new Error(
+      `"${productName}" 의 판매가가 비어 있습니다(0원). 등록준비에서 판매가를 입력한 뒤 다시 시도하세요. `
+      + '판매가 없이 등록하면 쿠팡 옵션표가 0원으로 남습니다.',
+    );
+  }
+  return salePrice;
+}
+
 export function requireRenderedDetailImage(
   rendered: CandidateDetailImageResponse,
 ): string {
@@ -81,10 +99,19 @@ export function candidateToWingProduct(
     || fallbackImages[0]
     || detail.thumbnailUrl
     || '';
-  // 추가이미지에는 **썸네일만** 넣는다.
-  // 원본 수집 이미지(role=source)나 1688 원본을 섞으면 규격도 안 맞고 사용자가 고른 것도
-  // 아니다. 썸네일이 없으면 추가이미지는 비워 둔다 — 아무거나 채우지 않는다.
-  const additionalImageUrls = (roleImages?.thumbnail ?? [])
+  // 추가이미지에는 **사용자가 고른 썸네일만** 넣는다.
+  //
+  // 썸네일은 두 곳에 나뉘어 산다. 워크스페이스의 "썸네일 미리보기 이미지"는
+  // `thumbnailPreviewUrls`(= ProductPreparation.registrationInput.thumbnailUrls)이고,
+  // `registrationImages.thumbnail` 은 ContentAsset.role 로 태깅된 별도 집합이다.
+  // 예전에는 후자만 읽어서, 화면에 썸네일이 보이는데도 추가이미지가 0/9 로 비었다.
+  // 사용자가 실제로 고른 쪽이 앞이므로 앞을 우선하고 뒤를 덧붙인다.
+  //
+  // 원본 수집 이미지(role=source)나 1688 원본은 섞지 않는다 — 규격도 안 맞고
+  // 사용자가 고른 것도 아니다. 둘 다 비면 추가이미지는 비워 둔다.
+  const additionalImageUrls = [
+    ...new Set([...(b.thumbnailPreviewUrls ?? []), ...(roleImages?.thumbnail ?? [])]),
+  ]
     .filter((url) => url && url !== repImage)
     .slice(0, 9);
   // 상세설명은 렌더된 긴 이미지 **1장**이다.
@@ -200,6 +227,9 @@ export async function registerSingleProductToWing(
   const detailImageUrl = requireRenderedDetailImage(rendered);
 
   const product = candidateToWingProduct(detail, preset, categoryCell, detailImageUrl);
+  // 판매가 0 은 WING 탭을 열기 전에 막는다. 열고 나서 0원으로 남으면 사용자는
+  // "자동채움이 실패했다" 고 읽지만 실제 원인은 우리 데이터가 비어 있는 것이다.
+  requireSalePrice(product.variants[0]?.salePrice ?? 0, product.productName);
   const res = await sendToExtension<{ ok?: boolean; error?: string }>(extensionId, {
     action: 'registerToWingForm',
     product,
