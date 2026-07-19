@@ -99,6 +99,20 @@ export interface ReplaceWorkspaceThumbnailGalleryInput {
   urls: string[];
 }
 
+/**
+ * The workspace-owned current thumbnail selection for one sourcing candidate.
+ *
+ * This is the workspace-side twin of `ProductPreparation.selectedThumbnailUrl`.
+ * A candidate with no `ProductPreparation` can only record its representative
+ * thumbnail here (`ContentWorkspace.currentThumbnailSelectionId`), so without
+ * reading it back the saved selection is invisible after a reload.
+ */
+export interface CandidateCurrentThumbnailRow {
+  url: string;
+  sourceThumbnailGenerationId: string | null;
+  sourceThumbnailCandidateId: string | null;
+}
+
 export interface ContentAssetLibraryRepositoryPort {
   deleteAsset(input: {
     organizationId: string;
@@ -132,6 +146,10 @@ export interface ContentAssetLibraryRepositoryPort {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<CandidateContentAssetRow[]>;
+  findCandidateCurrentThumbnail(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<CandidateCurrentThumbnailRow | null>;
   replaceWorkspaceThumbnailGallery(
     input: ReplaceWorkspaceThumbnailGalleryInput,
   ): Promise<{ urls: string[] }>;

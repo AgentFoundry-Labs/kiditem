@@ -204,4 +204,90 @@ describe('buildProductBasics', () => {
       expect(result.registrationImages.primary).not.toContain('https://cbu01.alicdn.com/source.jpg');
     });
   });
+
+  describe('워크스페이스에 저장된 대표 썸네일', () => {
+    const candidate = {
+      id: 'candidate-1',
+      name: '4000과일바구니딸깍이키링',
+      description: null,
+      category: null,
+      tags: [],
+      rawData: {},
+      thumbnailUrl: 'https://cbu01.alicdn.com/source.jpg',
+      imageUrl: 'https://cbu01.alicdn.com/source.jpg',
+      images: [
+        { url: 'https://cbu01.alicdn.com/source.jpg', sortOrder: 0, role: 'product', isPrimary: true },
+      ],
+    };
+
+    it('preparation 이 없으면 워크스페이스 선택을 복원한다', () => {
+      // 회귀: `ProductPreparation` 이 없는 후보는 대표를 워크스페이스에만 저장할 수
+      // 있는데 프리젠터가 preparation 만 읽어서, 저장 후 재진입하면 `등록 대표`
+      // 배지가 사라졌다.
+      const result = buildProductBasics({
+        candidate,
+        preparation: null,
+        workspaceThumbnailSelection: {
+          url: 'http://localhost:9000/kiditem/thumbnail-generations/8cd5fe.png',
+          sourceThumbnailGenerationId: 'generation-1',
+          sourceThumbnailCandidateId: 'thumb-candidate-1',
+        },
+      });
+
+      expect(result.selectedThumbnailUrl).toBe(
+        'http://localhost:9000/kiditem/thumbnail-generations/8cd5fe.png',
+      );
+      expect(result.selectedThumbnailGenerationCandidateId).toBe('thumb-candidate-1');
+    });
+
+    it('preparation 대표가 있으면 그쪽이 이긴다', () => {
+      const result = buildProductBasics({
+        candidate,
+        preparation: {
+          registrationInput: {},
+          selectedThumbnailUrl: 'https://cdn.example.com/preparation.png',
+          selectedThumbnailGenerationCandidateId: 'prep-candidate',
+          selectedDetailPageGenerationId: null,
+        },
+        workspaceThumbnailSelection: {
+          url: 'http://localhost:9000/kiditem/thumbnail-generations/8cd5fe.png',
+          sourceThumbnailGenerationId: 'generation-1',
+          sourceThumbnailCandidateId: 'thumb-candidate-1',
+        },
+      });
+
+      expect(result.selectedThumbnailUrl).toBe('https://cdn.example.com/preparation.png');
+      // 대표가 preparation 것이면 파생 id 도 preparation 것이어야 한다.
+      // 섞이면 서로 다른 이미지의 값이 한 응답에 실린다.
+      expect(result.selectedThumbnailGenerationCandidateId).toBe('prep-candidate');
+    });
+
+    it('preparation 은 있는데 대표가 비었으면 워크스페이스 선택으로 채운다', () => {
+      const result = buildProductBasics({
+        candidate,
+        preparation: {
+          registrationInput: {},
+          selectedThumbnailUrl: null,
+          selectedThumbnailGenerationCandidateId: null,
+          selectedDetailPageGenerationId: null,
+        },
+        workspaceThumbnailSelection: {
+          url: 'http://localhost:9000/kiditem/thumbnail-generations/8cd5fe.png',
+          sourceThumbnailGenerationId: 'generation-1',
+          sourceThumbnailCandidateId: 'thumb-candidate-1',
+        },
+      });
+
+      expect(result.selectedThumbnailUrl).toBe(
+        'http://localhost:9000/kiditem/thumbnail-generations/8cd5fe.png',
+      );
+      expect(result.selectedThumbnailGenerationCandidateId).toBe('thumb-candidate-1');
+    });
+
+    it('저장된 선택이 없으면 원본 이미지로 대표를 지어내지 않는다', () => {
+      const result = buildProductBasics({ candidate, preparation: null });
+
+      expect(result.selectedThumbnailUrl).toBeNull();
+    });
+  });
 });

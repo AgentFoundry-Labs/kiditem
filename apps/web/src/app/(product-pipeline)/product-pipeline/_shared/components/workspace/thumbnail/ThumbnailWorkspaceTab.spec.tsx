@@ -246,7 +246,9 @@ describe('ThumbnailWorkspaceTab', () => {
     expect(onPreviewThumbnail).toHaveBeenCalledWith('https://cdn.example.com/generated.jpg');
   });
 
-  it('saves the thumbnail preview order without registering a representative', () => {
+  // 회귀: 대표 등록과 목록 저장이 분리돼 있어 사용자가 하나만 누르면 반쪽만
+  // 저장됐다. 이제 한 버튼이 대표 + 목록을 함께 저장한다.
+  it('saves the representative and the preview list in one click', () => {
     const onSaveThumbnailConfiguration = vi.fn();
 
     render(
@@ -265,11 +267,16 @@ describe('ThumbnailWorkspaceTab', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: '썸네일 미리보기 이미지 1' }));
-    fireEvent.click(screen.getByRole('button', { name: '썸네일 구성 저장' }));
+    fireEvent.click(screen.getByRole('button', { name: '대표 썸네일 · 구성 저장' }));
 
     expect(onSaveThumbnailConfiguration).toHaveBeenCalledWith({
       thumbnailUrls: ['https://cdn.example.com/source.jpg'],
-      selectedThumbnail: null,
+      selectedThumbnail: {
+        url: 'https://cdn.example.com/source.jpg',
+        kind: 'source',
+        generatedGenerationId: null,
+        generatedCandidateId: null,
+      },
     });
   });
 
@@ -291,7 +298,7 @@ describe('ThumbnailWorkspaceTab', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '대표 썸네일 등록' }));
+    fireEvent.click(screen.getByRole('button', { name: '대표 썸네일 · 구성 저장' }));
 
     expect(onSaveThumbnailConfiguration).toHaveBeenCalledWith({
       thumbnailUrls: ['https://cdn.example.com/source.jpg'],
@@ -327,7 +334,7 @@ describe('ThumbnailWorkspaceTab', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: '썸네일 미리보기 이미지 2' }));
-    fireEvent.click(screen.getByRole('button', { name: '대표 썸네일 등록' }));
+    fireEvent.click(screen.getByRole('button', { name: '대표 썸네일 · 구성 저장' }));
 
     expect(onThumbnailPreviewImagesChange).toHaveBeenCalledWith([
       'https://cdn.example.com/other.jpg',
@@ -371,6 +378,39 @@ describe('ThumbnailWorkspaceTab', () => {
     expect(
       within(screen.getByRole('button', { name: '썸네일 미리보기 이미지 2' })).getAllByText('등록 대표'),
     ).toHaveLength(2);
+  });
+
+  // 회귀: `selectedSourceUrl` 의 초기값은 마운트 시점에 확정돼서 서버가 준 저장된
+  // 대표가 늦게 도착하면 반영되지 않았다. 그 상태로 저장을 누르면 저장 버튼이
+  // **사용자가 저장했던 대표를 엉뚱한 이미지로 조용히 덮어썼다.**
+  it('adopts the saved representative as the edit selection when it arrives late', () => {
+    const onSaveThumbnailConfiguration = vi.fn();
+    const previewImages = ['https://cdn.example.com/other.jpg', 'https://cdn.example.com/source.jpg'];
+
+    render(
+      <ThumbnailWorkspaceTab
+        editData={{ ...editData, thumbnails: previewImages }}
+        contentWorkspaceId={null}
+        thumbnailUrl="https://cdn.example.com/other.jpg"
+        thumbnailSourceCandidateId="candidate-1"
+        selectedRegistrationThumbnailUrl={null}
+        savedRepresentativeThumbnailUrl="https://cdn.example.com/source.jpg"
+        thumbnailPreviewImages={previewImages}
+        onPreviewThumbnail={vi.fn()}
+        onThumbnailPreviewImagesChange={vi.fn()}
+        onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    // 아무것도 건드리지 않고 저장 → 저장된 대표가 그대로 유지돼야 한다.
+    fireEvent.click(screen.getByRole('button', { name: '대표 썸네일 · 구성 저장' }));
+
+    expect(onSaveThumbnailConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectedThumbnail: expect.objectContaining({ url: 'https://cdn.example.com/source.jpg' }),
+      }),
+    );
   });
 
   it('adds product images through the image picker modal instead of rendering all inline', () => {

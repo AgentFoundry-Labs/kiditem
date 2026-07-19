@@ -5,6 +5,7 @@ import {
 } from '../../../../ai/application/port/in/workspace/candidate-content-asset.port';
 import type {
   CandidateContentAssetPort,
+  CandidateCurrentThumbnail,
   CandidateRegistrationImages,
 } from '../../../application/port/out/cross-domain/candidate-content-asset.port';
 
@@ -20,5 +21,12 @@ export class CandidateContentAssetAdapter implements CandidateContentAssetPort {
     sourceCandidateId: string;
   }): Promise<CandidateRegistrationImages> {
     return this.assets.listRegistrationImages(input);
+  }
+
+  findCurrentThumbnail(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<CandidateCurrentThumbnail | null> {
+    return this.assets.findCurrentThumbnail(input);
   }
 }

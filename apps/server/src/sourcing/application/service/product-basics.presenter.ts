@@ -93,15 +93,29 @@ const strings = (value: unknown): string[] =>
 const num = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0;
 
+/**
+ * 후보의 content workspace 에 저장된 대표 썸네일. `ProductPreparation` 이 없는
+ * 후보는 여기에만 대표를 남길 수 있어서, 이 값이 없으면 저장한 대표가 재진입 후
+ * 사라진 것처럼 보인다. 준비(preparation) 값이 있으면 **항상 그쪽이 이긴다**.
+ */
+export interface WorkspaceThumbnailSelection {
+  url: string;
+  sourceThumbnailGenerationId: string | null;
+  sourceThumbnailCandidateId: string | null;
+}
+
 export function buildProductBasics({
   candidate,
   preparation,
   registrationImages,
+  workspaceThumbnailSelection,
   sellpiaSalePrice,
 }: {
   candidate: CandidateLike;
   preparation: PreparationLike;
   registrationImages?: RegistrationImages | null;
+  /** 조회는 호출자(서비스) 몫이다. 프리젠터는 순수 함수로 남는다. */
+  workspaceThumbnailSelection?: WorkspaceThumbnailSelection | null;
   /**
    * 이름이 정확히 일치한 셀피아 재고 SKU 의 판매가. 조회는 호출자(서비스) 몫이고
    * 프리젠터는 순수 함수로 남는다. 매칭 실패는 `null`/`undefined` 이며, 추정하지
@@ -161,8 +175,14 @@ export function buildProductBasics({
       thumbnail: strings(registrationImages?.thumbnail),
       detail: strings(registrationImages?.detail),
     },
-    selectedThumbnailUrl: preparation?.selectedThumbnailUrl ?? null,
-    selectedThumbnailGenerationCandidateId: preparation?.selectedThumbnailGenerationCandidateId ?? null,
+    // 준비가 이긴다. 워크스페이스 선택은 준비가 없는 후보를 위한 폴백이다.
+    // 폴백 여부는 대표 URL 하나로 판정한다 — 준비에 대표가 있는데 파생 id 만
+    // 워크스페이스에서 끌어오면 서로 다른 이미지의 값이 섞인다.
+    selectedThumbnailUrl:
+      preparation?.selectedThumbnailUrl ?? workspaceThumbnailSelection?.url ?? null,
+    selectedThumbnailGenerationCandidateId: preparation?.selectedThumbnailUrl
+      ? preparation.selectedThumbnailGenerationCandidateId ?? null
+      : workspaceThumbnailSelection?.sourceThumbnailCandidateId ?? null,
     selectedDetailPageGenerationId: preparation?.selectedDetailPageGenerationId ?? null,
     selectedDetailPageArtifactId: preparation?.selectedDetailPageArtifactId ?? null,
     selectedDetailPageRevisionId: preparation?.selectedDetailPageRevisionId ?? null,

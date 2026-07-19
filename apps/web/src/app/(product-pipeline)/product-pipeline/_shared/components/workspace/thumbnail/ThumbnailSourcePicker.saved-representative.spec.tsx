@@ -25,7 +25,6 @@ describe('ThumbnailSourcePicker — 등록 대표 배지', () => {
         onSelect={vi.fn()}
         onEditSelectedImage={vi.fn()}
         onSaveConfiguration={vi.fn()}
-        onRegisterRepresentative={vi.fn()}
         onAddImages={vi.fn()}
         onRemoveImage={vi.fn()}
         onReorderImages={vi.fn()}

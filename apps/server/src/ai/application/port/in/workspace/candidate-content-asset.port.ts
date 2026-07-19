@@ -15,9 +15,26 @@ export interface CandidateRegistrationImages {
   detail: string[];
 }
 
+/**
+ * The candidate's saved representative thumbnail, owned by its content
+ * workspace (`ContentWorkspace.currentThumbnailSelectionId`).
+ *
+ * A candidate with no `ProductPreparation` has nowhere else to record one, so
+ * this is the only way the saved selection survives a reload.
+ */
+export interface CandidateCurrentThumbnail {
+  url: string;
+  sourceThumbnailGenerationId: string | null;
+  sourceThumbnailCandidateId: string | null;
+}
+
 export interface CandidateContentAssetPort {
   listRegistrationImages(input: {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<CandidateRegistrationImages>;
+  findCurrentThumbnail(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<CandidateCurrentThumbnail | null>;
 }

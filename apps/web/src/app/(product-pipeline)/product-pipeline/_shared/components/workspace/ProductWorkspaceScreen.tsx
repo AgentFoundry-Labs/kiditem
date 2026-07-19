@@ -356,7 +356,17 @@ export function ProductWorkspaceScreen({
       if (input.selectedThumbnail) {
         setSavedRepresentativeThumbnailUrl(input.selectedThumbnail.url);
       }
-      toast.success('썸네일 구성을 저장했습니다.');
+      // 토스트는 **실제로 저장된 것만** 말한다. 대표 없이 목록만 저장했는데
+      // "썸네일 구성을 저장했습니다" 라고 하면 대표까지 저장된 줄 오인한다.
+      const savedParts = [
+        ...(input.selectedThumbnail ? ['대표 썸네일'] : []),
+        ...(thumbnailUrls.length > 0 ? [`미리보기 ${thumbnailUrls.length}장`] : []),
+      ];
+      toast.success(
+        savedParts.length > 0
+          ? `${savedParts.join('과 ')}을 저장했습니다.`
+          : '썸네일 미리보기 목록을 비웠습니다.',
+      );
     } catch (err) {
       toast.error(isApiError(err) ? err.detail : '썸네일 구성 저장에 실패했습니다.');
     }

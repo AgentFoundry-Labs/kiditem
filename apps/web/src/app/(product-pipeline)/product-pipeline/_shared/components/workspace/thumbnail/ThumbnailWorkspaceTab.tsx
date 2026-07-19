@@ -50,6 +50,15 @@ export default function ThumbnailWorkspaceTab({
   const router = useRouter();
   const searchParams = useSearchParams();
   const didSeedPreviewImages = useRef(false);
+  /**
+   * 저장된 대표를 편집 선택으로 한 번 끌어왔거나, 사용자가 직접 골랐으면 더는 건드리지 않는다.
+   *
+   * `selectedSourceUrl` 의 useState 초기값은 마운트 시점에 확정되는데, 그때는 부모가 아직
+   * 서버 값을 채우기 전이라 후보의 첫 이미지로 잡힌다. 그 상태로 두면 **재진입 후 대표
+   * 패널이 저장된 대표가 아닌 엉뚱한 이미지를 보여주고**, 저장 버튼이 그걸 그대로 새 대표로
+   * 덮어쓴다(= 사용자가 저장한 대표가 조용히 바뀐다).
+   */
+  const didAdoptSavedRepresentative = useRef(false);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [selectedSourceUrl, setSelectedSourceUrl] = useState<string | null>(
     searchParams.get('imageUrl') ??
@@ -110,6 +119,16 @@ export default function ThumbnailWorkspaceTab({
     const fallbackUrl = thumbnailPreviewImages[0] ?? fallbackPreviewImages[0] ?? null;
     if (fallbackUrl) setSelectedSourceUrl(fallbackUrl);
   }, [fallbackPreviewImages, selectedSourceUrl, thumbnailPreviewImages]);
+
+  // 서버가 준 저장된 대표가 도착하면 편집 선택을 거기에 한 번 맞춘다.
+  // 편집기에서 `imageUrl` 을 들고 돌아온 경우는 그쪽이 이긴다 — 방금 만든 이미지다.
+  useEffect(() => {
+    if (didAdoptSavedRepresentative.current) return;
+    if (!savedRepresentativeThumbnailUrl) return;
+    didAdoptSavedRepresentative.current = true;
+    if (searchParams.get('imageUrl')) return;
+    setSelectedSourceUrl(savedRepresentativeThumbnailUrl);
+  }, [savedRepresentativeThumbnailUrl, searchParams]);
 
   useEffect(() => {
     onPreviewThumbnail(selectedSourceUrl);
@@ -199,16 +218,22 @@ export default function ThumbnailWorkspaceTab({
       generatedCandidateId: null,
     } satisfies RegistrationThumbnailOption);
 
+  /**
+   * 대표 썸네일과 미리보기 목록을 **한 번에** 저장한다.
+   *
+   * 예전에는 `대표 썸네일 등록` 과 `썸네일 구성 저장` 이 따로 있어서 하나만 누르면
+   * 반쪽만 저장됐다(대표만 남고 목록은 사라지는 상태가 실제로 발생했다).
+   * 선택된 이미지를 대표 자리로 끌어올린 목록을 그대로 저장한다.
+   */
   const handleSaveConfiguration = () => {
-    onSaveThumbnailConfiguration({
-      thumbnailUrls: thumbnailPreviewImages,
-      selectedThumbnail: null,
-    });
-  };
-
-  const handleRegisterRepresentative = () => {
     const saveUrl = selectedSourceUrl ?? thumbnailPreviewImages[0] ?? null;
-    if (!saveUrl) return;
+    if (!saveUrl) {
+      onSaveThumbnailConfiguration({
+        thumbnailUrls: thumbnailPreviewImages,
+        selectedThumbnail: null,
+      });
+      return;
+    }
     const nextThumbnailUrls = uniqueNonEmpty([saveUrl, ...thumbnailPreviewImages.filter((url) => url !== saveUrl)]);
     onThumbnailPreviewImagesChange(nextThumbnailUrls);
     onSaveThumbnailConfiguration({
@@ -225,12 +250,13 @@ export default function ThumbnailWorkspaceTab({
         selectedUrl={selectedSourceUrl}
         savedRepresentativeUrl={savedRepresentativeThumbnailUrl}
         onSelect={(url) => {
+          // 사용자가 직접 고른 순간부터 저장된 대표를 다시 끌어오지 않는다.
+          didAdoptSavedRepresentative.current = true;
           setSelectedSourceUrl(url);
         }}
         onEditSelectedImage={() => openEditor('edit')}
         onSaveConfiguration={handleSaveConfiguration}
         canSaveConfiguration={canSaveConfiguration}
-        onRegisterRepresentative={handleRegisterRepresentative}
         onAddImages={handleAddImages}
         onRemoveImage={handleRemovePreviewImage}
         onReorderImages={onThumbnailPreviewImagesChange}

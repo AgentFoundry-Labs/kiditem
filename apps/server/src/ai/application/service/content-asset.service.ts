@@ -13,6 +13,7 @@ import {
 } from '../port/out/repository/content-asset-library.repository.port';
 import type {
   CandidateContentAssetPort,
+  CandidateCurrentThumbnail,
   CandidateRegistrationImages,
 } from '../port/in/workspace/candidate-content-asset.port';
 export { groupUrlAssetKey } from '../../domain/content-asset-key';
@@ -64,6 +65,20 @@ export class ContentAssetService implements CandidateContentAssetPort {
       grouped[row.role].push(url);
     }
     return grouped;
+  }
+
+  /**
+   * The candidate's saved representative thumbnail, or `null`.
+   *
+   * This is the read side of `PATCH /ai/content-workspaces/:id/current-thumbnail`
+   * for a candidate that has no `ProductPreparation`: the selection lives on the
+   * workspace, so nothing else can restore it after a reload.
+   */
+  findCurrentThumbnail(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<CandidateCurrentThumbnail | null> {
+    return this.repository.findCandidateCurrentThumbnail(input);
   }
 
   /**
