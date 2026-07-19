@@ -156,6 +156,30 @@ describe('candidateToWingProduct — content_assets.role image mapping', () => {
     );
   });
 
+  // 준비(ProductPreparation)가 없는 후보는 `thumbnailPreviewUrls` 가 늘 비어 있다.
+  // 그래서 워크스페이스 썸네일 갤러리(ContentAsset role='thumbnail')가 추가이미지의
+  // 유일한 소스다 — 이게 비면 추가이미지가 0/9 로 남는다.
+  it('fills additional images from the workspace gallery when no preparation exists', () => {
+    const product = candidateToWingProduct(
+      detail(basics({
+        thumbnailPreviewUrls: undefined,
+        registrationImages: {
+          primary: ['http://localhost:9000/assets/primary.png'],
+          thumbnail: [
+            'http://localhost:9000/gallery/1.png',
+            'http://localhost:9000/gallery/2.png',
+          ],
+          detail: [],
+        },
+      })),
+    );
+
+    expect(product.additionalImageUrls).toEqual([
+      'http://localhost:9000/gallery/1.png',
+      'http://localhost:9000/gallery/2.png',
+    ]);
+  });
+
   it('caps additional images at the Coupang limit of 9', () => {
     const thumbnails = Array.from({ length: 12 }, (_, i) => `http://localhost:9000/t/${i}.png`);
     const product = candidateToWingProduct(

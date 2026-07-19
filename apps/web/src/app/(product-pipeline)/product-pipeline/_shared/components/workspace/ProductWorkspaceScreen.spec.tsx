@@ -9,6 +9,7 @@ import { PLACEHOLDER_DATA } from '../../lib/product-workspace-types';
 
 const {
   apiClientPatchMock,
+  apiClientPutMock,
   mobilePreviewProps,
   productEditHeaderProps,
   productTabContentProps,
@@ -16,6 +17,7 @@ const {
   useProductDetailMock,
 } = vi.hoisted(() => ({
   apiClientPatchMock: vi.fn(),
+  apiClientPutMock: vi.fn(),
   mobilePreviewProps: [] as Array<{ detailHtml?: string | null }>,
   productEditHeaderProps: [] as Array<Record<string, unknown>>,
   productTabContentProps: [] as Array<Record<string, unknown>>,
@@ -27,6 +29,7 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: vi.fn(async () => ({ html: null, savedAt: null })),
     patch: (...args: unknown[]) => apiClientPatchMock(...args),
+    put: (...args: unknown[]) => apiClientPutMock(...args),
   },
 }));
 
@@ -73,6 +76,8 @@ vi.mock('./ProductTabContent', () => ({
     selectedRegistrationThumbnailUrl,
     savedDetailPageGenerationId,
     selectedDetailPageSummary,
+    canSaveThumbnailConfiguration,
+    thumbnailPreviewImages,
   }: {
     onSaveThumbnailConfiguration?: (input: {
       thumbnailUrls: string[];
@@ -81,8 +86,10 @@ vi.mock('./ProductTabContent', () => ({
         kind: 'generated';
         generatedGenerationId: string;
         generatedCandidateId: string;
-      };
+      } | null;
     }) => void;
+    canSaveThumbnailConfiguration?: boolean;
+    thumbnailPreviewImages?: string[];
     onCommitBasicInfo?: (input: {
       name?: string;
       salePrice?: number;
@@ -94,14 +101,34 @@ vi.mock('./ProductTabContent', () => ({
     savedDetailPageGenerationId?: string | null;
     selectedDetailPageSummary?: { title?: string } | null;
   }) => {
-    productTabContentProps.push({ onCommitBasicInfo, onApplyRegistrationDetailPage });
+    productTabContentProps.push({
+      onCommitBasicInfo,
+      onApplyRegistrationDetailPage,
+      canSaveThumbnailConfiguration,
+      thumbnailPreviewImages,
+    });
     return <div>
       <div
         data-testid="product-tab-content"
         data-selected-thumbnail={selectedRegistrationThumbnailUrl ?? ''}
         data-selected-detail-generation={savedDetailPageGenerationId ?? ''}
         data-selected-detail-title={selectedDetailPageSummary?.title ?? ''}
+        data-can-save-thumbnail={canSaveThumbnailConfiguration ? 'true' : 'false'}
       />
+      <button
+        type="button"
+        onClick={() =>
+          onSaveThumbnailConfiguration?.({
+            thumbnailUrls: [
+              'https://cdn.example.com/preview-1.jpg',
+              'https://cdn.example.com/preview-2.jpg',
+            ],
+            selectedThumbnail: null,
+          })
+        }
+      >
+        mock-save-thumbnail-list
+      </button>
       <button
         type="button"
         onClick={() =>
@@ -185,6 +212,8 @@ const workspaceData: ProductWorkspaceData = {
 describe('ProductWorkspaceScreen', () => {
   beforeEach(() => {
     apiClientPatchMock.mockReset();
+    apiClientPutMock.mockReset();
+    apiClientPutMock.mockResolvedValue({ thumbnailUrls: [] });
     mobilePreviewProps.length = 0;
     productEditHeaderProps.length = 0;
     productTabContentProps.length = 0;
@@ -427,6 +456,130 @@ describe('ProductWorkspaceScreen', () => {
         sourceThumbnailCandidateId: 'thumbnail-candidate-1',
       },
     ));
+  });
+
+  // 준비(ProductPreparation)가 없는 후보 회귀.
+  // 예전에는 (1) 저장 버튼이 아예 렌더되지 않았고, (2) 대표 등록 경로가 대표 1장만
+  // 저장하고 미리보기 목록을 조용히 버렸다. 그래도 성공 토스트는 떴다.
+  describe('without a product preparation', () => {
+    it('still offers the thumbnail configuration save when a content workspace exists', async () => {
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      const tab = await screen.findByTestId('product-tab-content');
+      expect(tab).toHaveAttribute('data-can-save-thumbnail', 'true');
+    });
+
+    it('hides the thumbnail configuration save when nothing can receive it', async () => {
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+        />,
+      );
+
+      const tab = await screen.findByTestId('product-tab-content');
+      expect(tab).toHaveAttribute('data-can-save-thumbnail', 'false');
+    });
+
+    it('persists the preview list to the workspace thumbnail gallery', async () => {
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      fireEvent.click(await screen.findByRole('button', { name: 'mock-save-thumbnail-list' }));
+
+      await waitFor(() => expect(apiClientPutMock).toHaveBeenCalledWith(
+        '/api/ai/content-workspaces/workspace-1/thumbnail-gallery',
+        {
+          thumbnailUrls: [
+            'https://cdn.example.com/preview-1.jpg',
+            'https://cdn.example.com/preview-2.jpg',
+          ],
+        },
+      ));
+      // 목록만 저장하는 경로는 대표 선택을 건드리지 않는다.
+      expect(apiClientPatchMock).not.toHaveBeenCalled();
+    });
+
+    it('saves the preview list alongside the representative thumbnail', async () => {
+      apiClientPatchMock.mockResolvedValue({ id: 'workspace-1' });
+
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      fireEvent.click(await screen.findByRole('button', { name: 'mock-save-thumbnail' }));
+
+      await waitFor(() => expect(apiClientPutMock).toHaveBeenCalledWith(
+        '/api/ai/content-workspaces/workspace-1/thumbnail-gallery',
+        { thumbnailUrls: ['https://cdn.example.com/generated.jpg'] },
+      ));
+      await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
+        '/api/ai/content-workspaces/workspace-1/current-thumbnail',
+        {
+          sourceThumbnailGenerationId: 'thumbnail-generation-1',
+          sourceThumbnailCandidateId: 'thumbnail-candidate-1',
+        },
+      ));
+    });
+
+    it('restores a previously saved gallery from registrationImages.thumbnail', async () => {
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={{
+            ...workspaceData,
+            product: {
+              ...workspaceData.product,
+              basicInfo: {
+                thumbnailUrls: [],
+                thumbnailPreviewUrls: [],
+                registrationImages: {
+                  primary: [],
+                  thumbnail: [
+                    'https://cdn.example.com/saved-1.jpg',
+                    'https://cdn.example.com/saved-2.jpg',
+                  ],
+                  detail: [],
+                },
+                tags: [],
+              },
+            } as unknown as ProductWorkspaceData['product'],
+          }}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      await screen.findByTestId('product-tab-content');
+      expect(productTabContentProps.at(-1)?.thumbnailPreviewImages).toEqual([
+        'https://cdn.example.com/saved-1.jpg',
+        'https://cdn.example.com/saved-2.jpg',
+      ]);
+    });
   });
 
   it('passes the selected detail page version summary into the basic tab content', async () => {

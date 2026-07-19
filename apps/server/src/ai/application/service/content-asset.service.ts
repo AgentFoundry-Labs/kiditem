@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   type ContentAssetLibraryRepositoryPort,
@@ -14,6 +20,9 @@ export { groupUrlAssetKey } from '../../domain/content-asset-key';
 /** Roles that may be pushed into a channel registration form, in form order. */
 const REGISTRATION_ROLES = ['primary', 'thumbnail', 'detail'] as const;
 type RegistrationRole = (typeof REGISTRATION_ROLES)[number];
+
+/** Wing 추가이미지는 최대 9장이지만, 대표 제외 여유를 두고 상한을 잡는다. */
+const MAX_WORKSPACE_THUMBNAIL_GALLERY = 20;
 
 const isRegistrationRole = (role: string | null): role is RegistrationRole =>
   role !== null && (REGISTRATION_ROLES as readonly string[]).includes(role);
@@ -55,6 +64,40 @@ export class ContentAssetService implements CandidateContentAssetPort {
       grouped[row.role].push(url);
     }
     return grouped;
+  }
+
+  /**
+   * Replace the ordered `role='thumbnail'` gallery owned by one content workspace.
+   *
+   * This is the write side of `listRegistrationImages().thumbnail`. A candidate
+   * with no `ProductPreparation` has nowhere else to persist its preview list,
+   * so without this the list was dropped and Wing `additionalImageUrls` stayed
+   * empty.
+   */
+  async replaceWorkspaceThumbnailGallery(input: {
+    organizationId: string;
+    contentWorkspaceId: string;
+    createdByUserId: string | null;
+    thumbnailUrls: string[];
+  }): Promise<{ thumbnailUrls: string[] }> {
+    const urls: string[] = [];
+    for (const raw of input.thumbnailUrls) {
+      const url = typeof raw === 'string' ? raw.trim() : '';
+      if (!url || urls.includes(url)) continue;
+      urls.push(url);
+    }
+    if (urls.length > MAX_WORKSPACE_THUMBNAIL_GALLERY) {
+      throw new BadRequestException(
+        `Thumbnail gallery accepts at most ${MAX_WORKSPACE_THUMBNAIL_GALLERY} images.`,
+      );
+    }
+    const result = await this.repository.replaceWorkspaceThumbnailGallery({
+      organizationId: input.organizationId,
+      contentWorkspaceId: input.contentWorkspaceId,
+      createdByUserId: input.createdByUserId,
+      urls,
+    });
+    return { thumbnailUrls: result.urls };
   }
 
   async deleteAsset(

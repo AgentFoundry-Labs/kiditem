@@ -317,17 +317,29 @@ export function ProductWorkspaceScreen({
         if (input.selectedThumbnail) {
           await selectThumbnailMutation.mutateAsync(input.selectedThumbnail);
         }
-      } else if (effectiveContentWorkspaceId && input.selectedThumbnail) {
-        await contentWorkspacesApi.selectCurrentThumbnail(
+      } else if (effectiveContentWorkspaceId) {
+        // 준비(ProductPreparation)가 없으면 `registrationInput.thumbnailUrls` 에 쓸 수 없다.
+        // 예전에는 이 분기에서 대표 1장만 저장하고 목록을 조용히 버렸는데, 성공 토스트는
+        // 그대로 떠서 저장된 것처럼 보였다. 목록은 워크스페이스 썸네일 갤러리
+        // (= ContentAsset role='thumbnail')로 저장한다 — 쿠팡 WING 추가이미지가 읽는 곳이다.
+        await contentWorkspacesApi.replaceThumbnailGallery(
           effectiveContentWorkspaceId,
-          contentWorkspaceThumbnailSelection(input.selectedThumbnail),
+          thumbnailUrls,
         );
+        if (input.selectedThumbnail) {
+          await contentWorkspacesApi.selectCurrentThumbnail(
+            effectiveContentWorkspaceId,
+            contentWorkspaceThumbnailSelection(input.selectedThumbnail),
+          );
+        }
         await Promise.all([
           queryClient.invalidateQueries({
             queryKey: queryKeys.contentWorkspaces.detail(effectiveContentWorkspaceId),
           }),
           queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.all }),
           queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all }),
+          // 저장한 갤러리는 `basicInfo.registrationImages.thumbnail` 로 다시 읽힌다.
+          queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) }),
         ]);
       } else {
         throw new Error('저장 가능한 썸네일 구성이 없습니다.');
@@ -400,9 +412,15 @@ export function ProductWorkspaceScreen({
       ?? fetchedData.product.productPreparation?.selectedThumbnailGenerationCandidateId
       ?? null,
     );
+    // 준비가 있으면 `thumbnailPreviewUrls`, 없으면 워크스페이스 갤러리
+    // (`registrationImages.thumbnail`)가 저장된 목록이다. 후자를 안 읽으면
+    // 저장은 됐는데 화면에는 안 보이는 상태가 된다.
+    const savedThumbnailGallery = basicInfo?.registrationImages?.thumbnail ?? [];
     setThumbnailPreviewImages(
       basicInfo?.thumbnailPreviewUrls && basicInfo.thumbnailPreviewUrls.length > 0
         ? basicInfo.thumbnailPreviewUrls
+        : savedThumbnailGallery.length > 0
+        ? savedThumbnailGallery
         : uniqueNonEmpty([
           basicInfo?.selectedThumbnailUrl,
           fetchedData.product.productPreparation?.selectedThumbnailUrl,
@@ -662,7 +680,11 @@ export function ProductWorkspaceScreen({
               onPreviewThumbnail={setThumbnailPreviewUrl}
               onThumbnailPreviewImagesChange={setThumbnailPreviewImages}
               onSaveThumbnailConfiguration={handleSaveThumbnailConfiguration}
-              canSaveThumbnailConfiguration={Boolean(editablePreparationId)}
+              // 준비가 없어도 워크스페이스가 있으면 갤러리로 저장할 수 있다.
+              // 둘 다 없을 때만 감춘다 — 눌러서 에러 나는 버튼보다 낫다.
+              canSaveThumbnailConfiguration={Boolean(
+                editablePreparationId || effectiveContentWorkspaceId,
+              )}
               thumbnailGenerationReturnHref={thumbnailWorkspaceReturnHref}
               selectedDetailPageSummary={selectedDetailPageSummary}
               onDetailPreviewHtmlChange={setDetailWorkspacePreviewHtml}

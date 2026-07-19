@@ -136,7 +136,8 @@ export default function ThumbnailSourcePicker({
           <button
             type="button"
             onClick={onRegisterRepresentative}
-            disabled={!selectedCanBecomeRepresentative}
+            // 저장할 곳(준비 또는 워크스페이스)이 아예 없으면 눌러도 에러만 난다.
+            disabled={!selectedCanBecomeRepresentative || !canSaveConfiguration}
             className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
           >
             <CheckCircle2 size={15} />

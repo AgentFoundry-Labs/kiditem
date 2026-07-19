@@ -1,7 +1,11 @@
-import { ConflictException, Inject, Injectable, Optional } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { groupUrlAssetKey, hashContentAssetUrl } from '../../../domain/content-asset-key';
+import {
+  groupUrlAssetKey,
+  hashContentAssetUrl,
+  workspaceThumbnailAssetKey,
+} from '../../../domain/content-asset-key';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
@@ -14,6 +18,7 @@ import type {
   PersistedContentAssetRef,
   RecordDetailPageGeneratedAssetsInput,
   RecordDetailPageInputAssetsInput,
+  ReplaceWorkspaceThumbnailGalleryInput,
   SyncGenerationImageUsagesInput,
 } from '../../../application/port/out/repository/content-asset-library.repository.port';
 
@@ -221,6 +226,103 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       select: { role: true, url: true, sortOrder: true },
     });
+  }
+
+  async replaceWorkspaceThumbnailGallery(
+    input: ReplaceWorkspaceThumbnailGalleryInput,
+  ): Promise<{ urls: string[] }> {
+    return this.prisma.$transaction(async (tx) => {
+      const workspaceLocked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM content_workspaces
+        WHERE id = ${input.contentWorkspaceId}::uuid
+          AND organization_id = ${input.organizationId}::uuid
+          AND status = 'active'
+          AND is_deleted = false
+        FOR UPDATE
+      `);
+      if (workspaceLocked.length !== 1) {
+        throw new NotFoundException('Content workspace not found.');
+      }
+
+      const groupId = await this.ensureWorkspaceAssetGroup(tx, input);
+      const keptKeys: string[] = [];
+      for (const [index, url] of input.urls.entries()) {
+        const assetKey = workspaceThumbnailAssetKey(input.contentWorkspaceId, url);
+        keptKeys.push(assetKey);
+        await tx.contentAsset.upsert({
+          where: {
+            organizationId_assetKey: { organizationId: input.organizationId, assetKey },
+          },
+          // 재저장은 순서만 바뀌는 경우가 대부분이라 위치/부활만 갱신한다.
+          update: {
+            url,
+            role: 'thumbnail',
+            sortOrder: index,
+            isDeleted: false,
+            deletedAt: null,
+          },
+          create: {
+            organizationId: input.organizationId,
+            originGenerationGroupId: groupId,
+            createdByUserId: input.createdByUserId,
+            assetKey,
+            url,
+            storageKey: this.imageStorage?.extractKey(url) ?? null,
+            assetType: 'image',
+            role: 'thumbnail',
+            sortOrder: index,
+            metadata: { urlHash: hashContentAssetUrl(url) },
+          },
+          select: { id: true },
+        });
+      }
+
+      // 목록에서 빠진 항목은 소프트 삭제한다. 단 현재 대표 썸네일 선택이 가리키는
+      // 자산은 남긴다 — 선택이 참조 중인 자산 삭제는 도메인 규칙 위반이다.
+      await tx.contentAsset.updateMany({
+        where: {
+          organizationId: input.organizationId,
+          originGenerationGroupId: groupId,
+          role: 'thumbnail',
+          isDeleted: false,
+          assetKey: {
+            startsWith: `workspace-thumbnail:${input.contentWorkspaceId}:`,
+            notIn: keptKeys.length > 0 ? keptKeys : undefined,
+          },
+          thumbnailSelections: { none: {} },
+        },
+        data: { isDeleted: true, deletedAt: new Date() },
+      });
+
+      return { urls: [...input.urls] };
+    });
+  }
+
+  private async ensureWorkspaceAssetGroup(
+    tx: Prisma.TransactionClient,
+    input: { organizationId: string; contentWorkspaceId: string; createdByUserId: string | null },
+  ): Promise<string> {
+    const existing = await tx.contentGenerationGroup.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
+        groupType: 'workspace_assets',
+      },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+    const created = await tx.contentGenerationGroup.create({
+      data: {
+        organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
+        groupType: 'workspace_assets',
+        title: 'Workspace managed assets',
+        createdByUserId: input.createdByUserId,
+      },
+      select: { id: true },
+    });
+    return created.id;
   }
 
   private async upsertGroupImageAssetsTx(

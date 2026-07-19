@@ -83,6 +83,22 @@ export interface CandidateContentAssetRow {
   sortOrder: number;
 }
 
+/**
+ * Replace the workspace-owned `role='thumbnail'` gallery in one shot.
+ *
+ * The gallery is the ordered "썸네일 미리보기 이미지" set. It is the only write
+ * path a candidate without a `ProductPreparation` has, so it must land on
+ * `ContentAsset.role='thumbnail'` — that is the set
+ * `listCandidateAssets`/`listRegistrationImages` read back into Wing
+ * `additionalImageUrls`.
+ */
+export interface ReplaceWorkspaceThumbnailGalleryInput {
+  organizationId: string;
+  contentWorkspaceId: string;
+  createdByUserId: string | null;
+  urls: string[];
+}
+
 export interface ContentAssetLibraryRepositoryPort {
   deleteAsset(input: {
     organizationId: string;
@@ -108,4 +124,7 @@ export interface ContentAssetLibraryRepositoryPort {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<CandidateContentAssetRow[]>;
+  replaceWorkspaceThumbnailGallery(
+    input: ReplaceWorkspaceThumbnailGalleryInput,
+  ): Promise<{ urls: string[] }>;
 }

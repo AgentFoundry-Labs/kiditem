@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsInt,
   IsOptional,
   IsString,
@@ -109,6 +111,13 @@ export class SelectContentWorkspaceThumbnailDto {
 
   @Validate(ExactlyOneWorkspaceThumbnailSourceConstraint)
   private readonly exactlyOneSource?: never;
+}
+
+export class ReplaceContentWorkspaceThumbnailGalleryDto {
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUrl({ require_protocol: true, protocols: ['http', 'https'] }, { each: true })
+  thumbnailUrls!: string[];
 }
 
 export class ContentWorkspaceIdParamDto {

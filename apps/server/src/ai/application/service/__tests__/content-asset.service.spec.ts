@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentAssetLibraryRepositoryPort } from '../../port/out/repository/content-asset-library.repository.port';
 import { ContentAssetService } from '../content-asset.service';
@@ -18,6 +18,9 @@ function repository(
     syncGenerationImageUsagesInScope: vi.fn(),
     listAssets: vi.fn(),
     listCandidateAssets: vi.fn().mockResolvedValue([]),
+    replaceWorkspaceThumbnailGallery: vi.fn(async (input: { urls: string[] }) => ({
+      urls: input.urls,
+    })),
     deleteAsset: vi.fn(),
     ...overrides,
   } as ContentAssetLibraryRepositoryPort;
@@ -82,6 +85,109 @@ describe('ContentAssetService.listRegistrationImages', () => {
     await expect(
       service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
     ).resolves.toEqual({ primary: [], thumbnail: [], detail: [] });
+  });
+});
+
+describe('ContentAssetService.replaceWorkspaceThumbnailGallery', () => {
+  const WORKSPACE = '55555555-5555-4555-8555-555555555555';
+  const CANDIDATE = '44444444-4444-4444-8444-444444444444';
+
+  it('persists the ordered preview list so it reads back as registration thumbnails', async () => {
+    // 준비(ProductPreparation)가 없는 후보에게는 이 경로가 목록의 유일한 저장처다.
+    // 저장 결과는 `registrationImages.thumbnail` 로 다시 읽혀 쿠팡 WING
+    // `additionalImageUrls` 를 채운다.
+    const stored: string[] = [];
+    const repo = repository({
+      replaceWorkspaceThumbnailGallery: vi.fn(async (input: { urls: string[] }) => {
+        stored.splice(0, stored.length, ...input.urls);
+        return { urls: input.urls };
+      }),
+      listCandidateAssets: vi.fn(async () =>
+        stored.map((url, index) => ({ role: 'thumbnail', url, sortOrder: index })),
+      ),
+    });
+    const service = new ContentAssetService(repo);
+
+    await service.replaceWorkspaceThumbnailGallery({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: USER_ID,
+      thumbnailUrls: [
+        'https://cdn.example.com/thumb-1.png',
+        'https://cdn.example.com/thumb-2.png',
+      ],
+    });
+
+    expect(repo.replaceWorkspaceThumbnailGallery).toHaveBeenCalledWith({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: USER_ID,
+      urls: [
+        'https://cdn.example.com/thumb-1.png',
+        'https://cdn.example.com/thumb-2.png',
+      ],
+    });
+    await expect(
+      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+    ).resolves.toEqual({
+      primary: [],
+      thumbnail: [
+        'https://cdn.example.com/thumb-1.png',
+        'https://cdn.example.com/thumb-2.png',
+      ],
+      detail: [],
+    });
+  });
+
+  it('trims, drops blanks, and de-duplicates while keeping first-seen order', async () => {
+    const repo = repository();
+    const service = new ContentAssetService(repo);
+
+    await service.replaceWorkspaceThumbnailGallery({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: null,
+      thumbnailUrls: [
+        '  https://cdn.example.com/b.png  ',
+        '',
+        'https://cdn.example.com/a.png',
+        'https://cdn.example.com/b.png',
+      ],
+    });
+
+    expect(repo.replaceWorkspaceThumbnailGallery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        urls: ['https://cdn.example.com/b.png', 'https://cdn.example.com/a.png'],
+      }),
+    );
+  });
+
+  it('clears the gallery when the operator removes every preview image', async () => {
+    const repo = repository();
+    const service = new ContentAssetService(repo);
+
+    await expect(service.replaceWorkspaceThumbnailGallery({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: null,
+      thumbnailUrls: [],
+    })).resolves.toEqual({ thumbnailUrls: [] });
+    expect(repo.replaceWorkspaceThumbnailGallery).toHaveBeenCalledWith(
+      expect.objectContaining({ urls: [] }),
+    );
+  });
+
+  it('rejects a gallery larger than the supported cap', async () => {
+    const repo = repository();
+    const service = new ContentAssetService(repo);
+
+    await expect(service.replaceWorkspaceThumbnailGallery({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: null,
+      thumbnailUrls: Array.from({ length: 21 }, (_, i) => `https://cdn.example.com/${i}.png`),
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.replaceWorkspaceThumbnailGallery).not.toHaveBeenCalled();
   });
 });
 
