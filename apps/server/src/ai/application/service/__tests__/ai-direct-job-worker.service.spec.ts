@@ -173,7 +173,7 @@ describe('AiDirectJobWorkerService', () => {
     await first;
   });
 
-  it('aborts provider execution when the lease heartbeat observes cancellation', async () => {
+  it('observes cancellation within one worker polling interval', async () => {
     vi.useFakeTimers();
     const { worker, repository, processor } = makeWorker();
     repository.extendLease.mockResolvedValueOnce('cancelled');
@@ -189,7 +189,7 @@ describe('AiDirectJobWorkerService', () => {
     );
 
     const tick = worker.tick(NOW);
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     await tick;
 
     expect(repository.extendLease).toHaveBeenCalled();

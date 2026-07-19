@@ -148,7 +148,13 @@ export class AiDirectJobWorkerService
     job: AiDirectJobRecord,
     controller: AbortController,
   ): () => void {
-    const intervalMs = Math.max(1, Math.floor(this.config.leaseMs / 3));
+    const intervalMs = Math.max(
+      1,
+      Math.min(
+        this.config.workerIntervalMs,
+        Math.floor(this.config.leaseMs / 3),
+      ),
+    );
     const interval = setInterval(() => {
       void this.repository
         .extendLease({
