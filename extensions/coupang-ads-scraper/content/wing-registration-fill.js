@@ -6,6 +6,8 @@
 // ⚠️ 제출(상품등록)은 **기본적으로 절대 누르지 않는다**. 사용자가 확인 후 직접 누른다.
 //    웹의 등록 확인 모달에서 "상품등록까지 자동 실행"을 켠 경우에만 `autoSubmit: true` 가 실려 오고,
 //    그때만 submitWingForm() 이 폼 하단의 제출 버튼을 누른다. 옵트인이 아니면 버튼을 찾지도 않는다.
+//    제출은 2단계다: 폼 하단 '상품등록' → WING 확인 모달('판매요청 하시겠습니까?')의 '상품등록'.
+//    두 번째 클릭이 없으면 아무것도 등록되지 않는다. 자세한 DOM 은 CONFIRM_MODAL_SELECTOR 주석 참조.
 //
 // product 형태(WingProduct, wing-registration-flow.ts):
 //   { categoryCell:"[64687] 생활용품>생활소품>열쇠고리/키홀더", productName, sellerProductName,
@@ -819,7 +821,54 @@
   const FORBIDDEN_SUBMIT_PATTERN = /report-rating|rating|survey|feedback|nps/i;
 
   // 눌렀을 때 등록이 아닌 다른 일이 벌어지는 버튼들. 실수로라도 대상이 되면 안 된다.
-  const NEVER_CLICK_TEXTS = ['임시저장', '판매요청', '삭제', '취소', '등록'];
+  //  - '취소'            : 확인 모달을 닫아 등록을 취소시킨다
+  //  - '상품목록'/'새로운 상품등록' : 완료 모달의 이동 버튼. 누르면 화면이 떠나 ID 를 못 읽는다.
+  //                        (웹이 폴링해서 화면을 옮긴다 — 커밋 f4da499c)
+  const NEVER_CLICK_TEXTS = [
+    '임시저장',
+    '판매요청',
+    '삭제',
+    '취소',
+    '등록',
+    '상품목록',
+    '새로운 상품등록',
+  ];
+
+  /**
+   * 폼 하단 '상품등록' → **확인 모달** → 모달의 '상품등록' → 완료 모달.
+   *
+   * 라이브 실측(formV2, 2026-07):
+   *  - 확인 모달은 **SweetAlert 1.x 싱글턴**이다. `div.sweet-alert` 가 문서에 항상 딱 하나
+   *    존재하고(닫혀 있을 때는 숨김 + 자리표시 텍스트 `Title`/`Text`/`Cancel`/`OK`),
+   *    열릴 때 제목·버튼 라벨만 갈아끼운다.
+   *      div.sweet-alert
+   *        h2.alert-title   … '판매요청 하시겠습니까?'
+   *        p.alert-text
+   *        div.alert-buttons
+   *          button.cancel  … '취소'      ← ⚠️ 절대 누르지 않는다
+   *          button.confirm … '상품등록'  ← 최종 확인(등록이 실제로 일어난다)
+   *  - 번들 실측: `confirmButtonText: this.$t(this.requestApprovalBtn)` 이라
+   *    확인 버튼 라벨이 폼 버튼과 **같은 문구**('상품등록' / 수정화면은 '수정 및 검수 요청')다.
+   *  - 완료 모달은 별도 Vue 컴포넌트(`InventorySavePopUp` + `Modal`)라 `.sweet-alert` 가
+   *    아니다. 그래서 확인 클릭을 `.sweet-alert` 안으로 가두면 완료 모달의
+   *    '상품목록'/'새로운 상품등록'은 **구조적으로** 눌릴 수 없다.
+   *
+   * ⚠️ 확인 버튼은 **반드시 이 모달 컨테이너 안에서만** 찾는다. 과거에 문서 전역에서
+   *    버튼을 찾다가 숨어 있던 별점 위젯을 눌러 모달 지옥에 빠진 이력이 있다.
+   */
+  const CONFIRM_MODAL_SELECTOR = '.sweet-alert';
+  const CONFIRM_MODAL_CONFIRM_SELECTOR = 'button.confirm';
+
+  /** 버튼이 확인 모달 안에 있는가(조상 체인으로 판정). */
+  function isInsideConfirmModal(element) {
+    let node = element;
+    for (let i = 0; i < 8 && node; i += 1) {
+      const className = typeof node.className === 'string' ? node.className : '';
+      if (/(?:^|\s)sweet-alert(?:\s|$)/.test(className)) return true;
+      node = node.parentElement;
+    }
+    return false;
+  }
 
   function isForbiddenSubmitTarget(button) {
     let node = button;
@@ -841,8 +890,14 @@
    *   1) 화면에 보이는 버튼만(offsetParent)
    *   2) 텍스트 **완전일치** (SUBMIT_BUTTON_TEXTS)
    *   3) 별점/설문 위젯 조상 거부 (isForbiddenSubmitTarget)
-   *   4) 비활성 버튼 거부
+   *   4) 확인 모달(.sweet-alert) 내부 버튼 거부
+   *   5) 비활성 버튼 거부
    * 여러 개가 남으면 문서 순서상 마지막(= 폼 하단 액션바)을 쓴다.
+   *
+   * ⚠️ 4) 가 필요한 이유: 확인 모달의 확인 버튼은 폼 버튼과 **라벨이 똑같고**
+   *    `.sweet-alert` 는 문서 순서상 폼보다 **뒤**에 있다(라이브 실측: body 말단 div).
+   *    모달이 떠 있는 상태에서 이 함수를 부르면 "마지막 후보" 규칙 때문에 모달의 확인이
+   *    폼 제출 버튼으로 잡힌다. 두 단계는 서로 다른 함수가 각자 책임진다.
    */
   function findSubmitButton() {
     const candidates = [...document.querySelectorAll('button')].filter((b) => {
@@ -852,6 +907,7 @@
       if (NEVER_CLICK_TEXTS.includes(text)) return false;
       if (b.offsetParent === null) return false;
       if (isForbiddenSubmitTarget(b)) return false;
+      if (isInsideConfirmModal(b)) return false;
       if (b.disabled === true) return false;
       if (typeof b.hasAttribute === 'function' && b.hasAttribute('disabled')) return false;
       return true;
@@ -859,7 +915,40 @@
     return candidates.length ? candidates[candidates.length - 1] : null;
   }
 
-  // 등록 성공 안내에서 등록상품ID(쿠팡 vendorInventoryId, 10자리 이상 숫자)를 뽑는다.
+  /**
+   * 열려 있는 확인 모달의 확인 버튼. 없으면 null.
+   *
+   * 판정 조건(모두 만족해야 한다):
+   *   1) `.sweet-alert` 컨테이너가 화면에 보인다
+   *   2) 그 **안**의 `button.confirm` 이 보인다
+   *   3) 확인 버튼 라벨이 제출 문구(SUBMIT_BUTTON_TEXTS)와 완전일치한다
+   *
+   * 3) 이 핵심 안전장치다. WING 은 같은 SweetAlert 싱글턴을 '최대 9개까지 업로드할 수
+   * 있습니다.' 같은 단순 안내에도 재사용하는데, 그런 알림의 확인 라벨은 '확인'이다.
+   * 라벨을 확인하지 않으면 등록과 무관한 알림을 등록 확인으로 오인해 누르게 된다.
+   */
+  function findConfirmModalButton() {
+    const modals = [...document.querySelectorAll(CONFIRM_MODAL_SELECTOR)].filter(isVisible);
+    for (const modal of modals) {
+      const confirm = modal.querySelector(CONFIRM_MODAL_CONFIRM_SELECTOR);
+      if (!confirm || !isVisible(confirm)) continue;
+      const text = (confirm.textContent || '').trim();
+      if (!SUBMIT_BUTTON_TEXTS.includes(text)) continue;
+      if (NEVER_CLICK_TEXTS.includes(text)) continue;
+      if (isControlDisabled(confirm)) continue;
+      return confirm;
+    }
+    return null;
+  }
+
+  /**
+   * 등록 성공 안내에서 등록상품ID(쿠팡 vendorInventoryId, 10자리 이상 숫자)를 뽑는다.
+   *
+   * 라이브 문구(번들 실측 — 완료 모달은 단일 템플릿 리터럴
+   * `` `${$t(inventoryIdText)} : ${inventoryId}` `` 로 렌더된다):
+   *   `등록상품ID : 16311492950`
+   * 콜론+공백은 `[^0-9]{0,10}` 안에 들어오므로 기존 패턴으로 그대로 잡힌다.
+   */
   function extractRegisteredProductId() {
     const fromUrl = /vendorInventoryId=(\d{8,})/.exec(location.href || '');
     if (fromUrl) return fromUrl[1];
@@ -897,9 +986,25 @@
     log(`submit:click:${label}`);
     button.click();
 
-    // 제출 직후 확인 모달이 뜨는 화면이 있다. 알려진 모달만 걷어낸다.
+    // 제출 직후 등록과 무관한 안내 모달이 끼어들 수 있다. 알려진 것만 걷어낸다.
     await sleep(1500);
     if (dismissBlockingModal()) log('submit:dismissedModal');
+
+    // 확인 모달('판매요청 하시겠습니까?')의 확인 버튼을 한 번 더 누른다.
+    // 이 클릭이 있어야 실제 등록이 일어난다 — 여기서 멈추면 아무것도 등록되지 않는다.
+    //
+    // 모달이 뜨지 않고 바로 등록되는 흐름도 있을 수 있으므로, 일정 시간 기다렸다가
+    // 없으면 그냥 진행한다. 등록 여부는 아래 완료 문구 폴링이 최종 판정한다.
+    const confirmButton = await waitFor(findConfirmModalButton, { timeout: 6000, interval: 250 });
+    if (confirmButton) {
+      // ⚠️ 같은 모달의 '취소'는 절대 건드리지 않는다. findConfirmModalButton 이
+      //    `button.confirm` 만 돌려주므로 취소는 애초에 후보가 아니다.
+      log(`submit:confirmModal:${(confirmButton.textContent || '').trim()}`);
+      confirmButton.click();
+      await sleep(1200);
+    } else {
+      log('submit:noConfirmModal');
+    }
 
     for (let i = 0; i < 20; i += 1) {
       if (hasSubmitSuccessText()) {
@@ -925,7 +1030,8 @@
       status: 'unknown',
       label,
       externalListingId: extractRegisteredProductId(),
-      error: '상품등록 버튼을 눌렀지만 완료 안내를 확인하지 못했습니다. WING 탭에서 등록 결과를 직접 확인해 주세요.',
+      error:
+        '상품등록을 진행했지만 완료 안내를 확인하지 못했습니다. 확인 모달이 남아 있을 수 있으니 WING 탭에서 등록 결과를 직접 확인해 주세요.',
     };
   }
 
