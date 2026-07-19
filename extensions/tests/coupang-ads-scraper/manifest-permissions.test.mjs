@@ -10,7 +10,7 @@ const manifestUrl = new URL(
 test("seller catalog collection can inspect Coupang seller shops", async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
 
-  assert.equal(manifest.version, "1.2.64");
+  assert.equal(manifest.version, "1.2.65");
   assert.ok(
     manifest.host_permissions.includes("https://shop.coupang.com/*"),
     "shop.coupang.com host permission is required for chrome.scripting.executeScript",

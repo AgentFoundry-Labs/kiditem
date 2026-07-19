@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "KIDITEM OS - 쿠팡 셀러 도우미",
   "description": "쿠팡 Wing/광고센터 데이터를 자동 수집하여 KIDITEM OS 대시보드에 연동합니다.",
-  "version": "1.2.64",
+  "version": "1.2.65",
   "permissions": [
     "activeTab",
     "storage",
