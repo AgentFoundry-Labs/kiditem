@@ -121,7 +121,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Guards, decorators, middleware, and `/api/auth/me`. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped registration/listing, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, conditional product/variant link writes, linked-recipe diagnostics, and sellable-capacity projections. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, conditional product/variant link writes, linked-recipe diagnostics, and sellable-capacity projections. |
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -134,7 +134,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/products` | Owner Domain | KidItem MasterProduct operations, reusable ProductVariant units, central ProductVariantComponent recipes, transaction-aware channel-origin identity provisioning, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
-| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox) plus the account-scoped ProductPreparation registration state machine. |
+| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox), reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
 | `apps/server/src/supply` | Owner Domain | Supplier registry, SellpiaInventorySku supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
@@ -479,23 +479,35 @@ the domain ledger or alert, and the lease heartbeat aborts in-flight provider
 and image-download work. Gemini adapters receive the model captured at enqueue
 time and never select an environment fallback during execution.
 
-## Account-Scoped Registration And Content Ownership (`0.1.8`)
+## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.25`)
 
-Sourcing owns registration intent and state in `ProductPreparation`; Channels
-owns the selected marketplace account, provider submission, and resulting
-`ChannelListing`; AI owns candidate/listing content workspaces. Registration no
-longer promotes a candidate into `MasterProduct`.
+Sourcing owns reviewed registration input in `ProductPreparation` and every
+registration side effect in `ProductRegistrationExecution`; Channels owns the
+selected marketplace account, provider capability, resulting `ChannelListing`,
+and `ChannelListingDeletionOperation`; AI owns candidate/listing content
+workspaces. Registration no longer promotes a candidate into `MasterProduct`.
 
 ```text
 SourcingCandidate (status: sourced | rejected)
   -> ProductPreparation draft for a selected ChannelAccount
-  -> canonical payload JSON + SHA-256 + stable submission key are frozen
-  -> persist the key as Coupang externalVendorSku and reconcile by key/provider ID
-  -> call provider outside the DB tx only when reconciliation proves this is new
-  -> one final DB tx resolves/reactivates the account-scoped ChannelListing
+  -> ProductRegistrationExecution freezes canonical payload JSON + SHA-256
+     + stable submission key + actor/account evidence
+  -> persist executing/uncertain before provider IO and reconcile by key/provider ID
+  -> call provider outside the DB tx only when the execution remains
+     prepared/not_attempted and reconciliation proves this is new
+  -> one final DB tx resolves/reactivates the account-scoped ChannelListing,
+     succeeds the execution,
      + branches selected content into a listing-owned ContentWorkspace
-     + marks ProductPreparation registered
+     + marks the ProductPreparation compatibility projection registered
 ```
+
+Legacy registered preparations are imported as terminal succeeded bookkeeping
+only after their scoped candidate/account/listing and frozen payload hash are
+validated. Legacy submitting or failed preparations become failed or
+reconciling executions and never regain create eligibility. Listing deletion
+authorization and uncertainty live in `ChannelListingDeletionOperation`; an
+extension-observed success alone remains `reconciling/uncertain` and cannot
+deactivate the listing until an independent provider verifier confirms it.
 
 The canonical APIs are candidate preparation create, preparation update,
 submit, and cancel. In 0.1.8, `POST /api/sourcing/candidates/:id/promote` is a

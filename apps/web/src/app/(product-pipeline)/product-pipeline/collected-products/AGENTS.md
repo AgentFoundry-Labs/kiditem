@@ -26,8 +26,13 @@ Do not reintroduce standalone sourcing or product-content routes.
 - `SourcingCandidate` is the raw source/opportunity workspace.
 - Candidate status is only `sourced|rejected`; registration progress must not
   be copied into candidate status.
-- `ProductPreparation` owns account-scoped draft, submitting, failed,
-  registered, and cancelled registration state.
+- `ProductPreparation` owns account-scoped reviewed input and selected content;
+  its submitting/failed/registered columns are legacy compatibility
+  projections, not provider-side-effect authority.
+- `ProductRegistrationExecution` owns the frozen request, actor, idempotency,
+  provider outcome, reconciliation state, and terminal listing result. The UI
+  retries or polls the same execution ID and must never turn an uncertain
+  execution into a new create request.
 - `ChannelListing` is the real registered marketplace identity. Registered
   products derive membership and navigation from listing/workspace existence.
 - `ContentGeneration` stores generation request/result snapshots and candidate
@@ -60,10 +65,11 @@ The product registration-preparation button requires an explicit
 content IDs. The response is exactly `{ preparationId, status: 'draft' }`; it
 never returns or creates a master.
 
-Draft creation keeps the user in the candidate workspace and renders state from
-`ProductPreparation`. A product appears in registered-products only after real
-provider registration creates a `ChannelListing`; registered navigation uses
-the listing/content-workspace identifiers.
+Draft creation keeps the user in the candidate workspace and renders reviewed
+input from `ProductPreparation` plus operation state from the authoritative
+execution projection. A product appears in registered-products only after the
+execution succeeds with a real `ChannelListing`; registered navigation uses the
+listing/content-workspace identifiers.
 
 ## Boundary Rules
 

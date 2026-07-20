@@ -786,6 +786,7 @@ erDiagram
     String idempotencyKey
     String requestHash
     String externalListingId
+    String expectedProviderAccountId
     String status
     String providerOutcome
     Json resultJson
@@ -1609,6 +1610,7 @@ erDiagram
     String channelAccountId FK
     String channelListingId FK
     String executionKind
+    String expectedProviderAccountId
     String idempotencyKey
     String requestHash
     Json submissionPayloadJson

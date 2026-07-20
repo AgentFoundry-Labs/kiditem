@@ -120,6 +120,7 @@ erDiagram
     String channelAccountId FK
     String channelListingId FK
     String executionKind
+    String expectedProviderAccountId
     String idempotencyKey
     String requestHash
     Json submissionPayloadJson

@@ -47,12 +47,8 @@
   sent to the global command-center query.
 - Product create/edit mutations invalidate only the product operations list and
   affected detail keys.
-- Product detail owns manual complete recipe replacement through the focused
-  physical Inventory candidate search. Manual variant recipe edits are complete
-  atomic replacements: operators select confirmed physical Inventory identities,
-  and a component is saved by `sellpiaInventorySkuId` and positive integer
-  quantity. Matching may invoke the separate version-fenced create-if-empty
-  command for one component with a backend-verified positive integer quantity.
+- Product detail owns complete recipe replacement through focused physical
+  Inventory search. Matching has only the version-fenced create-if-empty command.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
 - Candidate generation on `/product-hub/matching` never confirms an identity
@@ -78,13 +74,8 @@
   sales-derived ABC.
 - Do not create catalog-owned stock balances or editable Sellpia stock/price
   inputs.
-- Do not infer product or variant identity from display text. Normalized names
-  and AI never auto-confirm publication or matching links. Recipe automation
-  may select one physical SKU for an empty recipe through name-cross-checked
-  exact identifiers, unique exact normalized names, or a unique high-confidence
-  name with sufficient runner-up margin. Quantities above one require an
-  explicit integer pack ratio; ambiguity, conflicts, unverified pack/BOM, raw
-  aliases, close-ranked names, and AI remain review-only.
+- Do not infer identity from display text, normalized names, or AI. The nested
+  matching guide owns the narrower recipe-evidence and pack-ratio policy.
 - Channel rows may show inherited recipe status and capacity; the catalog guide
   owns recipe and matching safety policy. Manual complete recipe edits belong to
   `/product-hub/[masterProductId]`; matching owns only the narrow

@@ -19,6 +19,7 @@ describe('channel listing registration contracts', () => {
       idempotencyKey: 'delete:427011919:v1',
       requestHash: 'sha256:delete-request',
       externalListingId: '427011919',
+      expectedProviderAccountId: 'A01234567',
       status: 'prepared',
       providerOutcome: 'not_attempted',
       resultJson: null,

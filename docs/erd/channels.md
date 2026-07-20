@@ -153,6 +153,7 @@ erDiagram
     String idempotencyKey
     String requestHash
     String externalListingId
+    String expectedProviderAccountId
     String status
     String providerOutcome
     Json resultJson

@@ -10,6 +10,7 @@ import { repairCoupangAdsDailyConversions } from "./v0.1.25/002_repair_coupang_a
 import { repairAdCampaignTargetConversions } from "./v0.1.25/003_repair_ad_campaign_target_conversions";
 import { rekeyAdCampaignProductTargets } from "./v0.1.25/004_rekey_ad_campaign_product_targets";
 import { removeAmbiguousAdCampaignAccountKpis } from "./v0.1.25/005_remove_ambiguous_ad_campaign_account_kpis";
+import { backfillMarketplaceOperationLedgers } from "./v0.1.25/006_backfill_marketplace_operation_ledgers";
 import type { DataMigration } from "./types";
 
 export {
@@ -34,6 +35,7 @@ export const dataMigrations: readonly DataMigration[] = [
   repairAdCampaignTargetConversions,
   rekeyAdCampaignProductTargets,
   removeAmbiguousAdCampaignAccountKpis,
+  backfillMarketplaceOperationLedgers,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

@@ -7,6 +7,7 @@ export default defineConfig({
     'src/product/index.ts',
     'src/product-content/index.ts',
     'src/sourcing/index.ts',
+    'src/product-preparation-payload.ts',
     'src/channel-listing.ts',
     'src/order.ts',
     'src/inventory.ts',

@@ -89,31 +89,30 @@ channels/
   empty central recipe with one active Sellpia SKU and the policy's verified
   positive integer channel-to-Sellpia pack ratio. It never overwrites an
   existing recipe or changes identity links.
-- Automatic recipe evidence must be unique and non-conflicting. Name-compatible
-  exact identifiers, unique exact names, and contained/fuzzy names that clear
-  the policy thresholds may apply; unverifiable pack/BOM evidence, incompatible
-  names, ambiguity, conflicts, close-ranked names, raw aliases, and AI require
-  review. Read
+- Automatic recipe evidence must be unique and non-conflicting. Exact
+  identifiers/names or threshold-clearing names may apply; incompatible,
+  ambiguous, unverifiable, raw-alias, and AI evidence requires review. Read
   [`docs/runbooks/channel-sellpia-matching.md`](../../../../docs/runbooks/channel-sellpia-matching.md)
   before changing this policy or its operator workflow.
-- Safe children apply independently while unresolved siblings remain under
-  review. A complete Rocket publication invokes the same policy only for product
-  groups published by that collection; incomplete or vendor-mismatched
-  collections never invoke it. The Rocket path recomputes evidence server-side
-  and reports applied/review/blocked counts in the catalog response; the
-  version-fenced preview stays the operator command read model and the web does
-  not require a second confirmation dialog.
-- Confirmed recipes are the only capacity input. Unmatched, invalid, or
-  review-required SKUs return `sellableStock = null`; zero means a valid recipe
-  whose available component capacity is zero. Capacity exposes physical stock,
-  active commitments, available stock, component capacities, and bottlenecks
-  without reserving or writing stock.
+- Safe children apply independently. Complete, vendor-matched Rocket
+  publication may invoke the same server-recomputed policy for its published
+  groups; incomplete/mismatched collections may not.
+- Confirmed recipes alone drive capacity. Invalid/review-required SKUs return
+  `null`; zero means valid capacity is exhausted. Reads never reserve stock.
 - Matching state derives from nullable links and recipe validity. Do not restore
   persisted `mappingStatus`; recollection updates provider facts without clearing
   confirmed links.
 - Common availability resolves as
   `sellableStock = min(floor(component.availableStock / component.quantity))`
   over the linked recipe components.
+
+## Listing Deletion Contract
+
+- Actor-bound `ChannelListingDeletionOperation` is persisted under the scoped
+  listing lock before browser mutation and owns authorization/uncertainty.
+- Extension evidence (including DOM/meta/URL identity) is not server-verifiable:
+  keep `reconciling/uncertain` and the listing active until an independent
+  provider verifier confirms deletion. Succeeded deletion fences reactivation.
 
 ## Import + Matching APIs
 
