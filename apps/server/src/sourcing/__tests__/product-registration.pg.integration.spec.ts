@@ -740,7 +740,12 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey,
     }, ensureWorkspace, resolveSelections);
-    expect(prepared).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
+    expect(prepared).toMatchObject({
+      status: 'prepared', providerOutcome: 'not_attempted', expectedProviderAccountId: 'account-0',
+    });
+    await expect(repository.claimForSubmission(
+      TEST_ORGANIZATION_ID, prepared.preparationId, TEST_USER_ID, resolveSelections,
+    )).rejects.toBeInstanceOf(ConflictException);
 
     const replay = await repository.prepareExternalExecution({
       organizationId: TEST_ORGANIZATION_ID,
@@ -801,6 +806,49 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       async (opaqueTx) => ({ listingId: await createListingBranch(tx(opaqueTx), '427011919') }),
     );
     expect(completed.status).toBe('registered');
+    await expect(repository.getExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).resolves.toMatchObject({ status: 'succeeded', listingId: completed.listingId });
+  });
+
+  it('replays a concurrent same-hash external preparation after the candidate lock', async () => {
+    const idempotencyKey = randomUUID();
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey,
+    };
+    const [left, right] = await Promise.all([
+      repository.prepareExternalExecution(input, ensureWorkspace, resolveSelections),
+      repository.prepareExternalExecution(input, ensureWorkspace, resolveSelections),
+    ]);
+    expect(left.executionId).toBe(right.executionId);
+    expect(await prisma.productRegistrationExecution.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, idempotencyKey },
+    })).toBe(1);
+  });
+
+  it('rejects external preparation when the persisted account is not a vendor-identified Wing account', async () => {
+    await prisma.channelAccount.update({
+      where: { id: ACCOUNT_ID },
+      data: { channel: 'rocket', vendorId: null, externalAccountId: null },
+    });
+    await expect(repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
   });
 
   function createInput(channelAccountId: string) {

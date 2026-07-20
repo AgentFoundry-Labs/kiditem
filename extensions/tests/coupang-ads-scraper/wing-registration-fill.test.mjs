@@ -48,12 +48,13 @@ function createHarness() {
     setTimeout,
   });
   context.window = context;
+  context.KidItemWingAccountIdentity = { verifyExpectedVendorId: () => ({ ok: true, vendorId: 'A00012345', source: 'dom:data-vendor-id' }) };
   vm.runInContext(source, context, { filename: 'wing-registration-fill.js' });
 
   return {
     async fill(product) {
       return new Promise((resolve) => {
-        const isAsync = listener?.({ action: 'fillWingForm', product }, {}, resolve);
+        const isAsync = listener?.({ action: 'fillWingForm', product, expectedVendorId: 'A00012345' }, {}, resolve);
         assert.equal(isAsync, true);
       });
     },
@@ -246,6 +247,7 @@ function createDirectUploadHarness({
     setTimeout: immediateTimer,
   });
   context.window = context;
+  context.KidItemWingAccountIdentity = { verifyExpectedVendorId: () => ({ ok: true, vendorId: 'A00012345', source: 'dom:data-vendor-id' }) };
   context.location = { href: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2' };
   vm.runInContext(source, context, { filename: 'wing-registration-fill.js' });
 
@@ -255,6 +257,7 @@ function createDirectUploadHarness({
         const isAsync = listener?.(
           {
             action: 'fillWingForm',
+            expectedVendorId: 'A00012345',
             product: {
               categoryCell: '',
               detailImageUrls,
@@ -583,6 +586,7 @@ function createOptionAndNoticeHarness({ rowCount = 1, cascade = true } = {}) {
     setTimeout: immediateTimer,
   });
   context.window = context;
+  context.KidItemWingAccountIdentity = { verifyExpectedVendorId: () => ({ ok: true, vendorId: 'A00012345', source: 'dom:data-vendor-id' }) };
   vm.runInContext(source, context, { filename: 'wing-registration-fill.js' });
 
   return {
@@ -591,6 +595,7 @@ function createOptionAndNoticeHarness({ rowCount = 1, cascade = true } = {}) {
         listener?.(
           {
             action: 'fillWingForm',
+            expectedVendorId: 'A00012345',
             product: { categoryCell: '', detailImageUrls: [], variants: [variant] },
           },
           {},
@@ -827,6 +832,7 @@ function createSubmitHarness({
     setTimeout: immediateTimer,
   });
   context.window = context;
+  context.KidItemWingAccountIdentity = { verifyExpectedVendorId: () => ({ ok: true, vendorId: 'A00012345', source: 'dom:data-vendor-id' }) };
   context.location = { href: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2' };
   vm.runInContext(source, context, { filename: 'wing-registration-fill.js' });
 
@@ -834,7 +840,7 @@ function createSubmitHarness({
     async fill(message) {
       return new Promise((resolve) => {
         const isAsync = listener?.(
-          { action: 'fillWingForm', product: { categoryCell: '', detailImageUrls: [] }, ...message },
+          { action: 'fillWingForm', expectedVendorId: 'A00012345', product: { categoryCell: '', detailImageUrls: [] }, ...message },
           {},
           resolve,
         );

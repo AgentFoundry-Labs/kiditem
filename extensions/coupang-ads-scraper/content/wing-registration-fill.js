@@ -1039,10 +1039,9 @@
     const steps = [];
     const log = (s) => steps.push(s);
     let detailUploadError = null;
-    const accountIdentity = expectedVendorId === undefined
-      ? null
-      : globalThis.KidItemWingAccountIdentity?.verifyExpectedVendorId(expectedVendorId);
-    if (expectedVendorId !== undefined && !accountIdentity?.ok) {
+    const accountIdentity = globalThis.KidItemWingAccountIdentity
+      ?.verifyExpectedVendorId(expectedVendorId);
+    if (!accountIdentity?.ok) {
       return { ok: false, error: accountIdentity?.error || 'WING account verification helper is unavailable.', steps };
     }
     const evidence = accountIdentity ? {

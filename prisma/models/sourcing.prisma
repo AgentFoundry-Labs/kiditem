@@ -320,6 +320,7 @@ model ProductRegistrationExecution {
   channelListingId     String? @map("channel_listing_id") @db.Uuid
 
   executionKind  String @default("create") @map("execution_kind")
+  expectedProviderAccountId String? @map("expected_provider_account_id")
   idempotencyKey String @map("idempotency_key")
   requestHash    String @map("request_hash")
 

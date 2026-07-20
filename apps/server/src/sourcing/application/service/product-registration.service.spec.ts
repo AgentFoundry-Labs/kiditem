@@ -107,6 +107,7 @@ function setup(overrides: {
       executionId: 'execution-1', preparationId: PREPARATION_ID, requestHash: 'hash-1',
       status: 'executing', providerOutcome: 'uncertain',
       submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      expectedProviderAccountId: 'A00012345', listingId: null,
     }),
     markExternalExecutionUnresolved: vi.fn(),
     markProviderAttemptStarted: vi.fn().mockResolvedValue(undefined),
@@ -174,6 +175,7 @@ describe('ProductRegistrationService', () => {
       preparationId: PREPARATION_ID,
       requestHash: 'hash-1',
       status: 'prepared',
+      expectedProviderAccountId: 'A00012345',
     });
     const startExternalExecution = vi.fn().mockResolvedValue({
       executionId: 'execution-1',
@@ -579,7 +581,7 @@ describe('ProductRegistrationService', () => {
     await service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
       executionId: 'execution-1',
       externalListingId: '427011919',
-      evidence: { source: 'wing' },
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
     });
 
     expect(assertExternalRegistrationAccount).toHaveBeenCalledWith({
@@ -592,6 +594,30 @@ describe('ProductRegistrationService', () => {
       '33333333-3333-4333-8333-333333333333',
       expect.objectContaining({ channel: 'coupang' }),
     );
+  });
+
+  it('rejects forged WING evidence before recording external provider success', async () => {
+    const { service, repository } = setup();
+    await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1', externalListingId: '427011919',
+      evidence: { wingVendorId: 'B00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    })).rejects.toThrow('does not match');
+    expect(repository.recordProviderResult).not.toHaveBeenCalled();
+  });
+
+  it('replays a completed external execution without recording or finalizing again', async () => {
+    const getExternalExecution = vi.fn().mockResolvedValue({
+      executionId: 'execution-1', preparationId: PREPARATION_ID, requestHash: 'hash-1',
+      status: 'succeeded', providerOutcome: 'succeeded', submissionLeaseToken: null,
+      expectedProviderAccountId: 'A00012345', listingId: LISTING_ID,
+    });
+    const { service, repository } = setup({ repository: { getExternalExecution } as never });
+    await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1', externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    })).resolves.toEqual({ preparationId: PREPARATION_ID, status: 'registered', listingId: LISTING_ID });
+    expect(repository.recordProviderResult).not.toHaveBeenCalled();
+    expect(repository.finalizeRegistered).not.toHaveBeenCalled();
   });
 
   it('records a definitive provider rejection without leaving an uncertain identity', async () => {

@@ -1,13 +1,32 @@
 import { Transform } from 'class-transformer';
 import {
-  IsObject,
-  IsOptional,
   IsString,
   IsUUID,
   Matches,
-  MaxLength,
-  MinLength,
+  Validate,
+  ValidatorConstraint,
+  type ValidatorConstraintInterface,
 } from 'class-validator';
+
+export const WING_IDENTITY_SOURCES = [
+  'dom:data-vendor-id',
+  'meta:vendor-id',
+  'url:vendorId',
+] as const;
+
+@ValidatorConstraint({ name: 'verifiedWingEvidence', async: false })
+class VerifiedWingEvidenceConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const evidence = value as Record<string, unknown>;
+    return Object.keys(evidence).length === 2
+      && typeof evidence.wingVendorId === 'string'
+      && /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(evidence.wingVendorId.trim())
+      && typeof evidence.wingIdentitySource === 'string'
+      && (WING_IDENTITY_SOURCES as readonly string[]).includes(evidence.wingIdentitySource);
+  }
+  defaultMessage(): string { return 'Verified WING account evidence is required.'; }
+}
 
 /**
  * 이미 마켓에 등록된 상품을 우리 등록상품으로 확정할 때의 입력.
@@ -30,7 +49,6 @@ export class ConfirmExternalRegistrationDto {
   externalListingId!: string;
 
   /** Browser completion evidence; identity source/value are validated by the extension. */
-  @IsOptional()
-  @IsObject()
-  evidence?: Record<string, unknown>;
+  @Validate(VerifiedWingEvidenceConstraint)
+  evidence!: { wingVendorId: string; wingIdentitySource: typeof WING_IDENTITY_SOURCES[number] };
 }

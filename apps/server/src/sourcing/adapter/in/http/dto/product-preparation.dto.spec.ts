@@ -45,14 +45,28 @@ describe('product preparation DTOs', () => {
 
   it('keeps external-registration evidence while treating the client channel as non-authoritative', async () => {
     const dto = plainToInstance(ConfirmExternalRegistrationDto, {
-      channelAccountId: '11111111-1111-4111-8111-111111111111',
-      displayName: 'Rain boots',
+      executionId: '11111111-1111-4111-8111-111111111111',
       externalListingId: '427011919',
-      channel: 'rocket',
-      evidence: { source: 'wing', completedAt: '2026-07-20T00:00:00.000Z' },
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
     });
 
     expect(await validate(dto, { whitelist: true })).toHaveLength(0);
-    expect(dto.evidence).toEqual({ source: 'wing', completedAt: '2026-07-20T00:00:00.000Z' });
+    expect(dto.evidence).toEqual({ wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' });
+  });
+
+  it('requires exact verified WING identity evidence for external completion', async () => {
+    const valid = plainToInstance(ConfirmExternalRegistrationDto, {
+      executionId: '11111111-1111-4111-8111-111111111111',
+      externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    });
+    expect(await validate(valid)).toHaveLength(0);
+
+    const forged = plainToInstance(ConfirmExternalRegistrationDto, {
+      executionId: '11111111-1111-4111-8111-111111111111',
+      externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'display-name' },
+    });
+    expect(await validate(forged)).not.toHaveLength(0);
   });
 });

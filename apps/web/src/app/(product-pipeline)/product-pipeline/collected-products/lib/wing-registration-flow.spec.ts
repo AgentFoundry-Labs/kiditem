@@ -499,6 +499,57 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
   });
 });
 
+describe('external WING pre-intent choreography', () => {
+  const draft = {
+    candidateId: 'candidate-1',
+    extensionId: 'extension-1',
+    channelAccountId: 'account-1',
+    detailImageUrl: 'http://localhost:9000/detail.jpg',
+    product: candidateToWingProduct(detail(basics())),
+    overrides: buildWingRegistrationOverrides(candidateToWingProduct(detail(basics()))),
+  };
+
+  it('orders prepare, start, extension, then reconciles an unknown outcome with extension evidence', async () => {
+    const order: string[] = [];
+    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockImplementation(async () => {
+      order.push('prepare');
+      return { executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345' } as never;
+    });
+    vi.mocked(candidatesApi.startExternalWingRegistration).mockImplementation(async () => {
+      order.push('start');
+      return { status: 'executing' } as never;
+    });
+    vi.mocked(sendToExtension).mockImplementation(async () => {
+      order.push('extension');
+      return {
+        ok: true,
+        submission: { attempted: true, status: 'unknown' },
+        evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+      };
+    });
+    vi.mocked(candidatesApi.markExternalWingRegistrationUnresolved).mockImplementation(async () => {
+      order.push('unresolved');
+      return {} as never;
+    });
+
+    const result = await submitWingRegistration(draft, draft.overrides, true);
+    expect(order).toEqual(['prepare', 'start', 'extension', 'unresolved']);
+    expect(result.submission.evidence).toEqual({
+      wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id',
+    });
+  });
+
+  it('marks the durable execution unresolved when the extension throws after start', async () => {
+    vi.mocked(sendToExtension).mockRejectedValue(new Error('extension disconnected'));
+    await expect(submitWingRegistration(draft, draft.overrides, true)).rejects.toThrow('extension disconnected');
+    expect(candidatesApi.markExternalWingRegistrationUnresolved).toHaveBeenCalledWith(
+      'candidate-1',
+      '33333333-3333-4333-8333-333333333333',
+      expect.objectContaining({ reason: 'extension_throw' }),
+    );
+  });
+});
+
 describe('waitForRegisteredListing', () => {
   const noSleep = () => Promise.resolve();
 

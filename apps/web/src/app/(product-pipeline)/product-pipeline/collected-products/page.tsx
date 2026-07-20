@@ -269,6 +269,11 @@ export default function SourcingPage() {
             });
           }
         } catch (err) {
+          await candidatesApi.markExternalWingRegistrationUnresolved(
+            candidateId,
+            result.submission.executionId!,
+            { reason: 'completion_failed', message: wingErrorMessage(err, '알 수 없는 오류') },
+          ).catch(() => undefined);
           // 쿠팡 등록은 이미 끝났다. 목록 반영만 실패한 상태를 정확히 알린다.
           toast.warning('쿠팡 등록은 됐지만 등록상품 목록 반영에 실패했어요', {
             description: `등록상품ID ${externalListingId} — 등록상품 화면에서 "등록됨으로 표시"로 다시 시도하세요. (${wingErrorMessage(err, '알 수 없는 오류')})`,

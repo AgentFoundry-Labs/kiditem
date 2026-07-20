@@ -66,10 +66,6 @@ export class ProductRegistrationService {
       idempotencyKey: string;
     },
   ) {
-    const account = await this.channels.assertExternalRegistrationAccount({
-      organizationId,
-      channelAccountId: input.channelAccountId,
-    });
     const operation = await this.preparations.prepareExternalExecution(
       {
         organizationId,
@@ -85,7 +81,7 @@ export class ProductRegistrationService {
       }),
       (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
     );
-    return { ...operation, expectedVendorId: account.vendorId };
+    return { ...operation, expectedVendorId: operation.expectedProviderAccountId };
   }
 
   startExternalWingRegistration(
@@ -278,7 +274,11 @@ export class ProductRegistrationService {
     organizationId: string,
     candidateId: string,
     userId: string | null,
-    input: { executionId: string; externalListingId: string; evidence?: unknown },
+    input: {
+      executionId: string;
+      externalListingId: string;
+      evidence: { wingVendorId: string; wingIdentitySource: string };
+    },
   ): Promise<ProductPreparationCommandResult> {
     const externalListingId = input.externalListingId.trim();
     if (!externalListingId) {
@@ -288,6 +288,9 @@ export class ProductRegistrationService {
       organizationId, sourceCandidateId: candidateId, executionId: input.executionId,
       requestedByUserId: userId,
     });
+    if (operation.status === 'succeeded' && operation.listingId) {
+      return { preparationId: operation.preparationId, status: 'registered', listingId: operation.listingId };
+    }
     if (!['executing', 'reconciling'].includes(operation.status)) {
       throw new Error('External registration must be started before completion.');
     }
@@ -297,6 +300,11 @@ export class ProductRegistrationService {
     );
     if (submission.executionId !== input.executionId || submission.channelAccountId === '') {
       throw new Error('External registration execution does not match its frozen preparation.');
+    }
+    if (!input.evidence
+      || input.evidence.wingVendorId !== operation.expectedProviderAccountId
+      || !['dom:data-vendor-id', 'meta:vendor-id', 'url:vendorId'].includes(input.evidence.wingIdentitySource)) {
+      throw new Error('External registration evidence does not match the approved WING account identity.');
     }
     const account = await this.channels.assertExternalRegistrationAccount({
       organizationId, channelAccountId: submission.channelAccountId,

@@ -241,7 +241,8 @@ export class ProductPreparationRepositoryAdapter
       displayName: input.displayName,
       registrationInput: input.registrationInput,
     } as ProductPreparationJson);
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       const replay = await tx.productRegistrationExecution.findFirst({
         where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
         include: { productPreparation: { select: { sourceCandidateId: true } } },
@@ -258,12 +259,29 @@ export class ProductPreparationRepositoryAdapter
         return externalExecutionResult(replay);
       }
       await lockCandidate(tx, input.organizationId, input.sourceCandidateId);
+      const lockedReplay = await tx.productRegistrationExecution.findFirst({
+        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+        include: { productPreparation: { select: { sourceCandidateId: true } } },
+      });
+      if (lockedReplay) {
+        if (lockedReplay.requestHash !== frozen.hash
+          || lockedReplay.channelAccountId !== input.channelAccountId
+          || lockedReplay.productPreparation.sourceCandidateId !== input.sourceCandidateId
+          || lockedReplay.requestedByUserId !== input.requestedByUserId) {
+          throw new ConflictException('External registration idempotency key belongs to a different request.');
+        }
+        return externalExecutionResult(lockedReplay);
+      }
       await assertActiveCandidate(tx, input.organizationId, input.sourceCandidateId);
       const account = await tx.channelAccount.findFirst({
         where: { id: input.channelAccountId, organizationId: input.organizationId, status: 'active' },
-        select: { id: true },
+        select: { id: true, channel: true, vendorId: true, externalAccountId: true },
       });
       if (!account) throw new NotFoundException('Channel account not found.');
+      const expectedProviderAccountId = account.vendorId?.trim() || account.externalAccountId?.trim() || '';
+      if (account.channel !== 'coupang' || !expectedProviderAccountId) {
+        throw new ConflictException('External WING registration requires an active Coupang account with a vendor identity.');
+      }
       let preparation = await tx.productPreparation.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -338,6 +356,8 @@ export class ProductPreparationRepositoryAdapter
           organizationId: input.organizationId,
           productPreparationId: preparation.id,
           channelAccountId: input.channelAccountId,
+          executionKind: 'external_wing',
+          expectedProviderAccountId,
           idempotencyKey: input.idempotencyKey,
           requestHash: frozen.hash,
           submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
@@ -348,7 +368,22 @@ export class ProductPreparationRepositoryAdapter
         },
       });
       return externalExecutionResult(execution);
-    });
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      const replay = await this.prisma.productRegistrationExecution.findFirst({
+        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+        include: { productPreparation: { select: { sourceCandidateId: true } } },
+      });
+      if (!replay
+        || replay.requestHash !== frozen.hash
+        || replay.channelAccountId !== input.channelAccountId
+        || replay.productPreparation.sourceCandidateId !== input.sourceCandidateId
+        || replay.requestedByUserId !== input.requestedByUserId) {
+        throw new ConflictException('Concurrent external registration preparation conflicted.');
+      }
+      return externalExecutionResult(replay);
+    }
   }
 
   async startExternalExecution(input: {
@@ -606,6 +641,9 @@ export class ProductPreparationRepositoryAdapter
       execution = await tx.productRegistrationExecution.findFirst({
         where: { organizationId, productPreparationId: current.id },
       });
+      if (execution?.executionKind === 'external_wing') {
+        throw new ConflictException('External WING executions must use their explicit start/completion contract.');
+      }
       if (!execution && current.status === 'registered') {
         execution = await importLegacyRegisteredExecution(tx, current, organizationId);
       }
@@ -716,9 +754,12 @@ export class ProductPreparationRepositoryAdapter
           submissionLeaseClaimedAt: now,
         },
       );
+      if (execution.requestedByUserId !== userId) {
+        throw new ConflictException('Registration execution belongs to a different actor.');
+      }
       const refreshedExecution = await tx.productRegistrationExecution.update({
         where: { id: execution.id },
-        data: { leaseToken: submissionLeaseToken, leaseClaimedAt: now, requestedByUserId: userId },
+        data: { leaseToken: submissionLeaseToken, leaseClaimedAt: now },
       });
       return toFrozenSubmission(updated, refreshedExecution);
     });
@@ -1072,6 +1113,8 @@ function externalExecutionResult(
     status: execution.status as 'prepared' | 'executing' | 'reconciling' | 'succeeded',
     providerOutcome: execution.providerOutcome as 'not_attempted' | 'uncertain' | 'succeeded',
     submissionLeaseToken: execution.leaseToken,
+    expectedProviderAccountId: execution.expectedProviderAccountId ?? '',
+    listingId: execution.channelListingId,
   };
 }
 

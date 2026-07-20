@@ -85,6 +85,8 @@ export interface ExternalRegistrationExecutionResult {
   status: 'prepared' | 'executing' | 'reconciling' | 'succeeded';
   providerOutcome: 'not_attempted' | 'uncertain' | 'succeeded';
   submissionLeaseToken: string | null;
+  expectedProviderAccountId: string;
+  listingId: string | null;
 }
 
 export type ReplaceDraftInputCommand =

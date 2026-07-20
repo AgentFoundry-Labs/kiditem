@@ -804,7 +804,13 @@ async function registerToWingForm(message) {
     }
     // 제출까지 요청받았으면 제출 결과를 그대로 올려보낸다. 성공을 확증하지 못한 경우
     // (status:'unknown') 웹이 등록상품으로 올리지 않도록 submission 을 그대로 전달한다.
-    return { ok: true, tabId: tab.id, fill, submission: fill.submission || { attempted: false } };
+    return {
+      ok: true,
+      tabId: tab.id,
+      fill,
+      submission: fill.submission || { attempted: false },
+      evidence: fill.evidence,
+    };
   } catch (e) {
     return {
       ok: false,

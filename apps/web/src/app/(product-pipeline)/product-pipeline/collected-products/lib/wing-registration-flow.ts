@@ -302,12 +302,17 @@ export interface WingSubmissionResult {
 /** 등록상품으로 올려도 되는 확증된 성공인지. 추측은 전부 false. */
 export function isConfirmedWingRegistration(
   submission: WingSubmissionResult | undefined,
-): submission is WingSubmissionResult & { externalListingId: string } {
+): submission is WingSubmissionResult & {
+  externalListingId: string;
+  evidence: { wingVendorId: string; wingIdentitySource: string };
+} {
   return (
     submission?.ok === true
     && submission.status === 'registered'
     && typeof submission.externalListingId === 'string'
     && submission.externalListingId.trim().length > 0
+    && typeof submission.evidence?.wingVendorId === 'string'
+    && typeof submission.evidence?.wingIdentitySource === 'string'
   );
 }
 
