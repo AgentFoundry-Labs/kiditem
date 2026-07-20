@@ -501,7 +501,10 @@ SourcingCandidate (status: sourced | rejected)
      + marks the ProductPreparation compatibility projection registered
 ```
 
-No legacy preparation or deletion rows are copied into these operation ledgers.
+No bulk cutover backfill copies legacy preparation or deletion rows into these
+operation ledgers. The registration runtime may import one scoped legacy
+preparation under its row lock when that row is actually claimed; it never
+turns an uncertain legacy provider attempt into a fresh create.
 The staging cutover rebuilds non-auth application data against the final schema,
 and environments with data worth preserving require a separately reviewed,
 hash-bound migration before adopting this ownership model. Listing deletion
