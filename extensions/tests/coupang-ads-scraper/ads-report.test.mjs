@@ -842,3 +842,66 @@ test("campaigns without a detail url never enter the detail-report path", () => 
   assert.equal(contract.campaignUsesDetailReport({ onOff: "ON" }), true);
   assert.equal(contract.campaignUsesDetailReport({ onOff: "OFF" }), false);
 });
+
+// Regression: 백그라운드(가려진) 창에서 수집이 실패하던 직접 원인.
+//
+// 수집 창은 focused:false 로 열린다. 다른 창에 가려지면 Chrome 은 hidden 으로
+// 보고 타이머를 클램프하고, 5분 넘게 hidden 이면 intensive throttling 으로
+// nested timer 예산이 분당 1회까지 떨어진다. 기존 대기 루프는 전부
+// `while (Date.now() - start < timeoutMs) { ... await sleep(300) }` 라서
+// sleep(300) 이 60초가 되면 조건을 딱 한 번 검사하고 만료됐다.
+//
+// pollUntil 은 벽시계 예산과 별개로 최소 시도 횟수를 보장한다.
+test("waits survive background timer throttling instead of giving up after one try", async () => {
+  const contract = loadContract();
+
+  // 스로틀된 시계: sleep 한 번이 60초로 늘어난다(예산 15초를 즉시 초과).
+  let clock = 0;
+  const throttledWait = async () => {
+    clock += 60000;
+  };
+  const now = () => clock;
+
+  let attempts = 0;
+  const settlesOnFifthAttempt = () => {
+    attempts += 1;
+    return attempts >= 5;
+  };
+
+  const result = await contract.pollUntil(settlesOnFifthAttempt, {
+    timeoutMs: 15000,
+    intervalMs: 300,
+    now,
+    wait: throttledWait,
+  });
+
+  // 예전 루프였다면 1회 시도 후 타임아웃했다.
+  assert.equal(result, true);
+  assert.equal(attempts, 5);
+});
+
+test("pollUntil still gives up once the budget and the attempt floor are both spent", async () => {
+  const contract = loadContract();
+
+  let clock = 0;
+  const throttledWait = async () => {
+    clock += 60000;
+  };
+  let attempts = 0;
+  const neverSettles = () => {
+    attempts += 1;
+    return false;
+  };
+
+  const result = await contract.pollUntil(neverSettles, {
+    timeoutMs: 15000,
+    intervalMs: 300,
+    minAttempts: 6,
+    now: () => clock,
+    wait: throttledWait,
+  });
+
+  // 무한 루프가 아니라 실패를 돌려준다. 실패는 조용히 성공이 되지 않는다.
+  assert.equal(result, null);
+  assert.equal(attempts, 6);
+});

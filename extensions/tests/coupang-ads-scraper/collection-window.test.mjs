@@ -442,3 +442,80 @@ test('content-script timeout actually fails a stalled target', async () => {
   assert.ok(sessionCalls.some(([name, runId]) => name === 'fail' && runId === 'run-timeout'));
   assert.ok(!sessionCalls.some(([name]) => name === 'succeed'));
 });
+
+// Regression: 백그라운드 수집 실패가 조용히 성공처럼 보이던 경로.
+//
+// advertising.ad_sync 는 preservesContentProgress 라서 content script 가 준
+// progress 만 세션에 썼다. content script 가 사라지거나 sendTabMessage 가
+// 타임아웃하면 progress 가 없어 두 분기 모두 건너뛰었고, sessions.fail() 은
+// status 만 바꾸므로 label 에는 직전 성공 문구가 그대로 남았다. 웹 UI 는 그
+// label 을 toast.error 로 띄우기 때문에 사용자는 실패 사유 대신 "광고 동기화
+// 완료" 같은 문구를 봤다. 실제 사유는 chrome.storage.local 의 batch status 에만
+// 적혔고 웹은 그 키를 읽지 않는다.
+test('a background collection failure reports its real reason instead of a stale success label', async () => {
+  const fake = createFakeChrome({}, [
+    // content script 가 응답하지 않는다(=백그라운드 창에서 흔한 실패 모양).
+    { success: false, error: 'Collection content script timed out after 1800s' },
+  ]);
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab(runId, tab) {
+      sessionCalls.push(['attachTab', runId, tab]);
+    },
+    async cancel(runId) {
+      sessionCalls.push(['cancel', runId]);
+    },
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return { status: 'running' };
+    },
+    async progress(runId, progress) {
+      sessionCalls.push(['progress', runId, progress]);
+    },
+    async requireAttention(runId, attention) {
+      sessionCalls.push(['requireAttention', runId, attention]);
+    },
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    producer: 'advertising.ad_sync',
+    runId: 'run-bg-fail',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'ads',
+        label: '광고 동기화',
+        url: 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+      },
+    ],
+  });
+
+  // 실패는 실패로 보고된다.
+  assert.equal(result.success, false);
+  assert.equal(result.failed, 1);
+  assert.equal(result.completed, 0);
+  assert.ok(sessionCalls.some(([name]) => name === 'fail'));
+  assert.ok(!sessionCalls.some(([name]) => name === 'succeed'));
+
+  // 그리고 사유가 세션 progress 의 label 로 올라간다.
+  const labels = sessionCalls
+    .filter(([name]) => name === 'progress')
+    .map(([, , progress]) => progress?.label);
+  assert.ok(
+    labels.includes('Collection content script timed out after 1800s'),
+    `실패 사유가 progress label 에 없다: ${JSON.stringify(labels)}`,
+  );
+  // 성공 문구가 마지막 label 로 남아서는 안 된다.
+  assert.notEqual(labels.at(-1), '광고 동기화 완료');
+});
