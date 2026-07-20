@@ -102,6 +102,8 @@ function Harness() {
     <StrategyContent
       strategy={strategy}
       rules={[]}
+      trends={null}
+      period="14d"
       totalBudget={100_000}
       budgetInput="100,000"
       expandedProduct={expandedProduct}

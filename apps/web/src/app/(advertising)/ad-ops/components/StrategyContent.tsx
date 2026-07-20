@@ -19,9 +19,11 @@ import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { formatKRW, formatNumber } from "@/lib/utils";
 import { exportCampaignXlsx } from "../lib/xlsx-export";
+import AdPerformanceTrendChart from "./AdPerformanceTrendChart";
 import type {
   AdsListItem,
   AdStrategyAction,
+  AdTrendsData,
   AdWeeklyPlan,
   ChannelStateSignal,
 } from "@kiditem/shared/advertising";
@@ -35,6 +37,8 @@ import type { RegisterCampaignPayload } from "../hooks/useAdOpsData";
 interface StrategyContentProps {
   strategy: AdWeeklyPlan | null;
   rules: AdStrategyAction[];
+  trends: AdTrendsData | null;
+  period: string;
   totalBudget: number;
   budgetInput: string;
   expandedProduct: string | null;
@@ -515,6 +519,8 @@ function adsProductName(product: AdsListItem): string {
 export default function StrategyContent({
   strategy,
   rules,
+  trends,
+  period,
   totalBudget,
   budgetInput,
   expandedProduct,
@@ -698,6 +704,8 @@ export default function StrategyContent({
           </div>
         </div>
       )}
+
+      <AdPerformanceTrendChart trends={trends} period={period} />
 
       <div className="rounded-xl px-4 py-3 text-xs flex items-center gap-2" style={{ background: "var(--surface-sunken)", color: "var(--text-tertiary)", border: "1px solid var(--border-subtle)" }}>
         <ChevronDown size={14} />

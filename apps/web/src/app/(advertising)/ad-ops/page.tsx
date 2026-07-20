@@ -196,6 +196,8 @@ export default function AdOpsPage() {
             <StrategyContent
               strategy={strategy}
               rules={rules}
+              trends={trends}
+              period={period}
               totalBudget={totalBudget}
               budgetInput={budgetInput}
               expandedProduct={expandedProduct}
