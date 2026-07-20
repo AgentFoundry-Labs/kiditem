@@ -26,8 +26,8 @@ const target = () => ({
 });
 
 const row = (overrides: Record<string, unknown> = {}) => ({
-  id: 'legacy-1',
-  targetKey: 'product:item-1',
+  id: 'current-1',
+  targetKey: `account:${ACCOUNT_ID}:product:campaign-1:item-1`,
   targetType: 'product',
   campaignId: 'campaign-1',
   campaignName: 'Campaign 1',
@@ -38,8 +38,6 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   externalId: null,
   externalOptionId: 'item-1',
   rawSnapshotId: '00000000-0000-4000-8000-000000000003',
-  rawAccountId: ACCOUNT_ID,
-  listingAccountId: null,
   actionIds: [],
   firstObservedAt: new Date('2026-07-17T00:00:00Z'),
   lastObservedAt: new Date('2026-07-17T01:00:00Z'),
@@ -83,7 +81,7 @@ describe('ChannelTargetDailyRepositoryAdapter.replaceCampaignDay', () => {
     adapter = new ChannelTargetDailyRepositoryAdapter(prisma as never);
   });
 
-  it('updates an equivalent legacy row in place', async () => {
+  it('updates an exact current-format target in place', async () => {
     tx.$queryRaw.mockReset()
       .mockResolvedValueOnce([{ locked: '1' }])
       .mockResolvedValueOnce([row()])
@@ -93,11 +91,10 @@ describe('ChannelTargetDailyRepositoryAdapter.replaceCampaignDay', () => {
       kind: 'replaced',
       upsertedCount: 1,
       deletedCount: 0,
-      mergedCount: 0,
     });
     expect(tx.channelAdTargetDailySnapshot.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'legacy-1', organizationId: ORGANIZATION_ID },
+        where: { id: 'current-1', organizationId: ORGANIZATION_ID },
         data: expect.objectContaining({ targetKey: target().targets[0].targetKey }),
       }),
     );
@@ -105,27 +102,23 @@ describe('ChannelTargetDailyRepositoryAdapter.replaceCampaignDay', () => {
       maxWait: 10_000,
       timeout: 120_000,
     });
-  });
-
-  it('rejects ambiguous ownership before target or action writes', async () => {
-    tx.$queryRaw.mockReset()
-      .mockResolvedValueOnce([{ locked: '1' }])
-      .mockResolvedValueOnce([row({ rawAccountId: null })])
-      .mockResolvedValueOnce([]);
-
-    await expect(adapter.replaceCampaignDay(target())).resolves.toEqual({
-      kind: 'rejected',
-      code: 'legacy_account_ambiguous',
-    });
-    expect(tx.channelAdTargetDailySnapshot.updateMany).not.toHaveBeenCalled();
-    expect(tx.channelAdTargetDailySnapshot.deleteMany).not.toHaveBeenCalled();
-    expect(tx.adAction.updateMany).not.toHaveBeenCalled();
+    const campaignQuery = tx.$queryRaw.mock.calls[1][0];
+    const sql = campaignQuery.strings.join(' ');
+    expect(sql).not.toContain('channel_scrape_snapshots');
+    expect(sql).not.toContain('channel_scrape_runs');
+    expect(sql).not.toContain('rawAccountId');
+    expect(sql).not.toContain('channel_listings');
+    expect(sql).toContain('starts_with(target.target_key,');
   });
 
   it('rejects a stale action before any writes', async () => {
     tx.$queryRaw.mockReset()
       .mockResolvedValueOnce([{ locked: '1' }])
-      .mockResolvedValueOnce([row({ externalOptionId: 'stale', actionIds: ['action-1'] })])
+      .mockResolvedValueOnce([row({
+        targetKey: `account:${ACCOUNT_ID}:product:campaign-1:stale`,
+        externalOptionId: 'stale',
+        actionIds: ['action-1'],
+      })])
       .mockResolvedValueOnce([{ id: 'action-1' }]);
 
     await expect(adapter.replaceCampaignDay(target())).resolves.toEqual({

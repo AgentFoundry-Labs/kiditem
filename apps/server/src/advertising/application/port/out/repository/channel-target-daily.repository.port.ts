@@ -73,12 +73,16 @@ export type ReplaceAdCampaignDayResult =
       kind: 'replaced';
       upsertedCount: number;
       deletedCount: number;
-      mergedCount: number;
     }
   | {
       kind: 'rejected';
-      code: 'legacy_account_ambiguous' | 'dependent_action_conflict';
+      code: 'dependent_action_conflict';
     };
+
+export type ReplaceAdCampaignDayRejectionCode = Extract<
+  ReplaceAdCampaignDayResult,
+  { kind: 'rejected' }
+>['code'];
 
 export interface ChannelTargetDailyRepositoryPort {
   upsert(input: UpsertAdTargetDailyInput): Promise<{ id: string }>;

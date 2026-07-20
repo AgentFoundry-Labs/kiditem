@@ -26,7 +26,6 @@ import {
   toBusinessDate,
 } from '../../domain/business-date';
 import { resolveCampaignReportAuthority } from '../../domain/campaign-report-authority';
-import type { CampaignReplacementRejectionCode } from '../../domain/campaign-day-replacement-plan';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -48,6 +47,7 @@ import {
 import {
   CHANNEL_TARGET_DAILY_REPOSITORY_PORT,
   type ChannelTargetDailyRepositoryPort,
+  type ReplaceAdCampaignDayRejectionCode,
   type UpsertAdTargetDailyInput,
 } from '../port/out/repository/channel-target-daily.repository.port';
 import type { ExtensionSyncDto } from '../../adapter/in/http/dto';
@@ -330,9 +330,8 @@ export class AdCampaignIngestHandler {
 
       let projectionRejectionCode:
         | typeof authority.projectionRejectionCode
-        | CampaignReplacementRejectionCode = authority.projectionRejectionCode;
+        | ReplaceAdCampaignDayRejectionCode = authority.projectionRejectionCode;
       let deletedTargetDailyCount = 0;
-      let mergedTargetDailyCount = 0;
       if (projectsSingleDayFacts) {
         if (
           authoritativeProjectionInvalid ||
@@ -355,7 +354,6 @@ export class AdCampaignIngestHandler {
           } else {
             targetDailyCount = replacement.upsertedCount;
             deletedTargetDailyCount = replacement.deletedCount;
-            mergedTargetDailyCount = replacement.mergedCount;
           }
         }
       }
@@ -392,7 +390,6 @@ export class AdCampaignIngestHandler {
         listingDailyCount,
         targetDailyCount,
         deletedTargetDailyCount,
-        mergedTargetDailyCount,
         accountKpiCount,
         dailyProjectionSkipped:
           !projectsSingleDayFacts || projectionRejectionCode !== null,

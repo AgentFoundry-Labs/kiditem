@@ -14,10 +14,6 @@ import type {
   UpsertAdTargetDailyInput,
 } from '../../../application/port/out/repository/channel-target-daily.repository.port';
 import {
-  planCampaignDayReplacement,
-  type CampaignDayExistingTarget,
-} from '../../../domain/campaign-day-replacement-plan';
-import {
   buildNamespacedMetaForCreate,
   mergeNamespacedMetaJson,
   pickObservedFields,
@@ -239,18 +235,6 @@ export class ChannelTargetDailyRepositoryAdapter
         SELECT
           target.id,
           target.target_key AS "targetKey",
-          target.target_type AS "targetType",
-          target.campaign_id AS "campaignId",
-          target.campaign_name AS "campaignName",
-          target.ad_group AS "adGroup",
-          target.keyword,
-          target.listing_id AS "listingId",
-          target.listing_option_id AS "listingOptionId",
-          target.external_id AS "externalId",
-          target.external_option_id AS "externalOptionId",
-          target.raw_snapshot_id AS "rawSnapshotId",
-          scrape_run.channel_account_id AS "rawAccountId",
-          listing.channel_account_id AS "listingAccountId",
           ARRAY(
             SELECT action.id::text
             FROM ad_actions action
@@ -259,31 +243,12 @@ export class ChannelTargetDailyRepositoryAdapter
             ORDER BY action.id
           ) AS "actionIds",
           target.first_observed_at AS "firstObservedAt",
-          target.last_observed_at AS "lastObservedAt",
-          target.created_at AS "createdAt",
-          target.updated_at AS "updatedAt",
-          target.sample_count AS "sampleCount",
-          target.spend,
-          target.revenue,
-          target.impressions,
-          target.clicks,
-          target.conversions,
-          target.orders,
-          target.ad_spend AS "adSpend",
-          target.ad_revenue AS "adRevenue"
+          target.sample_count AS "sampleCount"
         FROM channel_ad_target_daily_snapshots target
-        LEFT JOIN channel_scrape_snapshots raw_snapshot
-          ON raw_snapshot.id = target.raw_snapshot_id
-          AND raw_snapshot.organization_id = target.organization_id
-        LEFT JOIN channel_scrape_runs scrape_run
-          ON scrape_run.id = raw_snapshot.scrape_run_id
-          AND scrape_run.organization_id = target.organization_id
-        LEFT JOIN channel_listings listing
-          ON listing.id = target.listing_id
-          AND listing.organization_id = target.organization_id
         WHERE target.organization_id = ${input.organizationId}::uuid
           AND target.channel = ${input.channel}
           AND target.business_date = ${input.businessDate}::date
+          AND starts_with(target.target_key, ${expectedPrefix})
           AND (${campaignPredicate})
         FOR UPDATE OF target
       `);
@@ -300,59 +265,34 @@ export class ChannelTargetDailyRepositoryAdapter
         `);
       }
 
-      const existingTargets = rows.map(toExistingTarget);
-      const plan = planCampaignDayReplacement({
-        channelAccountId: input.channelAccountId,
-        desiredTargets: input.targets,
-        existingTargets,
-      });
-      if (plan.kind === 'rejected') return plan;
+      const desiredKeys = new Set(input.targets.map((target) => target.targetKey));
+      const existingByKey = new Map(rows.map((row) => [row.targetKey, row]));
+      const staleRows = rows.filter((row) => !desiredKeys.has(row.targetKey));
+      if (staleRows.some((row) => row.actionIds.length > 0)) {
+        return { kind: 'rejected', code: 'dependent_action_conflict' };
+      }
 
       let deletedCount = 0;
-      let mergedCount = 0;
-      for (const targetPlan of plan.targets) {
-        if (!targetPlan.destinationId) continue;
-        if (targetPlan.reparentActionIds.length > 0) {
-          await tx.adAction.updateMany({
-            where: {
-              organizationId: input.organizationId,
-              id: { in: targetPlan.reparentActionIds },
-            },
-            data: { adTargetDailyId: targetPlan.destinationId },
-          });
-        }
-        if (targetPlan.sourceIds.length > 0) {
-          const deleted = await tx.channelAdTargetDailySnapshot.deleteMany({
-            where: {
-              organizationId: input.organizationId,
-              id: { in: targetPlan.sourceIds },
-            },
-          });
-          deletedCount += deleted.count;
-          mergedCount += deleted.count;
-        }
-      }
-      if (plan.staleIds.length > 0) {
+      if (staleRows.length > 0) {
         const deleted = await tx.channelAdTargetDailySnapshot.deleteMany({
           where: {
             organizationId: input.organizationId,
-            id: { in: plan.staleIds },
+            id: { in: staleRows.map((row) => row.id) },
           },
         });
         deletedCount += deleted.count;
       }
 
       for (const desired of input.targets) {
-        const targetPlan = plan.targets.find((item) => item.targetKey === desired.targetKey);
-        if (!targetPlan) throw new Error('replaceCampaignDay: incomplete replacement plan');
-        if (!targetPlan.destinationId) {
-          await this.createWithClient(tx, desired, targetPlan);
+        const existing = existingByKey.get(desired.targetKey);
+        if (!existing) {
+          await this.createWithClient(tx, desired);
           continue;
         }
         const observedAt = desired.observedAt ?? new Date();
         const updated = await tx.channelAdTargetDailySnapshot.updateMany({
           where: {
-            id: targetPlan.destinationId,
+            id: existing.id,
             organizationId: input.organizationId,
           },
           data: {
@@ -360,10 +300,10 @@ export class ChannelTargetDailyRepositoryAdapter
             ...spreadMetricsForUpdate(desired, AD_TARGET_METRIC_KEYS),
             targetKey: desired.targetKey,
             rawSnapshotId: desired.rawSnapshotId ?? null,
-            metaJson: replacementMeta(desired, targetPlan.sourceIds, targetPlan.sourceRawSnapshotIds),
-            sampleCount: Math.max(1, targetPlan.sampleCount),
-            ...(targetPlan.firstObservedAt
-              ? { firstObservedAt: targetPlan.firstObservedAt }
+            metaJson: replacementMeta(desired),
+            sampleCount: Math.max(1, existing.sampleCount),
+            ...(existing.firstObservedAt
+              ? { firstObservedAt: existing.firstObservedAt }
               : {}),
             lastObservedAt: observedAt,
           },
@@ -377,7 +317,6 @@ export class ChannelTargetDailyRepositoryAdapter
         kind: 'replaced',
         upsertedCount: input.targets.length,
         deletedCount,
-        mergedCount,
       };
     }, CAMPAIGN_REPLACE_TRANSACTION_OPTIONS);
   }
@@ -385,7 +324,6 @@ export class ChannelTargetDailyRepositoryAdapter
   private async createWithClient(
     tx: Prisma.TransactionClient,
     input: UpsertAdTargetDailyInput,
-    plan: { sourceIds: string[]; sourceRawSnapshotIds: string[] },
   ): Promise<void> {
     const observedAt = input.observedAt ?? new Date();
     await tx.channelAdTargetDailySnapshot.create({
@@ -398,7 +336,7 @@ export class ChannelTargetDailyRepositoryAdapter
         ...targetDescriptorData(input),
         ...spreadMetricsForCreate(input, AD_TARGET_METRIC_KEYS),
         rawSnapshotId: input.rawSnapshotId ?? null,
-        metaJson: replacementMeta(input, plan.sourceIds, plan.sourceRawSnapshotIds),
+        metaJson: replacementMeta(input),
         sampleCount: 1,
         firstObservedAt: observedAt,
         lastObservedAt: observedAt,
@@ -422,68 +360,9 @@ function campaignIdentityFromTarget(
 interface LockedCampaignTargetRow {
   id: string;
   targetKey: string;
-  targetType: string;
-  campaignId: string | null;
-  campaignName: string | null;
-  adGroup: string | null;
-  keyword: string | null;
-  listingId: string | null;
-  listingOptionId: string | null;
-  externalId: string | null;
-  externalOptionId: string | null;
-  rawSnapshotId: string | null;
-  rawAccountId: string | null;
-  listingAccountId: string | null;
   actionIds: string[];
   firstObservedAt: Date;
-  lastObservedAt: Date;
-  createdAt: Date;
-  updatedAt: Date;
   sampleCount: number;
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  orders: number;
-  adSpend: number;
-  adRevenue: number;
-}
-
-function toExistingTarget(row: LockedCampaignTargetRow): CampaignDayExistingTarget {
-  const qualifiedAccount = row.targetKey.match(/^account:([^:]+):/)?.[1] ?? null;
-  return {
-    id: row.id,
-    targetKey: row.targetKey,
-    targetType: row.targetType,
-    campaignId: row.campaignId,
-    campaignName: row.campaignName,
-    adGroup: row.adGroup,
-    keyword: row.keyword,
-    listingId: row.listingId,
-    listingOptionId: row.listingOptionId,
-    externalId: row.externalId,
-    externalOptionId: row.externalOptionId,
-    rawSnapshotId: row.rawSnapshotId,
-    accountEvidence: [qualifiedAccount, row.rawAccountId, row.listingAccountId]
-      .filter((value): value is string => Boolean(value)),
-    actionIds: row.actionIds ?? [],
-    firstObservedAt: row.firstObservedAt,
-    lastObservedAt: row.lastObservedAt,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    sampleCount: row.sampleCount,
-    metrics: {
-      spend: row.spend,
-      revenue: row.revenue,
-      impressions: row.impressions,
-      clicks: row.clicks,
-      conversions: row.conversions,
-      orders: row.orders,
-      adSpend: row.adSpend,
-      adRevenue: row.adRevenue,
-    },
-  };
 }
 
 function targetDescriptorData(input: UpsertAdTargetDailyInput) {
@@ -506,18 +385,10 @@ function targetDescriptorData(input: UpsertAdTargetDailyInput) {
 
 function replacementMeta(
   input: UpsertAdTargetDailyInput,
-  sourceIds: string[],
-  rawSnapshotIds: string[],
 ): Prisma.InputJsonValue | typeof Prisma.DbNull {
   const base = buildNamespacedMetaForCreate(input.metaJson);
   const record = base && typeof base === 'object' && !Array.isArray(base)
     ? base as Record<string, Prisma.InputJsonValue>
     : {};
-  return {
-    ...record,
-    'advertising.campaign.replacement': {
-      sourceIds: sourceIds.slice(0, 32),
-      rawSnapshotIds: rawSnapshotIds.slice(0, 32),
-    },
-  } as Prisma.InputJsonValue;
+  return record as Prisma.InputJsonValue;
 }

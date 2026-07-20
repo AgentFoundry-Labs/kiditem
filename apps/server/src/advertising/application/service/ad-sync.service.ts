@@ -135,7 +135,7 @@ export class AdSyncService {
         scrapeRunId: result.scrapeRunId ?? null,
       });
     }
-    if (code === 'legacy_account_ambiguous' || code === 'dependent_action_conflict') {
+    if (code === 'dependent_action_conflict') {
       throw new ConflictException({
         message: '기존 광고 일별 데이터와 안전하게 교체할 수 없습니다.',
         code,

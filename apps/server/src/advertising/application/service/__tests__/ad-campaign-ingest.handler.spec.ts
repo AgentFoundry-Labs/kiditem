@@ -50,7 +50,6 @@ describe('AdCampaignIngestHandler business dates', () => {
       kind: 'replaced' as const,
       upsertedCount: input.targets.length,
       deletedCount: 0,
-      mergedCount: 0,
     }));
     handler = new AdCampaignIngestHandler(
       scrapeRepo as unknown as ChannelScrapeRepositoryPort,
