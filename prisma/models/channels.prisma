@@ -754,3 +754,45 @@ model SellpiaProductMonthlySales {
   @@index([organizationId, productCode, optionCode])
   @@map("sellpia_product_monthly_sales")
 }
+
+/// @namespace Channels
+/// @describe Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다.
+model ChannelListingDeletionOperation {
+  id               String @id @default(uuid()) @db.Uuid
+  organizationId   String @map("organization_id") @db.Uuid
+  channelAccountId String @map("channel_account_id") @db.Uuid
+  channelListingId String @map("channel_listing_id") @db.Uuid
+
+  idempotencyKey    String @map("idempotency_key")
+  requestHash       String @map("request_hash")
+  externalListingId String @map("external_listing_id")
+
+  status          String @default("prepared")
+  providerOutcome String @default("not_attempted") @map("provider_outcome")
+
+  resultJson       Json?   @map("result_json") @db.JsonB
+  lastErrorCode    String? @map("last_error_code")
+  lastErrorMessage String? @map("last_error_message")
+
+  leaseToken             String?   @map("lease_token") @db.Uuid
+  leaseClaimedAt         DateTime? @map("lease_claimed_at") @db.Timestamptz
+  requestedByUserId      String?   @map("requested_by_user_id") @db.Uuid
+  authorizationExpiresAt DateTime? @map("authorization_expires_at") @db.Timestamptz
+  startedAt              DateTime? @map("started_at") @db.Timestamptz
+  completedAt            DateTime? @map("completed_at") @db.Timestamptz
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization   @relation("ChannelListingDeletionOperationOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount @relation("ChannelAccountListingDeletionOperations", fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelListing  ChannelListing @relation("ChannelListingDeletionOperations", fields: [channelListingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
+  requestedByUser User?          @relation("ChannelListingDeletionOperationRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, idempotencyKey], map: "channel_listing_deletion_operations_org_idempotency_key")
+  @@unique([organizationId, channelListingId], map: "channel_listing_deletion_operations_active_listing_key", where: raw("status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
+  @@index([channelAccountId])
+  @@index([channelListingId])
+  @@index([requestedByUserId])
+  @@index([organizationId, status, createdAt])
+  @@map("channel_listing_deletion_operations")
+}

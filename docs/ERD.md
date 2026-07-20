@@ -27,12 +27,12 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 20 |
-| [Channels](erd/channels.md) | 20 |
+| [Channels](erd/channels.md) | 21 |
 | [Core](erd/core.md) | 12 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 13 |
 | [Orders](erd/orders.md) | 10 |
-| [Sourcing](erd/sourcing.md) | 10 |
+| [Sourcing](erd/sourcing.md) | 11 |
 | [Supply](erd/supply.md) | 9 |
 | [System](erd/system.md) | 9 |
 
@@ -85,6 +85,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelAccountDailyKpiSnapshot | Channels | `channel_account_daily_kpi_snapshots` | 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용). |
 | ChannelAdTargetDailySnapshot | Channels | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
+| ChannelListingDeletionOperation | Channels | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelScrapeChunk | Channels | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
@@ -147,6 +148,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | LiveCommerceProductDailySnapshot | Sourcing | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
 | NaverKeywordDailySnapshot | Sourcing | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 시드 키워드당 하루 1행(최신본 upsert). trendRatio 는 latestRatio 반올림(0-100). |
 | NaverPopularKeywordDailySnapshot | Sourcing | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다. |
+| ProductRegistrationExecution | Sourcing | `product_registration_executions` | Reviewed product preparation의 marketplace create/reconcile side effect 실행 기록. 준비 입력과 provider lifecycle을 분리해 보존한다. |
 | ShortsTrendDailySnapshot | Sourcing | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
 | Sourcing1688HotProductDailySnapshot | Sourcing | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
@@ -773,6 +775,28 @@ erDiagram
     DateTime lastObservedAt
     String rawSnapshotId FK
     Json metaJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelListingDeletionOperation {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String channelListingId FK
+    String idempotencyKey
+    String requestHash
+    String externalListingId
+    String status
+    String providerOutcome
+    Json resultJson
+    String lastErrorCode
+    String lastErrorMessage
+    String leaseToken
+    DateTime leaseClaimedAt
+    String requestedByUserId FK
+    DateTime authorizationExpiresAt
+    DateTime startedAt
+    DateTime completedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1569,9 +1593,38 @@ erDiagram
     String providerOutcome
     String submissionLeaseToken
     DateTime submissionLeaseClaimedAt
+    String reviewPayloadHash
+    DateTime approvedAt
+    String approvedByUserId FK
     String createdByUserId FK
     Boolean isDeleted
     DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ProductRegistrationExecution {
+    String id PK
+    String organizationId FK
+    String productPreparationId FK
+    String channelAccountId FK
+    String channelListingId FK
+    String executionKind
+    String idempotencyKey
+    String requestHash
+    Json submissionPayloadJson
+    String submissionPayloadHash
+    String status
+    String providerOutcome
+    String providerSubmissionId
+    String externalListingId
+    Json resultJson
+    String lastErrorCode
+    String lastErrorMessage
+    String leaseToken
+    DateTime leaseClaimedAt
+    String requestedByUserId FK
+    DateTime startedAt
+    DateTime completedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2457,10 +2510,12 @@ erDiagram
   CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAccount ||--o{ ChannelAccountDailyKpiSnapshot : "channelAccount"
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
+  ChannelAccount ||--o{ ChannelListingDeletionOperation : "channelAccount"
   ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"
   ChannelAccount ||--o{ Order : "channelAccount"
   ChannelAccount ||--o{ OrderReturn : "channelAccount"
   ChannelAccount ||--o{ ProductPreparation : "channelAccount"
+  ChannelAccount ||--o{ ProductRegistrationExecution : "channelAccount"
   ChannelAccount ||--o{ RocketPoCatalogSnapshot : "channelAccount"
   ChannelAccount ||--o{ RocketPurchaseConfirmation : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
@@ -2468,6 +2523,7 @@ erDiagram
   ChannelListing o|--o{ AdAction : "listing"
   ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
+  ChannelListing ||--o{ ChannelListingDeletionOperation : "channelListing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
   ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
@@ -2476,6 +2532,7 @@ erDiagram
   ChannelListing ||--o{ GradeHistory : "listing"
   ChannelListing o|--o| MasterProduct : "originChannelListing"
   ChannelListing o|--o{ ProductPreparation : "channelListing"
+  ChannelListing o|--o{ ProductRegistrationExecution : "channelListing"
   ChannelListing ||--o{ ProfitLoss : "listing"
   ChannelListing o|--o{ Review : "listing"
   ChannelListing ||--o{ Thumbnail : "listing"
@@ -2567,6 +2624,7 @@ erDiagram
   Organization ||--o{ ChannelAdTargetDailySnapshot : "organization"
   Organization ||--o{ ChannelListing : "organization"
   Organization ||--o{ ChannelListingDailySnapshot : "organization"
+  Organization ||--o{ ChannelListingDeletionOperation : "organization"
   Organization ||--o{ ChannelListingOption : "organization"
   Organization ||--o{ ChannelListingOptionDailySnapshot : "organization"
   Organization ||--o{ ChannelScrapeChunk : "organization"
@@ -2609,6 +2667,7 @@ erDiagram
   Organization ||--o{ PickingList : "organization"
   Organization ||--o{ ProcessingCost : "organization"
   Organization ||--o{ ProductPreparation : "organization"
+  Organization ||--o{ ProductRegistrationExecution : "organization"
   Organization ||--o{ ProductVariant : "organization"
   Organization ||--o{ ProductVariantComponent : "organization"
   Organization ||--o{ ProfitLoss : "organization"
@@ -2661,6 +2720,7 @@ erDiagram
   Organization ||--o{ Warehouse : "organization"
   Organization ||--o{ WorkflowTemplate : "organization"
   PickingList ||--o{ PickingItem : "pickingList"
+  ProductPreparation ||--o{ ProductRegistrationExecution : "productPreparation"
   ProductVariant o|--o{ ChannelListingOption : "productVariant"
   ProductVariant ||--o{ ProductVariantComponent : "productVariant"
   ProductVariant o|--o{ RocketPurchaseConfirmationLine : "productVariant"
@@ -2718,6 +2778,7 @@ erDiagram
   User o|--o{ AgentConversation : "createdBy"
   User o|--o{ AgentRunRequest : "requestedBy"
   User o|--o{ Alert : "actorUser"
+  User o|--o{ ChannelListingDeletionOperation : "requestedByUser"
   User o|--o{ ContentAsset : "createdByUser"
   User o|--o{ ContentGeneration : "triggeredByUser"
   User o|--o{ ContentWorkspace : "createdByUser"
@@ -2729,7 +2790,9 @@ erDiagram
   User o|--o{ InventoryCommitment : "settler"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
+  User o|--o{ ProductPreparation : "approvedByUser"
   User o|--o{ ProductPreparation : "createdByUser"
+  User o|--o{ ProductRegistrationExecution : "requestedByUser"
   User o|--o{ PurchaseOrderSubmissionAttempt : "reconciler"
   User ||--o{ RocketPurchaseConfirmation : "confirmer"
   User o|--o{ RocketPurchaseConfirmation : "releaser"
