@@ -59,6 +59,20 @@ test('validates data migration release folder and registry inclusion', () => {
   assert.match(result.errors.join('\n'), /is not registered/);
 });
 
+test('allows deleting an unregistered historical migration', () => {
+  const file = 'scripts/data-migrations/v0.1.7/002_legacy_cleanup.ts';
+  const result = analyzePrReleaseContract({
+    files: [file],
+    deletedFiles: [file],
+    prBody: 'Release decision: remove an unregistered migration from immutable v0.1.7\n',
+    rootVersion: '0.1.25',
+    migrationIndex: '',
+  });
+
+  assert.match(result.requiredReasons.join('\n'), /durable data migration change/);
+  assert.deepEqual(result.errors, []);
+});
+
 test('accepts a higher VERSION when starting a release train', () => {
   const result = analyzePrReleaseContract({
     files: ['VERSION'],
