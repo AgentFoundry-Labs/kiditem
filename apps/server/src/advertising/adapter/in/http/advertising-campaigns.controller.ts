@@ -3,9 +3,9 @@ import { AdCampaignsService } from '../../../application/service/ad-campaigns.se
 import { AdStrategyService } from '../../../application/service/ad-strategy.service';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
+  AdProductQueryDto,
   CampaignQueryDto,
   RegisterCampaignDto,
-  StrategyQueryDto,
   TrendsQueryDto,
 } from './dto';
 
@@ -17,8 +17,15 @@ export class AdvertisingCampaignsController {
   ) {}
 
   @Get('products')
-  getProducts(@Query() query: StrategyQueryDto, @CurrentOrganization() organizationId: string) {
-    return this.adCampaignsService.getProducts(query.period ?? '14d', organizationId);
+  getProducts(
+    @Query() query: AdProductQueryDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.adCampaignsService.getProducts(
+      query.period ?? '14d',
+      organizationId,
+      query.campaign,
+    );
   }
 
   @Get('campaigns/trends')

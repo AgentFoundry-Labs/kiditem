@@ -1,6 +1,11 @@
 export { ListAdsQueryDto } from './list-ads.dto';
 export { ChangeAdTierBodyDto } from './change-ad-tier.dto';
-export { CampaignQueryDto, TrendsQueryDto, StrategyQueryDto } from './campaign-query.dto';
+export {
+  CampaignQueryDto,
+  TrendsQueryDto,
+  StrategyQueryDto,
+  AdProductQueryDto,
+} from './campaign-query.dto';
 export { CollectAdsDto } from './collect-ads.dto';
 export { ExtensionSyncDto } from './extension-sync.dto';
 export { CreateScrapeTargetDto, MarkScrapedDto } from './scrape-target.dto';

@@ -29,3 +29,17 @@ export class StrategyQueryDto {
   @IsIn(['7d', '14d', 'month'])
   period?: '7d' | '14d' | 'month' = '14d';
 }
+
+/**
+ * `/api/ads/products`. `campaign` narrows the product-grain rows to one
+ * campaign's members for the per-campaign detail table.
+ */
+export class AdProductQueryDto {
+  @IsOptional()
+  @IsIn(['7d', '14d', 'month'])
+  period?: '7d' | '14d' | 'month' = '14d';
+
+  @IsOptional()
+  @IsString()
+  campaign?: string;
+}
