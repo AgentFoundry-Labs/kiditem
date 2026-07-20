@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../lib/status-colors';
+import { displayKeyword, stripEmbeddedOptionId } from '../lib/ad-product-display';
 import type { AdProductSnapshot } from '@kiditem/shared/advertising';
 
 interface Props {
@@ -147,7 +148,9 @@ export function ProductDrilldown({ campaignName, period }: Props) {
                         )}
                         <div className="min-w-0">
                           <div className="font-medium truncate text-sm" style={{ color: 'var(--text-primary)' }}>
-                            {p.productName ?? '이름 없음'}
+                            {/* 쿠팡은 상품명 셀에 옵션ID 를 같이 렌더한다.
+                                아래 줄에서 따로 보여주므로 중복을 걷어낸다. */}
+                            {stripEmbeddedOptionId(p.productName, p.externalOptionId) ?? '이름 없음'}
                           </div>
                           {p.externalOptionId && (
                             <div className="text-[11px] tabular-nums" style={{ color: 'var(--text-tertiary)' }}>
@@ -159,8 +162,10 @@ export function ProductDrilldown({ campaignName, period }: Props) {
                     </td>
                     <td className="text-xs" style={{ color: 'var(--text-secondary)' }}>{p.status ?? '-'}</td>
                     <td className="text-xs" style={{ color: 'var(--text-secondary)' }}>{p.saleType ?? '-'}</td>
+                    {/* 쿠팡의 키워드 칸은 `키워드 보기` 링크라 키워드 값이
+                        아니다. 그 라벨을 키워드처럼 보여주지 않는다. */}
                     <td className="text-xs max-w-[120px] truncate" style={{ color: 'var(--text-tertiary)' }}>
-                      {p.keyword ?? '-'}
+                      {displayKeyword(p.keyword) ?? '-'}
                     </td>
                     <td className="text-right">{formatKRW(p.metrics.spend)}원</td>
                     <td className="text-right">{formatKRW(p.metrics.revenue)}원</td>
