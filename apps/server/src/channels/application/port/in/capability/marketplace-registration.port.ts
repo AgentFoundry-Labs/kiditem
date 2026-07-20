@@ -42,6 +42,11 @@ export const CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT = Symbol(
 );
 
 export interface ChannelsMarketplaceRegistrationCapabilityPort {
+  assertExternalProductRegistrationAccount(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<{ channel: 'coupang' }>;
+
   reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
   ): Promise<MarketplaceSubmissionResult | null>;

@@ -58,6 +58,19 @@ export class MarketplaceRegistrationService {
     private readonly coupang?: CoupangProviderPort,
   ) {}
 
+  async assertExternalProductRegistrationAccount(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<{ channel: 'coupang' }> {
+    const account = await this.repository.assertActiveRegistrationAccount(input);
+    if (account.channel !== 'coupang') {
+      throw new ConflictException(
+        'External registration confirmation requires an active Coupang Wing account.',
+      );
+    }
+    return { channel: 'coupang' };
+  }
+
   async reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
   ): Promise<MarketplaceSubmissionResult | null> {

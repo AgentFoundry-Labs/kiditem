@@ -119,6 +119,7 @@ function setup(overrides: {
     ...overrides.repository,
   } as ProductPreparationRepositoryPort;
   const channel = {
+    assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
     reconcile: vi.fn().mockResolvedValue(null),
     submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
       await beforeProviderCreate();
@@ -234,7 +235,12 @@ describe('ProductRegistrationService', () => {
   it('marks a provider failure retriable without finalizing locally', async () => {
     const failure = new Error('provider unavailable');
     const { service, repository, channel, content } = setup({
-      channel: { submit: vi.fn().mockRejectedValue(failure) },
+      channel: {
+        submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
+          await beforeProviderCreate();
+          throw failure;
+        }),
+      },
     });
 
     await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
@@ -469,8 +475,35 @@ describe('ProductRegistrationService', () => {
       organizationId: ORG_ID,
       preparationId: PREPARATION_ID,
       submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      providerOutcome: 'definitive_failure',
       error: 'invalid frozen listing payload',
     });
+  });
+
+  it('validates the persisted Wing account before accepting external confirmation', async () => {
+    const assertExternalRegistrationAccount = vi.fn().mockResolvedValue({ channel: 'coupang' });
+    const { service, repository, channel } = setup({
+      channel: { assertExternalRegistrationAccount },
+    });
+
+    await service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      externalListingId: '427011919',
+      channel: 'rocket',
+      evidence: { source: 'wing' },
+    });
+
+    expect(assertExternalRegistrationAccount).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      channelAccountId: ACCOUNT_ID,
+    });
+    expect(repository.recordProviderResult).toHaveBeenCalledWith(
+      ORG_ID,
+      PREPARATION_ID,
+      '33333333-3333-4333-8333-333333333333',
+      expect.objectContaining({ channel: 'coupang' }),
+    );
   });
 
   it('records a definitive provider rejection without leaving an uncertain identity', async () => {

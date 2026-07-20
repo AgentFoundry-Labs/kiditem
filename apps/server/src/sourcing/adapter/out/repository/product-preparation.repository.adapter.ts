@@ -397,6 +397,9 @@ export class ProductPreparationRepositoryAdapter
       execution = await tx.productRegistrationExecution.findFirst({
         where: { organizationId, productPreparationId: current.id },
       });
+      if (!execution && ['submitting', 'failed'].includes(current.status)) {
+        execution = await importLegacyExecution(tx, current, organizationId);
+      }
       if (execution?.status === 'succeeded') {
         if (!execution.channelListingId) {
           throw new ConflictException('Succeeded execution is missing its listing identity.');
@@ -419,6 +422,9 @@ export class ProductPreparationRepositoryAdapter
       }
       if (execution?.status === 'cancelled' || execution?.status === 'failed') {
         throw new ConflictException(`Registration execution cannot be submitted from '${execution.status}'.`);
+      }
+      if (current.status === 'registered' && !execution) {
+        throw new ConflictException('Registered preparation is missing its registration execution.');
       }
       if (!['draft', 'submitting', 'failed', 'registered'].includes(current.status)) {
         throw new ConflictException(`Preparation cannot be submitted from '${current.status}'.`);
@@ -671,7 +677,8 @@ export class ProductPreparationRepositoryAdapter
       ) {
         throw new ConflictException('Recorded provider success cannot become a definitive failure.');
       }
-      const providerOutcome = input.providerOutcome ?? currentOutcome;
+      const providerOutcome = input.providerOutcome
+        ?? (currentOutcome === 'not_attempted' ? 'uncertain' : currentOutcome);
       const executionStatus = providerOutcome === 'definitive_failure' ? 'failed' : 'reconciling';
       await tx.productRegistrationExecution.updateMany({
         where: { id: execution.id, organizationId: input.organizationId, leaseToken: input.submissionLeaseToken },
@@ -837,6 +844,74 @@ async function requireExecution(
   });
   if (!execution) throw new ConflictException('Product registration execution is missing.');
   return execution;
+}
+
+/**
+ * Compatibility fence for preparations created before the execution ledger was
+ * introduced. A legacy submission may already have reached provider IO, so it
+ * must never be reborn as a fresh create operation.
+ */
+async function importLegacyExecution(
+  tx: Prisma.TransactionClient,
+  preparation: ProductPreparation,
+  organizationId: string,
+): Promise<ProductRegistrationExecution> {
+  assertRegistrationIdentity(preparation);
+  if (
+    !preparation.submissionKey
+    || !preparation.submissionPayloadJson
+    || !preparation.submissionPayloadHash
+  ) {
+    throw new ConflictException(
+      'Legacy submitting preparation is missing frozen submission data and cannot be safely imported.',
+    );
+  }
+  const frozen = freezeProductPreparationPayload(
+    preparation.submissionPayloadJson as ProductPreparationJson,
+  );
+  if (frozen.hash !== preparation.submissionPayloadHash) {
+    throw new ConflictException('Legacy frozen submission hash does not match its payload.');
+  }
+  const legacyOutcome = resolveProviderOutcome(preparation);
+  const hasProviderIdentity = preparation.providerSubmissionId !== null
+    || preparation.registrationResult !== null;
+  const providerOutcome = legacyOutcome === 'succeeded' || hasProviderIdentity
+    ? 'succeeded'
+    : legacyOutcome === 'definitive_failure'
+      ? 'definitive_failure'
+      : 'uncertain';
+  const status = providerOutcome === 'definitive_failure' ? 'failed' : 'reconciling';
+  return tx.productRegistrationExecution.create({
+    data: {
+      organizationId,
+      productPreparationId: preparation.id,
+      channelAccountId: preparation.channelAccountId,
+      idempotencyKey: preparation.submissionKey,
+      requestHash: frozen.hash,
+      submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
+      submissionPayloadHash: frozen.hash,
+      status,
+      providerOutcome,
+      providerSubmissionId: preparation.providerSubmissionId,
+      externalListingId: legacyExternalListingId(preparation.registrationResult),
+      resultJson: preparation.registrationResult === null
+        ? Prisma.JsonNull
+        : preparation.registrationResult as Prisma.InputJsonValue,
+      lastErrorMessage: preparation.lastError,
+      leaseToken: preparation.submissionLeaseToken,
+      leaseClaimedAt: preparation.submissionLeaseClaimedAt,
+      requestedByUserId: preparation.approvedByUserId,
+      startedAt: preparation.submissionLeaseClaimedAt,
+    },
+  });
+}
+
+function legacyExternalListingId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const externalListingId = (value as Record<string, unknown>).externalListingId;
+  return typeof externalListingId === 'string' && externalListingId.trim()
+    ? externalListingId.trim()
+    : null;
 }
 
 async function lockCandidate(

@@ -25,6 +25,13 @@ export class ChannelRegistrationCapabilityAdapter
     private readonly marketplaceRegistration: MarketplaceRegistrationService,
   ) {}
 
+  assertExternalProductRegistrationAccount(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<{ channel: 'coupang' }> {
+    return this.marketplaceRegistration.assertExternalProductRegistrationAccount(input);
+  }
+
   reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
   ): Promise<MarketplaceSubmissionResult | null> {

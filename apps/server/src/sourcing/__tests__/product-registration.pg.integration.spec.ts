@@ -451,6 +451,49 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     )).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('imports an execution-less legacy submitting row as uncertain rather than preparing a new create', async () => {
+    const draft = await repository.createOrGetActiveDraft(
+      createInput(ACCOUNT_ID),
+      ensureWorkspace,
+      resolveSelections,
+    );
+    const claimed = await repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    );
+    if (claimed.status === 'registered') throw new Error('unexpected registered state');
+    await prisma.productRegistrationExecution.delete({ where: { id: claimed.executionId } });
+    await prisma.productPreparation.update({
+      where: { id: draft.preparationId },
+      data: {
+        status: 'submitting',
+        providerOutcome: 'not_attempted',
+        submissionLeaseClaimedAt: new Date(
+          Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
+        ),
+      },
+    });
+
+    const imported = await repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    );
+    if (imported.status === 'registered') throw new Error('unexpected registered state');
+    expect(imported.providerOutcome).toBe('uncertain');
+    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: draft.preparationId },
+      select: { status: true, providerOutcome: true, requestHash: true },
+    })).resolves.toEqual({
+      status: 'reconciling',
+      providerOutcome: 'uncertain',
+      requestHash: claimed.submissionPayloadHash,
+    });
+  });
+
   it('reclaims an expired in-provider lease as uncertain and retains the same submission identity', async () => {
     const draft = await repository.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),

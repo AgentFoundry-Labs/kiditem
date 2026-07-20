@@ -93,6 +93,8 @@ export class ProductRegistrationService {
     }
 
     let providerResult;
+    let submittingProviderCreate = false;
+    let providerCreateDispatched = false;
     try {
       providerResult = await this.channels.reconcile(this.toSubmissionInput(
         organizationId,
@@ -102,17 +104,21 @@ export class ProductRegistrationService {
         if (!canStartProviderCreate(submission.providerOutcome)) {
           throw new Error('Provider outcome remains uncertain after reconciliation.');
         }
+        submittingProviderCreate = true;
         providerResult = await this.channels.submit(
           this.toSubmissionInput(
             organizationId,
             submission,
             { providerOutcome: 'uncertain', providerCreateAllowed: true },
           ),
-          () => this.preparations.markProviderAttemptStarted(
-            organizationId,
-            preparationId,
-            submissionLeaseToken,
-          ),
+          async () => {
+            await this.preparations.markProviderAttemptStarted(
+              organizationId,
+              preparationId,
+              submissionLeaseToken,
+            );
+            providerCreateDispatched = true;
+          },
         );
       }
       await this.preparations.recordProviderResult(
@@ -128,6 +134,7 @@ export class ProductRegistrationService {
         submissionLeaseToken,
         error,
         error instanceof DefinitiveChannelProductRegistrationError
+          || (submittingProviderCreate && !providerCreateDispatched)
           ? 'definitive_failure'
           : undefined,
       );
@@ -203,6 +210,10 @@ export class ProductRegistrationService {
     if (!externalListingId) {
       throw new Error('등록상품ID가 비어 있습니다.');
     }
+    const account = await this.channels.assertExternalRegistrationAccount({
+      organizationId,
+      channelAccountId: input.channelAccountId,
+    });
 
     const draft = await this.preparations.createOrGetActiveDraft(
       {
@@ -251,7 +262,7 @@ export class ProductRegistrationService {
           providerSubmissionId: null,
           externalListingId,
           // The selected persisted ChannelAccount, not browser/client text, owns channel identity.
-          channel: 'coupang',
+          channel: account.channel,
           rawResult: {
             source: 'coupang-wing-extension',
             confirmedAt: new Date().toISOString(),

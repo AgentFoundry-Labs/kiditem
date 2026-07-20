@@ -44,6 +44,10 @@ export interface ResolveChannelListingInput
 }
 
 export interface ChannelProductRegistrationPort {
+  assertExternalRegistrationAccount(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<{ channel: 'coupang' }>;
   reconcile(
     input: ChannelProductRegistrationSubmissionInput,
   ): Promise<MarketplaceSubmissionResult | null>;
