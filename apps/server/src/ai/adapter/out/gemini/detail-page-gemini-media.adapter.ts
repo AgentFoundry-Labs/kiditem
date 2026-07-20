@@ -2,8 +2,6 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { GoogleGenAI, Modality } from '@google/genai';
 import {
   requireGeminiApiKey,
-  requireGeminiImageModel,
-  requireGeminiVisionModel,
 } from './thumbnail-gemini-config';
 import type {
   CompleteDetailPageVisionJsonInput,
@@ -13,14 +11,17 @@ import type {
   GeneratedDetailPageImage,
 } from '../../../application/port/out/provider/detail-page-media.port';
 
+const PROVIDER_TIMEOUT_MS = 120_000;
+
 @Injectable()
 export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
   private readonly logger = new Logger(DetailPageGeminiMediaAdapter.name);
   private client: GoogleGenAI | null = null;
 
   async generateImage(input: GenerateDetailPageImageInput): Promise<GeneratedDetailPageImage> {
+    input.signal?.throwIfAborted();
     const response = await this.getClient().models.generateContent({
-      model: input.model?.trim() || requireGeminiImageModel(),
+      model: input.model,
       contents: [
         {
           role: 'user',
@@ -30,6 +31,8 @@ export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
       config: {
         responseModalities: [Modality.TEXT, Modality.IMAGE],
         imageConfig: { aspectRatio: input.aspectRatio, imageSize: input.imageSize },
+        abortSignal: input.signal,
+        httpOptions: { timeout: PROVIDER_TIMEOUT_MS },
       },
     });
 
@@ -48,8 +51,9 @@ export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
   }
 
   async completeVisionJson(input: CompleteDetailPageVisionJsonInput): Promise<string | null> {
+    input.signal?.throwIfAborted();
     const response = await this.getClient().models.generateContent({
-      model: input.model?.trim() || requireGeminiVisionModel(),
+      model: input.model,
       contents: [
         {
           role: 'user',
@@ -59,6 +63,8 @@ export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
       config: {
         responseMimeType: 'application/json',
         temperature: 0.1,
+        abortSignal: input.signal,
+        httpOptions: { timeout: PROVIDER_TIMEOUT_MS },
       },
     });
 
@@ -80,8 +86,7 @@ export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
   }
 
   private getClient(): GoogleGenAI {
-    const apiKey = requireGeminiApiKey();
-    if (!this.client) this.client = new GoogleGenAI({ apiKey });
+    if (!this.client) this.client = new GoogleGenAI({ apiKey: requireGeminiApiKey() });
     return this.client;
   }
 }

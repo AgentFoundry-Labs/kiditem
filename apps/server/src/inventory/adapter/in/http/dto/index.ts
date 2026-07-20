@@ -3,16 +3,12 @@
 // `@Body()`/`@Query()`/`@Param()` and never declare a `organizationId` field on a
 // request DTO.
 
-// Inventory
-export * from './list-inventory-query.dto';
-export * from './update-inventory-metadata.dto';
-export * from './receive-stock.dto';
-export * from './issue-stock.dto';
-export * from './adjust-stock.dto';
-export * from './list-transactions-query.dto';
-export * from './transaction-summary-query.dto';
-export * from './sellpia-sync.dto';
-export * from './rocket-inventory.dto';
+// Sellpia-owned inventory snapshot and receipt tracking
+export * from './sellpia-receipt-batch.dto';
+export * from './sellpia-inventory-freshness.dto';
+export * from './sellpia-inventory-import.dto';
+export * from './list-inventory-skus-query.dto';
+export * from './list-sellpia-import-runs-query.dto';
 
 // Unshipped
 export * from './list-unshipped.dto';
@@ -25,10 +21,6 @@ export { UpdateWarehouseDto } from './update-warehouse.dto';
 export { ListStockTransfersQueryDto } from './list-stock-transfers.dto';
 export { CreateStockTransferDto } from './create-stock-transfer.dto';
 export { UpdateStockTransferDto } from './update-stock-transfer.dto';
-
-// Stock audits
-export { CreateStockAuditDto } from './create-stock-audit.dto';
-export { UpdateStockAuditDto } from './update-stock-audit.dto';
 
 // Picking
 export { UpdatePickingItemDto } from './update-picking-item.dto';

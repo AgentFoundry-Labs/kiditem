@@ -1,11 +1,20 @@
 import { type ReactNode } from 'react';
+import type { ProductBasics } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import { cn, formatDateTime } from '@/lib/utils';
+import {
+  parseMoney,
+  type BasicDraft,
+} from '../../../lib/basic-draft';
 import TagEditor from '../detail/TagEditor';
+import { KcImageField } from './KcImageField';
+import { RocketPricingSection } from './RocketPricingSection';
 import type { ProductEditState } from '../../../lib/product-workspace-types';
-import type {
-  ProductBasics,
-  UpdateProductBasicsInput,
-} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+
+export {
+  basicDraftFrom,
+  productBasicsInputFromDraft,
+  type BasicDraft,
+} from '../../../lib/basic-draft';
 
 interface ProductBasicsTabProps {
   editData: ProductEditState;
@@ -15,9 +24,16 @@ interface ProductBasicsTabProps {
   draft: BasicDraft;
   onDraftChange: (field: keyof BasicDraft, value: string) => void;
   onDraftTagsChange: (tags: string[]) => void;
+  /** 보기 모드에서 KC 인증 이미지를 즉시 저장. 미제공 시 보기 모드 업로드는 draft 만 갱신. */
+  onCommitKcImage?: (value: string) => void;
+  /** KC 인증 이미지 즉시 저장 진행 중 여부. */
+  isKcImageSaving?: boolean;
+  /** 위안화 원가(소싱 후보). 로켓 마진 계산의 단가 원가 자동 환산에 사용. */
+  costCny?: number | null;
   selectedRegistrationThumbnailUrl?: string | null;
   selectedDetailPageGenerationId?: string | null;
   selectedDetailPageSummary?: SelectedDetailPageSummary | null;
+  readOnly?: boolean;
 }
 
 export default function ProductBasicsTab({
@@ -28,9 +44,13 @@ export default function ProductBasicsTab({
   draft,
   onDraftChange,
   onDraftTagsChange,
+  onCommitKcImage,
+  isKcImageSaving = false,
+  costCny,
   selectedRegistrationThumbnailUrl,
   selectedDetailPageGenerationId,
   selectedDetailPageSummary,
+  readOnly = false,
 }: ProductBasicsTabProps) {
   const registrationThumbnailUrl =
     selectedRegistrationThumbnailUrl === undefined
@@ -244,6 +264,20 @@ export default function ProductBasicsTab({
               />
             )}
           </InfoRow>
+          <InfoRow label="KC 인증 이미지">
+            <KcImageField
+              value={draft.kcCertificationImageUrl}
+              busy={!isEditing && isKcImageSaving}
+              readOnly={readOnly}
+              onChange={(value) => {
+                if (isEditing) {
+                  onDraftChange('kcCertificationImageUrl', value);
+                } else {
+                  onCommitKcImage?.(value);
+                }
+              }}
+            />
+          </InfoRow>
           <InfoRow label="제품 사이즈">
             {isEditing ? (
               <input
@@ -327,6 +361,24 @@ export default function ProductBasicsTab({
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <SectionHeader
+          title="쿠팡 로켓 가격"
+          description="소비자가(판매가) 기준으로 로켓 판매가·공급가·마진율을 계산합니다."
+        />
+        <div className="mt-4">
+          <RocketPricingSection
+            consumerPrice={parseMoney(draft.salePrice)}
+            quantity={draft.rocketBundleQuantity}
+            unitCost={draft.rocketUnitCost}
+            costCny={costCny}
+            isEditing={isEditing}
+            onQuantityChange={(value) => onDraftChange('rocketBundleQuantity', value)}
+            onUnitCostChange={(value) => onDraftChange('rocketUnitCost', value)}
+          />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5">
         <SectionHeader title="옵션과 검색 정보" />
         <div className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
           <InfoRow label="옵션명">
@@ -391,79 +443,6 @@ export interface SelectedDetailPageSummary {
 
 const fieldClassName =
   'h-9 w-full rounded-md border border-transparent bg-transparent px-0 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-300 focus:bg-emerald-50/40 focus:px-2 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:text-slate-400';
-
-export interface BasicDraft {
-  name: string;
-  category: string;
-  description: string;
-  target: string;
-  ageGroup: string;
-  tags: string[];
-  kcCertificationStatus: string;
-  kcCertificationNumber: string;
-  productSize: string;
-  colorVariantStatus: string;
-  colorVariantNames: string;
-  boxSetStatus: string;
-  boxSetQuantity: string;
-  optionNames: string;
-  keywords: string;
-  salePrice: string;
-  originalPrice: string;
-  discountRate: string;
-}
-
-export function basicDraftFrom({
-  basicInfo,
-  editData,
-}: {
-  basicInfo: ProductBasics | null;
-  editData: ProductEditState;
-}): BasicDraft {
-  return {
-    name: basicInfo?.name ?? editData.name,
-    category: basicInfo?.category ?? editData.category,
-    description: basicInfo?.description ?? '',
-    target: basicInfo?.target ?? '',
-    ageGroup: basicInfo?.ageGroup ?? '',
-    tags: basicInfo?.tags ?? editData.tags,
-    kcCertificationStatus: basicInfo?.kcCertificationStatus ?? '',
-    kcCertificationNumber: basicInfo?.kcCertificationNumber ?? '',
-    productSize: basicInfo?.productSize ?? '',
-    colorVariantStatus: basicInfo?.colorVariantStatus ?? '',
-    colorVariantNames: basicInfo?.colorVariantNames ?? '',
-    boxSetStatus: basicInfo?.boxSetStatus ?? '',
-    boxSetQuantity: basicInfo?.boxSetQuantity ?? '',
-    optionNames: (basicInfo?.optionNames ?? []).join(', '),
-    keywords: (basicInfo?.keywords ?? []).join(', '),
-    salePrice: moneyInputValue(basicInfo?.salePrice ?? editData.salePrice),
-    originalPrice: moneyInputValue(basicInfo?.originalPrice ?? editData.originalPrice),
-    discountRate: moneyInputValue(basicInfo?.discountRate ?? editData.discountRate),
-  };
-}
-
-export function productBasicsInputFromDraft(draft: BasicDraft): UpdateProductBasicsInput {
-  return {
-    name: draft.name.trim(),
-    category: draft.category.trim(),
-    description: draft.description,
-    target: draft.target,
-    ageGroup: draft.ageGroup,
-    kcCertificationStatus: draft.kcCertificationStatus,
-    kcCertificationNumber: draft.kcCertificationNumber,
-    productSize: draft.productSize,
-    colorVariantStatus: draft.colorVariantStatus,
-    colorVariantNames: draft.colorVariantNames,
-    boxSetStatus: draft.boxSetStatus,
-    boxSetQuantity: draft.boxSetQuantity,
-    optionNames: parseList(draft.optionNames),
-    keywords: parseList(draft.keywords),
-    tags: draft.tags,
-    salePrice: parseMoney(draft.salePrice),
-    originalPrice: parseMoney(draft.originalPrice),
-    discountRate: parseMoney(draft.discountRate),
-  };
-}
 
 function MoneyInput({
   label,
@@ -625,15 +604,6 @@ function SelectedDetailPageCard({
   );
 }
 
-function moneyInputValue(value: number | null | undefined): string {
-  return Number.isFinite(value) && (value ?? 0) > 0 ? String(Math.round(value ?? 0)) : '';
-}
-
-function parseMoney(value: string): number {
-  const parsed = Number.parseInt(value.replace(/[^\d]/g, ''), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
 function moneyDisplayValue(value: string): string {
   const amount = parseMoney(value);
   return amount > 0 ? `${amount.toLocaleString('ko-KR')}원` : '미입력';
@@ -642,13 +612,6 @@ function moneyDisplayValue(value: string): string {
 function percentDisplayValue(value: string): string {
   const amount = parseMoney(value);
   return amount > 0 ? `${amount}%` : '미입력';
-}
-
-function parseList(value: string): string[] {
-  return value
-    .split(/[,\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function ageGroupLabel(value: string): string {

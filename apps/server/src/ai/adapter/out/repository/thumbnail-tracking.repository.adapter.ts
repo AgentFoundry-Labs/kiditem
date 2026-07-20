@@ -12,7 +12,9 @@ const TRACKING_LISTING_INCLUDE = {
   listing: {
     select: {
       id: true,
-      master: { select: { id: true, name: true } },
+      displayName: true,
+      channelName: true,
+      externalId: true,
     },
   },
 } as const;
@@ -34,10 +36,7 @@ function isDuplicateError(error: unknown): boolean {
 export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  findTrackings(
-    query: Parameters<ThumbnailTrackingRepositoryPort['findTrackings']>[0],
-    organizationId: string,
-  ) {
+  findTrackings(query: Parameters<ThumbnailTrackingRepositoryPort['findTrackings']>[0], organizationId: string) {
     return this.prisma.thumbnailTracking.findMany({
       where: trackingWhere(query, organizationId),
       include: TRACKING_LISTING_INCLUDE,
@@ -47,21 +46,25 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
     });
   }
 
-  countTrackings(
-    query: Parameters<ThumbnailTrackingRepositoryPort['countTrackings']>[0],
-    organizationId: string,
-  ) {
+  countTrackings(query: Parameters<ThumbnailTrackingRepositoryPort['countTrackings']>[0], organizationId: string) {
     return this.prisma.thumbnailTracking.count({
       where: trackingWhere(query, organizationId),
     });
   }
 
-  findFirstListingForMaster(masterId: string, organizationId: string) {
-    return this.prisma.channelListing.findFirst({
-      where: { masterId, organizationId, isDeleted: false },
-      select: { id: true },
-      orderBy: { createdAt: 'asc' },
-    });
+  findChannelListingForWorkspace(contentWorkspaceId: string, organizationId: string) {
+    return this.prisma.contentWorkspace
+      .findFirst({
+        where: {
+          id: contentWorkspaceId,
+          organizationId,
+          status: 'active',
+          isDeleted: false,
+          channelListingId: { not: null },
+        },
+        select: { channelListing: { select: { id: true } } },
+      })
+      .then((workspace) => workspace?.channelListing ?? null);
   }
 
   async createTracking(input: CreateThumbnailTrackingInput) {
@@ -147,7 +150,8 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
         listing: {
           select: {
             channelName: true,
-            master: { select: { name: true } },
+            displayName: true,
+            externalId: true,
           },
         },
       },

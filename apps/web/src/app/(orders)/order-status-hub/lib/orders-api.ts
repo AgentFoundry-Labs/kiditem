@@ -6,6 +6,11 @@ import {
   type OrderStatus,
   type OrderStatsResponse,
 } from '@kiditem/shared/order';
+import {
+  ChannelSkuAvailabilityListResponseSchema,
+  type ChannelSkuAvailabilityListResponse,
+  type ChannelSkuAvailabilityQuery,
+} from '@kiditem/shared/channel-sku-availability';
 import { apiClient } from '@/lib/api-client';
 
 const ORDER_LIST_STATUSES: OrderStatus[] = [
@@ -78,4 +83,18 @@ export async function fetchOrderListAcrossStatuses(
 
 export async function fetchOrderStats(): Promise<OrderStatsResponse> {
   return apiClient.getParsed('/api/orders/stats', OrderStatsResponseSchema);
+}
+
+export async function fetchChannelSkuAvailability(
+  params: Pick<ChannelSkuAvailabilityQuery, 'status' | 'page' | 'limit'>,
+): Promise<ChannelSkuAvailabilityListResponse> {
+  const query = new URLSearchParams({
+    status: params.status,
+    page: String(params.page),
+    limit: String(params.limit),
+  });
+  return apiClient.getParsed(
+    `/api/channels/sku-availability?${query}`,
+    ChannelSkuAvailabilityListResponseSchema,
+  );
 }

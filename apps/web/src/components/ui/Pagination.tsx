@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PaginationProps {
@@ -24,6 +24,17 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
       </span>
       <div className="flex items-center gap-1">
         <button
+          type="button"
+          aria-label="첫 페이지"
+          onClick={() => onPageChange(1)}
+          disabled={page === 1}
+          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30"
+        >
+          <ChevronsLeft size={16} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          aria-label="이전 페이지"
           onClick={() => onPageChange(Math.max(1, page - 1))}
           disabled={page === 1}
           className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30"
@@ -35,7 +46,10 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
           if (pageNum > totalPages) return null;
           return (
             <button
+              type="button"
               key={pageNum}
+              aria-label={`${pageNum}`}
+              aria-current={page === pageNum ? 'page' : undefined}
               onClick={() => onPageChange(pageNum)}
               className={cn('w-8 h-8 rounded text-sm', page === pageNum ? 'bg-purple-600 text-white' : 'hover:bg-slate-100')}
             >
@@ -44,11 +58,22 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
           );
         })}
         <button
+          type="button"
+          aria-label="다음 페이지"
           onClick={() => onPageChange(Math.min(totalPages, page + 1))}
           disabled={page >= totalPages}
           className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30"
         >
           <ChevronRight size={16} />
+        </button>
+        <button
+          type="button"
+          aria-label="마지막 페이지"
+          onClick={() => onPageChange(totalPages)}
+          disabled={page >= totalPages}
+          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30"
+        >
+          <ChevronsRight size={16} aria-hidden="true" />
         </button>
       </div>
     </div>

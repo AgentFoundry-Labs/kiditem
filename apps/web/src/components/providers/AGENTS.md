@@ -12,6 +12,11 @@ here affect every route.
 - Global QueryCache error toast behavior
 - Auth session state and SIGNED_OUT redirect ownership
 - React Query devtools lazy loading policy
+- One authenticated Sellpia inventory coordinator. It deduplicates claims with
+  the Web Locks API plus an in-memory guard keyed by the same local lock name,
+  heartbeats only its claim, and leaves unmounted/tab-closed leases to expire
+  without cancellation. Claim attempts retry on each authenticated freshness
+  poll even when React Query structurally shares the state object.
 
 ## State Rules
 
@@ -23,6 +28,9 @@ here affect every route.
   toast with `meta: { suppressGlobalErrorToast: true }`.
 - `installQueryClientErrorHandler()` exists so HMR-created QueryClient
   instances receive the current global handler.
+- `SellpiaInventorySyncProvider` keeps the floating freshness entry visible on
+  established operations screens. Suppress it only where the same shared
+  drawer has an intentional inline status, currently `/product-hub/matching`.
 
 ## Boundary Rules
 
@@ -31,6 +39,11 @@ here affect every route.
 - Do not add route-specific query defaults here.
 - Do not show generic global error toasts for transient dev fetch/chunk failures
   or handled auth-required errors.
+- `BrowserCollectionProvider` excludes `inventory.sellpia`; only the claimant
+  coordinator may upload/finalize/cancel that run or own its operation alert.
+- Sellpia Operation Alerts carry monotonic ordering metadata on every
+  transition and are best-effort observability; alert transport failure never
+  changes inventory success or failure.
 
 ## Verification
 

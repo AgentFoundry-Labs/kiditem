@@ -22,7 +22,7 @@ import {
  * Plan F1 T1 — buildPerListingMetrics (PG integration).
  *
  * Verifies the helper produces correct per-listing rollups from Order +
- * OrderLineItem + ChannelListing + MasterProduct + ProductOption + Ad,
+ * OrderLineItem + ChannelListing + ChannelListingOption + component mappings + daily ad facts,
  * with organizationId scoping and revenue-weighted shipping (R-1).
  */
 describe('buildPerListingMetrics (PG integration)', () => {
@@ -188,6 +188,95 @@ describe('buildPerListingMetrics (PG integration)', () => {
     expect(result[0].revenue).toBe(1_000);                    // only the paid order
     expect(result[0].revenue).not.toBe(IDOR_SENTINEL);        // excluded statuses' totalPrice never appears
     expect(result[0].orderCount).toBe(1);                     // 3 excluded orders dropped
+  });
+
+  it('T6: reports an imported listing without a component mapping', async () => {
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Active Wing account',
+        externalAccountId: 'WING-ACCOUNT-T6',
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    const importRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: account.id,
+        fileName: 'wing-products-t6.xlsx',
+        fileHash: 'wing-products-t6',
+        status: 'completed',
+        rowCount: 1,
+        importedAt: new Date('2026-04-14T00:00:00.000Z'),
+      },
+      select: { id: true },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        externalId: 'EXT-UNLINKED-T6',
+        channelName: 'Wing import only',
+        status: 'active',
+        lastImportRunId: importRun.id,
+      },
+      select: { id: true },
+    });
+    const listingOption = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId: 'VI-UNLINKED-T6',
+        lastImportRunId: importRun.id,
+      },
+      select: { id: true },
+    });
+    const order = await prisma.order.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        externalOrderId: 'PERLIST-T-6',
+        orderedAt: new Date('2026-04-15T03:00:00.000Z'),
+        status: 'accepted',
+        shippingPrice: 0,
+        totalPrice: 10_000,
+      },
+      select: { id: true },
+    });
+    await prisma.orderLineItem.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        orderId: order.id,
+        listingOptionId: listingOption.id,
+        productName: 'Wing import only',
+        quantity: 1,
+        unitPrice: 10_000,
+        totalPrice: 10_000,
+        externalLineId: 'LI-UNLINKED-T6',
+      },
+    });
+
+    const result = await buildPerListingMetrics(
+      prisma as unknown as PrismaService,
+      TEST_ORGANIZATION_ID,
+      FROM,
+      TO,
+    );
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        listingId: listing.id,
+        externalId: 'EXT-UNLINKED-T6',
+        masterId: listing.id,
+        masterCode: 'EXT-UNLINKED-T6',
+        masterName: 'Wing import only',
+        revenue: 10_000,
+        costOfGoods: 0,
+      }),
+    ]);
   });
 
   it('T4: cross-organization isolation — OTHER sentinel never leaks into TEST', async () => {

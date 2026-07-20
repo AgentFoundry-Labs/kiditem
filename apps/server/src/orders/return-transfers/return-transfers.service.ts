@@ -20,17 +20,28 @@ export class ReturnTransfersService {
 
     return this.prisma.returnTransfer.findMany({
       where,
-      include: { option: true },
+      include: { sellpiaInventorySku: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async create(organizationId: string, dto: CreateReturnTransferDto) {
-    const option = await this.prisma.productOption.findFirst({
-      where: { id: dto.optionId, organizationId, isDeleted: false },
+    const sellpiaInventorySku = await this.prisma.sellpiaInventorySku.findFirst({
+      where: {
+        id: dto.sellpiaInventorySkuId,
+        organizationId,
+        isActive: true,
+      },
       select: { optionName: true },
     });
-    if (!option) throw new NotFoundException('Option not found');
+    if (!sellpiaInventorySku) throw new NotFoundException('Sellpia inventory SKU not found');
+    if (dto.orderId) {
+      const order = await this.prisma.order.findFirst({
+        where: { id: dto.orderId, organizationId },
+        select: { id: true },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+    }
 
     const rtNumber = this.generateRtNumber();
 
@@ -39,13 +50,13 @@ export class ReturnTransfersService {
         organizationId,
         rtNumber,
         orderId: dto.orderId,
-        optionId: dto.optionId,
-        optionName: option.optionName,
+        sellpiaInventorySkuId: dto.sellpiaInventorySkuId,
+        optionName: sellpiaInventorySku.optionName,
         quantity: dto.quantity,
         condition: dto.condition ?? 'good',
         notes: dto.notes,
       },
-      include: { option: true },
+      include: { sellpiaInventorySku: true },
     });
   }
 
@@ -64,7 +75,7 @@ export class ReturnTransfersService {
         ...(dto.disposedQty !== undefined && { disposedQty: dto.disposedQty }),
         ...(dto.processedBy !== undefined && { processedBy: dto.processedBy }),
       },
-      include: { option: true },
+      include: { sellpiaInventorySku: true },
     });
   }
 }

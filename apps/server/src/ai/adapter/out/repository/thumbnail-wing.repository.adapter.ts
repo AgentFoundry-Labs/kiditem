@@ -10,28 +10,36 @@ export class ThumbnailWingRepositoryAdapter implements ThumbnailWingRepositoryPo
   constructor(private readonly prisma: PrismaService) {}
 
   findGenerationWithCandidates(generationId: string, organizationId: string) {
-    return this.prisma.thumbnailGeneration.findFirst({
-      where: { id: generationId, organizationId },
-      include: {
-        candidates: {
-          where: { organizationId },
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    return this.prisma.thumbnailGeneration
+      .findFirst({
+        where: { id: generationId, organizationId },
+        include: {
+          candidates: {
+            where: { organizationId },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
         },
-      },
-    });
+      })
+      .then((generation) => (generation ? { ...generation, contentWorkspaceId: generation.contentWorkspaceId } : null));
   }
 
-  findRegistrableMaster(masterId: string, organizationId: string) {
-    return this.prisma.masterProduct.findFirst({
-      where: { id: masterId, organizationId, isDeleted: false },
-      select: {
-        name: true,
-        listings: {
-          where: { organizationId, channel: 'coupang', isDeleted: false },
-          select: { channelName: true, createdAt: true },
-          orderBy: { createdAt: 'asc' },
-          take: 1,
+  findRegistrableWorkspace(contentWorkspaceId: string, organizationId: string) {
+    return this.prisma.contentWorkspace.findFirst({
+      where: {
+        id: contentWorkspaceId,
+        organizationId,
+        isDeleted: false,
+        status: 'active',
+        channelListing: {
+          is: {
+            isActive: true,
+            channelAccount: { is: { channel: 'coupang' } },
+          },
         },
+      },
+      select: {
+        displayName: true,
+        channelListing: { select: { channelName: true } },
       },
     });
   }

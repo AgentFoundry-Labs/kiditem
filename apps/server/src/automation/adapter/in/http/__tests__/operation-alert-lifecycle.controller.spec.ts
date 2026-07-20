@@ -1,10 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OperationAlertLifecycleController } from '../operation-alert-lifecycle.controller';
+import { OperationAlertOwnershipConflictError } from '../../../../domain/errors/operation-alert-ownership-conflict.error';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const USER_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
-const OPERATION_KEY = 'dashboard.collect:wing_sales';
+const OTHER_USER_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+const COLLECTION_RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const OPERATION_KEY = `browser-collection:${COLLECTION_RUN_ID}`;
+const SELLPIA_FILE_HASH = 'a'.repeat(64);
+const SELLPIA_IMPORT_RUN_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+const SELLPIA_QUALITY_OPERATION_KEY =
+  `sellpia-inventory-quality:${SELLPIA_FILE_HASH}:snapshot_churn`;
+const COLLECTION_ORDERING_METADATA = {
+  browserCollection: true,
+  collectionAttempt: 1,
+  collectionUpdatedAt: 1_700_000_001_000,
+};
 
 function alertRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -12,18 +24,18 @@ function alertRow(overrides: Record<string, unknown> = {}) {
     organizationId: ORGANIZATION_ID,
     kind: 'operation',
     status: 'running',
-    type: 'dashboard_data_collect',
+    type: 'browser_collection',
     severity: 'info',
-    title: 'Wing 매출 수집',
+    title: '쿠팡 Wing 데이터 수집',
     message: null,
     targetType: null,
     targetId: null,
     operationKey: OPERATION_KEY,
-    sourceType: 'readiness_check',
-    sourceId: 'wing_sales',
+    sourceType: 'browser_collection_session',
+    sourceId: 'dashboard.wing_sales',
     actorUserId: USER_ID,
     actionTaskId: null,
-    href: '/dashboard',
+    href: `/dashboard?collectionRun=${COLLECTION_RUN_ID}`,
     progress: 0,
     metadata: { lookbackDays: 14 },
     isRead: false,
@@ -40,6 +52,7 @@ function makeService() {
   return {
     findByOperationKey: vi.fn(),
     start: vi.fn(),
+    attention: vi.fn(),
     progress: vi.fn(),
     succeed: vi.fn(),
     fail: vi.fn(),
@@ -64,12 +77,12 @@ describe('OperationAlertLifecycleController.start', () => {
     await controller.start(
       {
         operationKey: OPERATION_KEY,
-        type: 'dashboard_data_collect',
+        type: 'browser_collection',
         title: 'client-supplied title is ignored',
-        sourceType: 'readiness_check',
-        sourceId: 'wing_sales',
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.wing_sales',
         href: '/settings',
-        metadata: { lookbackDays: 14 },
+        metadata: { ...COLLECTION_ORDERING_METADATA, lookbackDays: 14 },
       },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
@@ -80,12 +93,12 @@ describe('OperationAlertLifecycleController.start', () => {
         organizationId: ORGANIZATION_ID,
         operationKey: OPERATION_KEY,
         actorUserId: USER_ID,
-        type: 'dashboard_data_collect',
+        type: 'browser_collection',
         title: '쿠팡 Wing 데이터 수집',
-        sourceType: 'readiness_check',
-        sourceId: 'wing_sales',
-        href: '/dashboard',
-        metadata: { lookbackDays: 14 },
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.wing_sales',
+        href: `/dashboard?collectionRun=${COLLECTION_RUN_ID}`,
+        metadata: { ...COLLECTION_ORDERING_METADATA, lookbackDays: 14 },
       }),
     );
   });
@@ -97,11 +110,12 @@ describe('OperationAlertLifecycleController.start', () => {
     const result = await controller.start(
       {
         operationKey: OPERATION_KEY,
-        type: 'dashboard_data_collect',
+        type: 'browser_collection',
         title: 'Wing 매출 수집',
-        sourceType: 'readiness_check',
-        sourceId: 'wing_sales',
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.wing_sales',
         href: '/dashboard',
+        metadata: COLLECTION_ORDERING_METADATA,
       },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
@@ -115,63 +129,246 @@ describe('OperationAlertLifecycleController.start', () => {
     expect(result.createdAt).toBe('2026-05-09T00:00:00.000Z');
   });
 
-  it('rejects unsupported browser operation alert producers', async () => {
+  it('accepts the Sellpia automatic producer through the real controller with its exact canonical href', async () => {
+    const { controller, service } = makeController();
+    service.findByOperationKey.mockResolvedValueOnce(null);
+    service.start.mockResolvedValueOnce(alertRow({
+      title: 'Sellpia 재고 갱신',
+      sourceId: 'inventory.sellpia',
+      href: '/inventory-hub?tab=sellpia-sync',
+      metadata: COLLECTION_ORDERING_METADATA,
+    }));
+
+    await controller.start(
+      {
+        operationKey: OPERATION_KEY,
+        type: 'browser_collection',
+        title: 'client title ignored',
+        sourceType: 'browser_collection_session',
+        sourceId: 'inventory.sellpia',
+        href: '/settings',
+        metadata: COLLECTION_ORDERING_METADATA,
+      },
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+
+    expect(service.start).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Sellpia 재고 갱신',
+      href: '/inventory-hub?tab=sellpia-sync',
+      metadata: COLLECTION_ORDERING_METADATA,
+    }));
+  });
+
+  it('accepts stable Sellpia quality start and attention transitions through the real controller', async () => {
+    const { controller, service } = makeController();
+    const qualityRow = alertRow({
+      operationKey: SELLPIA_QUALITY_OPERATION_KEY,
+      type: 'sellpia_inventory_quality',
+      title: 'Sellpia 재고 품질 확인 필요',
+      sourceType: 'sellpia_inventory_import',
+      sourceId: SELLPIA_IMPORT_RUN_ID,
+      href: '/stock-ops?tab=freshness',
+      metadata: {
+        ...COLLECTION_ORDERING_METADATA,
+        fileHash: SELLPIA_FILE_HASH,
+        warningCode: 'snapshot_churn',
+      },
+    });
+    service.findByOperationKey
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(qualityRow);
+    service.start.mockResolvedValueOnce(qualityRow);
+    service.attention.mockResolvedValueOnce(alertRow({
+      ...qualityRow,
+      status: 'pending',
+      severity: 'warning',
+    }));
+
+    await controller.start(
+      {
+        operationKey: SELLPIA_QUALITY_OPERATION_KEY,
+        type: 'sellpia_inventory_quality',
+        title: 'client title ignored',
+        sourceType: 'sellpia_inventory_import',
+        sourceId: SELLPIA_IMPORT_RUN_ID,
+        href: '/settings',
+        metadata: {
+          ...COLLECTION_ORDERING_METADATA,
+          fileHash: SELLPIA_FILE_HASH,
+          warningCode: 'snapshot_churn',
+        },
+      },
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+    await controller.update(
+      SELLPIA_QUALITY_OPERATION_KEY,
+      {
+        status: 'pending',
+        severity: 'warning',
+        metadata: {
+          ...COLLECTION_ORDERING_METADATA,
+          collectionUpdatedAt:
+            COLLECTION_ORDERING_METADATA.collectionUpdatedAt + 1,
+          fileHash: SELLPIA_FILE_HASH,
+          warningCode: 'snapshot_churn',
+        },
+      },
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+
+    expect(service.start).toHaveBeenCalledWith(expect.objectContaining({
+      operationKey: SELLPIA_QUALITY_OPERATION_KEY,
+      title: 'Sellpia 재고 품질 확인 필요',
+      href: '/stock-ops?tab=freshness',
+    }));
+    expect(service.attention).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      SELLPIA_QUALITY_OPERATION_KEY,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          fileHash: SELLPIA_FILE_HASH,
+          warningCode: 'snapshot_churn',
+          collectionUpdatedAt:
+            COLLECTION_ORDERING_METADATA.collectionUpdatedAt + 1,
+        }),
+      }),
+    );
+  });
+
+  it('returns 400 for a forged browser collection producer', async () => {
     const { controller } = makeController();
 
     await expect(
       controller.start(
         {
-          operationKey: 'anything',
-          type: 'thumbnail_edit_job',
+          operationKey: OPERATION_KEY,
+          type: 'browser_collection',
           title: '임의 조작',
-          sourceType: 'thumbnail_generation',
-          href: '/product-pipeline/thumbnail-generation',
+          sourceType: 'browser_collection_session',
+          sourceId: 'advertising.forged',
+          href: '/settings',
+          metadata: COLLECTION_ORDERING_METADATA,
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
-    ).rejects.toThrow('unsupported operation alert producer');
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects unknown readiness source ids instead of trusting client title/href', async () => {
+  it('returns 400 for a non-UUID browser collection operation key', async () => {
     const { controller } = makeController();
 
     await expect(
       controller.start(
         {
-          operationKey: 'dashboard.collect:unknown',
-          type: 'dashboard_data_collect',
+          operationKey: 'browser-collection:not-a-uuid',
+          type: 'browser_collection',
           title: '임의 수집',
-          sourceType: 'readiness_check',
-          sourceId: 'unknown',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
           href: '/dashboard',
+          metadata: COLLECTION_ORDERING_METADATA,
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
-    ).rejects.toThrow('unsupported operation alert producer');
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('accepts thumbnail analysis browser batch producer and canonicalizes title/href', async () => {
+  it.each([
+    '------------------------------------',
+    'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  ])('returns 400 for the UUID lookalike %s', async (runId) => {
+    const { controller } = makeController();
+
+    await expect(
+      controller.start(
+        {
+          operationKey: `browser-collection:${runId}`,
+          type: 'browser_collection',
+          title: '임의 수집',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
+          href: '/dashboard',
+          metadata: COLLECTION_ORDERING_METADATA,
+        },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns 404 without restarting another actor personal alert', async () => {
+    const { controller, service } = makeController();
+    service.findByOperationKey.mockResolvedValueOnce(
+      alertRow({ actorUserId: OTHER_USER_ID }),
+    );
+
+    await expect(
+      controller.start(
+        {
+          operationKey: OPERATION_KEY,
+          type: 'browser_collection',
+          title: 'Wing 매출 수집',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
+          href: '/dashboard',
+          metadata: COLLECTION_ORDERING_METADATA,
+        },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(service.start).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when another actor wins the operation-key existence race', async () => {
+    const { controller, service } = makeController();
+    service.findByOperationKey.mockResolvedValueOnce(null);
+    service.start.mockRejectedValueOnce(
+      new OperationAlertOwnershipConflictError(),
+    );
+
+    await expect(
+      controller.start(
+        {
+          operationKey: OPERATION_KEY,
+          type: 'browser_collection',
+          title: 'Wing 매출 수집',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
+          href: '/dashboard',
+          metadata: COLLECTION_ORDERING_METADATA,
+        },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('appends collectionRun with an ampersand when the canonical route has a query', async () => {
     const { controller, service } = makeController();
     service.start.mockResolvedValueOnce(
       alertRow({
-        type: 'thumbnail_analysis',
-        title: '썸네일 AI 분류',
-        sourceType: 'browser_batch',
-        sourceId: 'all',
-        href: '/product-pipeline/thumbnail-generation',
+        title: '쿠팡 로켓 매출 수집',
+        sourceId: 'dashboard.rocket_sales',
+        href: `/sales-analysis?tab=rocket-daily&collectionRun=${COLLECTION_RUN_ID}`,
       }),
     );
 
     await controller.start(
       {
-        operationKey: 'thumbnail-analysis:batch:test',
-        type: 'thumbnail_analysis',
+        operationKey: OPERATION_KEY,
+        type: 'browser_collection',
         title: 'client title ignored',
-        sourceType: 'browser_batch',
-        sourceId: 'all',
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.rocket_sales',
         href: '/settings',
+        metadata: COLLECTION_ORDERING_METADATA,
       },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
@@ -180,20 +377,83 @@ describe('OperationAlertLifecycleController.start', () => {
     expect(service.start).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        operationKey: 'thumbnail-analysis:batch:test',
+        operationKey: OPERATION_KEY,
         actorUserId: USER_ID,
-        type: 'thumbnail_analysis',
-        title: '썸네일 AI 분류',
-        sourceType: 'browser_batch',
-        sourceId: 'all',
-        href: '/product-pipeline/thumbnail-generation',
+        type: 'browser_collection',
+        title: '쿠팡 로켓 매출 수집',
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.rocket_sales',
+        href: `/sales-analysis?tab=rocket-daily&collectionRun=${COLLECTION_RUN_ID}`,
       }),
     );
+  });
+
+  it.each([
+    undefined,
+    { browserCollection: true, collectionAttempt: 0, collectionUpdatedAt: 100 },
+    { browserCollection: true, collectionAttempt: 1.5, collectionUpdatedAt: 100 },
+    { browserCollection: true, collectionAttempt: 1, collectionUpdatedAt: -1 },
+    { browserCollection: true, attempt: 1, collectionUpdatedAt: 100 },
+  ])('rejects invalid browser collection ordering metadata: %j', async (metadata) => {
+    const { controller, service } = makeController();
+
+    await expect(
+      controller.start(
+        {
+          operationKey: OPERATION_KEY,
+          type: 'browser_collection',
+          title: 'Wing 매출 수집',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
+          href: '/dashboard',
+          metadata,
+        },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.start).not.toHaveBeenCalled();
   });
 });
 
 describe('OperationAlertLifecycleController.update', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('dispatches pending -> attention without trusting an href patch', async () => {
+    const { controller, service } = makeController();
+    service.findByOperationKey.mockResolvedValueOnce(alertRow());
+    service.attention.mockResolvedValueOnce(
+      alertRow({ status: 'pending', severity: 'warning' }),
+    );
+
+    await controller.update(
+      OPERATION_KEY,
+      {
+        status: 'pending',
+        message: 'Wing 로그인이 필요합니다.',
+        href: '/settings',
+        metadata: {
+          ...COLLECTION_ORDERING_METADATA,
+          attentionReason: 'marketplace_login',
+        },
+      },
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+
+    expect(service.attention).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      OPERATION_KEY,
+      expect.objectContaining({
+        message: 'Wing 로그인이 필요합니다.',
+        metadata: {
+          ...COLLECTION_ORDERING_METADATA,
+          attentionReason: 'marketplace_login',
+        },
+      }),
+    );
+    expect(service.attention.mock.calls[0]?.[2]).not.toHaveProperty('href');
+  });
 
   it('dispatches running -> progress', async () => {
     const { controller, service } = makeController();
@@ -202,7 +462,11 @@ describe('OperationAlertLifecycleController.update', () => {
 
     await controller.update(
       OPERATION_KEY,
-      { status: 'running', progress: 0.4 },
+      {
+        status: 'running',
+        progress: 0.4,
+        metadata: COLLECTION_ORDERING_METADATA,
+      },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
     );
@@ -215,7 +479,7 @@ describe('OperationAlertLifecycleController.update', () => {
     expect(service.succeed).not.toHaveBeenCalled();
   });
 
-  it('dispatches succeeded -> succeed and forwards href patch', async () => {
+  it('dispatches succeeded -> succeed without trusting an href patch', async () => {
     const { controller, service } = makeController();
     service.findByOperationKey.mockResolvedValueOnce(alertRow());
     service.succeed.mockResolvedValueOnce(
@@ -224,7 +488,11 @@ describe('OperationAlertLifecycleController.update', () => {
 
     await controller.update(
       OPERATION_KEY,
-      { status: 'succeeded', href: '/dashboard?ok=1' },
+      {
+        status: 'succeeded',
+        href: '/dashboard?ok=1',
+        metadata: COLLECTION_ORDERING_METADATA,
+      },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
     );
@@ -232,7 +500,7 @@ describe('OperationAlertLifecycleController.update', () => {
     expect(service.succeed).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       OPERATION_KEY,
-      expect.objectContaining({ href: '/dashboard?ok=1' }),
+      expect.not.objectContaining({ href: '/dashboard?ok=1' }),
     );
   });
 
@@ -246,7 +514,7 @@ describe('OperationAlertLifecycleController.update', () => {
       {
         status: 'failed',
         message: 'extension scrape timeout',
-        metadata: { failed: 3 },
+        metadata: { ...COLLECTION_ORDERING_METADATA, failed: 3 },
       },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
@@ -257,7 +525,7 @@ describe('OperationAlertLifecycleController.update', () => {
       OPERATION_KEY,
       expect.objectContaining({
         message: 'extension scrape timeout',
-        metadata: { failed: 3 },
+        metadata: { ...COLLECTION_ORDERING_METADATA, failed: 3 },
       }),
     );
   });
@@ -269,7 +537,7 @@ describe('OperationAlertLifecycleController.update', () => {
 
     await controller.update(
       OPERATION_KEY,
-      { status: 'cancelled' },
+      { status: 'cancelled', metadata: COLLECTION_ORDERING_METADATA },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
     );
@@ -288,7 +556,7 @@ describe('OperationAlertLifecycleController.update', () => {
     await expect(
       controller.update(
         OPERATION_KEY,
-        { status: 'succeeded' },
+        { status: 'succeeded', metadata: COLLECTION_ORDERING_METADATA },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
@@ -297,12 +565,14 @@ describe('OperationAlertLifecycleController.update', () => {
 
   it('returns 404 when another user tries to update the lifecycle row', async () => {
     const { controller, service } = makeController();
-    service.findByOperationKey.mockResolvedValueOnce(alertRow({ actorUserId: 'other-user' }));
+    service.findByOperationKey.mockResolvedValueOnce(
+      alertRow({ actorUserId: OTHER_USER_ID }),
+    );
 
     await expect(
       controller.update(
         OPERATION_KEY,
-        { status: 'succeeded' },
+        { status: 'succeeded', metadata: COLLECTION_ORDERING_METADATA },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
@@ -319,12 +589,27 @@ describe('OperationAlertLifecycleController.update', () => {
     await expect(
       controller.update(
         OPERATION_KEY,
-        { status: 'succeeded' },
+        { status: 'succeeded', metadata: COLLECTION_ORDERING_METADATA },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(service.succeed).not.toHaveBeenCalled();
+  });
+
+  it('rejects updates without browser collection ordering metadata', async () => {
+    const { controller, service } = makeController();
+
+    await expect(
+      controller.update(
+        OPERATION_KEY,
+        { status: 'running' },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.findByOperationKey).not.toHaveBeenCalled();
+    expect(service.progress).not.toHaveBeenCalled();
   });
 });
 

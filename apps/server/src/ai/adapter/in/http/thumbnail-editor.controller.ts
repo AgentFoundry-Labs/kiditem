@@ -1,13 +1,10 @@
-import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, NotFoundException, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { ThumbnailEditorDto } from './dto/thumbnail-editor.dto';
 import { ThumbnailEditorAiService } from '../../../application/service/thumbnail-editor-ai.service';
-import type {
-  ThumbnailEditorInputImage,
-  ThumbnailInputRole,
-} from '../../../domain/model/thumbnail-editor';
+import type { ThumbnailEditorInputImage, ThumbnailInputRole } from '../../../domain/model/thumbnail-editor';
 import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
 import {
   ThumbnailGenerationSubjectError,
@@ -35,7 +32,7 @@ export class ThumbnailEditorController {
   /**
    * `/api/thumbnail-editor/generate` — two paths:
    *
-   * - **Product-bound (`productId` set, default for the editor UI)**:
+   * - **Workspace-bound (`contentWorkspaceId` set, default for the editor UI)**:
    *   creates a `pending` `ThumbnailGeneration` row, opens an
    *   `(operationKey='thumbnail-edit:<id>', sourceType='thumbnail_generation')`
    *   operation alert, and schedules direct thumbnail AI execution. Returns
@@ -43,7 +40,7 @@ export class ThumbnailEditorController {
    *   Frontend polls the generation row to surface candidates when the
    *   direct job sink finalizes.
    *
-   * - **Standalone upload (`productId` + `sourceCandidateId` absent)**:
+   * - **Standalone upload (`contentWorkspaceId` + `sourceCandidateId` absent)**:
    *   creates only a `ThumbnailGeneration` row. It must not create sourcing
    *   inbox cards; direct upload thumbnail results are reachable by generation id.
    */
@@ -63,11 +60,11 @@ export class ThumbnailEditorController {
       }
       throw err;
     }
-    const product = subject.productId
-      ? await this.generationService.findProductForEditor(subject.productId, organizationId)
+    const workspace = subject.contentWorkspaceId
+      ? await this.generationService.findWorkspaceForThumbnailEditor(subject.contentWorkspaceId, organizationId)
       : null;
-    if (subject.productId && !product) {
-      throw new BadRequestException('productId 에 해당하는 상품을 찾을 수 없습니다');
+    if (subject.contentWorkspaceId && !workspace) {
+      throw new NotFoundException(`ContentWorkspace ${subject.contentWorkspaceId} not found`);
     }
 
     const inputs = await this.resolveInputs(body, organizationId);
@@ -76,8 +73,8 @@ export class ThumbnailEditorController {
     }
 
     const editCase = inferThumbnailEditCase(body);
-    const productName = product?.name ?? body.productName ?? null;
-    const category = product?.category ?? null;
+    const productName = workspace?.name ?? body.productName ?? null;
+    const category = workspace?.category ?? null;
     const inputMeta = buildThumbnailGenerationInputMeta({
       mode,
       purpose: body.purpose,
@@ -108,19 +105,18 @@ export class ThumbnailEditorController {
       inputs,
     });
 
-    if (product) {
+    if (workspace) {
       // Async path — producer side creates the row + alert + direct AI job and
       // returns immediately.
       const enqueueResult = await this.generationService.enqueueEditorGeneration({
         organizationId,
-        productId: product.id,
-        productName: product.name,
+        contentWorkspaceId: workspace.id,
+        productName: workspace.name,
         triggeredByUserId: authUser?.id ?? null,
         inputs,
         inputMeta,
         method: mode === 'creative' ? 'creative' : 'generate',
-        originalUrl: product.imageUrl ?? inputs[0]?.url ?? '',
-        contentWorkspaceId: subject.contentWorkspaceId,
+        originalUrl: workspace.imageUrl ?? inputs[0]?.url ?? '',
         directPayload,
       });
       return {
@@ -168,17 +164,9 @@ export class ThumbnailEditorController {
     } satisfies EnqueueResponse;
   }
 
-  private async resolveInputs(
-    body: ThumbnailEditorDto,
-    organizationId: string,
-  ): Promise<ThumbnailEditorInputImage[]> {
+  private async resolveInputs(body: ThumbnailEditorDto, organizationId: string): Promise<ThumbnailEditorInputImage[]> {
     const inputs: ThumbnailEditorInputImage[] = [];
-    const add = async (
-      value: string | undefined,
-      label: string,
-      role: ThumbnailInputRole,
-      source = 'upload',
-    ) => {
+    const add = async (value: string | undefined, label: string, role: ThumbnailInputRole, source = 'upload') => {
       if (!value) return;
       inputs.push(
         await this.editorAi.resolveInputImage(value, organizationId, {
@@ -198,11 +186,7 @@ export class ThumbnailEditorController {
 
     if (body.bundleImages?.length) {
       for (let i = 0; i < body.bundleImages.length; i++) {
-        await add(
-          body.bundleImages[i],
-          body.bundleLabels?.[i] ?? `Bundle item ${i + 1}`,
-          'product',
-        );
+        await add(body.bundleImages[i], body.bundleLabels?.[i] ?? `Bundle item ${i + 1}`, 'product');
       }
       return inputs;
     }
@@ -219,5 +203,4 @@ export class ThumbnailEditorController {
     await add(body.packagingImage, body.supplementaryLabel ?? 'Product packaging', 'box');
     return inputs;
   }
-
 }

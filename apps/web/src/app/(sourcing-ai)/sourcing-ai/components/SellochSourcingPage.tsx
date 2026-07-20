@@ -20,8 +20,8 @@ import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows
 import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
 import { HomeRankingBoard } from './SellochSourcingHomeRankings';
 import { SellochMarketAnalysisPage } from './SellochMarketAnalysisPage';
-import { SellochCompetitorAnalysisPage } from './SellochCompetitorAnalysisPage';
-import { RealtimeSourcingTerminal } from './SellochRealtimeTerminal';
+import { CompetitorTrackingPage } from '../competitor-analysis/components/CompetitorTrackingPage';
+import { SourcingHomeHero } from './SourcingHomeHero';
 import { SellochFinalSelectionPage } from './SellochFinalSelectionPage';
 import { SellochWholesaleCoupangMatches } from './SellochWholesaleCoupangMatches';
 import { SellochWholesaleKeywordSearch } from './SellochWholesaleKeywordSearch';
@@ -84,7 +84,7 @@ export function SellochSourcingPage({ kind }: { kind: SellochSourcingPageKind })
         {kind === 'recommendations' && <RecommendationsPage />}
         {kind === 'keywords' && <KeywordsPage />}
         {kind === 'market' && <MarketPage />}
-        {kind === 'competitor' && <SellochCompetitorAnalysisPage />}
+        {kind === 'competitor' && <CompetitorTrackingPage />}
         {kind === 'category' && <CategoryPage />}
         {kind === 'wholesale' && <WholesalePage />}
         {kind === 'validation' && <ValidationPage />}
@@ -105,7 +105,7 @@ function PageTitle({ title }: { title: string }) {
 function HomePage() {
   return (
     <div className="space-y-8">
-      <RealtimeSourcingTerminal />
+      <SourcingHomeHero />
       <TodayRecommendationImageRail />
       <HomeRankingBoard />
 

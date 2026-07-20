@@ -40,7 +40,9 @@ export class DashboardInventoryService {
         totalActiveProducts,
         channelLinkedProducts,
         perListingMetrics,
-        inventoryRows,
+        outOfStockMasterProducts,
+        mappingAttentionSkus,
+        mappingStatusRows,
         gradeChangesRows,
         lowCtrProducts,
         aGradeReviewRows,
@@ -54,7 +56,9 @@ export class DashboardInventoryService {
           ctx.monthStart,
           ctx.monthEnd,
         ),
-        this.repository.findInventoryStockRows(organizationId),
+        this.repository.countOutOfStockMasterProducts(organizationId),
+        this.repository.countMappingAttentionChannelSkus(organizationId),
+        this.repository.countChannelSkusByMappingStatus(organizationId),
         this.repository.findGradeHistory(organizationId, sevenDaysAgo),
         this.repository.countLowCtrThumbnails(organizationId),
         this.repository.findAGradeReviewCounts(organizationId),
@@ -65,11 +69,6 @@ export class DashboardInventoryService {
         (acc, g) => ({ ...acc, [g.abcGrade ?? 'C']: g.count }),
         {},
       );
-
-      // needReorder — JS-side comparison, not DB filter (legacy)
-      const needReorder = inventoryRows.filter(
-        (inv) => inv.currentStock <= inv.reorderPoint,
-      ).length;
 
       // lowReviewProducts — A-grade products with < 10 reviews (legacy)
       const lowReviewProducts = aGradeReviewRows.filter(
@@ -96,7 +95,8 @@ export class DashboardInventoryService {
         minusProducts,
         lowProfitProducts,
         highAdProducts,
-        needReorder,
+        outOfStockSkus: outOfStockMasterProducts,
+        mappingAttentionSkus,
         lowCtrProducts,
         lowReviewProducts,
       } satisfies Warnings;
@@ -115,6 +115,12 @@ export class DashboardInventoryService {
         channelLinkedProducts,
         channelUnlinkedProducts: Math.max(totalActiveProducts - channelLinkedProducts, 0),
         gradeCount,
+        mappingStatusCounts: {
+          matched: mappingStatusRows.find((row) => row.mappingStatus === 'matched')?.count ?? 0,
+          unmatched: mappingStatusRows.find((row) => row.mappingStatus === 'unmatched')?.count ?? 0,
+          needsReview:
+            mappingStatusRows.find((row) => row.mappingStatus === 'needs_review')?.count ?? 0,
+        },
         alerts: unreadAlerts,
         warnings,
         gradeChanges: this.computeGradeChanges(gradeChangesRows),

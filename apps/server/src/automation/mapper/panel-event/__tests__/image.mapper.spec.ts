@@ -4,14 +4,15 @@ import { imagePanelMapper, ImageAdapterInput } from '../image.mapper';
 import type { ThumbnailGeneration } from '@prisma/client';
 
 const GEN_ID = '11111111-1111-1111-1111-111111111111';
-const MASTER_ID = '22222222-2222-2222-2222-222222222222';
+const CONTENT_WORKSPACE_ID = '22222222-2222-2222-2222-222222222222';
 const ORGANIZATION_ID = '33333333-3333-3333-3333-333333333333';
 const USER_ID = '44444444-4444-4444-4444-444444444444';
 
 const baseGeneration: ThumbnailGeneration = {
   id: GEN_ID,
   organizationId: ORGANIZATION_ID,
-  masterId: MASTER_ID,
+  sourceCandidateId: null,
+  contentWorkspaceId: CONTENT_WORKSPACE_ID,
   originalUrl: null,
   selectedUrl: null,
   status: 'pending',
@@ -26,17 +27,19 @@ const baseGeneration: ThumbnailGeneration = {
   errorMessage: null,
   attemptCount: 0,
   triggeredByUserId: USER_ID,
+  isDeleted: false,
+  deletedAt: null,
   createdAt: new Date('2026-04-15T00:00:00Z'),
   updatedAt: new Date('2026-04-15T01:00:00Z'),
 };
 
-const baseProduct = { id: MASTER_ID, title: '테스트 상품' };
+const baseContentWorkspace = { id: CONTENT_WORKSPACE_ID, displayName: '테스트 상품' };
 
 const makeInput = (
   genOverrides: Partial<ThumbnailGeneration> = {},
 ): ImageAdapterInput => ({
   generation: { ...baseGeneration, ...genOverrides },
-  product: baseProduct,
+  contentWorkspace: baseContentWorkspace,
 });
 
 describe('imagePanelMapper', () => {

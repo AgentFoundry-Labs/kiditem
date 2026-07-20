@@ -5,6 +5,7 @@ import { TextDecoder } from 'util';
 import { basename, extname } from 'path';
 
 import type { MulterFile } from '../../common/types';
+import { KIDSNOTE_SUMMARY_INFO, KIDSNOTE_DOC_SUMMARY_INFO } from './kidsnote-sellpia-meta';
 
 const OUTPUT_HEADERS = [
   'No',
@@ -121,6 +122,87 @@ export interface OrderCollectionRowsInput {
   fileName?: unknown;
 }
 
+export interface KidsnoteConvertItem {
+  productName?: string;
+  option?: string;
+  qty?: number;
+  amount?: number; // 상품총액
+  shipFee?: number;
+}
+export interface KidsnoteConvertOrder {
+  ono?: string;
+  orderedAt?: string;
+  paidAt?: string; // 입금일시
+  buyer?: string; // 구매자명
+  total?: number; // 총결제금액
+  paid?: number; // 실결제금액
+  payMethod?: string;
+  status?: string;
+  receiver?: string; // 수취인명
+  mobile?: string;
+  tel?: string;
+  zip?: string;
+  address?: string;
+  request?: string; // 배송메세지
+  items?: KidsnoteConvertItem[];
+}
+export interface KidsnoteConvertInput {
+  orders?: KidsnoteConvertOrder[];
+  fileName?: string;
+}
+
+export interface KkomangseConvertInput {
+  xlsxBase64?: string; // 꼬망세(EduPre) "선택엑셀다운" .xlsx 의 base64
+  fileName?: string;
+  date?: string; // YYYY-MM-DD — 이 날짜(주문일시)의 주문만 변환 (없으면 전체)
+}
+
+export interface OnchannelConvertOrder {
+  orderCode?: string;
+  date?: string; // 주문일자 "2026-06-26 16:53:02" (리스트에서)
+  productName?: string;
+  productCode?: string;
+  option?: string;
+  qty?: number;
+  productPrice?: number; // 상품금액 (모달, 택배비 제외)
+  shippingFee?: number; // 배송비 (모달)
+  deliveryType?: string; // 배송여부 (선불 등)
+  customer?: string; // 고객명/받는사람
+  phone?: string;
+  emergency?: string; // 비상연락처
+  zip?: string;
+  address?: string;
+  message?: string; // 남김말/배송메시지
+  selfCode?: string; // 자체코드
+}
+export interface OnchannelConvertInput {
+  orders?: OnchannelConvertOrder[];
+  fileName?: string;
+}
+
+export interface KidkidsConvertItem {
+  name?: string;
+  qty?: number;
+  unit?: number; // 공급단가 (주문서 logis_down5)
+  sum?: number; // 합계
+}
+export interface KidkidsConvertOrder {
+  om?: string; // 원본 주문번호 (참고/그룹키, 셀피아 출력엔 미사용)
+  ordName?: string; // 주문자명(유치원) — 셀피아 "이름"
+  orderDate?: string; // "2026-07-01 13:55:47" (주문일)
+  recvName?: string; // 받는사람 이름 (참고)
+  recvAddr?: string; // 우편번호 접두 포함 주소 ("10546 경기 …")
+  recvTel?: string;
+  recvMobile?: string;
+  recvMsg?: string; // 배송요청사항
+  items?: KidkidsConvertItem[];
+}
+export interface KidkidsConvertInput {
+  orders?: KidkidsConvertOrder[];
+  startOrderNo?: number; // 셀피아 주문번호 시작값 (임의 순번, 기본 96090)
+  fileName?: string;
+}
+
 @Injectable()
 export class OrderCollectionService {
   async convertIcecreamMallOrderFile(
@@ -148,6 +230,349 @@ export class OrderCollectionService {
         : `아이스크림몰_${dayStamp(new Date())}_브라우저수집`;
 
     return convertIcecreamMallRows(sourceRows, buildOutputFileName(inputFileName));
+  }
+
+  convertKidsnoteOrders(input: KidsnoteConvertInput): OrderCollectionConversion {
+    const orders = Array.isArray(input?.orders) ? input.orders : [];
+    if (orders.length === 0) {
+      throw new BadRequestException('변환할 키즈노트 주문이 없습니다.');
+    }
+    if (orders.length > 5_000) {
+      throw new BadRequestException('한 번에 변환할 수 있는 주문은 5,000건까지입니다.');
+    }
+    const base =
+      typeof input.fileName === 'string' && input.fileName.trim()
+        ? input.fileName.trim()
+        : `키즈노트_${dayStamp(new Date())}`;
+    const name = base.toLowerCase().endsWith('.xls') ? base : `${base}.xls`;
+    return convertKidsnoteRows(orders, name);
+  }
+
+  convertKkomangseOrders(input: KkomangseConvertInput): OrderCollectionConversion {
+    const b64 = typeof input?.xlsxBase64 === 'string' ? input.xlsxBase64.trim() : '';
+    if (!b64) {
+      throw new BadRequestException('변환할 꼬망세 엑셀 데이터가 없습니다.');
+    }
+    let sourceAoa: (string | number)[][];
+    try {
+      const wb = XLSX.read(Buffer.from(b64, 'base64'), { type: 'buffer' });
+      const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
+      sourceAoa = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
+        header: 1,
+        defval: '',
+        raw: false,
+      });
+    } catch {
+      throw new BadRequestException('꼬망세 엑셀을 읽을 수 없습니다.');
+    }
+    const base =
+      typeof input.fileName === 'string' && input.fileName.trim()
+        ? input.fileName.trim()
+        : `꼬망세_${dayStamp(new Date())}`;
+    const name = base.toLowerCase().endsWith('.xls') ? base : `${base}.xls`;
+    const dateFilter = typeof input.date === 'string' ? input.date.trim() : '';
+    return convertKkomangseRows(sourceAoa, name, dateFilter);
+  }
+
+  convertOnchannelOrders(input: OnchannelConvertInput): OrderCollectionConversion {
+    const orders = Array.isArray(input?.orders) ? input.orders : [];
+    if (orders.length === 0) {
+      throw new BadRequestException('변환할 온채널 주문이 없습니다.');
+    }
+    if (orders.length > 5_000) {
+      throw new BadRequestException('한 번에 변환할 수 있는 주문은 5,000건까지입니다.');
+    }
+    const base =
+      typeof input.fileName === 'string' && input.fileName.trim()
+        ? input.fileName.trim()
+        : `온채널_${dayStamp(new Date())}`;
+    const name = base.toLowerCase().endsWith('.xls') ? base : `${base}.xls`;
+    return convertOnchannelRows(orders, name);
+  }
+
+  convertKidkidsOrders(input: KidkidsConvertInput): OrderCollectionConversion {
+    const orders = Array.isArray(input?.orders) ? input.orders : [];
+    if (orders.length === 0) {
+      throw new BadRequestException('변환할 키드키즈 주문이 없습니다.');
+    }
+    if (orders.length > 5_000) {
+      throw new BadRequestException('한 번에 변환할 수 있는 주문은 5,000건까지입니다.');
+    }
+    const base =
+      typeof input.fileName === 'string' && input.fileName.trim()
+        ? input.fileName.trim()
+        : `키드키즈_${dayStamp(new Date())}`;
+    const name = base.toLowerCase().endsWith('.xls') ? base : `${base}.xls`;
+    const startNo =
+      Number.isFinite(input.startOrderNo) && Number(input.startOrderNo) > 0
+        ? Math.floor(Number(input.startOrderNo))
+        : 96090;
+    return convertKidkidsRows(orders, name, startNo);
+  }
+
+  /**
+   * 도매꾹 주문 CSV(엑셀다운로드) → 셀피아 .xls. 도매꾹 셀피아 양식은 CSV 43컬럼을 그대로 쓴다
+   * (재배치 없음). CSV 는 EUC-KR(CP949)이라 UTF-8 로 디코딩해야 안 깨진다. date 주면 그날 주문만.
+   */
+  convertDomeggookOrderFile(file: MulterFile, options?: { date?: string }): OrderCollectionConversion {
+    if (!file?.buffer) {
+      throw new BadRequestException('도매꾹 CSV 파일이 필요합니다.');
+    }
+    const text = new TextDecoder('euc-kr').decode(file.buffer);
+    const wb = XLSX.read(text, { type: 'string', raw: true });
+    const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
+    if (!sheet) {
+      throw new BadRequestException('도매꾹 CSV 를 읽지 못했습니다.');
+    }
+    const aoa = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
+      header: 1,
+      raw: false,
+      defval: '',
+    });
+    if (aoa.length <= 1) {
+      throw new BadRequestException('도매꾹 CSV 에 주문이 없습니다.');
+    }
+    const headers = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim());
+    const dateIdx = headers.indexOf('주문일시');
+    const date = typeof options?.date === 'string' ? options.date.trim() : '';
+    const dateSlash = date ? date.replace(/-/g, '/') : ''; // CSV 주문일시 = "2026/07/01 ..." 형식
+    const dataRows = aoa.slice(1).filter((row) => {
+      const cells = row as (string | number)[];
+      if (cells.every((c) => String(c ?? '').trim() === '')) return false; // 빈 행 제외
+      // 오늘(주문일시) 필터: dateSlash 로 시작하는 행만 (없으면 전체)
+      if (dateSlash && dateIdx >= 0 && !String(cells[dateIdx] ?? '').startsWith(dateSlash)) return false;
+      return true;
+    });
+    if (dataRows.length === 0) {
+      throw new BadRequestException(
+        date ? `${date} 도매꾹 신규 주문이 없습니다.` : '변환할 도매꾹 주문이 없습니다.',
+      );
+    }
+    const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, outSheet, 'domeggook');
+    const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+    const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립
+    return {
+      buffer,
+      fileName: `도매꾹_${date || dayStamp(new Date())}_변환.xls`,
+      sourceRows: aoa.length - 1,
+      productRows: 0,
+      outputRows: dataRows.length,
+      skippedRows: aoa.length - 1 - dataRows.length,
+    };
+  }
+
+  /**
+   * 롯데ON 배송관리 엑셀(다운로드) → 셀피아 .xls. 롯데ON 셀피아 양식은 다운로드 57컬럼을 그대로 쓴다
+   * (재배치 없음). ⚠️ 롯데ON 다운로드는 .xlsx(OpenXML)인데 셀피아는 .xls(BIFF8)만 읽으므로 변환 필수.
+   */
+  /**
+   * 보리보리(seller-club) 출고대기 언마스킹 엑셀(.xlsx) → 셀피아 .xls. 셀피아 보리보리 양식(35컬럼)이
+   * 출고대기 다운로드와 동일해 재배치 없이 그대로 쓴다 (포맷만 xlsx→xls + 셀피아 호환 메타).
+   */
+  convertBoriboriOrderFile(file: MulterFile): OrderCollectionConversion {
+    if (!file?.buffer) {
+      throw new BadRequestException('보리보리 엑셀 파일이 필요합니다.');
+    }
+    const wb = XLSX.read(file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
+    if (!sheet) {
+      throw new BadRequestException('보리보리 엑셀을 읽지 못했습니다.');
+    }
+    const aoa = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
+      header: 1,
+      raw: false,
+      defval: '',
+    });
+    const headers = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim());
+    const dataRows = aoa
+      .slice(1)
+      .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
+    if (dataRows.length === 0) {
+      throw new BadRequestException('보리보리 신규 주문이 없습니다.');
+    }
+    const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, outSheet, 'Sheet0'); // 원본 시트명 유지
+    const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+    const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립
+    return {
+      buffer,
+      fileName: `보리보리_${dayStamp(new Date())}_변환.xls`,
+      sourceRows: aoa.length - 1,
+      productRows: 0,
+      outputRows: dataRows.length,
+      skippedRows: aoa.length - 1 - dataRows.length,
+    };
+  }
+
+  // 티쳐몰(FirstMall selleradmin) = passthrough. 다운로드 엑셀이 이미 셀피아 양식(36컬럼) 그대로라
+  // 컬럼 재배치 없이 포맷만 변환. 원본은 Excel-2003-XML(SpreadsheetML, UTF-8) → SheetJS 가 자동 인식.
+  // 셀피아가 SheetJS .xls 를 못 읽으므로 wrapKidsnoteSellpiaXls 로 WISA 메타(SummaryInformation) 재조립.
+  convertTeachervilleOrderFile(file: MulterFile): OrderCollectionConversion {
+    if (!file?.buffer) {
+      throw new BadRequestException('티쳐몰 엑셀 파일이 필요합니다.');
+    }
+    const wb = XLSX.read(file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
+    if (!sheet) {
+      throw new BadRequestException('티쳐몰 엑셀을 읽지 못했습니다.');
+    }
+    const aoa = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
+      header: 1,
+      raw: false,
+      defval: '',
+    });
+    const headers = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim());
+    const dataRows = aoa
+      .slice(1)
+      .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
+    if (dataRows.length === 0) {
+      throw new BadRequestException('티쳐몰 신규 주문이 없습니다.');
+    }
+    const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, outSheet, 'Sheet0');
+    const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+    const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립
+    return {
+      buffer,
+      fileName: `티쳐몰_${dayStamp(new Date())}_변환.xls`,
+      sourceRows: aoa.length - 1,
+      productRows: 0,
+      outputRows: dataRows.length,
+      skippedRows: aoa.length - 1 - dataRows.length,
+    };
+  }
+
+  convertLotteonOrderFile(file: MulterFile): OrderCollectionConversion {
+    if (!file?.buffer) {
+      throw new BadRequestException('롯데ON 엑셀 파일이 필요합니다.');
+    }
+    const wb = XLSX.read(file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
+    if (!sheet) {
+      throw new BadRequestException('롯데ON 엑셀을 읽지 못했습니다.');
+    }
+    const aoa = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
+      header: 1,
+      raw: false,
+      defval: '',
+    });
+    if (aoa.length <= 1) {
+      throw new BadRequestException('롯데ON 신규 주문이 없습니다.');
+    }
+    const headers = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim());
+    const dataRows = aoa
+      .slice(1)
+      .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
+    if (dataRows.length === 0) {
+      throw new BadRequestException('롯데ON 신규 주문이 없습니다.');
+    }
+    const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, outSheet, 'sheet1'); // 원본 시트명 유지
+    const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+    const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립 (SummaryInformation)
+    return {
+      buffer,
+      fileName: `롯데ON_${dayStamp(new Date())}_변환.xls`,
+      sourceRows: aoa.length - 1,
+      productRows: 0,
+      outputRows: dataRows.length,
+      skippedRows: aoa.length - 1 - dataRows.length,
+    };
+  }
+
+  /**
+   * GS샵 협력사 배송관리 다운로드(클라이언트가 조립한 직송주문 엑셀) → 셀피아 .xls. 79컬럼 그대로 쓴다
+   * (재배치 없음). ⚠️ GS 다운로드는 .xlsx 인데 셀피아는 .xls(BIFF8)만 읽으므로 변환 필수.
+   * col37 헤더는 GS 현행 "속성상품코드"인데 셀피아 참조양식은 "상품상세코드"라 참조와 동일하게 맞춘다.
+   */
+  convertGsshopOrderFile(file: MulterFile): OrderCollectionConversion {
+    if (!file?.buffer) {
+      throw new BadRequestException('GS샵 엑셀 파일이 필요합니다.');
+    }
+    const wb = XLSX.read(file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
+    if (!sheet) {
+      throw new BadRequestException('GS샵 엑셀을 읽지 못했습니다.');
+    }
+    const aoa = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
+      header: 1,
+      raw: false,
+      defval: '',
+    });
+    if (aoa.length <= 1) {
+      throw new BadRequestException('GS샵 신규 주문이 없습니다.');
+    }
+    const headers = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim());
+    // 셀피아 참조양식과 헤더명 일치: GS 현행 "속성상품코드" → 참조 "상품상세코드" (같은 위치, 라벨만 통일).
+    const attrIdx = headers.indexOf('속성상품코드');
+    if (attrIdx >= 0) headers[attrIdx] = '상품상세코드';
+    const dataRows = aoa
+      .slice(1)
+      .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
+    if (dataRows.length === 0) {
+      throw new BadRequestException('GS샵 신규 주문이 없습니다.');
+    }
+    const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, outSheet, '직송주문'); // 참조 시트명(직송주문_기간) 계열
+    const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+    const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립
+    return {
+      buffer,
+      fileName: `GS샵_${dayStamp(new Date())}_변환.xls`,
+      sourceRows: aoa.length - 1,
+      productRows: 0,
+      outputRows: dataRows.length,
+      skippedRows: aoa.length - 1 - dataRows.length,
+    };
+  }
+
+  // 올웨이즈: "엑셀추출하기"로 앱이 조립한 xlsx(26컬럼, 시트 "주문 내역")를 그대로 .xls + 셀피아 메타로 변환.
+  convertAlwayzOrderFile(file: MulterFile): OrderCollectionConversion {
+    if (!file?.buffer) {
+      throw new BadRequestException('올웨이즈 엑셀 파일이 필요합니다.');
+    }
+    const wb = XLSX.read(file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
+    if (!sheet) {
+      throw new BadRequestException('올웨이즈 엑셀을 읽지 못했습니다.');
+    }
+    const aoa = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
+      header: 1,
+      raw: false,
+      defval: '',
+    });
+    const headers = ((aoa[0] as unknown[]) ?? []).map((h) => String(h ?? '').trim());
+    const dataRows = aoa
+      .slice(1)
+      .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
+    if (dataRows.length === 0) {
+      throw new BadRequestException('올웨이즈 신규 주문이 없습니다.');
+    }
+    const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, outSheet, '주문 내역'); // 올웨이즈 참조 시트명
+    const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+    const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립
+    return {
+      buffer,
+      fileName: `올웨이즈_${dayStamp(new Date())}_변환.xls`,
+      sourceRows: aoa.length - 1,
+      productRows: 0,
+      outputRows: dataRows.length,
+      skippedRows: aoa.length - 1 - dataRows.length,
+    };
   }
 }
 
@@ -180,6 +605,384 @@ function convertIcecreamMallRows(
     productRows: includedRows.length,
     skippedRows: sourceRows.length - includedRows.length,
   });
+}
+
+function kidsnoteNum(value: unknown): number {
+  const n = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+// "2026-06-30 09:37:56" → "2026-06-30 09:37:56 AM" (셀피아 양식: 12시간 + AM/PM).
+function kidsnoteDate(value: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(value);
+  if (!m) return value;
+  let h = parseInt(m[2], 10);
+  const ap = h < 12 ? 'AM' : 'PM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${m[1]} ${String(h).padStart(2, '0')}:${m[3]}:${m[4] ?? '00'} ${ap}`;
+}
+
+// 셀피아 키즈노트 업로드 양식 (시트 "주문목록", 21컬럼) — WISA 키즈노트.xls 양식.
+const KIDSNOTE_SELLPIA_HEADERS = [
+  '주문번호', '주문일시', '입금일시', '주문상품', '상품옵션', '주문수량', '구매자명', '입금자명',
+  '총결제금액', '실결제금액', '상품총액', '배송비', '결제방법', '수취인명', '수취인 전화번호',
+  '수취인 휴대폰번호', '수취인 우편번호', '수취인 주소', '배송메세지', '주문상태', '순서',
+] as const;
+
+// SheetJS .xls 는 SummaryInformation 메타가 없고 Sh33tJ5 서명 스트림만 붙어 셀피아 파서가 거부한다.
+// → Workbook 스트림만 꺼내, WISA 스타일 메타(SummaryInformation/DocumentSummaryInformation, 썸네일 제거)와
+//   함께 CFB 를 재조립한다. 이래야 셀피아가 정상 인식한다. (실측으로 확인)
+function wrapKidsnoteSellpiaXls(buf: Buffer): Buffer {
+  const CFB = (
+    XLSX as unknown as {
+      CFB: {
+        read(d: Buffer, o: { type: 'buffer' }): { FullPaths: string[]; FileIndex: Array<{ content: Uint8Array }> };
+        write(cfb: unknown, o: { type: 'buffer' }): Uint8Array;
+        utils: { cfb_new(): unknown; cfb_add(cfb: unknown, path: string, data: Uint8Array): void };
+      };
+    }
+  ).CFB;
+  const src = CFB.read(buf, { type: 'buffer' });
+  const idx = src.FullPaths.findIndex((p) => /Workbook$/i.test(p));
+  if (idx < 0) return buf;
+  const out = CFB.utils.cfb_new();
+  CFB.utils.cfb_add(out, '/Workbook', src.FileIndex[idx].content);
+  CFB.utils.cfb_add(out, '/SummaryInformation', KIDSNOTE_SUMMARY_INFO);
+  CFB.utils.cfb_add(out, '/DocumentSummaryInformation', KIDSNOTE_DOC_SUMMARY_INFO);
+  return Buffer.from(CFB.write(out, { type: 'buffer' }));
+}
+
+/** 스크랩한 키즈노트 주문(+상세) → 셀피아 "주문목록" 업로드 양식(21컬럼). 품목 단위 1행 + 택배비 행. */
+function convertKidsnoteRows(
+  orders: KidsnoteConvertOrder[],
+  fileName: string,
+): OrderCollectionConversion {
+  const aoa: (string | number)[][] = [KIDSNOTE_SELLPIA_HEADERS.slice() as string[]];
+  let seq = 0;
+  for (const order of orders) {
+    const ono = String(order?.ono ?? '').trim();
+    const orderedAt = kidsnoteDate(String(order?.orderedAt ?? ''));
+    const paidAt = kidsnoteDate(String(order?.paidAt ?? '') || String(order?.orderedAt ?? ''));
+    const buyer = String(order?.buyer ?? '');
+    const receiver = (String(order?.receiver ?? '') || buyer) + '(키즈노트)';
+    const mobile = String(order?.mobile ?? '');
+    const tel = String(order?.tel ?? '') || mobile; // 셀피아 양식: 전화번호=휴대폰 동일
+    const zip = String(order?.zip ?? '');
+    const address = String(order?.address ?? '');
+    const request = String(order?.request ?? '');
+    const status = '결제완료'; // 셀피아 주문접수는 결제완료로 고정
+    const payMethod = String(order?.payMethod ?? '');
+    const items =
+      Array.isArray(order?.items) && order.items.length
+        ? order.items
+        : [{ productName: '', qty: 0 } as KidsnoteConvertItem];
+    const orderShip = items.reduce((m, it) => Math.max(m, kidsnoteNum(it?.shipFee)), 0);
+    items.forEach((item, i) => {
+      seq += 1;
+      const amount = kidsnoteNum(item?.amount);
+      const realPaid = Math.round(amount * 0.85); // 실결제 = 금액 × 0.85(정산율)
+      aoa.push([
+        ono, orderedAt, paidAt,
+        String(item?.productName ?? ''),
+        String(item?.option ?? ''),
+        kidsnoteNum(item?.qty),
+        buyer, '',
+        amount, realPaid,
+        amount,
+        i === 0 ? orderShip : 0,
+        payMethod,
+        receiver, tel, mobile, zip, address,
+        request, status, seq,
+      ]);
+    });
+    // 셀피아 양식: 주문당 "택배비" 행 별도 (실결제금액=배송비).
+    if (orderShip > 0) {
+      seq += 1;
+      aoa.push([
+        ono, orderedAt, paidAt,
+        '택배비', '', 1,
+        '', '', '', orderShip, '', '', '',
+        receiver, tel, mobile, zip, address,
+        '', '', seq,
+      ]);
+    }
+  }
+  if (aoa.length <= 1) {
+    throw new BadRequestException('변환할 키즈노트 주문 품목이 없습니다.');
+  }
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  // 컬럼 너비 — 주문상품(3)·수취인 주소(17)만 넓게. 숫자 셀 천단위 서식(#,##0).
+  sheet['!cols'] = KIDSNOTE_SELLPIA_HEADERS.map((_, i) => ({ wch: i === 3 || i === 17 ? 43.25 : 16.5 }));
+  const range = XLSX.utils.decode_range(sheet['!ref'] ?? 'A1');
+  for (let r = range.s.r + 1; r <= range.e.r; r += 1) {
+    for (let c = range.s.c; c <= range.e.c; c += 1) {
+      const cellEntry = sheet[XLSX.utils.encode_cell({ r, c })];
+      if (cellEntry && cellEntry.t === 'n') cellEntry.z = '#,##0';
+    }
+  }
+  // 단순 workbook — Props/Workbook 글로벌을 세팅하지 않는다 (그게 OLE2 헤더를 깨뜨려 셀피아가 못 읽었음).
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, '주문목록');
+  const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+  // 셀피아 호환: SheetJS Workbook 만 꺼내 WISA 메타 스트림과 CFB 재조립.
+  const buffer = wrapKidsnoteSellpiaXls(rawBuffer);
+  return {
+    buffer,
+    fileName,
+    sourceRows: orders.length,
+    // 앱 규칙: 주문 수 = outputRows - productRows. 전체행 − 주문수 = 상품행이 되도록 둔다.
+    productRows: Math.max(0, aoa.length - 1 - orders.length),
+    outputRows: aoa.length - 1,
+    skippedRows: 0,
+  };
+}
+
+// 셀피아 꼬망세 업로드 양식 (27컬럼) — EduPre "선택엑셀다운"(28컬럼)에서 정산상태·송장등록일시 제거 + 순서 추가.
+const KKOMANGSE_HEADERS = [
+  '고유번호', '주문번호', '주문일시', '주문자 이름', '주문자 휴대폰', '받는분 이름', '받는분 휴대폰',
+  '받는분 우편번호', '받는분 주소', '받는분 지번주소', '상품코드', '대표상품명', '옵션1', '옵션2', '옵션3',
+  '판매단가', '수량', '금액', '배송비', '수수료율', '정산예정금액', '배송상태', '택배사', '송장번호',
+  '배송시 유의사항', '관리자메모', '순서',
+] as const;
+
+// 데이터 시트명 = "상품별 배송처리 - YYYY-MM-DD-HHMMSS" (원본 export 와 동일 형식).
+function kkomangseSheetName(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `상품별 배송처리 - ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/** 꼬망세(EduPre) 선택엑셀다운 → 셀피아 업로드 양식. 받는분+(꼬망세), 배송상태=배송대기, 순서 추가. */
+function convertKkomangseRows(
+  sourceAoa: (string | number)[][],
+  fileName: string,
+  dateFilter: string,
+): OrderCollectionConversion {
+  const header = (sourceAoa[0] ?? []).map((c) => String(c ?? '').trim());
+  const idx = (name: string) => header.indexOf(name);
+  const dateIdx = idx('주문일시');
+  const aoa: (string | number)[][] = [KKOMANGSE_HEADERS.slice() as string[]];
+  let seq = 0;
+  for (const row of sourceAoa.slice(1)) {
+    if (!Array.isArray(row) || row.every((c) => String(c ?? '').trim() === '')) continue;
+    // 날짜 필터: 주문일시가 dateFilter(YYYY-MM-DD)로 시작하는 행만 (dateFilter 없으면 전체)
+    if (dateFilter && dateIdx >= 0 && !String(row[dateIdx] ?? '').startsWith(dateFilter)) continue;
+    seq += 1;
+    const get = (name: string): string | number => {
+      const i = idx(name);
+      return i >= 0 && row[i] != null ? row[i] : '';
+    };
+    aoa.push([
+      get('고유번호'), get('주문번호'), get('주문일시'), get('주문자 이름'), get('주문자 휴대폰'),
+      `${String(get('받는분 이름'))}(꼬망세)`, // 받는분 + 몰 태그
+      get('받는분 휴대폰'), get('받는분 우편번호'), get('받는분 주소'), get('받는분 지번주소'),
+      get('상품코드'), get('대표상품명'), get('옵션1'), get('옵션2'), get('옵션3'),
+      get('판매단가'), get('수량'), get('금액'), get('배송비'), get('수수료율'), get('정산예정금액'),
+      '배송대기', // 배송상태 고정 (셀피아 신규 접수)
+      get('택배사'), get('송장번호'), get('배송시 유의사항'), get('관리자메모'),
+      seq, // 순서
+    ]);
+  }
+  if (aoa.length <= 1) {
+    throw new BadRequestException(
+      dateFilter ? `${dateFilter} 꼬망세 신규 주문이 없습니다.` : '변환할 꼬망세 주문이 없습니다.',
+    );
+  }
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, kkomangseSheetName());
+  const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+  const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립 (KidsNote와 동일)
+  return {
+    buffer,
+    fileName,
+    sourceRows: aoa.length - 1,
+    productRows: 0,
+    outputRows: aoa.length - 1,
+    skippedRows: 0,
+  };
+}
+
+// 셀피아 온채널 업로드 양식 (시트 "Simple", 16컬럼) — 상세모달 스크랩 데이터 → 상품행 + 택배비행.
+const ONCHANNEL_HEADERS = [
+  '주문코드', '일자', '상품명', '상품코드', '옵션', '수량', '가격', '배송여부', '고객명', '연락처',
+  '비상연락처', '우편번호', '배송지주소', '남김말', '자체코드', '순서',
+] as const;
+
+/** 온채널 주문(리스트+상세모달) → 셀피아 "Simple" 양식. 가격=상품금액 / 별도 택배비행=배송비, 고객명+(온채널), 순서. */
+function convertOnchannelRows(
+  orders: OnchannelConvertOrder[],
+  fileName: string,
+): OrderCollectionConversion {
+  const aoa: (string | number)[][] = [ONCHANNEL_HEADERS.slice() as string[]];
+  let seq = 0;
+  for (const o of orders) {
+    const orderCode = String(o?.orderCode ?? '');
+    const date = String(o?.date ?? '');
+    const customer = `${String(o?.customer ?? '')}(온채널)`; // 고객명 + 몰 태그
+    const phone = String(o?.phone ?? '');
+    const emergency = String(o?.emergency ?? '') || phone;
+    const zip = o?.zip ?? '';
+    const address = String(o?.address ?? '');
+    const message = String(o?.message ?? '');
+    const shippingFee = kidsnoteNum(o?.shippingFee);
+    seq += 1;
+    aoa.push([
+      orderCode, date,
+      String(o?.productName ?? ''), String(o?.productCode ?? ''), String(o?.option ?? ''),
+      kidsnoteNum(o?.qty) || 1,
+      kidsnoteNum(o?.productPrice), // 가격 = 상품금액 (배송비 제외)
+      String(o?.deliveryType ?? '') || '선불',
+      customer, phone, emergency, zip, address, message, String(o?.selfCode ?? ''), seq,
+    ]);
+    // 택배비 행 (배송비 별도)
+    if (shippingFee > 0) {
+      seq += 1;
+      aoa.push([
+        orderCode, date, '택배비', '', '', 1, shippingFee, '',
+        customer, phone, emergency, zip, address, message, '', seq,
+      ]);
+    }
+  }
+  if (aoa.length <= 1) {
+    throw new BadRequestException('변환할 온채널 주문이 없습니다.');
+  }
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  // 내용 다 보이게 열 너비 넉넉히 (한글은 글자당 폭이 넓어 여유 둠).
+  sheet['!cols'] = [
+    { wch: 18 }, // 주문코드
+    { wch: 22 }, // 일자
+    { wch: 48 }, // 상품명
+    { wch: 16 }, // 상품코드
+    { wch: 28 }, // 옵션
+    { wch: 9 }, // 수량
+    { wch: 13 }, // 가격
+    { wch: 11 }, // 배송여부
+    { wch: 20 }, // 고객명
+    { wch: 18 }, // 연락처
+    { wch: 18 }, // 비상연락처
+    { wch: 12 }, // 우편번호
+    { wch: 55 }, // 배송지주소
+    { wch: 28 }, // 남김말
+    { wch: 14 }, // 자체코드
+    { wch: 8 }, // 순서
+  ];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Simple');
+  const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+  const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립 (KidsNote와 동일)
+  return {
+    buffer,
+    fileName,
+    sourceRows: orders.length,
+    productRows: Math.max(0, aoa.length - 1 - orders.length),
+    outputRows: aoa.length - 1,
+    skippedRows: 0,
+  };
+}
+
+// 셀피아 키드키즈 업로드 양식 (17컬럼) — 주문서(logis_down5) 기반. 상품행 + 택배비행(3000 고정) 2행 구조.
+const KIDKIDS_HEADERS = [
+  '주문번호', '주문일자', '이름', '전화', '휴대폰', '우편번호', '주소', '상품명', '옵션', '수량',
+  '공급단가', '합계', '박스수량', '배송요청사항', '배송구분', '배송단가', '키코드',
+] as const;
+const KIDKIDS_SHIPPING_FEE = 3000; // 택배비 고정 (원본 셀피아 export 전부 3000)
+
+// "2026-07-01 13:55:47" → Excel 날짜 시리얼(날짜만). 실패 시 ''.
+function kidkidsDateSerial(value: string): number | '' {
+  const m = /(\d{4})-(\d{2})-(\d{2})/.exec(String(value ?? ''));
+  if (!m) return '';
+  return Math.round(
+    (Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) - Date.UTC(1899, 11, 30)) / 86_400_000,
+  );
+}
+function kidkidsClean(value: unknown): string {
+  const s = String(value ?? '').trim();
+  return s === '--' ? '' : s;
+}
+
+/** 키드키즈 주문(목록+주문서) → 셀피아 17컬럼. 이름=주문자명(유치원)+(키드키즈), 우편번호=주소 접두 5자리. */
+function convertKidkidsRows(
+  orders: KidkidsConvertOrder[],
+  fileName: string,
+  startOrderNo: number,
+): OrderCollectionConversion {
+  const aoa: (string | number)[][] = [KIDKIDS_HEADERS.slice() as string[]];
+  const dateRows: number[] = []; // 주문일자(B열) 날짜서식 적용 행
+  let orderNo = startOrderNo;
+  let key = 0;
+  let productRows = 0;
+  for (const order of orders) {
+    const items = Array.isArray(order?.items) ? order.items.filter((it) => kidkidsClean(it?.name)) : [];
+    if (items.length === 0) continue;
+    const name = `${kidkidsClean(order?.ordName)}(키드키즈)`;
+    const tel = kidkidsClean(order?.recvTel);
+    const mobile = kidkidsClean(order?.recvMobile);
+    const rawAddr = String(order?.recvAddr ?? '').trim();
+    const zipMatch = /^(\d{4,5})\s+/.exec(rawAddr);
+    const zip: number | '' = zipMatch ? Number(zipMatch[1]) : '';
+    const addr = rawAddr.replace(/^\d{4,5}\s+/, '').trim();
+    const dser = kidkidsDateSerial(String(order?.orderDate ?? ''));
+    const msg = kidkidsClean(order?.recvMsg);
+    let first = true;
+    for (const it of items) {
+      key += 1;
+      productRows += 1;
+      aoa.push([
+        orderNo, dser, name, tel, mobile, zip, addr,
+        kidkidsClean(it?.name), '', kidsnoteNum(it?.qty), kidsnoteNum(it?.unit), kidsnoteNum(it?.sum),
+        1, first ? msg : '', '', '', key,
+      ]);
+      dateRows.push(aoa.length - 1);
+      first = false;
+    }
+    // 택배비 행 (주문당 1개, 3000 고정)
+    key += 1;
+    aoa.push([
+      orderNo, dser, name, tel, mobile, zip, addr,
+      '택배비', '', 1, KIDKIDS_SHIPPING_FEE, KIDKIDS_SHIPPING_FEE, '', '', '', '', key,
+    ]);
+    dateRows.push(aoa.length - 1);
+    orderNo += 1;
+  }
+  if (aoa.length <= 1) {
+    throw new BadRequestException('변환할 키드키즈 주문이 없습니다.');
+  }
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  // 주문일자 셀에 날짜 서식 (원본 export = m/d/yy)
+  for (const r of dateRows) {
+    const ref = XLSX.utils.encode_cell({ r, c: 1 });
+    const cellObj = sheet[ref] as { v?: unknown; t?: string; z?: string } | undefined;
+    if (cellObj && typeof cellObj.v === 'number') {
+      cellObj.t = 'n';
+      cellObj.z = 'm/d/yy';
+    }
+  }
+  sheet['!cols'] = [
+    { wch: 10 }, { wch: 10 }, { wch: 26 }, { wch: 15 }, { wch: 15 }, { wch: 9 }, { wch: 55 },
+    { wch: 46 }, { wch: 8 }, { wch: 7 }, { wch: 10 }, { wch: 11 }, { wch: 9 }, { wch: 30 },
+    { wch: 9 }, { wch: 9 }, { wch: 7 },
+  ];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, kidkidsSheetName());
+  const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+  const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립 (KidsNote와 동일)
+  return {
+    buffer,
+    fileName,
+    sourceRows: orders.length,
+    productRows,
+    outputRows: aoa.length - 1,
+    skippedRows: 0,
+  };
+}
+
+// 데이터 시트명 = 타임스탬프 (원본 셀피아 export 형식 "20260630094726").
+function kidkidsSheetName(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
 function normalizeConvertedOutputRows(

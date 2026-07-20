@@ -1,20 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type {
-  ImageSpec,
-  RecomposeVariantClassification,
-  ThumbnailAnalysisResult,
-} from '@kiditem/shared/ai';
+import type { ImageSpec, RecomposeVariantClassification, ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 import type { AnalysisScope } from './thumbnail-analysis-requests';
-import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
-import {
-  ThumbnailVisionAiService,
-  type ThumbnailAiItem,
-} from './thumbnail-vision-ai.service';
+import { ThumbnailVisionAiService, type ThumbnailAiItem } from './thumbnail-vision-ai.service';
 import { ThumbnailRecomposeService } from './thumbnail-recompose.service';
 import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   type ThumbnailAnalysisComplianceFacet,
-  type ThumbnailAnalysisMasterRow,
+  type ThumbnailAnalysisWorkspaceRow,
   type ThumbnailAnalysisQualityFacet,
   type ThumbnailAnalysisRepositoryPort,
 } from '../port/out/repository/thumbnail-analysis.repository.port';
@@ -34,7 +26,7 @@ import { ThumbnailAnalysisAnalyzerService } from './thumbnail-analysis-analyzer.
  * cancel cannot wipe a fresh batch's controller.
  *
  * Fallback: if the chunk batch call fails (e.g. Gemini quota), we fall back
- * to `analyzer.analyzeProduct(...)` per product. The analyzer is injected
+ * to `analyzer.analyzeWorkspace(...)` per product. The analyzer is injected
  * one-way, which is fine — the facade composes analyzer + batch but the
  * batch service itself never calls back into the facade.
  */
@@ -52,11 +44,11 @@ export class ThumbnailAnalysisBatchService {
   ) {}
 
   async analyzeBatch(
-    productIds: string[],
+    contentWorkspaceIds: string[],
     organizationId: string,
     scope: AnalysisScope,
   ): Promise<ThumbnailAnalysisResult[]> {
-    if (productIds.length === 0) return [];
+    if (contentWorkspaceIds.length === 0) return [];
     const previous = this.batchAborts.get(organizationId);
     if (previous) previous.abort();
     const controller = new AbortController();
@@ -70,21 +62,20 @@ export class ThumbnailAnalysisBatchService {
     const results: ThumbnailAnalysisResult[] = [];
 
     try {
-      const masters = await this.repository.findMastersForBatch(productIds, organizationId);
-      const masterMap = new Map(masters.map((m) => [m.id, m]));
+      const workspaces = await this.repository.findWorkspacesForBatch(contentWorkspaceIds, organizationId);
+      const workspaceMap = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
 
       // 표시 가능한 이미지가 있는 product 만 vision batch 대상.
       const items: ThumbnailAiItem[] = [];
-      for (const productId of productIds) {
-        const master = masterMap.get(productId);
-        if (!master) continue;
-        const imageUrl = resolveMasterThumbnailImage(master);
-        if (!imageUrl) continue;
+      for (const contentWorkspaceId of contentWorkspaceIds) {
+        const workspace = workspaceMap.get(contentWorkspaceId);
+        if (!workspace) continue;
+        const imageUrl = workspace.imageUrl;
         items.push({
-          productId: master.id,
-          productName: master.name,
+          contentWorkspaceId: workspace.id,
+          productName: workspace.name,
           imageUrl,
-          category: master.category ?? null,
+          category: workspace.category ?? null,
         });
       }
 
@@ -98,12 +89,8 @@ export class ThumbnailAnalysisBatchService {
         const chunk = items.slice(i, i + BATCH_SIZE);
         try {
           const [qualityMap, complianceMap, recomposeMap] = await Promise.all([
-            wantsQuality
-              ? this.vision.analyzeQuality(chunk, signal)
-              : Promise.resolve(new Map()),
-            wantsCompliance
-              ? this.vision.checkCompliance(chunk, signal)
-              : Promise.resolve(new Map()),
+            wantsQuality ? this.vision.analyzeQuality(chunk, signal) : Promise.resolve(new Map()),
+            wantsCompliance ? this.vision.checkCompliance(chunk, signal) : Promise.resolve(new Map()),
             wantsQuality
               ? this.recomposeChunk(chunk, signal)
               : Promise.resolve(new Map<string, RecomposeVariantClassification>()),
@@ -114,16 +101,16 @@ export class ThumbnailAnalysisBatchService {
           // verifier 쪽이 동시 호출 부담 — 안정성 우선 sequential.
           for (const item of chunk) {
             if (signal.aborted) break;
-            const master = masterMap.get(item.productId);
-            if (!master) continue;
+            const workspace = workspaceMap.get(item.contentWorkspaceId);
+            if (!workspace) continue;
             try {
               const saved = await this.persistChunkResult({
-                master,
+                workspace,
                 imageUrl: item.imageUrl,
                 scope,
-                qualityResult: qualityMap.get(item.productId),
-                complianceResult: complianceMap.get(item.productId),
-                recompose: recomposeMap.get(item.productId),
+                qualityResult: qualityMap.get(item.contentWorkspaceId),
+                complianceResult: complianceMap.get(item.contentWorkspaceId),
+                recompose: recomposeMap.get(item.contentWorkspaceId),
                 organizationId,
                 signal,
               });
@@ -131,7 +118,7 @@ export class ThumbnailAnalysisBatchService {
             } catch (err) {
               if (signal.aborted || this.isAbortError(err)) break;
               this.logger.warn(
-                `analyzeBatch skip ${item.productId}: ${err instanceof Error ? err.message : String(err)}`,
+                `analyzeBatch skip ${item.contentWorkspaceId}: ${err instanceof Error ? err.message : String(err)}`,
               );
             }
           }
@@ -145,12 +132,12 @@ export class ThumbnailAnalysisBatchService {
             if (signal.aborted) break;
             try {
               results.push(
-                await this.analyzer.analyzeProduct(item.productId, organizationId, scope, signal),
+                await this.analyzer.analyzeWorkspace(item.contentWorkspaceId, organizationId, scope, signal),
               );
             } catch (innerErr) {
               if (signal.aborted || this.isAbortError(innerErr)) break;
               this.logger.warn(
-                `analyzeBatch fallback skip ${item.productId}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`,
+                `analyzeBatch fallback skip ${item.contentWorkspaceId}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`,
               );
             }
           }
@@ -194,29 +181,29 @@ export class ThumbnailAnalysisBatchService {
             productName: item.productName,
             category: item.category ?? null,
           });
-          return { productId: item.productId, recompose: r };
+          return { contentWorkspaceId: item.contentWorkspaceId, recompose: r };
         } catch (err) {
           if (signal?.aborted || this.isAbortError(err)) return null;
           this.logger.warn(
-            `recompose chunk skip ${item.productId}: ${err instanceof Error ? err.message : String(err)}`,
+            `recompose chunk skip ${item.contentWorkspaceId}: ${err instanceof Error ? err.message : String(err)}`,
           );
           return null;
         }
       }),
     );
     for (const r of results) {
-      if (r) map.set(r.productId, r.recompose);
+      if (r) map.set(r.contentWorkspaceId, r.recompose);
     }
     return map;
   }
 
   /**
    * chunk batch 결과를 ThumbnailAnalysis 에 persist. quality / compliance /
-   * recompose 가 부분 누락돼도 가능한 부분만 upsert. analyzeProduct 와 같은
+   * recompose 가 부분 누락돼도 가능한 부분만 upsert. analyzeWorkspace 와 같은
    * shape 의 row 반환.
    */
   private async persistChunkResult(input: {
-    master: ThumbnailAnalysisMasterRow & { name: string; category: string | null; createdAt: Date };
+    workspace: ThumbnailAnalysisWorkspaceRow;
     imageUrl: string;
     scope: AnalysisScope;
     qualityResult: ThumbnailAnalysisQualityFacet | undefined;
@@ -225,16 +212,16 @@ export class ThumbnailAnalysisBatchService {
     organizationId: string;
     signal?: AbortSignal;
   }): Promise<ThumbnailAnalysisResult | null> {
-    const { master, imageUrl, scope, qualityResult, complianceResult, recompose, organizationId, signal } = input;
+    const { workspace, imageUrl, scope, qualityResult, complianceResult, recompose, organizationId, signal } = input;
     const wantsQuality = scope === 'all' || scope === 'quality';
     const wantsCompliance = scope === 'all' || scope === 'compliance';
 
     if (wantsQuality && !qualityResult) {
       // quality 결과 누락은 partial-success. 다른 chunk product 영향 없음.
-      this.logger.warn(`persistChunkResult: quality result missing for ${master.id}`);
+      this.logger.warn(`persistChunkResult: quality result missing for ${workspace.id}`);
     }
     if (wantsCompliance && !complianceResult) {
-      this.logger.warn(`persistChunkResult: compliance result missing for ${master.id}`);
+      this.logger.warn(`persistChunkResult: compliance result missing for ${workspace.id}`);
     }
 
     // imageSpec 은 chunk batch 결과에 없음 — sharp pixel mask 가 별도라
@@ -244,12 +231,12 @@ export class ThumbnailAnalysisBatchService {
       try {
         imageSpec = await this.vision.checkImageSpec(imageUrl);
       } catch (err) {
-        this.logger.warn(`imageSpec skip ${master.id}: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(`imageSpec skip ${workspace.id}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
     const upserted = await this.repository.upsertAnalysis({
-      masterId: master.id,
+      contentWorkspaceId: workspace.id,
       organizationId,
       imageUrl,
       qualityResult,
@@ -257,7 +244,7 @@ export class ThumbnailAnalysisBatchService {
       imageSpec,
       recompose,
     });
-    return toAnalysisResult(upserted, master);
+    return toAnalysisResult(upserted, workspace);
   }
 
   private isAbortError(err: unknown): boolean {

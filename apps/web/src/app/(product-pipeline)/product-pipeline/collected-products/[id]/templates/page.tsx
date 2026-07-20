@@ -12,21 +12,20 @@
 // 이전: TemplateSelectionModal 작은 카드 (이모지만) → 실제 모양 모름.
 // 사용자 요구 "템플릿을 보여줘 어떻게 생겼는지를".
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Sparkles, Loader2, Check } from 'lucide-react';
 import {
   getTemplate,
-  parseDetailPageData,
   placeholderDetailPageData,
   templateIds,
   type DetailPageData,
 } from '@kiditem/templates';
-import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { collectedProductDetailHref } from '../../../_shared/lib/product-pipeline-routes';
 import { renderTemplateToHtml } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/template-html';
 import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
+import { productsApi } from '../../lib/sourcing-api';
 
 // 템플릿별 설명 — 모달에서 쓰던 텍스트 재활용
 const TEMPLATE_META: Record<string, { tagline: string; suit: string }> = {
@@ -59,16 +58,27 @@ export default function TemplateGalleryPage() {
   const [myData, setMyData] = useState<DetailPageData | null>(null);
 
   // 토글 ON 시 fetch — 한번만
-  useMemo(() => {
+  useEffect(() => {
     if (!useMyData || myData) return;
-    apiClient
-      .get<{ template: string | null; data: Record<string, unknown> }>(
-        `/api/products/${productId}/preview`,
-      )
-      .then((res) => {
-        if (res?.data && Object.keys(res.data).length > 0) {
-          setMyData(parseDetailPageData(res.data));
-        }
+    productsApi.getDetail(productId)
+      .then((product) => {
+        const images = product.image_urls.length > 0
+          ? product.image_urls
+          : placeholderDetailPageData.images;
+        setMyData({
+          ...placeholderDetailPageData,
+          title: product.basicInfo.name || product.name,
+          description: product.basicInfo.description
+            ? [product.basicInfo.description]
+            : placeholderDetailPageData.description,
+          price: product.basicInfo.salePrice || product.price_krw,
+          originalPrice: product.basicInfo.originalPrice || null,
+          discountRate: product.basicInfo.discountRate || null,
+          images,
+          heroBanner: images[0] ?? placeholderDetailPageData.heroBanner,
+          sectionName: product.basicInfo.category || placeholderDetailPageData.sectionName,
+          keywords: product.basicInfo.keywords,
+        });
       })
       .catch(() => {});
   }, [useMyData, myData, productId]);

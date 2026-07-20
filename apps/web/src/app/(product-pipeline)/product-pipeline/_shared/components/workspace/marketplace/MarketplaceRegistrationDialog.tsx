@@ -1,7 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Barcode, Loader2, Rocket, Store, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Barcode, Loader2, Rocket, Store, X } from 'lucide-react';
 import type { ChannelAccountOption } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
-import { cn } from '@/lib/utils';
+import { cn, formatKRW, formatPercent } from '@/lib/utils';
+import {
+  computeRocketPricing,
+  unitCostFromCostCny,
+  type RocketPricing,
+} from '../../../lib/rocket-pricing';
 
 type ProductRegistrationKind = 'single' | 'set';
 
@@ -10,6 +15,16 @@ interface MarketplaceRegistrationDialogProps {
   accounts: ChannelAccountOption[];
   productName?: string;
   isSubmitting: boolean;
+  /** KC 인증 이미지 (data URL 또는 호스팅 URL). */
+  kcCertificationImageUrl?: string | null;
+  /** 소비자가(판매가) — 로켓 가격 계산 기준. */
+  consumerPrice?: number | null;
+  /** 로켓 묶음 수량. */
+  bundleQuantity?: number | null;
+  /** 로켓 마진 계산용 단가 원가(KRW). */
+  unitCost?: number | null;
+  /** 위안화 원가 — 단가 원가 미입력 시 자동 환산. */
+  costCny?: number | null;
   onClose: () => void;
   onSubmit: (input: {
     channelAccountId: string;
@@ -25,6 +40,11 @@ export default function MarketplaceRegistrationDialog({
   accounts,
   productName = '',
   isSubmitting,
+  kcCertificationImageUrl = null,
+  consumerPrice = null,
+  bundleQuantity = null,
+  unitCost = null,
+  costCny = null,
   onClose,
   onSubmit,
 }: MarketplaceRegistrationDialogProps) {
@@ -34,6 +54,16 @@ export default function MarketplaceRegistrationDialog({
   const [productBarcode, setProductBarcode] = useState('');
   const [channelName, setChannelName] = useState('');
   const [channelPrice, setChannelPrice] = useState('');
+
+  const rocketPricing = useMemo(
+    () =>
+      computeRocketPricing({
+        consumerPrice: consumerPrice ?? 0,
+        quantity: bundleQuantity && bundleQuantity >= 1 ? bundleQuantity : 1,
+        unitCost: unitCost && unitCost > 0 ? unitCost : unitCostFromCostCny(costCny),
+      }),
+    [consumerPrice, bundleQuantity, unitCost, costCny],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -157,6 +187,11 @@ export default function MarketplaceRegistrationDialog({
               className="h-10 rounded-md border border-slate-200 px-3 text-sm"
             />
           </label>
+          <RocketRegistrationPanel
+            kcCertificationImageUrl={kcCertificationImageUrl}
+            pricing={rocketPricing}
+            onApplySupplyPrice={() => setChannelPrice(String(rocketPricing.supplyPrice))}
+          />
         </div>
         <div className="mt-5 flex flex-col gap-2">
           <div className="grid grid-cols-2 gap-2">
@@ -251,6 +286,90 @@ function MarketplaceSubmitButton({
         </span>
       </span>
     </button>
+  );
+}
+
+function RocketRegistrationPanel({
+  kcCertificationImageUrl,
+  pricing,
+  onApplySupplyPrice,
+}: {
+  kcCertificationImageUrl?: string | null;
+  pricing: RocketPricing;
+  onApplySupplyPrice: () => void;
+}) {
+  const hasKcImage = !!kcCertificationImageUrl && kcCertificationImageUrl.trim().length > 0;
+  return (
+    <div className="grid gap-2.5 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+      <div className="flex items-center gap-1.5 text-xs font-black text-slate-700">
+        <Rocket size={13} className="text-slate-500" />
+        쿠팡 로켓 등록 정보
+      </div>
+      <div className="flex items-start gap-3">
+        <div className="shrink-0">
+          <p className="mb-1 text-[10px] font-black text-slate-400">KC 인증 이미지</p>
+          {hasKcImage ? (
+            <img
+              src={kcCertificationImageUrl as string}
+              alt="KC 인증 이미지"
+              className="h-16 w-16 rounded-md border border-slate-200 bg-white object-contain"
+            />
+          ) : (
+            <div className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed border-slate-300 bg-white text-center text-[10px] font-bold leading-tight text-slate-400">
+              미등록
+            </div>
+          )}
+        </div>
+        {pricing.hasConsumerPrice ? (
+          <div className="grid flex-1 grid-cols-3 gap-1.5">
+            <PriceCell label="로켓 판매가" value={`${formatKRW(pricing.rocketSellingPrice)}원`} />
+            <PriceCell label="공급가" value={`${formatKRW(pricing.supplyPrice)}원`} />
+            <PriceCell
+              label="마진율"
+              value={pricing.marginRate === null ? '원가 필요' : formatPercent(pricing.marginRate)}
+              danger={pricing.marginBelowThreshold}
+            />
+          </div>
+        ) : (
+          <p className="flex-1 text-xs font-semibold text-slate-400">
+            판매가가 없어 로켓 가격을 계산할 수 없습니다.
+          </p>
+        )}
+      </div>
+      {pricing.marginBelowThreshold && (
+        <div className="flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-black text-rose-600">
+          <AlertTriangle size={12} className="shrink-0" />
+          마진율 50% 이하 — 단가/수량 재확인 필요
+        </div>
+      )}
+      {pricing.hasConsumerPrice && (
+        <button
+          type="button"
+          onClick={onApplySupplyPrice}
+          className="inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-black text-slate-700 transition hover:bg-slate-50"
+        >
+          <Rocket size={12} />
+          마켓 판매가에 공급가 적용
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PriceCell({
+  label,
+  value,
+  danger = false,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className={cn('rounded-md border bg-white px-2 py-1.5', danger ? 'border-rose-200' : 'border-slate-200')}>
+      <p className="text-[10px] font-black text-slate-400">{label}</p>
+      <p className={cn('mt-0.5 text-xs font-black', danger ? 'text-rose-600' : 'text-slate-900')}>{value}</p>
+    </div>
   );
 }
 

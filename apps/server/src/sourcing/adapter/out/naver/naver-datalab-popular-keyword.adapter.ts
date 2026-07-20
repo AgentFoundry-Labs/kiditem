@@ -1,4 +1,8 @@
-import { BadGatewayException, Injectable } from '@nestjs/common';
+import {
+  BadGatewayException,
+  Injectable,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type {
   NaverDatalabPopularKeywordBoard,
   NaverDatalabPopularKeywordBoardKey,
@@ -9,9 +13,9 @@ import type {
   SearchNaverDatalabPopularKeywordsResult,
 } from '../../../application/port/out/provider/naver-keyword-research.port';
 
-const DEFAULT_WEB_BASE_URL = 'https://datalab.naver.com';
-const KEYWORD_RANK_URI = '/shoppingInsight/getKeywordRank.naver';
-const CATEGORY_KEYWORD_RANK_URI = '/shoppingInsight/getCategoryKeywordRank.naver';
+const REQUIRED_ENV = ['NAVER_API_HUB_CLIENT_ID', 'NAVER_API_HUB_CLIENT_SECRET'];
+const DEFAULT_BASE_URL = 'https://naverapihub.apigw.ntruss.com';
+const SHOPPING_KEYWORD_TREND_URI = '/shopping/v1/category/keywords';
 const DEFAULT_BOARD_KEYS: NaverDatalabPopularKeywordBoardKey[] = [
   'all_categories',
   'birth_kids',
@@ -19,36 +23,42 @@ const DEFAULT_BOARD_KEYS: NaverDatalabPopularKeywordBoardKey[] = [
   'stationery_office',
   'kids_fashion',
 ];
-const DEFAULT_LIMIT = 20;
+const DEFAULT_LIMIT = 5;
+const MAX_KEYWORDS_PER_REQUEST = 5;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-const CATEGORY_REQUEST_DELAY_MS = 300;
 const CACHE_TTL_MS = 10 * 60 * 1000;
+
+interface NaverApiHubConfig {
+  clientId: string;
+  clientSecret: string;
+  baseUrl: string;
+}
 
 interface PopularKeywordBoardPreset {
   key: NaverDatalabPopularKeywordBoardKey;
   label: string;
   cid: number;
   categoryPath: string;
-  mode: 'keyword-rank' | 'category-keyword-rank';
+  candidates: readonly string[];
 }
 
-interface CachedCategoryKeywordRank {
-  expiresAt: number;
-  value: NaverDatalabCategoryKeywordRankResponse;
-}
-
-interface NaverDatalabCategoryKeywordRankResponse {
-  message?: string | null;
-  statusCode?: number;
-  returnCode?: number;
-  date?: string;
-  datetime?: string;
-  range?: string;
-  ranks?: Array<{
-    rank?: number;
-    keyword?: string;
-    linkId?: string;
+interface ShoppingInsightKeywordTrendResponse {
+  startDate?: string;
+  endDate?: string;
+  timeUnit?: NaverDatalabTimeUnit;
+  results?: Array<{
+    title?: string;
+    keyword?: string[];
+    data?: Array<{
+      period?: string;
+      ratio?: number;
+    }>;
   }>;
+}
+
+interface CachedShoppingInsightResponse {
+  expiresAt: number;
+  value: ShoppingInsightKeywordTrendResponse;
 }
 
 const BOARD_PRESETS: Record<NaverDatalabPopularKeywordBoardKey, PopularKeywordBoardPreset> = {
@@ -56,49 +66,120 @@ const BOARD_PRESETS: Record<NaverDatalabPopularKeywordBoardKey, PopularKeywordBo
     key: 'all_categories',
     label: '필터 없음 TOP',
     cid: 50000005,
-    categoryPath: '출산/육아 전체 · DataLab 기본 인기검색어',
-    mode: 'keyword-rank',
+    categoryPath: '출산/육아 전체 · Shopping Insight 후보 비교',
+    candidates: ['유아완구', '유아용품', '아기옷', '유아교구', '어린이장난감'],
   },
   birth_kids: {
     key: 'birth_kids',
     label: '출산/육아',
     cid: 50000005,
     categoryPath: '출산/육아',
-    mode: 'category-keyword-rank',
+    candidates: ['유아완구', '유아용품', '아기옷', '유아교구', '어린이장난감'],
   },
   toys_dolls: {
     key: 'toys_dolls',
     label: '완구/인형',
     cid: 50000142,
     categoryPath: '출산/육아 > 완구/인형',
-    mode: 'category-keyword-rank',
+    candidates: ['레고', '포켓몬카드', '캐릭터인형', '역할놀이', '유아블록'],
   },
   stationery_office: {
     key: 'stationery_office',
     label: '문구/사무용품',
     cid: 50000158,
     categoryPath: '생활/건강 > 문구/사무용품',
-    mode: 'category-keyword-rank',
+    candidates: ['스티커', '다이어리', '필기구', '노트', '학용품'],
   },
   kids_fashion: {
     key: 'kids_fashion',
     label: '유아동의류',
     cid: 50000138,
     categoryPath: '출산/육아 > 유아동의류',
-    mode: 'category-keyword-rank',
+    candidates: ['유아동복', '키즈원피스', '아동상하복', '아동내복', '키즈운동화'],
+  },
+  toys_block: {
+    key: 'toys_block',
+    label: '블록완구',
+    cid: 50001159,
+    categoryPath: '완구/인형 > 블록',
+    candidates: ['레고', '자석블록', '유아블록', '조립블록', '블록완구'],
+  },
+  toys_action: {
+    key: 'toys_action',
+    label: '작동완구',
+    cid: 50001154,
+    categoryPath: '완구/인형 > 작동완구',
+    candidates: ['로봇장난감', '자동차장난감', '변신로봇', '작동완구', 'RC카'],
+  },
+  fancy_sticker: {
+    key: 'fancy_sticker',
+    label: '스티커·다꾸',
+    cid: 50007588,
+    categoryPath: '문구/사무용품 > 스티커',
+    candidates: ['스티커', '다꾸스티커', '캐릭터스티커', '네임스티커', '보석스티커'],
+  },
+  fancy_goods: {
+    key: 'fancy_goods',
+    label: '팬시문구',
+    cid: 50007749,
+    categoryPath: '문구/사무용품 > 문구용품',
+    candidates: ['캐릭터문구', '팬시문구', '키링', '필통', '문구세트'],
+  },
+  stationery_writing: {
+    key: 'stationery_writing',
+    label: '필기·노트',
+    cid: 50001041,
+    categoryPath: '문구/사무용품 > 필기도구',
+    candidates: ['샤프', '볼펜', '연필', '사인펜', '필기구'],
+  },
+  toys_roleplay: {
+    key: 'toys_roleplay',
+    label: '역할놀이',
+    cid: 50001165,
+    categoryPath: '완구/인형 > 역할놀이/소꿉놀이',
+    candidates: ['소꿉놀이', '역할놀이', '주방놀이', '병원놀이', '공구놀이'],
+  },
+  toys_puzzle: {
+    key: 'toys_puzzle',
+    label: '퍼즐·교구',
+    cid: 50001168,
+    categoryPath: '완구/인형 > 유아동퍼즐',
+    candidates: ['유아퍼즐', '자석퍼즐', '원목퍼즐', '유아교구', '보드게임'],
+  },
+  fancy_diary: {
+    key: 'fancy_diary',
+    label: '다이어리·플래너',
+    cid: 50001039,
+    categoryPath: '문구/사무용품 > 다이어리/플래너',
+    candidates: ['다이어리', '플래너', '꾸미기다이어리', '스케줄러', '다꾸'],
+  },
+  stationery_note: {
+    key: 'stationery_note',
+    label: '노트·메모',
+    cid: 50001040,
+    categoryPath: '문구/사무용품 > 노트/수첩',
+    candidates: ['노트', '메모지', '수첩', '캐릭터노트', '떡메모지'],
   },
 };
 
 @Injectable()
 export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKeywordPort {
-  private readonly cache = new Map<string, CachedCategoryKeywordRank>();
+  private readonly cache = new Map<string, CachedShoppingInsightResponse>();
 
   async searchPopularKeywords(
     input: SearchNaverDatalabPopularKeywordsInput,
   ): Promise<SearchNaverDatalabPopularKeywordsResult> {
+    const config = readConfig();
+    if (!config) {
+      throw new ServiceUnavailableException(
+        `NAVER API HUB 키가 설정되지 않았습니다. apps/server/.env에 ${REQUIRED_ENV.join(', ')}를 설정해주세요.`,
+      );
+    }
+
     const timeUnit = input.timeUnit ?? 'date';
     const range = resolveDateRange(timeUnit, input.startDate, input.endDate);
-    const limit = input.limit ?? DEFAULT_LIMIT;
+    const limit = normalizeLimit(input.limit);
+    const requestedCandidates = normalizeCandidates(input.keywords);
     const boards = normalizeBoardKeys(input.boardKeys).map((key) => BOARD_PRESETS[key]);
     const filters = {
       device: input.device ?? null,
@@ -107,18 +188,15 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
     };
 
     const resolvedBoards: NaverDatalabPopularKeywordBoard[] = [];
-    for (let index = 0; index < boards.length; index += 1) {
-      if (index > 0) await sleep(CATEGORY_REQUEST_DELAY_MS);
-      const board = boards[index];
+    for (const board of boards) {
+      const candidates = (requestedCandidates.length > 0 ? requestedCandidates : board.candidates)
+        .slice(0, limit);
       try {
-        resolvedBoards.push(await this.fetchBoard(board, {
+        resolvedBoards.push(await this.fetchBoard(config, board, {
+          ...range,
           timeUnit,
-          startDate: range.startDate,
-          endDate: range.endDate,
-          device: filters.device,
-          gender: filters.gender,
-          ages: filters.ages,
-          limit,
+          ...filters,
+          candidates,
         }));
       } catch (error) {
         resolvedBoards.push(toFailedBoard(board, error));
@@ -139,6 +217,7 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
   }
 
   private async fetchBoard(
+    config: NaverApiHubConfig,
     board: PopularKeywordBoardPreset,
     input: {
       timeUnit: NaverDatalabTimeUnit;
@@ -147,57 +226,25 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
       device: string | null;
       gender: string | null;
       ages: string[];
-      limit: number;
+      candidates: readonly string[];
     },
   ): Promise<NaverDatalabPopularKeywordBoard> {
-    const response = board.mode === 'keyword-rank'
-      ? await this.fetchKeywordRank(board.cid, input.timeUnit, input.limit)
-      : await this.fetchCategoryKeywordRank(board.cid, input);
+    const response = await this.fetchKeywordTrends(config, board.cid, input);
     return {
       key: board.key,
       label: board.label,
       cid: board.cid,
       categoryPath: board.categoryPath,
-      date: response.date ?? '',
-      datetime: response.datetime ?? '',
-      range: response.range || formatDisplayRange(input.startDate, input.endDate),
-      ranks: normalizeRanks(response.ranks ?? [], input.limit, [board.label]),
+      date: response.endDate ?? input.endDate,
+      datetime: '',
+      range: formatDisplayRange(input.startDate, input.endDate),
+      ranks: rankCandidatesBySummedRatio(response, input.candidates, [board.label]),
       error: null,
     };
   }
 
-  private async fetchKeywordRank(
-    cid: number,
-    timeUnit: NaverDatalabTimeUnit,
-    limit: number,
-  ): Promise<NaverDatalabCategoryKeywordRankResponse> {
-    const url = new URL(`${readBaseUrl()}${KEYWORD_RANK_URI}`);
-    url.searchParams.set('timeUnit', timeUnit);
-    url.searchParams.set('cid', String(cid));
-    const cacheKey = `keyword:${timeUnit}:${cid}:${limit}`;
-    const cached = this.readCache(cacheKey);
-    if (cached) return cached;
-
-    const response = await fetch(url, {
-      headers: naverDatalabHeaders(),
-      redirect: 'follow',
-    });
-    const bodyText = await response.text();
-    if (!response.ok) {
-      throw new BadGatewayException(`네이버 DataLab 기본 인기검색어 호출 실패 (${response.status})`);
-    }
-
-    const parsed = parseJsonResponse(bodyText);
-    const candidates = Array.isArray(parsed) ? parsed : [parsed];
-    const latest = candidates.find((item) => item?.returnCode === 0 && Array.isArray(item.ranks));
-    if (!latest) {
-      throw new BadGatewayException('네이버 DataLab 기본 인기검색어가 빈 응답을 반환했습니다.');
-    }
-    this.writeCache(cacheKey, latest);
-    return latest;
-  }
-
-  private async fetchCategoryKeywordRank(
+  private async fetchKeywordTrends(
+    config: NaverApiHubConfig,
     cid: number,
     input: {
       timeUnit: NaverDatalabTimeUnit;
@@ -206,60 +253,45 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
       device: string | null;
       gender: string | null;
       ages: string[];
-      limit: number;
+      candidates: readonly string[];
     },
-  ): Promise<NaverDatalabCategoryKeywordRankResponse> {
-    const cacheKey = [
-      'category',
-      cid,
-      input.timeUnit,
-      input.startDate,
-      input.endDate,
-      input.device ?? '',
-      input.gender ?? '',
-      input.ages.join(','),
-      input.limit,
-    ].join(':');
+  ): Promise<ShoppingInsightKeywordTrendResponse> {
+    const body = {
+      startDate: input.startDate,
+      endDate: input.endDate,
+      timeUnit: input.timeUnit,
+      category: String(cid),
+      keyword: input.candidates.map((keyword) => ({ name: keyword, param: [keyword] })),
+      ...(input.device ? { device: input.device } : {}),
+      ...(input.gender ? { gender: input.gender } : {}),
+      ...(input.ages.length > 0 ? { ages: input.ages } : {}),
+    };
+    const cacheKey = JSON.stringify(body);
     const cached = this.readCache(cacheKey);
     if (cached) return cached;
 
-    const body = new URLSearchParams({
-      cid: String(cid),
-      timeUnit: input.timeUnit,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      age: input.ages.join(','),
-      gender: input.gender ?? '',
-      device: input.device ?? '',
-      page: '1',
-      count: String(input.limit),
-    });
-    const response = await fetch(`${readBaseUrl()}${CATEGORY_KEYWORD_RANK_URI}`, {
+    const response = await fetch(`${config.baseUrl}${SHOPPING_KEYWORD_TREND_URI}`, {
       method: 'POST',
-      headers: naverDatalabHeaders(),
-      body,
-      redirect: 'follow',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-NCP-APIGW-API-KEY-ID': config.clientId,
+        'X-NCP-APIGW-API-KEY': config.clientSecret,
+      },
+      body: JSON.stringify(body),
     });
-
     const bodyText = await response.text();
     if (!response.ok) {
-      throw new BadGatewayException(`네이버 DataLab 인기검색어 호출 실패 (${response.status})`);
+      throw new BadGatewayException(
+        `NAVER API HUB Shopping Insight 호출 실패 (${response.status}): ${bodyText.slice(0, 300)}`,
+      );
     }
 
-    try {
-      const parsed = parseJsonResponse(bodyText) as NaverDatalabCategoryKeywordRankResponse;
-      if (parsed.returnCode !== 0) {
-        throw new BadGatewayException(parsed.message ?? '네이버 DataLab 인기검색어가 실패 응답을 반환했습니다.');
-      }
-      this.writeCache(cacheKey, parsed);
-      return parsed;
-    } catch (error) {
-      if (error instanceof BadGatewayException) throw error;
-      throw new BadGatewayException('네이버 DataLab 인기검색어가 JSON이 아닌 응답을 반환했습니다.');
-    }
+    const parsed = parseJsonResponse(bodyText);
+    this.writeCache(cacheKey, parsed);
+    return parsed;
   }
 
-  private readCache(key: string): NaverDatalabCategoryKeywordRankResponse | null {
+  private readCache(key: string): ShoppingInsightKeywordTrendResponse | null {
     const cached = this.cache.get(key);
     if (!cached) return null;
     if (cached.expiresAt <= Date.now()) {
@@ -269,7 +301,7 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
     return cached.value;
   }
 
-  private writeCache(key: string, value: NaverDatalabCategoryKeywordRankResponse): void {
+  private writeCache(key: string, value: ShoppingInsightKeywordTrendResponse): void {
     this.cache.set(key, {
       expiresAt: Date.now() + CACHE_TTL_MS,
       value,
@@ -277,9 +309,55 @@ export class NaverDatalabPopularKeywordAdapter implements NaverDatalabPopularKey
   }
 }
 
+function rankCandidatesBySummedRatio(
+  response: ShoppingInsightKeywordTrendResponse,
+  candidates: readonly string[],
+  categories: string[],
+): NaverDatalabPopularKeywordRank[] {
+  const scored = candidates.map((keyword, candidateOrder) => ({
+    keyword,
+    candidateOrder,
+    score: 0,
+  }));
+  const byKeyword = new Map(scored.map((item) => [normalizeKeyword(item.keyword), item]));
+
+  for (const result of response.results ?? []) {
+    const keyword = String(result.title ?? result.keyword?.[0] ?? '').trim();
+    const target = byKeyword.get(normalizeKeyword(keyword));
+    if (!target) continue;
+    target.score += (result.data ?? []).reduce((sum, point) => {
+      return sum + (typeof point.ratio === 'number' && Number.isFinite(point.ratio) ? point.ratio : 0);
+    }, 0);
+  }
+
+  // API HUB Shopping Insight는 인기검색어 목록을 제공하지 않는다. 같은 요청에서
+  // 비교한 최대 5개 후보의 기간별 상대 클릭비율 합계를 호환 보드의 rank로 사용한다.
+  return scored
+    .sort((a, b) => b.score - a.score || a.candidateOrder - b.candidateOrder)
+    .map((item, index) => ({
+      rank: index + 1,
+      keyword: item.keyword,
+      linkId: null,
+      categories,
+    }));
+}
+
 function normalizeBoardKeys(keys?: NaverDatalabPopularKeywordBoardKey[]): NaverDatalabPopularKeywordBoardKey[] {
   const requested = keys?.length ? keys : DEFAULT_BOARD_KEYS;
   return Array.from(new Set(requested)).filter((key) => key in BOARD_PRESETS);
+}
+
+function normalizeCandidates(keywords?: string[]): string[] {
+  return Array.from(new Set(
+    (keywords ?? [])
+      .map((keyword) => keyword.trim())
+      .filter(Boolean),
+  )).slice(0, MAX_KEYWORDS_PER_REQUEST);
+}
+
+function normalizeLimit(limit?: number): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return DEFAULT_LIMIT;
+  return Math.min(MAX_KEYWORDS_PER_REQUEST, Math.max(1, Math.floor(limit)));
 }
 
 function normalizeAges(ages?: string[]): string[] {
@@ -287,20 +365,8 @@ function normalizeAges(ages?: string[]): string[] {
   return Array.from(new Set((ages ?? []).map((age) => age.trim()).filter((age) => allowed.has(age))));
 }
 
-function normalizeRanks(
-  ranks: NonNullable<NaverDatalabCategoryKeywordRankResponse['ranks']>,
-  limit: number,
-  categories: string[],
-): NaverDatalabPopularKeywordRank[] {
-  return ranks
-    .map((rank, index) => ({
-      rank: typeof rank.rank === 'number' ? rank.rank : index + 1,
-      keyword: String(rank.keyword ?? '').trim(),
-      linkId: rank.linkId ? String(rank.linkId) : null,
-      categories,
-    }))
-    .filter((rank) => rank.keyword)
-    .slice(0, limit);
+function normalizeKeyword(value: string): string {
+  return value.replace(/\s+/g, '').toLowerCase();
 }
 
 function resolveDateRange(
@@ -322,10 +388,8 @@ function defaultDateRange(timeUnit: NaverDatalabTimeUnit, now = new Date()): { s
   const start = new Date(end);
   if (timeUnit === 'month') {
     start.setUTCMonth(start.getUTCMonth() - 1);
-  } else if (timeUnit === 'week') {
-    start.setUTCDate(start.getUTCDate() - 6);
   } else {
-    start.setUTCDate(start.getUTCDate());
+    start.setUTCDate(start.getUTCDate() - 6);
   }
   return {
     startDate: formatDate(start),
@@ -342,27 +406,24 @@ function formatDisplayRange(startDate: string, endDate: string): string {
   return `${startDate.replaceAll('-', '.')}. ~ ${endDate.replaceAll('-', '.')}.`;
 }
 
-function readBaseUrl(): string {
-  return process.env.NAVER_DATALAB_WEB_BASE_URL?.trim() || DEFAULT_WEB_BASE_URL;
-}
-
-function naverDatalabHeaders(): HeadersInit {
+function readConfig(): NaverApiHubConfig | null {
+  const clientId = process.env.NAVER_API_HUB_CLIENT_ID?.trim();
+  const clientSecret = process.env.NAVER_API_HUB_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return null;
   return {
-    'User-Agent':
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    Referer: `${readBaseUrl()}/shoppingInsight/sCategory.naver`,
-    Accept: 'application/json, text/javascript, */*; q=0.01',
-    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-    'X-Requested-With': 'XMLHttpRequest',
+    clientId,
+    clientSecret,
+    baseUrl: process.env.NAVER_API_HUB_BASE_URL?.trim() || DEFAULT_BASE_URL,
   };
 }
 
-function parseJsonResponse(bodyText: string): NaverDatalabCategoryKeywordRankResponse | NaverDatalabCategoryKeywordRankResponse[] {
+function parseJsonResponse(bodyText: string): ShoppingInsightKeywordTrendResponse {
   try {
-    return JSON.parse(bodyText) as NaverDatalabCategoryKeywordRankResponse | NaverDatalabCategoryKeywordRankResponse[];
+    const parsed = JSON.parse(bodyText) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid response');
+    return parsed as ShoppingInsightKeywordTrendResponse;
   } catch {
-    throw new BadGatewayException('네이버 DataLab 인기검색어가 JSON이 아닌 응답을 반환했습니다.');
+    throw new BadGatewayException('NAVER API HUB Shopping Insight가 JSON이 아닌 응답을 반환했습니다.');
   }
 }
 
@@ -378,10 +439,4 @@ function toFailedBoard(board: PopularKeywordBoardPreset, error: unknown): NaverD
     ranks: [],
     error: error instanceof Error ? error.message : String(error),
   };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }

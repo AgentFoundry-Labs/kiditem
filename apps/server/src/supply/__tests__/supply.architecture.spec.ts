@@ -23,16 +23,28 @@ function supplyRel(): string {
 }
 
 describe('supply architecture contract', () => {
-  it('PrismaService is imported only under supply/adapter/out/repository/**', () => {
+  it('PrismaService is imported only under repository adapters and approved locked transactions', () => {
     const supply = supplyRel();
     const allowedPrefix = path.join(supply, 'adapter/out/repository') + path.sep;
+    const allowedTransactions = new Set([
+      path.join(
+        supply,
+        'adapter/out/transaction/purchase-order-submission.transaction.adapter.ts',
+      ),
+      path.join(
+        supply,
+        'adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter.ts',
+      ),
+    ]);
     const hits = rg(
       `--type ts --files-with-matches 'PrismaService' ${supply} --glob '!**/__tests__/**'`,
     );
-    const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
+    const violators = hits.filter(
+      (file) => !file.startsWith(allowedPrefix) && !allowedTransactions.has(file),
+    );
     expect(
       violators,
-      `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
+      `PrismaService is leaking outside repository adapters or the approved submission transaction:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 

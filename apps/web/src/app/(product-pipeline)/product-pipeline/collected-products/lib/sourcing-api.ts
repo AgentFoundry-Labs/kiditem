@@ -1,6 +1,15 @@
 import { apiClient } from '@/lib/api-client';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
-import type { SourcingCandidateStatus } from '@kiditem/shared/product-content';
+import {
+  CreateProductPreparationInputSchema,
+  ProductPreparationCommandResultSchema,
+  ProductPreparationStatusSchema,
+  SourcingCandidateStatusSchema,
+  type CreateProductPreparationInput,
+  type ProductPreparationCommandResult,
+  type ProductPreparationProjection,
+  type SourcingCandidateStatus,
+} from '@kiditem/shared/sourcing';
 
 export type ProductStatus = SourcingCandidateStatus;
 
@@ -21,8 +30,12 @@ export interface SourcedProduct {
   imageUrl?: string | null;
   images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   productPreparation?: ProductPreparationSelection | null;
+  /**
+   * 저장된 대표 썸네일. 서버가 준비(ProductPreparation) → 후보 워크스페이스
+   * 순으로 계산해 내려준다. 없으면 `null` 이고 카드는 수집 원본으로 떨어진다.
+   */
+  selectedThumbnailUrl?: string | null;
   thumbnailPreviewUrls?: string[];
-  promotedMasterId: string | null;
   rejectedAt?: string | null;
   rejectedReason?: string | null;
   triggeredByUserId?: string | null;
@@ -50,8 +63,6 @@ export interface ProductDetailResponse {
   id: string;
   name: string;
   status: ProductStatus;
-  promotedMasterId: string | null;
-  promoted_master_id: string | null;
   sourcePlatform: string;
   source_platform: string;
   source_url: string | null;
@@ -67,9 +78,26 @@ export interface ProductDetailResponse {
   images: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   basicInfo: ProductBasics;
   productPreparation: ProductPreparationSelection | null;
+  /**
+   * 후보가 이미 소유한 `ContentWorkspace.id`. 아직 없으면 `null`.
+   *
+   * `ProductPreparation` 이 없는 후보는 이 값이 썸네일 구성을 저장할 수 있는
+   * 유일한 위치다(= `ContentAsset role='thumbnail'` 갤러리 소유자).
+   * 구버전 응답에는 없을 수 있어 `null` 로 정규화한다.
+   */
+  contentWorkspaceId: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export interface RegistrationImages {
+  primary: string[];
+  thumbnail: string[];
+  detail: string[];
+}
+
+/** 서버 `ProductBasics.salePriceSource` 와 같은 값 집합이다. */
+export type SalePriceSource = 'input' | 'sellpia' | 'none';
 
 export interface ProductBasics {
   name: string;
@@ -82,6 +110,7 @@ export interface ProductBasics {
   optionNames: string[];
   kcCertificationStatus: string;
   kcCertificationNumber: string;
+  kcCertificationImageUrl: string;
   productSize: string;
   colorVariantStatus: string;
   colorVariantNames: string;
@@ -89,10 +118,28 @@ export interface ProductBasics {
   boxSetQuantity: string;
   originalPrice: number;
   salePrice: number;
+  /**
+   * `salePrice` 출처. 서버 파생 값이라 읽기 전용이다(수정 API 로 보내지 않는다).
+   *   - `input`:   수기 입력값
+   *   - `sellpia`: 이름이 정확히 일치한 셀피아 재고 SKU 판매가 폴백
+   *   - `none`:    매칭 실패. `salePrice` 는 0이다.
+   * 구버전 응답에는 없을 수 있다.
+   */
+  salePriceSource?: SalePriceSource;
   discountRate: number;
+  rocketBundleQuantity: number;
+  rocketUnitCost: number;
   thumbnailUrls: string[];
   thumbnailPreviewUrls?: string[];
+  /**
+   * Channel-registration images split by `ContentAsset.role`. Absent/empty when
+   * the candidate has no role-tagged assets. Never contains `role = 'source'`
+   * rows — those are raw scrape originals that fail the Coupang 1,000x1,000 spec.
+   */
+  /** role 별 등록 이미지. 구버전 응답·다른 화면의 로컬 초안에는 없을 수 있다. */
+  registrationImages?: RegistrationImages;
   selectedThumbnailUrl: string | null;
+  selectedThumbnailGenerationId: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
   selectedDetailPageGenerationId: string | null;
   selectedDetailPageArtifactId: string | null;
@@ -111,6 +158,7 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'optionNames'
   | 'kcCertificationStatus'
   | 'kcCertificationNumber'
+  | 'kcCertificationImageUrl'
   | 'productSize'
   | 'colorVariantStatus'
   | 'colorVariantNames'
@@ -119,24 +167,19 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'salePrice'
   | 'originalPrice'
   | 'discountRate'
+  | 'rocketBundleQuantity'
+  | 'rocketUnitCost'
   | 'thumbnailUrls'
 >> & {
   basePreparationUpdatedAt?: string | null;
 };
 
-export interface ProductPreparationSelection {
-  id: string;
-  sourceCandidateId: string | null;
-  masterId: string | null;
-  contentWorkspaceId: string | null;
-  status: string;
-  selectedThumbnailUrl: string | null;
-  selectedThumbnailGenerationCandidateId: string | null;
-  selectedDetailPageGenerationId: string | null;
-  selectedDetailPageArtifactId: string | null;
-  selectedDetailPageRevisionId: string | null;
+export type ProductPreparationSelection = Omit<
+  ProductPreparationProjection,
+  'updatedAt'
+> & {
   updatedAt: string | null;
-}
+};
 
 interface StatusResponse {
   id: string;
@@ -261,10 +304,22 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
   return {
     id,
     sourceCandidateId: typeof prep.sourceCandidateId === 'string' ? prep.sourceCandidateId : null,
-    masterId: typeof prep.masterId === 'string' ? prep.masterId : null,
-    contentWorkspaceId: typeof prep.contentWorkspaceId === 'string' ? prep.contentWorkspaceId : null,
-    status: typeof prep.status === 'string' ? prep.status : '',
+    channelAccountId: typeof prep.channelAccountId === 'string' ? prep.channelAccountId : null,
+    sourceContentWorkspaceId: typeof prep.sourceContentWorkspaceId === 'string'
+      ? prep.sourceContentWorkspaceId
+      : typeof prep.contentWorkspaceId === 'string'
+        ? prep.contentWorkspaceId
+        : null,
+    channelListingId: typeof prep.channelListingId === 'string'
+      ? prep.channelListingId
+      : typeof prep.listingId === 'string'
+        ? prep.listingId
+        : null,
+    status: ProductPreparationStatusSchema.parse(prep.status),
     selectedThumbnailUrl: normalizeImageUrl(prep.selectedThumbnailUrl),
+    selectedThumbnailGenerationId: typeof prep.selectedThumbnailGenerationId === 'string'
+      ? prep.selectedThumbnailGenerationId
+      : null,
     selectedThumbnailGenerationCandidateId: typeof prep.selectedThumbnailGenerationCandidateId === 'string'
       ? prep.selectedThumbnailGenerationCandidateId
       : null,
@@ -281,6 +336,24 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
   };
 }
 
+function normalizeRegistrationImages(value: unknown): RegistrationImages {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    primary: collectImageUrls(raw.primary),
+    thumbnail: collectImageUrls(raw.thumbnail),
+    detail: collectImageUrls(raw.detail),
+  };
+}
+
+const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'sellpia', 'none'];
+
+/** 서버가 값을 안 줬거나 모르는 값이면 출처 미상 → `none`. 추측하지 않는다. */
+function normalizeSalePriceSource(value: unknown): SalePriceSource {
+  return SALE_PRICE_SOURCES.includes(value as SalePriceSource)
+    ? (value as SalePriceSource)
+    : 'none';
+}
+
 function normalizeProductBasics(
   value: unknown,
   fallback: {
@@ -288,7 +361,6 @@ function normalizeProductBasics(
     category: string;
     description?: string | null;
     tags?: string[];
-    salePrice?: number | null;
     thumbnailUrls: string[];
     preparation: ProductPreparationSelection | null;
   },
@@ -317,17 +389,26 @@ function normalizeProductBasics(
     optionNames,
     kcCertificationStatus: typeof basics.kcCertificationStatus === 'string' ? basics.kcCertificationStatus : '',
     kcCertificationNumber: typeof basics.kcCertificationNumber === 'string' ? basics.kcCertificationNumber : '',
+    kcCertificationImageUrl: typeof basics.kcCertificationImageUrl === 'string' ? basics.kcCertificationImageUrl : '',
     productSize: typeof basics.productSize === 'string' ? basics.productSize : '',
     colorVariantStatus: typeof basics.colorVariantStatus === 'string' ? basics.colorVariantStatus : '',
     colorVariantNames: typeof basics.colorVariantNames === 'string' ? basics.colorVariantNames : '',
     boxSetStatus: typeof basics.boxSetStatus === 'string' ? basics.boxSetStatus : '',
     boxSetQuantity: typeof basics.boxSetQuantity === 'string' ? basics.boxSetQuantity : '',
     originalPrice: numberOrZero(basics.originalPrice),
-    salePrice: numberOrZero(basics.salePrice) || fallback.salePrice || 0,
+    salePrice: numberOrZero(basics.salePrice),
+    salePriceSource: normalizeSalePriceSource(basics.salePriceSource),
     discountRate: numberOrZero(basics.discountRate),
+    rocketBundleQuantity: numberOrZero(basics.rocketBundleQuantity),
+    rocketUnitCost: numberOrZero(basics.rocketUnitCost),
     thumbnailUrls,
     thumbnailPreviewUrls: explicitThumbnailUrls,
+    registrationImages: normalizeRegistrationImages(basics.registrationImages),
     selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,
+    selectedThumbnailGenerationId:
+      typeof basics.selectedThumbnailGenerationId === 'string'
+        ? basics.selectedThumbnailGenerationId
+        : fallback.preparation?.selectedThumbnailGenerationId ?? null,
     selectedThumbnailGenerationCandidateId:
       typeof basics.selectedThumbnailGenerationCandidateId === 'string'
         ? basics.selectedThumbnailGenerationCandidateId
@@ -422,9 +503,7 @@ export const productsApi = {
     });
     if (params?.platform) qs.set('platform', params.platform);
     if (params?.sort) qs.set('sort', params.sort);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = await apiClient.get<{ items: any[]; total: number; page: number; limit: number }>(`/api/sourcing/extension/products?${qs}`);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: SourcedProduct[] = data.items.map((p: any) => {
       const rawData = (p.rawData as Record<string, unknown>) || {};
       const candidateImageUrls = candidateProductImageUrls(p.images);
@@ -444,14 +523,21 @@ export const productsApi = {
         ? preparationRecord.registrationInput as Record<string, unknown>
         : {};
       const thumbnailPreviewUrls = collectImageUrls(registrationInput.thumbnailUrls);
+      // 서버가 계산한 **저장된 대표 썸네일**(준비 → 후보 워크스페이스 순).
+      // 이게 없으면 준비가 없는 후보의 대표 선택이 카드에 반영되지 않고
+      // `sourcing_candidates.thumbnail_url`(수집 원본)이 계속 보인다.
+      const selectedThumbnailUrl = typeof p.selectedThumbnailUrl === 'string' && p.selectedThumbnailUrl.trim()
+        ? p.selectedThumbnailUrl.trim()
+        : null;
       const thumbnailUrl = productPreparation?.selectedThumbnailUrl ??
+        selectedThumbnailUrl ??
         selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
       const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
       return {
         id: p.id,
         organizationId: p.organizationId,
         name: p.name || rawData.title || '',
-        status: (p.status ?? 'sourced') as ProductStatus,
+        status: SourcingCandidateStatusSchema.parse(p.status),
         sourcePlatform,
         source_platform: sourcePlatform,
         sourceUrl: p.sourceUrl ?? null,
@@ -461,8 +547,8 @@ export const productsApi = {
         imageUrl: p.imageUrl ?? null,
         images: Array.isArray(p.images) ? p.images : [],
         productPreparation,
+        selectedThumbnailUrl,
         thumbnailPreviewUrls,
-        promotedMasterId: p.promotedMasterId ?? null,
         rejectedAt: p.rejectedAt ?? null,
         rejectedReason: p.rejectedReason ?? null,
         triggeredByUserId: p.triggeredByUserId ?? null,
@@ -478,7 +564,6 @@ export const productsApi = {
   },
 
   async getDetail(id: string): Promise<ProductDetailResponse> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = await apiClient.get<any>(`/api/sourcing/${id}`);
     const rawData = (p.rawData as Record<string, unknown>) || p.raw_data || {};
     const candidateImageUrls = candidateProductImageUrls(p.images);
@@ -491,23 +576,19 @@ export const productsApi = {
     const hydratedRawData = rawDataWithImageFallback(rawData, images);
     const thumbnailUrl = selectBestThumbnailImage(hydratedRawData, images, p.thumbnailUrl || p.imageUrl || null);
     const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
-    const promotedMasterId = p.promotedMasterId ?? null;
     const productPreparation = normalizeProductPreparation(p.productPreparation);
     const basicInfo = normalizeProductBasics(p.basicInfo, {
       name: p.name || rawData.title || '',
       category: p.category || '',
       description: p.description || '',
       tags: Array.isArray(p.tags) ? p.tags.filter((tag: unknown): tag is string => typeof tag === 'string') : [],
-      salePrice: p.sellPrice || null,
       thumbnailUrls: images,
       preparation: productPreparation,
     });
     return {
       id: p.id,
       name: p.name || rawData.title || '',
-      status: (p.status ?? 'sourced') as ProductStatus,
-      promotedMasterId,
-      promoted_master_id: promotedMasterId,
+      status: SourcingCandidateStatusSchema.parse(p.status),
       sourcePlatform,
       source_platform: sourcePlatform,
       source_url: p.sourceUrl || rawData.source_url || null,
@@ -523,6 +604,10 @@ export const productsApi = {
       images: Array.isArray(p.images) ? p.images : [],
       basicInfo,
       productPreparation,
+      contentWorkspaceId:
+        typeof p.contentWorkspaceId === 'string' && p.contentWorkspaceId
+          ? p.contentWorkspaceId
+          : null,
       created_at: p.createdAt || '',
       updated_at: p.updatedAt || '',
     };
@@ -530,13 +615,6 @@ export const productsApi = {
 
   async delete(id: string): Promise<{ ok: boolean }> {
     return apiClient.delete<{ ok: boolean }>(`/api/sourcing/candidates/${id}`);
-  },
-
-  async addRawDataField(
-    id: string,
-    input: { key: string; value: string },
-  ): Promise<{ rawData: Record<string, unknown> }> {
-    return apiClient.post<{ rawData: Record<string, unknown> }>(`/api/products/${id}/raw-data`, input);
   },
 
   async process(
@@ -565,9 +643,6 @@ export const productsApi = {
     };
   },
 
-  async loadSample(): Promise<{ ok: boolean; message: string }> {
-    return apiClient.post<{ ok: boolean; message: string }>(`/api/products/sample`);
-  },
 };
 
 export const sourcingApi = {
@@ -591,22 +666,11 @@ export const productThumbnailGenerationApi = {
   },
 };
 
-export interface PromoteCandidateInput {
-  options: Array<{ optionName: string; legacyCode?: string; barcode?: string }>;
-  selectedThumbnailUrl?: string | null;
-  selectedThumbnailGenerationCandidateId?: string | null;
-  selectedDetailPageGenerationId?: string | null;
-  selectedDetailPageArtifactId?: string | null;
-  selectedDetailPageRevisionId?: string | null;
-  skipPostPromotionHooks?: boolean;
-}
+export type CreatePreparationDraftInput = CreateProductPreparationInput;
 
-export interface PromoteCandidateResponse {
-  masterId: string;
-  masterCode?: string;
-  selectedThumbnailUrl?: string | null;
-  selectedDetailPageArtifactId?: string | null;
-  selectedDetailPageRevisionId?: string | null;
+export interface CreatePreparationDraftResponse {
+  preparationId: string;
+  status: 'draft';
 }
 
 export interface RejectCandidateResponse {
@@ -626,36 +690,107 @@ export interface QuickProcessCandidateResponse {
 export type QuickProcessTask = 'all' | 'detail' | 'thumbnail';
 
 export const candidatesApi = {
-  promote: (id: string, body: PromoteCandidateInput) =>
-    apiClient.post<PromoteCandidateResponse>(`/api/sourcing/candidates/${id}/promote`, body),
-  quickProcess: (id: string, task: QuickProcessTask = 'all') =>
-    apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
-  updateBasicInfo: (id: string, body: UpdateProductBasicsInput) =>
-    apiClient.patch<ProductPreparationSelection>(
-      `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/basic-info`,
+  async createPreparationDraft(
+    id: string,
+    body: CreatePreparationDraftInput,
+  ): Promise<CreatePreparationDraftResponse> {
+    const input = CreateProductPreparationInputSchema.parse(body);
+    const result = ProductPreparationCommandResultSchema.parse(
+      await apiClient.post<unknown>(`/api/sourcing/candidates/${id}/preparations`, input),
+    );
+    if (result.status !== 'draft' || result.listingId !== undefined) {
+      throw new Error('Preparation draft creation returned an invalid result.');
+    }
+    return { preparationId: result.preparationId, status: result.status };
+  },
+  /**
+   * 이미 마켓에 등록된 상품을 등록상품으로 확정한다.
+   *
+   * 쿠팡 WING 등록은 확장이 화면을 조작해 수행하므로 서버의 provider create 경로를
+   * 탈 수 없다. 이 호출은 **이미 발급된 등록상품ID** 를 근거로 `ChannelListing` 만
+   * 만들어 등록상품 목록에 올린다. 서버가 provider 를 호출하지 않는다.
+   */
+  confirmExternalRegistration: (
+    candidateId: string,
+    body: {
+      executionId: string;
+      externalListingId: string;
+      evidence?: Record<string, unknown>;
+    },
+  ) =>
+    apiClient.post<{ preparationId: string; status: string; listingId?: string }>(
+      `/api/sourcing/candidates/${candidateId}/registration/confirm-external`,
       body,
     ),
+  prepareExternalWingRegistration: (candidateId: string, body: {
+    channelAccountId: string;
+    displayName: string;
+    registrationInput: Record<string, unknown>;
+    idempotencyKey: string;
+  }) => apiClient.post<{
+    executionId: string; preparationId: string; requestHash: string;
+    status: 'prepared'; expectedVendorId: string;
+  }>(`/api/sourcing/candidates/${candidateId}/registration/external-wing/prepare`, body),
+  startExternalWingRegistration: (candidateId: string, executionId: string) =>
+    apiClient.post<{ executionId: string; status: 'executing'; providerOutcome: 'uncertain' }>(
+      `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/start`, {},
+    ),
+  markExternalWingRegistrationUnresolved: (
+    candidateId: string, executionId: string, evidence: Record<string, unknown>,
+  ) => apiClient.post(
+    `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/unresolved`,
+    { evidence },
+  ),
+  quickProcess: (id: string, task: QuickProcessTask = 'all') =>
+    apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
+  /**
+   * `ProductPreparation` 이 없는 후보의 기본정보를 후보 자체에 저장한다.
+   * 채널 계정 선택 없이도 저장 가능하며, 준비가 생기면 registrationInput 이 이어받는다.
+   */
+  updateCandidateBasicInfo: (candidateId: string, body: UpdateProductBasicsInput) => {
+    const { basePreparationUpdatedAt: _ignored, ...basics } = body;
+    return apiClient.patch<{ ok: true }>(
+      `/api/sourcing/candidates/${encodeURIComponent(candidateId)}/basic-info`,
+      basics,
+    );
+  },
+  updateBasicInfo: (preparationId: string, body: UpdateProductBasicsInput) => {
+    const { basePreparationUpdatedAt, ...registrationInput } = body;
+    return apiClient.patch<ProductPreparationCommandResult>(
+      `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
+      {
+        ...(typeof body.name === 'string' && body.name.trim()
+          ? { displayName: body.name.trim() }
+          : {}),
+        registrationInput,
+        ...(basePreparationUpdatedAt !== undefined
+          ? { basePreparationUpdatedAt }
+          : {}),
+      },
+    );
+  },
   selectThumbnail: (
-    id: string,
+    preparationId: string,
     body: {
       selectedThumbnailUrl: string;
+      selectedThumbnailGenerationId?: string | null;
       selectedThumbnailGenerationCandidateId?: string | null;
     },
   ) =>
-    apiClient.patch<ProductPreparationSelection>(
-      `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/thumbnail`,
+    apiClient.patch<ProductPreparationCommandResult>(
+      `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
       body,
     ),
   selectDetailPage: (
-    id: string,
+    preparationId: string,
     body: {
       selectedDetailPageGenerationId: string;
       selectedDetailPageArtifactId?: string | null;
       selectedDetailPageRevisionId?: string | null;
     },
   ) =>
-    apiClient.patch<ProductPreparationSelection>(
-      `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/detail-page`,
+    apiClient.patch<ProductPreparationCommandResult>(
+      `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
       body,
     ),
   reject: (id: string, reason?: string) =>

@@ -9,7 +9,7 @@ import type {
 } from '../../../application/port/out/repository/transfers.repository.port';
 
 const TRANSFER_INCLUDE = {
-  option: true,
+  sellpiaInventorySku: true,
   fromWarehouse: true,
   toWarehouse: true,
 } as const;
@@ -28,14 +28,32 @@ export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
     });
   }
 
-  findOptionForTransfer(
-    optionId: string,
+  async findInventorySkuForTransfer(
+    sellpiaInventorySkuId: string,
     organizationId: string,
   ): Promise<{ optionName: string | null } | null> {
-    return this.prisma.productOption.findFirst({
-      where: { id: optionId, organizationId, isDeleted: false },
+    return this.prisma.sellpiaInventorySku.findFirst({
+      where: {
+        id: sellpiaInventorySkuId,
+        organizationId,
+        isActive: true,
+      },
       select: { optionName: true },
     });
+  }
+
+  async findWarehouseIdsForTransfer(
+    warehouseIds: string[],
+    organizationId: string,
+  ): Promise<string[]> {
+    const rows = await this.prisma.warehouse.findMany({
+      where: {
+        id: { in: warehouseIds },
+        organizationId,
+      },
+      select: { id: true },
+    });
+    return rows.map(({ id }) => id);
   }
 
   createStockTransfer(

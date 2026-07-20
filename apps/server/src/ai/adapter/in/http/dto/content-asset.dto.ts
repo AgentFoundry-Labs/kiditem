@@ -17,7 +17,7 @@ export class ListContentAssetsQueryDto {
 
   @IsOptional()
   @IsUUID()
-  productId?: string;
+  contentWorkspaceId?: string;
 
   @IsOptional()
   @IsUUID()

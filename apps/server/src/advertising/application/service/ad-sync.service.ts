@@ -3,7 +3,8 @@
 //
 // This service is intentionally thin: it dispatches to per-source ingest
 // handlers (`AdCampaignIngestHandler`, `RawScrapeIngestHandler`,
-// `TrafficIngestHandler`, `CoupangAdsDailyIngestHandler`), exposes a
+// `TrafficIngestHandler`, `CoupangAdsDailyIngestHandler`,
+// `KeywordRankIngestHandler`), exposes a
 // current-state extension status read, and proxies tenant-scoped
 // scrape-target CRUD through the scrape-target repository port.
 // Domain helpers (business-date, listing-match, scrape-row-normalizers),
@@ -12,35 +13,43 @@
 
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
-} from '@nestjs/common';
-import { ExtensionSyncDto } from '../../adapter/in/http/dto';
-import type { AdExtensionStatus } from '@kiditem/shared/advertising';
+  UnprocessableEntityException,
+} from "@nestjs/common";
+import { ExtensionSyncDto } from "../../adapter/in/http/dto";
+import type { AdExtensionStatus } from "@kiditem/shared/advertising";
 import {
   matchListingFromRow as matchListingFromRowFn,
   type ListingMap,
   type ListingMatch,
-} from '../../domain/listing-match';
+} from "../../domain/listing-match";
 import {
   AD_LISTING_REPOSITORY_PORT,
   type AdListingRepositoryPort,
-} from '../port/out/repository/ad-listing.repository.port';
+} from "../port/out/repository/ad-listing.repository.port";
 import {
   SCRAPE_TARGET_REPOSITORY_PORT,
   type ScrapeTargetRepositoryPort,
-} from '../port/out/repository/scrape-target.repository.port';
+} from "../port/out/repository/scrape-target.repository.port";
 import {
   CHANNEL_SCRAPE_REPOSITORY_PORT,
   type ChannelScrapeRepositoryPort,
-} from '../port/out/repository/channel-scrape.repository.port';
-import { AdCampaignIngestHandler } from './ad-campaign-ingest.handler';
-import { CoupangAdsDailyIngestHandler } from './coupang-ads-daily-ingest.handler';
-import { RawScrapeIngestHandler } from './raw-scrape-ingest.handler';
-import { TrafficIngestHandler } from './traffic-ingest.handler';
+} from "../port/out/repository/channel-scrape.repository.port";
+import { AdCampaignIngestHandler } from "./ad-campaign-ingest.handler";
+import { CoupangAdsDailyIngestHandler } from "./coupang-ads-daily-ingest.handler";
+import { KeywordRankIngestHandler } from "./keyword-rank-ingest.handler";
+import { RawScrapeIngestHandler } from "./raw-scrape-ingest.handler";
+import { TrafficIngestHandler } from "./traffic-ingest.handler";
+import { WingSalesRankIngestHandler } from "./wing-sales-rank-ingest.handler";
+import {
+  AD_INGEST_TRANSACTION_PORT,
+  type AdIngestTransactionPort,
+} from "../port/out/transaction/ad-ingest-transaction.port";
 
-export type { ListingMap } from '../../domain/listing-match';
+export type { ListingMap } from "../../domain/listing-match";
 
 @Injectable()
 export class AdSyncService {
@@ -57,25 +66,83 @@ export class AdSyncService {
     private readonly rawScrapeHandler: RawScrapeIngestHandler,
     private readonly trafficHandler: TrafficIngestHandler,
     private readonly coupangAdsDailyHandler: CoupangAdsDailyIngestHandler,
+    private readonly keywordRankHandler: KeywordRankIngestHandler,
+    private readonly wingSalesRankHandler: WingSalesRankIngestHandler,
+    @Inject(AD_INGEST_TRANSACTION_PORT)
+    private readonly ingestTransaction: AdIngestTransactionPort,
   ) {}
 
   async sync(payload: ExtensionSyncDto, organizationId: string) {
-    const map = await this.buildListingMap(organizationId);
+    const map = await this.buildListingMap(
+      organizationId,
+      payload.channelAccountId,
+    );
 
-    switch (payload.type) {
-      case 'ad_campaign':
-        return this.adCampaignHandler.execute(payload, organizationId, map);
-      case 'raw_scrape':
-        return this.rawScrapeHandler.execute(payload, organizationId, map);
-      case 'traffic':
-        return this.trafficHandler.execute(payload, organizationId, map);
-      case 'coupang_ads_daily':
-        return this.coupangAdsDailyHandler.execute(payload, organizationId);
-      default:
-        throw new BadRequestException(
-          `알 수 없는 type: ${(payload as { type?: string }).type ?? 'undefined'}`,
-        );
+    const execute = async (): Promise<Record<string, unknown>> => {
+      switch (payload.type) {
+        case "ad_campaign":
+          return this.adCampaignHandler.execute(payload, organizationId, map);
+        case "raw_scrape":
+          return this.rawScrapeHandler.execute(payload, organizationId, map);
+        case "traffic":
+          return this.trafficHandler.execute(payload, organizationId, map);
+        case "coupang_ads_daily":
+          return this.coupangAdsDailyHandler.execute(
+            payload,
+            organizationId,
+            map,
+          );
+        case "keyword_rank":
+          return this.keywordRankHandler.execute(payload, organizationId);
+        case "competitor_seller_catalog":
+          return this.keywordRankHandler.executeSellerCatalogs(
+            payload,
+            organizationId,
+          );
+        case "competitor_seller_identity":
+          return this.keywordRankHandler.executeSellerIdentities(
+            payload,
+            organizationId,
+          );
+        case "wing_sales_rank":
+          return this.wingSalesRankHandler.execute(payload, organizationId);
+        default:
+          throw new BadRequestException(
+            `알 수 없는 type: ${(payload as { type?: string }).type ?? "undefined"}`,
+          );
+      }
+    };
+
+    if (!payload.idempotencyKey) {
+      return this.mapProjectionRejection(await execute());
     }
+    const result = await this.ingestTransaction.runIdempotent(
+      { organizationId, idempotencyKey: payload.idempotencyKey },
+      execute,
+    );
+    return this.mapProjectionRejection({
+      ...result.value,
+      replayed: result.replayed,
+    });
+  }
+
+  private mapProjectionRejection<T extends Record<string, unknown>>(result: T): T {
+    const code = result.projectionRejectionCode;
+    if (code === 'invalid_authoritative_shape' || code === 'invalid_date_range') {
+      throw new UnprocessableEntityException({
+        message: '광고 캠페인 리포트의 권한 범위 또는 형태가 유효하지 않습니다.',
+        code,
+        scrapeRunId: result.scrapeRunId ?? null,
+      });
+    }
+    if (code === 'dependent_action_conflict') {
+      throw new ConflictException({
+        message: '기존 광고 일별 데이터와 안전하게 교체할 수 없습니다.',
+        code,
+        scrapeRunId: result.scrapeRunId ?? null,
+      });
+    }
+    return result;
   }
 
   /**
@@ -120,17 +187,17 @@ export class AdSyncService {
     let wingKpis: Record<string, string> = {};
     if (wingKpiRow?.normalizedJson) {
       const normalized = wingKpiRow.normalizedJson as Record<string, unknown>;
-      if (normalized.kpis && typeof normalized.kpis === 'object') {
+      if (normalized.kpis && typeof normalized.kpis === "object") {
         const raw = normalized.kpis as Record<string, unknown>;
         const out: Record<string, string> = {};
         for (const [k, v] of Object.entries(raw)) {
-          if (typeof v === 'string') out[k] = v;
-          else if (typeof v === 'number') out[k] = String(v);
+          if (typeof v === "string") out[k] = v;
+          else if (typeof v === "number") out[k] = String(v);
           else if (
             v &&
-            typeof v === 'object' &&
-            'value' in (v as Record<string, unknown>) &&
-            typeof (v as { value: unknown }).value === 'string'
+            typeof v === "object" &&
+            "value" in (v as Record<string, unknown>) &&
+            typeof (v as { value: unknown }).value === "string"
           ) {
             out[k] = (v as { value: string }).value;
           }
@@ -160,8 +227,13 @@ export class AdSyncService {
     } satisfies AdExtensionStatus;
   }
 
-  async buildListingMap(organizationId: string): Promise<ListingMap> {
-    return this.listingRepo.buildAdSyncListingMap(organizationId);
+  async buildListingMap(
+    organizationId: string,
+    channelAccountId?: string,
+  ): Promise<ListingMap> {
+    return channelAccountId
+      ? this.listingRepo.buildAdSyncListingMap(organizationId, channelAccountId)
+      : this.listingRepo.buildAdSyncListingMap(organizationId);
   }
 
   matchListingFromRow(
@@ -181,7 +253,10 @@ export class AdSyncService {
     category: string | undefined,
     organizationId: string,
   ) {
-    return this.scrapeTargetRepo.create({ url, label, category }, organizationId);
+    return this.scrapeTargetRepo.create(
+      { url, label, category },
+      organizationId,
+    );
   }
 
   async markScraped(id: string, organizationId: string) {

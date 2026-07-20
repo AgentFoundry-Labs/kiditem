@@ -10,11 +10,10 @@ import {
   Image as ImageIcon,
   Loader2,
   Sparkles,
-  Store,
   XCircle,
 } from 'lucide-react';
 import type { DetailPageTemplateId } from '@kiditem/shared/ai';
-import type { SourcingCandidateStatus } from '@kiditem/shared/product-content';
+import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -24,25 +23,30 @@ import { useKidsPlayfulFromSourcing } from '../../../hooks/useKidsPlayfulFromSou
 import TemplateSelectionModal from '@/app/(product-pipeline)/product-pipeline/_shared/components/detail-page/TemplateSelectionModal';
 import {
   candidatesApi,
-  type PromoteCandidateResponse,
+  type ProductBasics,
+  type ProductPreparationSelection,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import {
   channelListingsApi,
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
-import MarketplaceRegistrationDialog from '../marketplace/MarketplaceRegistrationDialog';
 import { getInlineGenerationProgressLabel } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
+import ProductPreparationDraftDialog from './ProductPreparationDraftDialog';
 
 interface ProductEditHeaderProps {
   productName: string;
   productId: string;
   status?: SourcingCandidateStatus;
-  promotedMasterId?: string | null;
+  productPreparation?: ProductPreparationSelection | null;
   isEditComplete: boolean;
   isLocked: boolean;
+  basicInfo?: ProductBasics | null;
+  costCny?: number | null;
   selectedThumbnailUrl?: string | null;
+  selectedThumbnailGenerationId?: string | null;
   selectedThumbnailGenerationCandidateId?: string | null;
   selectedDetailPageGenerationId?: string | null;
   detailGenerationContentWorkspaceId?: string | null;
+  detailGenerationEnabled?: boolean;
   showCandidateActions?: boolean;
   onOpenDetailTemplateGeneration?: () => void;
   onToggleEditComplete: () => void;
@@ -56,11 +60,14 @@ export default function ProductEditHeader({
   productName,
   productId,
   status = 'sourced',
-  promotedMasterId = null,
+  productPreparation = null,
+  basicInfo = null,
   selectedThumbnailUrl = null,
+  selectedThumbnailGenerationId = null,
   selectedThumbnailGenerationCandidateId = null,
   selectedDetailPageGenerationId = null,
   detailGenerationContentWorkspaceId = null,
+  detailGenerationEnabled = true,
   showCandidateActions = true,
   onOpenDetailTemplateGeneration,
   onBack,
@@ -69,43 +76,46 @@ export default function ProductEditHeader({
 }: ProductEditHeaderProps) {
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
-  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+  const [preparationDialogOpen, setPreparationDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectInputOpen, setRejectInputOpen] = useState(false);
-  const { mutate: runGenerate, isPending } = useGenerateDetailPage(promotedMasterId ?? productId);
+  const { mutate: runGenerate, isPending } = useGenerateDetailPage(productId);
   const kp = useKidsPlayfulFromSourcing();
-  const trackingId = promotedMasterId ?? productId;
-  const sourceCandidateScopeId = promotedMasterId ? null : productId;
-  const kpInProgress = useKidsPlayfulInProgress(trackingId, {
-    enabled: !onOpenDetailTemplateGeneration,
-    sourceCandidateId: detailGenerationContentWorkspaceId ? null : sourceCandidateScopeId,
+  const kpInProgress = useKidsPlayfulInProgress(productId, {
+    enabled: detailGenerationEnabled && !onOpenDetailTemplateGeneration,
+    sourceCandidateId: detailGenerationContentWorkspaceId ? null : productId,
     contentWorkspaceId: detailGenerationContentWorkspaceId,
   });
   const generateBusy = isPending || kp.isPending || !!kpInProgress;
   const accountsQuery = useQuery({
-    queryKey: ['channel-accounts', 'active'],
+    queryKey: queryKeys.channelAccounts.active(),
     queryFn: () => channelListingsApi.listAccounts(),
-    enabled: marketplaceOpen,
+    enabled: preparationDialogOpen,
   });
 
-  const promoteMutation = useMutation({
-    mutationFn: () =>
-      candidatesApi.promote(productId, {
-        options: [{ optionName: '기본' }],
+  const createPreparationDraftMutation = useMutation({
+    mutationFn: (channelAccountId: string) =>
+      candidatesApi.createPreparationDraft(productId, {
+        channelAccountId,
+        displayName: productName,
+        registrationInput: preparationRegistrationInput(productName, basicInfo),
         selectedThumbnailUrl,
+        selectedThumbnailGenerationId,
         selectedThumbnailGenerationCandidateId,
         selectedDetailPageGenerationId,
+        selectedDetailPageArtifactId: basicInfo?.selectedDetailPageArtifactId ?? null,
+        selectedDetailPageRevisionId: basicInfo?.selectedDetailPageRevisionId ?? null,
       }),
-    onSuccess: (data: PromoteCandidateResponse) => {
-      toast.success('마스터로 등록 완료 — 자동 AI 생성 큐 진입');
+    onSuccess: (data) => {
+      setPreparationDialogOpen(false);
+      toast.success('제품 등록 준비를 저장했습니다.', {
+        description: `준비 ID: ${data.preparationId}`,
+      });
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
-      if (data?.masterId) {
-        queryClient.invalidateQueries({ queryKey: ['edited-html', data.masterId] });
-      }
     },
     onError: (err) => {
-      toast.error(isApiError(err) ? err.detail : '제품 등록에 실패했습니다.');
+      toast.error(isApiError(err) ? err.detail : '제품 등록 준비를 저장하지 못했습니다.');
     },
   });
 
@@ -123,36 +133,11 @@ export default function ProductEditHeader({
       toast.error(isApiError(err) ? err.detail : '반려 처리에 실패했습니다.');
     },
   });
-  const marketplaceRegistrationMutation = useMutation({
-    mutationFn: (input: {
-      channelAccountId: string;
-      externalId: string;
-      productBarcode?: string | null;
-      channelName?: string | null;
-      channelPrice?: number | null;
-    }) => {
-      if (!promotedMasterId) throw new Error('master product is required');
-      return channelListingsApi.registerConfirmed({
-        masterId: promotedMasterId,
-        ...input,
-      });
-    },
-    onSuccess: () => {
-      toast.success('마켓 등록 정보를 반영했습니다.');
-      setMarketplaceOpen(false);
-      queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-    },
-    onError: (err) => {
-      toast.error(isApiError(err) ? err.detail : '마켓 등록 처리에 실패했습니다.');
-    },
-  });
-
   const handleConfirm = (templateId: string, mode: GenerateMode) => {
     if (templateId === 'kids-playful' || templateId === 'bold-vertical') {
       kp.trigger({
         sourceCandidateId: productId,
-        productId: promotedMasterId,
+        productId: null,
         contentWorkspaceId: detailGenerationContentWorkspaceId,
         productName,
         rawData,
@@ -165,8 +150,17 @@ export default function ProductEditHeader({
     runGenerate({ mode, templateId });
   };
 
-  const canPromote = status === 'sourced' && !promoteMutation.isPending && !rejectMutation.isPending;
-  const canReject = status === 'sourced' && !promoteMutation.isPending && !rejectMutation.isPending;
+  const accountScopedPreparation = productPreparation?.channelAccountId ? productPreparation : null;
+  const preparationStatus = accountScopedPreparation?.status ??
+    createPreparationDraftMutation.data?.status ?? null;
+  const preparationId = accountScopedPreparation?.id ??
+    createPreparationDraftMutation.data?.preparationId ?? null;
+  const canCreatePreparation = status === 'sourced' &&
+    (preparationStatus === null || preparationStatus === 'cancelled') &&
+    !createPreparationDraftMutation.isPending &&
+    !rejectMutation.isPending;
+  const canReject = status === 'sourced' && preparationStatus === null &&
+    !createPreparationDraftMutation.isPending && !rejectMutation.isPending;
   const hasRegistrationThumbnail = !!selectedThumbnailUrl;
   const hasRegistrationDetailPage = !!selectedDetailPageGenerationId;
   const registrationAssetsTitle = [
@@ -195,8 +189,16 @@ export default function ProductEditHeader({
           <p className="text-[10px] text-slate-400 truncate font-mono">
             {productId.slice(0, 8)}
           </p>
-          {status === 'promoted' && (
-            <span className="text-[10px] font-bold text-emerald-600">제품 등록됨</span>
+          {preparationStatus && preparationStatus !== 'cancelled' && (
+            <span
+              className={cn(
+                'text-[10px] font-bold',
+                preparationStatus === 'failed' ? 'text-rose-600' : 'text-emerald-600',
+              )}
+              title={preparationId ? `제품 등록 준비 ${preparationId}` : undefined}
+            >
+              {preparationStatusLabel(preparationStatus)}
+            </span>
           )}
           {status === 'rejected' && (
             <span className="text-[10px] font-bold text-rose-600">반려됨</span>
@@ -258,74 +260,82 @@ export default function ProductEditHeader({
           </span>
         )}
 
-        <button
-          type="button"
-          onClick={() => {
-            if (onOpenDetailTemplateGeneration) {
-              onOpenDetailTemplateGeneration();
-              return;
-            }
-            setModalOpen(true);
-          }}
-          disabled={!onOpenDetailTemplateGeneration && generateBusy}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors',
-            generateBusy ? 'cursor-wait bg-violet-400' : 'bg-violet-600 hover:bg-violet-700',
-          )}
-          title="템플릿 + 모드 선택 후 생성"
-        >
-          {generateBusy ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : (
-            <Sparkles size={12} />
-          )}
-          {generateBusy ? '생성 중...' : '상세페이지 생성'}
-        </button>
-        {!onOpenDetailTemplateGeneration && (
-          <TemplateSelectionModal
-            isOpen={modalOpen}
-            onClose={() => setModalOpen(false)}
-            onConfirm={handleConfirm}
-          />
+        {detailGenerationEnabled && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenDetailTemplateGeneration) {
+                  onOpenDetailTemplateGeneration();
+                  return;
+                }
+                setModalOpen(true);
+              }}
+              disabled={!onOpenDetailTemplateGeneration && generateBusy}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors',
+                generateBusy ? 'cursor-wait bg-violet-400' : 'bg-violet-600 hover:bg-violet-700',
+              )}
+              title="템플릿 + 모드 선택 후 생성"
+            >
+              {generateBusy ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Sparkles size={12} />
+              )}
+              {generateBusy ? '생성 중...' : '상세페이지 생성'}
+            </button>
+            {!onOpenDetailTemplateGeneration && (
+              <TemplateSelectionModal
+                isOpen={modalOpen}
+                onClose={() => setModalOpen(false)}
+                onConfirm={handleConfirm}
+              />
+            )}
+          </>
         )}
 
         {showCandidateActions && status === 'sourced' && (
           <>
-            <button
-              type="button"
-              onClick={() => promoteMutation.mutate()}
-              disabled={!canPromote}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors',
-                canPromote
-                  ? 'bg-emerald-600 hover:bg-emerald-700'
-                  : 'cursor-not-allowed bg-emerald-300',
-              )}
-              title={`제품으로 등록\n${registrationAssetsTitle}`}
-            >
-              {promoteMutation.isPending ? (
-                <Loader2 size={12} className="animate-spin" />
-              ) : (
-                <CheckCircle2 size={12} />
-              )}
-              {promoteMutation.isPending ? '등록 중...' : '제품 등록'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setRejectInputOpen((v) => !v)}
-              disabled={!canReject}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors',
-                canReject
-                  ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
-                  : 'cursor-not-allowed border-rose-100 text-rose-300',
-              )}
-              title="후보 반려"
-            >
-              <XCircle size={12} />
-              반려
-            </button>
-            {rejectInputOpen && (
+            {(preparationStatus === null || preparationStatus === 'cancelled') && (
+              <button
+                type="button"
+                onClick={() => setPreparationDialogOpen(true)}
+                disabled={!canCreatePreparation}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors',
+                  canCreatePreparation
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : 'cursor-not-allowed bg-emerald-300',
+                )}
+                title={`채널별 제품 등록 준비\n${registrationAssetsTitle}`}
+              >
+                {createPreparationDraftMutation.isPending ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <CheckCircle2 size={12} />
+                )}
+                제품 등록 준비
+              </button>
+            )}
+            {preparationStatus === null && (
+              <button
+                type="button"
+                onClick={() => setRejectInputOpen((v) => !v)}
+                disabled={!canReject}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors',
+                  canReject
+                    ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
+                    : 'cursor-not-allowed border-rose-100 text-rose-300',
+                )}
+                title="후보 반려"
+              >
+                <XCircle size={12} />
+                반려
+              </button>
+            )}
+            {preparationStatus === null && rejectInputOpen && (
               <div className="flex items-center gap-1.5">
                 <input
                   type="text"
@@ -352,27 +362,53 @@ export default function ProductEditHeader({
           </>
         )}
 
-        {promotedMasterId && (
-          <>
-            <button
-              type="button"
-              onClick={() => setMarketplaceOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
-            >
-              <Store size={12} />
-              마켓 등록
-            </button>
-            <MarketplaceRegistrationDialog
-              open={marketplaceOpen}
-              accounts={accountsQuery.data ?? []}
-              productName={productName}
-              isSubmitting={marketplaceRegistrationMutation.isPending}
-              onClose={() => setMarketplaceOpen(false)}
-              onSubmit={(input) => marketplaceRegistrationMutation.mutate(input)}
-            />
-          </>
-        )}
+        <ProductPreparationDraftDialog
+          open={preparationDialogOpen}
+          accounts={accountsQuery.data ?? []}
+          isLoading={accountsQuery.isLoading}
+          isSubmitting={createPreparationDraftMutation.isPending}
+          errorMessage={accountsQuery.error
+            ? isApiError(accountsQuery.error)
+              ? accountsQuery.error.detail
+              : '채널 계정을 불러오지 못했습니다.'
+            : null}
+          onClose={() => setPreparationDialogOpen(false)}
+          onSubmit={(channelAccountId) => createPreparationDraftMutation.mutate(channelAccountId)}
+        />
       </div>
     </div>
   );
+}
+
+function preparationRegistrationInput(
+  productName: string,
+  basicInfo: ProductBasics | null,
+): Record<string, unknown> {
+  if (!basicInfo) return { name: productName };
+  const {
+    selectedThumbnailUrl: _selectedThumbnailUrl,
+    selectedThumbnailGenerationId: _selectedThumbnailGenerationId,
+    selectedThumbnailGenerationCandidateId: _selectedThumbnailGenerationCandidateId,
+    selectedDetailPageGenerationId: _selectedDetailPageGenerationId,
+    selectedDetailPageArtifactId: _selectedDetailPageArtifactId,
+    selectedDetailPageRevisionId: _selectedDetailPageRevisionId,
+    thumbnailPreviewUrls: _thumbnailPreviewUrls,
+    ...registrationInput
+  } = basicInfo;
+  return { ...registrationInput, name: productName };
+}
+
+function preparationStatusLabel(status: ProductPreparationSelection['status']): string {
+  switch (status) {
+    case 'draft':
+      return '등록 준비됨';
+    case 'submitting':
+      return '마켓 등록 중';
+    case 'registered':
+      return '제품 등록됨';
+    case 'failed':
+      return '등록 실패';
+    case 'cancelled':
+      return '등록 취소됨';
+  }
 }

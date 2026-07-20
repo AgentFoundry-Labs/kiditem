@@ -17,7 +17,7 @@ import { SourcingMarketDiscoveryService } from '../../../application/service/sou
 const DiscoveryInputSchema = z.object({
   keyword: z.string().min(1),
   category: z.string().nullable().optional(),
-  mode: z.enum(['stub', 'replay']).default('stub'),
+  mode: z.literal('replay').default('replay'),
   sourceUrl: z.string().trim().optional(),
   supplierUrl: z.string().trim().optional(),
   url: z.string().trim().optional(),
@@ -25,11 +25,15 @@ const DiscoveryInputSchema = z.object({
 });
 const CountOutputSchema = z.object({
   count: z.number().int().nonnegative(),
+  confidence: z.number().min(0).max(1),
+  dataGaps: z.array(z.string()),
   scrapeWorkflowRequests: z.number().int().nonnegative().optional(),
 });
 const RecommendationOutputSchema = z.object({
   recommendations: z.number().int().nonnegative(),
-  topScore: z.number(),
+  topScore: z.number().nullable(),
+  confidence: z.number().min(0).max(1),
+  dataGaps: z.array(z.string()),
 });
 
 const INPUT_URL_KEYS = ['supplierUrl', 'sourceUrl', 'url'] as const;
@@ -43,8 +47,8 @@ const ROW_URL_KEYS = [
   'detail_url',
 ] as const;
 
-function stringField(value: unknown, fallback: string): string {
-  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+function stringField(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function optionalStringField(value: unknown): string | null {
@@ -78,8 +82,29 @@ function supplierSourceUrls(
   return uniqueStrings([...inputSourceUrls(input), ...rows.map(rowSourceUrl)]);
 }
 
-function modeField(value: unknown): 'stub' | 'replay' {
-  return value === 'replay' ? 'replay' : 'stub';
+function modeField(_value: unknown): 'replay' {
+  return 'replay';
+}
+
+function artifactTargetId(
+  artifactType: string,
+  row: Record<string, unknown>,
+): string {
+  const directId = ['id', 'offerId', 'productId', 'videoKey', 'sourceSnapshotId']
+    .map((key) => optionalStringField(row[key]))
+    .find(Boolean);
+  if (directId) return `${artifactType}:${directId}`;
+
+  const identity = JSON.stringify(row, Object.keys(row).sort());
+  return `${artifactType}:${stableHash(identity)}`;
+}
+
+function stableHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 function discoveryIdempotency(capabilityKey: string) {
@@ -96,7 +121,7 @@ function discoveryIdempotency(capabilityKey: string) {
       ? `request:${requestId}`
       : [
           'content',
-          stringField(input.keyword, '실리콘 식판'),
+          stringField(input.keyword) || 'missing-keyword',
           optionalStringField(input.category) ?? 'none',
           modeField(input.mode),
           inputSourceUrls(input).join(',') || 'none',
@@ -201,7 +226,9 @@ export class SourcingDiscoveryCapabilityAdapter
             resourceId: first?.id ?? null,
             outputSummary: {
               recommendations: result.recommendations.length,
-              topScore: first?.score.totalScore ?? 0,
+              topScore: first?.score.score ?? null,
+              confidence: result.confidence,
+              dataGaps: result.dataGaps,
             },
             artifacts: result.recommendations.map((recommendation) => ({
               artifactType: 'sourcing_recommendation',
@@ -225,7 +252,7 @@ export class SourcingDiscoveryCapabilityAdapter
     title: string;
     sideEffects?: AgentCapabilityHandler['sideEffects'];
     approvalRisk?: AgentCapabilityHandler['approvalRisk'];
-    pick(result: Awaited<ReturnType<SourcingMarketDiscoveryService['discover']>>): Array<Record<string, unknown>>;
+    pick(result: Awaited<ReturnType<SourcingMarketDiscoveryService['discover']>>): object[];
     executeRows?(input: {
       organizationId: string;
       conversationId: string | null;
@@ -234,6 +261,8 @@ export class SourcingDiscoveryCapabilityAdapter
       requestedByUserId: string | null;
       capabilityInput: Record<string, unknown>;
       rows: Array<Record<string, unknown>>;
+      confidence: number;
+      dataGaps: string[];
     }): Promise<{
       outputSummary: Record<string, unknown>;
       rows: Array<Record<string, unknown>>;
@@ -258,7 +287,7 @@ export class SourcingDiscoveryCapabilityAdapter
           input: capabilityInput,
         } = executionInput;
         const result = await this.discover(organizationId, capabilityInput);
-        const pickedRows = input.pick(result);
+        const pickedRows = input.pick(result).map((row) => ({ ...row }));
         const execution = input.executeRows
           ? await input.executeRows({
               organizationId,
@@ -268,18 +297,24 @@ export class SourcingDiscoveryCapabilityAdapter
               requestedByUserId: requestedByUserId ?? null,
               capabilityInput,
               rows: pickedRows,
+              confidence: result.confidence,
+              dataGaps: result.dataGaps,
             })
           : {
-              outputSummary: { count: pickedRows.length },
+              outputSummary: {
+                count: pickedRows.length,
+                confidence: result.confidence,
+                dataGaps: result.dataGaps,
+              },
               rows: pickedRows,
             };
         return {
           outputSummary: execution.outputSummary,
-          artifacts: execution.rows.map((row, index) => ({
+          artifacts: execution.rows.map((row) => ({
             artifactType: input.artifactType,
             targetDomain: 'sourcing',
             targetModel: input.targetModel,
-            targetId: `${input.artifactType}-stub-${index + 1}`,
+            targetId: artifactTargetId(input.artifactType, row),
             title: input.title,
             summary: row,
           })),
@@ -291,7 +326,7 @@ export class SourcingDiscoveryCapabilityAdapter
   private discover(organizationId: string, input: Record<string, unknown>) {
     return this.discovery.discover({
       organizationId,
-      keyword: stringField(input.keyword, '실리콘 식판'),
+      keyword: stringField(input.keyword),
       category: optionalStringField(input.category),
       mode: modeField(input.mode),
     });
@@ -305,6 +340,8 @@ export class SourcingDiscoveryCapabilityAdapter
     requestedByUserId: string | null;
     capabilityInput: Record<string, unknown>;
     rows: Array<Record<string, unknown>>;
+    confidence: number;
+    dataGaps: string[];
   }): Promise<{
     outputSummary: Record<string, unknown>;
     rows: Array<Record<string, unknown>>;
@@ -312,7 +349,11 @@ export class SourcingDiscoveryCapabilityAdapter
     const urls = supplierSourceUrls(input.capabilityInput, input.rows);
     if (!this.scrapeWorkflow || urls.length === 0) {
       return {
-        outputSummary: { count: input.rows.length },
+        outputSummary: {
+          count: input.rows.length,
+          confidence: input.confidence,
+          dataGaps: input.dataGaps,
+        },
         rows: input.rows,
       };
     }
@@ -338,6 +379,8 @@ export class SourcingDiscoveryCapabilityAdapter
     return {
       outputSummary: {
         count: input.rows.length,
+        confidence: input.confidence,
+        dataGaps: input.dataGaps,
         scrapeWorkflowRequests: workflowByUrl.size,
       },
       rows: input.rows.map((row, index) => {

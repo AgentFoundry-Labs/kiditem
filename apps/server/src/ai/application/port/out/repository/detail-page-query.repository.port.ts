@@ -5,7 +5,7 @@ export const DETAIL_PAGE_QUERY_REPOSITORY_PORT = Symbol(
 export interface DetailPageGenerationSnapshot {
   id: string;
   sourceCandidateId: string | null;
-  contentWorkspaceId: string | null;
+  contentWorkspaceId: string;
   templateId: string | null;
   generationInput: unknown;
   generationResult: unknown;
@@ -13,14 +13,10 @@ export interface DetailPageGenerationSnapshot {
   status: string;
   errorMessage: string | null;
   createdAt: Date;
-  generationGroup: {
-    targetMasterId: string | null;
-  };
 }
 
 export interface DetailPageListRepositoryInput {
   organizationId: string;
-  productId?: string | null;
   sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }
@@ -35,7 +31,7 @@ export interface DetailPageDuplicateRevisionSnapshot {
 export interface DetailPageDuplicateSourceSnapshot {
   id: string;
   generationGroupId: string;
-  contentWorkspaceId: string | null;
+  contentWorkspaceId: string;
   sourceCandidateId: string | null;
   detailPageArtifactId: string | null;
   contentType: string;
@@ -49,14 +45,9 @@ export interface DetailPageDuplicateSourceSnapshot {
   editedHtmlSavedAt: Date | null;
   status: string;
   triggeredByUserId: string | null;
-  generationGroup: {
-    targetMasterId: string | null;
-  };
   detailPageArtifact: {
     id: string;
     title: string | null;
-    sourceCandidateId: string | null;
-    targetMasterId: string | null;
     currentRevision: DetailPageDuplicateRevisionSnapshot | null;
   } | null;
 }
@@ -72,6 +63,20 @@ export interface DetailPageEditedHtmlSnapshot {
       createdAt: Date;
     } | null;
   } | null;
+}
+
+/**
+ * 후보(sourcing candidate)에 저장된 "현재 상세페이지" HTML.
+ *
+ * 경로: content_workspaces(source_candidate_id)
+ *   -> current_detail_page_revision_id
+ *   -> (없으면) detail_page_artifacts.current_revision_id
+ */
+export interface CandidateDetailPageHtmlSnapshot {
+  revisionId: string;
+  artifactId: string;
+  html: string;
+  createdAt: Date;
 }
 
 export interface DetailPageQueryRepositoryPort {
@@ -116,4 +121,8 @@ export interface DetailPageQueryRepositoryPort {
     id: string;
     organizationId: string;
   }): Promise<DetailPageEditedHtmlSnapshot | null>;
+  findCandidateCurrentDetailPageHtml(input: {
+    sourceCandidateId: string;
+    organizationId: string;
+  }): Promise<CandidateDetailPageHtmlSnapshot | null>;
 }

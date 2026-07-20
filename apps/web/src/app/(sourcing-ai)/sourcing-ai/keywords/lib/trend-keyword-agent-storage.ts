@@ -1,13 +1,12 @@
+import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import type { TrendKeywordAgentResult } from './trend-keyword-agent';
 
 const TREND_KEYWORD_AGENT_STORAGE_KEY = 'kiditem:sourcing-ai:keyword-analysis:trend-keyword-agent:v1';
 export const TREND_KEYWORD_AGENT_UPDATED_EVENT = 'kiditem:sourcing-ai:trend-keyword-agent-updated';
 
 export function readTrendKeywordAgentResult(): TrendKeywordAgentResult | null {
-  if (typeof window === 'undefined') return null;
-
   try {
-    const raw = window.localStorage.getItem(TREND_KEYWORD_AGENT_STORAGE_KEY);
+    const raw = safeStorageGet('local', TREND_KEYWORD_AGENT_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     return isTrendKeywordAgentResult(parsed) ? parsed : null;
   } catch {
@@ -17,7 +16,7 @@ export function readTrendKeywordAgentResult(): TrendKeywordAgentResult | null {
 
 export function writeTrendKeywordAgentResult(result: TrendKeywordAgentResult) {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(TREND_KEYWORD_AGENT_STORAGE_KEY, JSON.stringify(result));
+  safeStorageSet('local', TREND_KEYWORD_AGENT_STORAGE_KEY, JSON.stringify(result));
   window.dispatchEvent(new Event(TREND_KEYWORD_AGENT_UPDATED_EVENT));
 }
 

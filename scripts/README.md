@@ -20,7 +20,11 @@ npm run test:scripts
 
 | path | owner / purpose | entrypoint |
 |---|---|---|
+| `scripts/authoritative-inventory-rebuild.ts` | GitHub-Actions-only guard, selective Coupang scrape export/replay, protected auth/account preflight, exact Sellpia/Wing source binding, and fail-closed readiness verification for the 0.1.24 shared database rebuild | `npm run inventory:rebuild`, staging/production deploy workflows, `docs/runbooks/deployment-architecture.md` |
+| `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
+| `scripts/check-sellpia-cutover-preflight.ts` | manual read-only diagnostic for the retired expand-release preservation/account/content/tenant assumptions; not part of current CI/CD | `npm run check:sellpia-cutover-preflight` |
+| `scripts/check-sellpia-db-push-warning.mjs` | manual diagnostic for the retired additive/composite-key Prisma warning allowlist; not part of current CI/CD | direct operator troubleshooting only |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |
 | `scripts/check-pr-reconstruction-contract.mjs` | high-risk reconstruction PR body gate | `npm run check:pr-reconstruction` |
@@ -37,10 +41,9 @@ npm run test:scripts
 | `scripts/dev-data.ts` | dev data bundle CLI | `npm run data:dev:*` |
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
 | `scripts/generate-schema-graphify.py` | Graphify schema export generator | `npm run graphify:schema` |
-| `scripts/import-baseline-planner.ts` | pure planner used by product baseline import | `scripts/import-product-baseline.ts` |
-| `scripts/import-product-baseline.ts` | Drive reference workbook import | `npm run import:product-baseline` |
 | `scripts/prepare-coupang-extension.mjs` | staging browser-extension setup helper | `docs/runbooks/staging-deploy.md` |
-| `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/` and record `data_migration_runs` ledger rows | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
+| `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/`, record `data_migration_runs` ledger rows, and export/restore the hash-bound ledger baseline for an authoritative reset | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
+| `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; guarded staging/production rebuild workflows keep their direct Prisma entrypoint | `npm run db:push` |
 | `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
 | `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
 | `scripts/storage-cache-control.ts` | Supabase/S3 Storage cache-control inspection and staging backfill helper for public immutable image assets | `npm run storage:cache-control`, `docs/runbooks/storage-cache-control.md` |
@@ -59,6 +62,8 @@ npm run test:scripts
 ## Retired
 
 The old marketplace SQL seed, Langfuse DB init SQL, ad/traffic market-data
-seeds, and agent prompt SQL migrations are intentionally not present. If a
-workflow needs one again, add it back as a named package script or runbook step
-and update this inventory in the same PR.
+seeds, agent prompt SQL migrations, and matched-workbook database importer are
+intentionally not present. Reference files may remain in dev-data bundles, but
+owner runtime upload endpoints are the source-of-truth import paths. If a
+workflow needs a durable script again, add it back as a named package script or
+runbook step and update this inventory in the same PR.

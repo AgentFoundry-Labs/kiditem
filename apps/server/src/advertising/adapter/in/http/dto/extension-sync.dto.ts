@@ -1,6 +1,27 @@
-import { IsString, IsOptional, IsArray, IsObject, IsNumber, ValidateIf } from 'class-validator';
+import {
+  IsArray,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsNotEmpty,
+  IsUUID,
+  MaxLength,
+  Matches,
+  ValidateIf,
+} from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class ExtensionSyncDto {
+  @IsOptional()
+  @MaxLength(160)
+  @Matches(/^authoritative-rebuild:[1-9][0-9]*:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+  idempotencyKey?: string;
+
+  @IsOptional()
+  @IsUUID()
+  channelAccountId?: string;
+
   @IsString()
   type: string;
 
@@ -11,6 +32,26 @@ export class ExtensionSyncDto {
   @IsOptional()
   @IsString()
   campaignName?: string;
+
+  /**
+   * Raw producer authority evidence. This intentionally accepts bounded future
+   * values; the application authority resolver recognizes only the shared
+   * producer enum and fails unknown values closed.
+   */
+  @IsOptional()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  campaignReportScope?: string;
+
+  @IsOptional()
+  @IsString()
+  dashboardOnOff?: string;
+
+  @IsOptional()
+  @IsString()
+  dashboardStatus?: string;
 
   // Wing 익스텐션은 숫자(일수), 광고센터 익스텐션은 "7d"/"14d" 문자열을 보냄
   @IsOptional()

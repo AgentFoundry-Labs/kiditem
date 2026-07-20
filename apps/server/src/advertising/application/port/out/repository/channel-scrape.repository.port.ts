@@ -14,6 +14,7 @@ export type ScrapeMatchStatus = DomainScrapeMatchStatus;
 
 export interface ScrapeRunInput {
   organizationId: string;
+  channelAccountId: string;
   channel: string;
   source: string;
   pageType: string;
@@ -37,7 +38,6 @@ export interface ScrapeSnapshotInput {
   externalOptionId?: string | null;
   listingId?: string | null;
   listingOptionId?: string | null;
-  optionId?: string | null;
   matchStatus: ScrapeMatchStatus;
   matchReason?: string | null;
   rowHash?: string | null;
@@ -98,6 +98,11 @@ export interface ExtensionStatusSnapshot {
 export interface ChannelScrapeRepositoryPort {
   // Lifecycle writes
   createRun(input: ScrapeRunInput): Promise<{ id: string }>;
+  updateRunMeta(input: {
+    scrapeRunId: string;
+    organizationId: string;
+    metaJson: Record<string, unknown>;
+  }): Promise<void>;
   appendSnapshot(input: ScrapeSnapshotInput): Promise<{ id: string }>;
   finalizeRun(input: ScrapeRunFinalize): Promise<void>;
   /** Best-effort error finalize; swallows secondary finalize errors. */

@@ -41,7 +41,7 @@ export class PickingService implements PickingPort {
     const { items, skippedCount } = extractPickableItems(orders);
     if (items.length === 0) {
       throw new BadRequestException(
-        `매칭된 SKU 가 없습니다 (skipped: ${skippedCount}). vendorItemId ChannelListingOption 매핑 확인.`,
+        `매칭된 Sellpia SKU가 없습니다 (skipped: ${skippedCount}). ChannelSku 구성품 매핑을 확인하세요.`,
       );
     }
 

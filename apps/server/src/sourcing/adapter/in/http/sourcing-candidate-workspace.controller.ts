@@ -5,14 +5,16 @@ import type { AuthUser } from '../../../../auth/auth.types';
 import { SourcingPromotionService } from '../../../application/service/sourcing-promotion.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import { SourcingWorkspaceArchiveService } from '../../../application/service/sourcing-workspace-archive.service';
-import { ProductPreparationSelectionService } from '../../../application/service/product-preparation-selection.service';
+import { ProductRegistrationService } from '../../../application/service/product-registration.service';
 import {
-  PromoteCandidateBodyDto,
+  ConfirmExternalRegistrationDto,
+  ExternalWingEvidenceDto,
+  CreateProductPreparationDto,
   QuickProcessCandidateDto,
   RejectCandidateBodyDto,
-  SelectPreparationDetailDto,
-  SelectPreparationThumbnailDto,
   UpdateProductBasicsDto,
+  UpdateProductPreparationDto,
+  PrepareExternalWingRegistrationDto,
 } from './dto';
 
 @Controller('sourcing')
@@ -21,7 +23,7 @@ export class SourcingCandidateWorkspaceController {
     private readonly sourcingService: SourcingService,
     private readonly promotionSvc: SourcingPromotionService,
     private readonly workspaceArchive: SourcingWorkspaceArchiveService,
-    private readonly preparationSelection: ProductPreparationSelectionService,
+    private readonly productRegistration: ProductRegistrationService,
   ) {}
 
   @Get(':id')
@@ -32,13 +34,122 @@ export class SourcingCandidateWorkspaceController {
     return this.sourcingService.getProduct(id, organizationId);
   }
 
-  @Post('candidates/:id/promote')
-  async promote(
+  @Post('candidates/:id/preparations')
+  createPreparation(
     @Param('id') id: string,
-    @Body() body: PromoteCandidateBodyDto,
+    @Body() body: CreateProductPreparationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.createDraft(organizationId, id, user.id ?? null, body);
+  }
+
+  @Patch('preparations/:id')
+  updatePreparation(
+    @Param('id') id: string,
+    @Body() body: UpdateProductPreparationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.updateDraft(organizationId, id, user.id ?? null, body);
+  }
+
+  @Post('preparations/:id/submit')
+  submitPreparation(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.submit(organizationId, id, user.id ?? null);
+  }
+
+  /**
+   * 마켓에 이미 등록된 상품을 등록상품으로 확정한다.
+   *
+   * 쿠팡 WING 은 확장이 화면을 직접 조작해 등록하므로 서버가 provider create 를
+   * 부르는 `preparations/:id/submit` 을 탈 수 없다. 이 경로는 provider 를 호출하지 않고
+   * 이미 발급된 등록상품ID 로 `ChannelListing` 확정만 수행한다.
+   */
+  @Post('candidates/:id/registration/confirm-external')
+  confirmExternalRegistration(
+    @Param('id') id: string,
+    @Body() body: ConfirmExternalRegistrationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.confirmExternalRegistration(
+      organizationId,
+      id,
+      user.id ?? null,
+      body,
+    );
+  }
+
+  @Post('candidates/:id/registration/external-wing/prepare')
+  prepareExternalWingRegistration(
+    @Param('id') id: string,
+    @Body() body: PrepareExternalWingRegistrationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.prepareExternalWingRegistration(
+      organizationId, id, user.id ?? null, body,
+    );
+  }
+
+  @Post('candidates/:id/registration/executions/:executionId/start')
+  startExternalWingRegistration(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.startExternalWingRegistration(
+      organizationId, id, user.id ?? null, executionId,
+    );
+  }
+
+  @Get('candidates/:id/registration/executions/:executionId')
+  externalWingRegistrationStatus(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.getExternalWingRegistration(
+      organizationId, id, user.id ?? null, executionId,
+    );
+  }
+
+  @Post('candidates/:id/registration/executions/:executionId/unresolved')
+  markExternalWingRegistrationUnresolved(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @Body() body: ExternalWingEvidenceDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.markExternalWingRegistrationUnresolved(
+      organizationId, id, user.id ?? null, executionId, body.evidence,
+    );
+  }
+
+  @Post('preparations/:id/cancel')
+  cancelPreparation(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.cancel(organizationId, id, user.id ?? null);
+  }
+
+  @Patch('candidates/:id/basic-info')
+  updateCandidateBasicInfo(
+    @Param('id') id: string,
+    @Body() body: UpdateProductBasicsDto,
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.promotionSvc.promote(id, organizationId, body);
+    return this.sourcingService.updateCandidateBasicInfo(id, organizationId, { ...body });
   }
 
   @Post('candidates/:id/reject')
@@ -59,33 +170,6 @@ export class SourcingCandidateWorkspaceController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.sourcingService.quickProcessCandidate(id, organizationId, user.id ?? null, body?.task ?? 'all');
-  }
-
-  @Patch('candidates/:id/preparation/basic-info')
-  updateBasicInfo(
-    @Param('id') id: string,
-    @Body() body: UpdateProductBasicsDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.preparationSelection.updateBasics(organizationId, id, body);
-  }
-
-  @Patch('candidates/:id/preparation/thumbnail')
-  selectThumbnail(
-    @Param('id') id: string,
-    @Body() body: SelectPreparationThumbnailDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.preparationSelection.selectThumbnail(organizationId, id, body);
-  }
-
-  @Patch('candidates/:id/preparation/detail-page')
-  selectDetailPage(
-    @Param('id') id: string,
-    @Body() body: SelectPreparationDetailDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.preparationSelection.selectDetailPage(organizationId, id, body);
   }
 
   @Delete('candidates/:id')

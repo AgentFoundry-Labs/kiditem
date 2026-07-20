@@ -3,45 +3,37 @@ import { apiClient } from '@/lib/api-client';
 import { cancelOperation } from '@/lib/operation-cancellation';
 import { queryKeys } from '@/lib/query-keys';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type {
-  RecomposeVariantKey,
-  ThumbnailGenerationItem,
-} from '@kiditem/shared/ai';
+import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { isActive } from '../lib/thumbnail-status';
-import {
-  registerWingThumbnailViaExtension,
-  type WingRegistrationResult,
-} from '../lib/wing-registration';
+import { registerWingThumbnailViaExtension, type WingRegistrationResult } from '../lib/wing-registration';
 
-export type ThumbnailGenerationListScope = 'product-bound' | 'direct-upload' | 'all';
+export type ThumbnailGenerationListScope = 'workspace-bound' | 'direct-upload' | 'all';
 
-export function useGenerationList(params: {
-  scope?: ThumbnailGenerationListScope;
-  limit?: number;
-  productId?: string | null;
-  sourceCandidateId?: string | null;
-  contentWorkspaceId?: string | null;
-} = {}) {
+export function useGenerationList(
+  params: {
+    scope?: ThumbnailGenerationListScope;
+    limit?: number;
+    sourceCandidateId?: string | null;
+    contentWorkspaceId?: string | null;
+  } = {},
+) {
   const queryParams: Record<string, string> = {};
   if (params.contentWorkspaceId) {
     queryParams.contentWorkspaceId = params.contentWorkspaceId;
   } else if (params.sourceCandidateId) {
     queryParams.sourceCandidateId = params.sourceCandidateId;
-  } else if (params.productId) {
-    queryParams.productId = params.productId;
   }
-  if (params.scope && params.scope !== 'product-bound') queryParams.scope = params.scope;
+  if (params.scope && params.scope !== 'workspace-bound') queryParams.scope = params.scope;
   if (params.limit) queryParams.limit = String(params.limit);
   const query = new URLSearchParams(queryParams).toString();
   return useQuery({
-    queryKey: queryKeys.thumbnailAnalysis.generations(
-      Object.keys(queryParams).length > 0 ? queryParams : undefined,
-    ),
+    queryKey: queryKeys.thumbnailAnalysis.generations(Object.keys(queryParams).length > 0 ? queryParams : undefined),
     queryFn: async () => {
-      const href = query
-        ? `/api/thumbnail-analysis/generations?${query}`
-        : '/api/thumbnail-analysis/generations';
-      const res = await apiClient.get<{ items: ThumbnailGenerationItem[]; total: number }>(href);
+      const href = query ? `/api/thumbnail-analysis/generations?${query}` : '/api/thumbnail-analysis/generations';
+      const res = await apiClient.get<{
+        items: ThumbnailGenerationItem[];
+        total: number;
+      }>(href);
       return res?.items ?? [];
     },
     staleTime: 1000,
@@ -59,16 +51,25 @@ export function useSelectCandidate() {
   const qKey = queryKeys.thumbnailAnalysis.generations();
   return useMutation({
     mutationFn: ({ id, selectedUrl }: { id: string; selectedUrl: string }) =>
-      apiClient.put(`/api/thumbnail-analysis/generations/${id}/select`, { selectedUrl }),
+      apiClient.put(`/api/thumbnail-analysis/generations/${id}/select`, {
+        selectedUrl,
+      }),
     onMutate: async ({ id, selectedUrl }) => {
       await queryClient.cancelQueries({ queryKey: qKey });
       const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
-      queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
-        old?.map((g): ThumbnailGenerationItem =>
-          g.id === id
-            ? { ...g, selectedUrl: selectedUrl || null, status: 'succeeded', phase: 'ready' }
-            : g,
-        ) ?? [],
+      queryClient.setQueryData<ThumbnailGenerationItem[]>(
+        qKey,
+        (old) =>
+          old?.map((g): ThumbnailGenerationItem =>
+            g.id === id
+              ? {
+                  ...g,
+                  selectedUrl: selectedUrl || null,
+                  status: 'succeeded',
+                  phase: 'ready',
+                }
+              : g,
+          ) ?? [],
       );
       return { previous };
     },
@@ -90,17 +91,16 @@ export function useClearReadySelections() {
   const qKey = queryKeys.thumbnailAnalysis.generations();
   return useMutation({
     mutationFn: () =>
-      apiClient.put<{ count: number }>(
-        '/api/thumbnail-analysis/generations/clear-ready-selections',
-        {},
-      ),
+      apiClient.put<{ count: number }>('/api/thumbnail-analysis/generations/clear-ready-selections', {}),
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: qKey });
       const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
-      queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
-        old?.map((g): ThumbnailGenerationItem =>
-          g.phase === 'ready' && g.selectedUrl ? { ...g, selectedUrl: null } : g,
-        ) ?? [],
+      queryClient.setQueryData<ThumbnailGenerationItem[]>(
+        qKey,
+        (old) =>
+          old?.map((g): ThumbnailGenerationItem =>
+            g.phase === 'ready' && g.selectedUrl ? { ...g, selectedUrl: null } : g,
+          ) ?? [],
       );
       return { previous };
     },
@@ -116,10 +116,11 @@ export function useClearReadySelections() {
 export function useApplyGeneration() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.put(`/api/thumbnail-analysis/generations/${id}/apply`, {}),
+    mutationFn: (id: string) => apiClient.put(`/api/thumbnail-analysis/generations/${id}/apply`, {}),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.thumbnailAnalysis.generations(),
+      });
     },
   });
 }
@@ -127,10 +128,11 @@ export function useApplyGeneration() {
 export function useSkipGeneration() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.put(`/api/thumbnail-analysis/generations/${id}/skip`, {}),
+    mutationFn: (id: string) => apiClient.put(`/api/thumbnail-analysis/generations/${id}/skip`, {}),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.thumbnailAnalysis.generations(),
+      });
     },
   });
 }
@@ -148,17 +150,19 @@ export function useCancelGeneration() {
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: qKey });
       const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
-      queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
-        old?.map((g): ThumbnailGenerationItem =>
-          g.id === id
-            ? {
-                ...g,
-                status: 'cancelled',
-                phase: null,
-                errorMessage: '사용자 요청으로 생성이 중단되었습니다.',
-              }
-            : g,
-        ) ?? [],
+      queryClient.setQueryData<ThumbnailGenerationItem[]>(
+        qKey,
+        (old) =>
+          old?.map((g): ThumbnailGenerationItem =>
+            g.id === id
+              ? {
+                  ...g,
+                  status: 'cancelled',
+                  phase: null,
+                  errorMessage: '사용자 요청으로 생성이 중단되었습니다.',
+                }
+              : g,
+          ) ?? [],
       );
       return { previous };
     },
@@ -175,15 +179,12 @@ export function useDeleteGeneration() {
   const queryClient = useQueryClient();
   const qKey = queryKeys.thumbnailAnalysis.generations();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.delete(`/api/thumbnail-analysis/generations/${id}`),
+    mutationFn: (id: string) => apiClient.delete(`/api/thumbnail-analysis/generations/${id}`),
     // Optimistic: 서버 응답 기다리지 말고 즉시 cache 에서 제거 → UI 반영
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: qKey });
       const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
-      queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
-        (old ?? []).filter((g) => g.id !== id),
-      );
+      queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) => (old ?? []).filter((g) => g.id !== id));
       return { previous };
     },
     onError: (_err, _vars, context) => {
@@ -206,10 +207,11 @@ export function useDeleteCandidate() {
   const qKey = queryKeys.thumbnailAnalysis.generations();
   return useMutation({
     mutationFn: ({ id, url }: { id: string; url: string }) =>
-      apiClient.delete<{ ok: true; generationDeleted: boolean; remaining: number }>(
-        `/api/thumbnail-analysis/generations/${id}/candidates`,
-        { url },
-      ),
+      apiClient.delete<{
+        ok: true;
+        generationDeleted: boolean;
+        remaining: number;
+      }>(`/api/thumbnail-analysis/generations/${id}/candidates`, { url }),
     onMutate: async ({ id, url }) => {
       await queryClient.cancelQueries({ queryKey: qKey });
       const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
@@ -266,10 +268,12 @@ export function useReEditGeneration() {
       await queryClient.cancelQueries({ queryKey: qKey });
       const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
       // 즉시 generating으로 낙관적 업데이트 (UI에서 생성 중 탭으로 이동)
-      queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
-        old?.map((g): ThumbnailGenerationItem =>
-          g.id === id ? { ...g, status: 'running', phase: null, candidates: [] } : g,
-        ) ?? [],
+      queryClient.setQueryData<ThumbnailGenerationItem[]>(
+        qKey,
+        (old) =>
+          old?.map((g): ThumbnailGenerationItem =>
+            g.id === id ? { ...g, status: 'running', phase: null, candidates: [] } : g,
+          ) ?? [],
       );
       return { previous };
     },
@@ -283,7 +287,7 @@ export function useReEditGeneration() {
 }
 
 interface CreateEditJobsParams {
-  productIds: string[];
+  contentWorkspaceIds: string[];
   purpose?: 'compliance' | 'quality';
   /**
    * 사용자가 카드에서 선택한 recompose variant.
@@ -298,7 +302,9 @@ export function useCreateEditJobs() {
     mutationFn: (params: CreateEditJobsParams) =>
       apiClient.post<ThumbnailGenerationItem[]>('/api/thumbnail-analysis/edit-jobs', params),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.thumbnailAnalysis.generations(),
+      });
     },
   });
 }
@@ -308,7 +314,9 @@ export function useWingRegister() {
   return useMutation({
     mutationFn: (id: string) => registerWingThumbnailViaExtension(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.thumbnailAnalysis.generations(),
+      });
     },
   });
 }
@@ -341,7 +349,9 @@ export function useBatchWingRegister() {
       return { results };
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.thumbnailAnalysis.generations(),
+      });
     },
   });
 }
@@ -350,11 +360,11 @@ export function useClearRegistrationError() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.delete<{ ok: true }>(
-        `/api/thumbnail-analysis/generations/${id}/registration-error`,
-      ),
+      apiClient.delete<{ ok: true }>(`/api/thumbnail-analysis/generations/${id}/registration-error`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.thumbnailAnalysis.generations(),
+      });
     },
   });
 }
@@ -363,12 +373,15 @@ export function useVerifyRegistration() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.post<{ registered: boolean; detectedUrl: string | null; error?: string }>(
-        `/api/thumbnail-analysis/generations/${id}/verify-registration`,
-        {},
-      ),
+      apiClient.post<{
+        registered: boolean;
+        detectedUrl: string | null;
+        error?: string;
+      }>(`/api/thumbnail-analysis/generations/${id}/verify-registration`, {}),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.thumbnailAnalysis.generations(),
+      });
     },
   });
 }

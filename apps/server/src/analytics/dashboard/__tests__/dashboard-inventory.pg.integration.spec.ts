@@ -54,22 +54,16 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   }
 
   /**
-   * Seed a basic 2-master + 1-inventory + 1-alert layout for TEST,
-   * and 5-master + 5-inventory + 3-alert for OTHER (no order data).
+   * Seed a basic 2-operating-product + 1-alert layout for TEST,
+   * and 5-operating-product + 3-alert for OTHER (no order data).
    * Used by T1/T2/T3 (IDOR cases that don't touch warnings).
    */
   async function seedBaseStructure() {
     const masterT1 = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-1', name: 'Master T1', abcGrade: 'A',
     });
-    const masterT2 = await setupMaster(prisma, {
+    await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-2', name: 'Master T2', abcGrade: 'B',
-    });
-    const optionT1 = await setupProductOption(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, masterId: masterT1.id, sku: 'SKU-T-1',
-    });
-    await prisma.inventory.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, optionId: optionT1.id, currentStock: 10, reorderPoint: 5 },
     });
     await prisma.alert.create({
       data: {
@@ -80,15 +74,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
 
     for (let i = 1; i <= 5; i++) {
-      const masterO = await setupMaster(prisma, {
+      await setupMaster(prisma, {
         organizationId: OTHER_ORGANIZATION_ID, code: `M-O-${i}`, name: `Master O${i}`,
         abcGrade: i <= 3 ? 'A' : 'B',
-      });
-      const optionO = await setupProductOption(prisma, {
-        organizationId: OTHER_ORGANIZATION_ID, masterId: masterO.id, sku: `SKU-O-${i}`,
-      });
-      await prisma.inventory.create({
-        data: { organizationId: OTHER_ORGANIZATION_ID, optionId: optionO.id, currentStock: 1, reorderPoint: 100 },
       });
     }
     for (let i = 1; i <= 3; i++) {
@@ -102,7 +90,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     }
   }
 
-  it('T1: TEST sees only TEST products, alerts, gradeCount', async () => {
+  it('T1: TEST sees only TEST listings, alerts, and grades', async () => {
     await seedBaseStructure();
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
@@ -110,8 +98,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.totalProducts).toBe(2);
     expect(result.channelLinkedProducts).toBe(0);
     expect(result.channelUnlinkedProducts).toBe(2);
-    expect(result.gradeCount.A ?? 0).toBe(0);
-    expect(result.gradeCount.B ?? 0).toBe(0);
+    expect(result.gradeCount.A).toBe(1);
+    expect(result.gradeCount.B).toBe(1);
     expect(result.alerts.length).toBe(1);
     expect(result.alerts[0].title).toBe('Test alert');
   });
@@ -155,7 +143,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.channelLinkedProducts).toBe(1);
     expect(result.channelUnlinkedProducts).toBe(1);
     expect(result.gradeCount.A).toBe(1);
-    expect(result.gradeCount.B ?? 0).toBe(0);
+    expect(result.gradeCount.B).toBe(1);
   });
 
   it('T2: OTHER sees only OTHER — TEST does not leak', async () => {
@@ -164,8 +152,10 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const result = await service.getSummary(ctx, OTHER_ORGANIZATION_ID);
 
     expect(result.totalProducts).toBe(5);
-    expect(result.gradeCount.A ?? 0).toBe(0);
-    expect(result.gradeCount.B ?? 0).toBe(0);
+    expect(result.channelLinkedProducts).toBe(0);
+    expect(result.channelUnlinkedProducts).toBe(5);
+    expect(result.gradeCount.A).toBe(3);
+    expect(result.gradeCount.B).toBe(2);
     expect(result.alerts.length).toBe(3);
   });
 
@@ -177,7 +167,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.warnings.minusProducts).toBe(0);
     expect(result.warnings.lowProfitProducts).toBe(0);
     expect(result.warnings.highAdProducts).toBe(0);
-    expect(result.warnings.needReorder).toBe(0);
+    expect(result.warnings.outOfStockSkus).toBe(0);
+    expect(result.warnings.mappingAttentionSkus).toBe(0);
   });
 
   it('T4: minusProduct — seeded loss order surfaces in warnings.minusProducts', async () => {

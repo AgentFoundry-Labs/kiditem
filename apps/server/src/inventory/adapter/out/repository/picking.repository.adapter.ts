@@ -9,7 +9,10 @@ import type {
   PickingRepositoryPort,
 } from '../../../application/port/out/repository/picking.repository.port';
 
-const LIST_WITH_ITEMS_INCLUDE = { items: true } as const;
+const INVENTORY_SKU_INCLUDE = { sellpiaInventorySku: true } as const;
+const LIST_WITH_ITEMS_INCLUDE = {
+  items: { include: INVENTORY_SKU_INCLUDE },
+} as const;
 
 @Injectable()
 export class PickingRepositoryAdapter implements PickingRepositoryPort {
@@ -23,28 +26,43 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     });
   }
 
-  createPickingList(
+  async createPickingList(
     organizationId: string,
     listNumber: string,
     items: PickableItem[],
   ): Promise<PickingListRow> {
-    return this.prisma.pickingList.create({
-      data: {
-        organizationId,
-        listNumber,
-        totalItems: items.length,
-        items: {
-          create: items.map((it) => ({
-            orderId: it.orderId,
-            optionId: it.optionId,
-            productName: it.productName,
-            sku: it.sku ?? undefined,
-            quantity: it.quantity,
-            location: undefined,
-          })),
+    return this.prisma.$transaction(async (tx) => {
+      const sellpiaInventorySkuIds = [...new Set(
+        items.map((item) => item.sellpiaInventorySkuId),
+      )];
+      const inventorySkus = await tx.sellpiaInventorySku.findMany({
+        where: {
+          id: { in: sellpiaInventorySkuIds },
+          organizationId,
+          isActive: true,
         },
-      },
-      include: LIST_WITH_ITEMS_INCLUDE,
+        select: { id: true },
+      });
+      if (inventorySkus.length !== sellpiaInventorySkuIds.length) {
+        throw new NotFoundException('Sellpia inventory SKU not found');
+      }
+      const rows = items.map((item) => ({
+        orderId: item.orderId,
+        sellpiaInventorySkuId: item.sellpiaInventorySkuId,
+        productName: item.productName,
+        sku: item.sku ?? undefined,
+        quantity: item.quantity,
+        location: undefined,
+      }));
+      return tx.pickingList.create({
+        data: {
+          organizationId,
+          listNumber,
+          totalItems: items.length,
+          items: { create: rows },
+        },
+        include: LIST_WITH_ITEMS_INCLUDE,
+      });
     });
   }
 
@@ -61,6 +79,7 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
   ): Promise<PickingItemRow | null> {
     return this.prisma.pickingItem.findFirst({
       where: { id: itemId, pickingListId: listId },
+      include: INVENTORY_SKU_INCLUDE,
     });
   }
 
@@ -69,7 +88,11 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     data: PickingItemUpdateData,
   ): Promise<PickingItemRow> {
     const prismaData: Prisma.PickingItemUpdateInput = data;
-    return this.prisma.pickingItem.update({ where: { id: itemId }, data: prismaData });
+    return this.prisma.pickingItem.update({
+      where: { id: itemId },
+      data: prismaData,
+      include: INVENTORY_SKU_INCLUDE,
+    });
   }
 
   countPickedItems(listId: string): Promise<number> {

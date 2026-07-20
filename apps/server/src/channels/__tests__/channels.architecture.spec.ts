@@ -96,6 +96,16 @@ describe('channels architecture contract', () => {
     ).toEqual([]);
   });
 
+  it('reaches Inventory only through the local Sellpia recipe evidence adapter', () => {
+    const channels = channelsRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'inventory/application/port/in/stock/sellpia-inventory-sku-read' ${channels} --glob '!**/__tests__/**'`,
+    );
+    expect(hits).toEqual([
+      path.join(channels, 'adapter/out/inventory/sellpia-recipe-evidence.adapter.ts'),
+    ]);
+  });
+
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
     const channels = channelsRel();
     const httpGlob = path.join(channels, 'adapter/in/http') + '/**';
@@ -117,6 +127,17 @@ describe('channels architecture contract', () => {
     expect(
       hits,
       `outgoing adapters must depend on application/port/out contracts, not application services:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('does not retain channel-owned component recipes or persisted mapping status', () => {
+    const channels = channelsRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'ChannelSkuComponent|channelSkuComponent' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+    );
+    expect(
+      hits,
+      `the completed cutover must not retain channel-owned recipe persistence:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 

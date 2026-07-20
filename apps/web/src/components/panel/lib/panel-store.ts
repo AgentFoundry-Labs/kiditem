@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import type { PanelItem, PanelEvent } from '@kiditem/shared/panel';
 
 const PANEL_OPEN_LS_KEY = 'kiditem.panel.open';
@@ -21,12 +22,7 @@ export function isUnreadPanelItem(item: PanelItem): boolean {
 }
 
 const readOpenFromStorage = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  try {
-    return localStorage.getItem(PANEL_OPEN_LS_KEY) === 'true';
-  } catch {
-    return false;
-  }
+  return safeStorageGet('local', PANEL_OPEN_LS_KEY) === 'true';
 };
 
 interface PanelStoreState {
@@ -110,11 +106,7 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
 
   setOpen: (open) => {
     set({ isOpen: open });
-    try {
-      localStorage.setItem(PANEL_OPEN_LS_KEY, String(open));
-    } catch {
-      // SSR / privacy mode — ignore
-    }
+    safeStorageSet('local', PANEL_OPEN_LS_KEY, String(open));
   },
 
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),

@@ -13,12 +13,11 @@ import { AdRecommendService } from './ad-recommend.service';
 import type { RegisterCampaignDto } from '../../adapter/in/http/dto/register-campaign.dto';
 import {
   adAggregatesToMetricSnapshots,
+  applyChannelSkuAvailability,
   computeListingProfitRate,
   emptyMetrics,
-  firstOptionByListing,
   getCurrentPeriod,
   getWeekRange,
-  sumListingStock,
   toGradeMapStrict,
 } from '../../domain/strategy-context';
 import type { AdAggregateRow } from '../../domain/model/strategy-types';
@@ -52,6 +51,10 @@ import type {
   ExposureAnalysisData,
   ExposureProductScore,
 } from '@kiditem/shared/advertising';
+import {
+  CHANNEL_SKU_AVAILABILITY_PORT,
+  type ChannelSkuAvailabilityPort,
+} from '../../../channels/application/port/in/channel-sku-availability.port';
 
 type Priority = 'urgent' | 'high' | 'medium' | 'low';
 
@@ -86,6 +89,8 @@ export class AdStrategyService {
     private readonly adBudgetAllocator: AdBudgetAllocatorService,
     private readonly adExposure: AdExposureService,
     private readonly adRecommend: AdRecommendService,
+    @Inject(CHANNEL_SKU_AVAILABILITY_PORT)
+    private readonly channelSkuAvailability: ChannelSkuAvailabilityPort,
   ) {}
 
   // ───── PUBLIC API (6 endpoints) ─────
@@ -115,18 +120,22 @@ export class AdStrategyService {
       ),
       this.accountKpiRepo.findCoupangAdsDaily(organizationId, period),
     ]);
+    const listings = await this.loadExactAvailability(
+      organizationId,
+      ctx.listings,
+    );
 
     // calcBudgetAllocation 은 AdWeeklyPlan shape 에 노출되진 않지만
     // adConfig.getConfig 부작용 (seed) 보존을 위해 호출해 둔다.
     this.adBudgetAllocator.calcBudgetAllocation({
       config: ctx.config,
       adGroups: ctx.adGroups,
-      listings: ctx.listings,
+      listings,
       gradeMap: toGradeMapStrict(ctx.gradeMap),
     });
 
     const top20 = this.adBudgetAllocator.calcTop20({
-      listings: ctx.listings,
+      listings,
       adGroups: ctx.adGroups,
       trafficByListing: ctx.trafficByListing,
     });
@@ -135,18 +144,18 @@ export class AdStrategyService {
     return {
       actions: this.adGradeRules.calcActions({
         adGroups: ctx.adGroups,
-        listings: ctx.listings,
+        listings,
         gradeMap: ctx.gradeMap,
         profitRateByListing: ctx.profitRateByListing,
         channelStateByListing: ctx.channelStateByListing,
       }),
       issues: this.adGradeRules.calcAdIssues({
         adGroups: ctx.adIssuesAdGroups,
-        listings: ctx.listings,
+        listings,
         gradeMap: ctx.gradeMap,
       }),
       tierAnalysis: this.adBudgetAllocator.calcTierAnalysis({
-        listings: ctx.listings,
+        listings,
         adGroups: ctx.adGroups,
       }),
       top20,
@@ -198,7 +207,7 @@ export class AdStrategyService {
     const since14d = kstInclusiveDaysStart(14);
     const cutoff7d = kstInclusiveDaysStart(7);
 
-    const [exposureCtx, listings, inventoryByOption, leadTimeByListing] =
+    const [exposureCtx, baseListings, availability] =
       await Promise.all([
         this.strategyContextRepo.loadExposureAnalysisContext(
           organizationId,
@@ -206,15 +215,9 @@ export class AdStrategyService {
           { recentReviewSince: thirtyDaysAgo, trafficSince: since14d },
         ),
         this.strategyContextRepo.hydrateListings(organizationId, listingIds),
-        this.strategyContextRepo.getInventorySnapshot(
-          organizationId,
-          listingIds,
-        ),
-        this.strategyContextRepo.loadLeadTimeByListing(
-          organizationId,
-          listingIds,
-        ),
+        this.channelSkuAvailability.findByListingIds(organizationId, listingIds),
       ]);
+    const listings = applyChannelSkuAvailability(baseListings, availability);
 
     const adGroups = toAdAggregateRowsFromPort(adAggAll);
     const metricsResult = this.adBudgetAllocator.calcSnapshotKeyMetrics({
@@ -259,15 +262,10 @@ export class AdStrategyService {
       ...[...trafficByListing.values()].map((t) => t.rev),
     );
 
-    const primaryOptionByListing = firstOptionByListing(inventoryByOption);
-
     const scores: ExposureProductScore[] = [];
     for (const listing of listings) {
-      const optionId = primaryOptionByListing.get(listing.id);
-      const inv = optionId ? (inventoryByOption.get(optionId) ?? null) : null;
-      const listingStock = sumListingStock(inventoryByOption, listing.id);
-      const profitRate = computeListingProfitRate(inv);
-      const leadTime = leadTimeByListing.get(listing.id) ?? null;
+      const primaryOption = listing.primaryOption;
+      const profitRate = computeListingProfitRate(primaryOption);
       const traffic = trafficByListing.get(listing.id) ?? { rev: 0, prevRev: 0, orders: 0 };
       const metrics = metricsResult.perListing.get(listing.id) ?? emptyMetrics(listing.id);
 
@@ -275,8 +273,8 @@ export class AdStrategyService {
         this.adExposure.calculateScores({
           listing,
           metrics,
-          inventory: inv
-            ? { ...inv, availableStock: listingStock }
+          availability: primaryOption
+            ? { sellableStock: primaryOption.sellableStock }
             : null,
           reviewStats: {
             totalReviews: reviewMap.get(listing.id)?.totalReviews ?? 0,
@@ -289,7 +287,7 @@ export class AdStrategyService {
             t14PrevRev: traffic.prevRev,
             t14Orders: traffic.orders,
           },
-          fulfillmentContext: { leadTime, profitRate },
+          fulfillmentContext: { leadTime: null, profitRate },
         }),
       );
     }
@@ -381,13 +379,29 @@ export class AdStrategyService {
       month,
       config,
     );
+    const listings = await this.loadExactAvailability(
+      organizationId,
+      ctx.listings,
+    );
     return this.adGradeRules.calcActions({
       adGroups: ctx.adGroups,
-      listings: ctx.listings,
+      listings,
       gradeMap: ctx.gradeMap,
       profitRateByListing: ctx.profitRateByListing,
       channelStateByListing: ctx.channelStateByListing,
     });
+  }
+
+  private async loadExactAvailability(
+    organizationId: string,
+    listings: Parameters<typeof applyChannelSkuAvailability>[0],
+  ) {
+    if (listings.length === 0) return listings;
+    const availability = await this.channelSkuAvailability.findByListingIds(
+      organizationId,
+      listings.map((listing) => listing.id),
+    );
+    return applyChannelSkuAvailability(listings, availability);
   }
 }
 

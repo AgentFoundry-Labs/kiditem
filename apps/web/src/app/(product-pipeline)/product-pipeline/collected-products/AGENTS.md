@@ -3,9 +3,9 @@ Consult this document first instead of relying on memorized knowledge.
 # web/collected-products — Collected Product Workspace
 
 `app/(product-pipeline)/product-pipeline/collected-products/` owns the collected
-product workspace for imported/manual `SourcingCandidate` rows. It can promote
-a candidate into `MasterProduct`, launch candidate-scoped detail/thumbnail
-generation, and open the shared generated-content editor.
+product workspace for imported/manual `SourcingCandidate` rows. It can create
+account-scoped product-registration preparations, launch candidate-scoped
+detail/thumbnail generation, and open the shared generated-content editor.
 
 Shared editor, template render, preview sandbox, download modal, workspace
 tabs/history/preview, inbox shells, hooks, and product-pipeline route builders
@@ -15,7 +15,7 @@ live under `product-pipeline/_shared/`.
 
 - Collected candidate inbox
 - Candidate detail route
-- Candidate promotion/rejection controls
+- Candidate registration-preparation/rejection controls
 - Candidate-scoped generated detail/thumbnail history links
 - Candidate editor bridge into the shared generated-content editor
 
@@ -24,9 +24,17 @@ Do not reintroduce standalone sourcing or product-content routes.
 ## Data Ownership
 
 - `SourcingCandidate` is the raw source/opportunity workspace.
-- `MasterProduct` means the candidate has been promoted into catalog state.
-- A promoted candidate remains collected until its master has an active
-  `ChannelListing`; registered products list marketplace listings.
+- Candidate status is only `sourced|rejected`; registration progress must not
+  be copied into candidate status.
+- `ProductPreparation` owns account-scoped reviewed input and selected content;
+  its submitting/failed/registered columns are legacy compatibility
+  projections, not provider-side-effect authority.
+- `ProductRegistrationExecution` owns the frozen request, actor, idempotency,
+  provider outcome, reconciliation state, and terminal listing result. The UI
+  retries or polls the same execution ID and must never turn an uncertain
+  execution into a new create request.
+- `ChannelListing` is the real registered marketplace identity. Registered
+  products derive membership and navigation from listing/workspace existence.
 - `ContentGeneration` stores generation request/result snapshots and candidate
   lineage.
 - `DetailPageArtifact` + `DetailPageRevision` store saved editor HTML versions.
@@ -50,11 +58,18 @@ include `returnTo`.
 
 ## Registration Flow
 
-The product registration button calls
-`POST /api/sourcing/candidates/{id}/promote` with the selected thumbnail URL
-and, when applied, the selected `ContentGeneration.id`. The server resolves
-that selection to `DetailPageArtifact`/`DetailPageRevision` inside the
-promotion transaction and persists it in `ProductPreparation`.
+The product registration-preparation button requires an explicit
+`ChannelAccount` selection. It calls the canonical
+`POST /api/sourcing/candidates/{id}/preparations` route with
+`channelAccountId`, `displayName`, editable `registrationInput`, and selected
+content IDs. The response is exactly `{ preparationId, status: 'draft' }`; it
+never returns or creates a master.
+
+Draft creation keeps the user in the candidate workspace and renders reviewed
+input from `ProductPreparation` plus operation state from the authoritative
+execution projection. A product appears in registered-products only after the
+execution succeeds with a real `ChannelListing`; registered navigation uses the
+listing/content-workspace identifiers.
 
 ## Boundary Rules
 
@@ -67,7 +82,8 @@ promotion transaction and persists it in `ProductPreparation`.
 - No editor localStorage persistence; GrapesJS storage is disabled.
 - Uploaded generic picker files remain base64/client-side unless the owning
   flow explicitly persists them.
-- Do not silently fall back between candidate id, master id, and generation id.
+- Do not silently fall back between candidate, preparation, listing,
+  content-workspace, and generation identifiers.
 
 ## Change Coupling
 
@@ -75,8 +91,8 @@ promotion transaction and persists it in `ProductPreparation`.
   helpers, panel/toast alert hrefs, and server detail-page result hrefs.
 - Editor save/load changes require checking the shared editor surface and AI
   detail-page endpoints together.
-- Candidate promotion/rejection changes require checking shared workspace
-  headers and sourcing APIs together.
+- Candidate registration-preparation/rejection changes require checking shared
+  workspace headers and sourcing APIs together.
 
 ## Verification
 
@@ -87,5 +103,5 @@ build:
 npm exec --workspace=apps/web vitest -- run 'src/app/(product-pipeline)/product-pipeline/collected-products'
 ```
 
-Route href, editor bridge, promotion, or deletion behavior changes need a
-focused regression spec for the changed workspace contract.
+Route href, editor bridge, registration-preparation, or deletion behavior
+changes need a focused regression spec for the changed workspace contract.

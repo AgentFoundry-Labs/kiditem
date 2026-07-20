@@ -16,33 +16,40 @@ model Supplier {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplierProducts       SupplierProduct[]
-  purchaseOrders         PurchaseOrder[]
-  payments               SupplierPayment[]
-  masterSupplierProducts MasterSupplierProduct[]
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierProducts SupplierProduct[]
+  purchaseOrders   PurchaseOrder[]
+  payments         SupplierPayment[]
 
+  @@unique([id, organizationId], map: "suppliers_id_org_key")
   @@index([organizationId])
   @@index([status])
   @@map("suppliers")
 }
 
 /// @namespace Supply
-/// @describe 공급사별 SKU(옵션) 단위 공급가 관리.
+/// @describe 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책.
 model SupplierProduct {
-  id          String   @id @default(uuid()) @db.Uuid
-  supplierId  String   @map("supplier_id") @db.Uuid
-  optionId    String   @map("option_id") @db.Uuid
-  supplyPrice Int      @default(0) @map("supply_price")
-  minOrderQty Int      @default(1) @map("min_order_qty")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  supplierId            String   @map("supplier_id") @db.Uuid
+  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
+  supplyPrice           Int      @default(0) @map("supply_price")
+  minOrderQty           Int      @default(1) @map("min_order_qty")
+  isPrimary             Boolean  @default(false) @map("is_primary")
+  memo                  String?
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  supplier Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  option   ProductOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier            Supplier            @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku @relation("SupplierProductSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([supplierId, optionId])
-  @@index([optionId])
+  @@unique([supplierId, sellpiaInventorySkuId])
+  @@unique([sellpiaInventorySkuId], map: "supplier_products_primary_sellpia_inventory_sku_key", where: raw("is_primary = true"))
+  @@index([organizationId])
+  @@index([supplierId])
+  @@index([sellpiaInventorySkuId])
   @@map("supplier_products")
 }
 
@@ -86,12 +93,12 @@ model PurchaseOrder {
   totalAmountCny  Decimal @map("total_amount_cny") @db.Decimal(12, 2)
   status          String  @default("draft")
 
-  orderDate            DateTime  @default(now()) @map("order_date") @db.Date
-  expectedDeliveryDate DateTime? @map("expected_delivery_date") @db.Date
-  trackingNumber       String?   @map("tracking_number")
-  externalOrderPlatform String?  @map("external_order_platform") @db.VarChar(40)
-  externalOrderId       String?  @map("external_order_id") @db.VarChar(120)
-  externalOrderUrl      String?  @map("external_order_url") @db.Text
+  orderDate             DateTime  @default(now()) @map("order_date") @db.Date
+  expectedDeliveryDate  DateTime? @map("expected_delivery_date") @db.Date
+  trackingNumber        String?   @map("tracking_number")
+  externalOrderPlatform String?   @map("external_order_platform") @db.VarChar(40)
+  externalOrderId       String?   @map("external_order_id") @db.VarChar(120)
+  externalOrderUrl      String?   @map("external_order_url") @db.Text
 
   // Inspection (from dashboard)
   receivedAt   DateTime? @map("received_at") @db.Timestamptz
@@ -106,11 +113,13 @@ model PurchaseOrder {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier         Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  items            PurchaseOrderItem[]
-  supplierPayments SupplierPayment[]
+  organization       Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier           Supplier?                        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  items              PurchaseOrderItem[]
+  supplierPayments   SupplierPayment[]
+  submissionAttempts PurchaseOrderSubmissionAttempt[]
 
+  @@unique([id, organizationId], map: "purchase_orders_id_org_key")
   @@index([organizationId])
   @@index([organizationId, externalOrderPlatform, externalOrderId])
   @@index([status])
@@ -119,10 +128,40 @@ model PurchaseOrder {
 }
 
 /// @namespace Supply
+/// @describe Durable idempotency intent and reconciliation record for an external purchase-order submission.
+model PurchaseOrderSubmissionAttempt {
+  id                    String    @id @default(uuid()) @db.Uuid
+  organizationId        String    @map("organization_id") @db.Uuid
+  purchaseOrderId       String    @map("purchase_order_id") @db.Uuid
+  idempotencyKey        String    @map("idempotency_key")
+  freshnessGeneration   BigInt    @map("freshness_generation") @db.BigInt
+  status                String
+  providerReference     String?   @map("provider_reference")
+  errorCode             String?   @map("error_code")
+  errorMessage          String?   @map("error_message")
+  reconciliationOutcome String?   @map("reconciliation_outcome")
+  reconciledAt          DateTime? @map("reconciled_at") @db.Timestamptz
+  reconciledBy          String?   @map("reconciled_by") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  reconciler    User?         @relation("PurchaseOrderSubmissionAttemptReconciler", fields: [reconciledBy], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, purchaseOrderId, idempotencyKey])
+  @@index([organizationId])
+  @@index([purchaseOrderId])
+  @@index([reconciledBy])
+  @@map("purchase_order_submission_attempts")
+}
+
+/// @namespace Supply
 model PurchaseOrderItem {
-  id       String  @id @default(uuid()) @db.Uuid
-  orderId  String  @map("order_id") @db.Uuid
-  optionId String? @map("option_id") @db.Uuid
+  id                    String @id @default(uuid()) @db.Uuid
+  organizationId        String @map("organization_id") @db.Uuid
+  orderId               String @map("order_id") @db.Uuid
+  sellpiaInventorySkuId String @map("sellpia_inventory_sku_id") @db.Uuid
 
   productName  String  @map("product_name")
   quantity     Int
@@ -130,30 +169,101 @@ model PurchaseOrderItem {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  order  PurchaseOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  option ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order               PurchaseOrder       @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku @relation("PurchaseOrderItemSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
+  @@index([organizationId])
   @@index([orderId])
-  @@index([optionId])
+  @@index([sellpiaInventorySkuId])
   @@map("purchase_order_items")
 }
 
 /// @namespace Supply
-/// @describe Master 단위 주공급처 정책. 여러 supplier 후보 중 isPrimary 가 기본.
-model MasterSupplierProduct {
-  id          String   @id @default(uuid()) @db.Uuid
-  masterId    String   @map("master_id") @db.Uuid
-  supplierId  String   @map("supplier_id") @db.Uuid
-  isPrimary   Boolean  @default(false) @map("is_primary")
-  minOrderQty Int      @default(1) @map("min_order_qty")
-  memo        String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+/// @describe One operator-confirmed Rocket PO decision. It reserves component capacity without mutating Sellpia physical stock.
+model RocketPurchaseConfirmation {
+  id                  String    @id @default(uuid()) @db.Uuid
+  organizationId      String    @map("organization_id") @db.Uuid
+  channelAccountId    String    @map("channel_account_id") @db.Uuid
+  sourceImportRunId   String    @map("source_import_run_id") @db.Uuid
+  idempotencyKey      String    @map("idempotency_key") @db.Uuid
+  requestHash         String    @map("request_hash") @db.VarChar(64)
+  freshnessGeneration BigInt?   @map("freshness_generation") @db.BigInt
+  status              String    @default("active")
+  confirmedBy         String    @map("confirmed_by") @db.Uuid
+  confirmedAt         DateTime  @default(now()) @map("confirmed_at") @db.Timestamptz
+  releasedBy          String?   @map("released_by") @db.Uuid
+  releasedAt          DateTime? @map("released_at") @db.Timestamptz
+  releaseReason       String?   @map("release_reason") @db.VarChar(500)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  master   MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
-  supplier Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  organization    Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount                   @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun                  @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  confirmer       User                             @relation("RocketPurchaseConfirmationConfirmer", fields: [confirmedBy], references: [id], onDelete: Restrict)
+  releaser        User?                            @relation("RocketPurchaseConfirmationReleaser", fields: [releasedBy], references: [id], onDelete: Restrict)
+  lines           RocketPurchaseConfirmationLine[]
 
-  @@unique([masterId, supplierId])
-  @@index([supplierId])
-  @@map("master_supplier_products")
+  @@unique([id, organizationId], map: "rocket_purchase_confirmations_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "rocket_purchase_confirmations_org_idempotency_key")
+  @@index([organizationId, status, confirmedAt])
+  @@index([channelAccountId])
+  @@index([sourceImportRunId])
+  @@index([confirmedBy])
+  @@index([releasedBy])
+  @@map("rocket_purchase_confirmations")
+}
+
+/// @namespace Supply
+/// @describe Audited Rocket PO line decision. Positive quantities require a confirmed channel variant recipe.
+model RocketPurchaseConfirmationLine {
+  id                     String   @id @default(uuid()) @db.Uuid
+  organizationId         String   @map("organization_id") @db.Uuid
+  confirmationId         String   @map("confirmation_id") @db.Uuid
+  poLineId               String   @map("po_line_id") @db.VarChar(300)
+  poNumber               String   @map("po_number") @db.VarChar(80)
+  productNo              String   @map("product_no") @db.VarChar(60)
+  barcode                String?  @db.VarChar(80)
+  productName            String   @map("product_name") @db.VarChar(240)
+  orderQuantity          Int      @map("order_quantity")
+  confirmedQuantity      Int      @map("confirmed_quantity")
+  shortageReason         String?  @map("shortage_reason")
+  channelListingOptionId String?  @map("channel_listing_option_id") @db.Uuid
+  productVariantId       String?  @map("product_variant_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization         Organization                           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  confirmation         RocketPurchaseConfirmation             @relation(fields: [confirmationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  channelListingOption ChannelListingOption?                  @relation(fields: [channelListingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  productVariant       ProductVariant?                        @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  allocations          RocketPurchaseConfirmationAllocation[]
+
+  @@unique([id, organizationId], map: "rocket_purchase_confirmation_lines_id_org_key")
+  @@unique([confirmationId, poLineId], map: "rocket_purchase_confirmation_lines_confirmation_line_key")
+  @@index([organizationId, poNumber])
+  @@index([channelListingOptionId])
+  @@index([productVariantId])
+  @@map("rocket_purchase_confirmation_lines")
+}
+
+/// @namespace Supply
+/// @describe Immutable component-capacity allocation captured from the confirmed ProductVariant recipe.
+model RocketPurchaseConfirmationAllocation {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  confirmationLineId    String   @map("confirmation_line_id") @db.Uuid
+  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
+  unitsPerVariant       Int      @map("units_per_variant")
+  quantity              Int
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  confirmationLine    RocketPurchaseConfirmationLine @relation(fields: [confirmationLineId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku            @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([confirmationLineId, sellpiaInventorySkuId], map: "rocket_purchase_confirmation_allocations_line_sku_key")
+  @@index([organizationId, sellpiaInventorySkuId])
+  @@index([sellpiaInventorySkuId])
+  @@map("rocket_purchase_confirmation_allocations")
 }

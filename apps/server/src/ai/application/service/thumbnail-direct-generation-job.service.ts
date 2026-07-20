@@ -1,94 +1,130 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { ZodError } from 'zod';
+import { Inject, Injectable } from '@nestjs/common';
+import type { AiDirectJobModels } from '../../domain/direct-job/ai-direct-job.schema';
 import {
   ThumbnailGenerateDirectInputSchema,
   type ThumbnailGenerateDirectInput,
 } from '../../domain/direct-generation';
 import {
-  THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
-  type ThumbnailDirectOutputSinkPort,
-} from '../port/out/sink/thumbnail-direct-output-sink.port';
-import { ThumbnailDirectGenerationExecutorService } from './thumbnail-direct-generation-executor.service';
+  AI_DIRECT_JOB_REPOSITORY_PORT,
+  type CreateAiDirectJobInput,
+  type AiDirectJobRepositoryPort,
+} from '../port/out/repository/ai-direct-job.repository.port';
+import {
+  AI_DIRECT_JOB_WAKE_PORT,
+  type AiDirectJobWakePort,
+} from '../port/out/runtime';
+import {
+  AI_DIRECT_JOB_RUNTIME_CONFIG,
+  type AiDirectJobRuntimeConfig,
+} from './ai-direct-job.config';
 
 @Injectable()
 export class ThumbnailDirectGenerationJobService {
-  private readonly logger = new Logger(ThumbnailDirectGenerationJobService.name);
-
   constructor(
-    private readonly executor: ThumbnailDirectGenerationExecutorService,
-    @Inject(THUMBNAIL_DIRECT_OUTPUT_SINK_PORT)
-    private readonly sink: ThumbnailDirectOutputSinkPort,
+    @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
+    private readonly repository: AiDirectJobRepositoryPort,
+    @Inject(AI_DIRECT_JOB_WAKE_PORT)
+    private readonly worker: AiDirectJobWakePort,
+    @Inject(AI_DIRECT_JOB_RUNTIME_CONFIG)
+    private readonly config: AiDirectJobRuntimeConfig,
   ) {}
 
-  schedule(input: {
+  prepareGenerate(input: {
+    payload: ThumbnailGenerateDirectInput | Record<string, unknown>;
+    models: AiDirectJobModels;
+  }): Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'> {
+    const parsed = ThumbnailGenerateDirectInputSchema.parse(input.payload);
+    const queuedInput = {
+      ...parsed,
+      inputs: parsed.inputs.map(({ data: _data, ...image }) => image),
+    };
+    return {
+      jobType: 'thumbnail_generate',
+      payload: {
+        jobType: 'thumbnail_generate',
+        models: { image: input.models.image },
+        input: queuedInput,
+      },
+      status: 'held',
+      scheduledFor: new Date(Date.now() + this.config.heldRecoveryMs),
+    };
+  }
+
+  async release(input: { organizationId: string; jobId: string }): Promise<void> {
+    const released = await this.repository.release(input);
+    if (!released) {
+      throw new Error(`Failed to release thumbnail AI direct job ${input.jobId}.`);
+    }
+    this.worker.wake();
+  }
+
+  async cancelHeld(input: { organizationId: string; jobId: string; reason: string }): Promise<void> {
+    await this.repository.cancel(input);
+  }
+
+  async cancelByGeneration(input: {
     organizationId: string;
     generationId: string;
-    payload: ThumbnailGenerateDirectInput | Record<string, unknown>;
-  }): void {
-    setImmediate(() => {
-      this.process(input).catch((err) => {
-        this.logger.error(
-          `thumbnail direct AI job crashed (${input.generationId}): ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      });
+    reason: string;
+  }): Promise<number> {
+    return this.repository.cancelBySource({
+      organizationId: input.organizationId,
+      sourceResourceId: input.generationId,
+      jobTypes: ['thumbnail_generate', 'thumbnail_reedit'],
+      reason: input.reason,
     });
   }
 
-  async process(input: {
+  async schedule(input: {
     organizationId: string;
     generationId: string;
     payload: ThumbnailGenerateDirectInput | Record<string, unknown>;
-  }): Promise<void> {
-    const directJobId = this.directJobId(input.generationId);
-    try {
-      const parsed = ThumbnailGenerateDirectInputSchema.parse(input.payload);
-      const output = await this.executor.execute({
-        organizationId: input.organizationId,
-        generationInput: parsed,
-        model: process.env.AI_IMAGE_MODEL?.trim() || undefined,
-      });
-      await this.sink.applySuccess({
-        organizationId: input.organizationId,
-        requestId: directJobId,
-        runId: undefined,
-        sourceResourceId: input.generationId,
-        output,
-      });
-    } catch (err) {
-      const normalized = normalizeDirectAiError(err);
-      await this.sink.applyFailure({
-        organizationId: input.organizationId,
-        requestId: directJobId,
-        runId: undefined,
-        sourceResourceId: input.generationId,
-        errorCode: normalized.errorCode,
-        errorMessage: normalized.errorMessage,
-      });
+    models: AiDirectJobModels;
+  }): Promise<{ jobId: string }> {
+    const prepared = this.prepareGenerate(input);
+    const job = await this.repository.create({
+      ...prepared,
+      organizationId: input.organizationId,
+      sourceResourceId: input.generationId,
+    });
+    await this.release({
+      organizationId: input.organizationId,
+      jobId: job.id,
+    });
+    return { jobId: job.id };
+  }
+
+  async scheduleReedit(input: {
+    organizationId: string;
+    generationId: string;
+    purpose: 'compliance' | 'quality';
+    variantKey: 'auto' | 'with-box' | 'no-box';
+    models: AiDirectJobModels;
+  }): Promise<{ jobId: string }> {
+    const job = await this.repository.restartHeldReedit({
+      organizationId: input.organizationId,
+      jobType: 'thumbnail_reedit',
+      sourceResourceId: input.generationId,
+      payload: {
+        jobType: 'thumbnail_reedit',
+        models: { image: input.models.image },
+        input: {
+          generationId: input.generationId,
+          purpose: input.purpose,
+          variantKey: input.variantKey,
+        },
+      },
+      status: 'held',
+      scheduledFor: new Date(Date.now() + this.config.heldRecoveryMs),
+    });
+    const released = await this.repository.release({
+      organizationId: input.organizationId,
+      jobId: job.id,
+    });
+    if (!released) {
+      throw new Error(`Failed to release thumbnail re-edit job ${job.id}.`);
     }
+    this.worker.wake();
+    return { jobId: job.id };
   }
-
-  private directJobId(generationId: string): string {
-    return `direct-ai:thumbnail:${generationId}`;
-  }
-}
-
-function normalizeDirectAiError(err: unknown): {
-  errorCode: string;
-  errorMessage: string;
-} {
-  if (err instanceof ZodError) {
-    const issue = err.issues[0];
-    return {
-      errorCode: 'direct_ai_input_invalid',
-      errorMessage: issue
-        ? `${issue.path.join('.') || '<root>'}: ${issue.message}`
-        : 'Direct thumbnail AI input failed schema validation.',
-    };
-  }
-  return {
-    errorCode: 'direct_ai_execution_failed',
-    errorMessage: err instanceof Error ? err.message : String(err),
-  };
 }

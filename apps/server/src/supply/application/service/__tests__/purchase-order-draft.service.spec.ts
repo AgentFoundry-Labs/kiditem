@@ -18,6 +18,7 @@ describe('PurchaseOrderDraftService', () => {
     const result = await service.createFromRecommendation({
       organizationId: 'org-1',
       recommendation: {
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
         productName: '실리콘 식판 흡착형 신제품',
         supplierName: '1688 Kids Tableware Factory',
         unitPriceCny: 22.8,

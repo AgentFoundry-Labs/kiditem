@@ -23,6 +23,16 @@ const ORDER_COLLECTION_MALLS = [
   { key: 'art09', name: '아트공구' },
   { key: 'tekville-edu', name: '테크빌교육' },
   { key: 'benepia-mul', name: '베네피아물' },
+  { key: 'domeggook', name: '도매꾹' },
+  { key: 'lotte-on', name: '롯데ON' },
+  { key: 'boribori', name: '보리보리' },
+  { key: 'always', name: '올웨이즈' },
+  { key: 'woongjin-class', name: '웅진클래스몰' },
+  { key: 'kakao', name: '카카오' },
+  { key: 'toss', name: '토스' },
+  { key: 'teacher-mall', name: '티쳐몰' },
+  { key: 'gs-shop', name: 'GS샵' },
+  { key: 'coupang-direct', name: '쿠팡직배송' },
 ] as const;
 
 type OrderCollectionMallKey = (typeof ORDER_COLLECTION_MALLS)[number]['key'];

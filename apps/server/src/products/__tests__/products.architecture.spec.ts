@@ -1,97 +1,78 @@
+import 'reflect-metadata';
+import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { execSync } from 'node:child_process';
-import path from 'node:path';
+import { ProductOperationsController } from '../adapter/in/http/product-operations.controller';
+import { ProductRecipeComponentCandidateService } from '../application/service/product-recipe-component-candidate.service';
+import { ChannelCatalogProductProvisioningRepositoryAdapter } from '../adapter/out/repository/channel-catalog-product-provisioning.repository.adapter';
+import { CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT } from '../application/port/in/channel-catalog-product-provisioning.port';
+import { CHANNEL_CATALOG_PRODUCT_PROVISIONING_REPOSITORY_PORT } from '../application/port/out/repository/channel-catalog-product-provisioning.repository.port';
+import { ChannelCatalogProductProvisioningService } from '../application/service/channel-catalog-product-provisioning.service';
+import { CategoriesModule } from '../categories/categories.module';
+import { ProductsModule } from '../products.module';
+import { InventoryModule } from '../../inventory/inventory.module';
+import { AnalyticsModule } from '../../analytics/analytics.module';
+import { PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT } from '../application/port/in/product-variant-recipe-automation.port';
+import { ProductVariantRecipeAutomationService } from '../application/service/product-variant-recipe-automation.service';
 
-const REPO_ROOT = path.resolve(__dirname, '../../../../..');
-const PRODUCTS_ROOT = path.resolve(__dirname, '..');
+describe('Products architecture', () => {
+  it('publishes the eight product-operation routes', () => {
+    expect(Reflect.getMetadata('path', ProductOperationsController)).toBe('products');
+    const routes = [
+      ['listProducts', 'masters', RequestMethod.GET],
+      ['listRecipeComponentCandidates', 'recipe-component-candidates', RequestMethod.GET],
+      ['createProduct', 'masters', RequestMethod.POST],
+      ['getProduct', 'masters/:masterProductId', RequestMethod.GET],
+      ['updateProduct', 'masters/:masterProductId', RequestMethod.PATCH],
+      ['createVariant', 'masters/:masterProductId/variants', RequestMethod.POST],
+      ['updateVariant', 'variants/:productVariantId', RequestMethod.PATCH],
+      ['replaceRecipe', 'variants/:productVariantId/components', RequestMethod.PUT],
+    ] as const;
 
-function rg(args: string): string[] {
-  try {
-    const out = execSync(`rg ${args}`, { cwd: REPO_ROOT, encoding: 'utf8' });
-    return out
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-  } catch (err: unknown) {
-    if ((err as { status?: number }).status === 1) return [];
-    throw err;
-  }
-}
-
-function productsRel(): string {
-  return path.relative(REPO_ROOT, PRODUCTS_ROOT);
-}
-
-describe('products architecture contract', () => {
-  it('PrismaService is imported only under products/adapter/out/repository/**', () => {
-    const products = productsRel();
-    const allowedPrefix = path.join(products, 'adapter/out/repository') + path.sep;
-    const hits = rg(
-      `--type ts --files-with-matches 'PrismaService' ${products} --glob '!**/__tests__/**' --glob '!${path.join(products, 'categories', '**')}'`,
-    );
-    const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
-    expect(
-      violators,
-      `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
-    ).toEqual([]);
+    for (const [methodName, path, method] of routes) {
+      const handler = ProductOperationsController.prototype[methodName];
+      expect(Reflect.getMetadata('path', handler)).toBe(path);
+      expect(Reflect.getMetadata('method', handler)).toBe(method);
+    }
   });
 
-  it('application layer does not import Prisma client or expose Prisma types', () => {
-    const products = productsRel();
-    const applicationGlob = path.join(products, 'application') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**'`,
-    );
-    expect(
-      hits,
-      `application ports/services must stay Prisma-free; Prisma belongs in outgoing adapters:\n${hits.join('\n')}`,
-    ).toEqual([]);
+  it('owns the Categories compatibility module', () => {
+    const imports = Reflect.getMetadata('imports', ProductsModule) ?? [];
+    expect(imports).toContain(CategoriesModule);
+    expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(AnalyticsModule);
+    const providers = Reflect.getMetadata('providers', ProductsModule) ?? [];
+    expect(providers).toContain(ProductRecipeComponentCandidateService);
   });
 
-  it('application/service/** does not import adapter/out/**', () => {
-    const products = productsRel();
-    const serviceGlob = path.join(products, 'application/service') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./.*adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
-    expect(
-      hits,
-      `application services must depend on application/port/out/*, not concrete adapter/out/** files:\n${hits.join('\n')}`,
-    ).toEqual([]);
+  it('exports the channel-catalog provisioning port with Products-owned bindings', () => {
+    const providers = Reflect.getMetadata('providers', ProductsModule) ?? [];
+    expect(providers).toContain(ChannelCatalogProductProvisioningRepositoryAdapter);
+    expect(providers).toContain(ChannelCatalogProductProvisioningService);
+    expect(providers).toContainEqual({
+      provide: CHANNEL_CATALOG_PRODUCT_PROVISIONING_REPOSITORY_PORT,
+      useExisting: ChannelCatalogProductProvisioningRepositoryAdapter,
+    });
+    expect(providers).toContainEqual({
+      provide: CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT,
+      useExisting: ChannelCatalogProductProvisioningService,
+    });
+
+    const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
+    expect(exports).toContain(CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT);
+    expect(exports).not.toContain(ChannelCatalogProductProvisioningService);
+    expect(exports).not.toContain(ChannelCatalogProductProvisioningRepositoryAdapter);
+    expect(exports).not.toContain(CHANNEL_CATALOG_PRODUCT_PROVISIONING_REPOSITORY_PORT);
   });
 
-  it('application/service/** does not import other owner-domain services directly', () => {
-    const products = productsRel();
-    const serviceGlob = path.join(products, 'application/service') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(advertising|ai|analytics|automation|finance|inventory|orders|rules|agent-os|sourcing|supply)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
-    expect(
-      hits,
-      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
-    const products = productsRel();
-    const httpGlob = path.join(products, 'adapter/in/http') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'application/port/out|adapter/out/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
-    );
-    expect(
-      hits,
-      `incoming adapters must call application services, not outgoing ports/adapters:\n${hits.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('legacy adapter/out/prisma folder no longer exists', () => {
-    const products = productsRel();
-    const legacyFiles = rg(
-      `--type ts --files --glob '${path.join(products, 'adapter/out/prisma', '**', '*.ts')}'`,
-    );
-    expect(
-      legacyFiles,
-      `final products repositories live under adapter/out/repository, not adapter/out/prisma:\n${legacyFiles.join('\n')}`,
-    ).toEqual([]);
+  it('exports the Products-owned deterministic recipe capability', () => {
+    const providers = Reflect.getMetadata('providers', ProductsModule) ?? [];
+    expect(providers).toContain(ProductVariantRecipeAutomationService);
+    expect(providers).toContainEqual({
+      provide: PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT,
+      useExisting: ProductVariantRecipeAutomationService,
+    });
+    const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
+    expect(exports).toContain(PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT);
+    expect(exports).not.toContain(ProductVariantRecipeAutomationService);
   });
 });

@@ -31,9 +31,9 @@ import type { AlertRecord } from '../port/persistence-records';
  *   retry) and re-emits, otherwise a new row is created. Two concurrent calls
  *   that race past `findFirst` resolve via the unique-constraint conflict
  *   → re-fetch path (delegated to the repository adapter).
- * - `succeed()` / `fail()` / `progress()` / `cancel()` are no-ops if the alert
- *   does not exist (e.g. the producer never started one) so producers can call
- *   them defensively without try/catch noise.
+ * - `attention()` / `succeed()` / `fail()` / `progress()` / `cancel()` are
+ *   no-ops if the alert does not exist (e.g. the producer never started one)
+ *   so producers can call them defensively without try/catch noise.
  *
  * Tenancy: every write is gated on `organizationId`. Producers MUST pass the
  * `@CurrentOrganization()`-resolved id. Producer-supplied `actorUserId` should
@@ -102,6 +102,21 @@ export class OperationAlertService implements OperationAlertPort {
       finishedAt: null,
     });
     if (result?.status === 'running') this.emitUpsert(result);
+    return result;
+  }
+
+  async attention(
+    organizationId: string,
+    operationKey: string,
+    patch: OperationLifecyclePatch = {},
+  ): Promise<AlertRecord | null> {
+    const result = await this.repository.transition(organizationId, operationKey, {
+      ...patch,
+      status: 'pending',
+      finishedAt: null,
+      severityDefault: 'warning',
+    });
+    if (result?.status === 'pending') this.emitUpsert(result);
     return result;
   }
 

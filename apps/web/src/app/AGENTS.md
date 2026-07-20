@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/app - App Router Routes
 
 `src/app/` owns the Next.js App Router tree: route groups, pages, layouts, and
@@ -44,3 +42,16 @@ route groups need it.
   route group actually imports them.
 - When adding a route group or moving a route, update `apps/web/AGENTS.md` and
   `docs/ARCHITECTURE.md`.
+
+## Preserved Operations Surfaces (`0.1.19` baseline, `0.1.20` confirmation)
+
+Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
+preservation baseline. Its direct operations URLs, page hierarchy, primary
+interactions, and normal app-shell affordances remain independently usable;
+shared components must not turn them into redirects or consolidated
+replacements. Sellpia freshness, synchronization, matching, and Rocket capacity
+features are additive.
+
+Before changing a preserved route's composition or tabs, read the nearest route
+guide and the Frontend Route Map in [`docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md).
+The nearest guide owns the exact route-specific layout and tab contract.

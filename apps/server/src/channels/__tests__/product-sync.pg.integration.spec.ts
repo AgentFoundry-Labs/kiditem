@@ -12,6 +12,7 @@ import {
 import { ChannelSyncRepositoryAdapter } from '../adapter/out/repository/channel-sync.repository.adapter';
 import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/repository/channel-sync.repository.port';
 import { ChannelAccountService } from '../application/service/channel-account.service';
+import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
 import {
   makeTestPrisma,
   resetDb,
@@ -47,6 +48,7 @@ function detailOk(payload: {
   deliveryInfo?: Record<string, unknown>;
   items?: Array<{
     vendorItemId: number | string;
+    externalVendorSku?: string;
     itemName?: string;
     salePrice?: number;
   }>;
@@ -64,6 +66,7 @@ function detailOk(payload: {
       deliveryInfo: payload.deliveryInfo,
       items: payload.items?.map((i) => ({
         vendorItemId: Number(i.vendorItemId),
+        externalVendorSku: i.externalVendorSku,
         itemName: i.itemName ?? '',
         originalPrice: 0,
         salePrice: i.salePrice ?? 0,
@@ -76,6 +79,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
   let prisma: PrismaClient;
   let service: ChannelSyncService;
   let coupangPort: CoupangProviderPort;
+  let channelAccountId: string;
   const organizationId = TEST_ORGANIZATION_ID;
 
   beforeAll(async () => {
@@ -123,6 +127,17 @@ describe('Product sync (PG integration, Wave C1)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId,
+        channel: 'coupang',
+        name: 'Primary Wing',
+        externalAccountId: 'PRODUCT-SYNC-PRIMARY',
+        isPrimary: true,
+        status: 'active',
+      },
+    });
+    channelAccountId = account.id;
   });
 
   afterEach(() => {
@@ -131,22 +146,13 @@ describe('Product sync (PG integration, Wave C1)', () => {
   });
 
   async function seedListing(externalId: string) {
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId,
-        code: `M-${externalId}`,
-        name: `Master ${externalId}`,
-        optionCounter: 0,
-      },
-    });
     return prisma.channelListing.create({
       data: {
         organizationId,
-        masterId: master.id,
-        channel: 'coupang',
+        channelAccountId,
         externalId,
       },
-      select: { id: true, masterId: true },
+      select: { id: true, channelAccountId: true },
     });
   }
 
@@ -218,7 +224,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(afterFirst.map((o) => o.externalOptionId)).toEqual(['9001', '9002']);
     expect(afterFirst[0].itemName).toBe('Pink');
     expect(afterFirst[0].salePrice).toBe(10000);
-    expect(afterFirst[0].optionId).toBeNull();
+    expect(afterFirst[0].productVariantId).toBeNull();
 
     const r2 = await service.syncProducts(organizationId);
     expect(r2.synced).toBe(1);
@@ -240,6 +246,190 @@ describe('Product sync (PG integration, Wave C1)', () => {
        WHERE id = ${listing.id}::uuid
     `;
     expect(deliveryInfoState?.isNull).toBe(true);
+  });
+
+  it('promotes the KidItem-first provisional option to vendorItemId without losing its variant link', async () => {
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-SYNC',
+        name: 'Registered sync',
+        variants: {
+          create: {
+            code: 'KI-REGISTER-SYNC-BLUE',
+            name: 'Blue',
+            isDefault: true,
+          },
+        },
+      },
+      include: { variants: true },
+    });
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId,
+        sourceUrl: 'https://example.com/register-sync',
+        sourcePlatform: 'test',
+        name: 'Registered sync',
+      },
+    });
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    const registered = await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, {
+        organizationId,
+        sourceCandidateId: candidate.id,
+        channelAccountId,
+        submissionKey: 'registration-key',
+        externalListingId: '250',
+        displayName: 'Registered sync',
+        masterProductId: product.id,
+        optionLinks: [{
+          externalOptionId: 'BLUE-LOGICAL',
+          productVariantId: product.variants[0]!.id,
+        }],
+      }));
+    const provisional = await prisma.channelListingOption.findFirstOrThrow({
+      where: { listingId: registered.listingId },
+    });
+    expect(provisional).toMatchObject({
+      externalOptionId: 'BLUE-LOGICAL',
+      sellerSku: 'registration-key',
+      productVariantId: product.variants[0]!.id,
+    });
+
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
+      listOk([{ sellerProductId: 250, statusName: 'APPROVED' }]),
+    );
+    vi.mocked(coupangPort.getSellerProduct).mockResolvedValueOnce(detailOk({
+      sellerProductId: 250,
+      items: [{
+        vendorItemId: 9250,
+        externalVendorSku: 'registration-key',
+        itemName: 'Blue approved',
+        salePrice: 10_500,
+      }],
+    }));
+
+    await expect(service.syncProducts(organizationId)).resolves.toMatchObject({
+      synced: 1,
+      errors: 0,
+    });
+    const activeOptions = await prisma.channelListingOption.findMany({
+      where: { listingId: registered.listingId, isActive: true },
+    });
+    expect(activeOptions).toHaveLength(1);
+    expect(activeOptions[0]).toMatchObject({
+      id: provisional.id,
+      externalOptionId: '9250',
+      sellerSku: 'registration-key',
+      productVariantId: product.variants[0]!.id,
+      itemName: 'Blue approved',
+      salePrice: 10_500,
+    });
+  });
+
+  it('keeps an existing actual option manual link and retires the conflicting provisional option', async () => {
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-CONFLICT',
+        name: 'Registered conflict',
+        variants: {
+          create: [
+            {
+              code: 'KI-REGISTER-CONFLICT-PROVISIONAL',
+              name: 'Provisional',
+              isDefault: true,
+            },
+            {
+              code: 'KI-REGISTER-CONFLICT-MANUAL',
+              name: 'Manual actual',
+            },
+          ],
+        },
+      },
+      include: { variants: { orderBy: { code: 'asc' } } },
+    });
+    const provisionalVariant = product.variants.find(
+      (variant) => variant.code === 'KI-REGISTER-CONFLICT-PROVISIONAL',
+    )!;
+    const manualVariant = product.variants.find(
+      (variant) => variant.code === 'KI-REGISTER-CONFLICT-MANUAL',
+    )!;
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId,
+        sourceUrl: 'https://example.com/register-conflict',
+        sourcePlatform: 'test',
+        name: 'Registered conflict',
+      },
+    });
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    const registered = await prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, {
+        organizationId,
+        sourceCandidateId: candidate.id,
+        channelAccountId,
+        submissionKey: 'registration-conflict-key',
+        externalListingId: '251',
+        displayName: 'Registered conflict',
+        masterProductId: product.id,
+        optionLinks: [{
+          externalOptionId: 'PROVISIONAL-LOGICAL',
+          productVariantId: provisionalVariant.id,
+        }],
+      }));
+    const provisional = await prisma.channelListingOption.findFirstOrThrow({
+      where: { listingId: registered.listingId },
+    });
+    const actual = await prisma.channelListingOption.create({
+      data: {
+        organizationId,
+        listingId: registered.listingId,
+        externalOptionId: '9251',
+        productVariantId: manualVariant.id,
+        isActive: true,
+      },
+    });
+
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
+      listOk([{ sellerProductId: 251, statusName: 'APPROVED' }]),
+    );
+    vi.mocked(coupangPort.getSellerProduct).mockResolvedValueOnce(detailOk({
+      sellerProductId: 251,
+      items: [{
+        vendorItemId: 9251,
+        externalVendorSku: 'registration-conflict-key',
+        itemName: 'Manual actual approved',
+        salePrice: 11_500,
+      }],
+    }));
+
+    await expect(service.syncProducts(organizationId)).resolves.toMatchObject({
+      synced: 1,
+      errors: 0,
+    });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: actual.id },
+    })).resolves.toMatchObject({
+      isActive: true,
+      sellerSku: 'registration-conflict-key',
+      productVariantId: manualVariant.id,
+      itemName: 'Manual actual approved',
+      salePrice: 11_500,
+    });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: provisional.id },
+    })).resolves.toMatchObject({
+      isActive: false,
+      productVariantId: provisionalVariant.id,
+    });
+    await expect(prisma.channelListingOption.count({
+      where: { listingId: registered.listingId, isActive: true },
+    })).resolves.toBe(1);
   });
 
   it('skips and reports sellerProductId without an existing ChannelListing — does not create master', async () => {
@@ -321,7 +511,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     vi.mocked(coupangPort.getSellerProduct).mockImplementationOnce(async () => {
       await prisma.channelListing.update({
         where: { id: listing.id },
-        data: { isDeleted: true, deletedAt: new Date() },
+        data: { isActive: false },
       });
       return detailOk({
         sellerProductId: 360,
@@ -338,7 +528,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(result.details?.[0]).toContain('no longer active');
 
     const after = await prisma.channelListing.findUnique({ where: { id: listing.id } });
-    expect(after?.isDeleted).toBe(true);
+    expect(after?.isActive).toBe(false);
     expect(after?.channelName).toBeNull();
     const options = await prisma.channelListingOption.findMany({ where: { listingId: listing.id } });
     expect(options).toHaveLength(0);

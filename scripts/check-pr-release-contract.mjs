@@ -28,6 +28,11 @@ function changedFilesFromGit(base, head) {
   return output ? output.split('\n').filter(Boolean) : [];
 }
 
+function deletedFilesFromGit(base, head) {
+  const output = git(['diff', '--name-only', '--diff-filter=D', `${base}...${head}`]);
+  return output ? output.split('\n').filter(Boolean) : [];
+}
+
 function ghPrBody() {
   try {
     return execFileSync(
@@ -173,6 +178,7 @@ export function analyzePrReleaseContract({
   baseVersion = '',
   migrationIndex,
   allowHistoricalMigrationVersions = false,
+  deletedFiles = [],
 }) {
   const errors = [];
   const requiredReasons = classifyFiles(files);
@@ -183,12 +189,25 @@ export function analyzePrReleaseContract({
     errors.push(`Root VERSION must be semver, got "${rootVersion}"`);
   }
 
+  if (
+    files.includes('VERSION') &&
+    isSemver(version) &&
+    isSemver(base) &&
+    compareSemver(version, base) <= 0
+  ) {
+    errors.push(
+      `Root VERSION ${version} must be higher than base VERSION ${base} when VERSION changes.`,
+    );
+  }
+
   if (requiredReasons.length > 0 && !hasReleaseDecision(prBody)) {
     errors.push('Release decision: field is required for persisted schema/data/release changes.');
   }
 
+  const deletedFileSet = new Set(deletedFiles);
   const migrationFiles = files
     .filter((file) => /^scripts\/data-migrations\/v[^/]+\/[^/]+\.ts$/.test(file))
+    .filter((file) => !deletedFileSet.has(file))
     .filter((file) => !file.endsWith('/index.ts') && !file.endsWith('/types.ts'));
 
   for (const file of migrationFiles) {
@@ -224,6 +243,7 @@ function main() {
   const files = args.files
     ? args.files.split(',').map((file) => file.trim()).filter(Boolean)
     : changedFilesFromGit(base, head);
+  const deletedFiles = deletedFilesFromGit(base, head);
   const prBody = readPrBody(args);
   const prMetadata = readPrMetadata({ event: args.event });
   const allowHistoricalMigrationVersions = isDevelopToMainPromotion(prMetadata);
@@ -231,9 +251,10 @@ function main() {
     files,
     prBody,
     rootVersion: readFileSync(path.join(root, 'VERSION'), 'utf8'),
-    baseVersion: allowHistoricalMigrationVersions ? readVersionAtRef(base) : '',
+    baseVersion: readVersionAtRef(base),
     migrationIndex: readFileSync(path.join(root, 'scripts/data-migrations/index.ts'), 'utf8'),
     allowHistoricalMigrationVersions,
+    deletedFiles,
   });
 
   if (result.errors.length === 0) {

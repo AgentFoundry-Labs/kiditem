@@ -83,9 +83,42 @@ export class CompareNaverDatalabSearchTrendsDto {
 export class SearchNaverDatalabPopularKeywordsDto {
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(5)
-  @IsIn(['all_categories', 'birth_kids', 'toys_dolls', 'stationery_office', 'kids_fashion'], { each: true })
-  boardKeys?: Array<'all_categories' | 'birth_kids' | 'toys_dolls' | 'stationery_office' | 'kids_fashion'>;
+  @ArrayMaxSize(15)
+  @IsIn(
+    [
+      'all_categories',
+      'birth_kids',
+      'toys_dolls',
+      'stationery_office',
+      'kids_fashion',
+      'toys_block',
+      'toys_action',
+      'fancy_sticker',
+      'fancy_goods',
+      'stationery_writing',
+      'toys_roleplay',
+      'toys_puzzle',
+      'fancy_diary',
+      'stationery_note',
+    ],
+    { each: true },
+  )
+  boardKeys?: Array<
+    | 'all_categories'
+    | 'birth_kids'
+    | 'toys_dolls'
+    | 'stationery_office'
+    | 'kids_fashion'
+    | 'toys_block'
+    | 'toys_action'
+    | 'fancy_sticker'
+    | 'fancy_goods'
+    | 'stationery_writing'
+    | 'toys_roleplay'
+    | 'toys_puzzle'
+    | 'fancy_diary'
+    | 'stationery_note'
+  >;
 
   @IsOptional()
   @IsIn(['date', 'week', 'month'])
@@ -120,7 +153,7 @@ export class SearchNaverDatalabPopularKeywordsDto {
   @Type(() => Number)
   @IsInt()
   @Min(5)
-  @Max(50)
+  @Max(100)
   limit?: number;
 }
 
@@ -133,6 +166,7 @@ export class SourcingWorkspaceSnapshotParamsDto {
     'sourcing_agent_rag',
     'sourcing_market_model',
     'sourcing_1688_new_product_model',
+    'market_shadow_signals',
   ])
   scope!:
     | 'keyword_analysis'
@@ -141,7 +175,8 @@ export class SourcingWorkspaceSnapshotParamsDto {
     | '1688_new_products'
     | 'sourcing_agent_rag'
     | 'sourcing_market_model'
-    | 'sourcing_1688_new_product_model';
+    | 'sourcing_1688_new_product_model'
+    | 'market_shadow_signals';
 }
 
 export class SourcingWorkspaceSnapshotRecentQueryDto {

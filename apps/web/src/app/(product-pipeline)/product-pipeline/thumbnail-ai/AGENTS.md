@@ -16,6 +16,8 @@ Shared generation hooks live in
 - Thumbnail analysis and batch analysis controls
 - Batch cancel UI
 - Candidate select/apply/skip controls reused with thumbnail generation
+- Source media comes from sourcing/listing content workspaces. This route does
+  not own a separate Wing image-sync action.
 
 ## State + Data Flow
 
@@ -29,6 +31,11 @@ React Query hooks
 
 Batch progress uses `AbortController` refs plus server cancel and immediate UI
 state updates.
+
+Thumbnail results and generations join on `contentWorkspaceId`. Tracking rows
+use `channelListingId`; collected-product entry keeps `sourceCandidateId` as
+provenance. Thumbnail requests, URLs, query keys, and local maps must not use
+`productId` or `masterId` as workspace aliases.
 
 ## Cross-Route Dependencies
 

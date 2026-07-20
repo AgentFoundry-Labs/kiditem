@@ -1,88 +1,82 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# products — Catalog, Options, Bundles
+# products — Product Operations + Categories Compatibility
 
-`src/products/` owns catalog families, physical SKU options, bundle
-composition, product content reads, and the `/api/categories` compatibility
-capability. It is the owner for `MasterProduct`, `ProductOption`, and bundle
-stock materialization.
+`src/products/` owns KidItem product operations, reusable variants, and the
+central variant-to-Sellpia recipe. It also retains `/api/categories`
+compatibility CRUD. It never owns physical stock.
 
-## Folder Map
+## Owned Surface
 
-```text
-products/
-├── products.module.ts
-├── categories/              # /api/categories compatibility CRUD
-├── adapter/in/http/         # controllers and HTTP DTO binding
-├── adapter/out/repository/  # persistence adapters and query helpers
-├── application/
-│   ├── port/in/             # owner-side ports consumed by other domains
-│   ├── port/out/            # repository/code/transaction ports
-│   └── service/             # transaction-owning orchestration
-├── domain/
-│   ├── policy/              # pure validation rules
-│   └── service/             # pure computations
-├── mapper/                  # repository row -> shared contract
-├── dto/                     # legacy compatibility DTOs
-└── util/                    # legacy compatibility helpers
-```
+- `/api/products/masters` product-operations list/detail and metadata mutations
+- product variant create/update capabilities
+- complete `ProductVariantComponent` recipe replacement
+- create-if-empty deterministic recipe capability consumed by Channels after a
+  version-fenced, explicitly confirmed preview
+- transaction-aware channel-origin `MasterProduct` / `ProductVariant`
+  provisioning through the exported Products incoming port
+- focused active Sellpia recipe candidates:
+  `GET /api/products/recipe-component-candidates`
+- `/api/categories`
 
-## Owned Surfaces
+## Final Owners
 
-- Product catalog and option APIs under `/api/products/*`
-- Product content card/preview/editor compatibility APIs
-- Bundle component and bundle stock behavior
-- `/api/categories` compatibility capability
-
-## Main Data Models
-
-- `MasterProduct` is the family/planned product and operating/ads/strategy
-  unit. Codes use `MasterCodeCounter('master_product')` and `M-00000001`
-  format.
-- `ProductOption` is the physical SKU/barcode/inventory unit. SKU format is
-  `{master.code}-{NN}`.
-- `BundleComponent` stores option composition; cross-master is allowed, but
-  cross-organization and nested bundles are forbidden.
-- `ProductPreparation` captures selected registration inputs after sourcing
-  promotion.
-
-## Catalog Flow
-
-- `MASTER_CODE_PORT.generate(tx)` is the only master code issuer.
-- `OptionsService.create` generates option SKUs inside the transaction.
-- `BundleStockService.recompute` is the only writer of materialized
-  `availableStock`.
-- Bundle component CRUD recomputes stock inline inside the transaction.
-- Master and option rows use soft delete. `BundleComponent` uses hard delete.
-
-## Cross-Domain Ports
-
-- Products publishes `PRODUCT_MASTER_PROMOTION_PORT` for sourcing candidate
-  promotion.
-- Products publishes `PRODUCT_BUNDLE_STOCK_PORT` for inventory stock-mutation
-  fan-out.
-- Cross-owner modules consume products through local `adapter/out/products/`
-  bridges, not by injecting products services directly.
+- KidItem product metadata: Products `MasterProduct`.
+- Reusable sellable units and component recipes: Products `ProductVariant` and
+  `ProductVariantComponent`.
+- Sellpia physical identity and imported quantity: Inventory
+  `SellpiaInventorySku`.
+- Marketplace product/option source metadata and confirmed links: Channels
+  `ChannelListing.masterProductId` and
+  `ChannelListingOption.productVariantId`.
+- Collected sourcing candidates and product preparation: Sourcing.
+- Registered thumbnail/detail content: AI `ContentWorkspace` and its
+  generations/revisions.
 
 ## Boundary Rules
 
-- Controllers receive `organizationId` from `@CurrentOrganization()`; DTOs do
-  not accept client-provided organization ids.
-- Application services depend on `application/port/out/*`, not concrete
-  repository adapters or Prisma types.
-- Domain code imports no Prisma, NestJS, HTTP DTOs, or provider SDKs.
-- Mutating application services accept an optional
-  `ProductsRepositoryTransaction` as the last parameter when transaction
-  composition is needed.
-- Sourcing-only columns on `master_products` are deprecated migration residue;
-  products code must not select, filter on, or echo them.
-- `lifecycleState` is the master lifecycle API field and uses
-  `@kiditem/shared/product` validation.
-
-## Transitional Exceptions
-
-- `categories/`, root `dto/`, and root `util/` are compatibility surfaces.
-  New product behavior should not copy those shapes.
-- `ProductContentController` still owns legacy non-AI content history and
-  editor compatibility routes while generated-content source of truth moves
-  through AI detail-page artifacts/revisions.
+- Do not add physical stock, source price/barcode/raw import fields, or direct
+  Inventory writers to `MasterProduct`.
+- Manual recipe writes replace the complete `ProductVariantComponent` set and
+  validate positive quantities and tenant ownership. The only automatic writer
+  is the locked create-if-empty capability: it accepts one active,
+  organization-owned Sellpia component with a positive integer quantity, marks its source
+  deterministic, and preserves every existing recipe. Channels may invoke it
+  only from a matching version-fenced preview based on a unique,
+  non-conflicting identifier with name cross-check, exact normalized identity,
+  or high-confidence unique name match. Quantities above one require an
+  explicit integer pack ratio. Unverifiable pack/BOM composition, duplicates,
+  conflicts, close-ranked names, raw aliases, and AI remain non-automatic.
+- Product-level inventory is a read projection over distinct linked
+  `SellpiaInventorySku` rows hydrated through `InventoryAvailabilityPort`.
+  Variant capacity uses common `availableStock`; physical stock and active
+  commitments remain separately visible. Products never creates a second
+  ledger.
+- Product list pagination returns operating summary counts over the complete
+  filtered result before page slicing, including ABC grades, channel
+  connection, inventory status, negative profit, and Analytics-owned depletion
+  coverage/reorder signals; consumers must not reconstruct those counts from
+  the current page.
+- Recipe candidate search enters Inventory only through the exported
+  `SELLPIA_INVENTORY_SKU_READ_PORT`, passes session-owned `organizationId`, and
+  returns physical identity/stock facts without source prices or writers.
+- Channel-origin provisioning receives a caller-owned transaction, validates
+  every listing/option/current-link identity against `organizationId`, and may
+  create or reuse Products-owned identities. It never writes Channels-owned
+  link columns, physical stock, or inferred component recipes.
+- Automatic reuse accepts only unique, non-conflicting typed seller SKU or
+  safely normalized barcode evidence. Names, untyped raw payload fields, rank,
+  and AI never confirm an existing product, variant, or recipe.
+- A recollection never overwrites operator-edited product metadata, active
+  state, confirmed links, or recipes. Inactive origin/current products and
+  deterministic code collisions are explicit conflicts, not reactivation or
+  reuse shortcuts.
+- Deterministic `CP-*` and `CP-SKU-*` codes remain internal stable identities.
+  Product-operations responses expose channel-origin display references from
+  the origin listing and option external IDs; they do not replace stored codes.
+- Creating a product creates supplied variants or one default variant when the
+  request omits variants.
+- Category controllers receive `organizationId` from
+  `@CurrentOrganization()` and never accept tenant identity from the client.
+- Product and category mutations scope every single-resource operation by
+  `{ id, organizationId }`.

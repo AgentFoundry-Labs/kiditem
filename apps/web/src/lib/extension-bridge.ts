@@ -1,3 +1,7 @@
+import { safeStorageGet, safeStorageSet } from './browser-storage';
+import { z } from 'zod';
+import { SellpiaInventoryCollectionFailureCodeSchema } from '@kiditem/shared/sellpia-inventory-freshness';
+
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
 export const KIDITEM_SOURCING_EXTENSION_ID_KEY = 'kiditem-sourcing-ext-id';
 export const KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY = 'kiditem-order-ext-id';
@@ -84,12 +88,7 @@ async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): 
     }
   };
 
-  let stored: string | null = null;
-  try {
-    stored = window.localStorage.getItem(options.storageKey);
-  } catch {
-    stored = null;
-  }
+  const stored = safeStorageGet('local', options.storageKey);
   if (stored && (await tryPing(stored))) return stored;
 
   const fromHandshake = await new Promise<string | null>((resolve) => {
@@ -119,11 +118,7 @@ async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): 
   });
 
   if (fromHandshake && (await tryPing(fromHandshake))) {
-    try {
-      window.localStorage.setItem(options.storageKey, fromHandshake);
-    } catch {
-      /* noop */
-    }
+    safeStorageSet('local', options.storageKey, fromHandshake);
     return fromHandshake;
   }
   return null;
@@ -151,13 +146,61 @@ export async function detectSourcingExtensionId(timeoutMs = 1200): Promise<strin
 
 export async function detectOrderCollectionExtensionId(
   timeoutMs = 1200,
-  requiredCapability = 'orderCollectionIcecreamMall',
+  requiredCapability: string | null = 'orderCollectionIcecreamMall',
 ): Promise<string | null> {
   return detectExtensionIdWithHandshake({
     storageKey: KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
     requestType: 'kiditem:request-order-ext-id',
     responseType: 'kiditem:order-ext-id',
     timeoutMs,
-    accepts: (response) => response.capabilities?.[requiredCapability] === true,
+    accepts: (response) =>
+      requiredCapability === null || response.capabilities?.[requiredCapability] === true,
   });
+}
+
+const SellpiaInventoryExtensionReplySchema = z.discriminatedUnion('success', [
+  z.object({
+    success: z.literal(true),
+    runId: z.string().uuid(),
+    workbookBase64: z.string().min(1).regex(/^[A-Za-z0-9+/]*={0,2}$/),
+    fileName: z.string().min(1).max(180),
+    mimeType: z.string().min(1).max(200),
+    size: z.number().int().positive().max(10 * 1024 * 1024),
+    sourceOrigin: z.literal('https://kiditem.sellpia.com'),
+    sourceAccountKey: z.literal('kiditem'),
+  }).passthrough(),
+  z.object({
+    success: z.literal(false),
+    runId: z.string().uuid(),
+    errorCode: SellpiaInventoryCollectionFailureCodeSchema,
+    error: z.string().min(1).max(300),
+  }).passthrough(),
+]);
+
+export type SellpiaInventoryExtensionReply = z.infer<
+  typeof SellpiaInventoryExtensionReplySchema
+>;
+
+export async function collectSellpiaInventory(
+  extensionId: string,
+  runId: string,
+): Promise<SellpiaInventoryExtensionReply> {
+  const response = await sendToExtension<unknown>(extensionId, {
+    action: 'collectSellpiaInventory',
+    runId,
+  }, 90_000);
+  const parsed = SellpiaInventoryExtensionReplySchema.parse(response);
+  if (parsed.runId !== runId) {
+    throw new Error('Sellpia inventory extension returned a mismatched run ID');
+  }
+  return parsed;
+}
+
+export async function detectBrowserCollectionExtensionIds(): Promise<string[]> {
+  const ids = await Promise.all([
+    detectExtensionId(),
+    detectSourcingExtensionId(),
+    detectOrderCollectionExtensionId(),
+  ]);
+  return [...new Set(ids.filter((id): id is string => id !== null))];
 }

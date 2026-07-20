@@ -26,8 +26,8 @@ import { DetailPageResultRefinerService } from './detail-page-result-refiner.ser
 const GENERATED_IMAGE_TIMEOUT_MS = 15 * 60_000;
 
 export interface DetailPageDirectGenerationModelPlan {
-  image?: string;
-  vision?: string;
+  image: string;
+  vision: string;
 }
 
 @Injectable()
@@ -45,8 +45,10 @@ export class DetailPageDirectGenerationExecutorService {
     organizationId: string;
     generationInput: DetailPageGenerateDirectInput;
     textModel: string;
-    modelPlan?: DetailPageDirectGenerationModelPlan;
+    modelPlan: DetailPageDirectGenerationModelPlan;
+    signal?: AbortSignal;
   }): Promise<DetailPageGenerateDirectOutput> {
+    input.signal?.throwIfAborted();
     if (!input.textModel.trim()) {
       throw new HttpException(
         'AI_TEXT_MODEL이 설정되지 않았습니다.',
@@ -109,6 +111,7 @@ export class DetailPageDirectGenerationExecutorService {
         rawInput,
         generationMode,
         modelPlan: input.modelPlan,
+        signal: input.signal,
       });
     }
 
@@ -118,7 +121,8 @@ export class DetailPageDirectGenerationExecutorService {
           rawInput,
           reservedPackageImageIndices,
           safetyLabelImageIndices,
-          visionModel: input.modelPlan?.vision,
+          visionModel: input.modelPlan.vision,
+          signal: input.signal,
         });
 
     const { text: rawText } = await this.textCompletion.complete({
@@ -138,6 +142,7 @@ export class DetailPageDirectGenerationExecutorService {
       temperature: 0.8,
       responseMimeType: 'application/json',
       model: input.textModel,
+      signal: input.signal,
     });
 
     const schema = isBoldVertical
@@ -149,7 +154,7 @@ export class DetailPageDirectGenerationExecutorService {
       ? await this.resultRefiner.refineBoldVerticalGeneration(
           validated as BoldVerticalGeneration,
           rawInput,
-          { visionModel: input.modelPlan?.vision },
+          { visionModel: input.modelPlan.vision, signal: input.signal },
         )
       : this.resultRefiner.applyKidsPlayfulImageSelectionRules(
           validated as DetailPageGeneration,
@@ -181,6 +186,7 @@ export class DetailPageDirectGenerationExecutorService {
       rawInput,
       generationMode,
       modelPlan: input.modelPlan,
+      signal: input.signal,
     });
   }
 
@@ -201,7 +207,8 @@ export class DetailPageDirectGenerationExecutorService {
         };
     rawInput: DetailPageRawInput;
     generationMode: 'draft' | 'image' | 'full';
-    modelPlan?: DetailPageDirectGenerationModelPlan;
+    modelPlan: DetailPageDirectGenerationModelPlan;
+    signal?: AbortSignal;
   }): Promise<DetailPageGenerateDirectOutput> {
     if (input.generationMode === 'draft') {
       return { ...input.output, processedImages: {} };
@@ -212,8 +219,8 @@ export class DetailPageDirectGenerationExecutorService {
       input.rawInput.rawTitle,
     );
     try {
-      const processedImages = await withTimeout(
-        this.generatedImages.generateBestEffort({
+      const processedImages = await withAbortTimeout(
+        (signal) => this.generatedImages.generateBestEffort({
           organizationId: input.organizationId,
           parsed: input.output.result,
           templateId: input.output.templateId,
@@ -221,12 +228,15 @@ export class DetailPageDirectGenerationExecutorService {
           productName,
           excludedImageIndices: collectExcludedImageIndices(input.output),
           modelPlan: input.modelPlan,
+          signal,
         }),
         GENERATED_IMAGE_TIMEOUT_MS,
         'detail-page direct AI generated image timeout',
+        input.signal,
       );
       return { ...input.output, processedImages };
     } catch (err) {
+      if (input.signal?.aborted) throw err;
       this.logger.warn(
         `detail-page direct AI generated image work skipped: ${
           err instanceof Error ? err.message : String(err)
@@ -249,6 +259,7 @@ export class DetailPageDirectGenerationExecutorService {
     reservedPackageImageIndices: number[] | undefined;
     safetyLabelImageIndices: number[] | undefined;
     visionModel?: string;
+    signal?: AbortSignal;
   }) {
     if (
       input.reservedPackageImageIndices !== undefined &&
@@ -263,6 +274,7 @@ export class DetailPageDirectGenerationExecutorService {
       templateId: input.rawInput.templateId,
       rawInput: input.rawInput,
       visionModel: input.visionModel,
+      signal: input.signal,
     });
   }
 
@@ -274,27 +286,29 @@ export class DetailPageDirectGenerationExecutorService {
   }
 }
 
-async function withTimeout<T>(
-  promise: Promise<T>,
+async function withAbortTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
   message: string,
+  upstream?: AbortSignal,
 ): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const controller = new AbortController();
+  const abortFromUpstream = () => controller.abort(upstream?.reason);
+  upstream?.addEventListener('abort', abortFromUpstream, { once: true });
+  if (upstream?.aborted) abortFromUpstream();
+  const timeout = setTimeout(
+    () => controller.abort(new Error(`${message} after ${timeoutMs}ms`)),
+    timeoutMs,
+  );
+  timeout.unref?.();
   try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new Error(`${message} after ${timeoutMs}ms`)),
-          timeoutMs,
-        );
-        if (typeof timeout === 'object' && typeof timeout.unref === 'function') {
-          timeout.unref();
-        }
-      }),
-    ]);
+    controller.signal.throwIfAborted();
+    const result = await run(controller.signal);
+    controller.signal.throwIfAborted();
+    return result;
   } finally {
-    if (timeout) clearTimeout(timeout);
+    clearTimeout(timeout);
+    upstream?.removeEventListener('abort', abortFromUpstream);
   }
 }
 

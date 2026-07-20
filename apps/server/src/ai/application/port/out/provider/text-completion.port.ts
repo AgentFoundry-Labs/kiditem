@@ -29,6 +29,7 @@ export interface TextCompletionRequest {
    * 전달. silent fallback 금지 (apps/server/AGENTS.md No silent model fallback).
    */
   model: string;
+  signal?: AbortSignal;
 }
 
 export interface TextCompletionResult {

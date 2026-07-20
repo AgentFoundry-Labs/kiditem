@@ -31,6 +31,16 @@ multiple route groups.
   remain route/domain-owned.
 - Supabase files in `lib/supabase/` own browser auth client creation and
   refresh/sign-out coordination, not database access.
+- `sellpia-inventory-extension.ts` is the only Sellpia inventory command
+  adapter. React code passes the claimed token as the extension `runId` and
+  never sends extension messages directly.
+- `sellpia-inventory-freshness-api.ts` owns freshness leases, browser/manual
+  upload, source binding, refresh requests, order-transmission intent
+  prepare/finalize/abort calls, unified attempt history, and the authoritative
+  latest completed inventory basis read.
+- `rocket-confirm-file-store.ts` owns the browser-local Rocket workbook history
+  shared by the Supply confirmation workspace and the preserved Orders file
+  list. It is operator convenience only, never server truth or provider proof.
 
 ## Boundary Rules
 

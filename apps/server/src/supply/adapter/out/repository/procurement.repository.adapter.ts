@@ -18,6 +18,17 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(organizationId: string, query: PurchaseOrderListQuery) {
+    await this.prisma.$executeRaw`
+      UPDATE purchase_order_submission_attempts
+      SET
+        status = 'provider_unknown',
+        error_code = 'prepared_intent_expired',
+        error_message = 'Prepared provider intent exceeded the reconciliation window.',
+        updated_at = CURRENT_TIMESTAMP
+      WHERE organization_id = ${organizationId}::uuid
+        AND status = 'prepared'
+        AND created_at <= CURRENT_TIMESTAMP - INTERVAL '15 minutes'
+    `;
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
     const supplierId = query.supplierId ?? query.supplier;
@@ -25,6 +36,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
 
     const where: Prisma.PurchaseOrderWhereInput = {
       organizationId,
+      ...(query.orderId ? { id: query.orderId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(supplierId ? { supplierId } : {}),
     };
@@ -32,7 +44,26 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     const [items, total, grouped, summaryOrders] = await Promise.all([
       this.prisma.purchaseOrder.findMany({
         where,
-        include: { items: true, supplier: true },
+        include: {
+          items: true,
+          supplier: true,
+          submissionAttempts: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              idempotencyKey: true,
+              status: true,
+              providerReference: true,
+              errorCode: true,
+              errorMessage: true,
+              reconciliationOutcome: true,
+              reconciledAt: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
         orderBy: { orderDate: 'desc' },
         skip,
         take: limit,
@@ -53,7 +84,10 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     ]);
 
     return {
-      items,
+      items: items.map(({ submissionAttempts, ...order }) => ({
+        ...order,
+        latestSubmissionAttempt: submissionAttempts?.[0] ?? null,
+      })),
       total,
       page,
       limit,
@@ -71,9 +105,16 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       if (!supplier) return { ok: false as const, reason: 'supplier_not_found' as const };
     }
 
-    const missingOptionIds = await this.findMissingOwnedOptionIds(organizationId, command);
-    if (missingOptionIds.length > 0) {
-      return { ok: false as const, reason: 'option_not_found' as const, missingOptionIds };
+    const missingSellpiaInventorySkuIds = await this.findMissingOwnedSellpiaInventorySkuIds(
+      organizationId,
+      command,
+    );
+    if (missingSellpiaInventorySkuIds.length > 0) {
+      return {
+        ok: false as const,
+        reason: 'sellpia_inventory_sku_not_found' as const,
+        missingSellpiaInventorySkuIds,
+      };
     }
 
     const totalAmountCny = command.items.reduce(
@@ -95,7 +136,8 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
         items: {
           create: command.items.map((item) => ({
             productName: item.productName,
-            optionId: item.optionId || null,
+            organizationId,
+            sellpiaInventorySkuId: item.sellpiaInventorySkuId,
             quantity: item.quantity,
             unitPriceCny: item.unitPriceCny,
           })),
@@ -125,7 +167,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
         items: {
           select: {
             productName: true,
-            optionId: true,
+            sellpiaInventorySkuId: true,
             quantity: true,
             unitPriceCny: true,
           },
@@ -141,7 +183,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       totalAmountCny: decimalString(order.totalAmountCny),
       items: order.items.map((item) => ({
         productName: item.productName,
-        optionId: item.optionId,
+        sellpiaInventorySkuId: item.sellpiaInventorySkuId,
         quantity: item.quantity,
         unitPriceCny: decimalString(item.unitPriceCny),
       })),
@@ -166,39 +208,24 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     });
   }
 
-  findScopedForDelete(organizationId: string, id: string) {
-    return this.prisma.purchaseOrder.findFirst({
-      where: { id, organizationId },
-      select: { id: true, status: true },
-    });
-  }
-
-  async deleteScoped(organizationId: string, id: string) {
-    const { count } = await this.prisma.purchaseOrder.deleteMany({
-      where: { id, organizationId, status: { in: ['draft', 'pending'] } },
-    });
-    return count > 0;
-  }
-
-  private async findMissingOwnedOptionIds(
+  private async findMissingOwnedSellpiaInventorySkuIds(
     organizationId: string,
     command: PurchaseOrderCreateCommand,
   ) {
-    const optionIds = Array.from(
-      new Set(
-        command.items
-          .map((item) => item.optionId)
-          .filter((id): id is string => typeof id === 'string' && id.length > 0),
-      ),
+    const sellpiaInventorySkuIds = Array.from(
+      new Set(command.items.map((item) => item.sellpiaInventorySkuId)),
     );
-    if (optionIds.length === 0) return [];
 
-    const owned = await this.prisma.productOption.findMany({
-      where: { id: { in: optionIds }, organizationId, isDeleted: false },
+    const owned = await this.prisma.sellpiaInventorySku.findMany({
+      where: {
+        id: { in: sellpiaInventorySkuIds },
+        organizationId,
+        isActive: true,
+      },
       select: { id: true },
     });
     const ownedSet = new Set(owned.map((row) => row.id));
-    return optionIds.filter((id) => !ownedSet.has(id));
+    return sellpiaInventorySkuIds.filter((id) => !ownedSet.has(id));
   }
 }
 

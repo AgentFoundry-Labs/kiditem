@@ -9,7 +9,7 @@ const REVISION_ID = '66666666-6666-4666-8666-666666666666';
 const WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
 
 describe('DetailPageQueryRepositoryAdapter', () => {
-  it('lists detail pages by content workspace before product scope', async () => {
+  it('lists detail pages by content workspace scope', async () => {
     const prisma = {
       contentGeneration: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -19,7 +19,6 @@ describe('DetailPageQueryRepositoryAdapter', () => {
 
     await repository.list({
       organizationId: ORG,
-      productId: 'master-1',
       contentWorkspaceId: WORKSPACE_ID,
       sourceCandidateId: CANDIDATE_ID,
     });
@@ -31,13 +30,6 @@ describe('DetailPageQueryRepositoryAdapter', () => {
           contentWorkspaceId: WORKSPACE_ID,
           contentType: 'detail_page',
           isDeleted: false,
-        }),
-      }),
-    );
-    expect(prisma.contentGeneration.findMany).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          generationGroup: { targetMasterId: 'master-1' },
         }),
       }),
     );
@@ -107,7 +99,6 @@ describe('DetailPageQueryRepositoryAdapter', () => {
       data: expect.objectContaining({
         organizationId: ORG,
         contentWorkspaceId: WORKSPACE_ID,
-        sourceCandidateId: CANDIDATE_ID,
         sourceContentGenerationId: GENERATION_ID,
         title: '소싱 상세페이지',
       }),
@@ -127,5 +118,54 @@ describe('DetailPageQueryRepositoryAdapter', () => {
         createdAt: true,
       },
     });
+  });
+
+  it('prefers the current artifact revision before the newest artifact fallback', async () => {
+    const selectedCreatedAt = new Date('2026-07-19T01:00:00.000Z');
+    const fallbackCreatedAt = new Date('2026-07-19T02:00:00.000Z');
+    const prisma = {
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue({
+          currentDetailPageRevision: null,
+          currentDetailPageArtifact: {
+            currentRevision: {
+              id: 'revision-selected',
+              artifactId: 'artifact-selected',
+              html: '<section>selected</section>',
+              createdAt: selectedCreatedAt,
+            },
+          },
+          detailPageArtifacts: [{
+            currentRevision: {
+              id: 'revision-newest',
+              artifactId: 'artifact-newest',
+              html: '<section>newest</section>',
+              createdAt: fallbackCreatedAt,
+            },
+          }],
+        }),
+      },
+    };
+    const repository = new DetailPageQueryRepositoryAdapter(prisma as never, {} as never);
+
+    await expect(repository.findCandidateCurrentDetailPageHtml({
+      sourceCandidateId: CANDIDATE_ID,
+      organizationId: ORG,
+    })).resolves.toEqual({
+      revisionId: 'revision-selected',
+      artifactId: 'artifact-selected',
+      html: '<section>selected</section>',
+      createdAt: selectedCreatedAt,
+    });
+
+    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          currentDetailPageRevision: expect.any(Object),
+          currentDetailPageArtifact: expect.any(Object),
+          detailPageArtifacts: expect.any(Object),
+        }),
+      }),
+    );
   });
 });

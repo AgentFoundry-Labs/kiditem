@@ -50,9 +50,26 @@ describe('WingAdSummaryRepositoryAdapter.fetchCurrentMonthSummary (PG integratio
     const businessDate = new Date(
       Date.UTC(capturedAt.getFullYear(), capturedAt.getMonth(), capturedAt.getDate()),
     );
+    const channelAccount = await prisma.channelAccount.upsert({
+      where: {
+        organizationId_channel_externalAccountId: {
+          organizationId,
+          channel: 'coupang',
+          externalAccountId: 'wing-test',
+        },
+      },
+      create: {
+        organizationId,
+        channel: 'coupang',
+        name: 'Wing test account',
+        externalAccountId: 'wing-test',
+      },
+      update: {},
+    });
     return prisma.channelAccountDailyKpiSnapshot.create({
       data: {
         organizationId,
+        channelAccountId: channelAccount.id,
         channel: 'coupang',
         source: 'wing',
         kpiType: 'wing_dashboard',

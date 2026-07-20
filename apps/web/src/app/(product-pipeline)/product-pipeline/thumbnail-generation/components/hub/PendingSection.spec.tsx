@@ -9,9 +9,8 @@ const mocks = vi.hoisted(() => ({
   generations: [] as ThumbnailGenerationItem[],
   runningGeneration: {
     id: 'thumbnail-generation-1',
-    productId: 'product-1',
+    contentWorkspaceId: 'workspace-1',
     sourceCandidateId: null,
-    contentWorkspaceId: null,
     originalUrl: 'https://example.com/original.png',
     candidates: [],
     selectedUrl: null,
@@ -24,8 +23,8 @@ const mocks = vi.hoisted(() => ({
     inputMeta: null,
     errorMessage: null,
     createdAt: '2026-05-17T00:00:00.000Z',
-    product: {
-      id: 'product-1',
+    contentWorkspace: {
+      id: 'workspace-1',
       name: '테스트 상품',
       imageUrl: 'https://example.com/original.png',
       coupangProductId: null,
@@ -79,12 +78,14 @@ describe('PendingSection', () => {
   });
 
   it('keeps the section visible but does not list completed thumbnail generations as in-progress', () => {
-    mocks.generations = [{
-      ...mocks.runningGeneration,
-      id: 'thumbnail-generation-complete',
-      status: 'succeeded',
-      phase: 'ready',
-    } as ThumbnailGenerationItem];
+    mocks.generations = [
+      {
+        ...mocks.runningGeneration,
+        id: 'thumbnail-generation-complete',
+        status: 'succeeded',
+        phase: 'ready',
+      } as ThumbnailGenerationItem,
+    ];
 
     render(<PendingSection />);
 

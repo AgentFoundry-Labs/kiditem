@@ -1,5 +1,11 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { THUMBNAIL_TRACKING_STATUSES, type ThumbnailTrackingListResponse, type ThumbnailTrackingRecord, type ThumbnailTrackingStatus, type UpdateThumbnailTrackingMetrics } from '@kiditem/shared/ai';
+import {
+  THUMBNAIL_TRACKING_STATUSES,
+  type ThumbnailTrackingListResponse,
+  type ThumbnailTrackingRecord,
+  type ThumbnailTrackingStatus,
+  type UpdateThumbnailTrackingMetrics,
+} from '@kiditem/shared/ai';
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
   type CoupangProductSalesScrapePort,
@@ -16,13 +22,11 @@ function toRecord(row: ThumbnailTrackingRow, nowMs: number = Date.now()): Thumbn
     ? (row.status as ThumbnailTrackingStatus)
     : 'tracking';
   const ctrChange =
-    row.ctrBefore != null && row.ctrAfter != null
-      ? Math.round((row.ctrAfter - row.ctrBefore) * 10) / 10
-      : null;
+    row.ctrBefore != null && row.ctrAfter != null ? Math.round((row.ctrAfter - row.ctrBefore) * 10) / 10 : null;
   return {
     id: row.id,
-    productId: row.listing?.master?.id ?? '',
-    productName: row.listing?.master?.name ?? '',
+    channelListingId: row.listing.id,
+    productName: row.listing.displayName ?? row.listing.channelName ?? row.listing.externalId,
     generationId: row.generationId,
     originalGrade: row.originalGrade,
     originalScore: row.originalScore,
@@ -95,24 +99,27 @@ export class ThumbnailTrackingService {
 
     const now = Date.now();
     const items = rows.map((r) => toRecord(r, now));
-    return { items, total, page, limit } satisfies ThumbnailTrackingListResponse;
+    return {
+      items,
+      total,
+      page,
+      limit,
+    } satisfies ThumbnailTrackingListResponse;
   }
 
   async create(input: {
     organizationId: string;
-    masterId: string;
+    contentWorkspaceId: string;
     generationId: string;
     originalGrade: string;
     originalScore: number;
   }): Promise<ThumbnailTrackingRecord | null> {
-    const listing = await this.repository.findFirstListingForMaster(
-      input.masterId,
+    const listing = await this.repository.findChannelListingForWorkspace(
+      input.contentWorkspaceId,
       input.organizationId,
     );
     if (!listing) {
-      this.logger.debug(
-        `ThumbnailTracking skip — master ${input.masterId} 에 연결된 ChannelListing 없음`,
-      );
+      this.logger.debug(`ThumbnailTracking skip — workspace ${input.contentWorkspaceId} 에 연결된 ChannelListing 없음`);
       return null;
     }
 
@@ -131,7 +138,11 @@ export class ThumbnailTrackingService {
     input: UpdateThumbnailTrackingMetrics,
     organizationId: string,
   ): Promise<ThumbnailTrackingRecord> {
-    const row = await this.repository.updateMetrics({ id, organizationId, metrics: input });
+    const row = await this.repository.updateMetrics({
+      id,
+      organizationId,
+      metrics: input,
+    });
     if (!row) throw new NotFoundException(`ThumbnailTracking ${id} not found`);
     return toRecord(row);
   }
@@ -140,7 +151,7 @@ export class ThumbnailTrackingService {
    * 시계열 매출 snapshot 1일치 수집.
    *
    * 동작:
-   *  1. tracking row 에서 productName 결정 (master.name 또는 listing.channelName 우선).
+   *  1. tracking row 에서 productName 결정 (listing.channelName/displayName 우선).
    *  2. playwriter adapter 가 Wing vendor-inventory 검색 → 일치 row 의 셀 추출.
    *  3. `(trackingId, capturedDate)` 가 이미 있으면 upsert (업데이트 후 최신값 반영).
    *  4. 첫 snapshot 이고 `salesBefore` null 이면 그 값으로 채워 baseline 설정.
@@ -149,10 +160,7 @@ export class ThumbnailTrackingService {
    *  - HTTP 트리거 (`POST /api/thumbnail-tracking/:id/collect`) — 수동 실행 / 디버깅
    *  - 추후 cron — 매일 한 번 active tracking 들 순회
    */
-  async collectDailySnapshot(
-    trackingId: string,
-    organizationId: string,
-  ): Promise<DailySnapshotRecord> {
+  async collectDailySnapshot(trackingId: string, organizationId: string): Promise<DailySnapshotRecord> {
     const tracking = await this.repository.findTrackingForSnapshot(trackingId, organizationId);
     if (!tracking) {
       throw new NotFoundException(`ThumbnailTracking ${trackingId} not found`);
@@ -160,12 +168,11 @@ export class ThumbnailTrackingService {
 
     const productName =
       tracking.listing?.channelName?.trim() ||
-      tracking.listing?.master?.name?.trim() ||
+      tracking.listing?.displayName?.trim() ||
+      tracking.listing?.externalId?.trim() ||
       '';
     if (!productName) {
-      throw new NotFoundException(
-        `ThumbnailTracking ${trackingId} 에 productName 을 결정할 수 없습니다 (master/listing 둘 다 비어있음).`,
-      );
+      throw new NotFoundException(`ThumbnailTracking ${trackingId} 에 productName 을 결정할 수 없습니다.`);
     }
 
     const today = startOfTodayUtc();
@@ -220,10 +227,7 @@ export class ThumbnailTrackingService {
   }
 
   /** 한 tracking 의 모든 daily snapshot — 차트용 시계열 데이터. */
-  async listSnapshots(
-    trackingId: string,
-    organizationId: string,
-  ): Promise<DailySnapshotRecord[]> {
+  async listSnapshots(trackingId: string, organizationId: string): Promise<DailySnapshotRecord[]> {
     const exists = await this.repository.findTrackingForSnapshot(trackingId, organizationId);
     if (!exists) throw new NotFoundException(`ThumbnailTracking ${trackingId} not found`);
 
@@ -235,9 +239,7 @@ export class ThumbnailTrackingService {
    * 현재 active tracking 들 (appliedAt 으로부터 30일 미경과) 모두 순회하며
    * snapshot 수집. cron / 수동 일일 trigger 에서 호출.
    */
-  async collectAllActiveSnapshots(
-    organizationId: string,
-  ): Promise<{ collected: number; failed: number }> {
+  async collectAllActiveSnapshots(organizationId: string): Promise<{ collected: number; failed: number }> {
     const trackings = await this.repository.findActiveTrackings(organizationId);
 
     let collected = 0;
@@ -249,11 +251,7 @@ export class ThumbnailTrackingService {
         else failed += 1;
       } catch (err) {
         failed += 1;
-        this.logger.warn(
-          `daily snapshot failed tracking=${t.id}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
+        this.logger.warn(`daily snapshot failed tracking=${t.id}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     return { collected, failed };

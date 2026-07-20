@@ -1,24 +1,40 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
-
+import { InventoryModule } from '../inventory/inventory.module';
+import { ChannelsModule } from '../channels/channels.module';
 import { SupplyAgentCapabilityAdapter } from './adapter/in/agent/supply-agent-capability.adapter';
 import { SuppliersController } from './adapter/in/http/suppliers.controller';
 import { ProcurementController } from './adapter/in/http/procurement.controller';
-
 import { SuppliersService } from './application/service/suppliers.service';
 import { ProcurementService } from './application/service/procurement.service';
 import { PurchaseOrderDraftService } from './application/service/purchase-order-draft.service';
 import { PurchaseOrderSubmissionService } from './application/service/purchase-order-submission.service';
+import { RocketPurchasePreviewService } from './application/service/rocket-purchase-preview.service';
+import { RocketPurchaseConfirmationService } from './application/service/rocket-purchase-confirmation.service';
+import { RocketFinalOrderReconciliationService } from './application/service/rocket-final-order-reconciliation.service';
+import { RocketPurchaseCommitmentQueryService } from './application/service/rocket-purchase-commitment-query.service';
 import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
 import { OrderAgentRuntimeHandler } from './adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from './adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from './adapter/out/repository/procurement.repository.adapter';
+import { PurchaseOrderSubmissionTransactionAdapter } from './adapter/out/transaction/purchase-order-submission.transaction.adapter';
+import { RocketPurchaseConfirmationTransactionAdapter } from './adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
+import { RocketFinalOrderReconciliationTransactionAdapter } from './adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
+import { RocketPurchaseConfirmationQueryRepositoryAdapter } from './adapter/out/repository/rocket-purchase-confirmation-query.repository.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from './application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from './application/port/in/procurement/purchase-order-submission.port';
 import { SUPPLIER_REPOSITORY_PORT } from './application/port/out/repository/supplier.repository.port';
 import { PROCUREMENT_REPOSITORY_PORT } from './application/port/out/repository/procurement.repository.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/runtime/purchase-order-checkout-runtime.port';
+import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/out/transaction/purchase-order-submission.transaction.port';
+import { ROCKET_PURCHASE_PREVIEW_PORT } from './application/port/in/procurement/rocket-purchase-preview.port';
+import { ROCKET_PURCHASE_CONFIRMATION_PORT } from './application/port/in/procurement/rocket-purchase-confirmation.port';
+import { ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT } from './application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
+import { ROCKET_FINAL_ORDER_RECONCILIATION_PORT } from './application/port/in/procurement/rocket-final-order-reconciliation.port';
+import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from './application/port/out/transaction/rocket-final-order-reconciliation.transaction.port';
+import { ROCKET_PURCHASE_COMMITMENT_QUERY_PORT } from './application/port/in/procurement/rocket-purchase-commitment-query.port';
+import { ROCKET_PURCHASE_CONFIRMATION_QUERY_REPOSITORY_PORT } from './application/port/out/repository/rocket-purchase-confirmation-query.repository.port';
 
 /**
  * Supply owns supplier registry, master-supplier policy, and purchase-order
@@ -27,18 +43,26 @@ import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/run
  * finance/; supplier-stats stays in analytics/.
  */
 @Module({
-  imports: [PrismaModule, AgentOsModule],
+  imports: [PrismaModule, AgentOsModule, InventoryModule, ChannelsModule],
   controllers: [SuppliersController, ProcurementController],
   providers: [
     SuppliersService,
     ProcurementService,
     PurchaseOrderDraftService,
     PurchaseOrderSubmissionService,
+    RocketPurchasePreviewService,
+    RocketPurchaseConfirmationService,
+    RocketFinalOrderReconciliationService,
+    RocketPurchaseCommitmentQueryService,
     SupplyAgentCapabilityAdapter,
     Alibaba1688CheckoutRuntimeAdapter,
     OrderAgentRuntimeHandler,
     SupplierRepositoryAdapter,
     ProcurementRepositoryAdapter,
+    PurchaseOrderSubmissionTransactionAdapter,
+    RocketPurchaseConfirmationTransactionAdapter,
+    RocketFinalOrderReconciliationTransactionAdapter,
+    RocketPurchaseConfirmationQueryRepositoryAdapter,
     { provide: PURCHASE_ORDER_DRAFT_PORT, useExisting: PurchaseOrderDraftService },
     {
       provide: PURCHASE_ORDER_SUBMISSION_PORT,
@@ -50,6 +74,39 @@ import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/run
       provide: PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT,
       useExisting: Alibaba1688CheckoutRuntimeAdapter,
     },
+    {
+      provide: PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT,
+      useExisting: PurchaseOrderSubmissionTransactionAdapter,
+    },
+    {
+      provide: ROCKET_PURCHASE_PREVIEW_PORT,
+      useExisting: RocketPurchasePreviewService,
+    },
+    {
+      provide: ROCKET_PURCHASE_CONFIRMATION_PORT,
+      useExisting: RocketPurchaseConfirmationService,
+    },
+    {
+      provide: ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT,
+      useExisting: RocketPurchaseConfirmationTransactionAdapter,
+    },
+    {
+      provide: ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT,
+      useExisting: RocketFinalOrderReconciliationTransactionAdapter,
+    },
+    {
+      provide: ROCKET_FINAL_ORDER_RECONCILIATION_PORT,
+      useExisting: RocketFinalOrderReconciliationService,
+    },
+    {
+      provide: ROCKET_PURCHASE_CONFIRMATION_QUERY_REPOSITORY_PORT,
+      useExisting: RocketPurchaseConfirmationQueryRepositoryAdapter,
+    },
+    {
+      provide: ROCKET_PURCHASE_COMMITMENT_QUERY_PORT,
+      useExisting: RocketPurchaseCommitmentQueryService,
+    },
   ],
+  exports: [ROCKET_FINAL_ORDER_RECONCILIATION_PORT],
 })
 export class SupplyModule {}

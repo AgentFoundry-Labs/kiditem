@@ -5,11 +5,7 @@ import {
   singleProductFallback,
   SINGLE_PRODUCT_FALLBACK,
 } from '../../domain/recompose-classification';
-import {
-  buildProductContextHeader,
-  RECOMPOSE_CLASSIFY_PROMPT,
-} from '../../domain/prompts/thumbnail-prompts';
-import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
+import { buildProductContextHeader, RECOMPOSE_CLASSIFY_PROMPT } from '../../domain/prompts/thumbnail-prompts';
 import { ThumbnailVisionAiService } from './thumbnail-vision-ai.service';
 import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
@@ -33,16 +29,13 @@ export class ThumbnailRecomposeService {
     private readonly vision: ThumbnailVisionAiService,
   ) {}
 
-  async classify(productId: string, organizationId: string): Promise<RecomposeVariantClassification> {
-    const master = await this.repository.findRecomposeMaster(productId, organizationId);
-    if (!master) throw new NotFoundException('Product not found');
-    const imageUrl = resolveMasterThumbnailImage(master);
-    if (!imageUrl) {
-      return singleProductFallback('원본 이미지가 없습니다');
-    }
+  async classify(contentWorkspaceId: string, organizationId: string): Promise<RecomposeVariantClassification> {
+    const workspace = await this.repository.findRecomposeWorkspace(contentWorkspaceId, organizationId);
+    if (!workspace) throw new NotFoundException('Content workspace not found');
+    const imageUrl = workspace.imageUrl;
     return this.classifyByImage(imageUrl, {
-      productName: master.name,
-      category: master.category,
+      productName: workspace.name,
+      category: workspace.category,
     });
   }
 
@@ -56,9 +49,7 @@ export class ThumbnailRecomposeService {
       const text = await this.vision.classifyImageJson(imageUrl, prompt);
       return parseRecomposeClassification(text);
     } catch (err) {
-      this.logger.warn(
-        `recompose classify 실패 (${imageUrl}): ${err instanceof Error ? err.message : err}`,
-      );
+      this.logger.warn(`recompose classify 실패 (${imageUrl}): ${err instanceof Error ? err.message : err}`);
       return SINGLE_PRODUCT_FALLBACK;
     }
   }

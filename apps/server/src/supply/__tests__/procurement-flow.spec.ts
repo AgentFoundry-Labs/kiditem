@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProcurementService } from '../application/service/procurement.service';
 import { BadRequestException } from '@nestjs/common';
+import { ProcurementService } from '../application/service/procurement.service';
+import { ProcurementController } from '../adapter/in/http/procurement.controller';
 import type { ProcurementRepositoryPort } from '../application/port/out/repository/procurement.repository.port';
 
 function makeRepository(): ProcurementRepositoryPort {
@@ -9,9 +10,13 @@ function makeRepository(): ProcurementRepositoryPort {
     createDraft: vi.fn(),
     findScopedStatus: vi.fn(),
     updateStatusScoped: vi.fn(),
-    findScopedForDelete: vi.fn(),
-    deleteScoped: vi.fn(),
   } as unknown as ProcurementRepositoryPort;
+}
+
+function makeSubmissionTransaction() {
+  return {
+    deletePurchaseOrder: vi.fn(),
+  };
 }
 
 const MOCK_ORDER_DRAFT = {
@@ -29,10 +34,16 @@ const MOCK_ORDER_DRAFT = {
 describe('ProcurementService — PO status lifecycle', () => {
   let service: ProcurementService;
   let procurement: ProcurementRepositoryPort;
+  let transaction: ReturnType<typeof makeSubmissionTransaction>;
 
   beforeEach(() => {
     procurement = makeRepository();
-    service = new ProcurementService(procurement);
+    transaction = makeSubmissionTransaction();
+    const Service = ProcurementService as unknown as new (
+      repository: ProcurementRepositoryPort,
+      submissionTransaction: typeof transaction,
+    ) => ProcurementService;
+    service = new Service(procurement, transaction);
   });
 
   it('create PO delegates draft creation to the outgoing repository port', async () => {
@@ -41,14 +52,14 @@ describe('ProcurementService — PO status lifecycle', () => {
 
     const result = await service.create('organization-1', {
       supplierName: 'Test Supplier',
-      items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+      items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 10, unitPriceCny: 50 }],
     });
 
     expect(procurement.createDraft).toHaveBeenCalledWith(
       'organization-1',
       {
         supplierName: 'Test Supplier',
-        items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+        items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 10, unitPriceCny: 50 }],
       },
     );
     expect(result).toEqual(created);
@@ -61,7 +72,7 @@ describe('ProcurementService — PO status lifecycle', () => {
     await service.create('organization-1', {
       supplierName: 'Test Supplier',
       supplierId: 'supplier-1',
-      items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+      items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 10, unitPriceCny: 50 }],
     });
 
     expect(procurement.createDraft).toHaveBeenCalledWith(
@@ -80,26 +91,26 @@ describe('ProcurementService — PO status lifecycle', () => {
       service.create('organization-1', {
         supplierName: 'Other Supplier',
         supplierId: 'supplier-2',
-        items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+        items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 10, unitPriceCny: 50 }],
       }),
     ).rejects.toThrow(BadRequestException);
 
     expect(procurement.createDraft).toHaveBeenCalledOnce();
   });
 
-  it('maps repository option ownership failure to the existing IDOR error message', async () => {
+  it('maps repository Sellpia SKU ownership failure to the IDOR error message', async () => {
     vi.mocked(procurement.createDraft).mockResolvedValue({
       ok: false,
-      reason: 'option_not_found',
-      missingOptionIds: ['option-2'],
+      reason: 'sellpia_inventory_sku_not_found',
+      missingSellpiaInventorySkuIds: ['sellpia-sku-2'],
     });
 
     await expect(
       service.create('organization-1', {
         supplierName: 'Other Supplier',
-        items: [{ productName: 'Widget', optionId: 'option-2', quantity: 10, unitPriceCny: 50 }],
+        items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-2', quantity: 10, unitPriceCny: 50 }],
       }),
-    ).rejects.toThrow('발주 항목의 옵션을 찾을 수 없거나 권한이 없습니다: option-2');
+    ).rejects.toThrow('발주 항목의 셀피아 상품을 찾을 수 없거나 권한이 없습니다: sellpia-sku-2');
 
     expect(procurement.createDraft).toHaveBeenCalledOnce();
   });
@@ -133,13 +144,10 @@ describe('ProcurementService — PO status lifecycle', () => {
       supplier: null,
     });
 
-    await service.updateStatus('organization-1', 'po-1', 'ordered');
-    expect(procurement.updateStatusScoped).toHaveBeenCalledWith(
-      'organization-1',
-      'po-1',
-      'pending',
-      { status: 'ordered' },
-    );
+    await expect(
+      service.updateStatus('organization-1', 'po-1', 'ordered'),
+    ).rejects.toThrow('submit');
+    expect(procurement.updateStatusScoped).not.toHaveBeenCalled();
   });
 
   it('updateStatus ordered→shipped → valid transition', async () => {
@@ -194,26 +202,256 @@ describe('ProcurementService — PO status lifecycle', () => {
   });
 
   it('delete draft PO → ok', async () => {
-    vi.mocked(procurement.findScopedForDelete).mockResolvedValue({ id: 'po-1', status: 'draft' });
-    vi.mocked(procurement.deleteScoped).mockResolvedValue(true);
+    transaction.deletePurchaseOrder.mockResolvedValue({
+      kind: 'deleted',
+      order: { id: 'po-1', status: 'draft' },
+    });
 
     const result = await service.delete('organization-1', 'po-1');
-    expect(procurement.deleteScoped).toHaveBeenCalledWith('organization-1', 'po-1');
+    expect(transaction.deletePurchaseOrder).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      purchaseOrderId: 'po-1',
+    });
     expect(result).toEqual({ id: 'po-1', status: 'draft' });
   });
 
   it('delete non-draft PO → throws BadRequestException', async () => {
-    vi.mocked(procurement.findScopedForDelete).mockResolvedValue({ id: 'po-1', status: 'shipped' });
+    transaction.deletePurchaseOrder.mockResolvedValue({ kind: 'not_deletable' });
 
     await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
-    expect(procurement.deleteScoped).not.toHaveBeenCalled();
   });
 
   it('delete wrong organization → not found, no mutation', async () => {
-    vi.mocked(procurement.findScopedForDelete).mockResolvedValue(null);
+    transaction.deletePurchaseOrder.mockResolvedValue({ kind: 'not_found' });
 
     await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
+  });
 
-    expect(procurement.deleteScoped).not.toHaveBeenCalled();
+  it('delete pending PO with unresolved provider intent → rejects without deletion', async () => {
+    transaction.deletePurchaseOrder.mockResolvedValue({ kind: 'unresolved_attempt' });
+
+    await expect(service.delete('organization-1', 'po-1'))
+      .rejects.toThrow('외부 주문 시도');
+  });
+});
+
+describe('ProcurementController purchase submission boundary', () => {
+  it('routes saved Rocket PO list and collection reads through the account-scoped catalog port', async () => {
+    const catalog = {
+      listSavedPos: vi.fn().mockResolvedValue([]),
+      loadSavedCollection: vi.fn().mockResolvedValue({ rows: [] }),
+    };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: Record<string, unknown>,
+      previews: Record<string, unknown>,
+      confirmations: Record<string, unknown>,
+      commitments: Record<string, unknown>,
+      catalog: typeof catalog,
+    ) => ProcurementController;
+    const controller = new Controller({}, {}, {}, {}, {}, catalog);
+    const channelAccountId = '11111111-1111-4111-8111-111111111111';
+    const sourceImportRunId = '22222222-2222-4222-8222-222222222222';
+
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'listSavedRocketPos',
+        channelAccountId,
+        from: '2026-07-01',
+        to: '2026-07-31',
+        rocketStatus: '거래처확인요청',
+      } as never,
+    );
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'loadSavedRocketCollection',
+        channelAccountId,
+        sourceImportRunId,
+      } as never,
+    );
+
+    expect(catalog.listSavedPos).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      channelAccountId,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      status: '거래처확인요청',
+    });
+    expect(catalog.loadSavedCollection).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      channelAccountId,
+      sourceImportRunId,
+    });
+  });
+
+  it('routes Rocket confirmation and release through the Supply-owned action endpoint', async () => {
+    const confirmations = {
+      confirm: vi.fn().mockResolvedValue({ status: 'active' }),
+      release: vi.fn().mockResolvedValue({ status: 'released' }),
+    };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: Record<string, unknown>,
+      previews: Record<string, unknown>,
+      confirmations: typeof confirmations,
+    ) => ProcurementController;
+    const controller = new Controller({}, {}, {}, confirmations);
+    const request = {
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      channelAccountId: '22222222-2222-4222-8222-222222222222',
+      collection: {
+        collectionRunId: '33333333-3333-4333-8333-333333333333',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 0,
+        failedPoNumbers: [],
+      },
+      rows: [],
+      editedQuantities: {},
+      shortageReasons: {},
+    };
+
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      { action: 'confirmRocket', ...request } as never,
+    );
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'releaseRocketConfirmation',
+        confirmationId: '44444444-4444-4444-8444-444444444444',
+        releaseReason: '쿠팡 확정 수량 정정',
+      } as never,
+    );
+
+    expect(confirmations.confirm).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      userId: 'authenticated-user',
+      request,
+    });
+    expect(confirmations.release).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      userId: 'authenticated-user',
+      request: {
+        confirmationId: '44444444-4444-4444-8444-444444444444',
+        reason: '쿠팡 확정 수량 정정',
+      },
+    });
+  });
+
+  it('routes previewRocket through the existing action-body endpoint with server actor scope', async () => {
+    const previews = { preview: vi.fn().mockResolvedValue({ rows: [] }) };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: Record<string, unknown>,
+      previews: typeof previews,
+    ) => ProcurementController;
+    const controller = new Controller({}, {}, previews);
+    const body = {
+      action: 'previewRocket',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 0,
+        failedPoNumbers: [],
+      },
+      rows: [],
+      editedQuantities: {},
+      clampEditedQuantities: true,
+    };
+
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      body as never,
+    );
+
+    expect(previews.preview).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      userId: 'authenticated-user',
+      request: {
+        channelAccountId: body.channelAccountId,
+        collection: body.collection,
+        rows: body.rows,
+        editedQuantities: body.editedQuantities,
+        clampEditedQuantities: true,
+      },
+    });
+  });
+
+  it('passes the caller key and authenticated actor to the common submission port', async () => {
+    const procurement = {
+      findAll: vi.fn(),
+      create: vi.fn(),
+      updateStatus: vi.fn(),
+      delete: vi.fn(),
+    };
+    const submissions = {
+      submit: vi.fn().mockResolvedValue({ orderId: 'po-1', status: 'ordered' }),
+      reconcile: vi.fn(),
+    };
+    const Controller = ProcurementController as unknown as new (
+      procurement: typeof procurement,
+      submissions: typeof submissions,
+    ) => ProcurementController;
+    const controller = new Controller(procurement, submissions);
+
+    await controller.handleAction(
+      'organization-1',
+      { id: '00000000-0000-4000-8000-000000000001' } as never,
+      {
+        action: 'submit',
+        id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        idempotencyKey: 'stable-submit-key',
+      } as never,
+    );
+
+    expect(submissions.submit).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+      idempotencyKey: 'stable-submit-key',
+      userId: '00000000-0000-4000-8000-000000000001',
+    });
+  });
+
+  it('ignores a client actor override when reconciling and records CurrentUser', async () => {
+    const submissions = { submit: vi.fn(), reconcile: vi.fn() };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: typeof submissions,
+    ) => ProcurementController;
+    const controller = new Controller({}, submissions);
+
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'reconcileSubmission',
+        id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        outcome: 'provider_succeeded',
+        providerReference: '1688-1',
+        userId: 'client-forged-user',
+      } as never,
+    );
+
+    expect(submissions.reconcile).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+      userId: 'authenticated-user',
+      outcome: 'provider_succeeded',
+      providerReference: '1688-1',
+    });
   });
 });

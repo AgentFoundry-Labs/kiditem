@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Settings } from 'lucide-react';
+import { toast } from 'sonner';
+import { isApiError } from '@/lib/api-error';
 import type {
   ProductBasics,
   UpdateProductBasicsInput,
@@ -25,11 +27,11 @@ interface Props {
   activeTab: EditTabType;
   editData: ProductEditState;
   basicInfo?: ProductBasics | null;
+  costCny?: number | null;
   updateField: <K extends keyof ProductEditState>(field: K, value: ProductEditState[K]) => void;
   onCommitBasicInfo?: (input: UpdateProductBasicsInput) => Promise<void> | void;
   nameLength: number;
   productId: string;
-  promotedMasterId: string | null;
   detailPreviewHtml: string;
   editedHtml: string | null;
   templateCss: string;
@@ -62,6 +64,8 @@ interface Props {
     selectedDetailPageRevisionId?: string | null;
   }) => Promise<void> | void;
   selectedRegistrationThumbnailUrl: string | null;
+  /** 저장된 대표 썸네일. `등록 대표` 배지의 유일한 근거(폴백 없음). */
+  savedRepresentativeThumbnailUrl?: string | null;
   mobilePreviewData: ProductRegistrationPreviewData;
   onPreviewThumbnail: (url: string | null) => void;
   thumbnailPreviewImages: string[];
@@ -70,6 +74,7 @@ interface Props {
     thumbnailUrls: string[];
     selectedThumbnail: RegistrationThumbnailOption | null;
   }) => Promise<void> | void;
+  canSaveThumbnailConfiguration?: boolean;
   thumbnailGenerationReturnHref: string;
   selectedDetailPageSummary?: SelectedDetailPageSummary | null;
   onDetailPreviewHtmlChange?: (html: string | null) => void;
@@ -79,11 +84,11 @@ export default function ProductTabContent({
   activeTab,
   editData,
   basicInfo = null,
+  costCny = null,
   updateField,
   onCommitBasicInfo,
   nameLength,
   productId,
-  promotedMasterId,
   detailPreviewHtml,
   editedHtml,
   templateCss,
@@ -109,11 +114,13 @@ export default function ProductTabContent({
   onSelectAgent,
   onApplyRegistrationDetailPage,
   selectedRegistrationThumbnailUrl,
+  savedRepresentativeThumbnailUrl = null,
   thumbnailPreviewImages,
   mobilePreviewData,
   onPreviewThumbnail,
   onThumbnailPreviewImagesChange,
   onSaveThumbnailConfiguration,
+  canSaveThumbnailConfiguration = true,
   thumbnailGenerationReturnHref,
   selectedDetailPageSummary = null,
   onDetailPreviewHtmlChange,
@@ -121,9 +128,10 @@ export default function ProductTabContent({
   const effectiveThumbnailSourceCandidateId =
     thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
   const initialBasicDraft = useMemo(
-    () => basicDraftFrom({ basicInfo, editData }),
+    () => basicDraftFrom({ basicInfo, editData, costCny }),
     [
       basicInfo,
+      costCny,
       editData.category,
       editData.discountRate,
       editData.name,
@@ -135,6 +143,7 @@ export default function ProductTabContent({
   const [basicDraft, setBasicDraft] = useState(initialBasicDraft);
   const [isBasicEditing, setIsBasicEditing] = useState(false);
   const [isBasicSaving, setIsBasicSaving] = useState(false);
+  const [isKcImageSaving, setIsKcImageSaving] = useState(false);
 
   useEffect(() => {
     if (!isBasicEditing) {
@@ -153,14 +162,16 @@ export default function ProductTabContent({
     setIsBasicEditing(false);
   };
   const saveBasicEditing = async () => {
-    const input = productBasicsInputFromDraft(basicDraft);
+    const input = productBasicsInputFromDraft(basicDraft, basicInfo);
     setIsBasicSaving(true);
     try {
       await onCommitBasicInfo?.(input);
       updateField('name', input.name ?? '');
       updateField('category', input.category ?? '');
       updateField('tags', input.tags ?? []);
-      updateField('salePrice', input.salePrice ?? 0);
+      // salePrice 가 payload 에 없으면 = 손대지 않은 셀피아 폴백이라 서버 값이
+      // 그대로다. 0 으로 덮으면 화면에서만 가격이 사라진다.
+      if (input.salePrice !== undefined) updateField('salePrice', input.salePrice);
       updateField('originalPrice', input.originalPrice ?? 0);
       updateField('discountRate', input.discountRate ?? 0);
       setIsBasicEditing(false);
@@ -171,47 +182,71 @@ export default function ProductTabContent({
     }
   };
 
+  // 보기 모드에서 KC 인증 이미지를 올리면 수정/저장 없이 바로 저장한다.
+  const commitKcImage = async (value: string) => {
+    setBasicDraft((current) => ({
+      ...current,
+      kcCertificationImageUrl: value,
+    }));
+    setIsKcImageSaving(true);
+    try {
+      await onCommitBasicInfo?.({ kcCertificationImageUrl: value });
+      toast.success(value ? 'KC 인증 이미지를 저장했어요.' : 'KC 인증 이미지를 삭제했어요.');
+    } catch (err) {
+      setBasicDraft(initialBasicDraft);
+      toast.error(isApiError(err) ? err.detail : 'KC 인증 이미지 저장에 실패했어요.');
+    } finally {
+      setIsKcImageSaving(false);
+    }
+  };
+
   switch (activeTab) {
     case 'basic':
       return (
         <div className="space-y-3 p-5">
-          <div className="flex items-center justify-end">
-            {isBasicEditing ? (
-              <div className="flex items-center gap-2">
+          {onCommitBasicInfo ? (
+            <div className="flex items-center justify-end">
+              {isBasicEditing ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={cancelBasicEditing}
+                    className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveBasicEditing}
+                    disabled={isBasicSaving}
+                    className="h-9 rounded-md bg-emerald-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-emerald-700"
+                  >
+                    저장
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
-                  onClick={cancelBasicEditing}
-                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+                  onClick={() => setIsBasicEditing(true)}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                 >
-                  취소
+                  수정
                 </button>
-                <button
-                  type="button"
-                  onClick={saveBasicEditing}
-                  disabled={isBasicSaving}
-                  className="h-9 rounded-md bg-emerald-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-emerald-700"
-                >
-                  저장
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsBasicEditing(true)}
-                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
-              >
-                수정
-              </button>
-            )}
-          </div>
+              )}
+            </div>
+          ) : null}
           <ProductBasicsTab
             editData={editData}
             basicInfo={basicInfo}
+            costCny={costCny}
             nameLength={nameLength}
             isEditing={isBasicEditing}
             draft={basicDraft}
             onDraftChange={updateBasicDraft}
             onDraftTagsChange={updateBasicDraftTags}
+            onCommitKcImage={onCommitBasicInfo ? commitKcImage : undefined}
+            isKcImageSaving={isKcImageSaving}
+            readOnly={!onCommitBasicInfo}
             selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
             selectedDetailPageGenerationId={savedDetailPageGenerationId}
             selectedDetailPageSummary={selectedDetailPageSummary}
@@ -236,16 +271,16 @@ export default function ProductTabContent({
       return (
         <ThumbnailWorkspaceTab
           editData={editData}
-          productId={productId}
-          promotedMasterId={promotedMasterId}
           contentWorkspaceId={contentWorkspaceId}
           thumbnailUrl={thumbnailUrl}
           thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
           selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+          savedRepresentativeThumbnailUrl={savedRepresentativeThumbnailUrl}
           thumbnailPreviewImages={thumbnailPreviewImages}
           onPreviewThumbnail={onPreviewThumbnail}
           onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
           onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
+          canSaveConfiguration={canSaveThumbnailConfiguration}
           thumbnailGenerationReturnHref={thumbnailGenerationReturnHref}
         />
       );
@@ -280,14 +315,7 @@ export default function ProductTabContent({
       );
 
     case 'raw':
-      return (
-        <RawDataTab
-          productId={productId}
-          rawData={rawData}
-          imageUrls={imageUrls}
-          thumbnailUrl={thumbnailUrl}
-        />
-      );
+      return <RawDataTab productId={productId} rawData={rawData} imageUrls={imageUrls} thumbnailUrl={thumbnailUrl} />;
 
     default:
       return null;

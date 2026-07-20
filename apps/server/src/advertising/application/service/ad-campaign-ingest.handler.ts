@@ -1,24 +1,31 @@
-// `ad_campaign` payloads land in three places:
+// `ad_campaign` payloads land in two places:
 //   1. `ChannelScrapeRun` + `ChannelScrapeSnapshot` per row (raw audit/replay)
-//   2. `ChannelListingDailySnapshot` listing-day metrics + state when the
-//      row has listing identity (matched or matched_listing_only)
-//   3. `ChannelAdTargetDailySnapshot` per row at the appropriate
+//   2. `ChannelAdTargetDailySnapshot` per row at the appropriate
 //      campaign/keyword/product grain
 //
-// Account-level KPI rows (the `_kpiOnly` summary row + any payload-level
-// `kpis` map for the campaign as a whole) land in
-// `ChannelAccountDailyKpiSnapshot` with `kpiType='advertising_campaign_kpis'`.
+// This handler deliberately does NOT project campaign rows into
+// `ChannelListingDailySnapshot`: the extension sends one request per campaign,
+// and a listing can participate in multiple campaigns on the same day. Without
+// a complete sweep envelope, a listing-day upsert would make the last campaign
+// overwrite the earlier campaigns instead of producing an exact sum.
+//
+// Campaign KPI widgets are intentionally kept only in the raw scrape run.
+// The extension submits one request per campaign, while
+// `ChannelAccountDailyKpiSnapshot` is unique per account/source/day/type.
+// Projecting each request there would make the last campaign overwrite every
+// earlier campaign. Exact account totals are written separately by the
+// `coupang_ads_daily` ingest path.
 //
 // Provider ratios (ROAS/CTR/CVR) are NOT trusted: only the additive
 // numerator/denominator columns are stored; provider ratios survive in
 // `metaJson` for audit. Reads recompute ratios.
 
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { ExtensionSyncDto } from '../../adapter/in/http/dto';
 import {
   resolveBusinessDate,
   toBusinessDate,
 } from '../../domain/business-date';
+import { resolveCampaignReportAuthority } from '../../domain/campaign-report-authority';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -34,27 +41,16 @@ import {
 } from '../../domain/scrape-row-normalizers';
 import { buildAdTargetKey } from '../../domain/util/ad-target-key';
 import {
-  AD_ACCOUNT_KPI_REPOSITORY_PORT,
-  type AdAccountKpiRepositoryPort,
-} from '../port/out/repository/ad-account-kpi.repository.port';
-import {
-  CHANNEL_LISTING_DAILY_REPOSITORY_PORT,
-  type ChannelListingDailyRepositoryPort,
-} from '../port/out/repository/channel-listing-daily.repository.port';
-import {
   CHANNEL_SCRAPE_REPOSITORY_PORT,
   type ChannelScrapeRepositoryPort,
 } from '../port/out/repository/channel-scrape.repository.port';
 import {
   CHANNEL_TARGET_DAILY_REPOSITORY_PORT,
   type ChannelTargetDailyRepositoryPort,
+  type ReplaceAdCampaignDayRejectionCode,
+  type UpsertAdTargetDailyInput,
 } from '../port/out/repository/channel-target-daily.repository.port';
-import {
-  addListingAdMetrics,
-  flushListingAdMetrics,
-  type ListingAdMetricAccumulator,
-  type SummedListingAdMetrics,
-} from './listing-ad-metric-accumulator';
+import type { ExtensionSyncDto } from '../../adapter/in/http/dto';
 
 @Injectable()
 export class AdCampaignIngestHandler {
@@ -63,12 +59,8 @@ export class AdCampaignIngestHandler {
   constructor(
     @Inject(CHANNEL_SCRAPE_REPOSITORY_PORT)
     private readonly scrapeRepo: ChannelScrapeRepositoryPort,
-    @Inject(CHANNEL_LISTING_DAILY_REPOSITORY_PORT)
-    private readonly listingDailyRepo: ChannelListingDailyRepositoryPort,
     @Inject(CHANNEL_TARGET_DAILY_REPOSITORY_PORT)
     private readonly targetDailyRepo: ChannelTargetDailyRepositoryPort,
-    @Inject(AD_ACCOUNT_KPI_REPOSITORY_PORT)
-    private readonly accountKpiRepo: AdAccountKpiRepositoryPort,
   ) {}
 
   async execute(
@@ -76,43 +68,91 @@ export class AdCampaignIngestHandler {
     organizationId: string,
     map: ListingMap,
   ) {
-    const campaignName = payload.campaignName || '_전체';
+    const campaignName = cleanString(payload.campaignName) || '_전체';
     const period = String(payload.period || '7d');
-    const today = resolveBusinessDate(
-      payload.timestamp,
+    const businessDate = resolveBusinessDate(
+      payload.startDate,
       payload.dateFrom,
+      payload.endDate,
       payload.dateTo,
+      payload.timestamp,
     );
-    const kpis = payload.kpis || {};
+    const periodStart =
+      toBusinessDate(payload.startDate) ?? toBusinessDate(payload.dateFrom);
+    const periodEnd =
+      toBusinessDate(payload.endDate) ?? toBusinessDate(payload.dateTo);
+    const hasSingleDayRange = Boolean(
+      periodStart &&
+        periodEnd &&
+        periodStart.getTime() === periodEnd.getTime(),
+    );
     const normalizedRows = payload.normalizedRows ?? [];
     const scrapeRows = pairScrapeRows(payload.data, normalizedRows);
+    const authority = resolveCampaignReportAuthority({
+      campaignReportScope: payload.campaignReportScope,
+      dashboardOnOff: payload.dashboardOnOff,
+      normalizedRows,
+      hasSingleDayRange,
+    });
+    const projectsSingleDayFacts =
+      authority.effectiveScope === 'single_campaign_authoritative';
+    // A multi-campaign dashboard report is still dated raw evidence. It must
+    // never replace one campaign's target set, but its snapshots retain the
+    // requested day for audit/replay.
+    const rawBusinessDate = hasSingleDayRange ? businessDate : null;
+    const kpis = payload.kpis ?? {};
+    const campaignIds = new Set(
+      normalizedRows
+        .map((row) => cleanString(row?.campaignId))
+        .filter((value): value is string => value !== null),
+    );
+    const campaignIdentities = new Set(
+      normalizedRows
+        .map((row) => cleanString(row?.campaignIdentity))
+        .filter((value): value is string => value !== null),
+    );
+    const campaignScopeId =
+      campaignIds.size === 1 ? [...campaignIds][0] : null;
+    const campaignScopeIdentity =
+      campaignIdentities.size === 1 ? [...campaignIdentities][0] : null;
+    const baseMeta = {
+      campaignName,
+      requestedCampaignReportScope: authority.requestedScope,
+      effectiveCampaignReportScope: authority.effectiveScope,
+      campaignReportAuthorityReason: authority.reason,
+      projectionRejectionCode: authority.projectionRejectionCode,
+      dashboardOnOff: payload.dashboardOnOff ?? null,
+      dashboardStatus: payload.dashboardStatus ?? null,
+      kpis,
+      rowCount: scrapeRows.length,
+      normalizedRowCount: normalizedRows.length,
+      dailyProjectionSkipped: !projectsSingleDayFacts,
+    };
 
     const scrapeRun = await this.scrapeRepo.createRun({
       organizationId,
+      channelAccountId: map.channelAccountId,
       channel: 'coupang',
       source: 'advertising',
       pageType: 'campaign',
-      businessDate: today,
-      periodStart: toBusinessDate(payload.dateFrom),
-      periodEnd: toBusinessDate(payload.dateTo),
+      businessDate: rawBusinessDate,
+      periodStart,
+      periodEnd,
       targetUrl: payload.url ?? null,
       period,
-      metaJson: {
-        campaignName,
-        kpis,
-        rowCount: scrapeRows.length,
-        normalizedRowCount: normalizedRows.length,
-      },
+      metaJson: baseMeta,
     });
     let scrapeSnapshotCount = 0;
     let scrapeMatched = 0;
     let scrapeUnmatched = 0;
 
     try {
-      let listingDailyCount = 0;
+      const listingDailyCount = 0;
       let targetDailyCount = 0;
-      let accountKpiCount = 0;
-      const listingAdMetrics = new Map<string, ListingAdMetricAccumulator>();
+      const accountKpiCount = 0;
+      const targetDailyInputs = new Map<string, UpsertAdTargetDailyInput>();
+      let authoritativeProjectionInvalid = false;
+      let hasAuthoritativeIdentityRow = false;
 
       for (const pair of scrapeRows) {
         const row = pair.normalizedRow;
@@ -135,12 +175,11 @@ export class AdCampaignIngestHandler {
           channel: 'coupang',
           source: 'advertising',
           pageType: cleanString(row.pageType) || 'campaign',
-          businessDate: today,
+          businessDate: rawBusinessDate,
           externalId: externalIdRaw,
           externalOptionId: externalOptionIdRaw,
           listingId: match.listingId,
           listingOptionId: match.listingOptionId,
-          optionId: match.optionId,
           matchStatus,
           matchReason: !pair.hasNormalizedRow
             ? 'missing normalized row (snapshot only)'
@@ -158,17 +197,43 @@ export class AdCampaignIngestHandler {
         if (matchStatus === 'unmatched') scrapeUnmatched += 1;
         else scrapeMatched += 1;
 
-        if (!pair.hasNormalizedRow) continue;
+        if (!pair.hasNormalizedRow) {
+          if (projectsSingleDayFacts) authoritativeProjectionInvalid = true;
+          continue;
+        }
+        if (!projectsSingleDayFacts) continue;
         if (row._kpiOnly) continue;
-        if (!row.campaignName && !row.productName && !row.keyword) continue;
+        if (!row.campaignName && !row.productName && !row.keyword) {
+          authoritativeProjectionInvalid = true;
+          continue;
+        }
 
         const rowCampaignName = cleanString(row.campaignName) || campaignName;
-        const rowCampaignId = cleanString(row.campaignId);
+        const rowCampaignId = cleanString(row.campaignId) || campaignScopeId;
+        const rowCampaignIdentity =
+          cleanString(row.campaignIdentity) ||
+          (rowCampaignId ? `campaign:${rowCampaignId}` : campaignScopeIdentity);
+        if (
+          rowCampaignId &&
+          rowCampaignIdentity?.startsWith('campaign:') &&
+          rowCampaignIdentity !== `campaign:${rowCampaignId}`
+        ) {
+          authoritativeProjectionInvalid = true;
+          continue;
+        }
         const rowAdGroup = cleanString(row.adGroup);
         const rowKeyword = cleanString(row.keyword);
         const rowStatus = cleanString(row.status);
         const rowOnOff = cleanString(row.onOff);
         const rowPageType = cleanString(row.pageType) || 'campaign';
+        if (
+          !row._campaignOnly &&
+          !hasCompleteObservedAdditiveMetrics(row)
+        ) {
+          authoritativeProjectionInvalid = true;
+          continue;
+        }
+
         const rowSpend = Math.round(toNumber(row.runningAdSpend ?? row.spend));
         const rowRevenue = Math.round(toNumber(row.revenue));
         const rowImpressions = Math.round(toNumber(row.impressions));
@@ -181,41 +246,16 @@ export class AdCampaignIngestHandler {
         const providerCtr = toNumber(row.ctr);
         const providerConversionRate = toNumber(row.conversionRate);
 
-        // Listing-day metric upsert when listing identity is known.
-        if (match.listingId && match.externalId) {
-          const adMetrics: SummedListingAdMetrics = {
-            adSpend: rowSpend,
-            adRevenue: rowRevenue,
-            adImpressions: rowImpressions,
-            adClicks: rowClicks,
-            adConversions: rowConversions,
-            adOrders: rowOrders,
-          };
-          addListingAdMetrics(listingAdMetrics, {
-            organizationId,
-            listingId: match.listingId,
-            channel: 'coupang',
-            externalId: match.externalId,
-            businessDate: today,
-            rawSnapshotId: snapshot.id,
-            productName: cleanString(row.productName),
-            metaSource: 'advertising.campaign',
-            metaRow: {
-              campaignName: rowCampaignName,
-              providerRoas,
-              providerCtr,
-              providerConversionRate,
-            },
-            metrics: adMetrics,
-          });
-        }
-
         // Target-day fact: prefer the most specific grain available on the row.
-        const targetType = deriveAdTargetType(rowPageType, rowKeyword);
+        const targetType = row._campaignOnly === true
+          ? 'campaign'
+          : deriveAdTargetType(rowPageType, rowKeyword);
         try {
           const targetKey = buildAdTargetKey({
+            channelAccountId: map.channelAccountId,
             targetType,
             campaignId: rowCampaignId,
+            campaignIdentity: rowCampaignIdentity,
             campaignName: rowCampaignName,
             adGroup: rowAdGroup,
             keyword: rowKeyword,
@@ -223,15 +263,14 @@ export class AdCampaignIngestHandler {
             externalId: externalIdRaw ?? match.externalId,
             listingId: match.listingId,
           });
-          await this.targetDailyRepo.upsert({
+          const targetInput: UpsertAdTargetDailyInput = {
             organizationId,
             channel: 'coupang',
-            businessDate: today,
+            businessDate,
             targetType,
             targetKey,
             listingId: match.listingId ?? null,
             listingOptionId: match.listingOptionId ?? null,
-            optionId: match.optionId ?? null,
             externalId: externalIdRaw ?? match.externalId ?? null,
             externalOptionId:
               externalOptionIdRaw ?? match.externalOptionId ?? null,
@@ -241,13 +280,14 @@ export class AdCampaignIngestHandler {
             keyword: rowKeyword,
             placement: cleanString(row.placement),
             status: rowStatus,
-            onOff: rowOnOff,
+            onOff: rowOnOff ?? cleanString(payload.dashboardOnOff),
             currentBid: rowCurrentBid,
             dailyBudget: rowDailyBudget,
             rawSnapshotId: snapshot.id,
             metaJson: {
               source: 'advertising.campaign.target',
               data: {
+                campaignIdentity: rowCampaignIdentity,
                 providerRoas,
                 providerCtr,
                 providerConversionRate,
@@ -266,8 +306,15 @@ export class AdCampaignIngestHandler {
             orders: rowOrders,
             adSpend: rowSpend,
             adRevenue: rowRevenue,
-          });
-          targetDailyCount += 1;
+          };
+          const previous = targetDailyInputs.get(targetKey);
+          targetDailyInputs.set(
+            targetKey,
+            previous
+              ? mergeAuthoritativeTargetInputs(previous, targetInput)
+              : targetInput,
+          );
+          hasAuthoritativeIdentityRow = true;
         } catch (e) {
           // Non-buildable identity (e.g., neither campaignId nor campaignName
           // present) — raw snapshot is preserved above. Skip target daily so
@@ -277,56 +324,76 @@ export class AdCampaignIngestHandler {
               e instanceof Error ? e.message : String(e)
             }`,
           );
+          authoritativeProjectionInvalid = true;
         }
       }
 
-      listingDailyCount += await flushListingAdMetrics(
-        this.listingDailyRepo,
-        listingAdMetrics,
-      );
+      let projectionRejectionCode:
+        | typeof authority.projectionRejectionCode
+        | ReplaceAdCampaignDayRejectionCode = authority.projectionRejectionCode;
+      let deletedTargetDailyCount = 0;
+      if (projectsSingleDayFacts) {
+        if (
+          authoritativeProjectionInvalid ||
+          !hasAuthoritativeIdentityRow
+        ) {
+          projectionRejectionCode = 'invalid_authoritative_shape';
+        } else {
+          const replacement = await this.targetDailyRepo.replaceCampaignDay({
+            organizationId,
+            channelAccountId: map.channelAccountId,
+            channel: 'coupang',
+            businessDate,
+            campaignId: campaignScopeId,
+            campaignIdentity: campaignScopeIdentity,
+            campaignName,
+            targets: [...targetDailyInputs.values()],
+          });
+          if (replacement.kind === 'rejected') {
+            projectionRejectionCode = replacement.code;
+          } else {
+            targetDailyCount = replacement.upsertedCount;
+            deletedTargetDailyCount = replacement.deletedCount;
+          }
+        }
+      }
 
-      // Account-level KPI fact for the campaign-as-a-whole. Provider ROAS /
-      // CTR / CVR live inside `metaJson`/`normalizedJson` only — reads
-      // recompute from additive numerators downstream.
-      if (Object.keys(kpis).length > 0) {
-        const kpiRecord: Record<string, unknown> = {
-          kpis,
-          campaignName,
-          period,
-          rowCount: scrapeRows.length,
-        };
-        await this.accountKpiRepo.upsertAccountKpi({
+      if (projectionRejectionCode) {
+        await this.scrapeRepo.updateRunMeta({
+          scrapeRunId: scrapeRun.id,
           organizationId,
-          channel: 'coupang',
-          source: 'advertising',
-          kpiType: 'advertising_campaign_kpis',
-          businessDate: today,
-          periodStart: toBusinessDate(payload.dateFrom),
-          periodEnd: toBusinessDate(payload.dateTo),
-          normalizedJson: kpiRecord,
-          rawJson: kpiRecord,
+          metaJson: {
+            ...baseMeta,
+            projectionRejectionCode,
+            dailyProjectionSkipped: true,
+          },
         });
-        accountKpiCount += 1;
       }
 
       await this.scrapeRepo.finalizeRun({
         scrapeRunId: scrapeRun.id,
         organizationId,
-        status: 'complete',
+        status: projectionRejectionCode ? 'partial' : 'complete',
         rowCount: scrapeSnapshotCount,
         matchedCount: scrapeMatched,
         unmatchedCount: scrapeUnmatched,
+        errorCount: projectionRejectionCode ? 1 : 0,
+        errorJson: projectionRejectionCode ? { projectionRejectionCode } : null,
       });
 
       return {
-        success: true,
+        success: projectionRejectionCode === null,
         type: 'ad_campaign',
         campaignName,
         period,
         kpiCount: Object.keys(kpis).length,
         listingDailyCount,
         targetDailyCount,
+        deletedTargetDailyCount,
         accountKpiCount,
+        dailyProjectionSkipped:
+          !projectsSingleDayFacts || projectionRejectionCode !== null,
+        projectionRejectionCode,
         scrapeRunId: scrapeRun.id,
         scrapeSnapshotCount,
         scrapeMatchedCount: scrapeMatched,
@@ -344,4 +411,157 @@ export class AdCampaignIngestHandler {
       throw err;
     }
   }
+}
+
+const REQUIRED_ADDITIVE_METRICS = [
+  'adSpend',
+  'adRevenue',
+  'impressions',
+  'clicks',
+  'conversions',
+  'orders',
+] as const;
+
+const METRIC_PROPERTY_ALIASES: Record<
+  (typeof REQUIRED_ADDITIVE_METRICS)[number],
+  readonly string[]
+> = {
+  adSpend: ['runningAdSpend', 'spend'],
+  adRevenue: ['revenue'],
+  impressions: ['impressions'],
+  clicks: ['clicks'],
+  conversions: ['conversions'],
+  orders: ['orders'],
+};
+
+/**
+ * The extension always emits numeric zeroes, even when a report column was
+ * not present. `_observedMetrics` is therefore authoritative when supplied;
+ * falling back to property presence is only for explicit server/test callers
+ * that predate that evidence map.
+ */
+function hasCompleteObservedAdditiveMetrics(
+  row: Record<string, unknown>,
+): boolean {
+  const observed = row._observedMetrics;
+  if (observed && typeof observed === 'object' && !Array.isArray(observed)) {
+    const evidence = observed as Record<string, unknown>;
+    return REQUIRED_ADDITIVE_METRICS.every((key) => evidence[key] === true);
+  }
+  return REQUIRED_ADDITIVE_METRICS.every((key) =>
+    METRIC_PROPERTY_ALIASES[key].some((property) =>
+      Object.prototype.hasOwnProperty.call(row, property),
+    ),
+  );
+}
+
+const ADDITIVE_TARGET_METRICS = [
+  'spend',
+  'revenue',
+  'impressions',
+  'clicks',
+  'conversions',
+  'orders',
+  'adSpend',
+  'adRevenue',
+] as const satisfies ReadonlyArray<keyof UpsertAdTargetDailyInput>;
+
+const STABLE_TARGET_DESCRIPTORS = [
+  'organizationId',
+  'channel',
+  'targetType',
+  'targetKey',
+  'campaignId',
+  'campaignName',
+  'listingId',
+  'listingOptionId',
+  'externalId',
+  'externalOptionId',
+] as const satisfies ReadonlyArray<keyof UpsertAdTargetDailyInput>;
+
+const COLLAPSIBLE_TARGET_DESCRIPTORS = [
+  'adGroup',
+  'keyword',
+  'placement',
+  'status',
+  'onOff',
+  'currentBid',
+  'dailyBudget',
+] as const satisfies ReadonlyArray<keyof UpsertAdTargetDailyInput>;
+
+/**
+ * Coupang may render more than one row at the product grain (for example one
+ * product under multiple placements). The fact table intentionally stores a
+ * campaign/product daily grain, so duplicate keys are additive rather than
+ * last-write-wins. Conflicting optional descriptors collapse to null; stable
+ * identity conflicts fail the whole authoritative replacement.
+ */
+function mergeAuthoritativeTargetInputs(
+  previous: UpsertAdTargetDailyInput,
+  next: UpsertAdTargetDailyInput,
+): UpsertAdTargetDailyInput {
+  if (previous.businessDate.getTime() !== next.businessDate.getTime()) {
+    throw new Error(
+      `ad_campaign duplicate target '${next.targetKey}' crossed business dates`,
+    );
+  }
+  for (const key of STABLE_TARGET_DESCRIPTORS) {
+    const left = previous[key] ?? null;
+    const right = next[key] ?? null;
+    if (left !== null && right !== null && left !== right) {
+      throw new Error(
+        `ad_campaign duplicate target '${next.targetKey}' has conflicting ${String(key)}`,
+      );
+    }
+  }
+
+  const merged: UpsertAdTargetDailyInput = {
+    ...previous,
+    rawSnapshotId: next.rawSnapshotId ?? previous.rawSnapshotId,
+    observedAt: next.observedAt ?? previous.observedAt,
+  };
+  for (const key of STABLE_TARGET_DESCRIPTORS) {
+    (merged as unknown as Record<string, unknown>)[key] =
+      next[key] ?? previous[key] ?? null;
+  }
+  const descriptorConflicts: string[] = [];
+  for (const key of COLLAPSIBLE_TARGET_DESCRIPTORS) {
+    const left = previous[key] ?? null;
+    const right = next[key] ?? null;
+    const value =
+      left === null ? right : right === null || left === right ? left : null;
+    if (left !== null && right !== null && left !== right) {
+      descriptorConflicts.push(String(key));
+    }
+    (merged as unknown as Record<string, unknown>)[key] = value;
+  }
+  for (const key of ADDITIVE_TARGET_METRICS) {
+    const left = Number(previous[key] ?? 0);
+    const right = Number(next[key] ?? 0);
+    (merged as unknown as Record<string, unknown>)[key] = left + right;
+  }
+
+  const previousMeta = namespacedMetaData(previous.metaJson);
+  const nextMeta = namespacedMetaData(next.metaJson);
+  const previousCount = Number(previousMeta?.data.collapsedRowCount ?? 1);
+  merged.metaJson = {
+    source: nextMeta?.source ?? previousMeta?.source ?? 'advertising.campaign.target',
+    data: {
+      ...(previousMeta?.data ?? {}),
+      ...(nextMeta?.data ?? {}),
+      collapsedRowCount:
+        (Number.isFinite(previousCount) ? previousCount : 1) + 1,
+      ...(descriptorConflicts.length > 0
+        ? { descriptorConflicts: [...new Set(descriptorConflicts)] }
+        : {}),
+    },
+  };
+  return merged;
+}
+
+function namespacedMetaData(metaJson: UpsertAdTargetDailyInput['metaJson']):
+  | { source: string; data: Record<string, unknown> }
+  | null {
+  if (!metaJson || typeof metaJson !== 'object') return null;
+  return metaJson;
 }

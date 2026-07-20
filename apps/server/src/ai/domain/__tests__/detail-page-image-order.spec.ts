@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   looksLikeSafetyLabelImage,
@@ -35,6 +37,17 @@ describe('detail-page-image-order', () => {
     const buffer = await sharp(Buffer.from(buildProductCutSvg()))
       .png()
       .toBuffer();
+
+    await expect(looksLikeSafetyLabelImage(buffer)).resolves.toBe(false);
+  });
+
+  it('does not classify a text-heavy retail product photo as a safety label', async () => {
+    const buffer = await readFile(
+      resolve(
+        __dirname,
+        '../../../../assets/thumbnail-references/ref-toy-lego-box.jpg',
+      ),
+    );
 
     await expect(looksLikeSafetyLabelImage(buffer)).resolves.toBe(false);
   });

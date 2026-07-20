@@ -848,9 +848,6 @@ async function commandExport(args: Args): Promise<void> {
   appendValues(forwardedArgs, args, 'payload');
   appendValues(forwardedArgs, args, 'reference');
   appendValues(forwardedArgs, args, 'references');
-  appendFlag(forwardedArgs, args, 'image-sync-from-db');
-  appendFlag(forwardedArgs, args, 'include-image-sync-from-db');
-  appendFlag(forwardedArgs, args, 'allow-empty-image-sync');
   appendProjectReferenceDefaults(forwardedArgs, args);
   console.log(JSON.stringify(await runCoupangAdapter(args, 'export', forwardedArgs), null, 2));
 }
@@ -871,14 +868,11 @@ async function commandReplay(args: Args): Promise<void> {
     'organization-id',
     'dev-user-id',
     'api-url',
-    'image-sync-timeout-ms',
-    'image-sync-poll-ms',
   ]) {
     appendOption(forwardedArgs, args, option);
   }
   appendFlag(forwardedArgs, args, 'dry-run');
   appendFlag(forwardedArgs, args, 'yes');
-  appendFlag(forwardedArgs, args, 'no-wait');
   console.log(JSON.stringify(await runCoupangAdapter(args, 'replay', forwardedArgs), null, 2));
 }
 

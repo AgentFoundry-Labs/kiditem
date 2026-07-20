@@ -42,11 +42,21 @@ describe('TrafficService (PG integration) — daily facts', () => {
   });
 
   async function seedListing(organizationId: string, suffix: string) {
-    const master = await prisma.masterProduct.create({
-      data: { organizationId, code: `M-${suffix}`, name: `Master ${suffix}`, optionCounter: 1 },
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId,
+        channel: 'coupang',
+        name: `Wing ${suffix}`,
+        externalAccountId: `WING-${suffix}`,
+        isPrimary: true,
+      },
     });
     const listing = await prisma.channelListing.create({
-      data: { organizationId, masterId: master.id, channel: 'coupang', externalId: `EXT-${suffix}` },
+      data: {
+        organizationId,
+        channelAccountId: account.id,
+        externalId: `EXT-${suffix}`,
+      },
     });
     return listing;
   }

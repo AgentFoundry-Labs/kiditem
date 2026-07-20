@@ -88,7 +88,6 @@ const baseProps = {
   onSelectBoldVertical: vi.fn(),
   onSelectKidsPlayful: vi.fn(),
   productId: 'candidate-1',
-  promotedMasterId: null,
   rawData: null,
   selectedAgentId: null,
   selectedBoldVerticalId: null,
@@ -113,6 +112,7 @@ const baseProps = {
   onPreviewThumbnail: vi.fn(),
   onThumbnailPreviewImagesChange: vi.fn(),
   onSaveThumbnailConfiguration: vi.fn(),
+  onCommitBasicInfo: vi.fn(),
 };
 
 const basicInfo = {
@@ -126,6 +126,7 @@ const basicInfo = {
   optionNames: ['단품'],
   kcCertificationStatus: 'unknown',
   kcCertificationNumber: '',
+  kcCertificationImageUrl: '',
   productSize: '높이: 30cm',
   colorVariantStatus: 'single',
   colorVariantNames: '빨강',
@@ -134,8 +135,11 @@ const basicInfo = {
   originalPrice: 15900,
   salePrice: 12900,
   discountRate: 19,
+  rocketBundleQuantity: 0,
+  rocketUnitCost: 0,
   thumbnailUrls: ['https://cdn.example.com/product.jpg'],
   selectedThumbnailUrl: null,
+  selectedThumbnailGenerationId: null,
   selectedThumbnailGenerationCandidateId: null,
   selectedDetailPageGenerationId: null,
   selectedDetailPageArtifactId: null,
@@ -240,6 +244,19 @@ describe('ProductTabContent', () => {
     })));
     expect(updateField).toHaveBeenCalledWith('salePrice', 13900);
     expect(screen.queryByLabelText('상품 설명')).not.toBeInTheDocument();
+  });
+
+  it('renders registered product basics read-only when preparation persistence is unavailable', () => {
+    render(
+      <ProductTabContent
+        {...baseProps}
+        basicInfo={basicInfo}
+        onCommitBasicInfo={undefined}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: '수정' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('KC 인증 이미지 업로드')).not.toBeInTheDocument();
   });
 
   it('keeps the basic editor open and avoids local field updates when save fails', async () => {

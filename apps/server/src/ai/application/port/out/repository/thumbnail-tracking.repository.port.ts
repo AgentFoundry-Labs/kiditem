@@ -1,11 +1,6 @@
-import type {
-  ThumbnailTrackingStatus,
-  UpdateThumbnailTrackingMetrics,
-} from '@kiditem/shared/ai';
+import type { ThumbnailTrackingStatus, UpdateThumbnailTrackingMetrics } from '@kiditem/shared/ai';
 
-export const THUMBNAIL_TRACKING_REPOSITORY_PORT = Symbol(
-  'THUMBNAIL_TRACKING_REPOSITORY_PORT',
-);
+export const THUMBNAIL_TRACKING_REPOSITORY_PORT = Symbol('THUMBNAIL_TRACKING_REPOSITORY_PORT');
 
 export interface ThumbnailTrackingRow {
   id: string;
@@ -22,7 +17,12 @@ export interface ThumbnailTrackingRow {
   reviewsAfter: number | null;
   salesBefore: number | null;
   salesAfter: number | null;
-  listing: { id: string; master: { id: string; name: string } | null } | null;
+  listing: {
+    id: string;
+    displayName: string | null;
+    channelName: string | null;
+    externalId: string;
+  };
 }
 
 export interface ThumbnailTrackingSnapshotTargetRow {
@@ -30,7 +30,8 @@ export interface ThumbnailTrackingSnapshotTargetRow {
   salesBefore: number | null;
   listing: {
     channelName: string | null;
-    master: { name: string | null } | null;
+    displayName: string | null;
+    externalId: string;
   } | null;
 }
 
@@ -82,15 +83,11 @@ export interface ThumbnailTrackingRepositoryPort {
     query: { skip: number; take: number; status?: ThumbnailTrackingStatus },
     organizationId: string,
   ): Promise<ThumbnailTrackingRow[]>;
-  countTrackings(
-    query: { status?: ThumbnailTrackingStatus },
-    organizationId: string,
-  ): Promise<number>;
-  findFirstListingForMaster(
-    masterId: string,
-    organizationId: string,
-  ): Promise<{ id: string } | null>;
-  createTracking(input: CreateThumbnailTrackingInput): Promise<
+  countTrackings(query: { status?: ThumbnailTrackingStatus }, organizationId: string): Promise<number>;
+  findChannelListingForWorkspace(contentWorkspaceId: string, organizationId: string): Promise<{ id: string } | null>;
+  createTracking(
+    input: CreateThumbnailTrackingInput,
+  ): Promise<
     | { created: true; row: ThumbnailTrackingRow }
     | { created: false; row: ThumbnailTrackingRow }
     | { created: false; row: null }
@@ -100,12 +97,7 @@ export interface ThumbnailTrackingRepositoryPort {
     trackingId: string,
     organizationId: string,
   ): Promise<ThumbnailTrackingSnapshotTargetRow | null>;
-  upsertDailySnapshot(
-    input: UpsertThumbnailTrackingDailySnapshotInput,
-  ): Promise<ThumbnailTrackingSnapshotRow>;
-  listSnapshots(
-    trackingId: string,
-    organizationId: string,
-  ): Promise<ThumbnailTrackingSnapshotRow[]>;
+  upsertDailySnapshot(input: UpsertThumbnailTrackingDailySnapshotInput): Promise<ThumbnailTrackingSnapshotRow>;
+  listSnapshots(trackingId: string, organizationId: string): Promise<ThumbnailTrackingSnapshotRow[]>;
   findActiveTrackings(organizationId: string): Promise<Array<{ id: string }>>;
 }

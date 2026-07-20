@@ -34,10 +34,10 @@ export async function setupMaster(
       organizationId: opts.organizationId,
       code: opts.code,
       name: opts.name,
-      ...(opts.legacyCode !== undefined && { legacyCode: opts.legacyCode }),
-      ...(opts.category !== undefined && { category: opts.category }),
-      ...(opts.abcGrade !== undefined && { abcGrade: opts.abcGrade }),
-      ...(opts.thumbnailUrl !== undefined && { thumbnailUrl: opts.thumbnailUrl }),
+      category: opts.category ?? null,
+      abcGrade: opts.abcGrade ?? null,
+      imageUrls: opts.thumbnailUrl ? [opts.thumbnailUrl] : [],
+      tags: opts.legacyCode ? [`legacy:${opts.legacyCode}`] : [],
     },
     select: { id: true },
   });
@@ -45,11 +45,13 @@ export async function setupMaster(
 }
 
 // ---------------------------------------------------------------------------
-// setupProductOption — ProductOption
+// setupProductOption — legacy test helper compatibility
 // ---------------------------------------------------------------------------
 
 /**
- * Create a ProductOption (SKU) linked to a MasterProduct.
+ * The final model has no inventory-side ProductOption. Create one reusable
+ * ProductVariant backed by one physical SellpiaInventorySku and return the
+ * variant ID. setupChannelListing links its channel option to that variant.
  */
 export async function setupProductOption(
   prisma: PrismaClient,
@@ -62,19 +64,51 @@ export async function setupProductOption(
     otherCost?: number;
   },
 ): Promise<{ id: string }> {
-  const option = await prisma.productOption.create({
+  const master = await prisma.masterProduct.findFirstOrThrow({
+    where: { id: opts.masterId, organizationId: opts.organizationId },
+    select: { code: true, name: true },
+  });
+  const existingVariantCount = await prisma.productVariant.count({
+    where: { organizationId: opts.organizationId, masterProductId: opts.masterId },
+  });
+  const inventorySku = await prisma.sellpiaInventorySku.create({
     data: {
       organizationId: opts.organizationId,
-      masterId: opts.masterId,
-      sku: opts.sku,
+      code: opts.sku,
+      name: master.name,
       optionName: opts.sku,
-      costPrice: opts.costPrice ?? 5000,
-      commissionRate: opts.commissionRate ?? 0.1,
-      otherCost: opts.otherCost ?? 0,
+      currentStock: 100,
+      purchasePrice: opts.costPrice ?? 5000,
+      rawJson: {
+        testPricing: {
+          commissionRate: opts.commissionRate ?? 0.1,
+          otherCost: opts.otherCost ?? 0,
+        },
+      },
     },
     select: { id: true },
   });
-  return { id: option.id };
+  const variant = await prisma.productVariant.create({
+    data: {
+      organizationId: opts.organizationId,
+      masterProductId: opts.masterId,
+      code: opts.sku,
+      name: `${master.name} ${opts.sku}`,
+      optionLabel: opts.sku,
+      isDefault: existingVariantCount === 0,
+    },
+    select: { id: true },
+  });
+  await prisma.productVariantComponent.create({
+    data: {
+      organizationId: opts.organizationId,
+      productVariantId: variant.id,
+      sellpiaInventorySkuId: inventorySku.id,
+      quantity: 1,
+      source: 'deterministic',
+    },
+  });
+  return variant;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,23 +131,95 @@ export async function setupChannelListing(
     externalOptionId: string;
   },
 ): Promise<{ listingId: string; listingOptionId: string }> {
+  const channelAccount = await prisma.channelAccount.upsert({
+    where: {
+      organizationId_channel_externalAccountId: {
+        organizationId: opts.organizationId,
+        channel: opts.channel,
+        externalAccountId: `test-${opts.channel}`,
+      },
+    },
+    create: {
+      organizationId: opts.organizationId,
+      channel: opts.channel,
+      name: `${opts.channel} test account`,
+      externalAccountId: `test-${opts.channel}`,
+      isPrimary: true,
+    },
+    update: {},
+    select: { id: true },
+  });
+  const master = await prisma.masterProduct.findFirstOrThrow({
+    where: { id: opts.masterId, organizationId: opts.organizationId },
+    select: {
+      name: true,
+      category: true,
+      abcGrade: true,
+      imageUrls: true,
+    },
+  });
+  const variant = await prisma.productVariant.findFirstOrThrow({
+    where: {
+      id: opts.optionId,
+      organizationId: opts.organizationId,
+      masterProductId: opts.masterId,
+    },
+    select: {
+      components: {
+        select: {
+          sellpiaInventorySku: { select: { rawJson: true } },
+        },
+        take: 1,
+      },
+    },
+  });
+  const rawPricing = variant.components[0]?.sellpiaInventorySku.rawJson;
+  const pricing =
+    rawPricing &&
+    typeof rawPricing === 'object' &&
+    !Array.isArray(rawPricing) &&
+    'testPricing' in rawPricing &&
+    rawPricing.testPricing &&
+    typeof rawPricing.testPricing === 'object' &&
+    !Array.isArray(rawPricing.testPricing)
+      ? rawPricing.testPricing
+      : {};
   const listing = await prisma.channelListing.create({
     data: {
       organizationId: opts.organizationId,
-      masterId: opts.masterId,
-      channel: opts.channel,
+      channelAccountId: channelAccount.id,
+      masterProductId: opts.masterId,
       externalId: opts.externalId,
+      displayName: master.name,
+      category: master.category,
       ...(opts.channelName !== undefined && { channelName: opts.channelName }),
     },
     select: { id: true },
   });
 
+  if (master.imageUrls[0]) {
+    await prisma.thumbnail.create({
+      data: {
+        organizationId: opts.organizationId,
+        listingId: listing.id,
+        imageUrl: master.imageUrls[0],
+      },
+    });
+  }
+
   const listingOption = await prisma.channelListingOption.create({
     data: {
       organizationId: opts.organizationId,
       listingId: listing.id,
-      optionId: opts.optionId,
+      productVariantId: opts.optionId,
       externalOptionId: opts.externalOptionId,
+      sellerSku: opts.externalOptionId,
+      commissionRate:
+        'commissionRate' in pricing
+          ? Number(pricing.commissionRate)
+          : 0.1,
+      otherCost:
+        'otherCost' in pricing ? Number(pricing.otherCost) : 0,
     },
     select: { id: true },
   });
@@ -146,15 +252,21 @@ export async function seedOrderWithLineItems(
     }>;
   },
 ): Promise<string> {
-  const platform = opts.platform ?? 'coupang';
   const status = opts.status ?? 'accepted';
   const shippingPrice = opts.shippingPrice ?? 3000;
   const totalPrice = opts.lineItems.reduce((s, li) => s + li.totalPrice, 0);
+  const firstListingOption = await prisma.channelListingOption.findFirstOrThrow({
+    where: {
+      id: opts.lineItems[0]?.listingOptionId,
+      organizationId: opts.organizationId,
+    },
+    select: { listing: { select: { channelAccountId: true } } },
+  });
 
   const order = await prisma.order.create({
     data: {
       organizationId: opts.organizationId,
-      platform,
+      channelAccountId: firstListingOption.listing.channelAccountId,
       externalOrderId: opts.externalOrderId,
       orderedAt: new Date(opts.orderedAt),
       status,
@@ -171,7 +283,7 @@ export async function seedOrderWithLineItems(
         organizationId: opts.organizationId,
         orderId: order.id,
         listingOptionId: li.listingOptionId,
-        optionId: li.optionId,
+        productName: li.optionId,
         quantity: li.quantity,
         unitPrice: li.totalPrice,
         totalPrice: li.totalPrice,
@@ -201,11 +313,24 @@ export async function seedReturn(
     lineItems?: Array<{ orderLineItemId: string | null }>;
   },
 ): Promise<string> {
+  const channelAccountId = opts.orderId
+    ? (
+        await prisma.order.findFirstOrThrow({
+          where: { id: opts.orderId, organizationId: opts.organizationId },
+          select: { channelAccountId: true },
+        })
+      ).channelAccountId
+    : (
+        await prisma.channelAccount.findFirstOrThrow({
+          where: { organizationId: opts.organizationId, channel: 'coupang' },
+          select: { id: true },
+        })
+      ).id;
   const orderReturn = await prisma.orderReturn.create({
     data: {
       organizationId: opts.organizationId,
       orderId: opts.orderId,
-      platform: 'coupang',
+      channelAccountId,
       externalReturnId: `RET-${Date.now()}-${Math.random()}`,
       requestedAt: new Date(opts.requestedAt),
       status: 'requested',
@@ -223,6 +348,7 @@ export async function seedReturn(
           organizationId: opts.organizationId,
           returnId: orderReturn.id,
           orderLineItemId: li.orderLineItemId,
+          productName: 'returned item',
           quantity: 1,
         },
       });
@@ -256,7 +382,10 @@ export async function seedAd(
 ): Promise<string> {
   const listing = await prisma.channelListing.findFirstOrThrow({
     where: { id: opts.listingId, organizationId: opts.organizationId },
-    select: { channel: true, externalId: true },
+    select: {
+      externalId: true,
+      channelAccount: { select: { channel: true } },
+    },
   });
   const businessDate = new Date(opts.date);
   const row = await prisma.channelListingDailySnapshot.upsert({
@@ -270,7 +399,7 @@ export async function seedAd(
     create: {
       organizationId: opts.organizationId,
       listingId: opts.listingId,
-      channel: listing.channel,
+      channel: listing.channelAccount.channel,
       externalId: listing.externalId,
       businessDate,
       adSpend: opts.spend,

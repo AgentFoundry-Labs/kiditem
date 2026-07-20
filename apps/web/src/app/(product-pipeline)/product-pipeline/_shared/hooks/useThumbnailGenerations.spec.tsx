@@ -74,12 +74,12 @@ describe('useGenerationList', () => {
   });
 
   it('requests direct-upload scope explicitly for ownerless thumbnail work', async () => {
-    renderHook(() => useGenerationList({ scope: 'direct-upload', limit: 8 }), { wrapper });
+    renderHook(() => useGenerationList({ scope: 'direct-upload', limit: 8 }), {
+      wrapper,
+    });
 
     await waitFor(() => {
-      expect(apiClient.get).toHaveBeenCalledWith(
-        '/api/thumbnail-analysis/generations?scope=direct-upload&limit=8',
-      );
+      expect(apiClient.get).toHaveBeenCalledWith('/api/thumbnail-analysis/generations?scope=direct-upload&limit=8');
     });
   });
 
@@ -91,6 +91,16 @@ describe('useGenerationList', () => {
     await waitFor(() => {
       expect(apiClient.get).toHaveBeenCalledWith(
         '/api/thumbnail-analysis/generations?sourceCandidateId=candidate-1&limit=24',
+      );
+    });
+  });
+
+  it('requests workspace-bound thumbnail history with the canonical identifier', async () => {
+    renderHook(() => useGenerationList({ contentWorkspaceId: 'workspace-1', limit: 24 }), { wrapper });
+
+    await waitFor(() => {
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/thumbnail-analysis/generations?contentWorkspaceId=workspace-1&limit=24',
       );
     });
   });

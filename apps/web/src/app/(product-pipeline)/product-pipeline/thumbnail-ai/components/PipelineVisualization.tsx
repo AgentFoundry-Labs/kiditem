@@ -1,12 +1,4 @@
-import {
-  AlertTriangle,
-  ArrowRight,
-  CheckCircle,
-  Scan,
-  Wand2,
-  Zap,
-  type LucideIcon,
-} from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle, Scan, Wand2, Zap, type LucideIcon } from 'lucide-react';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { isReady } from '../../_shared/lib/thumbnail-status';
 
@@ -61,7 +53,10 @@ export function PipelineVisualization({
       icon: Scan,
       tab: 'unclassified',
       desc: 'AI 스캔 대기',
-      tasks: unclassifiedSample.map((p) => ({ name: p.productName, status: '대기' })),
+      tasks: unclassifiedSample.map((p) => ({
+        name: p.productName,
+        status: '대기',
+      })),
       emptyText: '대기 없음',
     },
     {
@@ -71,7 +66,10 @@ export function PipelineVisualization({
       icon: Zap,
       tab: 'all',
       desc: '분류 완료',
-      tasks: recentClassified.map((p) => ({ name: p.productName, status: `${p.grade}등급` })),
+      tasks: recentClassified.map((p) => ({
+        name: p.productName,
+        status: `${p.grade}등급`,
+      })),
       emptyText: '분석 대기',
     },
     {
@@ -105,7 +103,7 @@ export function PipelineVisualization({
       tab: 'ai-edit',
       desc: '가이드라인 수정 · 품질 개선',
       tasks: inGeneration.map((g) => ({
-        name: g.product?.name ?? '상품 정보 없음',
+        name: g.contentWorkspace?.name ?? '상품 정보 없음',
         status: g.status === 'running' ? '생성 중' : isReady(g) ? '준비됨' : '대기',
       })),
       emptyText: '생성 작업 없음',
@@ -117,7 +115,10 @@ export function PipelineVisualization({
       icon: CheckCircle,
       tab: 'history',
       desc: '쿠팡 반영됨',
-      tasks: recentApplied.map((g) => ({ name: g.product?.name ?? '상품 정보 없음', status: '완료' })),
+      tasks: recentApplied.map((g) => ({
+        name: g.contentWorkspace?.name ?? '상품 정보 없음',
+        status: '완료',
+      })),
       emptyText: '최근 적용 없음',
     },
   ];
@@ -144,11 +145,7 @@ export function PipelineVisualization({
               {idx > 0 && (
                 <div className="absolute left-0 top-[44px] -translate-x-1/2 w-5 flex items-center">
                   <div className="w-full h-[1.5px]" style={{ background: 'var(--border)' }} />
-                  <ArrowRight
-                    size={12}
-                    className="absolute -right-1"
-                    style={{ color: 'var(--thumb-text-disabled)' }}
-                  />
+                  <ArrowRight size={12} className="absolute -right-1" style={{ color: 'var(--thumb-text-disabled)' }} />
                 </div>
               )}
               <div
@@ -162,7 +159,9 @@ export function PipelineVisualization({
               </div>
               <span
                 className="text-[32px] font-black tabular-nums leading-none mt-1"
-                style={{ color: step.count > 0 ? step.color : 'var(--thumb-text-disabled)' }}
+                style={{
+                  color: step.count > 0 ? step.color : 'var(--thumb-text-disabled)',
+                }}
               >
                 {step.count}
               </span>
@@ -183,15 +182,15 @@ export function PipelineVisualization({
         })}
       </div>
 
-      <div
-        className="grid grid-cols-5 gap-0 border-t"
-        style={{ borderColor: 'var(--thumb-border-subtle)' }}
-      >
+      <div className="grid grid-cols-5 gap-0 border-t" style={{ borderColor: 'var(--thumb-border-subtle)' }}>
         {steps.map((step) => (
           <div
             key={step.label}
             className="px-4 py-3.5 border-l first:border-l-0"
-            style={{ borderColor: 'var(--thumb-border-subtle)', minHeight: 220 }}
+            style={{
+              borderColor: 'var(--thumb-border-subtle)',
+              minHeight: 220,
+            }}
           >
             {step.tasks.length === 0 ? (
               <div
@@ -204,10 +203,7 @@ export function PipelineVisualization({
               <ul className="space-y-1.5">
                 {step.tasks.map((t, ti) => (
                   <li key={ti} className="flex items-center gap-2">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ background: step.color }}
-                    />
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: step.color }} />
                     <span
                       className="text-[12px] font-medium truncate flex-1"
                       style={{ color: 'var(--thumb-text-secondary)' }}
@@ -216,7 +212,10 @@ export function PipelineVisualization({
                     </span>
                     <span
                       className="text-[10px] font-bold shrink-0 px-1.5 py-0.5 rounded"
-                      style={{ background: `${step.color}12`, color: step.color }}
+                      style={{
+                        background: `${step.color}12`,
+                        color: step.color,
+                      }}
                     >
                       {t.status}
                     </span>

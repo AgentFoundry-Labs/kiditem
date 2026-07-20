@@ -22,7 +22,7 @@ export class ProcessingCostsService {
 
   async create(organizationId: string, dto: CreateProcessingCostDto) {
     const master = await this.prisma.masterProduct.findFirst({
-      where: { id: dto.masterId, organizationId, isDeleted: false },
+      where: { id: dto.masterId, organizationId, isActive: true },
       select: { id: true },
     });
     if (!master) {

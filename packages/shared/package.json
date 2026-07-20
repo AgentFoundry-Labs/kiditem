@@ -25,6 +25,21 @@
       "import": "./dist/product-content/index.js",
       "require": "./dist/product-content/index.cjs"
     },
+    "./sourcing": {
+      "types": "./dist/sourcing/index.d.ts",
+      "import": "./dist/sourcing/index.js",
+      "require": "./dist/sourcing/index.cjs"
+    },
+    "./channel-listing": {
+      "types": "./dist/channel-listing.d.ts",
+      "import": "./dist/channel-listing.js",
+      "require": "./dist/channel-listing.cjs"
+    },
+    "./coupang-category": {
+      "types": "./dist/coupang-category.d.ts",
+      "import": "./dist/coupang-category.js",
+      "require": "./dist/coupang-category.cjs"
+    },
     "./order": {
       "types": "./dist/order.d.ts",
       "import": "./dist/order.js",
@@ -100,15 +115,65 @@
       "import": "./dist/channel-dashboard.js",
       "require": "./dist/channel-dashboard.cjs"
     },
-    "./channel-reconciliation": {
-      "types": "./dist/channel-reconciliation.d.ts",
-      "import": "./dist/channel-reconciliation.js",
-      "require": "./dist/channel-reconciliation.cjs"
-    },
     "./channel-account": {
       "types": "./dist/channel-account.d.ts",
       "import": "./dist/channel-account.js",
       "require": "./dist/channel-account.cjs"
+    },
+    "./coupang-direct-order": {
+      "types": "./dist/coupang-direct-order.d.ts",
+      "import": "./dist/coupang-direct-order.js",
+      "require": "./dist/coupang-direct-order.cjs"
+    },
+    "./channel-sku-matching": {
+      "types": "./dist/channel-sku-matching.d.ts",
+      "import": "./dist/channel-sku-matching.js",
+      "require": "./dist/channel-sku-matching.cjs"
+    },
+    "./channel-sku-availability": {
+      "types": "./dist/channel-sku-availability.d.ts",
+      "import": "./dist/channel-sku-availability.js",
+      "require": "./dist/channel-sku-availability.cjs"
+    },
+    "./inventory-commitment": {
+      "types": "./dist/inventory-commitment.d.ts",
+      "import": "./dist/inventory-commitment.js",
+      "require": "./dist/inventory-commitment.cjs"
+    },
+    "./product-operations": {
+      "types": "./dist/product-operations.d.ts",
+      "import": "./dist/product-operations.js",
+      "require": "./dist/product-operations.cjs"
+    },
+    "./channel-product-matching": {
+      "types": "./dist/channel-product-matching.d.ts",
+      "import": "./dist/channel-product-matching.js",
+      "require": "./dist/channel-product-matching.cjs"
+    },
+    "./channel-recipe-automation": {
+      "types": "./dist/channel-recipe-automation.d.ts",
+      "import": "./dist/channel-recipe-automation.js",
+      "require": "./dist/channel-recipe-automation.cjs"
+    },
+    "./source-import": {
+      "types": "./dist/source-import.d.ts",
+      "import": "./dist/source-import.js",
+      "require": "./dist/source-import.cjs"
+    },
+    "./sellpia-inventory-freshness": {
+      "types": "./dist/sellpia-inventory-freshness.d.ts",
+      "import": "./dist/sellpia-inventory-freshness.js",
+      "require": "./dist/sellpia-inventory-freshness.cjs"
+    },
+    "./rocket-purchase-preview": {
+      "types": "./dist/rocket-purchase-preview.d.ts",
+      "import": "./dist/rocket-purchase-preview.js",
+      "require": "./dist/rocket-purchase-preview.cjs"
+    },
+    "./coupang-catalog-snapshot": {
+      "types": "./dist/coupang-catalog-snapshot.d.ts",
+      "import": "./dist/coupang-catalog-snapshot.js",
+      "require": "./dist/coupang-catalog-snapshot.cjs"
     },
     "./agent-os": {
       "types": "./dist/agent-os.d.ts",
@@ -175,50 +240,164 @@
       "import": "./dist/operation-cancellation.js",
       "require": "./dist/operation-cancellation.cjs"
     },
+    "./browser-collection-session": {
+      "types": "./dist/browser-collection-session.d.ts",
+      "import": "./dist/browser-collection-session.js",
+      "require": "./dist/browser-collection-session.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
   "typesVersions": {
     "*": {
-      "schemas": ["dist/schemas/index.d.ts"],
-      "product": ["dist/product/index.d.ts"],
-      "product-content": ["dist/product-content/index.d.ts"],
-      "sourcing": ["dist/product-content/index.d.ts"],
-      "order": ["dist/order.d.ts"],
-      "inventory": ["dist/inventory.d.ts"],
-      "ai": ["dist/ai.d.ts"],
-      "advertising": ["dist/advertising.d.ts"],
-      "errors": ["dist/errors/index.d.ts"],
-      "server-errors": ["dist/server-errors.d.ts"],
-      "security": ["dist/security/index.d.ts"],
-      "panel": ["dist/panel/index.d.ts"],
-      "dashboard": ["dist/dashboard.d.ts"],
-      "finance": ["dist/finance.d.ts"],
-      "marketplace": ["dist/marketplace.d.ts"],
-      "rules": ["dist/rules.d.ts"],
-      "action-task": ["dist/action-task.d.ts"],
-      "supplier-stats": ["dist/supplier-stats.d.ts"],
-      "channel-dashboard": ["dist/channel-dashboard.d.ts"],
-      "channel-reconciliation": ["dist/channel-reconciliation.d.ts"],
-      "channel-account": ["dist/channel-account.d.ts"],
-      "agent-os": ["dist/agent-os.d.ts"],
-      "workflow": ["dist/workflow.d.ts"],
-      "common": ["dist/common.d.ts"],
-      "reviews": ["dist/reviews.d.ts"],
-      "statistics": ["dist/statistics.d.ts"],
-      "settlements": ["dist/settlements.d.ts"],
-      "alerts": ["dist/alerts.d.ts"],
-      "return-summary": ["dist/return-summary.d.ts"],
-      "feature-gate": ["dist/feature-gate.d.ts"],
-      "inspection": ["dist/inspection.d.ts"],
-      "readiness": ["dist/readiness.d.ts"],
-      "auth": ["dist/auth.d.ts"],
-      "operation-cancellation": ["dist/operation-cancellation.d.ts"]
+      "schemas": [
+        "dist/schemas/index.d.ts"
+      ],
+      "product": [
+        "dist/product/index.d.ts"
+      ],
+      "product-content": [
+        "dist/product-content/index.d.ts"
+      ],
+      "sourcing": [
+        "dist/sourcing/index.d.ts"
+      ],
+      "channel-listing": [
+        "dist/channel-listing.d.ts"
+      ],
+      "order": [
+        "dist/order.d.ts"
+      ],
+      "inventory": [
+        "dist/inventory.d.ts"
+      ],
+      "ai": [
+        "dist/ai.d.ts"
+      ],
+      "advertising": [
+        "dist/advertising.d.ts"
+      ],
+      "errors": [
+        "dist/errors/index.d.ts"
+      ],
+      "server-errors": [
+        "dist/server-errors.d.ts"
+      ],
+      "security": [
+        "dist/security/index.d.ts"
+      ],
+      "panel": [
+        "dist/panel/index.d.ts"
+      ],
+      "dashboard": [
+        "dist/dashboard.d.ts"
+      ],
+      "finance": [
+        "dist/finance.d.ts"
+      ],
+      "marketplace": [
+        "dist/marketplace.d.ts"
+      ],
+      "rules": [
+        "dist/rules.d.ts"
+      ],
+      "action-task": [
+        "dist/action-task.d.ts"
+      ],
+      "supplier-stats": [
+        "dist/supplier-stats.d.ts"
+      ],
+      "channel-dashboard": [
+        "dist/channel-dashboard.d.ts"
+      ],
+      "channel-account": [
+        "dist/channel-account.d.ts"
+      ],
+      "coupang-direct-order": [
+        "dist/coupang-direct-order.d.ts"
+      ],
+      "channel-sku-matching": [
+        "dist/channel-sku-matching.d.ts"
+      ],
+      "channel-sku-availability": [
+        "dist/channel-sku-availability.d.ts"
+      ],
+      "inventory-commitment": [
+        "dist/inventory-commitment.d.ts"
+      ],
+      "product-operations": [
+        "dist/product-operations.d.ts"
+      ],
+      "channel-product-matching": [
+        "dist/channel-product-matching.d.ts"
+      ],
+      "channel-recipe-automation": [
+        "dist/channel-recipe-automation.d.ts"
+      ],
+      "source-import": [
+        "dist/source-import.d.ts"
+      ],
+      "sellpia-inventory-freshness": [
+        "dist/sellpia-inventory-freshness.d.ts"
+      ],
+      "rocket-purchase-preview": [
+        "dist/rocket-purchase-preview.d.ts"
+      ],
+      "coupang-catalog-snapshot": [
+        "dist/coupang-catalog-snapshot.d.ts"
+      ],
+      "agent-os": [
+        "dist/agent-os.d.ts"
+      ],
+      "workflow": [
+        "dist/workflow.d.ts"
+      ],
+      "common": [
+        "dist/common.d.ts"
+      ],
+      "reviews": [
+        "dist/reviews.d.ts"
+      ],
+      "statistics": [
+        "dist/statistics.d.ts"
+      ],
+      "settlements": [
+        "dist/settlements.d.ts"
+      ],
+      "alerts": [
+        "dist/alerts.d.ts"
+      ],
+      "return-summary": [
+        "dist/return-summary.d.ts"
+      ],
+      "feature-gate": [
+        "dist/feature-gate.d.ts"
+      ],
+      "inspection": [
+        "dist/inspection.d.ts"
+      ],
+      "readiness": [
+        "dist/readiness.d.ts"
+      ],
+      "coupang-category": [
+        "dist/coupang-category.d.ts"
+      ],
+      "auth": [
+        "dist/auth.d.ts"
+      ],
+      "operation-cancellation": [
+        "dist/operation-cancellation.d.ts"
+      ],
+      "browser-collection-session": [
+        "dist/browser-collection-session.d.ts"
+      ]
     }
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

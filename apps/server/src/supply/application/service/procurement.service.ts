@@ -6,15 +6,20 @@ import {
   type PurchaseOrderListQuery,
 } from '../port/out/repository/procurement.repository.port';
 import {
-  isDeletablePurchaseOrderStatus,
   isValidPurchaseOrderTransition,
 } from '../../domain/policy/purchase-order-status';
+import {
+  PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT,
+  type PurchaseOrderSubmissionTransactionPort,
+} from '../port/out/transaction/purchase-order-submission.transaction.port';
 
 @Injectable()
 export class ProcurementService {
   constructor(
     @Inject(PROCUREMENT_REPOSITORY_PORT)
     private readonly procurement: ProcurementRepositoryPort,
+    @Inject(PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT)
+    private readonly submissionTransaction: PurchaseOrderSubmissionTransactionPort,
   ) {}
 
   async findAll(organizationId: string, query: PurchaseOrderListQuery) {
@@ -30,11 +35,16 @@ export class ProcurementService {
     }
 
     throw new BadRequestException(
-      `발주 항목의 옵션을 찾을 수 없거나 권한이 없습니다: ${result.missingOptionIds.join(', ')}`,
+      `발주 항목의 셀피아 상품을 찾을 수 없거나 권한이 없습니다: ${result.missingSellpiaInventorySkuIds.join(', ')}`,
     );
   }
 
   async updateStatus(organizationId: string, id: string, newStatus: string) {
+    if (newStatus === 'ordered') {
+      throw new BadRequestException(
+        'Use the purchase-order submit action for pending → ordered transitions.',
+      );
+    }
     const order = await this.procurement.findScopedStatus(organizationId, id);
     if (!order) {
       throw new BadRequestException('발주를 찾을 수 없습니다');
@@ -69,120 +79,24 @@ export class ProcurementService {
     return order;
   }
 
-  async preparePurchaseOrderSubmission(organizationId: string, id: string) {
-    const order = await this.procurement.findScopedStatus(organizationId, id);
-    if (!order) {
-      throw new BadRequestException('발주를 찾을 수 없습니다');
-    }
-
-    if (order.status === 'pending' || order.status === 'ordered') {
-      return order;
-    }
-
-    if (order.status === 'draft') {
-      const pending = await this.procurement.updateStatusScoped(
-        organizationId,
-        id,
-        'draft',
-        { status: 'pending' },
-      );
-      if (!pending) {
-        throw new BadRequestException('발주를 찾을 수 없습니다');
-      }
-      return pending;
-    }
-
-    throw new BadRequestException(
-      '임시저장 또는 대기 상태의 발주만 제출할 수 있습니다',
-    );
-  }
-
-  async submitPurchaseOrder(
-    organizationId: string,
-    id: string,
-    externalOrder?: {
-      externalOrderPlatform?: string | null;
-      externalOrderId?: string | null;
-      externalOrderUrl?: string | null;
-    },
-  ) {
-    const orderedUpdate = {
-      status: 'ordered',
-      ...(externalOrder?.externalOrderPlatform !== undefined && {
-        externalOrderPlatform: externalOrder.externalOrderPlatform,
-      }),
-      ...(externalOrder?.externalOrderId !== undefined && {
-        externalOrderId: externalOrder.externalOrderId,
-      }),
-      ...(externalOrder?.externalOrderUrl !== undefined && {
-        externalOrderUrl: externalOrder.externalOrderUrl,
-      }),
-    };
-    const order = await this.procurement.findScopedStatus(organizationId, id);
-    if (!order) {
-      throw new BadRequestException('발주를 찾을 수 없습니다');
-    }
-
-    if (order.status === 'ordered') {
-      return order;
-    }
-
-    if (order.status === 'draft') {
-      const pending = await this.procurement.updateStatusScoped(
-        organizationId,
-        id,
-        'draft',
-        { status: 'pending' },
-      );
-      if (!pending) {
-        throw new BadRequestException('발주를 찾을 수 없습니다');
-      }
-      const ordered = await this.procurement.updateStatusScoped(
-        organizationId,
-        id,
-        'pending',
-        orderedUpdate,
-      );
-      if (!ordered) {
-        throw new BadRequestException('발주를 찾을 수 없습니다');
-      }
-      return ordered;
-    }
-
-    if (order.status === 'pending') {
-      const ordered = await this.procurement.updateStatusScoped(
-        organizationId,
-        id,
-        'pending',
-        orderedUpdate,
-      );
-      if (!ordered) {
-        throw new BadRequestException('발주를 찾을 수 없습니다');
-      }
-      return ordered;
-    }
-
-    throw new BadRequestException(
-      '임시저장 또는 대기 상태의 발주만 제출할 수 있습니다',
-    );
-  }
-
   async delete(organizationId: string, id: string) {
-    const order = await this.procurement.findScopedForDelete(organizationId, id);
-    if (!order) {
+    const result = await this.submissionTransaction.deletePurchaseOrder({
+      organizationId,
+      purchaseOrderId: id,
+    });
+    if (result.kind === 'not_found') {
       throw new BadRequestException('발주를 찾을 수 없습니다');
     }
-
-    if (!isDeletablePurchaseOrderStatus(order.status)) {
+    if (result.kind === 'not_deletable') {
       throw new BadRequestException(
         '임시저장 또는 대기 상태의 발주만 삭제할 수 있습니다',
       );
     }
-
-    const deleted = await this.procurement.deleteScoped(organizationId, id);
-    if (!deleted) {
-      throw new BadRequestException('발주를 찾을 수 없습니다');
+    if (result.kind === 'unresolved_attempt') {
+      throw new BadRequestException(
+        '미해결 외부 주문 시도가 있어 발주를 삭제할 수 없습니다',
+      );
     }
-    return order;
+    return result.order;
   }
 }

@@ -1,19 +1,8 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
-import {
-  AI_OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from '../port/out/cross-domain/operation-alert.port';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { AI_OPERATION_ALERT_PORT, type OperationAlertPort } from '../port/out/cross-domain/operation-alert.port';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
-import type {
-  ThumbnailEditorCandidate,
-  ThumbnailEditorInputImage,
-} from '../../domain/model/thumbnail-editor';
-import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
+import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../domain/model/thumbnail-editor';
+import { resolveWorkspaceThumbnailSource } from '../../domain/thumbnail-workspace-source';
 import { getRecomposePromptOverride } from '../../domain/prompts/thumbnail-recompose-prompts';
 import {
   type ThumbnailAnalysisContext,
@@ -40,18 +29,16 @@ import {
 import { ProductGenerationAlertService } from './product-generation-alert.service';
 import { ThumbnailGenerationLifecycleService } from './thumbnail-generation-lifecycle.service';
 import { ThumbnailDirectGenerationJobService } from './thumbnail-direct-generation-job.service';
+import { resolveAiDirectJobModels } from './ai-direct-job.config';
 
 function jsonObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 export interface ThumbnailEditorGenerationEnqueueInput {
   organizationId: string;
-  productId: string;
+  contentWorkspaceId: string;
   productName: string;
-  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: unknown;
@@ -112,22 +99,21 @@ export class ThumbnailGenerationJobService {
   async enqueueEditorGeneration(
     input: ThumbnailEditorGenerationEnqueueInput,
   ): Promise<ThumbnailGenerationEnqueueResult> {
-    const generation = await this.ledger.openPendingEditorJob({
+    const models = resolveAiDirectJobModels('thumbnail_generate');
+    const directJob = this.directGenerationJobs.prepareGenerate({ payload: input.directPayload, models });
+    const opened = await this.ledger.openPendingDirectGeneration({
+      subject: 'editor',
       organizationId: input.organizationId,
-      masterId: input.productId,
+      contentWorkspaceId: input.contentWorkspaceId,
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
       editAnalysis: null,
-      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
-    });
-
-    await this.ledger.persistPendingInputImages({
-      generationId: generation.id,
-      organizationId: input.organizationId,
       inputImages: input.inputs,
+      directJob,
     });
+    const generation = { id: opened.generationId };
 
     await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
@@ -139,16 +125,15 @@ export class ThumbnailGenerationJobService {
       actorUserId: input.triggeredByUserId,
       payload: {
         method: input.method,
-        productId: input.productId,
-        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId,
         inputCount: input.inputs.length,
       },
     });
 
     const alertTarget = this.alertTarget({
-      contentWorkspaceId: input.contentWorkspaceId ?? null,
-      fallbackTargetType: 'master',
-      fallbackTargetId: input.productId,
+      contentWorkspaceId: input.contentWorkspaceId,
+      fallbackTargetType: 'content_workspace',
+      fallbackTargetId: input.contentWorkspaceId,
       fallbackHref: this.thumbnailGenerationHref(generation.id),
     });
     await this.operationAlerts.start({
@@ -165,14 +150,13 @@ export class ThumbnailGenerationJobService {
       metadata: {
         method: input.method,
         inputCount: input.inputs.length,
-        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId,
       },
     });
 
-    this.directGenerationJobs.schedule({
+    await this.directGenerationJobs.release({
       organizationId: input.organizationId,
-      generationId: generation.id,
-      payload: input.directPayload,
+      jobId: opened.directJobId,
     });
 
     return { generationId: generation.id, status: 'pending' };
@@ -181,10 +165,8 @@ export class ThumbnailGenerationJobService {
   async enqueueCandidateGeneration(
     input: ThumbnailCandidateGenerationEnqueueInput,
   ): Promise<ThumbnailGenerationEnqueueResult> {
-    const candidate = await this.ledger.findSourceCandidateForJob(
-      input.sourceCandidateId,
-      input.organizationId,
-    );
+    const models = resolveAiDirectJobModels('thumbnail_generate');
+    const candidate = await this.ledger.findSourceCandidateForJob(input.sourceCandidateId, input.organizationId);
     if (!candidate) {
       throw new BadRequestException('sourceCandidateId 에 해당하는 소싱 후보를 찾을 수 없습니다');
     }
@@ -199,8 +181,10 @@ export class ThumbnailGenerationJobService {
           },
         }
       : input.inputMeta;
-
-    const generation = await this.ledger.openPendingCandidateJob({
+    const inputImages = this.attachCandidateImageRefs(input.inputs, candidate.images);
+    const directJob = this.directGenerationJobs.prepareGenerate({ payload: input.directPayload, models });
+    const opened = await this.ledger.openPendingDirectGeneration({
+      subject: 'candidate',
       organizationId: input.organizationId,
       sourceCandidateId: input.sourceCandidateId,
       originalUrl: input.originalUrl,
@@ -208,15 +192,10 @@ export class ThumbnailGenerationJobService {
       inputMeta,
       contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
-    });
-
-    const inputImages = this.attachCandidateImageRefs(input.inputs, candidate.images);
-
-    await this.ledger.persistPendingInputImages({
-      generationId: generation.id,
-      organizationId: input.organizationId,
       inputImages,
+      directJob,
     });
+    const generation = { id: opened.generationId };
 
     await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
@@ -242,6 +221,11 @@ export class ThumbnailGenerationJobService {
         childId: generation.id,
       });
       if (childStart.status !== 'started') {
+        await this.directGenerationJobs.cancelHeld({
+          organizationId: input.organizationId,
+          jobId: opened.directJobId,
+          reason: 'Parent product generation is not accepting thumbnail child jobs.',
+        });
         await this.lifecycle.markCancelled({
           organizationId: input.organizationId,
           generationId: generation.id,
@@ -284,12 +268,17 @@ export class ThumbnailGenerationJobService {
 
     if (
       isParentProductGenerationAlertLink(operationAlert) &&
-      await this.shouldCancelParentThumbnailRequestBeforeExecution({
+      (await this.shouldCancelParentThumbnailRequestBeforeExecution({
         organizationId: input.organizationId,
         parentOperationKey: operationAlert.parentOperationKey,
         generationId: generation.id,
-      })
+      }))
     ) {
+      await this.directGenerationJobs.cancelHeld({
+        organizationId: input.organizationId,
+        jobId: opened.directJobId,
+        reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+      });
       await this.lifecycle.markCancelled({
         organizationId: input.organizationId,
         generationId: generation.id,
@@ -301,10 +290,9 @@ export class ThumbnailGenerationJobService {
       return { generationId: generation.id, status: 'cancelled' };
     }
 
-    this.directGenerationJobs.schedule({
+    await this.directGenerationJobs.release({
       organizationId: input.organizationId,
-      generationId: generation.id,
-      payload: input.directPayload,
+      jobId: opened.directJobId,
     });
 
     return { generationId: generation.id, status: 'pending' };
@@ -325,30 +313,26 @@ export class ThumbnailGenerationJobService {
         organizationId: input.organizationId,
       }),
     ]);
-    return (
-      !parentAcceptsChildren ||
-      !generation ||
-      !['pending', 'running'].includes(generation.status)
-    );
+    return !parentAcceptsChildren || !generation || !['pending', 'running'].includes(generation.status);
   }
 
   async enqueueStandaloneGeneration(
     input: ThumbnailStandaloneGenerationEnqueueInput,
   ): Promise<ThumbnailGenerationEnqueueResult> {
-    const generation = await this.ledger.openPendingStandaloneJob({
+    const models = resolveAiDirectJobModels('thumbnail_generate');
+    const directJob = this.directGenerationJobs.prepareGenerate({ payload: input.directPayload, models });
+    const opened = await this.ledger.openPendingDirectGeneration({
+      subject: 'standalone',
       organizationId: input.organizationId,
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
       contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
-    });
-
-    await this.ledger.persistPendingInputImages({
-      generationId: generation.id,
-      organizationId: input.organizationId,
       inputImages: input.inputs,
+      directJob,
     });
+    const generation = { id: opened.generationId };
 
     await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
@@ -391,29 +375,27 @@ export class ThumbnailGenerationJobService {
       },
     });
 
-    this.directGenerationJobs.schedule({
+    await this.directGenerationJobs.release({
       organizationId: input.organizationId,
-      generationId: generation.id,
-      payload: input.directPayload,
+      jobId: opened.directJobId,
     });
 
     return { generationId: generation.id, status: 'pending' };
   }
 
-  scheduleEditJob(
+  async scheduleEditJob(
     generationId: string,
     organizationId: string,
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
-  ): void {
-    setImmediate(() => {
-      this.processEditJob(generationId, organizationId, purpose, variantKey).catch((err) => {
-        this.logger.error(
-          `편집 job 백그라운드 처리 실패 (${generationId}): ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      });
+  ): Promise<void> {
+    const models = resolveAiDirectJobModels('thumbnail_reedit');
+    await this.directGenerationJobs.scheduleReedit({
+      organizationId,
+      generationId,
+      purpose,
+      variantKey: variantKey ?? 'auto',
+      models,
     });
   }
 
@@ -423,7 +405,11 @@ export class ThumbnailGenerationJobService {
     reason: string;
     actorUserId?: string | null;
   }): Promise<void> {
-    void input;
+    await this.directGenerationJobs.cancelByGeneration({
+      organizationId: input.organizationId,
+      generationId: input.generationId,
+      reason: input.reason,
+    });
   }
 
   async processEditJob(
@@ -431,7 +417,10 @@ export class ThumbnailGenerationJobService {
     organizationId: string,
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
+    model: string,
+    signal?: AbortSignal,
   ): Promise<void> {
+    signal?.throwIfAborted();
     const locked = await this.lifecycle.startAttempt({
       generationId: id,
       organizationId,
@@ -442,25 +431,25 @@ export class ThumbnailGenerationJobService {
     try {
       const existing = await this.ledger.findGenerationWithInputImages(id, organizationId);
       if (!existing) return;
-      if (!existing.masterId) {
+      if (!existing.contentWorkspaceId) {
         throw new BadRequestException('소싱 후보 썸네일은 후보 생성 작업 경로에서만 실행할 수 있습니다');
       }
-      const master = await this.ledger.findJobMaster(existing.masterId, organizationId);
-      if (!master) {
+      const workspace = await this.ledger.findWorkspaceForThumbnailJob(existing.contentWorkspaceId, organizationId);
+      if (!workspace) {
         throw new BadRequestException('상품 정보를 찾을 수 없습니다');
       }
 
-      const masterFallback = resolveMasterThumbnailImage(master);
+      const workspaceFallback = resolveWorkspaceThumbnailSource(workspace);
       const seedRows =
         existing.inputImages.length > 0
           ? existing.inputImages
           : [
               {
-                url: existing.selectedUrl ?? existing.originalUrl ?? masterFallback,
+                url: existing.selectedUrl ?? existing.originalUrl ?? workspaceFallback,
                 role: 'product',
                 label: 'Product photo',
                 sortOrder: 0,
-                source: 'master_image',
+                source: 'workspace_image',
               },
             ];
       const validSeedRows = seedRows.filter((row) => row.url);
@@ -476,34 +465,30 @@ export class ThumbnailGenerationJobService {
             role: toInputRole(row.role ?? 'product'),
             sortOrder: row.sortOrder,
             source: row.source ?? 're-edit',
+            signal,
           }),
         );
       }
       const editCase = inferEditCaseFromInputs(inputImages);
-      const analysis: ThumbnailAnalysisContext | null = master.thumbnailAnalyses[0] ?? null;
+      const analysis: ThumbnailAnalysisContext | null = workspace.thumbnailAnalyses[0] ?? null;
       const recomposeKind =
         findRecomposeKindIn(existing.inputMeta as ThumbnailJsonValue | null | undefined) ??
         findRecomposeKindIn(existing.editAnalysis as ThumbnailJsonValue | null | undefined) ??
         extractRecomposeKind(analysis?.recompose ?? null);
       const editSuggestions = extractEditSuggestions(analysis?.complianceScores ?? null);
-      const promptOverride = getRecomposePromptOverride(
-        recomposeKind,
-        variantKey,
-        master.category,
-        master.name,
-      );
+      const promptOverride = getRecomposePromptOverride(recomposeKind, variantKey, workspace.category, workspace.name);
       const candidates: ThumbnailEditorCandidate[] = await this.editorAiService.generateEdit(
         inputImages,
         organizationId,
         {
+          model,
+          signal,
           purpose,
           editCase,
           userPrompt: promptOverride ? undefined : variantInstruction(variantKey),
-          productDescription: [master.name, master.category]
-            .filter(Boolean)
-            .join(' / '),
-          productName: master.name,
-          category: master.category,
+          productDescription: [workspace.name, workspace.category].filter(Boolean).join(' / '),
+          productName: workspace.name,
+          category: workspace.category,
           promptOverride,
           editSuggestions,
           referenceMode: 'edit-image',
@@ -536,13 +521,12 @@ export class ThumbnailGenerationJobService {
         payload: completionPayload,
       });
       if (completed) {
-        await this.operationAlerts.succeed(
-          organizationId,
-          this.editJobOperationKey(id),
-          { metadata: { candidateCount: candidates.length } },
-        );
+        await this.operationAlerts.succeed(organizationId, this.editJobOperationKey(id), {
+          metadata: { candidateCount: candidates.length },
+        });
       }
     } catch (err) {
+      if (signal?.aborted) throw err;
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`편집 처리 실패 (${id}): ${message}`);
       await this.lifecycle.failRunningGeneration({
@@ -551,11 +535,7 @@ export class ThumbnailGenerationJobService {
         errorMessage: message,
         payload: { purpose, variantKey: variantKey ?? 'auto' },
       });
-      await this.operationAlerts.fail(
-        organizationId,
-        this.editJobOperationKey(id),
-        { message },
-      );
+      await this.operationAlerts.fail(organizationId, this.editJobOperationKey(id), { message });
     }
   }
 
@@ -565,7 +545,11 @@ export class ThumbnailGenerationJobService {
 
   private attachCandidateImageRefs(
     inputs: ThumbnailEditorInputImage[],
-    candidateImages: Array<{ id: string; url: string; storageKey: string | null }>,
+    candidateImages: Array<{
+      id: string;
+      url: string;
+      storageKey: string | null;
+    }>,
   ): ThumbnailEditorInputImage[] {
     if (candidateImages.length === 0) return inputs;
     const byUrl = new Map(candidateImages.map((image) => [image.url, image]));
@@ -600,7 +584,11 @@ export class ThumbnailGenerationJobService {
     fallbackTargetType: string;
     fallbackTargetId: string;
     fallbackHref: string;
-  }): { targetType: string; targetId: string; href: string } {
+  }): {
+    targetType: string;
+    targetId: string;
+    href: string;
+  } {
     if (input.contentWorkspaceId) {
       return {
         targetType: 'content_workspace',
@@ -614,5 +602,4 @@ export class ThumbnailGenerationJobService {
       href: input.fallbackHref,
     };
   }
-
 }

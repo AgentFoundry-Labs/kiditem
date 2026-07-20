@@ -11,14 +11,11 @@ import { useAnalysisList } from './hooks/useThumbnailAnalysis';
 import { useTrackingList } from './hooks/useThumbnailTracking';
 import { useBatchAnalysis } from './hooks/useBatchAnalysis';
 import { useThumbnailActions } from './hooks/useThumbnailActions';
-import { useCoupangImageSync } from './hooks/useCoupangImageSync';
 import { useThumbnailDeepLinkSelection } from './hooks/useThumbnailDeepLinkSelection';
 import { useThumbnailPageModel } from './hooks/useThumbnailPageModel';
-import { useThumbnailSyncFeedback } from './hooks/useThumbnailSyncFeedback';
 import { InspectionDrawer } from './components/InspectionDrawer';
 import { ThumbnailHeader } from './components/ThumbnailHeader';
 import { BatchProgressBanner } from './components/BatchProgressBanner';
-import { UnmatchedReconciliationBanner } from './components/UnmatchedReconciliationBanner';
 import { PipelineVisualization, type PipelineTab } from './components/PipelineVisualization';
 import { ThumbnailMainTabs, type MainTabKey } from './components/ThumbnailMainTabs';
 import { ThumbnailDetailModalHost } from './components/workspace/ThumbnailDetailModalHost';
@@ -43,13 +40,7 @@ function parseMainTabParam(value: string | null): MainTabKey | null {
 }
 
 function parseEditFilterParam(value: string | null): EditFilter | null {
-  if (
-    value === 'pending' ||
-    value === 'generating' ||
-    value === 'ready' ||
-    value === 'applied' ||
-    value === 'failed'
-  ) {
+  if (value === 'pending' || value === 'generating' || value === 'ready' || value === 'applied' || value === 'failed') {
     return value;
   }
   return null;
@@ -72,9 +63,7 @@ function ThumbnailsPageContent() {
   const generationQuery = useGenerationList();
   const trackingQuery = useTrackingList();
 
-  const [activeTab, setActiveTab] = useState<MainTabKey>(
-    () => parseMainTabParam(searchParams.get('tab')) ?? 'all',
-  );
+  const [activeTab, setActiveTab] = useState<MainTabKey>(() => parseMainTabParam(searchParams.get('tab')) ?? 'all');
   const [unclassifiedSubTab, setUnclassifiedSubTab] = useState<'with-image' | 'no-image' | 'new'>('with-image');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -108,20 +97,7 @@ function ThumbnailsPageContent() {
   });
 
   const batch = useBatchAnalysis();
-  const sync = useCoupangImageSync();
-  const {
-    syncStatus,
-    unmatchedBanner,
-    dismissUnmatchedBanner,
-  } = useThumbnailSyncFeedback({
-    sync,
-    refetchAnalysis: analysisQuery.refetch,
-  });
-
-  const runBatch = async (
-    items: ThumbnailAnalysisResult[],
-    scope?: Parameters<typeof batch.run>[1],
-  ) => {
+  const runBatch = async (items: ThumbnailAnalysisResult[], scope?: Parameters<typeof batch.run>[1]) => {
     await batch.run(items, scope, {
       onResults: actions.mergeAiResults,
       onComplete: (results, targets) => {
@@ -177,8 +153,8 @@ function ThumbnailsPageContent() {
   }
   if (!scanResult) return <EmptyState message="스캔 결과 없음" />;
   const {
-    generatedProductIds,
-    genByProductId,
+    generatedContentWorkspaceIds,
+    genByContentWorkspaceId,
     historyByProduct,
     unclassifiedCount,
     classifiedResults,
@@ -232,10 +208,7 @@ function ThumbnailsPageContent() {
     else if (tab === 'all') setGradeFilter('all');
   };
 
-  const handleMainTabChange: ComponentProps<typeof ThumbnailMainTabs>['onChangeTab'] = (
-    tab,
-    opts,
-  ) => {
+  const handleMainTabChange: ComponentProps<typeof ThumbnailMainTabs>['onChangeTab'] = (tab, opts) => {
     setActiveTab(tab);
     if (opts?.setNeedsFixFilter) {
       setGradeFilter('critical');
@@ -262,22 +235,6 @@ function ThumbnailsPageContent() {
           analysisQuery.refetch();
           generationQuery.refetch();
         }}
-        onSyncImages={() => sync.start()}
-        onCancelSyncImages={sync.cancel}
-        syncRunning={sync.isRunning}
-        syncCanCancel={!!sync.extensionRunId}
-        syncCancelling={sync.extensionStatus?.status === 'cancelled'}
-        syncPhase={sync.extensionStatus?.status === 'running' ? 'scraping' : syncStatus?.phase ?? null}
-        syncProgress={
-          sync.extensionStatus?.status === 'running'
-            ? {
-                processed: sync.extensionStatus.currentPage ?? 0,
-                total: sync.extensionStatus.totalPages ?? 0,
-              }
-            : syncStatus
-              ? { processed: syncStatus.processed, total: syncStatus.total }
-              : null
-        }
       />
 
       {batch.isBatchRunning && (
@@ -286,13 +243,6 @@ function ThumbnailsPageContent() {
           total={batch.batchTotal}
           elapsed={batch.elapsed}
           onCancel={batch.cancel}
-        />
-      )}
-
-      {unmatchedBanner && (
-        <UnmatchedReconciliationBanner
-          unmatchedCount={unmatchedBanner.count}
-          onDismiss={dismissUnmatchedBanner}
         />
       )}
 
@@ -395,7 +345,7 @@ function ThumbnailsPageContent() {
           pageSize,
           gradeFilter,
           gradeDistribution,
-          genByProductId,
+          genByContentWorkspaceId,
           selectedNeedsFixIds,
           onToggleNeedsFix: toggleNeedsFix,
           onSelectAllUnEdited: (ids) => setSelectedNeedsFixIds(new Set(ids ?? [])),
@@ -425,8 +375,8 @@ function ThumbnailsPageContent() {
           editJobsPending: actions.editJobsPending,
           wingRegisteringIds: actions.wingRegisteringIds,
           onSelectGen: setSelectedGen,
-          onEditSingle: (productId, variantKey) => {
-            actions.editSingle(productId, 'compliance', variantKey);
+          onEditSingle: (contentWorkspaceId, variantKey) => {
+            actions.editSingle(contentWorkspaceId, 'compliance', variantKey);
             // 단일 편집 트리거 후 곧장 생성 중 탭으로 이동 — 폴링으로 진행 추적.
             setEditFilter('generating');
           },
@@ -463,7 +413,7 @@ function ThumbnailsPageContent() {
         selectedGen={selectedGen}
         activeGenForProduct={activeGenForProduct}
         generations={generations}
-        generatedProductIds={generatedProductIds}
+        generatedContentWorkspaceIds={generatedContentWorkspaceIds}
         actions={actions}
         onClose={closeDetailModal}
         onSelectProduct={setSelectedProduct}
@@ -493,7 +443,7 @@ function ThumbnailsPageContent() {
         confirmText="일괄 편집 시작"
         cancelText="취소"
         onConfirm={() => {
-          const pendingIds = pendingProducts.map((p) => p.productId);
+          const pendingIds = pendingProducts.map((p) => p.contentWorkspaceId);
           if (pendingIds.length > 0) {
             actions.editBatch(pendingIds);
           }

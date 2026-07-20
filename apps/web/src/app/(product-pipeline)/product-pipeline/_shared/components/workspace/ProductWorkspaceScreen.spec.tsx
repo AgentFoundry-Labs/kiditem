@@ -7,9 +7,20 @@ import { ProductWorkspaceScreen } from './ProductWorkspaceScreen';
 import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
 import { PLACEHOLDER_DATA } from '../../lib/product-workspace-types';
 
-const { apiClientPatchMock, mobilePreviewProps, useGenerationHistoryMock, useProductDetailMock } = vi.hoisted(() => ({
+const {
+  apiClientPatchMock,
+  apiClientPutMock,
+  mobilePreviewProps,
+  productEditHeaderProps,
+  productTabContentProps,
+  useGenerationHistoryMock,
+  useProductDetailMock,
+} = vi.hoisted(() => ({
   apiClientPatchMock: vi.fn(),
+  apiClientPutMock: vi.fn(),
   mobilePreviewProps: [] as Array<{ detailHtml?: string | null }>,
+  productEditHeaderProps: [] as Array<Record<string, unknown>>,
+  productTabContentProps: [] as Array<Record<string, unknown>>,
   useGenerationHistoryMock: vi.fn(),
   useProductDetailMock: vi.fn(),
 }));
@@ -18,6 +29,7 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: vi.fn(async () => ({ html: null, savedAt: null })),
     patch: (...args: unknown[]) => apiClientPatchMock(...args),
+    put: (...args: unknown[]) => apiClientPutMock(...args),
   },
 }));
 
@@ -50,49 +62,83 @@ vi.mock(
 );
 
 vi.mock('./detail/ProductEditHeader', () => ({
-  default: () => <div data-testid="product-edit-header" />,
+  default: (props: Record<string, unknown>) => {
+    productEditHeaderProps.push(props);
+    return <div data-testid="product-edit-header" />;
+  },
 }));
 
 vi.mock('./ProductTabContent', () => ({
   default: ({
     onSaveThumbnailConfiguration,
     onCommitBasicInfo,
+    onApplyRegistrationDetailPage,
     selectedRegistrationThumbnailUrl,
     savedDetailPageGenerationId,
     selectedDetailPageSummary,
+    canSaveThumbnailConfiguration,
+    thumbnailPreviewImages,
   }: {
     onSaveThumbnailConfiguration?: (input: {
       thumbnailUrls: string[];
       selectedThumbnail: {
         url: string;
-        kind: 'source';
-        generatedCandidateId: null;
-      };
+        kind: 'generated';
+        generatedGenerationId: string;
+        generatedCandidateId: string;
+      } | null;
     }) => void;
+    canSaveThumbnailConfiguration?: boolean;
+    thumbnailPreviewImages?: string[];
     onCommitBasicInfo?: (input: {
       name?: string;
       salePrice?: number;
     }) => void;
+    onApplyRegistrationDetailPage?: (input: {
+      selectedDetailPageGenerationId: string;
+    }) => void;
     selectedRegistrationThumbnailUrl?: string | null;
     savedDetailPageGenerationId?: string | null;
     selectedDetailPageSummary?: { title?: string } | null;
-  }) => (
-    <div>
+  }) => {
+    productTabContentProps.push({
+      onCommitBasicInfo,
+      onApplyRegistrationDetailPage,
+      canSaveThumbnailConfiguration,
+      thumbnailPreviewImages,
+    });
+    return <div>
       <div
         data-testid="product-tab-content"
         data-selected-thumbnail={selectedRegistrationThumbnailUrl ?? ''}
         data-selected-detail-generation={savedDetailPageGenerationId ?? ''}
         data-selected-detail-title={selectedDetailPageSummary?.title ?? ''}
+        data-can-save-thumbnail={canSaveThumbnailConfiguration ? 'true' : 'false'}
       />
       <button
         type="button"
         onClick={() =>
           onSaveThumbnailConfiguration?.({
-            thumbnailUrls: ['https://cdn.example.com/source.jpg'],
+            thumbnailUrls: [
+              'https://cdn.example.com/preview-1.jpg',
+              'https://cdn.example.com/preview-2.jpg',
+            ],
+            selectedThumbnail: null,
+          })
+        }
+      >
+        mock-save-thumbnail-list
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onSaveThumbnailConfiguration?.({
+            thumbnailUrls: ['https://cdn.example.com/generated.jpg'],
             selectedThumbnail: {
-              url: 'https://cdn.example.com/source.jpg',
-              kind: 'source',
-              generatedCandidateId: null,
+              url: 'https://cdn.example.com/generated.jpg',
+              kind: 'generated',
+              generatedGenerationId: 'thumbnail-generation-1',
+              generatedCandidateId: 'thumbnail-candidate-1',
             },
           })
         }
@@ -105,8 +151,16 @@ vi.mock('./ProductTabContent', () => ({
       >
         mock-save-basic
       </button>
-    </div>
-  ),
+      <button
+        type="button"
+        onClick={() => onApplyRegistrationDetailPage?.({
+          selectedDetailPageGenerationId: 'detail-generation-1',
+        })}
+      >
+        mock-apply-detail
+      </button>
+    </div>;
+  },
 }));
 
 vi.mock('./preview/MobilePreview', () => ({
@@ -143,7 +197,8 @@ const workspaceData: ProductWorkspaceData = {
     raw_data: null,
     image_urls: [],
     thumbnail_url: null,
-    status: 'collected',
+    status: 'sourced',
+    contentWorkspaceId: null,
   } as ProductWorkspaceData['product'],
   detailPageData: placeholderDetailPageData,
   editedHtml: null,
@@ -158,7 +213,11 @@ const workspaceData: ProductWorkspaceData = {
 describe('ProductWorkspaceScreen', () => {
   beforeEach(() => {
     apiClientPatchMock.mockReset();
+    apiClientPutMock.mockReset();
+    apiClientPutMock.mockResolvedValue({ thumbnailUrls: [] });
     mobilePreviewProps.length = 0;
+    productEditHeaderProps.length = 0;
+    productTabContentProps.length = 0;
     useGenerationHistoryMock.mockReturnValue({ data: [] });
     useProductDetailMock.mockReset();
   });
@@ -208,10 +267,12 @@ describe('ProductWorkspaceScreen', () => {
         productPreparation: {
           id: 'prep-1',
           sourceCandidateId: 'candidate-1',
-          masterId: 'master-1',
-          contentWorkspaceId: 'workspace-1',
-          status: 'product_registered',
+          channelAccountId: 'account-1',
+          sourceContentWorkspaceId: 'workspace-1',
+          channelListingId: 'listing-1',
+          status: 'registered',
           selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
+          selectedThumbnailGenerationId: 'thumb-generation-1',
           selectedThumbnailGenerationCandidateId: 'thumb-candidate-1',
           selectedDetailPageGenerationId: 'detail-generation-1',
           selectedDetailPageArtifactId: 'artifact-1',
@@ -237,9 +298,17 @@ describe('ProductWorkspaceScreen', () => {
     const tab = await screen.findByTestId('product-tab-content');
     expect(tab).toHaveAttribute('data-selected-thumbnail', 'https://cdn.example.com/generated-thumb.png');
     expect(tab).toHaveAttribute('data-selected-detail-generation', 'detail-generation-1');
+    expect(productEditHeaderProps.at(-1)?.productPreparation).toBe(
+      selectedWorkspaceData.product.productPreparation,
+    );
+    expect(productEditHeaderProps.at(-1)?.detailGenerationContentWorkspaceId).toBe('workspace-1');
+    expect(productEditHeaderProps.at(-1)?.selectedThumbnailGenerationId).toBe(
+      'thumb-generation-1',
+    );
+    expect(productEditHeaderProps.at(-1)).not.toHaveProperty('promotedMasterId');
   });
 
-  it('sends the current preparation timestamp when saving basic information', async () => {
+  it('saves basic information through the canonical preparation endpoint', async () => {
     useProductDetailMock.mockReturnValue({
       data: {
         ...workspaceData,
@@ -248,10 +317,12 @@ describe('ProductWorkspaceScreen', () => {
           productPreparation: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
-            masterId: null,
-            contentWorkspaceId: null,
+            channelAccountId: null,
+            sourceContentWorkspaceId: null,
+            channelListingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
             selectedThumbnailGenerationCandidateId: null,
             selectedDetailPageGenerationId: null,
             selectedDetailPageArtifactId: null,
@@ -276,16 +347,19 @@ describe('ProductWorkspaceScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'mock-save-basic' }));
 
     await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
-      '/api/sourcing/candidates/candidate-1/preparation/basic-info',
-      expect.objectContaining({
-        name: '수정 상품명',
-        salePrice: 13900,
+      '/api/sourcing/preparations/prep-1',
+      {
+        displayName: '수정 상품명',
+        registrationInput: {
+          name: '수정 상품명',
+          salePrice: 13900,
+        },
         basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
-      }),
+      },
     ));
   });
 
-  it('uses the returned preparation timestamp for another immediate basic save', async () => {
+  it('keeps consecutive basic saves on the same preparation identity', async () => {
     useProductDetailMock.mockReturnValue({
       data: {
         ...workspaceData,
@@ -294,10 +368,12 @@ describe('ProductWorkspaceScreen', () => {
           productPreparation: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
-            masterId: null,
-            contentWorkspaceId: null,
+            channelAccountId: null,
+            sourceContentWorkspaceId: null,
+            channelListingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
             selectedThumbnailGenerationCandidateId: null,
             selectedDetailPageGenerationId: null,
             selectedDetailPageArtifactId: null,
@@ -328,9 +404,210 @@ describe('ProductWorkspaceScreen', () => {
     fireEvent.click(saveButton);
     await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledTimes(2));
 
-    expect(apiClientPatchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
-      basePreparationUpdatedAt: '2026-05-20T01:02:04.000Z',
-    }));
+    expect(apiClientPatchMock.mock.calls[1]).toEqual([
+      '/api/sourcing/preparations/prep-1',
+      {
+        displayName: '수정 상품명',
+        registrationInput: {
+          name: '수정 상품명',
+          salePrice: 13900,
+        },
+        basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
+      },
+    ]);
+  });
+
+  it('does not expose preparation-only basic or detail persistence without a preparation', async () => {
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="listing-1"
+        backHref="/product-pipeline/registered-products"
+        selfHref="/product-pipeline/registered-products/listing-1"
+        initialWorkspaceData={workspaceData}
+        contentWorkspaceId="workspace-1"
+        showCandidateActions={false}
+      />,
+    );
+
+    await screen.findByTestId('product-tab-content');
+    expect(productTabContentProps.at(-1)?.onCommitBasicInfo).toBeUndefined();
+    expect(productTabContentProps.at(-1)?.onApplyRegistrationDetailPage).toBeUndefined();
+  });
+
+  it('persists a registered representative thumbnail through the content workspace', async () => {
+    apiClientPatchMock.mockResolvedValue({ id: 'workspace-1' });
+
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="listing-1"
+        backHref="/product-pipeline/registered-products"
+        selfHref="/product-pipeline/registered-products/listing-1"
+        initialWorkspaceData={workspaceData}
+        contentWorkspaceId="workspace-1"
+        showCandidateActions={false}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'mock-save-thumbnail' }));
+
+    await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
+      '/api/ai/content-workspaces/workspace-1/current-thumbnail',
+      {
+        sourceThumbnailGenerationId: 'thumbnail-generation-1',
+        sourceThumbnailCandidateId: 'thumbnail-candidate-1',
+      },
+    ));
+  });
+
+  // 준비(ProductPreparation)가 없는 후보 회귀.
+  // 예전에는 (1) 저장 버튼이 아예 렌더되지 않았고, (2) 대표 등록 경로가 대표 1장만
+  // 저장하고 미리보기 목록을 조용히 버렸다. 그래도 성공 토스트는 떴다.
+  describe('without a product preparation', () => {
+    it('still offers the thumbnail configuration save when a content workspace exists', async () => {
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      const tab = await screen.findByTestId('product-tab-content');
+      expect(tab).toHaveAttribute('data-can-save-thumbnail', 'true');
+    });
+
+    it('hides the thumbnail configuration save when nothing can receive it', async () => {
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+        />,
+      );
+
+      const tab = await screen.findByTestId('product-tab-content');
+      expect(tab).toHaveAttribute('data-can-save-thumbnail', 'false');
+    });
+
+    it('persists the preview list to the workspace thumbnail gallery', async () => {
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      fireEvent.click(await screen.findByRole('button', { name: 'mock-save-thumbnail-list' }));
+
+      await waitFor(() => expect(apiClientPutMock).toHaveBeenCalledWith(
+        '/api/ai/content-workspaces/workspace-1/thumbnail-gallery',
+        {
+          thumbnailUrls: [
+            'https://cdn.example.com/preview-1.jpg',
+            'https://cdn.example.com/preview-2.jpg',
+          ],
+        },
+      ));
+      // 목록만 저장하는 경로는 대표 선택을 건드리지 않는다.
+      expect(apiClientPatchMock).not.toHaveBeenCalled();
+    });
+
+    it('saves the preview list alongside the representative thumbnail', async () => {
+      apiClientPatchMock.mockResolvedValue({ id: 'workspace-1' });
+
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      fireEvent.click(await screen.findByRole('button', { name: 'mock-save-thumbnail' }));
+
+      await waitFor(() => expect(apiClientPutMock).toHaveBeenCalledWith(
+        '/api/ai/content-workspaces/workspace-1/thumbnail-gallery',
+        { thumbnailUrls: ['https://cdn.example.com/generated.jpg'] },
+      ));
+      await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
+        '/api/ai/content-workspaces/workspace-1/current-thumbnail',
+        {
+          sourceThumbnailGenerationId: 'thumbnail-generation-1',
+          sourceThumbnailCandidateId: 'thumbnail-candidate-1',
+        },
+      ));
+    });
+
+    it('saves basic information to the candidate itself when no preparation exists', async () => {
+      // 회귀: 준비(ProductPreparation)가 0행인 후보는 예전에 `수정` 저장 콜백이
+      // 아예 제공되지 않아 기본정보가 읽기 전용이었다. 이제 채널 계정 선택 없이도
+      // 후보 자체(PATCH /api/sourcing/candidates/:id/basic-info)에 저장한다.
+      apiClientPatchMock.mockResolvedValue({ ok: true });
+
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={workspaceData}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      await screen.findByTestId('product-tab-content');
+      expect(productTabContentProps.at(-1)?.onCommitBasicInfo).toBeDefined();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'mock-save-basic' }));
+
+      await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
+        '/api/sourcing/candidates/candidate-1/basic-info',
+        { name: '수정 상품명', salePrice: 13900 },
+      ));
+    });
+
+    it('restores a previously saved gallery from registrationImages.thumbnail', async () => {
+      renderWithQueryClient(
+        <ProductWorkspaceScreen
+          productId="candidate-1"
+          backHref="/product-pipeline/collected-products"
+          selfHref="/product-pipeline/collected-products/candidate-1"
+          initialWorkspaceData={{
+            ...workspaceData,
+            product: {
+              ...workspaceData.product,
+              basicInfo: {
+                thumbnailUrls: [],
+                thumbnailPreviewUrls: [],
+                registrationImages: {
+                  primary: [],
+                  thumbnail: [
+                    'https://cdn.example.com/saved-1.jpg',
+                    'https://cdn.example.com/saved-2.jpg',
+                  ],
+                  detail: [],
+                },
+                tags: [],
+              },
+            } as unknown as ProductWorkspaceData['product'],
+          }}
+          contentWorkspaceId="workspace-1"
+        />,
+      );
+
+      await screen.findByTestId('product-tab-content');
+      expect(productTabContentProps.at(-1)?.thumbnailPreviewImages).toEqual([
+        'https://cdn.example.com/saved-1.jpg',
+        'https://cdn.example.com/saved-2.jpg',
+      ]);
+    });
   });
 
   it('passes the selected detail page version summary into the basic tab content', async () => {
@@ -360,10 +637,12 @@ describe('ProductWorkspaceScreen', () => {
           productPreparation: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
-            masterId: null,
-            contentWorkspaceId: 'workspace-1',
+            channelAccountId: null,
+            sourceContentWorkspaceId: 'workspace-1',
+            channelListingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
             selectedThumbnailGenerationCandidateId: null,
             selectedDetailPageGenerationId: 'detail-generation-1',
             selectedDetailPageArtifactId: 'artifact-1',
@@ -414,10 +693,12 @@ describe('ProductWorkspaceScreen', () => {
           productPreparation: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
-            masterId: null,
-            contentWorkspaceId: 'workspace-1',
+            channelAccountId: null,
+            sourceContentWorkspaceId: 'workspace-1',
+            channelListingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
             selectedThumbnailGenerationCandidateId: null,
             selectedDetailPageGenerationId: 'detail-generation-1',
             selectedDetailPageArtifactId: 'artifact-1',
@@ -489,12 +770,32 @@ describe('ProductWorkspaceScreen', () => {
     const basicInfoPromise = new Promise((resolve) => {
       resolveBasicInfo = resolve;
     });
-    apiClientPatchMock.mockImplementation((url: string) => {
-      if (url.includes('/preparation/basic-info')) return basicInfoPromise;
+    apiClientPatchMock.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      if ('registrationInput' in body) return basicInfoPromise;
       return Promise.resolve({});
     });
     useProductDetailMock.mockReturnValue({
-      data: workspaceData,
+      data: {
+        ...workspaceData,
+        product: {
+          ...workspaceData.product,
+          productPreparation: {
+            id: 'prep-1',
+            sourceCandidateId: 'candidate-1',
+            channelAccountId: 'account-1',
+            sourceContentWorkspaceId: 'workspace-1',
+            channelListingId: null,
+            status: 'draft',
+            selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
+            selectedThumbnailGenerationCandidateId: null,
+            selectedDetailPageGenerationId: null,
+            selectedDetailPageArtifactId: null,
+            selectedDetailPageRevisionId: null,
+            updatedAt: '2026-05-20T01:02:03.000Z',
+          },
+        } as ProductWorkspaceData['product'],
+      },
       error: null,
       isLoading: false,
     });
@@ -512,13 +813,21 @@ describe('ProductWorkspaceScreen', () => {
     await waitFor(() => {
       expect(apiClientPatchMock).toHaveBeenCalledTimes(1);
     });
-    expect(apiClientPatchMock.mock.calls[0][0]).toContain('/preparation/basic-info');
+    expect(apiClientPatchMock.mock.calls[0]).toEqual([
+      '/api/sourcing/preparations/prep-1',
+      expect.objectContaining({ registrationInput: expect.any(Object) }),
+    ]);
 
     resolveBasicInfo({});
 
     await waitFor(() => {
       expect(apiClientPatchMock).toHaveBeenCalledTimes(2);
     });
-    expect(apiClientPatchMock.mock.calls[1][0]).toContain('/preparation/thumbnail');
+    expect(apiClientPatchMock.mock.calls[1][0]).toBe('/api/sourcing/preparations/prep-1');
+    expect(apiClientPatchMock.mock.calls[1][1]).toEqual({
+      selectedThumbnailUrl: 'https://cdn.example.com/generated.jpg',
+      selectedThumbnailGenerationId: 'thumbnail-generation-1',
+      selectedThumbnailGenerationCandidateId: 'thumbnail-candidate-1',
+    });
   });
 });

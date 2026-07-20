@@ -16,9 +16,18 @@ Runbooks are different from concept docs:
 
 Current runbooks:
 
+- [Sellpia/Channel SKU Matching](channel-sellpia-matching.md) — import the
+  Sellpia-authoritative MasterProduct snapshot and account-scoped Wing catalog,
+  confirm exact ChannelSku component recipes, and verify the `0.1.8` baseline.
+- [Sellpia Inventory And Rocket Read-Only Boundary](sellpia-rocket-inventory-sync.md)
+  — operate the preserved inventory views and local-only reset/bootstrap while
+  keeping Rocket PO monitoring read-only and delivery decisions deferred.
 - [Environment Variables](environment-variables.md) — inventory of env vars,
   injection paths, staging verification commands, and feature-specific
   requirements for API, web, Agent OS, and Python agents.
+- [Release Train Versioning](release-train-versioning.md) — open one root
+  `VERSION` per deployable train, classify schema/data work, assign durable
+  migrations, and promote the assembled train without another bump.
 - [Staging Deploy](staging-deploy.md) — operate the EC2 staging runtime through
   GitHub Actions, GHCR image tags/digests, Docker Compose, container nginx, host
   TLS proxy, Supabase staging DB/Auth, and Supabase Storage through its
@@ -37,13 +46,14 @@ Current runbooks:
 - [Staging Seed Data](staging-seed-data.md) — historical first-rollout notes and
   non-destructive seed import guidance. Staging DB reset/restore now belongs to
   the DB baseline runbook.
-- [Playwriter Wing Image Sync](playwriter-wing-image-sync.md) — set up the
-  local Playwriter CLI/session required by `/product-pipeline/thumbnail-generation`
-  image sync and Wing thumbnail registration.
+- [Coupang Wing Catalog Collection](coupang-wing-catalog-collection.md) — collect
+  authenticated Wing products, options, and provider media through the Chrome
+  extension into registered products.
 - [Google Drive Dev Data](google-drive-dev-data.md) — set up `KidItem Dev Data`
   through Google Drive Desktop for profile sync and Coupang bundle replay.
-- [Import Drive Reference Data](import-drive-reference-data.md) — load Drive
-  `references/kiditem_list.xlsx` and `references/wing-inventory-matched.xlsx`
-  into local DB baseline tables.
 - [Coupang Scraper Publish](coupang-scraper-publish.md) — export scraper output
   JSON files into a replayable bundle and publish it to Google Drive.
+
+Dev-data bundles may still carry reference workbooks for inspection and replay.
+Database source imports run through their owner runtime upload endpoints rather
+than a standalone workbook importer.

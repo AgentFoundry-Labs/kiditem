@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic';
 import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import Sidebar from './Sidebar';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { PanelSheet } from '@/components/panel/PanelSheet';
 import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
@@ -15,6 +14,8 @@ import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
 import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
 import QuickActionFab from '@/components/QuickActionFab';
 import { useAuth } from '@/hooks/useAuth';
+import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
+import Sidebar from './Sidebar';
 
 const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
 
@@ -119,6 +120,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           collapsedForEditor ? 'md:ml-[68px]' : 'md:ml-60'
         )}
       >
+        <RebuildReadinessBanner />
         <main
           className={cn(
             isEditorRoute || isWingCatalogRoute ? 'p-0' : isFinalSelectionRoute ? 'p-3' : 'p-6',

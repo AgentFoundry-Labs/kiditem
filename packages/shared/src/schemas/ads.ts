@@ -1,5 +1,22 @@
 import { z } from 'zod';
 
+export const AdExtensionReplayIdempotencyKeySchema = z.string()
+  .max(160)
+  .regex(/^authoritative-rebuild:[1-9][0-9]*:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+export type AdExtensionReplayIdempotencyKey = z.infer<
+  typeof AdExtensionReplayIdempotencyKeySchema
+>;
+
+/** Producer-side campaign report authority contract. */
+export const AdCampaignReportScopeSchema = z.enum([
+  'single_campaign_authoritative',
+  'single_campaign_metadata_raw',
+  'multi_campaign_raw',
+]);
+export type AdCampaignReportScope = z.infer<
+  typeof AdCampaignReportScopeSchema
+>;
+
 // ───── Building blocks ─────
 
 export const AdListingSummarySchema = z.object({

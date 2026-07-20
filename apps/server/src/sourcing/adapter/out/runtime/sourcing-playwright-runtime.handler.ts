@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
-import { chromium, type Page } from 'playwright';
+import { chromium, type BrowserContext, type Page } from 'playwright';
 import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
 import type {
   AgentRuntimeExecutionContext,
@@ -17,6 +18,8 @@ const NAVIGATE_TIMEOUT_MS = 30_000;
 const DATA_WAIT_TIMEOUT_MS = 15_000;
 const SCROLL_PAUSE_MS = 500;
 const MAGIC_SCRAPER_SKILL_KEY = 'sourcing.magic_scraper';
+const SOURCING_PROFILE_FALLBACK_PREFIX = 'kiditem-sourcing-profile-';
+const sourcingProfileQueues = new Map<string, Promise<void>>();
 
 const DATA_READY_CHECK = `
 (() => {
@@ -145,6 +148,11 @@ interface BrowserPageSession {
   close: () => Promise<void>;
 }
 
+interface PersistentContextLaunch {
+  context: BrowserContext;
+  temporaryUserDataDir?: string;
+}
+
 @Injectable()
 export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler {
   private readonly logger = new Logger(SourcingPlaywrightRuntimeHandler.name);
@@ -180,7 +188,36 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
       return { ok: false, error: 'Unsupported sourcing URL', source_url: url, platform: null };
     }
 
-    const session = await this.openPageSession(runtimeConfig);
+    const cdpEndpoint = resolveSourcingPlaywrightCdpEndpoint(runtimeConfig);
+    if (cdpEndpoint) return this.scrapeWithPageSession(url, platform, runtimeConfig);
+
+    const userDataDir = resolveSourcingPlaywrightUserDataDir(runtimeConfig);
+    return withSourcingProfileQueue(userDataDir, () =>
+      this.scrapeWithPageSession(url, platform, runtimeConfig),
+    );
+  }
+
+  private async scrapeWithPageSession(
+    url: string,
+    platform: '1688' | 'ALIBABA',
+    runtimeConfig: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    let session: BrowserPageSession;
+    try {
+      session = await this.openPageSession(runtimeConfig);
+    } catch (error) {
+      const recoveryReason = browserLaunchRecoveryReason(error);
+      this.logger.warn(`sourcing browser launch failed for ${url}: ${recoveryReason}`);
+      return {
+        ok: false,
+        error: 'Failed to open sourcing browser',
+        source_url: url,
+        platform,
+        requiresRecovery: true,
+        recommendedSkillKey: MAGIC_SCRAPER_SKILL_KEY,
+        recoveryReason,
+      };
+    }
 
     try {
       const extracted = await this.extract(session.page, url, platform);
@@ -227,18 +264,56 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
 
     const userDataDir = resolveSourcingPlaywrightUserDataDir(runtimeConfig);
     await mkdir(userDataDir, { recursive: true });
-    const context = await chromium.launchPersistentContext(userDataDir, {
+    const launch = await this.launchPersistentSourcingContext(userDataDir, runtimeConfig);
+    const { context } = launch;
+    return {
+      page: context.pages()[0] ?? await context.newPage(),
+      close: async () => {
+        try {
+          await context.close();
+        } finally {
+          if (launch.temporaryUserDataDir) {
+            await rm(launch.temporaryUserDataDir, { recursive: true, force: true }).catch(() => undefined);
+          }
+        }
+      },
+    };
+  }
+
+  private async launchPersistentSourcingContext(
+    userDataDir: string,
+    runtimeConfig: Record<string, unknown>,
+  ): Promise<PersistentContextLaunch> {
+    const options = {
       executablePath: chromium.executablePath(),
       headless: resolveHeadless(runtimeConfig),
       viewport: { width: 1920, height: 1080 },
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
-    });
-    return {
-      page: context.pages()[0] ?? await context.newPage(),
-      close: () => context.close(),
     };
+
+    try {
+      return {
+        context: await chromium.launchPersistentContext(userDataDir, options),
+      };
+    } catch (error) {
+      if (!isProcessSingletonProfileError(error)) throw error;
+
+      const temporaryUserDataDir = await mkdtemp(join(tmpdir(), SOURCING_PROFILE_FALLBACK_PREFIX));
+      this.logger.warn(
+        `sourcing playwright profile is locked (${userDataDir}); retrying with temporary profile ${temporaryUserDataDir}`,
+      );
+      try {
+        return {
+          context: await chromium.launchPersistentContext(temporaryUserDataDir, options),
+          temporaryUserDataDir,
+        };
+      } catch (fallbackError) {
+        await rm(temporaryUserDataDir, { recursive: true, force: true }).catch(() => undefined);
+        throw fallbackError;
+      }
+    }
   }
 
   private async extract(
@@ -395,6 +470,29 @@ export function resolveSourcingPlaywrightCdpEndpoint(
   return configured ?? env;
 }
 
+async function withSourcingProfileQueue<T>(
+  userDataDir: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const previous = sourcingProfileQueues.get(userDataDir) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolveCurrent) => {
+    releaseCurrent = resolveCurrent;
+  });
+  const queued = previous.catch(() => undefined).then(() => current);
+  sourcingProfileQueues.set(userDataDir, queued);
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    releaseCurrent();
+    if (sourcingProfileQueues.get(userDataDir) === queued) {
+      sourcingProfileQueues.delete(userDataDir);
+    }
+  }
+}
+
 function resolveHeadless(runtimeConfig: Record<string, unknown>): boolean {
   if (typeof runtimeConfig.playwrightHeadless === 'boolean') {
     return runtimeConfig.playwrightHeadless;
@@ -405,6 +503,23 @@ function resolveHeadless(runtimeConfig: Record<string, unknown>): boolean {
 
 function runtimeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function browserLaunchRecoveryReason(error: unknown): string {
+  const message = runtimeErrorMessage(error);
+  if (isProcessSingletonProfileError(error)) {
+    return [
+      'Sourcing browser profile is already in use.',
+      'Another scrape may still be running, or the previous Chrome process left a profile lock.',
+      'Retry after the active scrape finishes, or configure SOURCING_PLAYWRIGHT_CDP_ENDPOINT for a dedicated logged-in Chrome profile.',
+    ].join(' ');
+  }
+  return message;
+}
+
+function isProcessSingletonProfileError(error: unknown): boolean {
+  const message = runtimeErrorMessage(error);
+  return /ProcessSingleton|SingletonLock|profile directory.*already in use|Failed to create .*SingletonLock/i.test(message);
 }
 
 function matchesBlockedSupplierPage(value: string): boolean {

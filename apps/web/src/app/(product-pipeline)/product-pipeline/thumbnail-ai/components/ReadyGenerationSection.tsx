@@ -1,15 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import {
-  CheckCircle,
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
-  ImageIcon,
-  Loader2,
-  Wand2,
-  X,
-} from 'lucide-react';
+import { CheckCircle, ChevronLeft, ChevronRight, ExternalLink, ImageIcon, Loader2, Wand2, X } from 'lucide-react';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { cn } from '@/lib/utils';
 import { buildEditHref } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/build-edit-href';
@@ -95,11 +86,7 @@ export function ReadyGenerationSection({
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-60 disabled:cursor-not-allowed"
             style={{ background: '#7048e8' }}
           >
-            {wingRegisteringIds.size > 0 ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <ExternalLink size={14} />
-            )}
+            {wingRegisteringIds.size > 0 ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
             {wingRegisteringIds.size > 0
               ? `Wing 업로드 중... (${wingRegisteringIds.size})`
               : `쿠팡 등록하러 가기 (${selectedCount})`}
@@ -123,7 +110,7 @@ export function ReadyGenerationSection({
                 : (candidateAtIdx as { url: string }).url
               : '';
             const gImgUrl = resolveImageUrl(gRaw) ?? '';
-            const gOrigUrl = resolveImageUrl(g.originalUrl ?? g.product?.imageUrl ?? null);
+            const gOrigUrl = resolveImageUrl(g.originalUrl ?? g.contentWorkspace?.imageUrl ?? null);
             const isSelected = !!g.selectedUrl;
 
             return (
@@ -151,7 +138,10 @@ export function ReadyGenerationSection({
                 <div className="flex">
                   <div
                     className="flex-1 relative overflow-hidden border-r"
-                    style={{ borderColor: 'var(--thumb-border-subtle)', aspectRatio: '1' }}
+                    style={{
+                      borderColor: 'var(--thumb-border-subtle)',
+                      aspectRatio: '1',
+                    }}
                   >
                     <div className="absolute top-1 left-1 text-[8px] font-bold uppercase tracking-wider text-white/80 bg-black/30 px-1 rounded z-10">
                       B
@@ -245,17 +235,17 @@ export function ReadyGenerationSection({
                 <div className="px-2 pt-1.5 pb-2 flex flex-col gap-1">
                   <p
                     className="text-[13px] font-medium leading-5 truncate"
-                    title={g.product?.name}
+                    title={g.contentWorkspace?.name}
                     style={{ color: 'var(--thumb-text-primary)' }}
                   >
-                    {g.product?.name}
+                    {g.contentWorkspace?.name}
                   </p>
-                  {g.productId && (
+                  {g.contentWorkspaceId && (
                     <Link
                       href={buildEditHref({
-                        productId: g.productId,
+                        contentWorkspaceId: g.contentWorkspaceId,
                         generationId: g.id,
-                        imageUrl: g.product?.imageUrl,
+                        imageUrl: g.contentWorkspace?.imageUrl,
                         returnTo: returnToAiEditTab,
                       })}
                     >

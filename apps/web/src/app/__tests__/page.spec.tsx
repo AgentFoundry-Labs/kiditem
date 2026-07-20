@@ -7,6 +7,7 @@ import { ApiError } from '@/lib/api-error';
 // Mock next/navigation BEFORE importing the page (page uses useRouter)
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 // Mock dynamic charts (jsdom can't render Recharts)
@@ -75,7 +76,13 @@ const successInv = {
   channelUnlinkedProducts: 2,
   gradeCount: { A: 2, B: 2, C: 1 },
   alerts: [],
-  warnings: { minusProducts: 0, lowProfitProducts: 0, highAdProducts: 0, needReorder: 0 },
+  warnings: {
+    minusProducts: 0,
+    lowProfitProducts: 0,
+    highAdProducts: 0,
+    outOfStockSkus: 7,
+    mappingAttentionSkus: 11,
+  },
 };
 const successTrend: unknown[] = [];
 const aiActionTask = {
@@ -149,6 +156,24 @@ describe('Dashboard page (RTL)', () => {
       expect(screen.getByText(/카탈로그 전체 5/)).toBeTruthy();
       expect(screen.getByText(/채널 연결 3/)).toBeTruthy();
     });
+  });
+
+  it('shows factual Sellpia zero-stock and channel mapping-attention counts', async () => {
+    getParsedMock.mockImplementation((path: string) => {
+      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
+      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
+      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
+      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      if (path === '/api/action-tasks') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('셀피아 재고 0')).toBeInTheDocument();
+    expect(screen.getByText('매칭 확인 필요')).toBeInTheDocument();
+    expect(screen.getByText('7', { selector: '[data-warning-count="out-of-stock"]' })).toBeInTheDocument();
+    expect(screen.getByText('11', { selector: '[data-warning-count="mapping-attention"]' })).toBeInTheDocument();
   });
 
   it('T3: 502 on non-baseline (trend) → SectionError shows server detail', async () => {

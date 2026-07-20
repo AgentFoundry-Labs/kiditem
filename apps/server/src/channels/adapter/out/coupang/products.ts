@@ -7,6 +7,7 @@ const SELLER_PRODUCTS_PATH =
 export async function createSellerProduct(
   credentials: CoupangCredentials,
   payload: CoupangSellerProductPayload,
+  beforeDispatch?: () => Promise<void>,
 ) {
   return coupangRequest({
     method: 'POST',
@@ -16,6 +17,7 @@ export async function createSellerProduct(
       ...payload,
       vendorId: credentials.vendorId,
     },
+    beforeDispatch,
   });
 }
 
@@ -46,5 +48,16 @@ export async function getSellerProduct(credentials: CoupangCredentials, sellerPr
     method: 'GET',
     credentials,
     path: `${SELLER_PRODUCTS_PATH}/${sellerProductId}`,
+  });
+}
+
+export async function getSellerProductsByExternalVendorSku(
+  credentials: CoupangCredentials,
+  externalVendorSkuCode: string,
+) {
+  return coupangRequest({
+    method: 'GET',
+    credentials,
+    path: `${SELLER_PRODUCTS_PATH}/external-vendor-sku-codes/${encodeURIComponent(externalVendorSkuCode)}`,
   });
 }

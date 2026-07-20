@@ -8,16 +8,14 @@ const batchResult = {
   succeeded: 1,
   failed: 0,
   skipped: 0,
-  runs: [{ ok: true, productId: 'product-1', generationId: 'generation-1' }],
+  runs: [{ ok: true, contentWorkspaceId: 'product-1', generationId: 'generation-1' }],
 };
 
 function makeService() {
   const generationService = {
     createAutoBatch: vi.fn(async () => batchResult),
   };
-  const service = new ThumbnailAutoService(
-    generationService as never,
-  );
+  const service = new ThumbnailAutoService(generationService as never);
   return { service, generationService };
 }
 

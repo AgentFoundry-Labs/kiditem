@@ -1,20 +1,35 @@
+import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import type {
   NaverDatalabPopularKeywordBoard,
   NaverDatalabPopularKeywordBoardKey,
 } from '../recommendations/lib/naver-keyword-api';
 
 export const rankedKeywordPoolBoardKeys: NaverDatalabPopularKeywordBoardKey[] = [
-  'all_categories',
-  'birth_kids',
   'toys_dolls',
-  'stationery_office',
-  'kids_fashion',
+  'toys_block',
+  'toys_action',
+  'toys_roleplay',
+  'toys_puzzle',
+  'fancy_sticker',
+  'fancy_goods',
+  'fancy_diary',
+  'stationery_writing',
+  'stationery_note',
 ];
 
 const RANKED_KEYWORD_POOL_STORAGE_KEY = 'kiditem:sourcing-ai:keyword-analysis:ranked-keyword-pool:v1';
 export const RANKED_KEYWORD_POOL_UPDATED_EVENT = 'kiditem:sourcing-ai:ranked-keyword-pool-updated';
 const focusedBoardScoreBoost: Partial<Record<NaverDatalabPopularKeywordBoardKey, number>> = {
   toys_dolls: 10,
+  toys_block: 10,
+  toys_action: 10,
+  toys_roleplay: 10,
+  toys_puzzle: 10,
+  fancy_sticker: 10,
+  fancy_goods: 10,
+  fancy_diary: 10,
+  stationery_writing: 10,
+  stationery_note: 10,
   stationery_office: 8,
   birth_kids: 5,
   kids_fashion: 4,
@@ -109,10 +124,8 @@ export function extractRankedKeywordPoolEntries(
 }
 
 export function readRankedKeywordPool(): RankedKeywordPoolSnapshot | null {
-  if (typeof window === 'undefined') return null;
-
   try {
-    const raw = window.localStorage.getItem(RANKED_KEYWORD_POOL_STORAGE_KEY);
+    const raw = safeStorageGet('local', RANKED_KEYWORD_POOL_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     return isRankedKeywordPoolSnapshot(parsed) ? parsed : null;
   } catch {
@@ -122,7 +135,7 @@ export function readRankedKeywordPool(): RankedKeywordPoolSnapshot | null {
 
 export function writeRankedKeywordPool(snapshot: RankedKeywordPoolSnapshot) {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(RANKED_KEYWORD_POOL_STORAGE_KEY, JSON.stringify(snapshot));
+  safeStorageSet('local', RANKED_KEYWORD_POOL_STORAGE_KEY, JSON.stringify(snapshot));
   window.dispatchEvent(new Event(RANKED_KEYWORD_POOL_UPDATED_EVENT));
 }
 

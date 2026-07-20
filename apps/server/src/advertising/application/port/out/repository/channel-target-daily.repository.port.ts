@@ -31,7 +31,6 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
 
   listingId?: string | null;
   listingOptionId?: string | null;
-  optionId?: string | null;
   externalId?: string | null;
   externalOptionId?: string | null;
 
@@ -50,6 +49,44 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
   metaJson?: MetaJsonInput;
 }
 
+/**
+ * One complete, single-day campaign report. The repository treats `targets`
+ * as the authoritative set for this account/campaign/date and removes prior
+ * targets absent from the replacement set in the same transaction.
+ */
+export interface ReplaceAdCampaignDayInput {
+  organizationId: string;
+  channelAccountId: string;
+  channel: string;
+  businessDate: Date;
+  campaignId?: string | null;
+  /** Stable provider identity (for example canonical `href:...`) when the
+   * provider does not expose a campaign id. It scopes replacement without
+   * overloading the persisted `campaignId` column. */
+  campaignIdentity?: string | null;
+  campaignName: string;
+  targets: UpsertAdTargetDailyInput[];
+}
+
+export type ReplaceAdCampaignDayResult =
+  | {
+      kind: 'replaced';
+      upsertedCount: number;
+      deletedCount: number;
+    }
+  | {
+      kind: 'rejected';
+      code: 'dependent_action_conflict';
+    };
+
+export type ReplaceAdCampaignDayRejectionCode = Extract<
+  ReplaceAdCampaignDayResult,
+  { kind: 'rejected' }
+>['code'];
+
 export interface ChannelTargetDailyRepositoryPort {
   upsert(input: UpsertAdTargetDailyInput): Promise<{ id: string }>;
+  replaceCampaignDay(
+    input: ReplaceAdCampaignDayInput,
+  ): Promise<ReplaceAdCampaignDayResult>;
 }

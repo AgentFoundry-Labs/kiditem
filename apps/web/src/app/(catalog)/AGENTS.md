@@ -1,46 +1,39 @@
-Consult this document first instead of relying on memorized knowledge.
+# web/catalog — Product Operations and Channel Matching
 
-# web/catalog - Product Hub and Channel Matching
-
-`app/(catalog)/` owns catalog product browsing/editing, product options, product
-hub detail pages, and Coupang-to-KidItem matching. Public product URLs live
-under `/product-hub`. Do not add a sibling `products/` route or implementation
-scope; product hub implementation code lives under `product-hub/`. This group
-does not own sourcing candidate promotion, generated content workspaces, or
-marketplace ingest.
-
-Verify list/detail UI through `/product-hub` and `/product-hub/[id]`.
+`app/(catalog)/` owns KidItem product metadata, product variants and their
+central Sellpia component recipes, plus explicit channel-to-product identity
+confirmation. Public URLs remain under `/product-hub`.
 
 ## Owned Surfaces
 
-- Product and product option lists/details under `/product-hub`
-- Product hub detail panels and catalog activity context
-- Manual channel reconciliation to active product options
-- Product export helpers and catalog-only grading helpers
+- Product operations list, create/edit, and variant detail under `/product-hub`
+- Coupang/Rocket account-scoped product-first, option-second matching under
+  `/product-hub/matching`
+- Dedicated read-only Sellpia option table under `/product-hub/options`
 
-## Data Flow
+## Domain Contracts
 
-```text
-React Query + apiClient
-  -> /api/products/*
-  -> /api/products/options/*
-  -> /api/channels/reconciliation/coupang/*
-  -> queryKeys.products, productOptions, channelReconciliation
-```
-
-## State Rules
-
-- Prefer focused product/option API helpers under route-local `lib/`.
-- Product option mutations invalidate `queryKeys.productOptions.all`.
-- Product mutations invalidate the relevant `queryKeys.products.*` family.
-- Reconciliation uses shared channel-reconciliation contracts and never sends
-  `organizationId`.
+- `MasterProduct` is KidItem product metadata; `ProductVariant` is a sellable
+  KidItem option. Neither is a physical Sellpia inventory row.
+- `/product-hub/options` owns the complete read-only Sellpia inventory
+  collection and publishes product/variant destinations only from confirmed,
+  organization-fenced component relations.
+- Matching confirms channel listing -> `MasterProduct` before channel option ->
+  `ProductVariant`; candidates and ranking are evidence only and never confirm
+  either identity.
+- Products owns complete atomic recipes. Matching exposes only the explicit,
+  version-fenced create-if-empty command; the nested matching guide owns its
+  evidence, pack-ratio, and per-child review policy.
+  Existing recipes and every review/blocked child remain untouched.
 
 ## Boundary Rules
 
-- Do not create `MasterProduct` from a Coupang reconciliation row.
-- Do not pull sourcing raw rows or generated content workspace behavior into
-  catalog routes.
-- Workflow runs shown on product pages are context actions; workflow engine
-  behavior remains backend/automation-owned.
-- Traffic uploads must stay aligned with backend upload contracts.
+- Product list/detail and its focused recipe picker use Products APIs; only the
+  options route reads the full Inventory SKU collection.
+- Do not infer product, variant, or channel identity from display text,
+  barcode, normalized name, or candidate rank.
+- Catalog routes do not edit Sellpia stock, source prices, or channel prices.
+- Do not recreate channel-owned component quantities or overwrite recipes.
+- Never send `organizationId`; backend session scope owns it.
+- Sourcing candidates, generated content workspaces, marketplace ingest,
+  Rocket operations, and purchase orders remain in their owner domains.

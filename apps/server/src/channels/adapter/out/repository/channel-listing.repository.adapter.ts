@@ -1,13 +1,62 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
-  ChannelListingGroupResult,
+  ChannelListingDeletionTarget,
+  ChannelListingDeletionAuthorizationInput,
+  ChannelListingDeletionExecutionClaim,
+  ChannelListingDeletionOperationLookup,
+  ChannelListingDeletionOperationResult,
+  ChannelListingDeletionOperationStatus,
+  ChannelListingDeletionUnresolvedInput,
+  ChannelListingDeletionUnresolvedResult,
   ChannelListingListResult,
   ChannelListingQuery,
   ChannelListingRepositoryPort,
   ChannelListingSummary,
 } from '../../../application/port/out/repository/channel-listing.repository.port';
+import { lockChannelListingRow } from './channel-listing-row-lock';
+
+const listingInclude = {
+  channelAccount: {
+    select: { id: true, channel: true, name: true },
+  },
+  options: {
+    where: { isActive: true },
+    select: {
+      productVariantId: true,
+      salePrice: true,
+      productVariant: {
+        select: {
+          components: {
+            select: { sellpiaInventorySku: { select: { isActive: true } } },
+          },
+        },
+      },
+    },
+  },
+  contentWorkspaces: {
+    where: { status: 'active', isDeleted: false },
+    take: 1,
+    select: {
+      id: true,
+      currentDetailPageArtifactId: true,
+      currentDetailPageRevisionId: true,
+      currentThumbnailSelection: {
+        select: { contentAsset: { select: { url: true } } },
+      },
+    },
+  },
+  thumbnails: {
+    where: { status: 'active' },
+    orderBy: { updatedAt: 'desc' as const },
+    take: 1,
+    select: { imageUrl: true },
+  },
+} satisfies Prisma.ChannelListingInclude;
+
+type ListingRow = Prisma.ChannelListingGetPayload<{ include: typeof listingInclude }>;
 
 function parseQueryDate(value?: string | null): Date | null {
   if (!value) return null;
@@ -23,304 +72,82 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     organizationId: string,
     query: ChannelListingQuery = {},
   ): Promise<ChannelListingListResult> {
-    const page = Number.isFinite(query.page) && query.page && query.page > 0
-      ? Math.floor(query.page)
-      : 1;
-    const limit = Math.min(
-      100,
-      Math.max(1, Number.isFinite(query.limit) && query.limit ? Math.floor(query.limit) : 20),
-    );
+    const page = positiveInteger(query.page, 1);
+    const limit = Math.min(100, positiveInteger(query.limit, 20));
     const search = query.search?.trim();
-    const includeDeleted = query.includeDeleted ?? query.tab === 'deleted';
+    const includeInactive = query.includeDeleted ?? query.tab === 'deleted';
     const createdSince = parseQueryDate(query.createdSince);
     const where: Prisma.ChannelListingWhereInput = {
       organizationId,
-      isDeleted: includeDeleted,
-      ...(query.channel ? { channel: query.channel } : {}),
+      isActive: !includeInactive,
+      ...(query.channel
+        ? { channelAccount: { is: { organizationId, channel: query.channel } } }
+        : {}),
       ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
       ...(createdSince ? { createdAt: { gte: createdSince } } : {}),
       ...(search
         ? {
             OR: [
-              { externalId: { contains: search, mode: Prisma.QueryMode.insensitive } },
-              { channelName: { contains: search, mode: Prisma.QueryMode.insensitive } },
-              { master: { name: { contains: search, mode: Prisma.QueryMode.insensitive } } },
-              { master: { code: { contains: search, mode: Prisma.QueryMode.insensitive } } },
+              { externalId: contains(search) },
+              { channelName: contains(search) },
+              { displayName: contains(search) },
+              { options: { some: { itemName: contains(search) } } },
+              { options: { some: { sellerSku: contains(search) } } },
             ],
           }
         : {}),
     };
+    /**
+     * 등록 최신순은 `createdAt` 기준이다.
+     *
+     * 예전에는 `updatedAt` 으로 정렬했는데, 카탈로그 재수집(`channel-catalog-identity-upsert`)이
+     * 배치 전체의 `updated_at` 을 NOW() 로 갱신한다. 그래서 새로 등록한 상품이 없어도
+     * 목록 순서가 통째로 뒤섞였고, "최종 등록일 최신순" 이라는 라벨과도 맞지 않았다.
+     * 등록 시점은 `createdAt` 만이 안정적으로 보존한다.
+     */
     const orderBy: Prisma.ChannelListingOrderByWithRelationInput[] =
-      query.sort === 'oldest' ? [{ updatedAt: 'asc' as const }, { id: 'asc' as const }] :
-      query.sort === 'name_asc' ? [{ master: { name: 'asc' as const } }, { updatedAt: 'desc' as const }] :
-      [{ updatedAt: 'desc' as const }, { id: 'desc' as const }];
+      query.sort === 'oldest'
+        ? [{ createdAt: 'asc' }, { id: 'asc' }]
+        : query.sort === 'name_asc'
+          ? [{ displayName: 'asc' }, { createdAt: 'desc' }]
+          : [{ createdAt: 'desc' }, { id: 'desc' }];
 
-    const total = await this.prisma.channelListing.count({ where });
-    const rows = await this.prisma.channelListing.findMany({
-      where,
-      orderBy,
-      skip: (page - 1) * limit,
-      take: limit,
-      include: {
-        master: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            thumbnailUrl: true,
-            imageUrl: true,
-            productPreparations: {
-              where: {
-                organizationId,
-                isCurrentForMaster: true,
-                isDeleted: false,
-              },
-              take: 1,
-              select: {
-                sourceCandidateId: true,
-                contentWorkspaceId: true,
-              },
-            },
-          },
-        },
-        channelAccount: {
-          select: {
-            id: true,
-            channel: true,
-            name: true,
-            externalAccountId: true,
-            vendorId: true,
-            sellerId: true,
-            isPrimary: true,
-          },
-        },
-        _count: { select: { options: true } },
-      },
-    });
-    const groupedCounts = await this.prisma.channelListing.groupBy({
-      by: ['channel', 'channelAccountId'],
-      where: { organizationId, isDeleted: includeDeleted },
-      orderBy: [{ channel: 'asc' }, { channelAccountId: 'asc' }],
-      _count: { id: true },
-    });
-    const accounts = await this.prisma.channelAccount.findMany({
-      where: { organizationId },
-      select: {
-        id: true,
-        channel: true,
-        name: true,
-        externalAccountId: true,
-        vendorId: true,
-        sellerId: true,
-        isPrimary: true,
-      },
-    });
-
-    const accountById = new Map(accounts.map((account) => [account.id, account]));
-    return {
-      items: rows.map((row) => {
-        const preparation = row.master.productPreparations[0] ?? null;
-        return {
-          id: row.id,
-          masterId: row.masterId,
-          masterCode: row.master.code,
-          masterName: row.master.name,
-          thumbnailUrl: row.master.thumbnailUrl ?? row.master.imageUrl ?? null,
-          channel: row.channel,
-          channelAccountId: row.channelAccountId,
-          channelAccountName: row.channelAccount?.name ?? null,
-          externalId: row.externalId,
-          channelName: row.channelName,
-          channelPrice: row.channelPrice,
-          sourceCandidateId: preparation?.sourceCandidateId ?? null,
-          contentWorkspaceId: preparation?.contentWorkspaceId ?? null,
-          status: row.status,
-          exposureStatus: row.exposureStatus,
-          optionCount: row._count.options,
-          createdAt: row.createdAt.toISOString(),
-          updatedAt: row.updatedAt.toISOString(),
-        };
-      }),
-      total,
-      page,
-      limit,
-      marketCounts: groupedCounts.map((group) => {
-        const account = group.channelAccountId ? accountById.get(group.channelAccountId) : null;
-        const count = typeof group._count === 'object' && group._count
-          ? group._count.id ?? 0
-          : 0;
-        return {
-          channel: group.channel,
-          channelAccountId: group.channelAccountId,
-          channelAccountName: account?.name ?? null,
-          count,
-        };
-      }),
-    };
-  }
-
-  async listGrouped(
-    organizationId: string,
-    query: ChannelListingQuery = {},
-  ): Promise<ChannelListingGroupResult> {
-    const page = Number.isFinite(query.page) && query.page && query.page > 0
-      ? Math.floor(query.page)
-      : 1;
-    const limit = Math.min(
-      100,
-      Math.max(1, Number.isFinite(query.limit) && query.limit ? Math.floor(query.limit) : 20),
-    );
-    const search = query.search?.trim();
-    const includeDeleted = query.includeDeleted ?? query.tab === 'deleted';
-    const createdSince = parseQueryDate(query.createdSince);
-    const listingWhere: Prisma.ChannelListingWhereInput = {
-      organizationId,
-      isDeleted: includeDeleted,
-      ...(query.channel ? { channel: query.channel } : {}),
-      ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
-      ...(createdSince ? { createdAt: { gte: createdSince } } : {}),
-    };
-    const masterWhere: Prisma.MasterProductWhereInput = {
-      organizationId,
-      listings: { some: listingWhere },
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search, mode: Prisma.QueryMode.insensitive } },
-              { code: { contains: search, mode: Prisma.QueryMode.insensitive } },
-              {
-                listings: {
-                  some: {
-                    ...listingWhere,
-                    OR: [
-                      { externalId: { contains: search, mode: Prisma.QueryMode.insensitive } },
-                      { channelName: { contains: search, mode: Prisma.QueryMode.insensitive } },
-                    ],
-                  },
-                },
-              },
-            ],
-          }
-        : {}),
-    };
-    const orderBy: Prisma.MasterProductOrderByWithRelationInput[] =
-      query.sort === 'oldest' ? [{ updatedAt: 'asc' as const }, { id: 'asc' as const }] :
-      query.sort === 'name_asc' ? [{ name: 'asc' as const }, { id: 'asc' as const }] :
-      [{ updatedAt: 'desc' as const }, { id: 'desc' as const }];
-    const [total, masters, groupedCounts, accounts] = await this.prisma.$transaction([
-      this.prisma.masterProduct.count({ where: masterWhere }),
-      this.prisma.masterProduct.findMany({
-        where: masterWhere,
+    const [total, rows, groupedCounts, accounts] = await this.prisma.$transaction([
+      this.prisma.channelListing.count({ where }),
+      this.prisma.channelListing.findMany({
+        where,
         orderBy,
         skip: (page - 1) * limit,
         take: limit,
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          thumbnailUrl: true,
-          imageUrl: true,
-          listings: {
-            where: listingWhere,
-            orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-            include: {
-              channelAccount: {
-                select: {
-                  id: true,
-                  channel: true,
-                  name: true,
-                  externalAccountId: true,
-                  vendorId: true,
-                  sellerId: true,
-                  isPrimary: true,
-                },
-              },
-              _count: { select: { options: true } },
-            },
-          },
-          productPreparations: {
-            where: {
-              organizationId,
-              isCurrentForMaster: true,
-              isDeleted: false,
-            },
-            take: 1,
-            select: {
-              sourceCandidateId: true,
-              contentWorkspaceId: true,
-            },
-          },
-        },
+        include: listingInclude,
       }),
       this.prisma.channelListing.groupBy({
-        by: ['channel', 'channelAccountId'],
-        where: listingWhere,
-        orderBy: [{ channel: 'asc' }, { channelAccountId: 'asc' }],
+        by: ['channelAccountId'],
+        where: { organizationId, isActive: !includeInactive },
+        orderBy: { channelAccountId: 'asc' },
         _count: { id: true },
       }),
       this.prisma.channelAccount.findMany({
         where: { organizationId },
-        select: {
-          id: true,
-          channel: true,
-          name: true,
-          externalAccountId: true,
-          vendorId: true,
-          sellerId: true,
-          isPrimary: true,
-        },
+        select: { id: true, channel: true, name: true },
       }),
     ]);
-
     const accountById = new Map(accounts.map((account) => [account.id, account]));
-    const items = masters.map((master) => {
-      const preparation = master.productPreparations[0] ?? null;
-      const listings = master.listings.map((row) => ({
-        id: row.id,
-        masterId: master.id,
-        masterCode: master.code,
-        masterName: master.name,
-        thumbnailUrl: master.thumbnailUrl ?? master.imageUrl ?? null,
-        channel: row.channel,
-        channelAccountId: row.channelAccountId,
-        channelAccountName: row.channelAccount?.name ?? null,
-        externalId: row.externalId,
-        channelName: row.channelName,
-        channelPrice: row.channelPrice,
-        sourceCandidateId: preparation?.sourceCandidateId ?? null,
-        contentWorkspaceId: preparation?.contentWorkspaceId ?? null,
-        status: row.status,
-        exposureStatus: row.exposureStatus,
-        optionCount: row._count.options,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-      }));
-      return {
-        masterId: master.id,
-        masterCode: master.code,
-        masterName: master.name,
-        thumbnailUrl: master.thumbnailUrl ?? master.imageUrl ?? null,
-        listingCount: listings.length,
-        listings,
-        updatedAt: listings[0]?.updatedAt ?? '',
-      };
-    });
 
     return {
-      items,
+      items: rows.map(toSummary),
       total,
       page,
       limit,
       marketCounts: groupedCounts.map((group) => {
-        const account = group.channelAccountId ? accountById.get(group.channelAccountId) : null;
-        const count = typeof group._count === 'object' && group._count
-          ? group._count.id ?? 0
-          : 0;
+        const account = accountById.get(group.channelAccountId);
         return {
-          channel: group.channel,
+          channel: account?.channel ?? 'unknown',
           channelAccountId: group.channelAccountId,
           channelAccountName: account?.name ?? null,
-          count,
+          count: typeof group._count === 'object' && group._count
+            ? group._count.id ?? 0
+            : 0,
         };
       }),
     };
@@ -331,72 +158,376 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     listingId: string,
   ): Promise<ChannelListingSummary> {
     const row = await this.prisma.channelListing.findFirst({
-      where: {
-        id: listingId,
-        organizationId,
-        isDeleted: false,
+      where: { id: listingId, organizationId, isActive: true },
+      include: listingInclude,
+    });
+    if (!row) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+    return toSummary(row);
+  }
+
+  async findDeletionTarget(
+    organizationId: string,
+    listingId: string,
+  ): Promise<ChannelListingDeletionTarget | null> {
+    // 단일 리소스 읽기는 { id, organizationId } 스코프다. id 만으로 찾으면 IDOR 이다.
+    const row = await this.prisma.channelListing.findFirst({
+      where: { id: listingId, organizationId },
+      select: {
+        id: true,
+        externalId: true,
+        displayName: true,
+        channelName: true,
+        channelAccountId: true,
+        sourceCandidateId: true,
+        isActive: true,
+        channelAccount: { select: { channel: true } },
       },
-      include: {
-        master: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            thumbnailUrl: true,
-            imageUrl: true,
-            productPreparations: {
-              where: {
-                organizationId,
-                isCurrentForMaster: true,
-                isDeleted: false,
-              },
-              take: 1,
-              select: {
-                sourceCandidateId: true,
-                contentWorkspaceId: true,
-              },
+    });
+    if (!row) return null;
+    return {
+      id: row.id,
+      externalId: row.externalId,
+      displayName: row.displayName ?? row.channelName,
+      channel: row.channelAccount.channel,
+      channelAccountId: row.channelAccountId,
+      sourceCandidateId: row.sourceCandidateId,
+      isActive: row.isActive,
+    };
+  }
+
+  async authorizeDeletion(
+    input: ChannelListingDeletionAuthorizationInput,
+  ): Promise<ChannelListingDeletionOperationResult> {
+    try {
+      return await this.authorizeDeletionOnce(input);
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      // A concurrent insert may have won the org/key or active-listing key.
+      // Re-read it outside the aborted transaction and validate every frozen scope.
+      const replay = await this.prisma.channelListingDeletionOperation.findFirst({
+        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+        include: {
+          channelListing: {
+            select: {
+              id: true, displayName: true, channelName: true,
+              channelAccount: { select: { channel: true } },
             },
           },
         },
-        channelAccount: {
-          select: {
-            id: true,
-            channel: true,
-            name: true,
-            externalAccountId: true,
-            vendorId: true,
-            sellerId: true,
-            isPrimary: true,
+      });
+      if (!replay || replay.channelListingId !== input.listingId || replay.requestHash !== input.requestHash) {
+        throw new ConflictException('Deletion operation conflicts with an existing request.');
+      }
+      assertOperationActor(replay.requestedByUserId, input.userId);
+      return toAuthorizationResult(replay, replay.channelListing);
+    }
+  }
+
+  private async authorizeDeletionOnce(
+    input: ChannelListingDeletionAuthorizationInput,
+  ): Promise<ChannelListingDeletionOperationResult> {
+    return this.prisma.$transaction(async (tx) => {
+      // Shared with registration finalization: listing always locks first.
+      const locked = await lockChannelListingRow(tx, {
+        organizationId: input.organizationId,
+        channelListingId: input.listingId,
+        activeOnly: false,
+        catalogMatchingEligibleOnly: false,
+      });
+      if (!locked) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+
+      const listing = await tx.channelListing.findFirst({
+        where: { id: input.listingId, organizationId: input.organizationId },
+        select: {
+          id: true,
+          externalId: true,
+          displayName: true,
+          channelName: true,
+          sourceCandidateId: true,
+          isActive: true,
+          channelAccountId: true,
+          channelAccount: {
+            select: {
+              channel: true,
+              status: true,
+              vendorId: true,
+              externalAccountId: true,
+            },
           },
         },
-        _count: { select: { options: true } },
+      });
+      if (!listing) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+
+      const replay = await tx.channelListingDeletionOperation.findFirst({
+        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+      });
+      if (replay) {
+        if (replay.requestHash !== input.requestHash) {
+          throw new ConflictException('Deletion idempotency key was reused with a different request.');
+        }
+        assertOperationActor(replay.requestedByUserId, input.userId);
+        return toAuthorizationResult(replay, listing);
+      }
+
+      if (!listing.sourceCandidateId) {
+        throw new ForbiddenException('우리가 등록한 상품만 삭제할 수 있습니다.');
+      }
+      if (!listing.isActive) throw new BadRequestException('이미 삭제된 상품입니다.');
+      if (listing.channelAccount.channel !== 'coupang' || listing.channelAccount.status !== 'active') {
+        throw new BadRequestException('An active Coupang marketplace account is required.');
+      }
+      const expectedProviderAccountId = listing.channelAccount.vendorId
+        ?? listing.channelAccount.externalAccountId;
+      if (!expectedProviderAccountId) {
+        throw new BadRequestException('Coupang provider account identity is required.');
+      }
+
+      const activeRegistration = await tx.productRegistrationExecution.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: listing.channelAccountId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+          OR: [
+            { channelListingId: listing.id },
+            { externalListingId: listing.externalId },
+          ],
+        },
+        select: { id: true },
+      });
+      if (activeRegistration) {
+        throw new ConflictException('Marketplace registration is active for this listing.');
+      }
+
+      // The listing lock serializes same-listing/same-key requests. A key reused
+      // for another listing is rejected by the durable unique constraint.
+      const operation = await tx.channelListingDeletionOperation.create({
+        data: {
+          organizationId: input.organizationId,
+          channelAccountId: listing.channelAccountId,
+          channelListingId: listing.id,
+          idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
+          externalListingId: listing.externalId,
+          expectedProviderAccountId,
+          requestedByUserId: input.userId,
+          // Extension can click only after this durable uncertain side effect state commits.
+          status: 'executing',
+          providerOutcome: 'uncertain',
+          leaseToken: randomUUID(),
+          leaseClaimedAt: null,
+          authorizationExpiresAt: new Date(Date.now() + 5 * 60_000),
+          startedAt: new Date(),
+        },
+      });
+      return toAuthorizationResult(operation, listing);
+    });
+  }
+
+  async claimDeletionExecution(
+    input: ChannelListingDeletionOperationLookup,
+  ): Promise<ChannelListingDeletionExecutionClaim> {
+    return this.prisma.$transaction(async (tx) => {
+      await assertLockedListing(tx, input.organizationId, input.listingId);
+      await lockDeletionOperation(tx, input.organizationId, input.operationId);
+      const operation = await tx.channelListingDeletionOperation.findFirst({
+        where: { id: input.operationId, organizationId: input.organizationId, channelListingId: input.listingId },
+        include: { channelListing: { select: { displayName: true, channelName: true } } },
+      });
+      if (!operation) throw new NotFoundException('Deletion operation not found.');
+      assertOperationActor(operation.requestedByUserId, input.userId);
+      if (operation.status !== 'executing' || operation.providerOutcome !== 'uncertain'
+        || operation.leaseClaimedAt
+        || !operation.leaseToken || !operation.authorizationExpiresAt
+        || operation.authorizationExpiresAt <= new Date()) {
+        throw new ConflictException('Deletion execution capability is unavailable or expired.');
+      }
+      await tx.channelListingDeletionOperation.update({
+        where: { id: operation.id }, data: { leaseClaimedAt: new Date() },
+      });
+      return {
+        operationId: operation.id,
+        listingId: operation.channelListingId,
+        externalId: operation.externalListingId,
+        displayName: operation.channelListing.displayName ?? operation.channelListing.channelName ?? operation.externalListingId,
+        expectedVendorId: operation.expectedProviderAccountId,
+        executionCapability: operation.leaseToken,
+        expiresAt: operation.authorizationExpiresAt.toISOString(),
+      };
+    });
+  }
+
+  async markDeletionUnresolved(
+    input: ChannelListingDeletionUnresolvedInput,
+  ): Promise<ChannelListingDeletionUnresolvedResult> {
+    return this.prisma.$transaction(async (tx) => {
+      await assertLockedListing(tx, input.organizationId, input.listingId);
+      await lockDeletionOperation(tx, input.organizationId, input.operationId);
+      const operation = await tx.channelListingDeletionOperation.findFirst({
+        where: { id: input.operationId, organizationId: input.organizationId, channelListingId: input.listingId },
+      });
+      if (!operation) throw new NotFoundException('Deletion operation not found.');
+      assertOperationActor(operation.requestedByUserId, input.userId);
+      if (operation.status === 'succeeded') {
+        return { operationId: operation.id, status: 'succeeded', providerOutcome: 'succeeded' };
+      }
+      if (!['executing', 'reconciling'].includes(operation.status)) {
+        throw new ConflictException('Deletion operation cannot be reconciled from its current state.');
+      }
+      await tx.channelListingDeletionOperation.update({
+        where: { id: operation.id },
+        data: {
+          status: 'reconciling',
+          providerOutcome: 'uncertain',
+          lastErrorCode: input.reason,
+          lastErrorMessage: 'Provider deletion outcome requires reconciliation.',
+        },
+      });
+      return { operationId: operation.id, status: 'reconciling', providerOutcome: 'uncertain' };
+    });
+  }
+
+  async getDeletionOperation(
+    input: ChannelListingDeletionOperationLookup,
+  ): Promise<ChannelListingDeletionOperationStatus | null> {
+    const operation = await this.prisma.channelListingDeletionOperation.findFirst({
+      where: {
+        id: input.operationId,
+        organizationId: input.organizationId,
+        channelListingId: input.listingId,
+        requestedByUserId: input.userId,
       },
     });
-
-    if (!row) {
-      throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
-    }
-
-    const preparation = row.master.productPreparations[0] ?? null;
+    if (!operation) return null;
     return {
-      id: row.id,
-      masterId: row.masterId,
-      masterCode: row.master.code,
-      masterName: row.master.name,
-      thumbnailUrl: row.master.thumbnailUrl ?? row.master.imageUrl ?? null,
-      channel: row.channel,
-      channelAccountId: row.channelAccountId,
-      channelAccountName: row.channelAccount?.name ?? null,
-      externalId: row.externalId,
-      channelName: row.channelName,
-      channelPrice: row.channelPrice,
-      sourceCandidateId: preparation?.sourceCandidateId ?? null,
-      contentWorkspaceId: preparation?.contentWorkspaceId ?? null,
-      status: row.status,
-      exposureStatus: row.exposureStatus,
-      optionCount: row._count.options,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
+      operationId: operation.id,
+      listingId: operation.channelListingId,
+      externalId: operation.externalListingId,
+      status: operation.status,
+      providerOutcome: operation.providerOutcome,
+      completedAt: operation.completedAt?.toISOString() ?? null,
+      lastErrorCode: operation.lastErrorCode,
     };
   }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
+}
+
+async function assertLockedListing(tx: Prisma.TransactionClient, organizationId: string, listingId: string) {
+  const listing = await lockChannelListingRow(tx, {
+    organizationId,
+    channelListingId: listingId,
+    activeOnly: false,
+    catalogMatchingEligibleOnly: false,
+  });
+  if (!listing) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+}
+
+async function lockDeletionOperation(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  operationId: string,
+): Promise<void> {
+  await tx.$queryRaw`
+    SELECT id FROM channel_listing_deletion_operations
+    WHERE id = ${operationId}::uuid AND organization_id = ${organizationId}::uuid
+    FOR UPDATE
+  `;
+}
+
+function assertOperationActor(requestedByUserId: string | null, userId: string): void {
+  if (!requestedByUserId || requestedByUserId !== userId) {
+    throw new ForbiddenException('Deletion operation belongs to another actor.');
+  }
+}
+
+function toAuthorizationResult(
+  operation: {
+    id: string; channelListingId: string; channelAccountId: string; externalListingId: string;
+    expectedProviderAccountId: string; status: string; providerOutcome: string;
+  },
+  listing: { displayName: string | null; channelName: string | null; channelAccount: { channel: string } },
+): ChannelListingDeletionOperationResult {
+  if (operation.status !== 'executing' || operation.providerOutcome !== 'uncertain') {
+    throw new ConflictException('Deletion operation is no longer eligible for a provider deletion attempt.');
+  }
+  return {
+    operationId: operation.id,
+    listingId: operation.channelListingId,
+    channelAccountId: operation.channelAccountId,
+    externalId: operation.externalListingId,
+    displayName: listing.displayName ?? listing.channelName ?? operation.externalListingId,
+    channel: listing.channelAccount.channel,
+    expectedVendorId: operation.expectedProviderAccountId,
+    status: 'executing',
+    providerOutcome: 'uncertain',
+  };
+}
+
+
+function toSummary(row: ListingRow): ChannelListingSummary {
+  const workspace = row.contentWorkspaces[0] ?? null;
+  const listingName = row.displayName ?? row.channelName ?? row.externalId;
+  return {
+    id: row.id,
+    listingName,
+    thumbnailUrl:
+      workspace?.currentThumbnailSelection?.contentAsset.url
+      ?? row.thumbnails[0]?.imageUrl
+      ?? null,
+    detailPageArtifactId: workspace?.currentDetailPageArtifactId ?? null,
+    detailPageRevisionId: workspace?.currentDetailPageRevisionId ?? null,
+    channel: row.channelAccount.channel,
+    channelAccountId: row.channelAccountId,
+    channelAccountName: row.channelAccount.name,
+    externalId: row.externalId,
+    channelName: row.channelName,
+    channelPrice: firstPrice(row.options),
+    sourceCandidateId: row.sourceCandidateId,
+    contentWorkspaceId: workspace?.id ?? null,
+    status: row.status,
+    exposureStatus: row.exposureStatus,
+    optionCount: row.options.length,
+    mappingStatus: aggregateMappingStatus(row.masterProductId, row.options),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) && value && value > 0 ? Math.floor(value) : fallback;
+}
+
+function contains(value: string) {
+  return { contains: value, mode: Prisma.QueryMode.insensitive } as const;
+}
+
+function firstPrice(options: Array<{ salePrice: number | null }>): number | null {
+  return options.find((option) => option.salePrice !== null)?.salePrice ?? null;
+}
+
+function aggregateMappingStatus(
+  masterProductId: string | null,
+  options: Array<{
+    productVariantId: string | null;
+    productVariant: null | {
+      components: Array<{ sellpiaInventorySku: { isActive: boolean } }>;
+    };
+  }>,
+): 'matched' | 'unmatched' | 'needs_review' {
+  if (!masterProductId) return 'unmatched';
+  if (options.length === 0) return 'needs_review';
+  if (options.some((option) => !option.productVariantId || !option.productVariant)) {
+    return 'needs_review';
+  }
+  if (options.some((option) =>
+    option.productVariant!.components.length === 0
+    || option.productVariant!.components.some(
+      (component) => !component.sellpiaInventorySku.isActive,
+    ))) {
+    return 'needs_review';
+  }
+  return 'matched';
 }

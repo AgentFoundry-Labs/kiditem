@@ -33,7 +33,10 @@ export interface ChannelAccountRepositoryPort {
     input: UpdateCoupangAccountSettings,
   ): Promise<CoupangAccountSettings>;
 
-  resolveCoupangCredentials(organizationId: string): Promise<CoupangCredentials>;
+  resolveCoupangCredentials(
+    organizationId: string,
+    channelAccountId?: string,
+  ): Promise<CoupangCredentials>;
 
   listActive(organizationId: string): Promise<ChannelAccountListRow[]>;
 
@@ -41,5 +44,8 @@ export interface ChannelAccountRepositoryPort {
 }
 
 export interface CoupangCredentialsPort {
-  resolveCoupangCredentials(organizationId: string): Promise<CoupangCredentials>;
+  resolveCoupangCredentials(
+    organizationId: string,
+    channelAccountId?: string,
+  ): Promise<CoupangCredentials>;
 }

@@ -7,8 +7,9 @@ import {
 import type { ThumbnailPromptPart } from '../../../application/port/out/provider/thumbnail-reference-images.port';
 import {
   requireGeminiApiKey,
-  requireGeminiImageModel,
 } from './thumbnail-gemini-config';
+
+const PROVIDER_TIMEOUT_MS = 120_000;
 
 @Injectable()
 export class ThumbnailImageGenerationAdapter implements ThumbnailImageGenerationPort {
@@ -17,9 +18,9 @@ export class ThumbnailImageGenerationAdapter implements ThumbnailImageGeneration
   async generateImageParts(
     command: ThumbnailImageGenerationCommand,
   ): Promise<ThumbnailPromptPart[]> {
-    const response = await this.raceWithAbort(
-      this.getClient().models.generateContent({
-        model: this.resolveModel(command.model),
+    command.signal?.throwIfAborted();
+    const response = await this.getClient().models.generateContent({
+        model: command.model,
         contents: [
           {
             role: 'user',
@@ -29,17 +30,11 @@ export class ThumbnailImageGenerationAdapter implements ThumbnailImageGeneration
         config: {
           responseModalities: [Modality.TEXT, Modality.IMAGE],
           imageConfig: { aspectRatio: '1:1', imageSize: '2K' },
+          abortSignal: command.signal,
+          httpOptions: { timeout: PROVIDER_TIMEOUT_MS },
         },
-      }),
-      command.signal,
-    );
+      });
     return (response.candidates?.[0]?.content?.parts ?? []) as ThumbnailPromptPart[];
-  }
-
-  private resolveModel(model: string | undefined): string {
-    const selected = model?.trim();
-    if (selected) return selected;
-    return requireGeminiImageModel();
   }
 
   private getClient(): GoogleGenAI {
@@ -47,16 +42,5 @@ export class ThumbnailImageGenerationAdapter implements ThumbnailImageGeneration
       this.client = new GoogleGenAI({ apiKey: requireGeminiApiKey() });
     }
     return this.client;
-  }
-
-  private raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-    if (!signal) return promise;
-    if (signal.aborted) return Promise.reject(new Error('ABORTED'));
-    return Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        signal.addEventListener('abort', () => reject(new Error('ABORTED')), { once: true });
-      }),
-    ]);
   }
 }

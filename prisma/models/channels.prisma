@@ -12,8 +12,11 @@
 /// @namespace Channels
 /// @describe 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장.
 model ChannelScrapeRun {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
+  id                String  @id @default(uuid()) @db.Uuid
+  organizationId    String  @map("organization_id") @db.Uuid
+  channelAccountId  String  @map("channel_account_id") @db.Uuid
+  clientRunKey      String? @map("client_run_key") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
 
   channel      String
   source       String
@@ -40,13 +43,48 @@ model ChannelScrapeRun {
   metaJson  Json? @map("meta_json")
   errorJson Json? @map("error_json")
 
-  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  snapshots    ChannelScrapeSnapshot[]
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun?        @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  chunks          ChannelScrapeChunk[]
+  snapshots       ChannelScrapeSnapshot[]
 
+  @@unique([id, organizationId], map: "channel_scrape_runs_id_org_key")
+  @@unique([organizationId, channelAccountId, source, clientRunKey], map: "channel_scrape_runs_org_account_source_client_key", where: raw("client_run_key IS NOT NULL"))
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, status, startedAt])
   @@index([startedAt])
+  @@index([channelAccountId])
+  @@index([sourceImportRunId])
   @@map("channel_scrape_runs")
+}
+
+/// @namespace Channels
+/// @describe Browser catalog collection payloads kept in JSONB until an atomic publication succeeds.
+model ChannelScrapeChunk {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  scrapeRunId    String @map("scrape_run_id") @db.Uuid
+
+  kind      String
+  sequence  Int
+  checksum  String
+  itemCount Int    @map("item_count")
+  payload   Json   @db.JsonB
+
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz
+  publicationJson Json?     @map("publication_json") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scrapeRun    ChannelScrapeRun @relation(fields: [scrapeRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([scrapeRunId, kind, sequence], map: "channel_scrape_chunks_run_kind_sequence_key")
+  @@index([organizationId, scrapeRunId])
+  @@index([scrapeRunId, kind])
+  @@map("channel_scrape_chunks")
 }
 
 /// @namespace Channels
@@ -66,7 +104,6 @@ model ChannelScrapeSnapshot {
   externalOptionId String? @map("external_option_id")
   listingId        String? @map("listing_id") @db.Uuid
   listingOptionId  String? @map("listing_option_id") @db.Uuid
-  optionId         String? @map("option_id") @db.Uuid
 
   matchStatus String  @default("unmatched") @map("match_status")
   matchReason String? @map("match_reason")
@@ -78,22 +115,21 @@ model ChannelScrapeSnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  scrapeRun     ChannelScrapeRun?     @relation(fields: [scrapeRunId], references: [id], onDelete: SetNull)
-  listing       ChannelListing?       @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  listingOption ChannelListingOption? @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
-  option        ProductOption?        @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  scrapeRun     ChannelScrapeRun?     @relation(fields: [scrapeRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listing       ChannelListing?       @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listingOption ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   listingDailySnapshots  ChannelListingDailySnapshot[]       @relation("ListingDailyRawSnapshot")
   optionDailySnapshots   ChannelListingOptionDailySnapshot[] @relation("OptionDailyRawSnapshot")
   adTargetDailySnapshots ChannelAdTargetDailySnapshot[]      @relation("AdTargetDailyRawSnapshot")
   accountKpiSnapshots    ChannelAccountDailyKpiSnapshot[]    @relation("AccountKpiRawSnapshot")
 
+  @@unique([id, organizationId], map: "channel_scrape_snapshots_id_org_key")
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, channel, pageType, businessDate])
   @@index([scrapeRunId])
   @@index([listingId, businessDate])
   @@index([listingOptionId, businessDate])
-  @@index([optionId, businessDate])
   @@index([organizationId, channel, externalId])
   @@index([organizationId, channel, externalOptionId])
   @@index([organizationId, matchStatus])
@@ -170,8 +206,8 @@ model ChannelListingDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing      ChannelListing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  rawSnapshot  ChannelScrapeSnapshot? @relation("ListingDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  listing      ChannelListing         @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  rawSnapshot  ChannelScrapeSnapshot? @relation("ListingDailyRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, listingId, businessDate])
   @@index([organizationId, channel, externalId, businessDate])
@@ -186,11 +222,10 @@ model ChannelListingDailySnapshot {
 /// @namespace Channels
 /// @describe 채널 listing option/vendor item 의 일별 정규화 상태.
 model ChannelListingOptionDailySnapshot {
-  id              String  @id @default(uuid()) @db.Uuid
-  organizationId  String  @map("organization_id") @db.Uuid
-  listingId       String  @map("listing_id") @db.Uuid
-  listingOptionId String  @map("listing_option_id") @db.Uuid
-  optionId        String? @map("option_id") @db.Uuid
+  id              String @id @default(uuid()) @db.Uuid
+  organizationId  String @map("organization_id") @db.Uuid
+  listingId       String @map("listing_id") @db.Uuid
+  listingOptionId String @map("listing_option_id") @db.Uuid
 
   channel          String
   externalId       String   @map("external_id")
@@ -218,10 +253,9 @@ model ChannelListingOptionDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization  Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing       ChannelListing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  listingOption ChannelListingOption   @relation(fields: [listingOptionId], references: [id], onDelete: Cascade)
-  option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  rawSnapshot   ChannelScrapeSnapshot? @relation("OptionDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  listing       ChannelListing         @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  listingOption ChannelListingOption   @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  rawSnapshot   ChannelScrapeSnapshot? @relation("OptionDailyRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, listingOptionId, businessDate])
   @@index([organizationId, channel, externalId, externalOptionId, businessDate])
@@ -229,7 +263,6 @@ model ChannelListingOptionDailySnapshot {
   @@index([organizationId, businessDate])
   @@index([listingId, businessDate])
   @@index([listingOptionId, businessDate])
-  @@index([optionId, businessDate])
   @@index([organizationId, externalOptionId])
   @@map("channel_listing_option_daily_snapshots")
 }
@@ -244,7 +277,6 @@ model ChannelAdTargetDailySnapshot {
 
   listingId        String? @map("listing_id") @db.Uuid
   listingOptionId  String? @map("listing_option_id") @db.Uuid
-  optionId         String? @map("option_id") @db.Uuid
   externalId       String? @map("external_id")
   externalOptionId String? @map("external_option_id")
 
@@ -279,34 +311,34 @@ model ChannelAdTargetDailySnapshot {
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization  Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing       ChannelListing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  listingOption ChannelListingOption?  @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
-  option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  rawSnapshot   ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  listing       ChannelListing?        @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listingOption ChannelListingOption?  @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rawSnapshot   ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   adActions AdAction[]
 
+  @@unique([id, organizationId], map: "channel_ad_target_daily_snapshots_id_org_key")
   @@unique([organizationId, channel, businessDate, targetType, targetKey])
   @@index([organizationId, channel, businessDate])
   @@index([listingId, businessDate])
   @@index([listingOptionId, businessDate])
   @@index([organizationId, targetType, businessDate])
   @@index([rawSnapshotId])
-  @@index([optionId, businessDate])
   @@map("channel_ad_target_daily_snapshots")
 }
 
 /// @namespace Channels
 /// @describe 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용).
 model ChannelAccountDailyKpiSnapshot {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  channel        String
-  source         String // 'wing' | 'advertising' | ...
-  kpiType        String    @map("kpi_type") // e.g. 'wing_dashboard' | 'wing_itemwinner_kpi'
-  businessDate   DateTime  @map("business_date") @db.Date
-  periodStart    DateTime? @map("period_start") @db.Date
-  periodEnd      DateTime? @map("period_end") @db.Date
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  channelAccountId String    @map("channel_account_id") @db.Uuid
+  channel          String
+  source           String // 'wing' | 'advertising' | ...
+  kpiType          String    @map("kpi_type") // e.g. 'wing_dashboard' | 'wing_itemwinner_kpi'
+  businessDate     DateTime  @map("business_date") @db.Date
+  periodStart      DateTime? @map("period_start") @db.Date
+  periodEnd        DateTime? @map("period_end") @db.Date
 
   normalizedJson Json    @map("normalized_json")
   rawJson        Json?   @map("raw_json")
@@ -318,13 +350,220 @@ model ChannelAccountDailyKpiSnapshot {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  rawSnapshot  ChannelScrapeSnapshot? @relation("AccountKpiRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rawSnapshot    ChannelScrapeSnapshot? @relation("AccountKpiRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, channel, source, businessDate, kpiType])
+  @@unique([organizationId, channelAccountId, source, businessDate, kpiType], map: "channel_account_kpi_org_account_source_date_type_key")
   @@index([organizationId, channel, businessDate])
   @@index([rawSnapshotId])
+  @@index([channelAccountId, businessDate])
   @@map("channel_account_daily_kpi_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 자사 쿠팡 상품(vendorItemId)별 사용자가 직접 지정한 대표 검색 키워드. 없으면 쿠팡 카테고리와 Wing 28일 지표로 자동 추천한다.
+model CoupangRepresentativeKeywordOverride {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  vendorItemId   String @map("vendor_item_id")
+  keyword        String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, vendorItemId])
+  @@index([organizationId])
+  @@map("coupang_representative_keyword_overrides")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 검색 키워드별 자사 상품 순위 추적 대상. 확장이 www.coupang.com 검색결과(SERP)를 수집할 키워드 정의. vendorItemIds 는 명시 추적 타깃(빈 배열 = 자사 카탈로그 자동매칭만).
+model CoupangKeywordTracker {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  keyword       String
+  vendorItemIds String[] @map("vendor_item_ids") // 명시 추적 타깃 vendorItemId 목록(빈 배열 = 자사 카탈로그 자동매칭만)
+  maxPages      Int      @default(2) @map("max_pages")
+  enabled       Boolean  @default(true)
+
+  lastCapturedAt DateTime? @map("last_captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword])
+  @@index([organizationId])
+  @@map("coupang_keyword_trackers")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 검색 키워드×상품(vendorItemId) 일별 순위 fact. 순위 null = 스캔한 페이지 내 미노출(순위권 밖). overallRank 는 광고 포함 전체 순위, organicRank 는 오가닉만, adRank 는 광고만 센 순위.
+model CoupangKeywordRankDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  keyword        String
+  vendorItemId   String   @map("vendor_item_id")
+  businessDate   DateTime @map("business_date") @db.Date
+
+  productId   String? @map("product_id")
+  itemId      String? @map("item_id")
+  productName String? @map("product_name")
+
+  overallRank    Int? @map("overall_rank")
+  organicRank    Int? @map("organic_rank")
+  adRank         Int? @map("ad_rank")
+  page           Int?
+  positionInPage Int? @map("position_in_page")
+  priceKrw       Int? @map("price_krw")
+  reviewCount    Int? @map("review_count")
+
+  source     String   @default("coupang_search")
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword, vendorItemId, businessDate])
+  @@index([organizationId, keyword, businessDate])
+  @@index([organizationId, vendorItemId, businessDate])
+  @@map("coupang_keyword_rank_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드.
+model CoupangWingTrackedProduct {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  productId    String  @map("product_id")
+  itemId       String? @map("item_id")
+  vendorItemId String? @map("vendor_item_id")
+
+  productName       String  @map("product_name")
+  imagePath         String? @map("image_path")
+  brandName         String? @map("brand_name")
+  categoryHierarchy String? @map("category_hierarchy")
+  sourceKeyword     String? @map("source_keyword")
+
+  enabled        Boolean   @default(true)
+  lastCapturedAt DateTime? @map("last_captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshots    CoupangWingTrackedProductDailySnapshot[]
+
+  @@unique([organizationId, productId])
+  @@index([organizationId])
+  @@map("coupang_wing_tracked_products")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰.
+model CoupangWingTrackedProductDailySnapshot {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  trackedProductId String   @map("tracked_product_id") @db.Uuid
+  businessDate     DateTime @map("business_date") @db.Date
+
+  salePriceKrw        Int?     @map("sale_price_krw")
+  ratingCount         Int?     @map("rating_count")
+  ratingAverage       Decimal? @map("rating_average") @db.Decimal(3, 2)
+  pvLast28Day         Int?     @map("pv_last_28day")
+  salesLast28d        Int?     @map("sales_last_28d")
+  estimatedRevenue28d Int?     @map("estimated_revenue_28d")
+  conversionRate28d   Decimal? @map("conversion_rate_28d") @db.Decimal(7, 6)
+
+  sourceKeyword String?  @map("source_keyword")
+  capturedAt    DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  trackedProduct CoupangWingTrackedProduct @relation(fields: [trackedProductId], references: [id], onDelete: Cascade)
+
+  @@unique([trackedProductId, businessDate])
+  @@index([organizationId])
+  @@index([trackedProductId, businessDate])
+  @@map("coupang_wing_tracked_product_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 검색 키워드별 SERP 전체 캡처(키워드-일자당 최신본 upsert). items 는 DOM 순서 그대로의 결과 리스트 JSON — 경쟁사 노출 확인·순위 재계산용.
+model CoupangKeywordSerpDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  keyword        String
+  businessDate   DateTime @map("business_date") @db.Date
+
+  items        Json // [{ rank, page, positionInPage, isAd, productId, itemId, vendorItemId, name, priceKrw, reviewCount, ratingScore, link }]
+  itemCount    Int  @default(0) @map("item_count")
+  pagesScanned Int  @default(0) @map("pages_scanned")
+
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword, businessDate])
+  @@index([organizationId, businessDate])
+  @@map("coupang_keyword_serp_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다.
+model CoupangWingSalesRankDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  keyword        String
+  vendorItemId   String   @map("vendor_item_id")
+  businessDate   DateTime @map("business_date") @db.Date
+
+  productId         String? @map("product_id")
+  itemId            String? @map("item_id")
+  productName       String? @map("product_name")
+  categoryHierarchy String? @map("category_hierarchy")
+
+  salesRank         Int?     @map("sales_rank")
+  salesLast28d      Int?     @map("sales_last_28d")
+  viewsLast28d      Int?     @map("views_last_28d")
+  revenueLast28d    Int?     @map("revenue_last_28d")
+  conversionRate28d Decimal? @map("conversion_rate_28d") @db.Decimal(9, 6)
+  salePrice         Int?     @map("sale_price")
+  reviewCount       Int?     @map("review_count")
+
+  // 같은 키워드 검색 결과 전체의 시장 수요 지표. 후보 키워드 간 비교 점수에 사용한다.
+  keywordSalesLast28d      Int?     @map("keyword_sales_last_28d")
+  keywordViewsLast28d      Int?     @map("keyword_views_last_28d")
+  keywordConversionRate28d Decimal? @map("keyword_conversion_rate_28d") @db.Decimal(9, 6)
+
+  pagesScanned   Int      @default(0) @map("pages_scanned")
+  collectedCount Int      @default(0) @map("collected_count")
+  totalResults   Int?     @map("total_results")
+  capturedAt     DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword, vendorItemId, businessDate])
+  @@index([organizationId, businessDate])
+  @@index([organizationId, keyword, businessDate])
+  @@index([organizationId, vendorItemId, businessDate])
+  @@map("coupang_wing_sales_rank_daily_snapshots")
 }
 
 /// @namespace Channels
@@ -380,97 +619,181 @@ model RocketPurchaseOrder {
 }
 
 /// @namespace Channels
-/// @describe 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption.
-model ChannelReconciliationRun {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
+/// @describe Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here.
+model RocketPoCatalogSnapshot {
+  id                String @id @default(uuid()) @db.Uuid
+  organizationId    String @map("organization_id") @db.Uuid
+  channelAccountId  String @map("channel_account_id") @db.Uuid
+  sourceImportRunId String @map("source_import_run_id") @db.Uuid
+  collectionRunId   String @map("collection_run_id") @db.Uuid
 
-  channel String // 'coupang'
-  source  String // 'wing_inventory' | 'seller_products' | 'manual'
+  vendorId      String @map("vendor_id")
+  listPagesRead Int    @map("list_pages_read")
+  totalListPages Int   @map("total_list_pages")
+  detailPoCount Int    @map("detail_po_count")
 
-  status String @default("running") // running | completed | failed
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  totalCount         Int @default(0) @map("total_count")
-  alreadyLinkedCount Int @default(0) @map("already_linked_count")
-  autoLinkedCount    Int @default(0) @map("auto_linked_count")
-  needsReviewCount   Int @default(0) @map("needs_review_count")
-  conflictCount      Int @default(0) @map("conflict_count")
-  ignoredCount       Int @default(0) @map("ignored_count")
-  errorCount         Int @default(0) @map("error_count")
+  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount        @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun       @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines           RocketPoCatalogLine[]
 
-  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz
-  finishedAt DateTime? @map("finished_at") @db.Timestamptz
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  metaJson  Json? @map("meta_json")
-  errorJson Json? @map("error_json")
-
-  organization Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  items        ChannelReconciliationItem[]
-
-  @@index([organizationId, channel, source, startedAt])
-  @@index([organizationId, status, startedAt])
-  @@index([startedAt])
-  @@map("channel_reconciliation_runs")
+  @@unique([id, organizationId], map: "rocket_po_catalog_snapshots_id_org_key")
+  @@unique([sourceImportRunId, organizationId], map: "rocket_po_catalog_snapshots_run_org_key")
+  @@unique([organizationId, channelAccountId, collectionRunId], map: "rocket_po_catalog_snapshots_org_account_collection_key")
+  @@index([organizationId, channelAccountId, createdAt])
+  @@index([channelAccountId])
+  @@index([sourceImportRunId])
+  @@map("rocket_po_catalog_snapshots")
 }
 
 /// @namespace Channels
-/// @describe 사용자가 처리하는 채널-내부 상품 매칭 queue. MasterProduct 자동 생성 없이 기존 ProductOption/ChannelListing 연결만 추적.
-model ChannelReconciliationItem {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
-  lastSeenRunId  String? @map("last_seen_run_id") @db.Uuid
+/// @describe Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot.
+model RocketPoCatalogLine {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  snapshotId     String @map("snapshot_id") @db.Uuid
 
-  channel  String // 'coupang'
-  source   String // 'wing_inventory' | 'seller_products'
-  itemType String @map("item_type") // channel_listing | channel_option | kiditem_master | kiditem_option
-  itemKey  String @map("item_key") // listing:<externalId>, option:<externalId>:<externalOptionId>
+  poLineId              String   @map("po_line_id")
+  poNumber              String   @map("po_number")
+  vendorId              String   @map("vendor_id")
+  productNo             String   @map("product_no")
+  barcode               String
+  productName           String   @map("product_name")
+  orderQty              Int      @map("order_qty")
+  plannedDeliveryDate   DateTime @map("planned_delivery_date") @db.Date
+  poStatusCode          String?  @map("po_status_code")
+  businessDateBasis     String?  @map("business_date_basis")
+  hasConfirmation       Boolean  @default(false) @map("has_confirmation")
+  center                String?
+  inboundType           String?  @map("inbound_type")
+  poStatus              String?  @map("po_status")
+  returnManager         String?  @map("return_manager")
+  returnContact         String?  @map("return_contact")
+  returnAddress         String?  @map("return_address")
+  purchasePrice         Int?     @map("purchase_price")
+  supplyPrice           Int?     @map("supply_price")
+  vat                   Int?
+  totalPurchase         Int?     @map("total_purchase")
+  poRegisteredAt        String?  @map("po_registered_at")
+  xdock                 String?
 
-  status String @default("needs_review") // linked | needs_review | conflict | ignored | stale
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  externalId       String? @map("external_id")
-  externalOptionId String? @map("external_option_id")
-  legacyCode       String? @map("legacy_code")
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshot     RocketPoCatalogSnapshot  @relation(fields: [snapshotId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
-  channelProductName String? @map("channel_product_name")
-  channelOptionName  String? @map("channel_option_name")
-  channelImageUrl    String? @map("channel_image_url")
-  channelUrl         String? @map("channel_url")
-  channelStatus      String? @map("channel_status")
+  @@unique([snapshotId, poLineId], map: "rocket_po_catalog_lines_snapshot_line_key")
+  @@index([snapshotId])
+  @@index([organizationId, plannedDeliveryDate])
+  @@index([organizationId, poNumber])
+  @@map("rocket_po_catalog_lines")
+}
 
-  linkedListingId       String? @map("linked_listing_id") @db.Uuid
-  linkedListingOptionId String? @map("linked_listing_option_id") @db.Uuid
-  linkedMasterProductId String? @map("linked_master_product_id") @db.Uuid
-  linkedProductOptionId String? @map("linked_product_option_id") @db.Uuid
+/// @namespace Channels
+/// @describe Sellpia 판매현황(sale_summary) 몰별·일별 매출 fact. order_search.ajax.html(mode=selldate, 주문일자 기준)에서 판매처(seller)별로 수집. channelGroup 으로 rocket(쿠팡-직배송) / others(쿠팡윙+기타 전체몰) 버킷을 구분해 대시보드 '몰별 매출' 섹션에 표시한다. price=판매금액, buy_price=매입금액, amount=판매수량.
+model SellpiaSalesDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  businessDate   DateTime @map("business_date") @db.Date
 
-  matchReason      String? @map("match_reason") // external_id | legacy_code_exact | manual | none | conflict
-  resolutionSource String? @map("resolution_source") // existing_external_id | auto_legacy_code | manual | ignored
-  confidence       Int?
+  sellerId     String @map("seller_id") // Sellpia 판매처 id (예 "129")
+  sellerName   String @map("seller_name") // 판매처명 (예 "쿠팡-직배송")
+  channelGroup String @map("channel_group") // "rocket" | "others" — 대시보드 버킷 분류
 
-  rawJson        Json? @map("raw_json")
-  normalizedJson Json? @map("normalized_json")
-  conflictJson   Json? @map("conflict_json")
+  revenueKrw Int @default(0) @map("revenue_krw") // 판매금액 합계 (price, KRW)
+  qty        Int @default(0) @map("qty") // 판매수량 (amount)
+  costKrw    Int @default(0) @map("cost_krw") // 매입금액 합계 (buy_price, KRW)
 
-  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz
-  resolvedByUserId String?   @map("resolved_by_user_id") @db.Uuid
-  ignoredReason    String?   @map("ignored_reason")
+  capturedAt DateTime @default(now()) @map("captured_at") @db.Timestamptz // 수집 시각 (staleness 판단용)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
-  lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  lastSeenRun  ChannelReconciliationRun? @relation(fields: [lastSeenRunId], references: [id], onDelete: SetNull)
+  @@unique([organizationId, businessDate, sellerId])
+  @@index([organizationId, businessDate])
+  @@index([organizationId, channelGroup, businessDate])
+  @@map("sellpia_sales_daily_snapshots")
+}
 
-  @@unique([organizationId, channel, source, itemKey])
-  @@index([organizationId, channel, status])
-  @@index([organizationId, channel, itemType, status])
-  @@index([organizationId, channel, externalId], map: "channel_reconciliation_items_org_channel_ext_id_idx")
-  @@index([organizationId, channel, externalOptionId], map: "channel_reconciliation_items_org_channel_ext_option_idx")
-  @@index([organizationId, legacyCode])
-  @@index([lastSeenRunId])
-  @@index([lastObservedAt])
-  @@map("channel_reconciliation_items")
+/// @namespace Channels
+/// @describe Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준.
+model SellpiaProductMonthlySales {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  productCode String @map("product_code") // Sellpia 상품코드
+  optionCode  String @map("option_code") // 옵션코드
+  yearMonth   String @map("year_month") // "YYYY-MM" (KST 캘린더 월)
+
+  orderQty    Int @default(0) @map("order_qty") // 월 판매수량 = 재고 소진량
+  orderAmount Int @default(0) @map("order_amount") // 월 판매금액
+  inQty       Int @default(0) @map("in_qty") // 월 매입수량
+  inAmount    Int @default(0) @map("in_amount") // 월 매입금액
+
+  // 상품 메타 (최신 스냅샷)
+  productName  String  @map("product_name")
+  optionName   String? @map("option_name")
+  providerName String? @map("provider_name") // 매입처/공급사
+  salePrice    Int     @default(0) @map("sale_price")
+  buyPrice     Int     @default(0) @map("buy_price")
+  barcode      String? @map("barcode") // dp_code
+
+  capturedAt DateTime @default(now()) @map("captured_at") @db.Timestamptz
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, productCode, optionCode, yearMonth])
+  @@index([organizationId, yearMonth])
+  @@index([organizationId, productCode, optionCode])
+  @@map("sellpia_product_monthly_sales")
+}
+
+/// @namespace Channels
+/// @describe Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다.
+model ChannelListingDeletionOperation {
+  id               String @id @default(uuid()) @db.Uuid
+  organizationId   String @map("organization_id") @db.Uuid
+  channelAccountId String @map("channel_account_id") @db.Uuid
+  channelListingId String @map("channel_listing_id") @db.Uuid
+
+  idempotencyKey    String @map("idempotency_key")
+  requestHash       String @map("request_hash")
+  externalListingId String @map("external_listing_id")
+  expectedProviderAccountId String @map("expected_provider_account_id")
+
+  status          String @default("prepared")
+  providerOutcome String @default("not_attempted") @map("provider_outcome")
+
+  resultJson       Json?   @map("result_json") @db.JsonB
+  lastErrorCode    String? @map("last_error_code")
+  lastErrorMessage String? @map("last_error_message")
+
+  leaseToken             String?   @map("lease_token") @db.Uuid
+  leaseClaimedAt         DateTime? @map("lease_claimed_at") @db.Timestamptz
+  requestedByUserId      String?   @map("requested_by_user_id") @db.Uuid
+  authorizationExpiresAt DateTime? @map("authorization_expires_at") @db.Timestamptz
+  startedAt              DateTime? @map("started_at") @db.Timestamptz
+  completedAt            DateTime? @map("completed_at") @db.Timestamptz
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization   @relation("ChannelListingDeletionOperationOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount @relation("ChannelAccountListingDeletionOperations", fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelListing  ChannelListing @relation("ChannelListingDeletionOperations", fields: [channelListingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
+  requestedByUser User?          @relation("ChannelListingDeletionOperationRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, idempotencyKey], map: "channel_listing_deletion_operations_org_idempotency_key")
+  @@unique([organizationId, channelListingId], map: "channel_listing_deletion_operations_active_listing_key", where: raw("status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
+  @@index([channelAccountId])
+  @@index([channelListingId])
+  @@index([requestedByUserId])
+  @@index([organizationId, status, createdAt])
+  @@map("channel_listing_deletion_operations")
 }

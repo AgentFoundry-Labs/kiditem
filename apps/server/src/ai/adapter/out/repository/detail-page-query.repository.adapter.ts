@@ -6,32 +6,21 @@ import {
   type ContentAssetLibraryRepositoryPort,
 } from '../../../application/port/out/repository/content-asset-library.repository.port';
 import type {
+  CandidateDetailPageHtmlSnapshot,
   DetailPageDuplicateSourceSnapshot,
   DetailPageGenerationSnapshot,
   DetailPageListRepositoryInput,
   DetailPageQueryRepositoryPort,
 } from '../../../application/port/out/repository/detail-page-query.repository.port';
 
-const detailPageGenerationInclude = {
-  generationGroup: {
-    select: {
-      id: true,
-      targetMasterId: true,
-    },
-  },
-} satisfies Prisma.ContentGenerationInclude;
-
 interface DetailPageEditableGenerationSnapshot {
   id: string;
   generationGroupId: string;
-  contentWorkspaceId: string | null;
+  contentWorkspaceId: string;
   detailPageArtifactId: string | null;
   generatedTitle: string | null;
   sourceCandidateId: string | null;
   triggeredByUserId: string | null;
-  generationGroup: {
-    targetMasterId: string | null;
-  };
 }
 
 @Injectable()
@@ -47,9 +36,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
       ? { contentWorkspaceId: input.contentWorkspaceId }
       : input.sourceCandidateId
         ? { sourceCandidateId: input.sourceCandidateId }
-        : input.productId
-          ? { generationGroup: { targetMasterId: input.productId } }
-          : {};
+        : {};
     const rows = await this.prisma.contentGeneration.findMany({
       where: {
         organizationId: input.organizationId,
@@ -57,7 +44,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         contentType: 'detail_page',
         ...ownershipWhere,
       },
-      include: detailPageGenerationInclude,
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -70,7 +56,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
   }): Promise<DetailPageGenerationSnapshot | null> {
     const row = await this.prisma.contentGeneration.findFirst({
       where: { id: input.id, organizationId: input.organizationId, isDeleted: false },
-      include: detailPageGenerationInclude,
     });
     return row as DetailPageGenerationSnapshot | null;
   }
@@ -151,17 +136,10 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         editedHtmlSavedAt: true,
         status: true,
         triggeredByUserId: true,
-        generationGroup: {
-          select: {
-            targetMasterId: true,
-          },
-        },
         detailPageArtifact: {
           select: {
             id: true,
             title: true,
-            sourceCandidateId: true,
-            targetMasterId: true,
             currentRevision: {
               select: {
                 id: true,
@@ -191,9 +169,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           generationGroupId: input.source.generationGroupId,
           contentWorkspaceId: input.source.contentWorkspaceId,
           sourceCandidateId:
-            input.source.sourceCandidateId ??
-            input.source.detailPageArtifact?.sourceCandidateId ??
-            null,
+            input.source.sourceCandidateId,
           triggeredByUserId: input.triggeredByUserId ?? input.source.triggeredByUserId,
           templateId: input.source.templateId,
           generationInput: input.source.generationInput as Prisma.InputJsonValue,
@@ -205,20 +181,12 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           editedHtmlSavedAt: input.source.editedHtmlSavedAt,
           status: input.source.status === 'FAILED' ? 'READY' : input.source.status,
         },
-        include: detailPageGenerationInclude,
       });
 
       const artifact = await tx.detailPageArtifact.create({
         data: {
           organizationId: input.organizationId,
           contentWorkspaceId: input.source.contentWorkspaceId,
-          sourceCandidateId:
-            input.source.sourceCandidateId ??
-            input.source.detailPageArtifact?.sourceCandidateId ??
-            null,
-          targetMasterId:
-            input.source.detailPageArtifact?.targetMasterId ??
-            input.source.generationGroup.targetMasterId,
           sourceContentGenerationId: created.id,
           title: input.duplicateTitle,
           status: 'draft',
@@ -261,8 +229,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
 
       return tx.contentGeneration.findFirstOrThrow({
         where: { id: created.id, organizationId: input.organizationId },
-        include: detailPageGenerationInclude,
-      }) as Promise<DetailPageGenerationSnapshot>;
+      });
     });
   }
 
@@ -289,11 +256,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           generatedTitle: true,
           sourceCandidateId: true,
           triggeredByUserId: true,
-          generationGroup: {
-            select: {
-              targetMasterId: true,
-            },
-          },
         },
       }) as DetailPageEditableGenerationSnapshot | null;
       if (!row) throw new NotFoundException('Detail page generation not found');
@@ -310,8 +272,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         data: {
           organizationId: input.organizationId,
           contentWorkspaceId: row.contentWorkspaceId,
-          sourceCandidateId: row.sourceCandidateId,
-          targetMasterId: row.generationGroup.targetMasterId,
           sourceContentGenerationId: input.contentGenerationId,
           title: row.generatedTitle ?? '상세페이지',
           status: 'draft',
@@ -359,25 +319,84 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         throw new NotFoundException('Detail page generation not found');
       }
 
-      if (row.contentWorkspaceId) {
-        await tx.contentWorkspace.updateMany({
-          where: {
-            id: row.contentWorkspaceId,
-            organizationId: input.organizationId,
-            isDeleted: false,
-          },
-          data: {
-            currentDetailPageArtifactId: artifactId,
-            currentDetailPageRevisionId: createdRevision.id,
-          },
-        });
-      }
+      await tx.contentWorkspace.updateMany({
+        where: {
+          id: row.contentWorkspaceId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        data: {
+          currentDetailPageArtifactId: artifactId,
+          currentDetailPageRevisionId: createdRevision.id,
+        },
+      });
 
       return {
         html: createdRevision.html,
         createdAt: createdRevision.createdAt,
       };
     });
+  }
+
+  /**
+   * 후보의 "현재 상세페이지" HTML 1건.
+   *
+   * 우선순위는 워크스페이스의 리비전 포인터(`currentDetailPageRevisionId`), 현재 아티팩트
+   * 포인터(`currentDetailPageArtifactId`)의 `currentRevisionId`, 최신 아티팩트 순이다.
+   * 모두 같은 "저장된 상세페이지" 계약이라 서로 대체 가능하지만, 그 밖의 무엇으로도 대체하지 않는다.
+   * (생성 결과 스냅샷·썸네일·수집 원본으로 폴백하면 엉뚱한 상세페이지가 등록된다.)
+   */
+  async findCandidateCurrentDetailPageHtml(input: {
+    sourceCandidateId: string;
+    organizationId: string;
+  }): Promise<CandidateDetailPageHtmlSnapshot | null> {
+    const revisionSelect = {
+      id: true,
+      artifactId: true,
+      html: true,
+      createdAt: true,
+    } as const;
+
+    const workspace = await this.prisma.contentWorkspace.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        ownerType: 'sourcing_candidate',
+        sourceCandidateId: input.sourceCandidateId,
+        status: 'active',
+        isDeleted: false,
+      },
+      select: {
+        currentDetailPageRevision: { select: revisionSelect },
+        currentDetailPageArtifact: {
+          select: { currentRevision: { select: revisionSelect } },
+        },
+        detailPageArtifacts: {
+          where: {
+            organizationId: input.organizationId,
+            isDeleted: false,
+            currentRevisionId: { not: null },
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: { currentRevision: { select: revisionSelect } },
+        },
+      },
+    });
+    if (!workspace) return null;
+
+    const revision =
+      workspace.currentDetailPageRevision
+      ?? workspace.currentDetailPageArtifact?.currentRevision
+      ?? workspace.detailPageArtifacts[0]?.currentRevision
+      ?? null;
+    if (!revision) return null;
+
+    return {
+      revisionId: revision.id,
+      artifactId: revision.artifactId,
+      html: revision.html,
+      createdAt: revision.createdAt,
+    };
   }
 
   async getEditedHtml(input: { id: string; organizationId: string }) {

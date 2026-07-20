@@ -16,7 +16,7 @@ import {
  * Plan D.1 T6 — ProfitLossService PG integration (live aggregation).
  *
  * T5 が profit-loss.service.ts を ProfitLoss table read から
- * Order + OrderLineItem + ChannelListingOption + MasterProduct + Ad + OrderReturnLineItem
+ * Order + OrderLineItem + ChannelListingOption + component costs + daily ad facts + OrderReturnLineItem
  * への live aggregation に書き換えた。
  *
  * 検証:
@@ -46,35 +46,74 @@ async function setupListing(
       name: `Master ${suffix}`,
       category: '유아용품',
       abcGrade: 'A',
-      optionCounter: 1,
     },
+  });
+  const inventorySku = await prisma.sellpiaInventorySku.create({
+    data: {
+      organizationId,
+      code: `SP-${suffix}`,
+      name: `Sellpia ${suffix}`,
+      purchasePrice: 1000,
+      currentStock: 100,
+    },
+  });
+  const option = await prisma.productVariant.create({
+    data: {
+      organizationId,
+      masterProductId: master.id,
+      code: `VAR-${suffix}`,
+      name: `Variant ${suffix}`,
+      isDefault: true,
+    },
+  });
+  await prisma.productVariantComponent.create({
+    data: {
+      organizationId,
+      productVariantId: option.id,
+      sellpiaInventorySkuId: inventorySku.id,
+      quantity: 1,
+      source: 'manual',
+    },
+  });
+  const channelAccount = await prisma.channelAccount.upsert({
+    where: {
+      organizationId_channel_externalAccountId: {
+        organizationId,
+        channel: 'coupang',
+        externalAccountId: 'profit-loss-test',
+      },
+    },
+    create: {
+      organizationId,
+      channel: 'coupang',
+      name: 'Profit loss test account',
+      externalAccountId: 'profit-loss-test',
+      isPrimary: true,
+    },
+    update: {},
   });
   const listing = await prisma.channelListing.create({
     data: {
       organizationId,
-      masterId: master.id,
-      channel: 'coupang',
+      channelAccountId: channelAccount.id,
+      masterProductId: master.id,
       externalId: `EXT-${suffix}`,
       channelName: `Listing ${suffix}`,
-    },
-  });
-  const option = await prisma.productOption.create({
-    data: {
-      organizationId,
-      masterId: master.id,
-      optionName: `OPT-${suffix}`,
-      sku: `SKU-${suffix}`,
-      costPrice: 1000,
-      commissionRate: 0.1,
-      otherCost: 50,
+      displayName: `Master ${suffix}`,
+      category: '유아용품',
     },
   });
   const listingOption = await prisma.channelListingOption.create({
     data: {
       organizationId,
       listingId: listing.id,
-      optionId: option.id,
+      productVariantId: option.id,
       externalOptionId: `VI-${suffix}`,
+      itemName: `OPT-${suffix}`,
+      sellerSku: `SKU-${suffix}`,
+      costPriceOverride: 1000,
+      commissionRate: 0.1,
+      otherCost: 50,
     },
   });
   return { master, listing, option, listingOption };
@@ -92,10 +131,17 @@ async function createOrder(
     externalOrderId?: string;
   },
 ) {
+  const listingOption = await prisma.channelListingOption.findFirstOrThrow({
+    where: {
+      id: opts.lineItems[0]?.listingOptionId,
+      organizationId,
+    },
+    select: { listing: { select: { channelAccountId: true } } },
+  });
   const order = await prisma.order.create({
     data: {
       organizationId,
-      platform: 'coupang',
+      channelAccountId: listingOption.listing.channelAccountId,
       externalOrderId: opts.externalOrderId ?? `ORD-${Date.now()}-${Math.random()}`,
       orderedAt: opts.orderedAt,
       status: opts.status ?? 'paid',
@@ -110,7 +156,6 @@ async function createOrder(
         organizationId,
         orderId: order.id,
         listingOptionId: li.listingOptionId,
-        optionId: li.optionId,
         quantity: li.quantity ?? 1,
         unitPrice: li.totalPrice,
         totalPrice: li.totalPrice,
@@ -138,11 +183,15 @@ async function seedBulkOrders(
   },
 ) {
   const { organizationId, listingOptionId, optionId, orderCount, lineItemsPerOrder, year, month } = opts;
+  const listingOption = await prisma.channelListingOption.findFirstOrThrow({
+    where: { id: listingOptionId, organizationId },
+    select: { listing: { select: { channelAccountId: true } } },
+  });
 
   // Build all order rows
   const orderRows: Array<{
     organizationId: string;
-    platform: string;
+    channelAccountId: string;
     externalOrderId: string;
     orderedAt: Date;
     status: string;
@@ -156,7 +205,7 @@ async function seedBulkOrders(
   for (let i = 0; i < orderCount; i++) {
     orderRows.push({
       organizationId,
-      platform: 'coupang',
+      channelAccountId: listingOption.listing.channelAccountId,
       externalOrderId: `BULK-${i}-${Date.now()}-${Math.random()}`,
       orderedAt,
       status: 'paid',
@@ -178,7 +227,6 @@ async function seedBulkOrders(
     organizationId: string;
     orderId: string;
     listingOptionId: string;
-    optionId: string;
     quantity: number;
     unitPrice: number;
     totalPrice: number;
@@ -191,7 +239,6 @@ async function seedBulkOrders(
         organizationId,
         orderId: order.id,
         listingOptionId,
-        optionId,
         quantity: 1,
         unitPrice: 10_000,
         totalPrice: 10_000,
@@ -313,7 +360,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     const order = await prisma.order.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        platform: 'coupang',
+        channelAccountId: listA.listing.channelAccountId,
         externalOrderId: 'SHIP-ORD-1',
         orderedAt,
         status: 'paid',
@@ -326,7 +373,6 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
         listingOptionId: listA.listingOption.id,
-        optionId: listA.option.id,
         quantity: 1,
         unitPrice: 9000,
         totalPrice: 9000,
@@ -338,7 +384,6 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
         listingOptionId: listB.listingOption.id,
-        optionId: listB.option.id,
         quantity: 1,
         unitPrice: 3000,
         totalPrice: 3000,
@@ -519,7 +564,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
-        platform: 'coupang',
+        channelAccountId: list.listing.channelAccountId,
         externalReturnId: 'RET-NULL-LO',
         status: 'return_request',
         type: 'RETURN',

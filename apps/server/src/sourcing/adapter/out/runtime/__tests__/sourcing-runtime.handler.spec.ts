@@ -85,7 +85,7 @@ describe('SourcingRuntimeHandler', () => {
       playwright as never,
     );
 
-    await handler.execute(
+    const result = await handler.execute(
       context({
         action: 'market_opportunity_discovery',
         keyword: '실리콘 식판',
@@ -98,10 +98,12 @@ describe('SourcingRuntimeHandler', () => {
         capabilityKey: 'supplier1688.match_products',
         input: expect.objectContaining({
           keyword: '실리콘 식판',
+          mode: 'replay',
           supplierUrl: 'https://detail.1688.com/offer/123.html',
         }),
       }),
     );
+    expect(result.provider).toBe('kiditem-sourcing-replay');
   });
 
   it('routes manual URL intake through the sourcing scrape workflow capability', async () => {

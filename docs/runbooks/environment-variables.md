@@ -158,9 +158,6 @@ same-origin `/api/*` routing.
 | `PORT` | API runtime | Yes | NestJS | `4000` for the API container. |
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
 | `SUPABASE_URL` | Auth | Yes | Supabase JWT/JWKS middleware | Must match the project issuing browser session cookies. |
-| `SOURCING_EXTENSION_TOKEN_SECRET` | Auth/Sourcing | Yes in production | Sourcing extension ingest token signer | Server-only HMAC secret for short-lived extension ingest tokens. Local dev falls back to an ephemeral boot secret. |
-| `SOURCING_EXTENSION_TOKEN_TTL_SECONDS` | Auth/Sourcing | Optional | Sourcing extension ingest token signer | Defaults to `1800` seconds. |
-| `SOURCING_EXTENSION_TOKEN_MAX_SECONDS` | Auth/Sourcing | Optional | Sourcing extension ingest token signer | Defaults to `86400` seconds, allowing long runs without indefinite credentials. |
 | `CORS_ORIGINS` | API runtime | Yes in production | Nest CORS | Comma-separated public origins. Same-origin `/api/*` still works through nginx. |
 | `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
 
@@ -184,6 +181,26 @@ same-origin `/api/*` routing.
 | `S3_PUBLIC_URL` | API runtime | Recommended | Storage service | Public object URL base. If missing, service derives it from endpoint and bucket. |
 | `S3_REGION` | API runtime | Optional | Storage service | Defaults to `us-east-1`; staging uses `ap-northeast-2`. |
 
+## Sourcing Trend Providers
+
+| Variable | Required when | Consumed by | Notes |
+|---|---:|---|---|
+| `YOUTUBE_API_KEY` | Direct YouTube Shorts trend collection is enabled | Sourcing Shorts provider adapter | Server-only YouTube Data API v3 key. When configured, keyword searches collect up to 30 days of short-form candidates and the query API derives 7-day or 30-day rankings. Restrict the key to YouTube Data API v3 and, where possible, the API server IP. When absent, the legacy Shortstrend snapshot provider remains active. |
+| `TAOBAO_TOP_APP_KEY` | Taobao Live official collection is enabled | Sourcing Taobao Live adapter | Alibaba TOP application key. The supported live metadata/content/item APIs do not require seller OAuth, but the AppKey must have access to those APIs. |
+| `TAOBAO_TOP_APP_SECRET` | Taobao Live official collection is enabled | Sourcing Taobao Live adapter | Server-only TOP signing secret. Never expose it to the web app, extension, logs, or Agent OS prompts. |
+| `TAOBAO_TOP_BASE_URL` | A non-production TOP gateway is needed | Sourcing Taobao Live adapter | Optional; defaults to `https://eco.taobao.com/router/rest`. |
+| `TAOBAO_TOP_TIMEOUT_MS` | Custom Taobao TOP timeout is needed | Sourcing Taobao Live adapter | Optional positive integer; defaults to 15000ms. |
+| `SOURCING_LINKFOX_SHADOW_ENABLED` | A paid EchoTik shadow pilot is approved | Market shadow signal service | Must be exactly `1` to arm the treatment. The service still requires an explicit pilot organization allowlist and region. Leave unset or `0` in production. |
+| `SOURCING_LINKFOX_ECHOTIK_REGION` | LinkFox shadow is armed | Market shadow signal service | Required EchoTik region. Supported values: `US`, `GB`, `ID`, `TH`, `PH`, `MY`, `VN`, `MX`, `SG`, `SA`, `BR`, `ES`, `JP`, `DE`, `IT`, `FR`. There is no `KR` fallback. |
+| `SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS` | LinkFox shadow is armed | Market shadow signal service | Comma-separated organization UUID allowlist. An empty list disables all paid calls even when the feature flag is `1`. |
+| `LINKFOX_AGENT_API_KEY` | An allowlisted organization runs the LinkFox treatment | LinkFox EchoTik adapter | Server-only paid API key sent as the raw `Authorization` header. Never expose it to the web, logs, snapshot payloads, or Agent OS prompts. |
+
+Google Trends shadow collection uses the fixed official KR RSS feed and needs
+no credential. Both Google and LinkFox results are stored under
+`market_shadow_signals` with `decisionImpact=disabled`; promotion into sourcing
+scores requires a separate reviewed code change after at least 30 observation
+days.
+
 ## Staging DB Baseline Operations
 
 These variables are not API/web runtime env. `STAGING_DATABASE_URL` is also
@@ -196,6 +213,8 @@ schema/data migrations. The other baseline variables are used only by
 | Variable | Owner | Required when | Notes |
 |---|---|---|---|
 | `STAGING_DATABASE_URL` | GitHub Environment secret | GitHub Actions `staging-deploy` and `staging-db` workflows | Staging Supabase session pooler URL. Deploy uses it for `prisma db push` and `npm run data:migrate`; DB baseline receives it as `DATABASE_URL`. |
+| `STAGING_DATABASE_URL_SHA256` | GitHub Environment secret | Every staging deploy/finalize DB operation | Lowercase SHA-256 of the exact `STAGING_DATABASE_URL`; compared without printing the URL. |
+| `STAGING_DATABASE_NAME` | GitHub Environment variable | Every staging deploy/finalize DB operation | Expected URL pathname and live `current_database()` value. |
 | `DATABASE_URL` | Operator shell | Local DB baseline operation | Staging DB URL only. The CLI refuses mutating operations unless target is explicitly staging. |
 | `STAGING_DB_BASELINE_TARGET` | Operator/workflow guard | Export or restore | Must be `staging`; prevents accidental generic DB mutation. |
 | `STAGING_DB_BASELINE_SANITIZED` | Operator/workflow guard | Export | Must be `true`; operator assertion that the dump contains no production/customer raw data. |
@@ -207,6 +226,12 @@ schema/data migrations. The other baseline variables are used only by
 | `STAGING_DB_BASELINE_PREFIX` | DB baseline storage | Optional | Defaults to `staging-db-baselines`. |
 | `STAGING_DB_BASELINE_PROFILE_ID` | Operator shell | Optional local convenience | Pinned immutable profile id, never `latest`. |
 | `STAGING_DB_BASELINE_RECORD_DIR` | Operator shell | Optional local/EC2 record write | Writes `current-db.json` and `db-history/` after export/restore. |
+
+Production uses parallel protected values `PRODUCTION_DATABASE_URL_SHA256` and
+`PRODUCTION_DATABASE_NAME`. Both deploy workflows also require the non-secret
+dispatch inputs `expected_git_sha` (full 40-hex SHA) and
+`dispatch_correlation_id` (UUID); these are inputs rather than stored runtime
+configuration.
 
 ## Server AI And Models
 
@@ -220,6 +245,9 @@ text/detail/thumbnail/image-edit AI features are enabled.
 | `AI_IMAGE_MODEL` | Thumbnail/editor image generation, image edit, and detail-page generated images | Thumbnail/image-edit Gemini config and detail-page media adapter | Direct AI provider config. Human-triggered and fixed workflow thumbnail/detail/image-edit media generation use this value. Do not use deprecated preview IDs called out by the config. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Thumbnail/image analysis and detail-page image inference | Thumbnail Gemini config and detail-page media adapter | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_VERIFY_MODEL` | Thumbnail compliance verify path | Thumbnail Gemini config | No silent fallback. |
+| `AI_DIRECT_JOB_WORKER_INTERVAL_MS` | Direct AI worker polling needs a non-default interval | AI direct-job worker | Optional; defaults to `1000`. Must be a positive integer; zero does not disable the core worker and fails configuration validation. |
+| `AI_DIRECT_JOB_LEASE_MS` | Direct AI claim leases need a non-default duration | AI direct-job worker | Optional; defaults to `60000`. Must be a positive integer. The heartbeat runs at one third of the lease. |
+| `AI_PROVIDER_TIMEOUT_MS` | A direct AI job needs a non-default total execution budget | AI direct-job worker | Optional; defaults to `1200000` (20 minutes) so multi-image detail-page jobs can finish within their 15-minute generated-image budget. Must be a positive integer. Timeout aborts the whole job and is retryable. Each Gemini SDK call still carries its own 120-second HTTP timeout. |
 | `AGENT_OS_OPERATOR_RUNTIME` | Agent OS Operator should use a non-deterministic provider runtime | Nest Agent OS Operator runtime handler | Set `hermes_tool_loop` for the current Hermes tool-loop runtime. `hermes` remains a legacy/dev final-decision fallback. `openai_responses` remains a hosted API fallback/eval path. Missing value keeps the deterministic local path. |
 | `AGENT_OS_HERMES_PATH` | Agent OS `hermes_tool_loop` or legacy `hermes` runtime is enabled and Hermes is not on `PATH` | Nest Agent OS Hermes runtime | Optional Hermes CLI binary path. Defaults to `hermes`; missing binaries fail closed with `operator_runtime_unavailable`. |
 | `AGENT_OS_HERMES_MODEL` | Agent OS `hermes_tool_loop` or legacy `hermes` runtime is enabled | Nest Agent OS Hermes runtime and Hermes CLI harness | Explicit Hermes model selection is required; no silent default. |
@@ -245,10 +273,9 @@ keyword research is intentionally enabled.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
-| `NAVER_DATALAB_CLIENT_ID` | Naver DataLab trend verification is enabled | Sourcing Naver DataLab adapter | Developer Center application client id. Server-side only. |
-| `NAVER_DATALAB_CLIENT_SECRET` | Naver DataLab trend verification is enabled | Sourcing Naver DataLab adapter | Developer Center application secret. Never expose to web or agents. |
-| `NAVER_DATALAB_BASE_URL` | Non-production DataLab endpoint override is needed | Sourcing Naver DataLab adapter | Optional. Defaults to `https://openapi.naver.com`. |
-| `NAVER_DATALAB_WEB_BASE_URL` | Non-production DataLab web endpoint override is needed | Sourcing DataLab popular keyword adapter | Optional. Defaults to `https://datalab.naver.com`. Used for Shopping Insight popular keyword boards. |
+| `NAVER_API_HUB_CLIENT_ID` | NAVER Search Trend or Shopping Insight is enabled | Sourcing NAVER API HUB adapters | NAVER Cloud Platform API HUB client id. Server-side only. |
+| `NAVER_API_HUB_CLIENT_SECRET` | NAVER Search Trend or Shopping Insight is enabled | Sourcing NAVER API HUB adapters | Client secret paired with the API HUB client id. Never expose to web or agents. |
+| `NAVER_API_HUB_BASE_URL` | Non-production API HUB endpoint override is needed | Sourcing NAVER API HUB adapters | Optional. Defaults to `https://naverapihub.apigw.ntruss.com`. |
 | `NAVER_SEARCHAD_API_KEY` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | Access license from Naver SearchAd API manager. Server-side only. |
 | `NAVER_SEARCHAD_SECRET_KEY` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | HMAC signing secret. Never expose to web or agents. |
 | `NAVER_SEARCHAD_CUSTOMER_ID` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | SearchAd advertiser customer id used in `X-Customer`. |
@@ -315,7 +342,7 @@ The deployed API blocks current Coupang Wing scraping paths when
 | `PLAYWRITER_BROWSER_PROFILE_DIR` | Custom Chrome profile needed | Coupang inventory scrape adapter | Local/operator use. |
 | `PLAYWRITER_DIRECT_PORT` | Custom Chrome CDP port needed | Coupang inventory scrape adapter | Defaults to `9222`. |
 | `PUPPETEER_EXECUTABLE_PATH` | Puppeteer render path uses a non-default browser | Render image controller | Docker server image sets `/usr/bin/chromium`; staging API builds install Chromium and smoke-check Puppeteer launch after deploy. |
-| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Sourcing URL scrape should reuse a logged-in managed browser session | Sourcing Playwright runtime | Optional CDP endpoint such as `http://127.0.0.1:9222`. Use a dedicated managed browser/profile where the user has completed 1688 login or verification; do not point production at a personal default Chrome profile. |
+| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Sourcing URL scrape or the 1688 keyword browser fallback should reuse a managed browser session | Sourcing Playwright runtime; direct 1688 keyword search adapter | Optional loopback CDP endpoint such as `http://127.0.0.1:9222`. Use a dedicated managed automation profile; never point it at a personal default Chrome profile. A saved login and a request-level CAPTCHA/user-validation challenge are separate states, so complete any challenge in this managed browser. |
 | `SOURCING_PLAYWRIGHT_USER_DATA_DIR` | Sourcing URL scrape needs a prepared browser login session | Sourcing Playwright runtime | Defaults to `.kiditem/playwright/sourcing`. Use a dedicated automation profile, not a personal default Chrome profile. |
 | `SOURCING_PLAYWRIGHT_HEADLESS` | Local sourcing scrape login/profile debugging | Sourcing Playwright runtime | Defaults to `true`; set `false` while preparing or debugging the 1688/Alibaba profile. |
 
@@ -363,10 +390,26 @@ STAGING_DB_BASELINE_S3_ENDPOINT
 STAGING_DB_BASELINE_S3_REGION
 STAGING_DIRECT_1688_MTOP_BASE_URL
 STAGING_HOST
-STAGING_NAVER_DATALAB_BASE_URL
-STAGING_NAVER_DATALAB_WEB_BASE_URL
+STAGING_NAVER_API_HUB_BASE_URL
 STAGING_NAVER_SEARCHAD_BASE_URL
 STAGING_REMOTE_DIR
+STAGING_REBUILD_ORGANIZATION_ID
+STAGING_REBUILD_ORGANIZATION_NAME
+STAGING_REBUILD_ORGANIZATION_SLUG
+STAGING_REBUILD_USER_ID
+STAGING_REBUILD_USER_NAME
+STAGING_REBUILD_COUPANG_ACCOUNT_ID
+STAGING_REBUILD_COUPANG_ACCOUNT_NAME
+STAGING_REBUILD_ROCKET_ACCOUNT_ID
+STAGING_REBUILD_ROCKET_ACCOUNT_NAME
+STAGING_REBUILD_SELLPIA_FILE_SHA256
+STAGING_REBUILD_SELLPIA_ROW_COUNT
+STAGING_REBUILD_WING_FILE_SHA256
+STAGING_REBUILD_WING_ROW_COUNT
+STAGING_REBUILD_EXPECTED_ACTIVE_MASTERS
+STAGING_REBUILD_EXPECTED_LISTINGS
+STAGING_REBUILD_EXPECTED_CHANNEL_SKUS
+STAGING_REBUILD_EXPECTED_API_ORIGIN
 STAGING_S3_BUCKET
 STAGING_S3_ENDPOINT
 STAGING_S3_PUBLIC_URL
@@ -382,12 +425,18 @@ Secrets:
 ```text
 STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY
 STAGING_DATABASE_URL
+STAGING_REBUILD_USER_EMAIL
+STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID
+STAGING_REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID
+STAGING_REBUILD_EXPECTED_DATABASE_HOST
+STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF
+STAGING_SUPABASE_SECRET_KEY
 STAGING_DB_BASELINE_S3_ACCESS_KEY
 STAGING_DB_BASELINE_S3_SECRET_KEY
 STAGING_DIRECT_URL
 STAGING_GEMINI_API_KEY
-STAGING_NAVER_DATALAB_CLIENT_ID
-STAGING_NAVER_DATALAB_CLIENT_SECRET
+STAGING_NAVER_API_HUB_CLIENT_ID
+STAGING_NAVER_API_HUB_CLIENT_SECRET
 STAGING_NAVER_SEARCHAD_API_KEY
 STAGING_NAVER_SEARCHAD_CUSTOMER_ID
 STAGING_NAVER_SEARCHAD_SECRET_KEY
@@ -400,6 +449,58 @@ STAGING_TMAPI_TOKEN
 
 The workflow uses the short-lived `GITHUB_TOKEN` for GHCR push/pull. Do not add
 a long-lived GHCR token unless organization policy blocks `GITHUB_TOKEN`.
+
+### Authoritative rebuild configuration
+
+The `*_REBUILD_*` values are consumed only by the guarded `0.1.24` rebuild and
+its finalization. Production uses the same suffixes with the `PRODUCTION_`
+prefix. The production user email, external account IDs, and Supabase secret
+must be GitHub Environment secrets; the other baseline IDs/names and approved
+acceptance counts are Environment variables.
+
+The following protected values are mandatory and have no generic or
+cross-environment fallback. Staging and production must each define their own
+exact names in the matching GitHub Environment:
+
+| Purpose | Staging | Production | Kind |
+|---|---|---|---|
+| Database host fingerprint | `STAGING_REBUILD_EXPECTED_DATABASE_HOST` | `PRODUCTION_REBUILD_EXPECTED_DATABASE_HOST` | Secret |
+| Supabase project fingerprint and credential destination | `STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF` | `PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF` | Secret |
+| Database-resident organization ID | `STAGING_REBUILD_ORGANIZATION_ID` | `PRODUCTION_REBUILD_ORGANIZATION_ID` | Variable |
+| Database-resident organization slug | `STAGING_REBUILD_ORGANIZATION_SLUG` | `PRODUCTION_REBUILD_ORGANIZATION_SLUG` | Variable |
+| Database-resident Coupang account ID | `STAGING_REBUILD_COUPANG_ACCOUNT_ID` | `PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID` | Variable |
+| Database-resident Coupang external account identity | `STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | `PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | Secret |
+| Exact HTTPS API origin used for replay | `STAGING_REBUILD_EXPECTED_API_ORIGIN` | `PRODUCTION_REBUILD_EXPECTED_API_ORIGIN` | Variable |
+| Approved Sellpia workbook SHA-256 | `STAGING_REBUILD_SELLPIA_FILE_SHA256` | `PRODUCTION_REBUILD_SELLPIA_FILE_SHA256` | Variable |
+| Approved Sellpia workbook imported row count | `STAGING_REBUILD_SELLPIA_ROW_COUNT` | `PRODUCTION_REBUILD_SELLPIA_ROW_COUNT` | Variable |
+| Approved Wing workbook SHA-256 | `STAGING_REBUILD_WING_FILE_SHA256` | `PRODUCTION_REBUILD_WING_FILE_SHA256` | Variable |
+| Approved Wing workbook imported row count | `STAGING_REBUILD_WING_ROW_COUNT` | `PRODUCTION_REBUILD_WING_ROW_COUNT` | Variable |
+
+The first phase also requires the target `*_DATABASE_URL`, baseline
+`*_REBUILD_ORGANIZATION_NAME`, `*_REBUILD_USER_ID`,
+`*_REBUILD_USER_EMAIL`, `*_REBUILD_USER_NAME`, and
+`*_REBUILD_COUPANG_ACCOUNT_NAME`. Finalization additionally requires the
+target `*_SUPABASE_URL`, `*_SUPABASE_SECRET_KEY`, and all three exact positive
+count variables. `*_REBUILD_USER_EMAIL`, external account IDs, database URL,
+database host/project fingerprints, and Supabase secret key are secrets; IDs,
+names, URL origins, Supabase URL, and expected counts are variables. The
+optional Rocket ID/name/external-ID trio remains all-or-none.
+
+`*_REBUILD_EXPECTED_ACTIVE_MASTERS`, `*_REBUILD_EXPECTED_LISTINGS`, and
+`*_REBUILD_EXPECTED_CHANNEL_SKUS` have no defaults. Set them from the approved
+Sellpia/Wing import manifest immediately before the operation. Missing,
+non-positive, or mismatched values prevent ready state. Optional Rocket account
+ID/name/external-ID values must be provided as a complete trio or all omitted.
+The two `*_FILE_SHA256` values and their row counts also have no defaults. The
+pre-reset account preflight binds them to the originating run. Replay accepts
+only one completed Sellpia run followed by one completed Wing run with those
+exact hashes and row counts, stores their run IDs once, and finalization must
+observe the same binding.
+
+The workflow artifact contains only sanitized Coupang replay payloads and
+manifest-derived replay counts. These Environment values, Supabase secrets,
+source workbooks, channel credentials/config, PII, and legacy mapping tables
+must never be written to that artifact.
 
 ## Current Staging Verification
 
@@ -433,7 +534,7 @@ ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
   docker exec kiditem-staging-api sh -lc '"'"'
     for k in OPENAI_API_KEY GEMINI_API_KEY AI_TEXT_MODEL AI_IMAGE_MODEL \
       AI_IMAGE_ANALYSIS_MODEL AI_IMAGE_ANALYSIS_VERIFY_MODEL \
-      NAVER_DATALAB_CLIENT_ID NAVER_DATALAB_CLIENT_SECRET NAVER_DATALAB_WEB_BASE_URL \
+      NAVER_API_HUB_CLIENT_ID NAVER_API_HUB_CLIENT_SECRET NAVER_API_HUB_BASE_URL \
       NAVER_SEARCHAD_API_KEY NAVER_SEARCHAD_SECRET_KEY NAVER_SEARCHAD_CUSTOMER_ID \
       CHANNEL_CREDENTIALS_ENCRYPTION_KEY \
       AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL \

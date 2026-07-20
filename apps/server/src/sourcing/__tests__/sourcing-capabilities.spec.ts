@@ -8,6 +8,7 @@ import {
   SOURCING_SCRAPE_PRODUCT_URL_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
 } from '../application/port/in/capability/sourcing-capability.ports';
+import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from '../application/port/in/capability/market-shadow-capability.port';
 import { SOURCING_CAPABILITIES } from '../domain/capability/sourcing.capabilities';
 
 describe('sourcing capability manifest', () => {
@@ -18,6 +19,7 @@ describe('sourcing capability manifest', () => {
       'sourcing.ingestCandidate',
       'sourcing.scrapeUrlWorkflow',
       'market.collect_keyword_category_rankings',
+      'market.collect_shadow_signals',
       'coupang.match_products',
       'coupang.collect_tracking_snapshot',
       'supplier1688.match_products',
@@ -31,12 +33,33 @@ describe('sourcing capability manifest', () => {
     const keys = new Set(SOURCING_CAPABILITIES.map((capability) => capability.key));
 
     expect(keys.has('market.collect_keyword_category_rankings')).toBe(true);
+    expect(keys.has('market.collect_shadow_signals')).toBe(true);
     expect(keys.has('coupang.match_products')).toBe(true);
     expect(keys.has('coupang.collect_tracking_snapshot')).toBe(true);
     expect(keys.has('supplier1688.match_products')).toBe(true);
     expect(keys.has('sourcing.score_opportunities')).toBe(true);
     expect(keys.has('sourcing.create_recommendation_packet')).toBe(true);
     expect(keys.has('product_listing.create_generation_package')).toBe(true);
+  });
+
+  it('publishes discovery as persisted replay with confidence and data gaps', () => {
+    const discoveryCapabilities = SOURCING_CAPABILITIES.filter((capability) => [
+      'market.collect_keyword_category_rankings',
+      'coupang.match_products',
+      'coupang.collect_tracking_snapshot',
+      'supplier1688.match_products',
+      'sourcing.score_opportunities',
+      'sourcing.create_recommendation_packet',
+    ].includes(capability.key));
+
+    for (const capability of discoveryCapabilities) {
+      expect(capability.inputSchema).toMatchObject({ mode: 'replay' });
+      expect(capability.outputSchema).toMatchObject({
+        confidence: 'number',
+        dataGaps: 'string[]',
+      });
+      expect(JSON.stringify(capability)).not.toContain('stub');
+    }
   });
 
   it('marks listing-prep generation as a write workflow that enqueues AI jobs', () => {
@@ -47,6 +70,21 @@ describe('sourcing capability manifest', () => {
     ).toMatchObject({
       kind: 'workflow',
       effects: ['db_write', 'job_enqueue'],
+      idempotency: 'required',
+      visibility: 'agent',
+    });
+  });
+
+  it('keeps external market signals in a disabled shadow workflow', () => {
+    expect(
+      SOURCING_CAPABILITIES.find(
+        (capability) => capability.key === 'market.collect_shadow_signals',
+      ),
+    ).toMatchObject({
+      kind: 'workflow',
+      outputSchema: { decisionImpact: 'disabled' },
+      effects: ['read', 'external_io', 'db_write'],
+      approval: 'on_write',
       idempotency: 'required',
       visibility: 'agent',
     });
@@ -124,6 +162,10 @@ describe('sourcing capability manifest', () => {
       'market.collect_keyword_category_rankings': {
         type: 'incoming_port',
         token: SOURCING_DISCOVERY_CAPABILITY_PORT.description,
+      },
+      'market.collect_shadow_signals': {
+        type: 'incoming_port',
+        token: MARKET_SHADOW_COLLECTION_CAPABILITY_PORT.description,
       },
       'coupang.match_products': {
         type: 'incoming_port',

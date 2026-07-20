@@ -43,16 +43,20 @@ describe('product pipeline DB model contract', () => {
     assert.ok(dbPush < postSchema, 'post-schema backfills must run after Prisma db push');
   });
 
-  it('preflights ChannelListing duplicate safety before accepting staging data loss', () => {
+  it('exports approved state and quiesces traffic before the guarded staging reset', () => {
     const workflow = readModelFile('.github/workflows/staging-deploy.yml');
-    const preflight = workflow.indexOf('Check staging data-loss preflight');
-    const acceptDataLoss = workflow.indexOf('npx prisma db push --accept-data-loss');
+    const guard = workflow.indexOf('Validate staging rebuild confirmation');
+    const exported = workflow.indexOf('Export approved Coupang replay bundle');
+    const quiesced = workflow.indexOf('Quiesce staging application traffic');
+    const forceReset = workflow.indexOf('npx prisma db push --force-reset');
+    const bootstrap = workflow.indexOf('Bootstrap staging authentication and account baseline');
 
-    assert.ok(preflight !== -1, 'expected staging deploy to preflight reviewed data-loss gates');
-    assert.ok(preflight < acceptDataLoss, 'data-loss preflight must run before --accept-data-loss');
-    assert.match(workflow, /channel_listings_org_account_external_id_key/);
-    assert.match(workflow, /GROUP BY organization_id,\s*channel_account_id,\s*external_id/);
-    assert.match(workflow, /HAVING count\(\*\) > 1/);
+    assert.ok(guard !== -1, 'expected an exact shared rebuild guard');
+    assert.ok(guard < quiesced, 'guard must pass before traffic is quiesced');
+    assert.ok(quiesced < exported, 'traffic must be quiesced before the consistent export');
+    assert.ok(exported < forceReset, 'private export must finish before the force reset');
+    assert.ok(forceReset < bootstrap, 'minimum baseline must be created after the final schema');
+    assert.doesNotMatch(workflow, /--accept-data-loss|check-sellpia-db-push-warning/);
   });
 
   it('verifies the public staging URL after EC2 deploy', () => {
@@ -197,43 +201,33 @@ describe('product pipeline DB model contract', () => {
     assert.doesNotMatch(aiSchema, /registrationWorkspaceId\s+String\?\s+@map\("registration_workspace_id"\)/);
   });
 
-  it('defines ProductPreparation as candidate-to-master preparation state without unique master ownership', () => {
+  it('defines ProductPreparation as a channel-scoped registration attempt', () => {
     const aiSchema = readModelFile('prisma/models/ai.prisma');
     const model = extractModel(aiSchema, 'ProductPreparation');
 
-    assert.match(model, /sourceCandidateId\s+String\?\s+@map\("source_candidate_id"\)\s+@db\.Uuid/);
-    assert.match(model, /masterId\s+String\?\s+@map\("master_id"\)\s+@db\.Uuid/);
-    assert.match(model, /contentWorkspaceId\s+String\?\s+@map\("content_workspace_id"\)\s+@db\.Uuid/);
-    assert.match(model, /isCurrentForMaster\s+Boolean\s+@default\(false\)\s+@map\("is_current_for_master"\)/);
-    assert.match(model, /appliedToMasterAt\s+DateTime\?\s+@map\("applied_to_master_at"\)\s+@db\.Timestamptz/);
-
-    assert.match(
-      model,
-      /@@unique\(\[organizationId,\s*masterId\][\s\S]*master_id IS NOT NULL AND is_current_for_master = true AND is_deleted = false/,
-    );
-    assert.doesNotMatch(
-      model,
-      /@@unique\(\[organizationId,\s*masterId\][\s\S]*master_id IS NOT NULL AND is_deleted = false"\)/,
-      'masterId itself must not be unique; many preparations can feed one MasterProduct',
-    );
+    assert.match(model, /sourceCandidateId\s+String\s+@map\("source_candidate_id"\)\s+@db\.Uuid/);
+    assert.match(model, /channelAccountId\s+String\s+@map\("channel_account_id"\)\s+@db\.Uuid/);
+    assert.match(model, /sourceContentWorkspaceId\s+String\s+@map\("source_content_workspace_id"\)\s+@db\.Uuid/);
+    assert.match(model, /submissionKey\s+String\s+@map\("submission_key"\)/);
+    assert.doesNotMatch(model, /\bmasterId\b|\bcontentWorkspaceId\b|isCurrentForMaster|appliedToMasterAt/);
+    assert.match(model, /@@unique\(\[organizationId,\s*sourceCandidateId,\s*channelAccountId\]/);
   });
 
-  it('indexes all ProductPreparation foreign keys and common current-master lookups', () => {
+  it('indexes all final ProductPreparation foreign keys', () => {
     const aiSchema = readModelFile('prisma/models/ai.prisma');
     const model = extractModel(aiSchema, 'ProductPreparation');
 
     for (const index of [
       '@@index([sourceCandidateId])',
-      '@@index([masterId])',
-      '@@index([contentWorkspaceId])',
+      '@@index([channelAccountId])',
+      '@@index([sourceContentWorkspaceId])',
+      '@@index([channelListingId])',
       '@@index([selectedDetailPageArtifactId])',
       '@@index([selectedDetailPageRevisionId])',
       '@@index([selectedDetailPageGenerationId])',
       '@@index([selectedThumbnailGenerationId])',
       '@@index([selectedThumbnailGenerationCandidateId])',
       '@@index([createdByUserId])',
-      '@@index([organizationId, masterId, isDeleted])',
-      '@@index([organizationId, masterId, isCurrentForMaster, isDeleted])',
     ]) {
       assert.ok(model.includes(index), `Expected ProductPreparation to include ${index}`);
     }
@@ -244,31 +238,32 @@ describe('product pipeline DB model contract', () => {
     const listing = extractModel(coreSchema, 'ChannelListing');
     const account = extractModel(coreSchema, 'ChannelAccount');
 
-    assert.match(listing, /channelAccountId\s+String\?\s+@map\("channel_account_id"\)\s+@db\.Uuid/);
+    assert.match(listing, /channelAccountId\s+String\s+@map\("channel_account_id"\)\s+@db\.Uuid/);
     assert.match(
       listing,
-      /channelAccount\s+ChannelAccount\?\s+@relation\(fields:\s*\[channelAccountId\],\s*references:\s*\[id\],\s*onDelete:\s*SetNull\)/,
+      /channelAccount\s+ChannelAccount\s+@relation\(fields:\s*\[channelAccountId,\s*organizationId\],\s*references:\s*\[id,\s*organizationId\],\s*onDelete:\s*Restrict\)/,
     );
     assert.match(account, /listings\s+ChannelListing\[\]/);
+    assert.match(account, /@@unique\(\[id,\s*organizationId\]/);
 
     for (const index of [
       '@@index([channelAccountId])',
-      '@@index([organizationId, channelAccountId, isDeleted])',
-      '@@index([organizationId, channel, isDeleted])',
-      '@@index([organizationId, masterId, isDeleted])',
-      '@@index([organizationId, isDeleted, updatedAt, id])',
+      '@@index([organizationId, channelAccountId, isActive])',
+      '@@index([organizationId, updatedAt, id])',
     ]) {
       assert.ok(listing.includes(index), `Expected ChannelListing to include ${index}`);
     }
 
     assert.match(
       listing,
-      /@@unique\(\[organizationId,\s*channelAccountId,\s*externalId\][\s\S]*is_deleted = false AND channel_account_id IS NOT NULL/,
+      /@@unique\(\[organizationId,\s*channelAccountId,\s*externalId\]\)/,
     );
     assert.doesNotMatch(
       listing,
       /@@unique\(\[organizationId,\s*channel,\s*externalId\]/,
       'ChannelListing externalId uniqueness must be channel-account scoped so one organization can connect multiple accounts on the same channel',
     );
+    assert.doesNotMatch(listing, /^\s*(?:masterId|channel|channelPrice)\s+/m);
+    assert.match(listing, /^\s*rawJson\s+Json\?/m);
   });
 });

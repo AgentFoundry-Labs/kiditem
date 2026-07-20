@@ -5,6 +5,7 @@
   "scripts": {
     "build": "nest build",
     "start": "nest start",
+    "prestart:dev": "node scripts/setup-coupang-directship-python.mjs",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
     "start:worker:prod": "node dist/worker.js",
@@ -19,6 +20,7 @@
     "@copilotkit/runtime": "^1.57.1",
     "@google/genai": "^1.52.0",
     "@kiditem/shared": "*",
+    "@kiditem/templates": "*",
     "@langchain/core": "^1.1.39",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nestjs/common": "^11.0.0",
@@ -34,6 +36,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.6.1",
     "express": "^5.2.0",
+    "fast-xml-parser": "5.7.3",
     "jose": "^6.0.0",
     "officecrypto-tool": "^0.0.19",
     "playwright": "^1.60.0",

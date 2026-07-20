@@ -17,6 +17,7 @@ import AdsCsvUpload from './components/AdsCsvUpload';
 import TrafficUpload from './components/TrafficUpload';
 import ReportDownload from './components/ReportDownload';
 import PrinterSettings from './components/PrinterSettings';
+import DeletionPasswordSettings from './components/DeletionPasswordSettings';
 
 export interface SyncResult {
   synced: number;
@@ -110,7 +111,7 @@ export default function SettingsPage() {
           <Settings className="w-6 h-6 text-slate-600" />
           설정
         </h1>
-        <p className="text-sm text-slate-500 mt-1">쿠팡 API 연동, 데이터 동기화, 보고서를 관리합니다.</p>
+        <p className="text-sm text-slate-500 mt-1">쿠팡 API 연동, 데이터 동기화, 보고서, 삭제 보안을 관리합니다.</p>
       </div>
 
       <CoupangTab
@@ -140,6 +141,8 @@ export default function SettingsPage() {
       <ReportDownload />
 
       <PrinterSettings />
+
+      <DeletionPasswordSettings />
 
       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200 text-sm text-blue-800">
         <strong>참고:</strong> API 호출 제한이 있으므로 동기화는 필요할 때만 실행하세요. 저장된 쿠팡 API 설정은 현재 조직의 채널 계정에만 적용됩니다.

@@ -17,6 +17,24 @@ import { PURCHASE_ORDER_SUBMISSION_PORT } from '../application/port/in/procureme
 import { SUPPLIER_REPOSITORY_PORT } from '../application/port/out/repository/supplier.repository.port';
 import { PROCUREMENT_REPOSITORY_PORT } from '../application/port/out/repository/procurement.repository.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from '../application/port/out/runtime/purchase-order-checkout-runtime.port';
+import { InventoryModule } from '../../inventory/inventory.module';
+import { PurchaseOrderSubmissionTransactionAdapter } from '../adapter/out/transaction/purchase-order-submission.transaction.adapter';
+import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from '../application/port/out/transaction/purchase-order-submission.transaction.port';
+import { ChannelsModule } from '../../channels/channels.module';
+import { RocketPurchasePreviewService } from '../application/service/rocket-purchase-preview.service';
+import { ROCKET_PURCHASE_PREVIEW_PORT } from '../application/port/in/procurement/rocket-purchase-preview.port';
+import { RocketPurchaseConfirmationService } from '../application/service/rocket-purchase-confirmation.service';
+import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
+import { ROCKET_PURCHASE_CONFIRMATION_PORT } from '../application/port/in/procurement/rocket-purchase-confirmation.port';
+import { ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT } from '../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
+import { RocketFinalOrderReconciliationService } from '../application/service/rocket-final-order-reconciliation.service';
+import { RocketFinalOrderReconciliationTransactionAdapter } from '../adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
+import { ROCKET_FINAL_ORDER_RECONCILIATION_PORT } from '../application/port/in/procurement/rocket-final-order-reconciliation.port';
+import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from '../application/port/out/transaction/rocket-final-order-reconciliation.transaction.port';
+import { RocketPurchaseCommitmentQueryService } from '../application/service/rocket-purchase-commitment-query.service';
+import { RocketPurchaseConfirmationQueryRepositoryAdapter } from '../adapter/out/repository/rocket-purchase-confirmation-query.repository.adapter';
+import { ROCKET_PURCHASE_COMMITMENT_QUERY_PORT } from '../application/port/in/procurement/rocket-purchase-commitment-query.port';
+import { ROCKET_PURCHASE_CONFIRMATION_QUERY_REPOSITORY_PORT } from '../application/port/out/repository/rocket-purchase-confirmation-query.repository.port';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const CONTROLLERS_KEY = 'controllers';
@@ -51,9 +69,19 @@ describe('SupplyModule owner wiring', () => {
       ProcurementService,
       PurchaseOrderDraftService,
       PurchaseOrderSubmissionService,
+      RocketPurchasePreviewService,
+      RocketPurchaseConfirmationService,
+      RocketFinalOrderReconciliationService,
+      RocketPurchaseCommitmentQueryService,
     ]) {
       expect(providers).toContain(cls);
     }
+  });
+
+  it('imports InventoryModule so submission consumes owner-provided gate ports', () => {
+    const imports: unknown[] = Reflect.getMetadata('imports', SupplyModule) ?? [];
+    expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(ChannelsModule);
   });
 
   it('binds outgoing repository ports to local adapters', () => {
@@ -64,6 +92,10 @@ describe('SupplyModule owner wiring', () => {
     expect(providers).toContain(SupplyAgentCapabilityAdapter);
     expect(providers).toContain(Alibaba1688CheckoutRuntimeAdapter);
     expect(providers).toContain(OrderAgentRuntimeHandler);
+    expect(providers).toContain(PurchaseOrderSubmissionTransactionAdapter);
+    expect(providers).toContain(RocketPurchaseConfirmationTransactionAdapter);
+    expect(providers).toContain(RocketFinalOrderReconciliationTransactionAdapter);
+    expect(providers).toContain(RocketPurchaseConfirmationQueryRepositoryAdapter);
     expectBinding(providers, PURCHASE_ORDER_DRAFT_PORT, PurchaseOrderDraftService);
     expectBinding(providers, PURCHASE_ORDER_SUBMISSION_PORT, PurchaseOrderSubmissionService);
     expectBinding(providers, SUPPLIER_REPOSITORY_PORT, SupplierRepositoryAdapter);
@@ -73,6 +105,48 @@ describe('SupplyModule owner wiring', () => {
       PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT,
       Alibaba1688CheckoutRuntimeAdapter,
     );
+    expectBinding(
+      providers,
+      PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT,
+      PurchaseOrderSubmissionTransactionAdapter,
+    );
+    expectBinding(
+      providers,
+      ROCKET_PURCHASE_PREVIEW_PORT,
+      RocketPurchasePreviewService,
+    );
+    expectBinding(
+      providers,
+      ROCKET_PURCHASE_CONFIRMATION_PORT,
+      RocketPurchaseConfirmationService,
+    );
+    expectBinding(
+      providers,
+      ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT,
+      RocketPurchaseConfirmationTransactionAdapter,
+    );
+    expectBinding(
+      providers,
+      ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT,
+      RocketFinalOrderReconciliationTransactionAdapter,
+    );
+    expectBinding(
+      providers,
+      ROCKET_FINAL_ORDER_RECONCILIATION_PORT,
+      RocketFinalOrderReconciliationService,
+    );
+    expectBinding(
+      providers,
+      ROCKET_PURCHASE_CONFIRMATION_QUERY_REPOSITORY_PORT,
+      RocketPurchaseConfirmationQueryRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      ROCKET_PURCHASE_COMMITMENT_QUERY_PORT,
+      RocketPurchaseCommitmentQueryService,
+    );
+    const exports: unknown[] = Reflect.getMetadata('exports', SupplyModule) ?? [];
+    expect(exports).toContain(ROCKET_FINAL_ORDER_RECONCILIATION_PORT);
   });
 
   it('keeps public /api route prefixes', () => {

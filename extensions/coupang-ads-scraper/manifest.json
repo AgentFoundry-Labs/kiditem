@@ -2,52 +2,116 @@
   "manifest_version": 3,
   "name": "KIDITEM OS - 쿠팡 셀러 도우미",
   "description": "쿠팡 Wing/광고센터 데이터를 자동 수집하여 KIDITEM OS 대시보드에 연동합니다.",
-  "version": "1.2.14",
-  "permissions": ["activeTab", "storage", "tabs", "scripting", "sidePanel", "alarms"],
+  "version": "1.2.65",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "scripting",
+    "sidePanel",
+    "alarms"
+  ],
   "externally_connectable": {
-    "matches": ["http://localhost:3000/*"]
+    "matches": [
+      "http://localhost:3000/*"
+    ]
   },
   "host_permissions": [
     "https://wing.coupang.com/*",
     "https://www.coupang.com/*",
+    "https://shop.coupang.com/*",
     "https://advertising.coupang.com/*",
     "http://localhost:3000/*",
-    "http://localhost:4000/*"
+    "http://localhost:4000/*",
+    "http://localhost:9000/*"
   ],
   "content_scripts": [
     {
-      "matches": ["https://wing.coupang.com/*"],
-      "js": ["utils/dom.js", "content/wing-unified.js"],
+      "matches": [
+        "https://wing.coupang.com/*"
+      ],
+      "js": [
+        "utils/dom.js",
+        "content/wing-unified.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://wing.coupang.com/*"],
-      "js": ["content/wing-thumbnail-register.js"],
+      "matches": [
+        "https://wing.coupang.com/*"
+      ],
+      "js": [
+        "content/wing-thumbnail-register.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://wing.coupang.com/vendor-inventory/list*"],
-      "js": ["content/wing-inventory-scraper.js"],
+      "matches": [
+        "https://wing.coupang.com/vendor-inventory/list*"
+      ],
+      "js": [
+        "shared/coupang-catalog-collector.js",
+        "content/wing-inventory-scraper.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://wing.coupang.com/vendor-inventory/list*"],
-      "js": ["content/wing-product-edit.js"],
+      "matches": [
+        "https://wing.coupang.com/vendor-inventory/list*"
+      ],
+      "js": [
+        "content/wing-product-edit.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://wing.coupang.com/tenants/seller-web/vendor-inventory/list*"],
-      "js": ["content/wing-inventory-scraper.js"],
+      "matches": [
+        "https://wing.coupang.com/vendor-inventory/list*",
+        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list*"
+      ],
+      "js": [
+        "shared/wing-account-identity.js",
+        "content/wing-product-delete.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://advertising.coupang.com/*"],
-      "js": ["utils/dom.js", "content/ads-report.js"],
+      "matches": [
+        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2*"
+      ],
+      "js": [
+        "shared/wing-account-identity.js",
+        "content/wing-registration-fill.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["http://localhost:3000/*"],
-      "js": ["content/host-bridge.js"],
+      "matches": [
+        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list*"
+      ],
+      "js": [
+        "shared/coupang-catalog-collector.js",
+        "content/wing-inventory-scraper.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://advertising.coupang.com/*"
+      ],
+      "js": [
+        "utils/dom.js",
+        "content/ads-report.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost:3000/*"
+      ],
+      "js": [
+        "content/host-bridge.js"
+      ],
       "run_at": "document_start",
       "all_frames": false
     }

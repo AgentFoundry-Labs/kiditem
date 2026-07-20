@@ -18,12 +18,18 @@ usage() {
   cat <<'USAGE'
 Usage:
   deploy/staging/remote-deploy.sh deploy
+  deploy/staging/remote-deploy.sh quiesce
+  deploy/staging/remote-deploy.sh resume
   deploy/staging/remote-deploy.sh status
 
 Deploy mode requires KIDITEM_API_IMAGE and KIDITEM_WEB_IMAGE.
 The script deploys to the inactive blue/green slot, switches nginx after
 candidate health passes, writes deployments/current.json, and stops the
 previous slot to avoid duplicate in-process workers.
+Quiesce mode stops both application slots and nginx before a guarded database
+rebuild. It is invoked only by the environment-scoped GitHub Actions workflow.
+Resume mode restarts the previously active slot after a failure that occurred
+before the database reset boundary.
 USAGE
 }
 
@@ -573,6 +579,8 @@ manifest = {
     "webImageDigest": os.environ.get("WEB_IMAGE_DIGEST"),
     "apiImageId": os.environ.get("API_IMAGE_ID"),
     "webImageId": os.environ.get("WEB_IMAGE_ID"),
+    "apiImageRevision": os.environ.get("API_IMAGE_REVISION"),
+    "webImageRevision": os.environ.get("WEB_IMAGE_REVISION"),
     "publicUrl": os.environ.get("PUBLIC_URL") or os.environ.get("STAGING_URL"),
     "slotServices": {
         "api": f"api-{os.environ.get('ACTIVE_COLOR')}",
@@ -595,6 +603,19 @@ PY
 
   cp "$manifest_path" "$current_path"
   echo "Wrote deployment manifest: $manifest_path"
+}
+
+validate_image_revisions() {
+  require_env GIT_SHA
+  local api_revision web_revision
+  api_revision="$(docker image inspect "$KIDITEM_API_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' 2>/dev/null || true)"
+  web_revision="$(docker image inspect "$KIDITEM_WEB_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' 2>/dev/null || true)"
+  [[ -n "$api_revision" && "$api_revision" != "<no value>" ]] || fail "API image revision label is missing"
+  [[ -n "$web_revision" && "$web_revision" != "<no value>" ]] || fail "Web image revision label is missing"
+  [[ "$api_revision" == "$GIT_SHA" ]] || fail "API image revision does not match guarded git SHA"
+  [[ "$web_revision" == "$GIT_SHA" ]] || fail "Web image revision does not match guarded git SHA"
+  export API_IMAGE_REVISION="$api_revision"
+  export WEB_IMAGE_REVISION="$web_revision"
 }
 
 deploy() {
@@ -638,6 +659,8 @@ deploy() {
       return "$pull_status"
     fi
   fi
+
+  validate_image_revisions
 
   write_slot_deploy_env "$target_color" "$active_color"
 
@@ -683,6 +706,39 @@ deploy() {
   write_manifest "$target_color" "$active_color"
   cleanup_previous_slot "$active_color"
   status
+}
+
+quiesce() {
+  cd "$APP_DIR"
+  require_command docker
+  require_file "$COMPOSE_FILE"
+  require_file "$DEPLOY_ENV_FILE"
+  require_file "$WEB_ENV_FILE"
+
+  echo "Quiescing $DEPLOY_ENVIRONMENT application traffic for guarded database rebuild"
+  compose config >/dev/null
+  compose stop api-blue web-blue worker-blue api-green web-green worker-green nginx
+  compose ps
+}
+
+resume() {
+  cd "$APP_DIR"
+  require_command docker
+  require_file "$COMPOSE_FILE"
+  require_file "$DEPLOY_ENV_FILE"
+  require_file "$WEB_ENV_FILE"
+  require_file "$NGINX_TEMPLATE_FILE"
+
+  local active_color active_services
+  active_color="$(current_color)"
+  read -r -a active_services <<<"$(slot_services "$active_color")"
+  echo "Resuming previous $DEPLOY_ENVIRONMENT runtime on $active_color after pre-reset failure"
+  compose config >/dev/null
+  render_nginx_for_color "$active_color"
+  compose up -d "${active_services[@]}"
+  wait_for_candidate_health "$active_color"
+  reload_or_start_nginx
+  wait_for_public_health
 }
 
 status() {
@@ -731,6 +787,12 @@ status() {
 case "${1:-}" in
   deploy)
     deploy
+    ;;
+  quiesce)
+    quiesce
+    ;;
+  resume)
+    resume
     ;;
   status)
     status

@@ -214,7 +214,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
           organizationId: 'c-1',
-          targetType: 'master',
+          targetType: 'product',
           targetId: 'p2',
           type: 'rule_violation',
           severity: 'critical',
@@ -267,10 +267,11 @@ describe('RulesService — full evaluation flow', () => {
       expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
         data: [
           expect.objectContaining({
-            targetType: 'master',
+            targetType: 'product',
             targetId: 'p2',
             severity: 'critical',
             title: '순이익률 -10%',
+            href: '/product-hub',
           }),
         ],
       });

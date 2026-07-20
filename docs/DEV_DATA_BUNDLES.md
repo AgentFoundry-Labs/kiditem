@@ -46,7 +46,6 @@ payloads/
   wing-traffic.json
   itemwinner.json
   coupang-ads-daily.json
-  coupang-image-sync-from-db.json
 references/
   kiditem_list.xlsx
   wing-inventory-matched.xlsx
@@ -96,10 +95,49 @@ Profile 은 어떤 bundle 을 어떤 mode 로 replay 할지 정의하는 recipe 
 
 재고 비교 기준 파일은 DB replay payload 가 아니라 **KidItem 프로젝트 reference** 다. Drive 루트의 `references/` 에서 관리하고, bundle 을 만들 때 `.data/dev/coupang/<datasetId>/references/` 로 snapshot 이 들어간다. 스크래퍼를 실행할 수 없는 사람도 Drive bundle 을 sync 하면 같은 파일을 보고 DB/UI 결과와 비교할 수 있다.
 
-- `kiditem_list.xlsx`: KidItem 내부 상품/옵션/재고 기준 snapshot.
-- `wing-inventory-matched.xlsx`: Coupang Wing 재고를 KidItem 상품/옵션과 매칭한 결과. 쿠팡 표시 재고와 로컬 DB 재고가 어디서 어긋나는지 확인하는 기준 파일이다.
+- `kiditem_list.xlsx`: 과거 KidItem 상품/옵션/재고 비교 snapshot.
+- `wing-inventory-matched.xlsx`: 과거 Coupang Wing 매칭 결과 비교 snapshot.
 
-이 두 파일은 `data:dev:replay` 의 scraper payload replay 대상은 아니다. 대신 로컬 DB baseline 이 필요할 때는 [Import Drive Reference Data Runbook](runbooks/import-drive-reference-data.md)에 따라 `npm run import:product-baseline` 으로 별도 import 한다. 이 import 는 `MasterProduct`, `ProductOption`, `Inventory`, `Supplier`, `SupplierProduct`, `ChannelListing` 기준 데이터를 만든다.
+이 두 파일은 `data:dev:replay` 또는 DB import 대상이 아니다. 오늘의
+재고 권한은 Sellpia 스냅샷으로 가져온 `SellpiaInventorySku.currentStock`이고,
+Wing 상품/옵션은 계정 범위 catalog import로 재구성한다. Reference Excel은
+과거 결과를 비교하는 증거일 뿐 재고나 매칭을 자동 수정하지 않는다.
+
+## `0.1.19` Sellpia 최신성과 발주 시도 데이터
+
+표준 Drive profile은 계속 쿠팡 scraper payload만 replay한다. 인증된 Sellpia
+세션을 package하거나 fresh claim을 재현하지 않는다. 아래 persisted row는
+source payload가 아니라 runtime/검증 상태다.
+
+- `SellpiaInventoryState`는 organization당 하나인 신뢰 상태다. 로컬 schema
+  migration이 생성/backfill할 수 있지만, 같은 DB에 연결된 completed Sellpia
+  snapshot 없이 bundle이 상태를 fresh로 만들면 안 된다. 고정 origin/account
+  외 generation, lease owner/token, timestamp, opaque fence는 개발자 사이에서
+  이식하지 않는다.
+- completed `SourceImportRun`은 internally consistent한 synthetic test
+  fixture에서만 non-null artifact metadata, import/verification timestamp,
+  verification count, generation, quality report와 대응 SellpiaInventorySku
+  publication을 함께 표현할 수 있다. 공유 runtime bundle에는 raw workbook
+  byte나 workbook base64를 넣지 않는다.
+- 다운로드 전 failed `SourceImportRun`은 file name/hash가 null이고 row가 0이며
+  typed Sellpia collection failure code와 sanitize된 제한 길이 message만 가진다.
+  실패를 없애기 위해 가짜 completed artifact를 삽입하지 않는다.
+- `PurchaseOrderSubmissionAttempt`는 Supply가 소유하는 idempotency/reconcile
+  상태다. 테스트는 synthetic key/reference를 사용할 수 있지만 Drive
+  bundle에는 실제 idempotency key, provider reference, raw provider error 또는
+  재시도 허가로 오해될 수 있는 ambiguous attempt를 넣지 않는다.
+- `0.1.20`의 `RocketPurchaseConfirmation`, line, allocation은 운영자 결정과
+  구성품 용량 예약 감사 상태다. 공유 bundle에는 실제 PO/반품 연락처/주소를
+  넣지 않고 synthetic fixture만 사용한다. Allocation은
+  `SellpiaInventorySku.currentStock`을 바꾸지 않으며, 활성 상태일 때만 파생
+  가용수량에서 차감된다.
+
+Sellpia/Coupang password, cookie, browser storage, access/refresh token,
+workbook data가 든 extension message, raw provider response, claim token, 실제
+workbook 내용은 `.data/`, Drive bundle, Git, PR, issue, screenshot, log에 넣지
+않는다. 인증된 Chrome session은 운영자 로컬에만 남긴다. 공유하는 것은
+sanitize된 count/status와 provider에 replay할 수 없는 deterministic test
+fixture로 제한한다.
 
 ## 공유/검증 한 사이클
 
@@ -232,23 +270,9 @@ zip 내부의 `manifest.json` 은 replay scope 를 반드시 포함한다. `scop
 
 Payload 파일은 기존 `POST /api/ads/extension/sync` body 와 같은 JSON object 를 권장한다. JSON array 만 있으면 manifest 의 `type`/`source` 로 `{ type, source, data }` 형태를 만들어 replay 한다.
 
-`coupang_image_sync` payload 는 예외적으로 `POST /api/coupang-image-sync/from-rows` 로 replay 된다. 이 payload 는 Wing 이미지 동기화 입력 row 를 저장한다. 이미지 바이너리 자체나 로컬 MinIO URL 을 Drive 에 백업하지 않고, replay 시 기존 서버 경로가 원본 `url` 을 다시 다운로드해서 각 개발자의 로컬 object storage 에 저장한다.
-
-```json
-{
-  "type": "coupang_image_sync",
-  "source": "wing_image_sync",
-  "timestamp": "2026-05-06T04:02:40.584Z",
-  "data": [
-    {
-      "inventoryId": "123456789",
-      "legacyCode": "LEGACY-001",
-      "name": "쿠팡 Wing 상품명",
-      "url": "https://..."
-    }
-  ]
-}
-```
+Wing 등록상품 이미지는 이 bundle로 replay하지 않는다. 인증된 브라우저
+catalog collection이 provider URL을 listing `ContentWorkspace`의 `ContentAsset`로
+게시하며, 원본 바이트는 필요한 콘텐츠 작업에서만 가져온다.
 
 ## Latest JSON
 
@@ -284,7 +308,7 @@ Publisher 체크리스트:
 1. `npm run dev:server` 가 떠 있고 익스텐션 팝업에서 서버 연결이 `연결됨` 인지 확인한다.
 2. Wing/광고센터에서 필요한 페이지를 열고 익스텐션의 동기화 버튼을 실행한다.
 3. 월별/일별 수집을 했다면 완료 메시지의 완료 일수와 row count 를 기록한다.
-4. Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 의 row count 를 기록한다. 이 파일들은 scraper replay payload 는 아니며, 필요하면 별도 baseline import 로 DB 에 넣는다.
+4. Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 의 row count 를 기록한다. 이 파일들은 scraper replay나 DB import 대상이 아니다.
 5. scraper output JSON 을 준비한 뒤 아래 `export`/`publish` 를 실행한다. `KIDITEM_DEV_DATA_DRIVE_DIR` 이 설정되어 있으면 export 가 Drive 루트 `references/` 의 두 엑셀을 자동으로 bundle snapshot 에 포함한다.
 6. publish 후 `coupang/latest.json` 이 새 dataset 을 가리키는지 확인한다.
 
@@ -316,22 +340,9 @@ coupang/bundles/kiditem-coupang-2026-05-01-v1.zip.sha256
 
 Drive 루트 reference 와 다른 파일을 명시해야 하는 예외 상황에서는 `--kiditem-list`, `--wing-inventory-matched` 로 직접 지정할 수 있다. 추가 비교 파일을 한 번에 넣으려면 `--reference-dir ./somewhere/references` 를 사용한다. reference 파일은 scraper replay 에서 직접 저장되지 않지만 zip checksum 검증 대상이며, consumer 의 `.data/dev/coupang/<datasetId>/references/` 에 풀린다.
 
-이미지 동기화만 새로 공유할 때도 같은 `coupang` domain bundle 로 publish 한다. `--image-sync-from-db` 는 현재 DB 의 `source='coupang-wing'` 이미지 결과에서 replay 가능한 Wing row 를 만들어 `payloads/coupang-image-sync-from-db.json` 에 넣는다. 다른 개발자는 `data:dev:sync` 로 같은 row 를 받아 기존 `/api/coupang-image-sync/from-rows` 경로를 통해 이미지를 다시 채운다.
-
-```bash
-npm run data:dev:export -- \
-  --domain coupang \
-  --dataset coupang-image-sync-2026-05-06-v1 \
-  --image-sync-from-db \
-  --from 2026-05-06 \
-  --to 2026-05-06 \
-  --data-root .data/dev
-
-npm run data:dev:publish -- \
-  --domain coupang \
-  --dataset coupang-image-sync-2026-05-06-v1 \
-  --data-root .data/dev
-```
+Wing catalog 등록상품과 provider 미디어는 Drive bundle이 아닌
+[Coupang Wing Catalog Collection](runbooks/coupang-wing-catalog-collection.md)으로
+재구성한다.
 
 ## Consumer 플로우
 
@@ -342,11 +353,8 @@ Consumer 는 스크래퍼를 직접 실행하지 않아도 된다. Drive 의 최
 ```bash
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/Library/CloudStorage/GoogleDrive-.../My Drive/KidItem Dev Data"
 export DEV_DEFAULT_USER_ID="<local dev user uuid>"
-export KIDITEM_DEV_ORGANIZATION_ID="<local organization uuid>"
 
 npm run data:dev:status
-npm run import:product-baseline -- --organization-id "$KIDITEM_DEV_ORGANIZATION_ID"
-npm run import:product-baseline -- --organization-id "$KIDITEM_DEV_ORGANIZATION_ID" --write
 npm run data:dev:sync -- --profile workspace --yes
 ```
 
@@ -357,8 +365,6 @@ npm run dev:server
 ```
 
 `scoped-replace` 는 manifest 의 `scope.businessDateFrom`/`businessDateTo` 범위에 있는 쿠팡 daily fact 와 raw scrape row 를 지운 뒤 같은 payload 를 `/api/ads/extension/sync` 로 다시 넣는다. 따라서 UI 에 보이는 데이터는 실제 서버 ingest 경로와 동일하다.
-
-`coupang_image_sync` payload 는 daily fact 를 삭제하지 않고 `/api/coupang-image-sync/from-rows` 로 별도 replay 된다. 이 경로는 이미 이미지가 있는 MasterProduct 를 건너뛰므로 image sync replay 는 idempotent upsert 로 취급한다.
 
 특정 도메인만 직접 확인할 수도 있다.
 
@@ -417,31 +423,46 @@ select 'account_kpi', count(*) from channel_account_daily_kpi_snapshots where ch
 
 ### 2. 재고 불일치 확인
 
-현재 기준으로 재고 검증은 두 층이다.
+현재 재고 권한과 채널 매칭은 다음 두 층으로 검증한다.
 
-- Local DB 재고: `inventory.current_stock`
-- KidItem 기준 재고: Drive 루트 `references/kiditem_list.xlsx`, 그리고 bundle snapshot 으로 `.data/dev/coupang/<datasetId>/references/kiditem_list.xlsx`
-- 쿠팡 매칭 재고: Drive 루트 `references/wing-inventory-matched.xlsx`, 그리고 bundle snapshot 으로 `.data/dev/coupang/<datasetId>/references/wing-inventory-matched.xlsx`
+- Sellpia 권한 재고: `sellpia_inventory_skus.current_stock`
+- 상품/옵션 연결: `channel_listings.master_product_id`와
+  `channel_listing_options.product_variant_id`
+- 중앙 레시피: `product_variant_components`의
+  `product_variant_id` → `sellpia_inventory_sku_id` + `quantity`
+- Drive reference Excel: 과거 비교 증거일 뿐 DB 재고나 매칭 권한이
+  아니다.
 
 DB 에서 내부 재고와 채널 옵션 매칭 상태를 먼저 본다.
 
 ```bash
 docker exec kiditem-postgres psql -U kiditem -d kiditem -c "
 select
+  ca.name as channel_account,
   cl.external_id as seller_product_id,
   clo.external_option_id as vendor_item_id,
-  mp.name as master_name,
-  po.option_name,
-  po.sku,
-  i.current_stock,
-  i.reserved_stock,
-  i.safety_stock
+  clo.item_name,
+  case
+    when cl.master_product_id is null or clo.product_variant_id is null then 'unmatched'
+    when pvc.id is null or sisku.is_active = false then 'needs_review'
+    else 'matched'
+  end as mapping_status,
+  mp.code as operating_product_code,
+  mp.name as operating_product_name,
+  pv.code as variant_code,
+  sisku.code as sellpia_code,
+  sisku.name as sellpia_name,
+  sisku.option_name,
+  sisku.current_stock,
+  pvc.quantity as units_per_sale
 from channel_listing_options clo
 join channel_listings cl on cl.id = clo.listing_id
-left join product_options po on po.id = clo.option_id
-left join master_products mp on mp.id = po.master_id
-left join inventory i on i.option_id = po.id
-where cl.channel = 'coupang'
+join channel_accounts ca on ca.id = cl.channel_account_id
+left join master_products mp on mp.id = cl.master_product_id
+left join product_variants pv on pv.id = clo.product_variant_id
+left join product_variant_components pvc on pvc.product_variant_id = pv.id
+left join sellpia_inventory_skus sisku on sisku.id = pvc.sellpia_inventory_sku_id
+where ca.channel = 'coupang'
 order by cl.external_id, clo.external_option_id
 limit 100;
 "
@@ -449,11 +470,19 @@ limit 100;
 
 비교 방법:
 
-- `.data/dev/coupang/<datasetId>/references/wing-inventory-matched.xlsx` 의 등록상품ID / vendor item id / 옵션명 / 판매상태 / 쿠팡 재고 수량과 위 SQL 결과의 `seller_product_id`, `vendor_item_id`, `option_name`, `current_stock` 을 비교한다.
-- `.data/dev/coupang/<datasetId>/references/kiditem_list.xlsx` 로 KidItem 내부 상품코드 / 옵션명 / 재고 / 안전재고 기준을 확인한다.
+- `.data/dev/coupang/<datasetId>/references/wing-inventory-matched.xlsx` 의
+  등록상품 ID / vendor item ID / 옵션명을 위 SQL의 채널 식별자와
+  비교한다.
+- `.data/dev/coupang/<datasetId>/references/kiditem_list.xlsx`의 과거
+  상품코드/옵션/재고는 현재 Sellpia import 결과와의 차이를 설명하는
+  증거로만 사용한다.
 - 쿠팡에는 있는데 DB 에 `vendor_item_id` 매칭이 없으면 `ChannelListingOption.externalOptionId` 매칭 문제다.
-- DB 에 option 은 있는데 `inventory.current_stock` 이 쿠팡 재고와 다르면 재고 운영 데이터와 쿠팡 표시 재고가 분리된 것이다. 이 경우 자동 수정하지 말고 mismatch 로 기록한다.
-- 재고 mismatch 는 scraper replay 실패와 구분한다. replay 는 광고/트래픽/아이템위너 daily fact 를 저장하는 경로이고, 두 reference 엑셀은 baseline import 및 비교 기준이다.
+- `mapping_status = matched`인데 component가 없거나, 확정된 component
+  수량이 의도와 다르면 운영자가 `/product-hub/matching`에서 전체
+  레시피를 다시 확인한다. 상품명에서 수량을 자동 추론하지 않는다.
+- 재고 차이는 scraper replay 실패와 구분한다. replay는
+  광고/트래픽/아이템위너 daily fact를 저장하는 경로이고, reference
+  Excel은 자동 수정 근거가 아니다.
 
 보고 형식:
 
@@ -473,8 +502,8 @@ Inventory mismatch check
 서버와 웹을 띄운다.
 
 ```bash
-npm run dev:server
-npm run dev
+rtk npm run dev:server
+rtk npm run dev
 ```
 
 다음 화면을 확인한다.
@@ -482,10 +511,13 @@ npm run dev
 | 화면 | 확인 내용 |
 |---|---|
 | `/ad-ops` | 광고/스크래퍼 데이터가 비어 있지 않고, 캠페인/전략/추천 영역이 에러 없이 렌더링되는지 |
-| `/inventory` | 재고 목록이 뜨고 필터/검색/상세 진입이 깨지지 않는지 |
-| `/inventory-hub` | 재고 요약/자산/입출고 관련 카드가 에러 없이 뜨는지 |
-| `/stock-ops` | 품절/제로/보류/이동 등 재고 운영 탭이 렌더링되는지 |
-| `/product-hub` 또는 `/product-hub/options` | 쿠팡 listing/option 과 연결된 상품/옵션 데이터가 깨지지 않는지 |
+| `/inventory-hub?tab=status` | 보존된 재고 현황 목록/필터/검색/상세 진입이 깨지지 않는지 |
+| `/inventory-hub?tab=sellpia-sync` | freshness/current basis/history drawer가 현재 조직 상태로 렌더링되는지 |
+| `/stock-ops` | 보존된 재고 분석 탭과 추가된 freshness/mapping 경고가 함께 렌더링되는지 |
+| `/product-hub` | 기존 상품 운영 센터의 명령 카드·카테고리·필터·지표형 상품 행과 상세 진입이 유지되고, 현재 Sellpia 스냅샷 데이터가 표시되는지 |
+| `/product-hub/options` | `c9e7caf8` 기준 Sellpia 읽기 전용 옵션 표가 검색/필터/페이징과 함께 렌더링되는지 |
+| `/product-hub/matching` | `c9e7caf8` 기준 account 범위 matching queue와 confirmed recipe가 렌더링되는지 |
+| `/rocket-orders` | 기존 Rocket 화면의 판단 placeholder에 Supply workspace가 연결되고, 완전한 증거 전에는 확정이 비활성인지, 확정/해제가 물리 재고나 provider 제출로 표현되지 않는지. `/purchase-orders`에는 중복 Rocket 화면이 없어야 한다. |
 
 확인 기준:
 
@@ -498,21 +530,20 @@ npm run dev
 최소 API smoke:
 
 ```bash
-curl -s "http://localhost:4000/api/ads/extension/status" | jq
-curl -s "http://localhost:4000/api/inventory?limit=5" | jq
-curl -s "http://localhost:4000/api/inventory/assets" | jq
+rtk curl -s "http://localhost:4000/api/ads/extension/status" | jq
+rtk curl -s "http://localhost:4000/api/inventory/sellpia-skus?limit=5" | jq
 ```
 
 테스트를 돌릴 수 있는 환경이면 최소한 script 계약 테스트를 실행한다.
 
 ```bash
-npx vitest run --config scripts/vitest.config.ts
+rtk npx vitest run --config scripts/vitest.config.ts
 ```
 
 스키마/ingest 변경을 같이 작업했다면 관련 서버 테스트도 실행한다.
 
 ```bash
-npm exec --workspace=apps/server -- vitest run src/advertising src/channels src/inventory
+rtk npm exec --workspace=apps/server -- vitest run src/advertising src/channels src/inventory
 ```
 
 ### 5. 검증 결과 공유
@@ -526,7 +557,7 @@ Coupang replay verification
 - DB: runs N, raw N, listing_daily N, option_daily N, ad_target_daily N, account_kpi N
 - unmatched: N
 - inventory mismatch: N checked, N missing matches, N stock mismatches
-- UI smoke: /ad-ops pass, /inventory pass, /inventory-hub pass, /stock-ops pass
+- UI smoke: /ad-ops pass, /inventory-hub inventory/overview/attention pass, /product-hub list/options pass, /product-hub/matching pass
 - failures:
   - ...
 - suspected owner: payload / ingest / schema / UI / local setup
@@ -555,14 +586,19 @@ Coupang replay verification
 - 마스킹/샘플 데이터는 기본 개발 검증용으로 쓰지 않는다.
 - 실제 payload 는 내부 개발자만 접근하며 Git, PR, 이슈, 로그에 첨부하지 않는다.
 
-## #192 sourcing candidate split (2026-05-12)
+## `0.1.19` Local Inventory Migration And Reconstruction
 
-Schema breaking. `master_products` 는 `source_url` / `source_platform` /
-`raw_data` / `cost_cny` / `margin_rate` / `pipeline_step` 컬럼을 잃었고, 소싱
-히스토리는 `sourcing_candidates` + `sourcing_candidate_images` 로 이동했다.
-공동 개발자가 적용해야 할 단계:
+`develop`을 pull하거나 Prisma schema를 generate하는 것만으로 durable data
+migration이 적용되지는 않는다. 폐기 가능한 로컬 DB인지 확인한 뒤
+`npm run data:migrate -- status`, guarded local `up`, 같은 `up` 재실행, final
+`status` 순서로 `v0.1.19:001_sellpia_inventory_freshness`의 적용과 멱등성을
+확인한다. Migration은 기존 completed Sellpia run의 verification provenance와
+organization freshness row를 backfill하지만 raw workbook이나 credential을
+만들지 않는다.
 
-- `git pull` on develop
-- `npm run db:push -- --accept-data-loss` (drops columns)
-- `npx prisma generate`
-- 필요하면 backfill 된 후보 row 를 보려고 dev data bundle 을 재동기화한다.
+실제 재고 기준이 필요하면
+[Sellpia Inventory Freshness Operations](runbooks/sellpia-inventory-freshness.md)
+에 따라 인증된 Chrome 자동 수집 또는 최신-export 수동 attestation으로 full
+snapshot을 publish한다. 그 다음 Wing/Rocket channel identity와 confirmed
+recipe를 재구성한다. Staging/production 변경은 보호된 GitHub Actions 경로만
+사용한다.

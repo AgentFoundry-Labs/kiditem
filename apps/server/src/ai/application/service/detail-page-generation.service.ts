@@ -61,6 +61,7 @@ import {
   type DetailPageGenerationRepositoryPort,
 } from '../port/out/repository/detail-page-generation.repository.port';
 import { DetailPageDirectGenerationJobService } from './detail-page-direct-generation-job.service';
+import { resolveAiDirectJobModels } from './ai-direct-job.config';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -162,10 +163,8 @@ export class DetailPageGenerationService {
     const requestedContentWorkspace = dto.contentWorkspaceId
       ? await this.resolveContentWorkspace(organizationId, dto.contentWorkspaceId)
       : null;
-    const effectiveProductId = dto.productId ?? requestedContentWorkspace?.targetMasterId ?? null;
     let sourceReferences = await this.normalizeSourceReferences({
       organizationId,
-      productId: effectiveProductId,
       sourceReferences: dto.sourceReferences ?? [],
     });
     const primarySourceCandidateId =
@@ -192,12 +191,10 @@ export class DetailPageGenerationService {
         triggeredByUserId,
         rawTitle: dto.rawTitle,
         sourceCandidateId: primarySourceCandidateId,
-        targetMasterId: effectiveProductId,
       });
     const imageOnlyBase = generationMode === 'image'
       ? await this.findImageOnlyBaseGeneration({
         organizationId,
-        productId: effectiveProductId,
         sourceCandidateId: primarySourceCandidateId,
         contentWorkspaceId: contentWorkspace.id,
         templateId,
@@ -213,7 +210,6 @@ export class DetailPageGenerationService {
     return this.enqueueGeneration({
       organizationId,
       triggeredByUserId,
-      productId: effectiveProductId,
       rawTitle: dto.rawTitle,
       templateId,
       heroImageMode,
@@ -234,7 +230,6 @@ export class DetailPageGenerationService {
   ): Promise<{
     id: string;
     sourceCandidateId: string | null;
-    targetMasterId: string | null;
     displayName: string;
     normalizedTitle: string;
   }> {
@@ -249,7 +244,6 @@ export class DetailPageGenerationService {
   private async enqueueGeneration(input: {
     organizationId: string;
     triggeredByUserId: string | null;
-    productId: string | null;
     rawTitle: string;
     templateId: DetailPageTemplateId;
     heroImageMode: 'first' | 'llm-pick';
@@ -263,14 +257,35 @@ export class DetailPageGenerationService {
     preferContentWorkspaceAlert?: boolean;
     operationAlert: GenerationAlertLink;
   }): Promise<DetailPageGenerationDto> {
+    const models = resolveAiDirectJobModels('detail_page_generate');
     const primarySourceCandidateId =
       input.sourceCandidateId ??
       input.sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
         ?.sourceCandidateId ?? null;
+    const directPayload = {
+      templateId: input.templateId,
+      raw: {
+        rawTitle: input.rawInput.rawTitle,
+        rawCategory: input.rawInput.rawCategory,
+        rawDescription: input.rawInput.rawDescription,
+        rawOptions: input.rawInput.rawOptions,
+        imageUrls: input.rawInput.imageUrls,
+        ageGroup: input.rawInput.ageGroup,
+        detailImageCount: input.rawInput.detailImageCount,
+        usageSectionMode: input.rawInput.usageSectionMode,
+        kcCertificationStatus: input.rawInput.kcCertificationStatus,
+        kcCertificationNumber: input.rawInput.kcCertificationNumber,
+      },
+      heroImageMode: input.heroImageMode,
+      generationMode: input.rawInput.generationMode ?? 'full',
+      ...(input.existingResult !== undefined
+        ? { existingResult: input.existingResult }
+        : {}),
+    };
+    const directJob = this.directGenerationJobs.prepareGenerate({ payload: directPayload, models });
 
     const opened = await this.repository.openProcessingGenerationLedger({
       organizationId: input.organizationId,
-      productId: input.productId,
       generationGroupId: input.generationGroupId,
       contentWorkspaceId: input.contentWorkspaceId,
       sourceCandidateId: primarySourceCandidateId,
@@ -280,8 +295,8 @@ export class DetailPageGenerationService {
       imageUrls: input.imageUrls,
       rawTitle: input.rawTitle,
       sourceReferences: input.sourceReferences,
+      directJob,
     });
-    if (opened.status === 'product_not_found') throw new NotFoundException('Product not found');
     const row = opened.row;
 
     if (isParentProductGenerationAlertLink(input.operationAlert)) {
@@ -292,6 +307,11 @@ export class DetailPageGenerationService {
         childId: row.id,
       });
       if (childStart.status !== 'started') {
+        await this.directGenerationJobs.cancelHeld({
+          organizationId: input.organizationId,
+          jobId: opened.directJobId,
+          reason: 'Parent product generation is not accepting detail child jobs.',
+        });
         await this.repository.markGenerationRejectedByParent({
           organizationId: input.organizationId,
           generationId: row.id,
@@ -318,7 +338,7 @@ export class DetailPageGenerationService {
         href: alertTargetsContentWorkspace
           ? registeredWorkspaceEditorHref(input.contentWorkspaceId, row.id)
           : detailPageResultHref({
-            productId: input.productId,
+            productId: null,
             sourceCandidateId: primarySourceCandidateId,
             contentGenerationId: row.id,
             templateId: input.templateId,
@@ -340,6 +360,11 @@ export class DetailPageGenerationService {
         generationId: row.id,
       })
     ) {
+      await this.directGenerationJobs.cancelHeld({
+        organizationId: input.organizationId,
+        jobId: opened.directJobId,
+        reason: DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+      });
       await this.repository.markGenerationCancelledIfProcessing({
         organizationId: input.organizationId,
         generationId: row.id,
@@ -349,29 +374,9 @@ export class DetailPageGenerationService {
       return this.query.getById(row.id, input.organizationId);
     }
 
-    this.directGenerationJobs.schedule({
+    await this.directGenerationJobs.release({
       organizationId: input.organizationId,
-      generationId: row.id,
-      payload: {
-        templateId: input.templateId,
-        raw: {
-          rawTitle: input.rawInput.rawTitle,
-          rawCategory: input.rawInput.rawCategory,
-          rawDescription: input.rawInput.rawDescription,
-          rawOptions: input.rawInput.rawOptions,
-          imageUrls: input.rawInput.imageUrls,
-          ageGroup: input.rawInput.ageGroup,
-          detailImageCount: input.rawInput.detailImageCount,
-          usageSectionMode: input.rawInput.usageSectionMode,
-          kcCertificationStatus: input.rawInput.kcCertificationStatus,
-          kcCertificationNumber: input.rawInput.kcCertificationNumber,
-        },
-        heroImageMode: input.heroImageMode,
-        generationMode: input.rawInput.generationMode ?? 'full',
-        ...(input.existingResult !== undefined
-          ? { existingResult: input.existingResult }
-          : {}),
-      },
+      jobId: opened.directJobId,
     });
 
     return this.query.getById(row.id, input.organizationId);
@@ -426,18 +431,11 @@ export class DetailPageGenerationService {
       organizationId,
       baseGenerationId: base.id,
       existingGroupId: base.generationGroupId,
-      productId: base.generationGroup.targetMasterId,
+      contentWorkspaceId: base.contentWorkspaceId,
       title: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
       triggeredByUserId,
     });
-    const contentWorkspaceId = base.contentWorkspaceId ??
-      (await this.contentWorkspaces.ensureForGeneration({
-        organizationId,
-        triggeredByUserId,
-        rawTitle: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
-        sourceCandidateId: base.sourceCandidateId,
-        targetMasterId: base.generationGroup.targetMasterId,
-      })).id;
+    const contentWorkspaceId = base.contentWorkspaceId;
     const rawInput: DetailPageRawInput = {
       rawTitle: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
       rawCategory: pickRawString(rawRecord, 'rawCategory') ?? '',
@@ -458,7 +456,6 @@ export class DetailPageGenerationService {
     return this.enqueueGeneration({
       organizationId,
       triggeredByUserId,
-      productId: base.generationGroup.targetMasterId,
       rawTitle: rawInput.rawTitle,
       templateId,
       heroImageMode: rawInput.heroImageMode,
@@ -474,16 +471,14 @@ export class DetailPageGenerationService {
 
   private async findImageOnlyBaseGeneration(input: {
     organizationId: string;
-    productId: string | null;
     sourceCandidateId: string | null;
     contentWorkspaceId: string | null;
     templateId: DetailPageTemplateId;
   }): Promise<{ id: string; result: unknown } | null> {
     const sourceCandidateId = input.sourceCandidateId;
-    if (!input.productId && !sourceCandidateId && !input.contentWorkspaceId) return null;
+    if (!sourceCandidateId && !input.contentWorkspaceId) return null;
     const rows = await this.repository.findImageOnlyBaseCandidates({
       organizationId: input.organizationId,
-      productId: input.productId,
       sourceCandidateId,
       contentWorkspaceId: input.contentWorkspaceId,
       templateId: input.templateId,
@@ -507,7 +502,7 @@ export class DetailPageGenerationService {
     organizationId: string;
     baseGenerationId: string;
     existingGroupId: string | null;
-    productId: string | null;
+    contentWorkspaceId: string;
     title: string;
     triggeredByUserId: string | null;
   }): Promise<string> {
@@ -516,7 +511,6 @@ export class DetailPageGenerationService {
 
   private async normalizeSourceReferences(input: {
     organizationId: string;
-    productId: string | null;
     sourceReferences: NonNullable<GenerateDetailPageInput['sourceReferences']>;
   }): Promise<DetailPageSourceReference[]> {
     const out: DetailPageSourceReference[] = [];
@@ -530,13 +524,6 @@ export class DetailPageGenerationService {
           sourceCandidateId: ref.sourceCandidateId,
         });
         if (!candidate) throw new NotFoundException('Sourcing candidate source not found');
-        if (
-          input.productId &&
-          candidate.promotedMasterId &&
-          candidate.promotedMasterId !== input.productId
-        ) {
-          throw new BadRequestException('source candidate is linked to a different product');
-        }
         out.push({
           sourceType: 'sourcing_candidate',
           sourceCandidateId: candidate.id,
@@ -635,6 +622,11 @@ export class DetailPageGenerationService {
       };
     }
 
+    await this.directGenerationJobs.cancelByGeneration({
+      organizationId: input.organizationId,
+      generationId: row.id,
+      reason: input.reason,
+    });
     const updated = await this.repository.cancelProcessingGeneration({
       organizationId: input.organizationId,
       generationId: row.id,

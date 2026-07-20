@@ -10,12 +10,80 @@ export interface OrderCollectionConversionResult {
   productRows: number | null;
   outputRows: number | null;
   skippedRows: number | null;
+  importRunId?: string | null;
+  reconciledRows?: number | null;
 }
 
 export interface BrowserOrderRowsPayload {
   headers: string[];
   rows: string[][];
   fileName?: string;
+}
+
+/** 도매꾹 주문 CSV(EUC-KR) 업로드 → 셀피아 .xls 변환. date 주면 그날 주문만. */
+export async function convertDomeggookOrderFile(
+  file: File,
+  options?: { date?: string; download?: boolean },
+): Promise<OrderCollectionConversionResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (options?.date) formData.append('date', options.date);
+
+  const response = await apiClient.fetchRaw('/api/orders/collection/domeggook/convert', {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  const blob = await response.blob();
+  const fileName =
+    fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ??
+    '도매꾹_셀피아변환.xls';
+  if (options?.download !== false) downloadBlob(blob, fileName);
+
+  return {
+    fileName,
+    blob,
+    previewRows: await readPreviewRows(blob),
+    sourceRows: numericHeader(response, 'X-Order-Collection-Source-Rows'),
+    productRows: numericHeader(response, 'X-Order-Collection-Product-Rows'),
+    outputRows: numericHeader(response, 'X-Order-Collection-Output-Rows'),
+    skippedRows: numericHeader(response, 'X-Order-Collection-Skipped-Rows'),
+  };
+}
+
+/** 롯데ON/GS샵처럼 몰에서 받은 xlsx 를 그대로 업로드 → 셀피아 .xls 변환 (컬럼 재배치 없음, 포맷만 변환). */
+export async function convertGsshopOrderFile(
+  file: File,
+  options?: { download?: boolean },
+): Promise<OrderCollectionConversionResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await apiClient.fetchRaw('/api/orders/collection/gsshop/convert', {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  const blob = await response.blob();
+  const fileName =
+    fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ?? 'GS샵_셀피아변환.xls';
+  if (options?.download !== false) downloadBlob(blob, fileName);
+
+  return {
+    fileName,
+    blob,
+    previewRows: await readPreviewRows(blob),
+    sourceRows: numericHeader(response, 'X-Order-Collection-Source-Rows'),
+    productRows: numericHeader(response, 'X-Order-Collection-Product-Rows'),
+    outputRows: numericHeader(response, 'X-Order-Collection-Output-Rows'),
+    skippedRows: numericHeader(response, 'X-Order-Collection-Skipped-Rows'),
+  };
 }
 
 const OUTPUT_FILE_SUFFIX = '_아이스크림몰_변환';

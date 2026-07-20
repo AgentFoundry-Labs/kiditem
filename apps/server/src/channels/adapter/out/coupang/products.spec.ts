@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSellerProduct } from './products';
+import {
+  createSellerProduct,
+  getSellerProductsByExternalVendorSku,
+} from './products';
+import { CoupangProviderRequestError } from '../../../application/port/out/provider/coupang-provider.port';
 
 describe('Coupang product API helpers', () => {
   afterEach(() => {
@@ -80,5 +84,109 @@ describe('Coupang product API helpers', () => {
         }),
       }),
     );
+  });
+
+  it('runs the durable attempt boundary immediately before HTTP dispatch', async () => {
+    const callOrder: string[] = [];
+    const fetch = vi.fn().mockImplementation(async () => {
+      callOrder.push('fetch');
+      return {
+        ok: true,
+        headers: {
+          get: (name: string) => (name === 'content-type' ? 'application/json' : ''),
+        },
+        json: async () => ({ code: 'SUCCESS', message: '', data: 427011921 }),
+      };
+    });
+    vi.stubGlobal('fetch', fetch);
+    const beforeDispatch = vi.fn(async () => {
+      callOrder.push('mark-uncertain');
+    });
+
+    await createSellerProduct(
+      {
+        vendorId: 'A00012345',
+        accessKey: 'access-key',
+        secretKey: 'secret-key',
+      },
+      {
+        sellerProductName: '쿠팡 판매명',
+        items: [{ itemName: '단품' }],
+      },
+      beforeDispatch,
+    );
+
+    expect(callOrder).toEqual(['mark-uncertain', 'fetch']);
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+  });
+
+  it('does not dispatch HTTP when the durable attempt boundary fails', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(createSellerProduct(
+      {
+        vendorId: 'A00012345',
+        accessKey: 'access-key',
+        secretKey: 'secret-key',
+      },
+      {
+        sellerProductName: '쿠팡 판매명',
+        items: [{ itemName: '단품' }],
+      },
+      async () => {
+        throw new Error('attempt marker unavailable');
+      },
+    )).rejects.toThrow('attempt marker unavailable');
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('queries uncertain product creation by the encoded external vendor SKU', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: {
+        get: (name: string) => (name === 'content-type' ? 'application/json' : ''),
+      },
+      json: async () => ({ code: 'SUCCESS', message: '', data: [] }),
+    });
+    vi.stubGlobal('fetch', fetch);
+
+    await getSellerProductsByExternalVendorSku(
+      {
+        vendorId: 'A00012345',
+        accessKey: 'access-key',
+        secretKey: 'secret-key',
+      },
+      'submission:key/1',
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api-gateway.coupang.com/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/external-vendor-sku-codes/submission%3Akey%2F1',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('classifies an HTTP validation rejection as a definitive non-create', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => 'invalid display category',
+    }));
+
+    await expect(createSellerProduct(
+      {
+        vendorId: 'A00012345',
+        accessKey: 'access-key',
+        secretKey: 'secret-key',
+      },
+      {
+        sellerProductName: '쿠팡 판매명',
+        items: [{ itemName: '단품' }],
+      },
+    )).rejects.toMatchObject<CoupangProviderRequestError>({
+      providerOutcome: 'definitive_failure',
+      status: 400,
+    });
   });
 });

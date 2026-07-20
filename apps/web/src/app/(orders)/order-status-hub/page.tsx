@@ -1,13 +1,13 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { ClipboardList, PackageSearch, Search, GitCompare, RefreshCw } from 'lucide-react';
+import { ClipboardList, GitCompare, PackageSearch, RefreshCw, Search } from 'lucide-react';
 import TabLayout from '@/components/ui/TabLayout';
 
-const OrderInventoryPage = dynamic(() => import('@/app/(orders)/order-status-hub/components/OrderInventory'), { ssr: false });
-const DeliverySearchPage = dynamic(() => import('@/app/(orders)/order-status-hub/components/DeliverySearch'), { ssr: false });
-const OrderComparePage = dynamic(() => import('@/app/(orders)/order-status-hub/components/OrderCompare'), { ssr: false });
-const SyncCheckPage = dynamic(() => import('@/app/(orders)/order-status-hub/components/SyncCheck'), { ssr: false });
+const OrderInventoryPage = dynamic(() => import('./components/OrderInventory'), { ssr: false });
+const DeliverySearchPage = dynamic(() => import('./components/DeliverySearch'), { ssr: false });
+const OrderComparePage = dynamic(() => import('./components/OrderCompare'), { ssr: false });
+const SyncCheckPage = dynamic(() => import('./components/SyncCheck'), { ssr: false });
 
 export default function OrderStatusHubPage() {
   return (

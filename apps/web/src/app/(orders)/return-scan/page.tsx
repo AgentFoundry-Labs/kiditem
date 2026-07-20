@@ -3,8 +3,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
+import { InventorySkuSnapshotListResponseSchema } from '@kiditem/shared/inventory';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { formatDateTime } from '@/lib/utils';
 import ReturnScanHeader from './components/ReturnScanHeader';
 import BarcodeScanInput from './components/BarcodeScanInput';
 import ReturnProductInfo from './components/ReturnProductInfo';
@@ -14,7 +16,6 @@ interface ProductInfo {
   id: string;
   name: string;
   sku: string | null;
-  currentStock: number;
 }
 
 interface ScanLog {
@@ -36,11 +37,20 @@ export default function ReturnScanPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: searchData, isLoading: scanning } = useQuery({
-    queryKey: queryKeys.products.list({ search: submitted }),
-    queryFn: () =>
-      apiClient.get<{ items: ProductInfo[] }>(
-        `/api/products?search=${encodeURIComponent(submitted)}`
-      ),
+    queryKey: queryKeys.inventory.snapshot({ query: submitted, limit: '10' }),
+    queryFn: async () => {
+      const result = await apiClient.getParsed(
+        `/api/inventory/sellpia-skus?query=${encodeURIComponent(submitted)}&limit=10`,
+        InventorySkuSnapshotListResponseSchema,
+      );
+      return {
+        items: result.items.map((item): ProductInfo => ({
+          id: item.sellpiaInventorySkuId,
+          name: item.optionName ? `${item.name} · ${item.optionName}` : item.name,
+          sku: item.code,
+        })),
+      };
+    },
     enabled: !!submitted,
   });
 
@@ -67,13 +77,13 @@ export default function ReturnScanPage() {
     const logEntry: ScanLog = {
       barcode: barcode || returnInfo.sku || returnInfo.id,
       productName: returnInfo.name,
-      timestamp: new Date().toLocaleString('ko-KR'),
+      timestamp: formatDateTime(new Date()),
       success: true,
-      message: '회수 완료 (재고 반영 대기)',
+      message: '회수 기록 완료 (Sellpia 재고 별도 반영)',
     };
 
     setScanLogs((prev) => [logEntry, ...prev]);
-    setSuccessMsg(`"${returnInfo.name}" 회수 기록이 등록되었습니다.`);
+    setSuccessMsg(`"${returnInfo.name}" 회수 기록을 로컬에 추가했습니다. Sellpia 재고 반영은 별도 처리해야 합니다.`);
     setReturnInfo(null);
     setBarcode('');
     setSubmitted('');

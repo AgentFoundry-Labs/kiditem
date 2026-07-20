@@ -10,7 +10,7 @@ export interface Slot {
   role: MasterImageRole;
   value: string | null;
   source: SlotSource | null;
-  sourceProductId?: string;
+  sourceContentWorkspaceId?: string;
 }
 
 let slotCounter = 0;
@@ -22,8 +22,14 @@ function genSlotId(prefix: string): string {
 const KIND_DEFAULTS: Record<SlotKind, { role: MasterImageRole; labelFn: (index?: number) => string }> = {
   product: { role: 'product', labelFn: () => 'Main product' },
   packaging: { role: 'box', labelFn: () => 'Packaging' },
-  color_variant: { role: 'color_variant', labelFn: (i = 0) => `Color variant ${i + 1}` },
-  bundle_item: { role: 'product', labelFn: (i = 0) => `Product ${String.fromCharCode(65 + i)}` },
+  color_variant: {
+    role: 'color_variant',
+    labelFn: (i = 0) => `Color variant ${i + 1}`,
+  },
+  bundle_item: {
+    role: 'product',
+    labelFn: (i = 0) => `Product ${String.fromCharCode(65 + i)}`,
+  },
   reference: { role: 'detail', labelFn: () => 'Style reference' },
 };
 
@@ -31,7 +37,7 @@ interface MakeSlotOpts {
   value?: string | null;
   source?: SlotSource | null;
   index?: number;
-  sourceProductId?: string;
+  sourceContentWorkspaceId?: string;
   label?: string;
 }
 
@@ -44,7 +50,7 @@ function makeSlot(kind: SlotKind, opts: MakeSlotOpts = {}): Slot {
     label: opts.label ?? def.labelFn(opts.index),
     value: opts.value ?? null,
     source: opts.source ?? null,
-    sourceProductId: opts.sourceProductId,
+    sourceContentWorkspaceId: opts.sourceContentWorkspaceId,
   };
 }
 
@@ -55,10 +61,10 @@ interface BuildInitialSlotsCtx {
   initialProductImage?: string | null;
   sceneType?: string;
   /**
-   * 편집기 진입 시 URL 의 productId. bundle 케이스에서 첫 슬롯의 owner 로 박힘 →
+   * 편집기 진입 시 URL 의 contentWorkspaceId. bundle 케이스에서 첫 슬롯의 owner 로 박힘 →
    * single → bundle promote 시에도 "이 상품" 이 결과물 저장 기준으로 유지된다.
    */
-  ownerProductId?: string | null;
+  ownerContentWorkspaceId?: string | null;
 }
 
 export function buildInitialSlots(
@@ -96,13 +102,13 @@ export function buildInitialSlots(
       return [makeSlot('color_variant', { index: 0 }), makeSlot('color_variant', { index: 1 })];
     case 'bundle':
       // single → bundle promote 시 기존 product 이미지 carry-over.
-      // sourceProductId 는 편집기 진입 productId — 결과 저장 기준이 일관되게 유지된다.
+      // sourceContentWorkspaceId 는 편집기 진입 contentWorkspaceId — 결과 저장 기준이 일관되게 유지된다.
       if (hasInitialImage) {
         return [
           makeSlot('bundle_item', {
             value: ctx.initialProductImage!,
             source: 'upload',
-            sourceProductId: ctx.ownerProductId ?? undefined,
+            sourceContentWorkspaceId: ctx.ownerContentWorkspaceId ?? undefined,
             index: 0,
           }),
           makeSlot('bundle_item', { index: 1 }),
@@ -133,8 +139,8 @@ function selectBundleImages(slots: Slot[]): string[] {
 function selectBundleLabels(slots: Slot[]): string[] {
   return slots.filter((s) => s.kind === 'bundle_item' && s.value).map((s) => s.label);
 }
-function selectBundleOwnerProductId(slots: Slot[]): string | undefined {
-  return slots.find((s) => s.kind === 'bundle_item' && s.value)?.sourceProductId;
+function selectBundleOwnerContentWorkspaceId(slots: Slot[]): string | undefined {
+  return slots.find((s) => s.kind === 'bundle_item' && s.value)?.sourceContentWorkspaceId;
 }
 
 export function setFirstSlotValueByKind(
@@ -167,12 +173,7 @@ function relabelGroup(slots: Slot[], kind: SlotKind): Slot[] {
   });
 }
 
-function setSlotValueById(
-  slots: Slot[],
-  id: string,
-  value: string | null,
-  source: SlotSource = 'upload',
-): Slot[] {
+function setSlotValueById(slots: Slot[], id: string, value: string | null, source: SlotSource = 'upload'): Slot[] {
   const idx = slots.findIndex((s) => s.id === id);
   if (idx === -1) return slots;
   const next = slots.slice();
@@ -194,7 +195,7 @@ export function clearSlotValueById(slots: Slot[], id: string): Slot[] {
 export interface SlotPick {
   value: string;
   source: SlotSource;
-  sourceProductId?: string;
+  sourceContentWorkspaceId?: string;
 }
 
 export function applyPickToSlot(slots: Slot[], id: string, pick: SlotPick): Slot[] {
@@ -205,7 +206,7 @@ export function applyPickToSlot(slots: Slot[], id: string, pick: SlotPick): Slot
     ...next[idx],
     value: pick.value,
     source: pick.source,
-    sourceProductId: pick.sourceProductId,
+    sourceContentWorkspaceId: pick.sourceContentWorkspaceId,
   };
   return next;
 }
@@ -213,7 +214,11 @@ export function applyPickToSlot(slots: Slot[], id: string, pick: SlotPick): Slot
 export function addPicksToGroup(slots: Slot[], kind: SlotKind, picks: SlotPick[]): Slot[] {
   if (picks.length === 0) return slots;
   const fresh = picks.map((p) =>
-    makeSlot(kind, { value: p.value, source: p.source, sourceProductId: p.sourceProductId }),
+    makeSlot(kind, {
+      value: p.value,
+      source: p.source,
+      sourceContentWorkspaceId: p.sourceContentWorkspaceId,
+    }),
   );
   return relabelGroup([...slots, ...fresh], kind);
 }
@@ -244,7 +249,6 @@ export function pickCaseFromSlots(slots: Slot[]): 'compose' | 'color-variants' |
 export type LayoutKindLite = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
 
 interface SlotsDtoExtras {
-  productId?: string | null;
   sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   productName?: string | null;
@@ -262,7 +266,6 @@ interface SlotsDtoExtras {
 }
 
 interface GenerateDto {
-  productId?: string;
   sourceCandidateId?: string;
   contentWorkspaceId?: string;
   productName?: string;
@@ -270,6 +273,7 @@ interface GenerateDto {
   packagingImage?: string;
   supplementaryLabel?: string;
   colorImages?: string[];
+  colorCount?: number;
   bundleImages?: string[];
   bundleLabels?: string[];
   pieceCount?: number;
@@ -288,7 +292,6 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
   const {
     mode,
     purpose,
-    productId,
     sourceCandidateId,
     contentWorkspaceId,
     productName,
@@ -308,19 +311,22 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
   const referenceValue = selectReferenceValue(slots);
   const bundleValues = selectBundleImages(slots);
   const bundleLabels = selectBundleLabels(slots);
-  const bundleOwner = selectBundleOwnerProductId(slots);
+  const bundleOwner = selectBundleOwnerContentWorkspaceId(slots);
 
   const isBundle = editCase === 'bundle';
 
   return {
-    productId: sourceCandidateId ? undefined : ((isBundle ? bundleOwner : productId) ?? undefined),
     sourceCandidateId: sourceCandidateId ?? undefined,
-    contentWorkspaceId: contentWorkspaceId ?? undefined,
+    contentWorkspaceId: sourceCandidateId ? undefined : ((isBundle ? bundleOwner : contentWorkspaceId) ?? undefined),
     productName: productName?.trim() || undefined,
-    productImage: isBundle ? undefined : productValue ?? undefined,
-    packagingImage: isBundle ? undefined : packagingValue ?? undefined,
+    productImage: isBundle ? undefined : (productValue ?? undefined),
+    packagingImage: isBundle ? undefined : (packagingValue ?? undefined),
     supplementaryLabel: editCase === 'compose' ? supplementaryLabel : undefined,
     colorImages: editCase === 'color-variants' ? colorValues : undefined,
+    colorCount:
+      editCase === 'color-variants' && colorValues.length > 0
+        ? colorValues.length
+        : undefined,
     bundleImages: isBundle ? bundleValues : undefined,
     bundleLabels: isBundle ? bundleLabels : undefined,
     pieceCount: pieceCount ?? undefined,
@@ -328,7 +334,10 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
     purpose,
     mode,
     userPrompt: userPrompt || undefined,
-    sceneType: mode === 'creative' ? sceneType : undefined,
+    sceneType:
+      mode === 'creative' && sceneType !== 'custom-reference'
+        ? sceneType
+        : undefined,
     styleType: mode === 'creative' ? styleType : undefined,
     productDescription: mode === 'creative' ? productDescription || undefined : undefined,
     layout: layout && layout !== 'auto' ? layout : undefined,

@@ -666,7 +666,16 @@
       return { success: false, error: "그리드 데이터 없음" };
     }
 
-    // 기본: 아이템위너/일반 Wing 페이지
+    if (pageType !== "itemwinner") {
+      // Wing 홈의 일반 대시보드 카드를 아이템위너 KPI로 저장하면 실제 순위
+      // 수집이 0건이어도 성공으로 보이는 false positive가 된다.
+      return {
+        success: false,
+        error: "아이템위너 페이지가 아닙니다. Wing 판매순위 수집을 사용해 주세요.",
+      };
+    }
+
+    // 아이템위너 전용 페이지
     const tableData = parseWingTable();
     const cards = parseDashboardCards();
     const total = tableData.length + Object.keys(cards).length;

@@ -7,14 +7,20 @@ import {
 import {
   createActionCandidate,
   type ActionCandidate,
+  type ChannelSkuAdEvidence,
 } from '../../domain/ad-action-rules';
+import { computeChannelSkuPurchaseCost } from '../../domain/strategy-context';
+import {
+  CHANNEL_SKU_AVAILABILITY_PORT,
+  type ChannelSkuAvailabilityPort,
+} from '../../../channels/application/port/in/channel-sku-availability.port';
 
 const ACTION_DEDUP_HOURS = 24;
 
 /**
  * Application orchestration for `AdAction` lifecycle. The service:
  *
- * - reads the latest target-daily rows + option-stock map (read-models),
+ * - reads the latest target-daily rows + canonical ChannelSku availability,
  * - feeds each row to the pure 5-rule selector (`domain/ad-action-rules`),
  * - dedupes against in-flight rows the same organization already has open, and
  * - hands the resulting candidates / state transitions to the
@@ -28,6 +34,8 @@ export class AdActionService {
   constructor(
     @Inject(AD_ACTION_REPOSITORY_PORT)
     private readonly repo: AdActionRepositoryPort,
+    @Inject(CHANNEL_SKU_AVAILABILITY_PORT)
+    private readonly channelSkuAvailability: ChannelSkuAvailabilityPort,
   ) {}
 
   async getActions(query: AdActionQuery, organizationId: string) {
@@ -38,9 +46,8 @@ export class AdActionService {
    * Generate `AdAction` rows from `ChannelAdTargetDailySnapshot`.
    *
    * Rules apply to one latest-businessDate row per `targetKey`. Rule 1 (zero
-   * stock) needs option stock — when `listingOptionId` is set we fetch the
-   * latest `ChannelListingOptionDailySnapshot.stockQty`, and when absent we
-   * skip Rule 1.
+   * stock) uses the exact confirmed ChannelSku component recipe. An unmapped
+   * SKU yields `sellableStock = null` and does not trigger the zero-stock rule.
    *
    * Each created `AdAction` carries `adTargetDailyId` pointing at the source
    * target-daily row for audit/replay.
@@ -52,11 +59,6 @@ export class AdActionService {
 
     const latestRows = await this.repo.findLatestTargetRows(organizationId);
 
-    // Rule 1 stock-zero check: prefer the latest option daily snapshot's
-    // stockQty when listingOptionId is set. Legacy used the live
-    // `ProductOption.availableStock`; the daily-fact replacement gives the
-    // observed channel stock at the same time the ad metric was captured.
-    // Either signal === 0 fires the rule.
     const listingOptionIds = Array.from(
       new Set(
         latestRows
@@ -64,9 +66,16 @@ export class AdActionService {
           .filter((id): id is string => id != null),
       ),
     );
-    const optionDailyStockMap = await this.repo.findLatestListingOptionStockById(
+    const availability = await this.channelSkuAvailability.findByChannelSkuIds(
       organizationId,
       listingOptionIds,
+    );
+    const channelSkuEvidenceMap = new Map<string, ChannelSkuAdEvidence>(
+      availability.map((item) => [item.sku.id, {
+        sellableStock: item.sku.sellableStock,
+        purchaseCost: computeChannelSkuPurchaseCost(item.components),
+        salePrice: item.sku.salePrice,
+      }]),
     );
 
     const existingActions = await this.repo.findExistingInflightActions(
@@ -84,7 +93,7 @@ export class AdActionService {
     let skippedExisting = 0;
 
     for (const row of latestRows) {
-      const candidate = createActionCandidate(row, optionDailyStockMap);
+      const candidate = createActionCandidate(row, channelSkuEvidenceMap);
       if (!candidate) continue;
 
       const dedupKey = [

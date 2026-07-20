@@ -10,7 +10,7 @@ const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
 
 function makePrisma() {
   return {
-    masterProduct: {
+    channelListing: {
       count: vi.fn(),
     },
     shipment: {
@@ -69,7 +69,7 @@ describe('StatisticsService', () => {
         { ...baseMetric, listingId: 'listing-1', revenue: 100_000, netProfit: 20_000, orderCount: 1 },
         { ...baseMetric, listingId: 'listing-2', masterId: 'master-2', masterCode: 'M0002', masterName: 'Master Product B', revenue: 50_000, netProfit: 10_000, orderCount: 1 },
       ]);
-      prisma.masterProduct.count.mockResolvedValue(2);
+      prisma.channelListing.count.mockResolvedValue(2);
       prisma.order.count.mockResolvedValue(1);
 
       const result = await service.overview('organization-1', '2026-04');
@@ -90,6 +90,9 @@ describe('StatisticsService', () => {
           status: { notIn: ['cancelled', 'returned', 'refunded'] },
         },
       });
+      expect(prisma.channelListing.count).toHaveBeenCalledWith({
+        where: { organizationId: 'organization-1', isActive: true },
+      });
       expect(result).toEqual({
         totalRevenue: 150_000,
         totalOrders: 1,
@@ -102,7 +105,7 @@ describe('StatisticsService', () => {
     it('preserves omitted-period all-time semantics with a bounded live window', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-04-24T00:00:00.000Z'));
-      prisma.masterProduct.count.mockResolvedValue(0);
+      prisma.channelListing.count.mockResolvedValue(0);
       prisma.order.count.mockResolvedValue(0);
 
       await service.overview('organization-1');
@@ -367,7 +370,7 @@ describe('StatisticsService', () => {
   });
 
   describe('repurchase', () => {
-    it('aggregates repeatProducts at master level and repeatCustomers at receiver level', async () => {
+    it('aggregates repeatProducts at listing level and repeatCustomers at receiver level', async () => {
       prisma.order.findMany.mockResolvedValue([
         {
           receiverName: '홍길동',
@@ -395,8 +398,11 @@ describe('StatisticsService', () => {
           order: { receiverName: '홍길동' },
           listingOption: {
             listing: {
-              masterId: 'master-A',
-              master: { name: 'Master A', category: '유아용품' },
+              id: 'listing-A',
+              displayName: 'Listing A',
+              channelName: null,
+              externalId: 'external-A',
+              category: '유아용품',
             },
           },
         },
@@ -404,8 +410,11 @@ describe('StatisticsService', () => {
           order: { receiverName: '김철수' },
           listingOption: {
             listing: {
-              masterId: 'master-A',
-              master: { name: 'Master A', category: '유아용품' },
+              id: 'listing-A',
+              displayName: 'Listing A',
+              channelName: null,
+              externalId: 'external-A',
+              category: '유아용품',
             },
           },
         },
@@ -413,8 +422,11 @@ describe('StatisticsService', () => {
           order: { receiverName: '홍길동' },
           listingOption: {
             listing: {
-              masterId: 'master-B',
-              master: { name: 'Master B', category: '완구' },
+              id: 'listing-B',
+              displayName: 'Listing B',
+              channelName: null,
+              externalId: 'external-B',
+              category: '완구',
             },
           },
         },
@@ -422,8 +434,11 @@ describe('StatisticsService', () => {
           order: { receiverName: '홍길동' },
           listingOption: {
             listing: {
-              masterId: 'master-B',
-              master: { name: 'Master B', category: '완구' },
+              id: 'listing-B',
+              displayName: 'Listing B',
+              channelName: null,
+              externalId: 'external-B',
+              category: '완구',
             },
           },
         },
@@ -435,8 +450,11 @@ describe('StatisticsService', () => {
           order: { receiverName: null },
           listingOption: {
             listing: {
-              masterId: 'master-A',
-              master: { name: 'Master A', category: '유아용품' },
+              id: 'listing-A',
+              displayName: 'Listing A',
+              channelName: null,
+              externalId: 'external-A',
+              category: '유아용품',
             },
           },
         },
@@ -475,8 +493,8 @@ describe('StatisticsService', () => {
         totalOrders: 4,
         repeatProducts: [
           {
-            masterId: 'master-A',
-            productName: 'Master A',
+            masterId: 'listing-A',
+            productName: 'Listing A',
             category: '유아용품',
             orderCount: 3,
           },

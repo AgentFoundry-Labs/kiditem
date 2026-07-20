@@ -9,6 +9,8 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AdTargetDailyMetrics,
   ChannelTargetDailyRepositoryPort,
+  ReplaceAdCampaignDayInput,
+  ReplaceAdCampaignDayResult,
   UpsertAdTargetDailyInput,
 } from '../../../application/port/out/repository/channel-target-daily.repository.port';
 import {
@@ -18,6 +20,7 @@ import {
   spreadMetricsForCreate,
   spreadMetricsForUpdate,
 } from './daily-fact-helpers';
+import { withAdIngestRepositoryTransaction } from './ad-ingest-transaction-context';
 
 const AD_TARGET_METRIC_KEYS: ReadonlyArray<keyof AdTargetDailyMetrics> = [
   'spend',
@@ -44,7 +47,6 @@ const AD_TARGET_DESCRIPTOR_KEYS: ReadonlyArray<
     | 'dailyBudget'
     | 'listingId'
     | 'listingOptionId'
-    | 'optionId'
     | 'externalId'
     | 'externalOptionId'
   >
@@ -60,10 +62,14 @@ const AD_TARGET_DESCRIPTOR_KEYS: ReadonlyArray<
   'dailyBudget',
   'listingId',
   'listingOptionId',
-  'optionId',
   'externalId',
   'externalOptionId',
 ];
+
+const CAMPAIGN_REPLACE_TRANSACTION_OPTIONS = {
+  maxWait: 10_000,
+  timeout: 120_000,
+} as const;
 
 @Injectable()
 export class ChannelTargetDailyRepositoryAdapter
@@ -92,7 +98,7 @@ export class ChannelTargetDailyRepositoryAdapter
       AD_TARGET_DESCRIPTOR_KEYS,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       const row = await tx.channelAdTargetDailySnapshot.upsert({
         where: {
           organizationId_channel_businessDate_targetType_targetKey: {
@@ -111,7 +117,6 @@ export class ChannelTargetDailyRepositoryAdapter
           targetKey: input.targetKey,
           listingId: input.listingId ?? null,
           listingOptionId: input.listingOptionId ?? null,
-          optionId: input.optionId ?? null,
           externalId: input.externalId ?? null,
           externalOptionId: input.externalOptionId ?? null,
           campaignId: input.campaignId ?? null,
@@ -152,4 +157,238 @@ export class ChannelTargetDailyRepositoryAdapter
       return row;
     });
   }
+
+  async replaceCampaignDay(
+    input: ReplaceAdCampaignDayInput,
+  ): Promise<ReplaceAdCampaignDayResult> {
+    const campaignId = input.campaignId?.trim() || null;
+    const campaignIdentity = input.campaignIdentity?.trim() || null;
+    const campaignName = input.campaignName.trim();
+    if (!input.channelAccountId.trim()) {
+      throw new Error('replaceCampaignDay: channelAccountId is required');
+    }
+    if (!campaignId && !campaignIdentity) {
+      throw new Error('replaceCampaignDay: stable campaign identity is required');
+    }
+    const expectedPrefix = `account:${input.channelAccountId}:`;
+    const desiredKeys = new Set<string>();
+    for (const target of input.targets) {
+      if (
+        target.organizationId !== input.organizationId ||
+        target.channel !== input.channel ||
+        target.businessDate.getTime() !== input.businessDate.getTime() ||
+        !target.targetKey.startsWith(expectedPrefix)
+      ) {
+        throw new Error(
+          'replaceCampaignDay: targets must share organization/account/channel/date scope',
+        );
+      }
+      if (campaignId) {
+        if (target.campaignId?.trim() !== campaignId) {
+          throw new Error(
+            'replaceCampaignDay: target campaignId does not match replacement scope',
+          );
+        }
+      } else {
+        if (target.campaignId?.trim()) {
+          throw new Error(
+            'replaceCampaignDay: identity-scoped target cannot carry a campaignId',
+          );
+        }
+        if (
+          target.campaignName?.trim() !== campaignName ||
+          campaignIdentityFromTarget(target) !== campaignIdentity
+        ) {
+          throw new Error(
+            'replaceCampaignDay: target campaign identity does not match replacement scope',
+          );
+        }
+      }
+      if (desiredKeys.has(target.targetKey)) {
+        throw new Error(
+          `replaceCampaignDay: duplicate targetKey '${target.targetKey}'`,
+        );
+      }
+      desiredKeys.add(target.targetKey);
+    }
+
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
+      const lockScope = [
+        input.organizationId,
+        input.channelAccountId,
+        input.channel,
+        input.businessDate.toISOString().slice(0, 10),
+        campaignId ?? campaignIdentity,
+      ].join(':');
+      await tx.$queryRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockScope}, 0))::text AS locked`,
+      );
+
+      const campaignPredicate = campaignId
+        ? Prisma.sql`target.campaign_id = ${campaignId}`
+        : Prisma.sql`
+            target.campaign_id IS NULL
+            AND target.campaign_name = ${campaignName}
+            AND target.meta_json #>> '{advertising.campaign.target,campaignIdentity}' = ${campaignIdentity}
+          `;
+      const rows = await tx.$queryRaw<LockedCampaignTargetRow[]>(Prisma.sql`
+        SELECT
+          target.id,
+          target.target_key AS "targetKey",
+          ARRAY(
+            SELECT action.id::text
+            FROM ad_actions action
+            WHERE action.organization_id = target.organization_id
+              AND action.ad_target_daily_id = target.id
+            ORDER BY action.id
+          ) AS "actionIds",
+          target.first_observed_at AS "firstObservedAt",
+          target.sample_count AS "sampleCount"
+        FROM channel_ad_target_daily_snapshots target
+        WHERE target.organization_id = ${input.organizationId}::uuid
+          AND target.channel = ${input.channel}
+          AND target.business_date = ${input.businessDate}::date
+          AND starts_with(target.target_key, ${expectedPrefix})
+          AND (${campaignPredicate})
+        FOR UPDATE OF target
+      `);
+      const candidateIds = rows.map((row) => row.id);
+      if (candidateIds.length > 0) {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT id
+          FROM ad_actions
+          WHERE organization_id = ${input.organizationId}::uuid
+            AND ad_target_daily_id IN (
+              ${Prisma.join(candidateIds.map((id) => Prisma.sql`${id}::uuid`))}
+            )
+          FOR UPDATE
+        `);
+      }
+
+      const desiredKeys = new Set(input.targets.map((target) => target.targetKey));
+      const existingByKey = new Map(rows.map((row) => [row.targetKey, row]));
+      const staleRows = rows.filter((row) => !desiredKeys.has(row.targetKey));
+      if (staleRows.some((row) => row.actionIds.length > 0)) {
+        return { kind: 'rejected', code: 'dependent_action_conflict' };
+      }
+
+      let deletedCount = 0;
+      if (staleRows.length > 0) {
+        const deleted = await tx.channelAdTargetDailySnapshot.deleteMany({
+          where: {
+            organizationId: input.organizationId,
+            id: { in: staleRows.map((row) => row.id) },
+          },
+        });
+        deletedCount += deleted.count;
+      }
+
+      for (const desired of input.targets) {
+        const existing = existingByKey.get(desired.targetKey);
+        if (!existing) {
+          await this.createWithClient(tx, desired);
+          continue;
+        }
+        const observedAt = desired.observedAt ?? new Date();
+        const updated = await tx.channelAdTargetDailySnapshot.updateMany({
+          where: {
+            id: existing.id,
+            organizationId: input.organizationId,
+          },
+          data: {
+            ...targetDescriptorData(desired),
+            ...spreadMetricsForUpdate(desired, AD_TARGET_METRIC_KEYS),
+            targetKey: desired.targetKey,
+            rawSnapshotId: desired.rawSnapshotId ?? null,
+            metaJson: replacementMeta(desired),
+            sampleCount: Math.max(1, existing.sampleCount),
+            ...(existing.firstObservedAt
+              ? { firstObservedAt: existing.firstObservedAt }
+              : {}),
+            lastObservedAt: observedAt,
+          },
+        });
+        if (updated.count !== 1) {
+          throw new Error('replaceCampaignDay: destination changed during replacement');
+        }
+      }
+
+      return {
+        kind: 'replaced',
+        upsertedCount: input.targets.length,
+        deletedCount,
+      };
+    }, CAMPAIGN_REPLACE_TRANSACTION_OPTIONS);
+  }
+
+  private async createWithClient(
+    tx: Prisma.TransactionClient,
+    input: UpsertAdTargetDailyInput,
+  ): Promise<void> {
+    const observedAt = input.observedAt ?? new Date();
+    await tx.channelAdTargetDailySnapshot.create({
+      data: {
+        organizationId: input.organizationId,
+        channel: input.channel,
+        businessDate: input.businessDate,
+        targetType: input.targetType,
+        targetKey: input.targetKey,
+        ...targetDescriptorData(input),
+        ...spreadMetricsForCreate(input, AD_TARGET_METRIC_KEYS),
+        rawSnapshotId: input.rawSnapshotId ?? null,
+        metaJson: replacementMeta(input),
+        sampleCount: 1,
+        firstObservedAt: observedAt,
+        lastObservedAt: observedAt,
+      },
+      select: { id: true },
+    });
+  }
+}
+
+function campaignIdentityFromTarget(
+  target: UpsertAdTargetDailyInput,
+): string | null {
+  const meta = target.metaJson;
+  if (!meta || typeof meta !== 'object') return null;
+  const value = meta.data.campaignIdentity;
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+interface LockedCampaignTargetRow {
+  id: string;
+  targetKey: string;
+  actionIds: string[];
+  firstObservedAt: Date;
+  sampleCount: number;
+}
+
+function targetDescriptorData(input: UpsertAdTargetDailyInput) {
+  return {
+    listingId: input.listingId ?? null,
+    listingOptionId: input.listingOptionId ?? null,
+    externalId: input.externalId ?? null,
+    externalOptionId: input.externalOptionId ?? null,
+    campaignId: input.campaignId ?? null,
+    campaignName: input.campaignName ?? null,
+    adGroup: input.adGroup ?? null,
+    keyword: input.keyword ?? null,
+    placement: input.placement ?? null,
+    status: input.status ?? null,
+    onOff: input.onOff ?? null,
+    currentBid: input.currentBid ?? null,
+    dailyBudget: input.dailyBudget ?? null,
+  };
+}
+
+function replacementMeta(
+  input: UpsertAdTargetDailyInput,
+): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  const base = buildNamespacedMetaForCreate(input.metaJson);
+  const record = base && typeof base === 'object' && !Array.isArray(base)
+    ? base as Record<string, Prisma.InputJsonValue>
+    : {};
+  return record as Prisma.InputJsonValue;
 }

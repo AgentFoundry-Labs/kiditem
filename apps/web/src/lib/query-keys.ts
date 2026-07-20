@@ -30,6 +30,22 @@ export const queryKeys = {
     all: ['products'] as const,
     list: (params: Record<string, string>) => [...queryKeys.products.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.products.all, 'detail', id] as const,
+    operations: {
+      all: ['products', 'operations'] as const,
+      lists: () => [...queryKeys.products.operations.all, 'list'] as const,
+      list: (params: Record<string, string>) =>
+        [...queryKeys.products.operations.lists(), params] as const,
+      detail: (id: string) =>
+        [...queryKeys.products.operations.all, 'detail', id] as const,
+      mutations: () =>
+        [...queryKeys.products.operations.all, 'mutation'] as const,
+      recipeCandidates: (params: Record<string, string>) =>
+        [
+          ...queryKeys.products.operations.all,
+          'recipe-component-candidates',
+          params,
+        ] as const,
+    },
     images: (masterId: string) => [...queryKeys.products.all, 'images', masterId] as const,
     pipelineStats: (status?: string, period?: number) =>
       [...queryKeys.products.all, 'pipelineStats', status, period] as const,
@@ -46,13 +62,25 @@ export const queryKeys = {
   },
   inventory: {
     all: ['inventory'] as const,
-    list: (params: Record<string, string>) => [...queryKeys.inventory.all, 'list', params] as const,
-    detail: (id: string) => [...queryKeys.inventory.all, 'detail', id] as const,
-    byMaster: (masterId: string) => [...queryKeys.inventory.all, 'byMaster', masterId] as const,
-    transactions: (params: Record<string, string>) =>
-      [...queryKeys.inventory.all, 'transactions', params] as const,
-    transactionSummary: (params: Record<string, string>) =>
-      [...queryKeys.inventory.all, 'transactionSummary', params] as const,
+    snapshots: () => [...queryKeys.inventory.all, 'sellpia-skus'] as const,
+    snapshot: (params: Record<string, string>) =>
+      [...queryKeys.inventory.snapshots(), params] as const,
+    assets: () => [...queryKeys.inventory.all, 'sellpia-assets'] as const,
+    assetList: (params: Record<string, string>) =>
+      [...queryKeys.inventory.assets(), params] as const,
+    importRuns: () => [...queryKeys.inventory.all, 'sellpia-import-runs'] as const,
+    importRunList: (params: Record<string, string>) =>
+      [...queryKeys.inventory.importRuns(), params] as const,
+    freshness: () => [...queryKeys.inventory.all, 'sellpia-freshness'] as const,
+    currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
+    history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
+    historyList: (params: Record<string, string>) =>
+      [...queryKeys.inventory.history(), params] as const,
+    receiptBatches: () => [...queryKeys.inventory.all, 'sellpia-receipt-batches'] as const,
+    // Sellpia 상품별 소진(재고 분석)
+    productSalesAll: () => [...queryKeys.inventory.all, 'sellpia-product-sales'] as const,
+    productSales: (months?: number) =>
+      [...queryKeys.inventory.all, 'sellpia-product-sales', months ?? 0] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,
@@ -75,6 +103,10 @@ export const queryKeys = {
     // Health (unchanged)
     health: () =>
       [...queryKeys.dashboard.all, 'health'] as const,
+    // Sellpia 판매현황(몰별 매출)
+    sellpiaSalesAll: () => [...queryKeys.dashboard.all, 'sellpia-sales'] as const,
+    sellpiaSales: (from?: string, to?: string) =>
+      [...queryKeys.dashboard.all, 'sellpia-sales', from ?? '', to ?? ''] as const,
   },
   ads: {
     all: ['ads'] as const,
@@ -89,6 +121,14 @@ export const queryKeys = {
     benchmark: (period?: string | number) => [...queryKeys.ads.all, 'benchmark', period] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
     scrapeTargets: () => [...queryKeys.ads.all, 'scrapeTargets'] as const,
+    keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
+    keywordRankTrackers: () => [...queryKeys.ads.keywordRank(), 'trackers'] as const,
+    keywordRankHistory: (keyword: string, days: number) =>
+      [...queryKeys.ads.keywordRank(), 'history', keyword, days] as const,
+    keywordRankProducts: (days: number) =>
+      [...queryKeys.ads.keywordRank(), 'products', days] as const,
+    keywordRankSerp: (keyword: string) =>
+      [...queryKeys.ads.keywordRank(), 'serp', keyword] as const,
     config: () => [...queryKeys.ads.all, 'config'] as const,
     extensionStatus: () => [...queryKeys.ads.all, 'extension', 'status'] as const,
   },
@@ -102,6 +142,15 @@ export const queryKeys = {
     search: (params: Record<string, string>) => [...queryKeys.orders.all, 'search', params] as const,
     compare: (params: Record<string, string>) => [...queryKeys.orders.all, 'compare', params] as const,
     sync: (params: Record<string, string>) => [...queryKeys.orders.all, 'sync', params] as const,
+    rocketSavedPoList: (params: {
+      channelAccountId: string;
+      from: string;
+      to: string;
+      status: string;
+    }) => [...queryKeys.orders.all, 'rocket-saved-po-list', params] as const,
+    collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
+    collectionMallAction: (action: string) =>
+      [...queryKeys.orders.collectionMalls(), action] as const,
   },
   coupangDashboard: {
     all: ['coupangDashboard'] as const,
@@ -154,17 +203,41 @@ export const queryKeys = {
     generations: (params?: Record<string, string>) => [...queryKeys.thumbnailAnalysis.all, 'generations', params] as const,
     tracking: () => [...queryKeys.thumbnailAnalysis.all, 'tracking'] as const,
   },
-  coupangImageSync: {
-    all: ['coupangImageSync'] as const,
-    capabilities: () => [...queryKeys.coupangImageSync.all, 'capabilities'] as const,
-    current: () => [...queryKeys.coupangImageSync.all, 'current'] as const,
-    job: (jobId: string) => [...queryKeys.coupangImageSync.all, 'job', jobId] as const,
+  channelAccounts: {
+    all: ['channelAccounts'] as const,
+    active: () => [...queryKeys.channelAccounts.all, 'active'] as const,
   },
-  channelReconciliation: {
-    all: ['channelReconciliation'] as const,
-    summary: () => [...queryKeys.channelReconciliation.all, 'summary'] as const,
-    items: (params: Record<string, string>) =>
-      [...queryKeys.channelReconciliation.all, 'items', params] as const,
+  channelSkuMappings: {
+    all: ['channelSkuMappings'] as const,
+    lists: () => [...queryKeys.channelSkuMappings.all, 'list'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.channelSkuMappings.lists(), params] as const,
+    candidates: (channelSkuId: string, params: Record<string, string>) =>
+      [
+        ...queryKeys.channelSkuMappings.all,
+        'candidates',
+        channelSkuId,
+        params,
+      ] as const,
+  },
+  channelProductMappings: {
+    all: ['channelProductMappings'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.channelProductMappings.all, 'list', params] as const,
+    productCandidates: (channelListingId: string, params: Record<string, string>) =>
+      [...queryKeys.channelProductMappings.all, 'product-candidates', channelListingId, params] as const,
+    variantCandidates: (channelListingOptionId: string, params: Record<string, string>) =>
+      [...queryKeys.channelProductMappings.all, 'variant-candidates', channelListingOptionId, params] as const,
+    recipeSuggestion: (channelListingOptionId: string) =>
+      [...queryKeys.channelProductMappings.all, 'recipe-suggestion', channelListingOptionId] as const,
+    recipeAutomationPreview: (channelAccountId: string) =>
+      [...queryKeys.channelProductMappings.all, 'recipe-automation-preview', channelAccountId] as const,
+  },
+  channelSkuAvailability: {
+    all: ['channelSkuAvailability'] as const,
+    lists: () => [...queryKeys.channelSkuAvailability.all, 'list'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.channelSkuAvailability.lists(), params] as const,
   },
   coupangAccount: {
     all: ['coupangAccount'] as const,
@@ -185,6 +258,19 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
     scrapeUrlStatus: (url: string) => [...queryKeys.sourcing.all, 'scrape-url-status', url] as const,
+    liveNaverMarket: () => [...queryKeys.sourcing.all, 'market', 'naver-live'] as const,
+    trend: () => [...queryKeys.sourcing.all, 'trend'] as const,
+    trendSeeds: () => [...queryKeys.sourcing.all, 'trend', 'seeds'] as const,
+    trendNaverKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'naver-keywords', days] as const,
+    trendPopularKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'popular-keywords', days] as const,
+    trend1688Hot: (days: number) => [...queryKeys.sourcing.all, 'trend', '1688-hot', days] as const,
+    trendShorts: (days: number) => [...queryKeys.sourcing.all, 'trend', 'shorts', days] as const,
+    liveCommerceStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'status'] as const,
+    liveCommerceExtensionStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'extension-status'] as const,
+    liveCommerceSnapshots: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'snapshots', days] as const,
+    competitors: (days: number) => [...queryKeys.sourcing.all, 'competitors', days] as const,
+    competitorCollectionStatus: (runId: string | null) =>
+      [...queryKeys.sourcing.all, 'competitors', 'collection-status', runId] as const,
   },
   productContent: {
     all: ['content-archive'] as const,
@@ -203,6 +289,33 @@ export const queryKeys = {
     editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,
     generationEditedHtml: (id: string) =>
       [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
+    detailGenerationsAll: (templateId: 'kids-playful' | 'bold-vertical') =>
+      [templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations'] as const,
+    detailGenerations: (
+      templateId: 'kids-playful' | 'bold-vertical',
+      scope?: {
+        productId?: string | null;
+        sourceCandidateId?: string | null;
+        contentWorkspaceId?: string | null;
+      },
+    ) => {
+      const root = templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations';
+      if (scope?.contentWorkspaceId) {
+        return [root, { contentWorkspaceId: scope.contentWorkspaceId }] as const;
+      }
+      if (scope?.sourceCandidateId) {
+        return [root, { sourceCandidateId: scope.sourceCandidateId }] as const;
+      }
+      if (templateId === 'kids-playful' && scope?.productId) {
+        return [root, { productId: scope.productId }] as const;
+      }
+      if (templateId === 'bold-vertical') {
+        return [root, { productId: scope?.productId ?? null }] as const;
+      }
+      return [root] as const;
+    },
+    detailGeneration: (id: string) => ['kp-generations', 'one', id] as const,
+    detailGenerationNoop: () => ['kp-generations', 'one', 'noop'] as const,
   },
   contentWorkspaces: {
     all: ['content-workspaces'] as const,
@@ -212,11 +325,22 @@ export const queryKeys = {
     duplicate: (title: string) =>
       [...queryKeys.contentWorkspaces.all, 'duplicate', title] as const,
   },
+  deletionPassword: {
+    all: ['deletion-password'] as const,
+    status: () => [...queryKeys.deletionPassword.all, 'status'] as const,
+  },
   channelListings: {
     all: ['channel-listings'] as const,
     list: (params: Record<string, string>) =>
       [...queryKeys.channelListings.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.channelListings.all, 'detail', id] as const,
+  },
+  coupangCatalogImports: {
+    all: ['coupangCatalogImports'] as const,
+    run: (channelAccountId: string, runId: string) =>
+      [...queryKeys.coupangCatalogImports.all, channelAccountId, runId] as const,
+    extension: (runId: string) =>
+      [...queryKeys.coupangCatalogImports.all, 'extension', runId] as const,
   },
   organizations: {
     all: ['organizations'] as const,
@@ -225,10 +349,6 @@ export const queryKeys = {
   suppliers: {
     all: ['suppliers'] as const,
     list: () => [...queryKeys.suppliers.all, 'list'] as const,
-  },
-  stockAudits: {
-    all: ['stockAudits'] as const,
-    list: () => [...queryKeys.stockAudits.all, 'list'] as const,
   },
   stockTransfers: {
     all: ['stockTransfers'] as const,
@@ -247,11 +367,6 @@ export const queryKeys = {
     list: (scope?: string) => [...queryKeys.actionTasks.all, 'list', scope ?? 'all'] as const,
   },
   syncInfo: () => ['syncInfo'] as const,
-  productOptions: {
-    all: ['product-options'] as const,
-    list: (params: Record<string, string>) => [...queryKeys.productOptions.all, 'list', params] as const,
-    detail: (id: string) => [...queryKeys.productOptions.all, 'detail', id] as const,
-  },
   manualLedger: {
     all: ['manual-ledger'] as const,
   },
@@ -275,6 +390,11 @@ export const queryKeys = {
   },
   alerts: {
     all: ['alerts'] as const,
+  },
+  browserCollection: {
+    all: ['browser-collection'] as const,
+    session: (runId: string) =>
+      [...queryKeys.browserCollection.all, 'session', runId] as const,
   },
   settlements: {
     all: ['settlements'] as const,

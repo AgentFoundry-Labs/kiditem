@@ -7,8 +7,9 @@ import { formatDateTime, formatNumber } from '@/lib/utils';
 import {
   deleteRocketConfirmFile,
   loadRocketConfirmFiles,
+  ROCKET_CONFIRM_FILES_CHANGED_EVENT,
   type StoredRocketConfirmFile,
-} from '../lib/rocket-confirm-file-store';
+} from '@/lib/rocket-confirm-file-store';
 
 export function RocketConfirmFileList({ refreshKey }: { refreshKey: number }) {
   const [files, setFiles] = useState<StoredRocketConfirmFile[]>([]);
@@ -24,6 +25,8 @@ export function RocketConfirmFileList({ refreshKey }: { refreshKey: number }) {
 
   useEffect(() => {
     load();
+    window.addEventListener(ROCKET_CONFIRM_FILES_CHANGED_EVENT, load);
+    return () => window.removeEventListener(ROCKET_CONFIRM_FILES_CHANGED_EVENT, load);
   }, [load, refreshKey]);
 
   async function handleDelete(id: string) {
@@ -36,7 +39,7 @@ export function RocketConfirmFileList({ refreshKey }: { refreshKey: number }) {
       <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
         <div className="flex items-center gap-2">
           <FileSpreadsheet size={16} className="text-slate-500" />
-          <span className="text-sm font-semibold text-slate-900">생성한 발주확정 파일</span>
+          <span className="text-sm font-semibold text-slate-900">기존 발주확정 파일 이력</span>
         </div>
         <span className="text-xs tabular-nums text-slate-400">{files.length}개</span>
       </div>
@@ -46,7 +49,7 @@ export function RocketConfirmFileList({ refreshKey }: { refreshKey: number }) {
           <Loader2 size={14} className="animate-spin text-purple-600" /> 불러오는 중…
         </div>
       ) : files.length === 0 ? (
-        <div className="px-5 py-8 text-center text-sm text-slate-400">아직 생성한 파일이 없습니다.</div>
+        <div className="px-5 py-8 text-center text-sm text-slate-400">저장된 파일 이력이 없습니다.</div>
       ) : (
         <div className="divide-y divide-slate-100">
           {files.map((f) => (

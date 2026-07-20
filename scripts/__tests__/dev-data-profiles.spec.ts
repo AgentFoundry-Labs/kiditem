@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildCoupangImageSyncRowsForListings } from '../dev-data-coupang';
 
 const repoRoot = join(__dirname, '..', '..');
 
@@ -18,63 +17,6 @@ function runDevData(args: string[], env: Record<string, string> = {}) {
 }
 
 describe('profile-based dev data workflow', () => {
-  it('exports image sync replay rows from MasterProductImage URLs, not master sourceUrl', () => {
-    const result = buildCoupangImageSyncRowsForListings([
-      {
-        externalId: '200',
-        channelName: '쿠팡 옵션 B',
-        master: {
-          name: '공유 마스터',
-          legacyCode: null,
-          sourceUrl: 'https://wing.coupang.com/product-page',
-          images: [
-            {
-              url: 'https://image.example/shared.jpg',
-              source: 'coupang-wing',
-              isPrimary: true,
-              sortOrder: 0,
-            },
-          ],
-          options: [{ legacyCode: 'KIDITEM-1' }],
-        },
-      },
-      {
-        externalId: '100',
-        channelName: '쿠팡 옵션 A',
-        master: {
-          name: '공유 마스터',
-          legacyCode: null,
-          sourceUrl: 'https://wing.coupang.com/product-page',
-          images: [
-            {
-              url: 'https://image.example/shared.jpg',
-              source: 'coupang-wing',
-              isPrimary: true,
-              sortOrder: 0,
-            },
-          ],
-          options: [{ legacyCode: 'KIDITEM-1' }],
-        },
-      },
-    ] as never);
-
-    expect(result.rows).toEqual([
-      {
-        inventoryId: '100',
-        legacyCode: 'KIDITEM-1',
-        name: '쿠팡 옵션 A',
-        url: 'https://image.example/shared.jpg',
-      },
-      {
-        inventoryId: '200',
-        legacyCode: 'KIDITEM-1',
-        name: '쿠팡 옵션 B',
-        url: 'https://image.example/shared.jpg',
-      },
-    ]);
-    expect(result.skippedMissingImageUrl).toBe(0);
-  });
-
   it('exposes generic dev data scripts', () => {
     const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
       scripts?: Record<string, string>;
@@ -96,6 +38,63 @@ describe('profile-based dev data workflow', () => {
     }
   });
 
+  it('does not expose the retired Coupang image sync export or replay path', () => {
+    for (const file of ['scripts/dev-data.ts', 'scripts/dev-data-coupang.ts']) {
+      const source = readFileSync(join(repoRoot, file), 'utf8');
+      expect(source).not.toContain('coupang_image_sync');
+      expect(source).not.toContain('image-sync-from-db');
+      expect(source).not.toContain('include-image-sync-from-db');
+      expect(source).not.toContain('/api/coupang-image-sync');
+    }
+  });
+
+  it('rejects unsupported Coupang replay payloads before scoped replacement', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-unsupported-coupang-payload-'));
+    const datasetId = 'unsupported-payload-v1';
+    const bundleDir = join(tempRoot, 'coupang', datasetId);
+    const payloadPath = join(bundleDir, 'payloads', 'obsolete.json');
+
+    mkdirSync(join(bundleDir, 'payloads'), { recursive: true });
+    writeFileSync(payloadPath, JSON.stringify({
+      type: 'obsolete_payload',
+      source: 'wing',
+      data: [],
+    }));
+    writeFileSync(join(bundleDir, 'manifest.json'), JSON.stringify({
+      schemaVersion: 'kiditem.dev-data.coupang.v1',
+      datasetId,
+      lane: 'real',
+      createdAt: '2026-07-14T00:00:00.000Z',
+      defaultImportMode: 'scoped-replace',
+      scope: { channel: 'coupang' },
+      payloads: [{
+        path: 'payloads/obsolete.json',
+        type: 'obsolete_payload',
+        source: 'wing',
+      }],
+    }));
+
+    let stderr = '';
+    try {
+      runDevData([
+        'replay',
+        '--domain', 'coupang',
+        '--dataset', datasetId,
+        '--data-root', tempRoot,
+        '--mode', 'scoped-replace',
+        '--yes',
+      ], {
+        DATABASE_URL: 'postgresql://local:local@127.0.0.1:1/should-not-connect',
+      });
+    } catch (error) {
+      stderr = String((error as { stderr?: string | Buffer }).stderr ?? error);
+    }
+
+    expect(stderr).toContain('Unsupported Coupang dev-data payload type');
+    expect(stderr).toContain('No cleanup was performed');
+    expect(stderr).not.toContain('ECONNREFUSED');
+  });
+
   it('publishes a domain bundle and syncs it through a profile dry run', async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-profile-data-'));
     const producerRoot = join(tempRoot, 'producer');
@@ -104,23 +103,29 @@ describe('profile-based dev data workflow', () => {
     const domainRoot = join(producerRoot, 'coupang');
     const datasetId = '2026-04-28-real-v1';
     const bundleDir = join(domainRoot, datasetId);
-    const payloadPath = join(bundleDir, 'payloads', 'wing-traffic.json');
-    const imageSyncPayloadPath = join(bundleDir, 'payloads', 'coupang-image-sync.json');
+    const trafficPayloadPath = join(bundleDir, 'payloads', 'wing-traffic.json');
+    const itemWinnerPayloadPath = join(bundleDir, 'payloads', 'itemwinner.json');
+    const adsPayloadPath = join(bundleDir, 'payloads', 'coupang-ads-daily.json');
     const kiditemListPath = join(bundleDir, 'references', 'kiditem_list.xlsx');
     const wingInventoryMatchedPath = join(bundleDir, 'references', 'wing-inventory-matched.xlsx');
     const archiveFileName = 'kiditem-coupang-2026-04-28-real-v1.zip';
 
     mkdirSync(join(bundleDir, 'payloads'), { recursive: true });
     mkdirSync(join(bundleDir, 'references'), { recursive: true });
-    writeFileSync(payloadPath, JSON.stringify({
+    writeFileSync(trafficPayloadPath, JSON.stringify({
       type: 'traffic',
       source: 'wing',
       data: [{ businessDate: '2026-04-28', visitors: 11 }],
     }));
-    writeFileSync(imageSyncPayloadPath, JSON.stringify({
-      type: 'coupang_image_sync',
-      source: 'wing_image_sync',
-      data: [{ inventoryId: '123456', legacyCode: 'LEG-1', name: '테스트 상품', url: 'https://image.example/item.jpg' }],
+    writeFileSync(itemWinnerPayloadPath, JSON.stringify({
+      type: 'raw_scrape',
+      source: 'wing',
+      data: [{ externalId: '123456', productName: '테스트 상품', isWinner: true }],
+    }));
+    writeFileSync(adsPayloadPath, JSON.stringify({
+      type: 'coupang_ads_daily',
+      source: 'coupang_ads',
+      data: [{ businessDate: '2026-04-28', campaignName: '테스트 광고', spend: 1200 }],
     }));
     writeFileSync(kiditemListPath, 'kiditem inventory reference');
     writeFileSync(wingInventoryMatchedPath, 'matched wing inventory reference');
@@ -142,9 +147,14 @@ describe('profile-based dev data workflow', () => {
           source: 'wing',
         },
         {
-          path: 'payloads/coupang-image-sync.json',
-          type: 'coupang_image_sync',
-          source: 'wing_image_sync',
+          path: 'payloads/itemwinner.json',
+          type: 'raw_scrape',
+          source: 'wing',
+        },
+        {
+          path: 'payloads/coupang-ads-daily.json',
+          type: 'coupang_ads_daily',
+          source: 'coupang_ads',
         },
       ],
       references: [
@@ -230,9 +240,9 @@ describe('profile-based dev data workflow', () => {
         },
       ],
     });
-    expect(syncOutput.steps[0]?.replay).toMatchObject({ payloads: 2 });
+    expect(syncOutput.steps[0]?.replay).toMatchObject({ payloads: 3 });
     expect(syncOutput.steps[0]?.replay?.sources).toContain('wing');
-    expect(syncOutput.steps[0]?.replay?.sources).toContain('wing_image_sync');
+    expect(syncOutput.steps[0]?.replay?.sources).toContain('coupang_ads');
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'manifest.json'))).toBe(true);
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'references', 'kiditem_list.xlsx'))).toBe(true);
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);

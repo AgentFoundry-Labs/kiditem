@@ -1,7 +1,7 @@
 'use client';
 
-import { Suspense, useCallback, useMemo } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -21,9 +21,13 @@ import {
   type BoldVerticalGeneration,
 } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/lib/bold-vertical-types';
 import { ensureStyledDetailHtml, isRenderableDetailHtml } from '../../lib/template-html';
-import DetailPageEditor from './DetailPageEditor';
 import EditorErrorScreen from './EditorErrorScreen';
 import EditorLoadingScreen from './EditorLoadingScreen';
+
+const DetailPageEditor = dynamic(() => import('./DetailPageEditor'), {
+  ssr: false,
+  loading: () => <EditorLoadingScreen />,
+});
 
 interface EditedHtmlResponse {
   html: string | null;
@@ -129,8 +133,12 @@ export function ContentGenerationEditorSurface({
   const handleGeneratedVersionReady = useCallback((nextGenerationId: string) => {
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.productContent.all }),
-      queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
-      queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.productContent.detailGenerationsAll('kids-playful'),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
+      }),
     ]);
     const params = new URLSearchParams();
     if (candidateId) params.set('sourceCandidateId', candidateId);
@@ -148,7 +156,9 @@ export function ContentGenerationEditorSurface({
       <EditorErrorScreen
         error={error ?? '편집할 상세페이지 작업물을 찾을 수 없습니다.'}
         onRetry={() =>
-          queryClient.invalidateQueries({ queryKey: ['kp-generations', 'one', generationId] })
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.productContent.detailGeneration(generationId),
+          })
         }
         onClose={handleClose}
       />
@@ -158,32 +168,21 @@ export function ContentGenerationEditorSurface({
   return (
     <div className="flex h-screen flex-col">
       <div className="min-h-0 flex-1">
-        <Suspense
-          fallback={
-            <div className="flex h-full items-center justify-center">
-              <div className="flex flex-col items-center gap-3 text-slate-400">
-                <Loader2 size={32} className="animate-spin" />
-                <p className="text-sm font-medium">에디터 로딩 중...</p>
-              </div>
-            </div>
-          }
-        >
-          <DetailPageEditor
-            html={editorHtml}
-            templateCss={templateCss}
-            productName={entry.productName ?? ''}
-            productId={entry.productId ?? undefined}
-            contentGenerationId={generationId}
-            contentWorkspaceId={entry.contentWorkspaceId ?? null}
-            generationRawInput={entry.rawInput}
-            generationTemplateId={entry.templateId}
-            rawImages={entry.imageUrls}
-            processedImages={Object.values(entry.processedImages)}
-            onGeneratedVersionReady={handleGeneratedVersionReady}
-            onSave={handleSave}
-            onClose={handleClose}
-          />
-        </Suspense>
+        <DetailPageEditor
+          html={editorHtml}
+          templateCss={templateCss}
+          productName={entry.productName ?? ''}
+          productId={entry.productId ?? undefined}
+          contentGenerationId={generationId}
+          contentWorkspaceId={entry.contentWorkspaceId ?? null}
+          generationRawInput={entry.rawInput}
+          generationTemplateId={entry.templateId}
+          rawImages={entry.imageUrls}
+          processedImages={Object.values(entry.processedImages)}
+          onGeneratedVersionReady={handleGeneratedVersionReady}
+          onSave={handleSave}
+          onClose={handleClose}
+        />
       </div>
     </div>
   );

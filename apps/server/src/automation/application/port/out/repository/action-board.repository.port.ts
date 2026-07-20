@@ -9,21 +9,8 @@ export const ACTION_BOARD_REPOSITORY_PORT = Symbol(
   'ActionBoardRepositoryPort',
 );
 
-export interface InventoryStockRow {
-  currentStock: number;
-  reorderPoint: number;
-}
-
 export interface AGradeReviewRow {
   reviewCount: number;
-}
-
-export interface InventoryReorderCandidate {
-  masterId: string;
-  masterName: string;
-  optionId: string;
-  currentStock: number;
-  reorderPoint: number;
 }
 
 export interface ActionBoardPerListingMetrics {
@@ -85,15 +72,13 @@ export interface ActionBoardRepositoryPort {
     monthEnd: Date,
   ): Promise<ActionBoardPerListingMetrics[]>;
 
-  findInventoryStockRows(organizationId: string): Promise<InventoryStockRow[]>;
+  countOutOfStockMasterProducts(organizationId: string): Promise<number>;
+
+  countMappingAttentionChannelSkus(organizationId: string): Promise<number>;
 
   countLowCtrThumbnails(organizationId: string): Promise<number>;
 
   findAGradeReviewCounts(organizationId: string): Promise<AGradeReviewRow[]>;
-
-  findInventoryReorderCandidates(
-    organizationId: string,
-  ): Promise<InventoryReorderCandidate[]>;
 
   upsertActionTaskSeed(seed: UpsertActionTaskSeed): Promise<void>;
 

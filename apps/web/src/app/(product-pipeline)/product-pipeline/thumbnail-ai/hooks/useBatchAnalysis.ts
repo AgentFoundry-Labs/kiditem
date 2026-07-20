@@ -54,11 +54,7 @@ export function useBatchAnalysis() {
     toast.success('배치 분류를 중단했습니다');
   };
 
-  const run = async (
-    items: ThumbnailAnalysisResult[],
-    scope: AnalysisScope = 'all',
-    options: RunOptions = {},
-  ) => {
+  const run = async (items: ThumbnailAnalysisResult[], scope: AnalysisScope = 'all', options: RunOptions = {}) => {
     // 개별 "AI 분석" 버튼과 동일하게 — 이미 분석된 상품도 항상 덮어쓴다.
     const targets = items.filter((i) => i.imageUrl);
     if (targets.length === 0) {
@@ -102,7 +98,10 @@ export function useBatchAnalysis() {
         try {
           chunkResults = await apiClient.post<ThumbnailAnalysisResult[]>(
             '/api/thumbnail-analysis/analyze-batch',
-            { productIds: chunk.map((t) => t.productId), scope },
+            {
+              contentWorkspaceIds: chunk.map((t) => t.contentWorkspaceId),
+              scope,
+            },
             { signal },
           );
         } catch (err) {
@@ -140,7 +139,9 @@ export function useBatchAnalysis() {
             failed: Math.max(0, Math.min(processedCount, targets.length) - succeededInChunks),
           },
         });
-        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.thumbnailAnalysis.all,
+        });
 
         if (i + BATCH_SIZE < targets.length) {
           await new Promise<void>((r) => setTimeout(r, RATE_LIMIT_DELAY_MS));

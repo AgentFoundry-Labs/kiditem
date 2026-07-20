@@ -13,6 +13,7 @@ export const ALERT_STATUSES = [
 ] as const;
 
 export const ALERT_OPERATION_LIFECYCLE_STATUSES = [
+  'pending',
   'running',
   'succeeded',
   'failed',
@@ -56,7 +57,6 @@ export const StartOperationAlertRequestSchema = z.object({
 export const UpdateOperationAlertRequestSchema = z.object({
   status: AlertOperationLifecycleStatusSchema,
   message: z.string().max(2000).nullable().optional(),
-  href: z.string().min(1).max(1024).nullable().optional(),
   progress: z.number().min(0).max(1).nullable().optional(),
   severity: AlertSeveritySchema.optional(),
   metadata: z.record(z.unknown()).optional(),

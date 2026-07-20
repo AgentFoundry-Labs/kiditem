@@ -13,16 +13,16 @@ function makeService() {
     thumbnailGeneration: {
       findFirst: vi.fn(async () => ({
         id: GENERATION_ID,
-        masterId: 'master-1',
+        contentWorkspaceId: 'workspace-1',
         selectedUrl: 'http://storage.local/kiditem/thumbnail-generations/a.png',
         candidates: [],
         registrationAttempts: [],
       })),
     },
-    masterProduct: {
+    contentWorkspace: {
       findFirst: vi.fn(async () => ({
-        name: 'Master product',
-        listings: [{ channelName: '쿠팡 상품명' }],
+        displayName: 'Workspace product',
+        channelListing: { channelName: '쿠팡 상품명' },
       })),
     },
     thumbnailRegistrationAttempt: {
@@ -42,17 +42,23 @@ function makeService() {
           },
         },
       }),
-    findRegistrableMaster: (masterId, organizationId) =>
-      prisma.masterProduct.findFirst({
-        where: { id: masterId, organizationId, isDeleted: false },
-        select: {
-          name: true,
-          listings: {
-            where: { organizationId, channel: 'coupang', isDeleted: false },
-            select: { channelName: true, createdAt: true },
-            orderBy: { createdAt: 'asc' },
-            take: 1,
+    findRegistrableWorkspace: (contentWorkspaceId, organizationId) =>
+      prisma.contentWorkspace.findFirst({
+        where: {
+          id: contentWorkspaceId,
+          organizationId,
+          isDeleted: false,
+          status: 'active',
+          channelListing: {
+            is: {
+              isActive: true,
+              channelAccount: { is: { channel: 'coupang' } },
+            },
           },
+        },
+        select: {
+          displayName: true,
+          channelListing: { select: { channelName: true } },
         },
       }),
     findGenerationWithLatestAttempt: (id, organizationId) =>
@@ -85,7 +91,11 @@ function makeService() {
       }),
     updateRegistrationAttemptOrThrow: async (id, organizationId, data, generationId) => {
       const result = await prisma.thumbnailRegistrationAttempt.updateMany({
-        where: { id, organizationId, ...(generationId ? { generationId } : {}) },
+        where: {
+          id,
+          organizationId,
+          ...(generationId ? { generationId } : {}),
+        },
         data,
       });
       if (result.count === 0) {
@@ -111,11 +121,7 @@ function makeService() {
     runWingUpload: vi.fn(async () => ({ success: true })),
     checkPlaywriterStatus: vi.fn(async () => ({ connected: true })),
   };
-  const service = new ThumbnailWingService(
-    repository,
-    imageFetcher as never,
-    automationRunner as never,
-  );
+  const service = new ThumbnailWingService(repository, imageFetcher as never, automationRunner as never);
   return { service, prisma, imageFetcher, automationRunner };
 }
 
@@ -132,10 +138,7 @@ describe('ThumbnailWingService', () => {
   });
 
   it('depends on application output ports for Wing persistence and image fetches', () => {
-    const source = fs.readFileSync(
-      path.join(__dirname, '../application/service/thumbnail-wing.service.ts'),
-      'utf8',
-    );
+    const source = fs.readFileSync(path.join(__dirname, '../application/service/thumbnail-wing.service.ts'), 'utf8');
 
     expect(source).toContain('THUMBNAIL_WING_REPOSITORY_PORT');
     expect(source).toContain('IMAGE_FETCH_PORT');
@@ -186,7 +189,11 @@ describe('ThumbnailWingService', () => {
       screenshotPath: 'chrome-extension://capture/attempt-1.png',
     });
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
-      where: { id: 'attempt-1', organizationId: ORGANIZATION_ID, generationId: GENERATION_ID },
+      where: {
+        id: 'attempt-1',
+        organizationId: ORGANIZATION_ID,
+        generationId: GENERATION_ID,
+      },
       data: expect.objectContaining({
         status: 'uploaded',
         errorMessage: null,
@@ -210,7 +217,11 @@ describe('ThumbnailWingService', () => {
       error: 'dropzone missing',
     });
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
-      where: { id: 'attempt-1', organizationId: ORGANIZATION_ID, generationId: GENERATION_ID },
+      where: {
+        id: 'attempt-1',
+        organizationId: ORGANIZATION_ID,
+        generationId: GENERATION_ID,
+      },
       data: expect.objectContaining({
         status: 'failed',
         errorMessage: 'dropzone missing',
@@ -223,9 +234,7 @@ describe('ThumbnailWingService', () => {
     const { service, prisma, automationRunner } = makeService();
     process.env.NODE_ENV = 'production';
 
-    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow(
-      'Chrome 확장 프로그램',
-    );
+    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow('Chrome 확장 프로그램');
 
     expect(automationRunner.runWingUpload).not.toHaveBeenCalled();
     expect(prisma.thumbnailRegistrationAttempt.create).not.toHaveBeenCalled();
@@ -236,7 +245,10 @@ describe('ThumbnailWingService', () => {
 
     const result = await service.registerToWing(GENERATION_ID, ORGANIZATION_ID);
 
-    expect(result).toMatchObject({ success: true, screenshotPath: `/tmp/wing-upload-${GENERATION_ID}.png` });
+    expect(result).toMatchObject({
+      success: true,
+      screenshotPath: `/tmp/wing-upload-${GENERATION_ID}.png`,
+    });
     expect(imageFetcher.fetchTrustedStorageImage).toHaveBeenCalledWith(
       'http://storage.local/kiditem/thumbnail-generations/a.png',
     );
@@ -266,14 +278,12 @@ describe('ThumbnailWingService', () => {
 
   it('decodes URL-encoded Coupang product names before Wing automation', async () => {
     const { service, prisma, automationRunner } = makeService();
-    prisma.masterProduct.findFirst.mockResolvedValueOnce({
-      name: 'Master product',
-      listings: [
-        {
-          channelName:
-            '%ED%83%9C%EC%96%91%EA%B4%91%EB%B3%80%EC%8B%A0%EB%A1%9C%EB%B4%87%2F%EB%B3%80%EC%8B%A0%EB%A1%9C%EB%B4%87%2F%EA%B5%90%EC%9C%A1%EC%99%84%EA%B5%AC',
-        },
-      ],
+    prisma.contentWorkspace.findFirst.mockResolvedValueOnce({
+      displayName: 'Workspace product',
+      channelListing: {
+        channelName:
+          '%ED%83%9C%EC%96%91%EA%B4%91%EB%B3%80%EC%8B%A0%EB%A1%9C%EB%B4%87%2F%EB%B3%80%EC%8B%A0%EB%A1%9C%EB%B4%87%2F%EA%B5%90%EC%9C%A1%EC%99%84%EA%B5%AC',
+      },
     });
 
     await service.registerToWing(GENERATION_ID, ORGANIZATION_ID);
@@ -295,7 +305,11 @@ describe('ThumbnailWingService', () => {
       select: { id: true },
     });
     expect(prisma.thumbnailRegistrationAttempt.deleteMany).toHaveBeenCalledWith({
-      where: { generationId: GENERATION_ID, organizationId: ORGANIZATION_ID, status: 'failed' },
+      where: {
+        generationId: GENERATION_ID,
+        organizationId: ORGANIZATION_ID,
+        status: 'failed',
+      },
     });
   });
 
@@ -303,9 +317,7 @@ describe('ThumbnailWingService', () => {
     const { service, prisma, imageFetcher } = makeService();
     imageFetcher.fetchTrustedStorageImage.mockRejectedValueOnce(new Error('image fetch failed'));
 
-    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow(
-      'image fetch failed',
-    );
+    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow('image fetch failed');
 
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
       where: { id: 'attempt-1', organizationId: ORGANIZATION_ID },
@@ -334,31 +346,39 @@ describe('ThumbnailWingService', () => {
   it('failed registration throws NotFound when the scoped attempt update is a no-op', async () => {
     const { service, prisma, imageFetcher } = makeService();
     imageFetcher.fetchTrustedStorageImage.mockRejectedValueOnce(new Error('image fetch failed'));
-    prisma.thumbnailRegistrationAttempt.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.thumbnailRegistrationAttempt.updateMany.mockResolvedValueOnce({
+      count: 0,
+    });
 
     await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow(
       'ThumbnailRegistrationAttempt attempt-1 not found',
     );
   });
 
-  it('does not create a registration attempt until the generation master is confirmed in the caller organization', async () => {
+  it('does not create a registration attempt until the generation workspace is confirmed in the caller organization', async () => {
     const { service, prisma } = makeService();
-    prisma.masterProduct.findFirst.mockResolvedValueOnce(null);
+    prisma.contentWorkspace.findFirst.mockResolvedValueOnce(null);
 
     await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow(
-      'MasterProduct master-1 not found',
+      'ContentWorkspace workspace-1 not found',
     );
 
-    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { id: 'master-1', organizationId: ORGANIZATION_ID, isDeleted: false },
-      select: {
-        name: true,
-        listings: {
-          where: { organizationId: ORGANIZATION_ID, channel: 'coupang', isDeleted: false },
-          select: { channelName: true, createdAt: true },
-          orderBy: { createdAt: 'asc' },
-          take: 1,
+    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'workspace-1',
+        organizationId: ORGANIZATION_ID,
+        isDeleted: false,
+        status: 'active',
+        channelListing: {
+          is: {
+            isActive: true,
+            channelAccount: { is: { channel: 'coupang' } },
+          },
         },
+      },
+      select: {
+        displayName: true,
+        channelListing: { select: { channelName: true } },
       },
     });
     expect(prisma.thumbnailRegistrationAttempt.create).not.toHaveBeenCalled();

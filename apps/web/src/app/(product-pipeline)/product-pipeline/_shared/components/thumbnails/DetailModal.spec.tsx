@@ -5,7 +5,9 @@ import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 vi.mock('next/link', () => ({
   default: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (
-    <a href={href} className={className}>{children}</a>
+    <a href={href} className={className}>
+      {children}
+    </a>
   ),
 }));
 
@@ -19,9 +21,8 @@ vi.mock('@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib
 
 const runningGeneration: ThumbnailGenerationItem = {
   id: 'generation-1',
-  productId: 'product-1',
+  contentWorkspaceId: 'workspace-1',
   sourceCandidateId: null,
-  contentWorkspaceId: null,
   originalUrl: 'https://example.com/original.png',
   candidates: [],
   selectedUrl: null,
@@ -34,8 +35,8 @@ const runningGeneration: ThumbnailGenerationItem = {
   inputMeta: null,
   errorMessage: null,
   createdAt: '2026-05-17T00:00:00.000Z',
-  product: {
-    id: 'product-1',
+  contentWorkspace: {
+    id: 'workspace-1',
     name: '테스트 상품',
     imageUrl: 'https://example.com/original.png',
     coupangProductId: null,
@@ -53,7 +54,7 @@ describe('DetailModal', () => {
         gen={runningGeneration}
         productGenerations={[]}
         isAiAnalyzing={false}
-        generatedProductIds={new Set()}
+        generatedContentWorkspaceIds={new Set()}
         hideEdit
         onClose={vi.fn()}
         onAiAnalyze={vi.fn()}

@@ -1,3 +1,4 @@
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentAssetLibraryRepositoryPort } from '../../port/out/repository/content-asset-library.repository.port';
 import { ContentAssetService } from '../content-asset.service';
@@ -16,11 +17,195 @@ function repository(
     syncGenerationImageUsages: vi.fn(),
     syncGenerationImageUsagesInScope: vi.fn(),
     listAssets: vi.fn(),
+    listCandidateAssets: vi.fn().mockResolvedValue([]),
+    replaceWorkspaceThumbnailGallery: vi.fn(async (input: { urls: string[] }) => ({
+      urls: input.urls,
+    })),
+    deleteAsset: vi.fn(),
     ...overrides,
   } as ContentAssetLibraryRepositoryPort;
 }
 
+describe('ContentAssetService.listRegistrationImages', () => {
+  const CANDIDATE = '44444444-4444-4444-8444-444444444444';
+
+  it('splits assets by role and drops roles that must never reach a registration form', async () => {
+    const repo = repository({
+      listCandidateAssets: vi.fn().mockResolvedValue([
+        { role: 'primary', url: 'http://localhost:9000/a/primary.png', sortOrder: 0 },
+        { role: 'thumbnail', url: 'http://localhost:9000/a/thumb-1.png', sortOrder: 1 },
+        { role: 'thumbnail', url: 'http://localhost:9000/a/thumb-2.png', sortOrder: 2 },
+        { role: 'detail', url: 'http://localhost:9000/a/detail.png', sortOrder: 3 },
+        // 원본 스크랩본 — 쿠팡 1,000x1,000 규격이 아니라 등록에 쓰면 안 된다.
+        { role: 'source', url: 'https://cbu01.alicdn.com/original.jpg', sortOrder: 4 },
+        // 옵션별 이미지는 아직 어떤 등록 폼에도 배선돼 있지 않다.
+        { role: 'option', url: 'https://image1.coupangcdn.com/option.jpg', sortOrder: 5 },
+        { role: null, url: 'https://image1.coupangcdn.com/untagged.jpg', sortOrder: 6 },
+      ]),
+    });
+    const service = new ContentAssetService(repo);
+
+    const result = await service.listRegistrationImages({
+      organizationId: ORG,
+      sourceCandidateId: CANDIDATE,
+    });
+
+    expect(result).toEqual({
+      primary: ['http://localhost:9000/a/primary.png'],
+      thumbnail: ['http://localhost:9000/a/thumb-1.png', 'http://localhost:9000/a/thumb-2.png'],
+      detail: ['http://localhost:9000/a/detail.png'],
+    });
+    const flattened = [...result.primary, ...result.thumbnail, ...result.detail];
+    expect(flattened).not.toContain('https://cbu01.alicdn.com/original.jpg');
+    expect(flattened).not.toContain('https://image1.coupangcdn.com/option.jpg');
+  });
+
+  it('drops blank urls and de-duplicates within a role', async () => {
+    const repo = repository({
+      listCandidateAssets: vi.fn().mockResolvedValue([
+        { role: 'primary', url: '  ', sortOrder: 0 },
+        { role: 'thumbnail', url: 'http://localhost:9000/a/dup.png', sortOrder: 1 },
+        { role: 'thumbnail', url: 'http://localhost:9000/a/dup.png', sortOrder: 2 },
+      ]),
+    });
+    const service = new ContentAssetService(repo);
+
+    await expect(
+      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+    ).resolves.toEqual({
+      primary: [],
+      thumbnail: ['http://localhost:9000/a/dup.png'],
+      detail: [],
+    });
+  });
+
+  it('returns empty buckets when the candidate owns no content assets', async () => {
+    const service = new ContentAssetService(repository());
+
+    await expect(
+      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+    ).resolves.toEqual({ primary: [], thumbnail: [], detail: [] });
+  });
+});
+
+describe('ContentAssetService.replaceWorkspaceThumbnailGallery', () => {
+  const WORKSPACE = '55555555-5555-4555-8555-555555555555';
+  const CANDIDATE = '44444444-4444-4444-8444-444444444444';
+
+  it('persists the ordered preview list so it reads back as registration thumbnails', async () => {
+    // 준비(ProductPreparation)가 없는 후보에게는 이 경로가 목록의 유일한 저장처다.
+    // 저장 결과는 `registrationImages.thumbnail` 로 다시 읽혀 쿠팡 WING
+    // `additionalImageUrls` 를 채운다.
+    const stored: string[] = [];
+    const repo = repository({
+      replaceWorkspaceThumbnailGallery: vi.fn(async (input: { urls: string[] }) => {
+        stored.splice(0, stored.length, ...input.urls);
+        return { urls: input.urls };
+      }),
+      listCandidateAssets: vi.fn(async () =>
+        stored.map((url, index) => ({ role: 'thumbnail', url, sortOrder: index })),
+      ),
+    });
+    const service = new ContentAssetService(repo);
+
+    await service.replaceWorkspaceThumbnailGallery({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: USER_ID,
+      thumbnailUrls: [
+        'https://cdn.example.com/thumb-1.png',
+        'https://cdn.example.com/thumb-2.png',
+      ],
+    });
+
+    expect(repo.replaceWorkspaceThumbnailGallery).toHaveBeenCalledWith({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: USER_ID,
+      urls: [
+        'https://cdn.example.com/thumb-1.png',
+        'https://cdn.example.com/thumb-2.png',
+      ],
+    });
+    await expect(
+      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+    ).resolves.toEqual({
+      primary: [],
+      thumbnail: [
+        'https://cdn.example.com/thumb-1.png',
+        'https://cdn.example.com/thumb-2.png',
+      ],
+      detail: [],
+    });
+  });
+
+  it('trims, drops blanks, and de-duplicates while keeping first-seen order', async () => {
+    const repo = repository();
+    const service = new ContentAssetService(repo);
+
+    await service.replaceWorkspaceThumbnailGallery({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: null,
+      thumbnailUrls: [
+        '  https://cdn.example.com/b.png  ',
+        '',
+        'https://cdn.example.com/a.png',
+        'https://cdn.example.com/b.png',
+      ],
+    });
+
+    expect(repo.replaceWorkspaceThumbnailGallery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        urls: ['https://cdn.example.com/b.png', 'https://cdn.example.com/a.png'],
+      }),
+    );
+  });
+
+  it('clears the gallery when the operator removes every preview image', async () => {
+    const repo = repository();
+    const service = new ContentAssetService(repo);
+
+    await expect(service.replaceWorkspaceThumbnailGallery({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: null,
+      thumbnailUrls: [],
+    })).resolves.toEqual({ thumbnailUrls: [] });
+    expect(repo.replaceWorkspaceThumbnailGallery).toHaveBeenCalledWith(
+      expect.objectContaining({ urls: [] }),
+    );
+  });
+
+  it('rejects a gallery larger than the supported cap', async () => {
+    const repo = repository();
+    const service = new ContentAssetService(repo);
+
+    await expect(service.replaceWorkspaceThumbnailGallery({
+      organizationId: ORG,
+      contentWorkspaceId: WORKSPACE,
+      createdByUserId: null,
+      thumbnailUrls: Array.from({ length: 21 }, (_, i) => `https://cdn.example.com/${i}.png`),
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.replaceWorkspaceThumbnailGallery).not.toHaveBeenCalled();
+  });
+});
+
 describe('ContentAssetService', () => {
+  it('blocks deletion while an active generation usage or thumbnail selection references the asset', async () => {
+    const repo = repository({
+      deleteAsset: vi.fn().mockResolvedValue({ status: 'in_use' }),
+    });
+    const service = new ContentAssetService(repo);
+
+    await expect(service.deleteAsset(ORG, 'asset-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(repo.deleteAsset).toHaveBeenCalledWith({
+      organizationId: ORG,
+      contentAssetId: 'asset-1',
+      deletedAt: expect.any(Date),
+    });
+  });
+
   it('delegates detail-page input asset recording to the asset library repository', async () => {
     const assets = [{
       id: 'asset-1',
@@ -83,7 +268,7 @@ describe('ContentAssetService', () => {
     });
   });
 
-  it('lists group assets through the product workspace relation', async () => {
+  it('lists group assets through the content workspace relation', async () => {
     const createdAt = new Date('2026-05-13T09:00:00.000Z');
     const updatedAt = new Date('2026-05-13T09:30:00.000Z');
     const repo = repository({
@@ -92,7 +277,7 @@ describe('ContentAssetService', () => {
         rows: [
           {
             id: 'asset-1',
-            generationGroupId: GROUP_ID,
+            originGenerationGroupId: GROUP_ID,
             url: 'https://cdn.example.com/asset.png',
             assetType: 'image',
             role: 'used',
@@ -101,11 +286,10 @@ describe('ContentAssetService', () => {
             metadata: { width: 1200 },
             createdAt,
             updatedAt,
-            generationGroup: {
-              targetMaster: {
-                id: 'master-1',
-                code: 'M-00000001',
-                name: '큐브 퍼즐',
+            originGenerationGroup: {
+              contentWorkspace: {
+                id: 'workspace-1',
+                displayName: '큐브 퍼즐',
               },
             },
           },
@@ -115,23 +299,22 @@ describe('ContentAssetService', () => {
     const service = new ContentAssetService(repo);
 
     await expect(
-      service.listAssets(ORG, { page: 2, limit: 10, productId: 'master-1' }),
+      service.listAssets(ORG, { page: 2, limit: 10, contentWorkspaceId: 'workspace-1' }),
     ).resolves.toEqual({
       items: [
         {
           id: 'asset-1',
-          productId: 'master-1',
-          generationGroupId: GROUP_ID,
+          contentWorkspaceId: 'workspace-1',
+          originGenerationGroupId: GROUP_ID,
           url: 'https://cdn.example.com/asset.png',
           assetType: 'image',
           role: 'used',
           label: 'hero',
           sortOrder: 0,
           metadata: { width: 1200 },
-          product: {
-            id: 'master-1',
-            code: 'M-00000001',
-            name: '큐브 퍼즐',
+          workspace: {
+            id: 'workspace-1',
+            displayName: '큐브 퍼즐',
           },
           createdAt: createdAt.toISOString(),
           updatedAt: updatedAt.toISOString(),
@@ -146,7 +329,7 @@ describe('ContentAssetService', () => {
       organizationId: ORG,
       page: 2,
       limit: 10,
-      productId: 'master-1',
+      contentWorkspaceId: 'workspace-1',
       generationId: null,
     });
   });

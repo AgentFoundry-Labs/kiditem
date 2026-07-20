@@ -1,20 +1,21 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { cancelOperation } from '@/lib/operation-cancellation';
+import { API_BASE } from '@/lib/api';
+import { queryKeys } from '@/lib/query-keys';
+import { adaptToKidsPlayful } from '../lib/kids-playful-types';
+import { isSafetyLabelImageUrl } from '../lib/detail-page-image-order';
+import type {
+  DetailPageGenerationRaw,
+  KidsPlayfulData,
+} from '../lib/kids-playful-types';
 import type {
   DetailImageCount,
   DetailPageAgeGroup,
   DetailPageTemplateId,
 } from '@kiditem/shared/ai';
-import { apiClient } from '@/lib/api-client';
-import { cancelOperation } from '@/lib/operation-cancellation';
-import { API_BASE } from '@/lib/api';
-import type {
-  DetailPageGenerationRaw,
-  KidsPlayfulData,
-} from '../lib/kids-playful-types';
-import { adaptToKidsPlayful } from '../lib/kids-playful-types';
-import { isSafetyLabelImageUrl } from '../lib/detail-page-image-order';
 
 const GENERATED_HERO_BANNER_KEY = '__heroBanner';
 
@@ -63,17 +64,8 @@ export interface KidsPlayfulGenerationItem {
   createdAt: string;
 }
 
-const QK = {
-  list: (scope?: DetailGenerationListScope) =>
-    scope?.contentWorkspaceId
-      ? (['kp-generations', { contentWorkspaceId: scope.contentWorkspaceId }] as const)
-      : scope?.sourceCandidateId
-        ? (['kp-generations', { sourceCandidateId: scope.sourceCandidateId }] as const)
-        : scope?.productId
-          ? (['kp-generations', { productId: scope.productId }] as const)
-          : (['kp-generations'] as const),
-  one: (id: string) => ['kp-generations', 'one', id] as const,
-};
+const detailGenerationsKey = queryKeys.productContent.detailGenerations;
+const detailGenerationsAllKey = queryKeys.productContent.detailGenerationsAll;
 
 export interface DetailGenerationListScope {
   productId?: string | null;
@@ -123,15 +115,11 @@ export function useKidsPlayfulGenerate() {
         contentWorkspaceId: vars.contentWorkspaceId ?? null,
       };
       const listKey = isBoldVertical
-        ? (scope.contentWorkspaceId
-            ? (['bold-generations', { contentWorkspaceId: scope.contentWorkspaceId }] as const)
-            : scope.sourceCandidateId
-              ? (['bold-generations', { sourceCandidateId: scope.sourceCandidateId }] as const)
-              : (['bold-generations', { productId: scope.productId ?? null }] as const))
-        : QK.list(scope);
+        ? detailGenerationsKey('bold-vertical', scope)
+        : detailGenerationsKey('kids-playful', scope);
       const allKey = isBoldVertical
-        ? (['bold-generations', { productId: null }] as const)
-        : (['kp-generations'] as const);
+        ? detailGenerationsKey('bold-vertical', { productId: null })
+        : detailGenerationsAllKey('kids-playful');
       const shouldMirrorAllKey = JSON.stringify(listKey) !== JSON.stringify(allKey);
 
       // 진행 중 refetch 취소 후 placeholder 직접 삽입 (cache mutation)
@@ -174,8 +162,8 @@ export function useKidsPlayfulGenerate() {
     },
     onSettled: () => {
       // 성공/실패 무관 — 최종 invalidate (success 시 실제 row 로 교체)
-      qc.invalidateQueries({ queryKey: ['kp-generations'] });
-      qc.invalidateQueries({ queryKey: ['bold-generations'] });
+      qc.invalidateQueries({ queryKey: detailGenerationsAllKey('kids-playful') });
+      qc.invalidateQueries({ queryKey: detailGenerationsAllKey('bold-vertical') });
     },
   });
 }
@@ -191,7 +179,7 @@ export function useKidsPlayfulGenerate() {
  */
 export function useKidsPlayfulOne(id?: string | null) {
   return useQuery({
-    queryKey: id ? QK.one(id) : ['kp-generations', 'one', 'noop'],
+    queryKey: id ? queryKeys.productContent.detailGeneration(id) : queryKeys.productContent.detailGenerationNoop(),
     queryFn: () => apiClient.get<KidsPlayfulGenerationItem>(`/api/ai/detail-page/${id}`),
     enabled: !!id,
     refetchInterval: (query) => {
@@ -224,7 +212,7 @@ export function useKidsPlayfulGenerationList(
     contentWorkspaceId: options.contentWorkspaceId ?? null,
   };
   return useQuery({
-    queryKey: QK.list(scope),
+    queryKey: detailGenerationsKey('kids-playful', scope),
     enabled: options.enabled ?? true,
     queryFn: () =>
       apiClient.get<KidsPlayfulGenerationItem[]>(
@@ -263,11 +251,7 @@ export function useBoldVerticalGenerationList(
     contentWorkspaceId: options.contentWorkspaceId ?? null,
   };
   return useQuery({
-    queryKey: scope.contentWorkspaceId
-      ? (['bold-generations', { contentWorkspaceId: scope.contentWorkspaceId }] as const)
-      : scope.sourceCandidateId
-        ? (['bold-generations', { sourceCandidateId: scope.sourceCandidateId }] as const)
-        : (['bold-generations', { productId: scope.productId ?? null }] as const),
+    queryKey: detailGenerationsKey('bold-vertical', scope),
     enabled: options.enabled ?? true,
     queryFn: () =>
       apiClient.get<KidsPlayfulGenerationItem[]>(
@@ -299,8 +283,8 @@ export function useKidsPlayfulGenerationDelete() {
     mutationFn: (id: string) =>
       apiClient.delete<{ ok: true }>(`/api/ai/detail-page/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['kp-generations'] });
-      qc.invalidateQueries({ queryKey: ['bold-generations'] });
+      qc.invalidateQueries({ queryKey: detailGenerationsAllKey('kids-playful') });
+      qc.invalidateQueries({ queryKey: detailGenerationsAllKey('bold-vertical') });
     },
   });
 }
@@ -317,8 +301,8 @@ export function useKidsPlayfulGenerationCancel() {
       }),
     onMutate: async (id) => {
       await Promise.all([
-        qc.cancelQueries({ queryKey: ['kp-generations'] }),
-        qc.cancelQueries({ queryKey: ['bold-generations'] }),
+        qc.cancelQueries({ queryKey: detailGenerationsAllKey('kids-playful') }),
+        qc.cancelQueries({ queryKey: detailGenerationsAllKey('bold-vertical') }),
       ]);
       const markCancelled = (
         old: KidsPlayfulGenerationItem[] | undefined,
@@ -334,17 +318,17 @@ export function useKidsPlayfulGenerationCancel() {
         );
 
       qc.setQueriesData<KidsPlayfulGenerationItem[]>(
-        { queryKey: ['kp-generations'] },
+        { queryKey: detailGenerationsAllKey('kids-playful') },
         markCancelled,
       );
       qc.setQueriesData<KidsPlayfulGenerationItem[]>(
-        { queryKey: ['bold-generations'] },
+        { queryKey: detailGenerationsAllKey('bold-vertical') },
         markCancelled,
       );
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['kp-generations'] });
-      qc.invalidateQueries({ queryKey: ['bold-generations'] });
+      qc.invalidateQueries({ queryKey: detailGenerationsAllKey('kids-playful') });
+      qc.invalidateQueries({ queryKey: detailGenerationsAllKey('bold-vertical') });
     },
   });
 }

@@ -1,491 +1,283 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { toast } from 'sonner';
+import {
+  detectRankExtensionGate,
+  rankExtensionGateMessage,
+  runWingSalesRankCheck,
+} from '@/app/(advertising)/rank-tracking/lib/rank-extension';
+import { useAuth } from '@/hooks/useAuth';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
-import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import {
-  cancelOperationAlert,
-  failOperationAlert,
-  progressOperationAlert,
-  startOperationAlert,
-  succeedOperationAlert,
-} from '@/lib/operation-alerts';
-import {
-  classifyBatchScrapeStatus,
-  summarizeBatchScrapeProgress,
-} from '@/lib/operation-alert-lifecycle';
+import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
+import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
-
-type ExtensionMessageResponse = {
-  success?: boolean;
-  results?: unknown[];
-  error?: string;
-  status?: 'idle' | 'running' | 'done' | 'error' | 'cancelled' | 'starting';
-  runId?: string;
-  completed?: number;
-  failed?: number;
-  total?: number;
-  current?: number;
-  currentLabel?: string;
-};
+import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
+import {
+  ingestSellpiaSales,
+  sellpiaSalesErrorMessage,
+} from '@/lib/sellpia-sales-api';
+import {
+  readinessCollectionProducer,
+  runReadinessExtensionCollection,
+} from './readiness-extension-collection';
+import type { ReadinessCheck } from '@kiditem/shared/readiness';
+import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
 
 interface UseReadinessCollectionOptions {
   refetchReadiness: () => Promise<unknown>;
 }
 
-function fallbackOpenTabs(urls: string[]) {
-  for (const url of urls) {
-    window.open(url, '_blank', 'noopener,noreferrer');
+function makeRunId(): string {
+  if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
+    throw new Error('이 브라우저는 안전한 수집 실행 ID 생성을 지원하지 않습니다.');
+  }
+  return crypto.randomUUID();
+}
+
+function announceSession(session: BrowserCollectionSessionView) {
+  if (session.status === 'succeeded') {
+    toast.success(`${session.progress.completed}/${session.progress.total}개 수집 완료`);
+  } else if (session.status === 'attention_required') {
+    toast.warning(session.attention?.message ?? '브라우저 확인이 필요합니다.');
+  } else if (session.status === 'cancelled') {
+    toast.info('브라우저 수집이 중단되었습니다.');
+  } else if (session.status === 'failed') {
+    toast.error(session.progress.label ?? '브라우저 수집에 실패했습니다.');
   }
 }
 
-function collectHref(check: ReadinessCheck): string {
-  return check.key === 'coupang_ads' ? '/ad-ops' : '/dashboard';
+function sellpiaCollectionRange(check: ReadinessCheck): {
+  startDate: string;
+  endDate: string;
+} | undefined {
+  const targetDates = check.missingDates?.length
+    ? [...check.missingDates]
+    : check.expectedDates?.length
+      ? [check.expectedDates[0]!]
+      : check.referenceDate
+        ? [check.referenceDate]
+        : [];
+  const sorted = [...targetDates].sort();
+  if (sorted.length === 0) return undefined;
+  const nextReferenceDate = check.referenceDate
+    ? new Date(`${check.referenceDate}T00:00:00.000Z`)
+    : null;
+  if (nextReferenceDate && !Number.isNaN(nextReferenceDate.getTime())) {
+    nextReferenceDate.setUTCDate(nextReferenceDate.getUTCDate() + 1);
+  }
+  return {
+    startDate: sorted[0]!,
+    // readiness는 어제까지 판정하지만 홈의 월 누적 합계는 오늘까지 조회한다.
+    endDate: nextReferenceDate && !Number.isNaN(nextReferenceDate.getTime())
+      ? nextReferenceDate.toISOString().slice(0, 10)
+      : sorted.at(-1)!,
+  };
 }
 
-export function useReadinessCollection({ refetchReadiness }: UseReadinessCollectionOptions) {
+export function useReadinessCollection({
+  refetchReadiness,
+}: UseReadinessCollectionOptions) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [activeSession, setActiveSession] =
+    useState<BrowserCollectionSessionView | null>(null);
+  const [wingRunId, setWingRunId] = useState<string | null>(null);
+  const settledWingRunIdRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const wingSessionQuery = useBrowserCollectionSession(wingRunId);
+  const wingSession =
+    wingSessionQuery.data?.producer === 'advertising.wing_rank'
+      ? wingSessionQuery.data
+      : null;
 
   const invalidateCollectedData = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
       queryClient.invalidateQueries({ queryKey: ['traffic'] }),
-      queryClient.invalidateQueries({ queryKey: ['readiness'] }),
     ]);
   };
 
-  const handleServerCollect = async (check: ReadinessCheck, operationKey: string) => {
+  const handleServerCollect = async (check: ReadinessCheck) => {
     if (!check.collectEndpoint) return;
     setPendingKey(check.key);
-    const alert = await startOperationAlert({
-      operationKey,
-      type: 'dashboard_data_collect',
-      title: `${check.label} 수집`,
-      sourceType: 'readiness_check',
-      sourceId: check.key,
-      href: collectHref(check),
-      metadata: { checkKey: check.key, collector: 'server' },
-    });
     try {
       await apiClient.post(check.collectEndpoint, {});
       toast.success('수집 완료');
-      if (alert) {
-        void succeedOperationAlert(operationKey, {
-          message: `${check.label} 수집 완료`,
-          metadata: { checkKey: check.key, collector: 'server' },
-        });
-      }
       await invalidateCollectedData();
       await refetchReadiness();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : '수집 실패';
-      toast.error(msg);
-      if (alert) {
-        void failOperationAlert(operationKey, {
-          message: msg,
-          metadata: { checkKey: check.key, collector: 'server', error: msg },
-        });
-      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '수집 실패');
     } finally {
       setPendingKey(null);
     }
   };
 
-  const handleCollect = async (check: ReadinessCheck) => {
-    const operationKey = `dashboard.collect:${check.key}`;
+  useEffect(() => {
+    if (!wingSession) return;
+    setActiveSession(wingSession);
+    if (
+      wingSession.status === 'running' ||
+      wingSession.status === 'attention_required'
+    ) {
+      return;
+    }
+    if (settledWingRunIdRef.current === wingSession.runId) return;
+    settledWingRunIdRef.current = wingSession.runId;
+    announceSession(wingSession);
+    setPendingKey((current) => (current === 'wing_kpi' ? null : current));
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+      queryClient.invalidateQueries({ queryKey: ['traffic'] }),
+    ]).then(() => refetchReadiness());
+  }, [queryClient, refetchReadiness, wingSession]);
 
+  const runExtensionCollection = async (
+    check: ReadinessCheck,
+    producer: NonNullable<ReturnType<typeof readinessCollectionProducer>>,
+    extensionId: string,
+    requestedRunId?: string,
+  ) => {
+    const runId = requestedRunId ?? makeRunId();
+    setActiveSession(null);
+    const session = await runReadinessExtensionCollection({
+      check,
+      producer,
+      extensionId,
+      runId,
+      onSession: setActiveSession,
+    });
+    announceSession(session);
+    return session;
+  };
+
+  const handleCollect = async (
+    check: ReadinessCheck,
+    requestedRunId?: string,
+  ) => {
     if (check.collector === 'server') {
-      await handleServerCollect(check, operationKey);
+      await handleServerCollect(check);
       return;
     }
 
-    if (!check.scrapeUrls || check.scrapeUrls.length === 0) {
+    // 일별 매출(wing_sales) 수집은 셀피아 판매현황 수집으로 대체한다.
+    // (원래 Wing 브라우저 수집 로직은 코드에 그대로 남겨두고 여기서만 우회.)
+    // 셀피아 몰별 일별 매출을 수집·적재해 비어있는 날짜를 채운다.
+    if (check.key === 'wing_sales') {
+      setPendingKey(check.key);
+      try {
+        const organizationId = user?.organizationId;
+        if (!organizationId) {
+          throw new Error('판매현황을 저장할 조직 정보가 없습니다. 다시 로그인해주세요.');
+        }
+        const collectionRange = sellpiaCollectionRange(check);
+        const payload = await collectSellpiaSaleSummaryFromExtension({
+          ...(collectionRange ?? {}),
+          organizationId,
+        });
+        const result = await ingestSellpiaSales(payload);
+        toast.success(`셀피아 판매현황 ${result.businessDates.length}일 수집 완료`);
+        await invalidateCollectedData();
+        await refetchReadiness();
+      } catch (error) {
+        toast.error(sellpiaSalesErrorMessage(error, '셀피아 판매현황 수집 실패'));
+      } finally {
+        setPendingKey(null);
+      }
+      return;
+    }
+
+    if (check.key === 'wing_kpi') {
+      const producer = readinessCollectionProducer(check.key);
+      if (producer !== 'advertising.wing_rank') {
+        toast.error('지원하지 않는 브라우저 수집 항목입니다.');
+        return;
+      }
+
+      setPendingKey(check.key);
+      setActiveSession(null);
+      settledWingRunIdRef.current = null;
+      try {
+        const gate = await detectRankExtensionGate();
+        if (gate.status !== 'ready') {
+          if (gate.status === 'missing' || gate.status === 'chrome_required') {
+            await recordMissingBrowserCollection(
+              producer,
+              { checkKey: check.key, trigger: 'readiness' },
+              requestedRunId,
+            );
+          }
+          const message =
+            rankExtensionGateMessage(gate) ??
+            'Wing 판매순위 수집 확장프로그램을 확인할 수 없습니다.';
+          if (gate.status === 'outdated') toast.error(message);
+          else toast.warning(message);
+          setPendingKey(null);
+          return;
+        }
+
+        const runId = requestedRunId ?? makeRunId();
+        const result = await runWingSalesRankCheck(gate.extensionId, runId);
+        if (!result.started) {
+          toast.info('순위를 확인할 자사 상품이 없습니다.');
+          setPendingKey(null);
+          return;
+        }
+        setWingRunId(result.runId ?? runId);
+        toast.info(
+          `자사 상품 ${result.productTotal ?? 0}개의 Wing 판매순위 수집을 시작했습니다.`,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Wing 판매순위 일괄 확인 시작 실패',
+        );
+        setPendingKey(null);
+      }
+      return;
+    }
+
+    const producer = readinessCollectionProducer(check.key);
+    if (!producer) {
+      toast.error('지원하지 않는 브라우저 수집 항목입니다.');
+      return;
+    }
+    if (!check.scrapeUrls?.length) {
       toast.error('수집 URL 없음');
       return;
     }
 
-    let alertStarted = false;
-    let collectOutcome: 'succeeded' | 'warning' | 'failed' | 'cancelled' | null = null;
-
     setPendingKey(check.key);
+
     try {
-      const eid = await detectExtensionId();
-      if (!eid) {
-        fallbackOpenTabs(check.scrapeUrls);
-        toast.warning(
-          `익스텐션 미연결 - ${check.scrapeUrls.length}개 탭 일괄 오픈`,
-          {
-            description:
-              'chrome://extensions 에서 KIDITEM 익스텐션 등록하면 한 탭씩 자동 순차 수집됩니다.',
-            duration: 8000,
-          },
-        );
-        setTimeout(() => {
-          void refetchReadiness();
-        }, 12000);
+      const extensionId = await detectExtensionId();
+      if (!extensionId) {
+        await recordMissingBrowserCollection(producer, {
+          checkKey: check.key,
+          trigger: 'readiness',
+        }, requestedRunId);
+        toast.warning('브라우저 수집 익스텐션을 찾을 수 없습니다.');
         return;
       }
 
-      const alert = await startOperationAlert({
-        operationKey,
-        type: 'dashboard_data_collect',
-        title: `${check.label} 수집`,
-        sourceType: 'readiness_check',
-        sourceId: check.key,
-        href: collectHref(check),
-        metadata: {
-          checkKey: check.key,
-          totalUrls: check.scrapeUrls.length,
-          missingDates: check.missingDates?.length ?? 0,
-        },
-      });
-      alertStarted = !!alert;
-
-      const startResp = await sendToExtension<ExtensionMessageResponse>(eid, {
-        action: 'scrapeTargets',
-        urls: check.scrapeUrls.map((url: string, i: number) => ({
-          id: `${check.key}-${i}`,
-          url,
-          label: check.label,
-        })),
-      });
-      if (startResp?.success === false) {
-        throw new Error(startResp.error ?? '익스텐션 수집 시작 실패');
-      }
-      const runId = typeof startResp.runId === 'string' ? startResp.runId : undefined;
-      const cancelCollect = async () => {
-        if (!runId) return;
-        await sendToExtension<ExtensionMessageResponse>(eid, { action: 'cancelBatchScrape', runId });
-        toast.info('데이터 수집 중단 요청을 보냈습니다');
-      };
-
-      const totalUrls = check.scrapeUrls.length;
-      toast.info(`${totalUrls}일치 순차 수집 시작 - 한 탭씩 자동으로 처리됩니다`, {
-        duration: 6000,
-        action: runId
-          ? {
-              label: '중단',
-              onClick: () => {
-                void cancelCollect();
-              },
-            }
-          : undefined,
-      });
-
-      await new Promise<void>((resolve) => {
-        const start = Date.now();
-        const maxMs = totalUrls * 240_000;
-        let lastCurrent = -1;
-        const tick = async () => {
-          try {
-            const status = await sendToExtension<ExtensionMessageResponse>(eid, {
-              action: 'getBatchScrapeStatus',
-              runId,
-            });
-            if (status?.current && status.current !== lastCurrent) {
-              lastCurrent = status.current;
-              toast.info(
-                `[${status.current}/${status.total ?? totalUrls}] 수집 중...`,
-                { duration: 2500 },
-              );
-            }
-            if (
-              status?.status === 'done' ||
-              status?.status === 'error' ||
-              status?.status === 'cancelled' ||
-              status?.status === 'idle'
-            ) {
-              const summary = summarizeBatchScrapeProgress(status, totalUrls);
-              const { ok, fail, total: totalSeen } = summary;
-              const terminal = classifyBatchScrapeStatus(status);
-              if (terminal === 'cancelled') {
-                collectOutcome = 'cancelled';
-                toast.info(`수집 중단: 성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen}`);
-                if (alertStarted) {
-                  void cancelOperationAlert(operationKey, {
-                    message: `수집 중단됨 (성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen})`,
-                    metadata: { ok, fail, total: totalSeen, phase: 'collect' },
-                  });
-                }
-              } else if (terminal === 'failed') {
-                collectOutcome = 'failed';
-                toast.warning(
-                  `수집 종료: 성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen}`,
-                );
-                if (alertStarted) {
-                  void failOperationAlert(operationKey, {
-                    message: `수집 실패 (성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen})`,
-                    metadata: { ok, fail, total: totalSeen, phase: 'collect' },
-                  });
-                }
-              } else if (terminal === 'succeeded' || terminal === 'warning') {
-                collectOutcome = terminal;
-                if (check.key === 'coupang_ads') {
-                  if (alertStarted) {
-                    void progressOperationAlert(operationKey, {
-                      progress: 0.5,
-                      message: `일별 수집 완료 (성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen})`,
-                      metadata: { ok, fail, total: totalSeen, phase: 'collect' },
-                    });
-                  }
-                  resolve();
-                  return;
-                }
-                if (terminal === 'succeeded') {
-                  toast.success(`${ok}/${totalSeen}일 수집 완료`);
-                  if (alertStarted) {
-                    void succeedOperationAlert(operationKey, {
-                      message: `${ok}/${totalSeen}일 수집 완료`,
-                      metadata: { ok, fail, total: totalSeen, phase: 'collect' },
-                    });
-                  }
-                } else {
-                  toast.warning(
-                    `수집 종료: 성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen}`,
-                  );
-                  if (alertStarted) {
-                    void succeedOperationAlert(operationKey, {
-                      severity: 'warning',
-                      message: `일부 수집 실패 (성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen})`,
-                      metadata: { ok, fail, total: totalSeen, phase: 'collect' },
-                    });
-                  }
-                }
-              }
-              resolve();
-              return;
-            }
-            const summary = summarizeBatchScrapeProgress(status, totalUrls);
-            if (alertStarted) {
-              void progressOperationAlert(operationKey, {
-                progress:
-                  check.key === 'coupang_ads' && summary.progress != null
-                    ? summary.progress * 0.5
-                    : summary.progress,
-                message: `수집 중 (${summary.ok + summary.fail}/${summary.total})`,
-                metadata: {
-                  ok: summary.ok,
-                  fail: summary.fail,
-                  total: summary.total,
-                  phase: 'collect',
-                },
-              });
-            }
-            if (Date.now() - start > maxMs) {
-              collectOutcome = 'failed';
-              toast.warning(
-                `수집 타임아웃 - ${status?.completed ?? 0}/${totalUrls} 완료`,
-              );
-              if (alertStarted) {
-                void failOperationAlert(operationKey, {
-                  message: `수집 타임아웃 (${status?.completed ?? 0}/${totalUrls} 완료)`,
-                  metadata: { phase: 'collect', timeout: true },
-                });
-              }
-              resolve();
-              return;
-            }
-            setTimeout(tick, 3000);
-          } catch (err) {
-            collectOutcome = 'failed';
-            const message = err instanceof Error ? err.message : '수집 상태 확인 실패';
-            if (alertStarted) {
-              void failOperationAlert(operationKey, {
-                message,
-                metadata: { phase: 'collect', error: message },
-              });
-            }
-            resolve();
-          }
-        };
-        tick();
-      });
-
-      if (
-        check.key === 'coupang_ads' &&
-        (collectOutcome === 'succeeded' || collectOutcome === 'warning')
-      ) {
-        try {
-          const sweepUrl =
-            'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
-          toast.info('캠페인별 상품 수집 시작 - 새 탭에서 처리됩니다', {
-            duration: 4000,
-          });
-          const sweepResp = await sendToExtension<ExtensionMessageResponse>(eid, {
-            action: 'scrapeTargets',
-            urls: [
-              {
-                id: 'ad-sync-sweep',
-                url: sweepUrl,
-                label: '광고 동기화 (캠페인별 상품)',
-              },
-            ],
-          });
-          if (sweepResp?.success === false) {
-            throw new Error(sweepResp.error ?? '광고 동기화 시작 실패');
-          }
-
-          const sweepRunId =
-            typeof sweepResp.runId === 'string' ? sweepResp.runId : undefined;
-          const cancelSweep = async () => {
-            if (!sweepRunId) return;
-            await sendToExtension<ExtensionMessageResponse>(eid, {
-              action: 'cancelBatchScrape',
-              runId: sweepRunId,
-            });
-            toast.info('광고 동기화 중단 요청을 보냈습니다');
-          };
-          if (sweepRunId) {
-            toast.info('캠페인별 상품 수집 중...', {
-              duration: 6000,
-              action: {
-                label: '중단',
-                onClick: () => {
-                  void cancelSweep();
-                },
-              },
-            });
-          }
-          await new Promise<void>((resolve) => {
-            const sStart = Date.now();
-            const sMaxMs = 8 * 60_000;
-            const sTick = async () => {
-              try {
-                const st = await sendToExtension<ExtensionMessageResponse>(eid, {
-                  action: 'getBatchScrapeStatus',
-                  runId: sweepRunId,
-                });
-                if (
-                  st?.status === 'done' ||
-                  st?.status === 'error' ||
-                  st?.status === 'cancelled' ||
-                  st?.status === 'idle'
-                ) {
-                  const summary = summarizeBatchScrapeProgress(st, st?.total ?? 1);
-                  const sOk = summary.ok;
-                  const sFail = summary.fail;
-                  const terminal = classifyBatchScrapeStatus(st);
-                  if (terminal === 'cancelled') {
-                    toast.info('광고 동기화 중단됨');
-                    if (alertStarted) {
-                      void cancelOperationAlert(operationKey, {
-                        message: '광고 동기화 중단됨 (캠페인 sweep 단계)',
-                        metadata: { ok: sOk, fail: sFail, phase: 'ad_sweep' },
-                      });
-                    }
-                  } else if (terminal === 'failed') {
-                    toast.error('광고 동기화 실패');
-                    if (alertStarted) {
-                      void failOperationAlert(operationKey, {
-                        message: '광고 동기화 실패 (캠페인 sweep 단계)',
-                        metadata: { ok: sOk, fail: sFail, phase: 'ad_sweep' },
-                      });
-                    }
-                  } else if (terminal === 'warning' || collectOutcome === 'warning') {
-                    toast.warning('광고 동기화 일부 실패');
-                    if (alertStarted) {
-                      void succeedOperationAlert(operationKey, {
-                        severity: 'warning',
-                        message: `광고 동기화 일부 실패 (성공 ${sOk} / 실패 ${sFail})`,
-                        metadata: { ok: sOk, fail: sFail, phase: 'ad_sweep' },
-                      });
-                    }
-                  } else if (terminal === 'succeeded') {
-                    toast.success('광고 동기화 완료');
-                    if (alertStarted) {
-                      void succeedOperationAlert(operationKey, {
-                        message: `광고 동기화 완료 (캠페인 ${sOk}건)`,
-                        metadata: { ok: sOk, fail: sFail, phase: 'ad_sweep' },
-                      });
-                    }
-                  }
-                  resolve();
-                  return;
-                }
-                const summary = summarizeBatchScrapeProgress(st, st?.total ?? 1);
-                if (alertStarted) {
-                  void progressOperationAlert(operationKey, {
-                    progress:
-                      summary.progress == null
-                        ? 0.5
-                        : 0.5 + summary.progress * 0.5,
-                    message: `캠페인별 상품 수집 중 (${summary.ok + summary.fail}/${summary.total})`,
-                    metadata: {
-                      ok: summary.ok,
-                      fail: summary.fail,
-                      total: summary.total,
-                      phase: 'ad_sweep',
-                    },
-                  });
-                }
-                if (Date.now() - sStart > sMaxMs) {
-                  toast.warning(
-                    '광고 동기화 타임아웃 - 백그라운드에서 진행 중일 수 있습니다',
-                  );
-                  if (alertStarted) {
-                    void failOperationAlert(operationKey, {
-                      message: '광고 동기화 타임아웃 (캠페인 sweep 단계)',
-                      metadata: { phase: 'ad_sweep', timeout: true },
-                    });
-                  }
-                  resolve();
-                  return;
-                }
-                setTimeout(sTick, 3000);
-              } catch (err) {
-                const message =
-                  err instanceof Error ? err.message : '광고 동기화 상태 확인 실패';
-                if (alertStarted) {
-                  void failOperationAlert(operationKey, {
-                    message,
-                    metadata: { phase: 'ad_sweep', error: message },
-                  });
-                }
-                resolve();
-              }
-            };
-            sTick();
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : '광고 동기화 실패';
-          if (alertStarted) {
-            void failOperationAlert(operationKey, {
-              message,
-              metadata: { phase: 'ad_sweep', error: message },
-            });
-          }
-        }
-      }
+      const session = await runExtensionCollection(
+        check,
+        producer,
+        extensionId,
+        requestedRunId,
+      );
 
       await invalidateCollectedData();
       await refetchReadiness();
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      if (alertStarted) {
-        void failOperationAlert(operationKey, {
-          message: `익스텐션 통신 실패: ${errorMessage}`,
-          metadata: { phase: 'collect', error: errorMessage },
-        });
-      }
-      try {
-        fallbackOpenTabs(check.scrapeUrls);
-        toast.warning('익스텐션 통신 실패 - 폴백으로 탭 일괄 오픈', {
-          description: errorMessage,
-          duration: 7000,
-        });
-        setTimeout(() => {
-          void refetchReadiness();
-        }, 12000);
-      } catch {
-        toast.error(errorMessage);
-      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '브라우저 수집 실패');
     } finally {
       setPendingKey(null);
     }
   };
 
-  return { pendingKey, handleCollect };
+  return { pendingKey, activeSession, handleCollect };
 }

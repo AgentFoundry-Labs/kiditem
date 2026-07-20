@@ -1,8 +1,8 @@
-import { BadGatewayException, Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { BadGatewayException, Injectable } from '@nestjs/common';
 import { chromium, type Page } from 'playwright';
 import {
   type Search1688KeywordInput,
@@ -11,16 +11,20 @@ import {
   type Search1688KeywordStatus,
   type Sourcing1688KeywordSearchPort,
 } from '../../../application/port/out/provider/1688-keyword-search.port';
+import type { Response as PlaywrightResponse } from 'playwright';
 
 const DEFAULT_1688_MTOP_BASE_URL = 'https://h5api.m.1688.com';
 const MTOP_API = 'mtop.relationrecommend.WirelessRecommend.recommend';
 const MTOP_APP_KEY = '12574478';
 const MTOP_APP_ID = '32517';
 const REQUEST_TIMEOUT_MS = 15_000;
-const SEARCH_NAVIGATE_TIMEOUT_MS = 30_000;
+const SEARCH_NAVIGATE_TIMEOUT_MS = 45_000;
+const SEARCH_DOM_READY_TIMEOUT_MS = 12_000;
 const SEARCH_RENDER_WAIT_MS = 4_000;
+const CDP_CONNECT_TIMEOUT_MS = 20_000;
 const DEFAULT_USER_DATA_DIR = '.kiditem/playwright/sourcing';
 const SEARCH_PAGE_BASE_URL = 'https://s.1688.com/selloffer/offer_search.htm';
+const sourcingSearchProfileQueues = new Map<string, Promise<void>>();
 const EXTRACT_1688_SEARCH_ITEMS = `(keyword) => {
   const normalizeUrl = (value) => {
     if (!value) return null;
@@ -162,6 +166,12 @@ export class Direct1688KeywordSearchAdapter implements Sourcing1688KeywordSearch
       });
     }
 
+    if (items.length === 0) {
+      throw new BadGatewayException(
+        '1688 검색 결과가 0건입니다. 계정 로그인 여부와 별개인 검색 요청 슬라이더 검증이 필요하거나 검색 화면이 변경됐습니다. SOURCING_PLAYWRIGHT_HEADLESS=false로 서버를 띄운 뒤 검색 검증을 완료해주세요.',
+      );
+    }
+
     return {
       keyword: input.keyword,
       page,
@@ -181,30 +191,46 @@ async function searchByKeywordWithBrowserFallback(input: {
   page: number;
   maxResults: number;
 }): Promise<Search1688KeywordItem[]> {
-  const userDataDir = resolveSourcingSearchUserDataDir();
-  await mkdir(userDataDir, { recursive: true });
-  const executablePath = resolveBrowserExecutablePath();
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    ...(executablePath ? { executablePath } : {}),
-    headless: resolveSourcingSearchHeadless(),
-    viewport: { width: 1440, height: 1000 },
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
-  });
+  const cdpEndpoint = resolveSourcingSearchCdpEndpoint();
+  if (cdpEndpoint) {
+    return searchByKeywordWithBrowserSession(input, cdpEndpoint);
+  }
 
+  const userDataDir = resolveSourcingSearchUserDataDir();
+  return withSourcingSearchProfileQueue(userDataDir, () =>
+    searchByKeywordWithBrowserSession(input, null),
+  );
+}
+
+interface BrowserSearchSession {
+  page: Page;
+  close: () => Promise<void>;
+}
+
+async function searchByKeywordWithBrowserSession(
+  input: {
+    keyword: string;
+    page: number;
+    maxResults: number;
+  },
+  cdpEndpoint: string | null,
+): Promise<Search1688KeywordItem[]> {
+  let session: BrowserSearchSession;
   try {
-    const page = context.pages()[0] ?? await context.newPage();
-    await page.goto(buildSearchPageUrl(input.keyword, input.page), {
-      waitUntil: 'domcontentloaded',
-      timeout: SEARCH_NAVIGATE_TIMEOUT_MS,
-    });
+    session = await openBrowserSearchSession(cdpEndpoint);
+  } catch (error) {
+    const mode = cdpEndpoint ? 'CDP browser connection' : 'browser launch';
+    throw new BadGatewayException(`1688 ${mode} failed: ${cleanBrowserError(error)}`);
+  }
+
+  const verificationMonitor = monitor1688VerificationResponses(session.page);
+  try {
+    const { page } = session;
+    await navigateTo1688SearchPage(page, buildSearchPageUrl(input.keyword, input.page));
     await page.waitForTimeout(SEARCH_RENDER_WAIT_MS);
 
-    if (await is1688VerificationPage(page)) {
-      throw new BadGatewayException(
-        '1688 상품 검색이 로그인/사용자 검증 화면에서 막혔습니다. SOURCING_PLAYWRIGHT_HEADLESS=false로 서버를 띄운 뒤 1688 로그인/슬라이더 검증을 한 번 완료해주세요.',
-      );
+    if (verificationMonitor.detected() || await is1688VerificationPage(page)) {
+      throw new BadGatewayException(verificationRequiredMessage(cdpEndpoint != null));
     }
 
     await page.evaluate('window.scrollTo(0, Math.min(document.documentElement.scrollHeight, 1800))');
@@ -220,9 +246,119 @@ async function searchByKeywordWithBrowserFallback(input: {
       .slice(0, input.maxResults);
   } catch (error) {
     if (error instanceof BadGatewayException) throw error;
-    throw new BadGatewayException(`1688 browser search failed: ${errorMessage(error)}`);
+    throw new BadGatewayException(`1688 browser search failed: ${cleanBrowserError(error)}`);
   } finally {
-    await context.close();
+    verificationMonitor.stop();
+    await session.close();
+  }
+}
+
+async function openBrowserSearchSession(cdpEndpoint: string | null): Promise<BrowserSearchSession> {
+  if (cdpEndpoint) {
+    const browser = await chromium.connectOverCDP(cdpEndpoint, {
+      timeout: CDP_CONNECT_TIMEOUT_MS,
+    });
+    const context = browser.contexts()[0] ?? await browser.newContext();
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 1440, height: 1000 }).catch(() => undefined);
+    return {
+      page,
+      close: async () => {
+        await page.close().catch(() => undefined);
+        await browser.close().catch(() => undefined);
+      },
+    };
+  }
+
+  const userDataDir = resolveSourcingSearchUserDataDir();
+  await mkdir(userDataDir, { recursive: true });
+  const executablePath = resolveBrowserExecutablePath();
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    ...(executablePath ? { executablePath } : {}),
+    headless: resolveSourcingSearchHeadless(),
+    viewport: { width: 1440, height: 1000 },
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  });
+
+  return {
+    page: context.pages()[0] ?? await context.newPage(),
+    close: () => context.close(),
+  };
+}
+
+async function navigateTo1688SearchPage(page: Page, url: string): Promise<void> {
+  try {
+    await page.goto(url, {
+      // 1688/CDN subresources can keep DOMContentLoaded pending even after the
+      // search document is usable. Wait for the main response here, then treat
+      // DOM readiness as best-effort below.
+      waitUntil: 'commit',
+      timeout: SEARCH_NAVIGATE_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (!isNavigationTimeout(error) || !is1688NavigationUrl(page.url())) {
+      throw error;
+    }
+  }
+
+  await page.waitForLoadState('domcontentloaded', {
+    timeout: SEARCH_DOM_READY_TIMEOUT_MS,
+  }).catch(() => undefined);
+  await page.locator('body').waitFor({
+    state: 'attached',
+    timeout: 5_000,
+  });
+}
+
+function verificationRequiredMessage(usingCdp: boolean): string {
+  if (usingCdp) {
+    return '1688 계정 세션과 연결됐지만 상품 검색 API가 별도 슬라이더 검증에 막혔습니다. SOURCING_PLAYWRIGHT_CDP_ENDPOINT로 연결된 Chrome에서 열린 검색 검증을 직접 완료해주세요.';
+  }
+  return '1688 상품 검색 API가 계정 로그인 여부와 별개인 슬라이더 검증에 막혔습니다. 일반 Chrome 세션은 서버의 별도 sourcing 프로필에 공유되지 않으므로 SOURCING_PLAYWRIGHT_HEADLESS=false로 검색 검증을 완료하거나, 로그인된 전용 Chrome의 SOURCING_PLAYWRIGHT_CDP_ENDPOINT를 설정해주세요.';
+}
+
+function isNavigationTimeout(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.name === 'TimeoutError' || /Timeout \d+ms exceeded/i.test(error.message);
+}
+
+function is1688NavigationUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === '1688.com' || hostname.endsWith('.1688.com') ||
+      hostname === 'taobao.com' || hostname.endsWith('.taobao.com');
+  } catch {
+    return false;
+  }
+}
+
+function cleanBrowserError(error: unknown): string {
+  return errorMessage(error)
+    .replace(/\u001B\[[0-9;]*m/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function withSourcingSearchProfileQueue<T>(
+  userDataDir: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const previous = sourcingSearchProfileQueues.get(userDataDir) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolveCurrent) => {
+    releaseCurrent = resolveCurrent;
+  });
+  const queued = previous.catch(() => undefined).then(() => current);
+  sourcingSearchProfileQueues.set(userDataDir, queued);
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    releaseCurrent();
+    if (sourcingSearchProfileQueues.get(userDataDir) === queued) {
+      sourcingSearchProfileQueues.delete(userDataDir);
+    }
   }
 }
 
@@ -266,7 +402,7 @@ function buildSearchData(input: {
       method: 'getOfferList',
       verticalProductFlag: 'pcmarket',
       searchScene: 'pcOfferSearch',
-      charset: 'GBK',
+      charset: 'utf8',
     }),
   });
 }
@@ -353,15 +489,37 @@ function assertMtopSuccess(payload: unknown): void {
 }
 
 async function is1688VerificationPage(page: Page): Promise<boolean> {
-  const url = page.url();
-  if (url.includes('/_____tmd_____/punish')) return true;
-  if (url.includes('login.taobao.com') || url.includes('login.1688.com')) return true;
+  if (is1688VerificationUrl(page.url())) return true;
+  if (page.frames().some((frame) => is1688VerificationUrl(frame.url()))) return true;
   const bodyText = await page.locator('body').innerText({ timeout: 2_000 }).catch(() => '');
   return bodyText.includes('밀어서 확인하기') ||
     bodyText.includes('Captcha Interception') ||
     bodyText.includes('unusual traffic') ||
     bodyText.includes('密码登录') ||
     bodyText.includes('扫码登录');
+}
+
+function monitor1688VerificationResponses(page: Page): {
+  detected: () => boolean;
+  stop: () => void;
+} {
+  let blocked = false;
+  const onResponse = (response: PlaywrightResponse) => {
+    if (is1688VerificationUrl(response.url())) blocked = true;
+  };
+  page.on('response', onResponse);
+  return {
+    detected: () => blocked,
+    stop: () => page.off('response', onResponse),
+  };
+}
+
+function is1688VerificationUrl(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized.includes('/_____tmd_____/punish') ||
+    normalized.includes('action=captcha') ||
+    normalized.includes('login.taobao.com') ||
+    normalized.includes('login.1688.com');
 }
 
 function normalizeItems(payload: unknown, keyword: string): Search1688KeywordItem[] {
@@ -539,12 +697,19 @@ function readBaseUrl(): string {
 function buildSearchPageUrl(keyword: string, page: number): string {
   const url = new URL(SEARCH_PAGE_BASE_URL);
   url.searchParams.set('keywords', keyword);
+  // 1688 otherwise decodes percent-encoded Chinese keywords as GBK on some
+  // search routes (for example 文具 becomes 鏂囧叿).
+  url.searchParams.set('charset', 'utf8');
   if (page > 1) url.searchParams.set('beginPage', String(page));
   return url.toString();
 }
 
 function resolveSourcingSearchUserDataDir(): string {
   return resolve(process.env.SOURCING_PLAYWRIGHT_USER_DATA_DIR?.trim() || DEFAULT_USER_DATA_DIR);
+}
+
+function resolveSourcingSearchCdpEndpoint(): string | null {
+  return process.env.SOURCING_PLAYWRIGHT_CDP_ENDPOINT?.trim() || null;
 }
 
 function resolveSourcingSearchHeadless(): boolean {

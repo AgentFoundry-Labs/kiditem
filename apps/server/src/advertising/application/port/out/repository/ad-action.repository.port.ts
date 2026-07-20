@@ -1,5 +1,5 @@
 // Outgoing port for the `AdAction` aggregate. Combines query (review list,
-// latest target rows, option stock) with writes (generate, approve, reject,
+// latest target rows) with writes (generate, approve, reject,
 // reset). Transaction-spanning writes (approve / reject / reset) are
 // adapter-internal so `application/service/**` never imports
 // `Prisma.TransactionClient`.
@@ -38,9 +38,6 @@ export interface LatestTargetRow {
   clicks: number;
   conversions: number;
   abcGrade: string | null;
-  optionAvailableStock: number | null;
-  optionCostPrice: number | null;
-  optionSellPrice: number | null;
   optionCommissionRate: number | null;
   productName: string | null;
 }
@@ -111,11 +108,6 @@ export interface AdActionRepositoryPort {
   ): Promise<AdActionReviewResult>;
 
   findLatestTargetRows(organizationId: string): Promise<LatestTargetRow[]>;
-
-  findLatestListingOptionStockById(
-    organizationId: string,
-    listingOptionIds: string[],
-  ): Promise<Map<string, number | null>>;
 
   findExistingInflightActions(
     organizationId: string,

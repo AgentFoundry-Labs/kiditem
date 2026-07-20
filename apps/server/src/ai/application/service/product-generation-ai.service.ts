@@ -92,7 +92,6 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
           rawOptions,
           imageUrls,
           heroImageMode: 'llm-pick',
-          productId: undefined,
           templateId: input.templateId,
           ageGroup: input.ageGroup,
           detailImageCount: input.detailImageCount,

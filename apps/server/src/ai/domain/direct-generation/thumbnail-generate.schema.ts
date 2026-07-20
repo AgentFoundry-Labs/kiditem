@@ -1,7 +1,7 @@
 /**
  * Thumbnail direct generation input/output contract.
  *
- * The /api/thumbnail-editor/generate endpoint creates product-bound,
+ * The /api/thumbnail-editor/generate endpoint creates workspace-bound,
  * candidate-bound, workspace-bound, or direct-upload generation rows. The
  * direct job runs Gemini image generation, validates the output, and the sink
  * applies candidates onto the originating `ThumbnailGeneration` row.
@@ -17,10 +17,7 @@ const dataOrHttpsUrl = z
   .string()
   .min(1)
   .refine(
-    (value) =>
-      value.startsWith('data:image/') ||
-      value.startsWith('https://') ||
-      value.startsWith('http://localhost'), // dev fallback only
+    (value) => value.startsWith('data:image/') || value.startsWith('https://') || value.startsWith('http://localhost'), // dev fallback only
     {
       message:
         'thumbnail_generate.url must be a data:image URL or https:// URL (dev http://localhost allowed for local provider stubs).',
@@ -56,9 +53,7 @@ export const ThumbnailGenerateDirectInputImageSchema = z.object({
 
 export const ThumbnailGenerateDirectInputSchema = z.object({
   mode: z.enum(['creative', 'edit']),
-  editCase: z
-    .enum(['single', 'compose', 'color-variants', 'bundle'])
-    .optional(),
+  editCase: z.enum(['single', 'compose', 'color-variants', 'bundle']).optional(),
   purpose: z.enum(['compliance', 'quality']).optional(),
   productName: z.string().nullable().optional(),
   productDescription: z.string().optional(),
@@ -68,9 +63,7 @@ export const ThumbnailGenerateDirectInputSchema = z.object({
   supplementaryLabel: z.string().optional(),
   pieceCount: z.number().int().nonnegative().optional(),
   colorCount: z.number().int().nonnegative().optional(),
-  layout: z
-    .enum(['auto', 'fan', 'arch', 'grid', 'stack', 'radial'])
-    .optional(),
+  layout: z.enum(['auto', 'fan', 'arch', 'grid', 'stack', 'radial']).optional(),
   composition: z.string().optional(),
   userPrompt: z.string().optional(),
   hasStyleReference: z.boolean().optional(),
@@ -82,12 +75,6 @@ export const ThumbnailGenerateDirectOutputSchema = z.object({
 });
 
 export type ThumbnailCandidate = z.infer<typeof ThumbnailCandidateSchema>;
-export type ThumbnailGenerateDirectInputImage = z.infer<
-  typeof ThumbnailGenerateDirectInputImageSchema
->;
-export type ThumbnailGenerateDirectInput = z.infer<
-  typeof ThumbnailGenerateDirectInputSchema
->;
-export type ThumbnailGenerateDirectOutput = z.infer<
-  typeof ThumbnailGenerateDirectOutputSchema
->;
+export type ThumbnailGenerateDirectInputImage = z.infer<typeof ThumbnailGenerateDirectInputImageSchema>;
+export type ThumbnailGenerateDirectInput = z.infer<typeof ThumbnailGenerateDirectInputSchema>;
+export type ThumbnailGenerateDirectOutput = z.infer<typeof ThumbnailGenerateDirectOutputSchema>;

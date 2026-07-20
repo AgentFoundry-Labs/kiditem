@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   Play,
   Pause,
@@ -16,13 +17,28 @@ import {
 import { cn, getModuleColor, timeAgo } from '@/lib/utils';
 import type { Workflow } from '@/types';
 import { workflowApi } from '../lib/workflow-api';
-import WorkflowCanvas from './WorkflowCanvas';
-import WorkflowRunView from './WorkflowRunView';
 import type {
   WorkflowTemplate,
   WorkflowRun,
   WorkflowRunWithSteps,
 } from '../lib/workflow-types';
+
+const WorkflowCanvas = dynamic(() => import('./WorkflowCanvas'), {
+  ssr: false,
+  loading: () => <WorkflowPreviewLoading />,
+});
+const WorkflowRunView = dynamic(() => import('./WorkflowRunView'), {
+  ssr: false,
+  loading: () => <WorkflowPreviewLoading />,
+});
+
+function WorkflowPreviewLoading() {
+  return (
+    <div className="flex h-[300px] items-center justify-center">
+      <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+    </div>
+  );
+}
 
 /** Convert legacy Workflow to WorkflowTemplate shape */
 function legacyToTemplate(wf: Workflow): WorkflowTemplate {

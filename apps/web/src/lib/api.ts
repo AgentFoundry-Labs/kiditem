@@ -24,12 +24,21 @@ export function normalizeLoopbackApiBase(apiBase: string, browserHostname: strin
   try {
     const url = new URL(apiBase);
     if (isLoopbackHost(url.hostname) && isLoopbackHost(browserHostname)) {
-      url.hostname = browserHostname === '0.0.0.0' ? 'localhost' : browserHostname;
+      url.hostname = normalizeBrowserLoopbackHost(browserHostname);
     }
     return url.toString().replace(/\/$/, '');
   } catch {
     return apiBase;
   }
+}
+
+function normalizeBrowserLoopbackHost(browserHostname: string): string {
+  if (browserHostname === '0.0.0.0') return 'localhost';
+  // Some local Chrome profiles stall on `localhost:4000` while `[::1]:4000`
+  // responds immediately. API requests carry Authorization headers, so they
+  // do not depend on localhost-domain cookies.
+  if (browserHostname === 'localhost') return '[::1]';
+  return browserHostname;
 }
 
 function isLoopbackHost(hostname: string): boolean {

@@ -7,7 +7,12 @@
 // Unknown sources still snapshot every row (raw preservation principle)
 // without any daily-fact upsert.
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import type { ExtensionSyncDto } from '../../adapter/in/http/dto';
 import {
   resolveBusinessDate,
@@ -55,6 +60,20 @@ import {
   type ListingAdMetricAccumulator,
 } from './listing-ad-metric-accumulator';
 
+function isExplicitWingItemWinnerUrl(urlValue: string): boolean {
+  try {
+    const url = new URL(urlValue);
+    if (url.hostname.toLowerCase() !== 'wing.coupang.com') return false;
+
+    // Query-string return URLs are common on redirects/login screens and are
+    // not evidence that the browser actually reached the requested page.
+    const pageIdentity = `${url.pathname}${url.hash}`;
+    return /item[-_]?winner|price/i.test(pageIdentity);
+  } catch {
+    return false;
+  }
+}
+
 @Injectable()
 export class RawScrapeIngestHandler {
   private readonly logger = new Logger(RawScrapeIngestHandler.name);
@@ -89,6 +108,7 @@ export class RawScrapeIngestHandler {
     );
     const scrapeRun = await this.scrapeRepo.createRun({
       organizationId,
+      channelAccountId: map.channelAccountId,
       channel: 'coupang',
       source,
       pageType: source === 'wing' ? 'itemwinner' : 'advertising',
@@ -114,6 +134,15 @@ export class RawScrapeIngestHandler {
       const listingAdMetrics = new Map<string, ListingAdMetricAccumulator>();
 
       if (source === 'wing') {
+        if (
+          payload.url !== undefined &&
+          !isExplicitWingItemWinnerUrl(payload.url)
+        ) {
+          throw new BadRequestException(
+            'Wing 아이템위너/가격관리 페이지가 아닌 URL의 수집 결과는 저장할 수 없습니다.',
+          );
+        }
+
         for (const row of rows) {
           const productName = row.productName || '';
           const match = matchListingFromRow(row, map);
@@ -140,7 +169,6 @@ export class RawScrapeIngestHandler {
             externalOptionId: externalOptionIdRaw,
             listingId: match.listingId,
             listingOptionId: match.listingOptionId,
-            optionId: match.optionId,
             matchStatus,
             matchReason:
               !productName || productName.length < 3
@@ -175,7 +203,6 @@ export class RawScrapeIngestHandler {
                   organizationId,
                   listingId: match.listingId,
                   listingOptionId: match.listingOptionId,
-                  optionId: match.optionId,
                   channel: 'coupang',
                   externalId: match.externalId ?? externalIdRaw ?? '',
                   externalOptionId:
@@ -194,6 +221,7 @@ export class RawScrapeIngestHandler {
         if (Object.keys(kpis).length > 0 && businessDate) {
           await this.accountKpiRepo.upsertAccountKpi({
             organizationId,
+            channelAccountId: map.channelAccountId,
             channel: 'coupang',
             source: 'wing',
             kpiType: 'wing_itemwinner_kpi',
@@ -244,7 +272,6 @@ export class RawScrapeIngestHandler {
             externalOptionId: externalOptionIdRaw,
             listingId: match.listingId,
             listingOptionId: match.listingOptionId,
-            optionId: match.optionId,
             matchStatus,
             matchReason: pair.hasNormalizedRow
               ? null
@@ -304,6 +331,7 @@ export class RawScrapeIngestHandler {
           const targetType = deriveAdTargetType(pageType, rowKeyword);
           try {
             const targetKey = buildAdTargetKey({
+              channelAccountId: map.channelAccountId,
               targetType,
               campaignId: rowCampaignId,
               campaignName: rowCampaignName,
@@ -321,7 +349,6 @@ export class RawScrapeIngestHandler {
               targetKey,
               listingId: match.listingId ?? null,
               listingOptionId: match.listingOptionId ?? null,
-              optionId: match.optionId ?? null,
               externalId: externalIdRaw ?? match.externalId ?? null,
               externalOptionId:
                 externalOptionIdRaw ?? match.externalOptionId ?? null,
@@ -399,7 +426,6 @@ export class RawScrapeIngestHandler {
             externalOptionId: externalOptionIdRaw,
             listingId: match.listingId,
             listingOptionId: match.listingOptionId,
-            optionId: match.optionId,
             matchStatus,
             matchReason: `unknown source '${source}' — raw preserved`,
             rawJson: row as Record<string, unknown>,

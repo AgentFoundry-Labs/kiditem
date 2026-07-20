@@ -30,7 +30,7 @@ function previewUrl(g: ThumbnailGenerationItem): string | null {
 }
 
 type RegGroup = {
-  productId: string;
+  contentWorkspaceId: string;
   representative: ThumbnailGenerationItem;
   items: ThumbnailGenerationItem[];
 };
@@ -38,22 +38,22 @@ type RegGroup = {
 function groupByProduct(items: ThumbnailGenerationItem[]): RegGroup[] {
   const map = new Map<string, ThumbnailGenerationItem[]>();
   for (const g of items) {
-    if (!g.productId) continue;
-    const bucket = map.get(g.productId);
+    if (!g.contentWorkspaceId) continue;
+    const bucket = map.get(g.contentWorkspaceId);
     if (bucket) bucket.push(g);
-    else map.set(g.productId, [g]);
+    else map.set(g.contentWorkspaceId, [g]);
   }
   const groups: RegGroup[] = [];
-  for (const [productId, list] of map) {
-    const sorted = [...list].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-    groups.push({ productId, representative: sorted[0], items: sorted });
+  for (const [contentWorkspaceId, list] of map) {
+    const sorted = [...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    groups.push({
+      contentWorkspaceId,
+      representative: sorted[0],
+      items: sorted,
+    });
   }
   return groups.sort(
-    (a, b) =>
-      new Date(b.representative.createdAt).getTime() -
-      new Date(a.representative.createdAt).getTime(),
+    (a, b) => new Date(b.representative.createdAt).getTime() - new Date(a.representative.createdAt).getTime(),
   );
 }
 
@@ -77,10 +77,7 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
 
   const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const pagedGroups = useMemo(
-    () => groups.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [groups, safePage],
-  );
+  const pagedGroups = useMemo(() => groups.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [groups, safePage]);
 
   const allSelected = items.length > 0 && items.every((g) => selectedIds.has(g.id));
   const toggleGroup = (group: RegGroup) => {
@@ -215,16 +212,20 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
               const selectedInGroup = group.items.filter((i) => selectedIds.has(i.id)).length;
               return (
                 <RegistrationPendingCard
-                  key={group.productId}
+                  key={group.contentWorkspaceId}
                   group={group}
                   selectedCount={selectedInGroup}
                   onToggle={() => toggleGroup(group)}
                   onEdit={() => {
-                    router.push(thumbnailGenerationEditHref({
-                      generationId: group.representative.id,
-                      returnTo,
-                      subjectParams: { productId: group.productId },
-                    }));
+                    router.push(
+                      thumbnailGenerationEditHref({
+                        generationId: group.representative.id,
+                        returnTo,
+                        subjectParams: {
+                          contentWorkspaceId: group.contentWorkspaceId,
+                        },
+                      }),
+                    );
                   }}
                   onClearError={() => group.items.forEach((i) => handleClearError(i.id))}
                 />
@@ -253,11 +254,7 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
             disabled={batch.isPending}
             className="bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white rounded-xl px-4 py-2 text-sm font-bold flex items-center gap-2"
           >
-            {batch.isPending ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Store size={14} />
-            )}
+            {batch.isPending ? <Loader2 size={14} className="animate-spin" /> : <Store size={14} />}
             선택 {selectedIds.size}장 쿠팡 등록
           </button>
         </div>
@@ -296,7 +293,7 @@ function RegistrationPendingCard({
   const fullSelected = selectedCount === group.items.length;
   const partialSelected = selectedCount > 0 && !fullSelected;
   const multi = group.items.length > 1;
-  const productName = item.product?.name ?? '상품 정보 없음';
+  const productName = item.contentWorkspace?.name ?? '상품 정보 없음';
 
   return (
     <div
@@ -308,9 +305,7 @@ function RegistrationPendingCard({
       )}
     >
       <div className="aspect-square bg-white relative overflow-hidden">
-        {resolved && (
-          <ImgWithSkeleton src={resolved} alt={productName} fit="cover" />
-        )}
+        {resolved && <ImgWithSkeleton src={resolved} alt={productName} fit="cover" />}
 
         <button
           type="button"
@@ -342,11 +337,11 @@ function RegistrationPendingCard({
         <p className="text-[11px] font-bold text-gray-900 truncate">{productName}</p>
         {anyFailed && (
           <div className="flex items-start gap-1 mt-0.5">
-            <p
-              className="text-[10px] font-bold text-rose-600 truncate flex-1"
-              title={firstError ?? undefined}
-            >
-              등록 실패{multi && group.items.filter((i) => i.registrationStatus === 'failed').length > 1 ? ` ${group.items.filter((i) => i.registrationStatus === 'failed').length}건` : ''}
+            <p className="text-[10px] font-bold text-rose-600 truncate flex-1" title={firstError ?? undefined}>
+              등록 실패
+              {multi && group.items.filter((i) => i.registrationStatus === 'failed').length > 1
+                ? ` ${group.items.filter((i) => i.registrationStatus === 'failed').length}건`
+                : ''}
             </p>
             <button
               type="button"
@@ -385,20 +380,25 @@ function BatchProgressDialog({
   const okCount = results?.filter((r) => r.success).length ?? 0;
   const failCount = results ? results.length - okCount : 0;
 
-  const rows: Array<{ id: string; name: string; state: 'running' | 'ok' | 'fail'; error?: string; screenshotPath?: string | null }> =
-    results
-      ? results.map((r) => ({
-          id: r.id,
-          name: itemsById.get(r.id)?.product?.name ?? r.id,
-          state: r.success ? 'ok' : 'fail',
-          error: r.error,
-          screenshotPath: r.screenshotPath,
-        }))
-      : runningIds.map((id) => ({
-          id,
-          name: itemsById.get(id)?.product?.name ?? id,
-          state: 'running',
-        }));
+  const rows: Array<{
+    id: string;
+    name: string;
+    state: 'running' | 'ok' | 'fail';
+    error?: string;
+    screenshotPath?: string | null;
+  }> = results
+    ? results.map((r) => ({
+        id: r.id,
+        name: itemsById.get(r.id)?.contentWorkspace?.name ?? r.id,
+        state: r.success ? 'ok' : 'fail',
+        error: r.error,
+        screenshotPath: r.screenshotPath,
+      }))
+    : runningIds.map((id) => ({
+        id,
+        name: itemsById.get(id)?.contentWorkspace?.name ?? id,
+        state: 'running',
+      }));
 
   return (
     <Dialog.Root
@@ -432,11 +432,7 @@ function BatchProgressDialog({
             </Dialog.Title>
             {!isRunning && (
               <Dialog.Close asChild>
-                <button
-                  type="button"
-                  className="p-1 rounded-md text-gray-500 hover:bg-gray-100"
-                  aria-label="Close"
-                >
+                <button type="button" className="p-1 rounded-md text-gray-500 hover:bg-gray-100" aria-label="Close">
                   <X size={16} />
                 </button>
               </Dialog.Close>

@@ -4,6 +4,7 @@ export type AutoOpenWhen = 'anyIssue' | 'collectionIssue';
 
 export interface ReadinessModalViewModel {
   checks: ReadinessCheck[];
+  allOk: boolean;
   doneCount: number;
   totalCount: number;
   pendingCount: number;
@@ -14,6 +15,19 @@ export interface ReadinessModalViewModel {
   subhead: string;
 }
 
+const HIDDEN_READINESS_KEYS = new Set(['rocket_sales']);
+
+function visibleChecks(checks: ReadinessCheck[]): ReadinessCheck[] {
+  // Older cached responses can still contain the retired Rocket readiness row.
+  // Keep it out of both rendering and readiness arithmetic so it cannot reopen
+  // or block the modal after the server-side check has been removed.
+  return checks.filter((check) => !HIDDEN_READINESS_KEYS.has(check.key));
+}
+
+function isReady(check: ReadinessCheck): boolean {
+  return check.status === 'ok' && (check.missingDates?.length ?? 0) === 0;
+}
+
 export function getLocalDateKey(date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -22,22 +36,23 @@ export function getLocalDateKey(date = new Date()): string {
 }
 
 export function shouldAutoOpen(data: ReadinessResponse, mode: AutoOpenWhen): boolean {
-  if (data.allOk) return false;
+  const checks = visibleChecks(data.checks);
+  if (checks.every(isReady)) return false;
   if (mode === 'anyIssue') return true;
 
-  return data.checks.some((check) => {
+  return checks.some((check) => {
     const missingDateCount = check.missingDates?.length ?? 0;
     return check.collector === 'extension' && (check.status !== 'ok' || missingDateCount > 0);
   });
 }
 
 export function buildReadinessModalViewModel(data: ReadinessResponse | undefined): ReadinessModalViewModel {
-  const checks = data?.checks ?? [];
+  const checks = visibleChecks(data?.checks ?? []);
   const okChecks: ReadinessCheck[] = [];
   const actionChecks: ReadinessCheck[] = [];
 
   for (const check of checks) {
-    if (check.status === 'ok') okChecks.push(check);
+    if (isReady(check)) okChecks.push(check);
     else actionChecks.push(check);
   }
 
@@ -45,10 +60,11 @@ export function buildReadinessModalViewModel(data: ReadinessResponse | undefined
   const totalCount = checks.length;
   const pendingCount = totalCount - doneCount;
   const progressRatio = totalCount ? doneCount / totalCount : 0;
-  const allOk = data?.allOk ?? false;
+  const allOk = data ? checks.every(isReady) : false;
 
   return {
     checks,
+    allOk,
     doneCount,
     totalCount,
     pendingCount,

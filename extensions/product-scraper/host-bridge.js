@@ -6,6 +6,35 @@
     const extId = chrome.runtime.id;
     if (!extId) return;
 
+    const keepalivePortName = "kiditem-1688-trend-keepalive";
+    const keepaliveIntervalMs = 20_000;
+    let keepaliveTimer = null;
+
+    const connectKeepalive = () => {
+      try {
+        const port = chrome.runtime.connect({ name: keepalivePortName });
+        const ping = () => {
+          try {
+            port.postMessage({ type: "keepalive", at: Date.now() });
+          } catch {
+            if (keepaliveTimer) clearInterval(keepaliveTimer);
+          }
+        };
+
+        ping();
+        keepaliveTimer = setInterval(ping, keepaliveIntervalMs);
+        port.onDisconnect.addListener(() => {
+          if (keepaliveTimer) clearInterval(keepaliveTimer);
+          keepaliveTimer = null;
+          window.setTimeout(connectKeepalive, 1_000);
+        });
+      } catch {
+        window.setTimeout(connectKeepalive, 1_000);
+      }
+    };
+
+    connectKeepalive();
+
     try {
       localStorage.setItem("kiditem-sourcing-ext-id", extId);
     } catch {

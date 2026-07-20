@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   assertHttpUrl,
-  assertPublicHttpUrl,
   assertSupportedMime as assertSupportedMimeImpl,
   extForMime as extForMimeImpl,
   FETCH_TIMEOUT_MS,
@@ -11,6 +10,13 @@ import {
 } from '../../../domain/thumbnail-image-source';
 import { PublicUrlError } from '../../../../common/security/public-url';
 import { StorageService } from '../../../../common/storage/storage.service';
+import {
+  assertSafePublicImageUrl,
+  publicImageDispatcher,
+} from './public-image-lookup';
+import { readResponseBytes } from './response-byte-reader';
+import type { Agent } from 'undici';
+import type { ImageFetchOptions } from '../../../application/port/out/provider/image-fetch.port';
 
 export { MAX_FETCH_BYTES, MAX_REDIRECTS } from '../../../domain/thumbnail-image-source';
 
@@ -27,14 +33,6 @@ function asBadRequest(error: unknown): never {
 function assertHttpUrlForRequest(raw: string): void {
   try {
     assertHttpUrl(raw);
-  } catch (error) {
-    asBadRequest(error);
-  }
-}
-
-function assertPublicHttpUrlForRequest(raw: string): void {
-  try {
-    assertPublicHttpUrl(raw);
   } catch (error) {
     asBadRequest(error);
   }
@@ -65,6 +63,7 @@ interface FetchedThumbnailImage {
 interface FetchOptions {
   /** allow URLs that resolve to an internal StorageService key (own-storage). */
   allowOwnStorage?: boolean;
+  signal?: AbortSignal;
 }
 
 /**
@@ -90,6 +89,7 @@ export class ThumbnailImageFetcherService {
     rawUrl: string,
     opts: FetchOptions = {},
   ): Promise<FetchedThumbnailImage> {
+    opts.signal?.throwIfAborted();
     let url = rawUrl;
     const initialOwnKey = this.storage.extractKey(url);
     for (let redirectCount = 0; redirectCount < MAX_REDIRECTS; redirectCount++) {
@@ -97,12 +97,22 @@ export class ThumbnailImageFetcherService {
       if (opts.allowOwnStorage && ownKey) {
         assertHttpUrlForRequest(url);
       } else {
-        assertPublicHttpUrlForRequest(url);
+        try {
+          await assertSafePublicImageUrl(new URL(url));
+        } catch (error) {
+          asBadRequest(error);
+        }
       }
-      const response = await fetch(url, {
+      const requestInit: RequestInit & { dispatcher?: Agent } = {
         redirect: 'manual',
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
+        signal: opts.signal
+          ? AbortSignal.any([opts.signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)])
+          : AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      };
+      if (!(opts.allowOwnStorage && ownKey)) {
+        requestInit.dispatcher = publicImageDispatcher;
+      }
+      const response = await fetch(url, requestInit);
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
         if (!location) throw new BadRequestException('image url redirect missing location');
@@ -117,18 +127,17 @@ export class ThumbnailImageFetcherService {
         .trim()
         .toLowerCase();
       assertSupportedMimeForRequest(mimeType);
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      if (buffer.length > MAX_FETCH_BYTES) {
-        throw new BadRequestException('image too large');
-      }
+      const buffer = await readResponseBytes(response, MAX_FETCH_BYTES, requestInit.signal ?? undefined);
       return { buffer, mimeType, storageKey: initialOwnKey ?? this.storage.extractKey(url) };
     }
     throw new BadRequestException('image url redirected too many times');
   }
 
-  async fetchTrustedStorageImage(rawUrl: string): Promise<FetchedThumbnailImage> {
-    return this.fetchImage(rawUrl, { allowOwnStorage: true });
+  async fetchTrustedStorageImage(
+    rawUrl: string,
+    options: ImageFetchOptions = {},
+  ): Promise<FetchedThumbnailImage> {
+    return this.fetchImage(rawUrl, { ...options, allowOwnStorage: true });
   }
 
   assertSupportedMime(mimeType: string): void {

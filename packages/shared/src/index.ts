@@ -19,16 +19,6 @@ export {
   GetMasterImagesResponseSchema,
   UpdateMasterImagesRequestSchema,
   UploadMasterImageResponseSchema,
-  MoneyRangeSchema,
-  MasterSchema,
-  ProductOptionSchema,
-  BundleComponentSchema,
-  MasterWithOptionsSchema,
-  OptionWithComponentsSchema,
-  ProductCatalogListItemSchema,
-  ProductCatalogDetailSchema,
-  ProductCatalogCountsSchema,
-  ProductCatalogListResponseSchema,
 } from './schemas/product.js';
 export type {
   MasterImageRole,
@@ -36,16 +26,6 @@ export type {
   GetMasterImagesResponse,
   UpdateMasterImagesRequest,
   UploadMasterImageResponse,
-  MoneyRange,
-  Master,
-  ProductOption,
-  BundleComponent,
-  MasterWithOptions,
-  OptionWithComponents,
-  ProductCatalogListItem,
-  ProductCatalogDetail,
-  ProductCatalogCounts,
-  ProductCatalogListResponse,
 } from './schemas/product.js';
 
 // Order (Plan A.5 — channel-agnostic; W3 — UI-ready response schemas)
@@ -83,42 +63,6 @@ export type {
   OrderActionResponse,
   OrderPipelineResponse,
 } from './schemas/order.js';
-
-// Inventory
-export {
-  InventorySchema,
-  InventoryStatusSchema,
-  InventoryListItemSchema,
-  InventorySummarySchema,
-  InventoryListResponseSchema,
-  StockTransactionTypeSchema,
-  StockTransactionSchema,
-  StockOperationResultSchema,
-  TransactionListItemSchema,
-  TransactionListResponseSchema,
-  TransactionSummarySchema,
-  ReceiveStockInputSchema,
-  IssueStockInputSchema,
-  AdjustStockInputSchema,
-  UpdateInventoryMetadataInputSchema,
-} from './schemas/inventory.js';
-export type {
-  Inventory,
-  InventoryStatus,
-  InventoryListItem,
-  InventorySummary,
-  InventoryListResponse,
-  StockTransactionType,
-  StockTransaction,
-  StockOperationResult,
-  TransactionListItem,
-  TransactionListResponse,
-  TransactionSummary,
-  ReceiveStockInput,
-  IssueStockInput,
-  AdjustStockInput,
-  UpdateInventoryMetadataInput,
-} from './schemas/inventory.js';
 
 // Workflow
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './schemas/workflow.js';
@@ -190,8 +134,6 @@ export type {
 
 // Thumbnails
 export {
-  ThumbnailListItemSchema,
-  ThumbnailSummarySchema,
   ThumbnailScoresSchema,
   ComplianceScoresSchema,
   ImageSpecSchema,
@@ -214,8 +156,6 @@ export {
   THUMBNAIL_TRACKING_STATUSES,
 } from './schemas/thumbnails.js';
 export type {
-  ThumbnailListItem,
-  ThumbnailSummary,
   ThumbnailScores,
   ComplianceScores,
   ImageSpec,

@@ -100,31 +100,32 @@ export class PanelService {
       this.logger.warn('Alert source backfill failed', err);
     }
 
-    // ── Image source (ThumbnailGeneration + Product.title join) ──
+    // ── Image source (ThumbnailGeneration + ContentWorkspace display name) ──
     try {
-      const thumbnailGens = await this.prisma.thumbnailGeneration.findMany({
+      const thumbnailGenerations = await this.prisma.thumbnailGeneration.findMany({
         where: {
           organizationId,
-          masterId: { not: null },
+          isDeleted: false,
           OR: [
             { status: { in: ['pending', 'running'] } },
             { updatedAt: { gte: twentyFourHoursAgo } },
           ],
         },
-        include: { master: { select: { id: true, name: true } } },
+        include: {
+          contentWorkspace: { select: { id: true, displayName: true } },
+        },
         orderBy: { createdAt: 'desc' },
         take: 100,
       });
 
-      for (const gen of thumbnailGens) {
-        if (!gen.master) continue;
-        // Per-generation operation alerts are the user-facing work item for
-        // thumbnail edit jobs. Keep the legacy image run projection only when
-        // there is no matching alert in the current panel window.
-        if (alertBackedThumbnailGenerationIds.has(gen.id)) continue;
+      for (const generation of thumbnailGenerations) {
+        if (alertBackedThumbnailGenerationIds.has(generation.id)) continue;
         items.push(
           imagePanelMapper.mapToItem(
-            { generation: gen, product: { id: gen.master.id, title: gen.master.name } },
+            {
+              generation,
+              contentWorkspace: generation.contentWorkspace,
+            },
             organizationId,
           ),
         );

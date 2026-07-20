@@ -5,6 +5,10 @@ import { SourcingDiscoveryCapabilityAdapter } from '../sourcing-discovery-capabi
 
 function discoveryResultWithSupplier(sourceUrl: string) {
   return {
+    mode: 'replay' as const,
+    windowDays: 30 as const,
+    confidence: 0.67,
+    dataGaps: ['shorts_history_missing'],
     marketSignals: [],
     coupangMatches: [],
     trackingSnapshots: [],
@@ -25,6 +29,10 @@ function discoveryResultWithSupplier(sourceUrl: string) {
 
 function discoveryResultWithRecommendation() {
   return {
+    mode: 'replay' as const,
+    windowDays: 30 as const,
+    confidence: 1,
+    dataGaps: [],
     marketSignals: [],
     coupangMatches: [],
     trackingSnapshots: [],
@@ -37,7 +45,13 @@ function discoveryResultWithRecommendation() {
         coupangEvidence: {},
         supplierEvidence: {},
         score: {
-          totalScore: 84,
+          score: 84,
+          grade: 'A',
+          decision: 'order',
+          components: {},
+          reasons: [],
+          risks: [],
+          modelTags: [],
         },
         artifact: {
           title: '실리콘 식판 흡착형 신제품 테스트 발주 후보',
@@ -132,6 +146,8 @@ describe('SourcingDiscoveryCapabilityAdapter', () => {
     });
     expect(result.outputSummary).toEqual({
       count: 1,
+      confidence: 0.67,
+      dataGaps: ['shorts_history_missing'],
       scrapeWorkflowRequests: 1,
     });
     expect(result.artifacts).toEqual([
@@ -146,6 +162,7 @@ describe('SourcingDiscoveryCapabilityAdapter', () => {
         }),
       }),
     ]);
+    expect(result.artifacts?.[0]?.targetId).not.toContain('stub');
   });
 
   it('adds an order-draft handoff intent to recommendation artifacts', async () => {
@@ -169,6 +186,13 @@ describe('SourcingDiscoveryCapabilityAdapter', () => {
       (handler) => handler.key === 'sourcing.create_recommendation_packet',
     );
     expect(recommendationHandler).toBeDefined();
+    expect(recommendationHandler!.inputSchema.safeParse({
+      keyword: '실리콘 식판',
+      mode: 'stub',
+    }).success).toBe(false);
+    expect(recommendationHandler!.inputSchema.parse({
+      keyword: '실리콘 식판',
+    })).toEqual(expect.objectContaining({ mode: 'replay' }));
     expect(
       recommendationHandler!.idempotencyKey?.({
         organizationId: 'org-1',
@@ -192,6 +216,13 @@ describe('SourcingDiscoveryCapabilityAdapter', () => {
       input: {
         keyword: '실리콘 식판',
       },
+    });
+
+    expect(result.outputSummary).toEqual({
+      recommendations: 1,
+      topScore: 84,
+      confidence: 1,
+      dataGaps: [],
     });
 
     expect(result.artifacts?.[0]).toEqual(
@@ -231,7 +262,7 @@ describe('SourcingDiscoveryCapabilityAdapter', () => {
       organizationId: 'org-1',
       keyword: '실리콘 식판',
       category: null,
-      mode: 'stub',
+      mode: 'replay',
     });
 
     expect(result.artifacts[0]).toMatchObject({

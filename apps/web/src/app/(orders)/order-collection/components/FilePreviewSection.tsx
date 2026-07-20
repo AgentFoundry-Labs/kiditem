@@ -1,6 +1,6 @@
 import { Download, X } from 'lucide-react';
-import type { ConversionHistoryItem } from '../lib/order-collection-page-model';
 import { PreviewTable } from './PreviewTable';
+import type { ConversionHistoryItem } from '../lib/order-collection-page-model';
 
 interface FilePreviewSectionProps {
   item: ConversionHistoryItem;

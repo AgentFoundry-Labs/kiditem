@@ -6,20 +6,16 @@ import { useQuery } from '@tanstack/react-query';
 import * as Popover from '@radix-ui/react-popover';
 import { ArrowRight, ImageIcon, Loader2, Search, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  GetMasterImagesResponseSchema,
-  ProductCatalogListResponseSchema,
-  type ProductCatalogListItem,
-  type MasterImageItem,
-} from '@kiditem/shared/product';
+import type { MasterImageItem } from '@kiditem/shared/product';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { useRecentGenerations } from '../../hooks/useRecentGenerations';
-import { apiClient } from '@/lib/api-client';
 import { HUB_ROLE_CONFIG, type MasterImageRole } from '../../../_shared/lib/hub-roles';
-import { REGISTERED_PRODUCTS_ROOT } from '../../../_shared/lib/product-pipeline-routes';
+import { registeredProductDetailHref } from '../../../_shared/lib/product-pipeline-routes';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
+import { contentWorkspacesApi, type ContentWorkspaceSummary } from '../../../_shared/lib/content-workspaces-api';
+import { useContentWorkspaceImages } from '../../../_shared/hooks/useContentWorkspaceImages';
 
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 import type { SlotPick } from '../../edit/lib/slots';
@@ -36,7 +32,7 @@ const TAB_LABELS: Record<DrawerTabKey, string> = {
 interface Props {
   children: React.ReactNode;
   role: MasterImageRole;
-  productId: string | null;
+  contentWorkspaceId?: string | null;
   hubImages: MasterImageItem[];
   hubImagesLoading: boolean;
   availableTabs?: DrawerTabKey[];
@@ -58,7 +54,7 @@ function fileToDataUrl(file: File): Promise<string> {
 export function ImageSourceDrawer({
   children,
   role,
-  productId,
+  contentWorkspaceId = null,
   hubImages,
   hubImagesLoading,
   availableTabs = ['upload', 'hub', 'recent'],
@@ -107,16 +103,12 @@ export function ImageSourceDrawer({
 
           <div className="p-3">
             {tab === 'upload' && (
-              <UploadTab
-                multi={multi}
-                remainingSlots={remainingSlots}
-                onPickMany={handlePickMany}
-              />
+              <UploadTab multi={multi} remainingSlots={remainingSlots} onPickMany={handlePickMany} />
             )}
             {tab === 'hub' && (
               <HubTab
                 role={role}
-                productId={productId}
+                contentWorkspaceId={contentWorkspaceId}
                 images={hubImages}
                 loading={hubImagesLoading}
                 onPick={(url) => handlePick({ value: url, source: 'hub' })}
@@ -124,18 +116,12 @@ export function ImageSourceDrawer({
             )}
             {tab === 'recent' && (
               <RecentTab
-                productId={productId}
+                contentWorkspaceId={contentWorkspaceId}
                 onPick={(url) => handlePick({ value: url, source: 'prev-gen' })}
               />
             )}
             {tab === 'other' && (
-              <OtherProductTab
-                role={role}
-                excludeProductId={productId}
-                onPick={(url, sourceProductId) =>
-                  handlePick({ value: url, source: 'other-product', sourceProductId })
-                }
-              />
+              <OtherProductTab role={role} onPick={(url) => handlePick({ value: url, source: 'other-product' })} />
             )}
           </div>
         </Popover.Content>
@@ -144,15 +130,7 @@ export function ImageSourceDrawer({
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -191,7 +169,10 @@ function UploadTab({ multi, remainingSlots, onPickMany }: UploadTabProps) {
       }
       if (slice.length === 0) return;
       const urls = await Promise.all(slice.map(fileToDataUrl));
-      const picks: SlotPick[] = urls.map((u) => ({ value: u, source: 'upload' }));
+      const picks: SlotPick[] = urls.map((u) => ({
+        value: u,
+        source: 'upload',
+      }));
       onPickMany(multi ? picks : [picks[0]]);
     },
     [multi, cap, atCap, onPickMany],
@@ -213,12 +194,8 @@ function UploadTab({ multi, remainingSlots, onPickMany }: UploadTabProps) {
         )}
       >
         <Upload size={22} className="mb-2" />
-        <div className="text-[12px] font-medium">
-          {atCap ? '최대 장수에 도달' : '클릭 또는 드래그앤드롭'}
-        </div>
-        {multi && !atCap && (
-          <div className="text-[10px] text-gray-400 mt-1">여러 장 한번에 선택 가능</div>
-        )}
+        <div className="text-[12px] font-medium">{atCap ? '최대 장수에 도달' : '클릭 또는 드래그앤드롭'}</div>
+        {multi && !atCap && <div className="text-[10px] text-gray-400 mt-1">여러 장 한번에 선택 가능</div>}
         <input
           ref={inputRef}
           type="file"
@@ -238,30 +215,26 @@ function UploadTab({ multi, remainingSlots, onPickMany }: UploadTabProps) {
 
 interface HubTabProps {
   role: MasterImageRole;
-  productId: string | null;
+  contentWorkspaceId: string | null;
   images: MasterImageItem[];
   loading: boolean;
   onPick: (url: string) => void;
 }
 
-function HubTab({ role, productId, images, loading, onPick }: HubTabProps) {
+function HubTab({ role, contentWorkspaceId, images, loading, onPick }: HubTabProps) {
   const roleImages = useMemo(() => images.filter((img) => img.role === role), [images, role]);
   const roleConfig = useMemo(() => HUB_ROLE_CONFIG.find((c) => c.role === role), [role]);
 
-  if (!productId) {
+  if (!contentWorkspaceId) {
     return (
-      <div className="text-center py-6 text-[11px] text-gray-500">
-        상품이 지정되지 않아 허브를 불러올 수 없습니다
-      </div>
+      <div className="text-center py-6 text-[11px] text-gray-500">상품이 지정되지 않아 허브를 불러올 수 없습니다</div>
     );
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2 px-0.5">
-        <span className="text-[11px] font-semibold text-violet-700">
-          {roleConfig?.label ?? role}
-        </span>
+        <span className="text-[11px] font-semibold text-violet-700">{roleConfig?.label ?? role}</span>
         <span className="text-[10px] text-gray-400">{roleImages.length}장</span>
       </div>
 
@@ -274,12 +247,14 @@ function HubTab({ role, productId, images, loading, onPick }: HubTabProps) {
         <div className="text-center py-6">
           <ImageIcon size={20} className="mx-auto mb-2 text-gray-300" />
           <div className="text-[11px] text-gray-500 mb-1.5">허브에 등록된 이미지 없음</div>
-          <Link
-            href={`${REGISTERED_PRODUCTS_ROOT}?masterId=${encodeURIComponent(productId)}`}
-            className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-700"
-          >
-            <ArrowRight size={11} /> 소싱 화면에서 확인
-          </Link>
+          {contentWorkspaceId ? (
+            <Link
+              href={registeredProductDetailHref(contentWorkspaceId)}
+              className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-700"
+            >
+              <ArrowRight size={11} /> 소싱 화면에서 확인
+            </Link>
+          ) : null}
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-1.5 max-h-[240px] overflow-y-auto">
@@ -300,12 +275,12 @@ function HubTab({ role, productId, images, loading, onPick }: HubTabProps) {
 }
 
 interface RecentTabProps {
-  productId: string | null;
+  contentWorkspaceId: string | null;
   onPick: (url: string) => void;
 }
 
-function RecentTab({ productId, onPick }: RecentTabProps) {
-  const { data: generations = [], isLoading } = useRecentGenerations(productId);
+function RecentTab({ contentWorkspaceId, onPick }: RecentTabProps) {
+  const { data: generations = [], isLoading } = useRecentGenerations(contentWorkspaceId);
 
   // Flatten: prefer selectedUrl, else all candidates
   const thumbs = useMemo(() => {
@@ -322,7 +297,7 @@ function RecentTab({ productId, onPick }: RecentTabProps) {
     return out;
   }, [generations]);
 
-  if (!productId) {
+  if (!contentWorkspaceId) {
     return (
       <div className="text-center py-6 text-[11px] text-gray-500">
         상품이 지정되지 않아 최근 생성 이미지를 불러올 수 없습니다
@@ -342,9 +317,7 @@ function RecentTab({ productId, onPick }: RecentTabProps) {
           <span className="text-[11px]">로딩 중...</span>
         </div>
       ) : thumbs.length === 0 ? (
-        <div className="text-center py-6 text-[11px] text-gray-500">
-          이전 생성 결과가 없습니다
-        </div>
+        <div className="text-center py-6 text-[11px] text-gray-500">이전 생성 결과가 없습니다</div>
       ) : (
         <div className="grid grid-cols-3 gap-1.5 max-h-[240px] overflow-y-auto">
           {thumbs.map((t, i) => (
@@ -365,8 +338,7 @@ function RecentTab({ productId, onPick }: RecentTabProps) {
 
 interface OtherProductTabProps {
   role: MasterImageRole;
-  excludeProductId: string | null;
-  onPick: (url: string, sourceProductId: string) => void;
+  onPick: (url: string) => void;
 }
 
 interface ProductLite {
@@ -375,15 +347,15 @@ interface ProductLite {
   imageUrl: string | null;
 }
 
-function toProductLite(item: ProductCatalogListItem): ProductLite {
+function toProductLite(item: ContentWorkspaceSummary): ProductLite {
   return {
     id: item.id,
-    name: item.name,
-    imageUrl: item.imageUrl ?? item.thumbnailUrl,
+    name: item.displayName,
+    imageUrl: item.currentThumbnailSelection?.url ?? null,
   };
 }
 
-function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProps) {
+function OtherProductTab({ role, onPick }: OtherProductTabProps) {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [picked, setPicked] = useState<ProductLite | null>(null);
@@ -394,31 +366,24 @@ function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProp
   }, [search]);
 
   const searchQuery = useQuery({
-    queryKey: queryKeys.products.catalog.list({ search: debounced, limit: '20' }),
+    queryKey: queryKeys.contentWorkspaces.list({
+      title: debounced,
+      limit: '20',
+    }),
     queryFn: async () => {
-      const data = await apiClient.getParsed(
-        `/api/products/catalog?search=${encodeURIComponent(debounced)}&limit=20`,
-        ProductCatalogListResponseSchema,
-      );
+      const data = await contentWorkspacesApi.list({
+        title: debounced,
+        limit: 20,
+      });
       return { items: data.items.map(toProductLite), total: data.total };
     },
     enabled: !picked,
   });
 
-  const imagesQuery = useQuery({
-    queryKey: picked ? queryKeys.products.images(picked.id) : ['products', 'images', 'other-disabled'],
-    queryFn: async () => {
-      const data = await apiClient.getParsed(
-        `/api/products/masters/${picked!.id}/images`,
-        GetMasterImagesResponseSchema,
-      );
-      return data.images;
-    },
-    enabled: !!picked,
-  });
+  const { images: workspaceImages, loading: workspaceImagesLoading } = useContentWorkspaceImages(picked?.id ?? null);
 
   if (!picked) {
-    const items = (searchQuery.data?.items ?? []).filter((p) => p.id !== excludeProductId);
+    const items = searchQuery.data?.items ?? [];
     return (
       <div>
         <div className="relative mb-2">
@@ -472,8 +437,8 @@ function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProp
     );
   }
 
-  const productImages = (imagesQuery.data ?? []).filter((img) => img.role === role);
   const fallback = picked.imageUrl ?? null;
+  const productImages = workspaceImages.filter((img) => img.role === role && img.url !== fallback);
 
   return (
     <div>
@@ -489,24 +454,20 @@ function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProp
           </button>
           <span className="text-[11px] font-semibold text-gray-900 truncate">{picked.name}</span>
         </div>
-        <span className="text-[10px] text-gray-400">
-          {productImages.length + (fallback ? 1 : 0)}장
-        </span>
+        <span className="text-[10px] text-gray-400">{productImages.length + (fallback ? 1 : 0)}장</span>
       </div>
-      {imagesQuery.isLoading ? (
+      {workspaceImagesLoading ? (
         <div className="flex items-center justify-center py-6 text-gray-400">
           <Loader2 size={12} className="animate-spin" />
         </div>
       ) : productImages.length === 0 && !fallback ? (
-        <div className="text-center py-6 text-[11px] text-gray-500">
-          이 상품은 이미지가 없습니다
-        </div>
+        <div className="text-center py-6 text-[11px] text-gray-500">이 상품은 이미지가 없습니다</div>
       ) : (
         <div className="grid grid-cols-3 gap-1.5 max-h-[220px] overflow-y-auto">
           {fallback && (
             <button
               type="button"
-              onClick={() => onPick(fallback, picked.id)}
+              onClick={() => onPick(fallback)}
               className="relative aspect-square rounded-md overflow-hidden bg-white border border-gray-200 hover:border-violet-400 transition-colors"
               title="기본 상품 이미지"
             >
@@ -526,7 +487,7 @@ function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProp
             <button
               key={`${img.url}-${i}`}
               type="button"
-              onClick={() => onPick(img.url, picked.id)}
+              onClick={() => onPick(img.url)}
               className="relative aspect-square rounded-md overflow-hidden bg-white border border-gray-200 hover:border-violet-400 transition-colors"
             >
               <img

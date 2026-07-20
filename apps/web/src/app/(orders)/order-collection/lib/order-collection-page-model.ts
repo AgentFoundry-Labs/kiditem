@@ -45,6 +45,10 @@ export function getOrderCount(result: ConversionHistoryItem | null): number | nu
   return orderCount >= 0 ? orderCount : null;
 }
 
+export function hasSellpiaTransmissionRequest(item: ConversionHistoryItem): boolean {
+  return item.transmissionRequestedAt !== undefined;
+}
+
 export function groupHistoryByDay(items: ConversionHistoryItem[]): Array<{
   key: string;
   label: string;
@@ -80,7 +84,25 @@ export function mallStatus(account: OrderCollectionMallAccount): { label: string
 }
 
 export function isBrowserCollectableMall(account: OrderCollectionMallAccount): boolean {
+  // 확장 세션 스크래핑 몰 — 계정설정(ID/비번) 없이도 로그인 세션으로 수집 가능.
+  if (account.key === 'kidsnote') return true;
+  if (account.key === 'kkomangse') return true;
+  if (account.key === 'onch') return true;
+  if (account.key === 'kakao') return true;
+  if (account.key === 'domeggook') return true;
+  if (account.key === 'kidkids') return true;
+  if (account.key === 'lotte-on') return true;
+  if (account.key === 'gs-shop') return true;
+  if (account.key === 'always') return true;
+  if (account.key === 'boribori') return true;
+  if (account.key === 'teacher-mall') return true;
+  if (account.key === 'coupang-direct') return true;
+  if (account.key === 'art09') return true;
   return account.key === ICECREAM_MALL_KEY && account.configured && account.enabled;
+}
+
+export function isAutoDetectableMall(account: OrderCollectionMallAccount): boolean {
+  return account.enabled && isBrowserCollectableMall(account);
 }
 
 export function formatMallCollectionTime(timestamp: number): string {

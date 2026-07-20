@@ -2,6 +2,34 @@ import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailWingRepositoryAdapter } from '../thumbnail-wing.repository.adapter';
 
 describe('ThumbnailWingRepositoryAdapter', () => {
+  it('scopes registrable thumbnail workspaces to active Coupang listings', async () => {
+    const prisma = {
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    };
+    const repository = new ThumbnailWingRepositoryAdapter(prisma as never);
+
+    await repository.findRegistrableWorkspace('workspace-1', 'org-1');
+
+    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'workspace-1',
+          organizationId: 'org-1',
+          isDeleted: false,
+          status: 'active',
+          channelListing: {
+            is: {
+              isActive: true,
+              channelAccount: { is: { channel: 'coupang' } },
+            },
+          },
+        },
+      }),
+    );
+  });
+
   it('updates registration attempts with organization and generation scope', async () => {
     const prisma = {
       thumbnailRegistrationAttempt: {
@@ -23,7 +51,11 @@ describe('ThumbnailWingRepositoryAdapter', () => {
     );
 
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
-      where: { id: 'attempt-1', organizationId: 'org-1', generationId: 'generation-1' },
+      where: {
+        id: 'attempt-1',
+        organizationId: 'org-1',
+        generationId: 'generation-1',
+      },
       data: expect.objectContaining({
         status: 'uploaded',
         errorMessage: null,
@@ -41,7 +73,9 @@ describe('ThumbnailWingRepositoryAdapter', () => {
     const repository = new ThumbnailWingRepositoryAdapter(prisma as never);
 
     await expect(
-      repository.updateRegistrationAttemptOrThrow('attempt-1', 'other-org', { status: 'failed' }),
+      repository.updateRegistrationAttemptOrThrow('attempt-1', 'other-org', {
+        status: 'failed',
+      }),
     ).rejects.toThrow('ThumbnailRegistrationAttempt attempt-1 not found');
 
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({

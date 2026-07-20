@@ -56,6 +56,10 @@ vi.mock('@/components/ReadinessModal', () => ({
   default: () => readinessMock(),
 }));
 
+vi.mock('@/components/RebuildReadinessBanner', () => ({
+  default: () => null,
+}));
+
 vi.mock('@/components/GenerationCompletionWatcher', () => ({
   default: () => generationWatcherMock(),
 }));
@@ -141,6 +145,40 @@ describe('AppLayout auth gate', () => {
     expect(usePanelStreamMock).toHaveBeenCalledTimes(1);
     expect(readinessMock).toHaveBeenCalledTimes(1);
     expect(generationWatcherMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    '/inventory-hub',
+    '/purchase-orders',
+    '/order-hub',
+    '/product-hub',
+    '/product-hub/matching',
+  ])('keeps the former quick action button on %s', (pathname) => {
+    usePathnameMock.mockReturnValue(pathname);
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByTestId('quick-action')).toBeInTheDocument();
+  });
+
+  it('keeps the quick action button on unrelated protected routes', () => {
+    usePathnameMock.mockReturnValue('/dashboard');
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByTestId('quick-action')).toBeInTheDocument();
   });
 
   it('shows organization guidance without starting background runtime when membership is missing', () => {

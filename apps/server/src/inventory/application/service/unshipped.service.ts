@@ -7,29 +7,28 @@ import {
   type UnshippedPort,
 } from '../port/in/fulfillment/unshipped.port';
 import {
-  INVENTORY_QUERY_REPOSITORY_PORT,
-  type InventoryQueryRepositoryPort,
-} from '../port/out/repository/inventory-query.repository.port';
+  UNSHIPPED_REPOSITORY_PORT,
+  type UnshippedRepositoryPort,
+} from '../port/out/repository/unshipped.repository.port';
 
 export { UNSHIPPED_PORT } from '../port/in/fulfillment/unshipped.port';
 
 @Injectable()
 export class UnshippedService implements UnshippedPort {
   constructor(
-    @Inject(INVENTORY_QUERY_REPOSITORY_PORT)
-    private readonly query: InventoryQueryRepositoryPort,
+    @Inject(UNSHIPPED_REPOSITORY_PORT)
+    private readonly repository: UnshippedRepositoryPort,
   ) {}
 
   async findAll(input: ListUnshippedInput, organizationId: string): Promise<UnshippedListResponse> {
     const { page, limit, skip } = paginationParams(input);
     const minDays = input.minDays ?? 0;
 
-    const { items, total, delayedCount } = await this.query.listUnshipped(
-      organizationId,
+    const { items, total, delayedCount } = await this.repository.list(organizationId, {
       minDays,
       skip,
-      limit,
-    );
+      take: limit,
+    });
 
     return {
       items,

@@ -5,6 +5,7 @@ import type {
   CoupangSellerProductPayload,
   SellerProductListResponse,
   SellerProductDetailResponse,
+  SellerProductExternalSkuResponse,
   OrderSheetResponse,
 } from '../../../application/port/out/provider/coupang-provider.port';
 import {
@@ -15,6 +16,7 @@ import {
   createSellerProduct,
   getSellerProducts,
   getSellerProduct,
+  getSellerProductsByExternalVendorSku,
 } from './products';
 import {
   getOrderSheets,
@@ -44,11 +46,16 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
   async createSellerProduct(
     organizationId: string,
     payload: CoupangSellerProductPayload,
+    channelAccountId?: string,
+    beforeDispatch?: () => Promise<void>,
   ): Promise<CoupangCreateSellerProductResponse> {
-    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
+    const credentials = channelAccountId
+      ? await this.credentials.resolveCoupangCredentials(organizationId, channelAccountId)
+      : await this.credentials.resolveCoupangCredentials(organizationId);
     return createSellerProduct(
       credentials,
       payload,
+      beforeDispatch,
     ) as Promise<CoupangCreateSellerProductResponse>;
   }
 
@@ -64,44 +71,79 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
   async getSellerProduct(
     organizationId: string,
     sellerProductId: string,
+    channelAccountId?: string,
   ): Promise<SellerProductDetailResponse> {
-    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
+    const credentials = channelAccountId
+      ? await this.credentials.resolveCoupangCredentials(organizationId, channelAccountId)
+      : await this.credentials.resolveCoupangCredentials(organizationId);
     return getSellerProduct(credentials, sellerProductId) as Promise<SellerProductDetailResponse>;
   }
 
-  async getOrderSheets(organizationId: string, params: {
+  async getSellerProductsByExternalVendorSku(
+    organizationId: string,
+    externalVendorSkuCode: string,
+    channelAccountId?: string,
+  ): Promise<SellerProductExternalSkuResponse> {
+    const credentials = channelAccountId
+      ? await this.credentials.resolveCoupangCredentials(organizationId, channelAccountId)
+      : await this.credentials.resolveCoupangCredentials(organizationId);
+    return getSellerProductsByExternalVendorSku(
+      credentials,
+      externalVendorSkuCode,
+    ) as Promise<SellerProductExternalSkuResponse>;
+  }
+
+  async getOrderSheets(organizationId: string, channelAccountId: string, params: {
     createdAtFrom: string;
     createdAtTo: string;
     status?: string;
     maxPerPage?: number;
     nextToken?: string;
   }): Promise<OrderSheetResponse> {
-    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
+    const credentials = await this.credentials.resolveCoupangCredentials(
+      organizationId,
+      channelAccountId,
+    );
     return getOrderSheets(credentials, params) as Promise<OrderSheetResponse>;
   }
 
   async confirmOrderSheets(
     organizationId: string,
+    channelAccountId: string,
     shipmentBoxIds: number[],
   ): Promise<unknown> {
-    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
+    const credentials = await this.credentials.resolveCoupangCredentials(
+      organizationId,
+      channelAccountId,
+    );
     return confirmOrderSheets(credentials, shipmentBoxIds);
   }
 
   async uploadInvoice(
     organizationId: string,
+    channelAccountId: string,
     shipmentBoxId: number,
     params: {
       deliveryCompanyCode: string;
       invoiceNumber: string;
     },
   ): Promise<unknown> {
-    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
+    const credentials = await this.credentials.resolveCoupangCredentials(
+      organizationId,
+      channelAccountId,
+    );
     return uploadInvoice(credentials, shipmentBoxId, params);
   }
 
-  async approveReturn(organizationId: string, receiptId: number): Promise<unknown> {
-    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
+  async approveReturn(
+    organizationId: string,
+    channelAccountId: string,
+    receiptId: number,
+  ): Promise<unknown> {
+    const credentials = await this.credentials.resolveCoupangCredentials(
+      organizationId,
+      channelAccountId,
+    );
     return approveReturn(credentials, receiptId);
   }
 }

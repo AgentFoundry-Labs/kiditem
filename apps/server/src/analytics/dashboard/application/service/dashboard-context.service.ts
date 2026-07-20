@@ -4,12 +4,18 @@ import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type WingTrafficAggregationRepositoryPort,
 } from '../port/out/repository/wing-traffic-aggregation.repository.port';
+import {
+  ROCKET_REVENUE_REPOSITORY_PORT,
+  type RocketRevenueRepositoryPort,
+} from '../port/out/repository/rocket-revenue.repository.port';
 
 @Injectable()
 export class DashboardContextService {
   constructor(
     @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
     private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
+    @Inject(ROCKET_REVENUE_REPOSITORY_PORT)
+    private readonly rocketRevenueRepository: RocketRevenueRepositoryPort,
   ) {}
 
   async buildForQuery(
@@ -39,7 +45,11 @@ export class DashboardContextService {
     if (range && range !== 'month') return undefined;
     if (from || to) return undefined;
 
-    const latest = await this.wingTrafficRepository.findLatestDataDate(organizationId);
+    const [latestWingDataDate, latestRocketDataDate] = await Promise.all([
+      this.wingTrafficRepository.findLatestDataDate(organizationId),
+      this.rocketRevenueRepository.findLatestDataDate(organizationId),
+    ]);
+    const latest = pickLatest(latestWingDataDate, latestRocketDataDate);
     if (!latest) return undefined;
 
     const now = new Date();
@@ -62,4 +72,10 @@ export class DashboardContextService {
       ),
     );
   }
+}
+
+function pickLatest(a: Date | null, b: Date | null): Date | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a.getTime() >= b.getTime() ? a : b;
 }

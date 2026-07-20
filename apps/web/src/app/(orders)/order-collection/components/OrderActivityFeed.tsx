@@ -1,11 +1,12 @@
 'use client';
 
 import { type ReactNode } from 'react';
-import { Bell, Download, FileSpreadsheet, Send } from 'lucide-react';
+import { AlertCircle, Bell, Download, FileSpreadsheet, Inbox, Send } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
+import { getHistoryOrderCount } from '../lib/order-history-count';
 import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
 
-const FEED_LIMIT = 9;
+const FEED_LIMIT = 40;
 
 interface ActivityMeta {
   icon: ReactNode;
@@ -15,18 +16,38 @@ interface ActivityMeta {
   sub: string;
 }
 
+/** 수집·전송 외 이벤트(주문 없음/오류)도 피드에 뜨게 하는 이벤트 타입. */
+export interface OrderActivityEvent {
+  id: string;
+  kind: 'empty' | 'error';
+  mallName: string;
+  message: string;
+  at: number;
+}
+
 /**
- * 우측 "최근 활동" 피드 — 수집/변환/자동감지/셀피아 전송 이벤트를 시간순으로 보여준다.
- * 생성 파일(history)에서 파생하므로 별도 상태가 필요 없다.
+ * 우측 "최근 활동" 피드 — 수집/변환/자동감지/셀피아 전송 요청 + 주문 없음/오류 이벤트를 시간순으로 보여준다.
+ * 생성 파일(history)에서 파생 + page 가 넘겨준 events(주문 없음/오류) 를 병합한다.
  */
 export function OrderActivityFeed({
   history,
+  events,
   className,
 }: {
   history: StoredOrderCollectionFile[];
+  events?: OrderActivityEvent[];
   className?: string;
 }) {
-  const items = [...history].sort((a, b) => b.convertedAt - a.convertedAt).slice(0, FEED_LIMIT);
+  const items = [
+    ...history.map((h) => ({
+      id: h.id,
+      at: h.transmissionRequestedAt ?? h.convertedAt,
+      meta: activityMeta(h),
+    })),
+    ...(events ?? []).map((e) => ({ id: e.id, at: e.at, meta: eventMeta(e) })),
+  ]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, FEED_LIMIT);
 
   return (
     <section
@@ -46,37 +67,59 @@ export function OrderActivityFeed({
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {items.map((item) => {
-            const meta = activityMeta(item);
-            return (
-              <div key={item.id} className="flex gap-3 border-t border-slate-100 px-5 py-3 first:border-t-0">
-                <span className={cn('flex h-8 w-8 flex-none items-center justify-center rounded-lg', meta.bg, meta.fg)}>
-                  {meta.icon}
-                </span>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-slate-900">{meta.title}</div>
-                  <div className="truncate text-xs text-slate-400">{meta.sub}</div>
-                </div>
+          {items.map((item) => (
+            <div key={item.id} className="flex gap-3 border-t border-slate-100 px-5 py-3 first:border-t-0">
+              <span
+                className={cn(
+                  'flex h-8 w-8 flex-none items-center justify-center rounded-lg',
+                  item.meta.bg,
+                  item.meta.fg,
+                )}
+              >
+                {item.meta.icon}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-slate-900">{item.meta.title}</div>
+                <div className="truncate text-xs text-slate-400">{item.meta.sub}</div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </section>
   );
 }
 
+function eventMeta(e: OrderActivityEvent): ActivityMeta {
+  if (e.kind === 'error') {
+    return {
+      icon: <AlertCircle size={15} />,
+      bg: 'bg-red-50',
+      fg: 'text-red-600',
+      title: `오류 · ${e.mallName}`,
+      sub: `${e.message} · ${shortTime(e.at)}`,
+    };
+  }
+  return {
+    icon: <Inbox size={15} />,
+    bg: 'bg-slate-100',
+    fg: 'text-slate-400',
+    title: `신규 주문 없음 · ${e.mallName}`,
+    sub: shortTime(e.at),
+  };
+}
+
 function activityMeta(item: StoredOrderCollectionFile): ActivityMeta {
-  const orders = orderCount(item);
+  const orders = getHistoryOrderCount(item) ?? 0;
   const mall = item.mallName ?? '주문';
 
-  if (item.sentAt) {
+  if (item.transmissionRequestedAt !== undefined) {
     return {
       icon: <Send size={15} />,
       bg: 'bg-emerald-50',
       fg: 'text-emerald-600',
-      title: `셀피아 전송 · ${mall}`,
-      sub: `${formatNumber(orders)}건 · ${shortTime(item.sentAt)}`,
+      title: `셀피아 전송 요청 · ${mall}`,
+      sub: `${formatNumber(orders)}건 · ${shortTime(item.transmissionRequestedAt)}`,
     };
   }
   if (item.id.includes('-auto')) {
@@ -104,11 +147,6 @@ function activityMeta(item: StoredOrderCollectionFile): ActivityMeta {
     title: `수집·변환 ${formatNumber(orders)}건`,
     sub: `${mall} · ${shortTime(item.convertedAt)}`,
   };
-}
-
-function orderCount(item: StoredOrderCollectionFile): number {
-  if (item.outputRows === null || item.productRows === null) return 0;
-  return Math.max(0, item.outputRows - item.productRows);
 }
 
 function shortTime(timestamp: number): string {

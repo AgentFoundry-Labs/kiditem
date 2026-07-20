@@ -3,7 +3,10 @@ export { RegisterManualProductDto } from './register-manual-product.dto';
 export { CreateProductGenerationDto } from './product-generation.dto';
 export { ScrapeUrlBodyDto, ScrapeUrlStatusQueryDto } from './scrape-url.dto';
 export { ListExtensionProductsQueryDto } from './list-extension-products.dto';
-export { PromoteCandidateBodyDto } from './promote-candidate.dto';
+export { CreateProductPreparationDto } from './create-product-preparation.dto';
+export { ConfirmExternalRegistrationDto } from './confirm-external-registration.dto';
+export { ExternalWingEvidenceDto, PrepareExternalWingRegistrationDto } from './external-wing-registration.dto';
+export { UpdateProductPreparationDto } from './update-product-preparation.dto';
 export { RejectCandidateBodyDto } from './reject-candidate.dto';
 export { QuickProcessCandidateDto } from './quick-process-candidate.dto';
 export { UpdateProductBasicsDto } from './update-product-basics.dto';
@@ -23,3 +26,22 @@ export {
   SourcingWorkspaceSnapshotRecentQueryDto,
   SourcingWorkspaceSnapshotParamsDto,
 } from './naver-keyword-research.dto';
+export {
+  CollectTrendDto,
+  TrendHistoryQueryDto,
+  UpdateTrendSeedDto,
+  UpsertTrendSeedDto,
+} from './trend-collection.dto';
+export {
+  Extension1688TrendErrorDto,
+  Extension1688TrendItemDto,
+  Extension1688TrendKeywordResultDto,
+  IngestExtension1688TrendResultsDto,
+} from './extension-1688-trend.dto';
+export {
+  CollectTaobaoLiveDto,
+  ExtensionLiveCommerceBroadcastDto,
+  ExtensionLiveCommerceProductDto,
+  IngestExtensionLiveCommerceDto,
+  LiveCommerceQueryDto,
+} from './live-commerce.dto';

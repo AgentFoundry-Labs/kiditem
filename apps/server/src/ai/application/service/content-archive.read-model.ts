@@ -1,32 +1,26 @@
 import type {
   ContentArchiveContentType,
   ContentArchiveGenerationRow,
-  ContentArchiveLinkState,
-  ContentArchiveProductRow,
 } from '../port/out/repository/content-archive.repository.port';
 import { toDetailPageStoredJson } from './detail-page-stored.helpers';
-
-export type WorkspaceType = 'product' | 'unlinked_group';
 
 export interface ContentArchiveListQuery {
   page?: number;
   limit?: number;
   contentType?: ContentArchiveContentType | null;
-  linkState?: ContentArchiveLinkState | null;
   status?: string | null;
   sourceCandidateId?: string | null;
-  productId?: string | null;
+  contentWorkspaceId?: string | null;
 }
 
-export interface ProductContentWorkspaceItem {
+export interface ContentArchiveWorkspaceItem {
   id: string;
-  workspaceType: WorkspaceType;
+  ownerType: string;
   title: string;
-  subtitle: string | null;
   thumbnailUrl: string | null;
-  productId: string | null;
-  product: { id: string; code: string; name: string } | null;
-  generationGroupId: string | null;
+  contentWorkspaceId: string;
+  sourceCandidateId: string | null;
+  channelListingId: string | null;
   href: string;
   generationCount: number;
   detailPageCount: number;
@@ -36,11 +30,10 @@ export interface ProductContentWorkspaceItem {
   latestUpdatedAt: string;
 }
 
-export interface ProductContentGenerationItem {
+export interface ContentArchiveGenerationItem {
   id: string;
   contentType: ContentArchiveContentType;
   title: string;
-  subtitle: string | null;
   thumbnailUrl: string | null;
   href: string | null;
   status: string;
@@ -49,8 +42,8 @@ export interface ProductContentGenerationItem {
   imageUrls: string[];
   processedImages: Record<string, string>;
   errorMessage: string | null;
-  productId: string | null;
-  generationGroupId: string | null;
+  contentWorkspaceId: string;
+  generationGroupId: string;
   sourceCandidateId: string | null;
   detailPageArtifactId: string | null;
   detailPageRevisionId: string | null;
@@ -67,129 +60,92 @@ export interface ProductContentGenerationItem {
     contentAssetId: string | null;
     label: string | null;
   }>;
-  outputAssets: Array<{ id: string; url: string; role: string | null; label: string | null }>;
+  outputAssets: Array<{
+    id: string;
+    url: string;
+    role: string | null;
+    label: string | null;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
 
 export function buildContentArchiveWorkspaces(
   rows: ContentArchiveGenerationRow[],
-): ProductContentWorkspaceItem[] {
+): ContentArchiveWorkspaceItem[] {
   const grouped = new Map<string, ContentArchiveGenerationRow[]>();
   for (const row of rows) {
-    const productId = row.generationGroup.targetMasterId;
-    const key = productId
-      ? `product:${productId}`
-      : `group:${row.generationGroupId}`;
-    const bucket = grouped.get(key);
+    const bucket = grouped.get(row.contentWorkspaceId);
     if (bucket) bucket.push(row);
-    else grouped.set(key, [row]);
+    else grouped.set(row.contentWorkspaceId, [row]);
   }
-  return [...grouped.entries()]
-    .map(([key, groupRows]) => contentArchiveWorkspaceFromRows({
-      workspaceType: key.startsWith('product:') ? 'product' : 'unlinked_group',
-      key: key.slice(key.indexOf(':') + 1),
-      rows: groupRows,
-    }))
+  return [...grouped.values()]
+    .map(contentArchiveWorkspaceFromRows)
     .sort((a, b) => b.latestUpdatedAt.localeCompare(a.latestUpdatedAt));
 }
 
-export function contentArchiveWorkspaceFromRows(input: {
-  workspaceType: WorkspaceType;
-  key: string;
-  rows: ContentArchiveGenerationRow[];
-  fallbackProduct?: ContentArchiveProductRow;
-}): ProductContentWorkspaceItem {
-  const latest = input.rows[0] ?? null;
-  const product = latest?.generationGroup.targetMaster ?? input.fallbackProduct ?? null;
-  const detailPageCount = input.rows.filter((row) => contentType(row) === 'detail_page').length;
-  const imageCount = input.rows.filter((row) => contentType(row) === 'image').length;
-  if (input.workspaceType === 'product') {
-    const productId = product?.id ?? input.key;
-    return {
-      id: `product:${productId}`,
-      workspaceType: 'product',
-      title: product?.name ?? latest?.generatedTitle ?? '상품 콘텐츠',
-      subtitle: `상세페이지 ${detailPageCount}개 · 이미지 ${imageCount}개`,
-      thumbnailUrl: latest ? pickThumbnail(latest) ?? product?.thumbnailUrl ?? product?.imageUrl ?? null : product?.thumbnailUrl ?? product?.imageUrl ?? null,
-      productId,
-      product: product ? { id: product.id, code: product.code, name: product.name } : null,
-      generationGroupId: null,
-      href: `/product-pipeline/registered-products?masterId=${encodeURIComponent(productId)}`,
-      generationCount: input.rows.length,
-      detailPageCount,
-      imageCount,
-      latestGenerationId: latest?.id ?? null,
-      latestStatus: latest?.status ?? null,
-      latestUpdatedAt: (latest?.updatedAt ?? new Date(0)).toISOString(),
-    };
-  }
-  const group = latest?.generationGroup;
-  const groupId = group?.id ?? input.key;
+export function contentArchiveWorkspaceFromRows(
+  rows: ContentArchiveGenerationRow[],
+): ContentArchiveWorkspaceItem {
+  const latest = rows[0];
+  if (!latest) throw new Error('Content archive workspace requires at least one generation.');
+  const workspace = latest.contentWorkspace;
+  const detailPageCount = rows.filter((row) => contentType(row) === 'detail_page').length;
+  const imageCount = rows.filter((row) => contentType(row) === 'image').length;
   return {
-    id: `group:${groupId}`,
-    workspaceType: 'unlinked_group',
-    title: group?.title ?? latest?.generatedTitle ?? '미연결 콘텐츠 작업',
-    subtitle: `상세페이지 ${detailPageCount}개 · 이미지 ${imageCount}개`,
-    thumbnailUrl: latest ? pickThumbnail(latest) : null,
-    productId: null,
-    product: null,
-    generationGroupId: groupId,
-    href: `/product-pipeline/registered-products?generationGroupId=${encodeURIComponent(groupId)}`,
-    generationCount: input.rows.length,
+    id: workspace.id,
+    ownerType: workspace.ownerType,
+    title: workspace.displayName,
+    thumbnailUrl: pickThumbnail(latest),
+    contentWorkspaceId: workspace.id,
+    sourceCandidateId: workspace.sourceCandidateId,
+    channelListingId: workspace.channelListingId,
+    href: `/product-pipeline/registered-products/${encodeURIComponent(workspace.id)}`,
+    generationCount: rows.length,
     detailPageCount,
     imageCount,
-    latestGenerationId: latest?.id ?? null,
-    latestStatus: latest?.status ?? null,
-    latestUpdatedAt: (latest?.updatedAt ?? new Date(0)).toISOString(),
+    latestGenerationId: latest.id,
+    latestStatus: latest.status,
+    latestUpdatedAt: latest.updatedAt.toISOString(),
   };
 }
 
 export function contentArchiveGenerationItem(
   row: ContentArchiveGenerationRow,
-): ProductContentGenerationItem {
+): ContentArchiveGenerationItem {
   const rowContentType = contentType(row);
-  const productId = row.generationGroup.targetMasterId;
   const detailPageStored = rowContentType === 'detail_page'
     ? toDetailPageStoredJson({
-      templateId: normalizeDetailPageTemplateId(row.templateId),
-      generationInput: row.generationInput,
-      generationResult: row.generationResult,
-    })
+        templateId: normalizeDetailPageTemplateId(row.templateId),
+        generationInput: row.generationInput,
+        generationResult: row.generationResult,
+      })
     : null;
   const activeArtifact = row.detailPageArtifact?.isDeleted === false
     ? row.detailPageArtifact
     : null;
   const sourceCandidateId =
     row.sourceCandidateId ??
-    activeArtifact?.sourceCandidateId ??
+    row.contentWorkspace.sourceCandidateId ??
     row.sources.find((source) => source.sourceCandidateId)?.sourceCandidateId ??
     null;
   const detailPageRevisionId =
-    activeArtifact?.currentRevisionId ??
-    activeArtifact?.currentRevision?.id ??
-    null;
+    activeArtifact?.currentRevisionId ?? activeArtifact?.currentRevision?.id ?? null;
   return {
     id: row.id,
     contentType: rowContentType,
     title: row.generatedTitle ?? (rowContentType === 'image' ? '이미지 생성 결과' : '상세페이지 결과'),
-    subtitle: row.generationGroup.targetMaster?.name ?? '미연결 작업',
     thumbnailUrl: pickThumbnail(row),
     href: rowContentType === 'detail_page'
-      ? detailPageEditorHref({
-        generationId: row.id,
-        sourceCandidateId,
-      })
+      ? `/product-pipeline/detail-pages/${encodeURIComponent(row.id)}/editor`
       : null,
     status: normalizeStatus(row.status),
     templateId: detailPageStored?.templateId ?? null,
-    detailPageData: detailPageStored
-      ? asPlainRecord(detailPageStored.result)
-      : null,
+    detailPageData: detailPageStored ? asPlainRecord(detailPageStored.result) : null,
     imageUrls: detailPageStored?.imageUrls ?? [],
     processedImages: detailPageStored?.processedImages ?? {},
     errorMessage: row.errorMessage,
-    productId,
+    contentWorkspaceId: row.contentWorkspaceId,
     generationGroupId: row.generationGroupId,
     sourceCandidateId,
     detailPageArtifactId: row.detailPageArtifactId,
@@ -199,14 +155,7 @@ export function contentArchiveGenerationItem(
       revisionType: revision.revisionType,
       createdAt: revision.createdAt.toISOString(),
     })),
-    sources: row.sources.map((source) => ({
-      id: source.id,
-      sourceType: source.sourceType,
-      sourceCandidateId: source.sourceCandidateId,
-      sourceContentGenerationId: source.sourceContentGenerationId,
-      contentAssetId: source.contentAssetId,
-      label: source.label,
-    })),
+    sources: row.sources.map((source) => ({ ...source })),
     outputAssets: sortedUsedAssets(row).map((asset) => ({
       id: asset.id,
       url: asset.url,
@@ -218,34 +167,35 @@ export function contentArchiveGenerationItem(
   };
 }
 
-function detailPageEditorHref(input: {
-  generationId: string;
-  sourceCandidateId?: string | null;
-}): string {
-  const generationId = encodeURIComponent(input.generationId);
-  if (!input.sourceCandidateId) {
-    return `/product-pipeline/detail-pages/${generationId}/editor`;
-  }
-  const sourceCandidateId = encodeURIComponent(input.sourceCandidateId);
-  const returnTo = encodeURIComponent(`/product-pipeline/collected-products/${sourceCandidateId}`);
-  return `/product-pipeline/detail-pages/${generationId}/editor?sourceCandidateId=${sourceCandidateId}&returnTo=${returnTo}`;
-}
-
 function contentType(row: Pick<ContentArchiveGenerationRow, 'contentType'>): ContentArchiveContentType {
   return row.contentType === 'image' ? 'image' : 'detail_page';
 }
 
 function pickThumbnail(row: ContentArchiveGenerationRow): string | null {
-  const processed = asStringRecord((row.generationResult as Record<string, unknown>)?.processedImages);
-  return processed.__heroBanner ?? sortedUsedAssets(row)[0]?.url ?? pickFirstString((row.generationInput as Record<string, unknown>)?.imageUrls);
+  const result = row.generationResult && typeof row.generationResult === 'object'
+    ? row.generationResult as Record<string, unknown>
+    : {};
+  const input = row.generationInput && typeof row.generationInput === 'object'
+    ? row.generationInput as Record<string, unknown>
+    : {};
+  const processed = asStringRecord(result.processedImages);
+  return processed.__heroBanner ??
+    sortedUsedAssets(row)[0]?.url ??
+    pickFirstString(input.imageUrls);
+}
+
+function sortedUsedAssets(row: ContentArchiveGenerationRow) {
+  return row.assetUsages
+    .map((usage) => usage.contentAsset)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime());
 }
 
 function asStringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object') return {};
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => (
-      typeof entry[1] === 'string'
-    )),
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
   );
 }
 
@@ -259,29 +209,14 @@ function asPlainRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function normalizeDetailPageTemplateId(value: unknown): 'kids-playful' | 'bold-vertical' {
-  return value === 'bold-vertical' || value === 'simple-vertical'
-    ? 'bold-vertical'
-    : 'kids-playful';
-}
-
-function sortedUsedAssets(row: ContentArchiveGenerationRow): Array<{
-  id: string;
-  url: string;
-  role: string | null;
-  label: string | null;
-  sortOrder: number;
-  createdAt: Date;
-}> {
-  return row.assetUsages
-    .map((usage) => usage.contentAsset)
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime());
+function normalizeDetailPageTemplateId(value: string | null): 'kids-playful' | 'bold-vertical' {
+  return value === 'bold-vertical' ? 'bold-vertical' : 'kids-playful';
 }
 
 function normalizeStatus(status: string): string {
-  if (status === 'READY' || status === 'completed') return 'completed';
-  if (status === 'FAILED' || status === 'failed') return 'failed';
-  if (status === 'CANCELLED' || status === 'cancelled') return 'cancelled';
-  if (status === 'PROCESSING' || status === 'generating') return 'processing';
+  if (status === 'READY') return 'completed';
+  if (status === 'FAILED') return 'failed';
+  if (status === 'PROCESSING') return 'processing';
+  if (status === 'CANCELLED') return 'cancelled';
   return status.toLowerCase();
 }

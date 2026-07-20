@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, RefreshCw, Wand2, X } from 'lucide-react';
+import { Loader2, RefreshCw, Store, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useAllGenerationsInProgress,
@@ -15,6 +15,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   collectedProductDetailHref,
   collectedProductEditorHref,
+  REGISTERED_PRODUCTS_ROOT,
 } from '../_shared/lib/product-pipeline-routes';
 import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
@@ -31,6 +32,17 @@ import {
   type QuickProcessTask,
   type SourcingSort,
 } from './lib/sourcing-api';
+import WingRegistrationConfirmDialog from './components/wing/WingRegistrationConfirmDialog';
+import {
+  downloadWingExcel,
+  generateWingExcelForCandidates,
+  isConfirmedWingRegistration,
+  prepareWingRegistration,
+  submitWingRegistration,
+  waitForRegisteredListing,
+  type WingRegistrationDraft,
+  type WingRegistrationOverrides,
+} from './lib/wing-registration-flow';
 import {
   emptyStateCopyForSourceFilter,
   platformForSourceFilter,
@@ -49,6 +61,11 @@ export default function SourcingPage() {
   const [quickProcessModalOpen, setQuickProcessModalOpen] = useState(false);
   const [quickProcessTargetIds, setQuickProcessTargetIds] = useState<string[]>([]);
   const [quickProcessingIds, setQuickProcessingIds] = useState<Set<string>>(() => new Set());
+  const [wingGenerating, setWingGenerating] = useState(false);
+  // 등록 확인 모달의 초안. `null` 이면 모달이 닫혀 있다. 초안이 있다는 것은
+  // 카테고리 추론과 상세설명 렌더가 이미 성공했다는 뜻이다.
+  const [wingDraft, setWingDraft] = useState<WingRegistrationDraft | null>(null);
+  const [wingSubmitting, setWingSubmitting] = useState(false);
 
   const scrape = useScrapeUrl();
   const platform = platformForSourceFilter(sourceFilter);
@@ -165,6 +182,129 @@ export default function SourcingPage() {
 
   const sourcedCount = products.filter((p) => p.status === 'sourced').length;
 
+  const runWingRegister = async (ids: string[]): Promise<boolean> => {
+    if (ids.length === 0 || wingGenerating) return false;
+    setWingGenerating(true);
+    try {
+      const { bytes, productCount } = await generateWingExcelForCandidates(ids);
+      const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      downloadWingExcel(bytes, `쿠팡WING_일괄등록_${stamp}.xlsx`);
+      toast.success(`${productCount}개 상품의 쿠팡 WING 일괄등록 엑셀을 만들었어요`, {
+        description: '카테고리 자동 제안 · 상세페이지는 포함되지 않으므로 WING에서 추가하세요.',
+      });
+      return true;
+    } catch (err) {
+      toast.error(
+        isApiError(err)
+          ? err.detail
+          : err instanceof Error
+            ? err.message
+            : 'WING 엑셀 생성에 실패했습니다.',
+      );
+      return false;
+    } finally {
+      setWingGenerating(false);
+    }
+  };
+
+  const wingErrorMessage = (err: unknown, fallback: string): string =>
+    isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback;
+
+  // 모달(단일 작업) = 엑셀이 아니라 WING 상품등록 페이지를 열어 직접 채우는 방식.
+  //
+  // 확장으로 넘기기 전에 등록 확인 모달을 한 번 거친다. 노출상품명·옵션·가격·재고는
+  // WING 폼이 열린 뒤에는 고치기 어려우므로 여기서 확정받는다.
+  const handleModalWingRegister = async () => {
+    const ids = [...quickProcessTargetIds];
+    if (ids.length === 0 || wingGenerating) return;
+    setWingGenerating(true);
+    try {
+      const draft = await prepareWingRegistration(ids[0]);
+      setWingDraft(draft);
+    } catch (err) {
+      toast.error(wingErrorMessage(err, '쿠팡 WING 등록 준비에 실패했습니다.'));
+    } finally {
+      setWingGenerating(false);
+    }
+  };
+
+  // 사용자가 고친 값(`overrides`)을 그대로 넘긴다. 초안의 원본 payload 를 보내면
+  // 모달이 장식이 된다 — `submitWingRegistration` 이 override 를 반영해 전송한다.
+  const handleWingConfirm = async (
+    overrides: WingRegistrationOverrides,
+    autoSubmit: boolean,
+  ) => {
+    if (!wingDraft || wingSubmitting) return;
+    const candidateId = quickProcessTargetIds[0];
+    setWingSubmitting(true);
+    try {
+      const result = await submitWingRegistration(wingDraft, overrides, autoSubmit);
+
+      // 확장이 등록 완료를 **확증**했을 때만 등록상품으로 올린다.
+      // status:'unknown'(눌렀지만 완료를 못 봄)은 성공으로 취급하지 않는다 —
+      // 실제로 등록되지 않은 상품이 등록상품 목록에 뜨는 게 더 나쁘다.
+      if (isConfirmedWingRegistration(result.submission)) {
+        const externalListingId = result.submission.externalListingId;
+        try {
+          await candidatesApi.confirmExternalRegistration(candidateId, {
+            executionId: result.submission.executionId!,
+            externalListingId,
+            evidence: result.submission.evidence,
+          });
+          await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+
+          // 확정 응답만으로 "목록에 떴다"고 단정하지 않는다. 사용자가 실제로 보는
+          // 조회 경로에서 확인될 때까지 폴링하고, 확인된 뒤에만 등록상품 화면으로 보낸다.
+          const listed = await waitForRegisteredListing(externalListingId);
+          if (listed) {
+            toast.success('쿠팡에 등록하고 등록상품 목록에 올렸어요', {
+              description: `등록상품ID ${externalListingId} — 등록상품 화면으로 이동합니다.`,
+            });
+            router.push(REGISTERED_PRODUCTS_ROOT);
+          } else {
+            // 확정은 됐는데 목록 조회에서 아직 안 보인다. 이동시키면 빈 화면을 보게 되므로
+            // 여기 남겨 두고 사실만 알린다.
+            toast.warning('등록은 됐지만 등록상품 목록에서 아직 확인되지 않아요', {
+              description: `등록상품ID ${externalListingId} — 등록상품 화면에서 새로고침해 주세요.`,
+            });
+          }
+        } catch (err) {
+          await candidatesApi.markExternalWingRegistrationUnresolved(
+            candidateId,
+            result.submission.executionId!,
+            { reason: 'completion_failed', message: wingErrorMessage(err, '알 수 없는 오류') },
+          ).catch(() => undefined);
+          // 쿠팡 등록은 이미 끝났다. 목록 반영만 실패한 상태를 정확히 알린다.
+          toast.warning('쿠팡 등록은 됐지만 등록상품 목록 반영에 실패했어요', {
+            description: `등록상품ID ${externalListingId} — 등록상품 화면에서 "등록됨으로 표시"로 다시 시도하세요. (${wingErrorMessage(err, '알 수 없는 오류')})`,
+          });
+        }
+      } else if (result.submission.attempted) {
+        // 제출을 시도했지만 확증하지 못했다.
+        toast.warning('상품등록 결과를 확인하지 못했어요', {
+          description:
+            result.submission.error
+            ?? '열린 WING 탭에서 등록 여부를 직접 확인한 뒤, 등록됐다면 등록상품 화면에서 "등록됨으로 표시"를 눌러 주세요.',
+        });
+      } else {
+        toast.success('쿠팡 WING 상품등록 페이지를 열고 자동 입력을 시작했어요', {
+          description:
+            quickProcessTargetIds.length > 1
+              ? '단일 직접 등록은 1개씩 진행됩니다 (첫 상품). 열린 WING 탭에서 확인 후 등록하세요.'
+              : '확인한 값으로 자동 입력됩니다. 열린 WING 탭에서 최종 확인 후 등록하세요.',
+        });
+      }
+
+      setWingDraft(null);
+      setQuickProcessModalOpen(false);
+      setQuickProcessTargetIds([]);
+    } catch (err) {
+      toast.error(wingErrorMessage(err, '쿠팡 WING 직접 등록에 실패했습니다.'));
+    } finally {
+      setWingSubmitting(false);
+    }
+  };
+
   const setItemSelected = (id: string, selected: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -247,6 +387,27 @@ export default function SourcingPage() {
           />
         )}
 
+        {selectedIds.size > 0 && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2.5">
+            <span className="text-sm font-black text-orange-900">
+              {selectedIds.size}개 선택됨
+            </span>
+            <button
+              type="button"
+              onClick={() => runWingRegister([...selectedIds])}
+              disabled={wingGenerating}
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {wingGenerating ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Store size={15} />
+              )}
+              쿠팡 WING 엑셀 (상세 제외)
+            </button>
+          </div>
+        )}
+
         {isRefreshing && (
           <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
             <RefreshCw size={14} className="animate-spin text-emerald-600" />
@@ -283,8 +444,20 @@ export default function SourcingPage() {
         targetCount={quickProcessTargetIds.length}
         targetProducts={quickProcessTargetProducts}
         isSubmitting={quickProcessMutation.isPending}
+        wingRegistering={wingGenerating}
         onClose={closeQuickProcessModal}
         onConfirm={(task) => quickProcessMutation.mutate({ ids: quickProcessTargetIds, task })}
+        onWingRegister={handleModalWingRegister}
+      />
+
+      <WingRegistrationConfirmDialog
+        draft={wingDraft}
+        isSubmitting={wingSubmitting}
+        onCancel={() => {
+          if (wingSubmitting) return;
+          setWingDraft(null);
+        }}
+        onConfirm={handleWingConfirm}
       />
     </div>
   );
@@ -295,15 +468,19 @@ function QuickProcessSelectedDialog({
   targetCount,
   targetProducts,
   isSubmitting,
+  wingRegistering,
   onClose,
   onConfirm,
+  onWingRegister,
 }: {
   open: boolean;
   targetCount: number;
   targetProducts: Array<{ id: string; name: string; thumbnailUrl: string | null }>;
   isSubmitting: boolean;
+  wingRegistering: boolean;
   onClose: () => void;
   onConfirm: (task: QuickProcessTask) => void;
+  onWingRegister: () => void;
 }) {
   if (!open) return null;
   const previewProducts = targetProducts.slice(0, 6);
@@ -389,6 +566,25 @@ function QuickProcessSelectedDialog({
             isSubmitting={isSubmitting}
             onClick={() => onConfirm('all')}
           />
+        </div>
+
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <button
+            type="button"
+            onClick={onWingRegister}
+            disabled={targetCount === 0 || isSubmitting || wingRegistering}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 py-3 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {wingRegistering ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <Store size={15} />
+            )}
+            쿠팡 WING 상품 등록
+          </button>
+          <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
+            카테고리 자동 제안 · WING 상품등록 페이지를 열어 직접 입력
+          </p>
         </div>
 
       </div>

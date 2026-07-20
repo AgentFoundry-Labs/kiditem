@@ -1,25 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import {
-  AlertTriangle,
-  CheckCircle,
-  Loader2,
-  Wand2,
-  XCircle,
-  Zap,
-  type LucideIcon,
-} from 'lucide-react';
+import { AlertTriangle, CheckCircle, Loader2, Wand2, XCircle, Zap, type LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import type {
-  RecomposeVariantKey,
-  ThumbnailAnalysisResult,
-  ThumbnailGenerationItem,
-} from '@kiditem/shared/ai';
+import type { RecomposeVariantKey, ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { isActive, isApplied, isReady } from '../../_shared/lib/thumbnail-status';
-import {
-  useDeleteGeneration,
-  useReEditGeneration,
-} from '../../_shared/hooks/useThumbnailGenerations';
+import { useDeleteGeneration, useReEditGeneration } from '../../_shared/hooks/useThumbnailGenerations';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ProductCard } from '../../_shared/components/thumbnails/ProductCard';
 import { RecomposeVariantPicker } from '../../_shared/components/thumbnails/RecomposeVariantPicker';
@@ -41,8 +26,8 @@ interface AiEditTabProps {
    * 단일 상품 편집. variantKey 가 지정되면 사용자가 카드에서 명시적으로 고른 레이아웃,
    * 없으면 서버 기본값(auto)으로 진행.
    */
-  onEditSingle: (productId: string, variantKey?: RecomposeVariantKey) => void;
-  onEditBatch: (productIds: string[]) => void;
+  onEditSingle: (contentWorkspaceId: string, variantKey?: RecomposeVariantKey) => void;
+  onEditBatch: (contentWorkspaceIds: string[]) => void;
   onSelectCandidate: (id: string, url: string) => void;
   onOpenCoupangEdit: (g: ThumbnailGenerationItem) => void;
 }
@@ -72,9 +57,7 @@ export function AiEditTab({
   const generatingGens = generations.filter((g) => isActive(g)).sort(byNewestGen);
   const readyGens = generations.filter((g) => isReady(g)).sort(byNewestGen);
   const appliedGens = generations.filter((g) => isApplied(g)).sort(byNewestGen);
-  const failedGens = generations
-    .filter((g) => g.status === 'failed' || g.status === 'cancelled')
-    .sort(byNewestGen);
+  const failedGens = generations.filter((g) => g.status === 'failed' || g.status === 'cancelled').sort(byNewestGen);
   const sortedPendingProducts = [...pendingProducts].sort(byNewestAnalysis);
 
   // 생성중 탭에 머물러 있는데 모든 generation 이 완료되면 → 선택 대기 탭으로 자동 전환
@@ -103,12 +86,54 @@ export function AiEditTab({
     });
   };
 
-  const filterCards: Array<{ key: EditFilter; label: string; count: number; color: string; desc: string; icon: LucideIcon }> = [
-    { key: 'pending', label: '대기 중', count: pendingProducts.length, color: '#f59e0b', desc: '편집 시작 전', icon: AlertTriangle },
-    { key: 'generating', label: '생성 중', count: generatingGens.length, color: '#3182f6', desc: 'AI 처리 중', icon: Loader2 },
-    { key: 'ready', label: '선택 대기', count: readyGens.length, color: '#7048e8', desc: '이미지 선택 필요', icon: Wand2 },
-    { key: 'applied', label: '적용 완료', count: appliedGens.length, color: '#00c471', desc: '쿠팡 반영', icon: CheckCircle },
-    { key: 'failed', label: '실패', count: failedGens.length, color: '#ef4444', desc: '재시도 필요', icon: XCircle },
+  const filterCards: Array<{
+    key: EditFilter;
+    label: string;
+    count: number;
+    color: string;
+    desc: string;
+    icon: LucideIcon;
+  }> = [
+    {
+      key: 'pending',
+      label: '대기 중',
+      count: pendingProducts.length,
+      color: '#f59e0b',
+      desc: '편집 시작 전',
+      icon: AlertTriangle,
+    },
+    {
+      key: 'generating',
+      label: '생성 중',
+      count: generatingGens.length,
+      color: '#3182f6',
+      desc: 'AI 처리 중',
+      icon: Loader2,
+    },
+    {
+      key: 'ready',
+      label: '선택 대기',
+      count: readyGens.length,
+      color: '#7048e8',
+      desc: '이미지 선택 필요',
+      icon: Wand2,
+    },
+    {
+      key: 'applied',
+      label: '적용 완료',
+      count: appliedGens.length,
+      color: '#00c471',
+      desc: '쿠팡 반영',
+      icon: CheckCircle,
+    },
+    {
+      key: 'failed',
+      label: '실패',
+      count: failedGens.length,
+      color: '#ef4444',
+      desc: '재시도 필요',
+      icon: XCircle,
+    },
   ];
 
   return (
@@ -136,7 +161,9 @@ export function AiEditTab({
               <div>
                 <div
                   className="text-[22px] font-black tabular-nums leading-none"
-                  style={{ color: s.count > 0 ? s.color : 'var(--thumb-text-disabled)' }}
+                  style={{
+                    color: s.count > 0 ? s.color : 'var(--thumb-text-disabled)',
+                  }}
                 >
                   {s.count}
                 </div>
@@ -198,7 +225,7 @@ export function AiEditTab({
           deleteTarget ? (
             <>
               <span className="font-semibold text-[var(--text-primary,#0f172a)]">
-                {deleteTarget.product?.name ?? '이 상품'}
+                {deleteTarget.contentWorkspace?.name ?? '이 상품'}
               </span>
               의 AI 생성 결과가 영구 삭제됩니다. 복구할 수 없습니다.
             </>
@@ -221,13 +248,13 @@ function PendingSection({
 }: {
   products: ThumbnailAnalysisResult[];
   editJobsPending: boolean;
-  onEditSingle: (productId: string, variantKey?: RecomposeVariantKey) => void;
-  onEditBatch: (productIds: string[]) => void;
+  onEditSingle: (contentWorkspaceId: string, variantKey?: RecomposeVariantKey) => void;
+  onEditBatch: (contentWorkspaceIds: string[]) => void;
   onChangeFilter: (f: EditFilter) => void;
 }) {
-  const startBatchAndNavigate = (productIds: string[], label: string) => {
-    if (productIds.length === 0) return;
-    onEditBatch(productIds);
+  const startBatchAndNavigate = (contentWorkspaceIds: string[], label: string) => {
+    if (contentWorkspaceIds.length === 0) return;
+    onEditBatch(contentWorkspaceIds);
     toast.success(`${label} — 생성 중 탭으로 이동`);
     // 생성중 탭으로 자동 전환 — 폴링 3초로 진행상황 확인 가능
     onChangeFilter('generating');
@@ -238,7 +265,8 @@ function PendingSection({
    * 박스/상품 동일 케이스에서만 picker 가 옵션 버튼을 노출하고, 그 외엔 분류 뱃지만 표시.
    */
   const startSingle = (product: ThumbnailAnalysisResult, variantKey?: RecomposeVariantKey) => {
-    onEditSingle(product.productId, variantKey);
+    if (!product.contentWorkspaceId) return;
+    onEditSingle(product.contentWorkspaceId, variantKey);
   };
 
   return (
@@ -254,7 +282,9 @@ function PendingSection({
         <button
           onClick={() =>
             startBatchAndNavigate(
-              products.map((p) => p.productId),
+              products
+                .map((p) => p.contentWorkspaceId)
+                .filter((id): id is string => Boolean(id)),
               `${products.length}개 편집 시작`,
             )
           }
@@ -273,7 +303,7 @@ function PendingSection({
       ) : (
         <div className="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
           {products.map((p) => (
-            <div key={p.productId} className="flex flex-col gap-1.5">
+            <div key={p.contentWorkspaceId} className="flex flex-col gap-1.5">
               <ProductCard
                 imageUrl={p.imageUrl}
                 name={p.productName}
@@ -293,7 +323,10 @@ function PendingSection({
                 />
               )}
               <Link
-                href={buildEditHref({ productId: p.productId, imageUrl: p.imageUrl })}
+                href={buildEditHref({
+                  contentWorkspaceId: p.contentWorkspaceId,
+                  imageUrl: p.imageUrl,
+                })}
                 onClick={(e) => e.stopPropagation()}
               >
                 <button className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
@@ -334,8 +367,8 @@ function GeneratingSection({
           {generations.map((g) => (
             <ProductCard
               key={g.id}
-              imageUrl={g.originalUrl ?? g.product?.imageUrl ?? null}
-              name={g.product?.name ?? ''}
+              imageUrl={g.originalUrl ?? g.contentWorkspace?.imageUrl ?? null}
+              name={g.contentWorkspace?.name ?? ''}
               badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
               overlay="generating"
               onClick={() => onSelectGen(g)}
@@ -372,8 +405,8 @@ function AppliedSection({
           {generations.map((g) => (
             <ProductCard
               key={g.id}
-              imageUrl={g.selectedUrl ?? g.originalUrl ?? g.product?.imageUrl ?? null}
-              name={g.product?.name ?? ''}
+              imageUrl={g.selectedUrl ?? g.originalUrl ?? g.contentWorkspace?.imageUrl ?? null}
+              name={g.contentWorkspace?.name ?? ''}
               badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
               overlay="applied"
               onClick={() => onSelectGen(g)}
@@ -413,8 +446,8 @@ function FailedSection({
           {generations.map((g) => (
             <div key={g.id} className="flex flex-col gap-1.5">
               <ProductCard
-                imageUrl={g.originalUrl ?? g.product?.imageUrl ?? null}
-                name={g.product?.name ?? ''}
+                imageUrl={g.originalUrl ?? g.contentWorkspace?.imageUrl ?? null}
+                name={g.contentWorkspace?.name ?? ''}
                 badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
                 onClick={() => onSelectGen(g)}
                 onDelete={() => onDelete(g)}
@@ -443,8 +476,14 @@ function FailedSection({
                 {reEditMutation.isPending ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
                 다시 생성
               </button>
-              {g.productId && (
-                <Link href={buildEditHref({ productId: g.productId, generationId: g.id, imageUrl: g.product?.imageUrl })}>
+              {g.contentWorkspaceId && (
+                <Link
+                  href={buildEditHref({
+                    contentWorkspaceId: g.contentWorkspaceId,
+                    generationId: g.id,
+                    imageUrl: g.contentWorkspace?.imageUrl,
+                  })}
+                >
                   <button className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
                     <Wand2 size={10} /> 편집 화면으로
                   </button>

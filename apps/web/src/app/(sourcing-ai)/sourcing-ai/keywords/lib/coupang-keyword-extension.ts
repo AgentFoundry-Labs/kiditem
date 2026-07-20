@@ -34,9 +34,11 @@ interface KidItemExtensionPingResponse {
   capabilities?: {
     coupangKeywordSuggestions?: boolean;
     coupangProductNameTokens?: boolean;
+    browserCollectionSessions?: boolean;
   };
 }
 
+export const COUPANG_KEYWORD_EXTENSION_MIN_VERSION = '1.2.33';
 export const COUPANG_KEYWORD_SUGGESTION_TIMEOUT_MS = 75_000;
 
 export async function searchCoupangKeywordSuggestions(input: {
@@ -50,10 +52,14 @@ export async function searchCoupangKeywordSuggestions(input: {
   if (!extensionId) throw new Error(WING_CATALOG_EXTENSION_REQUIRED);
 
   const ping = await sendToExtension<KidItemExtensionPingResponse>(extensionId, { action: 'ping' });
-  if (!ping?.capabilities?.coupangKeywordSuggestions || !ping.capabilities.coupangProductNameTokens) {
+  if (
+    !ping?.capabilities?.coupangKeywordSuggestions ||
+    !ping.capabilities.coupangProductNameTokens ||
+    !ping.capabilities.browserCollectionSessions
+  ) {
     throw new Error(WING_CATALOG_EXTENSION_RELOAD_REQUIRED);
   }
-  if (!isExtensionVersionAtLeast(ping.version, '1.2.14')) {
+  if (!isExtensionVersionAtLeast(ping.version, COUPANG_KEYWORD_EXTENSION_MIN_VERSION)) {
     throw new Error(WING_CATALOG_EXTENSION_RELOAD_REQUIRED);
   }
 

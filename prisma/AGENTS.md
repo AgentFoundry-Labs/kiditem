@@ -78,14 +78,23 @@ constraints on the same logical keys.
 
 Current active-row uniqueness includes:
 
-- `master_products(organization_id, legacy_code)`
-- `product_options(master_id, option_name)` including the null-option case
-- `product_options(organization_id, barcode)`
-- `product_options(organization_id, legacy_code)`
+- one active default `product_variants(master_product_id)` row
 - `channel_listings(organization_id, channel_account_id, external_id)`
-- `product_preparations(organization_id, source_candidate_id)`
-- `product_preparations(organization_id, master_id)` only when
-  `is_current_for_master=true`
+- active source-backed `channel_listings(organization_id, source_candidate_id,
+  channel_account_id)`
+- active `product_preparations(organization_id, source_candidate_id,
+  channel_account_id)`
+- one primary `supplier_products(sellpia_inventory_sku_id)` row
+
+`MasterProduct` is the KidItem product-operations unit. `ProductVariant` is its
+reusable sellable unit, `ProductVariantComponent` is the only component recipe,
+and `SellpiaInventorySku` is the sole physical Sellpia stock owner. Never put
+`currentStock`, source prices, barcode, raw import payload, or import provenance
+back on `MasterProduct`, and never restore channel-owned component recipes.
+
+All relations among these models are organization-fenced with composite
+`[id, organizationId]` references. Nullable channel product/variant links mean
+unmatched; candidate evidence is not persisted as confirmed truth.
 
 Service code should use `findFirst({ where: { ..., isDeleted: false } })`
 instead of `findUnique(...)` assumptions over partial keys.
@@ -102,6 +111,12 @@ npx prisma generate
 npm run data:migrate                    # when release data migrations exist
 npm run graphify:schema
 ```
+
+Compatible schema changes share the open root release-train `VERSION`; they do
+not bump it per Prisma diff. Use a versioned data migration only when persisted
+rows need an idempotent rewrite. Never append a new migration to a train already
+promoted to `main`; open the next train first. See
+[`docs/runbooks/release-train-versioning.md`](../docs/runbooks/release-train-versioning.md).
 
 Prisma `db push` changes schema only. Durable persisted-data rewrites live under
 `scripts/data-migrations/v<app-version>/<sequence>_<name>.ts`, run through

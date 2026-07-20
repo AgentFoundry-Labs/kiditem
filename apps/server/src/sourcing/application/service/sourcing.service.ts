@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { paginationParams } from '../../../common/pagination';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
@@ -13,6 +13,18 @@ import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-candidate.repository.port';
+import {
+  SOURCING_CANDIDATE_CONTENT_ASSET_PORT,
+  type CandidateContentAssetPort,
+} from '../port/out/cross-domain/candidate-content-asset.port';
+import {
+  SOURCING_SELLPIA_SALE_PRICE_PORT,
+  type SellpiaSalePricePort,
+} from '../port/out/cross-domain/sellpia-sale-price.port';
+import {
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+  type RegistrationContentWorkspacePort,
+} from '../port/out/cross-domain/registration-content-workspace.port';
 import type {
   CreateProductGenerationCommand,
   ReceiveExtensionDataInput,
@@ -20,8 +32,8 @@ import type {
 } from '../port/in/sourcing.commands';
 import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import { detectSourcingScrapePlatform } from '../../domain/sourcing-url';
+import { sellpiaNameJoinKey } from '../../domain/sellpia-name-key';
 import { buildProductBasics } from './product-basics.presenter';
-import { ProductPreparationSelectionService } from './product-preparation-selection.service';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -61,8 +73,12 @@ export class SourcingService {
     private readonly agentGateway: SourcingAgentGatewayPort,
     @Inject(SOURCING_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
-    @Optional()
-    private readonly preparationSelection?: ProductPreparationSelectionService,
+    @Inject(SOURCING_CANDIDATE_CONTENT_ASSET_PORT)
+    private readonly candidateContentAssets: CandidateContentAssetPort,
+    @Inject(SOURCING_SELLPIA_SALE_PRICE_PORT)
+    private readonly sellpiaSalePrices: SellpiaSalePricePort,
+    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
+    private readonly registrationContentWorkspaces: RegistrationContentWorkspacePort,
   ) {}
 
   async receiveExtensionData(
@@ -294,7 +310,6 @@ export class SourcingService {
       ...this.stringArrayFromUnknown(candidate.tags),
     ]);
     const target = typeof rawData.target === 'string' ? rawData.target : null;
-    await this.preparationSelection?.ensureRegistrationInputFromCandidate(organizationId, candidateId);
 
     const ai = await this.agentGateway.startProductGeneration({
       organizationId,
@@ -421,7 +436,7 @@ export class SourcingService {
     const { page, limit } = paginationParams(query);
     const sort = query.sort === 'oldest' ? 'oldest' : query.sort === 'name_asc' ? 'name_asc' : 'newest';
     const platform = query.platform ? (PLATFORM_MAP[query.platform.toLowerCase()] || query.platform) : undefined;
-    return this.candidates.listSourced({
+    const listed = await this.candidates.listSourced({
       organizationId,
       page,
       limit,
@@ -429,18 +444,102 @@ export class SourcingService {
       platform,
       sourcePlatforms: platform ? undefined : [...COLLECTED_PRODUCT_INBOX_PLATFORMS],
     });
+    // 카드가 보여줄 **저장된 대표 썸네일**. `sourcing_candidates.thumbnail_url` 은
+    // 수집 원본이라 대표를 바꿔 저장해도 그대로다 — 대표는 준비(ProductPreparation)
+    // 또는 후보 워크스페이스가 소유한다. 상세(`getProduct`)와 같은 우선순위를 쓴다:
+    // 준비가 이기고, 없으면 워크스페이스 선택이다.
+    //
+    // 후보 원본 URL 은 덮어쓰지 않고 별도 필드로 내보낸다. 원본은 그대로 남아야
+    // 하고, 조용한 대체는 어떤 이미지가 왜 보이는지를 지운다.
+    //
+    // 페이지 전체를 한 번에 읽는다. 후보별 조회는 N+1 이다.
+    const workspaceThumbnails = await this.candidateContentAssets.findCurrentThumbnails({
+      organizationId,
+      sourceCandidateIds: listed.items.map((item) => item.id),
+    });
+    return {
+      ...listed,
+      items: listed.items.map((item) => ({
+        ...item,
+        selectedThumbnailUrl:
+          item.productPreparation?.selectedThumbnailUrl
+          ?? workspaceThumbnails.get(item.id)?.url
+          ?? null,
+      })),
+    };
   }
 
   async getProduct(productId: string, organizationId: string) {
     const row = await this.candidates.findById(productId, organizationId);
     if (!row) throw new NotFoundException('Sourcing candidate not found');
+    // 수기 판매가가 비어 있을 때만 쓸 셀피아 폴백. 이름이 정확히 일치할 때만
+    // 채워지고, 실패하면 조용히 0원으로 남는다(추정 금지).
+    const nameKey = sellpiaNameJoinKey(row.name);
+    // Registration images come from ContentAsset.role, not from the scrape
+    // originals on the candidate row. Missing assets stay empty so the caller
+    // can fall back explicitly instead of shipping an off-spec source image.
+    const [
+      registrationImages,
+      workspaceThumbnailSelection,
+      salePriceMatches,
+      contentWorkspaceId,
+    ] = await Promise.all([
+      this.candidateContentAssets.listRegistrationImages({
+        organizationId,
+        sourceCandidateId: productId,
+      }),
+      // 워크스페이스에 저장된 대표 썸네일. `ProductPreparation` 이 없는 후보는
+      // 대표를 여기에만 남길 수 있고, 이걸 안 읽으면 저장은 됐는데 재진입하면
+      // `등록 대표` 배지가 사라진다. 준비가 있으면 프리젠터가 준비를 우선한다.
+      this.candidateContentAssets.findCurrentThumbnail({
+        organizationId,
+        sourceCandidateId: productId,
+      }),
+      nameKey === null
+        ? Promise.resolve([])
+        : this.sellpiaSalePrices.findSalePricesByNormalizedNames(organizationId, [nameKey]),
+      // 후보가 이미 가진 content workspace. 없으면 null 이고, 읽기 경로에서
+      // 새로 만들지 않는다. 워크스페이스 화면은 이 값이 있어야 썸네일 구성을
+      // 저장할 수 있다 — ProductPreparation 이 없는 후보의 유일한 저장 위치다.
+      this.registrationContentWorkspaces.findCandidateWorkspaceId({
+        organizationId,
+        sourceCandidateId: productId,
+      }),
+    ]);
+    const sellpiaSalePrice =
+      salePriceMatches.find((match) => match.normalizedName === nameKey)?.salePrice ?? null;
     return {
       ...row,
+      contentWorkspaceId,
       basicInfo: buildProductBasics({
         candidate: row,
         preparation: row.productPreparation,
+        registrationImages,
+        workspaceThumbnailSelection,
+        sellpiaSalePrice,
       }),
     };
+  }
+
+  /**
+   * `ProductPreparation` 없이도 후보(수집상품)의 기본정보를 저장한다.
+   *
+   * 채널 계정 선택(=등록 준비)을 강제하지 않고 후보 자체에 수기 편집을 남긴다.
+   * 준비가 생기면 registrationInput 이 이 값을 이어받아 우선한다(프리젠터 우선순위).
+   */
+  async updateCandidateBasicInfo(
+    candidateId: string,
+    organizationId: string,
+    input: Record<string, unknown>,
+  ): Promise<{ ok: true }> {
+    const { basePreparationUpdatedAt: _ignored, ...basics } = input;
+    const updated = await this.candidates.updateManualBasics({
+      organizationId,
+      candidateId,
+      basics,
+    });
+    if (!updated) throw new NotFoundException('Sourcing candidate not found');
+    return { ok: true };
   }
 
   // ── helpers ──

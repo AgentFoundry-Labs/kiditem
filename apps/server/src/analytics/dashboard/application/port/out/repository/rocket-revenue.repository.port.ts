@@ -1,8 +1,7 @@
 // Outgoing port for Coupang Rocket (supplier 발주) revenue. Rocket revenue is
-// the sum of purchase-order amounts (공급가) ingested into
-// `rocket_supply_daily_snapshots`, keyed by 입고예정일(KST). The dashboard
-// reads it as a separate revenue lane and adds it on top of the Wing/order
-// revenue.
+// the sum of confirmed purchase-order amounts (공급가), keyed by 발주일(KST).
+// The dashboard reads it as a separate revenue lane and adds it on top of the
+// Wing/order revenue.
 
 export const ROCKET_REVENUE_REPOSITORY_PORT = Symbol('RocketRevenueRepositoryPort');
 
@@ -25,11 +24,14 @@ export interface RocketOrderItem {
   name: string;
   qty: number;
   amount: number;
+  expectedInboundDate?: string | null;
 }
 
 export interface RocketOrderRow {
   poSeq: number;
   businessDate: string;
+  orderedAt: string;
+  expectedInboundDate: string | null;
   status: string | null;
   vendorName: string | null;
   centerName: string | null;
@@ -41,6 +43,8 @@ export interface RocketOrderRow {
 }
 
 export interface RocketRevenueRepositoryPort {
+  findLatestDataDate(organizationId: string): Promise<Date | null>;
+
   aggregateRevenue(
     organizationId: string,
     from: Date,

@@ -1,5 +1,4 @@
 import type { PrismaService } from '../prisma/prisma.service';
-import { resolvePricing } from './option-pricing-resolver';
 
 /**
  * Plan F1 T1 (extracted from `finance/services/profit-loss.service.ts:findAll`).
@@ -65,27 +64,46 @@ export async function buildPerListingMetrics(
           select: {
             quantity: true,
             totalPrice: true,
-            option: {
-              select: { costPrice: true, commissionRate: true, otherCost: true },
-            },
             listingOption: {
               select: {
+                costPriceOverride: true,
+                commissionRate: true,
+                shippingCost: true,
+                otherCost: true,
+                productVariant: {
+                  select: {
+                    components: {
+                      select: {
+                        quantity: true,
+                        sellpiaInventorySku: {
+                          select: { purchasePrice: true },
+                        },
+                      },
+                    },
+                  },
+                },
                 listing: {
                   select: {
                     id: true,
                     externalId: true,
-                    channel: true,
                     channelName: true,
-                    master: {
+                    displayName: true,
+                    category: true,
+                    masterProduct: {
                       select: {
                         id: true,
                         code: true,
-                        legacyCode: true,
                         name: true,
                         category: true,
                         abcGrade: true,
-                        thumbnailUrl: true,
                       },
+                    },
+                    channelAccount: { select: { channel: true } },
+                    thumbnails: {
+                      where: { status: 'active' },
+                      orderBy: { updatedAt: 'desc' },
+                      take: 1,
+                      select: { imageUrl: true },
                     },
                   },
                 },
@@ -131,7 +149,7 @@ export async function buildPerListingMetrics(
 
     for (const li of o.lineItems) {
       const listing = li.listingOption?.listing;
-      if (!listing) continue;
+      if (!listing || !li.listingOption) continue;
       const key = listing.id;
 
       let g = groups.get(key);
@@ -140,13 +158,16 @@ export async function buildPerListingMetrics(
           listingId: listing.id,
           externalId: listing.externalId,
           channelName: listing.channelName ?? null,
-          channel: listing.channel,
-          masterId: listing.master.id,
-          masterCode: listing.master.legacyCode ?? listing.master.code,
-          masterName: listing.master.name,
-          category: listing.master.category ?? null,
-          grade: listing.master.abcGrade ?? null,
-          thumbnailUrl: listing.master.thumbnailUrl ?? null,
+          channel: listing.channelAccount.channel,
+          masterId: listing.masterProduct?.id ?? listing.id,
+          masterCode: listing.masterProduct?.code ?? listing.externalId,
+          masterName: listing.masterProduct?.name
+            ?? listing.displayName
+            ?? listing.channelName
+            ?? listing.externalId,
+          category: listing.masterProduct?.category ?? listing.category,
+          grade: listing.masterProduct?.abcGrade ?? null,
+          thumbnailUrl: listing.thumbnails[0]?.imageUrl ?? null,
           revenue: 0,
           costOfGoods: 0,
           commission: 0,
@@ -158,13 +179,20 @@ export async function buildPerListingMetrics(
       }
       g.orderIds.add(o.id);
 
-      const resolved = resolvePricing({ option: li.option ?? {} });
+      const option = li.listingOption;
+      const componentCost = (option.productVariant?.components ?? []).reduce(
+        (sum, component) => sum
+          + (component.sellpiaInventorySku.purchasePrice ?? 0)
+            * component.quantity,
+        0,
+      );
+      const costPrice = option.costPriceOverride ?? componentCost;
+      const commissionRate = Number(option.commissionRate ?? 0);
       const lineRevenue = li.totalPrice || 0;
       g.revenue += lineRevenue;
-      g.costOfGoods += resolved.costPrice * li.quantity;
-      g.commission += lineRevenue * resolved.commissionRate;
-      g.otherCost += resolved.otherCost * li.quantity;
-
+      g.costOfGoods += costPrice * li.quantity;
+      g.commission += lineRevenue * commissionRate;
+      g.otherCost += (option.otherCost ?? 0) * li.quantity;
       // Revenue-weighted shipping distribution (zero-revenue order → drop ship)
       if (orderTotalRevenue > 0 && o.shippingPrice) {
         g.shippingCost += Math.round(o.shippingPrice * (lineRevenue / orderTotalRevenue));

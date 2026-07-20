@@ -2,10 +2,12 @@ Consult this document first instead of relying on memorized knowledge.
 
 # advertising — Ad Operations
 
-`src/advertising/` owns Coupang ad operations, scrape ingest, daily fact
-projection, strategy/action generation, and ad-action execution. It works over
-the products 3-layer model (`MasterProduct`, `ProductOption`,
-`ChannelListing`) and is organization-scoped throughout.
+`src/advertising/` owns Coupang ad operations, keyword/SERP tracking,
+competitor aggregation, scrape ingest, daily fact projection, strategy/action
+generation, and ad-action execution. It works over Sellpia `MasterProduct`
+cost evidence and the marketplace
+`ChannelListing`/`ChannelListingOption` model, and is organization-scoped
+throughout.
 
 ## Folder Map
 
@@ -28,6 +30,7 @@ advertising/
 
 - Coupang ad scrape ingest: `POST /api/ads/extension/sync`
 - Ad dashboards and strategy/action APIs under `/api/ads/*`
+- Keyword/SERP rank tracking and competitor seller views under `/api/ads/*`
 - Ad action execution lifecycle for approved queued actions
 
 ## Main Data Models
@@ -61,9 +64,12 @@ snapshot preservation.
 
 - Operation-alert lifecycle writes go through advertising's local
   `operation-alert.port`, bound to automation's `OPERATION_ALERT_PORT`.
+- Sellable-stock reads go through Channels' exported read-only
+  `CHANNEL_SKU_AVAILABILITY_PORT`; Advertising never computes a second stock
+  balance or reads stock fields from marketplace SKU metadata.
 - Advertising intentionally reads/writes channel daily fact models because the
   scrape ingest path owns raw/fact projection traceability.
-- Advertising must not inject channels services.
+- Advertising must not inject concrete Channels services.
 
 ## Boundary Rules
 

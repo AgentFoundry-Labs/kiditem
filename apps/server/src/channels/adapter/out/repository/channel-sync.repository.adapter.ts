@@ -1,21 +1,136 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  normalizeCoupangOrderStatus,
+  normalizeCoupangProductStatus,
+} from '../../../domain/coupang-normalization';
 import type {
   ChannelSyncRepositoryPort,
   CoupangSyncOrderPayload,
   CoupangSyncReturnPayload,
   ProductListingSyncResult,
 } from '../../../application/port/out/repository/channel-sync.repository.port';
-import {
-  normalizeCoupangOrderStatus,
-  normalizeCoupangProductStatus,
-} from '../../../domain/coupang-normalization';
 
 type ListingForProductSync = {
   id: string;
-  channelAccountId: string | null;
+  channelAccountId: string;
 };
+
+async function reconcileProductDetailOption(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    listingId: string;
+    registrationSourceCandidateId: string | null;
+    externalOptionId: string;
+    providerOptionKey: string | null;
+    itemName: string | null;
+    salePrice: number | null;
+  },
+): Promise<void> {
+  const actual = await tx.channelListingOption.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      listingId: input.listingId,
+      externalOptionId: input.externalOptionId,
+    },
+    select: { id: true, productVariantId: true },
+  });
+  const provisionalCandidates = input.providerOptionKey && input.registrationSourceCandidateId
+    ? await tx.channelListingOption.findMany({
+      where: {
+        organizationId: input.organizationId,
+        listingId: input.listingId,
+        sellerSku: input.providerOptionKey,
+        productVariantId: { not: null },
+        rawJson: { equals: Prisma.DbNull },
+        ...(actual ? { id: { not: actual.id } } : {}),
+      },
+      select: { id: true, productVariantId: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 2,
+    })
+    : [];
+  if (provisionalCandidates.length > 1) {
+    throw new BadRequestException(
+      `Ambiguous KidItem-first provisional options for seller SKU ${input.providerOptionKey}.`,
+    );
+  }
+  const provisional = provisionalCandidates[0] ?? null;
+  const commonData = {
+    ...(input.providerOptionKey ? { sellerSku: input.providerOptionKey } : {}),
+    itemName: input.itemName,
+    salePrice: input.salePrice,
+    isActive: true,
+  };
+  if (provisional && provisional.id !== actual?.id) {
+    if (!actual) {
+      const promoted = await tx.channelListingOption.updateMany({
+        where: {
+          id: provisional.id,
+          organizationId: input.organizationId,
+          listingId: input.listingId,
+          sellerSku: input.providerOptionKey,
+          productVariantId: provisional.productVariantId,
+          rawJson: { equals: Prisma.DbNull },
+        },
+        data: {
+          externalOptionId: input.externalOptionId,
+          ...commonData,
+        },
+      });
+      if (promoted.count !== 1) {
+        throw new BadRequestException('Provisional ChannelListingOption changed concurrently.');
+      }
+      return;
+    }
+    const actualUpdated = await tx.channelListingOption.updateMany({
+      where: {
+        id: actual.id,
+        organizationId: input.organizationId,
+        listingId: input.listingId,
+      },
+      data: {
+        ...commonData,
+        productVariantId: actual.productVariantId ?? provisional.productVariantId,
+      },
+    });
+    if (actualUpdated.count !== 1) {
+      throw new BadRequestException('ChannelListingOption changed concurrently.');
+    }
+    const provisionalRetired = await tx.channelListingOption.updateMany({
+      where: {
+        id: provisional.id,
+        organizationId: input.organizationId,
+        listingId: input.listingId,
+        sellerSku: input.providerOptionKey,
+        productVariantId: provisional.productVariantId,
+        rawJson: { equals: Prisma.DbNull },
+      },
+      data: { isActive: false },
+    });
+    if (provisionalRetired.count !== 1) {
+      throw new BadRequestException('Provisional ChannelListingOption changed concurrently.');
+    }
+    return;
+  }
+  await tx.channelListingOption.upsert({
+    where: {
+      listingId_externalOptionId: {
+        listingId: input.listingId,
+        externalOptionId: input.externalOptionId,
+      },
+    },
+    update: commonData,
+    create: {
+      organizationId: input.organizationId,
+      listingId: input.listingId,
+      externalOptionId: input.externalOptionId,
+      ...commonData,
+    },
+  });
+}
 
 @Injectable()
 export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
@@ -64,6 +179,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
       deliveryInfo?: unknown;
       items?: Array<{
         vendorItemId?: string | number | null;
+        externalVendorSku?: string | null;
         itemName?: string | null;
         salePrice?: number | null;
       }> | null;
@@ -77,14 +193,32 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
     await this.prisma.$transaction(
       async (tx) => {
+        const [lockedListing] = await tx.$queryRaw<Array<{
+          id: string;
+          sourceCandidateId: string | null;
+        }>>`
+          SELECT id, source_candidate_id AS "sourceCandidateId"
+          FROM channel_listings
+          WHERE id = ${existing.id}::uuid
+            AND organization_id = ${input.organizationId}::uuid
+            AND channel_account_id = ${existing.channelAccountId}::uuid
+            AND external_id = ${input.sellerProductId}
+            AND is_active = TRUE
+          FOR UPDATE
+        `;
+        if (!lockedListing) {
+          throw new BadRequestException(
+            `ChannelListing ${input.sellerProductId} is no longer active for this organization`,
+          );
+        }
         const updated = await tx.channelListing.updateMany({
           where: {
             id: existing.id,
             organizationId: input.organizationId,
-            channel: 'coupang',
             externalId: input.sellerProductId,
             channelAccountId: existing.channelAccountId,
-            isDeleted: false,
+            isActive: true,
+            channelAccount: { is: { channel: 'coupang' } },
           },
           data: {
             channelName: input.detail.sellerProductName ?? null,
@@ -95,9 +229,6 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             deliveryInfo: input.detail.deliveryInfo === undefined
               ? Prisma.DbNull
               : (input.detail.deliveryInfo as Prisma.InputJsonValue),
-            ...(input.channelAccountId && existing.channelAccountId === null
-              ? { channelAccountId: input.channelAccountId }
-              : {}),
           },
         });
         if (updated.count !== 1) {
@@ -114,27 +245,14 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             );
           }
           const externalOptionId = String(item.vendorItemId);
-
-          await tx.channelListingOption.upsert({
-            where: {
-              listingId_externalOptionId: {
-                listingId: existing.id,
-                externalOptionId,
-              },
-            },
-            update: {
-              itemName: item.itemName ?? null,
-              salePrice: item.salePrice ?? null,
-              isActive: true,
-            },
-            create: {
-              organizationId: input.organizationId,
-              listingId: existing.id,
-              externalOptionId,
-              itemName: item.itemName ?? null,
-              salePrice: item.salePrice ?? null,
-              isActive: true,
-            },
+          await reconcileProductDetailOption(tx, {
+            organizationId: input.organizationId,
+            listingId: existing.id,
+            registrationSourceCandidateId: lockedListing.sourceCandidateId,
+            externalOptionId,
+            providerOptionKey: item.externalVendorSku?.trim() || null,
+            itemName: item.itemName ?? null,
+            salePrice: item.salePrice ?? null,
           });
         }
       },
@@ -144,6 +262,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
   async syncSingleOrder(
     organizationId: string,
+    channelAccountId: string,
     payload: CoupangSyncOrderPayload,
   ): Promise<void> {
     const shipmentBoxId = String(payload.shipmentBoxId);
@@ -164,15 +283,11 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
     await this.prisma.$transaction(
       async (tx) => {
-        const order = await tx.order.upsert({
-          where: {
-            organizationId_platform_externalOrderId: {
-              organizationId,
-              platform: 'coupang',
-              externalOrderId: shipmentBoxId,
-            },
-          },
-          update: {
+        const existingOrder = await tx.order.findFirst({
+          where: { organizationId, channelAccountId, externalOrderId: shipmentBoxId },
+          select: { id: true },
+        });
+        const orderUpdate = {
             status: normalizeCoupangOrderStatus(payload.status),
             trackingNumber: payload.invoiceNumber ?? null,
             shippingCompany: payload.deliveryCompanyName ?? null,
@@ -183,10 +298,13 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             receiverAddr,
             memo: payload.parcelPrintMessage ?? null,
             metadata: metadata as Prisma.InputJsonValue,
-          },
-          create: {
+            channelAccountId,
+        };
+        const order = existingOrder
+          ? await tx.order.update({ where: { id: existingOrder.id }, data: orderUpdate })
+          : await tx.order.create({ data: {
             organizationId,
-            platform: 'coupang',
+            channelAccountId,
             externalOrderId: shipmentBoxId,
             externalNumber: payload.orderId ? String(payload.orderId) : null,
             status: normalizeCoupangOrderStatus(payload.status) ?? 'ACCEPT',
@@ -202,8 +320,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             trackingNumber: payload.invoiceNumber ?? null,
             shippingCompany: payload.deliveryCompanyName ?? null,
             metadata: metadata as Prisma.InputJsonValue,
-          },
-        });
+          } });
 
         for (const item of orderItems) {
           if (!item.vendorItemId) {
@@ -222,15 +339,15 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               externalOptionId,
               isActive: true,
               listing: {
-                channel: 'coupang',
-                isDeleted: false,
+                channelAccountId,
+                isActive: true,
                 ...(sellerProductId ? { externalId: sellerProductId } : {}),
               },
             },
             select: {
               id: true,
-              optionId: true,
-              option: { select: { sku: true, optionName: true } },
+              sellerSku: true,
+              itemName: true,
             },
           });
 
@@ -251,22 +368,20 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               unitPrice: item.salesPrice ?? 0,
               totalPrice: item.orderPrice ?? 0,
               listingOptionId: listingOption?.id ?? null,
-              optionId: listingOption?.optionId ?? null,
               productName: item.sellerProductName ?? '',
               optionName:
-                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
-              sku: listingOption?.option?.sku ?? null,
+                item.vendorItemName ?? listingOption?.itemName ?? null,
+              sku: listingOption?.sellerSku ?? externalOptionId,
               metadata: lineItemMetadata as Prisma.InputJsonValue,
             },
             create: {
               organizationId,
               orderId: order.id,
               listingOptionId: listingOption?.id ?? null,
-              optionId: listingOption?.optionId ?? null,
               productName: item.sellerProductName ?? '',
               optionName:
-                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
-              sku: listingOption?.option?.sku ?? null,
+                item.vendorItemName ?? listingOption?.itemName ?? null,
+              sku: listingOption?.sellerSku ?? externalOptionId,
               quantity: item.shippingCount ?? 1,
               unitPrice: item.salesPrice ?? 0,
               totalPrice: item.orderPrice ?? 0,
@@ -282,6 +397,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
   async syncSingleReturn(
     organizationId: string,
+    channelAccountId: string,
     payload: CoupangSyncReturnPayload,
   ): Promise<void> {
     const receiptId = String(payload.receiptId);
@@ -297,22 +413,18 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
           ? await tx.order.findFirst({
               where: {
                 organizationId,
-                platform: 'coupang',
+                channelAccountId,
                 externalNumber: String(payload.orderId),
               },
               select: { id: true },
             })
           : null;
 
-        const ret = await tx.orderReturn.upsert({
-          where: {
-            organizationId_platform_externalReturnId: {
-              organizationId,
-              platform: 'coupang',
-              externalReturnId: receiptId,
-            },
-          },
-          update: {
+        const existingReturn = await tx.orderReturn.findFirst({
+          where: { organizationId, channelAccountId, externalReturnId: receiptId },
+          select: { id: true },
+        });
+        const returnUpdate = {
             type: payload.receiptType ?? 'RETURN',
             status: payload.receiptStatus ?? 'pending',
             reason: payload.cancelReason ?? '',
@@ -326,10 +438,13 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               : null,
             orderId: matchedOrder?.id ?? null,
             metadata: metadata as Prisma.InputJsonValue,
-          },
-          create: {
+            channelAccountId,
+        };
+        const ret = existingReturn
+          ? await tx.orderReturn.update({ where: { id: existingReturn.id }, data: returnUpdate })
+          : await tx.orderReturn.create({ data: {
             organizationId,
-            platform: 'coupang',
+            channelAccountId,
             externalReturnId: receiptId,
             type: payload.receiptType ?? 'RETURN',
             status: payload.receiptStatus ?? 'pending',
@@ -345,19 +460,39 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               : null,
             orderId: matchedOrder?.id ?? null,
             metadata: metadata as Prisma.InputJsonValue,
-          },
-        });
+          } });
 
         await tx.orderReturnLineItem.deleteMany({
           where: { returnId: ret.id },
         });
         const items = Array.isArray(payload.items) ? payload.items : [];
         for (const it of items) {
+          const externalSku = it.vendorItemId == null ? null : String(it.vendorItemId);
+          const orderLineItem = matchedOrder && externalSku
+            ? await tx.orderLineItem.findFirst({
+                where: {
+                  organizationId,
+                  orderId: matchedOrder.id,
+                  externalLineId: externalSku,
+                },
+                select: {
+                  id: true,
+                  listingOptionId: true,
+                  productName: true,
+                  optionName: true,
+                  sku: true,
+                },
+              })
+            : null;
           await tx.orderReturnLineItem.create({
             data: {
               organizationId,
               returnId: ret.id,
-              productName: it.productName ?? it.vendorItemName ?? '',
+              orderLineItemId: orderLineItem?.id ?? null,
+              listingOptionId: orderLineItem?.listingOptionId ?? null,
+              productName: it.productName ?? it.vendorItemName ?? orderLineItem?.productName ?? '',
+              optionName: orderLineItem?.optionName ?? null,
+              externalSku: externalSku ?? orderLineItem?.sku ?? null,
               quantity: it.quantity ?? 1,
               metadata: { raw: it } as Prisma.InputJsonValue,
             },
@@ -376,17 +511,10 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
     const listings = await this.prisma.channelListing.findMany({
       where: {
         organizationId: input.organizationId,
-        channel: 'coupang',
         externalId: input.sellerProductId,
-        isDeleted: false,
-        ...(input.channelAccountId
-          ? {
-              OR: [
-                { channelAccountId: input.channelAccountId },
-                { channelAccountId: null },
-              ],
-            }
-          : {}),
+        isActive: true,
+        channelAccount: { is: { organizationId: input.organizationId, channel: 'coupang' } },
+        ...(input.channelAccountId ? { channelAccountId: input.channelAccountId } : {}),
       },
       select: { id: true, channelAccountId: true },
       orderBy: [{ channelAccountId: 'asc' }, { updatedAt: 'desc' }],
@@ -397,9 +525,6 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
         (listing) => listing.channelAccountId === input.channelAccountId,
       );
       if (accountListing) return { listing: accountListing };
-      if (listings.length === 1 && listings[0]?.channelAccountId === null) {
-        return { listing: listings[0] };
-      }
       if (listings.length > 1) {
         return {
           listing: null,
@@ -410,13 +535,10 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
       const inactive = await this.prisma.channelListing.findFirst({
         where: {
           organizationId: input.organizationId,
-          channel: 'coupang',
           externalId: input.sellerProductId,
-          isDeleted: true,
-          OR: [
-            { channelAccountId: input.channelAccountId },
-            { channelAccountId: null },
-          ],
+          isActive: false,
+          channelAccountId: input.channelAccountId,
+          channelAccount: { is: { organizationId: input.organizationId, channel: 'coupang' } },
         },
         select: { id: true },
       });
@@ -440,17 +562,10 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
     const inactive = await this.prisma.channelListing.findFirst({
       where: {
         organizationId: input.organizationId,
-        channel: 'coupang',
         externalId: input.sellerProductId,
-        isDeleted: true,
-        ...(input.channelAccountId
-          ? {
-              OR: [
-                { channelAccountId: input.channelAccountId },
-                { channelAccountId: null },
-              ],
-            }
-          : {}),
+        isActive: false,
+        channelAccount: { is: { organizationId: input.organizationId, channel: 'coupang' } },
+        ...(input.channelAccountId ? { channelAccountId: input.channelAccountId } : {}),
       },
       select: { id: true },
     });

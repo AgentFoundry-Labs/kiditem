@@ -9,7 +9,6 @@ export type {
   ChannelListingQuery,
   ChannelListingSort,
   ChannelListingSummary,
-  RegisteredProductGroupSummary,
 } from '../port/out/repository/channel-listing.repository.port';
 
 @Injectable()
@@ -21,10 +20,6 @@ export class ChannelListingQueryService {
 
   list(organizationId: string, query: ChannelListingQuery = {}) {
     return this.repository.list(organizationId, query);
-  }
-
-  listGrouped(organizationId: string, query: ChannelListingQuery = {}) {
-    return this.repository.listGrouped(organizationId, query);
   }
 
   getWorkspace(organizationId: string, listingId: string) {

@@ -29,7 +29,7 @@ interface ResolvedPricing {
 }
 
 /**
- * ProductOption pricing resolve — nested-only (v2 §4.4).
+ * Channel listing-option pricing resolve — nested-only (v2 §4.4).
  *
  * costPrice: option.costPrice ?? Math.round(costCny * 190) ?? 0 (KRW)
  * sellPrice: option.sellPrice ?? 0

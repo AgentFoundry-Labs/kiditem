@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { Store, Package, DollarSign, Loader2 } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
 import {
@@ -29,6 +30,7 @@ export default function SupplierSales() {
     totalOrders: 0,
     totalQuantity: 0,
     totalRevenue: 0,
+    unallocatedRevenue: 0,
   };
   const suppliers = salesReport?.items ?? [];
   const products = productReport?.items ?? [];
@@ -42,7 +44,7 @@ export default function SupplierSales() {
       </h1>
 
       {/* 요약 카드 */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <div className="card">
           <div className="flex items-center gap-2 card-label mb-1"><Store size={14} />매입처 수</div>
           <div className="card-value">{summary.supplierCount}개</div>
@@ -58,6 +60,10 @@ export default function SupplierSales() {
         <div className="card">
           <div className="flex items-center gap-2 card-label mb-1"><Package size={14} />총 주문수</div>
           <div className="card-value">{summary.totalOrders}건</div>
+        </div>
+        <div className="card">
+          <div className="card-label mb-1">미배분 매출</div>
+          <div className="card-value text-amber-600">{formatKRW(summary.unallocatedRevenue)}원</div>
         </div>
       </div>
 
@@ -79,7 +85,7 @@ export default function SupplierSales() {
                 <th className="text-right">이익</th>
                 <th className="text-right">이익률</th>
                 <th className="text-right">주문수</th>
-                <th className="text-center">상세</th>
+                <th className="text-center">작업</th>
               </tr>
             </thead>
             <tbody >
@@ -93,7 +99,17 @@ export default function SupplierSales() {
                   <td className="px-4 py-3 text-right tabular-nums text-slate-400">-</td>
                   <td className="px-4 py-3 text-right tabular-nums">{sup.totalOrders}</td>
                   <td className="px-4 py-3 text-center">
-                    <button className="text-xs text-purple-600 hover:underline">상품별</button>
+                    <div className="flex items-center justify-center gap-2">
+                      <button type="button" className="text-xs text-purple-600 hover:underline">상품별</button>
+                      <Link
+                        href={`/purchase-orders?supplierId=${encodeURIComponent(sup.supplierId)}`}
+                        aria-label={`${sup.supplierName} 발주 보기`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="text-xs font-medium text-blue-600 hover:underline"
+                      >
+                        발주
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -124,7 +140,7 @@ export default function SupplierSales() {
               <thead>
                 <tr>
                   <th>상품명</th>
-                  <th>SKU</th>
+                  <th>셀피아 상품코드</th>
                   <th className="text-right">공급가</th>
                   <th className="text-right">매출</th>
                   <th className="text-right">주문수</th>
@@ -132,9 +148,9 @@ export default function SupplierSales() {
               </thead>
               <tbody >
                 {products.map((p) => (
-                  <tr key={p.optionId} className="hover:bg-slate-50">
+                  <tr key={p.masterId} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium text-slate-900">{p.masterName}{p.optionName ? ` / ${p.optionName}` : ''}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{p.sku ?? '-'}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{p.masterCode}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{p.supplyPrice == null ? '-' : formatKRW(p.supplyPrice)}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatKRW(p.totalRevenue)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{p.totalOrders}</td>

@@ -15,6 +15,11 @@ UI primitives. Route-local UI should stay inside `src/app/(group)/route/`.
 - Shared components may call `apiClient` only when the component owns a global
   app-shell concern such as readiness, chat, panel, or provider behavior.
 - Prefer props for route-specific actions over importing route-local APIs.
+- `sellpia-inventory/` is the app-shell freshness surface: one compact status,
+  one drawer, per-file manual attestation fallback, authoritative completed
+  current basis, and unified history. Established operations screens keep the
+  floating compact status; `/product-hub/matching` renders its intentional
+  inline copy instead. All placements open the same single drawer.
 
 ## Styling Rules
 

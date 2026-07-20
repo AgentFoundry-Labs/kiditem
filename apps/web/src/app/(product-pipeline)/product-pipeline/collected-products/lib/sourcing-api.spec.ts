@@ -6,6 +6,7 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: {
     delete: vi.fn(),
     get: vi.fn(),
+    patch: vi.fn(),
     post: vi.fn(),
   },
 }));
@@ -14,6 +15,74 @@ describe('sourcing candidate API', () => {
   beforeEach(() => {
     vi.mocked(apiClient.delete).mockReset();
     vi.mocked(apiClient.get).mockReset();
+    vi.mocked(apiClient.patch).mockReset();
+    vi.mocked(apiClient.post).mockReset();
+  });
+
+  it('creates an account-scoped preparation draft through the canonical endpoint', async () => {
+    const input = {
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      displayName: '자석 다트게임',
+      registrationInput: {
+        name: '자석 다트게임',
+        category: '완구',
+        salePrice: 21900,
+      },
+      selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
+      selectedThumbnailGenerationCandidateId: '22222222-2222-4222-8222-222222222222',
+      selectedDetailPageGenerationId: '33333333-3333-4333-8333-333333333333',
+    };
+    vi.mocked(apiClient.post).mockResolvedValueOnce({
+      preparationId: '44444444-4444-4444-8444-444444444444',
+      status: 'draft',
+    });
+
+    await expect(candidatesApi.createPreparationDraft('cand-1', input)).resolves.toEqual({
+      preparationId: '44444444-4444-4444-8444-444444444444',
+      status: 'draft',
+    });
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/sourcing/candidates/cand-1/preparations',
+      input,
+    );
+  });
+
+  it('updates registration input and selections through the preparation endpoint', async () => {
+    vi.mocked(apiClient.patch).mockResolvedValue({
+      preparationId: 'prep-1',
+      status: 'draft',
+    });
+
+    await candidatesApi.updateBasicInfo('prep-1', {
+      name: '수정 상품명',
+      salePrice: 13900,
+      basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
+    });
+    await candidatesApi.selectThumbnail('prep-1', {
+      selectedThumbnailUrl: 'https://cdn.example.com/selected.png',
+    });
+
+    expect(apiClient.patch).toHaveBeenNthCalledWith(1, '/api/sourcing/preparations/prep-1', {
+      displayName: '수정 상품명',
+      registrationInput: { name: '수정 상품명', salePrice: 13900 },
+      basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
+    });
+    expect(apiClient.patch).toHaveBeenNthCalledWith(2, '/api/sourcing/preparations/prep-1', {
+      selectedThumbnailUrl: 'https://cdn.example.com/selected.png',
+    });
+  });
+
+  it('rejects the retired master promotion response shape', async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce({
+      masterId: '55555555-5555-4555-8555-555555555555',
+      masterCode: 'M-00000001',
+    });
+
+    await expect(candidatesApi.createPreparationDraft('cand-1', {
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      displayName: '자석 다트게임',
+      registrationInput: { name: '자석 다트게임' },
+    })).rejects.toThrow();
   });
 
   it('deletes sourcing inbox cards through the sourcing candidate route', async () => {
@@ -42,6 +111,61 @@ describe('sourcing candidate API', () => {
     expect(apiClient.get).toHaveBeenCalledWith(
       '/api/sourcing/extension/products?page=1&limit=20&platform=KIDITEM_PRODUCT_REGISTRATION&sort=newest',
     );
+  });
+
+  // 저장한 대표 썸네일이 카드에 반영되지 않던 회귀.
+  // `sourcing_candidates.thumbnail_url` 은 수집 원본이라 대표를 바꿔 저장해도
+  // 그대로다. 서버가 내려주는 `selectedThumbnailUrl` 을 카드가 읽어야 한다.
+  it('목록 카드 썸네일은 저장된 대표를 수집 원본보다 우선한다', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      items: [
+        {
+          id: 'cand-1',
+          name: '4000과일바구니딸깍이키링',
+          status: 'sourced',
+          sourcePlatform: 'KIDITEM_PRODUCT_REGISTRATION',
+          thumbnailUrl: 'https://cdn.example.com/scrape-original.png',
+          imageUrl: 'https://cdn.example.com/scrape-original.png',
+          images: [],
+          productPreparation: null,
+          selectedThumbnailUrl: 'https://cdn.example.com/saved-representative.jpg',
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const { items } = await productsApi.list({ page: 1, limit: 20 });
+
+    expect(items[0].selectedThumbnailUrl).toBe('https://cdn.example.com/saved-representative.jpg');
+    expect(items[0].thumbnailUrl).toBe('https://cdn.example.com/saved-representative.jpg');
+  });
+
+  it('저장된 대표가 없으면 수집 원본으로 떨어진다', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      items: [
+        {
+          id: 'cand-1',
+          name: '4000과일바구니딸깍이키링',
+          status: 'sourced',
+          sourcePlatform: 'KIDITEM_PRODUCT_REGISTRATION',
+          thumbnailUrl: 'https://cdn.example.com/scrape-original.png',
+          imageUrl: 'https://cdn.example.com/scrape-original.png',
+          images: [],
+          productPreparation: null,
+          selectedThumbnailUrl: null,
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const { items } = await productsApi.list({ page: 1, limit: 20 });
+
+    expect(items[0].selectedThumbnailUrl).toBeNull();
+    expect(items[0].thumbnailUrl).toBe('https://cdn.example.com/scrape-original.png');
   });
 
   it('starts AI quick processing for an existing collected candidate', async () => {
@@ -91,7 +215,7 @@ describe('sourcing candidate API', () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({
       id: 'cand-1',
       name: '자석 다트게임',
-      status: 'promoted',
+      status: 'sourced',
       sourcePlatform: 'KIDITEM_PRODUCT_REGISTRATION',
       sourceUrl: 'kiditem://manual-product-registration/1',
       thumbnailUrl: 'https://cdn.example.com/source.jpg',
@@ -102,21 +226,20 @@ describe('sourcing candidate API', () => {
       rawData: {},
       images: [],
       productPreparation: {
-        id: 'prep-1',
+        id: '44444444-4444-4444-8444-444444444444',
         sourceCandidateId: 'cand-1',
-        masterId: 'master-1',
-        contentWorkspaceId: 'workspace-1',
+        channelAccountId: '11111111-1111-4111-8111-111111111111',
+        sourceContentWorkspaceId: '66666666-6666-4666-8666-666666666666',
+        channelListingId: '77777777-7777-4777-8777-777777777777',
         displayName: '자석 다트게임',
-        status: 'product_registered',
-        isCurrentForMaster: true,
+        status: 'registered',
         selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
-        selectedThumbnailGenerationId: 'thumb-generation-1',
-        selectedThumbnailGenerationCandidateId: 'thumb-candidate-1',
-        selectedDetailPageArtifactId: 'artifact-1',
-        selectedDetailPageRevisionId: 'revision-1',
-        selectedDetailPageGenerationId: 'detail-generation-1',
+        selectedThumbnailGenerationId: '88888888-8888-4888-8888-888888888888',
+        selectedThumbnailGenerationCandidateId: '22222222-2222-4222-8222-222222222222',
+        selectedDetailPageArtifactId: '99999999-9999-4999-8999-999999999999',
+        selectedDetailPageRevisionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        selectedDetailPageGenerationId: '33333333-3333-4333-8333-333333333333',
         registrationInput: { category: '완구' },
-        appliedToMasterAt: '2026-05-17T01:00:00.000Z',
         createdAt: '2026-05-17T00:30:00.000Z',
         updatedAt: '2026-05-17T01:00:00.000Z',
       },
@@ -127,17 +250,43 @@ describe('sourcing candidate API', () => {
     const detail = await productsApi.getDetail('cand-1');
 
     expect(detail.productPreparation).toEqual({
-      id: 'prep-1',
+      id: '44444444-4444-4444-8444-444444444444',
       sourceCandidateId: 'cand-1',
-      masterId: 'master-1',
-      contentWorkspaceId: 'workspace-1',
-      status: 'product_registered',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      sourceContentWorkspaceId: '66666666-6666-4666-8666-666666666666',
+      channelListingId: '77777777-7777-4777-8777-777777777777',
+      status: 'registered',
       selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
-      selectedThumbnailGenerationCandidateId: 'thumb-candidate-1',
-      selectedDetailPageGenerationId: 'detail-generation-1',
-      selectedDetailPageArtifactId: 'artifact-1',
-      selectedDetailPageRevisionId: 'revision-1',
+      selectedThumbnailGenerationId: '88888888-8888-4888-8888-888888888888',
+      selectedThumbnailGenerationCandidateId: '22222222-2222-4222-8222-222222222222',
+      selectedDetailPageGenerationId: '33333333-3333-4333-8333-333333333333',
+      selectedDetailPageArtifactId: '99999999-9999-4999-8999-999999999999',
+      selectedDetailPageRevisionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       updatedAt: '2026-05-17T01:00:00.000Z',
     });
+    expect(detail).not.toHaveProperty('promotedMasterId');
+    expect(detail).not.toHaveProperty('promoted_master_id');
+  });
+
+  it('rejects the retired promoted candidate status', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: 'cand-legacy',
+      name: '레거시 후보',
+      status: 'promoted',
+      sourcePlatform: 'ALIBABA_1688',
+      sourceUrl: null,
+      thumbnailUrl: null,
+      imageUrl: null,
+      sellPrice: null,
+      costCny: null,
+      processedData: null,
+      rawData: {},
+      images: [],
+      productPreparation: null,
+      createdAt: '2026-05-16T00:00:00.000Z',
+      updatedAt: '2026-05-16T00:00:00.000Z',
+    });
+
+    await expect(productsApi.getDetail('cand-legacy')).rejects.toThrow();
   });
 });

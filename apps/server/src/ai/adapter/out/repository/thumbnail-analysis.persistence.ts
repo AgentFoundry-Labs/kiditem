@@ -25,7 +25,7 @@ export async function upsertThumbnailAnalysis(
   input: UpsertThumbnailAnalysisInput,
 ): Promise<ThumbnailAnalysisRow> {
   const {
-    masterId,
+    contentWorkspaceId,
     organizationId,
     imageUrl,
     qualityResult,
@@ -37,7 +37,11 @@ export async function upsertThumbnailAnalysis(
 
   const update: Prisma.ThumbnailAnalysisUpdateInput = { imageUrl };
   const create: Prisma.ThumbnailAnalysisCreateInput = {
-    master: { connect: { id: masterId } },
+    contentWorkspace: {
+      connect: {
+        id_organizationId: { id: contentWorkspaceId, organizationId },
+      },
+    },
     organization: { connect: { id: organizationId } },
     imageUrl,
     overallScore: 0,
@@ -84,7 +88,7 @@ export async function upsertThumbnailAnalysis(
   }
 
   const upserted = await prisma.thumbnailAnalysis.upsert({
-    where: { masterId },
+    where: { contentWorkspaceId },
     create,
     update,
   });

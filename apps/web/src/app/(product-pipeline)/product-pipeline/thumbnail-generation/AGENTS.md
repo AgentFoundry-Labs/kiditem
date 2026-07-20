@@ -27,19 +27,18 @@ ModeShowcase / edit route
   -> invalidate thumbnail analysis/generation history
 ```
 
-`productId`, `sourceCandidateId`, and `contentWorkspaceId` are contextual
-identity for result attachment. Ownerless direct generation is allowed before
-registration; workspace-entered generation should attach through
-`contentWorkspaceId`.
+`sourceCandidateId` and `contentWorkspaceId` are contextual identity for result
+attachment. Ownerless direct generation is allowed before registration;
+workspace-entered generation should attach through `contentWorkspaceId`.
 
 ## Payload Rules
 
-| `editCase` | Input | Payload |
-|---|---|---|
-| `compose` | product + supplementary slot | `productImage`, `packagingImage`, `supplementaryLabel`, `pieceCount` |
-| `color-variants` | 2-8 color images | `colorImages`, `colorCount` |
-| `single` | one product slot | `productImage` |
-| `creative` | product + optional reference | `productImage`, `sceneType`, `styleType`, `productDescription`, `backgroundReference` |
+| `editCase`       | Input                        | Payload                                                                               |
+| ---------------- | ---------------------------- | ------------------------------------------------------------------------------------- |
+| `compose`        | product + supplementary slot | `productImage`, `packagingImage`, `supplementaryLabel`, `pieceCount`                  |
+| `color-variants` | 2-8 color images             | `colorImages`, `colorCount`                                                           |
+| `single`         | one product slot             | `productImage`                                                                        |
+| `creative`       | product + optional reference | `productImage`, `sceneType`, `styleType`, `productDescription`, `backgroundReference` |
 
 `sceneType === 'custom-reference'` is UI-only and is stripped before sending.
 Edit mode always sends `purpose: 'compliance'`; creative sends `'quality'`.
@@ -51,15 +50,16 @@ Edit mode always sends `purpose: 'compliance'`; creative sends `'quality'`.
 - Switching edit/creative tabs preserves state.
 - `colorImages` requires at least 2 images; `colorCount` is array length.
 - `selectedCandidateUrl` gates apply/skip buttons.
-- Subject query state uses one canonical identity:
-  `productId`, `sourceCandidateId`, or `contentWorkspaceId`.
+- Subject query state uses one canonical identity: `sourceCandidateId` or
+  `contentWorkspaceId`.
 - `HubImagePickerModal` is not used in this route.
 
 ## Cross-Route Dependencies
 
 - `@kiditem/shared` provides `ThumbnailGenerationItem`.
-- `apiClient` calls `/api/thumbnail-editor/generate`, `/api/products/{id}`,
-  and `/api/thumbnail-analysis/generations/*`.
+- `apiClient` calls `/api/thumbnail-editor/generate`,
+  `/api/ai/content-workspaces`, `/api/ai/content-assets`, and
+  `/api/thumbnail-analysis/generations/*`.
 - Shared thumbnail generation hooks provide select/apply/skip behavior.
 - Route helpers live in `_shared/lib/product-pipeline-routes.ts` and
   `_shared/lib/thumbnail-subject.ts`.

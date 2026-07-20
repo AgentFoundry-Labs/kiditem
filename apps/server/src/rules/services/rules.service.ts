@@ -1,6 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AGENT_RUNNER_PORT,
@@ -110,8 +110,8 @@ export class RulesService {
     }
 
     try {
-      // 1. healthScore 일괄 업데이트 — Prisma updateMany + $transaction.
-      // organizationId 가 신뢰 경계. 각 update 는 (id, organizationId) 로 스코프 → 다른 회사 master 가 섞일 수 없음.
+      // 1. KidItem 운영 상품별 healthScore 일괄 업데이트.
+      // Agent payload의 masterId는 Products 소유 MasterProduct ID다.
       const now = new Date();
       await this.prisma.$transaction(
         products.map((r) =>
@@ -144,20 +144,20 @@ export class RulesService {
         await this.prisma.activityEvent.createMany({ data: events });
       }
 
-      // 3. critical alerts 생성
-      // Alert.targetType='master' 규약 (alert.mapper spec + drift spec 참조): rule_violation 은 MasterProduct 단위.
+      // 3. critical alerts 생성 — 평가 payload의 masterId와 동일한
+      // KidItem 운영 상품을 대상으로 연결한다.
       const criticals = products.flatMap((r) =>
         r.violations
           .filter((v) => v.severity === 'critical')
           .map((v) => ({
             organizationId,
-            targetType: 'master',
+            targetType: 'product',
             targetId: r.masterId,
             type: 'rule_violation',
             severity: 'critical',
             title: v.message,
             message: v.actionType ?? '',
-            href: `/product-hub/${r.masterId}`,
+            href: '/product-hub',
           })),
       );
       if (criticals.length) {
@@ -271,19 +271,35 @@ export class RulesService {
   }> {
     const [healthy, warning, critical, total, lastEval] = await Promise.all([
       this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, healthScore: { gte: 70 } },
+        where: {
+          organizationId,
+          isActive: true,
+          healthScore: { gte: 70 },
+        },
       }),
       this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, healthScore: { gte: 40, lt: 70 } },
+        where: {
+          organizationId,
+          isActive: true,
+          healthScore: { gte: 40, lt: 70 },
+        },
       }),
       this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, healthScore: { lt: 40 } },
+        where: {
+          organizationId,
+          isActive: true,
+          healthScore: { lt: 40 },
+        },
       }),
       this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false },
+        where: { organizationId, isActive: true },
       }),
       this.prisma.masterProduct.findFirst({
-        where: { organizationId, isDeleted: false, healthUpdatedAt: { not: null } },
+        where: {
+          organizationId,
+          isActive: true,
+          healthUpdatedAt: { not: null },
+        },
         orderBy: { healthUpdatedAt: 'desc' },
         select: { healthUpdatedAt: true },
       }),
@@ -291,12 +307,27 @@ export class RulesService {
 
     const notEvaluated = total - healthy - warning - critical;
 
-    const topCritical = await this.prisma.masterProduct.findMany({
-      where: { organizationId, isDeleted: false, healthScore: { lt: 40 } },
+    const topCriticalRows = await this.prisma.masterProduct.findMany({
+      where: {
+        organizationId,
+        isActive: true,
+        healthScore: { lt: 40 },
+      },
       orderBy: { healthScore: 'asc' },
       take: 5,
-      select: { id: true, name: true, healthScore: true, abcGrade: true },
+      select: {
+        id: true,
+        name: true,
+        healthScore: true,
+        abcGrade: true,
+      },
     });
+    const topCritical = topCriticalRows.map((product) => ({
+      id: product.id,
+      name: product.name,
+      healthScore: product.healthScore,
+      abcGrade: product.abcGrade,
+    }));
 
     return {
       total,

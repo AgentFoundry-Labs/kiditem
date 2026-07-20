@@ -21,9 +21,33 @@
 
   function parseNumber(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-    const raw = String(value || "").replace(/[^\d.-]/g, "");
-    return raw ? Number(raw) || 0 : 0;
+    const normalized = String(value || "").replace(/,/g, "").trim();
+    const match = normalized.match(/-?\d+(?:\.\d+)?/);
+    if (!match) return 0;
+    const parsed = Number(match[0]);
+    if (!Number.isFinite(parsed)) return 0;
+
+    // 쿠팡 KPI 위젯은 큰 수를 `1.2만`, `3.4억`처럼 축약한다. 숫자만
+    // 남기면 각각 1.2/3.4로 축소 저장되므로 숫자 바로 뒤의 단위를 반영한다.
+    const suffix = normalized.slice((match.index || 0) + match[0].length).trim();
+    const multiplier = suffix.startsWith("억")
+      ? 100_000_000
+      : suffix.startsWith("만")
+        ? 10_000
+        : suffix.startsWith("천")
+          ? 1_000
+          : 1;
+    return parsed * multiplier;
   }
+
+  const CONVERSION_COUNT_HEADERS = [
+    "광고 전환 판매수",
+    "전환 판매수",
+    "광고 전환수",
+    "전환수",
+    "conversion sales",
+    "conversions",
+  ];
 
   function setNativeValue(input, value) {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
@@ -77,7 +101,12 @@
   function kpiRawValue(entry) {
     if (entry == null) return "";
     if (typeof entry === "string" || typeof entry === "number") return String(entry);
-    if (typeof entry === "object" && "value" in entry) return String(entry.value || "");
+    if (typeof entry === "object" && "value" in entry) {
+      const rawValue = String(entry.value || "");
+      if (/[천만억]/.test(rawValue)) return rawValue;
+      const scaleUnit = normalizeText(entry.unit || "").match(/[천만억]/)?.[0] || "";
+      return scaleUnit ? `${rawValue}${scaleUnit}` : rawValue;
+    }
     return "";
   }
 
@@ -93,8 +122,38 @@
 
   function buildCoupangAdsDailyRow(date, normalizedRows, kpis) {
     const rows = Array.isArray(normalizedRows) ? normalizedRows : [];
+    const observed = {
+      adSpend: false,
+      adRevenue: false,
+      impressions: false,
+      clicks: false,
+      conversions: false,
+      orders: false,
+    };
+    const observationFields = {
+      adSpend: ["runningAdSpend", "spend"],
+      adRevenue: ["revenue"],
+      impressions: ["impressions"],
+      clicks: ["clicks"],
+      conversions: ["conversions"],
+      orders: ["orders"],
+    };
     const totals = rows.reduce(
       (acc, row) => {
+        for (const [metric, fields] of Object.entries(observationFields)) {
+          const parserEvidence = row?._observedMetrics;
+          const hasParserEvidence =
+            parserEvidence &&
+            Object.prototype.hasOwnProperty.call(parserEvidence, metric);
+          const rowObserved = hasParserEvidence
+            ? parserEvidence[metric] === true
+            : fields.some((field) =>
+                Object.prototype.hasOwnProperty.call(row || {}, field) &&
+                row[field] !== null &&
+                row[field] !== undefined &&
+                row[field] !== "");
+          if (rowObserved) observed[metric] = true;
+        }
         acc.adSpend += parseNumber(row.runningAdSpend || row.spend);
         acc.adRevenue += parseNumber(row.revenue);
         acc.impressions += parseNumber(row.impressions);
@@ -113,18 +172,30 @@
       },
     );
 
-    const adSpend = totals.adSpend || getKpiNumber(kpis, ["집행 광고비", "광고비", "ad spend"]);
-    const adRevenue = totals.adRevenue || getKpiNumber(kpis, ["광고 전환 매출", "광고 매출", "ad gmv", "매출"]);
-    const impressions = totals.impressions || getKpiNumber(kpis, ["노출", "impression"]);
-    const clicks = totals.clicks || getKpiNumber(kpis, ["클릭수", "clicks", "click count"]);
-    const conversions = totals.conversions || getKpiNumber(kpis, ["전환 판매수", "전환수", "conversions", "conversion sales"]);
-    const orders = totals.orders || getKpiNumber(kpis, ["전환 주문수", "주문수", "order"]);
+    const adSpend = observed.adSpend
+      ? totals.adSpend
+      : getKpiNumber(kpis, ["집행 광고비", "광고비", "ad spend"]);
+    const adRevenue = observed.adRevenue
+      ? totals.adRevenue
+      : getKpiNumber(kpis, ["광고 전환 매출", "광고 매출", "ad gmv", "매출"]);
+    const impressions = observed.impressions
+      ? totals.impressions
+      : getKpiNumber(kpis, ["노출", "impression"]);
+    const clicks = observed.clicks
+      ? totals.clicks
+      : getKpiNumber(kpis, ["클릭수", "clicks", "click count"]);
+    const conversions = observed.conversions
+      ? totals.conversions
+      : getKpiNumber(kpis, ["전환 판매수", "전환수", "conversions", "conversion sales"]);
+    const orders = observed.orders
+      ? totals.orders
+      : getKpiNumber(kpis, ["전환 주문수", "주문수", "order"]);
     const roas = getKpiNumber(kpis, ["광고 수익률", "광고수익률", "roas"]) ||
       (adSpend > 0 ? Math.round((adRevenue / adSpend) * 10000) / 100 : 0);
     const ctr = getKpiNumber(kpis, ["클릭률", "ctr"]) ||
       (impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0);
     const conversionRate = getKpiNumber(kpis, ["전환율", "conversion rate"]) ||
-      (clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0);
+      (clicks > 0 ? Math.round((orders / clicks) * 10000) / 100 : 0);
 
     return {
       date,
@@ -138,6 +209,26 @@
       ctr,
       conversionRate,
       rowCount: rows.length,
+    };
+  }
+
+  function evaluateExplicitEmptyDailyKpis(kpis) {
+    const projected = buildCoupangAdsDailyRow("1970-01-01", [], kpis || {});
+    const additive = {
+      adSpend: projected.adSpend,
+      adRevenue: projected.adRevenue,
+      impressions: projected.impressions,
+      clicks: projected.clicks,
+      conversions: projected.conversions,
+      orders: projected.orders,
+    };
+    const nonZeroMetrics = Object.entries(additive)
+      .filter(([, value]) => Number(value) !== 0)
+      .map(([key]) => key);
+    return {
+      consistent: nonZeroMetrics.length === 0,
+      additive,
+      nonZeroMetrics,
     };
   }
 
@@ -156,7 +247,7 @@
       const cur = parseNumber(input?.value || "0");
       const tot = parseNumber(totalEl?.textContent || "0");
       if (cur >= 1 && tot >= 1) {
-        return { currentPage: cur, totalPages: tot };
+        return { currentPage: cur, totalPages: tot, verified: true, source: "react_table" };
       }
     }
 
@@ -177,9 +268,19 @@
       combinedText.match(/(\d+)\s*\/\s*(\d+)/) ||
       combinedText.match(/페이지\s*(\d+)\s*\/\s*(\d+)/);
 
+    if (match) {
+      return {
+        currentPage: parseNumber(currentPageText || match[1]) || 1,
+        totalPages: parseNumber(match[2]) || 1,
+        verified: true,
+        source: "text_counter",
+      };
+    }
     return {
-      currentPage: parseNumber(currentPageText || match?.[1] || "1") || 1,
-      totalPages: parseNumber(match?.[2] || "1") || 1,
+      currentPage: parseNumber(currentPageText || "1") || 1,
+      totalPages: 1,
+      verified: false,
+      source: "fallback",
     };
   }
 
@@ -214,6 +315,10 @@
       }
     }
     return -1;
+  }
+
+  function findConversionCountHeaderIndex(headers) {
+    return findHeaderIndex(headers, CONVERSION_COUNT_HEADERS);
   }
 
   function extractCellByHeader(headers, cells, matchers) {
@@ -299,8 +404,10 @@
     const runningAdSpend = extractValueByHeader(headers, cells, ["집행 광고비"]);
     const currentBid = extractValueByHeader(headers, cells, ["입찰가"]);
     const impressions = extractValueByHeader(headers, cells, ["노출"]);
-    const clicks = extractValueByHeader(headers, cells, ["클릭수", "클릭"]);
-    const conversions = extractValueByHeader(headers, cells, ["광고 전환 판매수", "전환 판매수", "전환수", "전환"]);
+    const clicks = extractValueByHeader(headers, cells, ["클릭수", "clicks", "click count"]);
+    // `전환` 단독 매처는 `광고 전환 매출`까지 잡아 매출액을 판매수로 저장한다.
+    // 판매수/전환수임이 명시된 헤더만 허용한다.
+    const conversions = extractValueByHeader(headers, cells, CONVERSION_COUNT_HEADERS);
     const orders = extractValueByHeader(headers, cells, ["광고 전환 주문수", "전환 주문수", "주문수"]);
     const spend = extractValueByHeader(headers, cells, ["집행 광고비", "광고비", "비용"]);
     const revenue = extractValueByHeader(headers, cells, ["광고 전환 매출", "총요 결과 광고 전환 매출", "매출", "전환매출"]);
@@ -316,6 +423,14 @@
     );
 
     const pageType = guessPageType(headers);
+    const observedMetrics = {
+      adSpend: findHeaderIndex(headers, ["집행 광고비", "광고비", "비용"]) >= 0,
+      adRevenue: findHeaderIndex(headers, ["광고 전환 매출", "광고 매출", "전환매출", "매출"]) >= 0,
+      impressions: findHeaderIndex(headers, ["노출", "impression"]) >= 0,
+      clicks: findHeaderIndex(headers, ["클릭수", "clicks", "click count"]) >= 0,
+      conversions: findConversionCountHeaderIndex(headers) >= 0,
+      orders: findHeaderIndex(headers, ["광고 전환 주문수", "전환 주문수", "주문수", "order"]) >= 0,
+    };
     const externalId = [
       pageType,
       campaignName || "",
@@ -358,6 +473,7 @@
         roas: parseNumber(roas),
         ctr: parseNumber(ctr),
         conversionRate: parseNumber(conversionRate),
+        _observedMetrics: observedMetrics,
         rawColumns: rowData,
       },
     };
@@ -382,15 +498,34 @@
 
   const MAX_AD_ROWS = 300;
 
+  function findReportSurfaceRoot(element) {
+    return element?.closest?.(
+      ".ReactTable, .ant-spin-nested-loading, .ant-table-wrapper, [data-testid='report-grid']",
+    ) || element;
+  }
+
+  function isAdReportHeaderSet(headers) {
+    const joined = headers.map(normalizeKey).join(" ");
+    return /캠페인|광고상품|상품명|키워드|집행 광고비|노출|클릭수|전환|campaign|product|keyword|impression|click count|ad spend|revenue/.test(
+      joined,
+    );
+  }
+
   function parseCampaignTable() {
     const rawRows = [];
     const normalizedRows = [];
     let selectedHeaders = [];
+    const surfaceRoots = [];
+    const rememberSurfaceRoot = (element) => {
+      const root = findReportSurfaceRoot(element);
+      if (root && !surfaceRoots.includes(root)) surfaceRoots.push(root);
+    };
 
     document.querySelectorAll("table").forEach((table) => {
       if (rawRows.length >= MAX_AD_ROWS) return;
       const headers = Array.from(table.querySelectorAll("thead th")).map((th) => normalizeText(th.innerText.replace(/\n/g, " ")));
-      if (headers.length < 3) return;
+      if (headers.length < 3 || !isAdReportHeaderSet(headers)) return;
+      rememberSurfaceRoot(table);
       const trs = Array.from(table.querySelectorAll("tbody tr")).slice(0, MAX_AD_ROWS - rawRows.length);
       const appended = appendStructuredRows(
         headers,
@@ -407,7 +542,8 @@
         grid.querySelectorAll(".rt-thead .rt-th, [role='columnheader']")
       ).filter((node) => normalizeText(node.innerText).length > 0);
       const headers = headerNodes.map((node) => normalizeText(node.innerText.replace(/\n/g, " ")));
-      if (headers.length < 3) return;
+      if (headers.length < 3 || !isAdReportHeaderSet(headers)) return;
+      rememberSurfaceRoot(grid);
 
       const rowGroups = Array.from(grid.querySelectorAll(".rt-tbody .rt-tr-group"));
       const appended = appendStructuredRows(
@@ -423,7 +559,275 @@
       if (appended && selectedHeaders.length === 0) selectedHeaders = headers;
     });
 
-    return { rawRows, normalizedRows, headers: selectedHeaders, pageType: guessPageType(selectedHeaders) };
+    return {
+      rawRows,
+      normalizedRows,
+      headers: selectedHeaders,
+      pageType: guessPageType(selectedHeaders),
+      surfaceRoots,
+    };
+  }
+
+  const REPORT_LOADING_SELECTORS = [
+    ".ant-spin-spinning",
+    ".rt-loading.-active",
+    "[aria-busy='true']",
+    "[data-testid='loading']",
+  ];
+  const REPORT_EMPTY_SELECTORS = [
+    ".rt-noData",
+    ".ant-empty",
+    ".ant-table-placeholder",
+    "[data-testid='empty-state']",
+  ];
+
+  function isElementVisible(element) {
+    if (!element) return false;
+    for (let current = element; current; current = current.parentElement) {
+      if (current.hidden || current.getAttribute?.("aria-hidden") === "true") {
+        return false;
+      }
+      const style = typeof getComputedStyle === "function"
+        ? getComputedStyle(current)
+        : current.style || {};
+      if (style.display === "none" || style.visibility === "hidden") return false;
+    }
+    if (typeof element.getClientRects === "function" && element.getClientRects().length === 0) {
+      return false;
+    }
+    return true;
+  }
+
+  function visibleElementsWithin(roots, selectors) {
+    const found = new Set();
+    for (const root of roots || []) {
+      for (const selector of selectors) {
+        if (root?.matches?.(selector) && isElementVisible(root)) found.add(root);
+        for (const element of Array.from(root?.querySelectorAll?.(selector) || [])) {
+          if (isElementVisible(element)) found.add(element);
+        }
+      }
+    }
+    return [...found];
+  }
+
+  function isExplicitEmptyStateText(value) {
+    return /^(?:(?:조회된|검색된)\s*)?(?:데이터|조회 결과|검색 결과|광고 실적|등록된 광고 상품|표시할 항목)(?:가|이)?\s*(?:없습니다|없어요|없음)\.?$|^no (?:data|results)(?: available)?\.?$/i
+      .test(normalizeText(value));
+  }
+
+  function classifyReportSurfaceEvidence({ rowCount, loadingVisible, emptyText }) {
+    if (loadingVisible) return { kind: "loading", explicitEmpty: false };
+    if (Number(rowCount) > 0) return { kind: "rows", explicitEmpty: false };
+    const normalizedEmptyText = normalizeText(emptyText);
+    if (isExplicitEmptyStateText(normalizedEmptyText)) {
+      return {
+        kind: "empty",
+        explicitEmpty: true,
+        emptyText: normalizedEmptyText,
+      };
+    }
+    return { kind: "unknown", explicitEmpty: false };
+  }
+
+  function readReportSurfaceState(parsed) {
+    const roots = Array.isArray(parsed?.surfaceRoots) ? parsed.surfaceRoots : [];
+    const loadingVisible = visibleElementsWithin(roots, REPORT_LOADING_SELECTORS).length > 0;
+    const emptyText = visibleElementsWithin(roots, REPORT_EMPTY_SELECTORS)
+      .map((element) => normalizeText(element.innerText || element.textContent || ""))
+      .find(isExplicitEmptyStateText) || "";
+    return classifyReportSurfaceEvidence({
+      rowCount: parsed?.rawRows?.length || 0,
+      loadingVisible,
+      emptyText,
+    });
+  }
+
+  function reportPageSignature(parsed) {
+    const rows = Array.isArray(parsed?.normalizedRows) ? parsed.normalizedRows : [];
+    const normalized = rows
+      .map((row) => row?.externalId || row?.itemId || JSON.stringify(row || {}))
+      .join("\u0001");
+    if (normalized) return normalized;
+    return (parsed?.rawRows || []).map((row) => JSON.stringify(row)).join("\u0001");
+  }
+
+  function readReportPageSnapshot() {
+    const parsed = parseCampaignTable();
+    return {
+      ok: true,
+      parsed,
+      pagination: parsePaginationInfo(),
+      surface: readReportSurfaceState(parsed),
+      signature: reportPageSignature(parsed),
+    };
+  }
+
+  async function readSettledReportPage(timeoutMs = 10000, options = {}) {
+    const readSnapshot = options.readSnapshot || readReportPageSnapshot;
+    const now = options.now || (() => Date.now());
+    const wait = options.wait || sleep;
+    const startedAt = now();
+    let latest = readSnapshot();
+    while (now() - startedAt < timeoutMs) {
+      latest = readSnapshot();
+      const paginationReady = latest.surface.kind === "empty" || latest.pagination?.verified === true;
+      if (
+        (latest.surface.kind === "rows" || latest.surface.kind === "empty") &&
+        paginationReady
+      ) {
+        return latest;
+      }
+      await wait(250);
+    }
+    return {
+      ...latest,
+      ok: false,
+      error: latest.surface.kind === "loading"
+        ? "report_still_loading"
+        : latest.surface.kind === "rows" && latest.pagination?.verified !== true
+          ? "pagination_unverified"
+          : "report_surface_unverified",
+    };
+  }
+
+  async function advanceReportPage(previous, timeoutMs = 10000) {
+    if (!(await goToNextPage())) {
+      return { ok: false, error: "page_navigation_failed" };
+    }
+
+    const startedAt = Date.now();
+    let latest = readReportPageSnapshot();
+    while (Date.now() - startedAt < timeoutMs) {
+      latest = readReportPageSnapshot();
+      const currentPage = Number(latest.pagination?.currentPage) || 1;
+      const previousPage = Number(previous.pagination?.currentPage) || 1;
+      if (currentPage > previousPage + 1) {
+        return { ok: false, error: "page_sequence_gap", snapshot: latest };
+      }
+      const surfaceSettled = latest.surface.kind === "empty" ||
+        (latest.surface.kind === "rows" && latest.pagination?.verified === true);
+      const contentChanged = latest.surface.kind === "empty" || latest.signature !== previous.signature;
+      if (currentPage === previousPage + 1 && surfaceSettled && contentChanged) {
+        return { ok: true, snapshot: latest };
+      }
+      await sleep(250);
+    }
+
+    const currentPage = Number(latest.pagination?.currentPage) || 1;
+    const previousPage = Number(previous.pagination?.currentPage) || 1;
+    return {
+      ok: false,
+      error: currentPage <= previousPage
+        ? "page_number_not_increased"
+        : "next_page_not_settled",
+      snapshot: latest,
+    };
+  }
+
+  function paginatedFailure(result, error, snapshot) {
+    return {
+      ...result,
+      complete: false,
+      error,
+      lastPage: Number(snapshot?.pagination?.currentPage) || null,
+    };
+  }
+
+  async function collectPaginatedReport(options = {}) {
+    const maxPages = Math.max(1, Number(options.maxPages) || 1);
+    const readPage = options.readPage || readSettledReportPage;
+    const advancePage = options.advancePage || advanceReportPage;
+    const result = {
+      rawRows: [],
+      normalizedRows: [],
+      headers: [],
+      pageType: "",
+      expectedPages: 0,
+      visitedPages: [],
+      explicitEmpty: false,
+      complete: false,
+      error: null,
+    };
+    const seenPageSignatures = new Set();
+
+    let snapshot = await readPage();
+    if (!snapshot?.ok) {
+      return paginatedFailure(result, snapshot?.error || "report_page_not_ready", snapshot);
+    }
+
+    const initialPage = Number(snapshot.pagination?.currentPage) || 1;
+    const expectedPages = Number(snapshot.pagination?.totalPages) || 1;
+    result.expectedPages = expectedPages;
+    if (initialPage !== 1) {
+      return paginatedFailure(result, "pagination_did_not_start_at_page_one", snapshot);
+    }
+    if (expectedPages > maxPages) {
+      return paginatedFailure(result, "pagination_limit_exceeded", snapshot);
+    }
+
+    while (true) {
+      const currentPage = Number(snapshot.pagination?.currentPage) || 1;
+      const currentTotal = Number(snapshot.pagination?.totalPages) || 1;
+      if (currentTotal !== expectedPages) {
+        return paginatedFailure(result, "pagination_total_changed", snapshot);
+      }
+      if (result.visitedPages.includes(currentPage)) {
+        return paginatedFailure(result, "page_number_not_increased", snapshot);
+      }
+      if (snapshot.surface?.kind === "empty") {
+        if (expectedPages !== 1 || currentPage !== 1) {
+          return paginatedFailure(result, "unexpected_empty_page", snapshot);
+        }
+        result.explicitEmpty = true;
+      } else if (snapshot.surface?.kind !== "rows") {
+        return paginatedFailure(result, "report_surface_unverified", snapshot);
+      } else if (snapshot.pagination?.verified !== true) {
+        return paginatedFailure(result, "pagination_unverified", snapshot);
+      }
+
+      const parsed = snapshot.parsed || {};
+      const pageSignature = snapshot.signature || reportPageSignature(parsed);
+      if (snapshot.surface?.kind === "rows" && seenPageSignatures.has(pageSignature)) {
+        return paginatedFailure(result, "page_content_repeated", snapshot);
+      }
+      if (snapshot.surface?.kind === "rows") seenPageSignatures.add(pageSignature);
+      for (let index = 0; index < (parsed.rawRows || []).length; index += 1) {
+        const raw = parsed.rawRows[index];
+        const normalized = parsed.normalizedRows?.[index] || null;
+        result.rawRows.push(raw);
+        if (normalized) result.normalizedRows.push(normalized);
+      }
+      if ((parsed.headers || []).length > result.headers.length) {
+        result.headers = parsed.headers;
+      }
+      if (!result.pageType && parsed.pageType) result.pageType = parsed.pageType;
+      result.visitedPages.push(currentPage);
+
+      if (currentPage === expectedPages) {
+        result.complete = result.visitedPages.length === expectedPages;
+        return result.complete
+          ? result
+          : paginatedFailure(result, "pagination_pages_missing", snapshot);
+      }
+
+      const advanced = await advancePage(snapshot);
+      if (!advanced?.ok || !advanced.snapshot) {
+        return paginatedFailure(
+          result,
+          advanced?.error || "page_navigation_failed",
+          advanced?.snapshot || snapshot,
+        );
+      }
+      const nextPage = Number(advanced.snapshot.pagination?.currentPage) || 1;
+      if (nextPage <= currentPage) {
+        return paginatedFailure(result, "page_number_not_increased", advanced.snapshot);
+      }
+      if (nextPage !== currentPage + 1) {
+        return paginatedFailure(result, "page_sequence_gap", advanced.snapshot);
+      }
+      snapshot = advanced.snapshot;
+    }
   }
 
   function syncToServer(payload) {
@@ -436,6 +840,25 @@
         resolve(response || { success: false, error: "no response" });
       });
     });
+  }
+
+  async function syncTargetDateDaily(targetDate, normalizedRows, kpis) {
+    const dailyRow = buildCoupangAdsDailyRow(targetDate, normalizedRows, kpis);
+    const response = await syncToServer({
+      type: "coupang_ads_daily",
+      source: "coupang_ads",
+      period: "1d",
+      startDate: targetDate,
+      endDate: targetDate,
+      dateFrom: targetDate,
+      dateTo: targetDate,
+      data: [dailyRow],
+      kpis,
+      url: window.location.href,
+      title: document.title,
+      timestamp: new Date().toISOString(),
+    });
+    return { response, dailyRow };
   }
 
   // 현재 캠페인명 감지 — span.page-name 또는 "모든 캠페인" 텍스트
@@ -521,6 +944,37 @@
     const hash = window.location.hash || "";
     const match = hash.match(/targetDate=(\d{4}-\d{2}-\d{2})/);
     return match ? match[1] : null;
+  }
+
+  function normalizeDisplayedDate(value) {
+    const match = String(value || "").match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
+    if (!match) return null;
+    return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+  }
+
+  function displayedRangeMatchesTarget(text, targetDate) {
+    const displayedDates = String(text || "")
+      .match(/\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}/g)
+      ?.map(normalizeDisplayedDate)
+      .filter(Boolean) || [];
+    return displayedDates.length > 0 && displayedDates.every((date) => date === targetDate);
+  }
+
+  function getDateRangeTrigger() {
+    return document.querySelector(
+      "button.dashboard-metric-widget-date-indicator-revamp.ant-dropdown-trigger",
+    );
+  }
+
+  async function waitForDisplayedTargetDate(targetDate, timeoutMs = 8000) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const trigger = getDateRangeTrigger();
+      const displayed = normalizeText(trigger?.innerText || trigger?.textContent || "");
+      if (displayedRangeMatchesTarget(displayed, targetDate)) return true;
+      await sleep(250);
+    }
+    return false;
   }
 
   // "최근 7일" 기간 프리셋 버튼 클릭
@@ -769,9 +1223,15 @@
     }
     applyBtn.click();
 
-    // 테이블 재로딩 대기
+    // 테이블 재로딩 대기 후 트리거가 요청 날짜를 실제 표시하는지 확인한다.
+    // 클릭 성공만 믿으면 달력 race 때 기본 7일치를 대상 하루로 오염시킬 수 있다.
     await sleep(3500);
-    return true;
+    const confirmed = await waitForDisplayedTargetDate(ymd);
+    if (!confirmed) {
+      const displayed = normalizeText(getDateRangeTrigger()?.innerText || "");
+      console.warn(`[KIDITEM] setDateRange: requested ${ymd}, displayed ${displayed || "(empty)"}`);
+    }
+    return confirmed;
   }
 
   async function doSync() {
@@ -783,7 +1243,15 @@
       if (!ok) {
         // 날짜 설정 실패 시 7일 기본값으로 저장하면 일별 집계와 섞여 중복 계산됨. 차라리 중단.
         showBadge(`❌ ${targetDate} 날짜 피커 설정 실패 — 수집 중단 (7일치 오염 방지)`, "#ef4444");
-        return { success: false, reason: 'date_picker_failed', targetDate };
+        return {
+          success: false,
+          complete: false,
+          reason: "date_picker_failed",
+          error: `${targetDate} 날짜를 광고센터에 적용하지 못했습니다.`,
+          targetDate,
+          expectedPages: 0,
+          visitedPages: [],
+        };
       }
       await sleep(1500);
     } else {
@@ -792,7 +1260,6 @@
       await ensureLast7Days();
     }
 
-    const kpis = parseAdKpis();
     const campaignName = detectCampaignName();
     let { period, periodLabel, dateFrom, dateTo } = detectPeriod();
 
@@ -804,36 +1271,70 @@
       dateTo = targetDate;
     }
 
-    // 1페이지 파싱
-    let firstPage = parseCampaignTable();
-    const aggregatedRaw = [...firstPage.rawRows];
-    const aggregatedNormalized = [...firstPage.normalizedRows];
-    const headers = firstPage.headers;
-    const pageType = firstPage.pageType;
-    const pagination = parsePaginationInfo();
-    const totalPages = Math.min(pagination.totalPages || 1, 50); // 안전 상한 50
+    const collection = await collectPaginatedReport({ maxPages: 50 });
+    if (!collection.complete) {
+      const error = `광고 페이지 수집 불완전: ${collection.error || "unknown"}`;
+      showBadge(`❌ ${error}`, "#ef4444");
+      return {
+        success: false,
+        complete: false,
+        error,
+        expectedPages: collection.expectedPages,
+        visitedPages: collection.visitedPages,
+      };
+    }
 
-    // 페이지 순회 — dedupe는 externalId 기준
-    const seenIds = new Set(aggregatedNormalized.map((r) => r.externalId));
-    let currentPage = pagination.currentPage || 1;
-    let safetyBreak = 0;
+    const aggregatedRaw = collection.rawRows;
+    const aggregatedNormalized = collection.normalizedRows;
+    const headers = collection.headers;
+    const pageType = collection.pageType;
+    const totalPages = collection.expectedPages;
+    // 페이지가 rows/명시적 empty 상태로 settle된 뒤 읽어야 이전 페이지의 KPI를
+    // 대상 날짜 KPI로 잘못 저장하지 않는다.
+    const kpis = parseAdKpis();
 
-    while (currentPage < totalPages && safetyBreak < 50) {
-      safetyBreak++;
-      showBadge(`📄 페이지 ${currentPage + 1}/${totalPages} 수집 중...`, "#6366f1");
-      const moved = await goToNextPage();
-      if (!moved) break;
-      const next = parseCampaignTable();
-      for (let i = 0; i < next.normalizedRows.length; i++) {
-        const row = next.normalizedRows[i];
-        if (seenIds.has(row.externalId)) continue;
-        seenIds.add(row.externalId);
-        aggregatedNormalized.push(row);
-        aggregatedRaw.push(next.rawRows[i]);
+    if (targetDate && collection.explicitEmpty) {
+      // 명시적 empty-state와 비영(非零) additive KPI가 동시에 보이면 widget이
+      // 이전 기간 값을 유지한 모순 상태다. 이 경우 ad_campaign/daily 모두 저장하지 않는다.
+      const emptyKpiEvidence = evaluateExplicitEmptyDailyKpis(kpis);
+      if (!emptyKpiEvidence.consistent) {
+        const error = `explicit_empty_kpi_contradiction:${emptyKpiEvidence.nonZeroMetrics.join(",")}`;
+        showBadge(`❌ ${targetDate} 빈 결과와 KPI가 서로 달라 저장하지 않았습니다.`, "#ef4444");
+        return {
+          success: false,
+          complete: true,
+          expectedPages: collection.expectedPages,
+          visitedPages: collection.visitedPages,
+          reason: "explicit_empty_kpi_contradiction",
+          error,
+          nonZeroMetrics: emptyKpiEvidence.nonZeroMetrics,
+        };
       }
-      const newPag = parsePaginationInfo();
-      if (newPag.currentPage <= currentPage) break; // 페이지 증가 안 하면 중단
-      currentPage = newPag.currentPage;
+
+      // rows가 없고 additive KPI도 모두 0/없음인 clean empty만 일별 0 fact로 저장한다.
+      const { response: dailyJson } = await syncTargetDateDaily(targetDate, [], {});
+      if (dailyJson?.success) {
+        chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: 0 } });
+        showBadge(`✅ ${targetDate} 광고 실적 없음(0건) 저장 완료`, "#22c55e");
+        return {
+          success: true,
+          type: "ads",
+          count: 0,
+          pages: collection.expectedPages,
+          expectedPages: collection.expectedPages,
+          visitedPages: collection.visitedPages,
+          empty: true,
+          complete: true,
+          error: null,
+        };
+      }
+      return {
+        success: false,
+        complete: true,
+        expectedPages: collection.expectedPages,
+        visitedPages: collection.visitedPages,
+        error: dailyJson?.error || `${targetDate} 광고 0건 저장 실패`,
+      };
     }
 
     const kpiCount = Object.keys(kpis).length;
@@ -848,6 +1349,10 @@
       const json = await syncToServer({
         type: "ad_campaign",
         source: "advertising",
+        // A target-date dashboard contains rows from multiple campaigns. The
+        // server preserves these rows as dated raw evidence only; the exact
+        // account/day aggregate is sent by syncTargetDateDaily below.
+        campaignReportScope: targetDate ? "multi_campaign_raw" : undefined,
         campaignName,
         period,
         periodLabel,
@@ -868,35 +1373,54 @@
       });
       if (json?.success) {
         if (targetDate) {
-          const dailyRow = buildCoupangAdsDailyRow(targetDate, aggregatedNormalized, kpis);
-          const dailyJson = await syncToServer({
-            type: "coupang_ads_daily",
-            source: "coupang_ads",
-            period: "1d",
-            startDate: targetDate,
-            endDate: targetDate,
-            dateFrom: targetDate,
-            dateTo: targetDate,
-            data: [dailyRow],
+          const { response: dailyJson } = await syncTargetDateDaily(
+            targetDate,
+            aggregatedNormalized,
             kpis,
-            url: window.location.href,
-            title: document.title,
-            timestamp: new Date().toISOString(),
-          });
+          );
           if (!dailyJson?.success) {
             showBadge(`❌ 일별 광고 KPI 저장 실패: ${dailyJson?.error || "실패"}`, "#ef4444");
-            return { success: false, error: dailyJson?.error || "일별 광고 KPI 저장 실패" };
+            return {
+              success: false,
+              complete: true,
+              expectedPages: collection.expectedPages,
+              visitedPages: collection.visitedPages,
+              error: dailyJson?.error || "일별 광고 KPI 저장 실패",
+            };
           }
         }
         chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
         showBadge(`✅ 광고 데이터 ${total}건 (${totalPages}p) 동기화 완료`, "#22c55e");
-        return { success: true, type: "ads", count: total, pages: totalPages };
+        return {
+          success: true,
+          type: "ads",
+          count: total,
+          pages: totalPages,
+          expectedPages: collection.expectedPages,
+          visitedPages: collection.visitedPages,
+          complete: true,
+          error: null,
+        };
       } else {
         showBadge(`❌ ${json?.error || "실패"}`, "#ef4444");
-        return { success: false, error: json?.error || "실패" };
+        return {
+          success: false,
+          complete: true,
+          expectedPages: collection.expectedPages,
+          visitedPages: collection.visitedPages,
+          error: json?.error || "실패",
+        };
       }
     }
-    return { success: false, error: "광고 데이터 없음" };
+    return {
+      success: false,
+      error: collection.explicitEmpty
+        ? "광고 데이터 없음"
+        : "광고 데이터 0건을 확인할 명시적 빈 상태가 없습니다.",
+      expectedPages: collection.expectedPages,
+      visitedPages: collection.visitedPages,
+      complete: collection.complete,
+    };
   }
 
   function getActionLabels(action) {
@@ -1301,6 +1825,64 @@
     return /\/marketing\/dashboard\/sales(?:\/?$|\/?\?|\/?#)/.test(window.location.pathname + window.location.search + window.location.hash);
   }
 
+  function canonicalCampaignHref(value) {
+    try {
+      const url = new URL(value, window.location.href);
+      url.hash = "";
+      const pathname = url.pathname.replace(/\/+$/, "") || "/";
+      return `${url.origin}${pathname}${url.search}`;
+    } catch {
+      return "";
+    }
+  }
+
+  function campaignIdFromHref(value) {
+    try {
+      const url = new URL(value, window.location.href);
+      for (const key of ["campaignId", "campaignID", "campaignNo", "campaign_id"]) {
+        const id = normalizeText(url.searchParams.get(key) || "");
+        if (id) return id;
+      }
+      const segments = url.pathname.split("/").filter(Boolean);
+      const campaignIndex = segments.findIndex((segment) => segment.toLowerCase() === "campaign");
+      const candidate = campaignIndex >= 0 ? segments[campaignIndex + 1] : "";
+      if (candidate && !/^(?:type|registration|create|new)$/i.test(candidate)) {
+        return decodeURIComponent(candidate);
+      }
+    } catch {}
+    return null;
+  }
+
+  function campaignIdentityFromHref(value) {
+    const campaignId = campaignIdFromHref(value);
+    if (campaignId) return `campaign:${campaignId}`;
+    const href = canonicalCampaignHref(value);
+    return href ? `href:${href}` : null;
+  }
+
+  function campaignIdentityMatches(campaign, currentHref = window.location.href) {
+    if (!campaign?.identity) return false;
+    const currentId = campaignIdFromHref(currentHref);
+    if (campaign.campaignId) return currentId === campaign.campaignId;
+    return campaignIdentityFromHref(currentHref) === campaign.identity;
+  }
+
+  function campaignDetailReady({
+    onDashboardList,
+    identityMatches,
+    hasDashboardCampaignRows,
+    surfaceKind,
+  }) {
+    return !onDashboardList &&
+      identityMatches &&
+      !hasDashboardCampaignRows &&
+      (surfaceKind === "rows" || surfaceKind === "empty");
+  }
+
+  function campaignUsesDetailReport(campaign) {
+    return (campaign?.onOff || "").toUpperCase() !== "OFF";
+  }
+
   // 대시보드 그리드의 캠페인을 모두 뽑는다.
   // - 이전: cells[1]==='ON' && /운영/.test(cells[2]) 로 strict 필터 → 컬럼 순서가
   //   유저별로 다르거나 toggle 텍스트가 "켜짐" 같은 변형이면 누락. 한국 셀러가
@@ -1309,19 +1891,32 @@
   //   휴리스틱 검색. ON/OFF 판정은 toggle aria-checked / class / 텍스트 모두 시도.
   // - 캠페인 상태(운영중/일시정지)는 보존만 하고 sweep 큐 진입 필터로 쓰지 않음
   //   → 사용자가 "캠페인 모두 다" 요구. paused 도 광고 전략 분석용.
-  function listAllCampaignsFromDashboard() {
+  function inspectCampaignsFromDashboard() {
     const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
-    if (!grid) return [];
+    if (!grid) return { campaigns: [], titledRowCount: 0, missingIdentityNames: [] };
     const rowGroups = Array.from(grid.querySelectorAll(".rt-tbody .rt-tr-group"));
     const out = [];
+    const missingIdentityNames = [];
+    let titledRowCount = 0;
     for (const rg of rowGroups) {
       const cells = Array.from(rg.querySelectorAll("[role='gridcell']"));
       if (cells.length === 0) continue;
 
-      // 캠페인명 — .dashboard-title (anchor 내부) 우선
+      // 이름이 같은 캠페인이 존재할 수 있으므로 anchor URL/campaign id를 identity로 쓴다.
       const titleEl = rg.querySelector(".dashboard-title");
       const name = normalizeText(titleEl?.innerText || cells[0]?.innerText || "");
       if (!name) continue;
+      titledRowCount += 1;
+      const anchor =
+        titleEl?.closest?.("a[href]") ||
+        titleEl?.querySelector?.("a[href]") ||
+        rg.querySelector("a[href*='/campaign/'], a[href*='campaignId=']");
+      const href = anchor?.href || anchor?.getAttribute?.("href") || "";
+      const identity = campaignIdentityFromHref(href);
+      if (!identity) {
+        missingIdentityNames.push(name);
+        continue;
+      }
 
       // ON/OFF 토글 — 어떤 셀이든 "ON"/"OFF" 텍스트 또는 ant-switch checked 속성으로 판정
       let onOff = "";
@@ -1351,82 +1946,91 @@
         }
       }
 
-      out.push({ name, onOff, status });
+      out.push({
+        identity,
+        campaignId: campaignIdFromHref(href),
+        href: canonicalCampaignHref(href),
+        name,
+        onOff,
+        status,
+      });
     }
-    return out;
+    return { campaigns: out, titledRowCount, missingIdentityNames };
+  }
+
+  function campaignIdentityCoverage(inspection) {
+    const missingCount = inspection?.missingIdentityNames?.length || 0;
+    return missingCount > 0
+      ? {
+          complete: false,
+          error: "campaign_identity_missing",
+          missingCount,
+        }
+      : {
+          complete: true,
+          error: null,
+          missingCount: 0,
+        };
+  }
+
+  function filterPendingCampaigns(campaigns, completedSeen, attemptedThisRun) {
+    return (campaigns || []).filter((campaign) =>
+      !completedSeen.has(campaign.identity) &&
+      !attemptedThisRun.has(campaign.identity));
+  }
+
+  function normalizeSweepErrors(errors) {
+    const normalized = [];
+    const campaignIndexes = new Map();
+    for (const value of Array.isArray(errors) ? errors : []) {
+      if (!value || typeof value !== "object") continue;
+      const entry = { ...value };
+      const identity = typeof entry.identity === "string"
+        ? entry.identity.trim()
+        : "";
+      if (!identity) {
+        normalized.push(entry);
+        continue;
+      }
+
+      entry.identity = identity;
+      const previousIndex = campaignIndexes.get(identity);
+      if (previousIndex === undefined) {
+        campaignIndexes.set(identity, normalized.length);
+        normalized.push(entry);
+      } else {
+        // 재개 전 여러 번 실패한 동일 캠페인은 가장 최근 오류 하나만 미해결로 센다.
+        normalized[previousIndex] = entry;
+      }
+    }
+    return normalized;
+  }
+
+  function reconcileCampaignFailureState(errors, campaign, error = null, details = {}) {
+    const identity = typeof campaign?.identity === "string"
+      ? campaign.identity.trim()
+      : "";
+    const remainingErrors = normalizeSweepErrors(errors).filter(
+      (entry) => !identity || entry.identity !== identity,
+    );
+    if (error) {
+      remainingErrors.push({
+        ...details,
+        identity,
+        name: campaign?.name || "",
+        error,
+      });
+    }
+    return {
+      errors: remainingErrors,
+      failed: remainingErrors.length,
+    };
   }
 
   // 캠페인 상세 페이지 안의 product table 페이지네이션 — 페이지 1, 2, 3... 모든 상품 수집.
-  // 각 페이지마다 parseCampaignTable() 호출해 rawRows / normalizedRows 누적.
-  // dedupe key: 정규화된 row 의 productId 또는 첫 셀 텍스트.
+  // expectedPages 전체를 순서대로 방문하지 못하면 일부 행을 성공 저장하지 않는다.
   async function parseAcrossProductPages() {
-    const allRaw = [];
-    const allNorm = [];
-    let chosenHeaders = [];
-    let chosenPageType = "";
-    const seenKeys = new Set();
-
-    const dedupKey = (raw) => {
-      // raw 는 원본 cell 텍스트들의 객체 — 가장 안정적인 ID 컬럼을 키로
-      if (!raw || typeof raw !== "object") return JSON.stringify(raw);
-      const candidates = ["상품ID", "옵션ID", "ID", "광고ID", "키워드", "상품명"];
-      for (const k of Object.keys(raw)) {
-        const lower = String(k).toLowerCase();
-        if (candidates.some((c) => k.includes(c) || lower.includes(c.toLowerCase()))) {
-          const v = String(raw[k] || "").trim();
-          if (v) return v;
-        }
-      }
-      return JSON.stringify(raw).slice(0, 200);
-    };
-
-    // safetyBreak: 캠페인 하나당 최대 8 페이지 (= 80 상품) 까지 순회.
-    //   이전 30 은 너무 관대해 — 실제 데이터는 4~5 페이지 max. 초과 시 sweep 흐름이
-    //   한 캠페인에서 5분 이상 멈춰 사용자가 "함수가 멈췄다" 인식.
-    let safetyBreak = 0;
-    while (safetyBreak++ < 8) {
-      const parsed = parseCampaignTable();
-      let pageNew = 0;
-      for (let i = 0; i < parsed.rawRows.length; i++) {
-        const raw = parsed.rawRows[i];
-        const norm = parsed.normalizedRows[i];
-        const key = dedupKey(raw);
-        if (seenKeys.has(key)) continue;
-        seenKeys.add(key);
-        allRaw.push(raw);
-        if (norm) allNorm.push(norm);
-        pageNew++;
-      }
-      if (parsed.headers.length > chosenHeaders.length) chosenHeaders = parsed.headers;
-      if (parsed.pageType && !chosenPageType) chosenPageType = parsed.pageType;
-      console.log("[KIDITEM page]", { iter: safetyBreak, rowsThisPage: parsed.rawRows.length, newAfterDedupe: pageNew, totalCollected: allRaw.length });
-
-      const pag = parsePaginationInfo();
-      if (!pag.totalPages || pag.totalPages <= 1) break;
-      if (pag.currentPage >= pag.totalPages) break;
-      if (pageNew === 0) break; // 페이지가 안 바뀌었거나 dedupe 100% — 무한 루프 방지
-
-      const moved = await goToNextPage();
-      if (!moved) break;
-      // product table re-render 대기 — 5초로 단축 (이전 10초). 5초 안에 안 채워지면 break.
-      // 이전: 10초 기다리고 newPag 검사로 break → 페이지 응답 느릴 때 매 페이지 11초 hang.
-      const start = Date.now();
-      while (Date.now() - start < 5000) {
-        const newPagInner = parsePaginationInfo();
-        if (newPagInner.currentPage > pag.currentPage) break; // 페이지 번호가 바뀌면 즉시 진행
-        await sleep(250);
-      }
-      await sleep(500);
-      const newPag = parsePaginationInfo();
-      if (newPag.currentPage <= pag.currentPage) break; // 진행 못 한 경우
-    }
-
-    return {
-      rawRows: allRaw,
-      normalizedRows: allNorm,
-      headers: chosenHeaders,
-      pageType: chosenPageType,
-    };
+    return collectPaginatedReport({ maxPages: 8 });
   }
 
   // 대시보드 그리드 렌더 대기 (rows + .dashboard-title 둘 다 채워질 때까지)
@@ -1446,52 +2050,102 @@
         });
         if (titled.length > 0) return true;
       }
+      if (readReportSurfaceState(parseCampaignTable()).kind === "empty") return true;
       await sleep(300);
     }
     return false;
   }
 
-  // 캠페인 상세 페이지 진입 대기 — "대시보드 list 가 아니다 + grid 가 채워졌다" 만 확인.
-  // 이전: URL 패턴 /campaign/X/group/Y/product 강제 + page-name 정확 일치 → AI스마트광고
-  // 등 다른 URL 패턴이거나 page-name 이 다르게 표기되면 timeout. 더 관대한 매칭으로 변경.
-  async function waitForCampaignDetailPage(expectedName, timeoutMs = 20000) {
+  // 상세 URL이 클릭한 campaign identity와 일치하고, 대시보드의 이전 행이 사라진 뒤
+  // 실제 상세 rows 또는 명시적 empty-state가 보일 때만 진입 완료로 판정한다.
+  async function waitForCampaignDetailPage(expectedCampaign, timeoutMs = 20000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const onDashboardList = isDashboardListPage();
-      const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid'], table");
-      const rtRows = grid?.querySelectorAll(".rt-tbody .rt-tr-group").length || 0;
-      const tableRows = grid?.querySelectorAll("tbody tr").length || 0;
-      const hasGrid = rtRows > 0 || tableRows > 0;
-      if (!onDashboardList && hasGrid) return true;
+      const snapshot = readReportPageSnapshot();
+      const ready = campaignDetailReady({
+        onDashboardList: isDashboardListPage(),
+        identityMatches: campaignIdentityMatches(expectedCampaign),
+        hasDashboardCampaignRows:
+          document.querySelectorAll(".rt-tbody .dashboard-title, [role='grid'] .dashboard-title").length > 0,
+        surfaceKind: snapshot.surface.kind,
+      });
+      if (ready) {
+        return {
+          ok: true,
+          identity: expectedCampaign.identity,
+          surface: snapshot.surface,
+        };
+      }
       await sleep(300);
     }
-    console.warn("[KIDITEM] waitForCampaignDetailPage timeout for", expectedName, "url:", window.location.href);
-    return false;
+    console.warn(
+      "[KIDITEM] waitForCampaignDetailPage timeout for",
+      expectedCampaign?.identity,
+      "url:",
+      window.location.href,
+    );
+    return {
+      ok: false,
+      error: "campaign_detail_identity_or_surface_timeout",
+      identity: expectedCampaign?.identity || null,
+    };
   }
 
-  // 캠페인명으로 anchor 찾아 클릭 (DOM rebuild 가능성 → 매번 fresh lookup)
-  function clickCampaignAnchorByName(name) {
+  // DOM rebuild 가능성에 대비해 identity로 fresh anchor를 다시 찾아 클릭한다.
+  function clickCampaignAnchor(campaign) {
     const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
     if (!grid) return false;
     const rowGroups = Array.from(grid.querySelectorAll(".rt-tbody .rt-tr-group"));
     for (const rg of rowGroups) {
       const titleEl = rg.querySelector(".dashboard-title");
       if (!titleEl) continue;
-      if (normalizeText(titleEl.innerText) === name) {
-        const anchor = titleEl.closest("a");
-        if (anchor) {
-          anchor.click();
-          return true;
-        }
+      const anchor =
+        titleEl.closest?.("a[href]") ||
+        titleEl.querySelector?.("a[href]") ||
+        rg.querySelector("a[href*='/campaign/'], a[href*='campaignId=']");
+      const href = anchor?.href || anchor?.getAttribute?.("href") || "";
+      if (anchor && campaignIdentityFromHref(href) === campaign?.identity) {
+        anchor.click();
+        return true;
       }
     }
     return false;
   }
 
+  function findAllCampaignsBreadcrumb() {
+    const candidates = Array.from(
+      document.querySelectorAll(".path-name__text, .path-name, [class*='breadcrumb'] a, [class*='breadcrumb'] button"),
+    );
+    const label = candidates.find(
+      (candidate) => normalizeText(candidate.innerText || candidate.textContent || "") === "모든 캠페인",
+    );
+    return label?.closest("a, button, [role='button'], .path-name") || label || null;
+  }
+
+  async function returnToDashboard(timeoutMs = 20000) {
+    if (isDashboardListPage()) return waitForDashboardGrid(timeoutMs);
+
+    // 실제 광고센터 상세 화면의 상단 경로에 있는 `모든 캠페인`을 우선 사용한다.
+    // SPA의 history stack은 날짜/페이지 전환 중 신뢰할 수 없어 history.back()만으로는
+    // 간헐적으로 상세 화면에 남는다.
+    const breadcrumb = findAllCampaignsBreadcrumb();
+    if (breadcrumb) {
+      breadcrumb.click();
+      if (await waitForDashboardGrid(timeoutMs)) return true;
+    }
+
+    try {
+      history.back();
+    } catch {}
+    return waitForDashboardGrid(timeoutMs);
+  }
+
   // sessionStorage-backed seen — content script 가 reload 돼도 sweep 이어서 진행.
   // 이전: 매 reload 마다 seen=[] 으로 시작 → 같은 첫 N 개만 처리되는 무한 루프 위험.
-  const SEEN_KEY = "kiditem_ad_sweep_seen_v1";
-  const PROGRESS_KEY = "kiditem_ad_sweep_progress_v1";
+  // v2부터 캠페인명이 아니라 campaign id/canonical href를 저장한다. v1 이름
+  // 배열을 재사용하면 동명이 캠페인의 진행률과 재개 상태가 섞인다.
+  const SEEN_KEY = "kiditem_ad_sweep_seen_v2";
+  const PROGRESS_KEY = "kiditem_ad_sweep_progress_v2";
   function loadSeen() {
     try {
       const raw = sessionStorage.getItem(SEEN_KEY);
@@ -1525,6 +2179,145 @@
     } catch {}
   }
 
+  let activeCollectionRunId = null;
+  let lastReportedSweepProgress = { current: 0, total: 0 };
+
+  function readDashboardCampaignTotal() {
+    const candidates = Array.from(document.querySelectorAll(
+      ".-totalRows, [class*='total-count'], [class*='totalCount'], .pagination-bottom, .-pagination",
+    ));
+    for (const candidate of candidates) {
+      const text = normalizeText(candidate.innerText || candidate.textContent || "");
+      const match =
+        text.match(/(?:총|전체)\s*([\d,]+)\s*(?:개|건)?/i) ||
+        text.match(/of\s*([\d,]+)/i);
+      const count = parseNumber(match?.[1] || "0");
+      if (count > 0) return count;
+    }
+    return null;
+  }
+
+  function estimateSweepProgressTotal({
+    current,
+    pageRemainingIncludingCurrent,
+    explicitTotal,
+    previousTotal,
+  }) {
+    const currentValue = Math.max(0, Number(current) || 0);
+    const pageLowerBound = Math.max(
+      currentValue,
+      currentValue - 1 + Math.max(0, Number(pageRemainingIncludingCurrent) || 0),
+    );
+    return Math.max(
+      currentValue,
+      pageLowerBound,
+      Math.max(0, Number(explicitTotal) || 0),
+      Math.max(0, Number(previousTotal) || 0),
+    );
+  }
+
+  function normalizeSweepProgress(progress, previous = { current: 0, total: 0 }) {
+    const current = Math.max(
+      Math.max(0, Number(previous.current) || 0),
+      Math.max(0, Number(progress.current) || 0),
+    );
+    const total = Math.max(
+      current,
+      Math.max(0, Number(previous.total) || 0),
+      Math.max(0, Number(progress.total) || 0),
+    );
+    return { ...progress, current: Math.min(current, total), total };
+  }
+
+  async function reportSweepProgress(progress) {
+    const normalized = normalizeSweepProgress(progress, lastReportedSweepProgress);
+    lastReportedSweepProgress = {
+      current: normalized.current,
+      total: normalized.total,
+    };
+    if (activeCollectionRunId) {
+      await new Promise((resolve) => {
+        try {
+          chrome.runtime.sendMessage(
+            {
+              action: "reportCollectionTargetProgress",
+              runId: activeCollectionRunId,
+              progress: normalized,
+            },
+            () => {
+              void chrome.runtime.lastError;
+              resolve();
+            },
+          );
+        } catch {
+          resolve();
+        }
+      });
+    }
+    return normalized;
+  }
+
+  function buildCampaignReportAuthorityEnvelope(campaign, businessDate) {
+    if ((campaign?.onOff || "").trim().toUpperCase() === "OFF") {
+      return { campaignReportScope: "single_campaign_metadata_raw" };
+    }
+    return {
+      campaignReportScope: "single_campaign_authoritative",
+      period: "1d",
+      periodLabel: "어제",
+      startDate: businessDate,
+      endDate: businessDate,
+      dateFrom: businessDate,
+      dateTo: businessDate,
+    };
+  }
+
+  function buildCampaignOnlyRows(campaign) {
+    return {
+      rawRows: [
+        {
+          campaignId: campaign.campaignId,
+          campaignHref: campaign.href,
+          campaignIdentity: campaign.identity,
+          campaignName: campaign.name,
+          dashboardOnOff: campaign.onOff,
+          dashboardStatus: campaign.status,
+          _campaignOnly: true,
+        },
+      ],
+      normalizedRows: [
+        {
+          pageType: "campaign",
+          campaignId: campaign.campaignId,
+          campaignIdentity: campaign.identity,
+          campaignName: campaign.name,
+          onOff: campaign.onOff,
+          status: campaign.status,
+          _campaignOnly: true,
+        },
+      ],
+    };
+  }
+
+  function attachCampaignIdentityToRows(campaign, rawRows = [], normalizedRows = []) {
+    const identityFields = {
+      campaignId: campaign.campaignId || null,
+      campaignName: campaign.name,
+      campaignIdentity: campaign.identity,
+    };
+    return {
+      rawRows: rawRows.map((row) => ({
+        ...(row && typeof row === "object" ? row : { value: row }),
+        ...identityFields,
+        campaignHref: campaign.href || null,
+      })),
+      normalizedRows: normalizedRows.map((row) => ({
+        ...(row && typeof row === "object" ? row : { value: row }),
+        ...identityFields,
+      })),
+    };
+  }
+
   async function runDashboardSweep() {
     if (!isDashboardListPage()) {
       return { success: false, error: "대시보드 페이지가 아닙니다", url: window.location.href };
@@ -1555,101 +2348,231 @@
     //    않음). page-by-page 처리 + seen 셋으로 dedupe → 어떤 페이지로 떨어져도 중복
     //    수집 없이 진행.
     let synced = resumeProgress.synced || 0;
-    let failed = resumeProgress.failed || 0;
     let totalRows = resumeProgress.totalRows || 0;
-    const errors = Array.isArray(resumeProgress.errors) ? [...resumeProgress.errors] : [];
-    const seen = resumeSeen; // 처리 완료된 캠페인명 (sessionStorage 영속)
+    let errors = normalizeSweepErrors(resumeProgress.errors);
+    let failed = errors.length;
+    const seen = resumeSeen; // 서버 저장까지 완료된 campaign identity (sessionStorage 영속)
+    const attemptedThisRun = new Set(); // 실패는 같은 실행에서만 건너뛰고 reload/restart 시 재시도
     let totalDiscovered = seen.size; // 진행률 표시용 — resume 시 이어서 카운트
+    let progressTotal = Math.max(
+      seen.size,
+      Number(resumeProgress.progressTotal) || 0,
+    );
+    let sweepError = null;
+    let sweepFinished = false;
 
     let pageGuard = 0;
     while (pageGuard++ < 100) {
       // 현재 페이지 캠페인 중 아직 처리 안 한 것
       // 첫 진입 후 history.back 으로 돌아왔을 때 행은 mount 됐지만 .dashboard-title
       // 이 비어있는 짧은 race 가 있어 retry 로 보강.
-      let pageCamps = listAllCampaignsFromDashboard().filter((c) => !seen.has(c.name));
-      let allCampsOnPage = listAllCampaignsFromDashboard();
-      if (pageCamps.length === 0 && allCampsOnPage.length === 0) {
-        // grid 자체가 늦게 채워지는 케이스 — 최대 6초 추가 대기
-        for (let r = 0; r < 12 && allCampsOnPage.length === 0; r++) {
+      let inspection = inspectCampaignsFromDashboard();
+      if (inspection.campaigns.length === 0 || inspection.missingIdentityNames.length > 0) {
+        // grid/anchor href가 늦게 채워지는 케이스 — 최대 6초 추가 대기. 제목은
+        // 있는데 identity가 끝내 없으면 일부 캠페인을 누락한 성공으로 처리하지 않는다.
+        for (
+          let r = 0;
+          r < 12 &&
+            (inspection.campaigns.length === 0 || inspection.missingIdentityNames.length > 0);
+          r += 1
+        ) {
           await sleep(500);
-          allCampsOnPage = listAllCampaignsFromDashboard();
+          inspection = inspectCampaignsFromDashboard();
         }
-        pageCamps = allCampsOnPage.filter((c) => !seen.has(c.name));
       }
+      const identityCoverage = campaignIdentityCoverage(inspection);
+      if (!identityCoverage.complete) {
+        sweepError = identityCoverage.error;
+        break;
+      }
+      const allCampsOnPage = inspection.campaigns;
+      const pageCamps = filterPendingCampaigns(allCampsOnPage, seen, attemptedThisRun);
       const pag = parsePaginationInfo();
       console.log("[KIDITEM sweep]", { iter: pageGuard, currentPage: pag.currentPage, totalPages: pag.totalPages, pageCamps: pageCamps.length, totalOnPage: allCampsOnPage.length, seen: seen.size });
 
       if (pageCamps.length === 0) {
         // 현재 페이지에서 더 처리할게 없음 → 다음 페이지로
-        if (!pag.totalPages || pag.totalPages <= 1) break;
-        if (pag.currentPage >= pag.totalPages) break;
+        const dashboardSurface = readReportSurfaceState(parseCampaignTable());
+        if (
+          totalDiscovered === 0 &&
+          inspection.titledRowCount === 0 &&
+          dashboardSurface.kind === "empty"
+        ) {
+          sweepFinished = true;
+          break;
+        }
+        if (pag.verified !== true) {
+          sweepError = "dashboard_pagination_unverified";
+          break;
+        }
+        if (!pag.totalPages || pag.totalPages <= 1) {
+          sweepFinished = true;
+          break;
+        }
+        if (pag.currentPage >= pag.totalPages) {
+          sweepFinished = true;
+          break;
+        }
         const moved = await goToNextPage();
-        if (!moved) break;
-        await waitForDashboardGrid(15000);
+        if (!moved) {
+          sweepError = "dashboard_page_navigation_failed";
+          break;
+        }
+        const dashboardReady = await waitForDashboardGrid(15000);
+        const nextPagination = parsePaginationInfo();
+        if (!dashboardReady || nextPagination.currentPage <= pag.currentPage) {
+          sweepError = dashboardReady
+            ? "dashboard_page_number_not_increased"
+            : "dashboard_next_page_not_loaded";
+          break;
+        }
         await sleep(800);
         continue;
       }
 
       // 첫 미처리 캠페인 1개 처리 (한 번에 한 개씩 — anchor 클릭 후 SPA 네비)
       const camp = pageCamps[0];
-      seen.add(camp.name);
-      saveSeen(seen); // 클릭 직전 영속 — reload 돼도 이 캠페인은 skip
+      attemptedThisRun.add(camp.identity);
       totalDiscovered++;
       const i = totalDiscovered;
-      showBadge(`📥 [${i}] ${camp.name} 진입 중... (page ${pag.currentPage}/${pag.totalPages || 1})`, "#f59e0b");
+      progressTotal = estimateSweepProgressTotal({
+        current: i,
+        pageRemainingIncludingCurrent: pageCamps.length,
+        explicitTotal: readDashboardCampaignTotal(),
+        previousTotal: progressTotal,
+      });
+      await reportSweepProgress({
+        current: i,
+        total: progressTotal,
+        completed: synced,
+        failed,
+        label: camp.name,
+      });
+      const usesDetailReport = campaignUsesDetailReport(camp);
+      const isOffCampaign = !usesDetailReport;
+      showBadge(
+        isOffCampaign
+          ? `📋 [${i}] ${camp.name} — OFF 상태 저장 중...`
+          : `📥 [${i}] ${camp.name} 진입 중... (page ${pag.currentPage}/${pag.totalPages || 1})`,
+        "#f59e0b",
+      );
 
-      // 2a) anchor 클릭 — 동일 인스턴스 SPA 라우팅
-      const clicked = clickCampaignAnchorByName(camp.name);
-      if (!clicked) {
-        failed++;
-        errors.push({ name: camp.name, error: "anchor not found" });
-        saveProgress({ synced, failed, totalRows, errors });
-        continue;
+      if (usesDetailReport) {
+        // 2a) ON 캠페인만 anchor를 클릭해 상세 rows를 수집한다. OFF는 대시보드에서
+        // 확인한 identity/status만 저장해 상세 화면 기본 7일 데이터를 읽을 여지를 없앤다.
+        const clicked = clickCampaignAnchor(camp);
+        if (!clicked) {
+          ({ errors, failed } = reconcileCampaignFailureState(
+            errors,
+            camp,
+            "anchor not found",
+          ));
+          saveProgress({ synced, failed, totalRows, errors, progressTotal });
+          continue;
+        }
+
+        // 2b) 상세 identity + rows/명시적 empty-state 렌더 대기
+        const detail = await waitForCampaignDetailPage(camp, 20000);
+        if (!detail.ok) {
+          ({ errors, failed } = reconcileCampaignFailureState(
+            errors,
+            camp,
+            detail.error,
+          ));
+          saveProgress({ synced, failed, totalRows, errors, progressTotal });
+          await returnToDashboard(20000);
+          await sleep(800);
+          continue;
+        }
       }
 
-      // 2b) 상세 페이지 + 그리드 렌더 대기
-      const detailOk = await waitForCampaignDetailPage(camp.name, 20000);
-      if (!detailOk) {
-        failed++;
-        errors.push({ name: camp.name, error: "detail page load timeout" });
-        saveProgress({ synced, failed, totalRows, errors });
-        try { history.back(); } catch {}
-        await waitForDashboardGrid(15000);
-        await sleep(800);
-        continue;
-      }
-
-      // 2c) 상세 페이지에서 날짜 picker 를 "어제" 단일일자로 설정 — OFF 캠페인은 skip
-      //   OFF 인 캠페인은 어제 데이터가 0 인 게 자명 + 날짜 picker rendering 이 느림
-      //   → setDateRange 가 실패하거나 5초+a 잡아먹어 sweep 전체 hang 인식. 그냥 7d 기본
-      //   그대로 두고 KPI 0 으로 sync (서버는 OFF 캠페인 등록 자체가 목적).
-      const isOffCampaign = (camp.onOff || "").toUpperCase() === "OFF";
-      let dateOk = true;
+      // OFF 캠페인은 대시보드의 상태 자체만 어제 campaign-only 0 descriptor로 저장한다.
+      // 상세 화면의 기본 7일 rows/KPI를 어제 데이터로 위장하지 않는다.
+      let parsed;
+      let kpis = {};
       if (!isOffCampaign) {
         showBadge(`📅 [${i}] ${camp.name} — ${yesterday} 적용 중...`, "#6366f1");
-        dateOk = await setDateRange(yesterday);
+        const dateOk = await setDateRange(yesterday);
+        if (!dateOk) {
+          ({ errors, failed } = reconcileCampaignFailureState(
+            errors,
+            camp,
+            "date_picker_failed",
+          ));
+          saveProgress({ synced, failed, totalRows, errors, progressTotal });
+          await returnToDashboard(20000);
+          await sleep(800);
+          continue;
+        }
+        await sleep(2000);
+        showBadge(`📊 [${i}] ${camp.name} 수집 중...`, "#f59e0b");
+        parsed = await parseAcrossProductPages();
+        if (!parsed.complete) {
+          ({ errors, failed } = reconcileCampaignFailureState(
+            errors,
+            camp,
+            parsed.error || "campaign_pagination_incomplete",
+            {
+              expectedPages: parsed.expectedPages,
+              visitedPages: parsed.visitedPages,
+            },
+          ));
+          saveProgress({ synced, failed, totalRows, errors, progressTotal });
+          await reportSweepProgress({
+            current: i,
+            total: progressTotal,
+            completed: synced,
+            failed,
+            label: `${camp.name}: ${parsed.error || "페이지 수집 불완전"}`,
+          });
+          await returnToDashboard(20000);
+          await sleep(800);
+          continue;
+        }
+        kpis = parseAdKpis();
       } else {
-        console.log("[KIDITEM sweep] skip setDateRange (OFF campaign)", camp.name);
+        const campaignOnly = buildCampaignOnlyRows(camp);
+        parsed = {
+          ...campaignOnly,
+          headers: [],
+          pageType: "campaign",
+          expectedPages: 0,
+          visitedPages: [],
+          explicitEmpty: true,
+          complete: true,
+          error: null,
+        };
+        console.log("[KIDITEM sweep] persist OFF campaign-only descriptor", camp.identity);
       }
-      if (!dateOk) {
-        failed++;
-        errors.push({ name: camp.name, error: "date_picker_failed" });
-        saveProgress({ synced, failed, totalRows, errors });
-        try { history.back(); } catch {}
-        await waitForDashboardGrid(15000);
-        await sleep(800);
-        continue;
-      }
-      if (!isOffCampaign) await sleep(2000);
 
-      // 2d) parseAcrossProductPages — 캠페인 상세 페이지의 모든 product page (1, 2, 3...) 순회
-      //     이전: parseCampaignTable() 1회 호출 → 첫 10개만 수집. "페이지 1/2" 인 경우
-      //     2번째 페이지의 상품 누락. 광고 전략 분석에 치명적.
-      showBadge(`📊 [${i}] ${camp.name} 수집 중...`, "#f59e0b");
-      const parsed = await parseAcrossProductPages();
-      const kpis = parseAdKpis();
-      const rowCount = parsed.normalizedRows.length;
-      console.log("[KIDITEM sweep] parsed campaign", camp.name, { rows: parsed.rawRows.length, normalizedRows: rowCount });
+      const rowCount = isOffCampaign || parsed.explicitEmpty
+        ? 0
+        : parsed.normalizedRows.length;
+      const emptyDescriptor = buildCampaignOnlyRows(camp);
+      const baseRawRows = parsed.rawRows.length > 0
+        ? parsed.rawRows
+        : emptyDescriptor.rawRows;
+      const baseNormalizedRows = parsed.normalizedRows.length > 0
+        ? parsed.normalizedRows
+        : emptyDescriptor.normalizedRows;
+      const persistedRows = attachCampaignIdentityToRows(
+        camp,
+        baseRawRows,
+        baseNormalizedRows,
+      );
+      const persistedRawRows = persistedRows.rawRows;
+      const persistedNormalizedRows = persistedRows.normalizedRows;
+      const authorityEnvelope = buildCampaignReportAuthorityEnvelope(
+        camp,
+        yesterday,
+      );
+      console.log("[KIDITEM sweep] parsed campaign", camp.identity, {
+        rows: parsed.rawRows.length,
+        normalizedRows: rowCount,
+        expectedPages: parsed.expectedPages,
+        visitedPages: parsed.visitedPages,
+        offCampaignOnly: isOffCampaign,
+      });
 
       // 사용자 요구: 데이터(rows/kpis) 가 0 이라도 캠페인 자체는 등록되어야 함.
       //   "쿠팡이랑 똑같이 동기화하라고 했잖아 데이터가 없어도 만들고"
@@ -1659,17 +2582,14 @@
         type: "ad_campaign",
         source: "advertising",
         campaignName: camp.name,
-        period: "1d",
-        periodLabel: "어제",
-        startDate: yesterday,
-        endDate: yesterday,
-        dateFrom: yesterday,
-        dateTo: yesterday,
-        data: parsed.rawRows.length > 0 ? parsed.rawRows : [{ _kpiOnly: true }],
-        normalizedRows: parsed.normalizedRows,
-        headers: parsed.headers,
-        pageType: parsed.pageType,
-        kpis,
+        ...authorityEnvelope,
+        data: persistedRawRows,
+        normalizedRows: persistedNormalizedRows,
+        ...(!isOffCampaign ? {
+          headers: parsed.headers,
+          pageType: parsed.pageType,
+          kpis,
+        } : {}),
         dashboardOnOff: camp.onOff,
         dashboardStatus: camp.status,
         url: window.location.href,
@@ -1677,31 +2597,99 @@
         timestamp: new Date().toISOString(),
       });
       if (json?.success) {
+        ({ errors, failed } = reconcileCampaignFailureState(errors, camp));
         synced++;
         totalRows += rowCount;
+        seen.add(camp.identity);
+        saveSeen(seen);
         showBadge(`✓ [${i}] ${camp.name} — ${rowCount}행 동기화 (총 ${synced} 캠페인)`, "#22c55e");
       } else {
-        failed++;
-        errors.push({ name: camp.name, error: json?.error || "sync 실패" });
+        ({ errors, failed } = reconcileCampaignFailureState(
+          errors,
+          camp,
+          json?.error || "sync 실패",
+        ));
       }
-      saveProgress({ synced, failed, totalRows, errors });
+      saveProgress({ synced, failed, totalRows, errors, progressTotal });
+      await reportSweepProgress({
+        current: i,
+        total: progressTotal,
+        completed: synced,
+        failed,
+        label: json?.success ? camp.name : `${camp.name}: ${json?.error || "동기화 실패"}`,
+      });
 
       // 2e) 대시보드로 복귀 — 어느 페이지로 떨어지든 OK (seen 셋이 dedupe)
-      try { history.back(); } catch {}
-      const backOk = await waitForDashboardGrid(15000);
+      const backOk = await returnToDashboard(20000);
       if (!backOk) {
-        // sessionStorage 에 seen + progress 남아있으니 reload 후 이어서 진행
-        showBadge(`🔁 dashboard 복귀 실패 — 새로고침 후 이어서 진행 (${synced}/${totalDiscovered})`, "#f59e0b");
-        window.location.href = "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1";
-        return { success: false, error: "dashboard 복귀 실패 — 페이지 새로고침", synced, failed, totalRows };
+        // 수집 창 소유자가 같은 탭을 명시적으로 대시보드로 이동한 뒤 manualSync를
+        // 재호출한다. 여기서 location을 바꾸면 응답 전에 content script가 unload되어
+        // 세션이 무한 대기 상태가 된다.
+        showBadge(`🔁 dashboard 복귀 실패 — 이어서 실행 준비 (${synced}/${totalDiscovered})`, "#f59e0b");
+        const resumeProgressSnapshot = await reportSweepProgress({
+          current: totalDiscovered,
+          total: Math.max(progressTotal, totalDiscovered),
+          completed: synced,
+          failed,
+          label: "광고 대시보드에서 이어서 실행",
+        });
+        return {
+          success: false,
+          resumeRequired: true,
+          resumeUrl: "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1",
+          error: "dashboard 복귀 실패 — 대시보드에서 이어서 실행합니다.",
+          synced,
+          failed,
+          totalRows,
+          progress: resumeProgressSnapshot,
+        };
       }
       await sleep(1000);
+    }
+
+    if (!sweepFinished && !sweepError && pageGuard > 100) {
+      sweepError = "dashboard_pagination_limit_exceeded";
+    }
+    if (sweepError) {
+      errors.push({ name: "_dashboard", error: sweepError });
+      saveProgress({ synced, failed: failed + 1, totalRows, errors, progressTotal });
+      const failedProgressSnapshot = await reportSweepProgress({
+        current: totalDiscovered,
+        total: progressTotal,
+        completed: synced,
+        failed: failed + 1,
+        label: sweepError,
+      });
+      showBadge(`❌ 광고 동기화 중단: ${sweepError}`, "#ef4444");
+      return {
+        success: false,
+        type: "ad_sync",
+        campaigns: synced,
+        failed: failed + 1,
+        totalRows,
+        error: sweepError,
+        errors,
+        progress: failedProgressSnapshot,
+      };
     }
 
     if (totalDiscovered === 0) {
       clearSweepState();
       showBadge("ℹ️ 캠페인 없음 — 동기화 종료", "#94a3b8");
-      return { success: true, type: "ad_sync", campaigns: 0, totalRows: 0 };
+      const emptyProgressSnapshot = await reportSweepProgress({
+        current: 0,
+        total: 0,
+        completed: 0,
+        failed: 0,
+        label: "동기화할 광고 캠페인 없음",
+      });
+      return {
+        success: true,
+        type: "ad_sync",
+        campaigns: 0,
+        totalRows: 0,
+        progress: emptyProgressSnapshot,
+      };
     }
 
     // sweep 정상 완료 — sessionStorage 비워서 다음 sync 가 처음부터 시작.
@@ -1709,6 +2697,13 @@
 
     const summary = `✅ 동기화 완료 — ${synced}/${totalDiscovered} 캠페인 (총 ${totalRows}행)`;
     showBadge(summary, failed > 0 ? "#f59e0b" : "#22c55e");
+    const finalProgressSnapshot = await reportSweepProgress({
+      current: totalDiscovered,
+      total: Math.max(progressTotal, totalDiscovered),
+      completed: synced,
+      failed,
+      label: failed > 0 ? "일부 캠페인 동기화 실패" : "광고 동기화 완료",
+    });
 
     return {
       success: failed === 0,
@@ -1717,6 +2712,7 @@
       failed,
       totalRows,
       errors: errors.length > 0 ? errors : undefined,
+      progress: finalProgressSnapshot,
     };
   }
 
@@ -1751,6 +2747,39 @@
     }
     return currentActionExecution;
   }
+
+  // Pure parser contract used by fixture tests. Content scripts run in an isolated
+  // world, so this does not expose data to the marketplace page itself.
+  globalThis.KidItemAdsReportContract = Object.freeze({
+    attachCampaignIdentityToRows,
+    buildCoupangAdsDailyRow,
+    buildCampaignOnlyRows,
+    buildCampaignReportAuthorityEnvelope,
+    campaignDetailReady,
+    campaignIdFromHref,
+    campaignIdentityCoverage,
+    campaignIdentityFromHref,
+    campaignUsesDetailReport,
+    clickCampaignAnchor,
+    classifyReportSurfaceEvidence,
+    collectPaginatedReport,
+    displayedRangeMatchesTarget,
+    estimateSweepProgressTotal,
+    evaluateExplicitEmptyDailyKpis,
+    findConversionCountHeaderIndex,
+    findHeaderIndex,
+    filterPendingCampaigns,
+    isElementVisible,
+    isExplicitEmptyStateText,
+    inspectCampaignsFromDashboard,
+    kpiRawValue,
+    normalizeSweepErrors,
+    normalizeSweepProgress,
+    parseNumber,
+    readSettledReportPage,
+    readReportSurfaceState,
+    reconcileCampaignFailureState,
+  });
 
   // URL flag 기반 자동 모드.
   // 주의: 플래그가 없으면 자동 수집을 돌리지 않는다. 광고 등록 OAuth/login redirect 중
@@ -1791,7 +2820,18 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      runSyncOnce().then((result) => sendResponse(result));
+      if (
+        typeof msg.collectionRunId === "string" &&
+        msg.collectionRunId !== activeCollectionRunId
+      ) {
+        activeCollectionRunId = msg.collectionRunId;
+        lastReportedSweepProgress = { current: 0, total: 0 };
+      }
+      runSyncOnce()
+        .then((result) => sendResponse(result))
+        .catch((error) =>
+          sendResponse({ success: false, error: error?.message || String(error) }),
+        );
       return true;
     }
 

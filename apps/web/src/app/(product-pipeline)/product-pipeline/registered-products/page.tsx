@@ -11,13 +11,14 @@ import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipeli
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
 import { ProductInboxListFrame } from '../_shared/components/inbox/ProductInboxListFrame';
 import { ProductInboxToolbar } from '../_shared/components/inbox/ProductInboxToolbar';
-import { RegisteredProductGroupCard } from './components/RegisteredProductGroupCard';
-import { channelDisplayName } from './components/RegisteredListingCard';
+import { channelDisplayName, RegisteredListingCard } from './components/RegisteredListingCard';
+import { CoupangCatalogImportPanel } from './components/CoupangCatalogImportPanel';
+import ListingDeleteDialog from './components/ListingDeleteDialog';
 import {
   channelListingsApi,
+  type RegisteredChannelListing,
   type RegisteredListingSort,
   type RegisteredMarketCount,
-  type RegisteredProductGroup,
 } from './lib/channel-listings-api';
 import { registeredListingWorkspaceHref } from './lib/registered-listing-navigation';
 
@@ -44,6 +45,8 @@ export default function RegisteredProductsPage() {
   const [filter, setFilter] = useState<RegisteredListingFilter>('registered');
   const [marketFilter, setMarketFilter] = useState<MarketFilter>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // ⚠️ 파괴적 동작. 다이얼로그가 열려 있는 동안에만 대상이 존재한다.
+  const [deleteTarget, setDeleteTarget] = useState<RegisteredChannelListing | null>(null);
 
   const selectedChannel = marketFilter.startsWith('channel:')
     ? marketFilter.slice('channel:'.length)
@@ -57,16 +60,14 @@ export default function RegisteredProductsPage() {
     sort,
     tab: filter,
     market: marketFilter,
-    mode: 'groups',
     ...(recentFilterCreatedSince ? { createdSince: recentFilterCreatedSince } : {}),
   };
   const summaryQueryParams = {
     tab: listingTab,
-    mode: 'market-summary',
   };
   const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: queryKeys.channelListings.list(queryParams),
-    queryFn: () => channelListingsApi.listGroups({
+    queryFn: () => channelListingsApi.list({
       page,
       limit: pageSize,
       sort,
@@ -79,17 +80,17 @@ export default function RegisteredProductsPage() {
   const isRefreshing = isPlaceholderData;
   const { data: summaryData } = useQuery({
     queryKey: queryKeys.channelListings.list(summaryQueryParams),
-    queryFn: () => channelListingsApi.listGroups({
+    queryFn: () => channelListingsApi.list({
       page: 1,
       limit: 1,
       tab: listingTab,
     }),
   });
 
-  const groups = data?.items ?? [];
+  const listings = data?.items ?? [];
   const total = data?.total ?? 0;
   const marketCounts = summaryData?.marketCounts ?? data?.marketCounts ?? [];
-  const visibleIds = groups.map((item) => item.masterId);
+  const visibleIds = listings.map((item) => item.id);
   const selectedVisibleCount = visibleIds.filter((id) => selectedIds.has(id)).length;
   const allVisibleSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
 
@@ -113,14 +114,8 @@ export default function RegisteredProductsPage() {
     });
   };
 
-  const openGroup = (group: RegisteredProductGroup) => {
-    const primaryListing = group.listings[0];
-    if (!primaryListing) return;
-    router.push(registeredListingWorkspaceHref(primaryListing));
-  };
-
-  const manageMasterProduct = (group: RegisteredProductGroup) => {
-    router.push(`/product-hub/${encodeURIComponent(group.masterId)}`);
+  const openListing = (listing: RegisteredChannelListing) => {
+    router.push(registeredListingWorkspaceHref(listing));
   };
 
   const marketTabs = useMemo(() => {
@@ -150,6 +145,8 @@ export default function RegisteredProductsPage() {
           setPage(1);
         }}
       />
+
+      <CoupangCatalogImportPanel />
 
       <ProductPipelineStats
         draftLabel="선택 상품"
@@ -236,7 +233,7 @@ export default function RegisteredProductsPage() {
         <div aria-busy={isRefreshing}>
         <ProductInboxListFrame
           isLoading={isLoading && !data}
-          isEmpty={groups.length === 0}
+          isEmpty={listings.length === 0}
           emptyState={{
             title: filter === 'deleted'
               ? '삭제된 마켓 상품이 없어요.'
@@ -254,17 +251,21 @@ export default function RegisteredProductsPage() {
             onChange: toggleVisibleSelection,
           }}
         >
-          {groups.map((group) => (
-            <RegisteredProductGroupCard
-              key={group.masterId}
-              group={group}
-              selected={selectedIds.has(group.masterId)}
-              onOpen={openGroup}
-              onManageProduct={manageMasterProduct}
+          {listings.map((listing) => (
+            <RegisteredListingCard
+              key={listing.id}
+              listing={listing}
+              selected={selectedIds.has(listing.id)}
+              onOpen={openListing}
               onSelectedChange={setItemSelected}
+              onRequestDelete={
+                // 우리가 등록한 상품에만 삭제 진입점을 준다. 서버도 같은 규칙으로 다시 막는다.
+                listing.sourceCandidateId ? setDeleteTarget : undefined
+              }
             />
           ))}
         </ProductInboxListFrame>
+        <ListingDeleteDialog listing={deleteTarget} onClose={() => setDeleteTarget(null)} />
         </div>
 
         <div className="mt-4">

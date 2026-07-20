@@ -19,6 +19,7 @@ import {
   isBrowserOperationProducer,
   resolveBrowserOperationProducer,
 } from '../../../domain/policy/browser-operation-producers';
+import { OperationAlertOwnershipConflictError } from '../../../domain/errors/operation-alert-ownership-conflict.error';
 import {
   ReconcileBrowserOperationAlertsDto,
   StartOperationAlertDto,
@@ -31,6 +32,23 @@ const BROWSER_BATCH_STALE_MINUTES = 30;
 const BROWSER_BATCH_STALE_LIMIT = 100;
 const BROWSER_BATCH_STALE_MESSAGE =
   '브라우저 작업 세션이 종료되어 진행 상태를 자동 정리했습니다.';
+
+function assertBrowserCollectionOrdering(
+  metadata: Record<string, unknown> | undefined,
+): void {
+  if (
+    metadata?.browserCollection !== true ||
+    !Number.isInteger(metadata.collectionAttempt) ||
+    (metadata.collectionAttempt as number) < 1 ||
+    typeof metadata.collectionUpdatedAt !== 'number' ||
+    !Number.isFinite(metadata.collectionUpdatedAt) ||
+    metadata.collectionUpdatedAt < 0
+  ) {
+    throw new BadRequestException(
+      'valid browser collection ordering metadata is required',
+    );
+  }
+}
 
 /**
  * Frontend-facing entrypoint for `Alert.kind='operation'` lifecycle when
@@ -64,21 +82,41 @@ export class OperationAlertLifecycleController {
     if (!producer) {
       throw new BadRequestException('unsupported operation alert producer');
     }
+    assertBrowserCollectionOrdering(dto.metadata);
 
-    const alert = await this.operationAlerts.start({
+    const existing = await this.operationAlerts.findByOperationKey(
       organizationId,
-      operationKey: dto.operationKey,
-      type: dto.type,
-      title: producer.title,
-      message: dto.message ?? null,
-      sourceType: dto.sourceType,
-      sourceId: dto.sourceId ?? null,
-      actorUserId: user.id,
-      href: producer.href,
-      severity: dto.severity,
-      progress: dto.progress ?? null,
-      metadata: dto.metadata,
-    });
+      dto.operationKey,
+    );
+    if (existing && existing.actorUserId !== user.id) {
+      throw new NotFoundException(
+        `operation alert not found: ${dto.operationKey}`,
+      );
+    }
+
+    const alert = await this.operationAlerts
+      .start({
+        organizationId,
+        operationKey: dto.operationKey,
+        type: dto.type,
+        title: producer.title,
+        message: dto.message ?? null,
+        sourceType: dto.sourceType,
+        sourceId: dto.sourceId ?? null,
+        actorUserId: user.id,
+        href: producer.href,
+        severity: dto.severity,
+        progress: dto.progress ?? null,
+        metadata: dto.metadata,
+      })
+      .catch((error: unknown) => {
+        if (error instanceof OperationAlertOwnershipConflictError) {
+          throw new NotFoundException(
+            `operation alert not found: ${dto.operationKey}`,
+          );
+        }
+        throw error;
+      });
     return mapAlertRowToItem(alert);
   }
 
@@ -89,6 +127,7 @@ export class OperationAlertLifecycleController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ): Promise<AlertItem> {
+    assertBrowserCollectionOrdering(dto.metadata);
     const existing = await this.operationAlerts.findByOperationKey(
       organizationId,
       operationKey,
@@ -96,7 +135,12 @@ export class OperationAlertLifecycleController {
     if (
       !existing ||
       existing.actorUserId !== user.id ||
-      !isBrowserOperationProducer(existing.type, existing.sourceType)
+      !isBrowserOperationProducer({
+        operationKey,
+        type: existing.type,
+        sourceType: existing.sourceType,
+        sourceId: existing.sourceId,
+      })
     ) {
       throw new NotFoundException(
         `operation alert not found: ${operationKey}`,
@@ -105,7 +149,6 @@ export class OperationAlertLifecycleController {
 
     const patch: OperationLifecyclePatch = {
       message: dto.message,
-      href: dto.href,
       progress: dto.progress,
       severity: dto.severity,
       metadata: dto.metadata,
@@ -157,6 +200,12 @@ export class OperationAlertLifecycleController {
     patch: OperationLifecyclePatch,
   ) {
     switch (status) {
+      case 'pending':
+        return this.operationAlerts.attention(
+          organizationId,
+          operationKey,
+          patch,
+        );
       case 'running':
         return this.operationAlerts.progress(
           organizationId,

@@ -36,6 +36,22 @@ describe('ThumbnailImageGenerationAdapter', () => {
 
     expect(generateContent).toHaveBeenCalledWith(expect.objectContaining({
       model: 'gemini-image-direct',
+      config: expect.objectContaining({
+        httpOptions: { timeout: 120_000 },
+      }),
     }));
+  });
+
+  it('does not invoke Gemini when the caller signal is already aborted', async () => {
+    const { adapter, generateContent } = makeAdapter();
+    const controller = new AbortController();
+    controller.abort('cancelled');
+
+    await expect(adapter.generateImageParts({
+      model: 'gemini-image-direct',
+      parts: [{ text: 'generate' }],
+      signal: controller.signal,
+    })).rejects.toBe('cancelled');
+    expect(generateContent).not.toHaveBeenCalled();
   });
 });

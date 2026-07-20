@@ -107,12 +107,12 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       date: currentMonthIso(5),
       spend: 5_000,
     });
-    await prisma.inventory.create({
+    await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        optionId: ownOption.id,
-        currentStock: 2,
-        reorderPoint: 5,
+        code: 'ACT-OWN-ZERO',
+        name: 'Own zero stock',
+        currentStock: 0,
       },
     });
 
@@ -136,6 +136,14 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       channelName: 'Foreign Negative Listing',
       optionId: foreignOption.id,
       externalOptionId: 'ACT-FGN-VI',
+    });
+    await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'ACT-FGN-ZERO',
+        name: 'Foreign zero stock',
+        currentStock: 0,
+      },
     });
     await seedOrderWithLineItems(prisma, {
       organizationId: OTHER_ORGANIZATION_ID,
@@ -164,16 +172,15 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     expect(taskKeys).toEqual(expect.arrayContaining([
       'h-minus-ad-stop',
       'h-ad-bid',
-      'h-reorder',
+      'h-zero-stock',
       'h-ad-rate',
       'analyze-deficit',
       'analyze-ad',
-      'analyze-stock',
     ]));
 
     const minusTask = result.find((task) => task.taskKey === 'h-minus-ad-stop');
     const highAdTask = result.find((task) => task.taskKey === 'h-ad-bid');
-    const reorderTask = result.find((task) => task.taskKey === 'h-reorder');
+    const zeroStockTask = result.find((task) => task.taskKey === 'h-zero-stock');
 
     expect(minusTask?.relatedProducts).toEqual([
       {
@@ -191,14 +198,8 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
         value: '50%',
       },
     ]);
-    expect(reorderTask?.relatedProducts).toEqual([
-      {
-        id: ownMaster.id,
-        name: 'Own Negative',
-        metric: '재고',
-        value: '2개 (기준 5)',
-      },
-    ]);
+    expect(zeroStockTask?.relatedProducts).toEqual([]);
+    expect(taskKeys).not.toContain('h-mapping-attention');
 
     const allRelatedNames = result.flatMap((task) => task.relatedProducts.map((row) => row.name));
     expect(allRelatedNames).toContain('Own Negative');
@@ -214,23 +215,13 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     expect(foreignStoredCount).toBe(0);
   });
 
-  it('keeps reorder task seeding and related products when the live metrics array is empty', async () => {
-    const stockOnlyMaster = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      code: 'ACT-STOCK',
-      name: 'Stock Only',
-    });
-    const stockOnlyOption = await setupProductOption(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      masterId: stockOnlyMaster.id,
-      sku: 'ACT-STOCK-SKU',
-    });
-    await prisma.inventory.create({
+  it('keeps the zero-stock review link when the live metrics array is empty', async () => {
+    await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        optionId: stockOnlyOption.id,
-        currentStock: 1,
-        reorderPoint: 3,
+        code: 'ACT-STOCK-ONLY',
+        name: 'Stock Only',
+        currentStock: 0,
       },
     });
 
@@ -238,8 +229,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
 
     const taskKeys = result.map((task) => task.taskKey);
     expect(taskKeys).toEqual(expect.arrayContaining([
-      'h-reorder',
-      'analyze-stock',
+      'h-zero-stock',
       'h-ad-csv',
       'recalc-grade',
       'analyze-ad-rules',
@@ -248,14 +238,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     expect(taskKeys).not.toContain('h-minus-ad-stop');
     expect(taskKeys).not.toContain('h-ad-bid');
 
-    const reorderTask = result.find((task) => task.taskKey === 'h-reorder');
-    expect(reorderTask?.relatedProducts).toEqual([
-      {
-        id: stockOnlyMaster.id,
-        name: 'Stock Only',
-        metric: '재고',
-        value: '1개 (기준 3)',
-      },
-    ]);
+    expect(result.find((task) => task.taskKey === 'h-zero-stock')?.relatedProducts).toEqual([]);
+    expect(taskKeys).not.toEqual(expect.arrayContaining(['h-reorder', 'analyze-stock']));
   });
 });

@@ -1,54 +1,44 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/rocket-orders - Coupang Rocket PO Confirmation
+# web/rocket-orders - Preserved Rocket Operations
 
-`app/(orders)/rocket-orders/` owns the operator UI for Coupang Rocket purchase
-orders: reading PO summaries from the order-collector extension, previewing
-confirm quantities through backend inventory logic, generating Coupang Excel
-files, and keeping a local browser history of generated files.
-
-## Owned Surfaces
-
-- PO list query by ETA range and Coupang Rocket status
-- Week, month, and chart summaries over extension-returned PO rows
-- PO row collection for confirm-preview and confirm-generate workflows
-- Manual confirm quantity review before Excel download
-- Local IndexedDB file history for generated Rocket confirm files
-
-## Data Flow
-
-```text
-order-collector extension
-  -> listRocketPos / collectRocketPoRows
-  -> /api/orders/rocket/confirm-preview
-  -> /api/orders/rocket/confirm-generate or confirm-fill
-  -> browser download + local IndexedDB history
-```
+`app/(orders)/rocket-orders/` owns the independently reachable Rocket
+operations UI from `c9e7caf8`. Its existing `납품 수량 판단 추후 연동`
+placeholder now hosts the deterministic Sellpia freshness, component-capacity,
+and confirmation workspace. Supply owns the action contract and shared preview
+components; `/rocket-orders` is the only operator-facing Rocket review route.
 
 ## State Rules
 
-- `page.tsx` keeps date/status/view/open-row state local.
-- The automatic PO list query is extension-backed and renders local errors, so
-  it uses `meta: { suppressGlobalErrorToast: true }`.
-- Use `apiClient.fetchRaw()` for Excel blob responses and check `res.ok`
-  before reading the blob.
-- `rocket-confirm-file-store.ts` is browser-only and must no-op when IndexedDB
-  is unavailable.
-- Keep shortage reason labels aligned with the backend-generated Coupang form.
+- Preserve Rocket collection and local file-history composition. The calendar
+  list reads tenant/account-scoped persisted PO catalog snapshots, and an
+  operator may reopen one snapshot without recollecting provider evidence.
+- Wire freshness, account selection, collection completeness, capacity reasons,
+  editable quantities, confirmation/workbook, and allocation release into the
+  existing decision placeholder.
+- A quantity edit makes the preview dirty and disables confirmation. The
+  operator must run one whole-preview revalidation; retained edits are sent
+  together and the server returns the effective shared-capacity allocation.
+- Persist commitments independently of transient workbook state. Do not render
+  the separate commitment-history list on the operator page; the active
+  confirmation state keeps release controls in the decision workspace.
 
 ## Boundary Rules
 
-- Do not call Coupang supplier pages directly from the web app. Collection goes
-  through `extensions/order-collector` capabilities.
-- Do not trust extension-collected quantities for final confirm calculation;
-  backend preview/generate endpoints own inventory matching.
-- Do not move generated-file history into server persistence without a scoped
-  data model and retention plan.
-- Do not show the generic global query toast for expected extension-availability
-  errors on the initial page render.
+- Use only the Supply `/api/purchase-orders` action contract. Do not call or
+  recreate `/api/orders/rocket/*` confirmation/generation endpoints.
+- Confirmation must not call a marketplace provider or mutate Sellpia physical
+  stock.
+- Reopening saved PO evidence must always rerun current Inventory freshness and
+  capacity; never reuse stored inventory quantities.
+- Display `currentStock`, `activeCommitmentQuantity`, and `availableStock`
+  separately. Final-order settlement is enabled only after a newer verified
+  Sellpia generation.
+- Do not replace or rearrange the preserved shell when integrating the shared
+  preview.
 
 ## Verification
 
 ```bash
-npm exec --workspace=apps/web vitest -- run src/components/providers/__tests__/query-client.spec.ts
+npm exec --workspace=apps/web vitest -- run src/app/\(orders\)/rocket-orders
 ```

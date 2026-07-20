@@ -54,13 +54,17 @@ import { useStore } from '@/store/useStore';
 import 'grapesjs/dist/css/grapes.min.css';
 import './grapesjs-editor.css';
 import { buildSizeGuideFrameHtml } from '../../lib/size-guide-frame';
+import {
+  DETAIL_TEMPLATE_STYLES_ATTR,
+  isLegacyEditedHtmlFallbackCss,
+} from '../../lib/template-html';
 import TemplateSelectionModal from '../detail-page/TemplateSelectionModal';
 import { useGenerateDetailPage, type GenerateMode } from '../../hooks/useGenerateDetailPage';
-import { AITextEditPanel } from './AITextEditPanel';
 import {
   DownloadOptionsModal,
   type DetailPageDownloadOptions,
 } from '../detail-page/DownloadOptionsModal';
+import { AITextEditPanel } from './AITextEditPanel';
 import EditorDetailMinimap from './EditorDetailMinimap';
 import EditorPagePanel from './EditorPagePanel';
 import EditorToolRail, { type EditorToolId } from './EditorToolRail';
@@ -610,11 +614,13 @@ function removeHeadOnlyElementsFromBody(doc: Document): void {
   doc.body.querySelectorAll('meta, base, title, link, script, style').forEach((el) => el.remove());
 }
 
-function sanitizePersistedHead(headHtml: string, viewportContent: string): string {
+export function sanitizePersistedHead(headHtml: string, viewportContent: string): string {
   const doc = new DOMParser().parseFromString(`<head>${headHtml}</head>`, 'text/html');
   const head = doc.head;
-  const hasCompiledTemplateStyles = Array.from(head.querySelectorAll('style')).some((style) =>
-    /tailwindcss v|NanumSquareRoundLocal|--font-display/i.test(style.textContent ?? ''),
+  const hasCompiledTemplateStyles = Array.from(head.querySelectorAll('style')).some(
+    (style) =>
+      style.hasAttribute(DETAIL_TEMPLATE_STYLES_ATTR) ||
+      /tailwindcss v/i.test(style.textContent ?? ''),
   );
 
   head.querySelectorAll('meta[charset], base, meta[name="viewport"]').forEach((el) => el.remove());
@@ -663,11 +669,10 @@ function sanitizePersistedHead(headHtml: string, viewportContent: string): strin
       /\.gjs-|\.gjs-selected|\.gjs-hovered|scrollbar-width:\s*none/i.test(text);
     const isLegacyEditedHtmlFallbackStyle =
       hasCompiledTemplateStyles &&
-      (text.includes('section[class*="from-[#1a1a1a]"]') ||
-        text.includes('relative > img.h-\\[500px\\]') ||
-        text.includes('.brightness-\\[0\\.7\\]') ||
-        /Black\s*Han\s*Sans/i.test(text));
+      (isLegacyEditedHtmlFallbackCss(text) || /Black\s*Han\s*Sans/i.test(text));
     const normalizedText = absolutizeFontUrls(text).trim();
+    const isCanonicalTemplateStyle =
+      style.hasAttribute(DETAIL_TEMPLATE_STYLES_ATTR) || /tailwindcss v/i.test(normalizedText);
     const isPersistedEditorComponentStyle =
       /#i[\w-]+\{/.test(normalizedText) &&
       !/tailwindcss v|@font-face|\.kiditem-|html\s*\{|body\s*\{/i.test(normalizedText);
@@ -684,6 +689,9 @@ function sanitizePersistedHead(headHtml: string, viewportContent: string): strin
     }
 
     style.removeAttribute('data-gjs-injected');
+    if (isCanonicalTemplateStyle) {
+      style.setAttribute(DETAIL_TEMPLATE_STYLES_ATTR, '');
+    }
     style.textContent = normalizedText;
     if (normalizedText) seenStyleText.add(normalizedText);
   });
@@ -741,20 +749,31 @@ function repairProductInfoTableWidthInDocument(doc: Document) {
   container.style.marginRight = 'auto';
 }
 
-function repairPackageImageFramesInDocument(doc: Document) {
-  doc.querySelectorAll<HTMLElement>('[data-role="package-image-frame"]').forEach((frame) => {
-    frame.style.overflow = 'hidden';
-    frame.style.borderRadius = '34px';
-    frame.style.background = 'transparent';
-    frame.style.border = '0';
-    frame.style.padding = '0';
-    frame.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
-      img.style.mixBlendMode = '';
+export function repairPackageImageFramesInDocument(doc: Document) {
+  doc
+    .querySelectorAll<HTMLImageElement>('[data-container="detailPackageImages"] img')
+    .forEach((img) => {
+      let frame = img.closest<HTMLElement>('[data-role="package-image-frame"]');
+      if (!frame) {
+        const parent = img.parentElement;
+        if (!parent) return;
+        frame = parent;
+        frame.setAttribute('data-role', 'package-image-frame');
+      }
+
+      frame.classList.add('overflow-hidden');
+      frame.style.overflow = 'hidden';
+      frame.style.borderRadius = '34px';
+      frame.style.border = '1px solid #d8ebf7';
+      frame.style.background = '#eaf6ff';
+      frame.style.padding = '40px';
       img.style.display = 'block';
       img.style.width = '100%';
       img.style.height = 'auto';
+      img.style.objectFit = 'contain';
+      img.style.borderRadius = '24px';
+      img.style.mixBlendMode = 'multiply';
     });
-  });
 }
 
 function repairSafetyLabelFramesInDocument(doc: Document) {
@@ -1207,7 +1226,7 @@ function buildPersistedEditorHtml(
   );
   const html = inlineEditorCssIntoHtml(editor.getHtml(), css);
   const headResources = sanitizePersistedHead(
-    `${parsed.headHtml}\n${buildDetailEditorFontStyleTag()}\n${templateCss ? `<style>${templateCss}</style>` : ''}`,
+    `${parsed.headHtml}\n${buildDetailEditorFontStyleTag()}\n${templateCss ? `<style ${DETAIL_TEMPLATE_STYLES_ATTR}>${templateCss}</style>` : ''}`,
     parsed.viewportContent,
   );
   const bodyMarkup = normalizeBodyMarkup(html, parsed.bodyAttrs);
@@ -3945,6 +3964,7 @@ export default function DetailPageEditor({
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [editorRef, setEditorRef] = useState<Editor | null>(null);
+  const editorCleanupRef = useRef<(() => void) | null>(null);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [activeLeftTool, setActiveLeftTool] = useState<EditorToolId>('pages');
@@ -3966,11 +3986,19 @@ export default function DetailPageEditor({
     };
   }, []);
 
+  useEffect(() => () => {
+    editorCleanupRef.current?.();
+    editorCleanupRef.current = null;
+  }, []);
+
   const handleEditorInit = useCallback(
     (editor: Editor) => {
+      editorCleanupRef.current?.();
+      editorCleanupRef.current = null;
       setEditorRef(editor);
       editor.setDevice(parsed.viewportWidth <= 720 ? 'detail-640' : 'detail-720');
       let frameHeightSyncTimer: number | null = null;
+      const frameListenerCleanups: Array<() => void> = [];
       const scheduleFrameHeightSync = () => {
         if (frameHeightSyncTimer !== null) window.clearTimeout(frameHeightSyncTimer);
         frameHeightSyncTimer = window.setTimeout(() => {
@@ -3979,15 +4007,16 @@ export default function DetailPageEditor({
         }, 80);
       };
 
-      editor.on('canvas:frame:load:body', ({ window: iframeWindow }: { window: Window }) => {
+      const handleFrameLoadResources = ({ window: iframeWindow }: { window: Window }) => {
         injectHeadResources(iframeWindow, parsed);
         iframeWindow.document.querySelectorAll('img').forEach((image) => {
           image.addEventListener('load', scheduleFrameHeightSync, { once: true });
+          frameListenerCleanups.push(() => image.removeEventListener('load', scheduleFrameHeightSync));
         });
         scheduleFrameHeightSync();
-      });
+      };
 
-      editor.on('component:selected', (component: any) => {
+      const handleComponentSelected = (component: any) => {
         const imageComponent = getEditableImageComponent(component);
         const type = (component.get('type') as string) ?? '';
         const tagName = ((component.get('tagName') as string) ?? '').toLowerCase();
@@ -4023,13 +4052,13 @@ export default function DetailPageEditor({
           lastSelectedImageComponentRef.current = null;
           setSelectedTextComponent(null);
         }
-      });
-      editor.on('component:deselected', () => {
+      };
+      const handleComponentDeselected = () => {
         setSelectedTextComponent(null);
-      });
+      };
 
-      editor.on('canvas:frame:load:body', ({ window: iframeWin }: { window: Window }) => {
-        iframeWin.document.addEventListener('keydown', (e: KeyboardEvent) => {
+      const handleFrameLoadDeleteShortcut = ({ window: iframeWin }: { window: Window }) => {
+        const handleFrameKeyDown = (e: KeyboardEvent) => {
           if (e.key !== 'Delete' && e.key !== 'Backspace') return;
           const sel = editor.getSelected();
           if (!sel) return;
@@ -4040,10 +4069,14 @@ export default function DetailPageEditor({
             e.stopPropagation();
             removeImageComponent(editor, sel);
           }
-        }, { capture: true });
-      });
+        };
+        iframeWin.document.addEventListener('keydown', handleFrameKeyDown, { capture: true });
+        frameListenerCleanups.push(() => {
+          iframeWin.document.removeEventListener('keydown', handleFrameKeyDown, true);
+        });
+      };
 
-      editor.on('component:add', (component: any) => {
+      const handleImageComponentAdd = (component: any) => {
         if (component.get('type') !== 'image') return;
         makeImageComponentInteractive(component);
         const src = component.getAttributes()?.src;
@@ -4064,7 +4097,7 @@ export default function DetailPageEditor({
             return;
           }
         }
-      });
+      };
       const handleComponentRemove = (component: any) => {
         scheduleFrameHeightSync();
         if (isImageComponent(component) || !isAttachedComponent(lastSelectedImageComponentRef.current)) {
@@ -4074,9 +4107,29 @@ export default function DetailPageEditor({
         }
       };
 
+      editor.on('canvas:frame:load:body', handleFrameLoadResources);
+      editor.on('component:selected', handleComponentSelected);
+      editor.on('component:deselected', handleComponentDeselected);
+      editor.on('canvas:frame:load:body', handleFrameLoadDeleteShortcut);
+      editor.on('component:add', handleImageComponentAdd);
       editor.on('component:update', scheduleFrameHeightSync);
       editor.on('component:remove', handleComponentRemove);
       editor.on('component:add', scheduleFrameHeightSync);
+      editorCleanupRef.current = () => {
+        if (frameHeightSyncTimer !== null) {
+          window.clearTimeout(frameHeightSyncTimer);
+          frameHeightSyncTimer = null;
+        }
+        editor.off('canvas:frame:load:body', handleFrameLoadResources);
+        editor.off('component:selected', handleComponentSelected);
+        editor.off('component:deselected', handleComponentDeselected);
+        editor.off('canvas:frame:load:body', handleFrameLoadDeleteShortcut);
+        editor.off('component:add', handleImageComponentAdd);
+        editor.off('component:update', scheduleFrameHeightSync);
+        editor.off('component:remove', handleComponentRemove);
+        editor.off('component:add', scheduleFrameHeightSync);
+        frameListenerCleanups.splice(0).forEach((cleanup) => cleanup());
+      };
 
       rawImages.forEach((url, i) => {
         editor.Blocks.add(`raw-image-${i}`, {

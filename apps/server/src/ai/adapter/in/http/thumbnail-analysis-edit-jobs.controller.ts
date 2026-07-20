@@ -18,7 +18,7 @@ export class ThumbnailAnalysisEditJobsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.generationService.createEditJobs(
-      body.productIds,
+      body.contentWorkspaceIds,
       organizationId,
       body.purpose ?? 'compliance',
       body.variantKey ?? null,

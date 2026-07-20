@@ -178,6 +178,63 @@ describe('SourcingPlaywrightRuntimeHandler', () => {
     });
   });
 
+  it('falls back to an isolated temporary profile when the persistent sourcing profile is locked', async () => {
+    const evaluate = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        model: {
+          offerDetail: {
+            offerId: 1,
+            subject: '락 복구 상품',
+            imageList: [{ fullPathImageURI: 'https://img.example/recovered.jpg' }],
+          },
+          tradeModel: { minPrice: '15.00' },
+          sellerModel: { companyName: '복구 공급사' },
+        },
+      });
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForFunction: vi.fn().mockResolvedValue({ jsonValue: vi.fn().mockResolvedValue('context') }),
+      evaluate,
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    };
+    const persistentLockError = new Error(
+      'browserType.launchPersistentContext: Failed to create a ProcessSingleton for your profile directory. Failed to create SingletonLock: File exists',
+    );
+    const contextMock = {
+      pages: () => [page],
+      newPage: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.mocked(chromium.launchPersistentContext)
+      .mockRejectedValueOnce(persistentLockError)
+      .mockResolvedValueOnce(contextMock as never);
+    const handler = new SourcingPlaywrightRuntimeHandler();
+
+    const result = await handler.execute(context());
+
+    expect(chromium.launchPersistentContext).toHaveBeenCalledTimes(2);
+    expect(chromium.launchPersistentContext).toHaveBeenNthCalledWith(
+      1,
+      '/tmp/kiditem-sourcing-profile',
+      expect.any(Object),
+    );
+    const fallbackProfile = vi.mocked(chromium.launchPersistentContext).mock.calls[1][0];
+    expect(fallbackProfile).toContain('kiditem-sourcing-profile-');
+    expect(contextMock.close).toHaveBeenCalled();
+    expect(result).toMatchObject({
+      output: {
+        ok: true,
+        scraped_data: {
+          title: '락 복구 상품',
+          source_platform: '1688',
+          supplier_name: '복구 공급사',
+        },
+      },
+    });
+  });
+
   it('returns failed output without creating an Agent OS runtime exception when extraction returns no data', async () => {
     const page = {
       goto: vi.fn().mockResolvedValue(undefined),

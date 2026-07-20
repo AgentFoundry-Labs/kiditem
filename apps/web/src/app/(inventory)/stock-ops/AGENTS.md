@@ -1,24 +1,42 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/stock-ops - Stock Operation Projections
+# web/stock-ops - Inventory Analysis
 
-`stock-ops/` owns stock operation views and local projection helpers that
-combine inventory, order, and purchase-order read models for operator decisions.
+`stock-ops/` owns the analysis-only inventory surface: what stock is doing,
+not what an operator does to it. Inventory operations live in
+`/inventory-hub`.
 
 ## State Rules
 
-- Keep projection helpers in `lib/` pure and tested.
-- Use React Query for source read models; do not mirror server state in local
-  stores.
-- Inventory mutations invalidate `queryKeys.inventory.all` and any affected
-  stock movement keys.
+- This route owns `product-outflow` and `channel-zero`. Anything that is an
+  operator action, a record, or an import concern belongs in `/inventory-hub`.
+- `MOVED_TABS` in `page.tsx` is the compatibility contract for the tabs that
+  moved to `/inventory-hub`. Dashboard cards, `DashboardSidePanel`, and server
+  automation seeds still link to `?tab=sellpia-zero` and `?tab=freshness`;
+  removing an entry breaks those alerts silently. Add an entry, never delete
+  one, and keep the page spec's redirect table in sync.
+- `bottlenecks` is retired. Its aliased landing is `channel-zero`, which shows
+  the same backend bottleneck flags.
+- Keep inactive workspaces from running unnecessary timers, requests, or
+  toasts.
+- Mapping recipe edits link to
+  `/product-hub/matching`; the analysis page does not save recipes itself.
+- `product-outflow` reads the Analytics-owned direct Sellpia SKU depletion
+  projection. Matched rows show physical current stock, active common
+  commitment, and available stock separately; reorder and months-left use
+  available stock.
+- `mapping_required` (`SKU 없음`, `비활성 SKU`, `바코드 중복`) and
+  `not_collected` are not zero stock and must not enter reorder counts.
+  Preserve all linked operating-product destinations and label duplicated
+  sales rows as aggregated demand.
 
 ## Boundary Rules
 
-- Do not make order lifecycle decisions in UI projections.
-- Do not duplicate backend stock availability math inside components.
-- If a projection becomes source-of-truth, move it to a backend read model
-  before depending on it for mutations.
+- Do not turn the whole route into a redirect to `/inventory-hub`. Per-tab
+  redirects for moved views are the supported mechanism.
+- Do not write Sellpia stock or duplicate backend capacity calculations.
+- Do not infer a single operating product for a shared SKU or merge this route
+  into `/product-hub`; use links between the two independent screens.
 
 ## Verification
 

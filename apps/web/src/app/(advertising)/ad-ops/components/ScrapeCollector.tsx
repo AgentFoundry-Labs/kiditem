@@ -1,10 +1,17 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { BrowserCollectionRunIdSchema, type BrowserCollectionProducer } from '@kiditem/shared/browser-collection-session';
+import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Plus, Trash2, ExternalLink, Loader2, X } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
-import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
+import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime } from '@/lib/utils';
 
@@ -24,21 +31,30 @@ interface ScrapeResult {
   error?: string;
 }
 
-interface ScrapeTargetsResponse {
-  success?: boolean;
-  results?: ScrapeResult[];
-  error?: string;
-}
+const AD_SYNC_URL = 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
 
 export default function ScrapeCollector({ onComplete }: { onComplete?: () => void }) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const searchParams = useSearchParams();
+  const queryRunResult = BrowserCollectionRunIdSchema.safeParse(
+    searchParams.get('collectionRun'),
+  );
+  const queryRunId = queryRunResult.success ? queryRunResult.data : null;
+  const [open, setOpen] = useState(Boolean(queryRunId));
   const [loading, setLoading] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [extensionStatus, setExtensionStatus] = useState<'checking' | 'connected' | 'not_found'>('checking');
   const [extensionId, setExtensionId] = useState<string | null>(null);
   const [results, setResults] = useState<ScrapeResult[] | null>(null);
+  const [runId, setRunId] = useState<string | null>(queryRunId);
+  const collectionSession = useBrowserCollectionSession(runId);
+
+  useEffect(() => {
+    if (!queryRunId) return;
+    setRunId(queryRunId);
+    setOpen(true);
+  }, [queryRunId]);
 
   const { data: targets = [], refetch: refetchTargets } = useQuery({
     queryKey: queryKeys.ads.scrapeTargets(),
@@ -81,46 +97,82 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
     refetchTargets();
   };
 
-  const startCollect = async () => {
-    if (targets.length === 0) return;
+  const collectTargets = async (
+    producer: Extract<
+      BrowserCollectionProducer,
+      'advertising.ad_sync' | 'advertising.scrape_targets'
+    >,
+    requestedRunId?: string,
+  ) => {
+    const selectedTargets =
+      producer === 'advertising.ad_sync'
+        ? [{ id: 'ad-sync', url: AD_SYNC_URL, label: '광고 동기화' }]
+        : targets;
+    if (selectedTargets.length === 0) return;
     setLoading(true);
     setResults(null);
 
     const eid = await findExtensionId();
     if (!eid) {
-      // 폴백: 새 탭으로 열기
-      for (const t of targets) {
-        window.open(t.url, '_blank');
-        await new Promise(r => setTimeout(r, 1000));
-      }
+      const missing = await recordMissingBrowserCollection(producer, {
+        targetCount: selectedTargets.length,
+        trigger: 'ad_ops',
+      }, requestedRunId);
+      setRunId(missing.runId);
       setLoading(false);
-      setResults(targets.map(t => ({ url: t.url, label: t.label, success: true, count: 0, error: '탭으로 열림 (수동 확인)' })));
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: queryKeys.ads.collectStatus() });
-        onComplete?.();
-      }, 5000);
+      setResults([{ success: false, error: '익스텐션 연결이 필요합니다.' }]);
       return;
     }
 
     try {
-      const result = await sendToExtension<ScrapeTargetsResponse>(eid, {
-        action: 'scrapeTargets',
-        urls: targets.map(t => ({ id: t.id, url: t.url, label: t.label })),
+      const nextRunId = requestedRunId ?? crypto.randomUUID();
+      setRunId(nextRunId);
+      const check: ReadinessCheck = {
+        key: producer === 'advertising.ad_sync' ? 'ad_sync' : 'scrape_targets',
+        label: producer === 'advertising.ad_sync' ? '광고 동기화' : '광고 정보 수집',
+        status: 'missing',
+        detail: '광고센터 백그라운드 수집',
+        lastSyncedAt: null,
+        count: null,
+        collector: 'extension',
+        collectEndpoint: null,
+        scrapeUrls: selectedTargets.map((target) => target.url),
+        referenceDate: null,
+        expectedDates: null,
+        missingDates: null,
+      };
+      const session = await runReadinessExtensionCollection({
+        check,
+        producer,
+        extensionId: eid,
+        runId: nextRunId,
       });
-      if (result.success === false) {
-        throw new Error(result.error ?? '익스텐션 수집 실패');
-      }
-      setResults(result.results || []);
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: queryKeys.ads.collectStatus() });
-        onComplete?.();
-      }, 2000);
+      setResults(
+        selectedTargets.map((target, index) => ({
+          url: target.url,
+          label: target.label,
+          success:
+            session.status === 'succeeded' &&
+            index < session.progress.completed,
+          count: 0,
+          error:
+            session.status === 'attention_required'
+              ? session.attention?.message
+              : session.status === 'failed'
+                ? session.progress.label ?? '수집 실패'
+                : undefined,
+        })),
+      );
+      await queryClient.invalidateQueries({ queryKey: queryKeys.ads.collectStatus() });
+      onComplete?.();
     } catch (e) {
       setResults([{ success: false, error: e instanceof Error ? e.message : '익스텐션 통신 실패' }]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
+
+  const startCollect = () => collectTargets('advertising.scrape_targets');
 
   return (
     <>
@@ -198,6 +250,21 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
             </div>
 
             {/* 수집 결과 */}
+            {collectionSession.data && (
+              <div className="border-t px-6 py-3">
+                <BrowserCollectionRunControls
+                  session={collectionSession.data}
+                  onWebRestart={(session) =>
+                    collectTargets(
+                      session.producer === 'advertising.ad_sync'
+                        ? 'advertising.ad_sync'
+                        : 'advertising.scrape_targets',
+                      session.runId,
+                    )
+                  }
+                />
+              </div>
+            )}
             {results && (
               <div className="px-6 py-3 bg-slate-50 border-t space-y-1.5">
                 <div className="text-xs font-bold text-slate-700">수집 결과</div>
