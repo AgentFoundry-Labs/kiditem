@@ -41,8 +41,13 @@ describe('guarded authoritative database rebuild workflows', () => {
     assert.match(workflow, /EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA\b/);
     assert.match(workflow, /DATABASE_URL_SHA256/);
     assert.match(workflow, /EXPECTED_DATABASE_NAME/);
-    assert.match(workflow, /baseline-export/);
-    assert.match(workflow, /baseline-restore/);
+    assert.match(
+      workflow,
+      /u\.pathname\.startsWith\("\/"\) \? u\.pathname\.slice\(1\) : u\.pathname/,
+    );
+    assert.doesNotMatch(workflow, /baseline-export/);
+    assert.doesNotMatch(workflow, /baseline-restore/);
+    assert.doesNotMatch(workflow, /data-migration-baseline\.json/);
     assert.match(workflow, /retention-days: 1/);
 
     for (const forbidden of [
@@ -99,6 +104,11 @@ describe('guarded authoritative database rebuild workflows', () => {
       assert.match(workflow, /DATABASE_URL_SHA256/);
       assert.match(workflow, /EXPECTED_DATABASE_NAME/);
       assert.match(workflow, /current_database\(\)/);
+      assert.match(
+        workflow,
+        /u\.pathname\.startsWith\("\/"\) \? u\.pathname\.slice\(1\) : u\.pathname/,
+      );
+      assert.doesNotMatch(workflow, /pathname\.replace\(\/\^\\\\\//);
       assert.match(workflow, /baseline-export/);
       assert.match(workflow, /baseline-restore/);
       assert.match(workflow, new RegExp(`${environment.name.toUpperCase()}_REBUILD_SELLPIA_FILE_SHA256`));

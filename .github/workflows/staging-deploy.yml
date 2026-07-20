@@ -216,7 +216,7 @@ jobs:
           : "${EXPECTED_DATABASE_NAME:?Set staging expected database-name variable}"
           actual_url_sha="$(printf '%s' "$DATABASE_URL" | sha256sum | cut -d' ' -f1)"
           [[ "$actual_url_sha" == "$DATABASE_URL_SHA256" ]] || { echo "database URL fingerprint mismatch" >&2; exit 2; }
-          url_database="$(DATABASE_URL="$DATABASE_URL" node -e 'const u=new URL(process.env.DATABASE_URL); process.stdout.write(decodeURIComponent(u.pathname.replace(/^\\//,"")))')"
+          url_database="$(DATABASE_URL="$DATABASE_URL" node -e 'const u=new URL(process.env.DATABASE_URL); process.stdout.write(decodeURIComponent(u.pathname.startsWith("/") ? u.pathname.slice(1) : u.pathname))')"
           [[ "$url_database" == "$EXPECTED_DATABASE_NAME" ]] || { echo "database URL pathname mismatch" >&2; exit 2; }
           live_database="$(psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database()')"
           [[ "$live_database" == "$EXPECTED_DATABASE_NAME" ]] || { echo "live current_database() mismatch" >&2; exit 2; }
@@ -301,24 +301,12 @@ jobs:
           REBUILD_ACCOUNT_BASELINE_PATH: ${{ runner.temp }}/staging-account-baseline.json
         run: npm run inventory:rebuild -- export-staging-accounts --origin-run-id "${{ github.run_id }}"
 
-      - name: Export migration ledger rebuild baseline
-        if: inputs.destructive_reset != ''
-        env:
-          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          DATA_MIGRATION_TARGET: staging
-          REBUILD_EXPECTED_GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
-          REBUILD_ORIGIN_RUN_ID: ${{ github.run_id }}
-          REBUILD_MIGRATION_BASELINE_PATH: ${{ runner.temp }}/data-migration-baseline.json
-        run: npm run data:migrate -- baseline-export
-
       - name: Preserve private rebuild bundle for one day
         if: inputs.destructive_reset != ''
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: authoritative-rebuild-${{ github.run_id }}-staging
-          path: |
-            ${{ runner.temp }}/staging-account-baseline.json
-            ${{ runner.temp }}/data-migration-baseline.json
+          path: ${{ runner.temp }}/staging-account-baseline.json
           if-no-files-found: error
           retention-days: 1
 
@@ -347,16 +335,6 @@ jobs:
           set -euo pipefail
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npx prisma generate
-
-      - name: Restore migration ledger rebuild baseline
-        if: inputs.destructive_reset != ''
-        env:
-          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          DATA_MIGRATION_TARGET: staging
-          REBUILD_EXPECTED_GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
-          REBUILD_ORIGIN_RUN_ID: ${{ github.run_id }}
-          REBUILD_MIGRATION_BASELINE_PATH: ${{ runner.temp }}/data-migration-baseline.json
-        run: npm run data:migrate -- baseline-restore
 
       - name: Restore staging account baseline
         if: inputs.destructive_reset != ''
