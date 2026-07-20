@@ -45,8 +45,9 @@ describe('guarded authoritative database rebuild workflows', () => {
       workflow,
       /u\.pathname\.startsWith\("\/"\) \? u\.pathname\.slice\(1\) : u\.pathname/,
     );
-    assert.match(workflow, /baseline-export/);
-    assert.match(workflow, /baseline-restore/);
+    assert.doesNotMatch(workflow, /baseline-export/);
+    assert.doesNotMatch(workflow, /baseline-restore/);
+    assert.doesNotMatch(workflow, /data-migration-baseline\.json/);
     assert.match(workflow, /retention-days: 1/);
 
     for (const forbidden of [
