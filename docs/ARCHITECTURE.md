@@ -501,10 +501,10 @@ SourcingCandidate (status: sourced | rejected)
      + marks the ProductPreparation compatibility projection registered
 ```
 
-Legacy registered preparations are imported as terminal succeeded bookkeeping
-only after their scoped candidate/account/listing and frozen payload hash are
-validated. Legacy submitting or failed preparations become failed or
-reconciling executions and never regain create eligibility. Listing deletion
+No legacy preparation or deletion rows are copied into these operation ledgers.
+The staging cutover rebuilds non-auth application data against the final schema,
+and environments with data worth preserving require a separately reviewed,
+hash-bound migration before adopting this ownership model. Listing deletion
 authorization and uncertainty live in `ChannelListingDeletionOperation`; an
 extension-observed success alone remains `reconciling/uncertain` and cannot
 deactivate the listing until an independent provider verifier confirms it.
@@ -517,9 +517,10 @@ to organization, candidate, and selected channel account. The same candidate
 may therefore have one active draft per account, while duplicate active drafts
 for the same account are rejected deterministically.
 
-The release data-migration chain rewrites only legacy `promoted` candidate rows
-to `sourced`; rolling-deploy read projections perform the same normalization
-until every environment has recorded the migration.
+Historical sourcing migrations populated compatibility rows for older candidate
+and content models. This reconstruction intentionally adds no registration or
+deletion ledger backfill because staging application data is rebuilt and there
+is no legacy marketplace operation history to preserve.
 
 `ContentWorkspace.ownerType` is `sourcing_candidate`, `channel_listing`, or
 `direct_detail_page`. Registration branches selected artifact/revision metadata

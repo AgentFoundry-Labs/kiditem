@@ -30,11 +30,6 @@
       "import": "./dist/sourcing/index.js",
       "require": "./dist/sourcing/index.cjs"
     },
-    "./product-preparation-payload": {
-      "types": "./dist/product-preparation-payload.d.ts",
-      "import": "./dist/product-preparation-payload.js",
-      "require": "./dist/product-preparation-payload.cjs"
-    },
     "./channel-listing": {
       "types": "./dist/channel-listing.d.ts",
       "import": "./dist/channel-listing.js",
@@ -266,9 +261,6 @@
       ],
       "sourcing": [
         "dist/sourcing/index.d.ts"
-      ],
-      "product-preparation-payload": [
-        "dist/product-preparation-payload.d.ts"
       ],
       "channel-listing": [
         "dist/channel-listing.d.ts"

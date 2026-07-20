@@ -47,8 +47,12 @@
   sent to the global command-center query.
 - Product create/edit mutations invalidate only the product operations list and
   affected detail keys.
-- Product detail owns complete recipe replacement through focused physical
-  Inventory search. Matching has only the version-fenced create-if-empty command.
+- Product detail owns manual complete recipe replacement through the focused
+  physical Inventory candidate search. Manual variant recipe edits are complete
+  atomic replacements: operators select confirmed physical Inventory identities,
+  and a component is saved by `sellpiaInventorySkuId` and positive integer
+  quantity. Matching may invoke the separate version-fenced create-if-empty
+  command for one component with a backend-verified positive integer quantity.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
 - Candidate generation on `/product-hub/matching` never confirms an identity

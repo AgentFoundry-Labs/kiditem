@@ -388,10 +388,9 @@ deploy/staging/remote-deploy.sh
 ```
 
 Normal deploys keep the ordered pre-schema migration, non-destructive
-`prisma db push`, and post-schema migration path. After the registration-ledger
-and guarded-rebuild PRs have both merged, perform one combined staging deploy;
-do not deploy or reset between those PRs. The explicit authoritative rebuild
-path is:
+`prisma db push`, and post-schema migration path. Finish and merge every PR in
+the release train first, then perform one combined staging deploy; do not deploy
+or reset between those PRs. The explicit authoritative rebuild path is:
 
 ```text
 operation: deploy
@@ -409,8 +408,10 @@ does the workflow deterministically recreate the configured Organization,
 matching User mirror, active Membership, and ChannelAccount identities from
 those validated sources. The
 `data_migration_runs` ledger must reflect migrations actually executed against
-the rebuilt schema; never copy stale pre-reset success rows or mark a migration
-complete without its recorded result. The workflow then starts the application with
+the rebuilt schema, or an explicitly validated, schema-hash-bound
+`subsumed_by_authoritative_rebuild` result for work made unnecessary by that
+rebuild. Never copy stale pre-reset success rows blindly or mark a migration
+complete without the matching recorded result. The workflow then starts the application with
 `inventory.rebuild.status=snapshot_required`. No source workbook is read from
 the repository or stored in the artifact.
 
