@@ -5,8 +5,6 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ChannelListingDeletionTarget,
   ChannelListingDeletionAuthorizationInput,
-  ChannelListingDeletionCompletionInput,
-  ChannelListingDeletionCompletionResult,
   ChannelListingDeletionExecutionClaim,
   ChannelListingDeletionOperationLookup,
   ChannelListingDeletionOperationResult,
@@ -358,48 +356,6 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     });
   }
 
-  async completeDeletion(
-    input: ChannelListingDeletionCompletionInput,
-  ): Promise<ChannelListingDeletionCompletionResult> {
-    return this.prisma.$transaction(async (tx) => {
-      await assertLockedListing(tx, input.organizationId, input.listingId);
-      await lockDeletionOperation(tx, input.organizationId, input.operationId);
-      const operation = await tx.channelListingDeletionOperation.findFirst({
-        where: {
-          id: input.operationId,
-          organizationId: input.organizationId,
-          channelListingId: input.listingId,
-        },
-      });
-      if (!operation) throw new NotFoundException('Deletion operation not found.');
-      assertOperationActor(operation.requestedByUserId, input.userId);
-      if (operation.status === 'succeeded' && operation.providerOutcome === 'succeeded') {
-        return succeededResult(operation);
-      }
-      if (operation.status !== 'executing' || operation.providerOutcome !== 'uncertain') {
-        throw new ConflictException('Deletion operation cannot be completed from its current state.');
-      }
-
-      const deactivated = await tx.channelListing.updateMany({
-        where: { id: input.listingId, organizationId: input.organizationId, isActive: true },
-        data: { isActive: false, status: 'deleted' },
-      });
-      if (deactivated.count !== 1) throw new ConflictException('Marketplace listing changed concurrently.');
-      await tx.channelListingDeletionOperation.update({
-        where: { id: operation.id },
-        data: {
-          status: 'succeeded',
-          providerOutcome: 'succeeded',
-          resultJson: { independentlyReconciled: true, externalListingId: operation.externalListingId },
-          completedAt: new Date(),
-          lastErrorCode: null,
-          lastErrorMessage: null,
-        },
-      });
-      return succeededResult(operation);
-    });
-  }
-
   async markDeletionUnresolved(
     input: ChannelListingDeletionUnresolvedInput,
   ): Promise<ChannelListingDeletionUnresolvedResult> {
@@ -507,17 +463,6 @@ function toAuthorizationResult(
     expectedVendorId: operation.expectedProviderAccountId,
     status: 'executing',
     providerOutcome: 'uncertain',
-  };
-}
-
-function succeededResult(operation: { id: string; channelListingId: string; externalListingId: string }) {
-  return {
-    operationId: operation.id,
-    listingId: operation.channelListingId,
-    externalId: operation.externalListingId,
-    isActive: false as const,
-    status: 'succeeded' as const,
-    providerOutcome: 'succeeded' as const,
   };
 }
 

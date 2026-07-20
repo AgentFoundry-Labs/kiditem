@@ -84,19 +84,6 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
     await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } })).resolves.toMatchObject({ isActive: true });
   });
 
-  it('completion deactivates once and replays the same durable success', async () => {
-    const operation = await startOperation();
-    const input = {
-      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, operationId: operation.operationId,
-      evidence: { vendorId: 'A00012345', source: 'dom:data-vendor-id' as const },
-    };
-    const [left, right] = await Promise.all([repository.completeDeletion(input), repository.completeDeletion(input)]);
-
-    expect(left).toEqual(right);
-    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } })).resolves.toMatchObject({ isActive: false, status: 'deleted' });
-    await expect(prisma.channelListingDeletionOperation.findUniqueOrThrow({ where: { id: operation.operationId } })).resolves.toMatchObject({ status: 'succeeded', providerOutcome: 'succeeded' });
-  });
-
   it('blocks deletion start while an active registration owns the same locked listing', async () => {
     const workspace = await prisma.contentWorkspace.create({
       data: {
@@ -123,22 +110,47 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
     await expect(prisma.channelListingDeletionOperation.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(0);
   });
 
-  it('never lets registration finalization reactivate a provider-deleted listing in the lock race', async () => {
-    const operation = await startOperation();
+  it('serializes registration finalization versus deletion start on the same listing lock', async () => {
     const registration = new MarketplaceRegistrationRepositoryAdapter(prisma as unknown as PrismaService);
-    const completion = repository.completeDeletion({
-      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, operationId: operation.operationId,
-      evidence: { vendorId: 'A00012345', source: 'dom:data-vendor-id' },
-    });
-    const reactivation = prisma.$transaction((tx) => registration.resolveProductRegistration(tx, {
+    const deletionStart = startOperation();
+    const registrationFinalize = prisma.$transaction((tx) => registration.resolveProductRegistration(tx, {
       organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId, channelAccountId: ACCOUNT,
       submissionKey: randomUUID(), externalListingId: '16311428128', displayName: 'Attempted reactivation',
     }));
 
-    const outcomes = await Promise.allSettled([completion, reactivation]);
+    const outcomes = await Promise.allSettled([deletionStart, registrationFinalize]);
     expect(outcomes[0].status).toBe('fulfilled');
-    expect(outcomes[1].status).toBe('rejected');
-    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } })).resolves.toMatchObject({ isActive: false, status: 'deleted' });
+    // Either registration wins then deletion starts, or deletion wins and
+    // registration rejects its active-operation fence. Neither path deactivates.
+    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } })).resolves.toMatchObject({ isActive: true });
+    await expect(prisma.channelListingDeletionOperation.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(1);
+  });
+
+  it('scopes claims to exact organization, listing, and account identities', async () => {
+    const operation = await startOperation();
+    const otherAccount = '22222222-2222-4222-8222-222222222222';
+    await prisma.channelAccount.create({
+      data: { id: otherAccount, organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Other Wing', status: 'active', vendorId: 'A00099999' },
+    });
+    const otherListing = await prisma.channelListing.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: otherAccount, sourceCandidateId: candidateId, externalId: '16311428129', isActive: true },
+    });
+    await expect(repository.claimDeletionExecution({
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId: otherListing.id, operationId: operation.operationId,
+    })).rejects.toThrow('Deletion operation not found');
+    await expect(repository.claimDeletionExecution({
+      organizationId: 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e', userId: OTHER_USER_ID, listingId, operationId: operation.operationId,
+    })).rejects.toThrow('등록 상품을 찾을 수 없습니다');
+  });
+
+  it('refuses an actually expired claim before any browser action can be authorized', async () => {
+    const operation = await startOperation();
+    await prisma.channelListingDeletionOperation.update({
+      where: { id: operation.operationId }, data: { authorizationExpiresAt: new Date(Date.now() - 1_000) },
+    });
+    await expect(repository.claimDeletionExecution({
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, operationId: operation.operationId,
+    })).rejects.toThrow('unavailable or expired');
   });
 
   it('marks an unknown browser result reconciling while preserving the active listing', async () => {

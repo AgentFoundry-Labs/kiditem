@@ -76,7 +76,6 @@ export interface ChannelListingRepositoryPort {
 
   authorizeDeletion(input: ChannelListingDeletionAuthorizationInput): Promise<ChannelListingDeletionOperationResult>;
   claimDeletionExecution(input: ChannelListingDeletionOperationLookup): Promise<ChannelListingDeletionExecutionClaim>;
-  completeDeletion(input: ChannelListingDeletionCompletionInput): Promise<ChannelListingDeletionCompletionResult>;
   markDeletionUnresolved(input: ChannelListingDeletionUnresolvedInput): Promise<ChannelListingDeletionUnresolvedResult>;
   getDeletionOperation(input: ChannelListingDeletionOperationLookup): Promise<ChannelListingDeletionOperationStatus | null>;
 }
@@ -87,13 +86,6 @@ export interface ChannelListingDeletionAuthorizationInput {
   listingId: string;
   idempotencyKey: string;
   requestHash: string;
-}
-
-export interface ChannelListingDeletionCompletionInput {
-  organizationId: string;
-  userId: string;
-  listingId: string;
-  operationId: string;
 }
 
 export interface ChannelListingDeletionExecutionClaim {
@@ -132,15 +124,6 @@ export interface ChannelListingDeletionOperationResult {
   expectedVendorId: string;
   status: 'executing';
   providerOutcome: 'uncertain';
-}
-
-export interface ChannelListingDeletionCompletionResult {
-  operationId: string;
-  listingId: string;
-  externalId: string;
-  isActive: false;
-  status: 'succeeded';
-  providerOutcome: 'succeeded';
 }
 
 export interface ChannelListingDeletionUnresolvedResult {

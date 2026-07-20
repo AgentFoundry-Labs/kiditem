@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ChannelListingDeletionService } from '../channel-listing-deletion.service';
 
@@ -19,14 +19,6 @@ function build(passwordFails = false) {
     status: 'executing',
     providerOutcome: 'uncertain',
   });
-  const completeDeletion = vi.fn().mockResolvedValue({
-    operationId: OPERATION,
-    listingId: LISTING,
-    externalId: '16311428128',
-    isActive: false,
-    status: 'succeeded',
-    providerOutcome: 'succeeded',
-  });
   const markDeletionUnresolved = vi.fn().mockResolvedValue({
     operationId: OPERATION,
     status: 'reconciling',
@@ -36,10 +28,10 @@ function build(passwordFails = false) {
     if (passwordFails) throw new ForbiddenException('삭제 비밀번호가 일치하지 않습니다.');
   });
   const service = new ChannelListingDeletionService(
-    { authorizeDeletion, completeDeletion, markDeletionUnresolved } as never,
+    { authorizeDeletion, markDeletionUnresolved } as never,
     { assertPassword },
   );
-  return { service, authorizeDeletion, completeDeletion, markDeletionUnresolved, assertPassword };
+  return { service, authorizeDeletion, markDeletionUnresolved, assertPassword };
 }
 
 describe('ChannelListingDeletionService durable operation', () => {
@@ -77,20 +69,6 @@ describe('ChannelListingDeletionService durable operation', () => {
     expect(harness.authorizeDeletion).not.toHaveBeenCalled();
   });
 
-  it('refuses a browser-controlled completion because only independent reconciliation may deactivate', async () => {
-    const harness = build();
-
-    await expect(harness.service.complete({
-      organizationId: ORG,
-      userId: USER,
-      listingId: LISTING,
-      operationId: OPERATION,
-    })).rejects.toThrow(BadRequestException);
-
-    expect(harness.assertPassword).not.toHaveBeenCalled();
-    expect(harness.completeDeletion).not.toHaveBeenCalled();
-  });
-
   it('records unknown browser outcomes as unresolved without deactivating the listing', async () => {
     const harness = build();
 
@@ -108,16 +86,4 @@ describe('ChannelListingDeletionService durable operation', () => {
     expect(harness.markDeletionUnresolved).toHaveBeenCalled();
   });
 
-  it('requires strict extension evidence before completion reaches persistence', async () => {
-    const harness = build();
-
-    await expect(harness.service.complete({
-      organizationId: ORG,
-      userId: USER,
-      listingId: LISTING,
-      operationId: OPERATION,
-      evidence: { vendorId: '', source: '' },
-    })).rejects.toThrow(BadRequestException);
-    expect(harness.completeDeletion).not.toHaveBeenCalled();
-  });
 });

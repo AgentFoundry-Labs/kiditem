@@ -2,7 +2,6 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import {
   CHANNEL_LISTING_REPOSITORY_PORT,
-  type ChannelListingDeletionCompletionInput,
   type ChannelListingDeletionOperationLookup,
   type ChannelListingDeletionUnresolvedInput,
   type ChannelListingRepositoryPort,
@@ -42,13 +41,6 @@ export class ChannelListingDeletionService {
   /** Only the authenticated extension can redeem this one-time, expiring claim. */
   async claimExecution(input: ChannelListingDeletionOperationLookup) {
     return this.listings.claimDeletionExecution(input);
-  }
-
-  /** Public browser completion is deliberately unavailable without independent provider evidence. */
-  async complete(input: ChannelListingDeletionCompletionInput) {
-    throw new BadRequestException(
-      `Deletion ${input.operationId} requires independent provider reconciliation before local completion.`,
-    );
   }
 
   async markUnresolved(input: ChannelListingDeletionUnresolvedInput) {

@@ -45,12 +45,6 @@ export class ChannelListingDeletionDto {
   idempotencyKey!: string;
 }
 
-export class ChannelListingDeletionCompletionDto {
-  @IsUUID()
-  operationId!: string;
-
-}
-
 export class ChannelListingDeletionUnresolvedDto {
   @IsUUID()
   operationId!: string;

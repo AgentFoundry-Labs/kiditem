@@ -19,9 +19,11 @@ const listing = {
   optionCount: 1, mappingStatus: 'matched' as const, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
-function renderDialog() {
+function renderDialog(onClose = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}><ListingDeleteDialog listing={listing} onClose={vi.fn()} /></QueryClientProvider>);
+  const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+  const rendered = render(<QueryClientProvider client={queryClient}><ListingDeleteDialog listing={listing} onClose={onClose} /></QueryClientProvider>);
+  return { ...rendered, invalidate };
 }
 
 describe('ListingDeleteDialog durable deletion flow', () => {
@@ -80,5 +82,31 @@ describe('ListingDeleteDialog durable deletion flow', () => {
     expect(post.mock.calls[1]).toEqual([expect.stringContaining('/deletion-unresolved'), expect.objectContaining({
       operationId: '22222222-2222-4222-8222-222222222222', reason: 'extension_unknown',
     })]);
+  });
+
+  it('keeps the dialog and listing truthful when best-effort unresolved persistence fails after provider observation', async () => {
+    get.mockResolvedValue({ configured: true, updatedAt: null });
+    post.mockResolvedValueOnce({
+      operationId: '22222222-2222-4222-8222-222222222222', externalId: '16311428128', displayName: '과일바구니',
+      expectedVendorId: 'A00012345', listingId: listing.id, channel: 'coupang',
+    }).mockRejectedValueOnce(new Error('transport down'));
+    detectExtensionId.mockResolvedValue('extension-id');
+    sendToExtension.mockResolvedValue({ ok: true, providerDeletionObserved: true });
+    const onClose = vi.fn();
+    const { invalidate } = renderDialog(onClose);
+
+    const password = await waitFor(() => {
+      const input = document.querySelector<HTMLInputElement>('input[type="password"]');
+      if (!input) throw new Error('password input not rendered');
+      return input;
+    });
+    fireEvent.change(password, { target: { value: 'secret' } });
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }));
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    expect(post.mock.calls[1][0]).toContain('/deletion-unresolved');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: '등록상품 삭제' })).toBeInTheDocument();
   });
 });
