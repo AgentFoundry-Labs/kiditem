@@ -216,7 +216,7 @@ jobs:
           : "${EXPECTED_DATABASE_NAME:?Set staging expected database-name variable}"
           actual_url_sha="$(printf '%s' "$DATABASE_URL" | sha256sum | cut -d' ' -f1)"
           [[ "$actual_url_sha" == "$DATABASE_URL_SHA256" ]] || { echo "database URL fingerprint mismatch" >&2; exit 2; }
-          url_database="$(DATABASE_URL="$DATABASE_URL" node -e 'const u=new URL(process.env.DATABASE_URL); process.stdout.write(decodeURIComponent(u.pathname.replace(/^\\//,"")))')"
+          url_database="$(DATABASE_URL="$DATABASE_URL" node -e 'const u=new URL(process.env.DATABASE_URL); process.stdout.write(decodeURIComponent(u.pathname.startsWith("/") ? u.pathname.slice(1) : u.pathname))')"
           [[ "$url_database" == "$EXPECTED_DATABASE_NAME" ]] || { echo "database URL pathname mismatch" >&2; exit 2; }
           live_database="$(psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database()')"
           [[ "$live_database" == "$EXPECTED_DATABASE_NAME" ]] || { echo "live current_database() mismatch" >&2; exit 2; }
