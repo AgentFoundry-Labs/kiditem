@@ -1,4 +1,5 @@
 name: Staging Deploy
+run-name: "staging ${{ inputs.operation }} correlation=${{ inputs.dispatch_correlation_id }}"
 
 on:
   workflow_dispatch:
@@ -20,6 +21,14 @@ on:
         default: staging
         options:
           - staging
+      expected_git_sha:
+        description: Full immutable workflow-code SHA selected for this run.
+        required: true
+        type: string
+      dispatch_correlation_id:
+        description: Operator-generated UUID used to select this exact run.
+        required: true
+        type: string
       destructive_reset:
         description: Exact RESET_STAGING_DATA confirmation for rebuild deploys and finalization.
         required: false
@@ -49,9 +58,30 @@ env:
   WEB_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-web
 
 jobs:
+  identity_guard:
+    name: Validate immutable dispatch identity
+    runs-on: ubuntu-latest
+    outputs:
+      git_sha: ${{ steps.identity.outputs.git_sha }}
+    steps:
+      - name: Validate expected SHA and correlation
+        id: identity
+        env:
+          EXPECTED_GIT_SHA: ${{ inputs.expected_git_sha }}
+          DISPATCH_CORRELATION_ID: ${{ inputs.dispatch_correlation_id }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_GIT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "expected_git_sha must be full 40-hex SHA" >&2; exit 2; }
+          [[ "$DISPATCH_CORRELATION_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || { echo "dispatch_correlation_id must be UUID" >&2; exit 2; }
+          [[ "$GITHUB_SHA" == "$EXPECTED_GIT_SHA" ]] || { echo "GITHUB_SHA does not match expected immutable SHA" >&2; exit 2; }
+          echo "expected_git_sha=${EXPECTED_GIT_SHA}"
+          echo "dispatch_correlation_id=${DISPATCH_CORRELATION_ID}"
+          echo "git_sha=${EXPECTED_GIT_SHA}" >> "$GITHUB_OUTPUT"
+
   prepare:
     name: Prepare staging image refs
     if: inputs.operation == 'deploy'
+    needs: identity_guard
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -63,6 +93,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.identity_guard.outputs.git_sha }}
 
       - name: Validate staging build variables
         env:
@@ -87,10 +119,10 @@ jobs:
               ;;
           esac
           {
-            echo "git_sha=${GITHUB_SHA}"
+            echo "git_sha=${{ needs.identity_guard.outputs.git_sha }}"
             echo "app_version=${app_version}"
-            echo "api_image_tag=${API_IMAGE_BASE}:${GITHUB_SHA}"
-            echo "web_image_tag=${WEB_IMAGE_BASE}:${GITHUB_SHA}"
+            echo "api_image_tag=${API_IMAGE_BASE}:${{ needs.identity_guard.outputs.git_sha }}"
+            echo "web_image_tag=${WEB_IMAGE_BASE}:${{ needs.identity_guard.outputs.git_sha }}"
           } >> "$GITHUB_OUTPUT"
 
   build_api:
@@ -149,6 +181,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.prepare.outputs.git_sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
@@ -175,6 +209,23 @@ jobs:
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npx prisma generate
 
+      - name: Verify protected staging database identity
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DATABASE_URL_SHA256: ${{ secrets.STAGING_DATABASE_URL_SHA256 }}
+          EXPECTED_DATABASE_NAME: ${{ vars.STAGING_DATABASE_NAME }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging database URL secret}"
+          : "${DATABASE_URL_SHA256:?Set approved staging URL SHA-256 secret}"
+          : "${EXPECTED_DATABASE_NAME:?Set staging expected database-name variable}"
+          actual_url_sha="$(printf '%s' "$DATABASE_URL" | sha256sum | cut -d' ' -f1)"
+          [[ "$actual_url_sha" == "$DATABASE_URL_SHA256" ]] || { echo "database URL fingerprint mismatch" >&2; exit 2; }
+          url_database="$(DATABASE_URL="$DATABASE_URL" node -e 'const u=new URL(process.env.DATABASE_URL); process.stdout.write(decodeURIComponent(u.pathname.replace(/^\\//,"")))')"
+          [[ "$url_database" == "$EXPECTED_DATABASE_NAME" ]] || { echo "database URL pathname mismatch" >&2; exit 2; }
+          live_database="$(psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database()')"
+          [[ "$live_database" == "$EXPECTED_DATABASE_NAME" ]] || { echo "live current_database() mismatch" >&2; exit 2; }
+
       - name: Validate staging rebuild confirmation
         if: inputs.destructive_reset != ''
         env:
@@ -191,6 +242,38 @@ jobs:
           REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
           REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
         run: npm run inventory:rebuild -- guard
+
+      - name: Preflight protected staging accounts and Supabase auth
+        if: inputs.destructive_reset != ''
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: staging
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
+          REBUILD_DEPLOYED_SHA: ${{ needs.prepare.outputs.git_sha }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.STAGING_REBUILD_ORGANIZATION_ID }}
+          REBUILD_ORGANIZATION_NAME: ${{ vars.STAGING_REBUILD_ORGANIZATION_NAME }}
+          REBUILD_ORGANIZATION_SLUG: ${{ vars.STAGING_REBUILD_ORGANIZATION_SLUG }}
+          REBUILD_USER_ID: ${{ vars.STAGING_REBUILD_USER_ID }}
+          REBUILD_USER_EMAIL: ${{ secrets.STAGING_REBUILD_USER_EMAIL }}
+          REBUILD_USER_NAME: ${{ vars.STAGING_REBUILD_USER_NAME }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+          REBUILD_COUPANG_ACCOUNT_NAME: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_NAME }}
+          REBUILD_ROCKET_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_ROCKET_ACCOUNT_ID }}
+          REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID: ${{ secrets.STAGING_REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID }}
+          REBUILD_ROCKET_ACCOUNT_NAME: ${{ vars.STAGING_REBUILD_ROCKET_ACCOUNT_NAME }}
+          REBUILD_SELLPIA_FILE_SHA256: ${{ vars.STAGING_REBUILD_SELLPIA_FILE_SHA256 }}
+          REBUILD_SELLPIA_ROW_COUNT: ${{ vars.STAGING_REBUILD_SELLPIA_ROW_COUNT }}
+          REBUILD_WING_FILE_SHA256: ${{ vars.STAGING_REBUILD_WING_FILE_SHA256 }}
+          REBUILD_WING_ROW_COUNT: ${{ vars.STAGING_REBUILD_WING_ROW_COUNT }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
+          REBUILD_BOOTSTRAP_PREFLIGHT_PATH: ${{ runner.temp }}/bootstrap-preflight.json
+        run: npm run inventory:rebuild -- preflight-bootstrap --origin-run-id "${{ github.run_id }}"
 
       - name: Run pre-schema data migrations
         if: inputs.destructive_reset == ''
@@ -265,12 +348,25 @@ jobs:
           REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild.json
         run: npm run inventory:rebuild -- export-coupang --origin-run-id "${{ github.run_id }}"
 
+      - name: Export migration ledger rebuild baseline
+        if: inputs.destructive_reset != ''
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DATA_MIGRATION_TARGET: staging
+          REBUILD_EXPECTED_GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
+          REBUILD_ORIGIN_RUN_ID: ${{ github.run_id }}
+          REBUILD_MIGRATION_BASELINE_PATH: ${{ runner.temp }}/data-migration-baseline.json
+        run: npm run data:migrate -- baseline-export
+
       - name: Preserve private rebuild bundle for one day
         if: inputs.destructive_reset != ''
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: authoritative-rebuild-${{ github.run_id }}-staging
-          path: ${{ runner.temp }}/authoritative-rebuild.json
+          path: |
+            ${{ runner.temp }}/authoritative-rebuild.json
+            ${{ runner.temp }}/data-migration-baseline.json
+            ${{ runner.temp }}/bootstrap-preflight.json
           if-no-files-found: error
           retention-days: 1
 
@@ -300,6 +396,16 @@ jobs:
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npx prisma generate
 
+      - name: Restore migration ledger rebuild baseline
+        if: inputs.destructive_reset != ''
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DATA_MIGRATION_TARGET: staging
+          REBUILD_EXPECTED_GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
+          REBUILD_ORIGIN_RUN_ID: ${{ github.run_id }}
+          REBUILD_MIGRATION_BASELINE_PATH: ${{ runner.temp }}/data-migration-baseline.json
+        run: npm run data:migrate -- baseline-restore
+
       - name: Bootstrap staging authentication and account baseline
         if: inputs.destructive_reset != ''
         env:
@@ -322,6 +428,11 @@ jobs:
           REBUILD_ROCKET_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_ROCKET_ACCOUNT_ID }}
           REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID: ${{ secrets.STAGING_REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID }}
           REBUILD_ROCKET_ACCOUNT_NAME: ${{ vars.STAGING_REBUILD_ROCKET_ACCOUNT_NAME }}
+          REBUILD_SELLPIA_FILE_SHA256: ${{ vars.STAGING_REBUILD_SELLPIA_FILE_SHA256 }}
+          REBUILD_SELLPIA_ROW_COUNT: ${{ vars.STAGING_REBUILD_SELLPIA_ROW_COUNT }}
+          REBUILD_WING_FILE_SHA256: ${{ vars.STAGING_REBUILD_WING_FILE_SHA256 }}
+          REBUILD_WING_ROW_COUNT: ${{ vars.STAGING_REBUILD_WING_ROW_COUNT }}
+          REBUILD_BOOTSTRAP_PREFLIGHT_PATH: ${{ runner.temp }}/bootstrap-preflight.json
         run: npm run inventory:rebuild -- bootstrap --origin-run-id "${{ github.run_id }}"
 
       - name: Run post-schema data migrations
@@ -587,6 +698,7 @@ jobs:
             echo "- Git SHA: \`${GIT_SHA}\`"
             echo "- API image: \`${API_IMAGE}\`"
             echo "- Web image: \`${WEB_IMAGE}\`"
+            echo "- Provenance fields: \`apiImageRevision\`, \`webImageRevision\` (both guarded to Git SHA)"
             echo "- URL: ${STAGING_URL:-unset}"
             echo "- Runbook: \`docs/runbooks/staging-deploy.md\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -594,6 +706,7 @@ jobs:
   finalize_rebuild:
     name: Finalize staging authoritative rebuild
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'finalize-rebuild'
+    needs: identity_guard
     runs-on: ubuntu-latest
     environment: staging
     permissions:
@@ -646,6 +759,20 @@ jobs:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: npx prisma generate
 
+      - name: Verify protected staging database identity for finalization
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DATABASE_URL_SHA256: ${{ secrets.STAGING_DATABASE_URL_SHA256 }}
+          EXPECTED_DATABASE_NAME: ${{ vars.STAGING_DATABASE_NAME }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging database URL secret}"
+          : "${DATABASE_URL_SHA256:?Set approved staging URL SHA-256 secret}"
+          : "${EXPECTED_DATABASE_NAME:?Set staging expected database-name variable}"
+          [[ "$(printf '%s' "$DATABASE_URL" | sha256sum | cut -d' ' -f1)" == "$DATABASE_URL_SHA256" ]] || { echo "database URL fingerprint mismatch" >&2; exit 2; }
+          [[ "$(DATABASE_URL="$DATABASE_URL" node -e 'const u=new URL(process.env.DATABASE_URL); process.stdout.write(decodeURIComponent(u.pathname.replace(/^\\//,"")))')" == "$EXPECTED_DATABASE_NAME" ]] || { echo "database URL pathname mismatch" >&2; exit 2; }
+          [[ "$(psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database()')" == "$EXPECTED_DATABASE_NAME" ]] || { echo "live current_database() mismatch" >&2; exit 2; }
+
       - name: Validate staging finalization binding
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
@@ -687,6 +814,10 @@ jobs:
           EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
           REBUILD_ORGANIZATION_ID: ${{ vars.STAGING_REBUILD_ORGANIZATION_ID }}
           REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_SELLPIA_FILE_SHA256: ${{ vars.STAGING_REBUILD_SELLPIA_FILE_SHA256 }}
+          REBUILD_SELLPIA_ROW_COUNT: ${{ vars.STAGING_REBUILD_SELLPIA_ROW_COUNT }}
+          REBUILD_WING_FILE_SHA256: ${{ vars.STAGING_REBUILD_WING_FILE_SHA256 }}
+          REBUILD_WING_ROW_COUNT: ${{ vars.STAGING_REBUILD_WING_ROW_COUNT }}
           REBUILD_USER_ID: ${{ vars.STAGING_REBUILD_USER_ID }}
           REBUILD_USER_EMAIL: ${{ secrets.STAGING_REBUILD_USER_EMAIL }}
           REBUILD_API_URL: ${{ vars.STAGING_REBUILD_EXPECTED_API_ORIGIN }}
@@ -708,6 +839,10 @@ jobs:
           EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
           REBUILD_ORGANIZATION_ID: ${{ vars.STAGING_REBUILD_ORGANIZATION_ID }}
           REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_SELLPIA_FILE_SHA256: ${{ vars.STAGING_REBUILD_SELLPIA_FILE_SHA256 }}
+          REBUILD_SELLPIA_ROW_COUNT: ${{ vars.STAGING_REBUILD_SELLPIA_ROW_COUNT }}
+          REBUILD_WING_FILE_SHA256: ${{ vars.STAGING_REBUILD_WING_FILE_SHA256 }}
+          REBUILD_WING_ROW_COUNT: ${{ vars.STAGING_REBUILD_WING_ROW_COUNT }}
           REBUILD_EXPECTED_ACTIVE_MASTERS: ${{ vars.STAGING_REBUILD_EXPECTED_ACTIVE_MASTERS }}
           REBUILD_EXPECTED_LISTINGS: ${{ vars.STAGING_REBUILD_EXPECTED_LISTINGS }}
           REBUILD_EXPECTED_CHANNEL_SKUS: ${{ vars.STAGING_REBUILD_EXPECTED_CHANNEL_SKUS }}
@@ -730,6 +865,7 @@ jobs:
   rollback:
     name: Roll back staging
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'rollback'
+    needs: identity_guard
     runs-on: ubuntu-latest
     environment: staging
     permissions:
@@ -738,6 +874,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.identity_guard.outputs.git_sha }}
 
       - name: Render staging runtime env files
         env:
@@ -875,6 +1013,7 @@ jobs:
   status:
     name: Show staging status
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'status'
+    needs: identity_guard
     runs-on: ubuntu-latest
     environment: staging
     permissions:
@@ -882,6 +1021,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.identity_guard.outputs.git_sha }}
 
       - name: Prepare SSH
         env:

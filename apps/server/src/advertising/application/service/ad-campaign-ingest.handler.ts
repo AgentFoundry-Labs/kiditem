@@ -25,6 +25,7 @@ import {
   resolveBusinessDate,
   toBusinessDate,
 } from '../../domain/business-date';
+import { resolveCampaignReportAuthority } from '../../domain/campaign-report-authority';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -46,6 +47,7 @@ import {
 import {
   CHANNEL_TARGET_DAILY_REPOSITORY_PORT,
   type ChannelTargetDailyRepositoryPort,
+  type ReplaceAdCampaignDayRejectionCode,
   type UpsertAdTargetDailyInput,
 } from '../port/out/repository/channel-target-daily.repository.port';
 import type { ExtensionSyncDto } from '../../adapter/in/http/dto';
@@ -66,7 +68,7 @@ export class AdCampaignIngestHandler {
     organizationId: string,
     map: ListingMap,
   ) {
-    const campaignName = payload.campaignName || '_전체';
+    const campaignName = cleanString(payload.campaignName) || '_전체';
     const period = String(payload.period || '7d');
     const businessDate = resolveBusinessDate(
       payload.startDate,
@@ -84,17 +86,21 @@ export class AdCampaignIngestHandler {
         periodEnd &&
         periodStart.getTime() === periodEnd.getTime(),
     );
-    const isAuthoritativeCampaignDay =
-      payload.campaignReportScope === 'single_campaign_authoritative';
+    const normalizedRows = payload.normalizedRows ?? [];
+    const scrapeRows = pairScrapeRows(payload.data, normalizedRows);
+    const authority = resolveCampaignReportAuthority({
+      campaignReportScope: payload.campaignReportScope,
+      dashboardOnOff: payload.dashboardOnOff,
+      normalizedRows,
+      hasSingleDayRange,
+    });
     const projectsSingleDayFacts =
-      hasSingleDayRange && isAuthoritativeCampaignDay;
+      authority.effectiveScope === 'single_campaign_authoritative';
     // A multi-campaign dashboard report is still dated raw evidence. It must
     // never replace one campaign's target set, but its snapshots retain the
     // requested day for audit/replay.
     const rawBusinessDate = hasSingleDayRange ? businessDate : null;
-    const kpis = payload.kpis || {};
-    const normalizedRows = payload.normalizedRows ?? [];
-    const scrapeRows = pairScrapeRows(payload.data, normalizedRows);
+    const kpis = payload.kpis ?? {};
     const campaignIds = new Set(
       normalizedRows
         .map((row) => cleanString(row?.campaignId))
@@ -109,6 +115,19 @@ export class AdCampaignIngestHandler {
       campaignIds.size === 1 ? [...campaignIds][0] : null;
     const campaignScopeIdentity =
       campaignIdentities.size === 1 ? [...campaignIdentities][0] : null;
+    const baseMeta = {
+      campaignName,
+      requestedCampaignReportScope: authority.requestedScope,
+      effectiveCampaignReportScope: authority.effectiveScope,
+      campaignReportAuthorityReason: authority.reason,
+      projectionRejectionCode: authority.projectionRejectionCode,
+      dashboardOnOff: payload.dashboardOnOff ?? null,
+      dashboardStatus: payload.dashboardStatus ?? null,
+      kpis,
+      rowCount: scrapeRows.length,
+      normalizedRowCount: normalizedRows.length,
+      dailyProjectionSkipped: !projectsSingleDayFacts,
+    };
 
     const scrapeRun = await this.scrapeRepo.createRun({
       organizationId,
@@ -121,37 +140,18 @@ export class AdCampaignIngestHandler {
       periodEnd,
       targetUrl: payload.url ?? null,
       period,
-      metaJson: {
-        campaignName,
-        campaignReportScope: payload.campaignReportScope ?? 'legacy_raw_only',
-        dashboardOnOff: payload.dashboardOnOff ?? null,
-        dashboardStatus: payload.dashboardStatus ?? null,
-        kpis,
-        rowCount: scrapeRows.length,
-        normalizedRowCount: normalizedRows.length,
-        dailyProjectionSkipped: !projectsSingleDayFacts,
-      },
+      metaJson: baseMeta,
     });
     let scrapeSnapshotCount = 0;
     let scrapeMatched = 0;
     let scrapeUnmatched = 0;
 
     try {
-      if (isAuthoritativeCampaignDay && !hasSingleDayRange) {
-        throw new Error(
-          'ad_campaign authoritative projection requires one exact business date; raw evidence was preserved',
-        );
-      }
       const listingDailyCount = 0;
       let targetDailyCount = 0;
       const accountKpiCount = 0;
       const targetDailyInputs = new Map<string, UpsertAdTargetDailyInput>();
-      let authoritativeProjectionInvalid =
-        campaignIds.size > 1 ||
-        campaignIdentities.size > 1 ||
-        (projectsSingleDayFacts &&
-          !campaignScopeId &&
-          !campaignScopeIdentity);
+      let authoritativeProjectionInvalid = false;
       let hasAuthoritativeIdentityRow = false;
 
       for (const pair of scrapeRows) {
@@ -247,9 +247,12 @@ export class AdCampaignIngestHandler {
         const providerConversionRate = toNumber(row.conversionRate);
 
         // Target-day fact: prefer the most specific grain available on the row.
-        const targetType = deriveAdTargetType(rowPageType, rowKeyword);
+        const targetType = row._campaignOnly === true
+          ? 'campaign'
+          : deriveAdTargetType(rowPageType, rowKeyword);
         try {
           const targetKey = buildAdTargetKey({
+            channelAccountId: map.channelAccountId,
             targetType,
             campaignId: rowCampaignId,
             campaignIdentity: rowCampaignIdentity,
@@ -277,7 +280,7 @@ export class AdCampaignIngestHandler {
             keyword: rowKeyword,
             placement: cleanString(row.placement),
             status: rowStatus,
-            onOff: rowOnOff,
+            onOff: rowOnOff ?? cleanString(payload.dashboardOnOff),
             currentBid: rowCurrentBid,
             dailyBudget: rowDailyBudget,
             rawSnapshotId: snapshot.id,
@@ -325,46 +328,72 @@ export class AdCampaignIngestHandler {
         }
       }
 
+      let projectionRejectionCode:
+        | typeof authority.projectionRejectionCode
+        | ReplaceAdCampaignDayRejectionCode = authority.projectionRejectionCode;
+      let deletedTargetDailyCount = 0;
       if (projectsSingleDayFacts) {
         if (
           authoritativeProjectionInvalid ||
           !hasAuthoritativeIdentityRow
         ) {
-          throw new Error(
-            'ad_campaign authoritative single-day report requires one stable campaign id/identity, complete observed metrics, and at least one normalized campaign row; prior daily targets were preserved',
-          );
+          projectionRejectionCode = 'invalid_authoritative_shape';
+        } else {
+          const replacement = await this.targetDailyRepo.replaceCampaignDay({
+            organizationId,
+            channelAccountId: map.channelAccountId,
+            channel: 'coupang',
+            businessDate,
+            campaignId: campaignScopeId,
+            campaignIdentity: campaignScopeIdentity,
+            campaignName,
+            targets: [...targetDailyInputs.values()],
+          });
+          if (replacement.kind === 'rejected') {
+            projectionRejectionCode = replacement.code;
+          } else {
+            targetDailyCount = replacement.upsertedCount;
+            deletedTargetDailyCount = replacement.deletedCount;
+          }
         }
-        const replacement = await this.targetDailyRepo.replaceCampaignDay({
+      }
+
+      if (projectionRejectionCode) {
+        await this.scrapeRepo.updateRunMeta({
+          scrapeRunId: scrapeRun.id,
           organizationId,
-          channel: 'coupang',
-          businessDate,
-          campaignId: campaignScopeId,
-          campaignIdentity: campaignScopeIdentity,
-          campaignName,
-          targets: [...targetDailyInputs.values()],
+          metaJson: {
+            ...baseMeta,
+            projectionRejectionCode,
+            dailyProjectionSkipped: true,
+          },
         });
-        targetDailyCount = replacement.upsertedCount;
       }
 
       await this.scrapeRepo.finalizeRun({
         scrapeRunId: scrapeRun.id,
         organizationId,
-        status: 'complete',
+        status: projectionRejectionCode ? 'partial' : 'complete',
         rowCount: scrapeSnapshotCount,
         matchedCount: scrapeMatched,
         unmatchedCount: scrapeUnmatched,
+        errorCount: projectionRejectionCode ? 1 : 0,
+        errorJson: projectionRejectionCode ? { projectionRejectionCode } : null,
       });
 
       return {
-        success: true,
+        success: projectionRejectionCode === null,
         type: 'ad_campaign',
         campaignName,
         period,
         kpiCount: Object.keys(kpis).length,
         listingDailyCount,
         targetDailyCount,
+        deletedTargetDailyCount,
         accountKpiCount,
-        dailyProjectionSkipped: !projectsSingleDayFacts,
+        dailyProjectionSkipped:
+          !projectsSingleDayFacts || projectionRejectionCode !== null,
+        projectionRejectionCode,
         scrapeRunId: scrapeRun.id,
         scrapeSnapshotCount,
         scrapeMatchedCount: scrapeMatched,

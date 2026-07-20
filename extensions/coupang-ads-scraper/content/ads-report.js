@@ -2257,6 +2257,21 @@
     return normalized;
   }
 
+  function buildCampaignReportAuthorityEnvelope(campaign, businessDate) {
+    if ((campaign?.onOff || "").trim().toUpperCase() === "OFF") {
+      return { campaignReportScope: "single_campaign_metadata_raw" };
+    }
+    return {
+      campaignReportScope: "single_campaign_authoritative",
+      period: "1d",
+      periodLabel: "어제",
+      startDate: businessDate,
+      endDate: businessDate,
+      dateFrom: businessDate,
+      dateTo: businessDate,
+    };
+  }
+
   function buildCampaignOnlyRows(campaign) {
     return {
       rawRows: [
@@ -2278,12 +2293,6 @@
           campaignName: campaign.name,
           onOff: campaign.onOff,
           status: campaign.status,
-          spend: 0,
-          revenue: 0,
-          impressions: 0,
-          clicks: 0,
-          conversions: 0,
-          orders: 0,
           _campaignOnly: true,
         },
       ],
@@ -2553,6 +2562,10 @@
       );
       const persistedRawRows = persistedRows.rawRows;
       const persistedNormalizedRows = persistedRows.normalizedRows;
+      const authorityEnvelope = buildCampaignReportAuthorityEnvelope(
+        camp,
+        yesterday,
+      );
       console.log("[KIDITEM sweep] parsed campaign", camp.identity, {
         rows: parsed.rawRows.length,
         normalizedRows: rowCount,
@@ -2568,19 +2581,15 @@
       const json = await syncToServer({
         type: "ad_campaign",
         source: "advertising",
-        campaignReportScope: "single_campaign_authoritative",
         campaignName: camp.name,
-        period: "1d",
-        periodLabel: "어제",
-        startDate: yesterday,
-        endDate: yesterday,
-        dateFrom: yesterday,
-        dateTo: yesterday,
+        ...authorityEnvelope,
         data: persistedRawRows,
         normalizedRows: persistedNormalizedRows,
-        headers: parsed.headers,
-        pageType: parsed.pageType,
-        kpis,
+        ...(!isOffCampaign ? {
+          headers: parsed.headers,
+          pageType: parsed.pageType,
+          kpis,
+        } : {}),
         dashboardOnOff: camp.onOff,
         dashboardStatus: camp.status,
         url: window.location.href,
@@ -2745,6 +2754,7 @@
     attachCampaignIdentityToRows,
     buildCoupangAdsDailyRow,
     buildCampaignOnlyRows,
+    buildCampaignReportAuthorityEnvelope,
     campaignDetailReady,
     campaignIdFromHref,
     campaignIdentityCoverage,

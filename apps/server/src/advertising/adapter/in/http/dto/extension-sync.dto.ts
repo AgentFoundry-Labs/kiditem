@@ -1,15 +1,16 @@
 import {
   IsArray,
-  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
+  IsNotEmpty,
   IsUUID,
   MaxLength,
   Matches,
   ValidateIf,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class ExtensionSyncDto {
   @IsOptional()
@@ -33,18 +34,16 @@ export class ExtensionSyncDto {
   campaignName?: string;
 
   /**
-   * `ad_campaign` projection contract.
-   *
-   * Dashboard date collection contains rows from many campaigns and is raw
-   * audit evidence only; the exact account/day total is written separately by
-   * `coupang_ads_daily`. Only the per-campaign sweep may replace campaign/day
-   * target facts.
+   * Raw producer authority evidence. This intentionally accepts bounded future
+   * values; the application authority resolver recognizes only the shared
+   * producer enum and fails unknown values closed.
    */
   @IsOptional()
-  @IsIn(['single_campaign_authoritative', 'multi_campaign_raw'])
-  campaignReportScope?:
-    | 'single_campaign_authoritative'
-    | 'multi_campaign_raw';
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  campaignReportScope?: string;
 
   @IsOptional()
   @IsString()

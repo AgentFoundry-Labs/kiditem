@@ -7,6 +7,16 @@ export type AdExtensionReplayIdempotencyKey = z.infer<
   typeof AdExtensionReplayIdempotencyKeySchema
 >;
 
+/** Producer-side campaign report authority contract. */
+export const AdCampaignReportScopeSchema = z.enum([
+  'single_campaign_authoritative',
+  'single_campaign_metadata_raw',
+  'multi_campaign_raw',
+]);
+export type AdCampaignReportScope = z.infer<
+  typeof AdCampaignReportScopeSchema
+>;
+
 // ───── Building blocks ─────
 
 export const AdListingSummarySchema = z.object({

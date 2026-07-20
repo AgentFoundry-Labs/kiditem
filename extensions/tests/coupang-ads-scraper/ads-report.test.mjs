@@ -707,7 +707,37 @@ test("successful resume clears the prior campaign error and recalculates failed"
   assert.match(source, /let failed = errors\.length;/);
 });
 
-test("OFF campaign descriptor contains campaign identity and zero metrics only", () => {
+test("OFF campaign envelope is metadata-only", () => {
+  const contract = loadContract();
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contract.buildCampaignReportAuthorityEnvelope(
+      { name: "Paused", onOff: "OFF" },
+      "2026-07-17",
+    ))),
+    { campaignReportScope: "single_campaign_metadata_raw" },
+  );
+});
+
+test("ON campaign envelope is authoritative for one exact day", () => {
+  const contract = loadContract();
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contract.buildCampaignReportAuthorityEnvelope(
+      { name: "Running", onOff: "ON" },
+      "2026-07-17",
+    ))),
+    {
+      campaignReportScope: "single_campaign_authoritative",
+      period: "1d",
+      periodLabel: "어제",
+      startDate: "2026-07-17",
+      endDate: "2026-07-17",
+      dateFrom: "2026-07-17",
+      dateTo: "2026-07-17",
+    },
+  );
+});
+
+test("OFF campaign descriptor preserves identity and state without invented metrics", () => {
   const contract = loadContract();
   const descriptor = contract.buildCampaignOnlyRows({
     identity: "campaign:200",
@@ -727,7 +757,7 @@ test("OFF campaign descriptor contains campaign identity and zero metrics only",
   assert.equal(normalized.campaignIdentity, "campaign:200");
   assert.equal(normalized.onOff, "OFF");
   for (const key of ["spend", "revenue", "impressions", "clicks", "conversions", "orders"]) {
-    assert.equal(normalized[key], 0);
+    assert.equal(Object.hasOwn(normalized, key), false);
   }
 });
 
@@ -739,6 +769,10 @@ test("daily dashboard and campaign sweep publish disjoint server projection scop
   assert.match(
     source,
     /campaignReportScope:\s*"single_campaign_authoritative"/,
+  );
+  assert.match(
+    source,
+    /campaignReportScope:\s*"single_campaign_metadata_raw"/,
   );
 });
 

@@ -2,190 +2,151 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelTargetDailyRepositoryAdapter } from '../channel-target-daily.repository.adapter';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
-const BUSINESS_DATE = new Date('2026-07-17T00:00:00.000Z');
+const ACCOUNT_ID = '00000000-0000-4000-8000-000000000002';
+const BUSINESS_DATE = new Date('2026-07-17T00:00:00Z');
+
+const target = () => ({
+  organizationId: ORGANIZATION_ID,
+  channelAccountId: ACCOUNT_ID,
+  channel: 'coupang',
+  businessDate: BUSINESS_DATE,
+  campaignId: 'campaign-1',
+  campaignName: 'Campaign 1',
+  targets: [{
+    organizationId: ORGANIZATION_ID,
+    channel: 'coupang',
+    businessDate: BUSINESS_DATE,
+    targetType: 'product' as const,
+    targetKey: `account:${ACCOUNT_ID}:product:campaign-1:item-1`,
+    campaignId: 'campaign-1',
+    campaignName: 'Campaign 1',
+    externalOptionId: 'item-1',
+    spend: 100,
+  }],
+});
+
+const row = (overrides: Record<string, unknown> = {}) => ({
+  id: 'current-1',
+  targetKey: `account:${ACCOUNT_ID}:product:campaign-1:item-1`,
+  targetType: 'product',
+  campaignId: 'campaign-1',
+  campaignName: 'Campaign 1',
+  adGroup: null,
+  keyword: null,
+  listingId: null,
+  listingOptionId: null,
+  externalId: null,
+  externalOptionId: 'item-1',
+  rawSnapshotId: '00000000-0000-4000-8000-000000000003',
+  actionIds: [],
+  firstObservedAt: new Date('2026-07-17T00:00:00Z'),
+  lastObservedAt: new Date('2026-07-17T01:00:00Z'),
+  createdAt: new Date('2026-07-17T00:00:00Z'),
+  updatedAt: new Date('2026-07-17T01:00:00Z'),
+  sampleCount: 1,
+  spend: 10,
+  revenue: 20,
+  impressions: 30,
+  clicks: 4,
+  conversions: 1,
+  orders: 1,
+  adSpend: 10,
+  adRevenue: 20,
+  ...overrides,
+});
 
 describe('ChannelTargetDailyRepositoryAdapter.replaceCampaignDay', () => {
-  let tx: {
-    channelAdTargetDailySnapshot: {
-      findMany: ReturnType<typeof vi.fn>;
-      deleteMany: ReturnType<typeof vi.fn>;
-    };
-    adAction: { updateMany: ReturnType<typeof vi.fn> };
-    $executeRaw: ReturnType<typeof vi.fn>;
-    $queryRaw: ReturnType<typeof vi.fn>;
-  };
+  let tx: any;
   let adapter: ChannelTargetDailyRepositoryAdapter;
   let transactionMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     tx = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ locked: '1' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]),
       channelAdTargetDailySnapshot: {
-        findMany: vi.fn(async () => []),
-        deleteMany: vi.fn(async () => ({ count: 0 })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        deleteMany: vi.fn(async () => ({ count: 1 })),
+        upsert: vi.fn(async () => ({ id: 'created-1' })),
       },
-      adAction: { updateMany: vi.fn(async () => ({ count: 0 })) },
+      adAction: { updateMany: vi.fn(async () => ({ count: 1 })) },
       $executeRaw: vi.fn(async () => 1),
-      $queryRaw: vi.fn(async () => [{ pg_advisory_xact_lock: null }]),
     };
-    transactionMock = vi.fn(async (operation) => operation(tx));
+    transactionMock = vi.fn(
+      async (operation: (client: unknown) => unknown) => operation(tx),
+    );
     const prisma = { $transaction: transactionMock };
     adapter = new ChannelTargetDailyRepositoryAdapter(prisma as never);
   });
 
-  const target = (targetKey: string) => ({
-    organizationId: ORGANIZATION_ID,
-    channel: 'coupang',
-    businessDate: BUSINESS_DATE,
-    targetType: 'product' as const,
-    targetKey,
-    campaignId: 'campaign-1',
-    campaignName: 'Same name',
-    externalOptionId: targetKey,
-    metaJson: {
-      source: 'advertising.campaign.target',
-      data: { pageType: 'product' },
-    },
-  });
+  it('updates an exact current-format target in place', async () => {
+    tx.$queryRaw.mockReset()
+      .mockResolvedValueOnce([{ locked: '1' }])
+      .mockResolvedValueOnce([row()])
+      .mockResolvedValueOnce([]);
 
-  it('upserts the complete desired set before deleting the stale B target', async () => {
-    tx.channelAdTargetDailySnapshot.findMany.mockResolvedValueOnce([
-      { id: 'fact-a', targetKey: 'product:campaign-1:A' },
-      { id: 'fact-b', targetKey: 'product:campaign-1:B' },
-    ]);
-
-    const result = await adapter.replaceCampaignDay({
-      organizationId: ORGANIZATION_ID,
-      channel: 'coupang',
-      businessDate: BUSINESS_DATE,
-      campaignId: 'campaign-1',
-      campaignName: 'Same name',
-      targets: [target('product:campaign-1:A')],
+    await expect(adapter.replaceCampaignDay(target())).resolves.toMatchObject({
+      kind: 'replaced',
+      upsertedCount: 1,
+      deletedCount: 0,
     });
-
-    expect(result).toEqual({ upsertedCount: 1, deletedCount: 1 });
+    expect(tx.channelAdTargetDailySnapshot.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'current-1', organizationId: ORGANIZATION_ID },
+        data: expect.objectContaining({ targetKey: target().targets[0].targetKey }),
+      }),
+    );
     expect(transactionMock).toHaveBeenCalledWith(expect.any(Function), {
       maxWait: 10_000,
       timeout: 120_000,
     });
-    expect(tx.channelAdTargetDailySnapshot.deleteMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORGANIZATION_ID,
-        id: { in: ['fact-b'] },
-      },
-    });
+    const campaignQuery = tx.$queryRaw.mock.calls[1][0];
+    const sql = campaignQuery.strings.join(' ');
+    expect(sql).not.toContain('channel_scrape_snapshots');
+    expect(sql).not.toContain('channel_scrape_runs');
+    expect(sql).not.toContain('rawAccountId');
+    expect(sql).not.toContain('channel_listings');
+    expect(sql).toContain('starts_with(target.target_key,');
   });
 
-  it('limits cleanup to exact campaign id and campaign provenance', async () => {
-    await adapter.replaceCampaignDay({
-      organizationId: ORGANIZATION_ID,
-      channel: 'coupang',
-      businessDate: BUSINESS_DATE,
-      campaignId: 'campaign-1',
-      campaignName: 'Same name',
-      targets: [target('product:campaign-1:A')],
+  it('rejects a stale action before any writes', async () => {
+    tx.$queryRaw.mockReset()
+      .mockResolvedValueOnce([{ locked: '1' }])
+      .mockResolvedValueOnce([row({
+        targetKey: `account:${ACCOUNT_ID}:product:campaign-1:stale`,
+        externalOptionId: 'stale',
+        actionIds: ['action-1'],
+      })])
+      .mockResolvedValueOnce([{ id: 'action-1' }]);
+
+    await expect(adapter.replaceCampaignDay(target())).resolves.toEqual({
+      kind: 'rejected',
+      code: 'dependent_action_conflict',
     });
-
-    expect(tx.channelAdTargetDailySnapshot.findMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORGANIZATION_ID,
-        channel: 'coupang',
-        businessDate: BUSINESS_DATE,
-        AND: [
-          { campaignId: 'campaign-1' },
-          {
-            metaJson: {
-              path: ['advertising.campaign.target'],
-              not: expect.anything(),
-            },
-          },
-        ],
-      },
-      select: { id: true, targetKey: true },
-    });
-  });
-
-  it('never begins stale deletion when any desired insert fails', async () => {
-    tx.$executeRaw.mockRejectedValueOnce(new Error('foreign key failure'));
-
-    await expect(
-      adapter.replaceCampaignDay({
-        organizationId: ORGANIZATION_ID,
-        channel: 'coupang',
-        businessDate: BUSINESS_DATE,
-        campaignId: 'campaign-1',
-        campaignName: 'Same name',
-        targets: [
-          target('product:campaign-1:A'),
-          target('product:campaign-1:B'),
-        ],
-      }),
-    ).rejects.toThrow('foreign key failure');
-
-    expect(tx.channelAdTargetDailySnapshot.findMany).not.toHaveBeenCalled();
+    expect(tx.channelAdTargetDailySnapshot.updateMany).not.toHaveBeenCalled();
     expect(tx.channelAdTargetDailySnapshot.deleteMany).not.toHaveBeenCalled();
     expect(tx.adAction.updateMany).not.toHaveBeenCalled();
   });
 
-  it('scopes id-less same-name campaigns by canonical campaign identity', async () => {
-    const campaignIdentity =
-      'href:https://advertising.coupang.com/campaign/identity-a';
-    const identityTarget = {
-      ...target('product:identity-a:A'),
-      campaignId: null,
-      metaJson: {
-        source: 'advertising.campaign.target',
-        data: { pageType: 'product', campaignIdentity },
-      },
-    };
+  it('rejects targets outside the exact campaign scope before opening a transaction', async () => {
+    const input = target();
+    input.targets[0].campaignId = 'campaign-2';
 
-    await adapter.replaceCampaignDay({
-      organizationId: ORGANIZATION_ID,
-      channel: 'coupang',
-      businessDate: BUSINESS_DATE,
-      campaignIdentity,
-      campaignName: 'Same name',
-      targets: [identityTarget],
-    });
-
-    expect(tx.channelAdTargetDailySnapshot.findMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORGANIZATION_ID,
-        channel: 'coupang',
-        businessDate: BUSINESS_DATE,
-        AND: [
-          {
-            campaignId: null,
-            campaignName: 'Same name',
-            metaJson: {
-              path: [
-                'advertising.campaign.target',
-                'campaignIdentity',
-              ],
-              equals: campaignIdentity,
-            },
-          },
-          {},
-        ],
-      },
-      select: { id: true, targetKey: true },
-    });
+    await expect(adapter.replaceCampaignDay(input)).rejects.toThrow(
+      'target campaignId does not match replacement scope',
+    );
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 
-  it('uses bounded set-based chunks instead of one database round trip per target', async () => {
-    const targets = Array.from({ length: 501 }, (_, index) =>
-      target(`product:campaign-1:${index}`),
+  it('rejects duplicate desired target keys before opening a transaction', async () => {
+    const input = target();
+    input.targets.push({ ...input.targets[0] });
+
+    await expect(adapter.replaceCampaignDay(input)).rejects.toThrow(
+      'duplicate targetKey',
     );
-
-    await adapter.replaceCampaignDay({
-      organizationId: ORGANIZATION_ID,
-      channel: 'coupang',
-      businessDate: BUSINESS_DATE,
-      campaignId: 'campaign-1',
-      campaignName: 'Same name',
-      targets,
-    });
-
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(tx.$executeRaw).toHaveBeenCalledTimes(3);
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 });

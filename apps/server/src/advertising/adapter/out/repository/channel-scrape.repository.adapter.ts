@@ -48,6 +48,24 @@ export class ChannelScrapeRepositoryAdapter
     });
   }
 
+  async updateRunMeta(input: {
+    scrapeRunId: string;
+    organizationId: string;
+    metaJson: Record<string, unknown>;
+  }): Promise<void> {
+    const client = adIngestRepositoryClient(this.prisma);
+    const result = await client.channelScrapeRun.updateMany({
+      where: {
+        id: input.scrapeRunId,
+        organizationId: input.organizationId,
+      },
+      data: { metaJson: input.metaJson as Prisma.InputJsonValue },
+    });
+    if (result.count !== 1) {
+      throw new Error('ChannelScrapeRun not found for organization scope');
+    }
+  }
+
   async appendSnapshot(input: ScrapeSnapshotInput): Promise<{ id: string }> {
     return adIngestRepositoryClient(this.prisma).channelScrapeSnapshot.create({
       data: {

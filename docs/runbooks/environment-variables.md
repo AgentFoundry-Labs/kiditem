@@ -213,6 +213,8 @@ schema/data migrations. The other baseline variables are used only by
 | Variable | Owner | Required when | Notes |
 |---|---|---|---|
 | `STAGING_DATABASE_URL` | GitHub Environment secret | GitHub Actions `staging-deploy` and `staging-db` workflows | Staging Supabase session pooler URL. Deploy uses it for `prisma db push` and `npm run data:migrate`; DB baseline receives it as `DATABASE_URL`. |
+| `STAGING_DATABASE_URL_SHA256` | GitHub Environment secret | Every staging deploy/finalize DB operation | Lowercase SHA-256 of the exact `STAGING_DATABASE_URL`; compared without printing the URL. |
+| `STAGING_DATABASE_NAME` | GitHub Environment variable | Every staging deploy/finalize DB operation | Expected URL pathname and live `current_database()` value. |
 | `DATABASE_URL` | Operator shell | Local DB baseline operation | Staging DB URL only. The CLI refuses mutating operations unless target is explicitly staging. |
 | `STAGING_DB_BASELINE_TARGET` | Operator/workflow guard | Export or restore | Must be `staging`; prevents accidental generic DB mutation. |
 | `STAGING_DB_BASELINE_SANITIZED` | Operator/workflow guard | Export | Must be `true`; operator assertion that the dump contains no production/customer raw data. |
@@ -224,6 +226,12 @@ schema/data migrations. The other baseline variables are used only by
 | `STAGING_DB_BASELINE_PREFIX` | DB baseline storage | Optional | Defaults to `staging-db-baselines`. |
 | `STAGING_DB_BASELINE_PROFILE_ID` | Operator shell | Optional local convenience | Pinned immutable profile id, never `latest`. |
 | `STAGING_DB_BASELINE_RECORD_DIR` | Operator shell | Optional local/EC2 record write | Writes `current-db.json` and `db-history/` after export/restore. |
+
+Production uses parallel protected values `PRODUCTION_DATABASE_URL_SHA256` and
+`PRODUCTION_DATABASE_NAME`. Both deploy workflows also require the non-secret
+dispatch inputs `expected_git_sha` (full 40-hex SHA) and
+`dispatch_correlation_id` (UUID); these are inputs rather than stored runtime
+configuration.
 
 ## Server AI And Models
 
@@ -394,6 +402,10 @@ STAGING_REBUILD_COUPANG_ACCOUNT_ID
 STAGING_REBUILD_COUPANG_ACCOUNT_NAME
 STAGING_REBUILD_ROCKET_ACCOUNT_ID
 STAGING_REBUILD_ROCKET_ACCOUNT_NAME
+STAGING_REBUILD_SELLPIA_FILE_SHA256
+STAGING_REBUILD_SELLPIA_ROW_COUNT
+STAGING_REBUILD_WING_FILE_SHA256
+STAGING_REBUILD_WING_ROW_COUNT
 STAGING_REBUILD_EXPECTED_ACTIVE_MASTERS
 STAGING_REBUILD_EXPECTED_LISTINGS
 STAGING_REBUILD_EXPECTED_CHANNEL_SKUS
@@ -440,7 +452,7 @@ a long-lived GHCR token unless organization policy blocks `GITHUB_TOKEN`.
 
 ### Authoritative rebuild configuration
 
-The `*_REBUILD_*` values are consumed only by the guarded `0.1.8` rebuild and
+The `*_REBUILD_*` values are consumed only by the guarded `0.1.24` rebuild and
 its finalization. Production uses the same suffixes with the `PRODUCTION_`
 prefix. The production user email, external account IDs, and Supabase secret
 must be GitHub Environment secrets; the other baseline IDs/names and approved
@@ -459,6 +471,10 @@ exact names in the matching GitHub Environment:
 | Database-resident Coupang account ID | `STAGING_REBUILD_COUPANG_ACCOUNT_ID` | `PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID` | Variable |
 | Database-resident Coupang external account identity | `STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | `PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | Secret |
 | Exact HTTPS API origin used for replay | `STAGING_REBUILD_EXPECTED_API_ORIGIN` | `PRODUCTION_REBUILD_EXPECTED_API_ORIGIN` | Variable |
+| Approved Sellpia workbook SHA-256 | `STAGING_REBUILD_SELLPIA_FILE_SHA256` | `PRODUCTION_REBUILD_SELLPIA_FILE_SHA256` | Variable |
+| Approved Sellpia workbook imported row count | `STAGING_REBUILD_SELLPIA_ROW_COUNT` | `PRODUCTION_REBUILD_SELLPIA_ROW_COUNT` | Variable |
+| Approved Wing workbook SHA-256 | `STAGING_REBUILD_WING_FILE_SHA256` | `PRODUCTION_REBUILD_WING_FILE_SHA256` | Variable |
+| Approved Wing workbook imported row count | `STAGING_REBUILD_WING_ROW_COUNT` | `PRODUCTION_REBUILD_WING_ROW_COUNT` | Variable |
 
 The first phase also requires the target `*_DATABASE_URL`, baseline
 `*_REBUILD_ORGANIZATION_NAME`, `*_REBUILD_USER_ID`,
@@ -475,6 +491,11 @@ optional Rocket ID/name/external-ID trio remains all-or-none.
 Sellpia/Wing import manifest immediately before the operation. Missing,
 non-positive, or mismatched values prevent ready state. Optional Rocket account
 ID/name/external-ID values must be provided as a complete trio or all omitted.
+The two `*_FILE_SHA256` values and their row counts also have no defaults. The
+pre-reset account preflight binds them to the originating run. Replay accepts
+only one completed Sellpia run followed by one completed Wing run with those
+exact hashes and row counts, stores their run IDs once, and finalization must
+observe the same binding.
 
 The workflow artifact contains only sanitized Coupang replay payloads and
 manifest-derived replay counts. These Environment values, Supabase secrets,

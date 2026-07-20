@@ -13,9 +13,11 @@
 
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
+  UnprocessableEntityException,
 } from "@nestjs/common";
 import { ExtensionSyncDto } from "../../adapter/in/http/dto";
 import type { AdExtensionStatus } from "@kiditem/shared/advertising";
@@ -111,12 +113,36 @@ export class AdSyncService {
       }
     };
 
-    if (!payload.idempotencyKey) return execute();
+    if (!payload.idempotencyKey) {
+      return this.mapProjectionRejection(await execute());
+    }
     const result = await this.ingestTransaction.runIdempotent(
       { organizationId, idempotencyKey: payload.idempotencyKey },
       execute,
     );
-    return { ...result.value, replayed: result.replayed };
+    return this.mapProjectionRejection({
+      ...result.value,
+      replayed: result.replayed,
+    });
+  }
+
+  private mapProjectionRejection<T extends Record<string, unknown>>(result: T): T {
+    const code = result.projectionRejectionCode;
+    if (code === 'invalid_authoritative_shape' || code === 'invalid_date_range') {
+      throw new UnprocessableEntityException({
+        message: '광고 캠페인 리포트의 권한 범위 또는 형태가 유효하지 않습니다.',
+        code,
+        scrapeRunId: result.scrapeRunId ?? null,
+      });
+    }
+    if (code === 'dependent_action_conflict') {
+      throw new ConflictException({
+        message: '기존 광고 일별 데이터와 안전하게 교체할 수 없습니다.',
+        code,
+        scrapeRunId: result.scrapeRunId ?? null,
+      });
+    }
+    return result;
   }
 
   /**

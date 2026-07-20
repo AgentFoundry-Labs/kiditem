@@ -22,7 +22,8 @@ const KOREAN_ADDRESS_VALUE_PATTERN = /(?:서울|부산|대구|인천|광주|대�
 const ENGLISH_ADDRESS_VALUE_PATTERN = /(?:\bP\.?O\.?\s+Box\s+\d+\b|\b\d{1,6}\s+(?:[A-Z0-9.'-]+\s+){1,7}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Way|Parkway|Pkwy|Highway|Hwy)\b)/i;
 const BODY_KEYS = new Set([
   'type', 'source', 'data', 'normalizedRows', 'kpis', 'summary', 'adSummary',
-  'campaignName', 'period', 'timestamp', 'dateFrom', 'dateTo', 'url',
+  'campaignName', 'campaignReportScope', 'dashboardOnOff', 'dashboardStatus',
+  'period', 'timestamp', 'dateFrom', 'dateTo', 'url',
 ]);
 const BUNDLE_KEYS = new Set([
   'schemaVersion', 'target', 'originRunId', 'deployedSha', 'organizationId',
@@ -41,7 +42,8 @@ const TRAFFIC_ROW_KEYS = new Set([
 ]);
 const AD_ROW_KEYS = new Set([
   'externalId', 'external_id', 'productId', 'coupangProductId', 'vendorItemId',
-  'vendor_item_id', 'itemId', '_kpiOnly', 'pageType', 'campaignName', 'campaignId',
+  'vendor_item_id', 'itemId', '_kpiOnly', '_campaignOnly', '_observedMetrics',
+  'pageType', 'campaignName', 'campaignId', 'campaignIdentity',
   'adGroup', 'keyword', 'productName', 'imageUrl', 'productUrl', 'saleType',
   'placement', 'status', 'onOff', 'currentBid', 'dailyBudget', 'runningAdSpend',
   'spend', 'revenue', 'impressions', 'clicks', 'conversions', 'orders', 'roas',
@@ -75,7 +77,10 @@ const ADS_KPI_KEYS = new Set([
   '광고수익률', '클릭률', '전환율', 'ad spend', 'ad gmv', 'impressions',
   'clicks', 'conversions', 'orders', 'roas', 'ctr', 'conversion rate',
 ]);
-const BOOLEAN_ROW_KEYS = new Set(['isWinner', '_kpiOnly']);
+const BOOLEAN_ROW_KEYS = new Set(['isWinner', '_kpiOnly', '_campaignOnly']);
+const OBSERVED_METRIC_KEYS = new Set([
+  'adSpend', 'adRevenue', 'impressions', 'clicks', 'conversions', 'orders',
+]);
 const NUMBERISH_ROW_KEYS = new Set([
   'myPrice', 'winnerPrice', 'visitors', 'views', 'cartAdds', 'orders', 'salesQty',
   'revenue', 'conversionRate', 'currentBid', 'dailyBudget', 'runningAdSpend',
@@ -84,6 +89,7 @@ const NUMBERISH_ROW_KEYS = new Set([
 ]);
 const COMMANDS = new Set([
   'guard',
+  'preflight-bootstrap',
   'export-coupang',
   'bootstrap',
   'replay-coupang',
@@ -124,6 +130,18 @@ export type SharedBootstrapInput = {
 };
 
 export type SharedBootstrapPlan = ReturnType<typeof buildSharedBootstrapPlan>;
+export type BootstrapPreflightManifest = {
+  schemaVersion: 'kiditem.authoritative-bootstrap-preflight.v1';
+  target: SharedRebuildTarget;
+  originRunId: string;
+  deployedSha: string;
+  organizationId: string;
+  userId: string;
+  userFingerprint: string;
+  channelAccountIds: string[];
+  planSha256: string;
+  sourceManifestSha256: string;
+};
 
 type JsonRecord = Record<string, unknown>;
 type RebuildPrisma = PrismaClient | Prisma.TransactionClient;
@@ -184,6 +202,56 @@ export type RebuildReadyExpected = {
   listings: number;
   channelSkus: number;
 };
+
+type RebuildImportRunEvidence = {
+  id: string;
+  status: string;
+  fileHash: string | null;
+  rowCount: number;
+  importedAt: Date | null;
+};
+
+export function assertRebuildImportPrerequisites(input: {
+  sellpiaRuns: RebuildImportRunEvidence[];
+  wingRuns: RebuildImportRunEvidence[];
+  expected: {
+    sellpiaFileHash: string;
+    sellpiaRowCount: number;
+    wingFileHash: string;
+    wingRowCount: number;
+  };
+}): { sellpiaRunId: string; wingRunId: string } {
+  if (input.sellpiaRuns.length !== 1 || input.wingRuns.length !== 1) {
+    throw new Error('Rebuild requires exactly one matching Sellpia and Wing import run');
+  }
+  const sellpia = input.sellpiaRuns[0];
+  const wing = input.wingRuns[0];
+  if (sellpia.status !== 'completed' || wing.status !== 'completed') {
+    throw new Error('Rebuild import runs must be completed');
+  }
+  for (const hash of [input.expected.sellpiaFileHash, input.expected.wingFileHash]) {
+    if (!/^[0-9a-f]{64}$/i.test(hash)) throw new Error('Expected import file hash is invalid');
+  }
+  if (
+    sellpia.fileHash !== input.expected.sellpiaFileHash ||
+    wing.fileHash !== input.expected.wingFileHash
+  ) {
+    throw new Error('Rebuild import file hash does not match reviewed source artifact');
+  }
+  if (
+    sellpia.rowCount !== input.expected.sellpiaRowCount ||
+    wing.rowCount !== input.expected.wingRowCount
+  ) {
+    throw new Error('Rebuild import row count does not match reviewed source artifact');
+  }
+  if (
+    !sellpia.importedAt || !wing.importedAt ||
+    sellpia.importedAt.getTime() >= wing.importedAt.getTime()
+  ) {
+    throw new Error('Rebuild import order must be completed Sellpia before Wing');
+  }
+  return { sellpiaRunId: sellpia.id, wingRunId: wing.id };
+}
 
 type ParsedCli = {
   command: string;
@@ -433,6 +501,59 @@ export function buildSharedBootstrapPlan(input: SharedBootstrapInput) {
   };
 }
 
+export function buildBootstrapPreflightManifest(input: {
+  target: SharedRebuildTarget;
+  originRunId: string;
+  deployedSha: string;
+  plan: SharedBootstrapPlan;
+  sourceManifest?: RebuildSourceManifest;
+}): BootstrapPreflightManifest {
+  assertPositiveIntegerText(input.originRunId, 'originRunId');
+  if (!GIT_SHA_PATTERN.test(input.deployedSha)) {
+    throw new Error('Bootstrap preflight deployed SHA must be immutable');
+  }
+  return {
+    schemaVersion: 'kiditem.authoritative-bootstrap-preflight.v1',
+    target: input.target,
+    originRunId: input.originRunId,
+    deployedSha: input.deployedSha,
+    organizationId: input.plan.organization.id,
+    userId: input.plan.user.id,
+    userFingerprint: sha256(`${input.plan.user.id}\0${input.plan.user.email.toLowerCase()}`),
+    channelAccountIds: input.plan.channelAccounts.map(({ id }) => id),
+    planSha256: sha256(stableStringify(input.plan)),
+    sourceManifestSha256: sha256(stableStringify(input.sourceManifest ?? null)),
+  };
+}
+
+export function assertBootstrapPreflightManifest(
+  manifest: BootstrapPreflightManifest,
+  input: {
+    target: SharedRebuildTarget;
+    originRunId: string;
+    deployedSha: string;
+    plan: SharedBootstrapPlan;
+    sourceManifest?: RebuildSourceManifest;
+  },
+): void {
+  const expected = buildBootstrapPreflightManifest(input);
+  if (stableStringify(manifest) !== stableStringify(expected)) {
+    throw new Error('Bootstrap preflight manifest does not match the protected baseline binding');
+  }
+}
+
+export type RebuildSourceManifest = {
+  sellpiaFileHash: string;
+  sellpiaRowCount: number;
+  wingFileHash: string;
+  wingRowCount: number;
+};
+
+type RebuildImportBinding = {
+  sellpiaRunId: string;
+  wingRunId: string;
+};
+
 export function buildCoupangReplayBundle(input: {
   target: RebuildTarget;
   originRunId: string;
@@ -517,12 +638,26 @@ function buildReplayBody(run: ReplaySourceRun): JsonRecord {
   const adSummary = pickAllowedRecord(meta.adSummary, AD_SUMMARY_KEYS);
   if (Object.keys(adSummary).length > 0) body.adSummary = adSummary;
   copyString(meta, body, 'campaignName');
+  const requestedScope = boundedReplayScope(
+    meta.requestedCampaignReportScope ?? meta.campaignReportScope,
+  );
+  if (requestedScope && requestedScope !== 'legacy_raw_only') {
+    body.campaignReportScope = requestedScope;
+  }
+  copyString(meta, body, 'dashboardOnOff');
+  copyString(meta, body, 'dashboardStatus');
   if (run.period) body.period = run.period;
   if (run.businessDate) body.timestamp = run.businessDate.toISOString();
   if (run.periodStart) body.dateFrom = dateOnly(run.periodStart);
   if (run.periodEnd) body.dateTo = dateOnly(run.periodEnd);
   if (run.targetUrl) body.url = safeReplayUrl(run.targetUrl);
   return body;
+}
+
+function boundedReplayScope(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const scope = value.trim();
+  return scope.length > 0 && scope.length <= 64 ? scope : null;
 }
 
 function replayType(run: ReplaySourceRun): string {
@@ -639,6 +774,14 @@ export function assertReplayBundle(value: unknown): asserts value is CoupangRepl
       throw new Error(`Unknown replay payload source: ${source || '<missing>'}`);
     }
     assertOptionalScalar(body.campaignName, ['string'], 'body.campaignName');
+    if (body.campaignReportScope !== undefined) {
+      const scope = boundedReplayScope(body.campaignReportScope);
+      if (scope === null || scope !== body.campaignReportScope) {
+        throw new Error('Replay body.campaignReportScope must be a trimmed nonempty string up to 64 characters');
+      }
+    }
+    assertOptionalScalar(body.dashboardOnOff, ['string'], 'body.dashboardOnOff');
+    assertOptionalScalar(body.dashboardStatus, ['string'], 'body.dashboardStatus');
     assertOptionalScalar(body.period, ['string', 'number'], 'body.period');
     for (const key of ['timestamp', 'dateFrom', 'dateTo', 'url'] as const) {
       assertOptionalScalar(body[key], ['string'], `body.${key}`);
@@ -725,6 +868,10 @@ function assertAllowedRows(value: unknown, allowed: ReadonlySet<string>, label: 
     const row = assertPlainRecord(rowValue, `${label}[${index}]`);
     for (const [key, entry] of Object.entries(row)) {
       if (!allowed.has(key)) throw new Error(`Unknown replay ${label} key: ${key}`);
+      if (key === '_observedMetrics') {
+        assertObservedMetrics(entry, `${label}[${index}]._observedMetrics`);
+        continue;
+      }
       assertReplayScalar(
         entry,
         BOOLEAN_ROW_KEYS.has(key)
@@ -734,6 +881,16 @@ function assertAllowedRows(value: unknown, allowed: ReadonlySet<string>, label: 
             : ['string'],
         `Replay ${label}[${index}].${key}`,
       );
+    }
+  }
+}
+
+function assertObservedMetrics(value: unknown, label: string): void {
+  const metrics = assertPlainRecord(value, label);
+  assertAllowedRecord(metrics, OBSERVED_METRIC_KEYS, label);
+  for (const [key, observed] of Object.entries(metrics)) {
+    if (typeof observed !== 'boolean') {
+      throw new Error(`Replay ${label}.${key} must be boolean`);
     }
   }
 }
@@ -1034,12 +1191,8 @@ async function exportCoupang(cli: ParsedCli, target: RebuildTarget): Promise<voi
   }
 }
 
-async function bootstrap(cli: ParsedCli, target: RebuildTarget): Promise<void> {
-  const originRunId = cliValue(cli, 'origin-run-id', 'GITHUB_RUN_ID');
-  const deployedSha = cliValue(cli, 'deployed-sha', 'REBUILD_DEPLOYED_SHA');
-  assertPositiveIntegerText(originRunId, 'originRunId');
-  if (!GIT_SHA_PATTERN.test(deployedSha)) throw new Error('deployedSha must be an immutable git SHA');
-  const plan = buildSharedBootstrapPlan({
+function bootstrapPlanFromCli(cli: ParsedCli): SharedBootstrapPlan {
+  return buildSharedBootstrapPlan({
     organizationId: cliValue(cli, 'organization-id', 'REBUILD_ORGANIZATION_ID'),
     organizationName: cliValue(cli, 'organization-name', 'REBUILD_ORGANIZATION_NAME'),
     organizationSlug: cliValue(cli, 'organization-slug', 'REBUILD_ORGANIZATION_SLUG'),
@@ -1069,6 +1222,163 @@ async function bootstrap(cli: ParsedCli, target: RebuildTarget): Promise<void> {
       'REBUILD_ROCKET_ACCOUNT_NAME',
     ),
   });
+}
+
+function sourceManifestFromCli(cli: ParsedCli): RebuildSourceManifest {
+  const sellpiaFileHash = cliValue(
+    cli,
+    'sellpia-file-sha256',
+    'REBUILD_SELLPIA_FILE_SHA256',
+  ).toLowerCase();
+  const wingFileHash = cliValue(
+    cli,
+    'wing-file-sha256',
+    'REBUILD_WING_FILE_SHA256',
+  ).toLowerCase();
+  for (const [label, hash] of [
+    ['Sellpia', sellpiaFileHash],
+    ['Wing', wingFileHash],
+  ] as const) {
+    if (!/^[0-9a-f]{64}$/.test(hash)) {
+      throw new Error(`${label} source SHA-256 must be exactly 64 hexadecimal characters`);
+    }
+  }
+  return {
+    sellpiaFileHash,
+    sellpiaRowCount: positiveInteger(
+      cliValue(cli, 'sellpia-row-count', 'REBUILD_SELLPIA_ROW_COUNT'),
+    ),
+    wingFileHash,
+    wingRowCount: positiveInteger(
+      cliValue(cli, 'wing-row-count', 'REBUILD_WING_ROW_COUNT'),
+    ),
+  };
+}
+
+async function preflightBootstrap(
+  cli: ParsedCli,
+  target: RebuildTarget,
+): Promise<void> {
+  if (target === 'local') {
+    throw new Error('Bootstrap preflight is required only at a shared GitHub Environment boundary');
+  }
+  const originRunId = cliValue(cli, 'origin-run-id', 'GITHUB_RUN_ID');
+  const deployedSha = cliValue(cli, 'deployed-sha', 'REBUILD_DEPLOYED_SHA');
+  const output = resolve(
+    cliValue(cli, 'output', 'REBUILD_BOOTSTRAP_PREFLIGHT_PATH'),
+  );
+  const plan = bootstrapPlanFromCli(cli);
+  const sourceManifest = sourceManifestFromCli(cli);
+  const prisma = await createPrisma();
+  try {
+    const [organizations, users, memberships, accounts] = await Promise.all([
+      prisma.organization.findMany({
+        select: { id: true, name: true, slug: true, isActive: true },
+        orderBy: { id: 'asc' },
+      }),
+      prisma.user.findMany({
+        select: { id: true, email: true, name: true, role: true, type: true, isActive: true },
+        orderBy: { id: 'asc' },
+      }),
+      prisma.organizationMembership.findMany({
+        where: { status: 'active' },
+        select: { organizationId: true, userId: true, role: true, status: true },
+        orderBy: [{ organizationId: 'asc' }, { userId: 'asc' }],
+      }),
+      prisma.channelAccount.findMany({
+        where: { channel: { in: ['coupang', 'rocket'] } },
+        select: {
+          id: true,
+          organizationId: true,
+          channel: true,
+          name: true,
+          externalAccountId: true,
+          status: true,
+          isPrimary: true,
+          config: true,
+        },
+        orderBy: { id: 'asc' },
+      }),
+    ]);
+    const expected = {
+      organizations: [plan.organization].sort((a, b) => a.id.localeCompare(b.id)),
+      users: [plan.user].sort((a, b) => a.id.localeCompare(b.id)),
+      memberships: [plan.membership],
+      accounts: [...plan.channelAccounts].sort((a, b) => a.id.localeCompare(b.id)),
+    };
+    const actual = { organizations, users, memberships, accounts };
+    if (stableStringify(actual) !== stableStringify(expected)) {
+      throw new Error(
+        'Protected bootstrap rows do not exactly match the reviewed organization/user/membership/account baseline',
+      );
+    }
+
+    const supabaseUrl = cliValue(cli, 'supabase-url', 'SUPABASE_URL');
+    const expectedProjectRef = cliValue(
+      cli,
+      'expected-supabase-project-ref',
+      'REBUILD_EXPECTED_SUPABASE_PROJECT_REF',
+    );
+    assertProtectedSupabaseDestination(supabaseUrl, expectedProjectRef);
+    const supabase = createClient(
+      supabaseUrl,
+      cliValue(cli, 'supabase-secret-key', 'SUPABASE_SECRET_KEY'),
+      { auth: { autoRefreshToken: false, persistSession: false } },
+    );
+    const { data, error } = await supabase.auth.admin.getUserById(plan.user.id);
+    if (error) throw error;
+    if (
+      data.user?.id !== plan.user.id ||
+      data.user.email?.trim().toLowerCase() !== plan.user.email.trim().toLowerCase()
+    ) {
+      throw new Error('Protected Supabase auth user ID/email does not match the baseline');
+    }
+
+    const manifest = buildBootstrapPreflightManifest({
+      target,
+      originRunId,
+      deployedSha,
+      plan,
+      sourceManifest,
+    });
+    await mkdir(dirname(output), { recursive: true });
+    await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+    await chmod(output, 0o600);
+    console.log(JSON.stringify({
+      organizationId: manifest.organizationId,
+      userId: manifest.userId,
+      userFingerprint: manifest.userFingerprint,
+      channelAccountIds: manifest.channelAccountIds,
+      planSha256: manifest.planSha256,
+      sourceManifestSha256: manifest.sourceManifestSha256,
+    }));
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+async function bootstrap(cli: ParsedCli, target: RebuildTarget): Promise<void> {
+  const originRunId = cliValue(cli, 'origin-run-id', 'GITHUB_RUN_ID');
+  const deployedSha = cliValue(cli, 'deployed-sha', 'REBUILD_DEPLOYED_SHA');
+  assertPositiveIntegerText(originRunId, 'originRunId');
+  if (!GIT_SHA_PATTERN.test(deployedSha)) throw new Error('deployedSha must be an immutable git SHA');
+  const plan = bootstrapPlanFromCli(cli);
+  const sourceManifest = sourceManifestFromCli(cli);
+  if (target !== 'local') {
+    const preflightPath = resolve(
+      cliValue(cli, 'preflight', 'REBUILD_BOOTSTRAP_PREFLIGHT_PATH'),
+    );
+    const manifest = JSON.parse(
+      await readFile(preflightPath, 'utf8'),
+    ) as BootstrapPreflightManifest;
+    assertBootstrapPreflightManifest(manifest, {
+      target,
+      originRunId,
+      deployedSha,
+      plan,
+      sourceManifest,
+    });
+  }
 
   const prisma = await createPrisma();
   try {
@@ -1121,6 +1431,7 @@ async function bootstrap(cli: ParsedCli, target: RebuildTarget): Promise<void> {
             originRunId,
             deployedSha,
             channelAccountFingerprint,
+            sourceManifest,
             updatedAt: new Date().toISOString(),
           },
         },
@@ -1133,6 +1444,7 @@ async function bootstrap(cli: ParsedCli, target: RebuildTarget): Promise<void> {
             originRunId,
             deployedSha,
             channelAccountFingerprint,
+            sourceManifest,
             updatedAt: new Date().toISOString(),
           },
         },
@@ -1173,6 +1485,7 @@ async function readBundle(cli: ParsedCli, target: RebuildTarget): Promise<Coupan
 
 async function replayCoupang(cli: ParsedCli, target: RebuildTarget): Promise<void> {
   const bundle = await readBundle(cli, target);
+  const sourceManifest = sourceManifestFromCli(cli);
   const channelAccountId = cliValue(
     cli,
     'coupang-account-id',
@@ -1184,7 +1497,7 @@ async function replayCoupang(cli: ParsedCli, target: RebuildTarget): Promise<voi
   assertProtectedApiDestination(apiUrl, expectedApiOrigin);
   const prisma = await createPrisma();
   try {
-    await assertCurrentRebuildBinding(prisma, bundle, target);
+    await bindRebuildImports(prisma, bundle, target, sourceManifest);
     const accessToken = await generateOperatorAccessToken(cli);
     const checkpointKey = `${REBUILD_STATUS_KEY}.replay.${bundle.originRunId}`;
     const checkpoint = await prisma.systemSetting.findUnique({
@@ -1255,7 +1568,7 @@ async function replayCoupang(cli: ParsedCli, target: RebuildTarget): Promise<voi
     ]);
     assertReplayCounts(actual, bundle.expectedReplayCounts);
     assertReplayFactDigest(factDigestSha256, bundle.expectedFactDigestSha256);
-    await assertCurrentRebuildBinding(prisma, bundle, target);
+    await assertCurrentRebuildBinding(prisma, bundle, target, sourceManifest);
     console.log(JSON.stringify({
       target,
       originRunId: bundle.originRunId,
@@ -1272,7 +1585,8 @@ async function assertCurrentRebuildBinding(
   prisma: Pick<PrismaClient, 'systemSetting'>,
   bundle: CoupangReplayBundle,
   target: RebuildTarget,
-): Promise<{ id: string; updatedAt: Date }> {
+  sourceManifest?: RebuildSourceManifest,
+): Promise<{ id: string; updatedAt: Date; status: JsonRecord }> {
   const setting = await prisma.systemSetting.findUnique({
     where: {
       organizationId_key: {
@@ -1289,17 +1603,103 @@ async function assertCurrentRebuildBinding(
     status.target !== target ||
     status.originRunId !== bundle.originRunId ||
     status.deployedSha !== bundle.deployedSha ||
-    status.channelAccountFingerprint !== bundle.channelAccountFingerprint
+    status.channelAccountFingerprint !== bundle.channelAccountFingerprint ||
+    (sourceManifest !== undefined &&
+      stableStringify(status.sourceManifest) !== stableStringify(sourceManifest))
   ) {
     throw new Error(
       'Current database is not the snapshot_required rebuild bound to this target, origin run, SHA, and account',
     );
   }
-  return { id: setting.id, updatedAt: setting.updatedAt };
+  return { id: setting.id, updatedAt: setting.updatedAt, status };
+}
+
+async function readRebuildImportEvidence(
+  prisma: RebuildPrisma,
+  bundle: CoupangReplayBundle,
+  sourceManifest: RebuildSourceManifest,
+): Promise<{
+  evidence: RebuildImportBinding;
+  sellpiaRuns: RebuildImportRunEvidence[];
+  wingRuns: RebuildImportRunEvidence[];
+}> {
+  const [sellpiaRuns, wingRuns] = await Promise.all([
+    prisma.sourceImportRun.findMany({
+      where: {
+        organizationId: bundle.organizationId,
+        sourceType: 'sellpia_inventory',
+        fileHash: sourceManifest.sellpiaFileHash,
+      },
+      select: { id: true, status: true, fileHash: true, rowCount: true, importedAt: true },
+    }),
+    prisma.sourceImportRun.findMany({
+      where: {
+        organizationId: bundle.organizationId,
+        channelAccountId: bundle.channelAccountId,
+        sourceType: 'coupang_wing_catalog',
+        fileHash: sourceManifest.wingFileHash,
+      },
+      select: { id: true, status: true, fileHash: true, rowCount: true, importedAt: true },
+    }),
+  ]);
+  return {
+    evidence: assertRebuildImportPrerequisites({
+      sellpiaRuns,
+      wingRuns,
+      expected: sourceManifest,
+    }),
+    sellpiaRuns,
+    wingRuns,
+  };
+}
+
+function assertStoredImportBinding(
+  status: JsonRecord,
+  evidence: RebuildImportBinding,
+): void {
+  if (stableStringify(status.importBinding) !== stableStringify(evidence)) {
+    throw new Error('Rebuild import run binding does not match the exact reviewed source runs');
+  }
+}
+
+async function bindRebuildImports(
+  prisma: PrismaClient,
+  bundle: CoupangReplayBundle,
+  target: RebuildTarget,
+  sourceManifest: RebuildSourceManifest,
+): Promise<RebuildImportBinding> {
+  return prisma.$transaction(async (tx) => {
+    const bound = await assertCurrentRebuildBinding(tx, bundle, target, sourceManifest);
+    const { evidence } = await readRebuildImportEvidence(tx, bundle, sourceManifest);
+    if (bound.status.importBinding !== undefined) {
+      assertStoredImportBinding(bound.status, evidence);
+      return evidence;
+    }
+    const transition = await tx.systemSetting.updateMany({
+      where: { id: bound.id, updatedAt: bound.updatedAt },
+      data: {
+        value: {
+          state: 'snapshot_required',
+          target,
+          originRunId: bundle.originRunId,
+          deployedSha: bundle.deployedSha,
+          channelAccountFingerprint: bundle.channelAccountFingerprint,
+          sourceManifest,
+          importBinding: evidence,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    });
+    if (transition.count !== 1) {
+      throw new Error('Rebuild status changed concurrently; refusing import binding');
+    }
+    return evidence;
+  }, { isolationLevel: 'Serializable' });
 }
 
 async function verifyReady(cli: ParsedCli, target: RebuildTarget): Promise<void> {
   const bundle = await readBundle(cli, target);
+  const sourceManifest = sourceManifestFromCli(cli);
   const channelAccountId = cliValue(
     cli,
     'coupang-account-id',
@@ -1314,37 +1714,26 @@ async function verifyReady(cli: ParsedCli, target: RebuildTarget): Promise<void>
   const prisma = await createPrisma();
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const boundSetting = await assertCurrentRebuildBinding(tx, bundle, target);
-      const [sellpiaRun, wingRun, actual, replayCounts, replayFactDigest] = await Promise.all([
-        tx.sourceImportRun.findFirst({
-          where: {
-            organizationId: bundle.organizationId,
-            sourceType: 'sellpia_inventory',
-            status: 'completed',
-          },
-          orderBy: [{ importedAt: 'desc' }, { createdAt: 'desc' }],
-          select: { importedAt: true, createdAt: true },
-        }),
-        tx.sourceImportRun.findFirst({
-          where: {
-            organizationId: bundle.organizationId,
-            channelAccountId,
-            sourceType: 'coupang_wing_catalog',
-            status: 'completed',
-          },
-          orderBy: [{ importedAt: 'desc' }, { createdAt: 'desc' }],
-          select: { importedAt: true, createdAt: true },
-        }),
-        readReadyCounts(tx, bundle.organizationId, channelAccountId),
-        readReplayFactCounts(tx, bundle.organizationId, channelAccountId),
-        readReplayFactDigest(tx, bundle.organizationId, channelAccountId),
-      ]);
+      const boundSetting = await assertCurrentRebuildBinding(
+        tx,
+        bundle,
+        target,
+        sourceManifest,
+      );
+      const [{ evidence, sellpiaRuns, wingRuns }, actualCounts, replayCounts, replayFactDigest] =
+        await Promise.all([
+          readRebuildImportEvidence(tx, bundle, sourceManifest),
+          readReadyCounts(tx, bundle.organizationId, channelAccountId),
+          readReplayFactCounts(tx, bundle.organizationId, channelAccountId),
+          readReplayFactDigest(tx, bundle.organizationId, channelAccountId),
+        ]);
+      assertStoredImportBinding(boundSetting.status, evidence);
+      const actual = {
+        ...actualCounts,
+        completedSellpiaImports: sellpiaRuns.length,
+        completedWingImports: wingRuns.length,
+      };
       assertReadyCounts(actual, expected);
-      const sellpiaAt = sellpiaRun?.importedAt ?? sellpiaRun?.createdAt;
-      const wingAt = wingRun?.importedAt ?? wingRun?.createdAt;
-      if (!sellpiaAt || !wingAt || wingAt < sellpiaAt) {
-        throw new Error('Sellpia must complete before the Wing catalog import');
-      }
       assertReplayCounts(replayCounts, bundle.expectedReplayCounts);
       assertReplayFactDigest(replayFactDigest, bundle.expectedFactDigestSha256);
 
@@ -1357,6 +1746,8 @@ async function verifyReady(cli: ParsedCli, target: RebuildTarget): Promise<void>
             originRunId: bundle.originRunId,
             deployedSha: bundle.deployedSha,
             channelAccountFingerprint: bundle.channelAccountFingerprint,
+            sourceManifest,
+            importBinding: evidence,
             imports: actual,
             replay: replayCounts,
             replayFactDigest,
@@ -1747,6 +2138,9 @@ async function main(): Promise<void> {
       }
       return;
     }
+    case 'preflight-bootstrap':
+      await preflightBootstrap(cli, target);
+      return;
     case 'export-coupang':
       await exportCoupang(cli, target);
       return;

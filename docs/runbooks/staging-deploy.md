@@ -324,7 +324,7 @@ Workflow file:
 Triggers:
 
 - Manual `workflow_dispatch` with `operation=deploy` builds and deploys the
-  selected ref. Use `main` for normal staging verification.
+  selected immutable SHA. Resolve `main` to a full SHA before dispatch.
 - Manual `workflow_dispatch` with `operation=status` prints the EC2 deployment
   manifest and smoke endpoint status.
 - Manual `workflow_dispatch` with `operation=rollback` deploys an existing GHCR
@@ -390,30 +390,41 @@ deploy/staging/remote-deploy.sh
 Normal deploys keep the ordered pre-schema migration, non-destructive
 `prisma db push`, and post-schema migration path. Finish and merge every PR in
 the release train first, then perform one combined staging deploy; do not deploy
-or reset between those PRs. The explicit authoritative rebuild path is:
+or reset between those PRs. The current train exposes one explicit authoritative
+rebuild path:
 
 ```text
 operation: deploy
 deployment_target: staging
+expected_git_sha: <full 40-hex SHA>
+dispatch_correlation_id: <UUID>
 destructive_reset: RESET_STAGING_DATA
 ```
 
-The workflow validates the exact token inside GitHub Environment `staging`.
-The destructive order is: quiesce application traffic, export the selected
-Coupang account as sanitized replay payloads, validate the identity/source
-manifest and hashes, upload the private one-day artifact, then cross the reset
-boundary once by applying the final Prisma schema with `--force-reset` to
-non-auth staging data. Supabase Auth accounts are preserved. Only after that
-does the workflow deterministically recreate the configured Organization,
-matching User mirror, active Membership, and ChannelAccount identities from
-those validated sources. The
-`data_migration_runs` ledger must reflect migrations actually executed against
-the rebuilt schema, or an explicitly validated, schema-hash-bound
-`subsumed_by_authoritative_rebuild` result for work made unnecessary by that
-rebuild. Never copy stale pre-reset success rows blindly or mark a migration
-complete without the matching recorded result. The workflow then starts the application with
+The workflow first validates the dispatch SHA/correlation, approved database
+URL hash, URL database name, and live database name. It then proves the exact
+Organization/User/active Membership/Coupang and optional Rocket account rows
+match the reviewed baseline and verifies the protected user ID/email through a
+read-only Supabase Admin lookup. The destructive order is: quiesce application
+traffic, export the selected Coupang account as sanitized replay payloads,
+export the ordered migration ledger baseline, upload the private one-day
+artifact, then cross the reset boundary by applying the final Prisma schema
+with `--force-reset` to non-auth staging data. Supabase Auth accounts are
+preserved. Only after that does it deterministically recreate the configured
+Organization, matching User mirror, active Membership, and ChannelAccount
+identities. It then starts the application with
 `inventory.rebuild.status=snapshot_required`. No source workbook is read from
 the repository or stored in the artifact.
+
+Immediately after schema recreation, the workflow requires an empty
+`data_migration_runs` table. The restored ledger records only migrations
+actually executed against the rebuilt schema or an explicitly validated,
+schema-hash-bound `subsumed_by_authoritative_rebuild` result for work made
+unnecessary by that rebuild. It never copies stale pre-reset success rows or
+marks a migration complete without the matching manifest hash, origin run,
+full SHA, Prisma schema hash, and recorded result.
+Both API/web image revision labels must equal `expected_git_sha` before traffic
+cutover.
 
 After the deploy finishes, an authenticated operator must:
 
@@ -422,31 +433,39 @@ After the deploy finishes, an authenticated operator must:
 2. Open `/product-hub/matching`, choose the configured Coupang account, and
    import the approved Wing workbook. Wait for a completed
    `coupang_wing_catalog` run. Sellpia must complete first.
-3. Confirm the Environment variables `STAGING_REBUILD_EXPECTED_*` match the
-   approved import manifest, not a guessed or copied total.
+3. Confirm `STAGING_REBUILD_SELLPIA_FILE_SHA256`,
+   `STAGING_REBUILD_SELLPIA_ROW_COUNT`, `STAGING_REBUILD_WING_FILE_SHA256`,
+   `STAGING_REBUILD_WING_ROW_COUNT`, and the three
+   `STAGING_REBUILD_EXPECTED_*` fact counts match the approved import manifest,
+   not a guessed or copied total.
 4. Trigger the same workflow with:
 
    ```text
    operation: finalize-rebuild
    deployment_target: staging
+   expected_git_sha: <full workflow-code SHA>
+   dispatch_correlation_id: <new UUID>
    destructive_reset: RESET_STAGING_DATA
    rebuild_run_id: <originating deploy run ID>
    ```
 
-Finalization downloads only that run's staging artifact, replays Coupang data
-through authenticated `POST /api/ads/extension/sync`, verifies the completed
-Sellpia/Wing import order and exact imported/replayed counts, and marks the
-environment ready. Missing credentials, imports, expected counts, artifact,
-or a target/run/count mismatch fails closed and keeps snapshot-required state.
-The Coupang replay must never start until the Sellpia -> WING sequence has been
-verified successfully.
+Finalization downloads only that run's staging artifact. Before generating an
+operator token or sending a replay request, it requires the exact reviewed
+Sellpia and Wing hashes/row counts, proves Sellpia completed first, and binds
+those two import run IDs. It then replays Coupang data through authenticated
+`POST /api/ads/extension/sync`, verifies the same binding and exact facts, and
+marks the environment ready. Missing credentials, imports, expected evidence,
+artifact, or a target/run/hash/count mismatch fails closed and keeps
+snapshot-required state.
 
-Live WING vendor identity is also a manual deployment blocker. DOM attributes,
-meta tags, and URL parameters are useful local mismatch guards, but they are not
-server-verifiable proof of the provider account or provider completion. Do not
-enable live WING registration/deletion mutation until an operator validates the
-actual WING identity signal for the deployed page and account; deletion remains
-`reconciling/uncertain` without an independent provider API/catalog verifier.
+The Coupang replay must never start until the Sellpia -> WING sequence has been
+verified successfully. Live WING vendor identity is also a manual deployment
+blocker: DOM attributes, meta tags, and URL parameters are useful local
+mismatch guards, but they are not server-verifiable proof of the provider
+account or provider completion. Do not enable live WING registration/deletion
+mutation until an operator validates the actual WING identity signal for the
+deployed page and account; deletion remains `reconciling/uncertain` without an
+independent provider API/catalog verifier.
 
 Each durable data migration is grouped by the application release in root
 [`VERSION`](../../VERSION) that requires it, for example

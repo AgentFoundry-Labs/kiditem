@@ -8,10 +8,10 @@
 // so `targetKey` MUST be non-null and stable across replays.
 //
 // Patterns (single source of truth):
-//   campaign:<campaignId || campaignIdentity || campaignName>
-//   keyword:<campaignId || campaignIdentity || campaignName>:<adGroup>:<keyword>
-//   product:<campaignId || campaignIdentity || campaignName>:<externalOptionId || externalId || listingId>
-//   product:<externalOptionId || externalId || listingId> (campaign-less fallback)
+//   account:<channelAccountId>:campaign:<campaignId || campaignIdentity || campaignName>
+//   account:<channelAccountId>:keyword:<campaign-anchor>:<adGroup>:<keyword>
+//   account:<channelAccountId>:product:<campaign-anchor>:<product-anchor>
+//   account:<channelAccountId>:product:<product-anchor> (campaign-less fallback)
 //
 // Throws when no usable identifier is present so we never store
 // `unknown:unknown` rows. Two distinct payloads with different identifiers
@@ -20,6 +20,7 @@
 export type AdTargetType = 'campaign' | 'keyword' | 'product';
 
 interface BuildAdTargetKeyInput {
+  channelAccountId: string;
   targetType: AdTargetType;
   campaignId?: string | null;
   campaignIdentity?: string | null;
@@ -49,6 +50,10 @@ function trimOrNull(value: string | null | undefined): string | null {
  * `keyword` AND no campaign identity is rejected.
  */
 export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
+  const channelAccountId = trimOrNull(input.channelAccountId);
+  if (!channelAccountId) {
+    throw new Error('buildAdTargetKey: channelAccountId is required');
+  }
   const campaignId = trimOrNull(input.campaignId);
   const campaignIdentity = trimOrNull(input.campaignIdentity);
   const campaignName = trimOrNull(input.campaignName);
@@ -59,6 +64,7 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
   const listingId = trimOrNull(input.listingId);
   const campaignAnchor = campaignId ?? campaignIdentity ?? campaignName;
   const productAnchor = externalOptionId ?? externalId ?? listingId;
+  const prefix = `account:${channelAccountId}`;
 
   switch (input.targetType) {
     case 'campaign': {
@@ -67,7 +73,7 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
           'buildAdTargetKey: campaign target requires campaignId, campaignIdentity, or campaignName',
         );
       }
-      return `campaign:${campaignAnchor}`;
+      return `${prefix}:campaign:${campaignAnchor}`;
     }
     case 'keyword': {
       if (!campaignAnchor || !keyword) {
@@ -75,7 +81,7 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
           'buildAdTargetKey: keyword target requires (campaignId|campaignIdentity|campaignName) and keyword',
         );
       }
-      return `keyword:${campaignAnchor}:${adGroup ?? ''}:${keyword}`;
+      return `${prefix}:keyword:${campaignAnchor}:${adGroup ?? ''}:${keyword}`;
     }
     case 'product': {
       if (!productAnchor) {
@@ -83,14 +89,11 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
           'buildAdTargetKey: product target requires externalOptionId, externalId, or listingId',
         );
       }
-      // Coupang's campaign sweep sends one request per campaign. A product can
-      // participate in several campaigns on the same business date, so the
-      // campaign identity must be part of the daily-fact key whenever it is
-      // available. Sources that genuinely have no campaign identity retain the
-      // original stable product-only key.
+      // A product can participate in several campaigns on the same date, so
+      // the campaign identity remains part of the key whenever available.
       return campaignAnchor
-        ? `product:${campaignAnchor}:${productAnchor}`
-        : `product:${productAnchor}`;
+        ? `${prefix}:product:${campaignAnchor}:${productAnchor}`
+        : `${prefix}:product:${productAnchor}`;
     }
     default: {
       // Defensive — TS already narrows targetType, but raw payloads may slip in.

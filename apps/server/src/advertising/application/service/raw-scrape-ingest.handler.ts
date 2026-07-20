@@ -331,6 +331,7 @@ export class RawScrapeIngestHandler {
           const targetType = deriveAdTargetType(pageType, rowKeyword);
           try {
             const targetKey = buildAdTargetKey({
+              channelAccountId: map.channelAccountId,
               targetType,
               campaignId: rowCampaignId,
               campaignName: rowCampaignName,

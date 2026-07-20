@@ -54,36 +54,51 @@ the image build fails if that runtime asset cannot be resolved.
 
 ## Guarded Authoritative Rebuild
 
-Release `0.1.8` is a one-release reconstruction boundary, not an expand/contract
+The open `0.1.24` train is a reconstruction boundary, not an expand/contract
 migration. Staging and production use the same fail-closed sequence:
 
 ```text
-exact RESET_<ENVIRONMENT>_DATA input + matching GitHub Environment
+full expected Git SHA + dispatch correlation UUID
+  -> approved database URL SHA-256 + URL/live database-name checks
+  -> exact RESET_<ENVIRONMENT>_DATA input + matching GitHub Environment
+  -> read-only Organization/User/Membership/ChannelAccount + Supabase Auth preflight
   -> quiesce every API, web, worker, and compose-nginx service
-  -> sanitized Coupang run/snapshot/daily-fact export
+  -> sanitized Coupang run/snapshot/daily-fact export + hash-bound migration-ledger baseline
   -> private workflow artifact (one-day retention)
   -> Prisma final schema with --force-reset
+  -> restore succeeded ledger rows as subsumed_by_authoritative_rebuild
   -> minimum organization/user/membership/channel-account baseline
+  -> seal approved Sellpia/Wing file hashes and row counts into rebuild status
   -> deploy application with inventory.rebuild.status=snapshot_required
   -> authenticated operator Sellpia import
   -> authenticated operator Wing import
+  -> bind exact completed Sellpia/Wing import run IDs in that order
   -> authenticated Coupang replay from the originating artifact
   -> exact fact/count verification and state=ready
 ```
 
-The destructive path is disabled unless all four values agree: the selected
+The destructive path is disabled unless the immutable dispatch SHA, correlation
+UUID, database URL hash, URL database name, live `current_database()`, selected
 deployment target, the job's fixed GitHub Environment, the workflow input, and
 the environment-specific expected token. A blank reset input keeps the normal
 non-destructive migration and `prisma db push` path. A wrong non-blank input
 fails before export or traffic changes.
 
-The replay artifact is bound to the target, organization, and originating
+The private artifact is bound to the target, organization, and originating
 workflow run ID. It excludes bootstrap credentials, channel account config,
 PII-shaped fields, orders, reviews, and legacy mapping rows. Finalization must
 run in the same protected GitHub Environment, download that exact run's private
-artifact, and compare replay/import counts with the approved manifest-backed
-Environment variables. Missing imports, missing expected counts, a mismatched
-run, or any count difference leaves the environment snapshot-required.
+artifact, and compare replay/import hashes, row counts, run IDs, ordering, and
+fact counts with the approved manifest-backed Environment variables. Missing
+imports, missing expected evidence, a mismatched run, or any difference leaves
+the environment snapshot-required before credential generation or replay.
+
+The same artifact contains the account-preflight manifest and ordered migration
+registry/ledger manifest. Bootstrap consumes the exact preflight plan hash.
+After reset, the ledger must be empty and the registry/SHA/schema hash/run ID
+must still match before baseline rows are inserted with `affectedRows=0` and
+`disposition=subsumed_by_authoritative_rebuild`. Baseline restore never runs
+migration bodies.
 
 The artifact expires after one day. If authenticated Sellpia and Wing imports
 cannot be completed within that window, do not improvise a database copy or
@@ -106,17 +121,19 @@ run.
 1. Read the active color from `deployments/current.json`; fall back to
    `.env.<env>.deploy`, then `blue`.
 2. Pull the candidate API and web images.
-3. Write candidate slot image refs into `.env.<env>.deploy`.
-4. Start only the inactive `api-*`, `web-*`, and `worker-*` services.
-5. Wait for API/web health, worker running state, and API render-image browser
+3. Require both images' `org.opencontainers.image.revision` labels to equal the
+   guarded full Git SHA; record `apiImageRevision` and `webImageRevision`.
+4. Write candidate slot image refs into `.env.<env>.deploy`.
+5. Start only the inactive `api-*`, `web-*`, and `worker-*` services.
+6. Wait for API/web health, worker running state, and API render-image browser
    runtime readiness.
-6. Render `deployments/nginx.conf` from the environment-specific nginx
+7. Render `deployments/nginx.conf` from the environment-specific nginx
    template and reload compose nginx. The generated file is mounted into the
    nginx container as a file bind mount, so the deploy script updates an
    existing file in place and recreates nginx when the container still sees an
    older mounted config.
-7. Smoke `/login` and `/api/auth/me` through the local public route.
-8. Write `deployments/current.json` and stop the previous slot.
+8. Smoke `/login` and `/api/auth/me` through the local public route.
+9. Write `deployments/current.json` and stop the previous slot.
 
 The switch does not roll database migrations back. Production schema changes
 must be backward-compatible across the old and new app versions before deploy.

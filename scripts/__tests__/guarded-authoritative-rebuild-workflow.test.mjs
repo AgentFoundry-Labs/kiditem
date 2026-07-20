@@ -48,16 +48,46 @@ describe('guarded authoritative database rebuild workflows', () => {
       assert.match(workflow, /inputs\.operation == 'finalize-rebuild'/);
     });
 
+    it(`${environment.name} pins dispatch SHA, database identity, ledger baseline, and image revisions`, () => {
+      const workflow = source(environment.workflow);
+      assert.match(workflow, /expected_git_sha:\n\s+description:[\s\S]*?required: true/);
+      assert.match(workflow, /dispatch_correlation_id:\n\s+description:[\s\S]*?required: true/);
+      assert.match(workflow, /^run-name:.*dispatch_correlation_id/m);
+      assert.match(workflow, /GITHUB_SHA.*EXPECTED_GIT_SHA|EXPECTED_GIT_SHA.*GITHUB_SHA/);
+      assert.match(workflow, /expected_git_sha=\$\{EXPECTED_GIT_SHA\}/);
+      assert.match(workflow, /dispatch_correlation_id=\$\{DISPATCH_CORRELATION_ID\}/);
+      assert.match(workflow, /DATABASE_URL_SHA256/);
+      assert.match(workflow, /EXPECTED_DATABASE_NAME/);
+      assert.match(workflow, /current_database\(\)/);
+      assert.match(workflow, /baseline-export/);
+      assert.match(workflow, /baseline-restore/);
+      assert.match(workflow, new RegExp(`${environment.name.toUpperCase()}_REBUILD_SELLPIA_FILE_SHA256`));
+      assert.match(workflow, new RegExp(`${environment.name.toUpperCase()}_REBUILD_SELLPIA_ROW_COUNT`));
+      assert.match(workflow, new RegExp(`${environment.name.toUpperCase()}_REBUILD_WING_FILE_SHA256`));
+      assert.match(workflow, new RegExp(`${environment.name.toUpperCase()}_REBUILD_WING_ROW_COUNT`));
+      assert.ok(
+        workflow.indexOf('baseline-export') < workflow.indexOf(`Rebuild ${environment.name} database from final schema`),
+      );
+      assert.ok(
+        workflow.indexOf('baseline-restore') > workflow.indexOf(`Rebuild ${environment.name} database from final schema`),
+      );
+      assert.match(workflow, /apiImageRevision/);
+      assert.match(workflow, /webImageRevision/);
+    });
+
     it(`${environment.name} preserves scrape payloads privately and binds finalization to the reset run`, () => {
       const workflow = source(environment.workflow);
       const exportPosition = workflow.indexOf('Export approved Coupang replay bundle');
+      const accountPreflightPosition = workflow.indexOf(`Preflight protected ${environment.name} accounts and Supabase auth`);
       const quiescePosition = workflow.indexOf(`Quiesce ${environment.name} application traffic`);
       const resetPosition = workflow.indexOf(`Rebuild ${environment.name} database from final schema`);
       const bootstrapPosition = workflow.indexOf(`Bootstrap ${environment.name} authentication and account baseline`);
       const deployPosition = workflow.indexOf(environment.deployStep);
 
       assert.ok(exportPosition >= 0, 'missing selective Coupang export');
+      assert.ok(accountPreflightPosition >= 0, 'missing protected account/source preflight');
       assert.ok(quiescePosition >= 0, 'missing traffic quiesce');
+      assert.ok(accountPreflightPosition < quiescePosition, 'account/source evidence must be sealed before quiesce');
       assert.ok(exportPosition > quiescePosition, 'traffic must quiesce before the private export');
       assert.ok(resetPosition > exportPosition, 'schema rebuild must run after the quiesced export');
       assert.ok(bootstrapPosition > resetPosition, 'baseline bootstrap must follow final schema creation');
@@ -139,6 +169,10 @@ describe('guarded authoritative database rebuild workflows', () => {
         'REBUILD_COUPANG_ACCOUNT_ID',
         'REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID',
         'REBUILD_EXPECTED_API_ORIGIN',
+        'REBUILD_SELLPIA_FILE_SHA256',
+        'REBUILD_SELLPIA_ROW_COUNT',
+        'REBUILD_WING_FILE_SHA256',
+        'REBUILD_WING_ROW_COUNT',
       ]) {
         assert.match(environmentVariables, new RegExp(`${prefix}_${name}`));
       }

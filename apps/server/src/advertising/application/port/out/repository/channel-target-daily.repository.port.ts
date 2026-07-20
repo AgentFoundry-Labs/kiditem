@@ -51,11 +51,12 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
 
 /**
  * One complete, single-day campaign report. The repository treats `targets`
- * as the authoritative set for this campaign/date and removes prior targets
- * that are absent from the replacement set in the same transaction.
+ * as the authoritative set for this account/campaign/date and removes prior
+ * targets absent from the replacement set in the same transaction.
  */
 export interface ReplaceAdCampaignDayInput {
   organizationId: string;
+  channelAccountId: string;
   channel: string;
   businessDate: Date;
   campaignId?: string | null;
@@ -67,9 +68,25 @@ export interface ReplaceAdCampaignDayInput {
   targets: UpsertAdTargetDailyInput[];
 }
 
+export type ReplaceAdCampaignDayResult =
+  | {
+      kind: 'replaced';
+      upsertedCount: number;
+      deletedCount: number;
+    }
+  | {
+      kind: 'rejected';
+      code: 'dependent_action_conflict';
+    };
+
+export type ReplaceAdCampaignDayRejectionCode = Extract<
+  ReplaceAdCampaignDayResult,
+  { kind: 'rejected' }
+>['code'];
+
 export interface ChannelTargetDailyRepositoryPort {
   upsert(input: UpsertAdTargetDailyInput): Promise<{ id: string }>;
   replaceCampaignDay(
     input: ReplaceAdCampaignDayInput,
-  ): Promise<{ upsertedCount: number; deletedCount: number }>;
+  ): Promise<ReplaceAdCampaignDayResult>;
 }

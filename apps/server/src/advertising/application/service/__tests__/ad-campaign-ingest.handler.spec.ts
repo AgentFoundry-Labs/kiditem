@@ -47,6 +47,7 @@ describe('AdCampaignIngestHandler business dates', () => {
     scrapeRepo.finalizeRun.mockResolvedValue(undefined);
     scrapeRepo.finalizeRunOnError.mockResolvedValue(undefined);
     targetDailyRepo.replaceCampaignDay.mockImplementation(async (input) => ({
+      kind: 'replaced' as const,
       upsertedCount: input.targets.length,
       deletedCount: 0,
     }));
@@ -61,6 +62,7 @@ describe('AdCampaignIngestHandler business dates', () => {
       {
         type: 'ad_campaign',
         campaignReportScope: 'single_campaign_authoritative',
+        dashboardOnOff: 'ON',
         campaignName: 'Historical campaign',
         dateFrom: '2026-07-03',
         dateTo: '2026-07-03',
@@ -100,7 +102,7 @@ describe('AdCampaignIngestHandler business dates', () => {
         targets: [
           expect.objectContaining({
             businessDate: requestedDate,
-            targetKey: 'product:campaign-1:vendor-item-1',
+            targetKey: 'account:channel-account-1:product:campaign-1:vendor-item-1',
           }),
         ],
       }),
@@ -115,6 +117,7 @@ describe('AdCampaignIngestHandler business dates', () => {
         {
           type: 'ad_campaign',
           campaignReportScope: 'single_campaign_authoritative',
+          dashboardOnOff: 'ON',
           campaignName,
           startDate: '2026-07-17',
           endDate: '2026-07-17',
@@ -142,8 +145,8 @@ describe('AdCampaignIngestHandler business dates', () => {
         input.targets.map((target: { targetKey: string }) => target.targetKey),
       ),
     ).toEqual([
-      'product:campaign-a:vendor-item-1',
-      'product:campaign-b:vendor-item-1',
+      'account:channel-account-1:product:campaign-a:vendor-item-1',
+      'account:channel-account-1:product:campaign-b:vendor-item-1',
     ]);
     expect(first).toMatchObject({
       listingDailyCount: 0,
@@ -155,8 +158,8 @@ describe('AdCampaignIngestHandler business dates', () => {
     });
   });
 
-  it('persists an OFF campaign even when it has no product rows', async () => {
-    await handler.execute(
+  it('preserves raw OFF evidence without projecting historical daily facts', async () => {
+    const result = await handler.execute(
       {
         type: 'ad_campaign',
         campaignReportScope: 'single_campaign_authoritative',
@@ -190,26 +193,25 @@ describe('AdCampaignIngestHandler business dates', () => {
         }),
       }),
     );
-    expect(targetDailyRepo.replaceCampaignDay).toHaveBeenCalledWith(
+    expect(scrapeRepo.createRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        campaignName: 'Paused campaign',
-        targets: [
-          expect.objectContaining({
-            targetType: 'campaign',
-            campaignName: 'Paused campaign',
-            onOff: 'OFF',
-            status: '일시정지',
-            spend: 0,
-            revenue: 0,
-          }),
-        ],
+        metaJson: expect.objectContaining({
+          effectiveCampaignReportScope: 'raw_only',
+          campaignReportAuthorityReason: 'off_campaign_metadata',
+          dailyProjectionSkipped: true,
+        }),
       }),
     );
+    expect(targetDailyRepo.replaceCampaignDay).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      success: true,
+      dailyProjectionSkipped: true,
+      projectionRejectionCode: null,
+    });
   });
 
   it('fail-closes an unproven empty report instead of wiping prior campaign targets', async () => {
-    await expect(
-      handler.execute(
+    const result = await handler.execute(
         {
           type: 'ad_campaign',
           campaignReportScope: 'single_campaign_authoritative',
@@ -221,14 +223,20 @@ describe('AdCampaignIngestHandler business dates', () => {
         },
         'organization-1',
         map,
-      ),
-    ).rejects.toThrow('requires one stable campaign id/identity');
+      );
 
     expect(targetDailyRepo.replaceCampaignDay).not.toHaveBeenCalled();
-    expect(scrapeRepo.finalizeRunOnError).toHaveBeenCalledWith(
+    expect(result).toMatchObject({
+      success: false,
+      projectionRejectionCode: 'invalid_authoritative_shape',
+      dailyProjectionSkipped: true,
+    });
+    expect(scrapeRepo.finalizeRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        scrapeRunId: 'scrape-run-1',
-        organizationId: 'organization-1',
+        status: 'partial',
+        errorJson: {
+          projectionRejectionCode: 'invalid_authoritative_shape',
+        },
       }),
     );
   });
@@ -238,6 +246,7 @@ describe('AdCampaignIngestHandler business dates', () => {
       {
         type: 'ad_campaign',
         campaignReportScope: 'single_campaign_authoritative',
+        dashboardOnOff: 'ON',
         campaignName: 'Explicit empty campaign',
         startDate: '2026-07-17',
         endDate: '2026-07-17',
@@ -261,7 +270,7 @@ describe('AdCampaignIngestHandler business dates', () => {
         campaignName: 'Explicit empty campaign',
         targets: [
           expect.objectContaining({
-            targetKey: 'campaign:campaign-empty',
+            targetKey: 'account:channel-account-1:campaign:campaign-empty',
             status: '집행중',
           }),
         ],
@@ -279,6 +288,7 @@ describe('AdCampaignIngestHandler business dates', () => {
         {
           type: 'ad_campaign',
           campaignReportScope: 'single_campaign_authoritative',
+          dashboardOnOff: 'ON',
           campaignName: 'Atomic campaign',
           startDate: '2026-07-17',
           endDate: '2026-07-17',
@@ -349,11 +359,11 @@ describe('AdCampaignIngestHandler business dates', () => {
   });
 
   it('fails closed when an authoritative row did not observe every additive metric column', async () => {
-    await expect(
-      handler.execute(
+    const result = await handler.execute(
         {
           type: 'ad_campaign',
           campaignReportScope: 'single_campaign_authoritative',
+          dashboardOnOff: 'ON',
           campaignName: 'Column drift',
           startDate: '2026-07-17',
           endDate: '2026-07-17',
@@ -378,11 +388,16 @@ describe('AdCampaignIngestHandler business dates', () => {
         },
         'organization-1',
         map,
-      ),
-    ).rejects.toThrow('complete observed metrics');
+      );
 
     expect(targetDailyRepo.replaceCampaignDay).not.toHaveBeenCalled();
-    expect(scrapeRepo.finalizeRunOnError).toHaveBeenCalled();
+    expect(result).toMatchObject({
+      success: false,
+      projectionRejectionCode: 'invalid_authoritative_shape',
+    });
+    expect(scrapeRepo.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'partial' }),
+    );
   });
 
   it('sums duplicate product-grain rows instead of silently keeping the last one', async () => {
@@ -390,6 +405,7 @@ describe('AdCampaignIngestHandler business dates', () => {
       {
         type: 'ad_campaign',
         campaignReportScope: 'single_campaign_authoritative',
+        dashboardOnOff: 'ON',
         campaignName: 'Duplicate product',
         startDate: '2026-07-17',
         endDate: '2026-07-17',
@@ -431,7 +447,7 @@ describe('AdCampaignIngestHandler business dates', () => {
     const replacement = targetDailyRepo.replaceCampaignDay.mock.calls[0][0];
     expect(replacement.targets).toHaveLength(1);
     expect(replacement.targets[0]).toMatchObject({
-      targetKey: 'product:campaign-duplicate:vendor-item-1',
+      targetKey: 'account:channel-account-1:product:campaign-duplicate:vendor-item-1',
       adGroup: null,
       spend: 350,
       revenue: 700,
@@ -453,6 +469,7 @@ describe('AdCampaignIngestHandler business dates', () => {
         {
           type: 'ad_campaign',
           campaignReportScope: 'single_campaign_authoritative',
+          dashboardOnOff: 'ON',
           campaignName: '같은 이름',
           startDate: '2026-07-17',
           endDate: '2026-07-17',
@@ -489,8 +506,8 @@ describe('AdCampaignIngestHandler business dates', () => {
     expect(
       replacements.map((input) => input.targets[0].targetKey),
     ).toEqual([
-      'product:href:https://advertising.coupang.com/campaign/a:vendor-item-1',
-      'product:href:https://advertising.coupang.com/campaign/b:vendor-item-1',
+      'account:channel-account-1:product:href:https://advertising.coupang.com/campaign/a:vendor-item-1',
+      'account:channel-account-1:product:href:https://advertising.coupang.com/campaign/b:vendor-item-1',
     ]);
   });
 
