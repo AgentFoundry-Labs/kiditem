@@ -344,7 +344,7 @@ does not deploy automatically; an operator triggers the workflow manually. Do
 not create a long-lived `staging` branch; staging is a GitHub Environment, not a
 separate source branch.
 
-Only deploy/finalize-rebuild/rollback/status jobs declare GitHub Environment
+Only deploy/rollback/status jobs declare GitHub Environment
 `staging`. Build and preparation jobs intentionally avoid it. The destructive
 deploy and its later finalization are separately protected staging operations.
 
@@ -390,8 +390,7 @@ deploy/staging/remote-deploy.sh
 Normal deploys keep the ordered pre-schema migration, non-destructive
 `prisma db push`, and post-schema migration path. Finish and merge every PR in
 the release train first, then perform one combined staging deploy; do not deploy
-or reset between those PRs. The current train exposes one explicit authoritative
-rebuild path:
+or reset between those PRs. Staging exposes one explicit fresh-reset path:
 
 ```text
 operation: deploy
@@ -402,65 +401,39 @@ destructive_reset: RESET_STAGING_DATA
 ```
 
 The workflow first validates the dispatch SHA/correlation, approved database
-URL hash, URL database name, and live database name. It then proves the exact
-Organization/User/active Membership/Coupang and optional Rocket account rows
-match the reviewed baseline and verifies the protected user ID/email through a
-read-only Supabase Admin lookup. The destructive order is: quiesce application
-traffic, export the selected Coupang account as sanitized replay payloads,
-export the ordered migration ledger baseline, upload the private one-day
-artifact, then cross the reset boundary by applying the final Prisma schema
-with `--force-reset` to non-auth staging data. Supabase Auth accounts are
-preserved. Only after that does it deterministically recreate the configured
-Organization, matching User mirror, active Membership, and ChannelAccount
-identities. It then starts the application with
-`inventory.rebuild.status=snapshot_required`. No source workbook is read from
-the repository or stored in the artifact.
+URL hash, URL database name, live database name, and exact reset token. The
+destructive order is: quiesce application traffic, export every Organization,
+human User, and OrganizationMembership row, export the migration-ledger
+bookkeeping baseline, upload the private one-day artifact, then cross the reset
+boundary by applying the final Prisma schema with `--force-reset`. Supabase
+Auth is outside the reset schema and remains untouched. The workflow restores
+only the exported account baseline before starting the application.
 
-Immediately after schema recreation, the workflow requires an empty
-`data_migration_runs` table. The restored ledger records only migrations
-actually executed against the rebuilt schema or an explicitly validated,
-schema-hash-bound `subsumed_by_authoritative_rebuild` result for work made
-unnecessary by that rebuild. It never copies stale pre-reset success rows or
-marks a migration complete without the matching manifest hash, origin run,
-full SHA, Prisma schema hash, and recorded result.
+The account artifact intentionally has no ChannelAccount, marketplace
+credential/config, scrape payload, product, order, inventory, Sellpia, or WING
+data. It is bound to the staging target, originating workflow run, full Git SHA,
+and a SHA-256 of its contents. Restore requires empty account and channel tables
+and verifies that ChannelAccount remains empty. Actual Coupang accounts are
+configured after deploy through the normal application path.
+
+The migration-ledger artifact is bookkeeping, not recovered legacy business
+data. It records which migration bodies are already subsumed by the fresh final
+schema so status verification remains truthful; no historical Sellpia, WING,
+channel, product, or inventory rows are restored.
 Both API/web image revision labels must equal `expected_git_sha` before traffic
 cutover.
 
 After the deploy finishes, an authenticated operator must:
 
-1. Open `/inventory-hub?tab=sellpia-sync` and import the approved Sellpia
-   workbook. Wait for a completed `sellpia_inventory` run.
-2. Open `/product-hub/matching`, choose the configured Coupang account, and
-   import the approved Wing workbook. Wait for a completed
-   `coupang_wing_catalog` run. Sellpia must complete first.
-3. Confirm `STAGING_REBUILD_SELLPIA_FILE_SHA256`,
-   `STAGING_REBUILD_SELLPIA_ROW_COUNT`, `STAGING_REBUILD_WING_FILE_SHA256`,
-   `STAGING_REBUILD_WING_ROW_COUNT`, and the three
-   `STAGING_REBUILD_EXPECTED_*` fact counts match the approved import manifest,
-   not a guessed or copied total.
-4. Trigger the same workflow with:
+1. Verify the preserved users can sign in and resolve the expected organization.
+2. Configure each required ChannelAccount, including actual Coupang accounts,
+   after deploy. Account credentials are never part of the reset artifact.
+3. Import Sellpia and WING files after deploy when those datasets are needed.
+   They are ordinary post-deploy setup, not deployment prerequisites, and no
+   second workflow finalization is required.
 
-   ```text
-   operation: finalize-rebuild
-   deployment_target: staging
-   expected_git_sha: <full workflow-code SHA>
-   dispatch_correlation_id: <new UUID>
-   destructive_reset: RESET_STAGING_DATA
-   rebuild_run_id: <originating deploy run ID>
-   ```
-
-Finalization downloads only that run's staging artifact. Before generating an
-operator token or sending a replay request, it requires the exact reviewed
-Sellpia and Wing hashes/row counts, proves Sellpia completed first, and binds
-those two import run IDs. It then replays Coupang data through authenticated
-`POST /api/ads/extension/sync`, verifies the same binding and exact facts, and
-marks the environment ready. Missing credentials, imports, expected evidence,
-artifact, or a target/run/hash/count mismatch fails closed and keeps
-snapshot-required state.
-
-The Coupang replay must never start until the Sellpia -> WING sequence has been
-verified successfully. Live WING vendor identity is also a manual deployment
-blocker: DOM attributes, meta tags, and URL parameters are useful local
+Live WING vendor identity remains a manual operation guard: DOM attributes,
+meta tags, and URL parameters are useful local
 mismatch guards, but they are not server-verifiable proof of the provider
 account or provider completion. Do not enable live WING registration/deletion
 mutation until an operator validates the actual WING identity signal for the
@@ -605,8 +578,8 @@ npm run inventory:rebuild -- guard # only with the exact GitHub Actions rebuild 
 Expected results:
 
 - `/login` returns `200`.
-- `/api/auth/me` returns an auth-related response such as `401` or `403` when
-  unauthenticated. It should not be a connection error or nginx `502`.
+- `/api/auth/me` returns `401` when unauthenticated. It should not be a
+  connection error or nginx `502`.
 - Browser network requests to app APIs use `http://<ec2-public-ip>/api/*` or
   `https://<real-staging-domain>/api/*`, not `localhost:4000`.
 - `deployments/current.json` records the git SHA, image refs, image digests,
@@ -618,9 +591,9 @@ Expected results:
   at `/product-pipeline/detail-pages/:generationId/editor`, with
   `sourceCandidateId` and `returnTo` query params when the source is a collected
   product.
-- A guarded rebuild log records its origin run ID, one-day artifact, quiesce,
-  final-schema reset, minimum bootstrap, and snapshot-required state. A later
-  finalization log records exact import/replay acceptance before ready state.
+- A guarded rebuild log records its origin run ID, one-day account artifact,
+  quiesce, final-schema reset, account restore, zero ChannelAccount rows, and
+  successful deploy. There is no staging finalization run.
 
 ## Blocker Criteria
 
@@ -637,10 +610,11 @@ Stop and report instead of guessing if:
 - Supabase connection errors mention the production project.
 - `destructive_reset` is non-empty but is not exactly `RESET_STAGING_DATA`, or
   `deployment_target` is not `staging`.
-- After traffic is quiesced, the private export is incomplete, contains a
-  disallowed payload, or cannot be uploaded before the reset boundary.
-- A finalization run cannot prove the originating run ID, protected
-  Environment, Sellpia-before-Wing import order, or every configured count.
+- After traffic is quiesced, the private Organization/User/
+  OrganizationMembership export is incomplete, contains a ChannelAccount, or
+  cannot be uploaded before the reset boundary.
+- Account restore does not exactly match the exported baseline or creates any
+  ChannelAccount row.
 - `npm run data:migrate -- up` fails or writes a `failed` ledger row.
 - Any seed/import/baseline step would target production by accident.
 - DB baseline export/restore would use the public app asset bucket instead of
@@ -660,7 +634,7 @@ Report:
 - Supabase Storage bucket name used for staging.
 - DB baseline profile id and `deployments/current-db.json` state, if operated.
 - Data migration ledger statuses from `data_migration_runs`.
-- Rebuild origin run ID, snapshot-required/ready status, and exact acceptance
-  counts when the guarded rebuild path was used.
+- Rebuild origin run ID and restored Organization/User/
+  OrganizationMembership counts when the guarded rebuild path was used.
 - Compose service status.
 - Verification commands and results.

@@ -209,7 +209,14 @@ describe('authoritative rebuild deployment ordering', () => {
     relativePath,
   ) => {
     const workflow = readFileSync(join(repoRoot, relativePath), 'utf8');
-    const markers = [
+    const markers = environment === 'staging' ? [
+      '- name: Validate staging rebuild confirmation',
+      '- name: Quiesce staging application traffic',
+      '- name: Export staging account baseline',
+      '- name: Rebuild staging database from final schema',
+      '- name: Generate Prisma client after schema push',
+      '- name: Restore staging account baseline',
+    ] : [
       `- name: Validate ${environment} rebuild confirmation`,
       `- name: Quiesce ${environment} application traffic`,
       '- name: Export approved Coupang replay bundle',
