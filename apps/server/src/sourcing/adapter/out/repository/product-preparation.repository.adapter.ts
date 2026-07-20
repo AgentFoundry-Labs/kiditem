@@ -397,6 +397,9 @@ export class ProductPreparationRepositoryAdapter
       execution = await tx.productRegistrationExecution.findFirst({
         where: { organizationId, productPreparationId: current.id },
       });
+      if (!execution && current.status === 'registered') {
+        execution = await importLegacyRegisteredExecution(tx, current, organizationId);
+      }
       if (!execution && ['submitting', 'failed'].includes(current.status)) {
         execution = await importLegacyExecution(tx, current, organizationId);
       }
@@ -912,6 +915,75 @@ function legacyExternalListingId(value: unknown): string | null {
   return typeof externalListingId === 'string' && externalListingId.trim()
     ? externalListingId.trim()
     : null;
+}
+
+/** Imports a pre-ledger registered row as a completed replay without provider IO. */
+async function importLegacyRegisteredExecution(
+  tx: Prisma.TransactionClient,
+  preparation: ProductPreparation,
+  organizationId: string,
+): Promise<ProductRegistrationExecution> {
+  assertRegistrationIdentity(preparation);
+  if (!preparation.channelListingId) {
+    throw new ConflictException('Registered preparation is missing its persisted listing identity.');
+  }
+  const listing = await tx.channelListing.findFirst({
+    where: {
+      id: preparation.channelListingId,
+      organizationId,
+      channelAccountId: preparation.channelAccountId,
+      sourceCandidateId: preparation.sourceCandidateId,
+    },
+    select: { id: true, externalId: true },
+  });
+  if (!listing) {
+    throw new ConflictException('Registered preparation listing is outside its persisted account scope.');
+  }
+
+  let submissionPayloadJson: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
+  let submissionPayloadHash: string | null = null;
+  let requestHash: string;
+  if (preparation.submissionPayloadJson && preparation.submissionPayloadHash) {
+    const frozen = freezeProductPreparationPayload(
+      preparation.submissionPayloadJson as ProductPreparationJson,
+    );
+    if (frozen.hash !== preparation.submissionPayloadHash) {
+      throw new ConflictException('Legacy registered submission hash does not match its payload.');
+    }
+    submissionPayloadJson = frozen.payload as Prisma.InputJsonValue;
+    submissionPayloadHash = frozen.hash;
+    requestHash = frozen.hash;
+  } else {
+    requestHash = freezeProductPreparationPayload({
+      kind: 'legacy_registered_replay',
+      preparationId: preparation.id,
+      channelListingId: listing.id,
+      channelAccountId: preparation.channelAccountId,
+      externalListingId: listing.externalId,
+    } as ProductPreparationJson).hash;
+  }
+
+  return tx.productRegistrationExecution.create({
+    data: {
+      organizationId,
+      productPreparationId: preparation.id,
+      channelAccountId: preparation.channelAccountId,
+      channelListingId: listing.id,
+      idempotencyKey: preparation.submissionKey || `legacy-registered:${preparation.id}`,
+      requestHash,
+      submissionPayloadJson,
+      submissionPayloadHash,
+      status: 'succeeded',
+      providerOutcome: 'succeeded',
+      providerSubmissionId: preparation.providerSubmissionId ?? listing.externalId,
+      externalListingId: listing.externalId,
+      resultJson: preparation.registrationResult === null
+        ? Prisma.DbNull
+        : preparation.registrationResult as Prisma.InputJsonValue,
+      requestedByUserId: preparation.approvedByUserId,
+      completedAt: preparation.updatedAt,
+    },
+  });
 }
 
 async function lockCandidate(

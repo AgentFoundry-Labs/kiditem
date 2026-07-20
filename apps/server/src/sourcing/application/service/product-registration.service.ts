@@ -134,7 +134,10 @@ export class ProductRegistrationService {
         submissionLeaseToken,
         error,
         error instanceof DefinitiveChannelProductRegistrationError
-          || (submittingProviderCreate && !providerCreateDispatched)
+          || (
+            submission.providerOutcome === 'not_attempted'
+            && !providerCreateDispatched
+          )
           ? 'definitive_failure'
           : undefined,
       );

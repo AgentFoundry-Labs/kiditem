@@ -494,6 +494,54 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     });
   });
 
+  it('replays an execution-less legacy registered preparation from its persisted listing', async () => {
+    const draft = await repository.createOrGetActiveDraft(
+      createInput(ACCOUNT_ID),
+      ensureWorkspace,
+      resolveSelections,
+    );
+    const listingId = await prisma.$transaction((transaction) => createListingBranch(
+      transaction,
+      '427011920',
+    ));
+    await prisma.productPreparation.update({
+      where: { id: draft.preparationId },
+      data: {
+        status: 'registered',
+        channelListingId: listingId,
+        submissionPayloadJson: Prisma.DbNull,
+        submissionPayloadHash: null,
+      },
+    });
+
+    await expect(repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    )).resolves.toEqual({
+      preparationId: draft.preparationId,
+      status: 'registered',
+      listingId,
+    });
+    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: draft.preparationId },
+      select: {
+        status: true,
+        providerOutcome: true,
+        channelListingId: true,
+        externalListingId: true,
+        requestHash: true,
+      },
+    })).resolves.toEqual({
+      status: 'succeeded',
+      providerOutcome: 'succeeded',
+      channelListingId: listingId,
+      externalListingId: '427011920',
+      requestHash: expect.any(String),
+    });
+  });
+
   it('reclaims an expired in-provider lease as uncertain and retains the same submission identity', async () => {
     const draft = await repository.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),

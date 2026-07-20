@@ -264,6 +264,47 @@ describe('ProductRegistrationService', () => {
     );
   });
 
+  it('records a fresh not-attempted reconciliation/account failure as definitive local failure', async () => {
+    const failure = new Error('selected account is inactive');
+    const { service, repository, channel } = setup({
+      channel: { reconcile: vi.fn().mockRejectedValue(failure) },
+    });
+
+    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
+      preparationId: PREPARATION_ID,
+      status: 'failed',
+    });
+    expect(repository.markFailed).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      preparationId: PREPARATION_ID,
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      providerOutcome: 'definitive_failure',
+      error: 'selected account is inactive',
+    });
+    expect(channel.submit).not.toHaveBeenCalled();
+  });
+
+  it('keeps an uncertain replay failure uncertain before another provider create', async () => {
+    const failure = new Error('reconciliation unavailable');
+    const { service, repository } = setup({
+      repository: {
+        claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
+          providerOutcome: 'uncertain',
+          isRetry: true,
+        })),
+      },
+      channel: { reconcile: vi.fn().mockRejectedValue(failure) },
+    });
+
+    await service.submit(ORG_ID, PREPARATION_ID, USER_ID);
+    expect(repository.markFailed).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      preparationId: PREPARATION_ID,
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      error: 'reconciliation unavailable',
+    });
+  });
+
   it('resolves source-owned selections inside the claim transaction before provider IO', async () => {
     const { service, repository, channel, content } = setup();
 
