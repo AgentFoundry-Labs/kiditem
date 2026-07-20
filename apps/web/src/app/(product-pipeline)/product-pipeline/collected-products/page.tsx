@@ -247,10 +247,9 @@ export default function SourcingPage() {
         const externalListingId = result.submission.externalListingId;
         try {
           await candidatesApi.confirmExternalRegistration(candidateId, {
-            channelAccountId: wingDraft.channelAccountId,
-            displayName: overrides.productName.trim() || wingDraft.product.productName,
+            executionId: result.submission.executionId!,
             externalListingId,
-            channel: 'coupang',
+            evidence: result.submission.evidence,
           });
           await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
 

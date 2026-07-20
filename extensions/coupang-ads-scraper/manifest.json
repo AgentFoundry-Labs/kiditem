@@ -70,6 +70,7 @@
         "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list*"
       ],
       "js": [
+        "shared/wing-account-identity.js",
         "content/wing-product-delete.js"
       ],
       "run_at": "document_idle"
@@ -79,6 +80,7 @@
         "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2*"
       ],
       "js": [
+        "shared/wing-account-identity.js",
         "content/wing-registration-fill.js"
       ],
       "run_at": "document_idle"

@@ -103,6 +103,12 @@ function setup(overrides: {
       },
     ),
     loadFrozenSubmission: vi.fn().mockResolvedValue(frozenSubmission()),
+    getExternalExecution: vi.fn().mockResolvedValue({
+      executionId: 'execution-1', preparationId: PREPARATION_ID, requestHash: 'hash-1',
+      status: 'executing', providerOutcome: 'uncertain',
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+    }),
+    markExternalExecutionUnresolved: vi.fn(),
     markProviderAttemptStarted: vi.fn().mockResolvedValue(undefined),
     recordProviderResult: vi.fn().mockImplementation(async (_orgId, _id, _leaseToken, result) =>
       frozenSubmission({
@@ -162,6 +168,49 @@ function setup(overrides: {
 }
 
 describe('ProductRegistrationService', () => {
+  it('prepares and starts an external WING execution before returning a browser payload', async () => {
+    const prepareExternalExecution = vi.fn().mockResolvedValue({
+      executionId: 'execution-1',
+      preparationId: PREPARATION_ID,
+      requestHash: 'hash-1',
+      status: 'prepared',
+    });
+    const startExternalExecution = vi.fn().mockResolvedValue({
+      executionId: 'execution-1',
+      preparationId: PREPARATION_ID,
+      status: 'executing',
+      providerOutcome: 'uncertain',
+    });
+    const { service, repository } = setup({
+      repository: { prepareExternalExecution, startExternalExecution } as never,
+      channel: { assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' }) },
+    });
+
+    await expect(service.prepareExternalWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { listingPayload: { items: [{ itemName: 'Kids rain boots' }] } },
+      idempotencyKey: '33333333-3333-4333-8333-333333333333',
+    })).resolves.toEqual(expect.objectContaining({
+      executionId: 'execution-1',
+      expectedVendorId: 'A00012345',
+    }));
+    await service.startExternalWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, 'execution-1');
+
+    expect(prepareExternalExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: ORG_ID, sourceCandidateId: CANDIDATE_ID }),
+      expect.any(Function),
+      expect.any(Function),
+    );
+    expect(startExternalExecution).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID,
+      sourceCandidateId: CANDIDATE_ID,
+      requestedByUserId: USER_ID,
+      executionId: 'execution-1',
+    }));
+    expect(repository.createOrGetActiveDraft).not.toHaveBeenCalled();
+  });
+
   it('creates an account-scoped draft and atomically resolves the candidate workspace', async () => {
     const { service, repository, content } = setup();
 
@@ -528,10 +577,8 @@ describe('ProductRegistrationService', () => {
     });
 
     await service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
+      executionId: 'execution-1',
       externalListingId: '427011919',
-      channel: 'rocket',
       evidence: { source: 'wing' },
     });
 

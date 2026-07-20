@@ -14,6 +14,7 @@ import {
   WING_FORM_FILL_TIMEOUT_MS,
 } from './wing-registration-flow';
 import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
+import { candidatesApi } from './sourcing-api';
 import type { WingProduct } from './wing-registration-excel';
 
 vi.mock('@/lib/extension-bridge', () => ({
@@ -22,8 +23,26 @@ vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 
+vi.mock('./sourcing-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./sourcing-api')>();
+  return {
+    ...actual,
+    candidatesApi: {
+      ...actual.candidatesApi,
+      prepareExternalWingRegistration: vi.fn().mockResolvedValue({
+        executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345',
+      }),
+      startExternalWingRegistration: vi.fn().mockResolvedValue({ status: 'executing' }),
+      markExternalWingRegistrationUnresolved: vi.fn().mockResolvedValue({ status: 'reconciling' }),
+    },
+  };
+});
+
 beforeEach(() => {
   vi.mocked(sendToExtension).mockReset();
+  vi.mocked(candidatesApi.prepareExternalWingRegistration).mockClear();
+  vi.mocked(candidatesApi.startExternalWingRegistration).mockClear();
+  vi.mocked(candidatesApi.markExternalWingRegistrationUnresolved).mockClear();
 });
 
 const SOURCE_IMAGE = 'https://cbu01.alicdn.com/img/original-source.jpg';
@@ -438,6 +457,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
 
   it('검증에 걸리는 값은 확장으로 나가지 않는다', async () => {
     const draft = {
+      candidateId: 'candidate-1',
       product: product(),
       overrides: buildWingRegistrationOverrides(product()),
       extensionId: 'ext-1',
@@ -454,6 +474,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
   it('확인한 값 그대로 확장에 전달한다', async () => {
     vi.mocked(sendToExtension).mockResolvedValueOnce({ ok: true });
     const draft = {
+      candidateId: 'candidate-1',
       product: product(),
       overrides: buildWingRegistrationOverrides(product()),
       extensionId: 'ext-1',

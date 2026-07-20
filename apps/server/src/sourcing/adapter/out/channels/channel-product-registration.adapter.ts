@@ -24,7 +24,7 @@ export class ChannelProductRegistrationAdapter
   assertExternalRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ channel: 'coupang' }> {
+  }): Promise<{ channel: 'coupang'; vendorId: string }> {
     return this.registration.assertExternalProductRegistrationAccount(input);
   }
 

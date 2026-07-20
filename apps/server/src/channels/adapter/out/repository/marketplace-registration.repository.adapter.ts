@@ -23,14 +23,14 @@ export class MarketplaceRegistrationRepositoryAdapter
   async assertActiveRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ channel: string }> {
+  }): Promise<{ channel: string; vendorId: string | null; externalAccountId: string | null }> {
     const account = await this.prisma.channelAccount.findFirst({
       where: {
         id: input.channelAccountId,
         organizationId: input.organizationId,
         status: 'active',
       },
-      select: { channel: true },
+      select: { channel: true, vendorId: true, externalAccountId: true },
     });
     if (!account) throw new NotFoundException('Marketplace account not found.');
     return account;

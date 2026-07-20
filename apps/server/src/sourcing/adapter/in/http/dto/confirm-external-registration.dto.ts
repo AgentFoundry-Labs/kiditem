@@ -17,13 +17,7 @@ import {
  */
 export class ConfirmExternalRegistrationDto {
   @IsUUID()
-  channelAccountId!: string;
-
-  @IsString()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  @MinLength(1)
-  @MaxLength(500)
-  displayName!: string;
+  executionId!: string;
 
   /**
    * 쿠팡 등록상품ID(vendorInventoryId). 숫자만 허용한다 —
@@ -35,12 +29,7 @@ export class ConfirmExternalRegistrationDto {
   @Matches(/^\d{6,20}$/, { message: '등록상품ID는 6~20자리 숫자여야 합니다.' })
   externalListingId!: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(60)
-  channel?: string;
-
-  /** Provider/browser completion evidence retained for the later pre-intent flow. */
+  /** Browser completion evidence; identity source/value are validated by the extension. */
   @IsOptional()
   @IsObject()
   evidence?: Record<string, unknown>;

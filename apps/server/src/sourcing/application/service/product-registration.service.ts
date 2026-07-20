@@ -55,6 +55,83 @@ export class ProductRegistrationService {
     return { preparationId: result.preparationId, status: 'draft' };
   }
 
+  async prepareExternalWingRegistration(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    input: {
+      channelAccountId: string;
+      displayName: string;
+      registrationInput: Record<string, unknown>;
+      idempotencyKey: string;
+    },
+  ) {
+    const account = await this.channels.assertExternalRegistrationAccount({
+      organizationId,
+      channelAccountId: input.channelAccountId,
+    });
+    const operation = await this.preparations.prepareExternalExecution(
+      {
+        organizationId,
+        sourceCandidateId: candidateId,
+        requestedByUserId: userId,
+        ...input,
+      },
+      (tx) => this.contentWorkspaces.ensureCandidateWorkspace(tx, {
+        organizationId,
+        sourceCandidateId: candidateId,
+        displayName: input.displayName,
+        createdByUserId: userId,
+      }),
+      (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
+    );
+    return { ...operation, expectedVendorId: account.vendorId };
+  }
+
+  startExternalWingRegistration(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    executionId: string,
+  ) {
+    return this.preparations.startExternalExecution({
+      organizationId,
+      sourceCandidateId: candidateId,
+      executionId,
+      requestedByUserId: userId,
+    });
+  }
+
+  markExternalWingRegistrationUnresolved(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    executionId: string,
+    evidence: unknown,
+  ) {
+    return this.preparations.markExternalExecutionUnresolved({
+      organizationId,
+      sourceCandidateId: candidateId,
+      executionId,
+      requestedByUserId: userId,
+      evidence,
+    });
+  }
+
+  getExternalWingRegistration(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    executionId: string,
+  ) {
+    return this.preparations.getExternalExecution({
+      organizationId,
+      sourceCandidateId: candidateId,
+      executionId,
+      requestedByUserId: userId,
+    });
+  }
+
   async updateDraft(
     organizationId: string,
     preparationId: string,
@@ -201,65 +278,39 @@ export class ProductRegistrationService {
     organizationId: string,
     candidateId: string,
     userId: string | null,
-    input: {
-      channelAccountId: string;
-      displayName: string;
-      externalListingId: string;
-      channel?: string;
-      evidence?: unknown;
-    },
+    input: { executionId: string; externalListingId: string; evidence?: unknown },
   ): Promise<ProductPreparationCommandResult> {
     const externalListingId = input.externalListingId.trim();
     if (!externalListingId) {
       throw new Error('등록상품ID가 비어 있습니다.');
     }
-    const account = await this.channels.assertExternalRegistrationAccount({
-      organizationId,
-      channelAccountId: input.channelAccountId,
+    const operation = await this.preparations.getExternalExecution({
+      organizationId, sourceCandidateId: candidateId, executionId: input.executionId,
+      requestedByUserId: userId,
     });
-
-    const draft = await this.preparations.createOrGetActiveDraft(
-      {
-        organizationId,
-        sourceCandidateId: candidateId,
-        createdByUserId: userId,
-        input: {
-          channelAccountId: input.channelAccountId,
-          displayName: input.displayName,
-          registrationInput: {
-            source: 'coupang-wing-extension',
-            externalListingId,
-            evidence: input.evidence ?? null,
-          },
-        },
-      },
-      (tx) => this.contentWorkspaces.ensureCandidateWorkspace(tx, {
-        organizationId,
-        sourceCandidateId: candidateId,
-        displayName: input.displayName,
-        createdByUserId: userId,
-      }),
-      (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
-    );
-
-    const claim = await this.preparations.claimForSubmission(
+    if (!['executing', 'reconciling'].includes(operation.status)) {
+      throw new Error('External registration must be started before completion.');
+    }
+    const submission = await this.preparations.loadFrozenSubmission(
       organizationId,
-      draft.preparationId,
-      userId,
-      (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
+      operation.preparationId,
     );
-    if (claim.status === 'registered') return claim;
-    const submission = claim;
+    if (submission.executionId !== input.executionId || submission.channelAccountId === '') {
+      throw new Error('External registration execution does not match its frozen preparation.');
+    }
+    const account = await this.channels.assertExternalRegistrationAccount({
+      organizationId, channelAccountId: submission.channelAccountId,
+    });
     const submissionLeaseToken = submission.submissionLeaseToken;
     if (!submissionLeaseToken) {
-      throw new Error('Claimed product preparation is missing its submission lease.');
+      throw new Error('Started external registration is missing its submission lease.');
     }
 
     try {
       // provider create 를 부르지 않는다. 외부에서 이미 끝난 등록의 결과만 기록한다.
       await this.preparations.recordProviderResult(
         organizationId,
-        draft.preparationId,
+        submission.preparationId,
         submissionLeaseToken,
         {
           providerSubmissionId: null,
@@ -274,13 +325,13 @@ export class ProductRegistrationService {
         },
       );
     } catch (error) {
-      return this.fail(organizationId, draft.preparationId, submissionLeaseToken, error);
+      return this.fail(organizationId, submission.preparationId, submissionLeaseToken, error);
     }
 
     try {
       return await this.preparations.finalizeRegistered(
         organizationId,
-        draft.preparationId,
+        submission.preparationId,
         submissionLeaseToken,
         async (tx) => {
           const listing = await this.channels.resolveListing(tx, {
@@ -306,7 +357,7 @@ export class ProductRegistrationService {
         },
       );
     } catch (error) {
-      return this.fail(organizationId, draft.preparationId, submissionLeaseToken, error);
+      return this.fail(organizationId, submission.preparationId, submissionLeaseToken, error);
     }
   }
 

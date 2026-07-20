@@ -97,7 +97,7 @@ export interface MarketplaceRegistrationRepositoryPort {
   assertActiveRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ channel: string }>;
+  }): Promise<{ channel: string; vendorId: string | null; externalAccountId: string | null }>;
   preflightExactProductLinks(input: {
     organizationId: string;
     masterProductId?: string;

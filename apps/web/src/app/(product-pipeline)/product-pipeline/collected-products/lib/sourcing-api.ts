@@ -713,16 +713,34 @@ export const candidatesApi = {
   confirmExternalRegistration: (
     candidateId: string,
     body: {
-      channelAccountId: string;
-      displayName: string;
+      executionId: string;
       externalListingId: string;
-      channel?: string;
+      evidence?: Record<string, unknown>;
     },
   ) =>
     apiClient.post<{ preparationId: string; status: string; listingId?: string }>(
       `/api/sourcing/candidates/${candidateId}/registration/confirm-external`,
       body,
     ),
+  prepareExternalWingRegistration: (candidateId: string, body: {
+    channelAccountId: string;
+    displayName: string;
+    registrationInput: Record<string, unknown>;
+    idempotencyKey: string;
+  }) => apiClient.post<{
+    executionId: string; preparationId: string; requestHash: string;
+    status: 'prepared'; expectedVendorId: string;
+  }>(`/api/sourcing/candidates/${candidateId}/registration/external-wing/prepare`, body),
+  startExternalWingRegistration: (candidateId: string, executionId: string) =>
+    apiClient.post<{ executionId: string; status: 'executing'; providerOutcome: 'uncertain' }>(
+      `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/start`, {},
+    ),
+  markExternalWingRegistrationUnresolved: (
+    candidateId: string, executionId: string, evidence: Record<string, unknown>,
+  ) => apiClient.post(
+    `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/unresolved`,
+    { evidence },
+  ),
   quickProcess: (id: string, task: QuickProcessTask = 'all') =>
     apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
   /**

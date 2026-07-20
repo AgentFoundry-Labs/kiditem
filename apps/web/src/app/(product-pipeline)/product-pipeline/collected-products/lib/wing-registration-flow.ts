@@ -8,7 +8,7 @@ import {
   renderCandidateDetailImage,
   type CandidateDetailImageResponse,
 } from './detail-page-image-api';
-import { productsApi, type ProductDetailResponse } from './sourcing-api';
+import { candidatesApi, productsApi, type ProductDetailResponse } from './sourcing-api';
 import {
   buildUnresolvedCategoryError,
   collectUnresolvedNames,
@@ -295,6 +295,8 @@ export interface WingSubmissionResult {
   label?: string;
   externalListingId?: string | null;
   error?: string;
+  executionId?: string;
+  evidence?: Record<string, unknown>;
 }
 
 /** 등록상품으로 올려도 되는 확증된 성공인지. 추측은 전부 false. */
@@ -338,6 +340,7 @@ export interface WingRegistrationOverrides {
 
 /** 확장으로 넘기기 전 확인 모달이 필요로 하는 전체 컨텍스트. */
 export interface WingRegistrationDraft {
+  candidateId: string;
   /** 자동 조립된 등록 payload. 사용자가 고친 값은 아직 반영 전이다. */
   product: WingProduct;
   /** 모달 기본값. `product` 에서 뽑아낸 편집 가능한 부분집합. */
@@ -493,6 +496,7 @@ export async function prepareWingRegistration(
 
   const product = candidateToWingProduct(detail, preset, categoryCell, detailImageUrl);
   return {
+    candidateId,
     product,
     overrides: buildWingRegistrationOverrides(product),
     extensionId,
@@ -542,22 +546,53 @@ export async function submitWingRegistration(
   // 판매가 0 은 WING 탭을 열기 전에 막는다. 모달 검증이 이미 걸러내지만,
   // 확장으로 나가는 마지막 지점이라 방어적으로 한 번 더 확인한다.
   requireSalePrice(product.variants[0]?.salePrice ?? 0, product.productName);
-  const res = await sendToExtension<{
+  let execution: { executionId: string; expectedVendorId: string } | null = null;
+  try {
+    execution = await candidatesApi.prepareExternalWingRegistration(draft.candidateId, {
+      channelAccountId: draft.channelAccountId,
+      displayName: product.productName,
+      registrationInput: { source: 'coupang-wing-extension', wingProduct: product },
+      idempotencyKey: crypto.randomUUID(),
+    });
+    await candidatesApi.startExternalWingRegistration(draft.candidateId, execution.executionId);
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('WING 등록 실행 준비에 실패했습니다.');
+  }
+  let res;
+  try {
+    res = await sendToExtension<{
     ok?: boolean;
     error?: string;
     submission?: WingSubmissionResult;
+    evidence?: Record<string, unknown>;
   }>(draft.extensionId, {
     action: 'registerToWingForm',
     product,
     autoSubmit: autoSubmit === true,
+    executionId: execution.executionId,
+    expectedVendorId: execution.expectedVendorId,
   }, WING_FORM_FILL_TIMEOUT_MS);
+  } catch (error) {
+    await candidatesApi.markExternalWingRegistrationUnresolved(
+      draft.candidateId, execution.executionId, { reason: 'extension_throw', message: String(error) },
+    ).catch(() => undefined);
+    throw error;
+  }
   if (!res?.ok) {
+    await candidatesApi.markExternalWingRegistrationUnresolved(
+      draft.candidateId, execution.executionId, { reason: 'extension_error', error: res?.error ?? null },
+    ).catch(() => undefined);
     throw new Error(res?.error || '쿠팡 WING 상품등록 페이지 열기에 실패했습니다. 확장을 리로드했는지 확인하세요.');
+  }
+  if (res.submission?.status === 'unknown' || res.submission?.attempted === true && !isConfirmedWingRegistration(res.submission)) {
+    await candidatesApi.markExternalWingRegistrationUnresolved(
+      draft.candidateId, execution.executionId, { reason: 'unknown', extensionEvidence: res.evidence ?? null },
+    ).catch(() => undefined);
   }
   const detailImageUrl = draft.detailImageUrl;
   return {
     detailImage: { status: 'rendered', imageUrl: detailImageUrl },
-    submission: res.submission ?? { attempted: false },
+    submission: { ...(res.submission ?? { attempted: false }), executionId: execution.executionId, evidence: res.evidence },
   };
 }
 

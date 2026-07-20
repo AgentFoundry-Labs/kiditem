@@ -8,11 +8,13 @@ import { SourcingWorkspaceArchiveService } from '../../../application/service/so
 import { ProductRegistrationService } from '../../../application/service/product-registration.service';
 import {
   ConfirmExternalRegistrationDto,
+  ExternalWingEvidenceDto,
   CreateProductPreparationDto,
   QuickProcessCandidateDto,
   RejectCandidateBodyDto,
   UpdateProductBasicsDto,
   UpdateProductPreparationDto,
+  PrepareExternalWingRegistrationDto,
 } from './dto';
 
 @Controller('sourcing')
@@ -80,6 +82,55 @@ export class SourcingCandidateWorkspaceController {
       id,
       user.id ?? null,
       body,
+    );
+  }
+
+  @Post('candidates/:id/registration/external-wing/prepare')
+  prepareExternalWingRegistration(
+    @Param('id') id: string,
+    @Body() body: PrepareExternalWingRegistrationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.prepareExternalWingRegistration(
+      organizationId, id, user.id ?? null, body,
+    );
+  }
+
+  @Post('candidates/:id/registration/executions/:executionId/start')
+  startExternalWingRegistration(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.startExternalWingRegistration(
+      organizationId, id, user.id ?? null, executionId,
+    );
+  }
+
+  @Get('candidates/:id/registration/executions/:executionId')
+  externalWingRegistrationStatus(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.getExternalWingRegistration(
+      organizationId, id, user.id ?? null, executionId,
+    );
+  }
+
+  @Post('candidates/:id/registration/executions/:executionId/unresolved')
+  markExternalWingRegistrationUnresolved(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @Body() body: ExternalWingEvidenceDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.markExternalWingRegistrationUnresolved(
+      organizationId, id, user.id ?? null, executionId, body.evidence,
     );
   }
 

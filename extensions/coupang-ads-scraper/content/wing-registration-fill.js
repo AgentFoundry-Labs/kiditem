@@ -1035,17 +1035,27 @@
     };
   }
 
-  async function fillWingForm(product, autoSubmit = false) {
+  async function fillWingForm(product, autoSubmit = false, expectedVendorId) {
     const steps = [];
     const log = (s) => steps.push(s);
     let detailUploadError = null;
+    const accountIdentity = expectedVendorId === undefined
+      ? null
+      : globalThis.KidItemWingAccountIdentity?.verifyExpectedVendorId(expectedVendorId);
+    if (expectedVendorId !== undefined && !accountIdentity?.ok) {
+      return { ok: false, error: accountIdentity?.error || 'WING account verification helper is unavailable.', steps };
+    }
+    const evidence = accountIdentity ? {
+      wingVendorId: accountIdentity.vendorId,
+      wingIdentitySource: accountIdentity.source,
+    } : undefined;
 
     // formV2 는 React 앱이라 탭 로드 완료 후에도 폼이 한참 뒤에 그려진다.
     // 고정 대기(background 의 2.5초)로는 부족해 예전엔 모든 셀렉터가 null 이 되어
     // "아무것도 안 채워졌는데 에러도 없는" 상태가 됐다. 실제 요소가 나타날 때까지 기다린다.
     const ready = await waitFor(() => byPlaceholder('카테고리명 입력'), { timeout: 60000 });
     if (!ready) {
-      return { ok: false, error: 'WING 상품등록 폼이 준비되지 않았습니다(60초 대기 초과).', steps };
+      return { ok: false, error: 'WING 상품등록 폼이 준비되지 않았습니다(60초 대기 초과).', steps, evidence };
     }
     log('formReady');
 
@@ -1214,21 +1224,21 @@
     // 폼은 열린 채로 남겨 사용자가 보정할 수 있고, 웹에는 실패 이유와 steps 가 전달된다.
     // ⚠️ 이 경우 autoSubmit 이 켜져 있어도 제출하지 않는다. 반쯤 채워진 폼을 쿠팡에 올리면 안 된다.
     if (detailUploadError) {
-      return { ok: false, error: detailUploadError, steps };
+      return { ok: false, error: detailUploadError, steps, evidence };
     }
 
     // 9) 제출 — **옵트인일 때만**. autoSubmit 이 아니면 제출 버튼을 찾지도 않는다.
     if (autoSubmit === true) {
       const submission = await submitWingForm(log);
-      return { ok: true, steps, submission };
+      return { ok: true, steps, submission, evidence };
     }
 
-    return { ok: true, steps, submission: { attempted: false } };
+    return { ok: true, steps, submission: { attempted: false }, evidence };
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg && msg.action === 'fillWingForm') {
-      fillWingForm(msg.product || {}, msg.autoSubmit === true)
+      fillWingForm(msg.product || {}, msg.autoSubmit === true, msg.expectedVendorId)
         .then((r) => sendResponse(r))
         .catch((e) => sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }));
       return true; // async response

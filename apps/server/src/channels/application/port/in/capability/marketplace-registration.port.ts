@@ -45,7 +45,7 @@ export interface ChannelsMarketplaceRegistrationCapabilityPort {
   assertExternalProductRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ channel: 'coupang' }>;
+  }): Promise<{ channel: 'coupang'; vendorId: string }>;
 
   reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,

@@ -61,14 +61,20 @@ export class MarketplaceRegistrationService {
   async assertExternalProductRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ channel: 'coupang' }> {
+  }): Promise<{ channel: 'coupang'; vendorId: string }> {
     const account = await this.repository.assertActiveRegistrationAccount(input);
     if (account.channel !== 'coupang') {
       throw new ConflictException(
         'External registration confirmation requires an active Coupang Wing account.',
       );
     }
-    return { channel: 'coupang' };
+    const vendorId = account.vendorId?.trim() || account.externalAccountId?.trim() || '';
+    if (!vendorId) {
+      throw new ConflictException(
+        'External registration requires a persisted Coupang Wing vendor identity.',
+      );
+    }
+    return { channel: 'coupang', vendorId };
   }
 
   async reconcileProductRegistration(

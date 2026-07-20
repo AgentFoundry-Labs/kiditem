@@ -764,6 +764,14 @@ async function registerToWingForm(message) {
   if (!product || typeof product !== "object") {
     return { ok: false, error: "product 데이터가 없습니다." };
   }
+  const executionId = typeof message?.executionId === "string" ? message.executionId.trim() : "";
+  const expectedVendorId = typeof message?.expectedVendorId === "string" ? message.expectedVendorId.trim() : "";
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(executionId)) {
+    return { ok: false, error: "등록 실행 ID가 올바르지 않습니다." };
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedVendorId)) {
+    return { ok: false, error: "승인된 WING 판매자 식별자가 올바르지 않습니다." };
+  }
   // ⚠️ 웹의 등록 확인 모달에서 "상품등록까지 자동 실행"을 켠 경우에만 true 가 실려 온다.
   //    엄격한 === true 비교로만 켠다. 값이 없거나 truthy 한 다른 값이면 제출하지 않는다.
   const autoSubmit = message.autoSubmit === true;
@@ -781,6 +789,8 @@ async function registerToWingForm(message) {
       action: "fillWingForm",
       product,
       autoSubmit,
+      executionId,
+      expectedVendorId,
     });
     // 채움이 실패했으면 성공으로 보고하지 않는다. 예전에는 ok:true 로 덮어써서
     // "폼은 열렸는데 아무것도 안 채워졌고 에러도 없는" 상태가 됐다.

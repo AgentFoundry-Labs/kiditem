@@ -729,6 +729,80 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     expect(observation).toBe('blocked');
   });
 
+  it('durably prepares, starts, reconciles, and finalizes one external WING execution', async () => {
+    const idempotencyKey = randomUUID();
+    const prepared = await repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey,
+    }, ensureWorkspace, resolveSelections);
+    expect(prepared).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
+
+    const replay = await repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey,
+    }, ensureWorkspace, resolveSelections);
+    expect(replay.executionId).toBe(prepared.executionId);
+    await expect(repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Changed name',
+      registrationInput: { wingProduct: { productName: 'Changed name' } },
+      idempotencyKey,
+    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+
+    const started = await repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    expect(started).toMatchObject({ status: 'executing', providerOutcome: 'uncertain' });
+    expect((await repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).executionId).toBe(prepared.executionId);
+    await expect(repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const unresolved = await repository.markExternalExecutionUnresolved({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      evidence: { reason: 'browser_timeout' },
+    });
+    expect(unresolved).toMatchObject({ status: 'reconciling', providerOutcome: 'uncertain' });
+
+    const frozen = await repository.loadFrozenSubmission(TEST_ORGANIZATION_ID, prepared.preparationId);
+    await repository.recordProviderResult(
+      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
+      { externalListingId: '427011919', channel: 'coupang', rawResult: { source: 'wing' } },
+    );
+    const completed = await repository.finalizeRegistered(
+      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
+      async (opaqueTx) => ({ listingId: await createListingBranch(tx(opaqueTx), '427011919') }),
+    );
+    expect(completed.status).toBe('registered');
+  });
+
   function createInput(channelAccountId: string) {
     return {
       organizationId: TEST_ORGANIZATION_ID,
