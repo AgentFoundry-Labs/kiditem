@@ -204,6 +204,7 @@ describe("manual extension release management", () => {
         "--target",
         output.metadata.gitSha,
         "--latest=false",
+        "--prerelease",
         "--draft",
         output.archivePath,
         output.checksumPath,
