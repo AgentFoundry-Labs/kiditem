@@ -26,6 +26,7 @@ import {
   toBusinessDate,
 } from '../../domain/business-date';
 import { resolveCampaignReportAuthority } from '../../domain/campaign-report-authority';
+import { resolveAdTargetGrain } from '../../domain/ad-target-grain';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -287,6 +288,15 @@ export class AdCampaignIngestHandler {
             metaJson: {
               source: 'advertising.campaign.target',
               data: {
+                // Explicit grain stamp: a campaign rollup row already contains
+                // every member product's metrics, so product-grain reads must
+                // exclude it or the campaign is counted twice.
+                granularity: resolveAdTargetGrain({
+                  externalOptionId:
+                    externalOptionIdRaw ?? match.externalOptionId,
+                  listingOptionId: match.listingOptionId,
+                  listingId: match.listingId,
+                }),
                 campaignIdentity: rowCampaignIdentity,
                 providerRoas,
                 providerCtr,

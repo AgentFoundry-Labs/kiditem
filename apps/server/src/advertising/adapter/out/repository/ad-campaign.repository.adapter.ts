@@ -16,6 +16,37 @@ import type {
   ProductTargetRollup,
 } from '../../../application/port/out/repository/ad-campaign.repository.port';
 
+// Grain discriminators for `channel_ad_target_daily_snapshots`.
+//
+// Rows written after the grain stamp landed carry an explicit
+// `metaJson.data.granularity`. Legacy rows are classified by identity
+// evidence instead: a campaign rollup carries no option/listing identity,
+// a true product row always carries one. See
+// `advertising/domain/ad-target-grain.ts` for the full rationale.
+const STAMPED_GRAIN = Prisma.sql`meta_json -> 'data' ->> 'granularity'`;
+
+const IS_PRODUCT_GRAIN = Prisma.sql`
+  CASE
+    WHEN ${STAMPED_GRAIN} IS NOT NULL THEN ${STAMPED_GRAIN} = 'product'
+    ELSE (
+      external_option_id IS NOT NULL
+      OR listing_option_id IS NOT NULL
+      OR listing_id IS NOT NULL
+    )
+  END
+`;
+
+const IS_CAMPAIGN_GRAIN = Prisma.sql`
+  CASE
+    WHEN ${STAMPED_GRAIN} IS NOT NULL THEN ${STAMPED_GRAIN} = 'campaign'
+    ELSE (
+      external_option_id IS NULL
+      AND listing_option_id IS NULL
+      AND listing_id IS NULL
+    )
+  END
+`;
+
 @Injectable()
 export class AdCampaignRepositoryAdapter
   implements AdCampaignRepositoryPort
@@ -42,7 +73,14 @@ export class AdCampaignRepositoryAdapter
         SUM(orders)::int            AS orders
       FROM channel_ad_target_daily_snapshots
       WHERE organization_id = ${organizationId}::uuid
-        AND target_type = 'campaign'
+        -- Campaign rollups are the authoritative campaign-grain fact. The
+        -- scrape pipeline labelled them 'product' before the grain stamp
+        -- existed (pageType-derived target_type), so filtering on
+        -- target_type alone left this read empty for every historical day.
+        -- Keyword rows also lack product identity, hence the explicit
+        -- exclusion.
+        AND target_type <> 'keyword'
+        AND ${IS_CAMPAIGN_GRAIN}
         AND business_date >= ${cutoff}
         ${
           campaignName
@@ -64,6 +102,11 @@ export class AdCampaignRepositoryAdapter
         FROM channel_ad_target_daily_snapshots
         WHERE organization_id = ${organizationId}::uuid
           AND target_type = 'product'
+          -- Campaign rollup rows also carry target_type='product' (see the
+          -- grain discriminator above). They already sum their member
+          -- products, so including them double-counts every campaign that
+          -- has per-product rows on the same day.
+          AND ${IS_PRODUCT_GRAIN}
           AND business_date >= ${cutoff}
       ),
       rollups AS (

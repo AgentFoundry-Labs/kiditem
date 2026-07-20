@@ -24,6 +24,7 @@ import {
   pickStringField,
   type ListingMap,
 } from '../../domain/listing-match';
+import { resolveAdTargetGrain } from '../../domain/ad-target-grain';
 import {
   cleanString,
   deriveAdTargetType,
@@ -365,6 +366,14 @@ export class RawScrapeIngestHandler {
               metaJson: {
                 source: 'advertising.raw.target',
                 data: {
+                  // See domain/ad-target-grain.ts — campaign rollup rows must
+                  // stay out of product-grain sums.
+                  granularity: resolveAdTargetGrain({
+                    externalOptionId:
+                      externalOptionIdRaw ?? match.externalOptionId,
+                    listingOptionId: match.listingOptionId,
+                    listingId: match.listingId,
+                  }),
                   providerRoas,
                   providerCtr,
                   pageType,
