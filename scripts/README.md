@@ -20,7 +20,7 @@ npm run test:scripts
 
 | path | owner / purpose | entrypoint |
 |---|---|---|
-| `scripts/authoritative-inventory-rebuild.ts` | GitHub-Actions-only guard, selective Coupang scrape export/replay, protected auth/account preflight, exact Sellpia/Wing source binding, and fail-closed readiness verification for the 0.1.24 shared database rebuild | `npm run inventory:rebuild`, staging/production deploy workflows, `docs/runbooks/deployment-architecture.md` |
+| `scripts/authoritative-inventory-rebuild.ts` | GitHub-Actions-only rebuild guard; staging account-only export/restore plus production selective Coupang replay and source/readiness verification | `npm run inventory:rebuild`, staging/production deploy workflows, `docs/runbooks/deployment-architecture.md` |
 | `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
 | `scripts/check-sellpia-cutover-preflight.ts` | manual read-only diagnostic for the retired expand-release preservation/account/content/tenant assumptions; not part of current CI/CD | `npm run check:sellpia-cutover-preflight` |
