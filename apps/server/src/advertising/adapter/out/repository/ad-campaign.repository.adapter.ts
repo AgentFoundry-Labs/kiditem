@@ -47,6 +47,28 @@ const IS_CAMPAIGN_GRAIN = Prisma.sql`
   END
 `;
 
+// One campaign accumulates several `target_key` values across time because the
+// scraper's identity scheme changed underneath it:
+//
+//   legacy rollup   product:매출 TOP 제품:product::매출 TOP 제품::::::30개
+//   collapsed href  campaign:href:https://advertising.coupang.com/.../sales
+//   current         account:<uuid>:campaign:name:매출 TOP 제품
+//
+// Grouping by `target_key` rendered the same campaign two or three times — once
+// with real numbers and again as an all-zero row (live 2026-07-20: `매출 TOP
+// 제품` and `쿠팡윙 집중광고` twice, `AI스마트광고(wing)` three times). The
+// campaign name is the only identifier stable across all three schemes.
+const CAMPAIGN_IDENTITY = Prisma.sql`
+  COALESCE(NULLIF(BTRIM(campaign_name), ''), target_key)
+`;
+
+// Whether the scraped grid actually had a conversion-count column. See
+// `CampaignRollup.conversionsObserved` — the campaign dashboard grid has none,
+// so a campaign-grain zero means "not collected", not "zero conversions".
+const CONVERSIONS_OBSERVED = Prisma.sql`
+  COALESCE(meta_json -> 'data' ->> 'conversionsObserved', 'false') = 'true'
+`;
+
 @Injectable()
 export class AdCampaignRepositoryAdapter
   implements AdCampaignRepositoryPort
@@ -60,8 +82,44 @@ export class AdCampaignRepositoryAdapter
   ): Promise<CampaignRollup[]> {
     const cutoff = periodCutoff(period);
     return this.prisma.$queryRaw<CampaignRollup[]>(Prisma.sql`
+      WITH campaign_grain AS (
+        SELECT
+          *,
+          ${CAMPAIGN_IDENTITY} AS campaign_identity,
+          ${CONVERSIONS_OBSERVED} AS conversions_observed
+        FROM channel_ad_target_daily_snapshots
+        WHERE organization_id = ${organizationId}::uuid
+          -- Campaign rollups are the authoritative campaign-grain fact. The
+          -- scrape pipeline labelled them 'product' before the grain stamp
+          -- existed (pageType-derived target_type), so filtering on
+          -- target_type alone left this read empty for every historical day.
+          -- Keyword rows also lack product identity, hence the explicit
+          -- exclusion.
+          AND target_type <> 'keyword'
+          AND ${IS_CAMPAIGN_GRAIN}
+          AND business_date >= ${cutoff}
+          ${
+            campaignName
+              ? Prisma.sql`AND campaign_name = ${campaignName}`
+              : Prisma.empty
+          }
+      ),
+      -- Same campaign, same day, several target_key values (one per identity
+      -- scheme the scraper has used). They describe the SAME Coupang row, so
+      -- summing them double-counts. Keep the single best-evidenced row per day:
+      -- a re-collection that produced real numbers must beat the all-zero row
+      -- an earlier failed background sweep left behind.
+      daily AS (
+        SELECT DISTINCT ON (campaign_identity, business_date) *
+        FROM campaign_grain
+        ORDER BY
+          campaign_identity,
+          business_date,
+          (spend + revenue + impressions + clicks + conversions + orders) DESC,
+          updated_at DESC
+      )
       SELECT
-        target_key                  AS "targetKey",
+        campaign_identity           AS "targetKey",
         MAX(campaign_id)            AS "campaignId",
         MAX(campaign_name)          AS "campaignName",
         MAX(listing_id::text)::uuid AS "listingId",
@@ -70,30 +128,17 @@ export class AdCampaignRepositoryAdapter
         SUM(impressions)::int       AS impressions,
         SUM(clicks)::int            AS clicks,
         SUM(conversions)::int       AS conversions,
-        SUM(orders)::int            AS orders
-      FROM channel_ad_target_daily_snapshots
-      WHERE organization_id = ${organizationId}::uuid
-        -- Campaign rollups are the authoritative campaign-grain fact. The
-        -- scrape pipeline labelled them 'product' before the grain stamp
-        -- existed (pageType-derived target_type), so filtering on
-        -- target_type alone left this read empty for every historical day.
-        -- Keyword rows also lack product identity, hence the explicit
-        -- exclusion.
-        AND target_type <> 'keyword'
-        AND ${IS_CAMPAIGN_GRAIN}
-        AND business_date >= ${cutoff}
-        ${
-          campaignName
-            ? Prisma.sql`AND campaign_name = ${campaignName}`
-            : Prisma.empty
-        }
-      GROUP BY target_key
+        SUM(orders)::int            AS orders,
+        bool_or(conversions_observed) AS "conversionsObserved"
+      FROM daily
+      GROUP BY campaign_identity
     `);
   }
 
   findProductTargetRollups(
     organizationId: string,
     period: AdPeriod,
+    campaignName?: string,
   ): Promise<ProductTargetRollup[]> {
     const cutoff = periodCutoff(period);
     return this.prisma.$queryRaw<ProductTargetRollup[]>(Prisma.sql`
@@ -105,9 +150,16 @@ export class AdCampaignRepositoryAdapter
           -- Campaign rollup rows also carry target_type='product' (see the
           -- grain discriminator above). They already sum their member
           -- products, so including them double-counts every campaign that
-          -- has per-product rows on the same day.
+          -- has per-product rows on the same day. The per-campaign detail
+          -- table depends on this filter too: without it, selecting a
+          -- campaign would list the campaign's own rollup as a "product".
           AND ${IS_PRODUCT_GRAIN}
           AND business_date >= ${cutoff}
+          ${
+            campaignName
+              ? Prisma.sql`AND campaign_name = ${campaignName}`
+              : Prisma.empty
+          }
       ),
       rollups AS (
         SELECT

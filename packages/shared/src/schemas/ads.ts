@@ -94,6 +94,15 @@ export const AdCampaignSnapshotSchema = z.object({
   campaignId: z.string().nullable(),
   campaignName: z.string().nullable(),
   period: z.string(),
+  /**
+   * Whether `metrics.conversions` is a collected value at all.
+   *
+   * The Coupang campaign dashboard grid has no conversion-count column — only
+   * the per-campaign product detail grid carries `광고 전환 판매수`. The scraper
+   * emits a numeric 0 for absent columns, so a campaign-grain `conversions: 0`
+   * means "not collected". Render unknown (`-`) rather than a fabricated 0.
+   */
+  conversionsAvailable: z.boolean(),
   metrics: AdMetricsSchema,
 });
 export type AdCampaignSnapshot = z.infer<typeof AdCampaignSnapshotSchema>;

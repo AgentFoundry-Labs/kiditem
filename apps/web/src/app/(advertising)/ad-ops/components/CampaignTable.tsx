@@ -55,7 +55,12 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
               <th className="text-right">노출</th>
               <th className="text-right">클릭</th>
               <th className="text-right">CTR</th>
-              <th className="text-right">전환</th>
+              <th
+                className="text-right"
+                title="쿠팡 광고센터의 캠페인 목록에는 전환 판매수 컬럼이 없습니다. 캠페인을 클릭하면 상품별 전환 판매수를 볼 수 있습니다."
+              >
+                전환
+              </th>
               <th className="text-right">전환율</th>
             </tr>
           </thead>
@@ -90,7 +95,12 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
                   <td className="text-right">{formatNumber(c.metrics.impressions)}</td>
                   <td className="text-right">{formatNumber(c.metrics.clicks)}</td>
                   <td className="text-right">{(c.metrics.ctr ?? 0).toFixed(2)}%</td>
-                  <td className="text-right">{c.metrics.conversions}</td>
+                  {/* Coupang's campaign list grid has no conversion-count
+                      column, so a 0 here is "not collected", not "zero sales".
+                      Show unknown instead of fabricating a number. */}
+                  <td className="text-right" style={c.conversionsAvailable ? undefined : { color: 'var(--text-tertiary)' }}>
+                    {c.conversionsAvailable ? formatNumber(c.metrics.conversions) : '-'}
+                  </td>
                   <td className="text-right">{(c.metrics.cvr ?? 0).toFixed(2)}%</td>
                 </tr>
               );

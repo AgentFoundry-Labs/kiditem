@@ -27,6 +27,7 @@ import {
 } from '../../domain/business-date';
 import { resolveCampaignReportAuthority } from '../../domain/campaign-report-authority';
 import { resolveAdTargetGrain } from '../../domain/ad-target-grain';
+import { hasObservedConversionColumn } from '../../domain/ad-observed-columns';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -298,6 +299,15 @@ export class AdCampaignIngestHandler {
                   listingId: match.listingId,
                 }),
                 campaignIdentity: rowCampaignIdentity,
+                // Whether the scraped grid actually had a conversion-count
+                // column. The Coupang campaign dashboard grid has none — only
+                // the per-campaign product detail grid carries
+                // `광고 전환 판매수`. The extension still emits a numeric zero
+                // for absent columns, so without this stamp a campaign-grain
+                // `conversions = 0` is indistinguishable from a real zero and
+                // the UI shows a fabricated 0 conversions on rows with real
+                // revenue.
+                conversionsObserved: hasObservedConversionColumn(row),
                 providerRoas,
                 providerCtr,
                 providerConversionRate,

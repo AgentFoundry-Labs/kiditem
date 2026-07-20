@@ -25,6 +25,7 @@ import {
   type ListingMap,
 } from '../../domain/listing-match';
 import { resolveAdTargetGrain } from '../../domain/ad-target-grain';
+import { hasObservedConversionColumn } from '../../domain/ad-observed-columns';
 import {
   cleanString,
   deriveAdTargetType,
@@ -374,6 +375,10 @@ export class RawScrapeIngestHandler {
                     listingOptionId: match.listingOptionId,
                     listingId: match.listingId,
                   }),
+                  // See domain/ad-observed-columns.ts — the campaign dashboard
+                  // grid has no conversion-count column, so a zero there means
+                  // "not collected" rather than "zero conversions".
+                  conversionsObserved: hasObservedConversionColumn(row),
                   providerRoas,
                   providerCtr,
                   pageType,

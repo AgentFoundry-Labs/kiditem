@@ -189,4 +189,169 @@ describe('AdCampaignRepositoryAdapter grain split (PG integration)', () => {
     );
     expect(rows).toHaveLength(0);
   });
+
+  /**
+   * Regression: one campaign accumulates several `target_key` values because the
+   * scraper's identity scheme changed underneath it. Grouping by `target_key`
+   * listed the same campaign two or three times — once with real numbers and
+   * again as an all-zero row.
+   *
+   * Live 2026-07-20, `매출 TOP 제품` alone held:
+   *   product:매출 TOP 제품:product::매출 TOP 제품::::::30개   (real numbers)
+   *   account:<uuid>:campaign:name:매출 TOP 제품               (all zero)
+   * and `AI스마트광고(wing)` held a third, `campaign:href:.../dashboard/sales`.
+   */
+  it('merges one campaign spread across several target_key schemes into one row', async () => {
+    // Same campaign, same day, written under the two later identity schemes.
+    // The zero row is what a failed background sweep leaves behind.
+    await prisma.channelAdTargetDailySnapshot.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'coupang',
+          businessDate,
+          targetType: 'campaign',
+          targetKey: `account:11111111-1111-4111-8111-111111111111:campaign:name:${CAMPAIGN_WITHOUT_MEMBERS}`,
+          campaignName: CAMPAIGN_WITHOUT_MEMBERS,
+          spend: 0,
+          revenue: 0,
+          impressions: 0,
+          clicks: 0,
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'coupang',
+          businessDate,
+          targetType: 'campaign',
+          targetKey:
+            'campaign:href:https://advertising.coupang.com/marketing/dashboard/sales',
+          campaignName: CAMPAIGN_WITH_MEMBERS,
+          spend: 0,
+          revenue: 0,
+          impressions: 0,
+          clicks: 0,
+        },
+      ],
+    });
+
+    const rows = await adapter.findCampaignRollups(TEST_ORGANIZATION_ID, '7d');
+    const names = rows.map((row) => row.campaignName);
+
+    // One row per campaign, not one row per identity scheme.
+    expect(names).toHaveLength(new Set(names).size);
+    expect(names.sort()).toEqual(
+      [CAMPAIGN_WITH_MEMBERS, CAMPAIGN_WITHOUT_MEMBERS].sort(),
+    );
+
+    // The all-zero duplicate must not dilute or double the real numbers.
+    expect(rows.reduce((sum, row) => sum + row.spend, 0)).toBe(
+      ROLLUP_SPEND_TOTAL,
+    );
+    const topProduct = rows.find(
+      (row) => row.campaignName === CAMPAIGN_WITHOUT_MEMBERS,
+    );
+    expect(topProduct?.spend).toBe(49_358);
+  });
+
+  /**
+   * Regression: a re-collection that produced real numbers must beat an
+   * all-zero row already stored for the same campaign and day. Summing the two
+   * would be equally wrong — they describe the same Coupang row.
+   */
+  it('prefers the best-evidenced row when one campaign-day has several rows', async () => {
+    await prisma.channelAdTargetDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        businessDate,
+        targetType: 'campaign',
+        targetKey: `account:2222:campaign:name:${CAMPAIGN_WITHOUT_MEMBERS}`,
+        campaignName: CAMPAIGN_WITHOUT_MEMBERS,
+        spend: 0,
+        revenue: 0,
+        impressions: 0,
+        clicks: 0,
+      },
+    });
+
+    const rows = await adapter.findCampaignRollups(TEST_ORGANIZATION_ID, '7d');
+    const topProduct = rows.find(
+      (row) => row.campaignName === CAMPAIGN_WITHOUT_MEMBERS,
+    );
+
+    // 49,358 (the real row) — not 0 (zero row won) and not 49,358 summed twice.
+    expect(topProduct?.spend).toBe(49_358);
+    expect(topProduct?.revenue).toBe(335_830);
+  });
+
+  /**
+   * Regression: the per-campaign product detail table must list only the
+   * campaign's member products. The campaign's own rollup row also carries
+   * `target_type = 'product'`, so without the grain filter the campaign would
+   * appear as one of its own products and double the totals.
+   */
+  it('scopes product rows to one campaign without leaking its rollup row', async () => {
+    const rows = await adapter.findProductTargetRollups(
+      TEST_ORGANIZATION_ID,
+      '7d',
+      CAMPAIGN_WITH_MEMBERS,
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.campaignName === CAMPAIGN_WITH_MEMBERS)).toBe(
+      true,
+    );
+    // Every returned row is a real product, never the campaign rollup.
+    expect(rows.every((row) => row.externalOptionId !== null)).toBe(true);
+    expect(rows.reduce((sum, row) => sum + row.spend, 0)).toBe(
+      MEMBER_SPEND_TOTAL,
+    );
+  });
+
+  it('returns no product rows for a campaign whose detail grid was never swept', async () => {
+    const rows = await adapter.findProductTargetRollups(
+      TEST_ORGANIZATION_ID,
+      '7d',
+      CAMPAIGN_WITHOUT_MEMBERS,
+    );
+
+    // Live: only `쿠팡윙 집중광고` has product rows. The UI must say "not
+    // collected" here rather than render the campaign rollup as a product.
+    expect(rows).toHaveLength(0);
+  });
+
+  /**
+   * Regression: the Coupang campaign dashboard grid has no conversion-count
+   * column, so every campaign-grain row lands with `conversions = 0` even when
+   * revenue is real. Reporting that as a hard 0 invented a metric.
+   */
+  it('reports campaign conversions as unobserved unless a row stamped the column', async () => {
+    const before = await adapter.findCampaignRollups(TEST_ORGANIZATION_ID, '7d');
+    expect(before.every((row) => row.conversionsObserved === false)).toBe(true);
+
+    await prisma.channelAdTargetDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        businessDate,
+        targetType: 'campaign',
+        targetKey: 'account:3333:campaign:name:전환관측 캠페인',
+        campaignName: '전환관측 캠페인',
+        spend: 1_000,
+        revenue: 5_000,
+        conversions: 3,
+        metaJson: {
+          source: 'advertising.campaign.target',
+          data: { granularity: 'campaign', conversionsObserved: true },
+        },
+      },
+    });
+
+    const after = await adapter.findCampaignRollups(TEST_ORGANIZATION_ID, '7d');
+    const stamped = after.find(
+      (row) => row.campaignName === '전환관측 캠페인',
+    );
+    expect(stamped?.conversionsObserved).toBe(true);
+    expect(stamped?.conversions).toBe(3);
+  });
 });
