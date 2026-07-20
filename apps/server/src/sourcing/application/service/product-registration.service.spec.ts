@@ -126,7 +126,7 @@ function setup(overrides: {
     ...overrides.repository,
   } as ProductPreparationRepositoryPort;
   const channel = {
-    assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' }),
     reconcile: vi.fn().mockResolvedValue(null),
     submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
       await beforeProviderCreate();
@@ -573,7 +573,7 @@ describe('ProductRegistrationService', () => {
   });
 
   it('validates the persisted Wing account before accepting external confirmation', async () => {
-    const assertExternalRegistrationAccount = vi.fn().mockResolvedValue({ channel: 'coupang' });
+    const assertExternalRegistrationAccount = vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' });
     const { service, repository, channel } = setup({
       channel: { assertExternalRegistrationAccount },
     });
@@ -602,6 +602,21 @@ describe('ProductRegistrationService', () => {
       executionId: 'execution-1', externalListingId: '427011919',
       evidence: { wingVendorId: 'B00012345', wingIdentitySource: 'dom:data-vendor-id' },
     })).rejects.toThrow('does not match');
+    expect(repository.recordProviderResult).not.toHaveBeenCalled();
+  });
+
+  it('rejects completion when the persisted WING vendor changed after preparation', async () => {
+    const { service, repository } = setup({
+      channel: {
+        assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'B00012345' }),
+      },
+    });
+
+    await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1', externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    })).rejects.toThrow('identity changed');
+
     expect(repository.recordProviderResult).not.toHaveBeenCalled();
   });
 

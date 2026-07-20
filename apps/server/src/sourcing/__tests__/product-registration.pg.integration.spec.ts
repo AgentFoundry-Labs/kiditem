@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -849,6 +849,35 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
     }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('does not expose ordinary create executions through the external WING lifecycle', async () => {
+    const draft = await repository.createOrGetActiveDraft(
+      createInput(ACCOUNT_ID), ensureWorkspace, resolveSelections,
+    );
+    const claimed = await repository.claimForSubmission(
+      TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID, resolveSelections,
+    );
+    if (claimed.status === 'registered') throw new Error('unexpected registered claim');
+    await expect(repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: claimed.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.getExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: claimed.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.markExternalExecutionUnresolved({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: claimed.executionId,
+      requestedByUserId: TEST_USER_ID,
+      evidence: { reason: 'must-not-reconcile-create-execution' },
+    })).rejects.toBeInstanceOf(NotFoundException);
   });
 
   function createInput(channelAccountId: string) {

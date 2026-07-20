@@ -346,6 +346,8 @@ export interface WingRegistrationOverrides {
 /** 확장으로 넘기기 전 확인 모달이 필요로 하는 전체 컨텍스트. */
 export interface WingRegistrationDraft {
   candidateId: string;
+  /** 모달을 닫기 전까지 유지하는 pre-intent 재시도 키. */
+  idempotencyKey: string;
   /** 자동 조립된 등록 payload. 사용자가 고친 값은 아직 반영 전이다. */
   product: WingProduct;
   /** 모달 기본값. `product` 에서 뽑아낸 편집 가능한 부분집합. */
@@ -502,6 +504,7 @@ export async function prepareWingRegistration(
   const product = candidateToWingProduct(detail, preset, categoryCell, detailImageUrl);
   return {
     candidateId,
+    idempotencyKey: crypto.randomUUID(),
     product,
     overrides: buildWingRegistrationOverrides(product),
     extensionId,
@@ -557,7 +560,7 @@ export async function submitWingRegistration(
       channelAccountId: draft.channelAccountId,
       displayName: product.productName,
       registrationInput: { source: 'coupang-wing-extension', wingProduct: product },
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: draft.idempotencyKey,
     });
     await candidatesApi.startExternalWingRegistration(draft.candidateId, execution.executionId);
   } catch (error) {

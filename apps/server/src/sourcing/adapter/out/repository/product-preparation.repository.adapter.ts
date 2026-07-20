@@ -397,6 +397,7 @@ export class ProductPreparationRepositoryAdapter
         where: {
           id: input.executionId,
           organizationId: input.organizationId,
+          executionKind: 'external_wing',
           productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
         },
       });
@@ -435,6 +436,7 @@ export class ProductPreparationRepositoryAdapter
       where: {
         id: input.executionId,
         organizationId: input.organizationId,
+        executionKind: 'external_wing',
         requestedByUserId: input.requestedByUserId,
         productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
       },
@@ -455,6 +457,7 @@ export class ProductPreparationRepositoryAdapter
         where: {
           id: input.executionId,
           organizationId: input.organizationId,
+          executionKind: 'external_wing',
           requestedByUserId: input.requestedByUserId,
           productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
         },

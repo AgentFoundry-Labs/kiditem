@@ -309,6 +309,9 @@ export class ProductRegistrationService {
     const account = await this.channels.assertExternalRegistrationAccount({
       organizationId, channelAccountId: submission.channelAccountId,
     });
+    if (account.vendorId !== operation.expectedProviderAccountId) {
+      throw new Error('Persisted WING account identity changed after external registration was prepared.');
+    }
     const submissionLeaseToken = submission.submissionLeaseToken;
     if (!submissionLeaseToken) {
       throw new Error('Started external registration is missing its submission lease.');

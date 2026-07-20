@@ -458,6 +458,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
   it('검증에 걸리는 값은 확장으로 나가지 않는다', async () => {
     const draft = {
       candidateId: 'candidate-1',
+      idempotencyKey: '33333333-3333-4333-8333-333333333333',
       product: product(),
       overrides: buildWingRegistrationOverrides(product()),
       extensionId: 'ext-1',
@@ -475,6 +476,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     vi.mocked(sendToExtension).mockResolvedValueOnce({ ok: true });
     const draft = {
       candidateId: 'candidate-1',
+      idempotencyKey: '33333333-3333-4333-8333-333333333333',
       product: product(),
       overrides: buildWingRegistrationOverrides(product()),
       extensionId: 'ext-1',
@@ -502,6 +504,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
 describe('external WING pre-intent choreography', () => {
   const draft = {
     candidateId: 'candidate-1',
+    idempotencyKey: '33333333-3333-4333-8333-333333333333',
     extensionId: 'extension-1',
     channelAccountId: 'account-1',
     detailImageUrl: 'http://localhost:9000/detail.jpg',
@@ -546,6 +549,25 @@ describe('external WING pre-intent choreography', () => {
       'candidate-1',
       '33333333-3333-4333-8333-333333333333',
       expect.objectContaining({ reason: 'extension_throw' }),
+    );
+  });
+
+  it('reuses the modal draft idempotency key across a retry after prepare fails', async () => {
+    vi.mocked(candidatesApi.prepareExternalWingRegistration)
+      .mockRejectedValueOnce(new Error('prepare response lost'))
+      .mockResolvedValueOnce({ executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345' } as never);
+    vi.mocked(sendToExtension).mockResolvedValue({
+      ok: true,
+      submission: { attempted: false },
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    });
+    await expect(submitWingRegistration(draft, draft.overrides, true)).rejects.toThrow('prepare response lost');
+    await submitWingRegistration(draft, draft.overrides, true);
+    expect(candidatesApi.prepareExternalWingRegistration).toHaveBeenNthCalledWith(
+      1, 'candidate-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
+    );
+    expect(candidatesApi.prepareExternalWingRegistration).toHaveBeenNthCalledWith(
+      2, 'candidate-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
     );
   });
 });
