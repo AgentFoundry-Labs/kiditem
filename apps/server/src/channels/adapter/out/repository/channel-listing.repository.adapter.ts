@@ -7,6 +7,7 @@ import type {
   ChannelListingDeletionAuthorizationInput,
   ChannelListingDeletionCompletionInput,
   ChannelListingDeletionCompletionResult,
+  ChannelListingDeletionExecutionClaim,
   ChannelListingDeletionOperationLookup,
   ChannelListingDeletionOperationResult,
   ChannelListingDeletionOperationStatus,
@@ -199,6 +200,34 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
   async authorizeDeletion(
     input: ChannelListingDeletionAuthorizationInput,
   ): Promise<ChannelListingDeletionOperationResult> {
+    try {
+      return await this.authorizeDeletionOnce(input);
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      // A concurrent insert may have won the org/key or active-listing key.
+      // Re-read it outside the aborted transaction and validate every frozen scope.
+      const replay = await this.prisma.channelListingDeletionOperation.findFirst({
+        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+        include: {
+          channelListing: {
+            select: {
+              id: true, displayName: true, channelName: true,
+              channelAccount: { select: { channel: true } },
+            },
+          },
+        },
+      });
+      if (!replay || replay.channelListingId !== input.listingId || replay.requestHash !== input.requestHash) {
+        throw new ConflictException('Deletion operation conflicts with an existing request.');
+      }
+      assertOperationActor(replay.requestedByUserId, input.userId);
+      return toAuthorizationResult(replay, replay.channelListing);
+    }
+  }
+
+  private async authorizeDeletionOnce(
+    input: ChannelListingDeletionAuthorizationInput,
+  ): Promise<ChannelListingDeletionOperationResult> {
     return this.prisma.$transaction(async (tx) => {
       // Shared with registration finalization: listing always locks first.
       const locked = await lockChannelListingRow(tx, {
@@ -287,12 +316,45 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
           status: 'executing',
           providerOutcome: 'uncertain',
           leaseToken: randomUUID(),
-          leaseClaimedAt: new Date(),
+          leaseClaimedAt: null,
           authorizationExpiresAt: new Date(Date.now() + 5 * 60_000),
           startedAt: new Date(),
         },
       });
       return toAuthorizationResult(operation, listing);
+    });
+  }
+
+  async claimDeletionExecution(
+    input: ChannelListingDeletionOperationLookup,
+  ): Promise<ChannelListingDeletionExecutionClaim> {
+    return this.prisma.$transaction(async (tx) => {
+      await assertLockedListing(tx, input.organizationId, input.listingId);
+      await lockDeletionOperation(tx, input.organizationId, input.operationId);
+      const operation = await tx.channelListingDeletionOperation.findFirst({
+        where: { id: input.operationId, organizationId: input.organizationId, channelListingId: input.listingId },
+        include: { channelListing: { select: { displayName: true, channelName: true } } },
+      });
+      if (!operation) throw new NotFoundException('Deletion operation not found.');
+      assertOperationActor(operation.requestedByUserId, input.userId);
+      if (operation.status !== 'executing' || operation.providerOutcome !== 'uncertain'
+        || operation.leaseClaimedAt
+        || !operation.leaseToken || !operation.authorizationExpiresAt
+        || operation.authorizationExpiresAt <= new Date()) {
+        throw new ConflictException('Deletion execution capability is unavailable or expired.');
+      }
+      await tx.channelListingDeletionOperation.update({
+        where: { id: operation.id }, data: { leaseClaimedAt: new Date() },
+      });
+      return {
+        operationId: operation.id,
+        listingId: operation.channelListingId,
+        externalId: operation.externalListingId,
+        displayName: operation.channelListing.displayName ?? operation.channelListing.channelName ?? operation.externalListingId,
+        expectedVendorId: operation.expectedProviderAccountId,
+        executionCapability: operation.leaseToken,
+        expiresAt: operation.authorizationExpiresAt.toISOString(),
+      };
     });
   }
 
@@ -311,9 +373,6 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
       });
       if (!operation) throw new NotFoundException('Deletion operation not found.');
       assertOperationActor(operation.requestedByUserId, input.userId);
-      if (operation.expectedProviderAccountId !== input.evidence.vendorId) {
-        throw new ForbiddenException('Verified provider account does not match the authorized operation.');
-      }
       if (operation.status === 'succeeded' && operation.providerOutcome === 'succeeded') {
         return succeededResult(operation);
       }
@@ -331,10 +390,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
         data: {
           status: 'succeeded',
           providerOutcome: 'succeeded',
-          resultJson: {
-            evidence: { vendorId: input.evidence.vendorId, source: input.evidence.source },
-            externalListingId: operation.externalListingId,
-          },
+          resultJson: { independentlyReconciled: true, externalListingId: operation.externalListingId },
           completedAt: new Date(),
           lastErrorCode: null,
           lastErrorMessage: null,
@@ -396,6 +452,11 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
       lastErrorCode: operation.lastErrorCode,
     };
   }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
 }
 
 async function assertLockedListing(tx: Prisma.TransactionClient, organizationId: string, listingId: string) {

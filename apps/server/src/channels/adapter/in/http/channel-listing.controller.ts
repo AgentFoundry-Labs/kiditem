@@ -5,7 +5,6 @@ import type { AuthUser } from '../../../../auth/auth.types';
 import { ChannelListingDeletionService } from '../../../application/service/channel-listing-deletion.service';
 import { ChannelListingQueryService } from '../../../application/service/channel-listing-query.service';
 import {
-  ChannelListingDeletionCompletionDto,
   ChannelListingDeletionDto,
   ChannelListingDeletionUnresolvedDto,
   ChannelListingQueryDto,
@@ -63,24 +62,17 @@ export class ChannelListingController {
     });
   }
 
-  /**
-   * Provider-confirmed completion: password is not requested a second time.
-   */
-  @Post(':listingId/deletion')
-  completeDeletion(
+  /** Called from the authenticated extension worker, never from page-world code. */
+  @Post(':listingId/deletion-operations/:operationId/extension-claim')
+  claimDeletionExecution(
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @Param('listingId', new ParseUUIDPipe()) listingId: string,
-    @Body() body: ChannelListingDeletionCompletionDto,
+    @Param('operationId', new ParseUUIDPipe()) operationId: string,
   ) {
-    return this.deletion.complete({
-      organizationId,
-      userId: user.id,
-      listingId,
-      operationId: body.operationId,
-      evidence: body.evidence,
-    });
+    return this.deletion.claimExecution({ organizationId, userId: user.id, listingId, operationId });
   }
+
 
   @Post(':listingId/deletion-unresolved')
   markDeletionUnresolved(

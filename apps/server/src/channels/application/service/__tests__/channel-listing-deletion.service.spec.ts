@@ -77,7 +77,7 @@ describe('ChannelListingDeletionService durable operation', () => {
     expect(harness.authorizeDeletion).not.toHaveBeenCalled();
   });
 
-  it('completes a provider-confirmed operation without asking for the password again', async () => {
+  it('refuses a browser-controlled completion because only independent reconciliation may deactivate', async () => {
     const harness = build();
 
     await expect(harness.service.complete({
@@ -85,14 +85,10 @@ describe('ChannelListingDeletionService durable operation', () => {
       userId: USER,
       listingId: LISTING,
       operationId: OPERATION,
-      evidence: { vendorId: 'A00012345', source: 'dom:data-vendor-id' },
-    })).resolves.toMatchObject({ isActive: false, status: 'succeeded' });
+    })).rejects.toThrow(BadRequestException);
 
     expect(harness.assertPassword).not.toHaveBeenCalled();
-    expect(harness.completeDeletion).toHaveBeenCalledWith(expect.objectContaining({
-      operationId: OPERATION,
-      evidence: { vendorId: 'A00012345', source: 'dom:data-vendor-id' },
-    }));
+    expect(harness.completeDeletion).not.toHaveBeenCalled();
   });
 
   it('records unknown browser outcomes as unresolved without deactivating the listing', async () => {

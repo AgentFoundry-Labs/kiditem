@@ -96,15 +96,13 @@ export default function ListingDeleteDialog({
       const result = await sendToExtension<{
         ok?: boolean;
         error?: string;
-        evidence?: { vendorId?: string; source?: string };
+        providerDeletionObserved?: boolean;
       }>(
         extensionId,
         {
           action: 'deleteWingProduct',
+          listingId: authorized.listingId,
           operationId: authorized.operationId,
-          externalId: authorized.externalId,
-          displayName: authorized.displayName,
-          expectedVendorId: authorized.expectedVendorId,
         },
         DELETE_TIMEOUT_MS,
       );
@@ -112,32 +110,20 @@ export default function ListingDeleteDialog({
         throw new Error(result?.error || '쿠팡 WING 삭제에 실패했습니다.');
       }
       providerDeleteConfirmed = true;
-      if (!result.evidence?.vendorId || !result.evidence.source) {
-        throw new Error('쿠팡 삭제 결과의 계정 검증 증거가 없습니다. 로컬 정산이 필요합니다.');
-      }
-
-      // 3) 마켓 삭제가 확인된 뒤에만 우리 리스팅을 비활성화한다.
-      setPhase('등록상품 목록에서 정리하는 중…');
-      await apiClient.post(`/api/channels/listings/${listing.id}/deletion`, {
-        operationId: authorized.operationId,
-        evidence: result.evidence,
-      });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
-      toast.success('상품을 삭제했습니다', {
-        description: `${authorized.displayName} (등록상품ID ${authorized.externalId})`,
-      });
-      onClose();
+      // The extension is not an independent provider authority. Preserve the
+      // local listing and enter durable reconciliation even after its DOM check.
+      throw new Error('쿠팡 삭제가 관찰되었습니다. 로컬 정산이 필요합니다.');
     } catch (err) {
       if (operationId) {
         // A timeout, extension error, or completion transport failure is uncertain;
         // leave the local listing visible and make reconciliation durable.
         await apiClient.post(`/api/channels/listings/${listing.id}/deletion-unresolved`, {
           operationId,
-          reason: providerDeleteConfirmed ? 'completion_failed_after_provider_delete' : 'extension_unknown',
+          reason: providerDeleteConfirmed ? 'provider_delete_observed_requires_reconciliation' : 'extension_unknown',
         }).catch(() => undefined);
       }
       toast.error(providerDeleteConfirmed
-        ? '쿠팡에서는 삭제되었지만 로컬 정산이 필요합니다.'
+        ? '쿠팡 삭제가 관찰되었습니다. 독립 정산 전까지 로컬 상품은 유지됩니다.'
         : errorMessage(err, '상품 삭제에 실패했습니다.'));
     } finally {
       setBusy(false);

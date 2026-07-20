@@ -27,14 +27,14 @@ function renderDialog() {
 describe('ListingDeleteDialog durable deletion flow', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('orders authorization, provider deletion, then password-free completion with frozen operation facts', async () => {
+  it('orders authorization then provider deletion and records independent reconciliation instead of browser completion', async () => {
     get.mockResolvedValue({ configured: true, updatedAt: null });
     post.mockResolvedValueOnce({
       operationId: '22222222-2222-4222-8222-222222222222', externalId: '16311428128', displayName: '과일바구니',
       expectedVendorId: 'A00012345', listingId: listing.id, channel: 'coupang',
-    }).mockResolvedValueOnce({ isActive: false });
+    }).mockResolvedValueOnce({ status: 'reconciling' });
     detectExtensionId.mockResolvedValue('extension-id');
-    sendToExtension.mockResolvedValue({ ok: true, evidence: { vendorId: 'A00012345', source: 'dom:data-vendor-id' } });
+    sendToExtension.mockResolvedValue({ ok: true, providerDeletionObserved: true });
 
     renderDialog();
     const password = await waitFor(() => {
@@ -49,13 +49,13 @@ describe('ListingDeleteDialog durable deletion flow', () => {
     expect(post.mock.calls[0][0]).toContain('/deletion-authorization');
     expect(post.mock.calls[0][1]).toEqual(expect.objectContaining({ password: 'secret', idempotencyKey: expect.any(String) }));
     expect(sendToExtension).toHaveBeenCalledWith('extension-id', expect.objectContaining({
-      operationId: '22222222-2222-4222-8222-222222222222', expectedVendorId: 'A00012345', externalId: '16311428128',
+      operationId: '22222222-2222-4222-8222-222222222222', listingId: listing.id,
     }), expect.any(Number));
-    expect(post.mock.calls[1]).toEqual([expect.stringContaining('/deletion'), {
+    expect(post.mock.calls[1]).toEqual([expect.stringContaining('/deletion-unresolved'), {
       operationId: '22222222-2222-4222-8222-222222222222',
-      evidence: { vendorId: 'A00012345', source: 'dom:data-vendor-id' },
+      reason: 'provider_delete_observed_requires_reconciliation',
     }]);
-    expect(post.mock.calls[1][1]).not.toHaveProperty('password');
+    expect(post.mock.calls[1][0]).not.toMatch(/\/deletion$/);
   });
 
   it('marks the durable operation unresolved after a browser failure instead of starting a fresh deletion', async () => {

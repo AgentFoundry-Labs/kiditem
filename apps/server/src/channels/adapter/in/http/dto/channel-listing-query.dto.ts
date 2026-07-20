@@ -1,5 +1,4 @@
-import { Type } from 'class-transformer';
-import { IsIn, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
+import { IsIn, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { PaginationQueryDto } from '../../../../../common/dto';
 
 const CHANNEL_LISTING_SORTS = ['newest', 'oldest', 'name_asc'] as const;
@@ -46,23 +45,10 @@ export class ChannelListingDeletionDto {
   idempotencyKey!: string;
 }
 
-export class ChannelListingDeletionEvidenceDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(80)
-  vendorId!: string;
-
-  @IsIn(['dom:data-vendor-id', 'meta:vendor-id', 'url:vendorId'])
-  source!: 'dom:data-vendor-id' | 'meta:vendor-id' | 'url:vendorId';
-}
-
 export class ChannelListingDeletionCompletionDto {
   @IsUUID()
   operationId!: string;
 
-  @ValidateNested()
-  @Type(() => ChannelListingDeletionEvidenceDto)
-  evidence!: ChannelListingDeletionEvidenceDto;
 }
 
 export class ChannelListingDeletionUnresolvedDto {

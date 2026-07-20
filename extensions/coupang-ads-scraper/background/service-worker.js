@@ -828,17 +828,30 @@ async function registerToWingForm(message) {
  * 대상이 정확히 1건이 아니면 content script 가 아무것도 하지 않고 실패로 돌려준다.
  */
 async function deleteWingProduct(message) {
-  const externalId = String(message?.externalId || "").trim();
+  const listingId = typeof message?.listingId === "string" ? message.listingId.trim() : "";
   const operationId = typeof message?.operationId === "string" ? message.operationId.trim() : "";
-  const expectedVendorId = typeof message?.expectedVendorId === "string" ? message.expectedVendorId.trim() : "";
-  if (!/^\d{6,20}$/.test(externalId)) {
-    return { ok: false, error: "삭제 대상 등록상품ID가 올바르지 않습니다." };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(listingId)) {
+    return { ok: false, error: "삭제 대상 리스팅 ID가 올바르지 않습니다." };
   }
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
     return { ok: false, error: "삭제 작업 ID가 올바르지 않습니다." };
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedVendorId)) {
-    return { ok: false, error: "승인된 WING 판매자 식별자가 올바르지 않습니다." };
+  // External messages are untrusted: freeze every provider fact through an
+  // authenticated, one-time server claim before opening or clicking WING.
+  const claimResponse = await authedFetch(
+    `/api/channels/listings/${encodeURIComponent(listingId)}/deletion-operations/${encodeURIComponent(operationId)}/extension-claim`,
+    { method: "POST" },
+  );
+  if (!claimResponse.ok) {
+    return { ok: false, error: `삭제 실행 권한을 확인하지 못했습니다 (${claimResponse.status}).` };
+  }
+  const claim = await claimResponse.json();
+  const externalId = typeof claim?.externalId === "string" ? claim.externalId.trim() : "";
+  const expectedVendorId = typeof claim?.expectedVendorId === "string" ? claim.expectedVendorId.trim() : "";
+  const executionCapability = typeof claim?.executionCapability === "string" ? claim.executionCapability.trim() : "";
+  if (!/^\d{6,20}$/.test(externalId) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedVendorId)
+    || !/^[0-9a-f-]{36}$/i.test(executionCapability)) {
+    return { ok: false, error: "서버 삭제 실행 권한이 완전하지 않습니다." };
   }
   // 검색어를 URL 에 실어 대상 1건만 남은 목록을 연다. 전체 목록에서 찾게 하면
   // 페이지네이션 때문에 행을 못 찾거나 동명이인 행이 섞인다.
@@ -856,7 +869,7 @@ async function deleteWingProduct(message) {
       action: "deleteWingProduct",
       operationId,
       externalId,
-      displayName: message?.displayName || null,
+      displayName: claim.displayName || null,
       expectedVendorId,
     });
     if (!result?.ok) {
@@ -867,7 +880,10 @@ async function deleteWingProduct(message) {
         error: result?.error || "WING 상품 삭제에 실패했습니다. 열린 탭에서 직접 확인하세요.",
       };
     }
-    return { ok: true, tabId: tab.id, result, evidence: result.evidence };
+    // A DOM observation is not server-verifiable provider evidence. The web
+    // caller records reconciling/uncertain; only independent provider API or
+    // catalog reconciliation may deactivate the local listing.
+    return { ok: true, tabId: tab.id, providerDeletionObserved: true };
   } catch (e) {
     return {
       ok: false,

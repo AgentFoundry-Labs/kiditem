@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import {
   CHANNEL_LISTING_REPOSITORY_PORT,
   type ChannelListingDeletionCompletionInput,
-  type ChannelListingDeletionEvidence,
   type ChannelListingDeletionOperationLookup,
   type ChannelListingDeletionUnresolvedInput,
   type ChannelListingRepositoryPort,
@@ -12,12 +11,6 @@ import {
   CHANNELS_DELETION_PASSWORD_PORT,
   type ChannelsDeletionPasswordPort,
 } from '../port/out/cross-domain/deletion-password.port';
-
-const EVIDENCE_SOURCES = new Set<ChannelListingDeletionEvidence['source']>([
-  'dom:data-vendor-id',
-  'meta:vendor-id',
-  'url:vendorId',
-]);
 
 @Injectable()
 export class ChannelListingDeletionService {
@@ -46,10 +39,16 @@ export class ChannelListingDeletionService {
     });
   }
 
-  /** Provider-confirmed completion intentionally has no second password gate. */
+  /** Only the authenticated extension can redeem this one-time, expiring claim. */
+  async claimExecution(input: ChannelListingDeletionOperationLookup) {
+    return this.listings.claimDeletionExecution(input);
+  }
+
+  /** Public browser completion is deliberately unavailable without independent provider evidence. */
   async complete(input: ChannelListingDeletionCompletionInput) {
-    assertEvidence(input.evidence);
-    return this.listings.completeDeletion(input);
+    throw new BadRequestException(
+      `Deletion ${input.operationId} requires independent provider reconciliation before local completion.`,
+    );
   }
 
   async markUnresolved(input: ChannelListingDeletionUnresolvedInput) {
@@ -64,13 +63,4 @@ export class ChannelListingDeletionService {
 
 function deletionRequestHash(listingId: string): string {
   return createHash('sha256').update(`channel-listing-delete:${listingId}`).digest('hex');
-}
-
-function assertEvidence(evidence: ChannelListingDeletionEvidence): void {
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(evidence.vendorId.trim())) {
-    throw new BadRequestException('Verified provider account evidence is required.');
-  }
-  if (!EVIDENCE_SOURCES.has(evidence.source)) {
-    throw new BadRequestException('Verified provider evidence source is required.');
-  }
 }

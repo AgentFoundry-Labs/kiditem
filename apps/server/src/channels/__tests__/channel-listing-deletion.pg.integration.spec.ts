@@ -8,6 +8,7 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
+  OTHER_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
@@ -56,6 +57,31 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
     expect(left.operationId).toBe(right.operationId);
     expect(left).toMatchObject({ status: 'executing', providerOutcome: 'uncertain', expectedVendorId: 'A00012345' });
     await expect(prisma.channelListingDeletionOperation.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(1);
+  });
+
+  it('rejects idempotency hash drift and another actor before any extension claim', async () => {
+    const idempotencyKey = randomUUID();
+    const operation = await repository.authorizeDeletion({
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, idempotencyKey, requestHash: 'a'.repeat(64),
+    });
+    await expect(repository.authorizeDeletion({
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, idempotencyKey, requestHash: 'b'.repeat(64),
+    })).rejects.toThrow('different request');
+    await expect(repository.claimDeletionExecution({
+      organizationId: TEST_ORGANIZATION_ID, userId: OTHER_USER_ID, listingId, operationId: operation.operationId,
+    })).rejects.toThrow('another actor');
+  });
+
+  it('issues a one-time expiring pre-mutation claim without treating it as provider proof', async () => {
+    const operation = await startOperation();
+    const claim = await repository.claimDeletionExecution({
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, operationId: operation.operationId,
+    });
+    expect(claim).toMatchObject({ operationId: operation.operationId, externalId: '16311428128', expectedVendorId: 'A00012345' });
+    await expect(repository.claimDeletionExecution({
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, operationId: operation.operationId,
+    })).rejects.toThrow('unavailable or expired');
+    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } })).resolves.toMatchObject({ isActive: true });
   });
 
   it('completion deactivates once and replays the same durable success', async () => {
