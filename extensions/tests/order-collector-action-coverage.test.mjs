@@ -19,7 +19,7 @@ const coupangPoSessionPath = path.join(
   repoRoot,
   'extensions/order-collector/background/coupang-po-session.js',
 );
-const webAppRoot = path.join(repoRoot, 'apps/web/src/app');
+const webSourceRoot = path.join(repoRoot, 'apps/web/src');
 const automaticCollectors = [
   'collectSellpiaDeliTracking',
   'collectIcecreamMallOrders',
@@ -168,7 +168,7 @@ test('Coupang shipment date summary scans its bounded range in concurrent batche
 test('every web automatic order message carries its local runId explicitly', () => {
   const automaticActionSet = new Set(automaticCollectors);
   const messages = [];
-  for (const file of sourceFilesUnder(webAppRoot)) {
+  for (const file of sourceFilesUnder(webSourceRoot)) {
     if (/\.(spec|test)\.(ts|tsx)$/.test(file)) continue;
     const source = readFileSync(file, 'utf8');
     for (const match of source.matchAll(/action:\s*['"]([^'"]+)['"]/g)) {
@@ -182,7 +182,7 @@ test('every web automatic order message carries its local runId explicitly', () 
   for (const message of messages) {
     assert.match(
       message.objectTail,
-      /runId\s*:/,
+      /(?:^|,)\s*runId\s*(?::|[,}])/,
       `${message.action} in ${path.relative(repoRoot, message.file)}`,
     );
     if (runDateActions.has(message.action)) {

@@ -327,20 +327,28 @@ describe('SellpiaProductSalesService.getSummary', () => {
     });
   });
 
-  it('재고 상품코드가 `{상품코드}-{옵션번호}` 결합형이면 결합 키로 현재고를 조인한다', async () => {
-    const { prisma, findMany, inventoryFindMany } = makePrisma();
+  it('판매·재고 상품코드가 `{상품코드}-{옵션번호}` 결합형이면 exact 키로 현재고를 조인한다', async () => {
+    const {
+      service,
+      findMany,
+      inventoryFindMany,
+      inventoryAvailability,
+    } = makePrisma();
     findMany.mockResolvedValueOnce([
-      { ...row({ productCode: '9734', optionCode: '1', yearMonth: '2026-06', orderQty: 10 }), barcode: 'NO-MATCH' },
+      { ...row({ productCode: '9734-1', optionCode: '1', yearMonth: '2026-06', orderQty: 10 }), barcode: 'NO-MATCH' },
     ]);
-    // Sellpia 재고 엑셀 상품코드 = 9734-1 (product_code-option_code 결합). 단독 9734/1 은 없음.
-    inventoryFindMany.mockResolvedValueOnce([
-      { code: '9734-1', barcode: null, currentStock: 42, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } },
-    ]);
+    // 판매·재고 엑셀 상품코드 = 9734-1 (product_code-option_code 결합).
+    const inventoryRows = [inventoryRow(1, '9734-1', 42, null)];
+    inventoryFindMany.mockResolvedValueOnce(inventoryRows);
+    inventoryAvailability.mockResolvedValueOnce(collectedInventory(inventoryRows));
 
-    const out = await new SellpiaProductSalesService(prisma as never).getSummary(ORGANIZATION_ID);
+    const out = await service.getSummary(ORGANIZATION_ID);
 
-    // 결합 키 매칭 전에는 product_code 단독 매칭 실패 → 0(품절)이었다.
-    expect(out.products[0].currentStock).toBe(42);
+    // 결합형 코드를 exact 상품코드로 매칭해 공통 현재고를 읽는다.
+    expect(out.products[0].inventoryResolution).toMatchObject({
+      status: 'matched',
+      currentStock: 42,
+    });
   });
 });
 
