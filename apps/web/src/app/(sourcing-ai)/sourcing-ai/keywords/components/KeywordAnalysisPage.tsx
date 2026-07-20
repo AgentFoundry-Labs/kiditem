@@ -34,10 +34,12 @@ import {
   boardKeys,
   filterLabel,
   matchesFocusMode,
+  projectVisibleBoard,
   timeUnitLabel,
   toSearchTrendAges,
   type BoardFilterKey,
   type FocusMode,
+  type VisibleBoard,
 } from './keyword-analysis-helpers';
 import {
   runTrendKeywordAgent,
@@ -146,19 +148,12 @@ export function KeywordAnalysisPage() {
     () => new Set(excludedKeywords.map(normalizeExclude)),
     [excludedKeywords],
   );
-  const visibleBoards = useMemo(() => {
+  const visibleBoards = useMemo<VisibleBoard[]>(() => {
     const rankCap = Number(rankLimit);
     return boards
       .filter((board) => selectedBoardKey === 'all' || board.key === selectedBoardKey)
       .filter((board) => matchesFocusMode(board.key, focusMode))
-      .map((board) => ({
-        ...board,
-        // 제외 키워드를 걸러낸 뒤 상위 rankCap 개만 남기고 순번을 다시 매긴다.
-        ranks: board.ranks
-          .filter((rank) => !excludeSet.has(normalizeExclude(rank.keyword)))
-          .slice(0, rankCap)
-          .map((rank, index) => ({ ...rank, rank: index + 1 })),
-      }));
+      .map((board) => projectVisibleBoard(board, rankCap, excludeSet));
   }, [boards, focusMode, rankLimit, selectedBoardKey, excludeSet]);
   const rows = useMemo(() => visibleBoards.flatMap((board) => board.ranks.map((rank) => ({ board, rank }))), [visibleBoards]);
   const interestKeywordTargets = useMemo(() => (
@@ -190,13 +185,21 @@ export function KeywordAnalysisPage() {
   const addExcludedKeyword = (raw: string) => {
     const keyword = raw.trim();
     if (!keyword) return;
-    setExcludedKeywords((prev) =>
-      prev.some((item) => normalizeExclude(item) === normalizeExclude(keyword)) ? prev : [...prev, keyword],
-    );
+    let nextCount: number | null = null;
+    setExcludedKeywords((prev) => {
+      if (prev.some((item) => normalizeExclude(item) === normalizeExclude(keyword))) return prev;
+      const next = [...prev, keyword];
+      nextCount = new Set(next.map(normalizeExclude)).size;
+      return next;
+    });
     setExcludeInput('');
+    // 제외 자리를 다음 순위로 다시 채우려면 여유분을 더 받아와야 한다.
+    if (nextCount != null && boards.length > 0) void loadPopularKeywords({ excludeCount: nextCount });
   };
   const removeExcludedKeyword = (keyword: string) => {
-    setExcludedKeywords((prev) => prev.filter((item) => item !== keyword));
+    const next = excludedKeywords.filter((item) => item !== keyword);
+    setExcludedKeywords(next);
+    if (boards.length > 0) void loadPopularKeywords({ excludeCount: new Set(next.map(normalizeExclude)).size });
   };
 
   const loadPopularKeywords = async (overrides: Partial<{
@@ -205,6 +208,7 @@ export function KeywordAnalysisPage() {
     age: string;
     device: 'all' | NaverDatalabDevice;
     rankLimit: string;
+    excludeCount: number;
   }> = {}) => {
     const requestId = popularRequestIdRef.current + 1;
     popularRequestIdRef.current = requestId;
@@ -213,6 +217,9 @@ export function KeywordAnalysisPage() {
     const nextAge = overrides.age ?? age;
     const nextDevice = overrides.device ?? device;
     const nextRankLimit = overrides.rankLimit ?? rankLimit;
+    // 제외 키워드가 상위권에서 빠지면 그 자리를 다음 순위로 채워야 하므로, 표시 개수에
+    // 제외 개수만큼 여유분을 더 받아온다. (setState 는 비동기라 호출 측이 새 개수를 넘긴다.)
+    const nextExcludeCount = overrides.excludeCount ?? excludeSet.size;
 
     setLoadingPopular(true);
     setNotice(null);
@@ -223,7 +230,7 @@ export function KeywordAnalysisPage() {
         gender: nextGender === 'all' ? undefined : nextGender,
         device: nextDevice === 'all' ? undefined : nextDevice,
         ages: nextAge === 'all' ? undefined : [nextAge],
-        limit: Number(nextRankLimit),
+        limit: Number(nextRankLimit) + nextExcludeCount,
       });
       if (popularRequestIdRef.current !== requestId) return;
       setBoards(response.boards);

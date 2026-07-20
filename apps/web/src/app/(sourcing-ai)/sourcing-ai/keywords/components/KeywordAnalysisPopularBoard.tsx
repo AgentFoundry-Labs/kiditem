@@ -1,6 +1,4 @@
-import type {
-  NaverDatalabPopularKeywordBoard,
-} from '../../recommendations/lib/naver-keyword-api';
+import type { VisibleBoard } from './keyword-analysis-helpers';
 
 export function PopularKeywordCard({
   board,
@@ -9,7 +7,7 @@ export function PopularKeywordCard({
   onTrackKeyword,
   onUseKeyword,
 }: {
-  board: NaverDatalabPopularKeywordBoard;
+  board: VisibleBoard;
   disabled: boolean;
   isInterestKeyword: (keyword: string) => boolean;
   onTrackKeyword: (keyword: string, metrics?: Record<string, number | string | null>) => void;
@@ -23,10 +21,15 @@ export function PopularKeywordCard({
             <h3 className="text-sm font-black">{board.label}</h3>
             <p className="mt-1 truncate text-[11px] font-bold text-[var(--text-tertiary)]">{board.categoryPath}</p>
           </div>
-          <span className="rounded-md bg-[#fff4ef] px-2 py-1 text-[11px] font-black text-[#e14b16]">
-            TOP {board.ranks.length}
+          <span className="shrink-0 rounded-md bg-[#fff4ef] px-2 py-1 text-[11px] font-black text-[#e14b16]">
+            {board.sourceExhausted ? `키워드 ${board.ranks.length}개` : `TOP ${board.ranks.length}`}
           </span>
         </div>
+        {board.sourceExhausted && board.ranks.length > 0 && (
+          <p className="mt-1.5 inline-flex items-center rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700">
+            원천 부족 · 요청 {board.requestedLimit}개 중 {board.ranks.length}개
+          </p>
+        )}
         <p className="mt-2 truncate text-[11px] font-bold text-[var(--text-secondary)]">
           {board.range || board.datetime || board.date || '최근 집계'}
         </p>

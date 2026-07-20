@@ -10,6 +10,36 @@ import { rankedKeywordPoolBoardKeys } from '../../lib/ranked-keyword-pool';
 
 export const boardKeys: NaverDatalabPopularKeywordBoardKey[] = [...rankedKeywordPoolBoardKeys];
 
+// 제외/표시 개수 필터를 적용한 화면용 보드. sourceExhausted 는 제외 후 남은 후보가
+// 요청한 표시 개수(requestedLimit)보다 적어서 다 채우지 못한 상태를 뜻한다.
+export interface VisibleBoard extends NaverDatalabPopularKeywordBoard {
+  requestedLimit: number;
+  sourceExhausted: boolean;
+}
+
+export function normalizeExcludeKeyword(value: string): string {
+  return value.replace(/\s+/g, '').toLowerCase();
+}
+
+/**
+ * 제외 키워드를 먼저 걸러낸 뒤(상위에서 빠진 자리를 다음 순위가 채운다) 상위 rankCap
+ * 개만 남기고 순번을 1..N 으로 다시 매긴다. 원천(제외 후 남은 후보)이 요청 개수보다
+ * 적으면 조용히 줄이지 않고 sourceExhausted 로 표시한다.
+ */
+export function projectVisibleBoard(
+  board: NaverDatalabPopularKeywordBoard,
+  rankCap: number,
+  excludeSet: ReadonlySet<string>,
+): VisibleBoard {
+  const available = board.ranks.filter((rank) => !excludeSet.has(normalizeExcludeKeyword(rank.keyword)));
+  return {
+    ...board,
+    ranks: available.slice(0, rankCap).map((rank, index) => ({ ...rank, rank: index + 1 })),
+    requestedLimit: rankCap,
+    sourceExhausted: board.error == null && available.length < rankCap,
+  };
+}
+
 export const timeUnitOptions: Array<{ value: NaverDatalabTimeUnit; label: string }> = [
   { value: 'date', label: '일간' },
   { value: 'week', label: '주간' },
