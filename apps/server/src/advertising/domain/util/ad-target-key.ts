@@ -8,9 +8,9 @@
 // so `targetKey` MUST be non-null and stable across replays.
 //
 // Patterns (single source of truth):
-//   campaign:<campaignId || campaignName>
-//   keyword:<campaignId || campaignName>:<adGroup>:<keyword>
-//   product:<externalOptionId || externalId || listingId>
+//   account:<channelAccountId>:campaign:<campaignId || campaignIdentity || campaignName>
+//   account:<channelAccountId>:keyword:<campaign-anchor>:<adGroup>:<keyword>
+//   account:<channelAccountId>:product:<campaign-anchor>:<product-anchor>
 //
 // Throws when no usable identifier is present so we never store
 // `unknown:unknown` rows. Two distinct payloads with different identifiers
@@ -19,8 +19,10 @@
 export type AdTargetType = 'campaign' | 'keyword' | 'product';
 
 interface BuildAdTargetKeyInput {
+  channelAccountId: string;
   targetType: AdTargetType;
   campaignId?: string | null;
+  campaignIdentity?: string | null;
   campaignName?: string | null;
   adGroup?: string | null;
   keyword?: string | null;
@@ -47,15 +49,21 @@ function trimOrNull(value: string | null | undefined): string | null {
  * `keyword` AND no campaign identity is rejected.
  */
 export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
+  const channelAccountId = trimOrNull(input.channelAccountId);
+  if (!channelAccountId) {
+    throw new Error('buildAdTargetKey: channelAccountId is required');
+  }
   const campaignId = trimOrNull(input.campaignId);
+  const campaignIdentity = trimOrNull(input.campaignIdentity);
   const campaignName = trimOrNull(input.campaignName);
   const adGroup = trimOrNull(input.adGroup);
   const keyword = trimOrNull(input.keyword);
   const externalOptionId = trimOrNull(input.externalOptionId);
   const externalId = trimOrNull(input.externalId);
   const listingId = trimOrNull(input.listingId);
-  const campaignAnchor = campaignId ?? campaignName;
+  const campaignAnchor = campaignId ?? campaignIdentity ?? campaignName;
   const productAnchor = externalOptionId ?? externalId ?? listingId;
+  const prefix = `account:${channelAccountId}`;
 
   switch (input.targetType) {
     case 'campaign': {
@@ -64,7 +72,7 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
           'buildAdTargetKey: campaign target requires campaignId or campaignName',
         );
       }
-      return `campaign:${campaignAnchor}`;
+      return `${prefix}:campaign:${campaignAnchor}`;
     }
     case 'keyword': {
       if (!campaignAnchor || !keyword) {
@@ -72,7 +80,7 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
           'buildAdTargetKey: keyword target requires (campaignId|campaignName) and keyword',
         );
       }
-      return `keyword:${campaignAnchor}:${adGroup ?? ''}:${keyword}`;
+      return `${prefix}:keyword:${campaignAnchor}:${adGroup ?? ''}:${keyword}`;
     }
     case 'product': {
       if (!productAnchor) {
@@ -80,7 +88,9 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
           'buildAdTargetKey: product target requires externalOptionId, externalId, or listingId',
         );
       }
-      return `product:${productAnchor}`;
+      return campaignAnchor
+        ? `${prefix}:product:${campaignAnchor}:${productAnchor}`
+        : `${prefix}:product:${productAnchor}`;
     }
     default: {
       // Defensive — TS already narrows targetType, but raw payloads may slip in.

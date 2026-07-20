@@ -140,6 +140,7 @@ export type MockChannelScrapeRepo = {
 export function buildMockChannelScrapeRepo(): MockChannelScrapeRepo {
   return {
     createRun: vi.fn(),
+    updateRunMeta: vi.fn(),
     appendSnapshot: vi.fn(),
     finalizeRun: vi.fn(),
     finalizeRunOnError: vi.fn(),
@@ -175,6 +176,7 @@ export type MockChannelTargetDailyRepo = {
 export function buildMockChannelTargetDailyRepo(): MockChannelTargetDailyRepo {
   return {
     upsert: vi.fn(),
+    replaceCampaignDay: vi.fn(),
   };
 }
 

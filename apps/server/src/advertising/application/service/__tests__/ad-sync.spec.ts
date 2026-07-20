@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from "@nestjs/common";
 import { AdSyncService, type ListingMap } from "../ad-sync.service";
 import type { AdListingRepositoryPort } from "../../port/out/repository/ad-listing.repository.port";
 import type { ScrapeTargetRepositoryPort } from "../../port/out/repository/scrape-target.repository.port";
@@ -110,6 +114,58 @@ describe("AdSyncService", () => {
       expect.any(Function),
     );
   });
+
+  it.each([
+    ['invalid_authoritative_shape', UnprocessableEntityException, 422],
+    ['invalid_date_range', UnprocessableEntityException, 422],
+    ['legacy_account_ambiguous', ConflictException, 409],
+    ['dependent_action_conflict', ConflictException, 409],
+  ] as const)(
+    'maps committed projection rejection %s outside the ingest transaction',
+    async (projectionRejectionCode, ErrorType, status) => {
+      const map: ListingMap = {
+        channelAccountId: 'account-1',
+        externalOptionIdMap: new Map(),
+        externalIdMap: new Map(),
+      };
+      listingRepo.buildAdSyncListingMap.mockResolvedValue(map);
+      let transactionFinished = false;
+      const handler = {
+        execute: vi.fn(async () => ({
+          success: false,
+          scrapeRunId: 'run-1',
+          projectionRejectionCode,
+        })),
+      };
+      ingestTransaction.runIdempotent.mockImplementation(async (_input, operation) => {
+        const value = await operation();
+        transactionFinished = true;
+        return { value, replayed: false };
+      });
+      service = new AdSyncService(
+        listingRepo as unknown as AdListingRepositoryPort,
+        scrapeTargetRepo as unknown as ScrapeTargetRepositoryPort,
+        scrapeRepo as unknown as ChannelScrapeRepositoryPort,
+        handler as unknown as AdCampaignIngestHandler,
+        {} as RawScrapeIngestHandler,
+        {} as TrafficIngestHandler,
+        {} as CoupangAdsDailyIngestHandler,
+        {} as KeywordRankIngestHandler,
+        {} as WingSalesRankIngestHandler,
+        ingestTransaction as unknown as AdIngestTransactionPort,
+      );
+
+      const promise = service.sync({
+        type: 'ad_campaign',
+        idempotencyKey:
+          'authoritative-rebuild:12345:550e8400-e29b-41d4-a716-446655440000',
+      }, 'organization-1');
+
+      await expect(promise).rejects.toBeInstanceOf(ErrorType);
+      expect(transactionFinished).toBe(true);
+      await expect(promise).rejects.toMatchObject({ status });
+    },
+  );
 
   describe("buildListingMap", () => {
     it("delegates to AdListingRepositoryPort.buildAdSyncListingMap and returns the map verbatim", async () => {

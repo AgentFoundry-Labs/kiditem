@@ -98,6 +98,11 @@ export interface ExtensionStatusSnapshot {
 export interface ChannelScrapeRepositoryPort {
   // Lifecycle writes
   createRun(input: ScrapeRunInput): Promise<{ id: string }>;
+  updateRunMeta(input: {
+    scrapeRunId: string;
+    organizationId: string;
+    metaJson: Record<string, unknown>;
+  }): Promise<void>;
   appendSnapshot(input: ScrapeSnapshotInput): Promise<{ id: string }>;
   finalizeRun(input: ScrapeRunFinalize): Promise<void>;
   /** Best-effort error finalize; swallows secondary finalize errors. */

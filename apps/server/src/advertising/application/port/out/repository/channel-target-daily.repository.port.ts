@@ -49,6 +49,32 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
   metaJson?: MetaJsonInput;
 }
 
+export interface ReplaceAdCampaignDayInput {
+  organizationId: string;
+  channelAccountId: string;
+  channel: string;
+  businessDate: Date;
+  campaignId?: string | null;
+  campaignIdentity?: string | null;
+  campaignName: string;
+  targets: UpsertAdTargetDailyInput[];
+}
+
+export type ReplaceAdCampaignDayResult =
+  | {
+      kind: 'replaced';
+      upsertedCount: number;
+      deletedCount: number;
+      mergedCount: number;
+    }
+  | {
+      kind: 'rejected';
+      code: 'legacy_account_ambiguous' | 'dependent_action_conflict';
+    };
+
 export interface ChannelTargetDailyRepositoryPort {
   upsert(input: UpsertAdTargetDailyInput): Promise<{ id: string }>;
+  replaceCampaignDay(
+    input: ReplaceAdCampaignDayInput,
+  ): Promise<ReplaceAdCampaignDayResult>;
 }
