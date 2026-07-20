@@ -13,6 +13,7 @@ import { assertLocalDevelopmentDatabase } from './bootstrap-authoritative-invent
 const SCHEMA_VERSION = 'kiditem.authoritative-inventory-rebuild.v2';
 const REBUILD_STATUS_KEY = 'inventory.rebuild.status';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const POSTGRES_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const PRIVATE_REPLAY_KEY_PATTERN = /(?:auth(?:orization)?|password|passcode|secret|token|credential|cookie|session|e-?mail|phone|address|street|postal|zip|buyer|customer|receiver|recipient|memo|note|review|(?:^|[_-])(?:name|full.?name|first.?name|last.?name|home)(?:[_-]|$)|이름|성명|배송|주소|연락처|전화|이메일|수령|구매자|고객|메모|요청사항)/i;
 const EMAIL_VALUE_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
@@ -89,6 +90,8 @@ const NUMBERISH_ROW_KEYS = new Set([
 ]);
 const COMMANDS = new Set([
   'guard',
+  'export-staging-accounts',
+  'restore-staging-accounts',
   'preflight-bootstrap',
   'export-coupang',
   'bootstrap',
@@ -141,6 +144,52 @@ export type BootstrapPreflightManifest = {
   channelAccountIds: string[];
   planSha256: string;
   sourceManifestSha256: string;
+};
+
+export type StagingAccountBaseline = {
+  organizations: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    isActive: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  users: Array<{
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    type: 'human';
+    team: string | null;
+    avatarUrl: string | null;
+    isActive: boolean;
+    lastLoginAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  memberships: Array<{
+    id: string;
+    organizationId: string;
+    userId: string;
+    role: string;
+    status: string;
+    invitedById: string | null;
+    joinedAt: string;
+    lastSelectedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+};
+
+export type StagingAccountBaselineManifest = {
+  schemaVersion: 'kiditem.staging-account-baseline.v1';
+  target: 'staging';
+  originRunId: string;
+  deployedSha: string;
+  exportedAt: string;
+  baseline: StagingAccountBaseline;
+  payloadSha256: string;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -499,6 +548,165 @@ export function buildSharedBootstrapPlan(input: SharedBootstrapInput) {
     },
     channelAccounts,
   };
+}
+
+function assertIsoTimestamp(value: string, label: string): void {
+  if (!value || new Date(value).toISOString() !== value) {
+    throw new Error(`${label} must be an ISO timestamp`);
+  }
+}
+
+function assertUnique(values: string[], label: string): void {
+  if (new Set(values).size !== values.length) {
+    throw new Error(`Staging account baseline contains duplicate ${label}`);
+  }
+}
+
+function assertPostgresUuid(value: string, label: string): void {
+  if (!POSTGRES_UUID_PATTERN.test(value)) {
+    throw new Error(`${label} must be a PostgreSQL UUID`);
+  }
+}
+
+function validateStagingAccountBaseline(baseline: StagingAccountBaseline): void {
+  if (
+    baseline.organizations.length === 0 ||
+    baseline.users.length === 0 ||
+    baseline.memberships.length === 0
+  ) {
+    throw new Error('Staging account baseline requires organizations, users, and memberships');
+  }
+
+  const organizationIds = new Set<string>();
+  for (const organization of baseline.organizations) {
+    assertPostgresUuid(organization.id, 'organization.id');
+    requireText(organization.name, 'organization.name');
+    requireText(organization.slug, 'organization.slug');
+    assertIsoTimestamp(organization.createdAt, 'organization.createdAt');
+    assertIsoTimestamp(organization.updatedAt, 'organization.updatedAt');
+    organizationIds.add(organization.id);
+  }
+  assertUnique(baseline.organizations.map(({ id }) => id), 'organization ID');
+  assertUnique(baseline.organizations.map(({ slug }) => slug), 'organization slug');
+
+  const userIds = new Set<string>();
+  for (const user of baseline.users) {
+    assertPostgresUuid(user.id, 'user.id');
+    requireText(user.email, 'user.email');
+    requireText(user.name, 'user.name');
+    requireText(user.role, 'user.role');
+    if (user.type !== 'human') {
+      throw new Error('Staging account baseline may preserve only human users');
+    }
+    assertIsoTimestamp(user.createdAt, 'user.createdAt');
+    assertIsoTimestamp(user.updatedAt, 'user.updatedAt');
+    if (user.lastLoginAt) assertIsoTimestamp(user.lastLoginAt, 'user.lastLoginAt');
+    userIds.add(user.id);
+  }
+  assertUnique(baseline.users.map(({ id }) => id), 'user ID');
+  assertUnique(baseline.users.map(({ email }) => email.toLowerCase()), 'user email');
+
+  for (const membership of baseline.memberships) {
+    assertPostgresUuid(membership.id, 'membership.id');
+    assertPostgresUuid(membership.organizationId, 'membership.organizationId');
+    assertPostgresUuid(membership.userId, 'membership.userId');
+    requireText(membership.role, 'membership.role');
+    requireText(membership.status, 'membership.status');
+    if (!organizationIds.has(membership.organizationId)) {
+      throw new Error('Staging account baseline membership references an absent organization');
+    }
+    if (!userIds.has(membership.userId)) {
+      throw new Error('Staging account baseline membership references an absent user');
+    }
+    if (membership.invitedById && !userIds.has(membership.invitedById)) {
+      throw new Error('Staging account baseline membership inviter references an absent user');
+    }
+    assertIsoTimestamp(membership.joinedAt, 'membership.joinedAt');
+    assertIsoTimestamp(membership.createdAt, 'membership.createdAt');
+    assertIsoTimestamp(membership.updatedAt, 'membership.updatedAt');
+    if (membership.lastSelectedAt) {
+      assertIsoTimestamp(membership.lastSelectedAt, 'membership.lastSelectedAt');
+    }
+  }
+  assertUnique(baseline.memberships.map(({ id }) => id), 'membership ID');
+  assertUnique(
+    baseline.memberships.map(({ organizationId, userId }) => `${organizationId}\0${userId}`),
+    'organization/user membership',
+  );
+}
+
+function sortStagingAccountBaseline(baseline: StagingAccountBaseline): StagingAccountBaseline {
+  return {
+    organizations: [...baseline.organizations].sort((a, b) => a.id.localeCompare(b.id)),
+    users: [...baseline.users].sort((a, b) => a.id.localeCompare(b.id)),
+    memberships: [...baseline.memberships].sort((a, b) => a.id.localeCompare(b.id)),
+  };
+}
+
+function stagingAccountPayload(input: Omit<StagingAccountBaselineManifest, 'schemaVersion' | 'payloadSha256'>) {
+  return {
+    target: input.target,
+    originRunId: input.originRunId,
+    deployedSha: input.deployedSha,
+    exportedAt: input.exportedAt,
+    baseline: input.baseline,
+  };
+}
+
+export function buildStagingAccountBaselineManifest(input: {
+  target: 'staging';
+  originRunId: string;
+  deployedSha: string;
+  exportedAt?: string;
+  baseline: StagingAccountBaseline;
+}): StagingAccountBaselineManifest {
+  if (input.target !== 'staging') {
+    throw new Error('Account-only rebuild baseline is staging-only');
+  }
+  assertPositiveIntegerText(input.originRunId, 'originRunId');
+  if (!GIT_SHA_PATTERN.test(input.deployedSha)) {
+    throw new Error('Staging account baseline deployed SHA must be immutable');
+  }
+  const exportedAt = input.exportedAt ?? new Date().toISOString();
+  assertIsoTimestamp(exportedAt, 'exportedAt');
+  const baseline = sortStagingAccountBaseline(input.baseline);
+  validateStagingAccountBaseline(baseline);
+  const payload = stagingAccountPayload({
+    target: input.target,
+    originRunId: input.originRunId,
+    deployedSha: input.deployedSha,
+    exportedAt,
+    baseline,
+  });
+  return {
+    schemaVersion: 'kiditem.staging-account-baseline.v1',
+    ...payload,
+    payloadSha256: sha256(stableStringify(payload)),
+  };
+}
+
+export function assertStagingAccountBaselineManifest(
+  manifest: StagingAccountBaselineManifest,
+  binding: { target: 'staging'; originRunId: string; deployedSha: string },
+): void {
+  if (
+    manifest.schemaVersion !== 'kiditem.staging-account-baseline.v1' ||
+    manifest.target !== binding.target ||
+    manifest.originRunId !== binding.originRunId ||
+    manifest.deployedSha !== binding.deployedSha
+  ) {
+    throw new Error('Staging account baseline binding does not match this reset run');
+  }
+  assertPositiveIntegerText(manifest.originRunId, 'originRunId');
+  if (!GIT_SHA_PATTERN.test(manifest.deployedSha)) {
+    throw new Error('Staging account baseline deployed SHA must be immutable');
+  }
+  assertIsoTimestamp(manifest.exportedAt, 'exportedAt');
+  validateStagingAccountBaseline(manifest.baseline);
+  const actualHash = sha256(stableStringify(stagingAccountPayload(manifest)));
+  if (manifest.payloadSha256 !== actualHash) {
+    throw new Error('Staging account baseline integrity check failed');
+  }
 }
 
 export function buildBootstrapPreflightManifest(input: {
@@ -1106,6 +1314,206 @@ async function createPrisma(): Promise<PrismaClient> {
   });
   await prisma.$connect();
   return prisma;
+}
+
+async function readStagingAccountBaseline(
+  prisma: RebuildPrisma,
+): Promise<StagingAccountBaseline> {
+  const unsupportedHumanUsers = await prisma.user.count({
+    where: {
+      type: 'human',
+      OR: [
+        { password: { not: null } },
+        { agentInstanceId: { not: null } },
+      ],
+    },
+  });
+  if (unsupportedHumanUsers > 0) {
+    throw new Error(
+      'Staging account export refuses human users with legacy passwords or agent identities',
+    );
+  }
+
+  const [organizations, users, memberships] = await Promise.all([
+    prisma.organization.findMany({
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { id: 'asc' },
+    }),
+    prisma.user.findMany({
+      where: { type: 'human' },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        type: true,
+        team: true,
+        avatarUrl: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { id: 'asc' },
+    }),
+    prisma.organizationMembership.findMany({
+      where: { user: { type: 'human' } },
+      select: {
+        id: true,
+        organizationId: true,
+        userId: true,
+        role: true,
+        status: true,
+        invitedById: true,
+        joinedAt: true,
+        lastSelectedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { id: 'asc' },
+    }),
+  ]);
+
+  return {
+    organizations: organizations.map((organization) => ({
+      ...organization,
+      createdAt: organization.createdAt.toISOString(),
+      updatedAt: organization.updatedAt.toISOString(),
+    })),
+    users: users.map((user) => ({
+      ...user,
+      type: 'human' as const,
+      lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+      createdAt: user.createdAt.toISOString(),
+      updatedAt: user.updatedAt.toISOString(),
+    })),
+    memberships: memberships.map((membership) => ({
+      ...membership,
+      joinedAt: membership.joinedAt.toISOString(),
+      lastSelectedAt: membership.lastSelectedAt?.toISOString() ?? null,
+      createdAt: membership.createdAt.toISOString(),
+      updatedAt: membership.updatedAt.toISOString(),
+    })),
+  };
+}
+
+async function exportStagingAccounts(cli: ParsedCli, target: RebuildTarget): Promise<void> {
+  if (target !== 'staging') {
+    throw new Error('Account-only baseline export is allowed only for staging');
+  }
+  const originRunId = cliValue(cli, 'origin-run-id', 'GITHUB_RUN_ID');
+  const deployedSha = cliValue(cli, 'deployed-sha', 'REBUILD_DEPLOYED_SHA');
+  const output = resolve(cliValue(cli, 'output', 'REBUILD_ACCOUNT_BASELINE_PATH'));
+  const prisma = await createPrisma();
+  try {
+    const manifest = buildStagingAccountBaselineManifest({
+      target,
+      originRunId,
+      deployedSha,
+      baseline: await readStagingAccountBaseline(prisma),
+    });
+    await mkdir(dirname(output), { recursive: true });
+    await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+    await chmod(output, 0o600);
+    console.log(JSON.stringify({
+      output,
+      organizations: manifest.baseline.organizations.length,
+      users: manifest.baseline.users.length,
+      memberships: manifest.baseline.memberships.length,
+      payloadSha256: manifest.payloadSha256,
+    }));
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+function requiredDate(value: string): Date {
+  assertIsoTimestamp(value, 'restored timestamp');
+  return new Date(value);
+}
+
+function optionalDate(value: string | null): Date | null {
+  return value === null ? null : requiredDate(value);
+}
+
+async function restoreStagingAccounts(cli: ParsedCli, target: RebuildTarget): Promise<void> {
+  if (target !== 'staging') {
+    throw new Error('Account-only baseline restore is allowed only for staging');
+  }
+  const originRunId = cliValue(cli, 'origin-run-id', 'GITHUB_RUN_ID');
+  const deployedSha = cliValue(cli, 'deployed-sha', 'REBUILD_DEPLOYED_SHA');
+  const input = resolve(cliValue(cli, 'input', 'REBUILD_ACCOUNT_BASELINE_PATH'));
+  const manifest = JSON.parse(
+    await readFile(input, 'utf8'),
+  ) as StagingAccountBaselineManifest;
+  assertStagingAccountBaselineManifest(manifest, { target, originRunId, deployedSha });
+
+  const prisma = await createPrisma();
+  try {
+    await prisma.$transaction(async (tx) => {
+      const [organizations, users, memberships, channelAccounts] = await Promise.all([
+        tx.organization.count(),
+        tx.user.count(),
+        tx.organizationMembership.count(),
+        tx.channelAccount.count(),
+      ]);
+      if (organizations || users || memberships || channelAccounts) {
+        throw new Error('Staging account restore requires empty account and channel tables');
+      }
+
+      await tx.organization.createMany({
+        data: manifest.baseline.organizations.map((organization) => ({
+          ...organization,
+          createdAt: requiredDate(organization.createdAt),
+          updatedAt: requiredDate(organization.updatedAt),
+        })),
+      });
+      await tx.user.createMany({
+        data: manifest.baseline.users.map((user) => ({
+          ...user,
+          lastLoginAt: optionalDate(user.lastLoginAt),
+          createdAt: requiredDate(user.createdAt),
+          updatedAt: requiredDate(user.updatedAt),
+        })),
+      });
+      await tx.organizationMembership.createMany({
+        data: manifest.baseline.memberships.map((membership) => ({
+          ...membership,
+          joinedAt: requiredDate(membership.joinedAt),
+          lastSelectedAt: optionalDate(membership.lastSelectedAt),
+          createdAt: requiredDate(membership.createdAt),
+          updatedAt: requiredDate(membership.updatedAt),
+        })),
+      });
+    });
+
+    const [restored, channelAccounts] = await Promise.all([
+      readStagingAccountBaseline(prisma),
+      prisma.channelAccount.count(),
+    ]);
+    if (stableStringify(restored) !== stableStringify(manifest.baseline)) {
+      throw new Error('Restored staging account baseline does not match the exported rows');
+    }
+    if (channelAccounts !== 0) {
+      throw new Error('Staging account restore must not recreate ChannelAccount rows');
+    }
+    console.log(JSON.stringify({
+      restored: true,
+      organizations: restored.organizations.length,
+      users: restored.users.length,
+      memberships: restored.memberships.length,
+      channelAccounts,
+    }));
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
 async function exportCoupang(cli: ParsedCli, target: RebuildTarget): Promise<void> {
@@ -2100,7 +2508,7 @@ async function main(): Promise<void> {
   const target = guardFromCli(cli);
   switch (cli.command) {
     case 'guard': {
-      if (target === 'local') {
+      if (target === 'local' || target === 'staging') {
         console.log(JSON.stringify({ target, guard: 'passed' }));
         return;
       }
@@ -2138,6 +2546,12 @@ async function main(): Promise<void> {
       }
       return;
     }
+    case 'export-staging-accounts':
+      await exportStagingAccounts(cli, target);
+      return;
+    case 'restore-staging-accounts':
+      await restoreStagingAccounts(cli, target);
+      return;
     case 'preflight-bootstrap':
       await preflightBootstrap(cli, target);
       return;

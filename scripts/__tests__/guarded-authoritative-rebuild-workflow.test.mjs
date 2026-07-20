@@ -7,14 +7,6 @@ const repoRoot = process.cwd();
 
 const environments = [
   {
-    name: 'staging',
-    workflow: '.github/workflows/staging-deploy.yml',
-    runbook: 'docs/runbooks/staging-deploy.md',
-    resetToken: 'RESET_STAGING_DATA',
-    deployStep: 'Deploy images on EC2',
-    deployJob: 'Deploy to staging',
-  },
-  {
     name: 'production',
     workflow: '.github/workflows/production-deploy.yml',
     runbook: 'docs/runbooks/production-deploy.md',
@@ -29,6 +21,54 @@ function source(relativePath) {
 }
 
 describe('guarded authoritative database rebuild workflows', () => {
+  it('staging preserves only organizations, users, and memberships before a fresh reset', () => {
+    const workflow = source('.github/workflows/staging-deploy.yml');
+    const exportPosition = workflow.indexOf('Export staging account baseline');
+    const quiescePosition = workflow.indexOf('Quiesce staging application traffic');
+    const resetPosition = workflow.indexOf('Rebuild staging database from final schema');
+    const restorePosition = workflow.indexOf('Restore staging account baseline');
+    const deployPosition = workflow.indexOf('Deploy images on EC2');
+
+    assert.ok(exportPosition >= 0, 'missing staging account-baseline export');
+    assert.ok(quiescePosition < exportPosition, 'traffic must stop before the account baseline is sealed');
+    assert.ok(exportPosition < resetPosition, 'account baseline must be sealed before the reset boundary');
+    assert.ok(resetPosition < restorePosition, 'account baseline must be restored after final schema creation');
+    assert.ok(restorePosition < deployPosition, 'the app must start only after account restoration');
+    assert.match(workflow, /inventory:rebuild -- export-staging-accounts/);
+    assert.match(workflow, /inventory:rebuild -- restore-staging-accounts/);
+    assert.match(workflow, /staging-account-baseline\.json/);
+    assert.match(workflow, /environment: staging\b/);
+    assert.match(workflow, /EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA\b/);
+    assert.match(workflow, /DATABASE_URL_SHA256/);
+    assert.match(workflow, /EXPECTED_DATABASE_NAME/);
+    assert.match(workflow, /baseline-export/);
+    assert.match(workflow, /baseline-restore/);
+    assert.match(workflow, /retention-days: 1/);
+
+    for (const forbidden of [
+      'finalize-rebuild',
+      'STAGING_REBUILD_COUPANG_ACCOUNT_ID',
+      'STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID',
+      'STAGING_REBUILD_SELLPIA_FILE_SHA256',
+      'STAGING_REBUILD_WING_FILE_SHA256',
+      'inventory:rebuild -- preflight-bootstrap',
+      'inventory:rebuild -- export-coupang',
+      'inventory:rebuild -- replay-coupang',
+      'inventory:rebuild -- verify-ready',
+    ]) {
+      assert.doesNotMatch(workflow, new RegExp(forbidden));
+    }
+  });
+
+  it('staging documents that channel accounts and source files are configured after deploy', () => {
+    const runbook = source('docs/runbooks/staging-deploy.md');
+
+    assert.match(runbook, /Organization.*User.*OrganizationMembership/s);
+    assert.match(runbook, /ChannelAccount.*after.*deploy/is);
+    assert.match(runbook, /Sellpia.*WING.*after.*deploy/is);
+    assert.doesNotMatch(runbook, /export the selected Coupang account/i);
+  });
+
   for (const environment of environments) {
     it(`${environment.name} binds both rebuild phases to its GitHub Environment and exact reset token`, () => {
       const workflow = source(environment.workflow);
@@ -151,7 +191,7 @@ describe('guarded authoritative database rebuild workflows', () => {
     const architecture = source('docs/runbooks/deployment-architecture.md');
     const environmentVariables = source('docs/runbooks/environment-variables.md');
     const quiescePosition = architecture.indexOf('quiesce every API');
-    const exportPosition = architecture.indexOf('sanitized Coupang run/snapshot/daily-fact export');
+    const exportPosition = architecture.indexOf('export Organization + human User + OrganizationMembership rows');
     const artifactPosition = architecture.indexOf('private workflow artifact');
     const resetPosition = architecture.indexOf('Prisma final schema with --force-reset');
 
@@ -160,8 +200,7 @@ describe('guarded authoritative database rebuild workflows', () => {
     assert.match(architecture, /before\s+the reset boundary[\s\S]*resume the previous runtime/i);
     assert.match(architecture, /at or after\s+the\s+reset boundary[\s\S]*must not resume/i);
 
-    for (const prefix of ['STAGING', 'PRODUCTION']) {
-      for (const name of [
+    for (const name of [
         'REBUILD_EXPECTED_DATABASE_HOST',
         'REBUILD_EXPECTED_SUPABASE_PROJECT_REF',
         'REBUILD_ORGANIZATION_ID',
@@ -173,10 +212,13 @@ describe('guarded authoritative database rebuild workflows', () => {
         'REBUILD_SELLPIA_ROW_COUNT',
         'REBUILD_WING_FILE_SHA256',
         'REBUILD_WING_ROW_COUNT',
-      ]) {
-        assert.match(environmentVariables, new RegExp(`${prefix}_${name}`));
-      }
+    ]) {
+      assert.match(environmentVariables, new RegExp(`PRODUCTION_${name}`));
     }
+    assert.match(environmentVariables, /STAGING_DATABASE_URL_SHA256/);
+    assert.match(environmentVariables, /STAGING_DATABASE_NAME/);
+    assert.doesNotMatch(environmentVariables, /STAGING_REBUILD_COUPANG_ACCOUNT_ID/);
+    assert.doesNotMatch(environmentVariables, /STAGING_REBUILD_SELLPIA_FILE_SHA256/);
   });
 
   it('describes retired Sellpia preflight helpers as manual diagnostics, not workflow steps', () => {

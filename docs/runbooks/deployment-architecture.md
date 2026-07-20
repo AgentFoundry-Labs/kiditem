@@ -54,27 +54,25 @@ the image build fails if that runtime asset cannot be resolved.
 
 ## Guarded Authoritative Rebuild
 
-The open `0.1.24` train is a reconstruction boundary, not an expand/contract
-migration. Staging and production use the same fail-closed sequence:
+Staging uses a fresh-data reset. Production retains the selective replay flow;
+the two environments intentionally do not share data-preservation requirements.
 
 ```text
-full expected Git SHA + dispatch correlation UUID
-  -> approved database URL SHA-256 + URL/live database-name checks
-  -> exact RESET_<ENVIRONMENT>_DATA input + matching GitHub Environment
-  -> read-only Organization/User/Membership/ChannelAccount + Supabase Auth preflight
+staging:
+  immutable Git SHA + correlation UUID + exact database URL hash/name + reset token
   -> quiesce every API, web, worker, and compose-nginx service
-  -> sanitized Coupang run/snapshot/daily-fact export + hash-bound migration-ledger baseline
+  -> export Organization + human User + OrganizationMembership rows
+  -> export migration-ledger bookkeeping
   -> private workflow artifact (one-day retention)
   -> Prisma final schema with --force-reset
-  -> restore succeeded ledger rows as subsumed_by_authoritative_rebuild
-  -> minimum organization/user/membership/channel-account baseline
-  -> seal approved Sellpia/Wing file hashes and row counts into rebuild status
-  -> deploy application with inventory.rebuild.status=snapshot_required
-  -> authenticated operator Sellpia import
-  -> authenticated operator Wing import
-  -> bind exact completed Sellpia/Wing import run IDs in that order
-  -> authenticated Coupang replay from the originating artifact
-  -> exact fact/count verification and state=ready
+  -> restore ledger bookkeeping and account rows only
+  -> assert zero ChannelAccount rows
+  -> deploy and verify /login=200 and unauthenticated /api/auth/me=401
+  -> configure actual channel accounts and import Sellpia/WING after deploy
+
+production:
+  protected account/source preflight -> quiesce -> selective Coupang export
+  -> final schema reset -> baseline bootstrap -> controlled import/replay finalization
 ```
 
 The destructive path is disabled unless the immutable dispatch SHA, correlation
@@ -84,25 +82,17 @@ the environment-specific expected token. A blank reset input keeps the normal
 non-destructive migration and `prisma db push` path. A wrong non-blank input
 fails before export or traffic changes.
 
-The private artifact is bound to the target, organization, and originating
-workflow run ID. It excludes bootstrap credentials, channel account config,
-PII-shaped fields, orders, reviews, and legacy mapping rows. Finalization must
-run in the same protected GitHub Environment, download that exact run's private
-artifact, and compare replay/import hashes, row counts, run IDs, ordering, and
-fact counts with the approved manifest-backed Environment variables. Missing
-imports, missing expected evidence, a mismatched run, or any difference leaves
-the environment snapshot-required before credential generation or replay.
+The staging artifact is bound to staging, the originating workflow run, full
+Git SHA, and a payload hash. It contains account-profile fields and is therefore
+private, but it excludes ChannelAccount, credentials/config, source workbooks,
+scrape payloads, orders, products, inventory, reviews, and legacy mappings. The
+ledger portion records only migration bookkeeping subsumed by the fresh schema;
+it does not recover legacy business data. Production's artifact and
+finalization rules remain defined by the production deploy runbook.
 
-The same artifact contains the account-preflight manifest and ordered migration
-registry/ledger manifest. Bootstrap consumes the exact preflight plan hash.
-After reset, the ledger must be empty and the registry/SHA/schema hash/run ID
-must still match before baseline rows are inserted with `affectedRows=0` and
-`disposition=subsumed_by_authoritative_rebuild`. Baseline restore never runs
-migration bodies.
-
-The artifact expires after one day. If authenticated Sellpia and Wing imports
-cannot be completed within that window, do not improvise a database copy or
-extend the artifact with credentials; start a new guarded rebuild run.
+The artifact expires after one day. Staging uses it only within the same deploy
+job, before application startup; post-deploy channel/source setup is independent
+of that artifact.
 
 Failure recovery is split by the destructive boundary. If a step fails before
 the reset boundary, the workflow cleanup step may resume the previous runtime
@@ -111,10 +101,9 @@ reset boundary, the workflow must not resume the previous runtime against the
 reset or partially bootstrapped database. Keep the target unavailable and
 fix-forward from the exact originating SHA and its private artifact. Do not
 blindly rerun the full destructive job after the source database has already
-been reset: the selective export can no longer be reproduced from that
-database. If the originating artifact or baseline cannot be used, stop and
-perform an explicitly approved database recovery before starting a new reset
-run.
+been reset: the account export can no longer be reproduced from that database.
+If the originating artifact cannot be used, stop and perform an explicitly
+approved database recovery before starting a new reset run.
 
 ## Blue-Green Switch
 

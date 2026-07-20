@@ -9,8 +9,10 @@ import {
   assertSharedDatabaseIdentity,
   assertSharedRebuildGuard,
   buildCoupangReplayBundle,
+  buildStagingAccountBaselineManifest,
   buildSharedBootstrapPlan,
   buildBootstrapPreflightManifest,
+  assertStagingAccountBaselineManifest,
   assertBootstrapPreflightManifest,
   computeReplayFactDigest,
   readReplayFactCounts,
@@ -20,6 +22,43 @@ import {
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const userId = '00000000-0000-4000-8000-000000000002';
 const coupangAccountId = '00000000-0000-4000-8000-000000000003';
+const membershipId = '00000000-0000-4000-8000-000000000004';
+
+const stagingAccountBaseline = {
+  organizations: [{
+    id: organizationId,
+    name: 'KidItem Staging',
+    slug: 'kiditem-staging',
+    isActive: true,
+    createdAt: '2026-07-01T00:00:00.000Z',
+    updatedAt: '2026-07-02T00:00:00.000Z',
+  }],
+  users: [{
+    id: userId,
+    email: 'operator@example.test',
+    name: 'Operator',
+    role: 'admin',
+    type: 'human',
+    team: null,
+    avatarUrl: null,
+    isActive: true,
+    lastLoginAt: null,
+    createdAt: '2026-07-01T00:00:00.000Z',
+    updatedAt: '2026-07-02T00:00:00.000Z',
+  }],
+  memberships: [{
+    id: membershipId,
+    organizationId,
+    userId,
+    role: 'admin',
+    status: 'active',
+    invitedById: null,
+    joinedAt: '2026-07-01T00:00:00.000Z',
+    lastSelectedAt: null,
+    createdAt: '2026-07-01T00:00:00.000Z',
+    updatedAt: '2026-07-02T00:00:00.000Z',
+  }],
+};
 
 describe('authoritative inventory shared rebuild guard', () => {
   it('requires GitHub Actions, the selected environment, and the exact environment token', () => {
@@ -313,6 +352,88 @@ describe('authoritative inventory shared rebuild baseline', () => {
         wingRowCount: 20,
       },
     })).toThrow(/preflight/i);
+  });
+});
+
+describe('staging account-only reset baseline', () => {
+  it('binds organizations, users, and memberships without preserving channel accounts', () => {
+    const manifest = buildStagingAccountBaselineManifest({
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      exportedAt: '2026-07-21T00:00:00.000Z',
+      baseline: stagingAccountBaseline,
+    });
+
+    expect(manifest.baseline).toEqual(stagingAccountBaseline);
+    expect(manifest.payloadSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(manifest).not.toHaveProperty('channelAccounts');
+    expect(manifest.baseline).not.toHaveProperty('channelAccounts');
+    expect(() => assertStagingAccountBaselineManifest(manifest, {
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+    })).not.toThrow();
+  });
+
+  it('rejects dangling memberships and modified account payloads', () => {
+    expect(() => buildStagingAccountBaselineManifest({
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      exportedAt: '2026-07-21T00:00:00.000Z',
+      baseline: {
+        ...stagingAccountBaseline,
+        memberships: [{
+          ...stagingAccountBaseline.memberships[0],
+          userId: '00000000-0000-4000-8000-000000000099',
+        }],
+      },
+    })).toThrow(/membership.*user/i);
+
+    const manifest = buildStagingAccountBaselineManifest({
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      exportedAt: '2026-07-21T00:00:00.000Z',
+      baseline: stagingAccountBaseline,
+    });
+    const tampered = {
+      ...manifest,
+      baseline: {
+        ...manifest.baseline,
+        users: [{ ...manifest.baseline.users[0], email: 'changed@example.test' }],
+      },
+    };
+    expect(() => assertStagingAccountBaselineManifest(tampered, {
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+    })).toThrow(/baseline.*integrity/i);
+  });
+
+  it('preserves PostgreSQL UUID values even when legacy rows use a non-RFC variant', () => {
+    const legacyOrganizationId = '00000000-0000-0000-0000-000000000001';
+    const legacyMembershipId = '00000000-0000-0000-0000-000000000004';
+
+    expect(() => buildStagingAccountBaselineManifest({
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      exportedAt: '2026-07-21T00:00:00.000Z',
+      baseline: {
+        ...stagingAccountBaseline,
+        organizations: [{
+          ...stagingAccountBaseline.organizations[0],
+          id: legacyOrganizationId,
+        }],
+        memberships: [{
+          ...stagingAccountBaseline.memberships[0],
+          id: legacyMembershipId,
+          organizationId: legacyOrganizationId,
+        }],
+      },
+    })).not.toThrow();
   });
 });
 
