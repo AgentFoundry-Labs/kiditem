@@ -6,6 +6,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { ExtensionSyncDto } from '../../adapter/in/http/dto';
 import { resolveBusinessDate, toBusinessDate } from '../../domain/business-date';
 import { resolveCampaignReportAuthority } from '../../domain/campaign-report-authority';
+import type { CampaignReplacementRejectionCode } from '../../domain/campaign-day-replacement-plan';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -204,7 +205,9 @@ export class AdCampaignIngestHandler {
         }
       }
 
-      let projectionRejectionCode = authority.projectionRejectionCode;
+      let projectionRejectionCode:
+        | typeof authority.projectionRejectionCode
+        | CampaignReplacementRejectionCode = authority.projectionRejectionCode;
       let targetDailyCount = 0;
       let deletedTargetDailyCount = 0;
       let mergedTargetDailyCount = 0;

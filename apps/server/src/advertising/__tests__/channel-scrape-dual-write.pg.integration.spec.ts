@@ -10,6 +10,10 @@ import { ChannelScrapePersistenceService } from '../services/channel-scrape-pers
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../adapter/in/http/dto/extension-sync.dto';
 import {
+  CHANNEL_TARGET_DAILY_REPOSITORY_PORT,
+  type ChannelTargetDailyRepositoryPort,
+} from '../application/port/out/repository/channel-target-daily.repository.port';
+import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
@@ -35,6 +39,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
   let prisma: PrismaClient;
   let adSyncService: AdSyncService;
   let scrapePersistence: ChannelScrapePersistenceService;
+  let targetDailyRepository: ChannelTargetDailyRepositoryPort;
   const organizationId = TEST_ORGANIZATION_ID;
 
   async function seedListingWithOption(opts: {
@@ -84,6 +89,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       .compile();
     adSyncService = m.get(AdSyncService);
     scrapePersistence = m.get(ChannelScrapePersistenceService);
+    targetDailyRepository = m.get(CHANNEL_TARGET_DAILY_REPOSITORY_PORT);
   });
 
   afterAll(async () => {
@@ -115,6 +121,68 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(dto.dateFrom).toBe('2026-04-01');
     expect(dto.dateTo).toBe('2026-04-14');
   });
+
+  it.each(['single_campaign_metadata_raw', 'future_bounded_scope'])(
+    'ExtensionSyncDto preserves bounded raw scope evidence: %s',
+    async (scope) => {
+      const dto = plainToInstance(ExtensionSyncDto, {
+        type: 'ad_campaign',
+        campaignReportScope: `  ${scope}  `,
+      });
+      const errors = await validate(dto, { whitelist: true });
+      expect(errors).toHaveLength(0);
+      expect(dto.campaignReportScope).toBe(scope);
+    },
+  );
+
+  it.each([
+    ['single_campaign_metadata_raw', 'non_authoritative_scope'],
+    ['future_bounded_scope', 'unknown_scope'],
+  ] as const)(
+    'stores %s as raw evidence without daily projection',
+    async (campaignReportScope, expectedReason) => {
+      const result = await adSyncService.sync(
+        {
+          type: 'ad_campaign',
+          campaignReportScope,
+          dashboardOnOff: 'ON',
+          campaignName: 'Raw scope campaign',
+          dateFrom: '2026-04-14',
+          dateTo: '2026-04-14',
+          normalizedRows: [{
+            pageType: 'product',
+            campaignId: 'CAMP-RAW-SCOPE',
+            campaignName: 'Raw scope campaign',
+            vendorItemId: 'VI-RAW-SCOPE',
+            spend: 123,
+          }],
+        },
+        organizationId,
+      );
+      expect(result).toMatchObject({
+        success: true,
+        targetDailyCount: 0,
+        listingDailyCount: 0,
+        accountKpiCount: 0,
+        dailyProjectionSkipped: true,
+      });
+      expect(await prisma.channelAdTargetDailySnapshot.count({
+        where: { organizationId },
+      })).toBe(0);
+      const run = await prisma.channelScrapeRun.findUniqueOrThrow({
+        where: { id: result.scrapeRunId as string },
+      });
+      expect(run.metaJson).toMatchObject({
+        requestedCampaignReportScope: campaignReportScope,
+        effectiveCampaignReportScope: 'raw_only',
+        campaignReportAuthorityReason: expectedReason,
+        dailyProjectionSkipped: true,
+      });
+      expect(await prisma.channelScrapeSnapshot.count({
+        where: { scrapeRunId: run.id },
+      })).toBe(1);
+    },
+  );
 
   it('ChannelScrapeRun finalization is organization-scoped', async () => {
     const run = await scrapePersistence.createRun({
@@ -228,7 +296,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(run?.source).toBe('advertising');
     expect(run?.pageType).toBe('campaign');
     expect(run?.status).toBe('complete');
-    expect(run?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
+    expect(run?.businessDate).toBeNull();
     expect(run?.rowCount).toBe(5);
     expect(run?.matchedCount).toBe(2);
     expect(run?.unmatchedCount).toBe(3);
@@ -248,7 +316,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(kpiOnly?.normalizedJson).toMatchObject({ _kpiOnly: true });
 
     const missingIdentity = snapshots.find((s) =>
-      s.matchReason?.includes('missing campaign/product/keyword identity'),
+      (s.rawJson as { rawRowId?: string } | null)?.rawRowId === 'raw-missing-identity',
     );
     expect(missingIdentity?.matchStatus).toBe('unmatched');
     expect(missingIdentity?.rawJson).toMatchObject({ rawRowId: 'raw-missing-identity' });
@@ -256,7 +324,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
 
     const matchedSnap = snapshots.find((s) => s.externalOptionId === 'VENDOR-A');
     expect(matchedSnap?.matchStatus).toBe('matched');
-    expect(matchedSnap?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
+    expect(matchedSnap?.businessDate).toBeNull();
     expect(matchedSnap?.listingId).toBe(matched.listing.id);
     expect(matchedSnap?.listingOptionId).toBe(matched.listingOption.id);
     expect(matchedSnap?.rawJson).toMatchObject({ rawRowId: 'raw-vendor-a' });
@@ -428,15 +496,12 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
   });
 
   it('handler error path: ChannelScrapeRun is finalized as status="error" with errorJson — never stuck on "running"', async () => {
-    // H2 — force a daily-fact upsert (ChannelAccountDailyKpiSnapshot) to throw
-    // inside handleAdCampaign so we exercise the catch path. The raw
+    // Force the authoritative target replacement to throw after the raw
     // ChannelScrapeSnapshot is appended BEFORE the failing upsert so it
     // survives the abort, proving the raw-first contract.
-    const original = prisma.channelAccountDailyKpiSnapshot.upsert.bind(
-      prisma.channelAccountDailyKpiSnapshot,
-    );
+    const original = targetDailyRepository.replaceCampaignDay.bind(targetDailyRepository);
     let firstCall = true;
-    (prisma.channelAccountDailyKpiSnapshot as { upsert: typeof original }).upsert =
+    targetDailyRepository.replaceCampaignDay =
       (async (
         ...args: Parameters<typeof original>
       ) => {
@@ -445,19 +510,24 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           throw new Error('boom — simulated PG failure');
         }
         return original(...args);
-      }) as unknown as typeof original;
+      }) as typeof original;
 
     try {
       await expect(
         adSyncService.sync(
           {
             type: 'ad_campaign',
+            campaignReportScope: 'single_campaign_authoritative',
+            dashboardOnOff: 'ON',
             campaignName: 'Camp-Boom',
             period: '7d',
+            dateFrom: '2026-04-14',
+            dateTo: '2026-04-14',
             kpis: { '광고비': '100' },
             normalizedRows: [
               {
                 pageType: 'product',
+                campaignId: 'CAMP-BOOM',
                 campaignName: 'Camp-Boom',
                 productName: 'P-Boom',
                 vendorItemId: 'VENDOR-BOOM',
@@ -468,9 +538,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
         ),
       ).rejects.toThrow('boom — simulated PG failure');
     } finally {
-      (
-        prisma.channelAccountDailyKpiSnapshot as { upsert: typeof original }
-      ).upsert = original;
+      targetDailyRepository.replaceCampaignDay = original;
     }
 
     const errored = await prisma.channelScrapeRun.findFirst({
