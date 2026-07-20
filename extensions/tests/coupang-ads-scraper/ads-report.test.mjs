@@ -801,3 +801,44 @@ test("campaign sweep progress total never decreases and current never exceeds to
   assert.equal(normalized.total, 12);
   assert.ok(normalized.current <= normalized.total);
 });
+
+// Regression: 상세 페이지가 없는 캠페인(AI스마트광고 등)의 anchor 는 대시보드
+// 목록 URL 로 resolve 된다. 그 URL 을 identity 로 쓰면 그런 캠페인들이 전부
+// 하나의 identity 로 붕괴해 서버에서 같은 target_key 를 덮어쓴다.
+// 실측(2026-07-19): 캠페인 팩트가 `campaign:href:.../dashboard/sales` 1행만
+// 남고 전부 0원이었다.
+test("dashboard list url never becomes a campaign identity", () => {
+  const contract = loadContract();
+  const listHref = "https://advertising.coupang.com/marketing/dashboard/sales";
+
+  const smartWing = contract.campaignIdentityFromHref(listHref, "AI스마트광고(wing)");
+  const smartHub = contract.campaignIdentityFromHref(listHref, "AI스마트광고(HUB)");
+
+  assert.notEqual(smartWing, "href:https://advertising.coupang.com/marketing/dashboard/sales");
+  assert.notEqual(smartHub, "href:https://advertising.coupang.com/marketing/dashboard/sales");
+  // 목록 URL 을 공유해도 캠페인끼리는 서로 구분되어야 한다.
+  assert.notEqual(smartWing, smartHub);
+  assert.equal(smartWing, "name:AI스마트광고(wing)");
+
+  // 이름조차 없으면 identity 를 만들지 않는다(=수집 큐에서 제외).
+  assert.equal(contract.campaignIdentityFromHref(listHref, ""), null);
+});
+
+// Regression: 상세 URL 이 없는 캠페인을 상세 리포트 대상으로 잡으면 sweep 이
+// 도달할 수 없는 화면을 계속 기다린다. 사용자가 본 "처리 0.0개/분 /
+// 완료 예상 1437시간 6분" 증상.
+test("campaigns without a detail url never enter the detail-report path", () => {
+  const contract = loadContract();
+
+  assert.equal(
+    contract.campaignUsesDetailReport({ onOff: "ON", hasDetailHref: false }),
+    false,
+  );
+  assert.equal(
+    contract.campaignUsesDetailReport({ onOff: "ON", hasDetailHref: true }),
+    true,
+  );
+  // hasDetailHref 를 모르는 기존 호출부는 onOff 판정을 그대로 유지한다.
+  assert.equal(contract.campaignUsesDetailReport({ onOff: "ON" }), true);
+  assert.equal(contract.campaignUsesDetailReport({ onOff: "OFF" }), false);
+});

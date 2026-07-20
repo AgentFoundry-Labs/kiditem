@@ -1853,11 +1853,37 @@
     return null;
   }
 
-  function campaignIdentityFromHref(value) {
+  // 캠페인 상세 URL 이 아닌 href 는 캠페인 식별자가 될 수 없다.
+  // AI스마트광고처럼 상세 페이지가 없는 캠페인의 anchor 는 대시보드 목록
+  // URL 로 resolve 되는데, 그걸 identity 로 쓰면 그런 캠페인들이 전부 같은
+  // identity(= 같은 target_key) 로 붕괴해 서로를 덮어쓴다.
+  // 실측(2026-07-19): identity 가 `href:https://advertising.coupang.com/
+  // marketing/dashboard/sales` 하나로 뭉쳐 캠페인 팩트가 1행만 남았다.
+  function isCampaignDetailHref(value) {
+    if (!value) return false;
+    if (isDashboardListHref(value)) return false;
+    return /\/campaign\//.test(value) || /campaignId=/i.test(value);
+  }
+
+  function isDashboardListHref(value) {
+    try {
+      const url = new URL(value, window.location.href);
+      return /\/marketing\/dashboard\/sales\/?$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+
+  // `campaignName` 은 상세 URL 이 없는 캠페인의 마지막 식별 수단이다.
+  // 이름은 대시보드 행 단위로 유일하지 않을 수 있지만, 목록 URL 하나로
+  // 전부 겹치는 것보다는 훨씬 낫다.
+  function campaignIdentityFromHref(value, campaignName) {
     const campaignId = campaignIdFromHref(value);
     if (campaignId) return `campaign:${campaignId}`;
     const href = canonicalCampaignHref(value);
-    return href ? `href:${href}` : null;
+    if (isCampaignDetailHref(href)) return `href:${href}`;
+    const name = normalizeText(campaignName || "");
+    return name ? `name:${name}` : null;
   }
 
   function campaignIdentityMatches(campaign, currentHref = window.location.href) {
@@ -1880,6 +1906,11 @@
   }
 
   function campaignUsesDetailReport(campaign) {
+    // 상세 URL 이 없는 캠페인(AI스마트광고 등)은 상세 리포트 화면 자체가
+    // 없다. 예전에는 ON 이기만 하면 상세로 넘어가려 해서 도달할 수 없는
+    // `campaignDetailReady` 를 계속 기다렸고, sweep 이 첫 캠페인에서 멈춰
+    // "처리 0.0개/분 / 완료 예상 1437시간" 상태가 됐다.
+    if (campaign && campaign.hasDetailHref === false) return false;
     return (campaign?.onOff || "").toUpperCase() !== "OFF";
   }
 
@@ -1912,7 +1943,7 @@
         titleEl?.querySelector?.("a[href]") ||
         rg.querySelector("a[href*='/campaign/'], a[href*='campaignId=']");
       const href = anchor?.href || anchor?.getAttribute?.("href") || "";
-      const identity = campaignIdentityFromHref(href);
+      const identity = campaignIdentityFromHref(href, name);
       if (!identity) {
         missingIdentityNames.push(name);
         continue;
@@ -1950,6 +1981,9 @@
         identity,
         campaignId: campaignIdFromHref(href),
         href: canonicalCampaignHref(href),
+        // 상세 리포트로 넘어갈 수 있는 캠페인인지. 상세 URL 이 없으면
+        // sweep 이 도달할 수 없는 화면을 기다리다 큐가 멈춘다.
+        hasDetailHref: isCampaignDetailHref(canonicalCampaignHref(href)),
         name,
         onOff,
         status,
@@ -2104,7 +2138,8 @@
         titleEl.querySelector?.("a[href]") ||
         rg.querySelector("a[href*='/campaign/'], a[href*='campaignId=']");
       const href = anchor?.href || anchor?.getAttribute?.("href") || "";
-      if (anchor && campaignIdentityFromHref(href) === campaign?.identity) {
+      const rowName = normalizeText(titleEl.innerText || "");
+      if (anchor && campaignIdentityFromHref(href, rowName) === campaign?.identity) {
         anchor.click();
         return true;
       }
