@@ -579,6 +579,8 @@ manifest = {
     "webImageDigest": os.environ.get("WEB_IMAGE_DIGEST"),
     "apiImageId": os.environ.get("API_IMAGE_ID"),
     "webImageId": os.environ.get("WEB_IMAGE_ID"),
+    "apiImageRevision": os.environ.get("API_IMAGE_REVISION"),
+    "webImageRevision": os.environ.get("WEB_IMAGE_REVISION"),
     "publicUrl": os.environ.get("PUBLIC_URL") or os.environ.get("STAGING_URL"),
     "slotServices": {
         "api": f"api-{os.environ.get('ACTIVE_COLOR')}",
@@ -601,6 +603,19 @@ PY
 
   cp "$manifest_path" "$current_path"
   echo "Wrote deployment manifest: $manifest_path"
+}
+
+validate_image_revisions() {
+  require_env GIT_SHA
+  local api_revision web_revision
+  api_revision="$(docker image inspect "$KIDITEM_API_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' 2>/dev/null || true)"
+  web_revision="$(docker image inspect "$KIDITEM_WEB_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' 2>/dev/null || true)"
+  [[ -n "$api_revision" && "$api_revision" != "<no value>" ]] || fail "API image revision label is missing"
+  [[ -n "$web_revision" && "$web_revision" != "<no value>" ]] || fail "Web image revision label is missing"
+  [[ "$api_revision" == "$GIT_SHA" ]] || fail "API image revision does not match guarded git SHA"
+  [[ "$web_revision" == "$GIT_SHA" ]] || fail "Web image revision does not match guarded git SHA"
+  export API_IMAGE_REVISION="$api_revision"
+  export WEB_IMAGE_REVISION="$web_revision"
 }
 
 deploy() {
@@ -644,6 +659,8 @@ deploy() {
       return "$pull_status"
     fi
   fi
+
+  validate_image_revisions
 
   write_slot_deploy_env "$target_color" "$active_color"
 

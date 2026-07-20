@@ -3,12 +3,15 @@ import {
   assertProtectedApiDestination,
   assertProtectedSupabaseDestination,
   assertReadyCounts,
+  assertRebuildImportPrerequisites,
   assertLocalRebuildGuard,
   assertReplayBundle,
   assertSharedDatabaseIdentity,
   assertSharedRebuildGuard,
   buildCoupangReplayBundle,
   buildSharedBootstrapPlan,
+  buildBootstrapPreflightManifest,
+  assertBootstrapPreflightManifest,
   computeReplayFactDigest,
   readReplayFactCounts,
   readReplayFactDigest,
@@ -135,6 +138,44 @@ describe('authoritative inventory credential destinations', () => {
   });
 });
 
+describe('authoritative rebuild import prerequisites', () => {
+  const sellpia = {
+    id: '00000000-0000-4000-8000-000000000031',
+    status: 'completed',
+    fileHash: 'a'.repeat(64),
+    rowCount: 10,
+    importedAt: new Date('2026-07-17T01:00:00Z'),
+  };
+  const wing = {
+    id: '00000000-0000-4000-8000-000000000032',
+    status: 'completed',
+    fileHash: 'b'.repeat(64),
+    rowCount: 20,
+    importedAt: new Date('2026-07-17T02:00:00Z'),
+  };
+  const expected = {
+    sellpiaFileHash: 'a'.repeat(64),
+    sellpiaRowCount: 10,
+    wingFileHash: 'b'.repeat(64),
+    wingRowCount: 20,
+  };
+
+  it('binds one exact Sellpia then Wing completed run', () => {
+    expect(assertRebuildImportPrerequisites({ sellpiaRuns: [sellpia], wingRuns: [wing], expected }))
+      .toEqual({ sellpiaRunId: sellpia.id, wingRunId: wing.id });
+  });
+
+  it.each([
+    { sellpiaRuns: [], wingRuns: [wing] },
+    { sellpiaRuns: [sellpia], wingRuns: [{ ...wing, importedAt: new Date('2026-07-17T00:00:00Z') }] },
+    { sellpiaRuns: [sellpia], wingRuns: [{ ...wing, fileHash: 'c'.repeat(64) }] },
+    { sellpiaRuns: [{ ...sellpia, rowCount: 11 }], wingRuns: [wing] },
+  ])('rejects missing, reversed, wrong-file, or wrong-count imports', (input) => {
+    expect(() => assertRebuildImportPrerequisites({ ...input, expected }))
+      .toThrow(/import|hash|count|order/i);
+  });
+});
+
 describe('authoritative inventory local replay guard', () => {
   it('requires a loopback database and the exact local reset token', () => {
     expect(() => assertLocalRebuildGuard({
@@ -200,9 +241,204 @@ describe('authoritative inventory shared rebuild baseline', () => {
       }],
     });
   });
+
+  it('binds the protected baseline to target, run, SHA, and full plan hash', () => {
+    const plan = buildSharedBootstrapPlan({
+      organizationId,
+      organizationName: 'KidItem Staging',
+      organizationSlug: 'kiditem-staging',
+      userId,
+      userEmail: 'operator@example.test',
+      userName: 'Operator',
+      coupangAccountId,
+      coupangExternalAccountId: 'wing-account',
+      coupangAccountName: 'Coupang Wing',
+    });
+    const manifest = buildBootstrapPreflightManifest({
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      plan,
+      sourceManifest: {
+        sellpiaFileHash: 'a'.repeat(64),
+        sellpiaRowCount: 10,
+        wingFileHash: 'b'.repeat(64),
+        wingRowCount: 20,
+      },
+    });
+    expect(manifest).toMatchObject({
+      target: 'staging',
+      originRunId: '12345',
+      organizationId,
+      userId,
+      channelAccountIds: [coupangAccountId],
+    });
+    expect(manifest.planSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(() => assertBootstrapPreflightManifest(manifest, {
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      plan,
+      sourceManifest: {
+        sellpiaFileHash: 'a'.repeat(64),
+        sellpiaRowCount: 10,
+        wingFileHash: 'b'.repeat(64),
+        wingRowCount: 20,
+      },
+    })).not.toThrow();
+    expect(() => assertBootstrapPreflightManifest(
+      { ...manifest, planSha256: '0'.repeat(64) },
+      {
+        target: 'staging',
+        originRunId: '12345',
+        deployedSha: '0123456789abcdef0123456789abcdef01234567',
+        plan,
+        sourceManifest: {
+          sellpiaFileHash: 'a'.repeat(64),
+          sellpiaRowCount: 10,
+          wingFileHash: 'b'.repeat(64),
+          wingRowCount: 20,
+        },
+      },
+    )).toThrow(/preflight/i);
+    expect(() => assertBootstrapPreflightManifest(manifest, {
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      plan,
+      sourceManifest: {
+        sellpiaFileHash: 'a'.repeat(64),
+        sellpiaRowCount: 10,
+        wingFileHash: 'c'.repeat(64),
+        wingRowCount: 20,
+      },
+    })).toThrow(/preflight/i);
+  });
 });
 
 describe('authoritative inventory Coupang replay bundle', () => {
+  it('round-trips campaign authority and observation evidence without upgrading legacy scope', () => {
+    const runs = [
+      {
+        id: '00000000-0000-4000-8000-000000000021',
+        metaJson: {
+          requestedCampaignReportScope: 'single_campaign_authoritative',
+          dashboardOnOff: 'ON',
+          dashboardStatus: '운영중',
+          campaignName: 'ON detail',
+        },
+        normalizedJson: {
+          pageType: 'product',
+          campaignIdentity: 'campaign:one',
+          campaignName: 'ON detail',
+          onOff: 'ON',
+          externalOptionId: 'item-1',
+          spend: 1,
+          _observedMetrics: {
+            adSpend: true,
+            adRevenue: true,
+            impressions: true,
+            clicks: true,
+            conversions: true,
+            orders: true,
+          },
+        },
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000022',
+        metaJson: {
+          requestedCampaignReportScope: 'single_campaign_authoritative',
+          dashboardOnOff: 'ON',
+          campaignName: 'ON empty',
+        },
+        normalizedJson: {
+          pageType: 'campaign',
+          campaignIdentity: 'campaign:two',
+          campaignName: 'ON empty',
+          onOff: 'ON',
+          _campaignOnly: true,
+        },
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000023',
+        metaJson: {
+          requestedCampaignReportScope: 'single_campaign_metadata_raw',
+          dashboardOnOff: 'OFF',
+          dashboardStatus: '일시정지',
+          campaignName: 'OFF metadata',
+        },
+        normalizedJson: {
+          pageType: 'campaign',
+          campaignIdentity: 'campaign:three',
+          campaignName: 'OFF metadata',
+          onOff: 'OFF',
+          _campaignOnly: true,
+        },
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000024',
+        metaJson: {
+          requestedCampaignReportScope: 'legacy_raw_only',
+          campaignName: 'Legacy',
+        },
+        normalizedJson: {
+          pageType: 'campaign',
+          campaignName: 'Legacy',
+        },
+      },
+    ];
+    const bundle = buildCoupangReplayBundle({
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      organizationId,
+      channelAccountId: coupangAccountId,
+      channelAccountExternalId: 'wing-account',
+      runs: runs.map((run) => ({
+        id: run.id,
+        source: 'advertising',
+        pageType: 'campaign',
+        businessDate: new Date('2026-07-17T00:00:00Z'),
+        periodStart: new Date('2026-07-17T00:00:00Z'),
+        periodEnd: new Date('2026-07-17T00:00:00Z'),
+        period: '1d',
+        targetUrl: null,
+        metaJson: run.metaJson,
+        snapshots: [{ rawJson: run.normalizedJson, normalizedJson: run.normalizedJson }],
+      })),
+      factCounts: {
+        scrapeRuns: 4,
+        rawSnapshots: 4,
+        listingDailyFacts: 0,
+        optionDailyFacts: 0,
+        adTargetFacts: 1,
+        accountKpiFacts: 0,
+      },
+      factDigestSha256: 'e'.repeat(64),
+    });
+
+    expect(bundle.schemaVersion).toBe('kiditem.authoritative-inventory-rebuild.v2');
+    expect(bundle.payloads[0]?.body).toMatchObject({
+      campaignReportScope: 'single_campaign_authoritative',
+      dashboardOnOff: 'ON',
+      dashboardStatus: '운영중',
+      normalizedRows: [{
+        campaignIdentity: 'campaign:one',
+        _observedMetrics: { adSpend: true, adRevenue: true },
+      }],
+    });
+    expect(bundle.payloads[1]?.body.normalizedRows).toMatchObject([
+      { campaignIdentity: 'campaign:two', _campaignOnly: true },
+    ]);
+    expect(bundle.payloads[2]?.body).toMatchObject({
+      campaignReportScope: 'single_campaign_metadata_raw',
+      dashboardOnOff: 'OFF',
+      dashboardStatus: '일시정지',
+    });
+    expect(bundle.payloads[3]?.body).not.toHaveProperty('campaignReportScope');
+    expect(() => assertReplayBundle(bundle)).not.toThrow();
+  });
+
   it('scopes every exported count and digest query to the configured Coupang account', async () => {
     const otherAccountId = '00000000-0000-4000-8000-000000000099';
     const countModels = {

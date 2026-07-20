@@ -46,6 +46,10 @@ PRODUCTION_REBUILD_USER_ID
 PRODUCTION_REBUILD_USER_NAME
 PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID
 PRODUCTION_REBUILD_COUPANG_ACCOUNT_NAME
+PRODUCTION_REBUILD_SELLPIA_FILE_SHA256
+PRODUCTION_REBUILD_SELLPIA_ROW_COUNT
+PRODUCTION_REBUILD_WING_FILE_SHA256
+PRODUCTION_REBUILD_WING_ROW_COUNT
 PRODUCTION_REBUILD_EXPECTED_ACTIVE_MASTERS
 PRODUCTION_REBUILD_EXPECTED_LISTINGS
 PRODUCTION_REBUILD_EXPECTED_CHANNEL_SKUS
@@ -83,6 +87,9 @@ Run the workflow manually:
 
 ```text
 operation: deploy
+deployment_target: production
+expected_git_sha: <full 40-hex SHA>
+dispatch_correlation_id: <UUID>
 confirm: DEPLOY_PRODUCTION
 allow_downtime_for_space: false
 ```
@@ -102,35 +109,53 @@ The one-release authoritative rebuild uses:
 ```text
 operation: deploy
 deployment_target: production
+expected_git_sha: <full 40-hex SHA>
+dispatch_correlation_id: <UUID>
 destructive_reset: RESET_PRODUCTION_DATA
 confirm: DEPLOY_PRODUCTION
 ```
 
 Inside protected GitHub Environment `production`, the workflow validates the
-exact target/token. The destructive order is: quiesce application traffic,
-export the selected Coupang account as sanitized replay payloads, upload the
-private one-day artifact, then cross the reset boundary by force-rebuilding the
+dispatch SHA/correlation, exact target/token, database URL SHA-256, URL database
+name, and live `current_database()`. A read-only public-account/Supabase Auth
+preflight must exactly match the reviewed baseline before quiesce.
+The destructive order is: quiesce application traffic, export the selected Coupang
+account and ordered migration ledger, upload the private one-day artifact, then
+cross the reset boundary by force-rebuilding the
 final schema. It next creates only the configured auth/account baseline and
 deploys snapshot-required state. A wrong token fails before quiesce; an
 export/upload failure resumes the previous runtime because it remains before
 the reset boundary.
 
+After schema recreation, an empty ledger is restored from the hash-bound
+manifest with `disposition=subsumed_by_authoritative_rebuild`; no migration body
+is executed. API and web image revision labels must both equal the guarded full
+SHA before traffic cutover.
+
 An authenticated operator then imports Sellpia at
 `/inventory-hub?tab=sellpia-sync`, followed by Wing at
-`/product-hub/matching`. After both runs complete and approved manifest counts
-are present in `PRODUCTION_REBUILD_EXPECTED_*`, trigger:
+`/product-hub/matching`. Before the deploy, set the approved workbook hashes
+and imported row counts in `PRODUCTION_REBUILD_SELLPIA_FILE_SHA256`,
+`PRODUCTION_REBUILD_SELLPIA_ROW_COUNT`, `PRODUCTION_REBUILD_WING_FILE_SHA256`,
+and `PRODUCTION_REBUILD_WING_ROW_COUNT`; the preflight seals them into the
+originating run. After both runs complete and approved fact counts are present
+in `PRODUCTION_REBUILD_EXPECTED_*`, trigger:
 
 ```text
 operation: finalize-rebuild
 deployment_target: production
+expected_git_sha: <full workflow-code SHA>
+dispatch_correlation_id: <new UUID>
 destructive_reset: RESET_PRODUCTION_DATA
 rebuild_run_id: <originating deploy run ID>
 ```
 
 This downloads only the originating production artifact, creates a temporary
-operator session using the production Supabase secret, replays through
-authenticated `POST /api/ads/extension/sync`, and verifies exact imports and
-facts before marking ready. Any missing/mismatched input leaves production
+operator session using the production Supabase secret only after it proves one
+exact completed Sellpia run followed by one exact completed Wing run and binds
+their IDs. It replays through authenticated `POST /api/ads/extension/sync`,
+then verifies the same hash/row-count/run-ID binding and exact facts before
+marking ready. Any missing/mismatched input leaves production
 snapshot-required. The artifact expires after one day; restart the guarded
 rebuild rather than copying data or credentials outside this path.
 

@@ -22,7 +22,7 @@ Do not use for production deploys.
 | Situation | First move | Do not |
 |---|---|---|
 | Failed deploy | Inspect failed job logs and run `operation=status` | Blindly `gh run rerun` |
-| Data-loss prompt | Use `accept_data_loss=true` only for reviewed staging schema cleanup | Treat image-pull failures as data-loss cases |
+| Destructive rebuild | Use `destructive_reset=RESET_STAGING_DATA` only for the reviewed account-preserving rebuild | Treat image-pull failures as reset cases |
 | Disk full / ENOSPC | Default deploy retry stops the staging stack to free active image layers; verify status first if triaging a failure | Delete Docker volumes, DB data, or uploaded assets |
 | Duplicate-looking CI | Compare run id, event, head SHA, job conclusions, skipped jobs | Assume skipped jobs ran |
 | Main staging hotfix | Deploy `main`, then merge `origin/main` into `develop` | Leave develop behind |
@@ -32,18 +32,25 @@ Do not use for production deploys.
 From the repo root:
 
 ```bash
-rtk gh workflow run staging-deploy.yml --ref main \
+expected_git_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$expected_git_sha" \
   -f operation=deploy \
-  -f accept_data_loss=false
+  -f deployment_target=staging \
+  -f expected_git_sha="$expected_git_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id"
 ```
 
 Watch the run and inspect failure logs if needed:
 
 ```bash
-rtk gh run list --workflow staging-deploy.yml --branch main --limit 5 \
-  --json databaseId,status,conclusion,event,headSha,url
-rtk gh run watch <run-id> --exit-status --interval 30
-rtk gh run view <run-id> --log-failed
+run_id="$(rtk gh run list --workflow staging-deploy.yml --limit 20 \
+  --json databaseId,headSha,name \
+  --jq '.[] | select(.headSha == "'"$expected_git_sha"'" and (.name | contains("correlation='"$dispatch_correlation_id"'"))) | .databaseId' \
+  | rtk head -n 1)"
+rtk node -e 'if (!process.argv[1]) process.exit(1)' "$run_id"
+rtk gh run watch "$run_id" --exit-status --interval 30
+rtk gh run view "$run_id" --log-failed
 ```
 
 Success requires all of these:
@@ -59,14 +66,19 @@ Success requires all of these:
 1. Identify the failed step from `gh run view <run-id> --json jobs,url` and `--log-failed`.
 2. Classify it before retrying:
    - Build failure: fix image/app code; do not rerun deploy-only.
-   - Migration or Prisma failure: inspect data-loss/preflight output; only use `accept_data_loss=true` after reviewed staging cleanup.
+   - Migration or Prisma failure: inspect the immutable SHA, DB identity, account preflight, and ledger-baseline evidence; do not weaken a guard.
    - `no space left on device`, `ENOSPC`, or "Refusing to stop": disk/image-pull recovery.
    - Public smoke failure: inspect remote status and app logs before another deploy.
    - Tag failure: verify tag target and existing tag object.
 3. Run status before a risky retry:
 
 ```bash
-rtk gh workflow run staging-deploy.yml --ref main -f operation=status
+expected_git_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$expected_git_sha" \
+  -f operation=status -f deployment_target=staging \
+  -f expected_git_sha="$expected_git_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id"
 rtk gh run watch <status-run-id> --exit-status --interval 10
 rtk gh run view <status-run-id> --log
 ```
@@ -88,9 +100,13 @@ this:
    commands.
 
 ```bash
-rtk gh workflow run staging-deploy.yml --ref main \
+expected_git_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$expected_git_sha" \
   -f operation=deploy \
-  -f accept_data_loss=false \
+  -f deployment_target=staging \
+  -f expected_git_sha="$expected_git_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id" \
   -f allow_downtime_for_space=true
 ```
 
@@ -120,10 +136,20 @@ Evidence rules:
 Rollback uses immutable GHCR tags, not `staging`:
 
 ```bash
-rtk gh workflow run staging-deploy.yml --ref main \
+workflow_code_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
   -f operation=rollback \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id" \
   -f image_tag=<git-sha-tag>
 ```
+
+`workflow_code_sha` selects the guarded workflow implementation; `image_tag`
+is the separate immutable application revision being restored. Select the run
+once by exact `headSha` plus `correlation=<UUID>` in `run-name`, then reuse that
+numeric run ID for watch/log/status evidence.
 
 After rollback, run `operation=status` and confirm manifest, containers, and smoke endpoints.
 
@@ -160,7 +186,7 @@ rtk git rev-list --count origin/develop..origin/main
 |---|---|
 | Rerunning a failed deploy | Dispatch a new run when inputs must change. |
 | Calling skipped jobs duplicate deploys | Inspect job conclusions and logs first. |
-| Setting `accept_data_loss=true` for disk failures | Keep it `false`; disk pressure is not a schema cleanup. |
+| Using `destructive_reset` for disk failures | Leave it empty; disk pressure is not a database rebuild. |
 | Waiting for build success only | Confirm deploy, smoke, migration status, tag, and final status. |
 | Accepting a different auth smoke code by intuition | Use the workflow's current expectation: `/api/auth/me -> 401`. |
 | Treating cherry-pick equivalence as sync | Merge `origin/main` into `develop` so ancestry is explicit. |
