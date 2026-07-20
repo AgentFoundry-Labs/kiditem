@@ -14,7 +14,7 @@ const helperPath = path.join(
   'extensions/coupang-ads-scraper/background/collection-window.js',
 );
 
-function createFakeChrome(initialStorage = {}) {
+function createFakeChrome(initialStorage = {}, messageResponses = []) {
   const storage = structuredClone(initialStorage);
   const userTab = {
     id: 10,
@@ -28,6 +28,7 @@ function createFakeChrome(initialStorage = {}) {
   ]);
   const tabs = new Map([[10, userTab]]);
   const calls = {
+    tabMessages: [],
     tabsUpdate: [],
     windowsCreate: [],
     windowsRemove: [],
@@ -35,6 +36,9 @@ function createFakeChrome(initialStorage = {}) {
   };
   let nextWindowId = 20;
   let nextTabId = 200;
+  const tabUpdatedListeners = new Set();
+  const tabRemovedListeners = new Set();
+  const queuedMessageResponses = [...messageResponses];
 
   function callbackResult(value, callback) {
     queueMicrotask(() => callback(value));
@@ -96,6 +100,22 @@ function createFakeChrome(initialStorage = {}) {
       },
     },
     tabs: {
+      onRemoved: {
+        addListener(listener) {
+          tabRemovedListeners.add(listener);
+        },
+        removeListener(listener) {
+          tabRemovedListeners.delete(listener);
+        },
+      },
+      onUpdated: {
+        addListener(listener) {
+          tabUpdatedListeners.add(listener);
+        },
+        removeListener(listener) {
+          tabUpdatedListeners.delete(listener);
+        },
+      },
       get(tabId, callback) {
         callbackResult(structuredClone(tabs.get(tabId)), callback);
       },
@@ -111,17 +131,25 @@ function createFakeChrome(initialStorage = {}) {
         if (current) Object.assign(current, properties);
         callbackResult(structuredClone(current), callback);
       },
+      sendMessage(tabId, message, callback) {
+        calls.tabMessages.push({ tabId, message: structuredClone(message) });
+        const response = queuedMessageResponses.shift();
+        if (response?.stall === true) return;
+        callbackResult(structuredClone(response), callback);
+      },
     },
   };
 
   return { calls, chrome, storage, tabs, windows };
 }
 
-function loadHelper(fake) {
+function loadHelper(fake, options = {}) {
   const context = vm.createContext({
     chrome: fake.chrome,
+    clearTimeout,
     console,
     queueMicrotask,
+    setTimeout,
     structuredClone,
   });
   vm.runInContext(fs.readFileSync(helperPath, 'utf8'), context, {
@@ -130,6 +158,7 @@ function loadHelper(fake) {
   return context.KidItemCollectionWindow.create({
     chrome: fake.chrome,
     storageKey: 'owned-window',
+    ...options,
   });
 }
 
@@ -222,4 +251,194 @@ test('serializes concurrent executions and closes only the owning run window', a
   assert.equal(await helper.close('run-a'), true);
   assert.equal(fake.calls.windowsRemove.length, 1);
   assert.equal(fake.storage['owned-window'], undefined);
+});
+
+test('resumes an interrupted campaign sweep in the same owned tab', async () => {
+  const fake = createFakeChrome({}, [
+    {
+      success: false,
+      resumeRequired: true,
+      resumeUrl: 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+      error: 'dashboard resume required',
+    },
+    {
+      success: true,
+      type: 'ad_sync',
+      count: 4,
+      progress: {
+        current: 11,
+        total: 10,
+        completed: 10,
+        failed: 1,
+        label: '광고 동기화 완료',
+      },
+    },
+  ]);
+  const sessionCalls = [];
+  const scrapedIds = [];
+  const sessions = {
+    async attachTab(runId, tab) {
+      sessionCalls.push(['attachTab', runId, tab]);
+    },
+    async cancel(runId) {
+      sessionCalls.push(['cancel', runId]);
+    },
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return { status: 'running' };
+    },
+    async progress(runId, progress) {
+      sessionCalls.push(['progress', runId, progress]);
+    },
+    async requireAttention(runId, attention) {
+      sessionCalls.push(['requireAttention', runId, attention]);
+    },
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    markScraped: async (id) => scrapedIds.push(id),
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    producer: 'advertising.ad_sync',
+    runId: 'run-resume',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'ads',
+        label: '광고 동기화',
+        url: 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+      },
+    ],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.completed, 1);
+  assert.equal(result.failed, 0);
+  assert.deepEqual(scrapedIds, ['ads']);
+  assert.equal(fake.calls.tabMessages.length, 2);
+  assert.deepEqual(
+    fake.calls.tabMessages.map(({ message }) => message),
+    [
+      { action: 'manualSync', collectionRunId: 'run-resume' },
+      { action: 'manualSync', collectionRunId: 'run-resume' },
+    ],
+  );
+  assert.equal(fake.calls.tabsUpdate.length, 2);
+  assert.ok(sessionCalls.some(([name, runId]) => name === 'succeed' && runId === 'run-resume'));
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+  const reportedProgress = sessionCalls
+    .filter(([name]) => name === 'progress')
+    .map(([, , progress]) => progress);
+  assert.deepEqual(JSON.parse(JSON.stringify(reportedProgress)), [
+    {
+      current: 11,
+      total: 11,
+      completed: 10,
+      failed: 1,
+      label: '광고 동기화 완료',
+    },
+  ]);
+  assert.ok(
+    reportedProgress.every((progress) => !(progress.current === 1 && progress.total === 1)),
+    'outer URL-target progress must not overwrite campaign progress with 1/1',
+  );
+});
+
+test('content-script timeout matches the 30 minute web collection budget', () => {
+  const helperSource = fs.readFileSync(helperPath, 'utf8');
+
+  assert.match(helperSource, /CONTENT_SCRIPT_TIMEOUT_MS\s*=\s*30\s*\*\s*60\s*\*\s*1000/);
+  assert.match(
+    helperSource,
+    /contentScriptTimeoutMs[\s\S]*?:\s*CONTENT_SCRIPT_TIMEOUT_MS/,
+  );
+  assert.match(helperSource, /sendTabMessage\(tabId, message, timeoutMs\s*=\s*contentScriptTimeoutMs\)/);
+  assert.match(helperSource, /let tab\s*=\s*await navigate/);
+});
+
+test('campaign progress clamps invalid values and never decreases', () => {
+  const fake = createFakeChrome();
+  const helper = loadHelper(fake);
+  const normalized = helper.normalizeProgress(
+    {
+      current: 3,
+      total: 2,
+      completed: Number.POSITIVE_INFINITY,
+      failed: -4,
+      label: 'next',
+    },
+    {
+      current: 5,
+      total: 11,
+      completed: 4,
+      failed: 1,
+      label: 'previous',
+    },
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(normalized)), {
+    current: 5,
+    total: 11,
+    completed: 4,
+    failed: 1,
+    label: 'next',
+  });
+  assert.ok(normalized.current <= normalized.total);
+});
+
+test('content-script timeout actually fails a stalled target', async () => {
+  const fake = createFakeChrome({}, [{ stall: true }]);
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab() {},
+    async cancel(runId) {
+      sessionCalls.push(['cancel', runId]);
+    },
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return { status: 'running' };
+    },
+    async progress() {},
+    async requireAttention() {},
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    contentScriptTimeoutMs: 5,
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    producer: 'advertising.scrape_targets',
+    runId: 'run-timeout',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'stalled-ads',
+        label: 'stalled ad report',
+        url: 'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-07-17',
+      },
+    ],
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.failed, 1);
+  assert.match(result.error, /timed out after 0s/i);
+  assert.ok(sessionCalls.some(([name, runId]) => name === 'fail' && runId === 'run-timeout'));
+  assert.ok(!sessionCalls.some(([name]) => name === 'succeed'));
 });

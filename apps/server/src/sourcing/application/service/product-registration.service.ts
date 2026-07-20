@@ -55,6 +55,79 @@ export class ProductRegistrationService {
     return { preparationId: result.preparationId, status: 'draft' };
   }
 
+  async prepareExternalWingRegistration(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    input: {
+      channelAccountId: string;
+      displayName: string;
+      registrationInput: Record<string, unknown>;
+      idempotencyKey: string;
+    },
+  ) {
+    const operation = await this.preparations.prepareExternalExecution(
+      {
+        organizationId,
+        sourceCandidateId: candidateId,
+        requestedByUserId: userId,
+        ...input,
+      },
+      (tx) => this.contentWorkspaces.ensureCandidateWorkspace(tx, {
+        organizationId,
+        sourceCandidateId: candidateId,
+        displayName: input.displayName,
+        createdByUserId: userId,
+      }),
+      (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
+    );
+    return { ...operation, expectedVendorId: operation.expectedProviderAccountId };
+  }
+
+  startExternalWingRegistration(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    executionId: string,
+  ) {
+    return this.preparations.startExternalExecution({
+      organizationId,
+      sourceCandidateId: candidateId,
+      executionId,
+      requestedByUserId: userId,
+    });
+  }
+
+  markExternalWingRegistrationUnresolved(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    executionId: string,
+    evidence: unknown,
+  ) {
+    return this.preparations.markExternalExecutionUnresolved({
+      organizationId,
+      sourceCandidateId: candidateId,
+      executionId,
+      requestedByUserId: userId,
+      evidence,
+    });
+  }
+
+  getExternalWingRegistration(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    executionId: string,
+  ) {
+    return this.preparations.getExternalExecution({
+      organizationId,
+      sourceCandidateId: candidateId,
+      executionId,
+      requestedByUserId: userId,
+    });
+  }
+
   async updateDraft(
     organizationId: string,
     preparationId: string,
@@ -93,6 +166,8 @@ export class ProductRegistrationService {
     }
 
     let providerResult;
+    let submittingProviderCreate = false;
+    let providerCreateDispatched = false;
     try {
       providerResult = await this.channels.reconcile(this.toSubmissionInput(
         organizationId,
@@ -102,17 +177,21 @@ export class ProductRegistrationService {
         if (!canStartProviderCreate(submission.providerOutcome)) {
           throw new Error('Provider outcome remains uncertain after reconciliation.');
         }
+        submittingProviderCreate = true;
         providerResult = await this.channels.submit(
           this.toSubmissionInput(
             organizationId,
             submission,
             { providerOutcome: 'uncertain', providerCreateAllowed: true },
           ),
-          () => this.preparations.markProviderAttemptStarted(
-            organizationId,
-            preparationId,
-            submissionLeaseToken,
-          ),
+          async () => {
+            await this.preparations.markProviderAttemptStarted(
+              organizationId,
+              preparationId,
+              submissionLeaseToken,
+            );
+            providerCreateDispatched = true;
+          },
         );
       }
       await this.preparations.recordProviderResult(
@@ -128,6 +207,10 @@ export class ProductRegistrationService {
         submissionLeaseToken,
         error,
         error instanceof DefinitiveChannelProductRegistrationError
+          || (
+            submission.providerOutcome === 'not_attempted'
+            && !providerCreateDispatched
+          )
           ? 'definitive_failure'
           : undefined,
       );
@@ -172,6 +255,123 @@ export class ProductRegistrationService {
     }
   }
 
+  /**
+   * 이미 마켓에 등록된 상품을 우리 등록상품으로 확정한다.
+   *
+   * 쿠팡 WING 등록은 Open API 가 아니라 확장이 WING 화면을 직접 조작해 수행한다.
+   * 그래서 서버가 provider create 를 부르는 `submit()` 경로를 탈 수 없다. 대신
+   * **이미 발급된 등록상품ID를 근거로** 같은 finalize 트랜잭션(=`ChannelListing` 생성)만
+   * 재사용한다. provider 호출은 일어나지 않는다.
+   *
+   * 두 갈래가 이 경로를 쓴다:
+   *  - 확장이 자동 제출 후 완료를 **확증**하고 등록상품ID를 돌려준 경우
+   *  - 사용자가 WING 에서 직접 등록한 뒤 등록상품ID를 입력해 "등록됨으로 표시" 한 경우
+   *
+   * `externalListingId` 는 사용자/확장이 주는 값이므로 신뢰 경계다. 여기서는 형식만
+   * 검사하고, 소유권·중복·교차 후보 충돌은 채널의 `resolveListing` 이 판정한다.
+   */
+  async confirmExternalRegistration(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    input: {
+      executionId: string;
+      externalListingId: string;
+      evidence: { wingVendorId: string; wingIdentitySource: string };
+    },
+  ): Promise<ProductPreparationCommandResult> {
+    const externalListingId = input.externalListingId.trim();
+    if (!externalListingId) {
+      throw new Error('등록상품ID가 비어 있습니다.');
+    }
+    const operation = await this.preparations.getExternalExecution({
+      organizationId, sourceCandidateId: candidateId, executionId: input.executionId,
+      requestedByUserId: userId,
+    });
+    if (operation.status === 'succeeded' && operation.listingId) {
+      return { preparationId: operation.preparationId, status: 'registered', listingId: operation.listingId };
+    }
+    if (!['executing', 'reconciling'].includes(operation.status)) {
+      throw new Error('External registration must be started before completion.');
+    }
+    const submission = await this.preparations.loadFrozenSubmission(
+      organizationId,
+      operation.preparationId,
+    );
+    if (submission.executionId !== input.executionId || submission.channelAccountId === '') {
+      throw new Error('External registration execution does not match its frozen preparation.');
+    }
+    if (!input.evidence
+      || input.evidence.wingVendorId !== operation.expectedProviderAccountId
+      || !['dom:data-vendor-id', 'meta:vendor-id', 'url:vendorId'].includes(input.evidence.wingIdentitySource)) {
+      throw new Error('External registration evidence does not match the approved WING account identity.');
+    }
+    const account = await this.channels.assertExternalRegistrationAccount({
+      organizationId, channelAccountId: submission.channelAccountId,
+    });
+    if (account.vendorId !== operation.expectedProviderAccountId) {
+      throw new Error('Persisted WING account identity changed after external registration was prepared.');
+    }
+    const submissionLeaseToken = submission.submissionLeaseToken;
+    if (!submissionLeaseToken) {
+      throw new Error('Started external registration is missing its submission lease.');
+    }
+
+    try {
+      // provider create 를 부르지 않는다. 외부에서 이미 끝난 등록의 결과만 기록한다.
+      await this.preparations.recordProviderResult(
+        organizationId,
+        submission.preparationId,
+        submissionLeaseToken,
+        {
+          providerSubmissionId: null,
+          externalListingId,
+          // The selected persisted ChannelAccount, not browser/client text, owns channel identity.
+          channel: account.channel,
+          rawResult: {
+            source: 'coupang-wing-extension',
+            confirmedAt: new Date().toISOString(),
+            evidence: input.evidence ?? null,
+          },
+        },
+      );
+    } catch (error) {
+      return this.fail(organizationId, submission.preparationId, submissionLeaseToken, error);
+    }
+
+    try {
+      return await this.preparations.finalizeRegistered(
+        organizationId,
+        submission.preparationId,
+        submissionLeaseToken,
+        async (tx) => {
+          const listing = await this.channels.resolveListing(tx, {
+            ...this.toSubmissionInput(organizationId, submission),
+            externalListingId,
+            displayName: submission.displayName,
+          });
+          await this.contentWorkspaces.branchToListing(tx, {
+            organizationId,
+            sourceWorkspaceId: submission.sourceContentWorkspaceId,
+            listingId: listing.listingId,
+            displayName: submission.displayName,
+            createdByUserId: userId,
+            selectedThumbnailUrl: submission.selectedThumbnailUrl,
+            selectedThumbnailGenerationId: submission.selectedThumbnailGenerationId,
+            selectedThumbnailGenerationCandidateId:
+              submission.selectedThumbnailGenerationCandidateId,
+            selectedDetailPageArtifactId: submission.selectedDetailPageArtifactId,
+            selectedDetailPageRevisionId: submission.selectedDetailPageRevisionId,
+            selectedDetailPageGenerationId: submission.selectedDetailPageGenerationId,
+          });
+          return { listingId: listing.listingId };
+        },
+      );
+    } catch (error) {
+      return this.fail(organizationId, submission.preparationId, submissionLeaseToken, error);
+    }
+  }
+
   async cancel(
     organizationId: string,
     preparationId: string,
@@ -200,6 +400,7 @@ export class ProductRegistrationService {
   ) {
     return {
       organizationId,
+      executionId: submission.executionId,
       preparationId: submission.preparationId,
       sourceCandidateId: submission.sourceCandidateId,
       channelAccountId: submission.channelAccountId,

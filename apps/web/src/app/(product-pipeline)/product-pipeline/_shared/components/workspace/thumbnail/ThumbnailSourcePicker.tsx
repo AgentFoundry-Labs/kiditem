@@ -24,8 +24,8 @@ interface ThumbnailSourcePickerProps {
   savedRepresentativeUrl: string | null;
   onSelect: (url: string) => void;
   onEditSelectedImage: () => void;
+  /** 대표 썸네일과 미리보기 목록을 **함께** 저장한다. 반쪽 저장 버튼은 없다. */
   onSaveConfiguration: () => void;
-  onRegisterRepresentative: () => void;
   onAddImages: (urls: string[]) => void;
   onRemoveImage: (url: string) => void;
   onReorderImages: (images: string[]) => void;
@@ -42,7 +42,6 @@ export default function ThumbnailSourcePicker({
   onSelect,
   onEditSelectedImage,
   onSaveConfiguration,
-  onRegisterRepresentative,
   onAddImages,
   onRemoveImage,
   onReorderImages,
@@ -68,9 +67,6 @@ export default function ThumbnailSourcePicker({
     [availableOptions, selectedUrl],
   );
   const selectedAlreadySaved = Boolean(selectedUrl && selectedUrl === savedRepresentativeUrl);
-  const selectedCanBecomeRepresentative = Boolean(
-    selectedUrl && selectedUrl !== savedRepresentativeUrl,
-  );
   const thumbnailUrlSet = useMemo(() => new Set(thumbnailUrls), [thumbnailUrls]);
   const libraryOptions = useMemo(() => {
     if (libraryTab === 'upload') return availableOptions.filter((option) => option.kind === 'source');
@@ -133,15 +129,11 @@ export default function ThumbnailSourcePicker({
             <Brush size={15} />
             선택 이미지 편집하기
           </button>
-          <button
-            type="button"
-            onClick={onRegisterRepresentative}
-            disabled={!selectedCanBecomeRepresentative}
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <CheckCircle2 size={15} />
-            대표 썸네일 등록
-          </button>
+          {/*
+            대표 등록과 목록 저장을 나눠 두면 사용자가 하나만 눌러 반쪽만 저장된다.
+            실제로 그렇게 돼서 대표는 남고 미리보기 목록은 사라졌다. 한 버튼이
+            대표 + 목록을 함께 저장한다.
+          */}
           {canSaveConfiguration ? <button
             type="button"
             onClick={onSaveConfiguration}
@@ -149,7 +141,7 @@ export default function ThumbnailSourcePicker({
             className="inline-flex items-center justify-center gap-2 rounded-md bg-violet-600 px-3 py-2 text-xs font-black text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
           >
             <Save size={15} />
-            썸네일 구성 저장
+            대표 썸네일 · 구성 저장
           </button> : null}
         </div>
       </div>

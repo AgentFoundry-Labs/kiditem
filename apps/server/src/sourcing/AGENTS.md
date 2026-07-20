@@ -46,9 +46,14 @@ Route shape is frozen.
 
 - `SourcingCandidate` is the raw opportunity workspace.
 - `CandidateImage` stores source images attached to a candidate.
-- `ProductPreparation` owns draft, submitting, failed, registered, and
-  cancelled state for one candidate/account registration attempt. Submission
-  payloads are canonicalized, hashed, and frozen before provider IO.
+- `ProductPreparation` owns the operator-reviewed input, selected content, and
+  legacy lifecycle compatibility columns for one candidate/account attempt.
+  It is not authoritative for provider side effects.
+- `ProductRegistrationExecution` owns the frozen canonical payload/hash,
+  idempotency key, actor, create-versus-external-WING kind, provider outcome,
+  reconciliation state, and terminal listing result. Existing compatibility
+  columns on `ProductPreparation` are dual-written only while legacy readers
+  remain.
 - `ChannelListing` registration is owned by Channels and reached only through
   a sourcing outgoing registration port. Registration never creates or returns
   a `MasterProduct`.
@@ -61,17 +66,22 @@ Route shape is frozen.
 candidate command
   -> ProductRegistrationService.createDraft/updateDraft
   -> ProductPreparation repository + candidate/preparation row locks
-  -> submit freezes canonical payload/hash/idempotency key
-  -> reconcile or create through CHANNEL_PRODUCT_REGISTRATION_PORT
-  -> final sourcing transaction resolves the account listing
+  -> claim creates/loads ProductRegistrationExecution with frozen
+     canonical payload/hash/idempotency key and actor
+  -> persist executing/uncertain before provider IO, or start external WING
+  -> reconcile the same execution; uncertain outcomes never regain create eligibility
+  -> final sourcing transaction resolves the account listing and succeeds the execution
   -> REGISTRATION_CONTENT_WORKSPACE_PORT branches selected AI content
-  -> ProductPreparation becomes registered
+  -> ProductPreparation compatibility status becomes registered
 ```
 
-Provider calls occur outside database transactions. Retries reuse the frozen
-submission key and reconcile recorded provider identity before create. Listing
-resolution, content branching, and the registered transition commit in one
-sourcing-owned finalization transaction.
+Provider calls occur outside database transactions and only after the execution
+ledger records the intent. Retries reuse the frozen submission key and
+reconcile recorded provider identity before create. Listing resolution,
+content branching, execution success, and the compatibility registered
+transition commit in one sourcing-owned finalization transaction. A legacy
+submitting/failed row without an execution is imported as failed or
+reconciling; it is never reborn as a fresh prepared/create execution.
 
 ## Cross-Domain Ports
 

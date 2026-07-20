@@ -18,7 +18,7 @@
   ],
   "scripts": {
     "build": "tsup && npm run build:css",
-    "build:css": "tailwindcss -i src/styles.css -o dist/styles.css --minify && cp dist/styles.css ../../apps/web/public/templates-styles.css",
+    "build:css": "node scripts/build-css.mjs",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit",
@@ -34,7 +34,9 @@
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.2.1",
+    "@tailwindcss/oxide": "4.2.2",
     "@types/react": "^19.0.0",
+    "esbuild": "^0.27.7",
     "react": "^19.0.0",
     "tailwindcss": "^4.2.1",
     "tsup": "^8.5.1",

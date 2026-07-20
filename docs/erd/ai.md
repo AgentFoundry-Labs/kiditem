@@ -217,6 +217,9 @@ erDiagram
     String providerOutcome
     String submissionLeaseToken
     DateTime submissionLeaseClaimedAt
+    String reviewPayloadHash
+    DateTime approvedAt
+    String approvedByUserId FK
     String createdByUserId FK
     Boolean isDeleted
     DateTime deletedAt
@@ -444,10 +447,12 @@ erDiagram
 | DetailPageArtifact | organization | references external | Core | Organization |
 | DetailPageRevision | createdByUser | references external | Core | User |
 | DetailPageRevision | organization | references external | Core | Organization |
+| ProductPreparation | approvedByUser | references external | Core | User |
 | ProductPreparation | channelAccount | references external | Core | ChannelAccount |
 | ProductPreparation | channelListing | references external | Core | ChannelListing |
 | ProductPreparation | createdByUser | references external | Core | User |
 | ProductPreparation | organization | references external | Core | Organization |
+| ProductPreparation | productPreparation | referenced by external | Sourcing | ProductRegistrationExecution |
 | ProductPreparation | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | Thumbnail | listing | references external | Core | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |

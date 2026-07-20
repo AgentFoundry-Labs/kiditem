@@ -1,6 +1,7 @@
 import type {
   BranchRegistrationWorkspaceToListingInput,
   EnsureRegistrationCandidateWorkspaceInput,
+  FindCandidateContentWorkspaceInput,
   RegistrationContentSelectionInput,
   ResolvedRegistrationContentSelections,
 } from '../../in/workspace/registration-content-workspace.port';
@@ -15,6 +16,9 @@ export interface RegistrationContentWorkspaceOwnerInput {
 }
 
 export interface RegistrationContentWorkspaceRepositoryPort {
+  findCandidateWorkspaceId(
+    input: FindCandidateContentWorkspaceInput,
+  ): Promise<string | null>;
   resolveSourceSelections(
     transaction: object,
     input: RegistrationContentSelectionInput,

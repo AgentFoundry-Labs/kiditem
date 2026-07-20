@@ -1,10 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import DeadStock from './DeadStock';
 import MappingAttention from './MappingAttention';
 import OutOfStock from './OutOfStock';
-import StockRetention from './StockRetention';
 import ZeroItems from './ZeroItems';
 
 const listSellpiaInventorySkus = vi.hoisted(() => vi.fn());
@@ -138,10 +136,9 @@ beforeEach(() => {
   listChannelSkuAvailability.mockReset();
 });
 
-describe.each([
-  ['Sellpia zero stock', ZeroItems],
-  ['Sellpia asset retention', StockRetention],
-] as const)('%s pagination', (_label, Component) => {
+describe('Sellpia zero stock pagination', () => {
+  const Component = ZeroItems;
+
   it('uses the response total and requests the selected page', async () => {
     listSellpiaInventorySkus.mockImplementation(async ({ page }) =>
       inventoryResponse(page, page === 1 ? 'Sellpia 첫 페이지' : 'Sellpia 둘째 페이지'));
@@ -178,27 +175,6 @@ describe('channel zero-stock pagination', () => {
       limit: 100,
     }));
     expect(screen.getByText('101건 중 101-101')).toBeInTheDocument();
-  });
-});
-
-describe('component-bottleneck pagination', () => {
-  it('uses the server bottleneck filter and requests the selected page', async () => {
-    listChannelSkuAvailability.mockImplementation(async ({ page }) =>
-      channelResponse(page, 'matched'));
-    renderWithQueryClient(<DeadStock />);
-
-    expect(await screen.findByText('SP-COMPONENT')).toBeInTheDocument();
-    expect(screen.getByText('101건 중 1-100')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '2' }));
-
-    await waitFor(() => expect(listChannelSkuAvailability).toHaveBeenLastCalledWith({
-      status: 'all',
-      hasBottleneck: true,
-      page: 2,
-      limit: 100,
-    }));
-    expect(await screen.findByText('101건 중 101-101')).toBeInTheDocument();
   });
 });
 

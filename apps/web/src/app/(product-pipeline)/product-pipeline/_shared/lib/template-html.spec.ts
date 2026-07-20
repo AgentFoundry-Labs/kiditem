@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DETAIL_TEMPLATE_STYLES_ATTR,
   ensureStyledDetailHtml,
   isRenderableDetailHtml,
   repairBoldVerticalEditedHtml,
 } from './template-html';
+
+const CANONICAL_TEMPLATE_CSS = `/*! tailwindcss v4.2.2 */
+.brightness-\\[0\\.7\\] { filter: brightness(0.7); }
+.text-\\[80px\\] { font-size: 80px; }`;
+
+const LEGACY_FALLBACK_CSS = `
+.relative > img.h-\\[500px\\] + .absolute.inset-0.bg-gradient-to-t.from-white.via-transparent.to-transparent {
+  display: none;
+}
+section[class*="from-[#1a1a1a]"] {
+  background: linear-gradient(to bottom, #1a1a1a, #2d2d2d) !important;
+}`;
 
 describe('sourcing detail template HTML repair', () => {
   it('keeps a saved editor gradient from component CSS instead of writing the default title gradient inline', () => {
@@ -76,6 +89,55 @@ describe('sourcing detail template HTML repair', () => {
     const output = ensureStyledDetailHtml(html, '/*! tailwindcss v4.0.0 */ .text-red-500 { color: red; }');
 
     expect(output.match(/data-kiditem-font-ready-gate/g)).toHaveLength(1);
+  });
+
+  it('preserves canonical compiled CSS that contains a brightness utility', () => {
+    const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <style data-kiditem-font-ready-gate>html.kiditem-font-ready body { opacity: 1; }</style>
+  <style>${CANONICAL_TEMPLATE_CSS}</style>
+  <style>${LEGACY_FALLBACK_CSS}</style>
+</head>
+<body><section class="brightness-[0.7] text-[80px]">저장본</section></body>
+</html>`;
+
+    const output = ensureStyledDetailHtml(html, CANONICAL_TEMPLATE_CSS);
+    const doc = new DOMParser().parseFromString(output, 'text/html');
+    const canonicalStyle = doc.head.querySelector<HTMLStyleElement>(
+      `style[${DETAIL_TEMPLATE_STYLES_ATTR}]`,
+    );
+
+    expect(canonicalStyle?.textContent).toContain('tailwindcss v4.2.2');
+    expect(canonicalStyle?.textContent).toContain('.brightness-\\[0\\.7\\]');
+    expect(output).not.toContain('relative > img.h-\\[500px\\]');
+  });
+
+  it('hydrates Tailwind markup when a font gate exists but compiled CSS is missing', () => {
+    const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <style data-kiditem-font-ready-gate>html.kiditem-font-ready body { opacity: 1; }</style>
+</head>
+<body><section class="flex mt-16 text-[80px]">저장본</section></body>
+</html>`;
+
+    const output = ensureStyledDetailHtml(html, '');
+
+    expect(output).toContain('https://cdn.tailwindcss.com');
+    expect(output).toContain('.text-\\[var\\(--theme-main\\)\\]');
+  });
+
+  it('marks newly injected canonical template CSS', () => {
+    const output = ensureStyledDetailHtml(
+      '<section class="flex text-[80px]">신규 상세페이지</section>',
+      CANONICAL_TEMPLATE_CSS,
+    );
+    const doc = new DOMParser().parseFromString(output, 'text/html');
+
+    expect(
+      doc.head.querySelector(`style[${DETAIL_TEMPLATE_STYLES_ATTR}]`)?.textContent,
+    ).toContain('tailwindcss v4.2.2');
   });
 
   it('repairs bold vertical hero title spacing and replaces the loose divider with word underlines', () => {

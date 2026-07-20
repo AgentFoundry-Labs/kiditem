@@ -1,7 +1,10 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
   ArrayMaxSize,
+  Equals,
   IsArray,
+  IsISO8601,
   IsNumber,
   IsOptional,
   IsString,
@@ -44,6 +47,7 @@ export class SellpiaSalesIngestSellerDto {
   sellerName!: string;
 
   @IsArray()
+  @ArrayMinSize(1)
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => SellpiaSalesIngestDayDto)
@@ -60,6 +64,23 @@ export class SellpiaSalesRangeDto {
   to!: string;
 }
 
+export class SellpiaSalesExplicitEmptyProvenanceDto {
+  @Equals('sellpia_sale_summary')
+  source!: 'sellpia_sale_summary';
+
+  @Equals('selldate')
+  mode!: 'selldate';
+
+  @Equals('all')
+  sellerScope!: 'all';
+
+  @Equals('empty_object')
+  responseShape!: 'empty_object';
+
+  @Equals(true)
+  explicitEmpty!: true;
+}
+
 export class SellpiaSalesIngestBodyDto {
   @ValidateNested()
   @Type(() => SellpiaSalesRangeDto)
@@ -70,6 +91,14 @@ export class SellpiaSalesIngestBodyDto {
   @ValidateNested({ each: true })
   @Type(() => SellpiaSalesIngestSellerDto)
   sellers!: SellpiaSalesIngestSellerDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SellpiaSalesExplicitEmptyProvenanceDto)
+  provenance?: SellpiaSalesExplicitEmptyProvenanceDto;
+
+  @IsISO8601()
+  capturedAt!: string;
 }
 
 export class SellpiaSalesQueryDto {

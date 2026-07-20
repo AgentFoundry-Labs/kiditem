@@ -23,14 +23,14 @@ export class MarketplaceRegistrationRepositoryAdapter
   async assertActiveRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
-  }): Promise<{ channel: string }> {
+  }): Promise<{ channel: string; vendorId: string | null; externalAccountId: string | null }> {
     const account = await this.prisma.channelAccount.findFirst({
       where: {
         id: input.channelAccountId,
         organizationId: input.organizationId,
         status: 'active',
       },
-      select: { channel: true },
+      select: { channel: true, vendorId: true, externalAccountId: true },
     });
     if (!account) throw new NotFoundException('Marketplace account not found.');
     return account;
@@ -138,6 +138,27 @@ export class MarketplaceRegistrationRepositoryAdapter
         },
       })
       : null;
+    if (existing) {
+      const activeDeletion = await tx.channelListingDeletionOperation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: account.id,
+          channelListingId: existing.id,
+          // A completed provider deletion is also a hard fence: registration
+          // finalization must never resurrect a listing that WING deleted.
+          OR: [
+            { status: { in: ['prepared', 'executing', 'reconciling'] } },
+            { providerOutcome: 'succeeded' },
+          ],
+        },
+        select: { id: true },
+      });
+      if (activeDeletion) {
+        throw new ConflictException(
+          'Marketplace listing has an active deletion operation and cannot be reactivated.',
+        );
+      }
+    }
     if (existing?.sourceCandidateId && existing.sourceCandidateId !== candidate.id) {
       throw new ConflictException('Marketplace listing already belongs to another source candidate.');
     }

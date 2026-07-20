@@ -326,6 +326,30 @@ describe('SellpiaProductSalesService.getSummary', () => {
       candidateCount: 2,
     });
   });
+
+  it('판매·재고 상품코드가 `{상품코드}-{옵션번호}` 결합형이면 exact 키로 현재고를 조인한다', async () => {
+    const {
+      service,
+      findMany,
+      inventoryFindMany,
+      inventoryAvailability,
+    } = makePrisma();
+    findMany.mockResolvedValueOnce([
+      { ...row({ productCode: '9734-1', optionCode: '1', yearMonth: '2026-06', orderQty: 10 }), barcode: 'NO-MATCH' },
+    ]);
+    // 판매·재고 엑셀 상품코드 = 9734-1 (product_code-option_code 결합).
+    const inventoryRows = [inventoryRow(1, '9734-1', 42, null)];
+    inventoryFindMany.mockResolvedValueOnce(inventoryRows);
+    inventoryAvailability.mockResolvedValueOnce(collectedInventory(inventoryRows));
+
+    const out = await service.getSummary(ORGANIZATION_ID);
+
+    // 결합형 코드를 exact 상품코드로 매칭해 공통 현재고를 읽는다.
+    expect(out.products[0].inventoryResolution).toMatchObject({
+      status: 'matched',
+      currentStock: 42,
+    });
+  });
 });
 
 describe('SellpiaProductSalesService.findAbcGradesByProductVariantIds', () => {

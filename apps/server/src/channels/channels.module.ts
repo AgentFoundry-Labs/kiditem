@@ -29,6 +29,10 @@ import { SellpiaRecipeEvidenceAdapter } from './adapter/out/inventory/sellpia-re
 import { ChannelSyncService } from './application/service/channel-sync.service';
 import { ChannelDashboardService } from './application/service/channel-dashboard.service';
 import { ChannelListingQueryService } from './application/service/channel-listing-query.service';
+import { ChannelListingDeletionService } from './application/service/channel-listing-deletion.service';
+import { ChannelsDeletionPasswordAdapter } from './adapter/out/organizations/deletion-password.adapter';
+import { CHANNELS_DELETION_PASSWORD_PORT } from './application/port/out/cross-domain/deletion-password.port';
+import { OrganizationsModule } from '../organizations/organizations.module';
 import { ChannelAccountQueryService } from './application/service/channel-account-query.service';
 import { MarketplaceRegistrationService } from './application/service/marketplace-registration.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
@@ -68,7 +72,7 @@ import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application
 import { CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-automation-context.repository.port';
 
 @Module({
-  imports: [AutomationModule, AiModule, ProductsModule, InventoryModule],
+  imports: [AutomationModule, AiModule, ProductsModule, InventoryModule, OrganizationsModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -84,6 +88,8 @@ import { CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT } from './application
     ChannelSyncService,
     ChannelDashboardService,
     ChannelListingQueryService,
+    ChannelListingDeletionService,
+    ChannelsDeletionPasswordAdapter,
     ChannelAccountQueryService,
     MarketplaceRegistrationService,
     ChannelAccountService,
@@ -116,6 +122,7 @@ import { CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT } from './application
     { provide: COUPANG_CREDENTIALS_PORT, useExisting: ChannelAccountRepositoryAdapter },
     { provide: CHANNEL_DASHBOARD_REPOSITORY_PORT, useExisting: ChannelDashboardRepositoryAdapter },
     { provide: CHANNEL_LISTING_REPOSITORY_PORT, useExisting: ChannelListingRepositoryAdapter },
+    { provide: CHANNELS_DELETION_PASSWORD_PORT, useExisting: ChannelsDeletionPasswordAdapter },
     {
       provide: MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
       useExisting: MarketplaceRegistrationRepositoryAdapter,

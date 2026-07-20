@@ -42,17 +42,37 @@ React Query + inventory API helpers
   one import-run history. Manual upload requires explicit fresh-export
   attestation bound to the currently selected file, and pre-download failures
   render without file provenance.
-- `/inventory-hub` preserves baseline tabs `status`, `po`, `io`,
-  `sellpia-sync`, `rocket-events`, `ledger`, `audits`, and `assets`.
-- `/inventory` and `/stock-ops` keep their own operator-facing compositions.
-  Shared projections may reuse components, but the direct routes do not become
-  redirects.
+- `/inventory-hub` owns exactly four tabs — `status`, `sellpia-sync`,
+  `rocket-events`, `checks` — and has **no nested tab strip**. Related views
+  stack as sections inside one tab (purchase orders, io and assets all live on
+  `status`). Do not reintroduce sub-tabs to make room for a new view; add a
+  section or argue for a fifth tab. Every tab id retired by that collapse
+  keeps an entry in the page's `LEGACY_TAB_TARGETS` so old deep links still
+  land.
+- `/stock-ops` keeps only the two analysis views that are not inventory
+  operations: `product-outflow` and `channel-zero`. The tabs it handed to
+  `/inventory-hub` stay reachable through the page's `MOVED_TABS` redirect
+  table.
+- Tab moves are additive-compatible, never silent: a tab that changes route
+  gets a `MOVED_TABS` entry, a tab that changes id gets a `LEGACY_TAB_TARGETS`
+  entry, and both are covered by the page spec.
+  `/stock-ops?tab=sellpia-zero` and `?tab=freshness` are load-bearing for
+  dashboard and server automation alerts.
+- Both redirect tables are looked up with `Object.hasOwn`. Indexing a plain
+  object literal with the raw `?tab=` value lets `constructor`/`toString`
+  resolve to inherited members and hands `router.replace` a non-string.
+- `InventoryLedgerWorkspace` (수불부) and `InventoryIoWorkspace` (입출고) were
+  the same transfer/return records rendered twice, once read-only. There is
+  now one io section. Do not re-add a read-only twin of it.
+- `/inventory` keeps its own operator-facing composition. Shared projections
+  may reuse components, but that route does not become a redirect.
 - Compact freshness status opens the shared drawer; automatic and manual
   attempts remain one import history regardless of which screen opened it.
-- `/stock-ops` preserves baseline tabs `sellpia-zero`, `channel-zero`,
-  `bottlenecks`, `mapping-attention`, `inventory-value`, `freshness`,
-  `transfer`, and `return-transfer`. Do not restore an older tab set in their
-  place.
+- Sellpia import-run history has exactly one screen (`?tab=sellpia-sync`). Do
+  not reintroduce a separate audit or freshness tab rendering the same
+  `ImportFreshness` projection.
+- Stock asset reporting has exactly one component (`StockAssets`). Do not add
+  a second, reduced asset projection alongside it.
 
 ## Boundary Rules
 

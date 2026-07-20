@@ -34,6 +34,7 @@ export interface ProductPreparationRegisteredResult {
 }
 
 export interface FrozenProductPreparationSubmission {
+  executionId: string;
   preparationId: string;
   sourceCandidateId: string;
   channelAccountId: string;
@@ -67,6 +68,27 @@ export interface CreateOrGetActiveDraftInput {
   input: CreateProductPreparationInput;
 }
 
+export interface PrepareExternalRegistrationExecutionInput {
+  organizationId: string;
+  sourceCandidateId: string;
+  requestedByUserId: string | null;
+  channelAccountId: string;
+  displayName: string;
+  registrationInput: Record<string, unknown>;
+  idempotencyKey: string;
+}
+
+export interface ExternalRegistrationExecutionResult {
+  executionId: string;
+  preparationId: string;
+  requestHash: string;
+  status: 'prepared' | 'executing' | 'reconciling' | 'succeeded';
+  providerOutcome: 'not_attempted' | 'uncertain' | 'succeeded';
+  submissionLeaseToken: string | null;
+  expectedProviderAccountId: string;
+  listingId: string | null;
+}
+
 export type ReplaceDraftInputCommand =
   | { kind: 'replace'; input: UpdateProductPreparationInput }
   | { kind: 'cancel' };
@@ -94,6 +116,34 @@ export interface ProductPreparationRepositoryPort {
     resolveSourceWorkspace: (tx: SourcingRepositoryTransaction) => Promise<string>,
     resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationDraftResult>;
+
+  prepareExternalExecution(
+    input: PrepareExternalRegistrationExecutionInput,
+    resolveSourceWorkspace: (tx: SourcingRepositoryTransaction) => Promise<string>,
+    resolveSelections: ResolveProductPreparationSelections,
+  ): Promise<ExternalRegistrationExecutionResult>;
+
+  startExternalExecution(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+    executionId: string;
+    requestedByUserId: string | null;
+  }): Promise<ExternalRegistrationExecutionResult>;
+
+  getExternalExecution(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+    executionId: string;
+    requestedByUserId: string | null;
+  }): Promise<ExternalRegistrationExecutionResult>;
+
+  markExternalExecutionUnresolved(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+    executionId: string;
+    requestedByUserId: string | null;
+    evidence: unknown;
+  }): Promise<ExternalRegistrationExecutionResult>;
 
   replaceDraftInput(
     input: ReplaceDraftInputRequest,

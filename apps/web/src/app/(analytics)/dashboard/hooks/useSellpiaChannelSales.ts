@@ -3,15 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { SellpiaSalesSummary } from '@kiditem/shared/dashboard';
+import { useAuth } from '@/hooks/useAuth';
 import { queryKeys } from '@/lib/query-keys';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
-import { fetchSellpiaSalesSummary, ingestSellpiaSales } from '@/lib/sellpia-sales-api';
+import {
+  fetchSellpiaSalesSummary,
+  ingestSellpiaSales,
+  sellpiaSalesErrorMessage,
+} from '@/lib/sellpia-sales-api';
 import {
   collectSellpiaSaleSummaryFromExtension,
   readSellpiaSalesCacheFromExtension,
   clearSellpiaSalesCacheFromExtension,
 } from '@/lib/sellpia-sales-collection';
+import type { SellpiaSalesSummary } from '@kiditem/shared/dashboard';
 
 const AUTO_SYNC_KEY = 'kiditem-sellpia-sales-autosync';
 
@@ -63,8 +68,13 @@ export function useSellpiaChannelSales({
   to: string;
 }): SellpiaChannelSales {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const organizationId = user?.organizationId ?? null;
+  const autoSyncKey = organizationId
+    ? `${AUTO_SYNC_KEY}:${organizationId}`
+    : null;
   const [syncing, setSyncing] = useState(false);
-  const autoRan = useRef(false);
+  const autoRanForKey = useRef<string | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.dashboard.sellpiaSales(from, to),
@@ -72,50 +82,73 @@ export function useSellpiaChannelSales({
     refetchInterval: 60_000,
   });
 
-  // 수집 후 모든 기간(from~to) 조회를 무효화한다(prefix 매칭).
-  const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.sellpiaSalesAll() });
+  // 수집 후 모든 기간(from~to) 조회와 홈 준비 상태를 함께 갱신한다.
+  const invalidate = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.sellpiaSalesAll() }),
+      queryClient.invalidateQueries({ queryKey: ['readiness'] }),
+    ]);
   }, [queryClient]);
 
   const sync = useCallback(async () => {
     setSyncing(true);
     try {
-      const payload = await collectSellpiaSaleSummaryFromExtension();
+      if (!organizationId) {
+        throw new Error('판매현황을 저장할 조직 정보가 없습니다. 다시 로그인해주세요.');
+      }
+      const payload = await collectSellpiaSaleSummaryFromExtension({ organizationId });
       const result = await ingestSellpiaSales(payload);
-      safeStorageSet('local', AUTO_SYNC_KEY, todayKst());
-      invalidate();
+      if (autoSyncKey) safeStorageSet('local', autoSyncKey, todayKst());
+      await invalidate();
       toast.success(`판매현황 수집 완료 (${result.sellerCount}개 몰, ${result.businessDates.length}일)`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '판매현황 수집에 실패했습니다.');
+      toast.error(sellpiaSalesErrorMessage(err));
     } finally {
       setSyncing(false);
     }
-  }, [invalidate]);
+  }, [autoSyncKey, invalidate, organizationId]);
 
-  // autoRan ref 가드만으로 단일 실행 보장(StrictMode 재마운트에도 ref 유지). fire-and-forget
-  // 이라 cleanup 으로 취소하지 않는다(취소하면 dev 이중 호출에서 매번 no-op). state setter 미호출.
+  // 조직별 ref 가드로 단일 실행을 보장한다. 조직 전환 시에는 새 키로 다시 실행한다.
+  // fire-and-forget이라 cleanup으로 취소하지 않는다(취소하면 dev 이중 호출에서 매번 no-op).
   useEffect(() => {
-    if (autoRan.current) return;
-    autoRan.current = true;
+    if (!autoSyncKey || !organizationId) return;
+    if (autoRanForKey.current === autoSyncKey) return;
+    autoRanForKey.current = autoSyncKey;
     (async () => {
+      let cached: Awaited<ReturnType<typeof readSellpiaSalesCacheFromExtension>> = null;
       try {
-        const cached = await readSellpiaSalesCacheFromExtension();
-        if (cached?.payload?.sellers?.length) {
-          await ingestSellpiaSales(cached.payload);
-          await clearSellpiaSalesCacheFromExtension();
-          invalidate();
-        }
-      } catch { /* 확장 미설치/미로그인 — 무시 */ }
+        cached = await readSellpiaSalesCacheFromExtension(organizationId);
+      } catch { /* 확장 미설치/미로그인 — live 경로를 시도 */ }
 
-      if (safeStorageGet('local', AUTO_SYNC_KEY) === todayKst()) return;
+      if (cached?.payload) {
+        try {
+          await ingestSellpiaSales(cached.payload);
+          await invalidate();
+          // 저장 성공 뒤 캐시 정리 실패는 같은 payload를 즉시 다시 저장할 이유가 아니다.
+          try {
+            await clearSellpiaSalesCacheFromExtension(organizationId);
+          } catch { /* 다음 확장 실행에서 다시 정리 */ }
+          const today = todayKst();
+          if (
+            cached.payload.range.from <= today &&
+            cached.payload.range.to >= today
+          ) {
+            safeStorageSet('local', autoSyncKey, today);
+            return;
+          }
+          // 어제 이전 캐시는 먼저 DB에 보존하되, 오늘 범위는 아래 live 수집으로 채운다.
+        } catch { /* 원자 ingest 실패 — live 경로를 시도 */ }
+      }
+
+      if (safeStorageGet('local', autoSyncKey) === todayKst()) return;
       try {
-        const payload = await collectSellpiaSaleSummaryFromExtension();
+        const payload = await collectSellpiaSaleSummaryFromExtension({ organizationId });
         await ingestSellpiaSales(payload);
-        safeStorageSet('local', AUTO_SYNC_KEY, todayKst());
-        invalidate();
+        safeStorageSet('local', autoSyncKey, todayKst());
+        await invalidate();
       } catch { /* 확장 미설치/셀피아 미로그인 — 조용히 스킵(수동 버튼으로 유도) */ }
     })();
-  }, [invalidate]);
+  }, [autoSyncKey, invalidate, organizationId]);
 
   return { summary: data, isLoading, isError, refetch, sync, syncing };
 }

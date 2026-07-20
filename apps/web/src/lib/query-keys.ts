@@ -325,6 +325,10 @@ export const queryKeys = {
     duplicate: (title: string) =>
       [...queryKeys.contentWorkspaces.all, 'duplicate', title] as const,
   },
+  deletionPassword: {
+    all: ['deletion-password'] as const,
+    status: () => [...queryKeys.deletionPassword.all, 'status'] as const,
+  },
   channelListings: {
     all: ['channel-listings'] as const,
     list: (params: Record<string, string>) =>

@@ -34,6 +34,21 @@ export class ContentWorkspaceThumbnailSelectionRepositoryAdapter
     if (!workspace) throw new NotFoundException('Content workspace not found.');
   }
 
+  async findOwnedAssetIdByUrl(input: {
+    organizationId: string;
+    url: string;
+  }): Promise<string | null> {
+    const asset = await this.prisma.contentAsset.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        url: input.url,
+        isDeleted: false,
+      },
+      select: { id: true },
+    });
+    return asset?.id ?? null;
+  }
+
   async selectCurrent(input: {
     organizationId: string;
     workspaceId: string;

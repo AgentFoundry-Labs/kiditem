@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DATA_MIGRATION_IDS,
@@ -18,6 +20,8 @@ import {
   selectDataMigrationsForPhase,
 } from "../run-data-migrations";
 
+const repoRoot = join(__dirname, "..", "..");
+
 describe("data migration registry", () => {
   it("registers the release migration chain in order", () => {
     expect(DATA_MIGRATION_IDS).toEqual([
@@ -28,22 +32,64 @@ describe("data migration registry", () => {
       "v0.1.19:001_sellpia_inventory_freshness",
       "v0.1.21:001_backfill_inventory_commitments",
       "v0.1.24:001_dedupe_detail_page_artifacts",
+      "v0.1.25:001_repair_ad_campaign_daily_business_dates",
+      "v0.1.25:002_repair_coupang_ads_daily_conversions",
+      "v0.1.25:003_repair_ad_campaign_target_conversions",
+      "v0.1.25:004_rekey_ad_campaign_product_targets",
+      "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
     ]);
     expect(
-      DATA_MIGRATION_IDS.filter((id) => /^v0\.1\.(4|6|7):/.test(id)).some((id) =>
+      DATA_MIGRATION_IDS.filter((id) =>
         /backfill|normalize|rewrite|repoint|verify/.test(id),
       ),
-    ).toBe(false);
+    ).toEqual([
+      "v0.1.21:001_backfill_inventory_commitments",
+    ]);
   });
 
-  it("keeps historical release 0.1.22 migration-free", () => {
+  it("registers the 0.1.25 ad campaign repairs and the 0.1.21 inventory commitment backfill", () => {
+    const migrationIds = dataMigrations.map((migration) => migration.id);
+
+    expect(migrationIds).toContain(
+      "v0.1.25:001_repair_ad_campaign_daily_business_dates",
+    );
+    expect(migrationIds).toContain(
+      "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
+    );
+    expect(migrationIds).toContain("v0.1.21:001_backfill_inventory_commitments");
+  });
+
+  it("keeps historical release 0.1.22 migration-free and never registers ahead of the root VERSION", () => {
     const releaseVersions = dataMigrations.map(
       (migration) => migration.releaseVersion,
     );
+    const toParts = (version: string) => version.split(".").map(Number);
+    const compare = (a: string, b: string) => {
+      const left = toParts(a);
+      const right = toParts(b);
+      for (let index = 0; index < Math.max(left.length, right.length); index++) {
+        const diff = (left[index] ?? 0) - (right[index] ?? 0);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    };
 
     expect(releaseVersions).toContain("0.1.19");
     expect(releaseVersions).toContain("0.1.21");
     expect(releaseVersions).not.toContain("0.1.22");
+
+    // Migrations for the open release train carry the root VERSION in their
+    // path, id, and releaseVersion, so the newest registered release may equal
+    // the root version but must never run ahead of it.
+    const rootVersion = normalizeReleaseVersion(
+      readFileSync(join(repoRoot, "VERSION"), "utf8"),
+    );
+    const latestMigrationRelease = [...releaseVersions].sort(compare).at(-1);
+    expect(latestMigrationRelease).toBeDefined();
+    expect(
+      compare(latestMigrationRelease as string, rootVersion),
+    ).toBeLessThanOrEqual(0);
+
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(
         true,

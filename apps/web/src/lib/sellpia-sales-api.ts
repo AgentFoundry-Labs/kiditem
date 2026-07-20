@@ -1,4 +1,3 @@
-import { apiClient } from '@/lib/api-client';
 import {
   SellpiaSalesSummarySchema,
   SellpiaSalesIngestResultSchema,
@@ -6,12 +5,24 @@ import {
   type SellpiaSalesIngestPayload,
   type SellpiaSalesIngestResult,
 } from '@kiditem/shared/dashboard';
+import { apiClient } from '@/lib/api-client';
 
 // Sellpia 판매현황(몰별 매출) 백엔드 read/ingest 래퍼.
 
 // 느린/지연 백엔드에서 무한 대기하지 않도록 타임아웃을 건다. 초과 시 throw →
 // React Query 가 재시도(백오프)한다. 기간 전환 시 한 요청이 지연돼도 카드가 멈추지 않는다.
 const FETCH_TIMEOUT_MS = 12_000;
+
+export function sellpiaSalesErrorMessage(
+  error: unknown,
+  fallback = '판매현황 수집에 실패했습니다.',
+): string {
+  if (!(error instanceof Error)) return fallback;
+  if (/expired transaction|transaction.*timeout|P2028/i.test(error.message)) {
+    return '매출 저장 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.';
+  }
+  return error.message;
+}
 
 export async function fetchSellpiaSalesSummary(params?: {
   from?: string;

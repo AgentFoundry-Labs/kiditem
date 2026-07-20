@@ -19,7 +19,7 @@ const coupangPoSessionPath = path.join(
   repoRoot,
   'extensions/order-collector/background/coupang-po-session.js',
 );
-const webAppRoot = path.join(repoRoot, 'apps/web/src/app');
+const webSourceRoot = path.join(repoRoot, 'apps/web/src');
 const automaticCollectors = [
   'collectSellpiaDeliTracking',
   'collectIcecreamMallOrders',
@@ -129,6 +129,7 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   assert.match(worker, /collectSellpiaInventory:\s*true/);
   assert.match(worker, /collectSellpiaInventoryV2:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
+  assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
   assert.match(worker, /collectSellpiaProductProfit:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaProductStock/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
@@ -143,9 +144,9 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest publishes Rocket confirmation evidence at version 0.1.77', () => {
+test('order collector manifest publishes authoritative Sellpia sales evidence at version 0.1.78', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.77');
+  assert.equal(manifest.version, '0.1.78');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
 });
@@ -167,7 +168,7 @@ test('Coupang shipment date summary scans its bounded range in concurrent batche
 test('every web automatic order message carries its local runId explicitly', () => {
   const automaticActionSet = new Set(automaticCollectors);
   const messages = [];
-  for (const file of sourceFilesUnder(webAppRoot)) {
+  for (const file of sourceFilesUnder(webSourceRoot)) {
     if (/\.(spec|test)\.(ts|tsx)$/.test(file)) continue;
     const source = readFileSync(file, 'utf8');
     for (const match of source.matchAll(/action:\s*['"]([^'"]+)['"]/g)) {
@@ -181,7 +182,7 @@ test('every web automatic order message carries its local runId explicitly', () 
   for (const message of messages) {
     assert.match(
       message.objectTail,
-      /runId\s*:/,
+      /(?:^|,)\s*runId\s*(?::|[,}])/,
       `${message.action} in ${path.relative(repoRoot, message.file)}`,
     );
     if (runDateActions.has(message.action)) {

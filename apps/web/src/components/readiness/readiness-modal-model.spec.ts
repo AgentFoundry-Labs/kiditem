@@ -57,6 +57,7 @@ describe('readiness modal model', () => {
     const data = response([ready, check({ key: 'wing_sales' }), check({ key: 'wing_kpi', status: 'stale' })]);
 
     expect(buildReadinessModalViewModel(data)).toMatchObject({
+      allOk: false,
       doneCount: 1,
       totalCount: 3,
       pendingCount: 2,
@@ -65,6 +66,33 @@ describe('readiness modal model', () => {
       subhead: '어제까지의 숫자를 채워두면 오늘 대시보드가 정확해져요.',
       actionChecks: [data.checks[1], data.checks[2]],
       okChecks: [ready],
+    });
+  });
+
+  it('removes a retired Rocket check from cached payloads and readiness arithmetic', () => {
+    const rocket = check({
+      key: 'rocket_sales',
+      label: '쿠팡 로켓',
+      status: 'stale',
+      missingDates: [],
+    });
+    const ready = check({
+      key: 'coupang_ads',
+      label: 'Ads',
+      status: 'ok',
+      missingDates: [],
+    });
+    const data = response([rocket, ready], false);
+
+    expect(shouldAutoOpen(data, 'anyIssue')).toBe(false);
+    expect(shouldAutoOpen(data, 'collectionIssue')).toBe(false);
+    expect(buildReadinessModalViewModel(data)).toMatchObject({
+      checks: [ready],
+      allOk: true,
+      doneCount: 1,
+      totalCount: 1,
+      pendingCount: 0,
+      headline: 'AI 가 직접 운영합니다',
     });
   });
 });

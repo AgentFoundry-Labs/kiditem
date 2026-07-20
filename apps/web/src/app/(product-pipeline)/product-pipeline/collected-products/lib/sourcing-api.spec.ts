@@ -113,6 +113,61 @@ describe('sourcing candidate API', () => {
     );
   });
 
+  // 저장한 대표 썸네일이 카드에 반영되지 않던 회귀.
+  // `sourcing_candidates.thumbnail_url` 은 수집 원본이라 대표를 바꿔 저장해도
+  // 그대로다. 서버가 내려주는 `selectedThumbnailUrl` 을 카드가 읽어야 한다.
+  it('목록 카드 썸네일은 저장된 대표를 수집 원본보다 우선한다', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      items: [
+        {
+          id: 'cand-1',
+          name: '4000과일바구니딸깍이키링',
+          status: 'sourced',
+          sourcePlatform: 'KIDITEM_PRODUCT_REGISTRATION',
+          thumbnailUrl: 'https://cdn.example.com/scrape-original.png',
+          imageUrl: 'https://cdn.example.com/scrape-original.png',
+          images: [],
+          productPreparation: null,
+          selectedThumbnailUrl: 'https://cdn.example.com/saved-representative.jpg',
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const { items } = await productsApi.list({ page: 1, limit: 20 });
+
+    expect(items[0].selectedThumbnailUrl).toBe('https://cdn.example.com/saved-representative.jpg');
+    expect(items[0].thumbnailUrl).toBe('https://cdn.example.com/saved-representative.jpg');
+  });
+
+  it('저장된 대표가 없으면 수집 원본으로 떨어진다', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      items: [
+        {
+          id: 'cand-1',
+          name: '4000과일바구니딸깍이키링',
+          status: 'sourced',
+          sourcePlatform: 'KIDITEM_PRODUCT_REGISTRATION',
+          thumbnailUrl: 'https://cdn.example.com/scrape-original.png',
+          imageUrl: 'https://cdn.example.com/scrape-original.png',
+          images: [],
+          productPreparation: null,
+          selectedThumbnailUrl: null,
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const { items } = await productsApi.list({ page: 1, limit: 20 });
+
+    expect(items[0].selectedThumbnailUrl).toBeNull();
+    expect(items[0].thumbnailUrl).toBe('https://cdn.example.com/scrape-original.png');
+  });
+
   it('starts AI quick processing for an existing collected candidate', async () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ ok: true });
 

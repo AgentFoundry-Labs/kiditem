@@ -114,6 +114,11 @@ export interface SourcingCandidateRepositoryPort {
     imageUrl: string | null;
     images: UpsertCandidateInput['images'];
   }): Promise<CandidateRow | null>;
+  updateManualBasics(input: {
+    organizationId: string;
+    candidateId: string;
+    basics: Record<string, unknown>;
+  }): Promise<boolean>;
   findById(
     id: string,
     organizationId: string,

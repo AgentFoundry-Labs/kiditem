@@ -6,6 +6,7 @@ import {
   type ContentAssetLibraryRepositoryPort,
 } from '../../../application/port/out/repository/content-asset-library.repository.port';
 import type {
+  CandidateDetailPageHtmlSnapshot,
   DetailPageDuplicateSourceSnapshot,
   DetailPageGenerationSnapshot,
   DetailPageListRepositoryInput,
@@ -335,6 +336,67 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         createdAt: createdRevision.createdAt,
       };
     });
+  }
+
+  /**
+   * 후보의 "현재 상세페이지" HTML 1건.
+   *
+   * 우선순위는 워크스페이스의 리비전 포인터(`currentDetailPageRevisionId`), 현재 아티팩트
+   * 포인터(`currentDetailPageArtifactId`)의 `currentRevisionId`, 최신 아티팩트 순이다.
+   * 모두 같은 "저장된 상세페이지" 계약이라 서로 대체 가능하지만, 그 밖의 무엇으로도 대체하지 않는다.
+   * (생성 결과 스냅샷·썸네일·수집 원본으로 폴백하면 엉뚱한 상세페이지가 등록된다.)
+   */
+  async findCandidateCurrentDetailPageHtml(input: {
+    sourceCandidateId: string;
+    organizationId: string;
+  }): Promise<CandidateDetailPageHtmlSnapshot | null> {
+    const revisionSelect = {
+      id: true,
+      artifactId: true,
+      html: true,
+      createdAt: true,
+    } as const;
+
+    const workspace = await this.prisma.contentWorkspace.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        ownerType: 'sourcing_candidate',
+        sourceCandidateId: input.sourceCandidateId,
+        status: 'active',
+        isDeleted: false,
+      },
+      select: {
+        currentDetailPageRevision: { select: revisionSelect },
+        currentDetailPageArtifact: {
+          select: { currentRevision: { select: revisionSelect } },
+        },
+        detailPageArtifacts: {
+          where: {
+            organizationId: input.organizationId,
+            isDeleted: false,
+            currentRevisionId: { not: null },
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: { currentRevision: { select: revisionSelect } },
+        },
+      },
+    });
+    if (!workspace) return null;
+
+    const revision =
+      workspace.currentDetailPageRevision
+      ?? workspace.currentDetailPageArtifact?.currentRevision
+      ?? workspace.detailPageArtifacts[0]?.currentRevision
+      ?? null;
+    if (!revision) return null;
+
+    return {
+      revisionId: revision.id,
+      artifactId: revision.artifactId,
+      html: revision.html,
+      createdAt: revision.createdAt,
+    };
   }
 
   async getEditedHtml(input: { id: string; organizationId: string }) {

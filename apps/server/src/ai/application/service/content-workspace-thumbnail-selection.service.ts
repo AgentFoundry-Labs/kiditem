@@ -72,6 +72,18 @@ export class ContentWorkspaceThumbnailSelectionService {
     }
 
     const sourceUrl = selection.externalUrl!;
+    // 이미 우리가 소유한 URL 이면 외부 이미지가 아니다. 다시 내려받아 새 키로 저장하면
+    // 같은 이미지가 스토리지에 중복으로 쌓이고, 무엇보다 우리 오브젝트 스토리지를 향한
+    // 불필요한 아웃바운드 요청이 된다(로컬 MinIO 는 `http://localhost:9000/...` 이라
+    // SSRF 가드에 정당하게 막혀 `대표 썸네일 등록` 이 400 으로 실패했다).
+    // 소유 자산이면 fetch 없이 그대로 연결한다 — 진짜 외부 URL 에 대한 가드는 그대로다.
+    const ownedAssetId = await this.repository.findOwnedAssetIdByUrl({
+      organizationId: input.organizationId,
+      url: sourceUrl,
+    });
+    if (ownedAssetId) {
+      return { kind: 'content_asset', contentAssetId: ownedAssetId };
+    }
     const fetched = await this.imageFetch.fetchImage(sourceUrl);
     this.imageFetch.assertSupportedMime(fetched.mimeType);
     const extension = this.imageFetch.extForMime(fetched.mimeType);

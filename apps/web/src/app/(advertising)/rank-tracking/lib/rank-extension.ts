@@ -10,7 +10,7 @@ import {
 } from "@/lib/extension-bridge";
 import type { SerpItem } from "./rank-api";
 
-export const RANK_EXTENSION_MIN_VERSION = "1.2.33";
+export const RANK_EXTENSION_MIN_VERSION = "1.2.42";
 
 export const RANK_EXTENSION_CHROME_REQUIRED =
   "Wing 판매순위 수집은 Chrome 확장프로그램으로 실행됩니다. Chrome에서 이 페이지를 열어주세요.";

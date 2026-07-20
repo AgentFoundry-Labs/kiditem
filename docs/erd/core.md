@@ -247,13 +247,17 @@ erDiagram
 |---|---|---|---|---|
 | ChannelAccount | channelAccount | referenced by external | AI | ProductPreparation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
+| ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
 | ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |
 | ChannelAccount | channelAccount | referenced by external | Orders | Order |
 | ChannelAccount | channelAccount | referenced by external | Orders | OrderReturn |
+| ChannelAccount | channelAccount | referenced by external | Sourcing | ProductRegistrationExecution |
 | ChannelAccount | channelAccount | referenced by external | Supply | RocketPurchaseConfirmation |
 | ChannelListing | channelListing | referenced by external | AI | ContentWorkspace |
 | ChannelListing | channelListing | referenced by external | AI | ProductPreparation |
+| ChannelListing | channelListing | referenced by external | Channels | ChannelListingDeletionOperation |
+| ChannelListing | channelListing | referenced by external | Sourcing | ProductRegistrationExecution |
 | ChannelListing | listing | referenced by external | Advertising | AdAction |
 | ChannelListing | listing | referenced by external | AI | Thumbnail |
 | ChannelListing | listing | referenced by external | AI | ThumbnailTracking |
@@ -316,6 +320,7 @@ erDiagram
 | Organization | organization | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
 | Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
+| Organization | organization | referenced by external | Channels | ChannelListingDeletionOperation |
 | Organization | organization | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelScrapeChunk |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
@@ -366,6 +371,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | LiveCommerceProductDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | NaverKeywordDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | NaverPopularKeywordDailySnapshot |
+| Organization | organization | referenced by external | Sourcing | ProductRegistrationExecution |
 | Organization | organization | referenced by external | Sourcing | ShortsTrendDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | Sourcing1688HotProductDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | SourcingCandidate |
@@ -397,6 +403,7 @@ erDiagram
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
 | User | agentInstance | references external | AgentOS | AgentInstance |
+| User | approvedByUser | referenced by external | AI | ProductPreparation |
 | User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
@@ -419,6 +426,8 @@ erDiagram
 | User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
+| User | requestedByUser | referenced by external | Channels | ChannelListingDeletionOperation |
+| User | requestedByUser | referenced by external | Sourcing | ProductRegistrationExecution |
 | User | settler | referenced by external | Inventory | InventoryCommitment |
 | User | triggeredByUser | referenced by external | AgentOS | WorkflowRun |
 | User | triggeredByUser | referenced by external | AI | ContentGeneration |

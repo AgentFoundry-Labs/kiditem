@@ -108,6 +108,7 @@ function channelListingToProductWorkspaceData(
   const price = listing.channelPrice ?? 0;
   const product: ProductDetailResponse = {
     id: listing.id,
+    contentWorkspaceId: listing.contentWorkspaceId,
     name: title,
     status: 'sourced',
     sourcePlatform: `channel_listing:${listing.channel}`,

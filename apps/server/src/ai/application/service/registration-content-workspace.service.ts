@@ -3,6 +3,7 @@ import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type BranchRegistrationWorkspaceToListingInput,
   type EnsureRegistrationCandidateWorkspaceInput,
+  type FindCandidateContentWorkspaceInput,
   type RegistrationContentSelectionInput,
   type RegistrationContentWorkspacePort,
   type ResolvedRegistrationContentSelections,
@@ -23,6 +24,12 @@ export class RegistrationContentWorkspaceService
     @Inject(REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT)
     private readonly repository: RegistrationContentWorkspaceRepositoryPort,
   ) {}
+
+  findCandidateWorkspaceId(
+    input: FindCandidateContentWorkspaceInput,
+  ): Promise<string | null> {
+    return this.repository.findCandidateWorkspaceId(input);
+  }
 
   resolveSourceSelections(
     transaction: object,

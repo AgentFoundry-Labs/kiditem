@@ -13,6 +13,9 @@ describe('render-image staging runtime', () => {
     expect(dockerfile).toContain('PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium');
     expect(dockerfile).toContain('test -x "$PUPPETEER_EXECUTABLE_PATH"');
     expect(dockerfile).toContain('"$PUPPETEER_EXECUTABLE_PATH" --version');
+    expect(dockerfile).toContain('npm run build --workspace=packages/templates');
+    expect(dockerfile).toContain('/app/packages/templates/dist ./packages/templates/dist');
+    expect(dockerfile).toContain("require.resolve('@kiditem/templates/styles.css')");
     expect(workflow).toContain('API_RUNTIME_BASE_IMAGE');
     expect(workflow).toMatch(
       /^  API_RUNTIME_BASE_IMAGE: ghcr\.io\/agentfoundry-labs\/kiditem-api-base:node22-chromium-b6503cb2512e$/m,

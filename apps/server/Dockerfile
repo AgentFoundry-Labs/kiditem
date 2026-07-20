@@ -39,6 +39,7 @@ COPY packages/templates ./packages/templates
 COPY apps/server ./apps/server
 
 RUN npm run build --workspace=packages/shared
+RUN npm run build --workspace=packages/templates
 RUN npm run build --workspace=apps/server
 
 FROM ${API_RUNTIME_BASE_IMAGE} AS runner
@@ -66,6 +67,7 @@ RUN npm ci \
       --ignore-scripts \
       --workspace=apps/server \
       --workspace=packages/shared \
+      --workspace=packages/templates \
       --include-workspace-root=false \
       --fetch-timeout=600000 \
       --fetch-retries=5 \
@@ -97,7 +99,10 @@ RUN node -e "require('@nestjs/common'); require('rxjs/operators'); require('@ag-
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/templates/dist ./packages/templates/dist
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
+
+RUN node -e "const fs=require('fs'); const css=fs.readFileSync(require.resolve('@kiditem/templates/styles.css'),'utf8'); if(!/tailwindcss\\s+v\\d/i.test(css)) process.exit(1)"
 
 RUN tmpdir="$(mktemp -d)" \
     && printf '{"pos":[],"centers":{}}' > "$tmpdir/input.json" \

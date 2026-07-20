@@ -48,9 +48,16 @@
 - Product create/edit mutations invalidate only the product operations list and
   affected detail keys.
 - Product detail owns manual complete recipe replacement through the focused
-  physical Inventory candidate search.
+  physical Inventory candidate search. Manual variant recipe edits are complete
+  atomic replacements: operators select confirmed physical Inventory identities,
+  and a component is saved by `sellpiaInventorySkuId` and positive integer
+  quantity. Matching may invoke the separate version-fenced create-if-empty
+  command for one component with a backend-verified positive integer quantity.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
+- Candidate generation on `/product-hub/matching` never confirms an identity
+  link. Product/variant link mutations and deterministic recipe application
+  require explicit operator confirmation.
 - Products owns transaction-aware creation or exact reuse of channel-origin
   products and variants during catalog publication. Channels owns typed exact
   evidence extraction and the final still-null listing/option link writes.
@@ -69,8 +76,15 @@
 - Product operations and product-outflow remain separate screens over the same
   depletion projection. Manual `MasterProduct.abcGrade` is not overwritten by
   sales-derived ABC.
+- Do not create catalog-owned stock balances or editable Sellpia stock/price
+  inputs.
+- Do not infer identity from display text, normalized names, or AI. The nested
+  matching guide owns the narrower recipe-evidence and pack-ratio policy.
 - Channel rows may show inherited recipe status and capacity; the catalog guide
-  owns recipe and matching safety policy.
+  owns recipe and matching safety policy. Manual complete recipe edits belong to
+  `/product-hub/[masterProductId]`; matching owns only the narrow
+  create-if-empty automation workflow.
+- All API calls use `apiClient` + React Query and never send `organizationId`.
 - Keep all edited UI light-only; do not add `dark:` variants.
 
 ## Verification

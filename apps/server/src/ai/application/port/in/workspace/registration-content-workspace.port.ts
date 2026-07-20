@@ -37,7 +37,22 @@ export interface BranchRegistrationWorkspaceToListingInput
   createdByUserId: string | null;
 }
 
+export interface FindCandidateContentWorkspaceInput {
+  organizationId: string;
+  sourceCandidateId: string;
+}
+
 export interface RegistrationContentWorkspacePort {
+  /**
+   * Read-only lookup of the active workspace a candidate already owns.
+   *
+   * `ensureCandidateWorkspace` is the write path and runs inside registration.
+   * The candidate workspace screen only needs to know whether a workspace
+   * exists, so it must not create one as a side effect of a GET.
+   */
+  findCandidateWorkspaceId(
+    input: FindCandidateContentWorkspaceInput,
+  ): Promise<string | null>;
   resolveSourceSelections(
     transaction: object,
     input: RegistrationContentSelectionInput,

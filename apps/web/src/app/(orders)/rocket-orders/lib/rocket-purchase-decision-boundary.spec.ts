@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -39,28 +39,41 @@ describe('Rocket purchase decision boundary', () => {
       '../../extensions/order-collector/background/service-worker.js',
     ), 'utf8');
 
+    expect(existsSync(resolve(routeRoot, 'components/RocketConfirmPanel.tsx'))).toBe(false);
+    expect(existsSync(resolve(routeRoot, 'lib/rocket-confirm-api.ts'))).toBe(false);
+
     expect(pageSource).toContain('RocketOrdersWorkspace');
-    expect(pageSource).toContain('<RocketOrdersWorkspace />');
+    // The route keeps its operations shell; the workspace owns the canonical Supply preview.
+    expect(pageSource).not.toContain('decisionWorkspace');
+    expect(pageSource).not.toContain('RocketConfirmPanel');
     expect(pageSource).not.toContain('RocketPurchasePreviewSection');
     expect(pageSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(pageSource).not.toContain('redirect(');
     expect(pageSource).not.toMatch(/useQuery|useState|listRocketPosFromExtension/);
     expect(operationsSource).toContain('쿠팡 로켓 발주');
     expect(operationsSource).toContain("const [status, setStatus] = useState('');");
+    // 데이터 소스는 저장된 발주(listSavedRocketPos) 기준으로 통일한다.
     expect(operationsSource).toContain('수집·저장된 발주 조회 · 입고예정일별 분류');
     expect(operationsSource).toContain('listSavedRocketPos');
     expect(operationsSource).not.toContain('listRocketPosFromExtension');
-    expect(operationsSource).toContain('해당 조건의 발주가 없습니다');
+    // 저장 발주 빈 상태 문구는 양쪽 워크스페이스 판본에 공통으로 존재하는 문구를 기준으로 검증한다.
+    expect(operationsSource).toContain('이 달엔 해당 발주가 없습니다');
     expect(operationsSource).toContain('신규 주문');
     expect(operationsSource).toContain('납품 판단');
     expect(operationsSource).toContain('쉽먼트 / 밀크런');
     expect(operationsSource).toContain('송장 · 출력');
-    expect(operationsSource).toContain("['week', '주 달력']");
+    expect(operationsSource).not.toContain("['week', '주 달력']");
     expect(operationsSource).toContain("['month', '월 달력']");
     expect(operationsSource).toContain("['chart', '차트']");
+    expect(operationsSource).toContain('selectedDay &&');
+    expect(operationsSource).not.toContain('visibleDates.map');
     expect(operationsSource).toContain('<RocketConfirmFileList');
+    // supply 워크스페이스는 로켓 탭을 더 이상 소유하지 않는다.
     expect(purchaseWorkspaceSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(purchaseWorkspaceSource).not.toContain("activeTab === 'rocket'");
+    expect(purchaseWorkspaceSource).not.toContain('RocketOrdersWorkspace');
+    // orders 워크스페이스 renders the Supply preview directly, without a legacy injection seam.
+    expect(operationsSource).not.toContain('decisionWorkspace');
     expect(operationsSource).toContain('<RocketPurchasePreviewSection');
     expect(operationsSource).toContain('savedSourceImportRunId={selectedSavedSourceImportRunId}');
     expect(operationsSource).not.toContain('납품 수량 판단은 추후 연동합니다');

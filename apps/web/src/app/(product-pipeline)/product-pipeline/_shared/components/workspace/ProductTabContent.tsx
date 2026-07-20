@@ -64,6 +64,8 @@ interface Props {
     selectedDetailPageRevisionId?: string | null;
   }) => Promise<void> | void;
   selectedRegistrationThumbnailUrl: string | null;
+  /** 저장된 대표 썸네일. `등록 대표` 배지의 유일한 근거(폴백 없음). */
+  savedRepresentativeThumbnailUrl?: string | null;
   mobilePreviewData: ProductRegistrationPreviewData;
   onPreviewThumbnail: (url: string | null) => void;
   thumbnailPreviewImages: string[];
@@ -112,6 +114,7 @@ export default function ProductTabContent({
   onSelectAgent,
   onApplyRegistrationDetailPage,
   selectedRegistrationThumbnailUrl,
+  savedRepresentativeThumbnailUrl = null,
   thumbnailPreviewImages,
   mobilePreviewData,
   onPreviewThumbnail,
@@ -159,14 +162,16 @@ export default function ProductTabContent({
     setIsBasicEditing(false);
   };
   const saveBasicEditing = async () => {
-    const input = productBasicsInputFromDraft(basicDraft);
+    const input = productBasicsInputFromDraft(basicDraft, basicInfo);
     setIsBasicSaving(true);
     try {
       await onCommitBasicInfo?.(input);
       updateField('name', input.name ?? '');
       updateField('category', input.category ?? '');
       updateField('tags', input.tags ?? []);
-      updateField('salePrice', input.salePrice ?? 0);
+      // salePrice 가 payload 에 없으면 = 손대지 않은 셀피아 폴백이라 서버 값이
+      // 그대로다. 0 으로 덮으면 화면에서만 가격이 사라진다.
+      if (input.salePrice !== undefined) updateField('salePrice', input.salePrice);
       updateField('originalPrice', input.originalPrice ?? 0);
       updateField('discountRate', input.discountRate ?? 0);
       setIsBasicEditing(false);
@@ -270,6 +275,7 @@ export default function ProductTabContent({
           thumbnailUrl={thumbnailUrl}
           thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
           selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+          savedRepresentativeThumbnailUrl={savedRepresentativeThumbnailUrl}
           thumbnailPreviewImages={thumbnailPreviewImages}
           onPreviewThumbnail={onPreviewThumbnail}
           onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}

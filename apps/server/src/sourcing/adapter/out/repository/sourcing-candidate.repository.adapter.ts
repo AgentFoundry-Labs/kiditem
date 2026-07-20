@@ -83,6 +83,61 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     });
   }
 
+  async updateManualBasics(input: {
+    organizationId: string;
+    candidateId: string;
+    basics: Record<string, unknown>;
+  }): Promise<boolean> {
+    const existing = await this.prisma.sourcingCandidate.findFirst({
+      where: {
+        id: input.candidateId,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
+      select: { rawData: true },
+    });
+    if (!existing) return false;
+    // 부분 저장(예: 보기 모드 KC 이미지 단독 저장)이 이전에 저장한 키워드·가격을
+    // 지우지 않도록 기존 manualBasics 에 병합한다. 전체 `수정` 저장은 모든 필드를
+    // 보내므로 병합/치환 결과가 같다. 명시적으로 빈 값(예: keywords=[])이면 덮어쓴다.
+    const priorRaw = existing.rawData && typeof existing.rawData === 'object' && !Array.isArray(existing.rawData)
+      ? existing.rawData as Record<string, unknown>
+      : {};
+    const priorManual = priorRaw.manualBasics && typeof priorRaw.manualBasics === 'object' && !Array.isArray(priorRaw.manualBasics)
+      ? priorRaw.manualBasics as Record<string, unknown>
+      : {};
+    const manualBasics = { ...priorManual, ...pruneUndefined(input.basics) };
+    const data: Prisma.SourcingCandidateUpdateManyMutationInput = {
+      rawData: mergeJson(existing.rawData, { manualBasics }) as Prisma.InputJsonValue,
+    };
+    // 후보 목록 카드/헤더는 실컬럼(name·category·description·tags)을 읽으므로
+    // manualBasics 만이 아니라 컬럼도 함께 맞춰준다. 나머지 등록용 필드
+    // (키워드·가격·KC 등)는 manualBasics 오버레이에만 남는다.
+    if (typeof input.basics.name === 'string' && input.basics.name.trim()) {
+      data.name = input.basics.name.trim();
+    }
+    if (typeof input.basics.category === 'string') {
+      data.category = input.basics.category.trim() || null;
+    }
+    if (typeof input.basics.description === 'string') {
+      data.description = input.basics.description;
+    }
+    if (Array.isArray(input.basics.tags)) {
+      data.tags = input.basics.tags.filter(
+        (tag): tag is string => typeof tag === 'string',
+      ) as unknown as Prisma.InputJsonValue;
+    }
+    const result = await this.prisma.sourcingCandidate.updateMany({
+      where: {
+        id: input.candidateId,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
+      data,
+    });
+    return result.count > 0;
+  }
+
   async findById(id: string, organizationId: string) {
     const row = await this.prisma.sourcingCandidate.findFirst({
       where: { id, organizationId, isDeleted: false },
@@ -363,6 +418,14 @@ function mergeJson(previous: unknown, incoming: object): object {
     ? previous as Record<string, unknown>
     : {};
   return { ...base, ...incoming };
+}
+
+function pruneUndefined(value: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (entry !== undefined) result[key] = entry;
+  }
+  return result;
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

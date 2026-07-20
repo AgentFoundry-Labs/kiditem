@@ -3,6 +3,7 @@ import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { CreateProductPreparationDto } from './create-product-preparation.dto';
 import { UpdateProductPreparationDto } from './update-product-preparation.dto';
+import { ConfirmExternalRegistrationDto } from './confirm-external-registration.dto';
 
 describe('product preparation DTOs', () => {
   it('rejects a blank create display name', async () => {
@@ -40,5 +41,32 @@ describe('product preparation DTOs', () => {
 
     expect(await validate(patch)).toHaveLength(0);
     expect(await validate(metadataOnly)).not.toHaveLength(0);
+  });
+
+  it('keeps external-registration evidence while treating the client channel as non-authoritative', async () => {
+    const dto = plainToInstance(ConfirmExternalRegistrationDto, {
+      executionId: '11111111-1111-4111-8111-111111111111',
+      externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    });
+
+    expect(await validate(dto, { whitelist: true })).toHaveLength(0);
+    expect(dto.evidence).toEqual({ wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' });
+  });
+
+  it('requires exact verified WING identity evidence for external completion', async () => {
+    const valid = plainToInstance(ConfirmExternalRegistrationDto, {
+      executionId: '11111111-1111-4111-8111-111111111111',
+      externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    });
+    expect(await validate(valid)).toHaveLength(0);
+
+    const forged = plainToInstance(ConfirmExternalRegistrationDto, {
+      executionId: '11111111-1111-4111-8111-111111111111',
+      externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'display-name' },
+    });
+    expect(await validate(forged)).not.toHaveLength(0);
   });
 });

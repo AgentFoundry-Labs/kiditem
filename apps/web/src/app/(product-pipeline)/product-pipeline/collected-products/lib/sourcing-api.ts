@@ -30,6 +30,11 @@ export interface SourcedProduct {
   imageUrl?: string | null;
   images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   productPreparation?: ProductPreparationSelection | null;
+  /**
+   * 저장된 대표 썸네일. 서버가 준비(ProductPreparation) → 후보 워크스페이스
+   * 순으로 계산해 내려준다. 없으면 `null` 이고 카드는 수집 원본으로 떨어진다.
+   */
+  selectedThumbnailUrl?: string | null;
   thumbnailPreviewUrls?: string[];
   rejectedAt?: string | null;
   rejectedReason?: string | null;
@@ -73,9 +78,26 @@ export interface ProductDetailResponse {
   images: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   basicInfo: ProductBasics;
   productPreparation: ProductPreparationSelection | null;
+  /**
+   * 후보가 이미 소유한 `ContentWorkspace.id`. 아직 없으면 `null`.
+   *
+   * `ProductPreparation` 이 없는 후보는 이 값이 썸네일 구성을 저장할 수 있는
+   * 유일한 위치다(= `ContentAsset role='thumbnail'` 갤러리 소유자).
+   * 구버전 응답에는 없을 수 있어 `null` 로 정규화한다.
+   */
+  contentWorkspaceId: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export interface RegistrationImages {
+  primary: string[];
+  thumbnail: string[];
+  detail: string[];
+}
+
+/** 서버 `ProductBasics.salePriceSource` 와 같은 값 집합이다. */
+export type SalePriceSource = 'input' | 'sellpia' | 'none';
 
 export interface ProductBasics {
   name: string;
@@ -96,11 +118,26 @@ export interface ProductBasics {
   boxSetQuantity: string;
   originalPrice: number;
   salePrice: number;
+  /**
+   * `salePrice` 출처. 서버 파생 값이라 읽기 전용이다(수정 API 로 보내지 않는다).
+   *   - `input`:   수기 입력값
+   *   - `sellpia`: 이름이 정확히 일치한 셀피아 재고 SKU 판매가 폴백
+   *   - `none`:    매칭 실패. `salePrice` 는 0이다.
+   * 구버전 응답에는 없을 수 있다.
+   */
+  salePriceSource?: SalePriceSource;
   discountRate: number;
   rocketBundleQuantity: number;
   rocketUnitCost: number;
   thumbnailUrls: string[];
   thumbnailPreviewUrls?: string[];
+  /**
+   * Channel-registration images split by `ContentAsset.role`. Absent/empty when
+   * the candidate has no role-tagged assets. Never contains `role = 'source'`
+   * rows — those are raw scrape originals that fail the Coupang 1,000x1,000 spec.
+   */
+  /** role 별 등록 이미지. 구버전 응답·다른 화면의 로컬 초안에는 없을 수 있다. */
+  registrationImages?: RegistrationImages;
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationId: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
@@ -299,6 +336,24 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
   };
 }
 
+function normalizeRegistrationImages(value: unknown): RegistrationImages {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    primary: collectImageUrls(raw.primary),
+    thumbnail: collectImageUrls(raw.thumbnail),
+    detail: collectImageUrls(raw.detail),
+  };
+}
+
+const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'sellpia', 'none'];
+
+/** 서버가 값을 안 줬거나 모르는 값이면 출처 미상 → `none`. 추측하지 않는다. */
+function normalizeSalePriceSource(value: unknown): SalePriceSource {
+  return SALE_PRICE_SOURCES.includes(value as SalePriceSource)
+    ? (value as SalePriceSource)
+    : 'none';
+}
+
 function normalizeProductBasics(
   value: unknown,
   fallback: {
@@ -306,7 +361,6 @@ function normalizeProductBasics(
     category: string;
     description?: string | null;
     tags?: string[];
-    salePrice?: number | null;
     thumbnailUrls: string[];
     preparation: ProductPreparationSelection | null;
   },
@@ -342,12 +396,14 @@ function normalizeProductBasics(
     boxSetStatus: typeof basics.boxSetStatus === 'string' ? basics.boxSetStatus : '',
     boxSetQuantity: typeof basics.boxSetQuantity === 'string' ? basics.boxSetQuantity : '',
     originalPrice: numberOrZero(basics.originalPrice),
-    salePrice: numberOrZero(basics.salePrice) || fallback.salePrice || 0,
+    salePrice: numberOrZero(basics.salePrice),
+    salePriceSource: normalizeSalePriceSource(basics.salePriceSource),
     discountRate: numberOrZero(basics.discountRate),
     rocketBundleQuantity: numberOrZero(basics.rocketBundleQuantity),
     rocketUnitCost: numberOrZero(basics.rocketUnitCost),
     thumbnailUrls,
     thumbnailPreviewUrls: explicitThumbnailUrls,
+    registrationImages: normalizeRegistrationImages(basics.registrationImages),
     selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,
     selectedThumbnailGenerationId:
       typeof basics.selectedThumbnailGenerationId === 'string'
@@ -467,7 +523,14 @@ export const productsApi = {
         ? preparationRecord.registrationInput as Record<string, unknown>
         : {};
       const thumbnailPreviewUrls = collectImageUrls(registrationInput.thumbnailUrls);
+      // 서버가 계산한 **저장된 대표 썸네일**(준비 → 후보 워크스페이스 순).
+      // 이게 없으면 준비가 없는 후보의 대표 선택이 카드에 반영되지 않고
+      // `sourcing_candidates.thumbnail_url`(수집 원본)이 계속 보인다.
+      const selectedThumbnailUrl = typeof p.selectedThumbnailUrl === 'string' && p.selectedThumbnailUrl.trim()
+        ? p.selectedThumbnailUrl.trim()
+        : null;
       const thumbnailUrl = productPreparation?.selectedThumbnailUrl ??
+        selectedThumbnailUrl ??
         selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
       const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
       return {
@@ -484,6 +547,7 @@ export const productsApi = {
         imageUrl: p.imageUrl ?? null,
         images: Array.isArray(p.images) ? p.images : [],
         productPreparation,
+        selectedThumbnailUrl,
         thumbnailPreviewUrls,
         rejectedAt: p.rejectedAt ?? null,
         rejectedReason: p.rejectedReason ?? null,
@@ -518,7 +582,6 @@ export const productsApi = {
       category: p.category || '',
       description: p.description || '',
       tags: Array.isArray(p.tags) ? p.tags.filter((tag: unknown): tag is string => typeof tag === 'string') : [],
-      salePrice: p.sellPrice || null,
       thumbnailUrls: images,
       preparation: productPreparation,
     });
@@ -541,6 +604,10 @@ export const productsApi = {
       images: Array.isArray(p.images) ? p.images : [],
       basicInfo,
       productPreparation,
+      contentWorkspaceId:
+        typeof p.contentWorkspaceId === 'string' && p.contentWorkspaceId
+          ? p.contentWorkspaceId
+          : null,
       created_at: p.createdAt || '',
       updated_at: p.updatedAt || '',
     };
@@ -636,8 +703,57 @@ export const candidatesApi = {
     }
     return { preparationId: result.preparationId, status: result.status };
   },
+  /**
+   * 이미 마켓에 등록된 상품을 등록상품으로 확정한다.
+   *
+   * 쿠팡 WING 등록은 확장이 화면을 조작해 수행하므로 서버의 provider create 경로를
+   * 탈 수 없다. 이 호출은 **이미 발급된 등록상품ID** 를 근거로 `ChannelListing` 만
+   * 만들어 등록상품 목록에 올린다. 서버가 provider 를 호출하지 않는다.
+   */
+  confirmExternalRegistration: (
+    candidateId: string,
+    body: {
+      executionId: string;
+      externalListingId: string;
+      evidence?: Record<string, unknown>;
+    },
+  ) =>
+    apiClient.post<{ preparationId: string; status: string; listingId?: string }>(
+      `/api/sourcing/candidates/${candidateId}/registration/confirm-external`,
+      body,
+    ),
+  prepareExternalWingRegistration: (candidateId: string, body: {
+    channelAccountId: string;
+    displayName: string;
+    registrationInput: Record<string, unknown>;
+    idempotencyKey: string;
+  }) => apiClient.post<{
+    executionId: string; preparationId: string; requestHash: string;
+    status: 'prepared'; expectedVendorId: string;
+  }>(`/api/sourcing/candidates/${candidateId}/registration/external-wing/prepare`, body),
+  startExternalWingRegistration: (candidateId: string, executionId: string) =>
+    apiClient.post<{ executionId: string; status: 'executing'; providerOutcome: 'uncertain' }>(
+      `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/start`, {},
+    ),
+  markExternalWingRegistrationUnresolved: (
+    candidateId: string, executionId: string, evidence: Record<string, unknown>,
+  ) => apiClient.post(
+    `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/unresolved`,
+    { evidence },
+  ),
   quickProcess: (id: string, task: QuickProcessTask = 'all') =>
     apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
+  /**
+   * `ProductPreparation` 이 없는 후보의 기본정보를 후보 자체에 저장한다.
+   * 채널 계정 선택 없이도 저장 가능하며, 준비가 생기면 registrationInput 이 이어받는다.
+   */
+  updateCandidateBasicInfo: (candidateId: string, body: UpdateProductBasicsInput) => {
+    const { basePreparationUpdatedAt: _ignored, ...basics } = body;
+    return apiClient.patch<{ ok: true }>(
+      `/api/sourcing/candidates/${encodeURIComponent(candidateId)}/basic-info`,
+      basics,
+    );
+  },
   updateBasicInfo: (preparationId: string, body: UpdateProductBasicsInput) => {
     const { basePreparationUpdatedAt, ...registrationInput } = body;
     return apiClient.patch<ProductPreparationCommandResult>(

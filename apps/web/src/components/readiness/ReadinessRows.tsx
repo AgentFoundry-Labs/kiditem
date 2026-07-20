@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   AlertTriangle,
+  Boxes,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -10,12 +11,13 @@ import {
   Megaphone,
   Package,
   RefreshCw,
-  Rocket,
   Trophy,
   XCircle,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
 import { cn } from '@/lib/utils';
 import type { LucideIcon } from 'lucide-react';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
@@ -24,7 +26,6 @@ type DisplayMeta = { title: string; hint: string; icon: LucideIcon };
 
 const DISPLAY: Record<string, DisplayMeta> = {
   wing_sales: { title: '일별 매출', hint: '셀피아 몰별 매출', icon: LineChart },
-  rocket_sales: { title: '쿠팡 로켓', hint: '발주확정 매출', icon: Rocket },
   coupang_ads: { title: '광고 성과', hint: '클릭·전환·지출', icon: Megaphone },
   coupang_products: { title: '상품 목록', hint: '등록된 SKU 동기화', icon: Package },
   wing_kpi: { title: '아이템위너 순위', hint: '경쟁 현황', icon: Trophy },
@@ -169,11 +170,9 @@ export function ActionCheckCard({
   const status = statusMeta(check.status);
   const missingCount = check.missingDates?.length ?? 0;
   const hasStrip = !!check.expectedDates && check.expectedDates.length > 0;
-  const canCollect = check.key !== 'rocket_sales';
 
   const subline = (() => {
     if (missingCount > 0) return `최근 ${check.expectedDates!.length}일 중 ${missingCount}일이 비어 있어요`;
-    if (check.key === 'rocket_sales' && check.status === 'stale') return '오늘 로켓 매출이 아직 갱신되지 않았어요';
     if (check.status === 'stale') return '어제 데이터가 아직 반영되지 않았어요';
     return meta.hint;
   })();
@@ -216,33 +215,27 @@ export function ActionCheckCard({
           </p>
         </div>
 
-        {canCollect ? (
-          <button
-            onClick={() => onCollect(check)}
-            disabled={pending}
-            className={cn(
-              'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-              'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-              'disabled:opacity-60',
-            )}
-          >
-            {pending ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                받는 중…
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-3.5 w-3.5" />
-                {collectLabel(check)}
-              </>
-            )}
-          </button>
-        ) : (
-          <span className="shrink-0 rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-xs font-medium text-[var(--text-tertiary)]">
-            조회 전용
-          </span>
-        )}
+        <button
+          onClick={() => onCollect(check)}
+          disabled={pending}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
+            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
+            'disabled:opacity-60',
+          )}
+        >
+          {pending ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              받는 중…
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-3.5 w-3.5" />
+              {collectLabel(check)}
+            </>
+          )}
+        </button>
       </div>
 
       {hasStrip && (
@@ -323,6 +316,86 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
           className="mx-4 mb-4"
         />
       )}
+    </div>
+  );
+}
+
+const STOCK_SYNC_STATUS: Record<string, { text: string; chipClass: string }> = {
+  fresh: { text: '최신', chipClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  refresh_required: { text: '갱신 필요', chipClass: 'bg-amber-50 text-amber-700 border-amber-200' },
+  syncing: { text: '갱신 중', chipClass: 'bg-blue-50 text-blue-700 border-blue-200' },
+  failed: { text: '실패', chipClass: 'bg-rose-50 text-rose-700 border-rose-200' },
+};
+
+/**
+ * 셀피아 재고 동기화 행. AdSyncRow 와 마찬가지로 readiness check 가 아닌 별도 행이라
+ * 진행바 분모(N/5)를 바꾸지 않는다. 공유 freshness 상태를 읽고 공유 requestRefresh 만
+ * 호출한다 — TTL 계산이나 claim/heartbeat 타이머를 자체 보유하지 않는다.
+ */
+export function StockSyncRow() {
+  const { state, requestRefresh } = useSellpiaInventoryFreshness({ enabled: true });
+  const [requesting, setRequesting] = useState(false);
+  const busy = requesting || state?.status === 'syncing';
+  const meta = state ? STOCK_SYNC_STATUS[state.status] : null;
+
+  const run = async () => {
+    setRequesting(true);
+    try {
+      await requestRefresh('manual_request');
+      toast.success('셀피아 재고 동기화를 시작했습니다.');
+    } catch {
+      toast.error('셀피아 재고 동기화 요청에 실패했습니다.');
+    } finally {
+      setRequesting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
+      <div className="flex items-start gap-3 p-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--primary-soft)] text-[var(--primary)]">
+          <Boxes className="h-5 w-5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">셀피아 재고</h3>
+            {meta && (
+              <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-semibold', meta.chipClass)}>
+                {meta.text}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">
+            현재고를 다시 받아와 재고분석·발주 판단을 최신으로 맞춰요
+          </p>
+          <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
+            마지막 검증 {formatRelative(state?.lastVerifiedAt ?? null)}
+          </p>
+        </div>
+
+        <button
+          onClick={() => void run()}
+          disabled={busy}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
+            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
+            'disabled:opacity-60',
+          )}
+        >
+          {busy ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              동기화 중…
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-3.5 w-3.5" />
+              재고 동기화
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
