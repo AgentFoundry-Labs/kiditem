@@ -94,23 +94,8 @@ vi.mock('@/app/(supply)/purchase-orders/components/RocketPurchasePreviewSection'
   },
 }));
 
-function renderWorkspace(options?: {
-  onSelectDate?: (date: string | null) => void;
-  savedDays?: Record<string, { count: number; qty: number; amount: number }>;
-}) {
-  return render(
-    <RocketOrdersWorkspace
-      decisionWorkspace={({ renderOrderExplorer }) => (
-        <section aria-label="상단 통합 달력">
-          {renderOrderExplorer({
-            disabled: false,
-            onSelectDate: options?.onSelectDate ?? vi.fn(),
-            savedDays: options?.savedDays ?? {},
-          })}
-        </section>
-      )}
-    />,
-  );
+function renderWorkspace() {
+  return render(<RocketOrdersWorkspace />);
 }
 
 describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
@@ -135,9 +120,8 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     vi.clearAllMocks();
   });
 
-  it('shows only the selected date orders and synchronizes the saved preview date', () => {
-    const onPreviewDate = vi.fn();
-    renderWorkspace({ onSelectDate: onPreviewDate });
+  it('shows only the selected date orders while retaining the canonical preview', () => {
+    renderWorkspace();
 
     expect(screen.queryByText('18일 주문 상품')).not.toBeInTheDocument();
     expect(screen.queryByText('19일 주문 상품')).not.toBeInTheDocument();
@@ -148,12 +132,10 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     expect(screen.getByRole('button', { name: '2026-07-19 발주 1건' })).toHaveClass('bg-purple-50');
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
-    expect(onPreviewDate).toHaveBeenLastCalledWith('2026-07-18');
     expect(screen.getByText('18일 주문 상품')).toBeInTheDocument();
     expect(screen.queryByText('19일 주문 상품')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-19 발주 1건' }));
-    expect(onPreviewDate).toHaveBeenLastCalledWith('2026-07-19');
     // 선택된 미래 날짜는 진한 보라(bg-purple-100) + ring 으로 승격된다.
     expect(screen.getByRole('button', { name: '2026-07-19 발주 1건' })).toHaveClass('bg-purple-100');
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).not.toHaveClass('bg-purple-100');
@@ -173,8 +155,7 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
   });
 
   it('clears the selected list and preview when the date range changes', () => {
-    const onPreviewDate = vi.fn();
-    renderWorkspace({ onSelectDate: onPreviewDate });
+    renderWorkspace();
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
     expect(screen.getByText('18일 주문 상품')).toBeInTheDocument();
@@ -182,17 +163,12 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     fireEvent.change(screen.getByLabelText('입고예정일 시작'), {
       target: { value: '2026-07-20' },
     });
-    expect(onPreviewDate).toHaveBeenLastCalledWith(null);
     expect(screen.queryByText('18일 주문 상품')).not.toBeInTheDocument();
   });
 
   it('does not stack a skeleton above an already populated calendar', () => {
     query.isLoading = true;
-    renderWorkspace({
-      savedDays: {
-        '2026-07-18': { count: 1, qty: 3, amount: 12000 },
-      },
-    });
+    renderWorkspace();
 
     expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).toBeInTheDocument();

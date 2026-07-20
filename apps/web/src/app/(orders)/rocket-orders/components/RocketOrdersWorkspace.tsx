@@ -1,7 +1,6 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-preview';
@@ -49,18 +48,6 @@ interface RocketCalDay {
   amount: number;
 }
 
-export interface RocketOrderExplorerRenderOptions {
-  disabled: boolean;
-  onSelectDate: (date: string | null) => void;
-  savedDays: Record<string, MonthDayData>;
-}
-
-export interface RocketDecisionWorkspaceContext {
-  activeMonth: string;
-  onOrdersChanged: () => void;
-  renderOrderExplorer: (options: RocketOrderExplorerRenderOptions) => ReactNode;
-}
-
 // 워크플로 단계 (로켓 물류 발주)
 const STAGES = [
   { icon: Rocket, label: '신규 주문', desc: '거래확인서요청 발주' },
@@ -103,11 +90,7 @@ function shiftMonthBounds(dateStr: string, delta: number) {
   return { start: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), end: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)) };
 }
 
-export function RocketOrdersWorkspace({
-  decisionWorkspace,
-}: {
-  decisionWorkspace: (workspace: RocketDecisionWorkspaceContext) => ReactNode;
-}) {
+export function RocketOrdersWorkspace() {
   // 입고예정일 기준 (기본: 이번 달 전체) — 월 달력과 차트가 같은 범위를 사용한다.
   const [from, setFrom] = useState(() => monthBounds(todayYmd()).start);
   const [to, setTo] = useState(() => monthBounds(todayYmd()).end);
@@ -192,43 +175,29 @@ export function RocketOrdersWorkspace({
     }
     return record;
   }, [byDate]);
-  function selectOrderDay(date: string | null, onSelectDate: (date: string | null) => void) {
+  function selectOrderDay(date: string | null) {
     setSelectedDay(date);
     setOpenPo(null);
-    onSelectDate(date);
   }
 
-  function resetToCurrentMonth(onSelectDate: (date: string | null) => void) {
+  function resetToCurrentMonth() {
     const b = monthBounds(todayYmd());
     setFrom(b.start);
     setTo(b.end);
-    selectOrderDay(null, onSelectDate);
+    selectOrderDay(null);
     setView('month');
   }
-  function onShiftMonth(delta: number, onSelectDate: (date: string | null) => void) {
+  function onShiftMonth(delta: number) {
     const b = shiftMonthBounds(from, delta);
     setFrom(b.start);
     setTo(b.end);
-    selectOrderDay(null, onSelectDate);
+    selectOrderDay(null);
   }
 
-  function renderOrderExplorer({
-    disabled,
-    onSelectDate,
-    savedDays,
-  }: RocketOrderExplorerRenderOptions) {
-    const selectDate = (date: string | null) => selectOrderDay(date, onSelectDate);
-    const mergedMonthData: Record<string, MonthDayData> = {
-      ...savedDays,
-      ...dayDataRecord,
-    };
-    const mergedRangeDays = calDays.map((day) => {
-      const saved = savedDays[day.date];
-      return day.count > 0 || !saved ? day : { ...day, ...saved };
-    });
-    const hasRangeOrders = mergedRangeDays.some((day) => day.count > 0);
-    const hasMonthOrders = Object.values(mergedMonthData).some((day) => day.count > 0);
-    const mergedChartData: RocketChartPoint[] = mergedRangeDays.map((day) => ({
+  function renderOrderExplorer() {
+    const hasRangeOrders = calDays.some((day) => day.count > 0);
+    const hasMonthOrders = Object.values(dayDataRecord).some((day) => day.count > 0);
+    const chartData: RocketChartPoint[] = calDays.map((day) => ({
       date: day.date,
       label: day.date.slice(5).replace('-', '/'),
       count: day.count,
@@ -237,7 +206,7 @@ export function RocketOrdersWorkspace({
     }));
 
     return (
-      <div className={cn('space-y-3', disabled && 'pointer-events-none opacity-60')}>
+      <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5">
           <span className="text-xs font-medium text-slate-400">입고예정일</span>
           <input
@@ -246,7 +215,7 @@ export function RocketOrdersWorkspace({
             value={from}
             onChange={(e) => {
               setFrom(e.target.value);
-              selectDate(null);
+              selectOrderDay(null);
             }}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
           />
@@ -257,13 +226,13 @@ export function RocketOrdersWorkspace({
             value={to}
             onChange={(e) => {
               setTo(e.target.value);
-              selectDate(null);
+              selectOrderDay(null);
             }}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
           />
           <button
             type="button"
-            onClick={() => resetToCurrentMonth(onSelectDate)}
+            onClick={resetToCurrentMonth}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-purple-600 hover:bg-purple-50"
           >
             이번 달
@@ -273,7 +242,7 @@ export function RocketOrdersWorkspace({
             value={status}
             onChange={(e) => {
               setStatus(e.target.value);
-              selectDate(null);
+              selectOrderDay(null);
             }}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
           >
@@ -344,10 +313,10 @@ export function RocketOrdersWorkspace({
           <>
             <RocketMonthCalendar
               monthAnchor={from}
-              data={mergedMonthData}
+              data={dayDataRecord}
               selected={selectedDay}
-              onSelect={selectDate}
-              onShiftMonth={(delta) => onShiftMonth(delta, onSelectDate)}
+              onSelect={selectOrderDay}
+              onShiftMonth={onShiftMonth}
             />
             {!hasMonthOrders ? (
               <p className="px-1 text-xs text-slate-400">
@@ -356,7 +325,7 @@ export function RocketOrdersWorkspace({
             ) : null}
           </>
         ) : null}
-        {view === 'chart' && hasRangeOrders ? <RocketOrdersChart data={mergedChartData} /> : null}
+        {view === 'chart' && hasRangeOrders ? <RocketOrdersChart data={chartData} /> : null}
 
         {!isLoading && view === 'chart' && !hasRangeOrders ? (
           <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-8 text-center text-sm text-slate-400">
@@ -528,11 +497,7 @@ export function RocketOrdersWorkspace({
         <RocketOrderActivityPanel events={events} />
       </div>
 
-      {decisionWorkspace({
-        activeMonth: (from || todayYmd()).slice(0, 7),
-        onOrdersChanged: () => void refetch(),
-        renderOrderExplorer,
-      })}
+      {renderOrderExplorer()}
 
       {/* 날짜를 선택한 경우에만 해당 날짜의 발주 목록을 표시한다. */}
       {selectedDay && renderSelectedOrderList()}

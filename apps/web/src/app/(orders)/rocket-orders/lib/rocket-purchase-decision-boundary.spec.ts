@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -13,10 +13,6 @@ describe('Rocket purchase decision boundary', () => {
     const operationsSource = readFileSync(resolve(
       routeRoot,
       'components/RocketOrdersWorkspace.tsx',
-    ), 'utf8');
-    const confirmPanelSource = readFileSync(resolve(
-      routeRoot,
-      'components/RocketConfirmPanel.tsx',
     ), 'utf8');
     const purchaseWorkspaceSource = readFileSync(resolve(
       webRoot,
@@ -43,12 +39,13 @@ describe('Rocket purchase decision boundary', () => {
       '../../extensions/order-collector/background/service-worker.js',
     ), 'utf8');
 
+    expect(existsSync(resolve(routeRoot, 'components/RocketConfirmPanel.tsx'))).toBe(false);
+    expect(existsSync(resolve(routeRoot, 'lib/rocket-confirm-api.ts'))).toBe(false);
+
     expect(pageSource).toContain('RocketOrdersWorkspace');
-    // /rocket-orders 의 판단 슬롯은 orders 도메인 발주확정 패널(재고매칭·품절판정·엑셀생성)을 쓴다.
-    // supply 도메인 미리보기(RocketPurchasePreviewSection)는 page 가 아니라 workspace 내부에서 렌더된다.
-    expect(pageSource).toContain('decisionWorkspace={(workspace) =>');
-    expect(pageSource).toContain('<RocketConfirmPanel');
-    expect(pageSource).toContain('{...workspace}');
+    // The route keeps its operations shell; the workspace owns the canonical Supply preview.
+    expect(pageSource).not.toContain('decisionWorkspace');
+    expect(pageSource).not.toContain('RocketConfirmPanel');
     expect(pageSource).not.toContain('RocketPurchasePreviewSection');
     expect(pageSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(pageSource).not.toContain('redirect(');
@@ -68,7 +65,6 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).not.toContain("['week', '주 달력']");
     expect(operationsSource).toContain("['month', '월 달력']");
     expect(operationsSource).toContain("['chart', '차트']");
-    expect(confirmPanelSource).toContain('renderOrderExplorer({');
     expect(operationsSource).toContain('selectedDay &&');
     expect(operationsSource).not.toContain('visibleDates.map');
     expect(operationsSource).toContain('<RocketConfirmFileList');
@@ -76,8 +72,8 @@ describe('Rocket purchase decision boundary', () => {
     expect(purchaseWorkspaceSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(purchaseWorkspaceSource).not.toContain("activeTab === 'rocket'");
     expect(purchaseWorkspaceSource).not.toContain('RocketOrdersWorkspace');
-    // orders 워크스페이스는 판단 슬롯(decisionWorkspace)과 supply 미리보기를 함께 렌더한다.
-    expect(operationsSource).toContain('decisionWorkspace({');
+    // orders 워크스페이스 renders the Supply preview directly, without a legacy injection seam.
+    expect(operationsSource).not.toContain('decisionWorkspace');
     expect(operationsSource).toContain('<RocketPurchasePreviewSection');
     expect(operationsSource).toContain('savedSourceImportRunId={selectedSavedSourceImportRunId}');
     expect(operationsSource).not.toContain('납품 수량 판단은 추후 연동합니다');
