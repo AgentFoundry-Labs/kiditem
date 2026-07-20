@@ -49,6 +49,9 @@ Current runbooks:
 - [Coupang Wing Catalog Collection](coupang-wing-catalog-collection.md) — collect
   authenticated Wing products, options, and provider media through the Chrome
   extension into registered products.
+- [Chrome Extension Releases](extension-releases.md) — version, package,
+  publish, install, verify, and roll back staging-targeted Chrome extensions
+  through manual GitHub Releases.
 - [Google Drive Dev Data](google-drive-dev-data.md) — set up `KidItem Dev Data`
   through Google Drive Desktop for profile sync and Coupang bundle replay.
 - [Coupang Scraper Publish](coupang-scraper-publish.md) — export scraper output

@@ -41,6 +41,7 @@ npm run test:scripts
 | `scripts/dev-data.ts` | dev data bundle CLI | `npm run data:dev:*` |
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
 | `scripts/generate-schema-graphify.py` | Graphify schema export generator | `npm run graphify:schema` |
+| `scripts/manage-extension-release.mjs` | deterministic staging Chrome-extension packager and manual GitHub Release publisher; derives immutable tags and assets from each extension manifest version | `npm run extension:release`, `docs/runbooks/extension-releases.md` |
 | `scripts/prepare-coupang-extension.mjs` | staging browser-extension setup helper | `docs/runbooks/staging-deploy.md` |
 | `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/`, record `data_migration_runs` ledger rows, and export/restore the hash-bound ledger baseline for an authoritative reset | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
 | `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; guarded staging/production rebuild workflows keep their direct Prisma entrypoint | `npm run db:push` |
