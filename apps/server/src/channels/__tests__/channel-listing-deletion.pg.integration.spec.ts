@@ -1,0 +1,131 @@
+import { randomUUID } from 'node:crypto';
+import type { PrismaClient } from '@prisma/client';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { PrismaService } from '../../prisma/prisma.service';
+import {
+  makeTestPrisma,
+  resetDb,
+  seedBaseFixture,
+  TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
+} from '../../test-helpers/real-prisma';
+import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
+import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
+
+const ACCOUNT = '11111111-1111-4111-8111-111111111111';
+
+describe('ChannelListingDeletionOperation (PG integration)', () => {
+  let prisma: PrismaClient;
+  let repository: ChannelListingRepositoryAdapter;
+  let listingId: string;
+  let candidateId: string;
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    repository = new ChannelListingRepositoryAdapter(prisma as unknown as PrismaService);
+  });
+  afterAll(async () => prisma?.$disconnect());
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+    await prisma.channelAccount.create({
+      data: { id: ACCOUNT, organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Wing', status: 'active', vendorId: 'A00012345' },
+    });
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceUrl: `https://example.test/${randomUUID()}`,
+        sourcePlatform: 'ALIBABA_1688', rawData: {}, name: 'Test product', status: 'sourced',
+      },
+    });
+    candidateId = candidate.id;
+    listingId = (await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID, channelAccountId: ACCOUNT, sourceCandidateId: candidate.id,
+        externalId: '16311428128', displayName: 'Test product', status: 'active', isActive: true,
+      },
+    })).id;
+  });
+
+  it('serializes concurrent same-key authorization into one executing/uncertain operation', async () => {
+    const input = { organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, idempotencyKey: randomUUID(), requestHash: 'a'.repeat(64) };
+    const [left, right] = await Promise.all([repository.authorizeDeletion(input), repository.authorizeDeletion(input)]);
+
+    expect(left.operationId).toBe(right.operationId);
+    expect(left).toMatchObject({ status: 'executing', providerOutcome: 'uncertain', expectedVendorId: 'A00012345' });
+    await expect(prisma.channelListingDeletionOperation.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(1);
+  });
+
+  it('completion deactivates once and replays the same durable success', async () => {
+    const operation = await startOperation();
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, operationId: operation.operationId,
+      evidence: { vendorId: 'A00012345', source: 'dom:data-vendor-id' as const },
+    };
+    const [left, right] = await Promise.all([repository.completeDeletion(input), repository.completeDeletion(input)]);
+
+    expect(left).toEqual(right);
+    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } })).resolves.toMatchObject({ isActive: false, status: 'deleted' });
+    await expect(prisma.channelListingDeletionOperation.findUniqueOrThrow({ where: { id: operation.operationId } })).resolves.toMatchObject({ status: 'succeeded', providerOutcome: 'succeeded' });
+  });
+
+  it('blocks deletion start while an active registration owns the same locked listing', async () => {
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID, ownerType: 'sourcing_candidate', sourceCandidateId: candidateId,
+        displayName: 'Test workspace', normalizedTitle: `test-${randomUUID()}`,
+      },
+    });
+    const preparation = await prisma.productPreparation.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId, channelAccountId: ACCOUNT,
+        sourceContentWorkspaceId: workspace.id, channelListingId: listingId, displayName: 'Test product',
+        submissionKey: randomUUID(), registrationInput: {},
+      },
+    });
+    await prisma.productRegistrationExecution.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID, productPreparationId: preparation.id, channelAccountId: ACCOUNT,
+        channelListingId: listingId, idempotencyKey: randomUUID(), requestHash: 'c'.repeat(64),
+        status: 'executing', providerOutcome: 'uncertain', requestedByUserId: TEST_USER_ID,
+      },
+    });
+
+    await expect(startOperation()).rejects.toThrow('Marketplace registration is active');
+    await expect(prisma.channelListingDeletionOperation.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(0);
+  });
+
+  it('never lets registration finalization reactivate a provider-deleted listing in the lock race', async () => {
+    const operation = await startOperation();
+    const registration = new MarketplaceRegistrationRepositoryAdapter(prisma as unknown as PrismaService);
+    const completion = repository.completeDeletion({
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, operationId: operation.operationId,
+      evidence: { vendorId: 'A00012345', source: 'dom:data-vendor-id' },
+    });
+    const reactivation = prisma.$transaction((tx) => registration.resolveProductRegistration(tx, {
+      organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId, channelAccountId: ACCOUNT,
+      submissionKey: randomUUID(), externalListingId: '16311428128', displayName: 'Attempted reactivation',
+    }));
+
+    const outcomes = await Promise.allSettled([completion, reactivation]);
+    expect(outcomes[0].status).toBe('fulfilled');
+    expect(outcomes[1].status).toBe('rejected');
+    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } })).resolves.toMatchObject({ isActive: false, status: 'deleted' });
+  });
+
+  it('marks an unknown browser result reconciling while preserving the active listing', async () => {
+    const operation = await startOperation();
+    await expect(repository.markDeletionUnresolved({
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, operationId: operation.operationId, reason: 'extension_timeout',
+    })).resolves.toMatchObject({ status: 'reconciling', providerOutcome: 'uncertain' });
+    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } })).resolves.toMatchObject({ isActive: true });
+  });
+
+  async function startOperation() {
+    return repository.authorizeDeletion({
+      organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, idempotencyKey: randomUUID(), requestHash: 'b'.repeat(64),
+    });
+  }
+});

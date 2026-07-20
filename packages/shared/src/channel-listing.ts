@@ -39,6 +39,7 @@ export const ChannelListingDeletionOperationSchema = z.object({
   idempotencyKey: z.string().trim().min(1),
   requestHash: z.string().trim().min(1),
   externalListingId: z.string().trim().min(1),
+  expectedProviderAccountId: z.string().trim().min(1),
   status: OperationStatusSchema,
   providerOutcome: ProviderOutcomeSchema,
   resultJson: z.unknown().nullable(),

@@ -312,6 +312,11 @@ function createHarness(pageOptions) {
     },
     console,
     document: page.document,
+    KidItemWingAccountIdentity: pageOptions?.identity === undefined
+      ? { verifyExpectedVendorId: (expectedVendorId) => expectedVendorId === 'A00012345'
+        ? { ok: true, vendorId: expectedVendorId, source: 'dom:data-vendor-id' }
+        : { ok: false, error: 'identity mismatch' } }
+      : pageOptions.identity,
     // 가짜 시계: setTimeout 이 즉시 실행되며 시계를 앞으로 민다. 3분 대기도 즉시 끝난다.
     setTimeout: (fn, ms) => {
       now += Number(ms) || 0;
@@ -329,7 +334,11 @@ function createHarness(pageOptions) {
     ...page,
     async run(message) {
       return new Promise((resolve) => {
-        const isAsync = listener({ action: 'deleteWingProduct', ...message }, {}, resolve);
+        const isAsync = listener({
+          action: 'deleteWingProduct',
+          expectedVendorId: 'A00012345',
+          ...message,
+        }, {}, resolve);
         assert.equal(isAsync, true);
       });
     },
@@ -349,6 +358,22 @@ test("드롭다운을 스크롤해 '삭제' 항목을 찾아 클릭한다", asyn
   assert.ok(result.steps.includes('delete:deleteItemRevealed'));
   assert.ok(result.steps.includes('delete:menuDeleteClicked'));
   assert.ok(harness.clickLog.includes('삭제'), '삭제 항목을 눌러야 한다');
+  assert.equal(result.evidence.vendorId, 'A00012345');
+  assert.equal(result.evidence.source, 'dom:data-vendor-id');
+});
+
+test('WING identity mismatch or missing helper aborts before the first delete-page click', async () => {
+  const unavailable = createHarness({ identity: {} });
+  const mismatch = createHarness({
+    identity: { verifyExpectedVendorId: () => ({ ok: false, error: 'identity mismatch' }) },
+  });
+
+  for (const harness of [unavailable, mismatch]) {
+    const result = await harness.run({ externalId: '16311534438' });
+    assert.equal(result.ok, false);
+    assert.deepEqual(harness.clickLog, []);
+    assert.equal(harness.state.menu, null);
+  }
 });
 
 test("scrollIntoView 가 없어도 컨테이너 scrollTop 으로 '삭제'를 노출시킨다", async () => {

@@ -766,6 +766,7 @@ model ChannelListingDeletionOperation {
   idempotencyKey    String @map("idempotency_key")
   requestHash       String @map("request_hash")
   externalListingId String @map("external_listing_id")
+  expectedProviderAccountId String @map("expected_provider_account_id")
 
   status          String @default("prepared")
   providerOutcome String @default("not_attempted") @map("provider_outcome")

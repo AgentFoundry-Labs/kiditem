@@ -1,7 +1,12 @@
 export { CoupangDateRangeQueryDto } from './coupang-date-range.dto';
 export { SyncOrdersBodyDto } from './sync-orders.dto';
 export { UpdateCoupangAccountSettingsDto } from './coupang-account-settings.dto';
-export { ChannelListingQueryDto, ChannelListingDeletionDto } from './channel-listing-query.dto';
+export {
+  ChannelListingQueryDto,
+  ChannelListingDeletionDto,
+  ChannelListingDeletionCompletionDto,
+  ChannelListingDeletionUnresolvedDto,
+} from './channel-listing-query.dto';
 export { MarketplaceRegistrationDto } from './marketplace-registration.dto';
 export {
   ChannelMatchCandidateQueryDto,

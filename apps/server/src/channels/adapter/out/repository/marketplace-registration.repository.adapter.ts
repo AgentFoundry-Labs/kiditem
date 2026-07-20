@@ -144,7 +144,12 @@ export class MarketplaceRegistrationRepositoryAdapter
           organizationId: input.organizationId,
           channelAccountId: account.id,
           channelListingId: existing.id,
-          status: { in: ['prepared', 'executing', 'reconciling'] },
+          // A completed provider deletion is also a hard fence: registration
+          // finalization must never resurrect a listing that WING deleted.
+          OR: [
+            { status: { in: ['prepared', 'executing', 'reconciling'] } },
+            { providerOutcome: 'succeeded' },
+          ],
         },
         select: { id: true },
       });

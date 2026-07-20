@@ -402,13 +402,24 @@
     return { ok: false, timedOut: true };
   }
 
-  async function deleteWingProduct({ externalId, displayName }) {
+  async function deleteWingProduct({ externalId, displayName, expectedVendorId }) {
     const steps = [];
     const log = (s) => steps.push(s);
 
     const target = String(externalId || '').trim();
     if (!/^\d{6,20}$/.test(target)) {
       return { ok: false, steps, error: '삭제 대상 등록상품ID가 올바르지 않습니다.' };
+    }
+    // This is before any checkbox/menu/modal mutation. A missing, ambiguous, or
+    // mismatched identity never gets as far as a click.
+    const identity = globalThis.KidItemWingAccountIdentity
+      ?.verifyExpectedVendorId(expectedVendorId);
+    if (!identity?.ok) {
+      return {
+        ok: false,
+        steps,
+        error: identity?.error || 'WING account identity guard is unavailable; refusing to delete.',
+      };
     }
     log(`delete:target:${target}`);
 
@@ -548,7 +559,13 @@
       };
     }
     log('delete:ok');
-    return { ok: true, steps, externalId: target, displayName: displayName || null };
+    return {
+      ok: true,
+      steps,
+      externalId: target,
+      displayName: displayName || null,
+      evidence: { vendorId: identity.vendorId, source: identity.source },
+    };
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

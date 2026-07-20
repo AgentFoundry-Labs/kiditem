@@ -829,8 +829,16 @@ async function registerToWingForm(message) {
  */
 async function deleteWingProduct(message) {
   const externalId = String(message?.externalId || "").trim();
+  const operationId = typeof message?.operationId === "string" ? message.operationId.trim() : "";
+  const expectedVendorId = typeof message?.expectedVendorId === "string" ? message.expectedVendorId.trim() : "";
   if (!/^\d{6,20}$/.test(externalId)) {
     return { ok: false, error: "삭제 대상 등록상품ID가 올바르지 않습니다." };
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    return { ok: false, error: "삭제 작업 ID가 올바르지 않습니다." };
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedVendorId)) {
+    return { ok: false, error: "승인된 WING 판매자 식별자가 올바르지 않습니다." };
   }
   // 검색어를 URL 에 실어 대상 1건만 남은 목록을 연다. 전체 목록에서 찾게 하면
   // 페이지네이션 때문에 행을 못 찾거나 동명이인 행이 섞인다.
@@ -846,8 +854,10 @@ async function deleteWingProduct(message) {
   try {
     const result = await chrome.tabs.sendMessage(tab.id, {
       action: "deleteWingProduct",
+      operationId,
       externalId,
       displayName: message?.displayName || null,
+      expectedVendorId,
     });
     if (!result?.ok) {
       return {
@@ -857,7 +867,7 @@ async function deleteWingProduct(message) {
         error: result?.error || "WING 상품 삭제에 실패했습니다. 열린 탭에서 직접 확인하세요.",
       };
     }
-    return { ok: true, tabId: tab.id, result };
+    return { ok: true, tabId: tab.id, result, evidence: result.evidence };
   } catch (e) {
     return {
       ok: false,

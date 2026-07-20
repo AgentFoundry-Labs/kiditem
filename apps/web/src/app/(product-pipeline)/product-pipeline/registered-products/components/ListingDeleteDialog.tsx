@@ -35,11 +35,13 @@ export default function ListingDeleteDialog({
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
 
   useEffect(() => {
     setPassword('');
     setBusy(false);
     setPhase(null);
+    setIdempotencyKey(null);
   }, [listing]);
 
   const { data: passwordStatus } = useQuery({
@@ -65,15 +67,25 @@ export default function ListingDeleteDialog({
   const handleDelete = async () => {
     if (!canDelete) return;
     setBusy(true);
+    let operationId: string | null = null;
+    let providerDeleteConfirmed = false;
     try {
+      const attemptKey = idempotencyKey ?? crypto.randomUUID();
+      setIdempotencyKey(attemptKey);
       // 1) 서버 인가. 지울 대상은 서버가 정한다.
       setPhase('삭제 권한을 확인하는 중…');
       const authorized = await apiClient.post<{
+        operationId: string;
         listingId: string;
         externalId: string;
         displayName: string;
         channel: string;
-      }>(`/api/channels/listings/${listing.id}/deletion-authorization`, { password });
+        expectedVendorId: string;
+      }>(`/api/channels/listings/${listing.id}/deletion-authorization`, {
+        password,
+        idempotencyKey: attemptKey,
+      });
+      operationId = authorized.operationId;
 
       // 2) 확장이 WING 에서 실제 삭제.
       setPhase('쿠팡 WING 에서 삭제하는 중…');
@@ -81,29 +93,52 @@ export default function ListingDeleteDialog({
       if (!extensionId) {
         throw new Error('KidItem 확장을 찾지 못했습니다. 확장을 설치/리로드한 뒤 다시 시도하세요.');
       }
-      const result = await sendToExtension<{ ok?: boolean; error?: string }>(
+      const result = await sendToExtension<{
+        ok?: boolean;
+        error?: string;
+        evidence?: { vendorId?: string; source?: string };
+      }>(
         extensionId,
         {
           action: 'deleteWingProduct',
+          operationId: authorized.operationId,
           externalId: authorized.externalId,
           displayName: authorized.displayName,
+          expectedVendorId: authorized.expectedVendorId,
         },
         DELETE_TIMEOUT_MS,
       );
       if (!result?.ok) {
         throw new Error(result?.error || '쿠팡 WING 삭제에 실패했습니다.');
       }
+      providerDeleteConfirmed = true;
+      if (!result.evidence?.vendorId || !result.evidence.source) {
+        throw new Error('쿠팡 삭제 결과의 계정 검증 증거가 없습니다. 로컬 정산이 필요합니다.');
+      }
 
       // 3) 마켓 삭제가 확인된 뒤에만 우리 리스팅을 비활성화한다.
       setPhase('등록상품 목록에서 정리하는 중…');
-      await apiClient.post(`/api/channels/listings/${listing.id}/deletion`, { password });
+      await apiClient.post(`/api/channels/listings/${listing.id}/deletion`, {
+        operationId: authorized.operationId,
+        evidence: result.evidence,
+      });
       await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
       toast.success('상품을 삭제했습니다', {
         description: `${authorized.displayName} (등록상품ID ${authorized.externalId})`,
       });
       onClose();
     } catch (err) {
-      toast.error(errorMessage(err, '상품 삭제에 실패했습니다.'));
+      if (operationId) {
+        // A timeout, extension error, or completion transport failure is uncertain;
+        // leave the local listing visible and make reconciliation durable.
+        await apiClient.post(`/api/channels/listings/${listing.id}/deletion-unresolved`, {
+          operationId,
+          reason: providerDeleteConfirmed ? 'completion_failed_after_provider_delete' : 'extension_unknown',
+        }).catch(() => undefined);
+      }
+      toast.error(providerDeleteConfirmed
+        ? '쿠팡에서는 삭제되었지만 로컬 정산이 필요합니다.'
+        : errorMessage(err, '상품 삭제에 실패했습니다.'));
     } finally {
       setBusy(false);
       setPhase(null);

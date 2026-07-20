@@ -74,8 +74,83 @@ export interface ChannelListingRepositoryPort {
     listingId: string,
   ): Promise<ChannelListingDeletionTarget | null>;
 
-  /** 마켓 삭제가 끝난 뒤 우리 쪽 리스팅을 비활성화한다(하드 삭제하지 않는다). */
-  deactivate(organizationId: string, listingId: string): Promise<void>;
+  authorizeDeletion(input: ChannelListingDeletionAuthorizationInput): Promise<ChannelListingDeletionOperationResult>;
+  completeDeletion(input: ChannelListingDeletionCompletionInput): Promise<ChannelListingDeletionCompletionResult>;
+  markDeletionUnresolved(input: ChannelListingDeletionUnresolvedInput): Promise<ChannelListingDeletionUnresolvedResult>;
+  getDeletionOperation(input: ChannelListingDeletionOperationLookup): Promise<ChannelListingDeletionOperationStatus | null>;
+}
+
+export interface ChannelListingDeletionAuthorizationInput {
+  organizationId: string;
+  userId: string;
+  listingId: string;
+  idempotencyKey: string;
+  requestHash: string;
+}
+
+export interface ChannelListingDeletionEvidence {
+  vendorId: string;
+  source: 'dom:data-vendor-id' | 'meta:vendor-id' | 'url:vendorId';
+}
+
+export interface ChannelListingDeletionCompletionInput {
+  organizationId: string;
+  userId: string;
+  listingId: string;
+  operationId: string;
+  evidence: ChannelListingDeletionEvidence;
+}
+
+export interface ChannelListingDeletionUnresolvedInput {
+  organizationId: string;
+  userId: string;
+  listingId: string;
+  operationId: string;
+  reason: string;
+}
+
+export interface ChannelListingDeletionOperationLookup {
+  organizationId: string;
+  userId: string;
+  listingId: string;
+  operationId: string;
+}
+
+export interface ChannelListingDeletionOperationResult {
+  operationId: string;
+  listingId: string;
+  channelAccountId: string;
+  externalId: string;
+  displayName: string;
+  channel: string;
+  expectedVendorId: string;
+  status: 'executing';
+  providerOutcome: 'uncertain';
+}
+
+export interface ChannelListingDeletionCompletionResult {
+  operationId: string;
+  listingId: string;
+  externalId: string;
+  isActive: false;
+  status: 'succeeded';
+  providerOutcome: 'succeeded';
+}
+
+export interface ChannelListingDeletionUnresolvedResult {
+  operationId: string;
+  status: 'reconciling' | 'succeeded';
+  providerOutcome: 'uncertain' | 'succeeded';
+}
+
+export interface ChannelListingDeletionOperationStatus {
+  operationId: string;
+  listingId: string;
+  externalId: string;
+  status: string;
+  providerOutcome: string;
+  completedAt: string | null;
+  lastErrorCode: string | null;
 }
 
 /** 삭제 게이트가 판정에 쓰는 리스팅 사실들. */

@@ -1,13 +1,23 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ChannelListingDeletionTarget,
+  ChannelListingDeletionAuthorizationInput,
+  ChannelListingDeletionCompletionInput,
+  ChannelListingDeletionCompletionResult,
+  ChannelListingDeletionOperationLookup,
+  ChannelListingDeletionOperationResult,
+  ChannelListingDeletionOperationStatus,
+  ChannelListingDeletionUnresolvedInput,
+  ChannelListingDeletionUnresolvedResult,
   ChannelListingListResult,
   ChannelListingQuery,
   ChannelListingRepositoryPort,
   ChannelListingSummary,
 } from '../../../application/port/out/repository/channel-listing.repository.port';
+import { lockChannelListingRow } from './channel-listing-row-lock';
 
 const listingInclude = {
   channelAccount: {
@@ -186,18 +196,270 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     };
   }
 
-  async deactivate(organizationId: string, listingId: string): Promise<void> {
-    // 하드 삭제하지 않는다. 주문/정산/광고가 이 리스팅을 참조하고 있고,
-    // 기존 '삭제됨' 탭이 isActive=false 를 그대로 읽는다.
-    const result = await this.prisma.channelListing.updateMany({
-      where: { id: listingId, organizationId },
-      data: { isActive: false, status: 'deleted' },
+  async authorizeDeletion(
+    input: ChannelListingDeletionAuthorizationInput,
+  ): Promise<ChannelListingDeletionOperationResult> {
+    return this.prisma.$transaction(async (tx) => {
+      // Shared with registration finalization: listing always locks first.
+      const locked = await lockChannelListingRow(tx, {
+        organizationId: input.organizationId,
+        channelListingId: input.listingId,
+        activeOnly: false,
+        catalogMatchingEligibleOnly: false,
+      });
+      if (!locked) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+
+      const listing = await tx.channelListing.findFirst({
+        where: { id: input.listingId, organizationId: input.organizationId },
+        select: {
+          id: true,
+          externalId: true,
+          displayName: true,
+          channelName: true,
+          sourceCandidateId: true,
+          isActive: true,
+          channelAccountId: true,
+          channelAccount: {
+            select: {
+              channel: true,
+              status: true,
+              vendorId: true,
+              externalAccountId: true,
+            },
+          },
+        },
+      });
+      if (!listing) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+
+      const replay = await tx.channelListingDeletionOperation.findFirst({
+        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+      });
+      if (replay) {
+        if (replay.requestHash !== input.requestHash) {
+          throw new ConflictException('Deletion idempotency key was reused with a different request.');
+        }
+        assertOperationActor(replay.requestedByUserId, input.userId);
+        return toAuthorizationResult(replay, listing);
+      }
+
+      if (!listing.sourceCandidateId) {
+        throw new ForbiddenException('우리가 등록한 상품만 삭제할 수 있습니다.');
+      }
+      if (!listing.isActive) throw new BadRequestException('이미 삭제된 상품입니다.');
+      if (listing.channelAccount.channel !== 'coupang' || listing.channelAccount.status !== 'active') {
+        throw new BadRequestException('An active Coupang marketplace account is required.');
+      }
+      const expectedProviderAccountId = listing.channelAccount.vendorId
+        ?? listing.channelAccount.externalAccountId;
+      if (!expectedProviderAccountId) {
+        throw new BadRequestException('Coupang provider account identity is required.');
+      }
+
+      const activeRegistration = await tx.productRegistrationExecution.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: listing.channelAccountId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+          OR: [
+            { channelListingId: listing.id },
+            { externalListingId: listing.externalId },
+          ],
+        },
+        select: { id: true },
+      });
+      if (activeRegistration) {
+        throw new ConflictException('Marketplace registration is active for this listing.');
+      }
+
+      // The listing lock serializes same-listing/same-key requests. A key reused
+      // for another listing is rejected by the durable unique constraint.
+      const operation = await tx.channelListingDeletionOperation.create({
+        data: {
+          organizationId: input.organizationId,
+          channelAccountId: listing.channelAccountId,
+          channelListingId: listing.id,
+          idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
+          externalListingId: listing.externalId,
+          expectedProviderAccountId,
+          requestedByUserId: input.userId,
+          // Extension can click only after this durable uncertain side effect state commits.
+          status: 'executing',
+          providerOutcome: 'uncertain',
+          leaseToken: randomUUID(),
+          leaseClaimedAt: new Date(),
+          authorizationExpiresAt: new Date(Date.now() + 5 * 60_000),
+          startedAt: new Date(),
+        },
+      });
+      return toAuthorizationResult(operation, listing);
     });
-    if (result.count !== 1) {
-      throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
-    }
+  }
+
+  async completeDeletion(
+    input: ChannelListingDeletionCompletionInput,
+  ): Promise<ChannelListingDeletionCompletionResult> {
+    return this.prisma.$transaction(async (tx) => {
+      await assertLockedListing(tx, input.organizationId, input.listingId);
+      await lockDeletionOperation(tx, input.organizationId, input.operationId);
+      const operation = await tx.channelListingDeletionOperation.findFirst({
+        where: {
+          id: input.operationId,
+          organizationId: input.organizationId,
+          channelListingId: input.listingId,
+        },
+      });
+      if (!operation) throw new NotFoundException('Deletion operation not found.');
+      assertOperationActor(operation.requestedByUserId, input.userId);
+      if (operation.expectedProviderAccountId !== input.evidence.vendorId) {
+        throw new ForbiddenException('Verified provider account does not match the authorized operation.');
+      }
+      if (operation.status === 'succeeded' && operation.providerOutcome === 'succeeded') {
+        return succeededResult(operation);
+      }
+      if (operation.status !== 'executing' || operation.providerOutcome !== 'uncertain') {
+        throw new ConflictException('Deletion operation cannot be completed from its current state.');
+      }
+
+      const deactivated = await tx.channelListing.updateMany({
+        where: { id: input.listingId, organizationId: input.organizationId, isActive: true },
+        data: { isActive: false, status: 'deleted' },
+      });
+      if (deactivated.count !== 1) throw new ConflictException('Marketplace listing changed concurrently.');
+      await tx.channelListingDeletionOperation.update({
+        where: { id: operation.id },
+        data: {
+          status: 'succeeded',
+          providerOutcome: 'succeeded',
+          resultJson: {
+            evidence: { vendorId: input.evidence.vendorId, source: input.evidence.source },
+            externalListingId: operation.externalListingId,
+          },
+          completedAt: new Date(),
+          lastErrorCode: null,
+          lastErrorMessage: null,
+        },
+      });
+      return succeededResult(operation);
+    });
+  }
+
+  async markDeletionUnresolved(
+    input: ChannelListingDeletionUnresolvedInput,
+  ): Promise<ChannelListingDeletionUnresolvedResult> {
+    return this.prisma.$transaction(async (tx) => {
+      await assertLockedListing(tx, input.organizationId, input.listingId);
+      await lockDeletionOperation(tx, input.organizationId, input.operationId);
+      const operation = await tx.channelListingDeletionOperation.findFirst({
+        where: { id: input.operationId, organizationId: input.organizationId, channelListingId: input.listingId },
+      });
+      if (!operation) throw new NotFoundException('Deletion operation not found.');
+      assertOperationActor(operation.requestedByUserId, input.userId);
+      if (operation.status === 'succeeded') {
+        return { operationId: operation.id, status: 'succeeded', providerOutcome: 'succeeded' };
+      }
+      if (!['executing', 'reconciling'].includes(operation.status)) {
+        throw new ConflictException('Deletion operation cannot be reconciled from its current state.');
+      }
+      await tx.channelListingDeletionOperation.update({
+        where: { id: operation.id },
+        data: {
+          status: 'reconciling',
+          providerOutcome: 'uncertain',
+          lastErrorCode: input.reason,
+          lastErrorMessage: 'Provider deletion outcome requires reconciliation.',
+        },
+      });
+      return { operationId: operation.id, status: 'reconciling', providerOutcome: 'uncertain' };
+    });
+  }
+
+  async getDeletionOperation(
+    input: ChannelListingDeletionOperationLookup,
+  ): Promise<ChannelListingDeletionOperationStatus | null> {
+    const operation = await this.prisma.channelListingDeletionOperation.findFirst({
+      where: {
+        id: input.operationId,
+        organizationId: input.organizationId,
+        channelListingId: input.listingId,
+        requestedByUserId: input.userId,
+      },
+    });
+    if (!operation) return null;
+    return {
+      operationId: operation.id,
+      listingId: operation.channelListingId,
+      externalId: operation.externalListingId,
+      status: operation.status,
+      providerOutcome: operation.providerOutcome,
+      completedAt: operation.completedAt?.toISOString() ?? null,
+      lastErrorCode: operation.lastErrorCode,
+    };
   }
 }
+
+async function assertLockedListing(tx: Prisma.TransactionClient, organizationId: string, listingId: string) {
+  const listing = await lockChannelListingRow(tx, {
+    organizationId,
+    channelListingId: listingId,
+    activeOnly: false,
+    catalogMatchingEligibleOnly: false,
+  });
+  if (!listing) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+}
+
+async function lockDeletionOperation(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  operationId: string,
+): Promise<void> {
+  await tx.$queryRaw`
+    SELECT id FROM channel_listing_deletion_operations
+    WHERE id = ${operationId}::uuid AND organization_id = ${organizationId}::uuid
+    FOR UPDATE
+  `;
+}
+
+function assertOperationActor(requestedByUserId: string | null, userId: string): void {
+  if (!requestedByUserId || requestedByUserId !== userId) {
+    throw new ForbiddenException('Deletion operation belongs to another actor.');
+  }
+}
+
+function toAuthorizationResult(
+  operation: {
+    id: string; channelListingId: string; channelAccountId: string; externalListingId: string;
+    expectedProviderAccountId: string; status: string; providerOutcome: string;
+  },
+  listing: { displayName: string | null; channelName: string | null; channelAccount: { channel: string } },
+): ChannelListingDeletionOperationResult {
+  if (operation.status !== 'executing' || operation.providerOutcome !== 'uncertain') {
+    throw new ConflictException('Deletion operation is no longer eligible for a provider deletion attempt.');
+  }
+  return {
+    operationId: operation.id,
+    listingId: operation.channelListingId,
+    channelAccountId: operation.channelAccountId,
+    externalId: operation.externalListingId,
+    displayName: listing.displayName ?? listing.channelName ?? operation.externalListingId,
+    channel: listing.channelAccount.channel,
+    expectedVendorId: operation.expectedProviderAccountId,
+    status: 'executing',
+    providerOutcome: 'uncertain',
+  };
+}
+
+function succeededResult(operation: { id: string; channelListingId: string; externalListingId: string }) {
+  return {
+    operationId: operation.id,
+    listingId: operation.channelListingId,
+    externalId: operation.externalListingId,
+    isActive: false as const,
+    status: 'succeeded' as const,
+    providerOutcome: 'succeeded' as const,
+  };
+}
+
 
 function toSummary(row: ListingRow): ChannelListingSummary {
   const workspace = row.contentWorkspaces[0] ?? null;
