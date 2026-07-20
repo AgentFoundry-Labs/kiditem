@@ -6,7 +6,11 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma, type ProductPreparation } from '@prisma/client';
+import {
+  Prisma,
+  type ProductPreparation,
+  type ProductRegistrationExecution,
+} from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CreateOrGetActiveDraftInput,
@@ -14,6 +18,8 @@ import type {
   ProductPreparationClaimResult,
   ProductPreparationDraftResult,
   ProductPreparationRepositoryPort,
+  ExternalRegistrationExecutionResult,
+  PrepareExternalRegistrationExecutionInput,
   ResolveProductPreparationSelections,
   ReplaceDraftInputRequest,
 } from '../../../application/port/out/repository/product-preparation.repository.port';
@@ -27,6 +33,7 @@ import {
   canDiscardProviderIdentity,
   canStartProviderCreate,
   hasLiveSubmissionLease,
+  type ProductPreparationProviderOutcome,
   resolveProviderOutcome,
 } from '../../../domain/product-preparation-state';
 
@@ -43,6 +50,33 @@ export class ProductPreparationRepositoryAdapter
     input: { organizationId: string; sourceCandidateId: string },
   ): Promise<void> {
     const tx = transaction as Prisma.TransactionClient;
+    const executions = await tx.productRegistrationExecution.findMany({
+      where: {
+        organizationId: input.organizationId,
+        productPreparation: {
+          sourceCandidateId: input.sourceCandidateId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+      },
+      select: {
+        status: true,
+        providerOutcome: true,
+        providerSubmissionId: true,
+        externalListingId: true,
+        resultJson: true,
+      },
+    });
+    if (executions.some((execution) =>
+      ['prepared', 'executing', 'reconciling', 'succeeded'].includes(execution.status)
+      || execution.providerSubmissionId !== null
+      || execution.externalListingId !== null
+      || execution.resultJson !== null,
+    )) {
+      throw new ConflictException(
+        'Candidate has an active registration execution or retained provider identity.',
+      );
+    }
     const preparations = await tx.productPreparation.findMany({
       where: {
         organizationId: input.organizationId,
@@ -197,6 +231,251 @@ export class ProductPreparationRepositoryAdapter
     }
   }
 
+  async prepareExternalExecution(
+    input: PrepareExternalRegistrationExecutionInput,
+    resolveSourceWorkspace: (tx: SourcingRepositoryTransaction) => Promise<string>,
+    resolveSelections: ResolveProductPreparationSelections,
+  ): Promise<ExternalRegistrationExecutionResult> {
+    const frozen = freezeProductPreparationPayload({
+      channelAccountId: input.channelAccountId,
+      displayName: input.displayName,
+      registrationInput: input.registrationInput,
+    } as ProductPreparationJson);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+      const replay = await tx.productRegistrationExecution.findFirst({
+        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+        include: { productPreparation: { select: { sourceCandidateId: true } } },
+      });
+      if (replay) {
+        if (replay.requestHash !== frozen.hash) {
+          throw new ConflictException('External registration idempotency key was reused with a different payload.');
+        }
+        if (replay.channelAccountId !== input.channelAccountId
+          || replay.productPreparation.sourceCandidateId !== input.sourceCandidateId
+          || replay.requestedByUserId !== input.requestedByUserId) {
+          throw new ConflictException('External registration execution belongs to another account, candidate, or actor.');
+        }
+        return externalExecutionResult(replay);
+      }
+      await lockCandidate(tx, input.organizationId, input.sourceCandidateId);
+      const lockedReplay = await tx.productRegistrationExecution.findFirst({
+        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+        include: { productPreparation: { select: { sourceCandidateId: true } } },
+      });
+      if (lockedReplay) {
+        if (lockedReplay.requestHash !== frozen.hash
+          || lockedReplay.channelAccountId !== input.channelAccountId
+          || lockedReplay.productPreparation.sourceCandidateId !== input.sourceCandidateId
+          || lockedReplay.requestedByUserId !== input.requestedByUserId) {
+          throw new ConflictException('External registration idempotency key belongs to a different request.');
+        }
+        return externalExecutionResult(lockedReplay);
+      }
+      await assertActiveCandidate(tx, input.organizationId, input.sourceCandidateId);
+      const account = await tx.channelAccount.findFirst({
+        where: { id: input.channelAccountId, organizationId: input.organizationId, status: 'active' },
+        select: { id: true, channel: true, vendorId: true, externalAccountId: true },
+      });
+      if (!account) throw new NotFoundException('Channel account not found.');
+      const expectedProviderAccountId = account.vendorId?.trim() || account.externalAccountId?.trim() || '';
+      if (account.channel !== 'coupang' || !expectedProviderAccountId) {
+        throw new ConflictException('External WING registration requires an active Coupang account with a vendor identity.');
+      }
+      let preparation = await tx.productPreparation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sourceCandidateId: input.sourceCandidateId,
+          channelAccountId: input.channelAccountId,
+          isDeleted: false,
+          status: 'draft',
+        },
+      });
+      let sourceContentWorkspaceId: string;
+      if (!preparation) {
+        const active = await tx.productPreparation.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            sourceCandidateId: input.sourceCandidateId,
+            channelAccountId: input.channelAccountId,
+            isDeleted: false,
+          },
+          select: { id: true },
+        });
+        if (active) throw new ConflictException('An active registration preparation already exists.');
+        sourceContentWorkspaceId = await resolveSourceWorkspace(tx as unknown as SourcingRepositoryTransaction);
+        const resolved = await resolveSelections(
+          tx as unknown as SourcingRepositoryTransaction,
+          selectionResolutionInput(input.organizationId, sourceContentWorkspaceId, {}),
+        );
+        preparation = await tx.productPreparation.create({
+          data: {
+            organizationId: input.organizationId,
+            sourceCandidateId: input.sourceCandidateId,
+            channelAccountId: input.channelAccountId,
+            sourceContentWorkspaceId,
+            displayName: input.displayName,
+            status: 'submitting',
+            submissionKey: input.idempotencyKey,
+            registrationInput: input.registrationInput as Prisma.InputJsonValue,
+            submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
+            submissionPayloadHash: frozen.hash,
+            reviewPayloadHash: frozen.hash,
+            approvedAt: new Date(),
+            approvedByUserId: input.requestedByUserId,
+            providerOutcome: 'not_attempted',
+            createdByUserId: input.requestedByUserId,
+            ...resolvedSelectionData(resolved),
+          },
+        });
+      } else {
+        sourceContentWorkspaceId = preparation.sourceContentWorkspaceId;
+        const resolved = await resolveSelections(
+          tx as unknown as SourcingRepositoryTransaction,
+          selectionResolutionInput(input.organizationId, sourceContentWorkspaceId, {}),
+        );
+        preparation = await tx.productPreparation.update({
+          where: { id: preparation.id },
+          data: {
+            displayName: input.displayName,
+            registrationInput: input.registrationInput as Prisma.InputJsonValue,
+            status: 'submitting',
+            submissionKey: input.idempotencyKey,
+            submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
+            submissionPayloadHash: frozen.hash,
+            reviewPayloadHash: frozen.hash,
+            approvedAt: new Date(),
+            approvedByUserId: input.requestedByUserId,
+            providerOutcome: 'not_attempted',
+            ...resolvedSelectionData(resolved),
+          },
+        });
+      }
+      const execution = await tx.productRegistrationExecution.create({
+        data: {
+          organizationId: input.organizationId,
+          productPreparationId: preparation.id,
+          channelAccountId: input.channelAccountId,
+          executionKind: 'external_wing',
+          expectedProviderAccountId,
+          idempotencyKey: input.idempotencyKey,
+          requestHash: frozen.hash,
+          submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
+          submissionPayloadHash: frozen.hash,
+          status: 'prepared',
+          providerOutcome: 'not_attempted',
+          requestedByUserId: input.requestedByUserId,
+        },
+      });
+      return externalExecutionResult(execution);
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      const replay = await this.prisma.productRegistrationExecution.findFirst({
+        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+        include: { productPreparation: { select: { sourceCandidateId: true } } },
+      });
+      if (!replay
+        || replay.requestHash !== frozen.hash
+        || replay.channelAccountId !== input.channelAccountId
+        || replay.productPreparation.sourceCandidateId !== input.sourceCandidateId
+        || replay.requestedByUserId !== input.requestedByUserId) {
+        throw new ConflictException('Concurrent external registration preparation conflicted.');
+      }
+      return externalExecutionResult(replay);
+    }
+  }
+
+  async startExternalExecution(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+    executionId: string;
+    requestedByUserId: string | null;
+  }): Promise<ExternalRegistrationExecutionResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const execution = await tx.productRegistrationExecution.findFirst({
+        where: {
+          id: input.executionId,
+          organizationId: input.organizationId,
+          executionKind: 'external_wing',
+          productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
+        },
+      });
+      if (!execution) throw new NotFoundException('External registration execution not found.');
+      await lockExecution(tx, input.organizationId, execution.id);
+      if (execution.requestedByUserId !== input.requestedByUserId) {
+        throw new ConflictException('External registration execution belongs to a different actor.');
+      }
+      if (execution.status === 'executing' && execution.providerOutcome === 'uncertain') {
+        return externalExecutionResult(execution);
+      }
+      if (execution.status !== 'prepared' || execution.providerOutcome !== 'not_attempted') {
+        throw new ConflictException('External registration execution cannot be started from its current state.');
+      }
+      const leaseToken = randomUUID();
+      const startedAt = new Date();
+      const updated = await tx.productRegistrationExecution.update({
+        where: { id: execution.id },
+        data: { status: 'executing', providerOutcome: 'uncertain', leaseToken, leaseClaimedAt: startedAt, startedAt },
+      });
+      await tx.productPreparation.updateMany({
+        where: { id: execution.productPreparationId, organizationId: input.organizationId, isDeleted: false },
+        data: { status: 'submitting', providerOutcome: 'uncertain', submissionLeaseToken: leaseToken, submissionLeaseClaimedAt: startedAt },
+      });
+      return externalExecutionResult(updated);
+    });
+  }
+
+  async getExternalExecution(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+    executionId: string;
+    requestedByUserId: string | null;
+  }): Promise<ExternalRegistrationExecutionResult> {
+    const execution = await this.prisma.productRegistrationExecution.findFirst({
+      where: {
+        id: input.executionId,
+        organizationId: input.organizationId,
+        executionKind: 'external_wing',
+        requestedByUserId: input.requestedByUserId,
+        productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
+      },
+    });
+    if (!execution) throw new NotFoundException('External registration execution not found.');
+    return externalExecutionResult(execution);
+  }
+
+  async markExternalExecutionUnresolved(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+    executionId: string;
+    requestedByUserId: string | null;
+    evidence: unknown;
+  }): Promise<ExternalRegistrationExecutionResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.productRegistrationExecution.findFirst({
+        where: {
+          id: input.executionId,
+          organizationId: input.organizationId,
+          executionKind: 'external_wing',
+          requestedByUserId: input.requestedByUserId,
+          productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
+        },
+      });
+      if (!current) throw new NotFoundException('External registration execution not found.');
+      await lockExecution(tx, input.organizationId, current.id);
+      if (!['executing', 'reconciling'].includes(current.status)) {
+        throw new ConflictException('Only a started external registration may be reconciled.');
+      }
+      const evidence = JSON.stringify(input.evidence ?? null).slice(0, 4_000);
+      const updated = await tx.productRegistrationExecution.update({
+        where: { id: current.id },
+        data: { status: 'reconciling', providerOutcome: 'uncertain', lastErrorMessage: evidence },
+      });
+      return externalExecutionResult(updated);
+    });
+  }
+
   async replaceDraftInput(
     input: ReplaceDraftInputRequest,
     resolveSelections: ResolveProductPreparationSelections,
@@ -223,6 +502,26 @@ export class ProductPreparationRepositoryAdapter
         },
       });
       if (!current) throw new NotFoundException('Product preparation not found.');
+
+      const existingExecution = await tx.productRegistrationExecution.findFirst({
+        where: { organizationId: input.organizationId, productPreparationId: current.id },
+        select: {
+          status: true,
+          providerSubmissionId: true,
+          externalListingId: true,
+          resultJson: true,
+        },
+      });
+      if (existingExecution && (
+        ['prepared', 'executing', 'reconciling', 'succeeded'].includes(existingExecution.status)
+        || existingExecution.providerSubmissionId !== null
+        || existingExecution.externalListingId !== null
+        || existingExecution.resultJson !== null
+      )) {
+        throw new ConflictException(
+          'Preparation execution cannot be discarded or edited.',
+        );
+      }
 
       const providerOutcome = resolveProviderOutcome(current);
       const providerIdentityCanBeDiscarded = canDiscardProviderIdentity({
@@ -321,7 +620,7 @@ export class ProductPreparationRepositoryAdapter
   async claimForSubmission(
     organizationId: string,
     preparationId: string,
-    _userId: string | null,
+    userId: string | null,
     resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationClaimResult> {
     return this.prisma.$transaction(async (tx) => {
@@ -338,32 +637,54 @@ export class ProductPreparationRepositoryAdapter
         where: { id: preparationId, organizationId, isDeleted: false },
       });
       if (!current) throw new NotFoundException('Product preparation not found.');
-      if (current.status === 'registered') {
-        if (!current.channelListingId) {
-          throw new ConflictException('Registered preparation is missing its listing identity.');
+      let execution = await tx.productRegistrationExecution.findFirst({
+        where: { organizationId, productPreparationId: current.id },
+      });
+      if (execution) await lockExecution(tx, organizationId, execution.id);
+      execution = await tx.productRegistrationExecution.findFirst({
+        where: { organizationId, productPreparationId: current.id },
+      });
+      if (execution?.executionKind === 'external_wing') {
+        throw new ConflictException('External WING executions must use their explicit start/completion contract.');
+      }
+      if (!execution && current.status === 'registered') {
+        execution = await importLegacyRegisteredExecution(tx, current, organizationId);
+      }
+      if (!execution && ['submitting', 'failed'].includes(current.status)) {
+        execution = await importLegacyExecution(tx, current, organizationId);
+      }
+      if (execution?.status === 'succeeded') {
+        if (!execution.channelListingId) {
+          throw new ConflictException('Succeeded execution is missing its listing identity.');
         }
         return {
           preparationId: current.id,
           status: 'registered' as const,
-          listingId: current.channelListingId,
+          listingId: execution.channelListingId,
         };
       }
       assertRegistrationIdentity(current);
       await assertActiveCandidate(tx, organizationId, current.sourceCandidateId);
       const now = new Date();
-      if (current.status === 'submitting' && hasLiveSubmissionLease({
-        token: current.submissionLeaseToken,
-        claimedAt: current.submissionLeaseClaimedAt,
+      if (execution && ['prepared', 'executing', 'reconciling'].includes(execution.status) && hasLiveSubmissionLease({
+        token: execution.leaseToken,
+        claimedAt: execution.leaseClaimedAt,
         now,
       })) {
         throw new ConflictException('Product registration submission is already in progress.');
       }
-      if (!['draft', 'submitting', 'failed'].includes(current.status)) {
+      if (execution?.status === 'cancelled' || execution?.status === 'failed') {
+        throw new ConflictException(`Registration execution cannot be submitted from '${execution.status}'.`);
+      }
+      if (current.status === 'registered' && !execution) {
+        throw new ConflictException('Registered preparation is missing its registration execution.');
+      }
+      if (!['draft', 'submitting', 'failed', 'registered'].includes(current.status)) {
         throw new ConflictException(`Preparation cannot be submitted from '${current.status}'.`);
       }
       const submissionLeaseToken = randomUUID();
 
-      if (current.status === 'draft') {
+      if (!execution) {
         const resolvedSelections = await resolveSelections(
           tx as unknown as SourcingRepositoryTransaction,
           selectionResolutionInput(
@@ -379,7 +700,7 @@ export class ProductPreparationRepositoryAdapter
         const frozen = freezeProductPreparationPayload(
           buildSubmissionPayload(resolvedCurrent),
         );
-        const submissionKey = randomUUID();
+        const submissionKey = current.submissionKey || randomUUID();
         const updated = await updatePreparationAndLoad(
           tx,
           organizationId,
@@ -393,28 +714,57 @@ export class ProductPreparationRepositoryAdapter
             submissionLeaseToken,
             submissionLeaseClaimedAt: now,
             lastError: null,
+            reviewPayloadHash: frozen.hash,
+            approvedAt: now,
+            approvedByUserId: userId,
             ...resolvedSelectionData(resolvedSelections),
           },
         );
-        return toFrozenSubmission(updated);
+        execution = await tx.productRegistrationExecution.create({
+          data: {
+            organizationId,
+            productPreparationId: updated.id,
+            channelAccountId: updated.channelAccountId,
+            idempotencyKey: submissionKey,
+            requestHash: frozen.hash,
+            submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
+            submissionPayloadHash: frozen.hash,
+            status: 'prepared',
+            providerOutcome: 'not_attempted',
+            leaseToken: submissionLeaseToken,
+            leaseClaimedAt: now,
+            requestedByUserId: userId,
+          },
+        });
+        return toFrozenSubmission(updated, execution);
       }
 
-      if (!current.submissionKey || !current.submissionPayloadJson || !current.submissionPayloadHash) {
-        throw new ConflictException('Retriable preparation is missing its frozen submission.');
+      if (execution.idempotencyKey !== current.submissionKey
+        || execution.requestHash !== current.submissionPayloadHash) {
+        throw new ConflictException('Registration execution idempotency key or request hash drifted.');
       }
-      const providerOutcome = resolveProviderOutcome(current);
+      if (!execution.submissionPayloadJson || !execution.submissionPayloadHash) {
+        throw new ConflictException('Registration execution is missing its frozen submission.');
+      }
       const updated = await updatePreparationAndLoad(
         tx,
         organizationId,
         current.id,
         {
           status: 'submitting',
-          providerOutcome,
+          providerOutcome: execution.providerOutcome,
           submissionLeaseToken,
           submissionLeaseClaimedAt: now,
         },
       );
-      return toFrozenSubmission(updated);
+      if (execution.requestedByUserId !== userId) {
+        throw new ConflictException('Registration execution belongs to a different actor.');
+      }
+      const refreshedExecution = await tx.productRegistrationExecution.update({
+        where: { id: execution.id },
+        data: { leaseToken: submissionLeaseToken, leaseClaimedAt: now },
+      });
+      return toFrozenSubmission(updated, refreshedExecution);
     });
   }
 
@@ -426,12 +776,15 @@ export class ProductPreparationRepositoryAdapter
       where: {
         id: preparationId,
         organizationId,
-        status: { in: ['submitting', 'failed'] },
         isDeleted: false,
       },
     });
     if (!row) throw new NotFoundException('Frozen product preparation not found.');
-    return toFrozenSubmission(row);
+    const execution = await this.prisma.productRegistrationExecution.findFirst({
+      where: { organizationId, productPreparationId: preparationId },
+    });
+    if (!execution) throw new NotFoundException('Product registration execution not found.');
+    return toFrozenSubmission(row, execution);
   }
 
   async markProviderAttemptStarted(
@@ -449,27 +802,35 @@ export class ProductPreparationRepositoryAdapter
           isDeleted: false,
         },
       });
-      if (!current || current.submissionLeaseToken !== submissionLeaseToken) {
+      const execution = await requireExecution(tx, organizationId, preparationId);
+      await lockExecution(tx, organizationId, execution.id);
+      if (!current || execution.leaseToken !== submissionLeaseToken) {
         throw new ConflictException('Product registration submission lease was lost.');
       }
-      if (!canStartProviderCreate(resolveProviderOutcome(current))) {
+      if (execution.status !== 'prepared' || execution.providerOutcome !== 'not_attempted') {
         throw new ConflictException(
           'Provider create is not allowed while the prior outcome is uncertain or succeeded.',
         );
       }
-      const updated = await tx.productPreparation.updateMany({
+      const started = await tx.productRegistrationExecution.updateMany({
         where: {
-          id: preparationId,
+          id: execution.id,
           organizationId,
-          status: 'submitting',
-          submissionLeaseToken,
-          isDeleted: false,
+          status: 'prepared',
+          leaseToken: submissionLeaseToken,
         },
-        data: { providerOutcome: 'uncertain', lastError: null },
+        data: {
+          status: 'executing', providerOutcome: 'uncertain', startedAt: new Date(),
+          lastErrorCode: null, lastErrorMessage: null,
+        },
       });
-      if (updated.count !== 1) {
+      if (started.count !== 1) {
         throw new ConflictException('Product registration submission lease was lost.');
       }
+      await tx.productPreparation.updateMany({
+        where: { id: preparationId, organizationId, isDeleted: false },
+        data: { status: 'submitting', providerOutcome: 'uncertain', lastError: null },
+      });
     });
   }
 
@@ -494,7 +855,9 @@ export class ProductPreparationRepositoryAdapter
           isDeleted: false,
         },
       });
-      if (!current || current.submissionLeaseToken !== submissionLeaseToken) {
+      const execution = await requireExecution(tx, organizationId, preparationId);
+      await lockExecution(tx, organizationId, execution.id);
+      if (!current || execution.leaseToken !== submissionLeaseToken) {
         throw new ConflictException('Preparation is not awaiting this provider result.');
       }
       const registrationResult = freezeProductPreparationPayload({
@@ -503,6 +866,18 @@ export class ProductPreparationRepositoryAdapter
         channel: result.channel,
         rawResult: result.rawResult,
       } as ProductPreparationJson).payload;
+      const updatedExecution = await tx.productRegistrationExecution.update({
+        where: { id: execution.id },
+        data: {
+          providerSubmissionId: result.providerSubmissionId ?? result.externalListingId,
+          externalListingId: result.externalListingId,
+          resultJson: registrationResult as Prisma.InputJsonValue,
+          providerOutcome: 'succeeded',
+          status: 'executing',
+          lastErrorCode: null,
+          lastErrorMessage: null,
+        },
+      });
       const updated = await updatePreparationAndLoad(
         tx,
         organizationId,
@@ -514,7 +889,7 @@ export class ProductPreparationRepositoryAdapter
           lastError: null,
         },
       );
-      return toFrozenSubmission(updated);
+      return toFrozenSubmission(updated, updatedExecution);
     });
   }
 
@@ -535,33 +910,43 @@ export class ProductPreparationRepositoryAdapter
         },
       });
       if (!current) throw new NotFoundException('Product preparation not found.');
+      const execution = await requireExecution(tx, input.organizationId, input.preparationId);
+      await lockExecution(tx, input.organizationId, execution.id);
       if (current.status !== 'submitting' && current.status !== 'failed') {
         throw new ConflictException(`Preparation cannot fail from '${current.status}'.`);
       }
       if (
         current.status === 'submitting'
-        && current.submissionLeaseToken !== input.submissionLeaseToken
+        && execution.leaseToken !== input.submissionLeaseToken
       ) {
         throw new ConflictException('Product registration submission lease was lost.');
       }
-      if (current.status === 'failed' && current.submissionLeaseToken === null) {
+      if (current.status === 'failed' && execution.leaseToken === null) {
         return { preparationId: current.id, status: 'failed' as const };
       }
-      const currentOutcome = resolveProviderOutcome(current);
+      const currentOutcome = execution.providerOutcome;
       if (
         input.providerOutcome === 'definitive_failure'
         && (currentOutcome === 'succeeded'
-          || current.providerSubmissionId !== null
-          || current.registrationResult !== null)
+          || execution.providerSubmissionId !== null
+          || execution.resultJson !== null)
       ) {
         throw new ConflictException('Recorded provider success cannot become a definitive failure.');
       }
-      const providerOutcome = input.providerOutcome ?? currentOutcome;
+      const providerOutcome = input.providerOutcome
+        ?? (currentOutcome === 'not_attempted' ? 'uncertain' : currentOutcome);
+      const executionStatus = providerOutcome === 'definitive_failure' ? 'failed' : 'reconciling';
+      await tx.productRegistrationExecution.updateMany({
+        where: { id: execution.id, organizationId: input.organizationId, leaseToken: input.submissionLeaseToken },
+        data: {
+          status: executionStatus, providerOutcome,
+          lastErrorMessage: input.error, leaseToken: null, leaseClaimedAt: null,
+        },
+      });
       await tx.productPreparation.updateMany({
         where: {
           id: current.id,
           organizationId: input.organizationId,
-          submissionLeaseToken: input.submissionLeaseToken,
           isDeleted: false,
         },
         data: {
@@ -602,11 +987,13 @@ export class ProductPreparationRepositoryAdapter
         },
       });
       if (!current) throw new NotFoundException('Product preparation not found.');
-      if (current.status === 'registered' && current.channelListingId) {
+      const execution = await requireExecution(tx, organizationId, preparationId);
+      await lockExecution(tx, organizationId, execution.id);
+      if (execution.status === 'succeeded' && execution.channelListingId) {
         return {
           preparationId: current.id,
           status: 'registered' as const,
-          listingId: current.channelListingId,
+          listingId: execution.channelListingId,
         };
       }
       if (current.status !== 'submitting') {
@@ -614,10 +1001,10 @@ export class ProductPreparationRepositoryAdapter
       }
       assertRegistrationIdentity(current);
       await assertActiveCandidate(tx, organizationId, current.sourceCandidateId);
-      if (current.submissionLeaseToken !== submissionLeaseToken) {
+      if (execution.leaseToken !== submissionLeaseToken) {
         throw new ConflictException('Product registration submission lease was lost.');
       }
-      if (!current.registrationResult || resolveProviderOutcome(current) !== 'succeeded') {
+      if (!execution.resultJson || execution.providerOutcome !== 'succeeded') {
         throw new ConflictException('Provider success must be recorded before finalization.');
       }
 
@@ -655,6 +1042,17 @@ export class ProductPreparationRepositoryAdapter
       if (updated.count !== 1) {
         throw new ConflictException('Product registration finalization lease was lost.');
       }
+      await tx.productRegistrationExecution.update({
+        where: { id: execution.id },
+        data: {
+          channelListingId: listing.id,
+          status: 'succeeded',
+          providerOutcome: 'succeeded',
+          completedAt: new Date(),
+          leaseToken: null,
+          leaseClaimedAt: null,
+        },
+      });
       return {
         preparationId: current.id,
         status: 'registered' as const,
@@ -676,6 +1074,188 @@ async function lockPreparation(
       AND organization_id = ${organizationId}::uuid
     FOR UPDATE
   `);
+}
+
+async function lockExecution(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  executionId: string,
+): Promise<void> {
+  await tx.$queryRaw(Prisma.sql`
+    SELECT id
+    FROM product_registration_executions
+    WHERE id = ${executionId}::uuid
+      AND organization_id = ${organizationId}::uuid
+    FOR UPDATE
+  `);
+}
+
+async function requireExecution(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  preparationId: string,
+): Promise<ProductRegistrationExecution> {
+  const execution = await tx.productRegistrationExecution.findFirst({
+    where: { organizationId, productPreparationId: preparationId },
+  });
+  if (!execution) throw new ConflictException('Product registration execution is missing.');
+  return execution;
+}
+
+function externalExecutionResult(
+  execution: ProductRegistrationExecution,
+): import('../../../application/port/out/repository/product-preparation.repository.port').ExternalRegistrationExecutionResult {
+  if (!['prepared', 'executing', 'reconciling', 'succeeded'].includes(execution.status)
+    || !['not_attempted', 'uncertain', 'succeeded'].includes(execution.providerOutcome)) {
+    throw new ConflictException('External registration execution has an unsupported lifecycle state.');
+  }
+  return {
+    executionId: execution.id,
+    preparationId: execution.productPreparationId,
+    requestHash: execution.requestHash,
+    status: execution.status as 'prepared' | 'executing' | 'reconciling' | 'succeeded',
+    providerOutcome: execution.providerOutcome as 'not_attempted' | 'uncertain' | 'succeeded',
+    submissionLeaseToken: execution.leaseToken,
+    expectedProviderAccountId: execution.expectedProviderAccountId ?? '',
+    listingId: execution.channelListingId,
+  };
+}
+
+/**
+ * Compatibility fence for preparations created before the execution ledger was
+ * introduced. A legacy submission may already have reached provider IO, so it
+ * must never be reborn as a fresh create operation.
+ */
+async function importLegacyExecution(
+  tx: Prisma.TransactionClient,
+  preparation: ProductPreparation,
+  organizationId: string,
+): Promise<ProductRegistrationExecution> {
+  assertRegistrationIdentity(preparation);
+  if (
+    !preparation.submissionKey
+    || !preparation.submissionPayloadJson
+    || !preparation.submissionPayloadHash
+  ) {
+    throw new ConflictException(
+      'Legacy submitting preparation is missing frozen submission data and cannot be safely imported.',
+    );
+  }
+  const frozen = freezeProductPreparationPayload(
+    preparation.submissionPayloadJson as ProductPreparationJson,
+  );
+  if (frozen.hash !== preparation.submissionPayloadHash) {
+    throw new ConflictException('Legacy frozen submission hash does not match its payload.');
+  }
+  const legacyOutcome = resolveProviderOutcome(preparation);
+  const hasProviderIdentity = preparation.providerSubmissionId !== null
+    || preparation.registrationResult !== null;
+  const providerOutcome = legacyOutcome === 'succeeded' || hasProviderIdentity
+    ? 'succeeded'
+    : legacyOutcome === 'definitive_failure'
+      ? 'definitive_failure'
+      : 'uncertain';
+  const status = providerOutcome === 'definitive_failure' ? 'failed' : 'reconciling';
+  return tx.productRegistrationExecution.create({
+    data: {
+      organizationId,
+      productPreparationId: preparation.id,
+      channelAccountId: preparation.channelAccountId,
+      idempotencyKey: preparation.submissionKey,
+      requestHash: frozen.hash,
+      submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
+      submissionPayloadHash: frozen.hash,
+      status,
+      providerOutcome,
+      providerSubmissionId: preparation.providerSubmissionId,
+      externalListingId: legacyExternalListingId(preparation.registrationResult),
+      resultJson: preparation.registrationResult === null
+        ? Prisma.JsonNull
+        : preparation.registrationResult as Prisma.InputJsonValue,
+      lastErrorMessage: preparation.lastError,
+      leaseToken: preparation.submissionLeaseToken,
+      leaseClaimedAt: preparation.submissionLeaseClaimedAt,
+      requestedByUserId: preparation.approvedByUserId,
+      startedAt: preparation.submissionLeaseClaimedAt,
+    },
+  });
+}
+
+function legacyExternalListingId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const externalListingId = (value as Record<string, unknown>).externalListingId;
+  return typeof externalListingId === 'string' && externalListingId.trim()
+    ? externalListingId.trim()
+    : null;
+}
+
+/** Imports a pre-ledger registered row as a completed replay without provider IO. */
+async function importLegacyRegisteredExecution(
+  tx: Prisma.TransactionClient,
+  preparation: ProductPreparation,
+  organizationId: string,
+): Promise<ProductRegistrationExecution> {
+  assertRegistrationIdentity(preparation);
+  if (!preparation.channelListingId) {
+    throw new ConflictException('Registered preparation is missing its persisted listing identity.');
+  }
+  const listing = await tx.channelListing.findFirst({
+    where: {
+      id: preparation.channelListingId,
+      organizationId,
+      channelAccountId: preparation.channelAccountId,
+      sourceCandidateId: preparation.sourceCandidateId,
+    },
+    select: { id: true, externalId: true },
+  });
+  if (!listing) {
+    throw new ConflictException('Registered preparation listing is outside its persisted account scope.');
+  }
+
+  let submissionPayloadJson: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
+  let submissionPayloadHash: string | null = null;
+  let requestHash: string;
+  if (preparation.submissionPayloadJson && preparation.submissionPayloadHash) {
+    const frozen = freezeProductPreparationPayload(
+      preparation.submissionPayloadJson as ProductPreparationJson,
+    );
+    if (frozen.hash !== preparation.submissionPayloadHash) {
+      throw new ConflictException('Legacy registered submission hash does not match its payload.');
+    }
+    submissionPayloadJson = frozen.payload as Prisma.InputJsonValue;
+    submissionPayloadHash = frozen.hash;
+    requestHash = frozen.hash;
+  } else {
+    requestHash = freezeProductPreparationPayload({
+      kind: 'legacy_registered_replay',
+      preparationId: preparation.id,
+      channelListingId: listing.id,
+      channelAccountId: preparation.channelAccountId,
+      externalListingId: listing.externalId,
+    } as ProductPreparationJson).hash;
+  }
+
+  return tx.productRegistrationExecution.create({
+    data: {
+      organizationId,
+      productPreparationId: preparation.id,
+      channelAccountId: preparation.channelAccountId,
+      channelListingId: listing.id,
+      idempotencyKey: preparation.submissionKey || `legacy-registered:${preparation.id}`,
+      requestHash,
+      submissionPayloadJson,
+      submissionPayloadHash,
+      status: 'succeeded',
+      providerOutcome: 'succeeded',
+      providerSubmissionId: preparation.providerSubmissionId ?? listing.externalId,
+      externalListingId: listing.externalId,
+      resultJson: preparation.registrationResult === null
+        ? Prisma.DbNull
+        : preparation.registrationResult as Prisma.InputJsonValue,
+      requestedByUserId: preparation.approvedByUserId,
+      completedAt: preparation.updatedAt,
+    },
+  });
 }
 
 async function lockCandidate(
@@ -765,16 +1345,19 @@ function buildSubmissionPayload(row: ProductPreparation): ProductPreparationJson
   };
 }
 
-function toFrozenSubmission(row: ProductPreparation): FrozenProductPreparationSubmission {
+function toFrozenSubmission(
+  row: ProductPreparation,
+  execution: ProductRegistrationExecution,
+): FrozenProductPreparationSubmission {
   assertRegistrationIdentity(row);
-  if (!row.submissionKey || !row.submissionPayloadJson || !row.submissionPayloadHash) {
+  if (!execution.idempotencyKey || !execution.submissionPayloadJson || !execution.submissionPayloadHash) {
     throw new ConflictException('Preparation submission has not been frozen.');
   }
   const frozen = freezeProductPreparationPayload(
-    row.submissionPayloadJson as ProductPreparationJson,
+    execution.submissionPayloadJson as ProductPreparationJson,
   );
-  if (frozen.hash !== row.submissionPayloadHash) {
-    throw new ConflictException('Frozen preparation payload hash does not match its JSON.');
+  if (frozen.hash !== execution.submissionPayloadHash || frozen.hash !== execution.requestHash) {
+    throw new ConflictException('Frozen registration execution payload hash does not match its JSON.');
   }
   const payload = frozen.payload;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -784,22 +1367,22 @@ function toFrozenSubmission(row: ProductPreparation): FrozenProductPreparationSu
   if (frozenChannelAccountId !== row.channelAccountId) {
     throw new ConflictException('Frozen preparation account does not match the row identity.');
   }
-  const providerOutcome = resolveProviderOutcome(row);
   return {
+    executionId: execution.id,
     preparationId: row.id,
     sourceCandidateId: row.sourceCandidateId,
     channelAccountId: frozenChannelAccountId,
     sourceContentWorkspaceId: row.sourceContentWorkspaceId,
     displayName: frozenRequiredString(payload, 'displayName'),
     status: row.status as FrozenProductPreparationSubmission['status'],
-    submissionKey: row.submissionKey,
+    submissionKey: execution.idempotencyKey,
     submissionPayloadJson: frozen.payload,
-    submissionPayloadHash: row.submissionPayloadHash,
-    providerSubmissionId: row.providerSubmissionId,
-    registrationResult: row.registrationResult as ProductPreparationJson | null,
-    providerOutcome,
-    submissionLeaseToken: row.submissionLeaseToken,
-    isRetry: row.lastError !== null || providerOutcome !== 'not_attempted',
+    submissionPayloadHash: execution.submissionPayloadHash,
+    providerSubmissionId: execution.providerSubmissionId,
+    registrationResult: execution.resultJson as ProductPreparationJson | null,
+    providerOutcome: execution.providerOutcome as ProductPreparationProviderOutcome,
+    submissionLeaseToken: execution.leaseToken,
+    isRetry: execution.lastErrorMessage !== null || execution.providerOutcome !== 'not_attempted',
     selectedThumbnailUrl: frozenNullableString(payload, 'selectedThumbnailUrl'),
     selectedThumbnailGenerationId: frozenNullableString(
       payload,

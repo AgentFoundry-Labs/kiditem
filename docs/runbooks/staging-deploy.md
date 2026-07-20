@@ -388,8 +388,10 @@ deploy/staging/remote-deploy.sh
 ```
 
 Normal deploys keep the ordered pre-schema migration, non-destructive
-`prisma db push`, and post-schema migration path. The `0.1.24` train exposes
-one explicit authoritative rebuild path:
+`prisma db push`, and post-schema migration path. Finish and merge every PR in
+the release train first, then perform one combined staging deploy; do not deploy
+or reset between those PRs. The current train exposes one explicit authoritative
+rebuild path:
 
 ```text
 operation: deploy
@@ -407,16 +409,20 @@ read-only Supabase Admin lookup. The destructive order is: quiesce application
 traffic, export the selected Coupang account as sanitized replay payloads,
 export the ordered migration ledger baseline, upload the private one-day
 artifact, then cross the reset boundary by applying the final Prisma schema
-with `--force-reset`. Only after that does it create the configured
-organization, Supabase user mirror, active membership, and channel-account
-baseline. It then starts the application with
+with `--force-reset` to non-auth staging data. Supabase Auth accounts are
+preserved. Only after that does it deterministically recreate the configured
+Organization, matching User mirror, active Membership, and ChannelAccount
+identities. It then starts the application with
 `inventory.rebuild.status=snapshot_required`. No source workbook is read from
 the repository or stored in the artifact.
 
 Immediately after schema recreation, the workflow requires an empty
-`data_migration_runs` table and restores the exact pre-reset registry as
-`succeeded`/`affectedRows=0` rows bound to the manifest hash, origin run, full
-SHA, and Prisma schema hash. This baseline never executes migration bodies.
+`data_migration_runs` table. The restored ledger records only migrations
+actually executed against the rebuilt schema or an explicitly validated,
+schema-hash-bound `subsumed_by_authoritative_rebuild` result for work made
+unnecessary by that rebuild. It never copies stale pre-reset success rows or
+marks a migration complete without the matching manifest hash, origin run,
+full SHA, Prisma schema hash, and recorded result.
 Both API/web image revision labels must equal `expected_git_sha` before traffic
 cutover.
 
@@ -451,6 +457,15 @@ those two import run IDs. It then replays Coupang data through authenticated
 marks the environment ready. Missing credentials, imports, expected evidence,
 artifact, or a target/run/hash/count mismatch fails closed and keeps
 snapshot-required state.
+
+The Coupang replay must never start until the Sellpia -> WING sequence has been
+verified successfully. Live WING vendor identity is also a manual deployment
+blocker: DOM attributes, meta tags, and URL parameters are useful local
+mismatch guards, but they are not server-verifiable proof of the provider
+account or provider completion. Do not enable live WING registration/deletion
+mutation until an operator validates the actual WING identity signal for the
+deployed page and account; deletion remains `reconciling/uncertain` without an
+independent provider API/catalog verifier.
 
 Each durable data migration is grouped by the application release in root
 [`VERSION`](../../VERSION) that requires it, for example

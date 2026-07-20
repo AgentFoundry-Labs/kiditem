@@ -67,7 +67,23 @@ export function basicDraftFrom({
   };
 }
 
-export function productBasicsInputFromDraft(draft: BasicDraft): UpdateProductBasicsInput {
+/**
+ * 폼 초안을 저장 payload 로 바꾼다.
+ *
+ * `hydratedBasicInfo` 는 이 초안을 만들 때 쓴 서버 값이다. 넘기면 "사용자가 손대지
+ * 않은 셀피아 폴백 판매가" 를 payload 에서 빼준다. 빼지 않으면 사용자가 상품명만
+ * 고쳐 저장해도 폴백 가격이 `registrationInput.salePrice` 에 눌러앉아 수기 입력과
+ * 구분할 수 없게 굳는다(source 가 영영 'input' 으로 바뀌고, 셀피아 가격이 나중에
+ * 바뀌어도 따라가지 않는다). 서버 머지는 키 단위라 빠진 키는 그대로 보존된다.
+ */
+export function productBasicsInputFromDraft(
+  draft: BasicDraft,
+  hydratedBasicInfo?: ProductBasics | null,
+): UpdateProductBasicsInput {
+  const salePrice = parseMoney(draft.salePrice);
+  const isUntouchedSellpiaFallback =
+    hydratedBasicInfo?.salePriceSource === 'sellpia' &&
+    salePrice === moneyRounded(hydratedBasicInfo.salePrice);
   return {
     name: draft.name.trim(),
     category: draft.category.trim(),
@@ -85,7 +101,7 @@ export function productBasicsInputFromDraft(draft: BasicDraft): UpdateProductBas
     optionNames: parseList(draft.optionNames),
     keywords: parseList(draft.keywords),
     tags: draft.tags,
-    salePrice: parseMoney(draft.salePrice),
+    ...(isUntouchedSellpiaFallback ? {} : { salePrice }),
     originalPrice: parseMoney(draft.originalPrice),
     discountRate: parseMoney(draft.discountRate),
     rocketBundleQuantity: parseQuantity(draft.rocketBundleQuantity),
@@ -100,6 +116,11 @@ export function parseMoney(value: string): number {
 
 function moneyInputValue(value: number | null | undefined): string {
   return Number.isFinite(value) && (value ?? 0) > 0 ? String(Math.round(value ?? 0)) : '';
+}
+
+/** `moneyInputValue` -> `parseMoney` 왕복 후의 값. 하이드레이션 대조용. */
+function moneyRounded(value: number | null | undefined): number {
+  return Number.isFinite(value) && (value ?? 0) > 0 ? Math.round(value ?? 0) : 0;
 }
 
 function parseQuantity(value: string): number {

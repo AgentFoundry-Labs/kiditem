@@ -46,6 +46,7 @@ export default defineConfig({
     'src/feature-gate.ts',
     'src/inspection.ts',
     'src/readiness.ts',
+    'src/coupang-category.ts',
     'src/auth.ts',
     'src/operation-cancellation.ts',
     'src/browser-collection-session.ts',

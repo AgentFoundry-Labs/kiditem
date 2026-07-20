@@ -12,6 +12,7 @@
 | ChannelAccountDailyKpiSnapshot | `channel_account_daily_kpi_snapshots` | 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용). |
 | ChannelAdTargetDailySnapshot | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
+| ChannelListingDeletionOperation | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelScrapeChunk | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
@@ -141,6 +142,29 @@ erDiagram
     DateTime lastObservedAt
     String rawSnapshotId FK
     Json metaJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelListingDeletionOperation {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String channelListingId FK
+    String idempotencyKey
+    String requestHash
+    String externalListingId
+    String expectedProviderAccountId
+    String status
+    String providerOutcome
+    Json resultJson
+    String lastErrorCode
+    String lastErrorMessage
+    String leaseToken
+    DateTime leaseClaimedAt
+    String requestedByUserId FK
+    DateTime authorizationExpiresAt
+    DateTime startedAt
+    DateTime completedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -471,6 +495,10 @@ erDiagram
 | ChannelAdTargetDailySnapshot | organization | references external | Core | Organization |
 | ChannelListingDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelListingDailySnapshot | organization | references external | Core | Organization |
+| ChannelListingDeletionOperation | channelAccount | references external | Core | ChannelAccount |
+| ChannelListingDeletionOperation | channelListing | references external | Core | ChannelListing |
+| ChannelListingDeletionOperation | organization | references external | Core | Organization |
+| ChannelListingDeletionOperation | requestedByUser | references external | Core | User |
 | ChannelListingOptionDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelListingOptionDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelListingOptionDailySnapshot | organization | references external | Core | Organization |

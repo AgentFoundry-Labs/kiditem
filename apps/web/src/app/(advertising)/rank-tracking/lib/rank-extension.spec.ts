@@ -26,15 +26,21 @@ describe("rank extension version gate", () => {
   });
 
   it("requires the generic collection-session extension release", () => {
-    expect(RANK_EXTENSION_MIN_VERSION).toBe("1.2.33");
+    expect(RANK_EXTENSION_MIN_VERSION).toBe("1.2.42");
     expect(
-      isRankExtensionVersionAtLeast("1.2.31", RANK_EXTENSION_MIN_VERSION),
+      isRankExtensionVersionAtLeast("1.2.37", RANK_EXTENSION_MIN_VERSION),
     ).toBe(false);
     expect(
-      isRankExtensionVersionAtLeast("1.2.32", RANK_EXTENSION_MIN_VERSION),
+      isRankExtensionVersionAtLeast("1.2.38", RANK_EXTENSION_MIN_VERSION),
     ).toBe(false);
     expect(
-      isRankExtensionVersionAtLeast("1.2.33", RANK_EXTENSION_MIN_VERSION),
+      isRankExtensionVersionAtLeast("1.2.39", RANK_EXTENSION_MIN_VERSION),
+    ).toBe(false);
+    expect(
+      isRankExtensionVersionAtLeast("1.2.40", RANK_EXTENSION_MIN_VERSION),
+    ).toBe(false);
+    expect(
+      isRankExtensionVersionAtLeast("1.2.42", RANK_EXTENSION_MIN_VERSION),
     ).toBe(true);
   });
 
@@ -43,7 +49,7 @@ describe("rank extension version gate", () => {
     vi.mocked(detectExtensionId).mockResolvedValue("coupang-extension");
     vi.mocked(sendToExtension).mockResolvedValue({
       success: true,
-      version: "1.2.33",
+      version: "1.2.42",
       capabilities: {
         wingCatalogSalesRank: true,
         wingCatalogSalesRankCancel: true,
@@ -54,7 +60,7 @@ describe("rank extension version gate", () => {
     await expect(detectRankExtensionGate()).resolves.toEqual({
       status: "outdated",
       extensionId: "coupang-extension",
-      version: "1.2.33",
+      version: "1.2.42",
     });
   });
 

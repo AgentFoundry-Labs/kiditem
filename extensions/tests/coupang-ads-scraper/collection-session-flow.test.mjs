@@ -104,7 +104,7 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /unsupported collection producer/i);
-  assert.equal(manifest.version, '1.2.37');
+  assert.equal(manifest.version, '1.2.65');
 });
 
 test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {
@@ -134,6 +134,10 @@ test('the scrape-target producer owns one serialized silent window lifecycle', (
     /for \(let index = 0; index < targets\.length; index \+= 1\)/,
   );
   assert.doesNotMatch(collectionWindowSource, /Promise\.all\(\s*targets/);
+  assert.match(worker, /msg\.action === "reportCollectionTargetProgress"/);
+  assert.match(worker, /\["succeeded", "failed", "cancelled"\]\.includes\(session\.status\)/);
+  assert.match(worker, /KidItemCollectionWindow\.normalizeProgress/);
+  assert.match(collectionWindowSource, /preservesContentProgress/);
 });
 
 test('automatic collectors contain no direct focus primitives', () => {

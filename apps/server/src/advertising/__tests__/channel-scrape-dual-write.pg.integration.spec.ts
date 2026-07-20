@@ -110,16 +110,20 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     });
   });
 
-  it('ExtensionSyncDto preserves dateFrom/dateTo through whitelist validation', async () => {
+  it('ExtensionSyncDto preserves date and campaign status fields through whitelist validation', async () => {
     const dto = plainToInstance(ExtensionSyncDto, {
       type: 'traffic',
       dateFrom: '2026-04-01',
       dateTo: '2026-04-14',
+      dashboardOnOff: 'OFF',
+      dashboardStatus: '일시정지',
     });
     const errors = await validate(dto, { whitelist: true });
     expect(errors).toHaveLength(0);
     expect(dto.dateFrom).toBe('2026-04-01');
     expect(dto.dateTo).toBe('2026-04-14');
+    expect(dto.dashboardOnOff).toBe('OFF');
+    expect(dto.dashboardStatus).toBe('일시정지');
   });
 
   it.each(['single_campaign_metadata_raw', 'future_bounded_scope'])(
@@ -531,6 +535,20 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
                 campaignName: 'Camp-Boom',
                 productName: 'P-Boom',
                 vendorItemId: 'VENDOR-BOOM',
+                spend: 1,
+                revenue: 1,
+                impressions: 1,
+                clicks: 1,
+                conversions: 1,
+                orders: 1,
+                _observedMetrics: {
+                  adSpend: true,
+                  adRevenue: true,
+                  impressions: true,
+                  clicks: true,
+                  conversions: true,
+                  orders: true,
+                },
               },
             ],
           },

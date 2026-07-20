@@ -1,6 +1,6 @@
 'use client';
 
-import { ExternalLink, Store } from 'lucide-react';
+import { ExternalLink, Store, Trash2 } from 'lucide-react';
 import { formatKRW } from '@/lib/utils';
 import { ProductInboxCardShell } from '../../_shared/components/inbox/ProductInboxCardShell';
 import type { RegisteredChannelListing } from '../lib/channel-listings-api';
@@ -10,6 +10,11 @@ interface RegisteredListingCardProps {
   selected?: boolean;
   onOpen: (listing: RegisteredChannelListing) => void;
   onSelectedChange?: (id: string, selected: boolean) => void;
+  /**
+   * ⚠️ 파괴적. 우리가 등록한 상품(`sourceCandidateId` 있음)에만 전달된다.
+   * 넘어오지 않으면 삭제 진입점 자체를 렌더하지 않는다.
+   */
+  onRequestDelete?: (listing: RegisteredChannelListing) => void;
 }
 
 export function RegisteredListingCard({
@@ -17,6 +22,7 @@ export function RegisteredListingCard({
   selected = false,
   onOpen,
   onSelectedChange,
+  onRequestDelete,
 }: RegisteredListingCardProps) {
   const title = listing.listingName;
   const channelLabel = channelDisplayName(listing.channel);
@@ -70,16 +76,32 @@ export function RegisteredListingCard({
         </div>
       }
       footer={
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpen(listing);
-          }}
-          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--text-primary)] bg-white text-[12px] font-extrabold text-[var(--text-primary)] shadow-sm transition-all hover:border-emerald-600 hover:bg-emerald-600 hover:text-white hover:shadow-md hover:shadow-emerald-100"
-        >
-          <ExternalLink size={13} /> 콘텐츠 관리
-        </button>
+        <div className="flex w-full items-center gap-1.5">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen(listing);
+            }}
+            className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--text-primary)] bg-white text-[12px] font-extrabold text-[var(--text-primary)] shadow-sm transition-all hover:border-emerald-600 hover:bg-emerald-600 hover:text-white hover:shadow-md hover:shadow-emerald-100"
+          >
+            <ExternalLink size={13} /> 콘텐츠 관리
+          </button>
+          {onRequestDelete && (
+            <button
+              type="button"
+              aria-label={`${title} 삭제`}
+              title="쿠팡에서 삭제"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRequestDelete(listing);
+              }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-white text-rose-600 transition-all hover:border-rose-600 hover:bg-rose-600 hover:text-white"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
       }
     />
   );

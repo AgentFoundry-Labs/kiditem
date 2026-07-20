@@ -11,6 +11,7 @@ export class DefinitiveMarketplaceRegistrationError extends Error {
 }
 
 export interface ProductRegistrationSubmissionCapabilityInput {
+  executionId: string;
   organizationId: string;
   preparationId: string;
   sourceCandidateId: string;
@@ -41,6 +42,11 @@ export const CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT = Symbol(
 );
 
 export interface ChannelsMarketplaceRegistrationCapabilityPort {
+  assertExternalProductRegistrationAccount(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<{ channel: 'coupang'; vendorId: string }>;
+
   reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
   ): Promise<MarketplaceSubmissionResult | null>;

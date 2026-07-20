@@ -7,6 +7,7 @@ export {
   GenerateDetailPageBodyDto,
   PrefillDetailPageBodyDto,
 } from './detail-page-generate.dto';
+export { RenderCandidateDetailImageBodyDto } from './detail-page-candidate-image.dto';
 export {
   RenameDetailPageVersionDto,
   SaveDetailPageEditedHtmlDto,

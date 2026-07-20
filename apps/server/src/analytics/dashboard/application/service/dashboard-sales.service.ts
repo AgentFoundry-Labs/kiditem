@@ -28,7 +28,6 @@ import {
 import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type WingTrafficAggregationRepositoryPort,
-  type CoupangAdsMetrics,
   type WingTrafficMetrics,
 } from '../port/out/repository/wing-traffic-aggregation.repository.port';
 import {
@@ -38,6 +37,7 @@ import {
   type RocketOrderRow,
 } from '../port/out/repository/rocket-revenue.repository.port';
 import { buildEffectivePeriod } from '../../domain/util/effective-period';
+import { reconcileCollectedAdSpend } from '../../domain/util/collected-ad-profit';
 import { pct1 } from '../../domain/util/percent';
 
 export interface RocketDailySalesResult {
@@ -151,8 +151,6 @@ export class DashboardSalesService {
       const useWingMonthly = curMonth.revenue === 0 && wingTrafficMonth.hasData;
       const useWingRange = rangeCur.revenue === 0 && wingTrafficRange.hasData;
       const useWingToday = todayRows.revenue === 0 && wingTrafficToday.hasData;
-      const useCoupangAdsForMonth =
-        coupangAdsMonth.hasData && coupangAdsMonth.spend > curMonth.adCost;
 
       const today = useWingToday
         ? { revenue: wingTrafficToday.revenue, orders: wingTrafficToday.orders }
@@ -185,38 +183,31 @@ export class DashboardSalesService {
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, dateRange.start, dateRange.end),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, dateRange.prevStart, dateRange.prevEnd),
       ]);
+      const curMonthProfit = reconcileCollectedAdSpend(curMonth, coupangAdsMonth);
+      const prevMonthProfit = reconcileCollectedAdSpend(prevMonth, coupangAdsPrevMonth);
+      const rangeCurProfit = reconcileCollectedAdSpend(rangeCur, coupangAdsForRange);
+      const rangePrevProfit = reconcileCollectedAdSpend(rangePrev, coupangAdsForPrevRange);
 
       return {
         today,
         monthly: this.buildMonthly(
-          curMonth,
-          prevMonth,
+          curMonthProfit,
+          prevMonthProfit,
           wingTrafficMonth,
           wingTrafficPrevMonth,
-          coupangAdsMonth,
-          coupangAdsPrevMonth,
           useWingMonthly,
-          useCoupangAdsForMonth,
           rocketMonth.revenue,
           rocketPrevMonth.revenue,
         ),
         topProducts: topProductRows,
         monthlyTrend,
-        profitDetail: this.buildProfitDetail(
-          curMonth,
-          wingTrafficMonth,
-          coupangAdsMonth,
-          useWingMonthly,
-          useCoupangAdsForMonth,
-        ),
+        profitDetail: this.buildProfitDetail(curMonthProfit),
         rangeKpi: this.buildRangeKpi(
           ctx.effectiveRange,
-          rangeCur,
-          rangePrev,
+          rangeCurProfit,
+          rangePrevProfit,
           wingTrafficRange,
           wingTrafficPrevRange,
-          coupangAdsForRange,
-          coupangAdsForPrevRange,
           useWingRange,
           rocketRange.revenue,
           rocketPrevRange.revenue,
@@ -224,9 +215,8 @@ export class DashboardSalesService {
         dailyRevenue: dailyRevenueRows,
         planAchievement: null,
         trafficKpi: this.buildTrafficKpi(
-          rangeCur,
+          rangeCurProfit,
           wingTrafficRange,
-          coupangAdsForRange,
           wing,
           useWingRange,
         ),
@@ -306,10 +296,7 @@ export class DashboardSalesService {
     prev: RangeProfitMetrics,
     wingCur: WingTrafficMetrics,
     wingPrev: WingTrafficMetrics,
-    coupangAdsCur: CoupangAdsMetrics,
-    coupangAdsPrev: CoupangAdsMetrics,
     useWing: boolean,
-    useCoupangAds: boolean,
     rocketRevenue = 0,
     prevRocketRevenue = 0,
   ): DashboardSalesSummary['monthly'] {
@@ -319,15 +306,13 @@ export class DashboardSalesService {
     const revenue = wingRevenue + rocketRevenue;
     const prevRevenue = prevWingRevenue + prevRocketRevenue;
 
-    const adCost = useCoupangAds ? coupangAdsCur.spend : cur.adCost;
-    const prevAdCost = useCoupangAds ? coupangAdsPrev.spend : prev.adCost;
     // 로켓은 정산 데이터 부재 → profit 미반영(윙 fallback 정책 동일).
     const profit = useWing ? 0 : cur.netProfit;
     const prevProfit = useWing ? 0 : prev.netProfit;
 
     // 광고비율은 광고가 붙는 윙 매출 기준으로 계산(로켓 합산 total 로 희석하지 않음).
-    const adRate = pct1(adCost, wingRevenue);
-    const prevAdRate = pct1(prevAdCost, prevWingRevenue);
+    const adRate = pct1(cur.adCost, wingRevenue);
+    const prevAdRate = pct1(prev.adCost, prevWingRevenue);
     const revenueChange = pct1(revenue - prevRevenue, prevRevenue);
     const profitChange = useWing
       ? 0
@@ -355,10 +340,6 @@ export class DashboardSalesService {
   // the breakdown on Wing-source periods.
   private buildProfitDetail(
     cur: RangeProfitMetrics,
-    _wingCur: WingTrafficMetrics,
-    _coupangAds: CoupangAdsMetrics,
-    _useWing: boolean,
-    _useCoupangAds: boolean,
   ): ProfitBreakdown {
     return {
       revenue: cur.revenue,
@@ -385,8 +366,6 @@ export class DashboardSalesService {
     prev: RangeProfitMetrics,
     wingCur: WingTrafficMetrics,
     wingPrev: WingTrafficMetrics,
-    _coupangAdsCur: CoupangAdsMetrics,
-    _coupangAdsPrev: CoupangAdsMetrics,
     useWing: boolean,
     rocketRevenue = 0,
     prevRocketRevenue = 0,
@@ -435,15 +414,17 @@ export class DashboardSalesService {
           1,
         );
         const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-        const [m, wing, rocket] = await Promise.all([
+        const [m, wing, rocket, coupangAds] = await Promise.all([
           this.profitCalculation.calculateForRange(organizationId, start, end),
           this.wingTrafficRepository.aggregateTraffic(organizationId, start, end),
           this.rocketRevenue.aggregateRevenue(organizationId, start, end),
+          this.wingTrafficRepository.aggregateCoupangAds(organizationId, start, end),
         ]);
+        const adjusted = reconcileCollectedAdSpend(m, coupangAds);
         const period = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
-        const revenue = (m.revenue > 0 ? m.revenue : wing.revenue) + rocket.revenue;
-        const profit = m.revenue > 0 ? m.netProfit : 0;
-        return { period, revenue, profit, adCost: m.adCost } satisfies MonthlyTrendItem;
+        const revenue = (adjusted.revenue > 0 ? adjusted.revenue : wing.revenue) + rocket.revenue;
+        const profit = adjusted.revenue > 0 ? adjusted.netProfit : 0;
+        return { period, revenue, profit, adCost: adjusted.adCost } satisfies MonthlyTrendItem;
       }),
     );
     return trends;
@@ -461,7 +442,6 @@ export class DashboardSalesService {
   private buildTrafficKpi(
     cur: RangeProfitMetrics,
     wingCur: WingTrafficMetrics,
-    _coupangAdsCur: CoupangAdsMetrics,
     wing: WingAdSummaryResult | null,
     useWing: boolean,
   ): TrafficKpi {

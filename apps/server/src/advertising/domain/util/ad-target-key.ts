@@ -11,6 +11,7 @@
 //   account:<channelAccountId>:campaign:<campaignId || campaignIdentity || campaignName>
 //   account:<channelAccountId>:keyword:<campaign-anchor>:<adGroup>:<keyword>
 //   account:<channelAccountId>:product:<campaign-anchor>:<product-anchor>
+//   account:<channelAccountId>:product:<product-anchor> (campaign-less fallback)
 //
 // Throws when no usable identifier is present so we never store
 // `unknown:unknown` rows. Two distinct payloads with different identifiers
@@ -69,7 +70,7 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
     case 'campaign': {
       if (!campaignAnchor) {
         throw new Error(
-          'buildAdTargetKey: campaign target requires campaignId or campaignName',
+          'buildAdTargetKey: campaign target requires campaignId, campaignIdentity, or campaignName',
         );
       }
       return `${prefix}:campaign:${campaignAnchor}`;
@@ -77,7 +78,7 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
     case 'keyword': {
       if (!campaignAnchor || !keyword) {
         throw new Error(
-          'buildAdTargetKey: keyword target requires (campaignId|campaignName) and keyword',
+          'buildAdTargetKey: keyword target requires (campaignId|campaignIdentity|campaignName) and keyword',
         );
       }
       return `${prefix}:keyword:${campaignAnchor}:${adGroup ?? ''}:${keyword}`;
@@ -88,6 +89,8 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
           'buildAdTargetKey: product target requires externalOptionId, externalId, or listingId',
         );
       }
+      // A product can participate in several campaigns on the same date, so
+      // the campaign identity remains part of the key whenever available.
       return campaignAnchor
         ? `${prefix}:product:${campaignAnchor}:${productAnchor}`
         : `${prefix}:product:${productAnchor}`;

@@ -31,6 +31,7 @@ function frozenSubmission(
   overrides: Partial<FrozenProductPreparationSubmission> = {},
 ): FrozenProductPreparationSubmission {
   return {
+    executionId: 'execution-1',
     preparationId: PREPARATION_ID,
     sourceCandidateId: CANDIDATE_ID,
     channelAccountId: ACCOUNT_ID,
@@ -102,6 +103,13 @@ function setup(overrides: {
       },
     ),
     loadFrozenSubmission: vi.fn().mockResolvedValue(frozenSubmission()),
+    getExternalExecution: vi.fn().mockResolvedValue({
+      executionId: 'execution-1', preparationId: PREPARATION_ID, requestHash: 'hash-1',
+      status: 'executing', providerOutcome: 'uncertain',
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      expectedProviderAccountId: 'A00012345', listingId: null,
+    }),
+    markExternalExecutionUnresolved: vi.fn(),
     markProviderAttemptStarted: vi.fn().mockResolvedValue(undefined),
     recordProviderResult: vi.fn().mockImplementation(async (_orgId, _id, _leaseToken, result) =>
       frozenSubmission({
@@ -118,6 +126,7 @@ function setup(overrides: {
     ...overrides.repository,
   } as ProductPreparationRepositoryPort;
   const channel = {
+    assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' }),
     reconcile: vi.fn().mockResolvedValue(null),
     submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
       await beforeProviderCreate();
@@ -160,6 +169,50 @@ function setup(overrides: {
 }
 
 describe('ProductRegistrationService', () => {
+  it('prepares and starts an external WING execution before returning a browser payload', async () => {
+    const prepareExternalExecution = vi.fn().mockResolvedValue({
+      executionId: 'execution-1',
+      preparationId: PREPARATION_ID,
+      requestHash: 'hash-1',
+      status: 'prepared',
+      expectedProviderAccountId: 'A00012345',
+    });
+    const startExternalExecution = vi.fn().mockResolvedValue({
+      executionId: 'execution-1',
+      preparationId: PREPARATION_ID,
+      status: 'executing',
+      providerOutcome: 'uncertain',
+    });
+    const { service, repository } = setup({
+      repository: { prepareExternalExecution, startExternalExecution } as never,
+      channel: { assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' }) },
+    });
+
+    await expect(service.prepareExternalWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { listingPayload: { items: [{ itemName: 'Kids rain boots' }] } },
+      idempotencyKey: '33333333-3333-4333-8333-333333333333',
+    })).resolves.toEqual(expect.objectContaining({
+      executionId: 'execution-1',
+      expectedVendorId: 'A00012345',
+    }));
+    await service.startExternalWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, 'execution-1');
+
+    expect(prepareExternalExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: ORG_ID, sourceCandidateId: CANDIDATE_ID }),
+      expect.any(Function),
+      expect.any(Function),
+    );
+    expect(startExternalExecution).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID,
+      sourceCandidateId: CANDIDATE_ID,
+      requestedByUserId: USER_ID,
+      executionId: 'execution-1',
+    }));
+    expect(repository.createOrGetActiveDraft).not.toHaveBeenCalled();
+  });
+
   it('creates an account-scoped draft and atomically resolves the candidate workspace', async () => {
     const { service, repository, content } = setup();
 
@@ -233,7 +286,12 @@ describe('ProductRegistrationService', () => {
   it('marks a provider failure retriable without finalizing locally', async () => {
     const failure = new Error('provider unavailable');
     const { service, repository, channel, content } = setup({
-      channel: { submit: vi.fn().mockRejectedValue(failure) },
+      channel: {
+        submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
+          await beforeProviderCreate();
+          throw failure;
+        }),
+      },
     });
 
     await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
@@ -249,8 +307,53 @@ describe('ProductRegistrationService', () => {
     expect(repository.finalizeRegistered).not.toHaveBeenCalled();
     expect(content.branchToListing).not.toHaveBeenCalled();
     expect(channel.reconcile).toHaveBeenCalledWith(
-      expect.objectContaining({ submissionKey: 'submission-key-1', submissionPayloadHash: 'hash-1' }),
+      expect.objectContaining({
+        executionId: 'execution-1',
+        submissionKey: 'submission-key-1',
+        submissionPayloadHash: 'hash-1',
+      }),
     );
+  });
+
+  it('records a fresh not-attempted reconciliation/account failure as definitive local failure', async () => {
+    const failure = new Error('selected account is inactive');
+    const { service, repository, channel } = setup({
+      channel: { reconcile: vi.fn().mockRejectedValue(failure) },
+    });
+
+    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
+      preparationId: PREPARATION_ID,
+      status: 'failed',
+    });
+    expect(repository.markFailed).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      preparationId: PREPARATION_ID,
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      providerOutcome: 'definitive_failure',
+      error: 'selected account is inactive',
+    });
+    expect(channel.submit).not.toHaveBeenCalled();
+  });
+
+  it('keeps an uncertain replay failure uncertain before another provider create', async () => {
+    const failure = new Error('reconciliation unavailable');
+    const { service, repository } = setup({
+      repository: {
+        claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
+          providerOutcome: 'uncertain',
+          isRetry: true,
+        })),
+      },
+      channel: { reconcile: vi.fn().mockRejectedValue(failure) },
+    });
+
+    await service.submit(ORG_ID, PREPARATION_ID, USER_ID);
+    expect(repository.markFailed).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      preparationId: PREPARATION_ID,
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      error: 'reconciliation unavailable',
+    });
   });
 
   it('resolves source-owned selections inside the claim transaction before provider IO', async () => {
@@ -464,8 +567,72 @@ describe('ProductRegistrationService', () => {
       organizationId: ORG_ID,
       preparationId: PREPARATION_ID,
       submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      providerOutcome: 'definitive_failure',
       error: 'invalid frozen listing payload',
     });
+  });
+
+  it('validates the persisted Wing account before accepting external confirmation', async () => {
+    const assertExternalRegistrationAccount = vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' });
+    const { service, repository, channel } = setup({
+      channel: { assertExternalRegistrationAccount },
+    });
+
+    await service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1',
+      externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    });
+
+    expect(assertExternalRegistrationAccount).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      channelAccountId: ACCOUNT_ID,
+    });
+    expect(repository.recordProviderResult).toHaveBeenCalledWith(
+      ORG_ID,
+      PREPARATION_ID,
+      '33333333-3333-4333-8333-333333333333',
+      expect.objectContaining({ channel: 'coupang' }),
+    );
+  });
+
+  it('rejects forged WING evidence before recording external provider success', async () => {
+    const { service, repository } = setup();
+    await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1', externalListingId: '427011919',
+      evidence: { wingVendorId: 'B00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    })).rejects.toThrow('does not match');
+    expect(repository.recordProviderResult).not.toHaveBeenCalled();
+  });
+
+  it('rejects completion when the persisted WING vendor changed after preparation', async () => {
+    const { service, repository } = setup({
+      channel: {
+        assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'B00012345' }),
+      },
+    });
+
+    await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1', externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    })).rejects.toThrow('identity changed');
+
+    expect(repository.recordProviderResult).not.toHaveBeenCalled();
+  });
+
+  it('replays a completed external execution without recording or finalizing again', async () => {
+    const getExternalExecution = vi.fn().mockResolvedValue({
+      executionId: 'execution-1', preparationId: PREPARATION_ID, requestHash: 'hash-1',
+      status: 'succeeded', providerOutcome: 'succeeded', submissionLeaseToken: null,
+      expectedProviderAccountId: 'A00012345', listingId: LISTING_ID,
+    });
+    const { service, repository } = setup({ repository: { getExternalExecution } as never });
+    await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1', externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    })).resolves.toEqual({ preparationId: PREPARATION_ID, status: 'registered', listingId: LISTING_ID });
+    expect(repository.recordProviderResult).not.toHaveBeenCalled();
+    expect(repository.finalizeRegistered).not.toHaveBeenCalled();
   });
 
   it('records a definitive provider rejection without leaving an uncertain identity', async () => {

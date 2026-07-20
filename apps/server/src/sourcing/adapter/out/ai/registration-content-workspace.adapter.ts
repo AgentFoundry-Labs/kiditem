@@ -6,6 +6,7 @@ import {
 import type {
   BranchRegistrationContentWorkspaceInput,
   EnsureCandidateContentWorkspaceInput,
+  FindCandidateContentWorkspaceInput,
   RegistrationContentWorkspacePort,
   ResolvedRegistrationContentSelections,
   ValidateRegistrationContentSelectionsInput,
@@ -20,6 +21,12 @@ export class RegistrationContentWorkspaceAdapter
     @Inject(AI_REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly workspaces: AiRegistrationContentWorkspacePort,
   ) {}
+
+  findCandidateWorkspaceId(
+    input: FindCandidateContentWorkspaceInput,
+  ): Promise<string | null> {
+    return this.workspaces.findCandidateWorkspaceId(input);
+  }
 
   resolveSourceSelections(
     transaction: SourcingRepositoryTransaction,

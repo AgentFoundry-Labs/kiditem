@@ -126,6 +126,7 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
       thumbnailSourceCandidateId: null,
     }));
     expect(initialWorkspaceData.product.status).toBe('sourced');
+    expect(initialWorkspaceData.product.contentWorkspaceId).toBe('listing-workspace-1');
     expect(initialWorkspaceData.product).not.toHaveProperty('promotedMasterId');
     expect(initialWorkspaceData.product).not.toHaveProperty('promoted_master_id');
     expect(initialWorkspaceData.product.raw_data).toEqual(expect.objectContaining({

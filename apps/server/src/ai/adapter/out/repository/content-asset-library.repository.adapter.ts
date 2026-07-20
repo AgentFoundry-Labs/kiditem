@@ -1,18 +1,25 @@
-import { ConflictException, Inject, Injectable, Optional } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { groupUrlAssetKey, hashContentAssetUrl } from '../../../domain/content-asset-key';
+import {
+  groupUrlAssetKey,
+  hashContentAssetUrl,
+  workspaceThumbnailAssetKey,
+} from '../../../domain/content-asset-key';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
 } from '../../../application/port/out/storage/image-storage.port';
 import type {
+  CandidateContentAssetRow,
+  CandidateCurrentThumbnailRow,
   ContentAssetLibraryRepositoryPort,
   ContentAssetLibraryWriteScope,
   ContentAssetListRepositoryInput,
   PersistedContentAssetRef,
   RecordDetailPageGeneratedAssetsInput,
   RecordDetailPageInputAssetsInput,
+  ReplaceWorkspaceThumbnailGalleryInput,
   SyncGenerationImageUsagesInput,
 } from '../../../application/port/out/repository/content-asset-library.repository.port';
 
@@ -212,6 +219,216 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       }),
     ]);
     return { total, rows };
+  }
+
+  async listCandidateAssets(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<CandidateContentAssetRow[]> {
+    return this.prisma.contentAsset.findMany({
+      where: {
+        organizationId: input.organizationId,
+        isDeleted: false,
+        assetType: 'image',
+        originGenerationGroup: {
+          contentWorkspace: {
+            organizationId: input.organizationId,
+            sourceCandidateId: input.sourceCandidateId,
+            isDeleted: false,
+          },
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: { role: true, url: true, sortOrder: true },
+    });
+  }
+
+  /**
+   * 후보가 소유한 활성 워크스페이스의 **저장된 대표 썸네일**.
+   *
+   * `ProductPreparation` 이 없는 후보는 대표 선택을 여기에만 남길 수 있어서,
+   * 이걸 읽지 않으면 저장은 되는데 재진입하면 사라진 것처럼 보인다.
+   */
+  async findCandidateCurrentThumbnail(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<CandidateCurrentThumbnailRow | null> {
+    const workspace = await this.prisma.contentWorkspace.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.sourceCandidateId,
+        status: 'active',
+        isDeleted: false,
+        currentThumbnailSelectionId: { not: null },
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        currentThumbnailSelection: {
+          select: {
+            sourceThumbnailGenerationId: true,
+            sourceThumbnailCandidateId: true,
+            contentAsset: { select: { url: true, isDeleted: true } },
+          },
+        },
+      },
+    });
+    const selection = workspace?.currentThumbnailSelection ?? null;
+    if (!selection || selection.contentAsset.isDeleted) return null;
+    const url = selection.contentAsset.url.trim();
+    if (!url) return null;
+    return {
+      url,
+      sourceThumbnailGenerationId: selection.sourceThumbnailGenerationId,
+      sourceThumbnailCandidateId: selection.sourceThumbnailCandidateId,
+    };
+  }
+
+  /**
+   * `findCandidateCurrentThumbnail` 의 배치판. 수집상품 목록은 한 페이지에
+   * 후보가 20~100개라 후보마다 한 번씩 조회하면 N+1 이 된다. 목록 경로는
+   * 반드시 이쪽을 쓴다.
+   *
+   * 후보 하나가 활성 워크스페이스를 여러 개 가질 수 있어 `updatedAt desc` 로
+   * 정렬한 뒤 **처음 것만** 채택한다(단건 조회의 `findFirst` 와 같은 규칙).
+   */
+  async findCandidateCurrentThumbnails(input: {
+    organizationId: string;
+    sourceCandidateIds: string[];
+  }): Promise<Map<string, CandidateCurrentThumbnailRow>> {
+    const result = new Map<string, CandidateCurrentThumbnailRow>();
+    const ids = [...new Set(input.sourceCandidateIds.filter(Boolean))];
+    if (ids.length === 0) return result;
+    const workspaces = await this.prisma.contentWorkspace.findMany({
+      where: {
+        organizationId: input.organizationId,
+        sourceCandidateId: { in: ids },
+        status: 'active',
+        isDeleted: false,
+        currentThumbnailSelectionId: { not: null },
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        sourceCandidateId: true,
+        currentThumbnailSelection: {
+          select: {
+            sourceThumbnailGenerationId: true,
+            sourceThumbnailCandidateId: true,
+            contentAsset: { select: { url: true, isDeleted: true } },
+          },
+        },
+      },
+    });
+    for (const workspace of workspaces) {
+      const candidateId = workspace.sourceCandidateId;
+      if (!candidateId || result.has(candidateId)) continue;
+      const selection = workspace.currentThumbnailSelection;
+      if (!selection || selection.contentAsset.isDeleted) continue;
+      const url = selection.contentAsset.url.trim();
+      if (!url) continue;
+      result.set(candidateId, {
+        url,
+        sourceThumbnailGenerationId: selection.sourceThumbnailGenerationId,
+        sourceThumbnailCandidateId: selection.sourceThumbnailCandidateId,
+      });
+    }
+    return result;
+  }
+
+  async replaceWorkspaceThumbnailGallery(
+    input: ReplaceWorkspaceThumbnailGalleryInput,
+  ): Promise<{ urls: string[] }> {
+    return this.prisma.$transaction(async (tx) => {
+      const workspaceLocked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM content_workspaces
+        WHERE id = ${input.contentWorkspaceId}::uuid
+          AND organization_id = ${input.organizationId}::uuid
+          AND status = 'active'
+          AND is_deleted = false
+        FOR UPDATE
+      `);
+      if (workspaceLocked.length !== 1) {
+        throw new NotFoundException('Content workspace not found.');
+      }
+
+      const groupId = await this.ensureWorkspaceAssetGroup(tx, input);
+      const keptKeys: string[] = [];
+      for (const [index, url] of input.urls.entries()) {
+        const assetKey = workspaceThumbnailAssetKey(input.contentWorkspaceId, url);
+        keptKeys.push(assetKey);
+        await tx.contentAsset.upsert({
+          where: {
+            organizationId_assetKey: { organizationId: input.organizationId, assetKey },
+          },
+          // 재저장은 순서만 바뀌는 경우가 대부분이라 위치/부활만 갱신한다.
+          update: {
+            url,
+            role: 'thumbnail',
+            sortOrder: index,
+            isDeleted: false,
+            deletedAt: null,
+          },
+          create: {
+            organizationId: input.organizationId,
+            originGenerationGroupId: groupId,
+            createdByUserId: input.createdByUserId,
+            assetKey,
+            url,
+            storageKey: this.imageStorage?.extractKey(url) ?? null,
+            assetType: 'image',
+            role: 'thumbnail',
+            sortOrder: index,
+            metadata: { urlHash: hashContentAssetUrl(url) },
+          },
+          select: { id: true },
+        });
+      }
+
+      // 목록에서 빠진 항목은 소프트 삭제한다. 단 현재 대표 썸네일 선택이 가리키는
+      // 자산은 남긴다 — 선택이 참조 중인 자산 삭제는 도메인 규칙 위반이다.
+      await tx.contentAsset.updateMany({
+        where: {
+          organizationId: input.organizationId,
+          originGenerationGroupId: groupId,
+          role: 'thumbnail',
+          isDeleted: false,
+          assetKey: {
+            startsWith: `workspace-thumbnail:${input.contentWorkspaceId}:`,
+            notIn: keptKeys.length > 0 ? keptKeys : undefined,
+          },
+          thumbnailSelections: { none: {} },
+        },
+        data: { isDeleted: true, deletedAt: new Date() },
+      });
+
+      return { urls: [...input.urls] };
+    });
+  }
+
+  private async ensureWorkspaceAssetGroup(
+    tx: Prisma.TransactionClient,
+    input: { organizationId: string; contentWorkspaceId: string; createdByUserId: string | null },
+  ): Promise<string> {
+    const existing = await tx.contentGenerationGroup.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
+        groupType: 'workspace_assets',
+      },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+    const created = await tx.contentGenerationGroup.create({
+      data: {
+        organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
+        groupType: 'workspace_assets',
+        title: 'Workspace managed assets',
+        createdByUserId: input.createdByUserId,
+      },
+      select: { id: true },
+    });
+    return created.id;
   }
 
   private async upsertGroupImageAssetsTx(

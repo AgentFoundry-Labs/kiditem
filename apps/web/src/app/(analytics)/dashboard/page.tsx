@@ -43,6 +43,7 @@ import { DashboardProfitDetailModal } from './components/DashboardProfitDetailMo
 import { DashboardSectionError } from './components/DashboardSectionError';
 import { DashboardSidePanel } from './components/DashboardSidePanel';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
+import { DashboardExpenseAmount } from './components/DashboardExpenseAmount';
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
@@ -312,9 +313,13 @@ export default function Dashboard() {
   const spTotal = sp?.totalRevenue ?? 0;
   const spRocket = sp?.rocket.revenue ?? 0;
   const spOthers = sp?.others.revenue ?? 0;
-  const spCost = (sp?.rocket.cost ?? 0) + (sp?.others.cost ?? 0);
+  const spCost = sp?.totalCost ?? ((sp?.rocket.cost ?? 0) + (sp?.others.cost ?? 0));
+  const spAdCost = sp?.adCost ?? 0;
   const spQty = (sp?.rocket.qty ?? 0) + (sp?.others.qty ?? 0);
-  const spProfit = spTotal - spCost;
+  const spProfit = sp?.netProfit ?? (spTotal - spCost - spAdCost);
+  const spProfitRate = sp?.profitRate ?? 0;
+  const profitRateAvailable = sellpiaHasData ? spTotal > 0 : profitMetricsAvailable;
+  const displayProfitRate = sellpiaHasData ? spProfitRate : profitRate;
   // 카드 표시값: 셀피아 데이터가 있으면 셀피아 기준으로 통일(로켓/기타몰/합계가 서로 맞음).
   const displayRevenue = sellpiaHasData ? spTotal : kpiRevenue;
   const displayRocket = sellpiaHasData ? spRocket : rocketRevenue;
@@ -528,20 +533,22 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 월 순이익 — 셀피아 판매현황(판매금액−매입가)이 있으면 우선, 없으면 기존 로직 */}
+        {/* 월 순이익 — 셀피아 판매현황(판매금액−매입가−쿠팡 광고비)이 있으면 우선 */}
         {sellpiaHasData ? (
           <div className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingUp size={18} className="text-emerald-600" />
+                {spProfit >= 0
+                  ? <TrendingUp size={18} className="text-emerald-600" />
+                  : <TrendingDown size={18} className="text-red-600" />}
                 <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
               </div>
-              <div className="text-[10px] font-mono text-slate-400 mb-1.5">셀피아 · 판매금액 − 매입가</div>
+              <div className="text-[10px] font-mono text-slate-400 mb-1.5">셀피아 · 판매금액 − 매입가 − 쿠팡 광고비</div>
               <div className="flex items-baseline gap-1.5 mb-1">
-                <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-emerald-600">{formatKRW(spProfit)}</span>
-                <span className="text-lg font-semibold text-emerald-600/60">원</span>
+                <span className={cn('text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight', spProfit >= 0 ? 'text-emerald-600' : 'text-red-600')}>{formatKRW(spProfit)}</span>
+                <span className={cn('text-lg font-semibold', spProfit >= 0 ? 'text-emerald-600/60' : 'text-red-600/60')}>원</span>
               </div>
-              <div className="text-xs text-slate-400 mt-1">셀피아 판매현황의 판매금액에서 매입가를 뺀 수익입니다.</div>
+              <div className="text-xs text-slate-400 mt-1">판매금액에서 매입가와 수집된 쿠팡 광고비를 뺀 금액입니다.</div>
             </div>
             <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
               <div className="flex justify-between text-sm">
@@ -550,7 +557,11 @@ export default function Dashboard() {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">매입가</span>
-                <span className="font-bold tabular-nums text-slate-900">{formatKRW(spCost)}원</span>
+                <DashboardExpenseAmount amount={spCost} />
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">쿠팡 광고비</span>
+                <DashboardExpenseAmount amount={spAdCost} />
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">판매수량</span>
@@ -595,19 +606,19 @@ export default function Dashboard() {
             <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">집행광고비</span>
-                <span className="font-bold tabular-nums text-slate-900">{formatKRW(rkAd?.adSpend ?? adBaseline.monthly.totalAdSpend)}원</span>
+                <DashboardExpenseAmount amount={rkAd?.adCost ?? rkAd?.adSpend ?? adBaseline.monthly.totalAdSpend} />
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">수수료</span>
-                <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.commission ?? 0)}원</span>
+                <DashboardExpenseAmount amount={salesBaseline.profitDetail?.commission ?? 0} />
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">배송비</span>
-                <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.shippingCost ?? 0)}원</span>
+                <DashboardExpenseAmount amount={salesBaseline.profitDetail?.shippingCost ?? 0} />
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">매입가</span>
-                <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.costOfGoods ?? 0)}원</span>
+                <DashboardExpenseAmount amount={salesBaseline.profitDetail?.costOfGoods ?? 0} />
               </div>
             </div>
           </div>
@@ -631,7 +642,7 @@ export default function Dashboard() {
             <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">집행광고비 <span className="text-[10px] text-slate-400">쿠팡</span></span>
-                <span className="font-bold tabular-nums text-slate-900">{formatKRW(rkAd?.adSpend ?? adBaseline.monthly.totalAdSpend)}원</span>
+                <DashboardExpenseAmount amount={rkAd?.adCost ?? rkAd?.adSpend ?? adBaseline.monthly.totalAdSpend} />
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">수수료</span>
@@ -650,17 +661,17 @@ export default function Dashboard() {
         )}
 
         {/* 이익률 — 순이익을 못 구하면 정의가 없으니 placeholder 로 */}
-        {profitMetricsAvailable ? (
+        {profitRateAvailable ? (
           <MetricCard
             label="이익률"
-            value={profitRate.toFixed(1)}
+            value={displayProfitRate.toFixed(1)}
             unit="%"
-            change={profitRate - prevProfitRate}
-            prevLabel={`이전 ${prevProfitRate.toFixed(1)}%`}
+            change={sellpiaHasData ? 0 : profitRate - prevProfitRate}
+            prevLabel={sellpiaHasData ? '셀피아 판매금액 대비 순이익' : `이전 ${prevProfitRate.toFixed(1)}%`}
             accentColor="#733de5"
             icon={Target}
             goal={15}
-            current={profitRate}
+            current={displayProfitRate}
             goalUnit="%"
             goalLabel="목표 15%"
           />

@@ -4,12 +4,10 @@ import Link from 'next/link';
 import { ArrowLeftRight, CircleDollarSign, RotateCcw } from 'lucide-react';
 import TabLayout from '@/components/ui/TabLayout';
 import { useUrlControlledTab } from '@/hooks/useUrlControlledTab';
-import DeadStock from '../../stock-ops/components/DeadStock';
 import ImportFreshness from '../../stock-ops/components/ImportFreshness';
 import MappingAttention from '../../stock-ops/components/MappingAttention';
 import OutOfStock from '../../stock-ops/components/OutOfStock';
 import ReturnTransfers from '../../stock-ops/components/ReturnTransfers';
-import StockRetention from '../../stock-ops/components/StockRetention';
 import StockTransfers from '../../stock-ops/components/StockTransfers';
 import ZeroItems from '../../stock-ops/components/ZeroItems';
 import ChannelAvailability from './ChannelAvailability';
@@ -18,12 +16,7 @@ import StockAssets from './StockAssets';
 const HISTORY_VIEWS = ['assets', 'transfer', 'return'] as const;
 
 export function InventoryOverviewWorkspace() {
-  return (
-    <div className="grid gap-6 xl:grid-cols-2">
-      <ImportFreshness />
-      <StockRetention />
-    </div>
-  );
+  return <ImportFreshness />;
 }
 
 export function InventoryAttentionWorkspace() {
@@ -31,7 +24,7 @@ export function InventoryAttentionWorkspace() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
         <p className="text-sm text-amber-900">
-          품절·구성품 병목·비활성 구성품 경고를 확인한 뒤 채널 SKU 구성을 검토하세요.
+          품절·비활성 구성품 경고를 확인한 뒤 채널 SKU 구성을 검토하세요.
         </p>
         <Link
           href="/product-hub/matching?status=needs_review"
@@ -42,7 +35,6 @@ export function InventoryAttentionWorkspace() {
       </div>
       <ZeroItems />
       <OutOfStock />
-      <DeadStock />
       <MappingAttention />
       <ChannelAvailability />
     </div>
@@ -72,15 +64,6 @@ export function InventoryHistoryWorkspace() {
   );
 }
 
-export function InventoryIoWorkspace() {
-  return (
-    <div className="space-y-8">
-      <StockTransfers />
-      <ReturnTransfers />
-    </div>
-  );
-}
-
 export function RocketInventoryWorkspace() {
   return (
     <section className="space-y-4">
@@ -88,25 +71,6 @@ export function RocketInventoryWorkspace() {
         Rocket도 채널 계정으로 계산합니다. 이 화면에서는 Sellpia 현재고를 수정하지 않습니다.
       </div>
       <ChannelAvailability />
-    </section>
-  );
-}
-
-export function InventoryLedgerWorkspace() {
-  return (
-    <section className="space-y-6">
-      <div><h2 className="text-lg font-semibold">운영 기록 수불부</h2></div>
-      <StockTransfers readOnly />
-      <ReturnTransfers readOnly />
-    </section>
-  );
-}
-
-export function InventoryAuditWorkspace() {
-  return (
-    <section className="space-y-4">
-      <div><h2 className="text-lg font-semibold">Sellpia 스냅샷 실사 기록</h2></div>
-      <ImportFreshness />
     </section>
   );
 }

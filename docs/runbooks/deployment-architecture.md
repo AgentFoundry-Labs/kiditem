@@ -25,7 +25,9 @@ Each slot uses immutable GHCR image references. The API container sets
 `AGENT_RUNTIME_WORKER_ENABLED=0`; the worker container uses the same API image
 with `node dist/worker.js` and `AGENT_RUNTIME_WORKER_ENABLED=1`. This keeps
 HTTP serving and Agent OS queue draining operationally separate without adding
-a second image build.
+a second image build. The shared API image also bundles the compiled
+`@kiditem/templates` stylesheet used by server-side detail-page rasterization;
+the image build fails if that runtime asset cannot be resolved.
 
 ## CI/CD Gates
 

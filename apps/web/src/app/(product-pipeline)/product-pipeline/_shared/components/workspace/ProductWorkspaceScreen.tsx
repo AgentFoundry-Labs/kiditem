@@ -102,6 +102,15 @@ export function ProductWorkspaceScreen({
   const [selectedBoldVerticalId, setSelectedBoldVerticalId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedRegistrationThumbnailUrl, setSelectedRegistrationThumbnailUrl] = useState<string | null>(null);
+  /**
+   * 실제로 **저장된** 대표 썸네일. `selectedRegistrationThumbnailUrl` 과 분리한다.
+   *
+   * 후자는 편집용 선택값이라 아무것도 저장돼 있지 않으면 첫 썸네일로 폴백하는데,
+   * 그 값을 `등록 대표` 배지에 그대로 쓰면 **저장한 적 없는 이미지에 배지가 붙는다.**
+   * 사용자가 "이미 대표로 지정했다" 고 오인하게 만든 원인이라 표시용 근거를 분리했다.
+   * 폴백 없이 서버가 준 값만 담는다.
+   */
+  const [savedRepresentativeThumbnailUrl, setSavedRepresentativeThumbnailUrl] = useState<string | null>(null);
   const [selectedThumbnailGenerationId, setSelectedThumbnailGenerationId] = useState<string | null>(null);
   const [selectedThumbnailGenerationCandidateId, setSelectedThumbnailGenerationCandidateId] = useState<string | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
@@ -138,8 +147,15 @@ export function ProductWorkspaceScreen({
     ? productPreparation.id
     : null;
   const detailGenerationProductId = productId;
+  // 후보가 이미 소유한 워크스페이스까지 본다. 수집상품 상세 라우트는 워크스페이스 id 를
+  // prop 으로 넘길 수 없고(후보 id 만 안다), preparation 이 없으면
+  // `sourceContentWorkspaceId` 도 없다. 그 상태에서는 `대표 썸네일 등록` 이 계속
+  // disabled 라 저장 자체가 불가능했다 — 저장 위치가 실재하는데도 화면이 몰랐던 것이다.
   const detailGenerationContentWorkspaceId =
-    contentWorkspaceId ?? productPreparation?.sourceContentWorkspaceId ?? null;
+    contentWorkspaceId
+    ?? productPreparation?.sourceContentWorkspaceId
+    ?? product?.contentWorkspaceId
+    ?? null;
   const detailGenerationSourceCandidateId =
     detailGenerationContentWorkspaceId ? null : productId;
   const effectiveContentWorkspaceId = detailGenerationContentWorkspaceId;
@@ -237,8 +253,23 @@ export function ProductWorkspaceScreen({
     },
   });
 
+  // 준비(ProductPreparation)가 없는 후보는 후보 자체에 저장한다. 채널 계정 선택을
+  // 강제하지 않고도 기본정보를 편집·저장할 수 있게 한다.
+  const updateCandidateBasicInfoMutation = useMutation({
+    mutationFn: (input: UpdateProductBasicsInput) =>
+      candidatesApi.updateCandidateBasicInfo(productId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
+    },
+  });
+
   const handleCommitBasicInfo = async (input: UpdateProductBasicsInput) => {
-    await updateBasicInfoMutation.mutateAsync(input);
+    if (editablePreparationId) {
+      await updateBasicInfoMutation.mutateAsync(input);
+    } else {
+      await updateCandidateBasicInfoMutation.mutateAsync(input);
+    }
   };
 
   const kcAutoFilledRef = useRef<string | null>(null);
@@ -308,22 +339,49 @@ export function ProductWorkspaceScreen({
         if (input.selectedThumbnail) {
           await selectThumbnailMutation.mutateAsync(input.selectedThumbnail);
         }
-      } else if (effectiveContentWorkspaceId && input.selectedThumbnail) {
-        await contentWorkspacesApi.selectCurrentThumbnail(
+      } else if (effectiveContentWorkspaceId) {
+        // 준비(ProductPreparation)가 없으면 `registrationInput.thumbnailUrls` 에 쓸 수 없다.
+        // 예전에는 이 분기에서 대표 1장만 저장하고 목록을 조용히 버렸는데, 성공 토스트는
+        // 그대로 떠서 저장된 것처럼 보였다. 목록은 워크스페이스 썸네일 갤러리
+        // (= ContentAsset role='thumbnail')로 저장한다 — 쿠팡 WING 추가이미지가 읽는 곳이다.
+        await contentWorkspacesApi.replaceThumbnailGallery(
           effectiveContentWorkspaceId,
-          contentWorkspaceThumbnailSelection(input.selectedThumbnail),
+          thumbnailUrls,
         );
+        if (input.selectedThumbnail) {
+          await contentWorkspacesApi.selectCurrentThumbnail(
+            effectiveContentWorkspaceId,
+            contentWorkspaceThumbnailSelection(input.selectedThumbnail),
+          );
+        }
         await Promise.all([
           queryClient.invalidateQueries({
             queryKey: queryKeys.contentWorkspaces.detail(effectiveContentWorkspaceId),
           }),
           queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.all }),
           queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all }),
+          // 저장한 갤러리는 `basicInfo.registrationImages.thumbnail` 로 다시 읽힌다.
+          queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) }),
         ]);
       } else {
         throw new Error('저장 가능한 썸네일 구성이 없습니다.');
       }
-      toast.success('썸네일 구성을 저장했습니다.');
+      // 배지는 서버 저장이 끝난 뒤에만 갱신한다. 위의 setSelectedRegistrationThumbnailUrl 처럼
+      // 낙관적으로 먼저 반영하면 저장이 실패해도 `등록 대표` 가 붙어버린다.
+      if (input.selectedThumbnail) {
+        setSavedRepresentativeThumbnailUrl(input.selectedThumbnail.url);
+      }
+      // 토스트는 **실제로 저장된 것만** 말한다. 대표 없이 목록만 저장했는데
+      // "썸네일 구성을 저장했습니다" 라고 하면 대표까지 저장된 줄 오인한다.
+      const savedParts = [
+        ...(input.selectedThumbnail ? ['대표 썸네일'] : []),
+        ...(thumbnailUrls.length > 0 ? [`미리보기 ${thumbnailUrls.length}장`] : []),
+      ];
+      toast.success(
+        savedParts.length > 0
+          ? `${savedParts.join('과 ')}을 저장했습니다.`
+          : '썸네일 미리보기 목록을 비웠습니다.',
+      );
     } catch (err) {
       toast.error(isApiError(err) ? err.detail : '썸네일 구성 저장에 실패했습니다.');
     }
@@ -369,6 +427,13 @@ export function ProductWorkspaceScreen({
       nextEditData.thumbnails[0] ??
       null,
     );
+    // 배지용 값에는 `nextEditData.thumbnails[0]` 폴백을 **넣지 않는다**.
+    // 저장된 대표가 없으면 null 이어야 배지가 안 붙는다.
+    setSavedRepresentativeThumbnailUrl(
+      basicInfo?.selectedThumbnailUrl ??
+      fetchedData.product.productPreparation?.selectedThumbnailUrl ??
+      null,
+    );
     setSelectedThumbnailGenerationId(
       basicInfo?.selectedThumbnailGenerationId
       ?? fetchedData.product.productPreparation?.selectedThumbnailGenerationId
@@ -379,9 +444,15 @@ export function ProductWorkspaceScreen({
       ?? fetchedData.product.productPreparation?.selectedThumbnailGenerationCandidateId
       ?? null,
     );
+    // 준비가 있으면 `thumbnailPreviewUrls`, 없으면 워크스페이스 갤러리
+    // (`registrationImages.thumbnail`)가 저장된 목록이다. 후자를 안 읽으면
+    // 저장은 됐는데 화면에는 안 보이는 상태가 된다.
+    const savedThumbnailGallery = basicInfo?.registrationImages?.thumbnail ?? [];
     setThumbnailPreviewImages(
       basicInfo?.thumbnailPreviewUrls && basicInfo.thumbnailPreviewUrls.length > 0
         ? basicInfo.thumbnailPreviewUrls
+        : savedThumbnailGallery.length > 0
+        ? savedThumbnailGallery
         : uniqueNonEmpty([
           basicInfo?.selectedThumbnailUrl,
           fetchedData.product.productPreparation?.selectedThumbnailUrl,
@@ -587,7 +658,9 @@ export function ProductWorkspaceScreen({
               basicInfo={product?.basicInfo ?? null}
               costCny={product?.cost_cny ?? null}
               updateField={updateField}
-              onCommitBasicInfo={editablePreparationId ? handleCommitBasicInfo : undefined}
+              // 준비가 있으면 준비에, 없어도 후보 워크스페이스(수집상품)면 후보에 저장한다.
+              // 등록상품(showCandidateActions=false)은 후보가 아니라 저장 대상이 없어 읽기 전용.
+              onCommitBasicInfo={editablePreparationId || showCandidateActions ? handleCommitBasicInfo : undefined}
               nameLength={nameLength}
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}
@@ -635,12 +708,17 @@ export function ProductWorkspaceScreen({
                 ? (input) => selectDetailPageMutation.mutateAsync(input).then(() => undefined)
                 : undefined}
               selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+              savedRepresentativeThumbnailUrl={savedRepresentativeThumbnailUrl}
               thumbnailPreviewImages={thumbnailPreviewImages}
               mobilePreviewData={mobilePreviewData}
               onPreviewThumbnail={setThumbnailPreviewUrl}
               onThumbnailPreviewImagesChange={setThumbnailPreviewImages}
               onSaveThumbnailConfiguration={handleSaveThumbnailConfiguration}
-              canSaveThumbnailConfiguration={Boolean(editablePreparationId)}
+              // 준비가 없어도 워크스페이스가 있으면 갤러리로 저장할 수 있다.
+              // 둘 다 없을 때만 감춘다 — 눌러서 에러 나는 버튼보다 낫다.
+              canSaveThumbnailConfiguration={Boolean(
+                editablePreparationId || effectiveContentWorkspaceId,
+              )}
               thumbnailGenerationReturnHref={thumbnailWorkspaceReturnHref}
               selectedDetailPageSummary={selectedDetailPageSummary}
               onDetailPreviewHtmlChange={setDetailWorkspacePreviewHtml}

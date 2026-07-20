@@ -70,6 +70,11 @@ const AD_TARGET_DESCRIPTOR_KEYS: ReadonlyArray<
   'externalOptionId',
 ];
 
+const CAMPAIGN_REPLACE_TRANSACTION_OPTIONS = {
+  maxWait: 10_000,
+  timeout: 120_000,
+} as const;
+
 @Injectable()
 export class ChannelTargetDailyRepositoryAdapter
   implements ChannelTargetDailyRepositoryPort
@@ -170,6 +175,7 @@ export class ChannelTargetDailyRepositoryAdapter
       throw new Error('replaceCampaignDay: stable campaign identity is required');
     }
     const expectedPrefix = `account:${input.channelAccountId}:`;
+    const desiredKeys = new Set<string>();
     for (const target of input.targets) {
       if (
         target.organizationId !== input.organizationId ||
@@ -181,6 +187,33 @@ export class ChannelTargetDailyRepositoryAdapter
           'replaceCampaignDay: targets must share organization/account/channel/date scope',
         );
       }
+      if (campaignId) {
+        if (target.campaignId?.trim() !== campaignId) {
+          throw new Error(
+            'replaceCampaignDay: target campaignId does not match replacement scope',
+          );
+        }
+      } else {
+        if (target.campaignId?.trim()) {
+          throw new Error(
+            'replaceCampaignDay: identity-scoped target cannot carry a campaignId',
+          );
+        }
+        if (
+          target.campaignName?.trim() !== campaignName ||
+          campaignIdentityFromTarget(target) !== campaignIdentity
+        ) {
+          throw new Error(
+            'replaceCampaignDay: target campaign identity does not match replacement scope',
+          );
+        }
+      }
+      if (desiredKeys.has(target.targetKey)) {
+        throw new Error(
+          `replaceCampaignDay: duplicate targetKey '${target.targetKey}'`,
+        );
+      }
+      desiredKeys.add(target.targetKey);
     }
 
     return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
@@ -346,7 +379,7 @@ export class ChannelTargetDailyRepositoryAdapter
         deletedCount,
         mergedCount,
       };
-    });
+    }, CAMPAIGN_REPLACE_TRANSACTION_OPTIONS);
   }
 
   private async createWithClient(
@@ -373,6 +406,17 @@ export class ChannelTargetDailyRepositoryAdapter
       select: { id: true },
     });
   }
+}
+
+function campaignIdentityFromTarget(
+  target: UpsertAdTargetDailyInput,
+): string | null {
+  const meta = target.metaJson;
+  if (!meta || typeof meta !== 'object') return null;
+  const value = meta.data.campaignIdentity;
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
 
 interface LockedCampaignTargetRow {

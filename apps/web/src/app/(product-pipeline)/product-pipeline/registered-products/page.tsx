@@ -13,6 +13,7 @@ import { ProductInboxListFrame } from '../_shared/components/inbox/ProductInboxL
 import { ProductInboxToolbar } from '../_shared/components/inbox/ProductInboxToolbar';
 import { channelDisplayName, RegisteredListingCard } from './components/RegisteredListingCard';
 import { CoupangCatalogImportPanel } from './components/CoupangCatalogImportPanel';
+import ListingDeleteDialog from './components/ListingDeleteDialog';
 import {
   channelListingsApi,
   type RegisteredChannelListing,
@@ -44,6 +45,8 @@ export default function RegisteredProductsPage() {
   const [filter, setFilter] = useState<RegisteredListingFilter>('registered');
   const [marketFilter, setMarketFilter] = useState<MarketFilter>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // ⚠️ 파괴적 동작. 다이얼로그가 열려 있는 동안에만 대상이 존재한다.
+  const [deleteTarget, setDeleteTarget] = useState<RegisteredChannelListing | null>(null);
 
   const selectedChannel = marketFilter.startsWith('channel:')
     ? marketFilter.slice('channel:'.length)
@@ -255,9 +258,14 @@ export default function RegisteredProductsPage() {
               selected={selectedIds.has(listing.id)}
               onOpen={openListing}
               onSelectedChange={setItemSelected}
+              onRequestDelete={
+                // 우리가 등록한 상품에만 삭제 진입점을 준다. 서버도 같은 규칙으로 다시 막는다.
+                listing.sourceCandidateId ? setDeleteTarget : undefined
+              }
             />
           ))}
         </ProductInboxListFrame>
+        <ListingDeleteDialog listing={deleteTarget} onClose={() => setDeleteTarget(null)} />
         </div>
 
         <div className="mt-4">

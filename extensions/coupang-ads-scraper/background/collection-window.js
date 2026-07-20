@@ -1,6 +1,39 @@
 (function initializeCollectionWindow(root) {
   "use strict";
 
+  const CONTENT_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000;
+
+  function toProgressInteger(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.max(0, Math.floor(number)) : 0;
+  }
+
+  function normalizeProgress(value, previous = {}) {
+    if (!value || typeof value !== "object") return null;
+    const current = Math.max(
+      toProgressInteger(previous.current),
+      toProgressInteger(value.current),
+    );
+    const total = Math.max(
+      current,
+      toProgressInteger(previous.total),
+      toProgressInteger(value.total),
+    );
+    return {
+      current,
+      total,
+      completed: Math.max(
+        toProgressInteger(previous.completed),
+        toProgressInteger(value.completed),
+      ),
+      failed: Math.max(
+        toProgressInteger(previous.failed),
+        toProgressInteger(value.failed),
+      ),
+      label: typeof value.label === "string" ? value.label.slice(0, 500) : null,
+    };
+  }
+
   function create(options) {
     const chromeApi = options.chrome;
     const storageKey = options.storageKey;
@@ -9,6 +42,13 @@
     const cancelKey = options.cancelKey || null;
     const markScraped = options.markScraped || (() => Promise.resolve());
     const notify = options.notify || (() => undefined);
+    const wait = options.delay || ((milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    const requestedContentScriptTimeoutMs = Number(options.contentScriptTimeoutMs);
+    const contentScriptTimeoutMs =
+      Number.isFinite(requestedContentScriptTimeoutMs) && requestedContentScriptTimeoutMs > 0
+        ? requestedContentScriptTimeoutMs
+        : CONTENT_SCRIPT_TIMEOUT_MS;
     let executionQueue = Promise.resolve();
 
     function runExclusive(operation) {
@@ -208,11 +248,26 @@
       });
     }
 
-    function sendTabMessage(tabId, message) {
+    function sendTabMessage(tabId, message, timeoutMs = contentScriptTimeoutMs) {
       return new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (value, error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          if (error) reject(error);
+          else resolve(value);
+        };
+        const timeout = setTimeout(() => {
+          finish(
+            null,
+            new Error(`Collection content script timed out after ${Math.round(timeoutMs / 1000)}s`),
+          );
+        }, timeoutMs);
         chromeApi.tabs.sendMessage(tabId, message, (response) => {
           if (chromeApi.runtime.lastError) {
-            reject(
+            finish(
+              null,
               new Error(
                 chromeApi.runtime.lastError.message ||
                   "Collection content script did not respond",
@@ -220,23 +275,45 @@
             );
             return;
           }
-          resolve(response);
+          finish(response);
         });
       });
     }
 
-    function delay(milliseconds) {
-      return new Promise((resolve) => setTimeout(resolve, milliseconds));
-    }
-
     async function collectTarget(runId, target) {
-      const tab = await navigate(runId, target.url);
+      let tab = await navigate(runId, target.url);
       await waitForTabComplete(tab.tabId);
-      await delay(4000);
-      const response = await sendTabMessage(tab.tabId, {
+      await wait(4000);
+      let response = await sendTabMessage(tab.tabId, {
         action: "manualSync",
+        collectionRunId: runId,
       }).catch((error) => ({ success: false, error: error.message }));
-      const message = String(response?.error || "");
+
+      // 광고 캠페인 sweep가 SPA 상세 화면에서 대시보드 복귀에 실패하면 content
+      // script가 unload되기 전에 명시적으로 응답한다. 같은 소유 탭/세션에서 최대
+      // 3회 대시보드로 이동해 sessionStorage의 seen/progress를 이어받는다.
+      for (let resumeAttempt = 1; response?.resumeRequired && resumeAttempt <= 3; resumeAttempt += 1) {
+        const resumeUrl = response.resumeUrl || target.url;
+        tab = await navigate(runId, resumeUrl);
+        await waitForTabComplete(tab.tabId);
+        await wait(2500);
+        response = await sendTabMessage(tab.tabId, {
+          action: "manualSync",
+          collectionRunId: runId,
+        }).catch(
+          (error) => ({ success: false, error: error.message }),
+        );
+      }
+
+      if (response?.resumeRequired) {
+        response = {
+          success: false,
+          error: response.error || "광고 대시보드 복귀 재시도 한도를 초과했습니다.",
+          progress: response.progress || null,
+        };
+      }
+
+      const message = String(response?.error || response?.reason || "");
       if (response?.pendingLogin || /로그인|captcha|보안문자/i.test(message)) {
         return {
           success: false,
@@ -254,7 +331,8 @@
         success: !!response?.success,
         type: response?.type || "unknown",
         count: response?.count || 0,
-        error: response?.error,
+        progress: normalizeProgress(response?.progress),
+        error: response?.error || response?.reason,
       };
     }
 
@@ -285,7 +363,8 @@
 
     async function collectTargets(input) {
       requireCollectionDependencies();
-      const { runId, targets, startedAt } = input;
+      const { runId, targets, startedAt, producer } = input;
+      const preservesContentProgress = producer === "advertising.ad_sync";
       return runExclusive(async () => {
         let completed = 0;
         let failed = 0;
@@ -309,19 +388,22 @@
             startedAt,
           });
 
+          let latestError = null;
           for (let index = 0; index < targets.length; index += 1) {
             if (await isCancelled(runId)) {
               cancelled = true;
               break;
             }
             const target = targets[index];
-            await sessions.progress(runId, {
-              current: index + 1,
-              total: targets.length,
-              completed,
-              failed,
-              label: target.label || null,
-            });
+            if (!preservesContentProgress) {
+              await sessions.progress(runId, {
+                current: index + 1,
+                total: targets.length,
+                completed,
+                failed,
+                label: target.label || null,
+              });
+            }
             await writeStatus({
               runId,
               total: targets.length,
@@ -343,7 +425,36 @@
               break;
             }
             if (result.success) completed += 1;
-            else failed += 1;
+            else {
+              failed += 1;
+              latestError = result.error || target.label || "수집 실패";
+            }
+            if (preservesContentProgress && result.progress) {
+              // advertising.ad_sync는 content script가 캠페인 단위 progress를
+              // 보고한다. 여기서 URL target 단위 1/1로 덮으면 완료 순간 UI가
+              // 11/11 → 1/1로 회귀하므로 content의 terminal snapshot을 유지한다.
+              await sessions.progress(runId, result.progress);
+            } else if (!preservesContentProgress) {
+              await sessions.progress(runId, {
+                current: index + 1,
+                total: targets.length,
+                completed,
+                failed,
+                label: result.success ? target.label || null : latestError,
+              });
+            }
+            await writeStatus({
+              runId,
+              total: targets.length,
+              completed,
+              failed,
+              current: index + 1,
+              currentLabel: target.label,
+              currentError: result.success ? null : latestError,
+              currentTabId: owned.tabId,
+              status: "running",
+              startedAt,
+            });
           }
 
           const status = cancelled
@@ -366,6 +477,7 @@
             startedAt,
             endedAt: attentionRequired ? null : Date.now(),
             cancelled,
+            error: latestError,
           });
           if (cancelled) await sessions.cancel(runId);
           else if (!attentionRequired && failed > 0) await sessions.fail(runId);
@@ -379,6 +491,7 @@
             cancelled,
             attentionRequired,
             runId,
+            error: latestError,
           };
         } catch (error) {
           if (await isCancelled(runId)) await sessions.cancel(runId);
@@ -438,10 +551,11 @@
       collectTargets,
       getOrCreate,
       navigate,
+      normalizeProgress,
       reattach,
       runExclusive,
     });
   }
 
-  root.KidItemCollectionWindow = Object.freeze({ create });
+  root.KidItemCollectionWindow = Object.freeze({ create, normalizeProgress });
 })(globalThis);

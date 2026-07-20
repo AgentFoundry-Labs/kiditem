@@ -5,7 +5,6 @@ import { BrowserCollectionRunIdSchema } from '@kiditem/shared/browser-collection
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, CheckCircle2, Loader2, Sunrise, X } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import type { ReadinessResponse } from '@kiditem/shared/readiness';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
@@ -21,9 +20,10 @@ import {
   shouldAutoOpen,
   type AutoOpenWhen,
 } from './readiness/readiness-modal-model';
-import { ActionCheckCard, AdSyncRow, CompactOkRow } from './readiness/ReadinessRows';
+import { ActionCheckCard, AdSyncRow, CompactOkRow, StockSyncRow } from './readiness/ReadinessRows';
 import { readinessCollectionProducer } from './readiness/readiness-extension-collection';
 import { useReadinessCollection } from './readiness/useReadinessCollection';
+import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
 interface ReadinessModalProps {
   /** 외부 controlled open. undefined 면 autoOpenWhen 기준으로 자동 열림. */
@@ -54,6 +54,10 @@ export default function ReadinessModal({
   const query = useQuery({
     queryKey: ['readiness'],
     queryFn: () => apiClient.get<ReadinessResponse>('/api/readiness'),
+    enabled: !isControlled || open,
+    // 전역 기본값(60초)을 쓰면 닫았다 다시 연 controlled 모달이 fresh cache만
+    // 재사용할 수 있다. 열 때마다 현재 DB 수집 상태를 확인하도록 즉시 stale 처리한다.
+    staleTime: 0,
     refetchOnWindowFocus: false,
   });
   const view = buildReadinessModalViewModel(query.data);
@@ -106,8 +110,6 @@ export default function ReadinessModal({
 
   if (!open) return null;
 
-  const data = query.data;
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[var(--overlay)] p-4 backdrop-blur-sm animate-in">
       <div
@@ -132,12 +134,12 @@ export default function ReadinessModal({
           <div
             className={cn(
               'mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl',
-              data?.allOk
+              view.allOk
                 ? 'bg-emerald-50 text-emerald-500 dark:bg-emerald-500/15 dark:text-emerald-400'
                 : 'bg-[var(--primary-soft)] text-[var(--primary)]',
             )}
           >
-            {data?.allOk ? <CheckCircle2 className="h-7 w-7" /> : <Sunrise className="h-7 w-7" />}
+            {view.allOk ? <CheckCircle2 className="h-7 w-7" /> : <Sunrise className="h-7 w-7" />}
           </div>
           <h2 className="text-xl font-semibold tracking-tight text-[var(--text-primary)]">
             {view.headline}
@@ -152,7 +154,7 @@ export default function ReadinessModal({
               <div
                 className={cn(
                   'h-full rounded-full transition-all duration-500',
-                  data?.allOk ? 'bg-emerald-500' : 'bg-[var(--primary)]',
+                  view.allOk ? 'bg-emerald-500' : 'bg-[var(--primary)]',
                 )}
                 style={{ width: `${view.progressRatio * 100}%` }}
               />
@@ -172,13 +174,13 @@ export default function ReadinessModal({
                   <BrowserCollectionRunControls
                     session={displayedCollectionSession}
                     onWebRestart={async (session) => {
-                      if (!restartCheck || restartCheck.key === 'rocket_sales') {
+                      if (!restartCheck) {
                         return;
                       }
                       await handleCollect(restartCheck, session.runId);
                     }}
                     webRestartUnavailableMessage={
-                      !restartCheck || restartCheck.key === 'rocket_sales'
+                      !restartCheck
                         ? '해당 수집 항목에서 다시 실행해주세요.'
                         : undefined
                     }
@@ -199,6 +201,7 @@ export default function ReadinessModal({
                     void query.refetch();
                   }}
                 />
+                <StockSyncRow />
               </div>
 
               {view.okChecks.length > 0 && (
@@ -233,11 +236,11 @@ export default function ReadinessModal({
               onClick={close}
               className={cn(
                 'inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all',
-                data?.allOk
+                view.allOk
                   ? 'bg-[var(--primary)] text-[var(--primary-contrast)] shadow-[var(--shadow-sm)] hover:bg-[var(--primary-hover)]'
                   : 'cursor-not-allowed bg-[var(--surface-sunken)] text-[var(--text-muted)]',
               )}
-              disabled={!data?.allOk}
+              disabled={!view.allOk}
             >
               대시보드 열기
               <ArrowRight className="h-4 w-4" />

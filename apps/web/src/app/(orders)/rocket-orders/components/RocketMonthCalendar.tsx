@@ -31,6 +31,8 @@ export function RocketMonthCalendar({
   const anchor = new Date((monthAnchor || '') + 'T00:00:00');
   const year = anchor.getFullYear();
   const month = anchor.getMonth(); // 0-based
+  const now = new Date();
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const startDow = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
@@ -45,6 +47,7 @@ export function RocketMonthCalendar({
         <button
           type="button"
           onClick={() => onShiftMonth(-1)}
+          aria-label="이전 달"
           className="rounded-md p-1 text-slate-400 hover:bg-slate-100"
         >
           <ChevronLeft size={16} />
@@ -55,6 +58,7 @@ export function RocketMonthCalendar({
         <button
           type="button"
           onClick={() => onShiftMonth(1)}
+          aria-label="다음 달"
           className="rounded-md p-1 text-slate-400 hover:bg-slate-100"
         >
           <ChevronRight size={16} />
@@ -77,19 +81,28 @@ export function RocketMonthCalendar({
           const dd = data[date];
           const has = !!dd && dd.count > 0;
           const active = selected === date;
+          const future = date > today;
           const dow = i % 7;
           return (
             <button
               key={date}
               type="button"
               onClick={() => has && onSelect(active ? null : date)}
+              disabled={!has}
+              aria-label={`${date} 발주 ${dd?.count ?? 0}건`}
               className={cn(
                 'flex min-h-[80px] flex-col items-start rounded-lg border p-2 text-left transition',
-                active
-                  ? 'border-purple-500 bg-purple-100 ring-1 ring-purple-300'
-                  : has
-                    ? 'cursor-pointer border-purple-200 bg-purple-50 hover:bg-purple-100/70'
-                    : 'border-slate-100 bg-slate-50/30',
+                future
+                  ? active
+                    ? 'cursor-pointer border-purple-500 bg-purple-100 ring-1 ring-purple-300'
+                    : has
+                      ? 'cursor-pointer border-purple-200 bg-purple-50 hover:bg-purple-100/70'
+                      : 'border-slate-100 bg-slate-50/30'
+                  : active
+                    ? 'cursor-pointer border-purple-500 bg-white ring-1 ring-purple-300'
+                    : has
+                      ? 'cursor-pointer border-slate-100 bg-white hover:border-purple-200'
+                      : 'border-slate-100 bg-white',
               )}
             >
               <span

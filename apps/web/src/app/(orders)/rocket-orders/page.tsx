@@ -1,3 +1,5 @@
+'use client';
+
 import { RocketOrdersWorkspace } from './components/RocketOrdersWorkspace';
 
 export default function RocketOrdersPage() {

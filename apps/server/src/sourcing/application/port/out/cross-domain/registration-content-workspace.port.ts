@@ -40,7 +40,20 @@ export type ResolvedRegistrationContentSelections = Pick<
   | 'selectedDetailPageGenerationId'
 >;
 
+export interface FindCandidateContentWorkspaceInput {
+  organizationId: string;
+  sourceCandidateId: string;
+}
+
 export interface RegistrationContentWorkspacePort {
+  /**
+   * Read-only lookup used by the candidate workspace detail response. Returns
+   * `null` when the candidate has no workspace yet — callers must not treat
+   * that as a reason to create one on a read path.
+   */
+  findCandidateWorkspaceId(
+    input: FindCandidateContentWorkspaceInput,
+  ): Promise<string | null>;
   resolveSourceSelections(
     tx: SourcingRepositoryTransaction,
     input: ValidateRegistrationContentSelectionsInput,

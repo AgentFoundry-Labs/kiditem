@@ -6,6 +6,7 @@ importScripts(
   "collection-window.js",
   "collection-runs.js",
   "interactive-tabs.js",
+  "wing-image-fetch.js",
   "../utils/coupang-seller-detail.js",
   "../shared/coupang-catalog-collector.js?revision=2",
   "coupang-catalog-import.js",
@@ -116,6 +117,12 @@ const collectionRuns = KidItemCollectionRuns.create({
 });
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
 const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
+const wingImageFetch = KidItemWingImageFetch.create({
+  runtimeId: chrome.runtime.id,
+  fetchFn: fetch,
+  FileReaderCtor: FileReader,
+});
+chrome.runtime.onMessage.addListener(wingImageFetch.handleMessage);
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
@@ -264,6 +271,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  if (msg.action === "reportCollectionTargetProgress") {
+    const runId = typeof msg.runId === "string" ? msg.runId : null;
+    const progress = msg.progress;
+    if (!runId || !progress || typeof progress !== "object") {
+      sendResponse({ success: false, error: "invalid collection progress" });
+      return;
+    }
+    const incoming = KidItemCollectionWindow.normalizeProgress(progress);
+    if (!incoming) {
+      sendResponse({ success: false, error: "invalid collection progress" });
+      return;
+    }
+    collectionSessions
+      .get(runId)
+      .then((session) => {
+        if (!session) throw new Error("collection session not found");
+        if (["succeeded", "failed", "cancelled"].includes(session.status)) {
+          return { ignored: true };
+        }
+        const normalized = KidItemCollectionWindow.normalizeProgress(
+          incoming,
+          session.progress || {},
+        );
+        return collectionSessions
+          .progress(runId, normalized)
+          .then(() => ({ ignored: false }));
+      })
+      .then((result) => sendResponse({ success: true, ...result }))
+      .catch((error) =>
+        sendResponse({ success: false, error: error?.message || "progress update failed" }),
+      );
+    return true;
+  }
+
   if (msg.action === "syncToServer") {
     const payload = msg.payload || {};
     authedFetch(`/api/ads/extension/sync`, {
@@ -341,7 +382,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       producer,
       restartStrategy: "web",
     })
-      .then(({ runId: preparedRunId }) => {
+      .then(({ runId: preparedRunId, producer: preparedProducer }) => {
         sendResponse({
           success: true,
           started: true,
@@ -354,6 +395,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
             runId: preparedRunId,
             targets: urls,
             startedAt,
+            producer: preparedProducer,
           })
           .catch((error) => {
             chrome.storage.local.set({
@@ -471,6 +513,15 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
           success: false,
           error: e?.message || "Wing 카탈로그 검색 실패",
         }),
+      );
+    return true;
+  }
+
+  if (msg.action === "deleteWingProduct") {
+    deleteWingProduct(msg)
+      .then((result) => sendResponse(result))
+      .catch((e) =>
+        sendResponse({ ok: false, error: e?.message || "WING 상품 삭제 실패" }),
       );
     return true;
   }
@@ -713,6 +764,17 @@ async function registerToWingForm(message) {
   if (!product || typeof product !== "object") {
     return { ok: false, error: "product 데이터가 없습니다." };
   }
+  const executionId = typeof message?.executionId === "string" ? message.executionId.trim() : "";
+  const expectedVendorId = typeof message?.expectedVendorId === "string" ? message.expectedVendorId.trim() : "";
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(executionId)) {
+    return { ok: false, error: "등록 실행 ID가 올바르지 않습니다." };
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedVendorId)) {
+    return { ok: false, error: "승인된 WING 판매자 식별자가 올바르지 않습니다." };
+  }
+  // ⚠️ 웹의 등록 확인 모달에서 "상품등록까지 자동 실행"을 켠 경우에만 true 가 실려 온다.
+  //    엄격한 === true 비교로만 켠다. 값이 없거나 truthy 한 다른 값이면 제출하지 않는다.
+  const autoSubmit = message.autoSubmit === true;
   const url =
     "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
   const tab = await interactiveTabs.createTab({
@@ -726,14 +788,107 @@ async function registerToWingForm(message) {
     const fill = await chrome.tabs.sendMessage(tab.id, {
       action: "fillWingForm",
       product,
+      autoSubmit,
+      executionId,
+      expectedVendorId,
     });
-    return { ok: true, tabId: tab.id, fill };
-  } catch (e) {
-    // content script 미준비여도 탭은 열렸으니 수동 입력 가능 → ok 로 보되 사유 전달
+    // 채움이 실패했으면 성공으로 보고하지 않는다. 예전에는 ok:true 로 덮어써서
+    // "폼은 열렸는데 아무것도 안 채워졌고 에러도 없는" 상태가 됐다.
+    if (!fill?.ok) {
+      return {
+        ok: false,
+        tabId: tab.id,
+        fill,
+        error: fill?.error || "WING 폼 자동 채우기에 실패했습니다. 열린 탭에서 직접 입력해 주세요.",
+      };
+    }
+    // 제출까지 요청받았으면 제출 결과를 그대로 올려보낸다. 성공을 확증하지 못한 경우
+    // (status:'unknown') 웹이 등록상품으로 올리지 않도록 submission 을 그대로 전달한다.
     return {
       ok: true,
       tabId: tab.id,
-      fill: { ok: false, error: e?.message || "content script 미응답 (확장 리로드 필요)" },
+      fill,
+      submission: fill.submission || { attempted: false },
+      evidence: fill.evidence,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      tabId: tab.id,
+      error: `${e?.message || "content script 미응답"} — 확장을 리로드(chrome://extensions)한 뒤 다시 시도하세요.`,
+    };
+  }
+}
+
+/**
+ * 등록상품 1건을 WING 에서 삭제한다. ⚠️ 되돌릴 수 없다.
+ *
+ * 웹은 **서버가 인가한** externalId 만 넘긴다(사용자가 화면에서 고른 값이 아니다).
+ * 여기서는 그 ID 로 검색된 목록 화면을 열어 content script 에 넘기기만 한다.
+ * 대상이 정확히 1건이 아니면 content script 가 아무것도 하지 않고 실패로 돌려준다.
+ */
+async function deleteWingProduct(message) {
+  const listingId = typeof message?.listingId === "string" ? message.listingId.trim() : "";
+  const operationId = typeof message?.operationId === "string" ? message.operationId.trim() : "";
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(listingId)) {
+    return { ok: false, error: "삭제 대상 리스팅 ID가 올바르지 않습니다." };
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    return { ok: false, error: "삭제 작업 ID가 올바르지 않습니다." };
+  }
+  // External messages are untrusted: freeze every provider fact through an
+  // authenticated, one-time server claim before opening or clicking WING.
+  const claimResponse = await authedFetch(
+    `/api/channels/listings/${encodeURIComponent(listingId)}/deletion-operations/${encodeURIComponent(operationId)}/extension-claim`,
+    { method: "POST" },
+  );
+  if (!claimResponse.ok) {
+    return { ok: false, error: `삭제 실행 권한을 확인하지 못했습니다 (${claimResponse.status}).` };
+  }
+  const claim = await claimResponse.json();
+  const externalId = typeof claim?.externalId === "string" ? claim.externalId.trim() : "";
+  const expectedVendorId = typeof claim?.expectedVendorId === "string" ? claim.expectedVendorId.trim() : "";
+  const executionCapability = typeof claim?.executionCapability === "string" ? claim.executionCapability.trim() : "";
+  if (!/^\d{6,20}$/.test(externalId) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedVendorId)
+    || !/^[0-9a-f-]{36}$/i.test(executionCapability)) {
+    return { ok: false, error: "서버 삭제 실행 권한이 완전하지 않습니다." };
+  }
+  // 검색어를 URL 에 실어 대상 1건만 남은 목록을 연다. 전체 목록에서 찾게 하면
+  // 페이지네이션 때문에 행을 못 찾거나 동명이인 행이 섞인다.
+  const url =
+    "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list" +
+    `?searchType=VENDOR_INVENTORY_ID&keyword=${encodeURIComponent(externalId)}`;
+  const tab = await interactiveTabs.createTab({
+    url,
+    reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
+  });
+  await waitForTabComplete(tab.id, 60000);
+  await new Promise((r) => setTimeout(r, 2500));
+  try {
+    const result = await chrome.tabs.sendMessage(tab.id, {
+      action: "deleteWingProduct",
+      operationId,
+      externalId,
+      displayName: claim.displayName || null,
+      expectedVendorId,
+    });
+    if (!result?.ok) {
+      return {
+        ok: false,
+        tabId: tab.id,
+        result,
+        error: result?.error || "WING 상품 삭제에 실패했습니다. 열린 탭에서 직접 확인하세요.",
+      };
+    }
+    // A DOM observation is not server-verifiable provider evidence. The web
+    // caller records reconciling/uncertain; only independent provider API or
+    // catalog reconciliation may deactivate the local listing.
+    return { ok: true, tabId: tab.id, providerDeletionObserved: true };
+  } catch (e) {
+    return {
+      ok: false,
+      tabId: tab.id,
+      error: `${e?.message || "content script 미응답"} — 확장을 리로드(chrome://extensions)한 뒤 다시 시도하세요.`,
     };
   }
 }
@@ -1615,7 +1770,9 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
         ? "cancelled"
         : attentionRequired
           ? "attention_required"
-          : "done",
+          : failed > 0
+            ? "error"
+            : "done",
       startedAt,
       heartbeatAt: Date.now(),
       endedAt: Date.now(),
@@ -1629,6 +1786,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   if (cancelled) {
     await collectionSessions.cancel(runId, { closeManagedTab: true });
   }
+  else if (!attentionRequired && failed > 0) await collectionSessions.fail(runId);
   else if (!attentionRequired) await collectionSessions.succeed(runId);
   if (await isWingSalesRankCancelled(runId)) {
     cancelled = true;
@@ -1636,7 +1794,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   }
   notifyDashboard();
   return {
-    success: !cancelled && !attentionRequired,
+    success: !cancelled && !attentionRequired && failed === 0,
     completed,
     failed,
     total,
@@ -4005,6 +4163,7 @@ async function handleScrapeTargets(
     runId: prepared.runId,
     targets: urls,
     startedAt,
+    producer: prepared.producer,
   });
 }
 

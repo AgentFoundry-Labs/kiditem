@@ -58,6 +58,25 @@ export class MarketplaceRegistrationService {
     private readonly coupang?: CoupangProviderPort,
   ) {}
 
+  async assertExternalProductRegistrationAccount(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<{ channel: 'coupang'; vendorId: string }> {
+    const account = await this.repository.assertActiveRegistrationAccount(input);
+    if (account.channel !== 'coupang') {
+      throw new ConflictException(
+        'External registration confirmation requires an active Coupang Wing account.',
+      );
+    }
+    const vendorId = account.vendorId?.trim() || account.externalAccountId?.trim() || '';
+    if (!vendorId) {
+      throw new ConflictException(
+        'External registration requires a persisted Coupang Wing vendor identity.',
+      );
+    }
+    return { channel: 'coupang', vendorId };
+  }
+
   async reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
   ): Promise<MarketplaceSubmissionResult | null> {

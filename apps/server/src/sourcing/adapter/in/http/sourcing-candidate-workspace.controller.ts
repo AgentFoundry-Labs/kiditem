@@ -7,10 +7,14 @@ import { SourcingService } from '../../../application/service/sourcing.service';
 import { SourcingWorkspaceArchiveService } from '../../../application/service/sourcing-workspace-archive.service';
 import { ProductRegistrationService } from '../../../application/service/product-registration.service';
 import {
+  ConfirmExternalRegistrationDto,
+  ExternalWingEvidenceDto,
   CreateProductPreparationDto,
   QuickProcessCandidateDto,
   RejectCandidateBodyDto,
+  UpdateProductBasicsDto,
   UpdateProductPreparationDto,
+  PrepareExternalWingRegistrationDto,
 } from './dto';
 
 @Controller('sourcing')
@@ -59,6 +63,77 @@ export class SourcingCandidateWorkspaceController {
     return this.productRegistration.submit(organizationId, id, user.id ?? null);
   }
 
+  /**
+   * 마켓에 이미 등록된 상품을 등록상품으로 확정한다.
+   *
+   * 쿠팡 WING 은 확장이 화면을 직접 조작해 등록하므로 서버가 provider create 를
+   * 부르는 `preparations/:id/submit` 을 탈 수 없다. 이 경로는 provider 를 호출하지 않고
+   * 이미 발급된 등록상품ID 로 `ChannelListing` 확정만 수행한다.
+   */
+  @Post('candidates/:id/registration/confirm-external')
+  confirmExternalRegistration(
+    @Param('id') id: string,
+    @Body() body: ConfirmExternalRegistrationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.confirmExternalRegistration(
+      organizationId,
+      id,
+      user.id ?? null,
+      body,
+    );
+  }
+
+  @Post('candidates/:id/registration/external-wing/prepare')
+  prepareExternalWingRegistration(
+    @Param('id') id: string,
+    @Body() body: PrepareExternalWingRegistrationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.prepareExternalWingRegistration(
+      organizationId, id, user.id ?? null, body,
+    );
+  }
+
+  @Post('candidates/:id/registration/executions/:executionId/start')
+  startExternalWingRegistration(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.startExternalWingRegistration(
+      organizationId, id, user.id ?? null, executionId,
+    );
+  }
+
+  @Get('candidates/:id/registration/executions/:executionId')
+  externalWingRegistrationStatus(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.getExternalWingRegistration(
+      organizationId, id, user.id ?? null, executionId,
+    );
+  }
+
+  @Post('candidates/:id/registration/executions/:executionId/unresolved')
+  markExternalWingRegistrationUnresolved(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @Body() body: ExternalWingEvidenceDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.markExternalWingRegistrationUnresolved(
+      organizationId, id, user.id ?? null, executionId, body.evidence,
+    );
+  }
+
   @Post('preparations/:id/cancel')
   cancelPreparation(
     @Param('id') id: string,
@@ -66,6 +141,15 @@ export class SourcingCandidateWorkspaceController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.productRegistration.cancel(organizationId, id, user.id ?? null);
+  }
+
+  @Patch('candidates/:id/basic-info')
+  updateCandidateBasicInfo(
+    @Param('id') id: string,
+    @Body() body: UpdateProductBasicsDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.sourcingService.updateCandidateBasicInfo(id, organizationId, { ...body });
   }
 
   @Post('candidates/:id/reject')

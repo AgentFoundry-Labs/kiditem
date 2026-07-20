@@ -50,7 +50,12 @@ function currentPreparation() {
   };
 }
 
-function setup() {
+function setup(existingExecution: {
+  status: string;
+  providerSubmissionId: string | null;
+  externalListingId: string | null;
+  resultJson: unknown;
+} | null = null) {
   const current = currentPreparation();
   const updateMany = vi.fn().mockImplementation(async ({ data }) => {
     Object.assign(current, data);
@@ -62,6 +67,9 @@ function setup() {
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([]),
     productPreparation: { findFirst, updateMany },
+    productRegistrationExecution: {
+      findFirst: vi.fn().mockResolvedValue(existingExecution),
+    },
     sourcingCandidate: {
       findFirst: vi.fn().mockResolvedValue({ id: current.sourceCandidateId }),
     },
@@ -149,6 +157,33 @@ describe('ProductPreparationRepositoryAdapter draft patches', () => {
     const update = updateMany.mock.calls[0]?.[0]?.data as Record<string, unknown>;
     expect(update).not.toHaveProperty('registrationInput');
     expect(current.registrationInput).toEqual(originalRegistrationInput);
+  });
+
+  it('rejects a patch while an active registration execution owns the draft', async () => {
+    const { repository, resolveSelections, updateMany } = setup({
+      status: 'prepared',
+      providerSubmissionId: null,
+      externalListingId: null,
+      resultJson: null,
+    });
+
+    await expect(repository.replaceDraftInput({
+      organizationId: 'organization-1',
+      preparationId: 'preparation-1',
+      userId: 'user-1',
+      command: {
+        kind: 'replace',
+        input: {
+          basePreparationUpdatedAt: UPDATED_AT.toISOString(),
+          registrationInput: { name: '실행 중 수정' },
+        },
+      },
+    }, resolveSelections)).rejects.toThrow(
+      'Preparation execution cannot be discarded or edited.',
+    );
+
+    expect(resolveSelections).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('rejects a stale patch before resolving selections or mutating the draft', async () => {

@@ -1,10 +1,6 @@
 // Product-owned advertising metadata hydrated through a scoped channel link.
 
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AdListingRepositoryPort,
@@ -181,20 +177,22 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
       return account;
     }
 
-    const accounts = await this.prisma.channelAccount.findMany({
+    const account = await this.prisma.channelAccount.findFirst({
       where: { organizationId, channel: 'coupang', status: 'active' },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-      take: 2,
+      // Readiness and account-less extension ingest must resolve the exact
+      // same account. The browser integration currently has no account picker,
+      // so prefer the explicitly primary account and use a deterministic
+      // fallback when an older organization has no primary flag.
+      orderBy: [
+        { isPrimary: 'desc' },
+        { updatedAt: 'desc' },
+        { id: 'asc' },
+      ],
       select: { id: true },
     });
-    if (accounts.length === 0) {
+    if (!account) {
       throw new NotFoundException('활성 쿠팡 채널 계정을 찾을 수 없습니다.');
     }
-    if (accounts.length > 1) {
-      throw new BadRequestException(
-        '활성 쿠팡 채널 계정이 여러 개입니다. channelAccountId를 지정해주세요.',
-      );
-    }
-    return accounts[0];
+    return account;
   }
 }

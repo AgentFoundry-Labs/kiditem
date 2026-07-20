@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -110,6 +110,25 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     );
     expect(first.status).toBe('submitting');
     if (first.status === 'registered') throw new Error('unexpected registered state');
+    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      },
+      select: {
+        idempotencyKey: true,
+        requestHash: true,
+        submissionPayloadHash: true,
+        status: true,
+        providerOutcome: true,
+      },
+    })).resolves.toEqual({
+      idempotencyKey: first.submissionKey,
+      requestHash: first.submissionPayloadHash,
+      submissionPayloadHash: first.submissionPayloadHash,
+      status: 'prepared',
+      providerOutcome: 'not_attempted',
+    });
 
     await repository.markFailed({
       organizationId: TEST_ORGANIZATION_ID,
@@ -118,23 +137,12 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       error: 'provider unavailable',
       providerOutcome: 'definitive_failure',
     });
-    const retry = await repository.claimForSubmission(
+    await expect(repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
       resolveSelections,
-    );
-    if (retry.status === 'registered') throw new Error('unexpected registered state');
-    expect(retry.submissionKey).toBe(first.submissionKey);
-    expect(retry.submissionPayloadHash).toBe(first.submissionPayloadHash);
-
-    await repository.markFailed({
-      organizationId: TEST_ORGANIZATION_ID,
-      preparationId: draft.preparationId,
-      submissionLeaseToken: retry.submissionLeaseToken!,
-      error: 'edit requested',
-      providerOutcome: 'definitive_failure',
-    });
+    )).rejects.toThrow("cannot be submitted from 'failed'");
     const replacement = await repository.replaceDraftInput(
       {
         organizationId: TEST_ORGANIZATION_ID,
@@ -231,7 +239,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         command: { kind: 'replace', input: { displayName: 'Unsafe replacement' } },
       },
       unexpectedResolver,
-    )).rejects.toThrow("cannot be edited from 'submitting'");
+    )).rejects.toThrow('execution cannot be discarded or edited');
     expect(unexpectedResolver).not.toHaveBeenCalled();
   });
 
@@ -382,10 +390,13 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     expect(first.providerOutcome).toBe('not_attempted');
     expect(first.submissionLeaseToken).toEqual(expect.any(String));
 
-    await prisma.productPreparation.update({
-      where: { id: draft.preparationId },
+    await prisma.productRegistrationExecution.update({
+      where: { organizationId_productPreparationId: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      } },
       data: {
-        submissionLeaseClaimedAt: new Date(
+        leaseClaimedAt: new Date(
           Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
         ),
       },
@@ -400,8 +411,135 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
 
     expect(reclaimed.submissionKey).toBe(first.submissionKey);
     expect(reclaimed.submissionPayloadHash).toBe(first.submissionPayloadHash);
+    expect(reclaimed.executionId).toBe(first.executionId);
     expect(reclaimed.submissionLeaseToken).not.toBe(first.submissionLeaseToken);
     expect(reclaimed.providerOutcome).toBe('not_attempted');
+  });
+
+  it('rejects an idempotency-key replay when the compatibility payload hash drifts', async () => {
+    const draft = await repository.createOrGetActiveDraft(
+      createInput(ACCOUNT_ID),
+      ensureWorkspace,
+      resolveSelections,
+    );
+    const claimed = await repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    );
+    if (claimed.status === 'registered') throw new Error('unexpected registered state');
+    await prisma.productRegistrationExecution.update({
+      where: { organizationId_productPreparationId: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      } },
+      data: {
+        leaseClaimedAt: new Date(Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS),
+      },
+    });
+    await prisma.productPreparation.update({
+      where: { id: draft.preparationId },
+      data: { submissionPayloadHash: 'drifted-request-hash' },
+    });
+
+    await expect(repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    )).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('imports an execution-less legacy submitting row as uncertain rather than preparing a new create', async () => {
+    const draft = await repository.createOrGetActiveDraft(
+      createInput(ACCOUNT_ID),
+      ensureWorkspace,
+      resolveSelections,
+    );
+    const claimed = await repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    );
+    if (claimed.status === 'registered') throw new Error('unexpected registered state');
+    await prisma.productRegistrationExecution.delete({ where: { id: claimed.executionId } });
+    await prisma.productPreparation.update({
+      where: { id: draft.preparationId },
+      data: {
+        status: 'submitting',
+        providerOutcome: 'not_attempted',
+        submissionLeaseClaimedAt: new Date(
+          Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
+        ),
+      },
+    });
+
+    const imported = await repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    );
+    if (imported.status === 'registered') throw new Error('unexpected registered state');
+    expect(imported.providerOutcome).toBe('uncertain');
+    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: draft.preparationId },
+      select: { status: true, providerOutcome: true, requestHash: true },
+    })).resolves.toEqual({
+      status: 'reconciling',
+      providerOutcome: 'uncertain',
+      requestHash: claimed.submissionPayloadHash,
+    });
+  });
+
+  it('replays an execution-less legacy registered preparation from its persisted listing', async () => {
+    const draft = await repository.createOrGetActiveDraft(
+      createInput(ACCOUNT_ID),
+      ensureWorkspace,
+      resolveSelections,
+    );
+    const listingId = await prisma.$transaction((transaction) => createListingBranch(
+      transaction,
+      '427011920',
+    ));
+    await prisma.productPreparation.update({
+      where: { id: draft.preparationId },
+      data: {
+        status: 'registered',
+        channelListingId: listingId,
+        submissionPayloadJson: Prisma.DbNull,
+        submissionPayloadHash: null,
+      },
+    });
+
+    await expect(repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    )).resolves.toEqual({
+      preparationId: draft.preparationId,
+      status: 'registered',
+      listingId,
+    });
+    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: draft.preparationId },
+      select: {
+        status: true,
+        providerOutcome: true,
+        channelListingId: true,
+        externalListingId: true,
+        requestHash: true,
+      },
+    })).resolves.toEqual({
+      status: 'succeeded',
+      providerOutcome: 'succeeded',
+      channelListingId: listingId,
+      externalListingId: '427011920',
+      requestHash: expect.any(String),
+    });
   });
 
   it('reclaims an expired in-provider lease as uncertain and retains the same submission identity', async () => {
@@ -422,10 +560,13 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       draft.preparationId,
       first.submissionLeaseToken!,
     );
-    await prisma.productPreparation.update({
-      where: { id: draft.preparationId },
+    await prisma.productRegistrationExecution.update({
+      where: { organizationId_productPreparationId: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      } },
       data: {
-        submissionLeaseClaimedAt: new Date(
+        leaseClaimedAt: new Date(
           Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
         ),
       },
@@ -467,6 +608,13 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       submissionLeaseToken: claimed.submissionLeaseToken!,
       error: 'request timed out',
     });
+    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      },
+      select: { status: true, providerOutcome: true },
+    })).resolves.toEqual({ status: 'reconciling', providerOutcome: 'uncertain' });
 
     await expect(repository.replaceDraftInput(
       {
@@ -476,7 +624,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         command: { kind: 'replace', input: { displayName: 'Unsafe replacement' } },
       },
       resolveSelections,
-    )).rejects.toThrow('provider identity');
+    )).rejects.toThrow('execution cannot be discarded or edited');
     await expect(repository.replaceDraftInput(
       {
         organizationId: TEST_ORGANIZATION_ID,
@@ -485,7 +633,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         command: { kind: 'cancel' },
       },
       resolveSelections,
-    )).rejects.toThrow('provider identity');
+    )).rejects.toThrow('execution cannot be discarded or edited');
   });
 
   it('rechecks the locked candidate before finalization and never invokes the callback after rejection', async () => {
@@ -579,6 +727,157 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     await expect(terminal).rejects.toBeInstanceOf(ConflictException);
     await expect(claim).resolves.toMatchObject({ status: 'submitting' });
     expect(observation).toBe('blocked');
+  });
+
+  it('durably prepares, starts, reconciles, and finalizes one external WING execution', async () => {
+    const idempotencyKey = randomUUID();
+    const prepared = await repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey,
+    }, ensureWorkspace, resolveSelections);
+    expect(prepared).toMatchObject({
+      status: 'prepared', providerOutcome: 'not_attempted', expectedProviderAccountId: 'account-0',
+    });
+    await expect(repository.claimForSubmission(
+      TEST_ORGANIZATION_ID, prepared.preparationId, TEST_USER_ID, resolveSelections,
+    )).rejects.toBeInstanceOf(ConflictException);
+
+    const replay = await repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey,
+    }, ensureWorkspace, resolveSelections);
+    expect(replay.executionId).toBe(prepared.executionId);
+    await expect(repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Changed name',
+      registrationInput: { wingProduct: { productName: 'Changed name' } },
+      idempotencyKey,
+    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+
+    const started = await repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    expect(started).toMatchObject({ status: 'executing', providerOutcome: 'uncertain' });
+    expect((await repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).executionId).toBe(prepared.executionId);
+    await expect(repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const unresolved = await repository.markExternalExecutionUnresolved({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      evidence: { reason: 'browser_timeout' },
+    });
+    expect(unresolved).toMatchObject({ status: 'reconciling', providerOutcome: 'uncertain' });
+
+    const frozen = await repository.loadFrozenSubmission(TEST_ORGANIZATION_ID, prepared.preparationId);
+    await repository.recordProviderResult(
+      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
+      { externalListingId: '427011919', channel: 'coupang', rawResult: { source: 'wing' } },
+    );
+    const completed = await repository.finalizeRegistered(
+      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
+      async (opaqueTx) => ({ listingId: await createListingBranch(tx(opaqueTx), '427011919') }),
+    );
+    expect(completed.status).toBe('registered');
+    await expect(repository.getExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).resolves.toMatchObject({ status: 'succeeded', listingId: completed.listingId });
+  });
+
+  it('replays a concurrent same-hash external preparation after the candidate lock', async () => {
+    const idempotencyKey = randomUUID();
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey,
+    };
+    const [left, right] = await Promise.all([
+      repository.prepareExternalExecution(input, ensureWorkspace, resolveSelections),
+      repository.prepareExternalExecution(input, ensureWorkspace, resolveSelections),
+    ]);
+    expect(left.executionId).toBe(right.executionId);
+    expect(await prisma.productRegistrationExecution.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, idempotencyKey },
+    })).toBe(1);
+  });
+
+  it('rejects external preparation when the persisted account is not a vendor-identified Wing account', async () => {
+    await prisma.channelAccount.update({
+      where: { id: ACCOUNT_ID },
+      data: { channel: 'rocket', vendorId: null, externalAccountId: null },
+    });
+    await expect(repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('does not expose ordinary create executions through the external WING lifecycle', async () => {
+    const draft = await repository.createOrGetActiveDraft(
+      createInput(ACCOUNT_ID), ensureWorkspace, resolveSelections,
+    );
+    const claimed = await repository.claimForSubmission(
+      TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID, resolveSelections,
+    );
+    if (claimed.status === 'registered') throw new Error('unexpected registered claim');
+    await expect(repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: claimed.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.getExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: claimed.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.markExternalExecutionUnresolved({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: claimed.executionId,
+      requestedByUserId: TEST_USER_ID,
+      evidence: { reason: 'must-not-reconcile-create-execution' },
+    })).rejects.toBeInstanceOf(NotFoundException);
   });
 
   function createInput(channelAccountId: string) {

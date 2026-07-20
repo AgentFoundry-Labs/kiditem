@@ -60,7 +60,11 @@ export class AdIngestTransactionAdapter implements AdIngestTransactionPort {
             },
           });
           return { value, replayed: false };
-        }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        }), {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 10_000,
+          timeout: 120_000,
+        });
       } catch (error) {
         if (attempt === 3 || !isRetryableContention(error)) throw error;
       }

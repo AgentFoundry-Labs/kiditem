@@ -1,10 +1,26 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { DefinitiveMarketplaceRegistrationError } from '../../port/in/capability/marketplace-registration.port';
 import { CoupangProviderRequestError } from '../../port/out/provider/coupang-provider.port';
 import { MarketplaceRegistrationService } from '../marketplace-registration.service';
 
 describe('MarketplaceRegistrationService application orchestration', () => {
+  it('accepts external confirmation only for the persisted active Wing account', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'rocket' }),
+    };
+    const service = new MarketplaceRegistrationService(repository as never);
+
+    await expect(service.assertExternalProductRegistrationAccount({
+      organizationId: 'org-1',
+      channelAccountId: 'rocket-account-1',
+    })).rejects.toBeInstanceOf(ConflictException);
+    expect(repository.assertActiveRegistrationAccount).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      channelAccountId: 'rocket-account-1',
+    });
+  });
+
   it('preflights exact KidItem identities before dispatching the provider create', async () => {
     const preflightError = new Error('ProductVariant is inactive or foreign.');
     const repository = {

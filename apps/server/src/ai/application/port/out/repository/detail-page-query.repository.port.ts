@@ -65,6 +65,20 @@ export interface DetailPageEditedHtmlSnapshot {
   } | null;
 }
 
+/**
+ * 후보(sourcing candidate)에 저장된 "현재 상세페이지" HTML.
+ *
+ * 경로: content_workspaces(source_candidate_id)
+ *   -> current_detail_page_revision_id
+ *   -> (없으면) detail_page_artifacts.current_revision_id
+ */
+export interface CandidateDetailPageHtmlSnapshot {
+  revisionId: string;
+  artifactId: string;
+  html: string;
+  createdAt: Date;
+}
+
 export interface DetailPageQueryRepositoryPort {
   list(input: DetailPageListRepositoryInput): Promise<DetailPageGenerationSnapshot[]>;
   findById(input: {
@@ -107,4 +121,8 @@ export interface DetailPageQueryRepositoryPort {
     id: string;
     organizationId: string;
   }): Promise<DetailPageEditedHtmlSnapshot | null>;
+  findCandidateCurrentDetailPageHtml(input: {
+    sourceCandidateId: string;
+    organizationId: string;
+  }): Promise<CandidateDetailPageHtmlSnapshot | null>;
 }

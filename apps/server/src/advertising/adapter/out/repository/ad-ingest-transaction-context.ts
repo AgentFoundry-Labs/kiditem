@@ -19,7 +19,8 @@ export function adIngestRepositoryClient(prisma: PrismaClient): AdIngestReposito
 export function withAdIngestRepositoryTransaction<T>(
   prisma: PrismaClient,
   operation: (client: Prisma.TransactionClient) => Promise<T>,
+  options?: { maxWait?: number; timeout?: number },
 ): Promise<T> {
   const current = storage.getStore();
-  return current ? operation(current) : prisma.$transaction(operation);
+  return current ? operation(current) : prisma.$transaction(operation, options);
 }

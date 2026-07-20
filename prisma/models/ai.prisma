@@ -579,26 +579,32 @@ model ProductPreparation {
   submissionLeaseToken     String?   @map("submission_lease_token") @db.Uuid
   submissionLeaseClaimedAt DateTime? @map("submission_lease_claimed_at") @db.Timestamptz
 
-  createdByUserId String?   @map("created_by_user_id") @db.Uuid
-  isDeleted       Boolean   @default(false) @map("is_deleted")
-  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  reviewPayloadHash String?   @map("review_payload_hash")
+  approvedAt        DateTime? @map("approved_at") @db.Timestamptz
+  approvedByUserId  String?   @map("approved_by_user_id") @db.Uuid
+  createdByUserId   String?   @map("created_by_user_id") @db.Uuid
+  isDeleted         Boolean   @default(false) @map("is_deleted")
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                         Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceCandidate                      SourcingCandidate             @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  channelAccount                       ChannelAccount                @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sourceContentWorkspace               ContentWorkspace              @relation("ProductPreparationSourceContentWorkspace", fields: [sourceContentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  channelListing                       ChannelListing?               @relation(fields: [channelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  selectedDetailPageArtifact           DetailPageArtifact?           @relation("ProductPreparationSelectedDetailPageArtifact", fields: [selectedDetailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  selectedDetailPageRevision           DetailPageRevision?           @relation("ProductPreparationSelectedDetailPageRevision", fields: [selectedDetailPageRevisionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  selectedDetailPageGeneration         ContentGeneration?            @relation("ProductPreparationSelectedDetailPageGeneration", fields: [selectedDetailPageGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  selectedThumbnailGeneration          ThumbnailGeneration?          @relation("ProductPreparationSelectedThumbnailGeneration", fields: [selectedThumbnailGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  selectedThumbnailGenerationCandidate ThumbnailGenerationCandidate? @relation("ProductPreparationSelectedThumbnailGenerationCandidate", fields: [selectedThumbnailGenerationCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  createdByUser                        User?                         @relation("ProductPreparationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  organization                         Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceCandidate                      SourcingCandidate              @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelAccount                       ChannelAccount                 @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceContentWorkspace               ContentWorkspace               @relation("ProductPreparationSourceContentWorkspace", fields: [sourceContentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelListing                       ChannelListing?                @relation(fields: [channelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedDetailPageArtifact           DetailPageArtifact?            @relation("ProductPreparationSelectedDetailPageArtifact", fields: [selectedDetailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedDetailPageRevision           DetailPageRevision?            @relation("ProductPreparationSelectedDetailPageRevision", fields: [selectedDetailPageRevisionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedDetailPageGeneration         ContentGeneration?             @relation("ProductPreparationSelectedDetailPageGeneration", fields: [selectedDetailPageGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedThumbnailGeneration          ThumbnailGeneration?           @relation("ProductPreparationSelectedThumbnailGeneration", fields: [selectedThumbnailGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedThumbnailGenerationCandidate ThumbnailGenerationCandidate?  @relation("ProductPreparationSelectedThumbnailGenerationCandidate", fields: [selectedThumbnailGenerationCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  approvedByUser                       User?                          @relation("ProductPreparationApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  createdByUser                        User?                          @relation("ProductPreparationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  executions                           ProductRegistrationExecution[] @relation("ProductPreparationExecutions")
 
   @@unique([organizationId, sourceCandidateId, channelAccountId], map: "product_preparations_org_source_account_active_key", where: raw("status = ANY (ARRAY['draft'::text, 'submitting'::text, 'failed'::text]) AND is_deleted = false"))
   @@unique([organizationId, submissionKey])
+  @@unique([id, organizationId, channelAccountId], map: "product_preparations_id_org_account_key")
   @@index([organizationId, status, isDeleted])
   @@index([sourceCandidateId])
   @@index([channelAccountId])
@@ -609,6 +615,7 @@ model ProductPreparation {
   @@index([selectedDetailPageGenerationId])
   @@index([selectedThumbnailGenerationId])
   @@index([selectedThumbnailGenerationCandidateId])
+  @@index([approvedByUserId])
   @@index([createdByUserId])
   @@map("product_preparations")
 }

@@ -41,6 +41,7 @@ model Organization {
   contentWorkspaces                   ContentWorkspace[]
   contentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[]
   productPreparations                 ProductPreparation[]
+  productRegistrationExecutions       ProductRegistrationExecution[]       @relation("ProductRegistrationExecutionOrganization")
   detailPageArtifacts                 DetailPageArtifact[]
   detailPageRevisions                 DetailPageRevision[]
   aiDirectJobs                        AiDirectJob[]
@@ -131,12 +132,13 @@ model Organization {
   actionTasks ActionTask[]
 
   // Product operations, Sellpia physical items, and channel catalogs
-  masterProducts           MasterProduct[]
-  productVariants          ProductVariant[]
-  productVariantComponents ProductVariantComponent[]
-  sellpiaInventorySkus     SellpiaInventorySku[]
-  channelListings          ChannelListing[]
-  channelListingOptions    ChannelListingOption[]
+  masterProducts                   MasterProduct[]
+  productVariants                  ProductVariant[]
+  productVariantComponents         ProductVariantComponent[]
+  sellpiaInventorySkus             SellpiaInventorySku[]
+  channelListings                  ChannelListing[]
+  channelListingOptions            ChannelListingOption[]
+  channelListingDeletionOperations ChannelListingDeletionOperation[] @relation("ChannelListingDeletionOperationOrganization")
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
@@ -206,6 +208,9 @@ model User {
   createdContentWorkspaces                   ContentWorkspace[]                             @relation("ContentWorkspaceCreatedBy")
   createdContentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[]           @relation("ContentWorkspaceThumbnailSelectionCreatedBy")
   createdProductPreparations                 ProductPreparation[]                           @relation("ProductPreparationCreatedBy")
+  approvedProductPreparations                ProductPreparation[]                           @relation("ProductPreparationApprovedBy")
+  requestedProductRegistrationExecutions     ProductRegistrationExecution[]                 @relation("ProductRegistrationExecutionRequestedBy")
+  requestedChannelListingDeletionOperations  ChannelListingDeletionOperation[]              @relation("ChannelListingDeletionOperationRequestedBy")
   createdDetailPageArtifacts                 DetailPageArtifact[]                           @relation("DetailPageArtifactCreatedBy")
   createdDetailPageRevisions                 DetailPageRevision[]                           @relation("DetailPageRevisionCreatedBy")
   actorAlerts                                Alert[]                                        @relation("AlertActor")
@@ -301,16 +306,18 @@ model ChannelAccount {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                    Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listings                        ChannelListing[]
-  sourceImportRuns                SourceImportRun[]
-  productPreparations             ProductPreparation[]
-  orders                          Order[]
-  orderReturns                    OrderReturn[]
-  channelScrapeRuns               ChannelScrapeRun[]
-  channelAccountDailyKpiSnapshots ChannelAccountDailyKpiSnapshot[]
-  rocketPurchaseConfirmations     RocketPurchaseConfirmation[]
-  rocketPoCatalogSnapshots        RocketPoCatalogSnapshot[]
+  organization                     Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listings                         ChannelListing[]
+  sourceImportRuns                 SourceImportRun[]
+  productPreparations              ProductPreparation[]
+  productRegistrationExecutions    ProductRegistrationExecution[]    @relation("ChannelAccountProductRegistrationExecutions")
+  channelListingDeletionOperations ChannelListingDeletionOperation[] @relation("ChannelAccountListingDeletionOperations")
+  orders                           Order[]
+  orderReturns                     OrderReturn[]
+  channelScrapeRuns                ChannelScrapeRun[]
+  channelAccountDailyKpiSnapshots  ChannelAccountDailyKpiSnapshot[]
+  rocketPurchaseConfirmations      RocketPurchaseConfirmation[]
+  rocketPoCatalogSnapshots         RocketPoCatalogSnapshot[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")
@@ -515,15 +522,17 @@ model ChannelListing {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization            Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount          ChannelAccount         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sourceCandidate         SourcingCandidate?     @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  masterProduct           MasterProduct?         @relation("ChannelListingOperationalProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  originatedMasterProduct MasterProduct?         @relation("ChannelListingOriginProduct")
-  lastImportRun           SourceImportRun?       @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  options                 ChannelListingOption[]
-  contentWorkspaces       ContentWorkspace[]
-  productPreparations     ProductPreparation[]
+  organization                  Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount                ChannelAccount                    @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceCandidate               SourcingCandidate?                @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  masterProduct                 MasterProduct?                    @relation("ChannelListingOperationalProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  originatedMasterProduct       MasterProduct?                    @relation("ChannelListingOriginProduct")
+  lastImportRun                 SourceImportRun?                  @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  options                       ChannelListingOption[]
+  contentWorkspaces             ContentWorkspace[]
+  productPreparations           ProductPreparation[]
+  productRegistrationExecutions ProductRegistrationExecution[]    @relation("ChannelListingProductRegistrationExecutions")
+  deletionOperations            ChannelListingDeletionOperation[] @relation("ChannelListingDeletionOperations")
 
   reviews            Review[]
   thumbnails         Thumbnail[]
@@ -544,6 +553,7 @@ model ChannelListing {
   @@unique([organizationId, channelAccountId, externalId])
   @@unique([organizationId, sourceCandidateId, channelAccountId], map: "channel_listings_org_source_account_active_key", where: raw("source_candidate_id IS NOT NULL AND is_active = true"))
   @@unique([id, organizationId], map: "channel_listings_id_org_key")
+  @@unique([id, organizationId, channelAccountId], map: "channel_listings_id_org_account_key")
   @@index([organizationId])
   @@index([channelAccountId])
   @@index([sourceCandidateId])

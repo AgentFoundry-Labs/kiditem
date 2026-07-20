@@ -60,6 +60,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
 describe('ChannelTargetDailyRepositoryAdapter.replaceCampaignDay', () => {
   let tx: any;
   let adapter: ChannelTargetDailyRepositoryAdapter;
+  let transactionMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     tx = {
@@ -75,9 +76,10 @@ describe('ChannelTargetDailyRepositoryAdapter.replaceCampaignDay', () => {
       adAction: { updateMany: vi.fn(async () => ({ count: 1 })) },
       $executeRaw: vi.fn(async () => 1),
     };
-    const prisma = {
-      $transaction: vi.fn(async (operation: (client: unknown) => unknown) => operation(tx)),
-    };
+    transactionMock = vi.fn(
+      async (operation: (client: unknown) => unknown) => operation(tx),
+    );
+    const prisma = { $transaction: transactionMock };
     adapter = new ChannelTargetDailyRepositoryAdapter(prisma as never);
   });
 
@@ -99,6 +101,10 @@ describe('ChannelTargetDailyRepositoryAdapter.replaceCampaignDay', () => {
         data: expect.objectContaining({ targetKey: target().targets[0].targetKey }),
       }),
     );
+    expect(transactionMock).toHaveBeenCalledWith(expect.any(Function), {
+      maxWait: 10_000,
+      timeout: 120_000,
+    });
   });
 
   it('rejects ambiguous ownership before target or action writes', async () => {
@@ -129,5 +135,25 @@ describe('ChannelTargetDailyRepositoryAdapter.replaceCampaignDay', () => {
     expect(tx.channelAdTargetDailySnapshot.updateMany).not.toHaveBeenCalled();
     expect(tx.channelAdTargetDailySnapshot.deleteMany).not.toHaveBeenCalled();
     expect(tx.adAction.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects targets outside the exact campaign scope before opening a transaction', async () => {
+    const input = target();
+    input.targets[0].campaignId = 'campaign-2';
+
+    await expect(adapter.replaceCampaignDay(input)).rejects.toThrow(
+      'target campaignId does not match replacement scope',
+    );
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects duplicate desired target keys before opening a transaction', async () => {
+    const input = target();
+    input.targets.push({ ...input.targets[0] });
+
+    await expect(adapter.replaceCampaignDay(input)).rejects.toThrow(
+      'duplicate targetKey',
+    );
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 });

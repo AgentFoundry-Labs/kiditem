@@ -7,7 +7,12 @@
 // Unknown sources still snapshot every row (raw preservation principle)
 // without any daily-fact upsert.
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import type { ExtensionSyncDto } from '../../adapter/in/http/dto';
 import {
   resolveBusinessDate,
@@ -54,6 +59,20 @@ import {
   flushListingAdMetrics,
   type ListingAdMetricAccumulator,
 } from './listing-ad-metric-accumulator';
+
+function isExplicitWingItemWinnerUrl(urlValue: string): boolean {
+  try {
+    const url = new URL(urlValue);
+    if (url.hostname.toLowerCase() !== 'wing.coupang.com') return false;
+
+    // Query-string return URLs are common on redirects/login screens and are
+    // not evidence that the browser actually reached the requested page.
+    const pageIdentity = `${url.pathname}${url.hash}`;
+    return /item[-_]?winner|price/i.test(pageIdentity);
+  } catch {
+    return false;
+  }
+}
 
 @Injectable()
 export class RawScrapeIngestHandler {
@@ -115,6 +134,15 @@ export class RawScrapeIngestHandler {
       const listingAdMetrics = new Map<string, ListingAdMetricAccumulator>();
 
       if (source === 'wing') {
+        if (
+          payload.url !== undefined &&
+          !isExplicitWingItemWinnerUrl(payload.url)
+        ) {
+          throw new BadRequestException(
+            'Wing 아이템위너/가격관리 페이지가 아닌 URL의 수집 결과는 저장할 수 없습니다.',
+          );
+        }
+
         for (const row of rows) {
           const productName = row.productName || '';
           const match = matchListingFromRow(row, map);

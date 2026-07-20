@@ -309,3 +309,55 @@ model LiveCommerceProductDailySnapshot {
   @@index([organizationId, source, productId], map: "live_commerce_product_source_product_idx")
   @@map("live_commerce_product_daily_snapshots")
 }
+
+/// @namespace Sourcing
+/// @describe Reviewed product preparation의 marketplace create/reconcile side effect 실행 기록. 준비 입력과 provider lifecycle을 분리해 보존한다.
+model ProductRegistrationExecution {
+  id                   String  @id @default(uuid()) @db.Uuid
+  organizationId       String  @map("organization_id") @db.Uuid
+  productPreparationId String  @map("product_preparation_id") @db.Uuid
+  channelAccountId     String  @map("channel_account_id") @db.Uuid
+  channelListingId     String? @map("channel_listing_id") @db.Uuid
+
+  executionKind  String @default("create") @map("execution_kind")
+  expectedProviderAccountId String? @map("expected_provider_account_id")
+  idempotencyKey String @map("idempotency_key")
+  requestHash    String @map("request_hash")
+
+  submissionPayloadJson Json?   @map("submission_payload_json") @db.JsonB
+  submissionPayloadHash String? @map("submission_payload_hash")
+
+  status          String @default("prepared")
+  providerOutcome String @default("not_attempted") @map("provider_outcome")
+
+  providerSubmissionId String? @map("provider_submission_id")
+  externalListingId    String? @map("external_listing_id")
+  resultJson           Json?   @map("result_json") @db.JsonB
+  lastErrorCode        String? @map("last_error_code")
+  lastErrorMessage     String? @map("last_error_message")
+
+  leaseToken        String?   @map("lease_token") @db.Uuid
+  leaseClaimedAt    DateTime? @map("lease_claimed_at") @db.Timestamptz
+  requestedByUserId String?   @map("requested_by_user_id") @db.Uuid
+  startedAt         DateTime? @map("started_at") @db.Timestamptz
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization       Organization       @relation("ProductRegistrationExecutionOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  productPreparation ProductPreparation @relation("ProductPreparationExecutions", fields: [productPreparationId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
+  channelAccount     ChannelAccount     @relation("ChannelAccountProductRegistrationExecutions", fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelListing     ChannelListing?    @relation("ChannelListingProductRegistrationExecutions", fields: [channelListingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
+  requestedByUser    User?              @relation("ProductRegistrationExecutionRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, idempotencyKey], map: "product_registration_executions_org_idempotency_key")
+  @@unique([organizationId, productPreparationId], map: "product_registration_executions_org_preparation_key")
+  @@unique([organizationId, channelListingId], map: "product_registration_executions_active_listing_key", where: raw("channel_listing_id IS NOT NULL AND status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
+  @@unique([organizationId, channelAccountId, externalListingId], map: "product_registration_executions_active_external_listing_key", where: raw("external_listing_id IS NOT NULL AND status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
+  @@index([productPreparationId])
+  @@index([channelAccountId])
+  @@index([channelListingId])
+  @@index([requestedByUserId])
+  @@index([organizationId, status, createdAt])
+  @@map("product_registration_executions")
+}

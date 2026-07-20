@@ -21,19 +21,19 @@ confirmation. Public URLs remain under `/product-hub`.
 - Matching confirms channel listing -> `MasterProduct` before channel option ->
   `ProductVariant`; candidates and ranking are evidence only and never confirm
   either identity.
-- Products owns complete atomic variant recipes. Manual replacement lives on
-  product detail. Matching exposes only an explicit version-fenced command that
-  may create an empty recipe with one active Sellpia component and a verified
-  positive integer channel-to-Sellpia pack ratio.
-- Automatic recipe evidence must select one SKU without conflict through a
-  name-compatible exact code or physical barcode, a unique exact normalized
-  name, or a unique contained/fuzzy name above the domain thresholds and
-  runner-up margin. Ambiguous identifiers, incompatible names, unverifiable
-  pack/BOM data, raw aliases, close-ranked names, and AI remain review-only.
-- Safe child variants apply independently; existing links and recipes are never
-  overwritten. Recipe automation never changes product or variant identity.
+- Products owns complete atomic recipes. Matching exposes only the explicit,
+  version-fenced create-if-empty command; the nested matching guide owns its
+  evidence, pack-ratio, and per-child review policy.
+  Existing recipes and every review/blocked child remain untouched.
+
+## Boundary Rules
+
 - Product list/detail and its focused recipe picker use Products APIs; only the
   options route reads the full Inventory SKU collection.
+- Do not infer product, variant, or channel identity from display text,
+  barcode, normalized name, or candidate rank.
 - Catalog routes do not edit Sellpia stock, source prices, or channel prices.
+- Do not recreate channel-owned component quantities or overwrite recipes.
+- Never send `organizationId`; backend session scope owns it.
 - Sourcing candidates, generated content workspaces, marketplace ingest,
   Rocket operations, and purchase orders remain in their owner domains.

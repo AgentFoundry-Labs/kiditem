@@ -34,8 +34,8 @@ const STOCK_FRESHNESS_META: Record<string, { label: string; className: string }>
   failed: { label: '실패', className: 'bg-red-100 text-red-700' },
 };
 
-// 정렬 키: 고정 지표('avg2m'|'availableStock') 또는 특정 연월("YYYY-MM").
-type SortKey = 'avg2m' | 'availableStock' | string;
+// 정렬 키: 고정 지표('avg2m'|'currentStock'|'availableStock') 또는 특정 연월("YYYY-MM").
+type SortKey = 'avg2m' | 'currentStock' | 'availableStock' | string;
 type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C';
 
 function todayKst(): string {
@@ -304,6 +304,9 @@ function ProductOutflowTable({
 
     const valOf = (vm: RowVM): number => {
       if (sortKey === 'avg2m') return vm.row.avg2m;
+      if (sortKey === 'currentStock') return vm.row.inventoryResolution.status === 'matched'
+        ? vm.row.inventoryResolution.currentStock
+        : -1;
       if (sortKey === 'availableStock') return vm.row.inventoryResolution.status === 'matched'
         ? vm.row.inventoryResolution.availableStock
         : -1;
@@ -361,7 +364,7 @@ function ProductOutflowTable({
       <div className="flex items-center justify-between text-xs text-slate-400">
         <span>{formatNumber(rows.length)}개 상품 · 왼쪽=최신, 오른쪽으로 갈수록 과거(월 헤더 클릭 시 그 달 기준 정렬)</span>
         {!hasStock && (
-          <span className="text-[11px] text-amber-600">현재고·발주 알림은 셀피아 재고 수집 후 표시됩니다</span>
+          <span className="text-[11px] text-amber-600">현재고 값·발주 알림은 셀피아 재고 수집 후 표시됩니다</span>
         )}
       </div>
 
@@ -373,7 +376,7 @@ function ProductOutflowTable({
               <th className="bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 whitespace-nowrap">매입처</th>
               {hasStock && (
                 <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
-                  현재고
+                  <HeaderSort k="currentStock">현재고</HeaderSort>
                 </th>
               )}
               {hasStock && <th className="bg-slate-50 px-3 py-2 text-right font-semibold border-b border-slate-200 whitespace-nowrap">약정</th>}
