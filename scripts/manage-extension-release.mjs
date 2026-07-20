@@ -299,6 +299,7 @@ export function githubReleaseCommand(result, { state = "draft" } = {}) {
     "--target",
     metadata.gitSha,
     "--latest=false",
+    "--prerelease",
     "--title",
     `${metadata.displayName} v${metadata.manifestVersion} (${metadata.target})`,
     "--notes",

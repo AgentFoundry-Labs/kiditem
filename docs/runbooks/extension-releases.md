@@ -5,7 +5,9 @@
 Package and publish KidItem Chrome extensions through manual GitHub Releases.
 This path intentionally has no GitHub Actions publishing workflow. GitHub
 Packages/GHCR remains for server container images and is not an extension
-distribution channel.
+distribution channel. Staging-targeted extension builds are published as
+GitHub prereleases so they never replace the repository's application-level
+Latest release.
 
 Each extension owns its independent Chrome manifest version:
 
@@ -121,8 +123,8 @@ npm run extension:release -- publish \
 
 The publisher refuses to run unless the worktree is clean and `HEAD` exactly
 matches `origin/main`. It also refuses to replace an existing Release tag and
-marks extension Releases as non-latest so they do not replace the repository's
-application-level Latest release.
+marks extension Releases as prerelease and non-latest so they do not replace
+the repository's application-level Latest release.
 
 Inspect and publish the draft:
 
@@ -130,7 +132,7 @@ Inspect and publish the draft:
 TAG="extension-coupang-ads-scraper-v1.2.65-staging"
 
 gh release view "$TAG"
-gh release edit "$TAG" --draft=false --latest=false
+gh release edit "$TAG" --draft=false --prerelease --latest=false
 ```
 
 An operator may publish immediately only after the same inspection has already
