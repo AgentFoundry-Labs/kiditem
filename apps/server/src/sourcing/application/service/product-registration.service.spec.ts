@@ -31,6 +31,7 @@ function frozenSubmission(
   overrides: Partial<FrozenProductPreparationSubmission> = {},
 ): FrozenProductPreparationSubmission {
   return {
+    executionId: 'execution-1',
     preparationId: PREPARATION_ID,
     sourceCandidateId: CANDIDATE_ID,
     channelAccountId: ACCOUNT_ID,
@@ -249,7 +250,11 @@ describe('ProductRegistrationService', () => {
     expect(repository.finalizeRegistered).not.toHaveBeenCalled();
     expect(content.branchToListing).not.toHaveBeenCalled();
     expect(channel.reconcile).toHaveBeenCalledWith(
-      expect.objectContaining({ submissionKey: 'submission-key-1', submissionPayloadHash: 'hash-1' }),
+      expect.objectContaining({
+        executionId: 'execution-1',
+        submissionKey: 'submission-key-1',
+        submissionPayloadHash: 'hash-1',
+      }),
     );
   });
 

@@ -11,6 +11,7 @@ export class DefinitiveMarketplaceRegistrationError extends Error {
 }
 
 export interface ProductRegistrationSubmissionCapabilityInput {
+  executionId: string;
   organizationId: string;
   preparationId: string;
   sourceCandidateId: string;

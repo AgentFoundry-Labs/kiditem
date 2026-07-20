@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -38,4 +39,9 @@ export class ConfirmExternalRegistrationDto {
   @IsString()
   @MaxLength(60)
   channel?: string;
+
+  /** Provider/browser completion evidence retained for the later pre-intent flow. */
+  @IsOptional()
+  @IsObject()
+  evidence?: Record<string, unknown>;
 }

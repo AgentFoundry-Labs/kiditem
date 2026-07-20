@@ -250,7 +250,8 @@ export class ProductRegistrationService {
         {
           providerSubmissionId: null,
           externalListingId,
-          channel: input.channel?.trim() || 'coupang',
+          // The selected persisted ChannelAccount, not browser/client text, owns channel identity.
+          channel: 'coupang',
           rawResult: {
             source: 'coupang-wing-extension',
             confirmedAt: new Date().toISOString(),
@@ -323,6 +324,7 @@ export class ProductRegistrationService {
   ) {
     return {
       organizationId,
+      executionId: submission.executionId,
       preparationId: submission.preparationId,
       sourceCandidateId: submission.sourceCandidateId,
       channelAccountId: submission.channelAccountId,

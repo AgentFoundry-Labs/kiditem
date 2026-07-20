@@ -138,6 +138,22 @@ export class MarketplaceRegistrationRepositoryAdapter
         },
       })
       : null;
+    if (existing) {
+      const activeDeletion = await tx.channelListingDeletionOperation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: account.id,
+          channelListingId: existing.id,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+        },
+        select: { id: true },
+      });
+      if (activeDeletion) {
+        throw new ConflictException(
+          'Marketplace listing has an active deletion operation and cannot be reactivated.',
+        );
+      }
+    }
     if (existing?.sourceCandidateId && existing.sourceCandidateId !== candidate.id) {
       throw new ConflictException('Marketplace listing already belongs to another source candidate.');
     }

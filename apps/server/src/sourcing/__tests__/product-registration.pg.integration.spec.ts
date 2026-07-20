@@ -110,6 +110,25 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     );
     expect(first.status).toBe('submitting');
     if (first.status === 'registered') throw new Error('unexpected registered state');
+    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      },
+      select: {
+        idempotencyKey: true,
+        requestHash: true,
+        submissionPayloadHash: true,
+        status: true,
+        providerOutcome: true,
+      },
+    })).resolves.toEqual({
+      idempotencyKey: first.submissionKey,
+      requestHash: first.submissionPayloadHash,
+      submissionPayloadHash: first.submissionPayloadHash,
+      status: 'prepared',
+      providerOutcome: 'not_attempted',
+    });
 
     await repository.markFailed({
       organizationId: TEST_ORGANIZATION_ID,
@@ -118,23 +137,12 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       error: 'provider unavailable',
       providerOutcome: 'definitive_failure',
     });
-    const retry = await repository.claimForSubmission(
+    await expect(repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
       resolveSelections,
-    );
-    if (retry.status === 'registered') throw new Error('unexpected registered state');
-    expect(retry.submissionKey).toBe(first.submissionKey);
-    expect(retry.submissionPayloadHash).toBe(first.submissionPayloadHash);
-
-    await repository.markFailed({
-      organizationId: TEST_ORGANIZATION_ID,
-      preparationId: draft.preparationId,
-      submissionLeaseToken: retry.submissionLeaseToken!,
-      error: 'edit requested',
-      providerOutcome: 'definitive_failure',
-    });
+    )).rejects.toThrow("cannot be submitted from 'failed'");
     const replacement = await repository.replaceDraftInput(
       {
         organizationId: TEST_ORGANIZATION_ID,
@@ -231,7 +239,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         command: { kind: 'replace', input: { displayName: 'Unsafe replacement' } },
       },
       unexpectedResolver,
-    )).rejects.toThrow("cannot be edited from 'submitting'");
+    )).rejects.toThrow('execution cannot be discarded or edited');
     expect(unexpectedResolver).not.toHaveBeenCalled();
   });
 
@@ -382,10 +390,13 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     expect(first.providerOutcome).toBe('not_attempted');
     expect(first.submissionLeaseToken).toEqual(expect.any(String));
 
-    await prisma.productPreparation.update({
-      where: { id: draft.preparationId },
+    await prisma.productRegistrationExecution.update({
+      where: { organizationId_productPreparationId: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      } },
       data: {
-        submissionLeaseClaimedAt: new Date(
+        leaseClaimedAt: new Date(
           Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
         ),
       },
@@ -400,8 +411,44 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
 
     expect(reclaimed.submissionKey).toBe(first.submissionKey);
     expect(reclaimed.submissionPayloadHash).toBe(first.submissionPayloadHash);
+    expect(reclaimed.executionId).toBe(first.executionId);
     expect(reclaimed.submissionLeaseToken).not.toBe(first.submissionLeaseToken);
     expect(reclaimed.providerOutcome).toBe('not_attempted');
+  });
+
+  it('rejects an idempotency-key replay when the compatibility payload hash drifts', async () => {
+    const draft = await repository.createOrGetActiveDraft(
+      createInput(ACCOUNT_ID),
+      ensureWorkspace,
+      resolveSelections,
+    );
+    const claimed = await repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    );
+    if (claimed.status === 'registered') throw new Error('unexpected registered state');
+    await prisma.productRegistrationExecution.update({
+      where: { organizationId_productPreparationId: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      } },
+      data: {
+        leaseClaimedAt: new Date(Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS),
+      },
+    });
+    await prisma.productPreparation.update({
+      where: { id: draft.preparationId },
+      data: { submissionPayloadHash: 'drifted-request-hash' },
+    });
+
+    await expect(repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    )).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('reclaims an expired in-provider lease as uncertain and retains the same submission identity', async () => {
@@ -422,10 +469,13 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       draft.preparationId,
       first.submissionLeaseToken!,
     );
-    await prisma.productPreparation.update({
-      where: { id: draft.preparationId },
+    await prisma.productRegistrationExecution.update({
+      where: { organizationId_productPreparationId: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      } },
       data: {
-        submissionLeaseClaimedAt: new Date(
+        leaseClaimedAt: new Date(
           Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
         ),
       },
@@ -467,6 +517,13 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       submissionLeaseToken: claimed.submissionLeaseToken!,
       error: 'request timed out',
     });
+    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: draft.preparationId,
+      },
+      select: { status: true, providerOutcome: true },
+    })).resolves.toEqual({ status: 'reconciling', providerOutcome: 'uncertain' });
 
     await expect(repository.replaceDraftInput(
       {
@@ -476,7 +533,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         command: { kind: 'replace', input: { displayName: 'Unsafe replacement' } },
       },
       resolveSelections,
-    )).rejects.toThrow('provider identity');
+    )).rejects.toThrow('execution cannot be discarded or edited');
     await expect(repository.replaceDraftInput(
       {
         organizationId: TEST_ORGANIZATION_ID,
@@ -485,7 +542,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         command: { kind: 'cancel' },
       },
       resolveSelections,
-    )).rejects.toThrow('provider identity');
+    )).rejects.toThrow('execution cannot be discarded or edited');
   });
 
   it('rechecks the locked candidate before finalization and never invokes the callback after rejection', async () => {

@@ -17,6 +17,7 @@ export const CHANNEL_PRODUCT_REGISTRATION_PORT = Symbol(
 );
 
 export interface ChannelProductRegistrationSubmissionInput {
+  executionId: string;
   organizationId: string;
   preparationId: string;
   sourceCandidateId: string;

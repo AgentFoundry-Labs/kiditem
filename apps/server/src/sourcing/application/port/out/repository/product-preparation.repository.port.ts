@@ -34,6 +34,7 @@ export interface ProductPreparationRegisteredResult {
 }
 
 export interface FrozenProductPreparationSubmission {
+  executionId: string;
   preparationId: string;
   sourceCandidateId: string;
   channelAccountId: string;
