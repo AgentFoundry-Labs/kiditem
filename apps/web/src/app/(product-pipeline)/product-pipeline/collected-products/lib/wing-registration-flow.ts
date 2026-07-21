@@ -299,20 +299,15 @@ export interface WingSubmissionResult {
   evidence?: Record<string, unknown>;
 }
 
-/** 등록상품으로 올려도 되는 확증된 성공인지. 추측은 전부 false. */
+/** 브라우저가 등록 완료와 상품 ID를 관찰했는지. 최종 확정은 서버 provider 조회가 맡는다. */
 export function isConfirmedWingRegistration(
   submission: WingSubmissionResult | undefined,
-): submission is WingSubmissionResult & {
-  externalListingId: string;
-  evidence: { wingVendorId: string; wingIdentitySource: string };
-} {
+): submission is WingSubmissionResult & { externalListingId: string } {
   return (
     submission?.ok === true
     && submission.status === 'registered'
     && typeof submission.externalListingId === 'string'
     && submission.externalListingId.trim().length > 0
-    && typeof submission.evidence?.wingVendorId === 'string'
-    && typeof submission.evidence?.wingIdentitySource === 'string'
   );
 }
 
@@ -562,7 +557,11 @@ export async function submitWingRegistration(
       registrationInput: { source: 'coupang-wing-extension', wingProduct: product },
       idempotencyKey: draft.idempotencyKey,
     });
-    await candidatesApi.startExternalWingRegistration(draft.candidateId, execution.executionId);
+    // 폼만 채우는 기본 경로는 아직 마켓 부작용이 없다. 사용자가 WING 에서
+    // 실제 등록한 뒤 등록상품ID를 확인할 때 서버가 실행을 시작한다.
+    if (autoSubmit === true) {
+      await candidatesApi.startExternalWingRegistration(draft.candidateId, execution.executionId);
+    }
   } catch (error) {
     throw error instanceof Error ? error : new Error('WING 등록 실행 준비에 실패했습니다.');
   }
@@ -581,18 +580,25 @@ export async function submitWingRegistration(
     expectedVendorId: execution.expectedVendorId,
   }, WING_FORM_FILL_TIMEOUT_MS);
   } catch (error) {
-    await candidatesApi.markExternalWingRegistrationUnresolved(
-      draft.candidateId, execution.executionId, { reason: 'extension_throw', message: String(error) },
-    ).catch(() => undefined);
+    if (autoSubmit === true) {
+      await candidatesApi.markExternalWingRegistrationUnresolved(
+        draft.candidateId, execution.executionId, { reason: 'extension_throw', message: String(error) },
+      ).catch(() => undefined);
+    }
     throw error;
   }
   if (!res?.ok) {
-    await candidatesApi.markExternalWingRegistrationUnresolved(
-      draft.candidateId, execution.executionId, { reason: 'extension_error', error: res?.error ?? null },
-    ).catch(() => undefined);
+    if (autoSubmit === true) {
+      await candidatesApi.markExternalWingRegistrationUnresolved(
+        draft.candidateId, execution.executionId, { reason: 'extension_error', error: res?.error ?? null },
+      ).catch(() => undefined);
+    }
     throw new Error(res?.error || '쿠팡 WING 상품등록 페이지 열기에 실패했습니다. 확장을 리로드했는지 확인하세요.');
   }
-  if (res.submission?.status === 'unknown' || res.submission?.attempted === true && !isConfirmedWingRegistration(res.submission)) {
+  if (autoSubmit === true && (
+    res.submission?.status === 'unknown'
+    || res.submission?.attempted === true && !isConfirmedWingRegistration(res.submission)
+  )) {
     await candidatesApi.markExternalWingRegistrationUnresolved(
       draft.candidateId, execution.executionId, { reason: 'unknown', extensionEvidence: res.evidence ?? null },
     ).catch(() => undefined);

@@ -282,6 +282,26 @@ export class ProductPreparationRepositoryAdapter
       if (account.channel !== 'coupang' || !expectedProviderAccountId) {
         throw new ConflictException('External WING registration requires an active Coupang account with a vendor identity.');
       }
+      // 브라우저 새로고침/재진입은 새 UI idempotency key를 만들 수 있다. 같은 후보·계정·
+      // 사용자·동일 frozen payload의 미종결 외부 실행이 있으면 새 준비를 만들지 않고
+      // 그 실행을 돌려줘 수동 완료/정산 UI가 이어받게 한다.
+      const resumable = await tx.productRegistrationExecution.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          executionKind: 'external_wing',
+          requestHash: frozen.hash,
+          requestedByUserId: input.requestedByUserId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+          productPreparation: {
+            organizationId: input.organizationId,
+            sourceCandidateId: input.sourceCandidateId,
+            isDeleted: false,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (resumable) return externalExecutionResult(resumable);
       let preparation = await tx.productPreparation.findFirst({
         where: {
           organizationId: input.organizationId,

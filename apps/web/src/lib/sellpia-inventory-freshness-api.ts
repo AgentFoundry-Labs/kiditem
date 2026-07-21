@@ -45,7 +45,7 @@ async function parseFreshness(
   return SellpiaInventoryFreshnessViewSchema.parse(await operation);
 }
 
-function appendWorkbook(form: FormData, file: File): void {
+function appendInventoryArtifact(form: FormData, file: File): void {
   form.append('file', file);
 }
 
@@ -129,7 +129,7 @@ export const sellpiaInventoryFreshnessApi = {
     },
   ): Promise<SellpiaInventoryImportResponse> {
     const form = new FormData();
-    appendWorkbook(form, file);
+    appendInventoryArtifact(form, file);
     form.append('kind', 'browser');
     form.append('claimToken', input.claimToken);
     form.append('activeGeneration', input.activeGeneration);
@@ -148,7 +148,7 @@ export const sellpiaInventoryFreshnessApi = {
     manualFreshExportConfirmed: true,
   ): Promise<SellpiaInventoryImportResponse> {
     const form = new FormData();
-    appendWorkbook(form, file);
+    appendInventoryArtifact(form, file);
     form.append('kind', 'manual');
     form.append(
       'manualFreshExportConfirmed',

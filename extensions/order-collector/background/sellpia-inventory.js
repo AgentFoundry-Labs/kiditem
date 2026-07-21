@@ -7,6 +7,7 @@
   const INVENTORY_PAGE_MATCHES = [`${INVENTORY_PAGE_URL}*`];
   const DEFAULT_TIMEOUT_MS = 45_000;
   const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
+  const DEFAULT_MAX_ROWS = 20_000;
 
   const ERRORS = Object.freeze({
     login: Object.freeze({
@@ -18,22 +19,22 @@
     contract: Object.freeze({
       success: false,
       errorCode: "sellpia_download_contract_drift",
-      error: "Sellpia workbook download contract changed.",
+      error: "Sellpia inventory snapshot contract changed.",
     }),
     invalid: Object.freeze({
       success: false,
       errorCode: "sellpia_invalid_workbook",
-      error: "Sellpia returned an invalid workbook.",
+      error: "Sellpia returned an invalid inventory snapshot.",
     }),
     timeout: Object.freeze({
       success: false,
       errorCode: "sellpia_background_timeout",
-      error: "Sellpia background download timed out.",
+      error: "Sellpia background collection timed out.",
     }),
     network: Object.freeze({
       success: false,
       errorCode: "sellpia_network_failed",
-      error: "Sellpia workbook download failed.",
+      error: "Sellpia inventory collection failed.",
     }),
   });
 
@@ -67,127 +68,77 @@
     throw new Error("SELLPIA_BACKGROUND_TIMEOUT");
   }
 
-  async function requestSellpiaInventoryWorkbook(maxBytes, timeoutMs) {
+  async function requestSellpiaInventorySnapshot(maxBytes, timeoutMs, maxRows) {
     const failure = (errorCode) => ({ success: false, errorCode });
+    const postgresIntegerMax = 2_147_483_647;
     const expectedOrigin = "https://kiditem.sellpia.com";
     const expectedPagePath = "/product_list_total.html";
-    const expectedDownloadPath = "/product_search.down.html";
+    const expectedSnapshotPath = "/product_search.ajax.html";
 
-    function hasDownloadContract() {
-      if (location.origin !== expectedOrigin || location.pathname !== expectedPagePath) {
-        return false;
-      }
-      if (document.querySelector('input[type="password"]')) return false;
-      const modal = document.querySelector("#div_prod_down");
-      const form = modal?.querySelector("#downForm");
-      const optionSelector = form?.querySelector('#downopt[name="downopt"]');
-      const optionProduct = optionSelector?.querySelector('option[value="2"]');
-      const excelFormat = form?.querySelector('[name="downtype"][value="excel"]');
-      const downloadAction = modal?.querySelector("#down_act");
-      if (!form || !optionProduct || !excelFormat || !downloadAction) return false;
-      const method = (form.getAttribute("method") || "").trim().toLowerCase();
-      let action;
-      try {
-        action = new URL(form.getAttribute("action") || "", location.origin);
-      } catch {
-        return false;
-      }
-      return method === "post"
-        && action.origin === expectedOrigin
-        && action.pathname === expectedDownloadPath;
+    function textValue(value, { allowEmpty = false } = {}) {
+      if (typeof value !== "string" && typeof value !== "number") return null;
+      const normalized = String(value).trim();
+      if (normalized) return normalized;
+      return allowEmpty ? "" : null;
     }
 
-    function parseFileName(disposition) {
-      if (typeof disposition !== "string" || !/\battachment\b/i.test(disposition)) {
-        return null;
-      }
-      const encoded = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1];
-      const quoted = disposition.match(/filename\s*=\s*"([^"]+)"/i)?.[1];
-      const plain = disposition.match(/filename\s*=\s*([^;\s]+)/i)?.[1];
-      let candidate = encoded || quoted || plain || "";
-      if (encoded) {
-        try {
-          candidate = decodeURIComponent(encoded);
-        } catch {
-          return null;
-        }
-      }
-      candidate = candidate
-        .split(/[\\/]/)
-        .pop()
-        .replace(/[\u0000-\u001f\u007f]/g, "")
-        .trim()
-        .slice(0, 180);
-      return /\.xlsx?$/i.test(candidate) ? candidate : null;
+    function optionalText(value) {
+      return textValue(value);
     }
 
-    function startsWith(bytes, magic) {
-      return magic.every((value, index) => bytes[index] === value);
+    function integerValue(value, { optional = false } = {}) {
+      const normalized = textValue(value, { allowEmpty: true });
+      if (normalized === null || normalized === "") return optional ? null : undefined;
+      const digits = normalized.replace(/,/g, "");
+      if (!/^\d+$/.test(digits)) return undefined;
+      const parsed = Number(digits);
+      if (!Number.isSafeInteger(parsed) || parsed > postgresIntegerMax) return undefined;
+      return parsed;
     }
 
-    function supportedBiffBof(view, offset, size) {
-      if (size !== 8 && size !== 16) return false;
-      const version = view.getUint16(offset, true);
-      const subtype = view.getUint16(offset + 2, true);
-      return subtype === 0x0010
-        && (
-          (size === 8 && (version === 0x0000 || version === 0x0500))
-          || (size === 16 && version === 0x0600)
-        );
-    }
-
-    function isBoundedBiffWorksheetStream(bytes) {
-      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      let offset = 0;
-      let recordCount = 0;
-      let hasLabelRecord = false;
-      while (offset < bytes.byteLength) {
-        if (offset + 4 > bytes.byteLength) return false;
-        const type = view.getUint16(offset, true);
-        const size = view.getUint16(offset + 2, true);
-        const end = offset + 4 + size;
-        recordCount += 1;
-        if (
-          size > 8_224
-          || end > bytes.byteLength
-          || recordCount > 1_000_000
-        ) return false;
-        if (recordCount === 1) {
-          if (type !== 0x0809 || !supportedBiffBof(view, offset + 4, size)) {
-            return false;
-          }
-        } else if (type === 0x0809) {
-          return false;
-        }
-        if (type === 0x000a) {
-          return size === 0 && hasLabelRecord && end === bytes.byteLength;
-        }
-        if (type === 0x0204 && size > 0) hasLabelRecord = true;
-        offset = end;
-      }
-      return false;
-    }
-
-    function workbookEnvelope(bytes) {
+    function normalizeRow(value) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      const productCode = textValue(value.product_code);
+      const optionCode = value.option_code == null
+        ? ""
+        : textValue(value.option_code, { allowEmpty: true });
+      const name = value.p_title == null
+        ? ""
+        : textValue(value.p_title, { allowEmpty: true });
+      const currentStock = integerValue(value.stock_cnt);
+      const purchasePrice = integerValue(value.buy_price, { optional: true });
+      const salePrice = integerValue(value.sale_price, { optional: true });
       if (
-        bytes.byteLength >= 8
-        && startsWith(bytes, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])
-      ) return "xls";
+        productCode === null
+        || optionCode === null
+        || name === null
+        || currentStock === undefined
+        || purchasePrice === undefined
+        || salePrice === undefined
+      ) return null;
+      const optionName = optionalText(value.option_title);
+      const barcode = optionalText(value.barcode);
       if (
-        bytes.byteLength >= 4
-        && (
-          startsWith(bytes, [0x50, 0x4b, 0x03, 0x04])
-          || startsWith(bytes, [0x50, 0x4b, 0x05, 0x06])
-          || startsWith(bytes, [0x50, 0x4b, 0x07, 0x08])
-        )
-      ) return "xlsx";
-      if (isBoundedBiffWorksheetStream(bytes)) return "xls";
-      return null;
+        productCode.length > 100
+        || optionCode.length > 100
+        || name.length > 500
+        || (optionName?.length ?? 0) > 500
+        || (barcode?.length ?? 0) > 100
+      ) return null;
+      return {
+        productCode,
+        optionCode,
+        name,
+        optionName,
+        barcode,
+        currentStock,
+        purchasePrice,
+        salePrice,
+      };
     }
 
-    function looksLikeHtml(bytes, contentType) {
-      if (/text\/html|application\/xhtml\+xml/i.test(contentType || "")) return true;
-      const prefix = new TextDecoder().decode(bytes.subarray(0, Math.min(512, bytes.length)));
+    function looksLikeLogin(bytes) {
+      const prefix = new TextDecoder().decode(bytes.subarray(0, Math.min(1024, bytes.length)));
       return /^\s*(?:<!doctype\s+html|<html|<form)/i.test(prefix)
         || /<input[^>]+type=["']?password/i.test(prefix);
     }
@@ -206,7 +157,7 @@
             try {
               await reader.cancel();
             } catch {
-              /* response is already rejected by the byte bound */
+              /* the bounded response is already rejected */
             }
             return null;
           }
@@ -225,30 +176,32 @@
       return bytes.byteLength <= maximumBytes ? bytes : null;
     }
 
-    function toBase64(bytes) {
-      let binary = "";
-      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-      }
-      return btoa(binary);
-    }
-
     if (
       location.origin !== expectedOrigin
+      || location.pathname !== expectedPagePath
       || /login/i.test(location.pathname)
       || document.querySelector('input[type="password"]')
     ) return failure("sellpia_login_required");
-    if (!hasDownloadContract()) return failure("sellpia_download_contract_drift");
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const body = new URLSearchParams({
-          downopt: "2",
-          downtype: "excel",
+          mode: "soldout_manager",
+          search_type: "1",
+          search_key: "",
+          search_key2: "",
+          search_key3: "",
+          search_key4: "",
+          soldout_include: "Y",
+          discontinued_include: "N",
+          prd_type_req: "",
+          prd_cate_req: "",
+          market_type_req: "",
+          limit: "0",
         });
-        const response = await fetch("/product_search.down.html", {
+        const response = await fetch(expectedSnapshotPath, {
           method: "POST",
           body,
           signal: controller.signal,
@@ -264,57 +217,63 @@
           || response.status === 403
           || response.redirected
           || responseUrl.origin !== expectedOrigin
-          || responseUrl.pathname !== expectedDownloadPath
+          || responseUrl.pathname !== expectedSnapshotPath
         ) return failure("sellpia_login_required");
         if (!response.ok) {
           if (attempt === 0) continue;
           return failure("sellpia_network_failed");
         }
 
-        const contentType = response.headers.get("content-type") || "";
-        if (/text\/html|application\/xhtml\+xml/i.test(contentType)) {
-          return failure("sellpia_login_required");
-        }
-        const fileName = parseFileName(response.headers.get("content-disposition"));
-        if (!fileName) return failure("sellpia_download_contract_drift");
         const contentLength = response.headers.get("content-length");
         const declaredSize = contentLength === null ? null : Number(contentLength);
         if (
           declaredSize !== null
-          && (!Number.isSafeInteger(declaredSize) || declaredSize < 0 || declaredSize > maxBytes)
-        ) {
-          return failure("sellpia_invalid_workbook");
-        }
+          && (!Number.isSafeInteger(declaredSize) || declaredSize < 1 || declaredSize > maxBytes)
+        ) return failure("sellpia_invalid_workbook");
 
         const bytes = await readBoundedBytes(response, maxBytes, declaredSize);
-        if (!bytes || bytes.byteLength < 1) {
+        if (!bytes || bytes.byteLength < 1) return failure("sellpia_invalid_workbook");
+        if (declaredSize !== null && declaredSize !== bytes.byteLength) {
           return failure("sellpia_invalid_workbook");
         }
-        if (
-          declaredSize !== null
-          && declaredSize !== bytes.byteLength
-        ) return failure("sellpia_invalid_workbook");
-        if (looksLikeHtml(bytes, contentType)) return failure("sellpia_login_required");
-        const envelope = workbookEnvelope(bytes);
-        if (!envelope) return failure("sellpia_invalid_workbook");
-        if (
-          (envelope === "xls" && !/\.xls$/i.test(fileName))
-          || (envelope === "xlsx" && !/\.xlsx$/i.test(fileName))
-        ) return failure("sellpia_invalid_workbook");
+        if (looksLikeLogin(bytes)) return failure("sellpia_login_required");
 
+        let rawRows;
+        try {
+          rawRows = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+        } catch {
+          return failure("sellpia_download_contract_drift");
+        }
+        if (!Array.isArray(rawRows) || rawRows.length < 1 || rawRows.length > maxRows) {
+          return failure("sellpia_invalid_workbook");
+        }
+
+        const rows = [];
+        const identities = new Set();
+        for (const rawRow of rawRows) {
+          const row = normalizeRow(rawRow);
+          if (!row) return failure("sellpia_invalid_workbook");
+          const identity = `${row.productCode}-${row.optionCode}`;
+          if (identities.has(identity)) return failure("sellpia_invalid_workbook");
+          identities.add(identity);
+          rows.push(row);
+        }
+        rows.sort((left, right) => {
+          const leftIdentity = `${left.productCode}-${left.optionCode}`;
+          const rightIdentity = `${right.productCode}-${right.optionCode}`;
+          return leftIdentity < rightIdentity ? -1 : leftIdentity > rightIdentity ? 1 : 0;
+        });
         return {
           success: true,
-          workbookBase64: toBase64(bytes),
-          fileName,
-          mimeType: envelope === "xlsx"
-            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            : "application/vnd.ms-excel",
-          size: bytes.byteLength,
+          snapshot: {
+            source: "sellpia_product_search",
+            version: 1,
+            rowCount: rows.length,
+            rows,
+          },
         };
       } catch (error) {
-        if (error?.name === "AbortError") {
-          return failure("sellpia_background_timeout");
-        }
+        if (error?.name === "AbortError") return failure("sellpia_background_timeout");
         if (attempt === 1) return failure("sellpia_network_failed");
       } finally {
         clearTimeout(timer);
@@ -335,11 +294,11 @@
     const chromeApi = options.chrome;
     const timeoutMs = safeLimit(options.timeoutMs, DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
     const maxBytes = safeLimit(options.maxBytes, DEFAULT_MAX_BYTES, DEFAULT_MAX_BYTES);
+    const maxRows = safeLimit(options.maxRows, DEFAULT_MAX_ROWS, DEFAULT_MAX_ROWS);
 
     async function findOrCreateTab() {
       const tabs = await chromeApi.tabs.query({ url: INVENTORY_PAGE_MATCHES });
-      const existing = tabs.find((tab) =>
-        Number.isInteger(tab?.id) && tab.active === false);
+      const existing = tabs.find((tab) => Number.isInteger(tab?.id) && tab.active === false);
       if (existing) return { tab: existing, created: false };
       const tab = await chromeApi.tabs.create({ url: INVENTORY_PAGE_URL, active: false });
       return { tab, created: true };
@@ -365,8 +324,8 @@
         const injected = await withTimeout(
           chromeApi.scripting.executeScript({
             target: { tabId: tab.id },
-            func: requestSellpiaInventoryWorkbook,
-            args: [maxBytes, timeoutMs],
+            func: requestSellpiaInventorySnapshot,
+            args: [maxBytes, timeoutMs, maxRows],
           }),
           timeoutMs + 1_000,
         );
@@ -381,10 +340,7 @@
         }
         return {
           success: true,
-          workbookBase64: result.workbookBase64,
-          fileName: result.fileName,
-          mimeType: result.mimeType,
-          size: result.size,
+          snapshot: result.snapshot,
           sourceOrigin: SOURCE_ORIGIN,
           sourceAccountKey: SOURCE_ACCOUNT_KEY,
         };

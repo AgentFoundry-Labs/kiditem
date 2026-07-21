@@ -35,7 +35,7 @@ const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
   restartStrategy: "extension",
   requireRunId: true,
   forceDeferredTerminal: true,
-  deferredLabel: "Sellpia workbook downloaded · import in progress",
+  deferredLabel: "Sellpia snapshot collected · import in progress",
   failedLabel: "Sellpia inventory import failed",
   succeededLabel: "Sellpia inventory import completed",
   classifyFailure(value) {
@@ -231,8 +231,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         collectSellpiaSaleSummary: true,
         collectSellpiaSaleSummaryAuthoritativeV1: true,
         collectSellpiaProductProfit: true,
-        collectSellpiaInventory: true,
-        collectSellpiaInventoryV2: true,
+        collectSellpiaInventoryJsonV1: true,
         browserCollectionSessions: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,

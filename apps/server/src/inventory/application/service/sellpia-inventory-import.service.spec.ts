@@ -1,30 +1,42 @@
 import { createHash } from 'node:crypto';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { SellpiaInventoryFileValidator } from './sellpia-inventory-file.validator';
+import { SellpiaInventoryImportService } from './sellpia-inventory-import.service';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 import type { ImportSellpiaInventoryInput } from '../port/in/stock/sellpia-inventory-import.port';
 import type { ConfirmedChannelComponentReferencePort } from '../port/out/cross-domain/confirmed-channel-component-reference.port';
 import type { SellpiaImportRunRepositoryPort } from '../port/out/repository/sellpia-import-run.repository.port';
 import type { SellpiaSnapshotPublicationRepositoryPort } from '../port/out/repository/sellpia-snapshot-publication.repository.port';
-import { SellpiaInventoryFileValidator } from './sellpia-inventory-file.validator';
-import { SellpiaInventoryImportService } from './sellpia-inventory-import.service';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const ATTEMPT_TOKEN = '00000000-0000-4000-8000-000000000002';
 const CLAIM_TOKEN = '00000000-0000-4000-8000-000000000003';
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000010';
 const USER_ID = '00000000-0000-4000-8000-000000000011';
-const browserFile = Buffer.from(
-  '상품코드,상품명,재고,바코드,매입가,판매가\nSP-001,상품,4,8801234567890,100,200',
-);
+const browserFile = Buffer.from(JSON.stringify({
+  source: 'sellpia_product_search',
+  version: 1,
+  rowCount: 1,
+  rows: [{
+    productCode: 'SP',
+    optionCode: '001',
+    name: '상품',
+    optionName: null,
+    barcode: '8801234567890',
+    currentStock: 4,
+    purchasePrice: 100,
+    salePrice: 200,
+  }],
+}));
 
 const browserInput: ImportSellpiaInventoryInput = {
   organizationId: ORGANIZATION_ID,
   userId: USER_ID,
   file: {
     buffer: browserFile,
-    fileName: 'sellpia.csv',
-    mimeType: 'text/csv',
+    fileName: 'sellpia-inventory-snapshot-v1.json',
+    mimeType: 'application/json',
   },
   execution: {
     kind: 'browser',
@@ -40,7 +52,7 @@ const completedRun = {
   id: RUN_ID,
   sourceType: 'sellpia_inventory' as const,
   channelAccountId: null,
-  fileName: 'sellpia.csv',
+  fileName: 'sellpia-inventory-snapshot-v1.json',
   fileHash: createHash('sha256').update(browserFile).digest('hex'),
   status: 'completed' as const,
   rowCount: 1,
@@ -107,7 +119,7 @@ describe('SellpiaInventoryImportService', () => {
     expect(repository.claimFileRun).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       userId: USER_ID,
-      fileName: 'sellpia.csv',
+      fileName: 'sellpia-inventory-snapshot-v1.json',
       fileHash,
       execution: browserInput.execution,
     });

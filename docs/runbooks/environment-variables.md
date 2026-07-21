@@ -388,28 +388,12 @@ STAGING_DB_BASELINE_BUCKET
 STAGING_DB_BASELINE_PREFIX
 STAGING_DB_BASELINE_S3_ENDPOINT
 STAGING_DB_BASELINE_S3_REGION
+STAGING_DATABASE_NAME
 STAGING_DIRECT_1688_MTOP_BASE_URL
 STAGING_HOST
 STAGING_NAVER_API_HUB_BASE_URL
 STAGING_NAVER_SEARCHAD_BASE_URL
 STAGING_REMOTE_DIR
-STAGING_REBUILD_ORGANIZATION_ID
-STAGING_REBUILD_ORGANIZATION_NAME
-STAGING_REBUILD_ORGANIZATION_SLUG
-STAGING_REBUILD_USER_ID
-STAGING_REBUILD_USER_NAME
-STAGING_REBUILD_COUPANG_ACCOUNT_ID
-STAGING_REBUILD_COUPANG_ACCOUNT_NAME
-STAGING_REBUILD_ROCKET_ACCOUNT_ID
-STAGING_REBUILD_ROCKET_ACCOUNT_NAME
-STAGING_REBUILD_SELLPIA_FILE_SHA256
-STAGING_REBUILD_SELLPIA_ROW_COUNT
-STAGING_REBUILD_WING_FILE_SHA256
-STAGING_REBUILD_WING_ROW_COUNT
-STAGING_REBUILD_EXPECTED_ACTIVE_MASTERS
-STAGING_REBUILD_EXPECTED_LISTINGS
-STAGING_REBUILD_EXPECTED_CHANNEL_SKUS
-STAGING_REBUILD_EXPECTED_API_ORIGIN
 STAGING_S3_BUCKET
 STAGING_S3_ENDPOINT
 STAGING_S3_PUBLIC_URL
@@ -425,12 +409,7 @@ Secrets:
 ```text
 STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY
 STAGING_DATABASE_URL
-STAGING_REBUILD_USER_EMAIL
-STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID
-STAGING_REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID
-STAGING_REBUILD_EXPECTED_DATABASE_HOST
-STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF
-STAGING_SUPABASE_SECRET_KEY
+STAGING_DATABASE_URL_SHA256
 STAGING_DB_BASELINE_S3_ACCESS_KEY
 STAGING_DB_BASELINE_S3_SECRET_KEY
 STAGING_DIRECT_URL
@@ -452,39 +431,35 @@ a long-lived GHCR token unless organization policy blocks `GITHUB_TOKEN`.
 
 ### Authoritative rebuild configuration
 
-The `*_REBUILD_*` values are consumed only by the guarded `0.1.24` rebuild and
-its finalization. Production uses the same suffixes with the `PRODUCTION_`
-prefix. The production user email, external account IDs, and Supabase secret
-must be GitHub Environment secrets; the other baseline IDs/names and approved
-acceptance counts are Environment variables.
+Staging fresh reset does not use any `STAGING_REBUILD_*` values. It requires
+only `STAGING_DATABASE_URL`, its exact `STAGING_DATABASE_URL_SHA256`,
+`STAGING_DATABASE_NAME`, the protected GitHub Environment, immutable dispatch
+SHA/correlation, and the `RESET_STAGING_DATA` input. Organization, human User,
+and OrganizationMembership rows are discovered from the live staging database
+after traffic is quiesced. Channel accounts and source files are configured
+after deploy.
 
-The following protected values are mandatory and have no generic or
-cross-environment fallback. Staging and production must each define their own
-exact names in the matching GitHub Environment:
+Production retains the stricter selective replay flow. The following
+`PRODUCTION_REBUILD_*` values remain mandatory in GitHub Environment
+`production`:
 
-| Purpose | Staging | Production | Kind |
-|---|---|---|---|
-| Database host fingerprint | `STAGING_REBUILD_EXPECTED_DATABASE_HOST` | `PRODUCTION_REBUILD_EXPECTED_DATABASE_HOST` | Secret |
-| Supabase project fingerprint and credential destination | `STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF` | `PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF` | Secret |
-| Database-resident organization ID | `STAGING_REBUILD_ORGANIZATION_ID` | `PRODUCTION_REBUILD_ORGANIZATION_ID` | Variable |
-| Database-resident organization slug | `STAGING_REBUILD_ORGANIZATION_SLUG` | `PRODUCTION_REBUILD_ORGANIZATION_SLUG` | Variable |
-| Database-resident Coupang account ID | `STAGING_REBUILD_COUPANG_ACCOUNT_ID` | `PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID` | Variable |
-| Database-resident Coupang external account identity | `STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | `PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | Secret |
-| Exact HTTPS API origin used for replay | `STAGING_REBUILD_EXPECTED_API_ORIGIN` | `PRODUCTION_REBUILD_EXPECTED_API_ORIGIN` | Variable |
-| Approved Sellpia workbook SHA-256 | `STAGING_REBUILD_SELLPIA_FILE_SHA256` | `PRODUCTION_REBUILD_SELLPIA_FILE_SHA256` | Variable |
-| Approved Sellpia workbook imported row count | `STAGING_REBUILD_SELLPIA_ROW_COUNT` | `PRODUCTION_REBUILD_SELLPIA_ROW_COUNT` | Variable |
-| Approved Wing workbook SHA-256 | `STAGING_REBUILD_WING_FILE_SHA256` | `PRODUCTION_REBUILD_WING_FILE_SHA256` | Variable |
-| Approved Wing workbook imported row count | `STAGING_REBUILD_WING_ROW_COUNT` | `PRODUCTION_REBUILD_WING_ROW_COUNT` | Variable |
+| Purpose | Production | Kind |
+|---|---|---|
+| Database host fingerprint | `PRODUCTION_REBUILD_EXPECTED_DATABASE_HOST` | Secret |
+| Supabase project fingerprint and credential destination | `PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF` | Secret |
+| Database-resident organization ID | `PRODUCTION_REBUILD_ORGANIZATION_ID` | Variable |
+| Database-resident organization slug | `PRODUCTION_REBUILD_ORGANIZATION_SLUG` | Variable |
+| Database-resident Coupang account ID | `PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID` | Variable |
+| Database-resident Coupang external account identity | `PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | Secret |
+| Exact HTTPS API origin used for replay | `PRODUCTION_REBUILD_EXPECTED_API_ORIGIN` | Variable |
+| Approved Sellpia workbook SHA-256 | `PRODUCTION_REBUILD_SELLPIA_FILE_SHA256` | Variable |
+| Approved Sellpia workbook imported row count | `PRODUCTION_REBUILD_SELLPIA_ROW_COUNT` | Variable |
+| Approved Wing workbook SHA-256 | `PRODUCTION_REBUILD_WING_FILE_SHA256` | Variable |
+| Approved Wing workbook imported row count | `PRODUCTION_REBUILD_WING_ROW_COUNT` | Variable |
 
-The first phase also requires the target `*_DATABASE_URL`, baseline
-`*_REBUILD_ORGANIZATION_NAME`, `*_REBUILD_USER_ID`,
-`*_REBUILD_USER_EMAIL`, `*_REBUILD_USER_NAME`, and
-`*_REBUILD_COUPANG_ACCOUNT_NAME`. Finalization additionally requires the
-target `*_SUPABASE_URL`, `*_SUPABASE_SECRET_KEY`, and all three exact positive
-count variables. `*_REBUILD_USER_EMAIL`, external account IDs, database URL,
-database host/project fingerprints, and Supabase secret key are secrets; IDs,
-names, URL origins, Supabase URL, and expected counts are variables. The
-optional Rocket ID/name/external-ID trio remains all-or-none.
+Production also requires its database URL, baseline organization/user/account
+values, protected user email, Supabase secret, expected fact counts, and the
+optional all-or-none Rocket account trio.
 
 `*_REBUILD_EXPECTED_ACTIVE_MASTERS`, `*_REBUILD_EXPECTED_LISTINGS`, and
 `*_REBUILD_EXPECTED_CHANNEL_SKUS` have no defaults. Set them from the approved

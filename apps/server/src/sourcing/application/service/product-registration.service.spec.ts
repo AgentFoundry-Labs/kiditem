@@ -109,6 +109,12 @@ function setup(overrides: {
       submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
       expectedProviderAccountId: 'A00012345', listingId: null,
     }),
+    startExternalExecution: vi.fn().mockResolvedValue({
+      executionId: 'execution-1', preparationId: PREPARATION_ID, requestHash: 'hash-1',
+      status: 'executing', providerOutcome: 'uncertain',
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      expectedProviderAccountId: 'A00012345', listingId: null,
+    }),
     markExternalExecutionUnresolved: vi.fn(),
     markProviderAttemptStarted: vi.fn().mockResolvedValue(undefined),
     recordProviderResult: vi.fn().mockImplementation(async (_orgId, _id, _leaseToken, result) =>
@@ -127,6 +133,13 @@ function setup(overrides: {
   } as ProductPreparationRepositoryPort;
   const channel = {
     assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' }),
+    verifyExternalRegistration: vi.fn().mockResolvedValue({
+      channel: 'coupang',
+      vendorId: 'A00012345',
+      externalListingId: '427011919',
+      status: 'APPROVED',
+      rawResult: { code: 'SUCCESS' },
+    }),
     reconcile: vi.fn().mockResolvedValue(null),
     submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
       await beforeProviderCreate();
@@ -588,6 +601,11 @@ describe('ProductRegistrationService', () => {
       organizationId: ORG_ID,
       channelAccountId: ACCOUNT_ID,
     });
+    expect(channel.verifyExternalRegistration).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      channelAccountId: ACCOUNT_ID,
+      externalListingId: '427011919',
+    });
     expect(repository.recordProviderResult).toHaveBeenCalledWith(
       ORG_ID,
       PREPARATION_ID,
@@ -596,13 +614,44 @@ describe('ProductRegistrationService', () => {
     );
   });
 
-  it('rejects forged WING evidence before recording external provider success', async () => {
-    const { service, repository } = setup();
+  it('starts a prepared manual execution only when the user supplies the WING product id', async () => {
+    const getExternalExecution = vi.fn().mockResolvedValue({
+      executionId: 'execution-1', preparationId: PREPARATION_ID, requestHash: 'hash-1',
+      status: 'prepared', providerOutcome: 'not_attempted', submissionLeaseToken: null,
+      expectedProviderAccountId: 'A00012345', listingId: null,
+    });
+    const startExternalExecution = vi.fn().mockResolvedValue({
+      executionId: 'execution-1', preparationId: PREPARATION_ID, requestHash: 'hash-1',
+      status: 'executing', providerOutcome: 'uncertain',
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      expectedProviderAccountId: 'A00012345', listingId: null,
+    });
+    const { service, repository } = setup({
+      repository: { getExternalExecution, startExternalExecution } as never,
+    });
+
+    await service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1',
+      externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    });
+
+    expect(repository.startExternalExecution).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      sourceCandidateId: CANDIDATE_ID,
+      executionId: 'execution-1',
+      requestedByUserId: USER_ID,
+    });
+  });
+
+  it('treats browser WING evidence as diagnostic after independent provider verification', async () => {
+    const { service, repository, channel } = setup();
     await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
       executionId: 'execution-1', externalListingId: '427011919',
       evidence: { wingVendorId: 'B00012345', wingIdentitySource: 'dom:data-vendor-id' },
-    })).rejects.toThrow('does not match');
-    expect(repository.recordProviderResult).not.toHaveBeenCalled();
+    })).resolves.toMatchObject({ status: 'registered' });
+    expect(channel.verifyExternalRegistration).toHaveBeenCalled();
+    expect(repository.recordProviderResult).toHaveBeenCalled();
   });
 
   it('rejects completion when the persisted WING vendor changed after preparation', async () => {

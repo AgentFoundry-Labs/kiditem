@@ -105,3 +105,33 @@ test('worker response exposes verified fill evidence at the top level', async ()
   assert.deepEqual(result.evidence, { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' });
   assert.equal(sent[0].message.expectedVendorId, 'A00012345');
 });
+
+test('manual form fill does not require an execution id before any provider submission', async () => {
+  const start = workerSource.indexOf('async function registerToWingForm(message)');
+  const end = workerSource.indexOf('\n}\n\n/**', start) + 2;
+  const context = vm.createContext({
+    INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
+    interactiveTabs: { createTab: async () => ({ id: 18 }) },
+    waitForTabComplete: async () => true,
+    chrome: {
+      tabs: {
+        sendMessage: async () => ({
+          ok: true,
+          submission: { attempted: false },
+          evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+        }),
+      },
+    },
+    setTimeout(callback) { callback(); return 0; },
+  });
+  vm.runInContext(workerSource.slice(start, end), context, { filename: 'service-worker.registerToWingForm.js' });
+
+  const result = await context.registerToWingForm({
+    product: { productName: 'test' },
+    autoSubmit: false,
+    expectedVendorId: 'A00012345',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.submission.attempted, false);
+});

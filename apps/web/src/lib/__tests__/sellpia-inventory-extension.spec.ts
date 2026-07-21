@@ -36,7 +36,7 @@ describe('Sellpia inventory extension adapter', () => {
     } satisfies Partial<SellpiaInventoryExtensionError>);
     expect(bridge.detectOrderCollectionExtensionId).toHaveBeenCalledWith(
       1_200,
-      'collectSellpiaInventoryV2',
+      'collectSellpiaInventoryJsonV1',
     );
   });
 
@@ -46,10 +46,21 @@ describe('Sellpia inventory extension adapter', () => {
       .mockResolvedValueOnce({
         success: true,
         runId: RUN_ID,
-        workbookBase64: 'd29ya2Jvb2s=',
-        fileName: 'inventory.xls',
-        mimeType: 'application/vnd.ms-excel',
-        size: 8,
+        snapshot: {
+          source: 'sellpia_product_search',
+          version: 1,
+          rowCount: 1,
+          rows: [{
+            productCode: '92',
+            optionCode: '1',
+            name: '상품',
+            optionName: null,
+            barcode: null,
+            currentStock: 39,
+            purchasePrice: null,
+            salePrice: null,
+          }],
+        },
         sourceOrigin: 'https://kiditem.sellpia.com',
         sourceAccountKey: 'kiditem',
       });
@@ -58,7 +69,23 @@ describe('Sellpia inventory extension adapter', () => {
 
     expect(bridge.collectSellpiaInventory).toHaveBeenNthCalledWith(1, 'extension-id', RUN_ID);
     expect(bridge.collectSellpiaInventory).toHaveBeenNthCalledWith(2, 'extension-id', RUN_ID);
-    expect(result.file.name).toBe('inventory.xls');
+    expect(result.file.name).toBe('sellpia-inventory-snapshot-v1.json');
+    expect(result.file.type).toBe('application/json');
+    await expect(result.file.text()).resolves.toBe(JSON.stringify({
+      source: 'sellpia_product_search',
+      version: 1,
+      rowCount: 1,
+      rows: [{
+        productCode: '92',
+        optionCode: '1',
+        name: '상품',
+        optionName: null,
+        barcode: null,
+        currentStock: 39,
+        purchasePrice: null,
+        salePrice: null,
+      }],
+    }));
   });
 
   it('preserves Task 6 collection failure codes', async () => {
@@ -84,7 +111,7 @@ describe('Sellpia inventory extension adapter', () => {
     expect(bridge.collectSellpiaInventory).toHaveBeenCalledTimes(1);
   });
 
-  it('validates the Task 6 reply in the bridge before workbook decoding', async () => {
+  it('validates the snapshot row count in the bridge before creating the JSON file', async () => {
     const actualBridge = await vi.importActual<typeof import('../extension-bridge')>(
       '../extension-bridge',
     );
@@ -96,10 +123,12 @@ describe('Sellpia inventory extension adapter', () => {
             callback({
               success: true,
               runId: RUN_ID,
-              workbookBase64: 'not base64!',
-              fileName: 'inventory.xls',
-              mimeType: 'application/vnd.ms-excel',
-              size: 8,
+              snapshot: {
+                source: 'sellpia_product_search',
+                version: 1,
+                rowCount: 2,
+                rows: [],
+              },
               sourceOrigin: 'https://kiditem.sellpia.com',
               sourceAccountKey: 'kiditem',
             });

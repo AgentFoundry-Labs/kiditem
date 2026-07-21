@@ -835,6 +835,31 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     })).toBe(1);
   });
 
+  it('resumes the same prepared manual execution after the browser page is reopened', async () => {
+    const base = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+    };
+    const prepared = await repository.prepareExternalExecution({
+      ...base,
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+
+    const resumed = await repository.prepareExternalExecution({
+      ...base,
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+
+    expect(resumed.executionId).toBe(prepared.executionId);
+    expect(await prisma.productRegistrationExecution.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: prepared.preparationId },
+    })).toBe(1);
+  });
+
   it('rejects external preparation when the persisted account is not a vendor-identified Wing account', async () => {
     await prisma.channelAccount.update({
       where: { id: ACCOUNT_ID },

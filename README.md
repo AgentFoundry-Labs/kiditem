@@ -8,6 +8,18 @@
 - **Python** 3.11+
 - **Docker Desktop** (PostgreSQL 실행용)
 
+## Chrome 익스텐션
+
+staging용 Chrome 익스텐션은 GitHub Releases에서 내려받는다.
+
+| 익스텐션 | 버전 | 링크 |
+|---|---:|---|
+| 상품 소싱 스크래퍼 | 2.2.2 | [Release](https://github.com/AgentFoundry-Labs/kiditem/releases/tag/extension-product-scraper-v2.2.2-staging) · [ZIP](https://github.com/AgentFoundry-Labs/kiditem/releases/download/extension-product-scraper-v2.2.2-staging/kiditem-product-scraper-v2.2.2-staging.zip) · [SHA256](https://github.com/AgentFoundry-Labs/kiditem/releases/download/extension-product-scraper-v2.2.2-staging/kiditem-product-scraper-v2.2.2-staging.zip.sha256) |
+| 쿠팡 셀러 도우미 | 1.2.66 | [Release](https://github.com/AgentFoundry-Labs/kiditem/releases/tag/extension-coupang-ads-scraper-v1.2.66-staging) · [ZIP](https://github.com/AgentFoundry-Labs/kiditem/releases/download/extension-coupang-ads-scraper-v1.2.66-staging/kiditem-coupang-ads-scraper-v1.2.66-staging.zip) · [SHA256](https://github.com/AgentFoundry-Labs/kiditem/releases/download/extension-coupang-ads-scraper-v1.2.66-staging/kiditem-coupang-ads-scraper-v1.2.66-staging.zip.sha256) |
+| 주문수집 도우미 | 0.1.79 | [Release](https://github.com/AgentFoundry-Labs/kiditem/releases/tag/extension-order-collector-v0.1.79-staging) · [ZIP](https://github.com/AgentFoundry-Labs/kiditem/releases/download/extension-order-collector-v0.1.79-staging/kiditem-order-collector-v0.1.79-staging.zip) · [SHA256](https://github.com/AgentFoundry-Labs/kiditem/releases/download/extension-order-collector-v0.1.79-staging/kiditem-order-collector-v0.1.79-staging.zip.sha256) |
+
+ZIP 압축을 푼 뒤 `chrome://extensions`에서 개발자 모드를 켜고 **압축해제된 확장 프로그램을 로드합니다**를 선택한다. 버전 게시·검증·업데이트 방법은 [Chrome Extension Releases runbook](docs/runbooks/extension-releases.md)을 따른다.
+
 ## 셋업
 
 ```bash

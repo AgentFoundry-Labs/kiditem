@@ -43,19 +43,20 @@ describe('product pipeline DB model contract', () => {
     assert.ok(dbPush < postSchema, 'post-schema backfills must run after Prisma db push');
   });
 
-  it('exports approved state and quiesces traffic before the guarded staging reset', () => {
+  it('exports only the account baseline after quiescing traffic for the guarded staging reset', () => {
     const workflow = readModelFile('.github/workflows/staging-deploy.yml');
     const guard = workflow.indexOf('Validate staging rebuild confirmation');
-    const exported = workflow.indexOf('Export approved Coupang replay bundle');
+    const exported = workflow.indexOf('Export staging account baseline');
     const quiesced = workflow.indexOf('Quiesce staging application traffic');
     const forceReset = workflow.indexOf('npx prisma db push --force-reset');
-    const bootstrap = workflow.indexOf('Bootstrap staging authentication and account baseline');
+    const restore = workflow.indexOf('Restore staging account baseline');
 
     assert.ok(guard !== -1, 'expected an exact shared rebuild guard');
     assert.ok(guard < quiesced, 'guard must pass before traffic is quiesced');
     assert.ok(quiesced < exported, 'traffic must be quiesced before the consistent export');
     assert.ok(exported < forceReset, 'private export must finish before the force reset');
-    assert.ok(forceReset < bootstrap, 'minimum baseline must be created after the final schema');
+    assert.ok(forceReset < restore, 'account baseline must be restored after the final schema');
+    assert.doesNotMatch(workflow, /STAGING_REBUILD_COUPANG|export-coupang|replay-coupang/);
     assert.doesNotMatch(workflow, /--accept-data-loss|check-sellpia-db-push-warning/);
   });
 

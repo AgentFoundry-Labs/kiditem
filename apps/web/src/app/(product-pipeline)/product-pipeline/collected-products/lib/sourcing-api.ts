@@ -708,7 +708,8 @@ export const candidatesApi = {
    *
    * 쿠팡 WING 등록은 확장이 화면을 조작해 수행하므로 서버의 provider create 경로를
    * 탈 수 없다. 이 호출은 **이미 발급된 등록상품ID** 를 근거로 `ChannelListing` 만
-   * 만들어 등록상품 목록에 올린다. 서버가 provider 를 호출하지 않는다.
+   * 만들어 등록상품 목록에 올린다. 서버는 새 상품을 생성하지 않고 선택된 계정으로
+   * 등록상품ID를 조회해 실제 판매자와 상태를 검증한다.
    */
   confirmExternalRegistration: (
     candidateId: string,

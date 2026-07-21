@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import WingRegistrationConfirmDialog from './WingRegistrationConfirmDialog';
 import type { WingRegistrationDraft } from '../../lib/wing-registration-flow';
 
@@ -51,5 +51,24 @@ describe('WingRegistrationConfirmDialog', () => {
     expect(stockLabel).toHaveClass('flex', 'flex-col');
     const stockInputWrapper = stockLabel?.querySelector('input')?.parentElement;
     expect(stockInputWrapper).toHaveClass('mt-auto');
+  });
+
+  it('lets the user finish a manual or uncertain WING registration with the issued product id', () => {
+    const onConfirmExternal = vi.fn();
+    render(
+      <WingRegistrationConfirmDialog
+        draft={draft}
+        isSubmitting={false}
+        completion={{ suggestedExternalListingId: '427011919' }}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+        onConfirmExternal={onConfirmExternal}
+      />,
+    );
+
+    const input = screen.getByLabelText('쿠팡 등록상품ID');
+    expect(input).toHaveValue('427011919');
+    fireEvent.click(screen.getByRole('button', { name: '등록 완료 확인' }));
+    expect(onConfirmExternal).toHaveBeenCalledWith('427011919');
   });
 });

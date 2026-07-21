@@ -28,6 +28,14 @@ export class ChannelProductRegistrationAdapter
     return this.registration.assertExternalProductRegistrationAccount(input);
   }
 
+  verifyExternalRegistration(input: {
+    organizationId: string;
+    channelAccountId: string;
+    externalListingId: string;
+  }) {
+    return this.registration.verifyExternalProductRegistration(input);
+  }
+
   reconcile(input: ChannelProductRegistrationSubmissionInput) {
     return this.registration.reconcileProductRegistration(input);
   }
