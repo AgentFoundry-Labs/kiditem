@@ -118,6 +118,7 @@ describe("AdSyncService", () => {
   it.each([
     ['invalid_authoritative_shape', UnprocessableEntityException, 422],
     ['invalid_date_range', UnprocessableEntityException, 422],
+    ['missing_stable_campaign_identity', UnprocessableEntityException, 422],
     ['dependent_action_conflict', ConflictException, 409],
   ] as const)(
     'maps committed projection rejection %s outside the ingest transaction',

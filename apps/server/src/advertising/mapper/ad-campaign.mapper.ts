@@ -32,9 +32,16 @@ export function toAdCampaignSnapshot(
 ): AdCampaignSnapshot {
   return {
     listing: listing ? scopedListingToSummary(listing) : null,
+    channelAccountId: rollup.channelAccountId,
+    campaignIdentity: rollup.campaignIdentity,
     campaignId: rollup.campaignId,
     campaignName: rollup.campaignName,
     period,
+    // The Coupang campaign dashboard grid carries no conversion-count column,
+    // so every campaign-grain row lands with `conversions = 0` whether or not
+    // conversions happened. Surface that as "unknown" instead of a hard 0 —
+    // the real per-product conversion counts live on the campaign detail grid.
+    conversionsAvailable: rollup.conversionsObserved,
     metrics: buildAdMetrics({
       spend: rollup.spend,
       revenue: rollup.revenue,
@@ -57,6 +64,8 @@ export function toAdProductSnapshot(
     null;
   return {
     listing: listing ? scopedListingToSummary(listing) : null,
+    channelAccountId: rollup.channelAccountId,
+    campaignIdentity: rollup.campaignIdentity,
     externalId: rollup.externalId,
     externalOptionId: rollup.externalOptionId,
     campaignId: rollup.campaignId,
@@ -96,7 +105,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function campaignConversionCount(rollup: CampaignRollup): number {
+function campaignConversionCount(
+  rollup: Pick<CampaignRollup, 'orders' | 'conversions' | 'revenue'>,
+): number {
   if (rollup.orders > 0) return rollup.orders;
   // Older Coupang campaign scraper payloads could map "광고 전환 매출" into
   // `conversions` when an order-count column was absent. That value is revenue

@@ -129,6 +129,36 @@ export function todayYmd(): string {
   return dayKey(now.getTime());
 }
 
+/**
+ * 수집/변환 실패 메시지가 사실은 "신규 주문 없음"(정상, 오류 아님)인지 판별한다.
+ * 티쳐몰·보리보리처럼 주문이 없을 때 throw 하는 몰을, 다른 몰과 동일하게 활동 피드에서
+ * "신규 주문 없음"으로 표기하기 위해 사용한다. 로그인/권한/타임아웃 같은 진짜 오류는 제외한다.
+ */
+export function isNoNewOrdersMessage(message: string | null | undefined): boolean {
+  if (!message) return false;
+  if (/로그인|필요|권한|찾을 수 없|초과|불러오지/.test(message)) return false;
+  return /주문이?\s*없/.test(message);
+}
+
+/**
+ * 수집 실패가 "추가 인증 필요"(SMS 등)인지 판별한다. 예: GS샵 SMS 인증방식.
+ * 활동 피드에서 일반 오류가 아니라 "인증 필요"로 표기하기 위해 사용하며,
+ * 로그인 필요 판별보다 먼저 분기해야 한다(인증 안내에도 "로그인" 단어가 섞이므로).
+ */
+export function isAuthRequiredMessage(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return /인증번호|인증이?\s*필요|SMS\s*인증|인증\s*방식/.test(message);
+}
+
+/**
+ * 수집 실패가 "로그인/세션 필요"인지 판별한다.
+ * 활동 피드에서 일반 오류가 아니라 "로그인 필요"로 표기하기 위해 사용한다.
+ */
+export function isLoginRequiredMessage(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return /로그인|세션이?\s*만료|세션\s*만료/.test(message);
+}
+
 export function dayKey(timestamp: number): string {
   const now = new Date(timestamp);
   const year = now.getFullYear();

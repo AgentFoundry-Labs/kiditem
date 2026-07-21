@@ -26,6 +26,8 @@ import {
   toBusinessDate,
 } from '../../domain/business-date';
 import { resolveCampaignReportAuthority } from '../../domain/campaign-report-authority';
+import { resolveAdTargetGrain } from '../../domain/ad-target-grain';
+import { hasObservedConversionColumn } from '../../domain/ad-observed-columns';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -39,7 +41,11 @@ import {
   toNumber,
   toNumberOrNull,
 } from '../../domain/scrape-row-normalizers';
-import { buildAdTargetKey } from '../../domain/util/ad-target-key';
+import {
+  buildAdTargetKey,
+  campaignIdFromCanonicalIdentity,
+  canonicalCampaignIdentity,
+} from '../../domain/util/ad-target-key';
 import {
   CHANNEL_SCRAPE_REPOSITORY_PORT,
   type ChannelScrapeRepositoryPort,
@@ -101,20 +107,19 @@ export class AdCampaignIngestHandler {
     // requested day for audit/replay.
     const rawBusinessDate = hasSingleDayRange ? businessDate : null;
     const kpis = payload.kpis ?? {};
-    const campaignIds = new Set(
-      normalizedRows
-        .map((row) => cleanString(row?.campaignId))
-        .filter((value): value is string => value !== null),
-    );
     const campaignIdentities = new Set(
       normalizedRows
-        .map((row) => cleanString(row?.campaignIdentity))
+        .map((row) => canonicalCampaignIdentity({
+          campaignId: cleanString(row?.campaignId),
+          campaignIdentity: cleanString(row?.campaignIdentity),
+        }))
         .filter((value): value is string => value !== null),
     );
-    const campaignScopeId =
-      campaignIds.size === 1 ? [...campaignIds][0] : null;
-    const campaignScopeIdentity =
+    const stableCampaignScopeIdentity =
       campaignIdentities.size === 1 ? [...campaignIdentities][0] : null;
+    const campaignScopeId = campaignIdFromCanonicalIdentity(
+      stableCampaignScopeIdentity,
+    );
     const baseMeta = {
       campaignName,
       requestedCampaignReportScope: authority.requestedScope,
@@ -209,18 +214,14 @@ export class AdCampaignIngestHandler {
         }
 
         const rowCampaignName = cleanString(row.campaignName) || campaignName;
-        const rowCampaignId = cleanString(row.campaignId) || campaignScopeId;
-        const rowCampaignIdentity =
-          cleanString(row.campaignIdentity) ||
-          (rowCampaignId ? `campaign:${rowCampaignId}` : campaignScopeIdentity);
-        if (
-          rowCampaignId &&
-          rowCampaignIdentity?.startsWith('campaign:') &&
-          rowCampaignIdentity !== `campaign:${rowCampaignId}`
-        ) {
-          authoritativeProjectionInvalid = true;
-          continue;
-        }
+        const rowCampaignIdentity = canonicalCampaignIdentity({
+          campaignId: cleanString(row.campaignId) || campaignScopeId,
+          campaignIdentity:
+            cleanString(row.campaignIdentity) || stableCampaignScopeIdentity,
+        });
+        const rowCampaignId = campaignIdFromCanonicalIdentity(
+          rowCampaignIdentity,
+        );
         const rowAdGroup = cleanString(row.adGroup);
         const rowKeyword = cleanString(row.keyword);
         const rowStatus = cleanString(row.status);
@@ -265,6 +266,7 @@ export class AdCampaignIngestHandler {
           });
           const targetInput: UpsertAdTargetDailyInput = {
             organizationId,
+            channelAccountId: map.channelAccountId,
             channel: 'coupang',
             businessDate,
             targetType,
@@ -275,6 +277,7 @@ export class AdCampaignIngestHandler {
             externalOptionId:
               externalOptionIdRaw ?? match.externalOptionId ?? null,
             campaignId: rowCampaignId,
+            campaignIdentity: rowCampaignIdentity,
             campaignName: rowCampaignName,
             adGroup: rowAdGroup,
             keyword: rowKeyword,
@@ -287,7 +290,25 @@ export class AdCampaignIngestHandler {
             metaJson: {
               source: 'advertising.campaign.target',
               data: {
+                // Explicit grain stamp: a campaign rollup row already contains
+                // every member product's metrics, so product-grain reads must
+                // exclude it or the campaign is counted twice.
+                granularity: resolveAdTargetGrain({
+                  externalOptionId:
+                    externalOptionIdRaw ?? match.externalOptionId,
+                  listingOptionId: match.listingOptionId,
+                  listingId: match.listingId,
+                }),
                 campaignIdentity: rowCampaignIdentity,
+                // Whether the scraped grid actually had a conversion-count
+                // column. The Coupang campaign dashboard grid has none — only
+                // the per-campaign product detail grid carries
+                // `광고 전환 판매수`. The extension still emits a numeric zero
+                // for absent columns, so without this stamp a campaign-grain
+                // `conversions = 0` is indistinguishable from a real zero and
+                // the UI shows a fabricated 0 conversions on rows with real
+                // revenue.
+                conversionsObserved: hasObservedConversionColumn(row),
                 providerRoas,
                 providerCtr,
                 providerConversionRate,
@@ -316,7 +337,7 @@ export class AdCampaignIngestHandler {
           );
           hasAuthoritativeIdentityRow = true;
         } catch (e) {
-          // Non-buildable identity (e.g., neither campaignId nor campaignName
+          // Non-buildable identity (e.g., neither campaignId nor stable href
           // present) — raw snapshot is preserved above. Skip target daily so
           // we never land an `unknown:unknown` row.
           this.logger.debug(
@@ -337,7 +358,9 @@ export class AdCampaignIngestHandler {
           authoritativeProjectionInvalid ||
           !hasAuthoritativeIdentityRow
         ) {
-          projectionRejectionCode = 'invalid_authoritative_shape';
+          projectionRejectionCode = stableCampaignScopeIdentity
+            ? 'invalid_authoritative_shape'
+            : 'missing_stable_campaign_identity';
         } else {
           const replacement = await this.targetDailyRepo.replaceCampaignDay({
             organizationId,
@@ -345,7 +368,7 @@ export class AdCampaignIngestHandler {
             channel: 'coupang',
             businessDate,
             campaignId: campaignScopeId,
-            campaignIdentity: campaignScopeIdentity,
+            campaignIdentity: stableCampaignScopeIdentity,
             campaignName,
             targets: [...targetDailyInputs.values()],
           });
@@ -472,6 +495,7 @@ const STABLE_TARGET_DESCRIPTORS = [
   'targetType',
   'targetKey',
   'campaignId',
+  'campaignIdentity',
   'campaignName',
   'listingId',
   'listingOptionId',

@@ -24,6 +24,9 @@ are record-only; stock movement stays with inventory.
 - `platform` stores channel identity; provider payloads live in `metadata`.
 - `ReturnTransfer` currently lives in the Inventory Prisma namespace, but this
   module owns its HTTP/service surface.
+- Rocket PO catalog evidence and confirmation are not Orders-owned models.
+  Channels owns the account-scoped catalog publication, Supply owns
+  `RocketPurchaseConfirmation`, and Inventory owns `InventoryCommitment`.
 
 ## Provider Action Flow
 
@@ -38,11 +41,13 @@ provider HTTP APIs directly.
   provider ports/adapters.
 - Inventory owns actual stock movement; return transfers in orders are
   record-only.
-- Coupang Rocket PA collection persists `SourceImportRun`, `Order`, and
-  `OrderLineItem` before workbook generation, then calls Supply's
-  transaction-aware final-order reconciliation port. Supply delegates the
-  request-to-final commitment replacement to Inventory in the same Prisma
-  transaction.
+- Coupang directship conversion (`/api/orders/collection/coupang-directship/convert`)
+  is stateless workbook generation (user original design): the collected
+  directship purchase-order rows in the request are exported straight to the
+  Sellpia workbook. It does not persist orders/import runs and does not gate on
+  Supply reconciliation — collected rows are exported regardless of Supply
+  confirmation state. Supply's `RocketFinalOrderReconciliationPort` remains in
+  the module but is not on this convert path.
 
 ## Boundary Rules
 
@@ -54,13 +59,10 @@ provider HTTP APIs directly.
   status. Keep them independent.
 - New channels add `platform` values and channel adapters, not
   channel-specific order tables.
-- PA collection uses `(organizationId, channelAccountId, po.seq)` as Order
-  identity and a deterministic `(po.seq, item.skuId)` line identity. Any
-  reconciliation failure rolls back the import run and all order rows; the
-  workbook is generated only after commit.
-- The selected transport is the collection boundary. Replaying the same PA
-  payload reuses its deterministic source import and order/line identities;
-  payload drift or reconciliation failure produces no workbook.
+- Directship convert exports the collected rows as-is: no import-run
+  persistence, deterministic order identity, or reconciliation gate on this
+  path. The selected transport only splits shipment vs milkrun output; an empty
+  request is the only reason no workbook is produced.
 - `CreateCsBodyDto.productId` is only a backward-compatible alias for
   `listingId`; new callers send `listingId`.
 

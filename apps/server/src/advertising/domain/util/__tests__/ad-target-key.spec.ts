@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildAdTargetKey } from '../ad-target-key';
+import {
+  buildAdTargetKey,
+  normalizeStableCampaignIdentity,
+} from '../ad-target-key';
 
 const account = { channelAccountId: 'account-1' } as const;
 
@@ -16,17 +19,17 @@ describe('buildAdTargetKey', () => {
       ).toBe('account:account-1:campaign:CAMP-1');
     });
 
-    it('falls back to campaignName when campaignId is missing', () => {
-      expect(
+    it('rejects campaignName as an identity fallback', () => {
+      expect(() =>
         buildAdTargetKey({
           ...account,
           targetType: 'campaign',
           campaignName: 'Brand Camp',
         }),
-      ).toBe('account:account-1:campaign:Brand Camp');
+      ).toThrowError(/stable campaign identity/);
     });
 
-    it('uses canonical campaignIdentity before a non-unique display name', () => {
+    it('uses the canonical provider id from a Coupang campaign detail URL', () => {
       expect(
         buildAdTargetKey({
           ...account,
@@ -35,7 +38,21 @@ describe('buildAdTargetKey', () => {
             'href:https://advertising.coupang.com/campaign/identity-a',
           campaignName: '같은 이름',
         }),
-      ).toBe('account:account-1:campaign:href:https://advertising.coupang.com/campaign/identity-a');
+      ).toBe('account:account-1:campaign:identity-a');
+    });
+
+    it('rejects a name-prefixed pseudo identity and a generic dashboard href', () => {
+      expect(() => buildAdTargetKey({
+        ...account,
+        targetType: 'campaign',
+        campaignIdentity: 'name:Brand Camp',
+        campaignName: 'Brand Camp',
+      })).toThrowError(/stable campaign identity/);
+      expect(() => buildAdTargetKey({
+        ...account,
+        targetType: 'campaign',
+        campaignIdentity: 'href:https://advertising.coupang.com/marketing/dashboard/sales',
+      })).toThrowError(/stable campaign identity/);
     });
 
     it('throws when both campaignId and campaignName are missing', () => {
@@ -75,10 +92,11 @@ describe('buildAdTargetKey', () => {
         buildAdTargetKey({
           ...account,
           targetType: 'keyword',
+          campaignIdentity: 'campaign:CAMP-1',
           campaignName: 'Brand Camp',
           keyword: 'kw',
         }),
-      ).toBe('account:account-1:keyword:Brand Camp::kw');
+      ).toBe('account:account-1:keyword:CAMP-1::kw');
     });
 
     it('throws when keyword missing', () => {
@@ -117,46 +135,71 @@ describe('buildAdTargetKey', () => {
       ).toBe('account:account-1:product:CAMP-1:VENDOR-1');
     });
 
-    it('qualifies product fallbacks with campaignName when campaignId is missing', () => {
-      expect(
+    it('rejects product rows carrying campaign display evidence without stable identity', () => {
+      expect(() =>
         buildAdTargetKey({
           ...account,
           targetType: 'product',
           externalId: 'EXT-1',
           campaignName: 'Brand Camp',
         }),
-      ).toBe('account:account-1:product:Brand Camp:EXT-1');
-      expect(
+      ).toThrowError(/stable campaign identity/);
+      expect(() =>
         buildAdTargetKey({
           ...account,
           targetType: 'product',
           listingId: 'LISTING-1',
           campaignName: 'Brand Camp',
         }),
-      ).toBe('account:account-1:product:Brand Camp:LISTING-1');
+      ).toThrowError(/stable campaign identity/);
     });
 
-    it('retains the account-qualified product-only fallback without campaign identity', () => {
-      expect(buildAdTargetKey({ ...account, targetType: 'product', externalOptionId: 'VENDOR-1', externalId: 'EXT-1' }))
+    it.each([
+      { evidence: 'adGroup', adGroup: 'Group A' },
+      { evidence: 'keyword', keyword: 'kids cup' },
+    ])(
+      'rejects campaignless product rows carrying $evidence evidence without stable identity',
+      ({ adGroup, keyword }) => {
+        expect(() => buildAdTargetKey({
+          ...account,
+          targetType: 'product',
+          campaignless: true,
+          externalOptionId: 'VENDOR-1',
+          adGroup,
+          keyword,
+        })).toThrowError(/stable campaign identity/);
+      },
+    );
+
+    it('retains the explicit account-qualified campaign-less product identity', () => {
+      expect(buildAdTargetKey({ ...account, targetType: 'product', campaignless: true, externalOptionId: 'VENDOR-1', externalId: 'EXT-1' }))
         .toBe('account:account-1:product:VENDOR-1');
-      expect(buildAdTargetKey({ ...account, targetType: 'product', externalId: 'EXT-1' }))
+      expect(buildAdTargetKey({ ...account, targetType: 'product', campaignless: true, externalId: 'EXT-1' }))
         .toBe('account:account-1:product:EXT-1');
-      expect(buildAdTargetKey({ ...account, targetType: 'product', listingId: 'LISTING-1' }))
+      expect(buildAdTargetKey({ ...account, targetType: 'product', campaignless: true, listingId: 'LISTING-1' }))
         .toBe('account:account-1:product:LISTING-1');
+    });
+
+    it('requires callers to explicitly attest that an identity-free product is campaign-less', () => {
+      expect(() => buildAdTargetKey({
+        ...account,
+        targetType: 'product',
+        externalOptionId: 'VENDOR-1',
+      })).toThrowError(/campaignless/);
     });
 
     it('keeps same-name products distinct by canonical campaignIdentity', () => {
       const first = buildAdTargetKey({
         ...account,
         targetType: 'product',
-        campaignIdentity: 'href:https://example.test/campaign/a',
+        campaignIdentity: 'href:https://advertising.coupang.com/campaign/a',
         campaignName: '같은 이름',
         externalOptionId: 'VENDOR-1',
       });
       const second = buildAdTargetKey({
         ...account,
         targetType: 'product',
-        campaignIdentity: 'href:https://example.test/campaign/b',
+        campaignIdentity: 'href:https://advertising.coupang.com/campaign/b',
         campaignName: '같은 이름',
         externalOptionId: 'VENDOR-1',
       });
@@ -179,11 +222,13 @@ describe('buildAdTargetKey', () => {
       const inputA = {
         ...account,
         targetType: 'product' as const,
+        campaignless: true,
         externalOptionId: 'VENDOR-1',
       };
       const inputB = {
         ...account,
         targetType: 'product' as const,
+        campaignless: true,
         externalOptionId: 'VENDOR-1',
       };
       expect(buildAdTargetKey(inputA)).toBe(buildAdTargetKey(inputB));
@@ -236,6 +281,7 @@ describe('buildAdTargetKey', () => {
       const p = buildAdTargetKey({
         ...account,
         targetType: 'product',
+        campaignless: true,
         externalOptionId: 'CAMP-1',
       });
       expect(new Set([c, k, p]).size).toBe(3);
@@ -274,5 +320,43 @@ describe('buildAdTargetKey', () => {
       campaignId: 'CAMP-1',
     });
     expect(first).not.toBe(second);
+  });
+
+  it('canonicalizes provider id, campaign identity, and Coupang detail URL to one identity and target key', () => {
+    const byId = buildAdTargetKey({
+      ...account,
+      targetType: 'campaign',
+      campaignId: 'X',
+    });
+    const byIdentity = buildAdTargetKey({
+      ...account,
+      targetType: 'campaign',
+      campaignIdentity: 'campaign:X',
+    });
+    const byHref = buildAdTargetKey({
+      ...account,
+      targetType: 'campaign',
+      campaignIdentity:
+        'href:https://advertising.coupang.com/marketing/campaign/X/product?z=2&campaignId=X&a=1#ignored',
+    });
+
+    expect(byId).toBe('account:account-1:campaign:X');
+    expect(byIdentity).toBe(byId);
+    expect(byHref).toBe(byId);
+    expect(normalizeStableCampaignIdentity('campaign:X')).toBe('campaign:X');
+    expect(normalizeStableCampaignIdentity(
+      'href:https://advertising.coupang.com/marketing/campaign/X/product?a=1&campaignId=X&z=2',
+    )).toBe('campaign:X');
+  });
+
+  it.each([
+    'href:https://example.test/campaign/X',
+    'href:https://advertising.coupang.com.evil.test/campaign/X',
+    'href:http://advertising.coupang.com/campaign/X',
+    'href:https://user@advertising.coupang.com/campaign/X',
+    'href:https://advertising.coupang.com/marketing/dashboard/sales#campaign/X',
+    'href:https://advertising.coupang.com/campaign/',
+  ])('rejects non-Coupang or non-specific campaign href %s', (identity) => {
+    expect(normalizeStableCampaignIdentity(identity)).toBeNull();
   });
 });

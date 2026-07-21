@@ -1017,12 +1017,14 @@ describe('AdSync flow (PG integration, H2)', () => {
       });
       const target = (overrides: Record<string, unknown> = {}) => ({
         organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: channelAccount.id,
         channel: 'coupang',
         businessDate,
         targetType: 'product' as const,
         targetKey:
           `account:${channelAccount.id}:product:CAMP-ATOMIC:VI-ATOMIC-A`,
         campaignId: 'CAMP-ATOMIC',
+        campaignIdentity: 'campaign:CAMP-ATOMIC',
         campaignName: 'Campaign atomic',
         externalOptionId: 'VI-ATOMIC-A',
         spend: 100,
@@ -1038,6 +1040,7 @@ describe('AdSync flow (PG integration, H2)', () => {
         channel: 'coupang',
         businessDate,
         campaignId: 'CAMP-ATOMIC',
+        campaignIdentity: 'campaign:CAMP-ATOMIC',
         campaignName: 'Campaign atomic',
         targets: [target()],
       });
@@ -1049,6 +1052,7 @@ describe('AdSync flow (PG integration, H2)', () => {
           channel: 'coupang',
           businessDate,
           campaignId: 'CAMP-ATOMIC',
+          campaignIdentity: 'campaign:CAMP-ATOMIC',
           campaignName: 'Campaign atomic',
           targets: [
             target({ spend: 999 }),

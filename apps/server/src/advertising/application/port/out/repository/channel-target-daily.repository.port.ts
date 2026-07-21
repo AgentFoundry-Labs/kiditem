@@ -24,6 +24,7 @@ export interface AdTargetDailyMetrics {
 
 export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
   organizationId: string;
+  channelAccountId: string;
   channel: string;
   businessDate: Date;
   targetType: AdTargetType;
@@ -35,7 +36,10 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
   externalOptionId?: string | null;
 
   campaignId?: string | null;
+  campaignIdentity?: string | null;
   campaignName?: string | null;
+  /** True only when the source row contains no campaign evidence at all. */
+  campaignless?: boolean;
   adGroup?: string | null;
   keyword?: string | null;
   placement?: string | null;
@@ -60,9 +64,8 @@ export interface ReplaceAdCampaignDayInput {
   channel: string;
   businessDate: Date;
   campaignId?: string | null;
-  /** Stable provider identity (for example canonical `href:...`) when the
-   * provider does not expose a campaign id. It scopes replacement without
-   * overloading the persisted `campaignId` column. */
+  /** Canonical provider identity (`campaign:<providerId>`). A trusted Coupang
+   * detail href is normalized to this form before replacement. */
   campaignIdentity?: string | null;
   campaignName: string;
   targets: UpsertAdTargetDailyInput[];

@@ -4,14 +4,14 @@
 // `ChannelAdTargetDailySnapshot.targetKey`.
 //
 // The daily-fact table is uniquely keyed by
-//   (organizationId, channel, businessDate, targetType, targetKey)
+//   (organizationId, channelAccountId, channel, businessDate, targetType, targetKey)
 // so `targetKey` MUST be non-null and stable across replays.
 //
 // Patterns (single source of truth):
-//   account:<channelAccountId>:campaign:<campaignId || campaignIdentity || campaignName>
+//   account:<channelAccountId>:campaign:<canonical-provider-id>
 //   account:<channelAccountId>:keyword:<campaign-anchor>:<adGroup>:<keyword>
 //   account:<channelAccountId>:product:<campaign-anchor>:<product-anchor>
-//   account:<channelAccountId>:product:<product-anchor> (campaign-less fallback)
+//   account:<channelAccountId>:product:<product-anchor> (explicit campaign-less)
 //
 // Throws when no usable identifier is present so we never store
 // `unknown:unknown` rows. Two distinct payloads with different identifiers
@@ -24,7 +24,10 @@ interface BuildAdTargetKeyInput {
   targetType: AdTargetType;
   campaignId?: string | null;
   campaignIdentity?: string | null;
+  /** Display-only evidence. Deliberately ignored for identity construction. */
   campaignName?: string | null;
+  /** Explicit evidence that this product row did not originate in a campaign. */
+  campaignless?: boolean;
   adGroup?: string | null;
   keyword?: string | null;
   externalOptionId?: string | null;
@@ -36,6 +39,106 @@ function trimOrNull(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+export function normalizeStableCampaignIdentity(
+  value: string | null | undefined,
+): string | null {
+  const normalized = trimOrNull(value);
+  if (!normalized) return null;
+  if (normalized.startsWith('campaign:')) {
+    const campaignId = normalizeCampaignProviderId(
+      normalized.slice('campaign:'.length),
+    );
+    return campaignId ? `campaign:${campaignId}` : null;
+  }
+  if (!normalized.startsWith('href:')) return null;
+  try {
+    const url = new URL(normalized.slice('href:'.length));
+    if (
+      url.protocol !== 'https:' ||
+      url.hostname.toLowerCase() !== 'advertising.coupang.com' ||
+      url.username !== '' ||
+      url.password !== '' ||
+      url.port !== ''
+    ) {
+      return null;
+    }
+
+    // Only a campaign-specific route can provide identity evidence. Dashboard
+    // list URLs (including hashes that merely mention a campaign) remain raw.
+    const segments = url.pathname.split('/').filter(Boolean);
+    const campaignIndex = segments.findIndex(
+      (segment) => segment.toLowerCase() === 'campaign',
+    );
+    if (campaignIndex < 0) return null;
+
+    const pathCampaignId = normalizeCampaignProviderId(
+      segments[campaignIndex + 1],
+    );
+    const queryCampaignIds = [...url.searchParams.entries()]
+      .filter(([key]) =>
+        ['campaignid', 'campaignno', 'campaign_id'].includes(key.toLowerCase()),
+      )
+      .map(([, entryValue]) => normalizeCampaignProviderId(entryValue))
+      .filter((entryValue): entryValue is string => entryValue !== null);
+    const uniqueQueryIds = new Set(queryCampaignIds);
+    if (uniqueQueryIds.size > 1) return null;
+    const queryCampaignId = [...uniqueQueryIds][0] ?? null;
+    if (
+      pathCampaignId &&
+      queryCampaignId &&
+      pathCampaignId !== queryCampaignId
+    ) {
+      return null;
+    }
+    const campaignId = queryCampaignId ?? pathCampaignId;
+    return campaignId ? `campaign:${campaignId}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeCampaignProviderId(
+  value: string | null | undefined,
+): string | null {
+  const normalized = trimOrNull(value);
+  if (!normalized) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(normalized).trim();
+  } catch {
+    return null;
+  }
+  if (
+    decoded.length === 0 ||
+    /^(?:type|registration|create|new|product|detail|dashboard|sales)$/i.test(
+      decoded,
+    )
+  ) {
+    return null;
+  }
+  return decoded;
+}
+
+export function canonicalCampaignIdentity(input: {
+  campaignId?: string | null;
+  campaignIdentity?: string | null;
+}): string | null {
+  const campaignId = normalizeCampaignProviderId(input.campaignId);
+  const fromId = campaignId ? `campaign:${campaignId}` : null;
+  const fromIdentity = normalizeStableCampaignIdentity(input.campaignIdentity);
+  if (fromId && fromIdentity && fromId !== fromIdentity) return null;
+  return fromId ?? fromIdentity;
+}
+
+export function campaignIdFromCanonicalIdentity(
+  campaignIdentity: string | null | undefined,
+): string | null {
+  const canonical = normalizeStableCampaignIdentity(campaignIdentity);
+  return canonical?.startsWith('campaign:')
+    ? canonical.slice('campaign:'.length)
+    : null;
 }
 
 /**
@@ -54,15 +157,20 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
   if (!channelAccountId) {
     throw new Error('buildAdTargetKey: channelAccountId is required');
   }
-  const campaignId = trimOrNull(input.campaignId);
-  const campaignIdentity = trimOrNull(input.campaignIdentity);
-  const campaignName = trimOrNull(input.campaignName);
+  const campaignIdentity = canonicalCampaignIdentity(input);
   const adGroup = trimOrNull(input.adGroup);
   const keyword = trimOrNull(input.keyword);
   const externalOptionId = trimOrNull(input.externalOptionId);
   const externalId = trimOrNull(input.externalId);
   const listingId = trimOrNull(input.listingId);
-  const campaignAnchor = campaignId ?? campaignIdentity ?? campaignName;
+  const campaignAnchor = campaignIdFromCanonicalIdentity(campaignIdentity);
+  const hasCampaignEvidence = Boolean(
+    trimOrNull(input.campaignId) ||
+      trimOrNull(input.campaignIdentity) ||
+      trimOrNull(input.campaignName) ||
+      adGroup ||
+      keyword,
+  );
   const productAnchor = externalOptionId ?? externalId ?? listingId;
   const prefix = `account:${channelAccountId}`;
 
@@ -70,7 +178,7 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
     case 'campaign': {
       if (!campaignAnchor) {
         throw new Error(
-          'buildAdTargetKey: campaign target requires campaignId, campaignIdentity, or campaignName',
+          'buildAdTargetKey: campaign target requires a stable campaign identity',
         );
       }
       return `${prefix}:campaign:${campaignAnchor}`;
@@ -78,7 +186,7 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
     case 'keyword': {
       if (!campaignAnchor || !keyword) {
         throw new Error(
-          'buildAdTargetKey: keyword target requires (campaignId|campaignIdentity|campaignName) and keyword',
+          'buildAdTargetKey: keyword target requires a stable campaign identity and keyword',
         );
       }
       return `${prefix}:keyword:${campaignAnchor}:${adGroup ?? ''}:${keyword}`;
@@ -87,6 +195,21 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
       if (!productAnchor) {
         throw new Error(
           'buildAdTargetKey: product target requires externalOptionId, externalId, or listingId',
+        );
+      }
+      if (!campaignAnchor && hasCampaignEvidence) {
+        throw new Error(
+          'buildAdTargetKey: product campaign evidence requires a stable campaign identity',
+        );
+      }
+      if (!campaignAnchor && input.campaignless !== true) {
+        throw new Error(
+          'buildAdTargetKey: product without campaign identity requires campaignless=true',
+        );
+      }
+      if (campaignAnchor && input.campaignless === true) {
+        throw new Error(
+          'buildAdTargetKey: campaignless product cannot carry campaign identity',
         );
       }
       // A product can participate in several campaigns on the same date, so

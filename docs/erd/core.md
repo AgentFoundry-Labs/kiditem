@@ -247,6 +247,7 @@ erDiagram
 |---|---|---|---|---|
 | ChannelAccount | channelAccount | referenced by external | AI | ProductPreparation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
+| ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
 | ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |

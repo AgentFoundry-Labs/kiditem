@@ -128,7 +128,11 @@ export class AdSyncService {
 
   private mapProjectionRejection<T extends Record<string, unknown>>(result: T): T {
     const code = result.projectionRejectionCode;
-    if (code === 'invalid_authoritative_shape' || code === 'invalid_date_range') {
+    if (
+      code === 'invalid_authoritative_shape' ||
+      code === 'invalid_date_range' ||
+      code === 'missing_stable_campaign_identity'
+    ) {
       throw new UnprocessableEntityException({
         message: '광고 캠페인 리포트의 권한 범위 또는 형태가 유효하지 않습니다.',
         code,

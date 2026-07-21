@@ -11,6 +11,48 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  // 백그라운드 창에서 수집이 실패하던 직접 원인.
+  //
+  // 수집 창은 `chrome.windows.create({ focused: false })` 로 열린다. 그 창이
+  // 다른 창에 가려지면 Chrome 은 그 탭을 hidden 으로 보고 타이머를 클램프한다.
+  // 5분 넘게 hidden 이면 intensive throttling 이 걸려 nested timer 예산이
+  // 분당 1회까지 떨어진다.
+  //
+  // 기존 대기 루프는 전부 `while (Date.now() - start < timeoutMs) { ... await
+  // sleep(300) }` 형태였다. sleep(300) 이 60초로 늘어나면 15초 예산은 조건을
+  // 딱 한 번 검사한 뒤 만료된다. 즉 백그라운드에서는 모든 대기가 사실상
+  // "1회 시도 후 타임아웃" 이 된다. 광고센터 탭을 눈으로 열어두면 되는데
+  // 백그라운드면 실패하던 증상이 이것이다.
+  //
+  // 실측 뒷받침: 캠페인 목록 스크레이프(수집 초반, 5분 이내)는 백그라운드에서도
+  // 값이 들어왔지만(2026-07-18·19 집행 광고비 48,196원·47,676원 정상 수집),
+  // 그 뒤 캠페인 상세 sweep 은 한 행도 남기지 못했다.
+  //
+  // 그래서 벽시계 예산과 별개로 최소 시도 횟수를 보장한다. 스로틀이 걸리면
+  // 느려질 뿐 실패하지는 않는다.
+  const THROTTLED_MIN_ATTEMPTS = 6;
+
+  async function pollUntil(check, options = {}) {
+    const timeoutMs = Number(options.timeoutMs) || 10000;
+    const intervalMs = Number(options.intervalMs) || 300;
+    const minAttempts = Number(options.minAttempts) || THROTTLED_MIN_ATTEMPTS;
+    const now = options.now || (() => Date.now());
+    const wait = options.wait || sleep;
+    const startedAt = now();
+    let attempts = 0;
+
+    for (;;) {
+      const result = await check();
+      attempts += 1;
+      if (result) return result;
+      // 예산이 남았거나, 아직 최소 시도 횟수를 못 채웠으면 계속한다.
+      if (now() - startedAt >= timeoutMs && attempts >= minAttempts) {
+        return null;
+      }
+      await wait(intervalMs);
+    }
+  }
+
   function normalizeText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
   }
@@ -667,19 +709,22 @@
     const readSnapshot = options.readSnapshot || readReportPageSnapshot;
     const now = options.now || (() => Date.now());
     const wait = options.wait || sleep;
-    const startedAt = now();
     let latest = readSnapshot();
-    while (now() - startedAt < timeoutMs) {
-      latest = readSnapshot();
-      const paginationReady = latest.surface.kind === "empty" || latest.pagination?.verified === true;
-      if (
-        (latest.surface.kind === "rows" || latest.surface.kind === "empty") &&
-        paginationReady
-      ) {
-        return latest;
-      }
-      await wait(250);
-    }
+    // pollUntil: 벽시계 예산과 별개로 최소 시도 횟수를 보장해 백그라운드
+    // 타이머 스로틀에서도 그리드 렌더를 놓치지 않는다.
+    const settled = await pollUntil(
+      () => {
+        latest = readSnapshot();
+        const paginationReady =
+          latest.surface.kind === "empty" || latest.pagination?.verified === true;
+        return (
+          (latest.surface.kind === "rows" || latest.surface.kind === "empty") &&
+          paginationReady
+        );
+      },
+      { timeoutMs, intervalMs: 250, now, wait },
+    );
+    if (settled) return latest;
     return {
       ...latest,
       ok: false,
@@ -696,23 +741,31 @@
       return { ok: false, error: "page_navigation_failed" };
     }
 
-    const startedAt = Date.now();
     let latest = readReportPageSnapshot();
-    while (Date.now() - startedAt < timeoutMs) {
-      latest = readReportPageSnapshot();
-      const currentPage = Number(latest.pagination?.currentPage) || 1;
-      const previousPage = Number(previous.pagination?.currentPage) || 1;
-      if (currentPage > previousPage + 1) {
-        return { ok: false, error: "page_sequence_gap", snapshot: latest };
-      }
-      const surfaceSettled = latest.surface.kind === "empty" ||
-        (latest.surface.kind === "rows" && latest.pagination?.verified === true);
-      const contentChanged = latest.surface.kind === "empty" || latest.signature !== previous.signature;
-      if (currentPage === previousPage + 1 && surfaceSettled && contentChanged) {
-        return { ok: true, snapshot: latest };
-      }
-      await sleep(250);
+    let sequenceGap = false;
+    // pollUntil: 페이지 넘김 정착 대기도 백그라운드 스로틀에서 1회 시도로
+    // 무너지지 않도록 최소 시도 횟수를 보장한다.
+    const advanced = await pollUntil(
+      () => {
+        latest = readReportPageSnapshot();
+        const currentPage = Number(latest.pagination?.currentPage) || 1;
+        const previousPage = Number(previous.pagination?.currentPage) || 1;
+        if (currentPage > previousPage + 1) {
+          sequenceGap = true;
+          return true;
+        }
+        const surfaceSettled = latest.surface.kind === "empty" ||
+          (latest.surface.kind === "rows" && latest.pagination?.verified === true);
+        const contentChanged =
+          latest.surface.kind === "empty" || latest.signature !== previous.signature;
+        return currentPage === previousPage + 1 && surfaceSettled && contentChanged;
+      },
+      { timeoutMs, intervalMs: 250 },
+    );
+    if (sequenceGap) {
+      return { ok: false, error: "page_sequence_gap", snapshot: latest };
     }
+    if (advanced) return { ok: true, snapshot: latest };
 
     const currentPage = Number(latest.pagination?.currentPage) || 1;
     const previousPage = Number(previous.pagination?.currentPage) || 1;
@@ -1828,9 +1881,20 @@
   function canonicalCampaignHref(value) {
     try {
       const url = new URL(value, window.location.href);
+      if (
+        url.protocol !== "https:" ||
+        url.hostname.toLowerCase() !== "advertising.coupang.com" ||
+        url.username ||
+        url.password ||
+        url.port
+      ) return "";
       url.hash = "";
       const pathname = url.pathname.replace(/\/+$/, "") || "/";
-      return `${url.origin}${pathname}${url.search}`;
+      const sortedSearch = new URLSearchParams(
+        [...url.searchParams.entries()].sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+          leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue)),
+      ).toString();
+      return `${url.origin}${pathname}${sortedSearch ? `?${sortedSearch}` : ""}`;
     } catch {
       return "";
     }
@@ -1839,25 +1903,62 @@
   function campaignIdFromHref(value) {
     try {
       const url = new URL(value, window.location.href);
-      for (const key of ["campaignId", "campaignID", "campaignNo", "campaign_id"]) {
-        const id = normalizeText(url.searchParams.get(key) || "");
-        if (id) return id;
-      }
+      if (
+        url.protocol !== "https:" ||
+        url.hostname.toLowerCase() !== "advertising.coupang.com" ||
+        url.username ||
+        url.password ||
+        url.port
+      ) return null;
       const segments = url.pathname.split("/").filter(Boolean);
       const campaignIndex = segments.findIndex((segment) => segment.toLowerCase() === "campaign");
-      const candidate = campaignIndex >= 0 ? segments[campaignIndex + 1] : "";
-      if (candidate && !/^(?:type|registration|create|new)$/i.test(candidate)) {
-        return decodeURIComponent(candidate);
-      }
+      if (campaignIndex < 0) return null;
+      const pathCandidate = normalizeText(segments[campaignIndex + 1] || "");
+      const pathId = pathCandidate &&
+        !/^(?:type|registration|create|new|product|detail|dashboard|sales)$/i.test(pathCandidate)
+        ? decodeURIComponent(pathCandidate)
+        : null;
+      const queryIds = [...url.searchParams.entries()]
+        .filter(([key]) => ["campaignid", "campaignno", "campaign_id"].includes(key.toLowerCase()))
+        .map(([, entryValue]) => normalizeText(entryValue))
+        .filter(Boolean);
+      const uniqueQueryIds = [...new Set(queryIds)];
+      if (uniqueQueryIds.length > 1) return null;
+      const queryId = uniqueQueryIds[0] || null;
+      if (pathId && queryId && pathId !== queryId) return null;
+      return queryId || pathId;
     } catch {}
     return null;
   }
 
+  // 캠페인 상세 URL 이 아닌 href 는 캠페인 식별자가 될 수 없다.
+  // AI스마트광고처럼 상세 페이지가 없는 캠페인의 anchor 는 대시보드 목록
+  // URL 로 resolve 되는데, 그걸 identity 로 쓰면 그런 캠페인들이 전부 같은
+  // identity(= 같은 target_key) 로 붕괴해 서로를 덮어쓴다.
+  // 실측(2026-07-19): identity 가 `href:https://advertising.coupang.com/
+  // marketing/dashboard/sales` 하나로 뭉쳐 캠페인 팩트가 1행만 남았다.
+  function isCampaignDetailHref(value) {
+    if (!value) return false;
+    if (isDashboardListHref(value)) return false;
+    return campaignIdFromHref(value) !== null;
+  }
+
+  function isDashboardListHref(value) {
+    try {
+      const url = new URL(value, window.location.href);
+      return /\/marketing\/dashboard\/sales\/?$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+
+  // 표시명은 identity가 아니다. provider campaign id 또는 캠페인 전용 상세
+  // href가 없는 행은 raw dashboard evidence에만 남기고 authoritative detail
+  // projection에서는 제외한다.
   function campaignIdentityFromHref(value) {
     const campaignId = campaignIdFromHref(value);
     if (campaignId) return `campaign:${campaignId}`;
-    const href = canonicalCampaignHref(value);
-    return href ? `href:${href}` : null;
+    return null;
   }
 
   function campaignIdentityMatches(campaign, currentHref = window.location.href) {
@@ -1880,6 +1981,11 @@
   }
 
   function campaignUsesDetailReport(campaign) {
+    // 상세 URL 이 없는 캠페인(AI스마트광고 등)은 상세 리포트 화면 자체가
+    // 없다. 예전에는 ON 이기만 하면 상세로 넘어가려 해서 도달할 수 없는
+    // `campaignDetailReady` 를 계속 기다렸고, sweep 이 첫 캠페인에서 멈춰
+    // "처리 0.0개/분 / 완료 예상 1437시간" 상태가 됐다.
+    if (campaign && campaign.hasDetailHref === false) return false;
     return (campaign?.onOff || "").toUpperCase() !== "OFF";
   }
 
@@ -1912,7 +2018,7 @@
         titleEl?.querySelector?.("a[href]") ||
         rg.querySelector("a[href*='/campaign/'], a[href*='campaignId=']");
       const href = anchor?.href || anchor?.getAttribute?.("href") || "";
-      const identity = campaignIdentityFromHref(href);
+      const identity = campaignIdentityFromHref(href, name);
       if (!identity) {
         missingIdentityNames.push(name);
         continue;
@@ -1950,6 +2056,9 @@
         identity,
         campaignId: campaignIdFromHref(href),
         href: canonicalCampaignHref(href),
+        // 상세 리포트로 넘어갈 수 있는 캠페인인지. 상세 URL 이 없으면
+        // sweep 이 도달할 수 없는 화면을 기다리다 큐가 멈춘다.
+        hasDetailHref: isCampaignDetailHref(canonicalCampaignHref(href)),
         name,
         onOff,
         status,
@@ -2039,44 +2148,52 @@
   // 루프가 "더 처리할 캠페인 없음" 으로 판단하고 break 해버리는 race. .dashboard-title
   // 셀에 텍스트가 들어올 때까지 추가 대기.
   async function waitForDashboardGrid(timeoutMs = 15000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
-      const rows = grid?.querySelectorAll(".rt-tbody .rt-tr-group") || [];
-      if (rows.length > 0) {
-        const titled = Array.from(rows).filter((r) => {
-          const t = r.querySelector(".dashboard-title");
-          return t && normalizeText(t.innerText || "").length > 0;
-        });
-        if (titled.length > 0) return true;
-      }
-      if (readReportSurfaceState(parseCampaignTable()).kind === "empty") return true;
-      await sleep(300);
-    }
-    return false;
+    // pollUntil: 백그라운드 창의 타이머 스로틀에도 최소 시도 횟수를 보장한다.
+    const found = await pollUntil(
+      () => {
+        const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+        const rows = grid?.querySelectorAll(".rt-tbody .rt-tr-group") || [];
+        if (rows.length > 0) {
+          const titled = Array.from(rows).filter((r) => {
+            const t = r.querySelector(".dashboard-title");
+            return t && normalizeText(t.innerText || "").length > 0;
+          });
+          if (titled.length > 0) return true;
+        }
+        if (readReportSurfaceState(parseCampaignTable()).kind === "empty") return true;
+        return false;
+      },
+      { timeoutMs, intervalMs: 300 },
+    );
+    return found === true;
   }
 
   // 상세 URL이 클릭한 campaign identity와 일치하고, 대시보드의 이전 행이 사라진 뒤
   // 실제 상세 rows 또는 명시적 empty-state가 보일 때만 진입 완료로 판정한다.
   async function waitForCampaignDetailPage(expectedCampaign, timeoutMs = 20000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const snapshot = readReportPageSnapshot();
-      const ready = campaignDetailReady({
-        onDashboardList: isDashboardListPage(),
-        identityMatches: campaignIdentityMatches(expectedCampaign),
-        hasDashboardCampaignRows:
-          document.querySelectorAll(".rt-tbody .dashboard-title, [role='grid'] .dashboard-title").length > 0,
-        surfaceKind: snapshot.surface.kind,
-      });
-      if (ready) {
-        return {
-          ok: true,
-          identity: expectedCampaign.identity,
-          surface: snapshot.surface,
-        };
-      }
-      await sleep(300);
+    // pollUntil: 상세 진입은 sweep 에서 가장 늦게 도달하는 대기라 백그라운드
+    // intensive throttling(5분 경과)의 직격탄을 맞는다. 벽시계 예산만 보던
+    // 기존 루프는 여기서 1회 시도 후 타임아웃했다.
+    const ready = await pollUntil(
+      () => {
+        const snapshot = readReportPageSnapshot();
+        const isReady = campaignDetailReady({
+          onDashboardList: isDashboardListPage(),
+          identityMatches: campaignIdentityMatches(expectedCampaign),
+          hasDashboardCampaignRows:
+            document.querySelectorAll(".rt-tbody .dashboard-title, [role='grid'] .dashboard-title").length > 0,
+          surfaceKind: snapshot.surface.kind,
+        });
+        return isReady ? snapshot : false;
+      },
+      { timeoutMs, intervalMs: 300 },
+    );
+    if (ready) {
+      return {
+        ok: true,
+        identity: expectedCampaign.identity,
+        surface: ready.surface,
+      };
     }
     console.warn(
       "[KIDITEM] waitForCampaignDetailPage timeout for",
@@ -2104,7 +2221,8 @@
         titleEl.querySelector?.("a[href]") ||
         rg.querySelector("a[href*='/campaign/'], a[href*='campaignId=']");
       const href = anchor?.href || anchor?.getAttribute?.("href") || "";
-      if (anchor && campaignIdentityFromHref(href) === campaign?.identity) {
+      const rowName = normalizeText(titleEl.innerText || "");
+      if (anchor && campaignIdentityFromHref(href, rowName) === campaign?.identity) {
         anchor.click();
         return true;
       }
@@ -2776,6 +2894,7 @@
     normalizeSweepErrors,
     normalizeSweepProgress,
     parseNumber,
+    pollUntil,
     readSettledReportPage,
     readReportSurfaceState,
     reconcileCampaignFailureState,

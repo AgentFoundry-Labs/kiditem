@@ -430,20 +430,18 @@ export function createBrowserMallCollector({
     for (const transport of transports) {
       const matchingPos = data.pos.filter((po) => String(po.transport ?? '').toUpperCase() === transport);
       if (matchingPos.length === 0) continue;
+      const label = COUPANG_TRANSPORT_LABEL[transport];
       const result = await convertCoupangDirectToSellpiaFile(data, transport, {
         channelAccountId: rocketChannelAccountId,
         download: false,
         signal: run.signal,
       });
-      if (!result.importRunId) {
-        throw new Error('PA 주문 영속화 결과를 확인하지 못해 파일 생성을 중단했습니다.');
-      }
+      // 수집한 발주는 전부 파일에 담긴다 — 표시 건수는 발주 기준(sourceRows)으로 맞춘다.
       const itemRows = result.outputRows ?? 0;
       const orderNumbers = coupangDirectOrderNumbers(matchingPos);
-      const poCount = orderNumbers.length || result.sourceRows || matchingPos.length;
+      const poCount = result.sourceRows || orderNumbers.length || matchingPos.length;
       totalOrders += poCount;
       const convertedAt = Date.now();
-      const label = COUPANG_TRANSPORT_LABEL[transport];
       const historyItem = {
         ...result,
         id: `${convertedAt}-coupang-direct-${transport.toLowerCase()}-browser`,

@@ -21,6 +21,12 @@ if (
 }
 
 const API_URL = "http://localhost:4000";
+// KidItem 웹앱이 열리는 커밋된 origin. externally_connectable / 대시보드 탭 조회 /
+// 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
+const KIDITEM_WEB_URL_PATTERNS = [
+  "http://localhost:3000/*",
+  "https://staging.merchon.org/*",
+];
 const AUTH_TOKEN_KEY = "kiditem_auth_token";
 const AD_ACTION_URL =
   "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
@@ -57,13 +63,13 @@ const kidItemAuth = KidItemAuth.create({
   fetchFn: fetch,
   apiUrl: API_URL,
   tokenKey: AUTH_TOKEN_KEY,
-  webUrlPatterns: ["http://localhost:3000/*"],
+  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
 });
 const { authedFetch, getAuthToken } = kidItemAuth;
 const collectionSessions = KidItemCollectionSession.create({
   chrome,
   storageKey: "kiditem_collection_sessions",
-  webUrlPatterns: ["http://localhost:3000/*"],
+  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
 });
 const collectionWindow = KidItemCollectionWindow.create({
   chrome,
@@ -171,7 +177,7 @@ function cleanupStorage() {
 
 // 동기화 완료 후 대시보드 탭 자동 새로고침
 function notifyDashboard() {
-  chrome.tabs.query({ url: "http://localhost:3000/*" }, (tabs) => {
+  chrome.tabs.query({ url: KIDITEM_WEB_URL_PATTERNS }, (tabs) => {
     for (const tab of tabs) {
       if (!tab.id) continue;
       chrome.scripting
@@ -390,6 +396,16 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
           runId: preparedRunId,
           startedAt,
         });
+        // MV3 service worker 는 30초 유휴면 종료된다. 수집은 수십 분이 걸리는데
+        // 이 경로에는 keepalive 가 없어서, 웹 UI 가 2초마다 보내는 상태 폴링에
+        // 우연히 기대고 있었다. 사용자가 KIDITEM 탭을 떠나거나 그 탭이 백그라운드로
+        // 내려가면(폴링 타이머도 같이 스로틀됨) 유휴 종료 → 진행 중이던
+        // collectTargets 의 promise chain·타임아웃·소유 창 정리가 통째로 사라지고,
+        // 다음 콜드 스타트의 recover() 가 세션을 attention_required 로 뒤집는다.
+        // 온채널/키워드 순위 배치와 같은 keepalive 를 여기에도 건다.
+        const keepAlive = setInterval(() => {
+          chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
+        }, 20000);
         collectionWindow
           .collectTargets({
             runId: preparedRunId,
@@ -407,7 +423,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
                 endedAt: Date.now(),
               },
             });
-          });
+          })
+          .finally(() => clearInterval(keepAlive));
       })
       .catch((error) => {
         sendResponse({

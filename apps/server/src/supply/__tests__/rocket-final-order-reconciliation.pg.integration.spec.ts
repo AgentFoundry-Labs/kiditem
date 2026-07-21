@@ -91,6 +91,68 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     });
   });
 
+  it('skips a line without an active confirmation instead of throwing 409', async () => {
+    // 발주확정(commitment)이 하나도 없는 현재 상태를 재현한다. 예전에는 여기서
+    // ROCKET_REQUEST_COMMITMENT_NOT_FOUND 409 로 배치 전체가 죽었다.
+    const result = await prisma.$transaction((tx) => adapter.reconcile({
+      ...reconciliationInput(randomUUID(), 3, '8801234567890'),
+      transaction: tx,
+    }));
+
+    expect(result).toEqual({
+      reconciledRows: 0,
+      skippedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+    });
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
+  });
+
+  it('reconciles matched lines and skips unmatched ones in the same batch', async () => {
+    await seedRequest(4, '8801234567890');
+    const matchedLineId = randomUUID();
+    const unmatchedLineId = randomUUID();
+
+    const result = await prisma.$transaction((tx) => adapter.reconcile({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      transaction: tx,
+      lines: [
+        {
+          finalOrderLineId: matchedLineId,
+          poNumber: 'PO-1',
+          productNo: 'P-1',
+          barcode: '8801234567890',
+          unitQuantity: 3,
+        },
+        {
+          finalOrderLineId: unmatchedLineId,
+          poNumber: 'PO-2',
+          productNo: 'P-2',
+          barcode: '8809999999999',
+          unitQuantity: 2,
+        },
+      ],
+    }));
+
+    expect(result).toEqual({
+      reconciledRows: 1,
+      skippedLines: [{ poNumber: 'PO-2', productNo: 'P-2' }],
+    });
+    // 확정된 라인의 정산은 그대로 — 요청 커밋이 최종주문 커밋으로 교체된다.
+    const commitments = await prisma.inventoryCommitment.findMany({
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(commitments).toMatchObject([
+      { kind: 'rocket_request', status: 'released' },
+      {
+        kind: 'rocket_final_order',
+        sourceId: matchedLineId,
+        status: 'active',
+        unitQuantity: 3,
+      },
+    ]);
+  });
+
   it('rejects barcode mismatch without changing the request commitment', async () => {
     await seedRequest(4, '8801234567890');
 
@@ -102,6 +164,18 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       kind: 'rocket_request',
       status: 'active',
     });
+  });
+
+  it('still rejects an ambiguous match (2+ confirmations) as a data-integrity error', async () => {
+    // 같은 (발주번호, SKU) 에 활성 발주확정 라인이 2건이면 진짜 무결성 오류다 — 스킵하지 않는다.
+    await seedConfirmationLineOnly('8801234567890');
+    await seedConfirmationLineOnly('8801234567890');
+
+    await expect(prisma.$transaction((tx) => adapter.reconcile({
+      ...reconciliationInput(randomUUID(), 3, '8801234567890'),
+      transaction: tx,
+    }))).rejects.toMatchObject({ code: 'ROCKET_FINAL_ORDER_AMBIGUOUS' });
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('rolls back replacement when the final quantity exceeds available stock', async () => {
@@ -181,6 +255,45 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         sellpiaInventorySkuId: SKU_ID,
         unitsPerItem: 1,
         quantity,
+      },
+    });
+  }
+
+  // AMBIGUOUS 는 findMany 매칭 시점(커밋 이전)에 판별되므로 확정 라인만 있으면 재현된다.
+  async function seedConfirmationLineOnly(barcode: string | null) {
+    const sourceRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        sourceType: 'coupang_rocket_po_catalog',
+        fileName: 'request.json',
+        fileHash: randomUUID(),
+        status: 'completed',
+      },
+    });
+    const confirmation = await prisma.rocketPurchaseConfirmation.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        sourceImportRunId: sourceRun.id,
+        idempotencyKey: randomUUID(),
+        requestHash: 'a'.repeat(64),
+        freshnessGeneration: 1n,
+        status: 'active',
+        confirmedBy: TEST_USER_ID,
+      },
+    });
+    await prisma.rocketPurchaseConfirmationLine.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: confirmation.id,
+        poLineId: randomUUID(),
+        poNumber: 'PO-1',
+        productNo: 'P-1',
+        barcode,
+        productName: 'Rocket item',
+        orderQuantity: 4,
+        confirmedQuantity: 4,
       },
     });
   }

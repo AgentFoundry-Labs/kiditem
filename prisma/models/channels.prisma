@@ -270,27 +270,29 @@ model ChannelListingOptionDailySnapshot {
 /// @namespace Channels
 /// @describe 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive.
 model ChannelAdTargetDailySnapshot {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  channel        String
-  businessDate   DateTime @map("business_date") @db.Date
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  channelAccountId String   @map("channel_account_id") @db.Uuid
+  channel          String
+  businessDate     DateTime @map("business_date") @db.Date
 
   listingId        String? @map("listing_id") @db.Uuid
   listingOptionId  String? @map("listing_option_id") @db.Uuid
   externalId       String? @map("external_id")
   externalOptionId String? @map("external_option_id")
 
-  targetType   String  @map("target_type") // 'campaign' | 'keyword' | 'product'
-  targetKey    String  @map("target_key") // deterministic canonical key, NOT NULL
-  campaignId   String? @map("campaign_id")
-  campaignName String? @map("campaign_name")
-  adGroup      String? @map("ad_group")
-  keyword      String?
-  placement    String?
-  status       String?
-  onOff        String? @map("on_off")
-  currentBid   Int?    @map("current_bid")
-  dailyBudget  Int?    @map("daily_budget")
+  targetType       String  @map("target_type") // 'campaign' | 'keyword' | 'product'
+  targetKey        String  @map("target_key") // deterministic canonical key, NOT NULL
+  campaignId       String? @map("campaign_id")
+  campaignIdentity String? @map("campaign_identity")
+  campaignName     String? @map("campaign_name")
+  adGroup          String? @map("ad_group")
+  keyword          String?
+  placement        String?
+  status           String?
+  onOff            String? @map("on_off")
+  currentBid       Int?    @map("current_bid")
+  dailyBudget      Int?    @map("daily_budget")
 
   spend       Int @default(0)
   revenue     Int @default(0)
@@ -310,16 +312,19 @@ model ChannelAdTargetDailySnapshot {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization  Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing       ChannelListing?        @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  listingOption ChannelListingOption?  @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  rawSnapshot   ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listing        ChannelListing?        @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listingOption  ChannelListingOption?  @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rawSnapshot    ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   adActions AdAction[]
 
   @@unique([id, organizationId], map: "channel_ad_target_daily_snapshots_id_org_key")
-  @@unique([organizationId, channel, businessDate, targetType, targetKey])
+  @@unique([organizationId, channelAccountId, channel, businessDate, targetType, targetKey])
   @@index([organizationId, channel, businessDate])
+  @@index([channelAccountId, businessDate])
+  @@index([organizationId, channelAccountId, campaignIdentity, businessDate])
   @@index([listingId, businessDate])
   @@index([listingOptionId, businessDate])
   @@index([organizationId, targetType, businessDate])

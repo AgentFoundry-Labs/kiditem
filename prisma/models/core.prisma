@@ -315,6 +315,7 @@ model ChannelAccount {
   orders                           Order[]
   orderReturns                     OrderReturn[]
   channelScrapeRuns                ChannelScrapeRun[]
+  channelAdTargetDailySnapshots    ChannelAdTargetDailySnapshot[]
   channelAccountDailyKpiSnapshots  ChannelAccountDailyKpiSnapshot[]
   rocketPurchaseConfirmations      RocketPurchaseConfirmation[]
   rocketPoCatalogSnapshots         RocketPoCatalogSnapshot[]

@@ -99,12 +99,29 @@ export function useRocketPurchaseWorkflow({
   const [shortageReasons, setShortageReasons] = useState<Record<string, RocketShortageReason>>({});
   const [confirmationKey, setConfirmationKey] = useState('');
   const [confirmation, setConfirmation] = useState<RocketPurchaseConfirmationResponse | null>(null);
+  const [confirmationSourceRows, setConfirmationSourceRows] = useState<RocketPoCatalogRow[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [releaseReason, setReleaseReason] = useState('');
   const [releasing, setReleasing] = useState(false);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (savedSourceImportRunId) return;
+    setEditedQuantities({});
+    setPreview(null);
+    setPreviewDirty(false);
+    setValidatedEditFingerprint('');
+    setSourceRows([]);
+    setCollectionRun(null);
+    setShortageReasons({});
+    setConfirmationKey('');
+    setConfirmation(null);
+    setConfirmationSourceRows([]);
+    setReleaseReason('');
+    setError(null);
+  }, [channelAccountId, savedSourceImportRunId]);
 
   useEffect(() => {
     if (!savedSourceImportRunId) return;
@@ -114,6 +131,7 @@ export function useRocketPurchaseWorkflow({
       setError(null);
       setPreview(null);
       setConfirmation(null);
+      setConfirmationSourceRows([]);
       onActivity?.({ status: 'started', message: '저장된 로켓 PO 수집본을 불러오는 중입니다.' });
       try {
         const saved = await loadSavedRocketCollection({
@@ -172,8 +190,9 @@ export function useRocketPurchaseWorkflow({
     setPreview(null);
     setSourceRows([]);
     setCollectionRun(null);
-    setConfirmation(null);
     setConfirmationKey('');
+    setConfirmation(null);
+    setConfirmationSourceRows([]);
     setShortageReasons({});
     setReleaseReason('');
     onActivity?.({ status: 'started', message: '쿠팡에서 로켓 PO를 새로 수집하고 있습니다.' });
@@ -277,22 +296,23 @@ export function useRocketPurchaseWorkflow({
     ))
     && !collectionWarning
     && confirmationKey
-    && confirmation === null,
+    && confirmation?.status !== 'active',
   );
   const canRedownload = confirmation?.status === 'active';
 
   const downloadConfirmationWorkbook = async (
     result: RocketPurchaseConfirmationResponse,
+    workbookSourceRows: RocketPoCatalogRow[],
   ): Promise<void> => {
     const workbook = templateFile
       ? fillRocketConfirmationWorkbook({
           template: await templateFile.arrayBuffer(),
           templateFileName: templateFile.name,
-          sourceRows,
+          sourceRows: workbookSourceRows,
           confirmedRows: result.rows,
         })
       : buildRocketConfirmationWorkbook({
-          sourceRows,
+          sourceRows: workbookSourceRows,
           confirmedRows: result.rows,
         });
     downloadBlob(workbook.blob, workbook.fileName);
@@ -311,24 +331,8 @@ export function useRocketPurchaseWorkflow({
     }
   };
 
-  const confirmAndDownload = async () => {
-    if (canRedownload) {
-      setConfirming(true);
-      setError(null);
-      onActivity?.({ status: 'started', message: '확정 엑셀을 다시 생성하고 있습니다.' });
-      try {
-        await downloadConfirmationWorkbook(confirmation);
-        onActivity?.({ status: 'succeeded', message: '확정 엑셀을 다시 다운로드했습니다.' });
-      } catch {
-        const message = '확정은 완료됐지만 엑셀 생성에 실패했습니다. 다시 다운로드하거나 확정을 해제해 주세요.';
-        setError(message);
-        onActivity?.({ status: 'failed', message });
-      } finally {
-        setConfirming(false);
-      }
-      return;
-    }
-    if (!preview || !collectionRun || !canConfirm) return;
+  const confirmPurchase = async (): Promise<RocketPurchaseConfirmationResponse | null> => {
+    if (!preview || !collectionRun || !canConfirm) return null;
     setConfirming(true);
     setError(null);
     onActivity?.({ status: 'started', message: '검토수량을 확정하고 재고를 예약하고 있습니다.' });
@@ -342,22 +346,50 @@ export function useRocketPurchaseWorkflow({
         shortageReasons,
       });
       setConfirmation(result);
+      setConfirmationSourceRows(sourceRows);
       onActivity?.({ status: 'succeeded', message: '검토수량을 확정하고 재고를 예약했습니다.' });
-      try {
-        await downloadConfirmationWorkbook(result);
-        onActivity?.({ status: 'succeeded', message: '쿠팡 발주확정 엑셀을 다운로드했습니다.' });
-      } catch {
-        const message = '확정은 완료됐지만 엑셀 생성에 실패했습니다. 다시 다운로드하거나 확정을 해제해 주세요.';
-        setError(message);
-        onActivity?.({ status: 'failed', message });
-      }
+      return result;
     } catch (cause) {
       const message = friendlyError(cause) ?? '로켓 발주를 확정하지 못했습니다.';
       setError(message);
       onActivity?.({ status: 'failed', message });
+      return null;
     } finally {
       setConfirming(false);
     }
+  };
+
+  const downloadActiveConfirmation = async (
+    result: RocketPurchaseConfirmationResponse | null = confirmation,
+  ): Promise<boolean> => {
+    if (result?.status !== 'active') return false;
+    setConfirming(true);
+    setError(null);
+    onActivity?.({ status: 'started', message: '확정 엑셀을 생성하고 있습니다.' });
+    try {
+      const workbookSourceRows = result.confirmationId === confirmation?.confirmationId
+        ? confirmationSourceRows
+        : sourceRows;
+      await downloadConfirmationWorkbook(result, workbookSourceRows);
+      onActivity?.({ status: 'succeeded', message: '쿠팡 발주확정 엑셀을 다운로드했습니다.' });
+      return true;
+    } catch {
+      const message = '확정은 완료됐지만 엑셀 생성에 실패했습니다. 다시 다운로드하거나 확정을 해제해 주세요.';
+      setError(message);
+      onActivity?.({ status: 'failed', message });
+      return false;
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const confirmAndDownload = async () => {
+    if (canRedownload) {
+      await downloadActiveConfirmation();
+      return;
+    }
+    const result = await confirmPurchase();
+    if (result) await downloadActiveConfirmation(result);
   };
 
   const releaseConfirmation = async () => {
@@ -384,6 +416,7 @@ export function useRocketPurchaseWorkflow({
     editedQuantities,
     setEditedQuantities,
     preview,
+    sourceRows,
     previewDirty,
     setPreviewDirty,
     collectionRun,
@@ -403,6 +436,8 @@ export function useRocketPurchaseWorkflow({
     canRedownload,
     recalculate,
     revalidateEditedQuantities,
+    confirmPurchase,
+    downloadActiveConfirmation,
     confirmAndDownload,
     releaseConfirmation,
   };

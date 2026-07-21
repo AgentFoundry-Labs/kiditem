@@ -8,6 +8,9 @@ import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 const ACTIVITY_EVENTS_KEY = 'kiditem-order-activity-events';
 const ACTIVITY_EVENT_LIMIT = 30;
 
+/** 조치가 필요한(재시도 대상) 이벤트 종류: 오류·로그인 필요·인증 필요. */
+const ATTENTION_KINDS = new Set<OrderActivityEvent['kind']>(['error', 'login', 'auth']);
+
 export function useOrderActivityEvents(mallAccounts: OrderCollectionMallAccount[]) {
   const [events, setEvents] = useState<OrderActivityEvent[]>([]);
 
@@ -53,7 +56,9 @@ export function useOrderActivityEvents(mallAccounts: OrderCollectionMallAccount[
   const clearMallErrorActivity = useCallback(
     (mallName: string) => {
       updateEvents((current) =>
-        current.filter((event) => !(event.kind === 'error' && event.mallName === mallName)),
+        current.filter(
+          (event) => !(ATTENTION_KINDS.has(event.kind) && event.mallName === mallName),
+        ),
       );
     },
     [updateEvents],
@@ -67,7 +72,7 @@ export function useOrderActivityEvents(mallAccounts: OrderCollectionMallAccount[
     }
     const failedNames = new Set(
       [...latestByMall.values()]
-        .filter((event) => event.kind === 'error')
+        .filter((event) => ATTENTION_KINDS.has(event.kind))
         .map((event) => event.mallName),
     );
     return mallAccounts.filter((account) => failedNames.has(account.name));

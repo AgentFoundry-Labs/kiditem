@@ -19,13 +19,18 @@ implements RocketFinalOrderReconciliationTransactionPort {
 
   async reconcile(
     input: Parameters<RocketFinalOrderReconciliationTransactionPort['reconcile']>[0],
-  ): Promise<{ reconciledRows: number }> {
+  ): Promise<{
+    reconciledRows: number;
+    skippedLines: Array<{ poNumber: string; productNo: string }>;
+  }> {
     const tx = transactionClient(input.transaction);
     const lines = [...input.lines].sort((left, right) =>
       left.poNumber.localeCompare(right.poNumber)
       || left.productNo.localeCompare(right.productNo)
       || left.finalOrderLineId.localeCompare(right.finalOrderLineId));
 
+    let reconciledRows = 0;
+    const skippedLines: Array<{ poNumber: string; productNo: string }> = [];
     for (const line of lines) {
       const matches = await tx.rocketPurchaseConfirmationLine.findMany({
         where: {
@@ -43,13 +48,13 @@ implements RocketFinalOrderReconciliationTransactionPort {
         take: 2,
       });
       if (matches.length === 0) {
-        throw new AppException(
-          409,
-          'ROCKET_REQUEST_COMMITMENT_NOT_FOUND',
-          'An active Rocket request commitment was not found for the final order.',
-        );
+        // 활성 발주확정이 없는 라인은 하드 에러로 배치 전체를 막지 않고 스킵한다.
+        // 조용히 버리지 말고 식별자를 모아 호출자가 사용자에게 "발주확정 없어 제외" 로 알리게 한다.
+        skippedLines.push({ poNumber: line.poNumber, productNo: line.productNo });
+        continue;
       }
       if (matches.length > 1) {
+        // 2건 이상 매칭은 진짜 데이터 무결성 오류다 — 스킵하지 않고 그대로 중단한다.
         throw new AppException(
           409,
           'ROCKET_FINAL_ORDER_AMBIGUOUS',
@@ -76,8 +81,9 @@ implements RocketFinalOrderReconciliationTransactionPort {
         unitQuantity: line.unitQuantity,
         barcode: finalBarcode,
       });
+      reconciledRows += 1;
     }
-    return { reconciledRows: lines.length };
+    return { reconciledRows, skippedLines };
   }
 }
 

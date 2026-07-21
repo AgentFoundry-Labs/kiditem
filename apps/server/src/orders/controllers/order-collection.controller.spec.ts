@@ -1,69 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
 import { OrderCollectionController } from './order-collection.controller';
 
-describe('OrderCollectionController Coupang direct boundary', () => {
-  it('persists and reconciles PA orders before generating the Sellpia workbook', async () => {
-    const collection = {
-      collect: vi.fn().mockResolvedValue({
-        importRunId: '11111111-1111-4111-8111-111111111111',
-        reconciledRows: 1,
-        duplicate: false,
-      }),
-    };
+describe('OrderCollectionController Coupang direct convert', () => {
+  it('generates the Sellpia workbook straight from the collected orders (no reconciliation gate)', async () => {
     const workbook = {
       generate: vi.fn().mockResolvedValue({
         buffer: Buffer.from('xls'),
         fileName: 'orders.xls',
         poCount: 1,
-        rowCount: 1,
+        rowCount: 3,
       }),
     };
     const controller = new OrderCollectionController(
       {} as never,
       workbook as never,
-      collection as never,
     );
     const response = { setHeader: vi.fn() };
 
-    await controller.convertCoupangDirectship(
+    const file = await controller.convertCoupangDirectship(
       request() as never,
-      '22222222-2222-4222-8222-222222222222',
-      { id: '33333333-3333-4333-8333-333333333333' } as never,
       { once: vi.fn() } as never,
       response as never,
     );
 
-    expect(collection.collect).toHaveBeenCalledOnce();
+    // 수집한 발주는 발주확정 여부와 무관하게 항상 파일로 나간다.
     expect(workbook.generate).toHaveBeenCalledOnce();
-    expect(collection.collect.mock.invocationCallOrder[0])
-      .toBeLessThan(workbook.generate.mock.invocationCallOrder[0]!);
-    expect(response.setHeader).toHaveBeenCalledWith(
-      'X-Order-Collection-Import-Run-Id',
-      '11111111-1111-4111-8111-111111111111',
-    );
-    expect(response.setHeader).toHaveBeenCalledWith(
-      'X-Order-Collection-Reconciled-Rows',
-      '1',
-    );
-  });
-
-  it('does not generate a workbook when persistence or reconciliation fails', async () => {
-    const collection = { collect: vi.fn().mockRejectedValue(new Error('reconcile failed')) };
-    const workbook = { generate: vi.fn() };
-    const controller = new OrderCollectionController(
-      {} as never,
-      workbook as never,
-      collection as never,
-    );
-
-    await expect(controller.convertCoupangDirectship(
-      request() as never,
-      '22222222-2222-4222-8222-222222222222',
-      { id: '33333333-3333-4333-8333-333333333333' } as never,
-      { once: vi.fn() } as never,
-      { setHeader: vi.fn() } as never,
-    )).rejects.toThrow('reconcile failed');
-    expect(workbook.generate).not.toHaveBeenCalled();
+    expect(workbook.generate.mock.calls[0]?.[0]).toMatchObject({ transport: 'SHIPMENT' });
+    expect(file).toBeDefined();
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Source-Rows', '1');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Product-Rows', '3');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Output-Rows', '3');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Skipped-Rows', '0');
   });
 });
 

@@ -97,10 +97,14 @@ describe('AdCampaignIngestHandler business dates', () => {
     );
     expect(targetDailyRepo.replaceCampaignDay).toHaveBeenCalledWith(
       expect.objectContaining({
+        channelAccountId: 'channel-account-1',
         businessDate: requestedDate,
         campaignId: 'campaign-1',
+        campaignIdentity: 'campaign:campaign-1',
         targets: [
           expect.objectContaining({
+            channelAccountId: 'channel-account-1',
+            campaignIdentity: 'campaign:campaign-1',
             businessDate: requestedDate,
             targetKey: 'account:channel-account-1:product:campaign-1:vendor-item-1',
           }),
@@ -109,6 +113,36 @@ describe('AdCampaignIngestHandler business dates', () => {
     );
     expect(result.accountKpiCount).toBe(0);
     expect(result.listingDailyCount).toBe(0);
+  });
+
+  it('preserves raw evidence but rejects authoritative projection when only campaignName exists', async () => {
+    const result = await handler.execute(
+      {
+        type: 'ad_campaign',
+        campaignReportScope: 'single_campaign_authoritative',
+        dashboardOnOff: 'ON',
+        campaignName: '중복 가능한 표시명',
+        startDate: '2026-07-17',
+        endDate: '2026-07-17',
+        normalizedRows: [
+          {
+            pageType: 'campaign',
+            campaignName: '중복 가능한 표시명',
+            _campaignOnly: true,
+          },
+        ],
+      },
+      'organization-1',
+      map,
+    );
+
+    expect(scrapeRepo.appendSnapshot).toHaveBeenCalledTimes(1);
+    expect(targetDailyRepo.replaceCampaignDay).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      success: false,
+      dailyProjectionSkipped: true,
+      projectionRejectionCode: 'missing_stable_campaign_identity',
+    });
   });
 
   it('keeps one product in two campaigns as two target facts without a lossy listing-day projection', async () => {
@@ -463,7 +497,7 @@ describe('AdCampaignIngestHandler business dates', () => {
     });
   });
 
-  it('uses canonical campaign identity when same-name campaigns have no provider id', async () => {
+  it('extracts canonical provider identity when same-name campaigns expose detail hrefs', async () => {
     const executeIdentity = (campaignIdentity: string) =>
       handler.execute(
         {
@@ -500,14 +534,68 @@ describe('AdCampaignIngestHandler business dates', () => {
       ([input]) => input,
     );
     expect(replacements.map((input) => input.campaignIdentity)).toEqual([
-      'href:https://advertising.coupang.com/campaign/a',
-      'href:https://advertising.coupang.com/campaign/b',
+      'campaign:a',
+      'campaign:b',
     ]);
     expect(
       replacements.map((input) => input.targets[0].targetKey),
     ).toEqual([
-      'account:channel-account-1:product:href:https://advertising.coupang.com/campaign/a:vendor-item-1',
-      'account:channel-account-1:product:href:https://advertising.coupang.com/campaign/b:vendor-item-1',
+      'account:channel-account-1:product:a:vendor-item-1',
+      'account:channel-account-1:product:b:vendor-item-1',
+    ]);
+  });
+
+  it('projects campaign id and equivalent detail URL through the same canonical replacement identity', async () => {
+    const execute = (row: Record<string, unknown>) => handler.execute(
+      {
+        type: 'ad_campaign',
+        campaignReportScope: 'single_campaign_authoritative',
+        dashboardOnOff: 'ON',
+        campaignName: 'Canonical campaign',
+        startDate: '2026-07-17',
+        endDate: '2026-07-17',
+        normalizedRows: [{
+          ...row,
+          campaignName: 'Canonical campaign',
+          pageType: 'product',
+          vendorItemId: 'vendor-item-1',
+          spend: 1,
+          revenue: 2,
+          impressions: 3,
+          clicks: 4,
+          conversions: 5,
+          orders: 6,
+          _observedMetrics: observedMetrics,
+        }],
+      },
+      'organization-1',
+      map,
+    );
+
+    await execute({ campaignId: 'X' });
+    await execute({
+      campaignIdentity:
+        'href:https://advertising.coupang.com/marketing/campaign/X/product?z=2&campaignId=X&a=1#ignored',
+    });
+
+    expect(targetDailyRepo.replaceCampaignDay.mock.calls.map(([input]) => ({
+      campaignId: input.campaignId,
+      campaignIdentity: input.campaignIdentity,
+      targetIdentity: input.targets[0].campaignIdentity,
+      targetKey: input.targets[0].targetKey,
+    }))).toEqual([
+      {
+        campaignId: 'X',
+        campaignIdentity: 'campaign:X',
+        targetIdentity: 'campaign:X',
+        targetKey: 'account:channel-account-1:product:X:vendor-item-1',
+      },
+      {
+        campaignId: 'X',
+        campaignIdentity: 'campaign:X',
+        targetIdentity: 'campaign:X',
+        targetKey: 'account:channel-account-1:product:X:vendor-item-1',
+      },
     ]);
   });
 

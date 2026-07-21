@@ -97,8 +97,6 @@ export async function convertCoupangDirectToSellpiaFile(
     productRows: numHeader(res, 'X-Order-Collection-Product-Rows'),
     outputRows: numHeader(res, 'X-Order-Collection-Output-Rows'),
     skippedRows: numHeader(res, 'X-Order-Collection-Skipped-Rows'),
-    importRunId: res.headers.get('X-Order-Collection-Import-Run-Id'),
-    reconciledRows: numHeader(res, 'X-Order-Collection-Reconciled-Rows'),
   };
 }
 

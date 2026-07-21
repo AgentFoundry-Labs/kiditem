@@ -3,7 +3,6 @@ import {
   Body,
   Controller,
   Header,
-  Inject,
   Post,
   Req,
   Res,
@@ -27,13 +26,6 @@ import {
   CoupangDirectshipService,
 } from '../coupang-directship/coupang-directship.service';
 import type { CoupangDirectOrderCollectionRequest } from '@kiditem/shared/coupang-direct-order';
-import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../auth/auth.types';
-import {
-  COUPANG_DIRECT_ORDER_COLLECTION_PORT,
-  type CoupangDirectOrderCollectionPort,
-} from '../application/port/in/coupang-direct-order-collection.port';
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([
@@ -51,8 +43,6 @@ export class OrderCollectionController {
   constructor(
     private readonly orderCollectionService: OrderCollectionService,
     private readonly coupangDirectshipService: CoupangDirectshipService,
-    @Inject(COUPANG_DIRECT_ORDER_COLLECTION_PORT)
-    private readonly coupangDirectOrders: CoupangDirectOrderCollectionPort,
   ) {}
 
   @Post('coupang-directship/convert')
@@ -62,23 +52,16 @@ export class OrderCollectionController {
     'X-Order-Collection-Product-Rows',
     'X-Order-Collection-Output-Rows',
     'X-Order-Collection-Skipped-Rows',
-    'X-Order-Collection-Import-Run-Id',
-    'X-Order-Collection-Reconciled-Rows',
   ].join(', '))
   async convertCoupangDirectship(
     @Body() body: CoupangDirectOrderCollectionRequest,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
+    // 수집한 쿠팡직배송 발주를 그대로 셀피아 양식(.xls)으로 생성한다. 로켓 정산/발주확정
+    // 게이트를 두지 않는다 — 받은 주문은 확정 여부와 무관하게 파일로 내보낸다.
     const abortController = new AbortController();
     request.once('aborted', () => abortController.abort());
-    const collected = await this.coupangDirectOrders.collect({
-      organizationId,
-      userId: user.id,
-      request: body,
-    });
     const result = await this.coupangDirectshipService.generate(body, {
       signal: abortController.signal,
     });
@@ -88,11 +71,6 @@ export class OrderCollectionController {
     response.setHeader('X-Order-Collection-Product-Rows', String(result.rowCount));
     response.setHeader('X-Order-Collection-Output-Rows', String(result.rowCount));
     response.setHeader('X-Order-Collection-Skipped-Rows', '0');
-    response.setHeader('X-Order-Collection-Import-Run-Id', collected.importRunId);
-    response.setHeader(
-      'X-Order-Collection-Reconciled-Rows',
-      String(collected.reconciledRows),
-    );
     return new StreamableFile(result.buffer);
   }
 
