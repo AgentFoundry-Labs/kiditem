@@ -47,6 +47,9 @@ type PreviewMatchInfo = {
   matchType: 'barcode' | 'name' | 'name-fuzzy' | null;
 };
 
+/** 재고 부족/없음일 때 자동 선택하는 기본 납품부족사유(사용자 지정). 행별로 변경 가능. */
+const DEFAULT_SHORTAGE_REASON: RocketShortageReason = '협력사 재고부족 - 재고 할당정책';
+
 export function RocketConfirmPanel({
   onSaved,
   activeMonth,
@@ -97,6 +100,7 @@ export function RocketConfirmPanel({
     revalidateEditedQuantities,
     confirmPurchase,
     downloadActiveConfirmation,
+    exportStockWorkbook,
     releaseConfirmation,
   } = useRocketPurchaseWorkflow({
     channelAccountId,
@@ -120,8 +124,23 @@ export function RocketConfirmPanel({
     : previewDates.length === 1
       ? previewDates[0]!
       : `수집본 전체 ${previewDates[0]} ~ ${previewDates.at(-1)}`;
+  // 가용수량: 등록상품은 레시피 가용(maxQuantity), 미등록은 셀피아 매칭 재고. 확정수량 기본값은 min(발주, 가용).
+  const availableFor = (row: RocketPurchasePreviewRow): number => {
+    if (row.components.length > 0) return row.maxQuantity;
+    const match = previewMatchByLineId.get(row.poLineId);
+    return match?.matched && match.currentStock !== null ? match.currentStock : 0;
+  };
+  const recommendFor = (row: RocketPurchasePreviewRow): number =>
+    row.components.length > 0
+      ? row.recommendedQuantity // 등록상품: 백엔드가 계산한 추천 수량 유지
+      : Math.min(row.orderQuantity, availableFor(row)); // 미등록: 셀피아 재고 기준
+  // 확정수량(사용자 편집 우선, 없으면 재고 기준 기본값). 부족하면 기본 사유를 자동 적용.
+  const confirmQtyFor = (row: RocketPurchasePreviewRow): number =>
+    editedQuantities[row.poLineId] ?? recommendFor(row);
+  const shortageReasonFor = (row: RocketPurchasePreviewRow): RocketShortageReason | '' =>
+    shortageReasons[row.poLineId] ?? (confirmQtyFor(row) < row.orderQuantity ? DEFAULT_SHORTAGE_REASON : '');
   const confirmTotals = rows.reduce((acc, row) => {
-    const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
+    const quantity = confirmQtyFor(row);
     const unitPrice = sourceByLineId.get(row.poLineId)?.confirmation?.purchasePrice ?? 0;
     return {
       qty: acc.qty + quantity,
@@ -241,14 +260,11 @@ export function RocketConfirmPanel({
   }
 
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
-    const bounded = Math.max(0, Math.min(row.orderQuantity, row.maxQuantity, quantity));
+    const bounded = Math.max(0, Math.min(row.orderQuantity, availableFor(row), quantity));
     setEditedQuantities((current) => ({ ...current, [row.poLineId]: bounded }));
+    // 수동 사유는 지운다 → 부족하면 기본 사유(재고 할당정책)가 자동 적용된다.
     setShortageReasons((current) => {
-      if (bounded >= row.orderQuantity) {
-        const next = { ...current };
-        delete next[row.poLineId];
-        return next;
-      }
+      if (!(row.poLineId in current)) return current;
       const next = { ...current };
       delete next[row.poLineId];
       return next;
@@ -275,6 +291,29 @@ export function RocketConfirmPanel({
     if (downloaded) {
       onSaved();
       toast.success('확정된 수량으로 엑셀을 다운로드했습니다.');
+    }
+  }
+
+  // 셀피아 재고 기준 확정수량/부족사유로 쿠팡 발주확정 엑셀을 만든다(레시피/서버 예약 없이).
+  async function exportStockExcel() {
+    if (rows.length === 0) {
+      toast.error('내보낼 발주가 없습니다.');
+      return;
+    }
+    const confirmedRows = rows.map((row) => {
+      const qty = confirmQtyFor(row);
+      const reason: RocketShortageReason | null =
+        qty < row.orderQuantity ? (shortageReasons[row.poLineId] ?? DEFAULT_SHORTAGE_REASON) : null;
+      return { poLineId: row.poLineId, confirmedQuantity: qty, shortageReason: reason };
+    });
+    const ok = await exportStockWorkbook(confirmedRows);
+    if (ok) {
+      onSaved();
+      toast.success(
+        `재고 기준 발주확정 엑셀 생성 — 확정 ${formatNumber(confirmTotals.qty)}개 · 부족 ${confirmTotals.short}행`,
+      );
+    } else {
+      toast.error('엑셀 생성 실패 — "이 달 쿠팡에서 수집"으로 실데이터(센터·반품주소)를 받은 뒤 다시 시도하세요.');
     }
   }
 
@@ -442,8 +481,22 @@ export function RocketConfirmPanel({
               </button>
               <button
                 type="button"
+                onClick={() => void exportStockExcel()}
+                disabled={busy || rows.length === 0}
+                title="셀피아 재고 기준 확정수량·부족사유로 쿠팡 발주확정 엑셀을 생성합니다."
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100',
+                  (busy || rows.length === 0) && 'pointer-events-none opacity-60',
+                )}
+              >
+                {confirming ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                재고 기준 엑셀
+              </button>
+              <button
+                type="button"
                 onClick={() => void handleCommit()}
                 disabled={!canConfirm || busy}
+                title="레시피 기반 정식 확정(재고 예약). 등록상품 + 완전수집일 때만 활성화됩니다."
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800',
                   (!canConfirm || busy) && 'pointer-events-none opacity-60',
@@ -470,7 +523,8 @@ export function RocketConfirmPanel({
               <tbody>
                 {rows.map((row) => {
                   const source = sourceByLineId.get(row.poLineId);
-                  const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
+                  // 확정수량 = 편집값 우선, 없으면 재고 기준 기본값(등록상품은 백엔드 추천값).
+                  const quantity = confirmQtyFor(row);
                   const short = quantity < row.orderQuantity;
                   // 레시피가 없으면(미등록) 셀피아 재고 매칭 결과로 채운다.
                   const hasRecipe = row.components.length > 0;
@@ -517,7 +571,7 @@ export function RocketConfirmPanel({
                           aria-label={`${row.poNumber} 검토수량`}
                           type="number"
                           min={0}
-                          max={Math.min(row.maxQuantity, row.orderQuantity)}
+                          max={Math.min(availableFor(row), row.orderQuantity)}
                           value={quantity}
                           disabled={confirmation?.status === 'active'}
                           onChange={(event) => editQuantity(row, Number(event.target.value) || 0)}
@@ -530,7 +584,7 @@ export function RocketConfirmPanel({
                       <td className="px-3 py-1.5">
                         <select
                           aria-label={`${row.poNumber} 납품부족사유`}
-                          value={shortageReasons[row.poLineId] ?? ''}
+                          value={shortageReasonFor(row)}
                           disabled={!short || confirmation?.status === 'active'}
                           onChange={(event) => {
                             setShortageReasons((current) => ({

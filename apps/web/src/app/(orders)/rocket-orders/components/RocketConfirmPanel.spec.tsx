@@ -84,6 +84,7 @@ const baseWorkflow = {
   revalidateEditedQuantities: vi.fn(),
   confirmPurchase: vi.fn(),
   downloadActiveConfirmation: vi.fn(),
+  exportStockWorkbook: vi.fn(),
   releaseConfirmation: vi.fn(),
 };
 
