@@ -117,6 +117,18 @@ export class RocketPoController {
     return this.rocketPoConfirmService.previewSavedByDate({ date }, organizationId);
   }
 
+  /** 저장된 발주 전체(입고예정일 범위) → 상품별 총 매칭 현황(중복제거·재수집 없음) */
+  @Post('match-status')
+  async matchStatus(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: { from?: string; to?: string },
+  ): Promise<ConfirmPreviewResult> {
+    return this.rocketPoConfirmService.matchStatusByRange(
+      { from: body?.from, to: body?.to },
+      organizationId,
+    );
+  }
+
   /** 미리보기에서 확정한 쿠팡 로켓 수량 → 로켓 예약(RocketPoReservation) 기록 */
   @Post('confirm-commit')
   async confirmCommit(

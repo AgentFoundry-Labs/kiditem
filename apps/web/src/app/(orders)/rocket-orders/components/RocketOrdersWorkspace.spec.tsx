@@ -70,27 +70,16 @@ vi.mock('./RocketConfirmFileList', () => ({
   RocketConfirmFileList: () => <div>기존 생성 파일 이력</div>,
 }));
 
-vi.mock('@/app/(supply)/purchase-orders/components/RocketPurchasePreviewSection', () => ({
-  RocketPurchasePreviewSection: ({
-    from,
-    to,
-    savedSourceImportRunId,
+vi.mock('./RocketAccountBootstrap', () => ({
+  RocketAccountBootstrap: ({
     onAccountChange,
   }: {
-    from: string;
-    to: string;
-    savedSourceImportRunId?: string | null;
-    onAccountChange?: (account: { id: string; vendorId: string | null }) => void;
+    onAccountChange: (account: { id: string; vendorId: string | null }) => void;
   }) => {
     useEffect(() => {
-      onAccountChange?.({ id: rocketAccountId, vendorId: 'ROCKET' });
+      onAccountChange({ id: rocketAccountId, vendorId: 'ROCKET' });
     }, [onAccountChange]);
-    return (
-      <>
-        <output aria-label="미리보기 입고예정일 범위">{from}~{to}</output>
-        <output aria-label="선택된 저장 수집본">{savedSourceImportRunId ?? ''}</output>
-      </>
-    );
+    return null;
   },
 }));
 
@@ -141,10 +130,10 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
 
     expect(screen.queryByText('18일 주문 상품')).not.toBeInTheDocument();
     expect(screen.queryByText('19일 주문 상품')).not.toBeInTheDocument();
-    // 달력은 미래 입고예정일만 보라색으로 강조하고 오늘/과거는 흰색으로 남긴다.
-    // (오늘 = 2026-07-18 이므로 18일은 흰색, 19일은 미래라 보라색)
-    expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).toHaveClass('bg-white');
-    expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).not.toHaveClass('bg-purple-50');
+    // 미래 입고예정일은 보라 배경으로 강조하고, 오늘(2026-07-18)은 보라 배경 + inset ring + '오늘' 마커로 구분한다.
+    expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).toHaveClass('bg-purple-50');
+    expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).toHaveClass('ring-purple-200');
+    expect(screen.getByText('오늘')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '2026-07-19 발주 1건' })).toHaveClass('bg-purple-50');
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
@@ -221,24 +210,6 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     vi.clearAllMocks();
   });
 
-  it('passes the calendar-owned date range to the purchase preview', () => {
-    renderWorkspace();
-
-    // 기본 범위는 이번 달 전체(월 달력과 동일한 범위)다.
-    expect(screen.getByLabelText('미리보기 입고예정일 범위'))
-      .toHaveTextContent('2026-07-01~2026-07-31');
-
-    fireEvent.change(screen.getByLabelText('입고예정일 시작'), {
-      target: { value: '2026-07-20' },
-    });
-    fireEvent.change(screen.getByLabelText('입고예정일 종료'), {
-      target: { value: '2026-07-27' },
-    });
-
-    expect(screen.getByLabelText('미리보기 입고예정일 범위'))
-      .toHaveTextContent('2026-07-20~2026-07-27');
-  });
-
   it('loads the saved Rocket PO calendar for the selected account', async () => {
     renderWorkspace();
 
@@ -256,16 +227,6 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
       to: '2026-07-31',
       status: undefined,
     });
-  });
-
-  it('reopens a saved collection in the inventory preview without recollecting it', () => {
-    renderWorkspace();
-
-    fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
-    fireEvent.click(screen.getByText('PO-1001'));
-    fireEvent.click(screen.getByRole('button', { name: '저장 수집본으로 미리보기' }));
-
-    expect(screen.getByLabelText('선택된 저장 수집본')).toHaveTextContent(sourceImportRunId);
   });
 
   it('keeps wide purchase rows scrollable instead of clipping or overlapping text', () => {

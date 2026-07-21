@@ -166,6 +166,7 @@ export interface RocketComputedRow extends RocketConfirmSourceRow {
   optionId?: string;
   available: number | null;
   matchKind?: RocketMatchKind | null;
+  matchedName?: string | null; // 매칭된 셀피아 상품명 (바코드/이름/유사 매칭 대상)
   confirmQty: number;
   shortageReason: string;
 }
@@ -230,4 +231,9 @@ export async function loadSavedRocketPos(from: string, to: string): Promise<Rock
 /** 저장된 발주 중 특정 입고예정일 하루치를 재고 매칭해 미리보기(재수집 없음). */
 export async function previewSavedRocketConfirm(date: string): Promise<RocketPreview> {
   return apiClient.post<RocketPreview>('/api/orders/rocket/confirm-preview-saved', { date });
+}
+
+/** 저장된 발주 전체(입고예정일 범위) → 상품별 총 매칭 현황(중복제거·재수집 없음). */
+export async function matchStatusRocketRange(from: string, to: string): Promise<RocketPreview> {
+  return apiClient.post<RocketPreview>('/api/orders/rocket/match-status', { from, to });
 }

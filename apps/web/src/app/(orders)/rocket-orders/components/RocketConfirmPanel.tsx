@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDays,
   Download,
+  ListChecks,
   Loader2,
   Package,
   RefreshCw,
@@ -19,6 +20,7 @@ import {
   commitRocketConfirmRows,
   collectRocketPoRowsFromExtension,
   generateRocketConfirmFile,
+  matchStatusRocketRange,
   previewRocketConfirm,
   loadSavedRocketPos,
   previewSavedRocketConfirm,
@@ -27,6 +29,7 @@ import {
   type RocketSavedPo,
 } from '../lib/rocket-confirm-api';
 import type { RocketDecisionWorkspaceContext } from './RocketOrdersWorkspace';
+import { RocketMatchStatusModal } from './RocketMatchStatusModal';
 
 type Busy = null | 'collect' | 'preview' | 'download' | 'fill';
 
@@ -63,6 +66,24 @@ export function RocketConfirmPanel({
   const [poCount, setPoCount] = useState(0);
   const [commitResult, setCommitResult] = useState<RocketConfirmCommitResult | null>(null);
   const [commitPending, setCommitPending] = useState(false);
+  const [matchModal, setMatchModal] = useState<
+    { rows: RocketComputedRow[]; title: string; date: string | null } | null
+  >(null);
+  const [overallMatchLoading, setOverallMatchLoading] = useState(false);
+
+  async function openOverallMatchStatus() {
+    if (overallMatchLoading) return;
+    setOverallMatchLoading(true);
+    try {
+      const { from, to } = monthRange(activeMonth);
+      const preview = await matchStatusRocketRange(from, to);
+      setMatchModal({ rows: preview.rows, title: '쿠팡 로켓 매칭 현황', date: null });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '매칭 현황 조회 실패');
+    } finally {
+      setOverallMatchLoading(false);
+    }
+  }
 
   // 월 달력 — 기본값: 이번 달. 저장된 발주(rocket_purchase_orders)를 입고예정일별로 표시.
   const [savedPos, setSavedPos] = useState<RocketSavedPo[]>([]);
@@ -113,11 +134,6 @@ export function RocketConfirmPanel({
     }
     return map;
   }, [savedPos]);
-
-  const monthTotal = useMemo(
-    () => savedPos.reduce((acc, po) => ({ po: acc.po + 1, qty: acc.qty + po.orderQty }), { po: 0, qty: 0 }),
-    [savedPos],
-  );
 
   // 저장된 하루치를 재고 매칭해 미리보기(재수집 없음)
   async function selectDay(date: string) {
@@ -289,24 +305,36 @@ export function RocketConfirmPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
           <div className="flex items-center gap-2">
             <CalendarDays size={16} className="text-purple-600" />
-            <span className="text-sm font-semibold text-slate-900">발주확정 · 입고예정일 달력</span>
-            <span className="text-xs text-slate-400">
-              저장 발주 {formatNumber(monthTotal.po)}건 · {formatNumber(monthTotal.qty)}수량
-            </span>
+            <span className="text-sm font-semibold text-slate-900">거래확인요청 · 입고예정일 달력</span>
           </div>
-          <button
-            type="button"
-            onClick={() => void collectMonth()}
-            disabled={busy !== null}
-            title="이 달 거래처확인요청 발주를 쿠팡에서 한 번 수집해 저장합니다. 이후엔 날짜 클릭만 하면 됩니다."
-            className={cn(
-              'inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50',
-              busy !== null && 'pointer-events-none opacity-60',
-            )}
-          >
-            {busy === 'collect' ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-            {busy === 'collect' ? '수집 중…' : '이 달 쿠팡에서 수집'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void openOverallMatchStatus()}
+              disabled={overallMatchLoading}
+              title="저장된 모든 발주 상품이 셀피아 재고에 어떻게 매칭됐는지 상품별로 한 번에 봅니다."
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50',
+                overallMatchLoading && 'pointer-events-none opacity-60',
+              )}
+            >
+              {overallMatchLoading ? <Loader2 size={15} className="animate-spin" /> : <ListChecks size={15} />}
+              쿠팡 로켓 매칭 현황
+            </button>
+            <button
+              type="button"
+              onClick={() => void collectMonth()}
+              disabled={busy !== null}
+              title="이 달 거래처확인요청 발주를 쿠팡에서 한 번 수집해 저장합니다. 이후엔 날짜 클릭만 하면 됩니다."
+              className={cn(
+                'inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50',
+                busy !== null && 'pointer-events-none opacity-60',
+              )}
+            >
+              {busy === 'collect' ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              {busy === 'collect' ? '수집 중…' : '이 달 쿠팡에서 수집'}
+            </button>
+          </div>
         </div>
 
         <div className="p-4">
@@ -363,6 +391,13 @@ export function RocketConfirmPanel({
                   <b className="tabular-nums text-purple-700">{formatKRW(confirmTotals.amt)}</b>원
                 </span>
               )}
+              <button
+                type="button"
+                onClick={() => setMatchModal({ rows: rows ?? [], title: '매칭 현황', date: selectedDate })}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <ListChecks size={14} /> 매칭 현황
+              </button>
               <button
                 type="button"
                 onClick={() => void handleDownload()}
@@ -492,6 +527,14 @@ export function RocketConfirmPanel({
           {selectedDate} 저장된 발주가 없습니다. 위에서 “이 달 쿠팡에서 수집”을 눌러 저장해주세요.
         </div>
       )}
+
+      <RocketMatchStatusModal
+        open={matchModal !== null}
+        onClose={() => setMatchModal(null)}
+        rows={matchModal?.rows ?? []}
+        date={matchModal?.date ?? null}
+        title={matchModal?.title}
+      />
     </div>
   );
 }

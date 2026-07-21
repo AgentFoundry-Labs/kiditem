@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
@@ -8,16 +8,13 @@ import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-previ
 import {
   ChevronDown,
   ChevronRight,
-  FileText,
-  PackageCheck,
   RefreshCw,
   Rocket,
-  Truck,
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { RocketPurchasePreviewSection } from '@/app/(supply)/purchase-orders/components/RocketPurchasePreviewSection';
+import { RocketAccountBootstrap } from './RocketAccountBootstrap';
 import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
 import { RocketConfirmFileList } from './RocketConfirmFileList';
 import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
@@ -36,7 +33,6 @@ const RocketOrdersChart = dynamic(
 const STATUS_OPTIONS = [
   { value: '', label: '전체 상태' },
   { value: '거래처확인요청', label: '신규 주문 (거래확인서요청)' },
-  { value: '발주확정', label: '발주확정' },
 ];
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -61,13 +57,6 @@ export interface RocketDecisionWorkspaceContext {
   renderOrderExplorer: (options: RocketOrderExplorerRenderOptions) => ReactNode;
 }
 
-// 워크플로 단계 (로켓 물류 발주)
-const STAGES = [
-  { icon: Rocket, label: '신규 주문', desc: '거래확인서요청 발주' },
-  { icon: PackageCheck, label: '납품 판단', desc: 'Sellpia 재고·채널 구성 기반 수량 검토' },
-  { icon: Truck, label: '쉽먼트 / 밀크런', desc: '9박스 이하 택배 · 초과 밀크런' },
-  { icon: FileText, label: '송장 · 출력', desc: '송장 입력 → 부착/동봉 문서 출력' },
-];
 
 function ymd(d: Date) {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -116,20 +105,16 @@ export function RocketOrdersWorkspace({
   const [view, setView] = useState<'month' | 'chart'>('month');
   // 발주 행 키는 `${sourceImportRunId}:${poNumber}` 문자열이다.
   const [openPo, setOpenPo] = useState<string | null>(null);
-  // 로켓 채널 계정 선택 / 저장 수집본 재미리보기 (product-centered 재고 매칭)
+  // 로켓 채널 계정: '발주 미리보기' 카드는 제거했지만, 달력·발주목록·차트가 쓰는 계정 선택은
+  // RocketAccountBootstrap 이 활성 로켓 계정으로 백그라운드에서 유지한다.
   const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
-  const [selectedSavedSourceImportRunId, setSelectedSavedSourceImportRunId] = useState<string | null>(null);
-  const { events, record: recordActivity } = useRocketOrderActivity();
+  const { events } = useRocketOrderActivity();
 
   const handleRocketAccountChange = useCallback((account: { id: string }) => {
     setSelectedRocketAccountId(account.id);
   }, []);
 
-  useEffect(() => {
-    setSelectedSavedSourceImportRunId(null);
-  }, [selectedRocketAccountId]);
-
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: queryKeys.orders.rocketSavedPoList({
       channelAccountId: selectedRocketAccountId,
       from,
@@ -171,14 +156,6 @@ export function RocketOrdersWorkspace({
       amount: pos.reduce((s, o) => s + o.orderAmount, 0),
     };
   }), [byDate, from, to]);
-  const scoped = useMemo(
-    () => (selectedDay ? byDate.get(selectedDay) ?? [] : orders),
-    [byDate, orders, selectedDay],
-  );
-  const { totalAmount, totalQty } = useMemo(() => ({
-    totalAmount: scoped.reduce((s, o) => s + o.orderAmount, 0),
-    totalQty: scoped.reduce((s, o) => s + o.orderQuantity, 0),
-  }), [scoped]);
 
   // 달력/차트용 일자 데이터
   const dayDataRecord: Record<string, MonthDayData> = useMemo(() => {
@@ -228,6 +205,14 @@ export function RocketOrdersWorkspace({
       const saved = savedDays[day.date];
       return day.count > 0 || !saved ? day : { ...day, ...saved };
     });
+    // 상단 요약(발주 건수·수량·금액)은 달력과 같은 소스(저장 발주로 보완된 mergedRangeDays)로 계산한다.
+    // 날짜를 고르면 그날만, 아니면 조회 범위 전체를 합산한다.
+    const summaryDays = selectedDay
+      ? mergedRangeDays.filter((day) => day.date === selectedDay)
+      : mergedRangeDays;
+    const summaryCount = summaryDays.reduce((sum, day) => sum + day.count, 0);
+    const summaryQty = summaryDays.reduce((sum, day) => sum + day.qty, 0);
+    const summaryAmount = summaryDays.reduce((sum, day) => sum + day.amount, 0);
     const hasRangeOrders = mergedRangeDays.some((day) => day.count > 0);
     const hasMonthOrders = Object.values(mergedMonthData).some((day) => day.count > 0);
     const chartData: RocketChartPoint[] = mergedRangeDays.map((day) => ({
@@ -283,47 +268,46 @@ export function RocketOrdersWorkspace({
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
-          <div className="ml-auto flex items-center gap-4 text-sm">
+          <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" aria-hidden="true" />
+          {(
+            [
+              ['month', '월 달력'],
+              ['chart', '차트'],
+            ] as const
+          ).map(([nextView, label]) => (
+            <button
+              key={nextView}
+              type="button"
+              onClick={() => {
+                if (nextView === 'month') setView('month');
+                else setView('chart');
+              }}
+              className={cn(
+                'rounded-lg border px-3 py-1.5 text-sm font-medium',
+                view === nextView
+                  ? 'border-purple-300 bg-purple-50 text-purple-700'
+                  : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+          <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            {selectedDay ? (
+              <span className="rounded bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-600">
+                {selectedDay.slice(5).replace('-', '/')} 선택
+              </span>
+            ) : null}
             <span className="text-slate-500">
-              발주 <b className="tabular-nums text-slate-900">{formatNumber(scoped.length)}</b>건
+              발주 <b className="tabular-nums text-slate-900">{formatNumber(summaryCount)}</b>건
             </span>
             <span className="text-slate-500">
-              수량 <b className="tabular-nums text-slate-900">{formatNumber(totalQty)}</b>개
+              수량 <b className="tabular-nums text-slate-900">{formatNumber(summaryQty)}</b>개
             </span>
             <span className="text-slate-500">
-              금액 <b className="tabular-nums text-purple-700">{formatKRW(totalAmount)}</b>원
+              금액 <b className="tabular-nums text-purple-700">{formatKRW(summaryAmount)}</b>원
             </span>
           </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <span className="mr-1 text-xs font-medium text-slate-400">보기</span>
-            {(
-              [
-                ['month', '월 달력'],
-                ['chart', '차트'],
-              ] as const
-            ).map(([nextView, label]) => (
-              <button
-                key={nextView}
-                type="button"
-                onClick={() => {
-                  if (nextView === 'month') setView('month');
-                  else setView('chart');
-                }}
-                className={cn(
-                  'rounded-lg border px-3 py-1.5 text-sm font-medium',
-                  view === nextView
-                    ? 'border-purple-300 bg-purple-50 text-purple-700'
-                    : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50',
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <span className="text-xs text-slate-400">수집·저장된 발주 조회 · 확정 발주로 빈 날짜 보완</span>
         </div>
 
         {isError ? (
@@ -342,9 +326,9 @@ export function RocketOrdersWorkspace({
           </div>
         ) : null}
 
-        {/* 좌: 월 달력/차트 · 우: 이 페이지 작업 알림 패널 */}
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="space-y-3">
+        {/* 좌: 월 달력/차트(3/4) · 우: 작업 알림 패널(1/4 — 상단 '송장 출력' 카드 폭에 맞춤) */}
+        <div className="grid items-start gap-4 xl:grid-cols-4">
+          <div className="space-y-3 xl:col-span-3">
             {view === 'month' ? (
               <>
                 <RocketMonthCalendar
@@ -373,7 +357,7 @@ export function RocketOrdersWorkspace({
         </div>
 
         <p className="px-1 text-xs text-slate-400">
-          날짜를 선택하면 해당 날짜의 발주 목록과 재고 매칭 미리보기만 아래에 표시됩니다.
+          날짜를 선택하면 해당 날짜의 발주 목록이 아래에 표시됩니다.
         </p>
       </div>
     );
@@ -429,13 +413,6 @@ export function RocketOrdersWorkspace({
             <div className="text-[11px] text-slate-400">
               품목 {formatNumber(po.skuCount)}종 · 아래 납품 판단에서 Sellpia 구성 수량을 검토합니다.
             </div>
-            <button
-              type="button"
-              onClick={() => setSelectedSavedSourceImportRunId(po.sourceImportRunId)}
-              className="mt-2 rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-xs font-bold text-purple-700 hover:bg-purple-50"
-            >
-              저장 수집본으로 미리보기
-            </button>
           </div>
         )}
       </Fragment>
@@ -450,7 +427,7 @@ export function RocketOrdersWorkspace({
         <div className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center">
           <p className="text-sm font-medium text-slate-600">{selectedDay} 발주 목록이 없습니다.</p>
           <p className="mt-1 text-xs text-slate-400">
-            저장된 발주만 있는 날짜라면 위 재고 매칭 미리보기에서 내용을 확인할 수 있습니다.
+            저장된 발주만 있는 날짜라면 아래 납품 판단에서 내용을 확인할 수 있습니다.
           </p>
         </div>
       );
@@ -495,43 +472,10 @@ export function RocketOrdersWorkspace({
             <div className="text-sm text-slate-500">수집·저장된 발주 조회 · 입고예정일별 분류</div>
           </div>
         </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-        >
-          <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} /> 저장 발주 새로고침
-        </button>
       </div>
 
-      {/* 워크플로 단계 */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {STAGES.map((s, i) => {
-          const Icon = s.icon;
-          return (
-            <div key={s.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-50 text-purple-600">
-                  <Icon size={15} />
-                </span>
-                <span className="text-[11px] font-medium text-slate-400">STEP {i + 1}</span>
-              </div>
-              <div className="mt-1.5 text-sm font-semibold text-slate-900">{s.label}</div>
-              <div className="text-[11px] text-slate-400">{s.desc}</div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* 재고 매칭 미리보기 (product-centered) */}
-      <RocketPurchasePreviewSection
-        from={from}
-        to={to}
-        savedSourceImportRunId={selectedSavedSourceImportRunId}
-        onAccountChange={handleRocketAccountChange}
-        onCatalogSaved={() => void refetch()}
-        onActivity={recordActivity}
-      />
+      {/* 활성 로켓 계정 백그라운드 선택 (계정은 달력·발주목록·차트의 데이터 기준) */}
+      <RocketAccountBootstrap onAccountChange={handleRocketAccountChange} />
 
       {decisionWorkspace({
         activeMonth: (from || todayYmd()).slice(0, 7),

@@ -98,6 +98,7 @@ export type MatchKind = 'barcode' | 'name' | 'name-fuzzy';
 export interface ConfirmComputedRow extends ConfirmSourceRow {
   available: number | null; // null = 재고 매칭 안됨
   matchKind?: MatchKind | null;
+  matchedName?: string | null; // 매칭된 셀피아 상품명 (바코드/이름/유사 매칭 대상)
   confirmQty: number;
   shortageReason: string;
 }
@@ -166,6 +167,7 @@ type ConfirmQuantityInput = {
 type ConfirmQuantityResult = {
   available: number | null;
   matchKind: MatchKind | null;
+  matchedName: string | null;
   confirmQty: number;
   matched: boolean;
 };
@@ -173,10 +175,11 @@ type ConfirmQuantityResult = {
 type ConfirmAvailability = {
   available: number;
   kind: MatchKind;
+  matchedName: string | null;
 };
 
 /** 이름매칭 인덱스 항목 (MasterProduct.name → 코어/가격/재고). */
-type MasterNameEntry = { core: string; price: string | null; stock: number };
+type MasterNameEntry = { core: string; price: string | null; stock: number; name: string };
 
 @Injectable()
 export class RocketPoConfirmService {
@@ -217,7 +220,7 @@ export class RocketPoConfirmService {
     const [sellpiaStocks, masters, reservations] = await Promise.all([
       this.prisma.sellpiaInventorySku.findMany({
         where: { organizationId, barcode: { in: barcodes } },
-        select: { barcode: true, currentStock: true },
+        select: { barcode: true, currentStock: true, name: true },
       }),
       this.prisma.sellpiaInventorySku.findMany({
         where: { organizationId, isActive: true },
@@ -232,15 +235,20 @@ export class RocketPoConfirmService {
 
     // ① 바코드 정확일치 재고 = SellpiaInventorySku(같은 바코드 여러 옵션 row 면 합산).
     const stockByBarcode = new Map<string, number>();
+    const nameByBarcodeSku = new Map<string, string>(); // 바코드 정확일치 시 보여줄 셀피아 상품명(대표=가장 긴 것).
     for (const s of sellpiaStocks) {
       const barcode = s.barcode?.trim();
-      if (barcode) stockByBarcode.set(barcode, (stockByBarcode.get(barcode) ?? 0) + s.currentStock);
+      if (!barcode) continue;
+      stockByBarcode.set(barcode, (stockByBarcode.get(barcode) ?? 0) + s.currentStock);
+      const nm = (s.name ?? '').trim();
+      const prev = nameByBarcodeSku.get(barcode);
+      if (nm && (!prev || nm.length > prev.length)) nameByBarcodeSku.set(barcode, nm);
     }
     // ②③ 이름 매칭 인덱스 = SellpiaInventorySku(name·currentStock). 바코드가 안 맞을 때만 사용.
     const nameIndex: MasterNameEntry[] = [];
     for (const m of masters) {
       const core = normalizeCoupangName(m.name);
-      if (core.length >= 2) nameIndex.push({ core, price: coupangNamePrice(m.name), stock: m.currentStock });
+      if (core.length >= 2) nameIndex.push({ core, price: coupangNamePrice(m.name), stock: m.currentStock, name: m.name });
     }
     const reservedByBarcode = new Map<string, number>(
       reservations.map((r) => [r.barcode, r._sum.qty ?? 0]),
@@ -252,7 +260,11 @@ export class RocketPoConfirmService {
       // ① 바코드 정확일치
       const byBarcode = stockByBarcode.get(barcode);
       if (byBarcode !== undefined) {
-        map.set(barcode, { available: Math.max(0, byBarcode - reserved), kind: 'barcode' });
+        map.set(barcode, {
+          available: Math.max(0, byBarcode - reserved),
+          kind: 'barcode',
+          matchedName: nameByBarcodeSku.get(barcode) ?? null,
+        });
         continue;
       }
       // ② / ③ 이름 매칭 (완전/포함/퍼지)
@@ -262,6 +274,7 @@ export class RocketPoConfirmService {
         map.set(barcode, {
           available: Math.max(0, nameMatch.stock - reserved),
           kind: nameMatch.fuzzy ? 'name-fuzzy' : 'name',
+          matchedName: nameMatch.name,
         });
       }
       // 매칭 실패 → map 에 없음 → 미매칭
@@ -371,6 +384,48 @@ export class RocketPoConfirmService {
       organizationId,
     );
     return this.computeConfirmRows(rows, avail);
+  }
+
+  /**
+   * 저장된 발주 전체(입고예정일 범위) → 상품(바코드)별 1행으로 중복제거한 "총 매칭 현황".
+   * 같은 상품이 여러 발주에 있으면 1행으로 합치고 발주수량을 합산한다(재수집 없음).
+   */
+  async matchStatusByRange(
+    input: { from?: string; to?: string },
+    organizationId: string,
+  ): Promise<ConfirmPreviewResult> {
+    const from = String(input.from ?? '').trim();
+    const to = String(input.to ?? '').trim();
+    const range = businessDateRange(from, to);
+    const pos = await this.prisma.rocketPurchaseOrder.findMany({
+      where: { organizationId, ...(range ? { businessDate: range } : {}) },
+      orderBy: [{ poSeq: 'desc' }],
+    });
+    const items = pos.flatMap((po) => reconstructConfirmRows(po));
+    if (items.length === 0) {
+      return { rows: [], totalRows: 0, fullyConfirmed: 0, shortRows: 0, matchedSkus: 0 };
+    }
+    const byKey = new Map<string, ConfirmSourceRow>();
+    for (const it of items) {
+      const barcode = String(it.barcode ?? '').trim();
+      const key = barcode || `name:${(it.productName ?? '').trim()}`;
+      const orderQty = toQuantity(it.orderQty);
+      const prev = byKey.get(key);
+      if (prev) {
+        prev.orderQty = toQuantity(prev.orderQty) + orderQty;
+        if ((it.productName ?? '').length > (prev.productName ?? '').length) {
+          prev.productName = it.productName;
+        }
+      } else {
+        byKey.set(key, { ...it, barcode, orderQty });
+      }
+    }
+    const distinct = [...byKey.values()];
+    const avail = await this.availabilityByBarcode(
+      distinct.map((r) => ({ barcode: String(r.barcode ?? '').trim(), name: r.productName })),
+      organizationId,
+    );
+    return this.computeConfirmRows(distinct, avail);
   }
 
   /**
@@ -518,7 +573,7 @@ export class RocketPoConfirmService {
     const computed = rows.map((r) => {
       const barcode = String(r.barcode ?? '').trim();
       const orderQty = toQuantity(r.orderQty);
-      const { available, matchKind, confirmQty, matched } = computeConfirmQuantity({
+      const { available, matchKind, matchedName, confirmQty, matched } = computeConfirmQuantity({
         barcode,
         orderQty,
         requestedConfirmQty: r.confirmQty,
@@ -535,6 +590,7 @@ export class RocketPoConfirmService {
         orderQty,
         available,
         matchKind,
+        matchedName,
         confirmQty,
         shortageReason,
       } satisfies ConfirmComputedRow;
@@ -686,7 +742,9 @@ function computeConfirmQuantity({
   remainingByBarcode,
 }: ConfirmQuantityInput): ConfirmQuantityResult {
   const match = availabilityByBarcode.get(barcode);
-  if (match === undefined) return { available: null, matchKind: null, confirmQty: 0, matched: false };
+  if (match === undefined) {
+    return { available: null, matchKind: null, matchedName: null, confirmQty: 0, matched: false };
+  }
 
   const remaining = Math.max(0, remainingByBarcode.get(barcode) ?? 0);
   const requested =
@@ -698,6 +756,7 @@ function computeConfirmQuantity({
   return {
     available: match.available,
     matchKind: match.kind,
+    matchedName: match.matchedName,
     confirmQty,
     matched: true,
   };
@@ -744,16 +803,16 @@ function matchByName(
   core: string,
   price: string | null,
   index: MasterNameEntry[],
-): { stock: number; fuzzy: boolean } | null {
+): { stock: number; fuzzy: boolean; name: string } | null {
   if (core.length < 2) return null;
   const compatible = (s: MasterNameEntry) => !(price && s.price && price !== s.price);
   const exact = index.find((s) => s.core === core && compatible(s));
-  if (exact) return { stock: exact.stock, fuzzy: false };
+  if (exact) return { stock: exact.stock, fuzzy: false, name: exact.name };
   if (core.length < 3) return null;
   const contained = index.find(
     (s) => s.core.length >= 3 && compatible(s) && (core.includes(s.core) || s.core.includes(core)),
   );
-  if (contained) return { stock: contained.stock, fuzzy: false };
+  if (contained) return { stock: contained.stock, fuzzy: false, name: contained.name };
   // 퍼지: 두 신호 중 하나라도 통과하면 후보(확인 필요).
   //  - 연속 LCS: 접두/접미가 크게 겹침. - Dice bigram: 중간 단어만 치환된 경우.
   if (core.length < 4) return null;
@@ -773,7 +832,7 @@ function matchByName(
       best = s;
     }
   }
-  return best ? { stock: best.stock, fuzzy: true } : null;
+  return best ? { stock: best.stock, fuzzy: true, name: best.name } : null;
 }
 
 /** 글자 bigram Dice 유사도(0~1) + 공통 bigram 수. 중간 단어 치환/어순차에 강한 퍼지 신호. */

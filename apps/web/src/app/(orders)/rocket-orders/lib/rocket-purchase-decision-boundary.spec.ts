@@ -60,10 +60,7 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).not.toContain('listRocketPosFromExtension');
     // 저장 발주 빈 상태 문구는 양쪽 워크스페이스 판본에 공통으로 존재하는 문구를 기준으로 검증한다.
     expect(operationsSource).toContain('이 달엔 해당 발주가 없습니다');
-    expect(operationsSource).toContain('신규 주문');
-    expect(operationsSource).toContain('납품 판단');
-    expect(operationsSource).toContain('쉽먼트 / 밀크런');
-    expect(operationsSource).toContain('송장 · 출력');
+    // 상단 워크플로 STEP 4카드(신규주문·납품판단·쉽먼트/밀크런·송장출력)는 사용자 요청으로 제거됨.
     expect(operationsSource).not.toContain("['week', '주 달력']");
     expect(operationsSource).toContain("['month', '월 달력']");
     expect(operationsSource).toContain("['chart', '차트']");
@@ -74,11 +71,13 @@ describe('Rocket purchase decision boundary', () => {
     expect(purchaseWorkspaceSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(purchaseWorkspaceSource).not.toContain("activeTab === 'rocket'");
     expect(purchaseWorkspaceSource).not.toContain('RocketOrdersWorkspace');
-    // orders 워크스페이스는 Supply 미리보기를 직접 렌더하고, decisionWorkspace
+    // orders 워크스페이스는 '발주 미리보기' 카드(RocketPurchasePreviewSection)를 더 이상
+    // 렌더하지 않는다(사용자 요청 제거). 대신 활성 로켓 계정만 백그라운드로 선택
+    // (RocketAccountBootstrap)해 달력·발주목록·차트에 공급하고, decisionWorkspace
     // 렌더프롭으로 원본 확정 패널(저장 발주 달력 공급)을 주입한다.
     expect(operationsSource).toContain('decisionWorkspace');
-    expect(operationsSource).toContain('<RocketPurchasePreviewSection');
-    expect(operationsSource).toContain('savedSourceImportRunId={selectedSavedSourceImportRunId}');
+    expect(operationsSource).not.toContain('<RocketPurchasePreviewSection');
+    expect(operationsSource).toContain('<RocketAccountBootstrap');
     expect(operationsSource).not.toContain('납품 수량 판단은 추후 연동합니다');
     expect(operationsSource).not.toContain('재고 매핑 기반 판단은 추후 연동');
     expect(previewSectionSource).toContain('<RocketPurchaseWorkspace');
