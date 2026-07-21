@@ -40,7 +40,10 @@ import {
   MAX_HISTORY_ITEMS,
   EMPTY_MALL_DRAFT,
   draftFromMallAccount,
+  isAuthRequiredMessage,
   isBrowserCollectableMall,
+  isLoginRequiredMessage,
+  isNoNewOrdersMessage,
   todayYmd,
   type ConversionHistoryItem,
   type ConversionState,
@@ -263,17 +266,32 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
         return collected;
       } catch (err) {
         const message = friendlyError(err) ?? '브라우저 수집 실패';
+        // 일부 몰(티쳐몰·보리보리 등)은 신규 주문이 없을 때 throw 한다. 이는 오류가 아니라
+        // "신규 주문 없음"이므로, 주문 0건을 반환하는 다른 몰과 동일하게 빈 결과로 처리해
+        // 활동 피드에 오류로 뜨지 않게 한다.
+        const noNewOrders = !activeRun?.signal?.aborted && isNoNewOrdersMessage(message);
         if (activeRun) {
           await sessionControls.finalizeRun(
             activeRun,
-            'failed',
-            `${account.name} 파일 생성 실패: ${message}`,
+            noNewOrders ? 'succeeded' : 'failed',
+            noNewOrders ? `${account.name} 신규 주문 없음` : `${account.name} 파일 생성 실패: ${message}`,
           ).catch((finalizeError) => {
             console.warn('[order-collection] failed to finalize collection session', finalizeError);
           });
         }
+        if (noNewOrders) {
+          clearMallErrorActivity(account.name);
+          logActivity('empty', account.name);
+          return { rowCount: 0, masked: false, date: activeRun?.date ?? null };
+        }
         if (!activeRun?.signal?.aborted) {
-          logActivity('error', account.name, message);
+          // 로그인/인증(SMS 등) 필요는 시스템 오류가 아니라 조치 필요 상태이므로 별도 분류로 표기한다.
+          const kind = isAuthRequiredMessage(message)
+            ? 'auth'
+            : isLoginRequiredMessage(message)
+              ? 'login'
+              : 'error';
+          logActivity(kind, account.name, message);
         }
         throw err;
       } finally {

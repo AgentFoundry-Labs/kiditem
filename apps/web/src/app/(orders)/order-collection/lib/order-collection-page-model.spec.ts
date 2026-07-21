@@ -4,7 +4,10 @@ import {
   getOrderCount,
   groupHistoryByDay,
   hasSellpiaTransmissionRequest,
+  isAuthRequiredMessage,
   isBrowserCollectableMall,
+  isLoginRequiredMessage,
+  isNoNewOrdersMessage,
   todayYmd,
 } from './order-collection-page-model';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
@@ -98,5 +101,45 @@ describe('order collection page model', () => {
     expect(todayYmd()).toBe('2026-06-29');
 
     vi.useRealTimers();
+  });
+});
+
+describe('isNoNewOrdersMessage', () => {
+  it('treats "no new orders" failures as empty (not error)', () => {
+    expect(isNoNewOrdersMessage('출고 전 티쳐몰 신규 주문이 없습니다.')).toBe(true);
+    expect(isNoNewOrdersMessage('결제완료 보리보리 신규 주문이 없습니다.')).toBe(true);
+    expect(isNoNewOrdersMessage('수집할 출고 전 주문이 없습니다.')).toBe(true);
+    expect(isNoNewOrdersMessage('오늘 온채널 신규 주문 없음')).toBe(true);
+  });
+
+  it('keeps genuine failures classified as errors', () => {
+    expect(isNoNewOrdersMessage('주문수집 확장프로그램을 찾을 수 없습니다.')).toBe(false);
+    expect(isNoNewOrdersMessage('티쳐몰 엑셀 응답이 비어 있습니다. 출고 전 주문이 없거나 로그인이 필요합니다.')).toBe(false);
+    expect(isNoNewOrdersMessage('저장된 비밀번호를 불러오지 못했습니다.')).toBe(false);
+    expect(isNoNewOrdersMessage('셀피아 송장 조회 시간이 초과되었습니다.')).toBe(false);
+    expect(isNoNewOrdersMessage('')).toBe(false);
+    expect(isNoNewOrdersMessage(null)).toBe(false);
+  });
+});
+
+describe('login / auth classification', () => {
+  it('flags "verification required" (SMS 인증) as auth', () => {
+    expect(isAuthRequiredMessage('GS샵 SMS 인증이 필요합니다. [인증번호 받기]로 인증을 완료하세요.')).toBe(true);
+    expect(isAuthRequiredMessage('로그인 보안강화를 위한 SMS 인증방식이 시행됩니다.')).toBe(true);
+    expect(isAuthRequiredMessage('인증번호 받기')).toBe(true);
+  });
+
+  it('flags "login required" messages as login', () => {
+    expect(isLoginRequiredMessage('GS샵 로그인이 필요합니다. 로그인되어 있는지 확인하세요.')).toBe(true);
+    expect(isLoginRequiredMessage('쿠팡 발주 세션이 만료되었습니다. Supplier Hub 로그인 상태를 확인하세요.')).toBe(true);
+  });
+
+  it('does not misclassify plain system errors or empties', () => {
+    expect(isAuthRequiredMessage('GS샵 조회 버튼을 찾지 못했습니다.')).toBe(false);
+    expect(isLoginRequiredMessage('GS샵 조회 버튼을 찾지 못했습니다.')).toBe(false);
+    expect(isAuthRequiredMessage('출고 전 티쳐몰 신규 주문이 없습니다.')).toBe(false);
+    expect(isLoginRequiredMessage('출고 전 티쳐몰 신규 주문이 없습니다.')).toBe(false);
+    expect(isAuthRequiredMessage(null)).toBe(false);
+    expect(isLoginRequiredMessage(null)).toBe(false);
   });
 });

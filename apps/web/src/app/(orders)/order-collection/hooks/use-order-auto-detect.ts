@@ -18,10 +18,14 @@ import {
 } from '../lib/order-detect';
 import {
   ICECREAM_MALL_KEY,
+  isAuthRequiredMessage,
   isAutoDetectableMall,
+  isLoginRequiredMessage,
+  isNoNewOrdersMessage,
   todayYmd,
   type ConversionHistoryItem,
 } from '../lib/order-collection-page-model';
+import type { OrderActivityEvent } from '../components/OrderActivityFeed';
 import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
@@ -43,7 +47,7 @@ interface UseOrderAutoDetectOptions {
     account: OrderCollectionMallAccount,
   ) => Promise<BrowserMallCollectionResult>;
   markCollecting: (mallKey: string, collecting: boolean) => void;
-  logActivity: (kind: 'empty' | 'error', mallName: string, message?: string) => void;
+  logActivity: (kind: OrderActivityEvent['kind'], mallName: string, message?: string) => void;
 }
 
 export function useOrderAutoDetect({
@@ -116,7 +120,14 @@ export function useOrderAutoDetect({
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : '자동 감지 실패';
-          logActivity('error', account.name, message);
+          const kind = isNoNewOrdersMessage(message)
+            ? 'empty'
+            : isAuthRequiredMessage(message)
+              ? 'auth'
+              : isLoginRequiredMessage(message)
+                ? 'login'
+                : 'error';
+          logActivity(kind, account.name, kind === 'empty' ? undefined : message);
           console.warn('[order-auto-detect]', account.key, err);
         } finally {
           markCollecting(account.key, false);

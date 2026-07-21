@@ -2481,7 +2481,21 @@ async function scrapeGsshopOrders() {
     // 0) SPA 렌더 대기 — 조회 버튼이 뜰 때까지
     const searchBtn = await waitFor(() => btnByText("조회"), 30000, 400);
     if (!searchBtn) {
-      return { success: false, error: "GS샵 협력사 배송관리 화면을 불러오지 못했습니다. 로그인을 확인하세요." };
+      // 로그인/인증 벽 구분: SMS 인증방식이 걸리면 협력사 로그인 화면(인증번호 받기)이 뜬다.
+      const bodyText = document.body ? document.body.innerText || "" : "";
+      if (/인증번호\s*받기|SMS\s*인증|인증방식/.test(bodyText)) {
+        return {
+          success: false,
+          pendingAuth: true,
+          error:
+            "GS샵 SMS 인증이 필요합니다. GS샵 협력사 로그인에서 [인증번호 받기]로 인증을 완료한 뒤 다시 '수집하기'를 눌러주세요.",
+        };
+      }
+      return {
+        success: false,
+        pendingLogin: true,
+        error: "GS샵 협력사 배송관리 화면을 불러오지 못했습니다. GS샵에 로그인되어 있는지 확인하세요.",
+      };
     }
     // 스트레이 경고 다이얼로그 닫기
     const warn = document.querySelector("[role=dialog]");

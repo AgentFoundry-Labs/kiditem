@@ -138,7 +138,13 @@ export async function uploadTrackingForMall({
   const toastId = toast.loading('셀피아 채번 송장 조회 중…');
   try {
     // 채번 화면 그리드에서 발급된 송장번호를 바로 읽는다(재출력 우회).
-    const allTracking = await collectSellpiaDeliTrackingFromExtension();
+    // ⭐오늘 채번(송장번호채번일자=오늘)된 송장만 업로드 대상으로 조회한다.
+    // (날짜를 안 넘기면 확장이 최근 30일치를 반환 → 예전에 채번된 송장까지 섞여 올라감)
+    const today = todayYmd();
+    const allTracking = await collectSellpiaDeliTrackingFromExtension({
+      startDate: today,
+      endDate: today,
+    });
     const tracking = filterTrackingByMall(allTracking, account.key);
     if (tracking.length === 0) {
       toast.info(`${account.name}에 전송할 채번된 송장이 없습니다. 셀피아 송장 자동채번을 먼저 진행하세요.`, {

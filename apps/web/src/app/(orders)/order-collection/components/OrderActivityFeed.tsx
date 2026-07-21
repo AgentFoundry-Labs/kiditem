@@ -1,7 +1,7 @@
 'use client';
 
 import { type ReactNode } from 'react';
-import { AlertCircle, Bell, Download, FileSpreadsheet, Inbox, Send } from 'lucide-react';
+import { AlertCircle, Bell, Download, FileSpreadsheet, Inbox, LogIn, Send, ShieldAlert } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import { getHistoryOrderCount } from '../lib/order-history-count';
 import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
@@ -16,10 +16,10 @@ interface ActivityMeta {
   sub: string;
 }
 
-/** 수집·전송 외 이벤트(주문 없음/오류)도 피드에 뜨게 하는 이벤트 타입. */
+/** 수집·전송 외 이벤트(주문 없음/오류/로그인·인증 필요)도 피드에 뜨게 하는 이벤트 타입. */
 export interface OrderActivityEvent {
   id: string;
-  kind: 'empty' | 'error';
+  kind: 'empty' | 'error' | 'login' | 'auth';
   mallName: string;
   message: string;
   at: number;
@@ -91,6 +91,24 @@ export function OrderActivityFeed({
 }
 
 function eventMeta(e: OrderActivityEvent): ActivityMeta {
+  if (e.kind === 'auth') {
+    return {
+      icon: <ShieldAlert size={15} />,
+      bg: 'bg-amber-50',
+      fg: 'text-amber-600',
+      title: `인증 필요 · ${e.mallName}`,
+      sub: `${e.message} · ${shortTime(e.at)}`,
+    };
+  }
+  if (e.kind === 'login') {
+    return {
+      icon: <LogIn size={15} />,
+      bg: 'bg-amber-50',
+      fg: 'text-amber-600',
+      title: `로그인 필요 · ${e.mallName}`,
+      sub: `${e.message} · ${shortTime(e.at)}`,
+    };
+  }
   if (e.kind === 'error') {
     return {
       icon: <AlertCircle size={15} />,
