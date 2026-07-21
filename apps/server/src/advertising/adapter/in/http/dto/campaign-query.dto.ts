@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, Max, IsIn } from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, Max, IsIn, IsUUID, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CampaignQueryDto {
@@ -6,9 +6,6 @@ export class CampaignQueryDto {
   @IsString()
   period?: string = '7d';
 
-  @IsOptional()
-  @IsString()
-  campaign?: string;
 }
 
 export class TrendsQueryDto {
@@ -31,15 +28,19 @@ export class StrategyQueryDto {
 }
 
 /**
- * `/api/ads/products`. `campaign` narrows the product-grain rows to one
- * campaign's members for the per-campaign detail table.
+ * `/api/ads/products`. Account and stable campaign identity narrow the
+ * product-grain rows to one exact campaign for the detail table.
  */
 export class AdProductQueryDto {
   @IsOptional()
   @IsIn(['7d', '14d', 'month'])
   period?: '7d' | '14d' | 'month' = '14d';
 
-  @IsOptional()
+  @ValidateIf((value) => value.campaignIdentity !== undefined)
+  @IsUUID()
+  channelAccountId?: string;
+
+  @ValidateIf((value) => value.channelAccountId !== undefined)
   @IsString()
-  campaign?: string;
+  campaignIdentity?: string;
 }

@@ -35,7 +35,11 @@ import {
   toNumber,
   toNumberOrNull,
 } from '../../domain/scrape-row-normalizers';
-import { buildAdTargetKey } from '../../domain/util/ad-target-key';
+import {
+  buildAdTargetKey,
+  campaignIdFromCanonicalIdentity,
+  canonicalCampaignIdentity,
+} from '../../domain/util/ad-target-key';
 import {
   AD_ACCOUNT_KPI_REPOSITORY_PORT,
   type AdAccountKpiRepositoryPort,
@@ -108,6 +112,12 @@ export class RawScrapeIngestHandler {
       payload.dateFrom,
       payload.dateTo,
     );
+    const runMeta = {
+      kpis: payload.kpis ?? {},
+      rowCount: rows.length,
+      normalizedRowCount: normalizedRowsAll.length,
+      projectionRejectionCode: null as string | null,
+    };
     const scrapeRun = await this.scrapeRepo.createRun({
       organizationId,
       channelAccountId: map.channelAccountId,
@@ -118,11 +128,7 @@ export class RawScrapeIngestHandler {
       periodStart: toBusinessDate(payload.dateFrom),
       periodEnd: toBusinessDate(payload.dateTo),
       targetUrl: payload.url ?? null,
-      metaJson: {
-        kpis: payload.kpis ?? {},
-        rowCount: rows.length,
-        normalizedRowCount: normalizedRowsAll.length,
-      },
+      metaJson: runMeta,
     });
     let scrapeSnapshotCount = 0;
     let scrapeMatched = 0;
@@ -133,6 +139,7 @@ export class RawScrapeIngestHandler {
       let optionDailyCount = 0;
       let targetDailyCount = 0;
       let accountKpiCount = 0;
+      let missingStableCampaignIdentity = false;
       const listingAdMetrics = new Map<string, ListingAdMetricAccumulator>();
 
       if (source === 'wing') {
@@ -290,7 +297,15 @@ export class RawScrapeIngestHandler {
           if (!pair.hasNormalizedRow) continue;
 
           const rowCampaignName = cleanString(row.campaignName);
-          const rowCampaignId = cleanString(row.campaignId);
+          const rawCampaignId = cleanString(row.campaignId);
+          const rawCampaignIdentity = cleanString(row.campaignIdentity);
+          const rowCampaignIdentity = canonicalCampaignIdentity({
+            campaignId: rawCampaignId,
+            campaignIdentity: rawCampaignIdentity,
+          });
+          const rowCampaignId = campaignIdFromCanonicalIdentity(
+            rowCampaignIdentity,
+          );
           const rowAdGroup = cleanString(row.adGroup);
           const rowKeyword = cleanString(row.keyword);
           const rowSpend = Math.round(toNumber(row.spend));
@@ -301,6 +316,26 @@ export class RawScrapeIngestHandler {
           const rowOrders = Math.round(toNumber(row.orders));
           const providerRoas = toNumber(row.roas);
           const providerCtr = toNumber(row.ctr);
+
+          const targetType = deriveAdTargetType(pageType, rowKeyword);
+          const hasCampaignEvidence = Boolean(
+            rowCampaignName ||
+              rawCampaignId ||
+              rawCampaignIdentity ||
+              rowAdGroup ||
+              rowKeyword,
+          );
+          const campaignless = targetType === 'product' && !hasCampaignEvidence;
+          if (
+            !rowCampaignIdentity &&
+            (targetType !== 'product' || hasCampaignEvidence)
+          ) {
+            missingStableCampaignIdentity = true;
+            this.logger.debug(
+              'ingestRawScrape advertising skipped normalized projection: missing_stable_campaign_identity',
+            );
+            continue;
+          }
 
           // Listing-day metric upsert when listing identity is known.
           if (match.listingId && match.externalId) {
@@ -330,13 +365,14 @@ export class RawScrapeIngestHandler {
           }
 
           // Target-day fact at the row's grain.
-          const targetType = deriveAdTargetType(pageType, rowKeyword);
           try {
             const targetKey = buildAdTargetKey({
               channelAccountId: map.channelAccountId,
               targetType,
               campaignId: rowCampaignId,
+              campaignIdentity: rowCampaignIdentity,
               campaignName: rowCampaignName,
+              campaignless,
               adGroup: rowAdGroup,
               keyword: rowKeyword,
               externalOptionId: externalOptionIdRaw ?? match.externalOptionId,
@@ -345,6 +381,7 @@ export class RawScrapeIngestHandler {
             });
             await this.targetDailyRepo.upsert({
               organizationId,
+              channelAccountId: map.channelAccountId,
               channel: 'coupang',
               businessDate,
               targetType,
@@ -355,7 +392,9 @@ export class RawScrapeIngestHandler {
               externalOptionId:
                 externalOptionIdRaw ?? match.externalOptionId ?? null,
               campaignId: rowCampaignId,
+              campaignIdentity: rowCampaignIdentity,
               campaignName: rowCampaignName,
+              campaignless,
               adGroup: rowAdGroup,
               keyword: rowKeyword,
               placement: cleanString(row.placement),
@@ -450,17 +489,33 @@ export class RawScrapeIngestHandler {
         }
       }
 
+      const projectionRejectionCode = missingStableCampaignIdentity
+        ? 'missing_stable_campaign_identity'
+        : null;
+      if (projectionRejectionCode) {
+        await this.scrapeRepo.updateRunMeta({
+          scrapeRunId: scrapeRun.id,
+          organizationId,
+          metaJson: {
+            ...runMeta,
+            projectionRejectionCode,
+          },
+        });
+      }
+
       await this.scrapeRepo.finalizeRun({
         scrapeRunId: scrapeRun.id,
         organizationId,
-        status: 'complete',
+        status: projectionRejectionCode ? 'partial' : 'complete',
         rowCount: scrapeSnapshotCount,
         matchedCount: scrapeMatched,
         unmatchedCount: scrapeUnmatched,
+        errorCount: projectionRejectionCode ? 1 : 0,
+        errorJson: projectionRejectionCode ? { projectionRejectionCode } : null,
       });
 
       return {
-        success: true,
+        success: projectionRejectionCode === null,
         type: 'raw_scrape',
         source,
         rowCount: rows.length,
@@ -469,6 +524,7 @@ export class RawScrapeIngestHandler {
         optionDailyCount,
         targetDailyCount,
         accountKpiCount,
+        projectionRejectionCode,
         scrapeRunId: scrapeRun.id,
         scrapeSnapshotCount,
         scrapeMatchedCount: scrapeMatched,

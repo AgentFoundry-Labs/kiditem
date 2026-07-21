@@ -145,7 +145,7 @@ describe('AdvertisingController — defaults + body transformations', () => {
   it('GET /campaigns falls back to period 7d when query omitted', () => {
     const { ctrl, svcs } = makeCampaignsController();
     ctrl.getCampaigns({} as any, COMPANY);
-    expect(svcs.campaigns.getCampaigns).toHaveBeenCalledWith('7d', undefined, COMPANY);
+    expect(svcs.campaigns.getCampaigns).toHaveBeenCalledWith('7d', COMPANY);
   });
 
   it('GET /strategy/rules falls back to period 14d when query omitted', () => {

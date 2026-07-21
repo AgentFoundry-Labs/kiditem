@@ -47,31 +47,6 @@ const IS_CAMPAIGN_GRAIN = Prisma.sql`
   END
 `;
 
-// One campaign accumulates several `target_key` values across time because the
-// scraper's identity scheme changed underneath it:
-//
-//   legacy rollup   product:매출 TOP 제품:product::매출 TOP 제품::::::30개
-//   collapsed href  campaign:href:https://advertising.coupang.com/.../sales
-//   current         account:<uuid>:campaign:name:매출 TOP 제품
-//
-// Grouping by `target_key` rendered the same campaign two or three times — once
-// with real numbers and again as an all-zero row (live 2026-07-20: `매출 TOP
-// 제품` and `쿠팡윙 집중광고` twice, `AI스마트광고(wing)` three times). The
-// campaign name is the only identifier stable across all three schemes.
-//
-// Deliberately NOT account/campaignId-scoped. `channel_ad_target_daily_snapshots`
-// has no `channel_account_id` column; the account uuid is embedded only in the
-// current-scheme `target_key`, and `campaign_id` is null on every row today
-// (live 2026-07-21: 1 distinct account uuid across keys, 165/167 rows legacy
-// scheme, 0 rows with a campaign_id). Keying identity on account/campaignId
-// would be a no-op for the single live ad account and would RE-SPLIT a
-// campaign's legacy rows from its current-scheme rows, reviving the exact
-// double-count this dedup removed. Per-account separation belongs on a real
-// `channel_account_id` fact column added at ingest, not on parsing target_key.
-const CAMPAIGN_IDENTITY = Prisma.sql`
-  COALESCE(NULLIF(BTRIM(campaign_name), ''), target_key)
-`;
-
 // Whether the scraped grid actually had a conversion-count column. See
 // `CampaignRollup.conversionsObserved` — the campaign dashboard grid has none,
 // so a campaign-grain zero means "not collected", not "zero conversions".
@@ -88,14 +63,12 @@ export class AdCampaignRepositoryAdapter
   findCampaignRollups(
     organizationId: string,
     period: AdPeriod,
-    campaignName?: string,
   ): Promise<CampaignRollup[]> {
     const cutoff = periodCutoff(period);
     return this.prisma.$queryRaw<CampaignRollup[]>(Prisma.sql`
       WITH campaign_grain AS (
         SELECT
           *,
-          ${CAMPAIGN_IDENTITY} AS campaign_identity,
           ${CONVERSIONS_OBSERVED} AS conversions_observed
         FROM channel_ad_target_daily_snapshots
         WHERE organization_id = ${organizationId}::uuid
@@ -108,11 +81,7 @@ export class AdCampaignRepositoryAdapter
           AND target_type <> 'keyword'
           AND ${IS_CAMPAIGN_GRAIN}
           AND business_date >= ${cutoff}
-          ${
-            campaignName
-              ? Prisma.sql`AND campaign_name = ${campaignName}`
-              : Prisma.empty
-          }
+          AND campaign_identity IS NOT NULL
       ),
       -- Same campaign, same day, several target_key values (one per identity
       -- scheme the scraper has used). They describe the SAME Coupang row, so
@@ -120,16 +89,19 @@ export class AdCampaignRepositoryAdapter
       -- a re-collection that produced real numbers must beat the all-zero row
       -- an earlier failed background sweep left behind.
       daily AS (
-        SELECT DISTINCT ON (campaign_identity, business_date) *
+        SELECT DISTINCT ON (channel_account_id, campaign_identity, business_date) *
         FROM campaign_grain
         ORDER BY
+          channel_account_id,
           campaign_identity,
           business_date,
           (spend + revenue + impressions + clicks + conversions + orders) DESC,
           updated_at DESC
       )
       SELECT
-        campaign_identity           AS "targetKey",
+        channel_account_id::text || ':' || campaign_identity AS "targetKey",
+        channel_account_id          AS "channelAccountId",
+        campaign_identity           AS "campaignIdentity",
         MAX(campaign_id)            AS "campaignId",
         MAX(campaign_name)          AS "campaignName",
         MAX(listing_id::text)::uuid AS "listingId",
@@ -141,14 +113,17 @@ export class AdCampaignRepositoryAdapter
         SUM(orders)::int            AS orders,
         bool_or(conversions_observed) AS "conversionsObserved"
       FROM daily
-      GROUP BY campaign_identity
+      GROUP BY channel_account_id, campaign_identity
     `);
   }
 
   findProductTargetRollups(
     organizationId: string,
     period: AdPeriod,
-    campaignName?: string,
+    campaign?: {
+      channelAccountId: string;
+      campaignIdentity: string;
+    },
   ): Promise<ProductTargetRollup[]> {
     const cutoff = periodCutoff(period);
     return this.prisma.$queryRaw<ProductTargetRollup[]>(Prisma.sql`
@@ -165,11 +140,12 @@ export class AdCampaignRepositoryAdapter
           -- campaign would list the campaign's own rollup as a "product".
           AND ${IS_PRODUCT_GRAIN}
           AND business_date >= ${cutoff}
-          ${
-            campaignName
-              ? Prisma.sql`AND campaign_name = ${campaignName}`
-              : Prisma.empty
-          }
+          ${campaign
+            ? Prisma.sql`
+                AND channel_account_id = ${campaign.channelAccountId}::uuid
+                AND campaign_identity = ${campaign.campaignIdentity}
+              `
+            : Prisma.empty}
       ),
       rollups AS (
         SELECT
@@ -186,6 +162,8 @@ export class AdCampaignRepositoryAdapter
       latest AS (
         SELECT DISTINCT ON (target_key)
           target_key AS "targetKey",
+          channel_account_id AS "channelAccountId",
+          campaign_identity AS "campaignIdentity",
           campaign_id AS "campaignId",
           campaign_name AS "campaignName",
           listing_id::text AS "listingId",
@@ -201,6 +179,8 @@ export class AdCampaignRepositoryAdapter
       )
       SELECT
         rollups."targetKey",
+        latest."channelAccountId",
+        latest."campaignIdentity",
         latest."campaignId",
         latest."campaignName",
         latest."listingId"::uuid AS "listingId",

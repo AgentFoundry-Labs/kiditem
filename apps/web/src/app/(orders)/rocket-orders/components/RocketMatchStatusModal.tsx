@@ -3,14 +3,21 @@
 import { useEffect } from 'react';
 import { Package, X } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import type { RocketComputedRow, RocketMatchKind } from '../lib/rocket-confirm-api';
 
-type MatchBucket = RocketMatchKind | 'none';
+export interface RocketMatchStatusRow {
+  poLineId: string;
+  poNumber: string;
+  productName: string;
+  barcode: string;
+  orderQuantity: number;
+  availableStock: number | null;
+  mapped: boolean;
+}
 
-/** 행 하나의 매칭 방식 판정. available 이 없으면 미매칭, matchKind 가 없으면 바코드(정확)로 본다. */
-function bucketOf(row: RocketComputedRow): MatchBucket {
-  if (row.available === null) return 'none';
-  return row.matchKind ?? 'barcode';
+type MatchBucket = 'mapped' | 'none';
+
+function bucketOf(row: RocketMatchStatusRow): MatchBucket {
+  return row.mapped ? 'mapped' : 'none';
 }
 
 const BUCKET_META: Record<MatchBucket, { label: string; chip: string; order: number; hint: string }> = {
@@ -20,29 +27,17 @@ const BUCKET_META: Record<MatchBucket, { label: string; chip: string; order: num
     order: 0,
     hint: '셀피아 재고에서 못 찾음 — 매핑 필요',
   },
-  'name-fuzzy': {
-    label: '유사',
-    chip: 'bg-amber-50 text-amber-600',
-    order: 1,
-    hint: '상품명 유사(퍼지) 매칭 — 오매칭 가능, 꼭 확인',
-  },
-  name: {
-    label: '이름',
-    chip: 'bg-sky-50 text-sky-600',
-    order: 2,
-    hint: '바코드가 아닌 상품명으로 매칭 — 확인 권장',
-  },
-  barcode: {
-    label: '정확',
+  mapped: {
+    label: '구성 확인',
     chip: 'bg-slate-100 text-slate-500',
-    order: 3,
-    hint: '바코드 정확 매칭 — 신뢰',
+    order: 1,
+    hint: '채널 옵션과 Sellpia 구성 레시피가 확인됨',
   },
 };
 
 /**
  * 쿠팡 로켓 발주 상품이 셀피아 재고에 "어떻게" 매칭됐는지 한눈에 보는 현황 모달.
- * 위험한(미매칭 → 유사 → 이름) 순으로 정렬해 검수가 필요한 행을 먼저 보여준다.
+ * 미매칭 행을 먼저 정렬해 구성 레시피 검수가 필요한 항목을 보여준다.
  */
 export function RocketMatchStatusModal({
   open,
@@ -53,7 +48,7 @@ export function RocketMatchStatusModal({
 }: {
   open: boolean;
   onClose: () => void;
-  rows: RocketComputedRow[];
+  rows: RocketMatchStatusRow[];
   date: string | null;
   title?: string;
 }) {
@@ -73,9 +68,9 @@ export function RocketMatchStatusModal({
       acc[bucketOf(row)] += 1;
       return acc;
     },
-    { none: 0, 'name-fuzzy': 0, name: 0, barcode: 0 } as Record<MatchBucket, number>,
+    { none: 0, mapped: 0 } as Record<MatchBucket, number>,
   );
-  const needsReview = counts.none + counts['name-fuzzy'] + counts.name;
+  const needsReview = counts.none;
   const sorted = [...rows].sort((a, b) => BUCKET_META[bucketOf(a)].order - BUCKET_META[bucketOf(b)].order);
 
   return (
@@ -110,7 +105,7 @@ export function RocketMatchStatusModal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs">
-          {(['barcode', 'name', 'name-fuzzy', 'none'] as MatchBucket[]).map((bucket) => (
+          {(['mapped', 'none'] as MatchBucket[]).map((bucket) => (
             <span key={bucket} className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium', BUCKET_META[bucket].chip)}>
               {BUCKET_META[bucket].label}
               <b className="tabular-nums">{formatNumber(counts[bucket])}</b>
@@ -136,7 +131,7 @@ export function RocketMatchStatusModal({
                 const bucket = bucketOf(row);
                 const meta = BUCKET_META[bucket];
                 return (
-                  <tr key={`${row.poNumber}-${row.barcode}-${i}`} className="border-t border-slate-100 align-top">
+                  <tr key={row.poLineId || `${row.poNumber}-${row.barcode}-${i}`} className="border-t border-slate-100 align-top">
                     <td className="max-w-[320px] px-4 py-2">
                       <div className="truncate text-slate-700">{row.productName || '—'}</div>
                       <div className="font-mono text-[10px] text-slate-400">{row.barcode || '—'}</div>
@@ -152,16 +147,16 @@ export function RocketMatchStatusModal({
                           >
                             {meta.label}
                           </span>
-                          <span className="truncate text-slate-600">{row.matchedName || '—'}</span>
+                          <span className="truncate text-slate-600">Sellpia 구성 레시피 확인</span>
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">{formatNumber(row.orderQty)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">{formatNumber(row.orderQuantity)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">
-                      {row.available === null ? (
+                      {row.availableStock === null ? (
                         <span className="text-red-400">—</span>
                       ) : (
-                        <span className="text-slate-600">{formatNumber(row.available)}</span>
+                        <span className="text-slate-600">{formatNumber(row.availableStock)}</span>
                       )}
                     </td>
                   </tr>
@@ -172,7 +167,7 @@ export function RocketMatchStatusModal({
         </div>
 
         <div className="border-t border-slate-100 px-5 py-3 text-[11px] text-slate-400">
-          <b className="text-slate-500">정확</b>(바코드)은 신뢰, <b className="text-sky-600">이름</b>·<b className="text-amber-600">유사</b>는 상품명 기반이라 오매칭 가능 — 위쪽부터 확인하세요.
+          <b className="text-slate-500">구성 확인</b>은 채널 옵션과 ProductVariant 구성 레시피가 검증된 상태입니다. 미매칭은 상품 매칭 센터에서 먼저 처리하세요.
         </div>
       </div>
     </div>

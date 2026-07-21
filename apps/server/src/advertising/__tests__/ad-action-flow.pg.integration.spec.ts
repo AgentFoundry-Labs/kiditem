@@ -155,14 +155,25 @@ describe('AdAction flow (PG integration)', () => {
     // Today's KST business date (same `@db.Date` shape ingestion writes).
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const listing = await prisma.channelListing.findFirstOrThrow({
+      where: {
+        id: params.listingId,
+        organizationId: params.organizationId,
+      },
+      select: { channelAccountId: true },
+    });
+    const campaignIdentity = params.campaignName
+      ? `campaign:test:${params.campaignName}`
+      : null;
 
     // targetKey shape per util/ad-target-key.ts
-    const targetKey =
+    const targetKeySuffix =
       params.pageType === 'keyword'
         ? `keyword:${params.campaignName ?? 'C'}::${params.keyword ?? params.externalId}`
         : params.pageType === 'product'
           ? `product:${params.externalId}`
           : `campaign:${params.campaignName ?? params.externalId}`;
+    const targetKey = `account:${listing.channelAccountId}:${targetKeySuffix}`;
 
     // When the test passes `roas` without an explicit spend, default spend to
     // 1000 so `recomputeRoas(revenue, spend)` returns the intended ratio.
@@ -178,6 +189,7 @@ describe('AdAction flow (PG integration)', () => {
     return prisma.channelAdTargetDailySnapshot.create({
       data: {
         organizationId: params.organizationId,
+        channelAccountId: listing.channelAccountId,
         channel: 'coupang',
         businessDate: today,
         targetType: params.pageType,
@@ -186,6 +198,7 @@ describe('AdAction flow (PG integration)', () => {
         listingOptionId: params.listingOptionId ?? null,
         externalId: params.externalId,
         campaignName: params.campaignName ?? null,
+        campaignIdentity,
         keyword: params.keyword ?? null,
         status: params.status ?? null,
         currentBid: params.currentBid ?? null,

@@ -13,6 +13,7 @@ import {
 } from '../../../__tests__/test-helpers/build-mock-ports';
 
 describe('AdCampaignsService', () => {
+  const channelAccountId = '11111111-1111-4111-8111-111111111111';
   let service: AdCampaignsService;
   let campaignRepo: MockAdCampaignRepo;
   let listingRepo: MockAdListingRepo;
@@ -43,6 +44,8 @@ describe('AdCampaignsService', () => {
     campaignRepo.findCampaignRollups.mockResolvedValue([
       {
         targetKey: 'campaign:CMP-1',
+        channelAccountId,
+        campaignIdentity: 'campaign:CMP-1',
         campaignId: 'CMP-1',
         campaignName: 'Campaign One',
         listingId: 'L1',
@@ -75,7 +78,7 @@ describe('AdCampaignsService', () => {
       ]),
     );
 
-    const result = await service.getCampaigns('7d', undefined, 'organization-1');
+    const result = await service.getCampaigns('7d', 'organization-1');
 
     expect(result).toHaveLength(1);
     expect(result[0].listing!.listingId).toBe('L1');
@@ -195,6 +198,8 @@ describe('AdCampaignsService', () => {
     campaignRepo.findCampaignRollups.mockResolvedValue([
       {
         targetKey: 'campaign:매출 TOP 제품',
+        channelAccountId,
+        campaignIdentity: 'campaign:top-sales',
         campaignId: null,
         campaignName: '매출 TOP 제품',
         listingId: null,
@@ -207,7 +212,7 @@ describe('AdCampaignsService', () => {
       },
     ]);
 
-    const result = await service.getCampaigns('14d', undefined, 'organization-1');
+    const result = await service.getCampaigns('14d', 'organization-1');
 
     expect(result).toHaveLength(1);
     expect(result[0].listing).toBeNull();
@@ -220,6 +225,8 @@ describe('AdCampaignsService', () => {
     campaignRepo.findCampaignRollups.mockResolvedValue([
       {
         targetKey: 'campaign:매출 TOP 제품',
+        channelAccountId,
+        campaignIdentity: 'campaign:top-sales',
         campaignId: null,
         campaignName: '매출 TOP 제품',
         listingId: null,
@@ -232,7 +239,7 @@ describe('AdCampaignsService', () => {
       },
     ]);
 
-    const result = await service.getCampaigns('7d', undefined, 'organization-1');
+    const result = await service.getCampaigns('7d', 'organization-1');
 
     expect(result).toHaveLength(1);
     expect(result[0].metrics.revenue).toBe(232990);
@@ -244,6 +251,8 @@ describe('AdCampaignsService', () => {
     campaignRepo.findProductTargetRollups.mockResolvedValue([
       {
         targetKey: 'product:VENDOR-1',
+        channelAccountId,
+        campaignIdentity: null,
         campaignId: null,
         campaignName: null,
         listingId: null,
@@ -330,7 +339,7 @@ describe('AdCampaignsService', () => {
   // organizationId propagation + period call-shape tests removed — covered by
   // check:idor / check:tenant-scope scanners and ad-strategy-flow integration.
   it('empty state — no daily rows returns explicit empty (legacy ignored)', async () => {
-    const campaigns = await service.getCampaigns('7d', undefined, 'organization-1');
+    const campaigns = await service.getCampaigns('7d', 'organization-1');
     const trends = await service.getTrends('14d', undefined, 'organization-1');
 
     expect(campaigns).toEqual([]);

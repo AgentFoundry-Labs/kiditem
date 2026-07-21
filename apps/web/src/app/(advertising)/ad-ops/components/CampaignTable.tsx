@@ -11,8 +11,22 @@ interface Props {
   campaigns: AdCampaignSnapshot[];
   sortBy: 'revenue' | 'roas';
   onSortChange: (sort: 'revenue' | 'roas') => void;
-  selectedCampaign: string | null;
-  onSelectCampaign: (name: string | null) => void;
+  selectedCampaign: CampaignSelection | null;
+  onSelectCampaign: (campaign: CampaignSelection | null) => void;
+}
+
+export interface CampaignSelection {
+  channelAccountId: string;
+  campaignIdentity: string;
+  campaignName: string;
+}
+
+function isSelected(
+  selected: CampaignSelection | null,
+  campaign: Pick<AdCampaignSnapshot, 'channelAccountId' | 'campaignIdentity'>,
+) {
+  return selected?.channelAccountId === campaign.channelAccountId &&
+    selected.campaignIdentity === campaign.campaignIdentity;
 }
 
 export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaign, onSelectCampaign }: Props) {
@@ -71,13 +85,18 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
               </tr>
             )}
             {sorted.map((c) => {
-              const rowKey = `${c.campaignName ?? c.campaignId ?? c.listing?.listingId ?? 'unknown'}`;
+              const rowKey = `${c.channelAccountId}:${c.campaignIdentity}`;
               const displayName = c.campaignName ?? c.listing?.channelName ?? c.listing?.masterProduct.name ?? '알 수 없는 캠페인';
+              const selection = {
+                channelAccountId: c.channelAccountId,
+                campaignIdentity: c.campaignIdentity,
+                campaignName: displayName,
+              } satisfies CampaignSelection;
               return (
                 <tr
                   key={rowKey}
-                  onClick={() => onSelectCampaign(selectedCampaign === c.campaignName ? null : c.campaignName)}
-                  className={cn('cursor-pointer transition-colors', selectedCampaign === c.campaignName ? 'bg-purple-50' : 'hover:bg-slate-50')}
+                  onClick={() => onSelectCampaign(isSelected(selectedCampaign, c) ? null : selection)}
+                  className={cn('cursor-pointer transition-colors', isSelected(selectedCampaign, c) ? 'bg-purple-50' : 'hover:bg-slate-50')}
                 >
                   <td className="font-medium text-slate-900 max-w-[240px] truncate">
                     {displayName}

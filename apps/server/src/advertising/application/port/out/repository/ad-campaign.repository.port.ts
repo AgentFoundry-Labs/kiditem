@@ -8,6 +8,8 @@ export const AD_CAMPAIGN_REPOSITORY_PORT = Symbol('AdCampaignRepositoryPort');
 
 export interface CampaignRollup {
   targetKey: string;
+  channelAccountId: string;
+  campaignIdentity: string;
   campaignId: string | null;
   campaignName: string | null;
   listingId: string | null;
@@ -33,6 +35,8 @@ export interface CampaignRollup {
 
 export interface ProductTargetRollup {
   targetKey: string;
+  channelAccountId: string;
+  campaignIdentity: string | null;
   campaignId: string | null;
   campaignName: string | null;
   listingId: string | null;
@@ -67,31 +71,24 @@ export interface AdTrendDailyAggregate {
 }
 
 export interface AdCampaignRepositoryPort {
-  /**
-   * Campaign-grain rollup, merged by campaign identity.
-   *
-   * One campaign accumulates several `target_key` values over time because the
-   * identity scheme changed (legacy `product:<name>:<synthetic>`, the collapsed
-   * `campaign:href:<dashboard list url>`, and the current
-   * `account:<id>:campaign:name:<name>`). Grouping by `target_key` therefore
-   * rendered the same campaign two or three times — once with real numbers and
-   * again as an all-zero row. Merge on campaign identity instead.
-   */
+  /** Campaign-grain rollup keyed by `(channelAccountId, campaignIdentity)`. */
   findCampaignRollups(
     organizationId: string,
     period: AdPeriod,
-    campaignName?: string,
   ): Promise<CampaignRollup[]>;
 
   /**
    * Product-grain rollup. `targetType='product'` with product identity.
-   * `campaignName` narrows to one campaign's member products for the
-   * per-campaign detail table; campaign rollup rows never leak in.
+   * The composite campaign selector narrows to one campaign's member products;
+   * campaign rollup rows never leak in.
    */
   findProductTargetRollups(
     organizationId: string,
     period: AdPeriod,
-    campaignName?: string,
+    campaign?: {
+      channelAccountId: string;
+      campaignIdentity: string;
+    },
   ): Promise<ProductTargetRollup[]>;
 
   /** Raw per-(listing, businessDate) rows for trend folding. */

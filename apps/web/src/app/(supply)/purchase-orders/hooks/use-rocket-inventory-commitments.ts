@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   listRocketInventoryCommitments,
   releaseRocketFinalOrderCommitments,
@@ -10,12 +10,15 @@ import {
 export function useRocketInventoryCommitments(channelAccountId: string) {
   const queryClient = useQueryClient();
   const queryKey = ['rocket-inventory-commitments', channelAccountId] as const;
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey,
-    queryFn: () => listRocketInventoryCommitments({
+    queryFn: ({ pageParam }) => listRocketInventoryCommitments({
       channelAccountId,
+      ...(pageParam ? { cursor: pageParam } : {}),
       limit: 50,
     }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: Boolean(channelAccountId),
   });
   const invalidate = () => queryClient.invalidateQueries({ queryKey });

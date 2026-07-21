@@ -1039,4 +1039,122 @@ describe('RocketPurchaseWorkspace', () => {
     expect(collectRocketPoRowsForConfirmationFromExtension).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+
+  it('clears account A in-memory confirmation when switching to B so B is not blocked', async () => {
+    const accountB = '12121212-1212-4212-8212-121212121212';
+    const savedRunA = '77777777-7777-4777-8777-777777777777';
+    const savedRunB = '88888888-8888-4888-8888-888888888888';
+    const confirmationLineB = {
+      ...confirmationLineA,
+      poLineId: '2002:P-B:8800000000002:1',
+      poNumber: '2002',
+      productNo: 'P-B',
+      barcode: '8800000000002',
+      productName: '상품 B',
+      vendorId: 'VENDOR-2',
+    };
+    vi.mocked(loadSavedRocketCollection).mockImplementation(async ({
+      channelAccountId,
+      sourceImportRunId,
+    }) => ({
+      sourceImportRunId,
+      channelAccountId,
+      collection: {
+        collectionRunId: sourceImportRunId,
+        vendorId: channelAccountId === ACCOUNT_ID ? 'VENDOR-1' : 'VENDOR-2',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 1,
+        failedPoNumbers: [],
+      },
+      rows: [channelAccountId === ACCOUNT_ID ? confirmationLineA : confirmationLineB],
+    }));
+    vi.mocked(previewRocketPurchases).mockImplementation(async ({ rows }) => ({
+      collectionRunId: rows[0]!.poNumber === '1001' ? savedRunA : savedRunB,
+      catalog: catalogPublication(1),
+      inventoryGeneration: '12',
+      rows: [{
+        ...previewRow(rows[0]!, 3),
+        channelSkuId: '66666666-6666-4666-8666-666666666666',
+        masterProductId: '77777777-7777-4777-8777-777777777777',
+        productVariantId: '88888888-8888-4888-8888-888888888888',
+        components: [{
+          sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
+          quantity: 1,
+          currentStock: 3,
+          activeCommitmentQuantity: 0,
+          availableStock: 3,
+          isActive: true,
+        }],
+      }],
+    }));
+    const activeConfirmation = {
+      confirmationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      status: 'active' as const,
+      duplicate: false,
+      inventoryGeneration: '12',
+      confirmedAt: '2026-07-17T00:00:00.000Z',
+      totals: {
+        lineCount: 1,
+        orderQuantity: 3,
+        confirmedQuantity: 3,
+        allocatedQuantity: 3,
+      },
+      rows: [{
+        poLineId: confirmationLineA.poLineId,
+        confirmedQuantity: 3,
+        shortageReason: null,
+      }],
+    };
+    vi.mocked(confirmRocketPurchase).mockImplementation(async ({ channelAccountId }) => ({
+      ...activeConfirmation,
+      confirmationId: channelAccountId === ACCOUNT_ID
+        ? activeConfirmation.confirmationId
+        : 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      rows: [{
+        poLineId: channelAccountId === ACCOUNT_ID
+          ? confirmationLineA.poLineId
+          : confirmationLineB.poLineId,
+        confirmedQuantity: 3,
+        shortageReason: null,
+      }],
+    }));
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <RocketPurchaseWorkspace
+        channelAccountId={ACCOUNT_ID}
+        from={FROM}
+        to={TO}
+        savedSourceImportRunId={savedRunA}
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: '확정 후 엑셀 다운로드' }));
+    expect(await screen.findByRole('button', { name: '예약 종료' })).toBeInTheDocument();
+    vi.mocked(buildRocketConfirmationWorkbook).mockClear();
+
+    rerender(
+      <RocketPurchaseWorkspace
+        channelAccountId={accountB}
+        from={FROM}
+        to={TO}
+        savedSourceImportRunId={savedRunB}
+      />,
+    );
+    await waitFor(() => expect(loadSavedRocketCollection).toHaveBeenCalledWith({
+      channelAccountId: accountB,
+      sourceImportRunId: savedRunB,
+    }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: '예약 종료' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeEnabled();
+    });
+    await user.click(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' }));
+    expect(confirmRocketPurchase).toHaveBeenCalledTimes(2);
+    expect(confirmRocketPurchase).toHaveBeenLastCalledWith(expect.objectContaining({
+      channelAccountId: accountB,
+    }));
+  });
 });

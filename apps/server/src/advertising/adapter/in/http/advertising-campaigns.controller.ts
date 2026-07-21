@@ -24,7 +24,12 @@ export class AdvertisingCampaignsController {
     return this.adCampaignsService.getProducts(
       query.period ?? '14d',
       organizationId,
-      query.campaign,
+      query.channelAccountId && query.campaignIdentity
+        ? {
+            channelAccountId: query.channelAccountId,
+            campaignIdentity: query.campaignIdentity,
+          }
+        : undefined,
     );
   }
 
@@ -44,6 +49,6 @@ export class AdvertisingCampaignsController {
   @Get('campaigns')
   getCampaigns(@Query() query: CampaignQueryDto, @CurrentOrganization() organizationId: string) {
     const period = (query.period ?? '7d') as '7d' | '14d' | 'month';
-    return this.adCampaignsService.getCampaigns(period, query.campaign, organizationId);
+    return this.adCampaignsService.getCampaigns(period, organizationId);
   }
 }

@@ -1,4 +1,5 @@
 import { AdCampaignReportScopeSchema } from '@kiditem/shared/advertising';
+import { canonicalCampaignIdentity } from './util/ad-target-key';
 
 export interface CampaignReportAuthorityInput {
   campaignReportScope?: string | null;
@@ -16,10 +17,12 @@ export interface CampaignReportAuthorityDecision {
     | 'non_authoritative_scope'
     | 'missing_scope'
     | 'unknown_scope'
+    | 'missing_stable_campaign_identity'
     | 'invalid_authoritative_shape'
     | 'invalid_date_range';
   projectionRejectionCode:
     | null
+    | 'missing_stable_campaign_identity'
     | 'invalid_authoritative_shape'
     | 'invalid_date_range';
 }
@@ -35,10 +38,10 @@ function normalizedState(value: unknown): string | null {
 }
 
 function campaignIdentity(row: Record<string, unknown>): string | null {
-  const campaignId = normalizedString(row.campaignId);
-  if (campaignId) return `id:${campaignId}`;
-  const identity = normalizedString(row.campaignIdentity);
-  return identity ? `identity:${identity}` : null;
+  return canonicalCampaignIdentity({
+    campaignId: normalizedString(row.campaignId),
+    campaignIdentity: normalizedString(row.campaignIdentity),
+  });
 }
 
 function rawDecision(
@@ -90,9 +93,13 @@ export function resolveCampaignReportAuthority(
 
   const identities = new Set<string>();
   let shapeValid = rows.length > 0;
+  let missingStableIdentity = false;
   for (const row of rows) {
     const identity = campaignIdentity(row);
-    if (!identity) shapeValid = false;
+    if (!identity) {
+      shapeValid = false;
+      missingStableIdentity = true;
+    }
     else identities.add(identity);
   }
 
@@ -114,6 +121,13 @@ export function resolveCampaignReportAuthority(
     identities.size === 1 &&
     (hasOnDetails || hasExplicitEmptyOn);
   if (!shapeValid) {
+    if (missingStableIdentity) {
+      return rawDecision(
+        requestedScope,
+        'missing_stable_campaign_identity',
+        'missing_stable_campaign_identity',
+      );
+    }
     return rawDecision(
       requestedScope,
       'invalid_authoritative_shape',

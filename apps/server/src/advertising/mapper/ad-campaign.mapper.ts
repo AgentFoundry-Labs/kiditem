@@ -32,6 +32,8 @@ export function toAdCampaignSnapshot(
 ): AdCampaignSnapshot {
   return {
     listing: listing ? scopedListingToSummary(listing) : null,
+    channelAccountId: rollup.channelAccountId,
+    campaignIdentity: rollup.campaignIdentity,
     campaignId: rollup.campaignId,
     campaignName: rollup.campaignName,
     period,
@@ -62,6 +64,8 @@ export function toAdProductSnapshot(
     null;
   return {
     listing: listing ? scopedListingToSummary(listing) : null,
+    channelAccountId: rollup.channelAccountId,
+    campaignIdentity: rollup.campaignIdentity,
     externalId: rollup.externalId,
     externalOptionId: rollup.externalOptionId,
     campaignId: rollup.campaignId,

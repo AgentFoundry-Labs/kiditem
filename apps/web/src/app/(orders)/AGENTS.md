@@ -49,11 +49,10 @@ React Query + apiClient
 - Channel SKU recipe repair remains exclusively in the independently reachable
   `/product-hub/matching` route.
 - `/rocket-orders` keeps the baseline calendar/list/file-history composition.
-  The calendar is fed by the user's original saved-PO path
-  (`/api/orders/rocket/saved-pos`, `rocket_purchase_orders`) merged with the
-  Supply catalog-snapshot list, and it injects the original `RocketConfirmPanel`
-  through the workspace `decisionWorkspace` render prop. Confirmation is
-  read-only with respect to provider and physical Sellpia stock actions.
+  Its calendar and reopened evidence use the account-scoped Supply catalog
+  snapshot actions, and it injects `RocketConfirmPanel` through the workspace
+  `decisionWorkspace` render prop. Confirmation is read-only with respect to
+  provider and physical Sellpia stock actions.
 
 ## Boundary Rules
 
@@ -64,11 +63,9 @@ React Query + apiClient
 - Picking and return-transfer operations reference physical
   `SellpiaInventorySku` rows and update operational records only; do not
   present them as direct Sellpia stock changes.
-- The product-centered Rocket inventory preview uses the shared Supply
-  workspace and `/api/purchase-orders` action contract. The saved-PO calendar
-  and confirmation panel use the orders-owned `/api/orders/rocket/*` endpoints
-  (user original, commit `03123c2f`); reservations persist to
-  `RocketPoReservation` and never mutate physical Sellpia stock.
+- Rocket catalog listing, saved evidence load, preview, confirmation, workbook,
+  and release use the shared Supply `/api/purchase-orders` action contract.
+  `InventoryCommitment` is the only active stock hold ledger.
 - Extension-backed queries that render local error UI may suppress the global
   React Query error toast with query meta.
 - A successful order-collector extension submit is a Sellpia transmission

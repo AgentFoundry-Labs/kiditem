@@ -1881,9 +1881,20 @@
   function canonicalCampaignHref(value) {
     try {
       const url = new URL(value, window.location.href);
+      if (
+        url.protocol !== "https:" ||
+        url.hostname.toLowerCase() !== "advertising.coupang.com" ||
+        url.username ||
+        url.password ||
+        url.port
+      ) return "";
       url.hash = "";
       const pathname = url.pathname.replace(/\/+$/, "") || "/";
-      return `${url.origin}${pathname}${url.search}`;
+      const sortedSearch = new URLSearchParams(
+        [...url.searchParams.entries()].sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+          leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue)),
+      ).toString();
+      return `${url.origin}${pathname}${sortedSearch ? `?${sortedSearch}` : ""}`;
     } catch {
       return "";
     }
@@ -1892,16 +1903,30 @@
   function campaignIdFromHref(value) {
     try {
       const url = new URL(value, window.location.href);
-      for (const key of ["campaignId", "campaignID", "campaignNo", "campaign_id"]) {
-        const id = normalizeText(url.searchParams.get(key) || "");
-        if (id) return id;
-      }
+      if (
+        url.protocol !== "https:" ||
+        url.hostname.toLowerCase() !== "advertising.coupang.com" ||
+        url.username ||
+        url.password ||
+        url.port
+      ) return null;
       const segments = url.pathname.split("/").filter(Boolean);
       const campaignIndex = segments.findIndex((segment) => segment.toLowerCase() === "campaign");
-      const candidate = campaignIndex >= 0 ? segments[campaignIndex + 1] : "";
-      if (candidate && !/^(?:type|registration|create|new)$/i.test(candidate)) {
-        return decodeURIComponent(candidate);
-      }
+      if (campaignIndex < 0) return null;
+      const pathCandidate = normalizeText(segments[campaignIndex + 1] || "");
+      const pathId = pathCandidate &&
+        !/^(?:type|registration|create|new|product|detail|dashboard|sales)$/i.test(pathCandidate)
+        ? decodeURIComponent(pathCandidate)
+        : null;
+      const queryIds = [...url.searchParams.entries()]
+        .filter(([key]) => ["campaignid", "campaignno", "campaign_id"].includes(key.toLowerCase()))
+        .map(([, entryValue]) => normalizeText(entryValue))
+        .filter(Boolean);
+      const uniqueQueryIds = [...new Set(queryIds)];
+      if (uniqueQueryIds.length > 1) return null;
+      const queryId = uniqueQueryIds[0] || null;
+      if (pathId && queryId && pathId !== queryId) return null;
+      return queryId || pathId;
     } catch {}
     return null;
   }
@@ -1915,7 +1940,7 @@
   function isCampaignDetailHref(value) {
     if (!value) return false;
     if (isDashboardListHref(value)) return false;
-    return /\/campaign\//.test(value) || /campaignId=/i.test(value);
+    return campaignIdFromHref(value) !== null;
   }
 
   function isDashboardListHref(value) {
@@ -1927,16 +1952,13 @@
     }
   }
 
-  // `campaignName` 은 상세 URL 이 없는 캠페인의 마지막 식별 수단이다.
-  // 이름은 대시보드 행 단위로 유일하지 않을 수 있지만, 목록 URL 하나로
-  // 전부 겹치는 것보다는 훨씬 낫다.
-  function campaignIdentityFromHref(value, campaignName) {
+  // 표시명은 identity가 아니다. provider campaign id 또는 캠페인 전용 상세
+  // href가 없는 행은 raw dashboard evidence에만 남기고 authoritative detail
+  // projection에서는 제외한다.
+  function campaignIdentityFromHref(value) {
     const campaignId = campaignIdFromHref(value);
     if (campaignId) return `campaign:${campaignId}`;
-    const href = canonicalCampaignHref(value);
-    if (isCampaignDetailHref(href)) return `href:${href}`;
-    const name = normalizeText(campaignName || "");
-    return name ? `name:${name}` : null;
+    return null;
   }
 
   function campaignIdentityMatches(campaign, currentHref = window.location.href) {

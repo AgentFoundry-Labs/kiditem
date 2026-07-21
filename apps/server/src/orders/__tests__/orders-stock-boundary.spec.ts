@@ -17,11 +17,13 @@ function productionTypeScriptFiles(directory: string): string[] {
 }
 
 describe('Orders stock boundary', () => {
-  // 사용자 원본(03123c2f) 로켓 발주확정 백엔드 복원: 저장 발주(rocket_purchase_orders)
-  // 달력/미리보기 공급을 위해 컨트롤러·서비스를 되살렸다. (되돌린 리팩터 = 4547f07e)
-  it('exposes the restored Rocket purchase-decision backend', () => {
-    expect(existsSync(path.join(ORDERS_ROOT, 'controllers/rocket-po.controller.ts'))).toBe(true);
-    expect(existsSync(path.join(ORDERS_ROOT, 'services/rocket-po-confirm.service.ts'))).toBe(true);
+  it('does not register a duplicate Rocket purchase-decision backend', () => {
+    expect(existsSync(path.join(ORDERS_ROOT, 'controllers/rocket-po.controller.ts'))).toBe(false);
+    expect(existsSync(path.join(ORDERS_ROOT, 'services/rocket-po-confirm.service.ts'))).toBe(false);
+
+    const moduleSource = readFileSync(path.join(ORDERS_ROOT, 'orders.module.ts'), 'utf8');
+    expect(moduleSource).not.toContain('RocketPoController');
+    expect(moduleSource).not.toContain('RocketPoConfirmService');
   });
 
   it('reads Sellpia inventory but never re-owns Inventory stock decisions', () => {
@@ -29,16 +31,31 @@ describe('Orders stock boundary', () => {
       .map((file) => readFileSync(file, 'utf8'))
       .join('\n');
 
-    // 로켓 예약은 전용 RocketPoReservation 테이블로 셀피아 재고 위에 얹는다.
-    // orders 는 SellpiaInventorySku.currentStock 을 읽기만 하고, Inventory 모듈/포트나
-    // Inventory 소유 재고 필드(reservedStock)·로켓 원장을 직접 소유하지 않는다.
+    // Rocket confirmation/commitment is Supply + Inventory owned. Orders must
+    // not create an accountless parallel reservation or mutate physical stock.
     for (const forbidden of [
       'InventoryModule',
       'INVENTORY_PORT',
       'reservedStock',
       'RocketInventoryLedger',
+      'RocketPoReservation',
+      '/api/orders/rocket',
     ]) {
       expect(source, `orders production code still contains ${forbidden}`).not.toContain(forbidden);
     }
+  });
+});
+
+describe('Rocket reservation schema boundary', () => {
+  it('keeps InventoryCommitment as the only active Rocket stock hold ledger', () => {
+    const prismaModels = path.resolve(ORDERS_ROOT, '../../../../prisma/models');
+    const schema = readdirSync(prismaModels)
+      .filter((entry) => entry.endsWith('.prisma'))
+      .map((entry) => readFileSync(path.join(prismaModels, entry), 'utf8'))
+      .join('\n');
+
+    expect(schema).not.toContain('model RocketPoReservation');
+    expect(schema).not.toContain('rocketPoReservations');
+    expect(schema).toContain('model InventoryCommitment');
   });
 });

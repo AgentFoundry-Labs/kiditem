@@ -3,7 +3,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-preview';
 import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
-import { RocketOrdersWorkspace } from './RocketOrdersWorkspace';
+import {
+  RocketOrdersWorkspace,
+  type RocketDecisionWorkspaceContext,
+} from './RocketOrdersWorkspace';
 
 const rocketAccountId = '11111111-1111-4111-8111-111111111111';
 const sourceImportRunId = '22222222-2222-4222-8222-222222222222';
@@ -74,30 +77,52 @@ vi.mock('./RocketAccountBootstrap', () => ({
   RocketAccountBootstrap: ({
     onAccountChange,
   }: {
-    onAccountChange: (account: { id: string; vendorId: string | null }) => void;
+    onAccountChange: (account: {
+      id: string;
+      name: string;
+      vendorId: string | null;
+    } | null) => void;
   }) => {
     useEffect(() => {
-      onAccountChange({ id: rocketAccountId, vendorId: 'ROCKET' });
+      onAccountChange({ id: rocketAccountId, name: '로켓 1호점', vendorId: 'ROCKET' });
     }, [onAccountChange]);
-    return null;
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => onAccountChange({
+            id: '12121212-1212-4212-8212-121212121212',
+            name: '로켓 2호점',
+            vendorId: 'ROCKET-2',
+          })}
+        >
+          테스트 로켓 계정 변경
+        </button>
+        <button type="button" onClick={() => onAccountChange(null)}>
+          테스트 로켓 계정 해제
+        </button>
+      </>
+    );
   },
 }));
 
 function renderWorkspace(options?: {
   onSelectDate?: (date: string | null) => void;
-  savedDays?: Record<string, { count: number; qty: number; amount: number }>;
+  onContext?: (context: RocketDecisionWorkspaceContext) => void;
 }) {
   return render(
     <RocketOrdersWorkspace
-      decisionWorkspace={({ renderOrderExplorer }) => (
-        <section aria-label="상단 통합 달력">
-          {renderOrderExplorer({
-            disabled: false,
-            onSelectDate: options?.onSelectDate ?? vi.fn(),
-            savedDays: options?.savedDays ?? {},
-          })}
-        </section>
-      )}
+      decisionWorkspace={(context) => {
+        options?.onContext?.(context);
+        return (
+          <section aria-label="상단 통합 달력">
+            {context.renderOrderExplorer({
+              disabled: false,
+              onSelectDate: options?.onSelectDate ?? vi.fn(),
+            })}
+          </section>
+        );
+      }}
     />,
   );
 }
@@ -137,12 +162,12 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     expect(screen.getByRole('button', { name: '2026-07-19 발주 1건' })).toHaveClass('bg-purple-50');
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
-    expect(onPreviewDate).toHaveBeenLastCalledWith('2026-07-18');
+    expect(onPreviewDate).toHaveBeenLastCalledWith('2026-07-18', 1);
     expect(screen.getByText('18일 주문 상품')).toBeInTheDocument();
     expect(screen.queryByText('19일 주문 상품')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-19 발주 1건' }));
-    expect(onPreviewDate).toHaveBeenLastCalledWith('2026-07-19');
+    expect(onPreviewDate).toHaveBeenLastCalledWith('2026-07-19', 1);
     // 선택된 미래 날짜는 진한 보라(bg-purple-100) + ring 으로 승격된다.
     expect(screen.getByRole('button', { name: '2026-07-19 발주 1건' })).toHaveClass('bg-purple-100');
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).not.toHaveClass('bg-purple-100');
@@ -171,17 +196,13 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     fireEvent.change(screen.getByLabelText('입고예정일 시작'), {
       target: { value: '2026-07-20' },
     });
-    expect(onPreviewDate).toHaveBeenLastCalledWith(null);
+    expect(onPreviewDate).toHaveBeenLastCalledWith(null, 0);
     expect(screen.queryByText('18일 주문 상품')).not.toBeInTheDocument();
   });
 
   it('does not stack a skeleton above an already populated calendar', () => {
     query.isLoading = true;
-    renderWorkspace({
-      savedDays: {
-        '2026-07-18': { count: 1, qty: 3, amount: 12000 },
-      },
-    });
+    renderWorkspace();
 
     expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).toBeInTheDocument();
@@ -235,5 +256,28 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
 
     expect(screen.getByTestId('rocket-po-table-scroll')).toHaveClass('overflow-x-auto');
+  });
+
+  it('propagates an explicit account change and clears the previously selected source run', () => {
+    let latestContext: RocketDecisionWorkspaceContext | null = null;
+    renderWorkspace({ onContext: (context) => { latestContext = context; } });
+
+    fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
+    expect(latestContext?.selectedSourceImportRunId).toBe(sourceImportRunId);
+
+    fireEvent.click(screen.getByRole('button', { name: '테스트 로켓 계정 변경' }));
+    expect(latestContext?.channelAccountId).toBe('12121212-1212-4212-8212-121212121212');
+    expect(latestContext?.selectedSourceImportRunId).toBeNull();
+  });
+
+  it('clears account and source context when the account selector reports no valid selection', () => {
+    let latestContext: RocketDecisionWorkspaceContext | null = null;
+    renderWorkspace({ onContext: (context) => { latestContext = context; } });
+    fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
+    expect(latestContext?.selectedSourceImportRunId).toBe(sourceImportRunId);
+
+    fireEvent.click(screen.getByRole('button', { name: '테스트 로켓 계정 해제' }));
+    expect(latestContext?.channelAccountId).toBe('');
+    expect(latestContext?.selectedSourceImportRunId).toBeNull();
   });
 });

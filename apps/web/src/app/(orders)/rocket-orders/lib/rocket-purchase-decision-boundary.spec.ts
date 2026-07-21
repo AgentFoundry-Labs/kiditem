@@ -1,10 +1,21 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const webRoot = process.cwd().endsWith('/apps/web')
   ? process.cwd()
   : resolve(process.cwd(), 'apps/web');
+
+function productionSources(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const absolute = resolve(directory, entry.name);
+    if (entry.isDirectory()) return productionSources(absolute);
+    if (!/\.(ts|tsx)$/.test(entry.name) || /\.(spec|test)\.(ts|tsx)$/.test(entry.name)) {
+      return [];
+    }
+    return [readFileSync(absolute, 'utf8')];
+  });
+}
 
 describe('Rocket purchase decision boundary', () => {
   it('preserves the Rocket operations shell while keeping confirmation in the Supply boundary', () => {
@@ -13,6 +24,10 @@ describe('Rocket purchase decision boundary', () => {
     const operationsSource = readFileSync(resolve(
       routeRoot,
       'components/RocketOrdersWorkspace.tsx',
+    ), 'utf8');
+    const confirmPanelSource = readFileSync(resolve(
+      routeRoot,
+      'components/RocketConfirmPanel.tsx',
     ), 'utf8');
     const purchaseWorkspaceSource = readFileSync(resolve(
       webRoot,
@@ -38,11 +53,13 @@ describe('Rocket purchase decision boundary', () => {
       webRoot,
       '../../extensions/order-collector/background/service-worker.js',
     ), 'utf8');
+    const canonicalConfirmationSource = `${confirmPanelSource}\n${previewWorkflowSource}`;
 
-    // 사용자 원본(03123c2f) 달력 데이터 경로 복원: 저장 발주(rocket_purchase_orders)
-    // 달력 공급을 위해 RocketConfirmPanel + rocket-confirm-api 를 되살렸다.
+    // 사용자 원본(03123c2f) 화면은 유지하되, 저장/확정 데이터 경로는 Supply의
+    // 계정 범위 canonical workflow 하나만 사용한다.
     expect(existsSync(resolve(routeRoot, 'components/RocketConfirmPanel.tsx'))).toBe(true);
-    expect(existsSync(resolve(routeRoot, 'lib/rocket-confirm-api.ts'))).toBe(true);
+    expect(existsSync(resolve(routeRoot, 'lib/rocket-confirm-api.ts'))).toBe(false);
+    expect(productionSources(routeRoot).join('\n')).not.toContain('/api/orders/rocket');
 
     expect(pageSource).toContain('RocketOrdersWorkspace');
     // page 는 decisionWorkspace 렌더프롭으로 RocketConfirmPanel 을 주입한다.
@@ -58,6 +75,10 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain('수집·저장된 발주 조회 · 입고예정일별 분류');
     expect(operationsSource).toContain('listSavedRocketPos');
     expect(operationsSource).not.toContain('listRocketPosFromExtension');
+    expect(operationsSource).toContain('selectedRocketAccountId');
+    expect(operationsSource).toContain('selectedSourceImportRunId');
+    expect(operationsSource).toContain('sourceImportRunId');
+    expect(operationsSource).toContain('이 수집본으로 납품 판단');
     // 저장 발주 빈 상태 문구는 양쪽 워크스페이스 판본에 공통으로 존재하는 문구를 기준으로 검증한다.
     expect(operationsSource).toContain('이 달엔 해당 발주가 없습니다');
     // 상단 워크플로 STEP 4카드(신규주문·납품판단·쉽먼트/밀크런·송장출력)는 사용자 요청으로 제거됨.
@@ -80,6 +101,16 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain('<RocketAccountBootstrap');
     expect(operationsSource).not.toContain('납품 수량 판단은 추후 연동합니다');
     expect(operationsSource).not.toContain('재고 매핑 기반 판단은 추후 연동');
+    expect(confirmPanelSource).toContain('useRocketPurchaseWorkflow');
+    expect(confirmPanelSource).toContain('channelAccountId');
+    expect(confirmPanelSource).toContain('savedSourceImportRunId');
+    expect(confirmPanelSource).toContain('revalidateEditedQuantities');
+    expect(confirmPanelSource).toContain('setPreviewDirty(true)');
+    expect(canonicalConfirmationSource).toContain('globalThis.crypto.randomUUID()');
+    expect(canonicalConfirmationSource).toContain('editedQuantities: reviewedQuantities');
+    expect(canonicalConfirmationSource).toContain('shortageReasons');
+    expect(confirmPanelSource).not.toContain('previewSavedRocketConfirm');
+    expect(confirmPanelSource).not.toContain('commitRocketConfirmRows');
     expect(previewSectionSource).toContain('<RocketPurchaseWorkspace');
     expect(previewSectionSource).not.toContain('<RocketInventoryCommitmentList');
     expect(previewSource).toContain('미리보기 다시 계산');

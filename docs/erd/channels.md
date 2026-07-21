@@ -57,6 +57,7 @@ erDiagram
   ChannelAdTargetDailySnapshot {
     String id PK
     String organizationId FK
+    String channelAccountId FK
     String channel
     DateTime businessDate
     String listingId FK
@@ -66,6 +67,7 @@ erDiagram
     String targetType
     String targetKey
     String campaignId
+    String campaignIdentity
     String campaignName
     String adGroup
     String keyword
@@ -490,6 +492,7 @@ erDiagram
 | ChannelAccountDailyKpiSnapshot | channelAccount | references external | Core | ChannelAccount |
 | ChannelAccountDailyKpiSnapshot | organization | references external | Core | Organization |
 | ChannelAdTargetDailySnapshot | adTargetDaily | referenced by external | Advertising | AdAction |
+| ChannelAdTargetDailySnapshot | channelAccount | references external | Core | ChannelAccount |
 | ChannelAdTargetDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelAdTargetDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelAdTargetDailySnapshot | organization | references external | Core | Organization |

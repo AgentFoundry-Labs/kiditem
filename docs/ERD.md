@@ -666,6 +666,7 @@ erDiagram
   ChannelAdTargetDailySnapshot {
     String id PK
     String organizationId FK
+    String channelAccountId FK
     String channel
     DateTime businessDate
     String listingId FK
@@ -675,6 +676,7 @@ erDiagram
     String targetType
     String targetKey
     String campaignId
+    String campaignIdentity
     String campaignName
     String adGroup
     String keyword
@@ -2511,6 +2513,7 @@ erDiagram
   AgentToolInvocation o|--o{ AgentArtifact : "toolInvocation"
   CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAccount ||--o{ ChannelAccountDailyKpiSnapshot : "channelAccount"
+  ChannelAccount ||--o{ ChannelAdTargetDailySnapshot : "channelAccount"
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
   ChannelAccount ||--o{ ChannelListingDeletionOperation : "channelAccount"
   ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"

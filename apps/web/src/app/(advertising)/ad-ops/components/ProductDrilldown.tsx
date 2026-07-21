@@ -8,9 +8,10 @@ import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../lib/status-colors';
 import { displayKeyword, stripEmbeddedOptionId } from '../lib/ad-product-display';
 import type { AdProductSnapshot } from '@kiditem/shared/advertising';
+import type { CampaignSelection } from './CampaignTable';
 
 interface Props {
-  campaignName: string;
+  campaign: CampaignSelection;
   period: string;
 }
 
@@ -30,7 +31,7 @@ const PAGE_SIZES = [10, 20, 50, 100] as const;
  * Those campaigns get an explicit "not collected" empty state rather than a
  * fabricated zero table.
  */
-export function ProductDrilldown({ campaignName, period }: Props) {
+export function ProductDrilldown({ campaign, period }: Props) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(20);
 
@@ -44,10 +45,16 @@ export function ProductDrilldown({ campaignName, period }: Props) {
   const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.ads.campaignProducts(campaignName, period),
+    queryKey: queryKeys.ads.campaignProducts(
+      campaign.channelAccountId,
+      campaign.campaignIdentity,
+      period,
+    ),
     queryFn: () =>
       apiClient.get<AdProductSnapshot[]>(
-        `/api/ads/products?period=${period}&campaign=${encodeURIComponent(campaignName)}`,
+        `/api/ads/products?period=${period}` +
+          `&channelAccountId=${encodeURIComponent(campaign.channelAccountId)}` +
+          `&campaignIdentity=${encodeURIComponent(campaign.campaignIdentity)}`,
       ),
   });
 
@@ -66,7 +73,7 @@ export function ProductDrilldown({ campaignName, period }: Props) {
       >
         <div className="flex items-center gap-2">
           <h4 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-            {campaignName} · 상품별 성과
+            {campaign.campaignName} · 상품별 성과
           </h4>
           {products.length > 0 && (
             <span className="text-[11px] font-semibold" style={{ color: 'var(--text-tertiary)' }}>

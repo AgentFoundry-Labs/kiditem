@@ -91,6 +91,8 @@ export type FindAllAdsResponse = z.infer<typeof FindAllAdsResponseSchema>;
 // rows must surface to operators instead of being dropped.
 export const AdCampaignSnapshotSchema = z.object({
   listing: AdListingSummarySchema.nullable(),
+  channelAccountId: z.string().uuid(),
+  campaignIdentity: z.string().min(1),
   campaignId: z.string().nullable(),
   campaignName: z.string().nullable(),
   period: z.string(),
@@ -109,6 +111,8 @@ export type AdCampaignSnapshot = z.infer<typeof AdCampaignSnapshotSchema>;
 
 export const AdProductSnapshotSchema = z.object({
   listing: AdListingSummarySchema.nullable(),
+  channelAccountId: z.string().uuid(),
+  campaignIdentity: z.string().nullable(),
   externalId: z.string().nullable(),
   externalOptionId: z.string().nullable(),
   campaignId: z.string().nullable(),

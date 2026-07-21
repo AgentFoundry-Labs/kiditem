@@ -24,14 +24,9 @@ are record-only; stock movement stays with inventory.
 - `platform` stores channel identity; provider payloads live in `metadata`.
 - `ReturnTransfer` currently lives in the Inventory Prisma namespace, but this
   module owns its HTTP/service surface.
-- `RocketPoReservation` lives in the `channels` Prisma namespace but is
-  owned by this module: it is the orders-owned reservation ledger behind the
-  preserved `/rocket-orders` confirmation panel (user original, commit
-  `03123c2f`), written only by `RocketPoConfirmService.commitReservations` and
-  read only for barcode availability. It sits on top of the single Sellpia
-  stock owner and never mutates physical stock. It is intentionally distinct
-  from Supply's `RocketPurchaseConfirmation` + Inventory `InventoryCommitment`
-  canonical ledger; the preserved orders route does not use that path.
+- Rocket PO catalog evidence and confirmation are not Orders-owned models.
+  Channels owns the account-scoped catalog publication, Supply owns
+  `RocketPurchaseConfirmation`, and Inventory owns `InventoryCommitment`.
 
 ## Provider Action Flow
 

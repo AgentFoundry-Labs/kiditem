@@ -20,6 +20,7 @@ import { RocketConfirmFileList } from './RocketConfirmFileList';
 import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
 import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
 import { useRocketOrderActivity } from '../hooks/useRocketOrderActivity';
+import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import type { RocketChartPoint } from './RocketOrdersChart';
 
 const RocketOrdersChart = dynamic(
@@ -47,12 +48,18 @@ interface RocketCalDay {
 
 export interface RocketOrderExplorerRenderOptions {
   disabled: boolean;
-  onSelectDate: (date: string | null) => void;
-  savedDays: Record<string, MonthDayData>;
+  onSelectDate: (date: string | null, sourceRunCount: number) => void;
 }
 
 export interface RocketDecisionWorkspaceContext {
   activeMonth: string;
+  channelAccountId: string;
+  channelAccountName: string;
+  hasConfiguredVendorId: boolean;
+  from: string;
+  to: string;
+  selectedSourceImportRunId: string | null;
+  onActivity: (activity: RocketOrderActivityInput) => void;
   onOrdersChanged: () => void;
   renderOrderExplorer: (options: RocketOrderExplorerRenderOptions) => ReactNode;
 }
@@ -108,10 +115,22 @@ export function RocketOrdersWorkspace({
   // 로켓 채널 계정: '발주 미리보기' 카드는 제거했지만, 달력·발주목록·차트가 쓰는 계정 선택은
   // RocketAccountBootstrap 이 활성 로켓 계정으로 백그라운드에서 유지한다.
   const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
-  const { events } = useRocketOrderActivity();
+  const [selectedRocketAccountName, setSelectedRocketAccountName] = useState('');
+  const [hasConfiguredVendorId, setHasConfiguredVendorId] = useState(false);
+  const [selectedSourceImportRunId, setSelectedSourceImportRunId] = useState<string | null>(null);
+  const { events, record: recordActivity } = useRocketOrderActivity();
 
-  const handleRocketAccountChange = useCallback((account: { id: string }) => {
-    setSelectedRocketAccountId(account.id);
+  const handleRocketAccountChange = useCallback((account: {
+    id: string;
+    name: string;
+    vendorId: string | null;
+  } | null) => {
+    setSelectedRocketAccountId(account?.id ?? '');
+    setSelectedRocketAccountName(account?.name ?? '');
+    setHasConfiguredVendorId(Boolean(account?.vendorId?.trim()));
+    setSelectedSourceImportRunId(null);
+    setSelectedDay(null);
+    setOpenPo(null);
   }, []);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -169,20 +188,34 @@ export function RocketOrdersWorkspace({
     }
     return record;
   }, [byDate]);
-  function selectOrderDay(date: string | null, onSelectDate: (date: string | null) => void) {
+  function selectOrderDay(
+    date: string | null,
+    onSelectDate: (date: string | null, sourceRunCount: number) => void,
+  ) {
     setSelectedDay(date);
     setOpenPo(null);
-    onSelectDate(date);
+    const sourceRuns = new Set(
+      date ? (byDate.get(date) ?? []).map(({ sourceImportRunId }) => sourceImportRunId) : [],
+    );
+    if (!date) {
+      setSelectedSourceImportRunId(null);
+    } else {
+      setSelectedSourceImportRunId(sourceRuns.size === 1 ? [...sourceRuns][0]! : null);
+    }
+    onSelectDate(date, sourceRuns.size);
   }
 
-  function resetToCurrentMonth(onSelectDate: (date: string | null) => void) {
+  function resetToCurrentMonth(onSelectDate: (date: string | null, sourceRunCount: number) => void) {
     const b = monthBounds(todayYmd());
     setFrom(b.start);
     setTo(b.end);
     selectOrderDay(null, onSelectDate);
     setView('month');
   }
-  function onShiftMonth(delta: number, onSelectDate: (date: string | null) => void) {
+  function onShiftMonth(
+    delta: number,
+    onSelectDate: (date: string | null, sourceRunCount: number) => void,
+  ) {
     const b = shiftMonthBounds(from, delta);
     setFrom(b.start);
     setTo(b.end);
@@ -192,20 +225,12 @@ export function RocketOrdersWorkspace({
   function renderOrderExplorer({
     disabled,
     onSelectDate,
-    savedDays,
   }: RocketOrderExplorerRenderOptions) {
     const selectDate = (date: string | null) => selectOrderDay(date, onSelectDate);
-    // 달력/차트: 실시간 조회(dayDataRecord)로 빈 날짜를 저장 발주(savedDays,
-    // rocket_purchase_orders)로 보완한다. 실시간이 있으면 실시간 우선.
-    const mergedMonthData: Record<string, MonthDayData> = {
-      ...savedDays,
-      ...dayDataRecord,
-    };
-    const mergedRangeDays = calDays.map((day) => {
-      const saved = savedDays[day.date];
-      return day.count > 0 || !saved ? day : { ...day, ...saved };
-    });
-    // 상단 요약(발주 건수·수량·금액)은 달력과 같은 소스(저장 발주로 보완된 mergedRangeDays)로 계산한다.
+    // 달력/차트는 계정 범위 catalog snapshot 요약을 기준으로 렌더한다.
+    const mergedMonthData: Record<string, MonthDayData> = dayDataRecord;
+    const mergedRangeDays = calDays;
+    // 상단 요약(발주 건수·수량·금액)은 달력과 같은 catalog snapshot 소스로 계산한다.
     // 날짜를 고르면 그날만, 아니면 조회 범위 전체를 합산한다.
     const summaryDays = selectedDay
       ? mergedRangeDays.filter((day) => day.date === selectedDay)
@@ -410,8 +435,27 @@ export function RocketOrdersWorkspace({
         </div>
         {open && (
           <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-3 pl-9">
-            <div className="text-[11px] text-slate-400">
-              품목 {formatNumber(po.skuCount)}종 · 아래 납품 판단에서 Sellpia 구성 수량을 검토합니다.
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+              <span>
+                품목 {formatNumber(po.skuCount)}종 · 수집 {po.collectedAt.slice(0, 19).replace('T', ' ')}
+              </span>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setSelectedSourceImportRunId(po.sourceImportRunId);
+                }}
+                className={cn(
+                  'rounded-md border px-2.5 py-1 font-semibold',
+                  selectedSourceImportRunId === po.sourceImportRunId
+                    ? 'border-purple-300 bg-purple-50 text-purple-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                )}
+              >
+                {selectedSourceImportRunId === po.sourceImportRunId
+                  ? '선택된 수집본'
+                  : '이 수집본으로 납품 판단'}
+              </button>
             </div>
           </div>
         )}
@@ -479,6 +523,13 @@ export function RocketOrdersWorkspace({
 
       {decisionWorkspace({
         activeMonth: (from || todayYmd()).slice(0, 7),
+        channelAccountId: selectedRocketAccountId,
+        channelAccountName: selectedRocketAccountName,
+        hasConfiguredVendorId,
+        from,
+        to,
+        selectedSourceImportRunId,
+        onActivity: recordActivity,
         onOrdersChanged: () => void refetch(),
         renderOrderExplorer,
       })}

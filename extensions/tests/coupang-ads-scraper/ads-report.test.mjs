@@ -539,6 +539,45 @@ test("campaign identity is anchored to href/id so duplicate names remain distinc
   );
 });
 
+test("campaign href identity accepts only canonical specific Coupang ad URLs", () => {
+  const contract = loadContract();
+  const first =
+    "https://advertising.coupang.com/marketing/campaign/X/product?z=2&campaignId=X&a=1#ignored";
+  const reordered =
+    "https://advertising.coupang.com/marketing/campaign/X/product?a=1&campaignId=X&z=2#different";
+
+  assert.equal(contract.campaignIdentityFromHref(first), "campaign:X");
+  assert.equal(contract.campaignIdentityFromHref(reordered), "campaign:X");
+  assert.equal(
+    contract.campaignIdentityFromHref("https://example.test/campaign/X"),
+    null,
+  );
+  assert.equal(
+    contract.campaignIdentityFromHref(
+      "https://advertising.coupang.com.evil.test/campaign/X",
+    ),
+    null,
+  );
+  assert.equal(
+    contract.campaignIdentityFromHref(
+      "http://advertising.coupang.com/campaign/X",
+    ),
+    null,
+  );
+  assert.equal(
+    contract.campaignIdentityFromHref(
+      "https://user@advertising.coupang.com/campaign/X",
+    ),
+    null,
+  );
+  assert.equal(
+    contract.campaignIdentityFromHref(
+      "https://advertising.coupang.com/campaign/#X",
+    ),
+    null,
+  );
+});
+
 test("duplicate campaign names are both listed and clicked by href identity", () => {
   const clicked = [];
   const makeRow = (campaignId) => {
@@ -816,9 +855,10 @@ test("dashboard list url never becomes a campaign identity", () => {
 
   assert.notEqual(smartWing, "href:https://advertising.coupang.com/marketing/dashboard/sales");
   assert.notEqual(smartHub, "href:https://advertising.coupang.com/marketing/dashboard/sales");
-  // 목록 URL 을 공유해도 캠페인끼리는 서로 구분되어야 한다.
-  assert.notEqual(smartWing, smartHub);
-  assert.equal(smartWing, "name:AI스마트광고(wing)");
+  // 표시명은 identity가 아니다. 상세 href/id가 없는 행은 raw evidence로만
+  // 남고 authoritative campaign projection에서는 제외된다.
+  assert.equal(smartWing, null);
+  assert.equal(smartHub, null);
 
   // 이름조차 없으면 identity 를 만들지 않는다(=수집 큐에서 제외).
   assert.equal(contract.campaignIdentityFromHref(listHref, ""), null);
