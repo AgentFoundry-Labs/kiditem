@@ -21,6 +21,12 @@ if (
 }
 
 const API_URL = "http://localhost:4000";
+// KidItem 웹앱이 열리는 커밋된 origin. externally_connectable / 대시보드 탭 조회 /
+// 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
+const KIDITEM_WEB_URL_PATTERNS = [
+  "http://localhost:3000/*",
+  "https://staging.merchon.org/*",
+];
 const AUTH_TOKEN_KEY = "kiditem_auth_token";
 const AD_ACTION_URL =
   "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
@@ -57,13 +63,13 @@ const kidItemAuth = KidItemAuth.create({
   fetchFn: fetch,
   apiUrl: API_URL,
   tokenKey: AUTH_TOKEN_KEY,
-  webUrlPatterns: ["http://localhost:3000/*"],
+  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
 });
 const { authedFetch, getAuthToken } = kidItemAuth;
 const collectionSessions = KidItemCollectionSession.create({
   chrome,
   storageKey: "kiditem_collection_sessions",
-  webUrlPatterns: ["http://localhost:3000/*"],
+  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
 });
 const collectionWindow = KidItemCollectionWindow.create({
   chrome,
@@ -171,7 +177,7 @@ function cleanupStorage() {
 
 // 동기화 완료 후 대시보드 탭 자동 새로고침
 function notifyDashboard() {
-  chrome.tabs.query({ url: "http://localhost:3000/*" }, (tabs) => {
+  chrome.tabs.query({ url: KIDITEM_WEB_URL_PATTERNS }, (tabs) => {
     for (const tab of tabs) {
       if (!tab.id) continue;
       chrome.scripting

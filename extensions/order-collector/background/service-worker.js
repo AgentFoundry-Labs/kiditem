@@ -7,7 +7,10 @@ importScripts(
   "rocket-po-collection.js",
 );
 
-const KIDITEM_WEB_URL_PATTERNS = ["http://localhost:3000/*"];
+const KIDITEM_WEB_URL_PATTERNS = [
+  "http://localhost:3000/*",
+  "https://staging.merchon.org/*",
+];
 const collectionSessions = KidItemCollectionSession.create({
   chrome,
   storageKey: "kiditem_collection_sessions",

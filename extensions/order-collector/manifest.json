@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "KIDITEM OS - 주문수집 도우미",
   "description": "아이스크림몰 등 주문관리 화면에서 주문 행을 수집해 KidItem 주문수집에 전달합니다.",
-  "version": "0.1.78",
+  "version": "0.1.79",
   "permissions": [
     "tabs",
     "scripting",
@@ -11,7 +11,8 @@
   ],
   "externally_connectable": {
     "matches": [
-      "http://localhost:3000/*"
+      "http://localhost:3000/*",
+      "https://staging.merchon.org/*"
     ]
   },
   "host_permissions": [
@@ -41,7 +42,8 @@
   "content_scripts": [
     {
       "matches": [
-        "http://localhost:3000/*"
+        "http://localhost:3000/*",
+        "https://staging.merchon.org/*"
       ],
       "js": [
         "content/host-bridge.js"

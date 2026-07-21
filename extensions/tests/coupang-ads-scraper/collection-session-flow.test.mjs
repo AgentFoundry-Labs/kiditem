@@ -58,7 +58,11 @@ test('loads the canonical session manager and focus owners before collector runt
   assert.ok(interactiveTabs > collectionWindow);
   assert.ok(catalogRuntime > interactiveTabs);
   assert.match(worker, /storageKey:\s*["']kiditem_collection_sessions["']/);
-  assert.match(worker, /webUrlPatterns:\s*\[["']http:\/\/localhost:3000\/\*["']\]/);
+  assert.match(
+    worker,
+    /const KIDITEM_WEB_URL_PATTERNS = \[[\s\S]*?["']http:\/\/localhost:3000\/\*["'][\s\S]*?["']https:\/\/staging\.merchon\.org\/\*["'][\s\S]*?\]/,
+  );
+  assert.match(worker, /webUrlPatterns:\s*KIDITEM_WEB_URL_PATTERNS/);
 });
 
 test('handles generic collection controls before producer actions', () => {
@@ -104,7 +108,7 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /unsupported collection producer/i);
-  assert.equal(manifest.version, '1.2.67');
+  assert.equal(manifest.version, '1.2.68');
 });
 
 test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {
