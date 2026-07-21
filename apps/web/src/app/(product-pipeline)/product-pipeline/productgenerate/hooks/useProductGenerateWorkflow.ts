@@ -10,7 +10,6 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   collectedProductDetailHref,
   COLLECTED_PRODUCTS_ROOT,
-  PRODUCT_GENERATION_ROOT,
 } from '../../_shared/lib/product-pipeline-routes';
 import { useGenerateForm, type GenerateTemplateId } from '../../detail-template-generation/hooks/useGenerateForm';
 import { buildProductGenerationPayload } from '../lib/product-generation-payload';
@@ -81,9 +80,7 @@ export function useProductGenerateWorkflow() {
         operationKey: response.parentOperationKey,
         detailGenerationId: response.detailGenerationId,
         thumbnailGenerationId: response.thumbnailGenerationId,
-        editorUrl: collectedProductDetailHref(response.candidateId, {
-          returnTo: PRODUCT_GENERATION_ROOT,
-        }),
+        editorUrl: collectedProductDetailHref(response.candidateId),
       });
     } catch (err) {
       form.setError(isApiError(err) ? err.detail : '상품 생성 요청에 실패했습니다.');
@@ -99,9 +96,7 @@ export function useProductGenerateWorkflow() {
       ? new URL(form.generationDialog.editorUrl, 'http://kiditem.local').searchParams.get('sourceCandidateId')
       : null;
     const targetCandidateId = candidateId ?? createdCandidateId;
-    const targetUrl = targetCandidateId
-      ? collectedProductDetailHref(targetCandidateId, { returnTo: PRODUCT_GENERATION_ROOT })
-      : COLLECTED_PRODUCTS_ROOT;
+    const targetUrl = targetCandidateId ? collectedProductDetailHref(targetCandidateId) : COLLECTED_PRODUCTS_ROOT;
 
     form.closeGenerationDialog();
 
