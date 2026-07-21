@@ -18,6 +18,11 @@ import {
 describe('product-pipeline route construction', () => {
   it('keeps collected and registered workspace routes distinct', () => {
     expect(collectedProductDetailHref('candidate 1')).toBe('/product-pipeline/collected-products/candidate%201');
+    expect(collectedProductDetailHref('candidate 1', {
+      returnTo: '/product-pipeline/productgenerate',
+    })).toBe(
+      '/product-pipeline/collected-products/candidate%201?returnTo=%2Fproduct-pipeline%2Fproductgenerate',
+    );
     expect(registeredProductDetailHref('workspace 1')).toBe('/product-pipeline/registered-products/workspace%201');
   });
 

@@ -6,6 +6,7 @@ import type {
   ChannelListingDeletionTarget,
   ChannelListingDeletionAuthorizationInput,
   ChannelListingDeletionExecutionClaim,
+  ChannelListingDeletionCompletionInput,
   ChannelListingDeletionOperationLookup,
   ChannelListingDeletionOperationResult,
   ChannelListingDeletionOperationStatus,
@@ -215,11 +216,26 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
           },
         },
       });
-      if (!replay || replay.channelListingId !== input.listingId || replay.requestHash !== input.requestHash) {
+      const active = replay ?? await this.prisma.channelListingDeletionOperation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channelListingId: input.listingId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+        },
+        include: {
+          channelListing: {
+            select: {
+              id: true, displayName: true, channelName: true,
+              channelAccount: { select: { channel: true } },
+            },
+          },
+        },
+      });
+      if (!active || active.channelListingId !== input.listingId || active.requestHash !== input.requestHash) {
         throw new ConflictException('Deletion operation conflicts with an existing request.');
       }
-      assertOperationActor(replay.requestedByUserId, input.userId);
-      return toAuthorizationResult(replay, replay.channelListing);
+      assertOperationActor(active.requestedByUserId, input.userId);
+      return toAuthorizationResult(active, active.channelListing);
     }
   }
 
@@ -267,6 +283,21 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
         }
         assertOperationActor(replay.requestedByUserId, input.userId);
         return toAuthorizationResult(replay, listing);
+      }
+
+      const activeDeletion = await tx.channelListingDeletionOperation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channelListingId: input.listingId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+        },
+      });
+      if (activeDeletion) {
+        if (activeDeletion.requestHash !== input.requestHash) {
+          throw new ConflictException('Active deletion operation belongs to a different request.');
+        }
+        assertOperationActor(activeDeletion.requestedByUserId, input.userId);
+        return toAuthorizationResult(activeDeletion, listing);
       }
 
       if (!listing.sourceCandidateId) {
@@ -401,12 +432,72 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     return {
       operationId: operation.id,
       listingId: operation.channelListingId,
+      channelAccountId: operation.channelAccountId,
+      expectedVendorId: operation.expectedProviderAccountId,
       externalId: operation.externalListingId,
       status: operation.status,
       providerOutcome: operation.providerOutcome,
       completedAt: operation.completedAt?.toISOString() ?? null,
       lastErrorCode: operation.lastErrorCode,
     };
+  }
+
+  async completeDeletion(
+    input: ChannelListingDeletionCompletionInput,
+  ): Promise<ChannelListingDeletionUnresolvedResult> {
+    return this.prisma.$transaction(async (tx) => {
+      await assertLockedListing(tx, input.organizationId, input.listingId);
+      await lockDeletionOperation(tx, input.organizationId, input.operationId);
+      const operation = await tx.channelListingDeletionOperation.findFirst({
+        where: {
+          id: input.operationId,
+          organizationId: input.organizationId,
+          channelListingId: input.listingId,
+        },
+      });
+      if (!operation) throw new NotFoundException('Deletion operation not found.');
+      assertOperationActor(operation.requestedByUserId, input.userId);
+      if (operation.status === 'succeeded') {
+        return { operationId: operation.id, status: 'succeeded', providerOutcome: 'succeeded' };
+      }
+      if (!['executing', 'reconciling'].includes(operation.status)) {
+        throw new ConflictException('Deletion operation cannot be completed from its current state.');
+      }
+      if (operation.expectedProviderAccountId !== input.verifiedProviderAccountId
+        || operation.externalListingId !== input.verifiedExternalListingId) {
+        throw new ConflictException('Verified Coupang deletion does not match the frozen operation.');
+      }
+      const deactivated = await tx.channelListing.updateMany({
+        where: {
+          id: input.listingId,
+          organizationId: input.organizationId,
+          channelAccountId: operation.channelAccountId,
+          externalId: operation.externalListingId,
+          isActive: true,
+        },
+        data: { isActive: false, status: 'deleted' },
+      });
+      if (deactivated.count !== 1) {
+        throw new ConflictException('Verified listing could not be deactivated exactly once.');
+      }
+      await tx.channelListingDeletionOperation.update({
+        where: { id: operation.id },
+        data: {
+          status: 'succeeded',
+          providerOutcome: 'succeeded',
+          resultJson: {
+            source: 'coupang-open-api',
+            status: 'DELETED',
+            externalListingId: input.verifiedExternalListingId,
+            providerAccountId: input.verifiedProviderAccountId,
+          },
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          completedAt: new Date(),
+        },
+      });
+      return { operationId: operation.id, status: 'succeeded', providerOutcome: 'succeeded' };
+    });
   }
 }
 
@@ -447,10 +538,12 @@ function toAuthorizationResult(
   operation: {
     id: string; channelListingId: string; channelAccountId: string; externalListingId: string;
     expectedProviderAccountId: string; status: string; providerOutcome: string;
+    leaseClaimedAt: Date | null;
   },
   listing: { displayName: string | null; channelName: string | null; channelAccount: { channel: string } },
 ): ChannelListingDeletionOperationResult {
-  if (operation.status !== 'executing' || operation.providerOutcome !== 'uncertain') {
+  if (!['executing', 'reconciling'].includes(operation.status)
+    || operation.providerOutcome !== 'uncertain') {
     throw new ConflictException('Deletion operation is no longer eligible for a provider deletion attempt.');
   }
   return {
@@ -461,8 +554,9 @@ function toAuthorizationResult(
     displayName: listing.displayName ?? listing.channelName ?? operation.externalListingId,
     channel: listing.channelAccount.channel,
     expectedVendorId: operation.expectedProviderAccountId,
-    status: 'executing',
+    status: operation.status as 'executing' | 'reconciling',
     providerOutcome: 'uncertain',
+    extensionClaimed: operation.leaseClaimedAt !== null,
   };
 }
 

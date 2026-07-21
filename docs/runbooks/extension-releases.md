@@ -51,7 +51,7 @@ extension-<directory>-v<manifest-version>-staging
 Example:
 
 ```text
-extension-coupang-ads-scraper-v1.2.65-staging
+extension-coupang-ads-scraper-v1.2.66-staging
 ```
 
 ## Pack Without Publishing
@@ -95,12 +95,12 @@ the Coupang extension's local image bridge permission.
 Verify the local artifact before publishing:
 
 ```bash
-RELEASE_DIR="output/extensions/coupang-ads-scraper/1.2.65/staging"
+RELEASE_DIR="output/extensions/coupang-ads-scraper/1.2.66/staging"
 
 (cd "$RELEASE_DIR" && shasum -a 256 -c \
-  kiditem-coupang-ads-scraper-v1.2.65-staging.zip.sha256)
+  kiditem-coupang-ads-scraper-v1.2.66-staging.zip.sha256)
 
-unzip -l "$RELEASE_DIR/kiditem-coupang-ads-scraper-v1.2.65-staging.zip"
+unzip -l "$RELEASE_DIR/kiditem-coupang-ads-scraper-v1.2.66-staging.zip"
 ```
 
 ## Create A Draft GitHub Release
@@ -129,7 +129,7 @@ the repository's application-level Latest release.
 Inspect and publish the draft:
 
 ```bash
-TAG="extension-coupang-ads-scraper-v1.2.65-staging"
+TAG="extension-coupang-ads-scraper-v1.2.66-staging"
 
 gh release view "$TAG"
 gh release edit "$TAG" --draft=false --prerelease --latest=false

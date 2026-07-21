@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsString,
+  IsOptional,
   IsUUID,
   Matches,
   Validate,
@@ -31,8 +32,9 @@ class VerifiedWingEvidenceConstraint implements ValidatorConstraintInterface {
 /**
  * 이미 마켓에 등록된 상품을 우리 등록상품으로 확정할 때의 입력.
  *
- * 확장 자동 제출이 완료를 확증했거나, 사용자가 WING 에서 직접 등록한 뒤
- * 등록상품ID 를 입력한 경우에만 쓴다. 서버는 provider 를 호출하지 않는다.
+ * 확장 자동 제출이 완료를 관찰했거나, 사용자가 WING 에서 직접 등록한 뒤
+ * 등록상품ID 를 입력한 경우에만 쓴다. 서버는 선택된 계정으로 provider 조회를
+ * 수행해 실제 ID·판매자·상태를 독립 검증한다.
  */
 export class ConfirmExternalRegistrationDto {
   @IsUUID()
@@ -48,7 +50,8 @@ export class ConfirmExternalRegistrationDto {
   @Matches(/^\d{6,20}$/, { message: '등록상품ID는 6~20자리 숫자여야 합니다.' })
   externalListingId!: string;
 
-  /** Browser completion evidence; identity source/value are validated by the extension. */
+  /** 진단용 브라우저 관찰값. 권한·완료 판정은 provider 조회가 소유한다. */
+  @IsOptional()
   @Validate(VerifiedWingEvidenceConstraint)
-  evidence!: { wingVendorId: string; wingIdentitySource: typeof WING_IDENTITY_SOURCES[number] };
+  evidence?: { wingVendorId: string; wingIdentitySource: typeof WING_IDENTITY_SOURCES[number] };
 }

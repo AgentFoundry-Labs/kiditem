@@ -43,8 +43,8 @@ export class ChannelListingController {
   }
 
   /**
-   * Password verification happens before listing facts. The returned operation is
-   * already durably `executing/uncertain`, so a lost browser response is reconcilable.
+   * Password verification happens before listing facts. A matching active operation
+   * is resumed so a lost browser response can be reconciled without deleting twice.
    */
   @Post(':listingId/deletion-authorization')
   authorizeDeletion(
@@ -73,7 +73,6 @@ export class ChannelListingController {
     return this.deletion.claimExecution({ organizationId, userId: user.id, listingId, operationId });
   }
 
-
   @Post(':listingId/deletion-unresolved')
   markDeletionUnresolved(
     @CurrentOrganization() organizationId: string,
@@ -87,6 +86,21 @@ export class ChannelListingController {
       listingId,
       operationId: body.operationId,
       reason: body.reason,
+    });
+  }
+
+  @Post(':listingId/deletion-reconciliation')
+  reconcileObservedDeletion(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('listingId', new ParseUUIDPipe()) listingId: string,
+    @Body('operationId', new ParseUUIDPipe()) operationId: string,
+  ) {
+    return this.deletion.reconcileObservedDeletion({
+      organizationId,
+      userId: user.id,
+      listingId,
+      operationId,
     });
   }
 

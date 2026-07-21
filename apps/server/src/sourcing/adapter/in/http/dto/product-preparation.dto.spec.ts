@@ -69,4 +69,13 @@ describe('product preparation DTOs', () => {
     });
     expect(await validate(forged)).not.toHaveLength(0);
   });
+
+  it('allows provider-verified external completion when browser identity evidence is unavailable', async () => {
+    const dto = plainToInstance(ConfirmExternalRegistrationDto, {
+      executionId: '11111111-1111-4111-8111-111111111111',
+      externalListingId: '427011919',
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
 });

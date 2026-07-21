@@ -162,7 +162,7 @@ describe("manual extension release management", () => {
         join(
           outputDirectory,
           "coupang-ads-scraper",
-          "1.2.65",
+          "1.2.66",
           "staging",
           "unpacked",
           "manifest.json",
@@ -178,7 +178,7 @@ describe("manual extension release management", () => {
         join(
           outputDirectory,
           "coupang-ads-scraper",
-          "1.2.65",
+          "1.2.66",
           "staging",
           "unpacked",
           "popup",
@@ -189,7 +189,7 @@ describe("manual extension release management", () => {
     ).not.toContain("localhost:4000");
     const output = JSON.parse(result.stdout);
     expect(output.metadata.tag).toBe(
-      "extension-coupang-ads-scraper-v1.2.65-staging",
+      "extension-coupang-ads-scraper-v1.2.66-staging",
     );
     expect(output.release).toMatchObject({
       dryRun: true,

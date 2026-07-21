@@ -5,6 +5,43 @@ import { CoupangProviderRequestError } from '../../port/out/provider/coupang-pro
 import { MarketplaceRegistrationService } from '../marketplace-registration.service';
 
 describe('MarketplaceRegistrationService application orchestration', () => {
+  it('independently verifies an externally created listing through the selected Coupang account', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({
+        channel: 'coupang', vendorId: 'A00012345', externalAccountId: 'A00012345',
+      }),
+    };
+    const coupang = {
+      getSellerProduct: vi.fn().mockResolvedValue({
+        code: 'SUCCESS',
+        message: '',
+        data: {
+          sellerProductId: 427011919,
+          vendorId: 'A00012345',
+          sellerProductName: 'Kids rain boots',
+          statusName: 'APPROVED',
+        },
+      }),
+    };
+    const service = new MarketplaceRegistrationService(repository as never, coupang as never);
+
+    await expect(service.verifyExternalProductRegistration({
+      organizationId: 'org-1',
+      channelAccountId: 'account-1',
+      externalListingId: '427011919',
+    })).resolves.toMatchObject({
+      channel: 'coupang',
+      vendorId: 'A00012345',
+      externalListingId: '427011919',
+      status: 'APPROVED',
+    });
+    expect(coupang.getSellerProduct).toHaveBeenCalledWith(
+      'org-1',
+      '427011919',
+      'account-1',
+    );
+  });
+
   it('accepts external confirmation only for the persisted active Wing account', async () => {
     const repository = {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'rocket' }),

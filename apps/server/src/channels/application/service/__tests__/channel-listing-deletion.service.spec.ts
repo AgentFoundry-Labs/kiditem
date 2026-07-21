@@ -24,14 +24,49 @@ function build(passwordFails = false) {
     status: 'reconciling',
     providerOutcome: 'uncertain',
   });
+  const getDeletionOperation = vi.fn().mockResolvedValue({
+    operationId: OPERATION,
+    listingId: LISTING,
+    channelAccountId: '44444444-4444-4444-8444-444444444444',
+    expectedVendorId: 'A00012345',
+    externalId: '16311428128',
+    status: 'reconciling',
+    providerOutcome: 'uncertain',
+    completedAt: null,
+    lastErrorCode: null,
+  });
+  const completeDeletion = vi.fn().mockResolvedValue({
+    operationId: OPERATION,
+    status: 'succeeded',
+    providerOutcome: 'succeeded',
+  });
+  const getSellerProduct = vi.fn().mockResolvedValue({
+    code: 'SUCCESS',
+    message: '',
+    data: {
+      sellerProductId: Number('16311428128'),
+      vendorId: 'A00012345',
+      sellerProductName: '과일바구니',
+      statusName: 'DELETED',
+    },
+  });
   const assertPassword = vi.fn().mockImplementation(async () => {
     if (passwordFails) throw new ForbiddenException('삭제 비밀번호가 일치하지 않습니다.');
   });
   const service = new ChannelListingDeletionService(
-    { authorizeDeletion, markDeletionUnresolved } as never,
+    { authorizeDeletion, markDeletionUnresolved, getDeletionOperation, completeDeletion } as never,
     { assertPassword },
+    { getSellerProduct } as never,
   );
-  return { service, authorizeDeletion, markDeletionUnresolved, assertPassword };
+  return {
+    service,
+    authorizeDeletion,
+    markDeletionUnresolved,
+    getDeletionOperation,
+    completeDeletion,
+    getSellerProduct,
+    assertPassword,
+  };
 }
 
 describe('ChannelListingDeletionService durable operation', () => {
@@ -84,6 +119,35 @@ describe('ChannelListingDeletionService durable operation', () => {
       providerOutcome: 'uncertain',
     });
     expect(harness.markDeletionUnresolved).toHaveBeenCalled();
+  });
+
+  it('deactivates the listing only after the selected-account provider reports DELETED', async () => {
+    const harness = build();
+
+    await expect(harness.service.reconcileObservedDeletion({
+      organizationId: ORG,
+      userId: USER,
+      listingId: LISTING,
+      operationId: OPERATION,
+    })).resolves.toEqual({
+      operationId: OPERATION,
+      status: 'succeeded',
+      providerOutcome: 'succeeded',
+    });
+
+    expect(harness.getSellerProduct).toHaveBeenCalledWith(
+      ORG,
+      '16311428128',
+      '44444444-4444-4444-8444-444444444444',
+    );
+    expect(harness.completeDeletion).toHaveBeenCalledWith({
+      organizationId: ORG,
+      userId: USER,
+      listingId: LISTING,
+      operationId: OPERATION,
+      verifiedProviderAccountId: 'A00012345',
+      verifiedExternalListingId: '16311428128',
+    });
   });
 
 });

@@ -5,6 +5,7 @@ import {
   buildWingDisplayName,
   buildWingRegistrationOverrides,
   candidateToWingProduct,
+  isConfirmedWingRegistration,
   requireRenderedDetailImage,
   stripLeadingPriceCode,
   submitWingRegistration,
@@ -540,6 +541,44 @@ describe('external WING pre-intent choreography', () => {
     expect(result.submission.evidence).toEqual({
       wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id',
     });
+  });
+
+  it('keeps manual form fill in not-attempted state until the user actually submits in WING', async () => {
+    const order: string[] = [];
+    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockImplementation(async () => {
+      order.push('prepare');
+      return { executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345' } as never;
+    });
+    vi.mocked(candidatesApi.startExternalWingRegistration).mockImplementation(async () => {
+      order.push('start');
+      return { status: 'executing' } as never;
+    });
+    vi.mocked(sendToExtension).mockImplementation(async () => {
+      order.push('extension');
+      return {
+        ok: true,
+        submission: { attempted: false },
+        evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+      };
+    });
+
+    const result = await submitWingRegistration(draft, draft.overrides, false);
+
+    expect(order).toEqual(['prepare', 'extension']);
+    expect(result.submission).toMatchObject({
+      attempted: false,
+      executionId: '33333333-3333-4333-8333-333333333333',
+    });
+    expect(candidatesApi.markExternalWingRegistrationUnresolved).not.toHaveBeenCalled();
+  });
+
+  it('accepts a registered product id for server verification even when browser evidence is absent', () => {
+    expect(isConfirmedWingRegistration({
+      attempted: true,
+      ok: true,
+      status: 'registered',
+      externalListingId: '427011919',
+    })).toBe(true);
   });
 
   it('marks the durable execution unresolved when the extension throws after start', async () => {

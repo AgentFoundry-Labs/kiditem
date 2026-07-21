@@ -48,6 +48,17 @@ export interface ChannelProductRegistrationPort {
     organizationId: string;
     channelAccountId: string;
   }): Promise<{ channel: 'coupang'; vendorId: string }>;
+  verifyExternalRegistration(input: {
+    organizationId: string;
+    channelAccountId: string;
+    externalListingId: string;
+  }): Promise<{
+    channel: 'coupang';
+    vendorId: string;
+    externalListingId: string;
+    status: string;
+    rawResult: unknown;
+  }>;
   reconcile(
     input: ChannelProductRegistrationSubmissionInput,
   ): Promise<MarketplaceSubmissionResult | null>;

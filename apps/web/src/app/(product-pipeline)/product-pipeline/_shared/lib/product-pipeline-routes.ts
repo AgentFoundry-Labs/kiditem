@@ -11,8 +11,14 @@ export const THUMBNAIL_AI_ROOT = `${PRODUCT_PIPELINE_ROOT}/thumbnail-ai`;
 export const THUMBNAIL_GENERATION_ROOT = `${PRODUCT_PIPELINE_ROOT}/thumbnail-generation`;
 export const THUMBNAIL_GENERATION_EDIT_ROOT = `${THUMBNAIL_GENERATION_ROOT}/edit`;
 
-export function collectedProductDetailHref(candidateId: string): string {
-  return `${COLLECTED_PRODUCTS_ROOT}/${encodeURIComponent(candidateId)}`;
+export function collectedProductDetailHref(
+  candidateId: string,
+  { returnTo }: { returnTo?: string | null } = {},
+): string {
+  const href = `${COLLECTED_PRODUCTS_ROOT}/${encodeURIComponent(candidateId)}`;
+  const normalizedReturnTo = normalizeProductPipelineReturnTo(returnTo);
+  if (!normalizedReturnTo) return href;
+  return `${href}?${new URLSearchParams({ returnTo: normalizedReturnTo }).toString()}`;
 }
 
 export function registeredProductDetailHref(workspaceId: string): string {
