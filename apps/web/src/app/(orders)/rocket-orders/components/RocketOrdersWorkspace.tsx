@@ -309,29 +309,35 @@ export function RocketOrdersWorkspace() {
           </div>
         ) : null}
 
-        {view === 'month' ? (
-          <>
-            <RocketMonthCalendar
-              monthAnchor={from}
-              data={dayDataRecord}
-              selected={selectedDay}
-              onSelect={selectOrderDay}
-              onShiftMonth={onShiftMonth}
-            />
-            {!hasMonthOrders ? (
-              <p className="px-1 text-xs text-slate-400">
-                이 달엔 해당 발주가 없습니다 · 달력의 이전/다음 버튼으로 다른 달을 확인해보세요.
-              </p>
+        {/* 좌: 월 달력/차트 · 우: 이 페이지 작업 알림 패널 */}
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="space-y-3">
+            {view === 'month' ? (
+              <>
+                <RocketMonthCalendar
+                  monthAnchor={from}
+                  data={dayDataRecord}
+                  selected={selectedDay}
+                  onSelect={selectOrderDay}
+                  onShiftMonth={onShiftMonth}
+                />
+                {!hasMonthOrders ? (
+                  <p className="px-1 text-xs text-slate-400">
+                    이 달엔 해당 발주가 없습니다 · 달력의 이전/다음 버튼으로 다른 달을 확인해보세요.
+                  </p>
+                ) : null}
+              </>
             ) : null}
-          </>
-        ) : null}
-        {view === 'chart' && hasRangeOrders ? <RocketOrdersChart data={chartData} /> : null}
+            {view === 'chart' && hasRangeOrders ? <RocketOrdersChart data={chartData} /> : null}
 
-        {!isLoading && view === 'chart' && !hasRangeOrders ? (
-          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-8 text-center text-sm text-slate-400">
-            차트로 표시할 발주 데이터가 없습니다.
+            {!isLoading && view === 'chart' && !hasRangeOrders ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-8 text-center text-sm text-slate-400">
+                차트로 표시할 발주 데이터가 없습니다.
+              </div>
+            ) : null}
           </div>
-        ) : null}
+          <RocketOrderActivityPanel events={events} />
+        </div>
 
         <p className="px-1 text-xs text-slate-400">
           날짜를 선택하면 해당 날짜의 발주 목록과 재고 매칭 미리보기만 아래에 표시됩니다.
@@ -484,18 +490,15 @@ export function RocketOrdersWorkspace() {
         })}
       </div>
 
-      {/* 재고 매칭 미리보기 (product-centered) + 이 페이지 작업 활동 로그 */}
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-        <RocketPurchasePreviewSection
-          from={from}
-          to={to}
-          savedSourceImportRunId={selectedSavedSourceImportRunId}
-          onAccountChange={handleRocketAccountChange}
-          onCatalogSaved={() => void refetch()}
-          onActivity={recordActivity}
-        />
-        <RocketOrderActivityPanel events={events} />
-      </div>
+      {/* 재고 매칭 미리보기 (product-centered) */}
+      <RocketPurchasePreviewSection
+        from={from}
+        to={to}
+        savedSourceImportRunId={selectedSavedSourceImportRunId}
+        onAccountChange={handleRocketAccountChange}
+        onCatalogSaved={() => void refetch()}
+        onActivity={recordActivity}
+      />
 
       {renderOrderExplorer()}
 
