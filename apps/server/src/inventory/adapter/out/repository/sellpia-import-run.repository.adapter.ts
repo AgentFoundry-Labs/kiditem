@@ -7,12 +7,12 @@ import {
 import { Prisma, type SellpiaInventoryState, type SourceImportRun } from '@prisma/client';
 import { SellpiaInventoryRefreshReasonSchema } from '@kiditem/shared/sellpia-inventory-freshness';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 import type {
   ClaimedSellpiaImportExecution,
   SellpiaFileRunClaim,
   SellpiaImportRunRepositoryPort,
 } from '../../../application/port/out/repository/sellpia-import-run.repository.port';
-import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
 const SOURCE_TYPE = 'sellpia_inventory';
 const SOURCE_ORIGIN = 'https://kiditem.sellpia.com';
@@ -321,5 +321,5 @@ function parseGeneration(value: string): bigint {
 }
 
 function sanitizeErrorMessage(message: string): string {
-  return message.trim().slice(0, 300) || 'Sellpia inventory workbook validation failed';
+      return message.trim().slice(0, 300) || 'Sellpia inventory artifact validation failed';
 }

@@ -48,10 +48,10 @@ describe("manual extension release management", () => {
     const releaseDirectory = join(
       outputDirectory,
       "order-collector",
-      "0.1.78",
+      "0.1.79",
       "staging",
     );
-    const assetBase = "kiditem-order-collector-v0.1.78-staging";
+    const assetBase = "kiditem-order-collector-v0.1.79-staging";
     const archivePath = join(releaseDirectory, `${assetBase}.zip`);
     const checksumPath = join(releaseDirectory, `${assetBase}.zip.sha256`);
     const metadataPath = join(releaseDirectory, `${assetBase}.release.json`);
@@ -67,7 +67,7 @@ describe("manual extension release management", () => {
     );
 
     const manifest = JSON.parse(readFileSync(unpackedManifestPath, "utf8"));
-    expect(manifest.version).toBe("0.1.78");
+    expect(manifest.version).toBe("0.1.79");
     expect(manifest.externally_connectable.matches).toEqual([
       "https://staging.example.com/*",
     ]);
@@ -86,11 +86,11 @@ describe("manual extension release management", () => {
     expect(metadata).toMatchObject({
       schemaVersion: "kiditem.extension.release.v1",
       extension: "order-collector",
-      manifestVersion: "0.1.78",
+      manifestVersion: "0.1.79",
       target: "staging",
       webOrigin: "https://staging.example.com",
       apiOrigin: "https://staging.example.com",
-      tag: "extension-order-collector-v0.1.78-staging",
+      tag: "extension-order-collector-v0.1.79-staging",
       archive: {
         fileName: `${assetBase}.zip`,
         sha256: checksum,
@@ -123,7 +123,7 @@ describe("manual extension release management", () => {
       join(
         repeatedOutputDirectory,
         "order-collector",
-        "0.1.78",
+        "0.1.79",
         "staging",
         `${assetBase}.zip`,
       ),

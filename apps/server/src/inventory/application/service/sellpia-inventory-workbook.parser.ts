@@ -1,6 +1,7 @@
 import { TextDecoder } from 'node:util';
 import { BadRequestException } from '@nestjs/common';
 import { SELLPIA_WORKBOOK_FORMAT_LABEL } from '@kiditem/shared/inventory';
+import { SellpiaInventoryBrowserSnapshotSchema } from '@kiditem/shared/source-import';
 import * as XLSX from 'xlsx';
 import * as cpexcel from 'xlsx/dist/cpexcel';
 import type {
@@ -27,6 +28,16 @@ export type ParsedSellpiaInventoryWorkbook = {
 
 export const MAX_SELLPIA_INVENTORY_IMPORT_ROWS = 20_000;
 
+const BROWSER_SNAPSHOT_HEADERS = [
+  '상품코드',
+  '상품명',
+  '옵션명',
+  '재고',
+  '매입가',
+  '판매가',
+  '바코드',
+];
+
 const REQUIRED_HEADERS = ['상품코드', '재고'];
 const HEADER_SCAN_ROW_LIMIT = 20;
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
@@ -49,6 +60,64 @@ type WorkbookCandidate = {
   rows: Array<{ rowNumber: number; rawJson: Record<string, unknown> }>;
   hasRequiredHeaders: boolean;
 };
+
+export function parseSellpiaInventoryArtifact(
+  buffer: Buffer,
+): ParsedSellpiaInventoryWorkbook {
+  if (firstNonWhitespaceByte(buffer) === 0x7b) {
+    return parseSellpiaInventoryBrowserSnapshot(buffer);
+  }
+  return parseSellpiaInventoryWorkbook(buffer);
+}
+
+function parseSellpiaInventoryBrowserSnapshot(
+  buffer: Buffer,
+): ParsedSellpiaInventoryWorkbook {
+  let input: unknown;
+  try {
+    input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer));
+  } catch {
+    throw new BadRequestException('Sellpia browser snapshot JSON을 읽을 수 없습니다.');
+  }
+
+  const parsed = SellpiaInventoryBrowserSnapshotSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new BadRequestException('Sellpia browser snapshot 유효성 검사에 실패했습니다.');
+  }
+
+  const validationErrors: string[] = [];
+  const rows = parsed.data.rows.map((row, index) => {
+    const sellpiaProductCode = `${row.productCode}-${row.optionCode}`;
+    return normalizeRow({
+      '상품코드': sellpiaProductCode,
+      '상품명': row.name,
+      '옵션명': row.optionName ?? '',
+      '재고': row.currentStock,
+      '매입가': row.purchasePrice ?? '',
+      '판매가': row.salePrice ?? '',
+      '바코드': row.barcode ?? '',
+    }, index + 1, validationErrors);
+  });
+  collectDuplicateCodeErrors(rows, validationErrors);
+  if (validationErrors.length > 0) {
+    throw new BadRequestException(
+      `Sellpia browser snapshot 유효성 검사 실패: ${validationErrors.join('; ')}`,
+    );
+  }
+
+  return {
+    headers: BROWSER_SNAPSHOT_HEADERS,
+    rows,
+    qualityFacts: collectQualityFacts(rows),
+  };
+}
+
+function firstNonWhitespaceByte(buffer: Buffer): number | null {
+  for (const byte of buffer) {
+    if (byte !== 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) return byte;
+  }
+  return null;
+}
 
 export function parseSellpiaInventoryWorkbook(
   buffer: Buffer,

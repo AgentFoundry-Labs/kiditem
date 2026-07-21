@@ -19,17 +19,17 @@ describe('SellpiaInventoryImportController', () => {
     );
     const methods = Object.getOwnPropertyNames(SellpiaInventoryImportController.prototype)
       .filter((name) => name !== 'constructor');
-    expect(methods).toEqual(['importWorkbook']);
-    expect(Reflect.getMetadata('path', SellpiaInventoryImportController.prototype.importWorkbook))
+    expect(methods).toEqual(['importArtifact']);
+    expect(Reflect.getMetadata('path', SellpiaInventoryImportController.prototype.importArtifact))
       .toBe('import');
-    expect(Reflect.getMetadata('method', SellpiaInventoryImportController.prototype.importWorkbook))
+    expect(Reflect.getMetadata('method', SellpiaInventoryImportController.prototype.importArtifact))
       .toBe(RequestMethod.POST);
   });
 
-  it('rejects a missing workbook with HTTP 400', () => {
+  it('rejects a missing inventory artifact with HTTP 400', () => {
     const controller = new SellpiaInventoryImportController(makePort());
 
-    expect(() => controller.importWorkbook(
+    expect(() => controller.importArtifact(
       ORGANIZATION_ID,
       { id: USER_ID } as never,
       browserDto(),
@@ -40,16 +40,16 @@ describe('SellpiaInventoryImportController', () => {
   it('passes raw bytes, MIME, filename, browser execution, and authenticated scope', async () => {
     const port = makePort();
     const controller = new SellpiaInventoryImportController(port);
-    const buffer = Buffer.from('raw workbook bytes');
+    const buffer = Buffer.from('{"source":"sellpia_product_search"}');
 
-    await controller.importWorkbook(
+    await controller.importArtifact(
       ORGANIZATION_ID,
       { id: USER_ID } as never,
       browserDto(),
       {
         buffer,
-        originalname: 'SELLPIA.XLS',
-        mimetype: 'application/vnd.ms-excel',
+        originalname: 'sellpia-inventory-snapshot-v1.json',
+        mimetype: 'application/json',
       },
     );
 
@@ -58,8 +58,8 @@ describe('SellpiaInventoryImportController', () => {
       userId: USER_ID,
       file: {
         buffer,
-        fileName: 'SELLPIA.XLS',
-        mimeType: 'application/vnd.ms-excel',
+        fileName: 'sellpia-inventory-snapshot-v1.json',
+        mimeType: 'application/json',
       },
       execution: {
         kind: 'browser',
@@ -76,7 +76,7 @@ describe('SellpiaInventoryImportController', () => {
     const port = makePort();
     const controller = new SellpiaInventoryImportController(port);
 
-    await controller.importWorkbook(
+    await controller.importArtifact(
       ORGANIZATION_ID,
       { id: USER_ID } as never,
       Object.assign(new SellpiaInventoryImportDto(), {

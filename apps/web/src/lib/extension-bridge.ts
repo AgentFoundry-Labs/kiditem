@@ -1,6 +1,7 @@
 import { safeStorageGet, safeStorageSet } from './browser-storage';
 import { z } from 'zod';
 import { SellpiaInventoryCollectionFailureCodeSchema } from '@kiditem/shared/sellpia-inventory-freshness';
+import { SellpiaInventoryBrowserSnapshotSchema } from '@kiditem/shared/source-import';
 
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
 export const KIDITEM_SOURCING_EXTENSION_ID_KEY = 'kiditem-sourcing-ext-id';
@@ -162,10 +163,7 @@ const SellpiaInventoryExtensionReplySchema = z.discriminatedUnion('success', [
   z.object({
     success: z.literal(true),
     runId: z.string().uuid(),
-    workbookBase64: z.string().min(1).regex(/^[A-Za-z0-9+/]*={0,2}$/),
-    fileName: z.string().min(1).max(180),
-    mimeType: z.string().min(1).max(200),
-    size: z.number().int().positive().max(10 * 1024 * 1024),
+    snapshot: SellpiaInventoryBrowserSnapshotSchema,
     sourceOrigin: z.literal('https://kiditem.sellpia.com'),
     sourceAccountKey: z.literal('kiditem'),
   }).passthrough(),

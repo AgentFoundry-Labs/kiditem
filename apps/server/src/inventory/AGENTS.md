@@ -57,7 +57,7 @@ Route shape is frozen.
 
 - A physical `SellpiaInventorySku` is one Sellpia product-code row and owns the
   current quantity in `currentStock`.
-- `SourceImportRun` records workbook provenance, idempotency, and attempt
+- `SourceImportRun` records source-artifact provenance, idempotency, and attempt
   fencing.
 - `InventoryCommitment` and `InventoryCommitmentAllocation` own auditable,
   line-level holds against Sellpia SKU capacity independently of physical stock.
@@ -71,13 +71,18 @@ Route shape is frozen.
 
 `POST /api/inventory/sellpia-sync/import` is the only writer of physical
 `SellpiaInventorySku.currentStock`. It is an organization-scoped full snapshot
-replacement: one valid workbook row maps to one physical `SellpiaInventorySku`, and a
+replacement: one valid source-artifact row maps to one physical `SellpiaInventorySku`, and a
 completed import marks absent known Sellpia codes inactive with zero stock
 without deleting their identity or `ProductVariantComponent` references.
 
+Automatic browser refresh imports a versioned, deterministic Sellpia JSON full
+snapshot. Manual XLS/XLSX/CSV upload remains an operator recovery path; both
+artifacts enter the same route, hash, generation fence, quality policy, and
+atomic publication flow.
+
 The replacement is atomic and fenced by its `SourceImportRun` attempt token.
 It may update only physical `SellpiaInventorySku` source metadata, `currentStock`,
-active state, and import provenance. Never translate workbook differences into
+active state, and import provenance. Never translate source-artifact differences into
 channel, transfer, picking, return, purchase-order, or Rocket writes.
 Receipt-batch create/list/mark-uploaded behavior is separate and does not
 change stock.
