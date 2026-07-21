@@ -1,0 +1,109 @@
+/**
+ * 쿠팡 상품명 ↔ 셀피아 상품명 이름 매칭(순수). 바코드로 못 찾은 상품을 이름으로 보조 매칭한다.
+ * 파이프라인: 정규화(코어) → 완전일치 → 포함 → 퍼지(LCS + Dice bigram) + 가격가드.
+ * (사용자 원본 로직을 codex 도메인으로 이식 — orders-owned 서비스/테이블과 무관한 순수 함수라 충돌 없음.)
+ */
+
+/** 이름 매칭 인덱스 항목: 셀피아 상품명 → 코어/가격/재고. */
+export type NameMatchEntry = {
+  core: string;
+  price: string | null;
+  stock: number;
+  name: string;
+};
+
+/**
+ * 상품명 → 코어 이름. 브랜드("KY I&D")·패키징(Pack_/Box_)·수량("N개입")·무게·
+ * 노이즈(랜덤발송 등)·모든 숫자(앞자리 가격 포함)를 제거한다. 가격은 coupangNamePrice 로 별도 비교.
+ */
+export function normalizeCoupangName(name: string): string {
+  return String(name ?? '')
+    .replace(/KY\s*I\s*&?\s*D/gi, ' ') // 브랜드
+    .replace(/\b(?:pack|box|set)[_\s]/gi, ' ') // 패키징 접두
+    .replace(/\(?\s*\d+\s*개입?\s*\)?/g, ' ') // 수량 "(16개입)", "12개"
+    .replace(/\d+\s*세트/g, ' ')
+    .replace(/\d+\s*입/g, ' ')
+    .replace(/\d+\s*(?:g|kg|ml|cm|mm|호)\b/gi, ' ') // 무게/규격
+    .replace(/랜덤발송|혼합색상|색상랜덤|랜덤|쿠팡용|외\s*\d+\s*종/g, ' ')
+    .replace(/\d+/g, ' ') // 남은 숫자(가격 포함) 제거 — 코어만
+    .replace(/[^가-힣a-zA-Z]/g, '')
+    .toLowerCase();
+}
+
+/** 상품명 앞 가격(3~6자리, 브랜드접두 뒤) 추출 — 가격만 다른 상품 오매칭 가드용. */
+export function coupangNamePrice(name: string): string | null {
+  const t = String(name ?? '')
+    .replace(/KY\s*I\s*&?\s*D/gi, '')
+    .replace(/\b(?:pack|box|set)[_\s]/gi, '')
+    .trim();
+  const m = t.match(/^(\d{3,6})/);
+  return m ? m[1] : null;
+}
+
+/** 글자 bigram Dice 유사도(0~1) + 공통 bigram 수. 중간 단어 치환/어순차에 강한 퍼지 신호. */
+export function diceBigram(a: string, b: string): { dice: number; shared: number } {
+  if (a.length < 2 || b.length < 2) return { dice: 0, shared: 0 };
+  const setA = new Set<string>();
+  for (let i = 0; i < a.length - 1; i++) setA.add(a.slice(i, i + 2));
+  const setB = new Set<string>();
+  for (let i = 0; i < b.length - 1; i++) setB.add(b.slice(i, i + 2));
+  let shared = 0;
+  for (const g of setA) if (setB.has(g)) shared++;
+  return { dice: (2 * shared) / (setA.size + setB.size), shared };
+}
+
+/** 두 문자열의 공통 최장 연속부분문자열 길이 (퍼지 이름매칭용). */
+export function lcsLength(a: string, b: string): number {
+  const n = b.length;
+  let max = 0;
+  const dp = new Array(n + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = 0;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev + 1 : 0;
+      if (dp[j] > max) max = dp[j];
+      prev = tmp;
+    }
+  }
+  return max;
+}
+
+/**
+ * 코어 매칭: 완전일치 → 포함 → 퍼지(LCS/Dice) + 가격 가드. 매칭된 셀피아 항목을 반환.
+ * fuzzy=true 는 이름이 갈렸지만 핵심이 크게 겹치는 후보 — 오매칭 가능성이 있어 확인이 더 필요.
+ */
+export function matchCoupangProductByName(
+  core: string,
+  price: string | null,
+  index: NameMatchEntry[],
+): { stock: number; fuzzy: boolean; name: string } | null {
+  if (core.length < 2) return null;
+  const compatible = (s: NameMatchEntry) => !(price && s.price && price !== s.price);
+  const exact = index.find((s) => s.core === core && compatible(s));
+  if (exact) return { stock: exact.stock, fuzzy: false, name: exact.name };
+  if (core.length < 3) return null;
+  const contained = index.find(
+    (s) => s.core.length >= 3 && compatible(s) && (core.includes(s.core) || s.core.includes(core)),
+  );
+  if (contained) return { stock: contained.stock, fuzzy: false, name: contained.name };
+  // 퍼지: 두 신호 중 하나라도 통과하면 후보(확인 필요).
+  if (core.length < 4) return null;
+  let best: NameMatchEntry | null = null;
+  let bestScore = 0;
+  for (const s of index) {
+    if (!compatible(s) || s.core.length < 4) continue;
+    const minLen = Math.min(core.length, s.core.length);
+    const lcs = lcsLength(core, s.core);
+    const { dice, shared } = diceBigram(core, s.core);
+    const lcsOk = lcs >= 6 && lcs >= 0.45 * minLen;
+    const diceOk = dice >= 0.5 && shared >= 3;
+    if (!lcsOk && !diceOk) continue;
+    const score = Math.max(dice, lcs / minLen);
+    if (score > bestScore) {
+      bestScore = score;
+      best = s;
+    }
+  }
+  return best ? { stock: best.stock, fuzzy: true, name: best.name } : null;
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays,
   Download,
@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { useRocketPurchaseWorkflow } from '@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow';
 import { RocketInventoryCommitmentList } from '@/app/(supply)/purchase-orders/components/RocketInventoryCommitmentList';
+import { matchRocketStock } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
 import type { RocketDecisionWorkspaceContext } from './RocketOrdersWorkspace';
 import {
   RocketMatchStatusModal,
@@ -47,14 +48,24 @@ export function RocketConfirmPanel({
   from,
   to,
   selectedSourceImportRunId,
+  primarySourceImportRunId,
   onActivity,
   onOrdersChanged,
   renderOrderExplorer,
 }: { onSaved: () => void } & RocketDecisionWorkspaceContext) {
+  // 날짜를 고르면 그 수집본, 아니면 조회범위 전체 수집본으로 매칭한다.
+  const matchSourceImportRunId = selectedSourceImportRunId ?? primarySourceImportRunId;
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedDateSourceRunCount, setSelectedDateSourceRunCount] = useState(0);
   const [matchModalOpen, setMatchModalOpen] = useState(false);
   const [commitmentRefreshKey, setCommitmentRefreshKey] = useState(0);
+  // 바코드 매칭(저장 수집본 → 셀피아 재고) 결과. preview 매칭행보다 우선 표시한다.
+  const [barcodeMatchRows, setBarcodeMatchRows] = useState<RocketMatchStatusRow[] | null>(null);
+  const [barcodeMatchLoading, setBarcodeMatchLoading] = useState(false);
+  // 미리보기 표에 자동으로 채워 넣을 매칭 재고(poLineId → 셀피아명·재고·매칭방식).
+  const [previewStockByLineId, setPreviewStockByLineId] = useState<
+    Map<string, { currentStock: number; sellpiaName: string; matchType: 'barcode' | 'name' | 'name-fuzzy' }>
+  >(new Map());
   const {
     editedQuantities,
     setEditedQuantities,
@@ -122,10 +133,48 @@ export function RocketConfirmPanel({
   }));
   const busy = loading || confirming || releasing;
 
+  // 미리보기가 뜨면 그 수집본을 바코드로 셀피아 재고에 매칭해 표의 현재고/가용재고를 자동 채운다.
+  // (codex 레시피가 없는 미등록 상품은 recipe 경로가 '—' 라, 바코드 매칭 재고로 보충.)
+  const previewRowCount = preview?.rows.length ?? 0;
+  useEffect(() => {
+    if (previewRowCount === 0 || !channelAccountId || !matchSourceImportRunId) {
+      // 이미 비어 있으면 새 Map 을 만들지 않는다(불필요한 재렌더 방지).
+      setPreviewStockByLineId((prev) => (prev.size === 0 ? prev : new Map()));
+      return;
+    }
+    let cancelled = false;
+    // 미리보기가 걸린 날짜/조회범위로만 매칭한다(전송량·비용 절감).
+    const scope = selectedDate
+      ? { channelAccountId, sourceImportRunId: matchSourceImportRunId, fromDate: selectedDate, toDate: selectedDate }
+      : { channelAccountId, sourceImportRunId: matchSourceImportRunId, fromDate: from, toDate: to };
+    matchRocketStock(scope)
+      .then((matched) => {
+        if (cancelled) return;
+        const next = new Map<string, { currentStock: number; sellpiaName: string; matchType: 'barcode' | 'name' | 'name-fuzzy' }>();
+        for (const row of matched) {
+          if (row.matched && row.currentStock !== null && row.sellpiaName && row.matchType) {
+            next.set(row.poLineId, {
+              currentStock: row.currentStock,
+              sellpiaName: row.sellpiaName,
+              matchType: row.matchType,
+            });
+          }
+        }
+        setPreviewStockByLineId(next);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewStockByLineId(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewRowCount, channelAccountId, matchSourceImportRunId, selectedDate, from, to]);
+
   function handleExplorerDateSelection(date: string | null, sourceRunCount: number) {
     setSelectedDate(date ?? '');
     setSelectedDateSourceRunCount(sourceRunCount);
     setMatchModalOpen(false);
+    setBarcodeMatchRows(null);
   }
 
   async function collectMonth() {
@@ -135,6 +184,46 @@ export function RocketConfirmPanel({
     }
     await recalculate();
     onOrdersChanged();
+  }
+
+  // 선택한 수집본 상품을 셀피아 재고에 바코드로 매칭해 현황 모달을 연다(read-only).
+  async function runRocketStockMatch() {
+    if (!channelAccountId || !matchSourceImportRunId) {
+      toast.error('조회할 로켓 발주가 없습니다.');
+      return;
+    }
+    setBarcodeMatchLoading(true);
+    try {
+      // 날짜를 골랐으면 그 입고예정일만, 아니면 조회범위(from~to)로 서버에서 스코핑한다.
+      const rows = await matchRocketStock(
+        selectedDate
+          ? { channelAccountId, sourceImportRunId: matchSourceImportRunId, fromDate: selectedDate, toDate: selectedDate }
+          : { channelAccountId, sourceImportRunId: matchSourceImportRunId, fromDate: from, toDate: to },
+      );
+      setBarcodeMatchRows(
+        rows.map((row) => ({
+          poLineId: row.poLineId,
+          poNumber: row.poNumber,
+          productName: row.productName,
+          barcode: row.barcode,
+          orderQuantity: row.orderQuantity,
+          availableStock: row.currentStock,
+          mapped: row.matched,
+          matchType: row.matchType,
+          sellpiaName: row.sellpiaName,
+        })),
+      );
+      setMatchModalOpen(true);
+      const barcodeCount = rows.filter((row) => row.matchType === 'barcode').length;
+      const matchedCount = rows.filter((row) => row.matched).length;
+      toast.success(
+        `셀피아 매칭 ${formatNumber(matchedCount)}/${formatNumber(rows.length)}행 (바코드 ${formatNumber(barcodeCount)})`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '셀피아 매칭에 실패했습니다.');
+    } finally {
+      setBarcodeMatchLoading(false);
+    }
   }
 
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
@@ -184,6 +273,19 @@ export function RocketConfirmPanel({
             <span className="text-sm font-semibold text-slate-900">거래확인요청 · 입고예정일 달력</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void runRocketStockMatch()}
+              disabled={barcodeMatchLoading || !channelAccountId || !matchSourceImportRunId}
+              title="쿠팡 로켓 발주 상품을 셀피아 재고에 바코드로 매칭합니다(날짜 선택 시 그 날짜만)."
+              className={cn(
+                'inline-flex items-center gap-2 rounded-lg border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100',
+                (barcodeMatchLoading || !channelAccountId || !matchSourceImportRunId) && 'pointer-events-none opacity-60',
+              )}
+            >
+              {barcodeMatchLoading ? <Loader2 size={15} className="animate-spin" /> : <ListChecks size={15} />}
+              쿠팡 로켓 매칭
+            </button>
             <button
               type="button"
               onClick={() => void collectMonth()}
@@ -346,9 +448,7 @@ export function RocketConfirmPanel({
                   <th className="px-3 py-2 text-left font-semibold">발주번호</th>
                   <th className="px-3 py-2 text-left font-semibold">상품 (바코드)</th>
                   <th className="px-3 py-2 text-right font-semibold">발주</th>
-                  <th className="px-3 py-2 text-right font-semibold">현재고</th>
-                  <th className="px-3 py-2 text-right font-semibold">약정</th>
-                  <th className="px-3 py-2 text-right font-semibold">가용재고</th>
+                  <th className="px-3 py-2 text-right font-semibold">셀피아 재고</th>
                   <th className="px-3 py-2 text-right font-semibold">확정수량</th>
                   <th className="px-3 py-2 text-left font-semibold">납품부족사유</th>
                 </tr>
@@ -358,17 +458,36 @@ export function RocketConfirmPanel({
                   const source = sourceByLineId.get(row.poLineId);
                   const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
                   const short = quantity < row.orderQuantity;
+                  // 레시피가 없으면(미등록) 바코드 매칭 셀피아 재고를 보충한다.
+                  const hasRecipe = row.components.length > 0;
+                  const stockMatch = hasRecipe ? undefined : previewStockByLineId.get(row.poLineId);
+                  const currentStockText = hasRecipe
+                    ? componentValues(row, 'currentStock')
+                    : stockMatch ? formatNumber(stockMatch.currentStock) : '—';
                   return (
                     <tr key={row.poLineId} className={cn('border-t border-slate-100', short && 'bg-amber-50/40')}>
                       <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-slate-500">{row.poNumber}</td>
                       <td className="max-w-[260px] px-3 py-1.5">
                         <div className="truncate text-slate-700"><Package size={11} className="mr-1 inline text-purple-400" />{row.productName}</div>
-                        <div className="font-mono text-[10px] text-slate-400">{source?.barcode || '—'}</div>
+                        <div className="truncate font-mono text-[10px] text-slate-400">
+                          {source?.barcode || '—'}
+                          {stockMatch ? (
+                            <span
+                              className={cn(
+                                stockMatch.matchType === 'barcode' && 'text-emerald-600',
+                                stockMatch.matchType === 'name' && 'text-sky-600',
+                                stockMatch.matchType === 'name-fuzzy' && 'text-amber-600',
+                              )}
+                            >
+                              {' · '}
+                              {stockMatch.matchType === 'name-fuzzy' ? '유사? ' : null}
+                              {stockMatch.sellpiaName}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{formatNumber(row.orderQuantity)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{componentValues(row, 'currentStock')}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{componentValues(row, 'activeCommitmentQuantity')}</td>
-                      <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-slate-700">{componentValues(row, 'availableStock')}</td>
+                      <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-slate-700">{currentStockText}</td>
                       <td className="px-3 py-1.5 text-right">
                         <input
                           aria-label={`${row.poNumber} 검토수량`}
@@ -432,8 +551,10 @@ export function RocketConfirmPanel({
       <RocketMatchStatusModal
         open={matchModalOpen}
         onClose={() => setMatchModalOpen(false)}
-        rows={matchRows}
+        rows={barcodeMatchRows ?? matchRows}
         date={selectedDate || null}
+        title={barcodeMatchRows ? '쿠팡 로켓 · 셀피아 재고 매칭' : '매칭 현황'}
+        matchedFirst={Boolean(barcodeMatchRows)}
       />
     </div>
   );

@@ -8,12 +8,28 @@ import {
 import {
   type RocketPoCatalogPort,
   type RocketPoCatalogResolution,
+  type RocketStockMatchRow,
 } from '../port/in/rocket-po-catalog.port';
 import {
   ROCKET_PO_CATALOG_REPOSITORY_PORT,
   type RocketPoCatalogRepositoryPort,
 } from '../port/out/repository/rocket-po-catalog.repository.port';
+import {
+  SELLPIA_RECIPE_EVIDENCE_PORT,
+  type SellpiaRecipeEvidencePort,
+} from '../port/out/cross-domain/sellpia-recipe-evidence.port';
 import { ChannelRecipeAutomationService } from './channel-recipe-automation.service';
+import {
+  coupangNamePrice,
+  matchCoupangProductByName,
+  normalizeCoupangName,
+  type NameMatchEntry,
+} from '../../domain/coupang-name-matcher';
+
+/** 셀피아/쿠팡 바코드 정규화 — 숫자만 남긴다(findByNormalizedBarcodes 규약과 동일). */
+function normalizeBarcode(value: string | null | undefined): string {
+  return String(value ?? '').replace(/[^0-9]/g, '');
+}
 
 const ARTIFACT_FILE_NAME = 'rocket-po-catalog.json' as const;
 
@@ -22,6 +38,8 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
   constructor(
     @Inject(ROCKET_PO_CATALOG_REPOSITORY_PORT)
     private readonly repository: RocketPoCatalogRepositoryPort,
+    @Inject(SELLPIA_RECIPE_EVIDENCE_PORT)
+    private readonly evidence: SellpiaRecipeEvidencePort,
     private readonly recipeAutomation: ChannelRecipeAutomationService,
   ) {}
 
@@ -96,6 +114,99 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
     sourceImportRunId: string;
   }) {
     return this.repository.loadSavedCollection(input);
+  }
+
+  /**
+   * 저장된 수집본의 상품을 셀피아 재고에 **바코드**로 매칭한다(read-only, recipe 무관).
+   * 셀피아 주문수집이 쓰는 바코드 키와 동일. 같은 바코드가 여러 SKU(쿠팡용/일반)에
+   * 걸리면 재고를 합산하고 대표 이름 하나를 쓴다.
+   */
+  async matchSavedStock(input: {
+    organizationId: string;
+    channelAccountId: string;
+    sourceImportRunId: string;
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<RocketStockMatchRow[]> {
+    const collection = await this.repository.loadSavedCollection(input);
+    if (!collection) return [];
+
+    // 입고예정일 범위가 주어지면 그 범위 행만 매칭한다(전송량·매칭비용 절감).
+    const from = input.fromDate?.trim() || null;
+    const to = input.toDate?.trim() || null;
+    const rows = from || to
+      ? collection.rows.filter((row) =>
+          (!from || row.plannedDeliveryDate >= from) && (!to || row.plannedDeliveryDate <= to))
+      : collection.rows;
+
+    const normalizedBarcodes = [
+      ...new Set(
+        rows
+          .map((row) => normalizeBarcode(row.barcode))
+          .filter((barcode) => barcode.length > 0),
+      ),
+    ];
+    const skus = normalizedBarcodes.length > 0
+      ? await this.evidence.findByNormalizedBarcodes(input.organizationId, normalizedBarcodes)
+      : [];
+
+    const stockByBarcode = new Map<string, { name: string; stock: number }>();
+    for (const sku of skus) {
+      const key = normalizeBarcode(sku.barcode);
+      if (!key) continue;
+      const existing = stockByBarcode.get(key);
+      if (existing) existing.stock += sku.currentStock;
+      else stockByBarcode.set(key, { name: sku.name, stock: sku.currentStock });
+    }
+
+    // 바코드로 못 찾은 상품용 이름 매칭 인덱스(전체 셀피아 SKU → 코어/가격/재고).
+    const barcodeMissRows = rows.filter(
+      (row) => !(normalizeBarcode(row.barcode) && stockByBarcode.has(normalizeBarcode(row.barcode))),
+    );
+    let nameIndex: NameMatchEntry[] = [];
+    if (barcodeMissRows.length > 0) {
+      const allSkus = await this.evidence.listActiveForMatching(input.organizationId);
+      nameIndex = allSkus
+        .map((sku) => ({
+          core: normalizeCoupangName(sku.name),
+          price: coupangNamePrice(sku.name),
+          stock: sku.currentStock,
+          name: sku.name,
+        }))
+        .filter((entry) => entry.core.length >= 2);
+    }
+
+    return rows.map((row) => {
+      const base = {
+        poLineId: row.poLineId,
+        poNumber: row.poNumber,
+        productName: row.productName,
+        barcode: row.barcode,
+        orderQuantity: row.orderQty,
+        plannedDeliveryDate: row.plannedDeliveryDate,
+      };
+      const key = normalizeBarcode(row.barcode);
+      const barcodeMatch = key ? stockByBarcode.get(key) : undefined;
+      if (barcodeMatch) {
+        return { ...base, matched: true, matchType: 'barcode' as const, sellpiaName: barcodeMatch.name, currentStock: barcodeMatch.stock };
+      }
+      // 바코드 실패 → 이름 매칭(완전→포함→퍼지+가격가드).
+      const nameMatch = matchCoupangProductByName(
+        normalizeCoupangName(row.productName),
+        coupangNamePrice(row.productName),
+        nameIndex,
+      );
+      if (nameMatch) {
+        return {
+          ...base,
+          matched: true,
+          matchType: (nameMatch.fuzzy ? 'name-fuzzy' : 'name') as 'name' | 'name-fuzzy',
+          sellpiaName: nameMatch.name,
+          currentStock: nameMatch.stock,
+        };
+      }
+      return { ...base, matched: false, matchType: null, sellpiaName: null, currentStock: null };
+    });
   }
 }
 

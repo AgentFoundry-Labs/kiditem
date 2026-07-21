@@ -87,11 +87,20 @@ function recipeAutomation() {
   };
 }
 
-function service(repo = repository(), automation = recipeAutomation()) {
+function evidencePort() {
+  return {
+    listActiveForMatching: async () => [],
+    findByCodes: async () => [],
+    findByNormalizedBarcodes: async () => [],
+    findByNormalizedNames: async () => [],
+  };
+}
+
+function service(repo = repository(), automation = recipeAutomation(), evidence = evidencePort()) {
   return {
     repo,
     automation,
-    service: new RocketPoCatalogService(repo, automation as never),
+    service: new RocketPoCatalogService(repo, evidence as never, automation as never),
   };
 }
 

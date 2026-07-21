@@ -152,6 +152,17 @@ export class ProcurementController {
       if (!collection) throw new NotFoundException('Saved Rocket PO collection not found');
       return collection;
     }
+    if (body.action === 'matchRocketStock') {
+      // 저장 수집본 상품을 셀피아 재고에 매칭(read-only). 날짜 범위를 주면 그 범위만.
+      const rows = await this.rocketCatalog.matchSavedStock({
+        organizationId,
+        channelAccountId: body.channelAccountId!,
+        sourceImportRunId: body.sourceImportRunId!,
+        ...(body.fromDate && { fromDate: body.fromDate }),
+        ...(body.toDate && { toDate: body.toDate }),
+      });
+      return { rows };
+    }
     if (body.action === 'listRocketCommitments') {
       return this.rocketCommitments.list({
         organizationId,
