@@ -39,7 +39,35 @@ export async function collectRocketPoRowsFromExtension(
   if (!res?.success || !res.rows) {
     throw new Error(res?.error ?? '로켓 발주 수집에 실패했습니다.');
   }
-  return { rows: res.rows, poCount: res.poCount ?? 0 };
+  return { rows: res.rows.map(normalizeRocketConfirmRow), poCount: res.poCount ?? 0 };
+}
+
+/**
+ * 확장이 보내는 발주 행 모양(입고예정일=`plannedDeliveryDate`, 나머지는 중첩 `confirmation.*`)을
+ * 서버 `ConfirmSourceRow` 의 평면 필드명으로 정규화한다. 이 매핑이 없으면 서버가 읽는
+ * `expectedInboundDate`/`poRegisteredAt` 가 비어 입고예정일(businessDate)이 null 이 되고,
+ * `rocket_purchase_orders` 적재가 통째로 스킵되어 달력이 새 수집으로 채워지지 않는다.
+ * 평면 필드가 이미 있으면(저장분 재사용 등) 그대로 둔다.
+ */
+export function normalizeRocketConfirmRow(row: RocketConfirmSourceRow): RocketConfirmSourceRow {
+  const c = (row.confirmation ?? {}) as Record<string, unknown>;
+  const pick = (flat: unknown, nested: unknown): unknown => flat ?? nested;
+  return {
+    ...row,
+    expectedInboundDate: pick(row.expectedInboundDate, row.plannedDeliveryDate),
+    poStatus: pick(row.poStatus, c.poStatus),
+    center: pick(row.center, c.center),
+    inboundType: pick(row.inboundType, c.inboundType),
+    returnManager: pick(row.returnManager, c.returnManager),
+    returnContact: pick(row.returnContact, c.returnContact),
+    returnAddress: pick(row.returnAddress, c.returnAddress),
+    purchasePrice: pick(row.purchasePrice, c.purchasePrice),
+    supplyPrice: pick(row.supplyPrice, c.supplyPrice),
+    vat: pick(row.vat, c.vat),
+    totalPurchase: pick(row.totalPurchase, c.totalPurchase),
+    poRegisteredAt: pick(row.poRegisteredAt, c.poRegisteredAt),
+    xdock: pick(row.xdock, c.xdock),
+  };
 }
 
 export interface RocketPoSummary {

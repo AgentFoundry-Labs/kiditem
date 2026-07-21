@@ -439,6 +439,10 @@ export class RocketPoConfirmService {
     organizationId: string,
   ): Promise<RocketConfirmCommitResult> {
     if (!rows.length) throw new BadRequestException('예약 처리할 발주 행이 없습니다.');
+    // 런타임 구조 검증: 비객체 행이 섞이면 아래 필드 접근이 500 으로 터진다.
+    if (rows.some((row) => row == null || typeof row !== 'object' || Array.isArray(row))) {
+      throw new BadRequestException('발주 행 형식이 올바르지 않습니다.');
+    }
 
     const result: RocketConfirmCommitResult = {
       reservedRows: 0,
@@ -483,18 +487,15 @@ export class RocketPoConfirmService {
           barcode,
           qty: quantity,
         };
-        if (existing) {
-          await this.prisma.rocketPoReservation.update({
-            where: { organizationId_sourceActionId: { organizationId, sourceActionId } },
-            data,
-          });
-          result.alreadyReservedRows += 1;
-        } else {
-          await this.prisma.rocketPoReservation.create({
-            data: { organizationId, sourceActionId, ...data },
-          });
-          result.reservedRows += 1;
-        }
+        // 동시 커밋의 findUnique→create 레이스(unique 위반)를 피하려 atomic upsert 로 쓴다.
+        // 같은 sourceActionId 재커밋은 수량을 갱신한다(편집 후 재확정 = 의도된 멱등 갱신).
+        await this.prisma.rocketPoReservation.upsert({
+          where: { organizationId_sourceActionId: { organizationId, sourceActionId } },
+          create: { organizationId, sourceActionId, ...data },
+          update: data,
+        });
+        if (existing) result.alreadyReservedRows += 1;
+        else result.reservedRows += 1;
       } catch (err) {
         result.failedRows += 1;
         result.failed.push(toFailed(row, err instanceof Error ? err.message : 'rocket_reservation_failed'));

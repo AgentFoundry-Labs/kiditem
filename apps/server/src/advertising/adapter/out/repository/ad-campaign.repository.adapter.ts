@@ -58,6 +58,16 @@ const IS_CAMPAIGN_GRAIN = Prisma.sql`
 // with real numbers and again as an all-zero row (live 2026-07-20: `매출 TOP
 // 제품` and `쿠팡윙 집중광고` twice, `AI스마트광고(wing)` three times). The
 // campaign name is the only identifier stable across all three schemes.
+//
+// Deliberately NOT account/campaignId-scoped. `channel_ad_target_daily_snapshots`
+// has no `channel_account_id` column; the account uuid is embedded only in the
+// current-scheme `target_key`, and `campaign_id` is null on every row today
+// (live 2026-07-21: 1 distinct account uuid across keys, 165/167 rows legacy
+// scheme, 0 rows with a campaign_id). Keying identity on account/campaignId
+// would be a no-op for the single live ad account and would RE-SPLIT a
+// campaign's legacy rows from its current-scheme rows, reviving the exact
+// double-count this dedup removed. Per-account separation belongs on a real
+// `channel_account_id` fact column added at ingest, not on parsing target_key.
 const CAMPAIGN_IDENTITY = Prisma.sql`
   COALESCE(NULLIF(BTRIM(campaign_name), ''), target_key)
 `;
