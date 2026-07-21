@@ -430,20 +430,30 @@ export function createBrowserMallCollector({
     for (const transport of transports) {
       const matchingPos = data.pos.filter((po) => String(po.transport ?? '').toUpperCase() === transport);
       if (matchingPos.length === 0) continue;
+      const label = COUPANG_TRANSPORT_LABEL[transport];
       const result = await convertCoupangDirectToSellpiaFile(data, transport, {
         channelAccountId: rocketChannelAccountId,
         download: false,
         signal: run.signal,
       });
+      // 발주확정된 라인이 하나도 없으면 파일이 없다 — 사실대로 "확정 주문 없음"을 알리고 넘어간다.
+      if (result.empty) {
+        toast(`발주확정된 쿠팡직배송 ${label} 주문이 없습니다.`);
+        continue;
+      }
       if (!result.importRunId) {
         throw new Error('PA 주문 영속화 결과를 확인하지 못해 파일 생성을 중단했습니다.');
       }
+      // 파일에는 발주확정된 주문만 담긴다 — 표시 건수도 확정 기준(sourceRows)으로 맞춘다.
       const itemRows = result.outputRows ?? 0;
       const orderNumbers = coupangDirectOrderNumbers(matchingPos);
-      const poCount = orderNumbers.length || result.sourceRows || matchingPos.length;
+      const poCount = result.sourceRows || orderNumbers.length || matchingPos.length;
       totalOrders += poCount;
+      // 발주확정이 없어 제외된 라인은 조용히 버리지 않고 사용자에게 알린다.
+      if (result.skipped > 0) {
+        toast(`쿠팡직배송 ${label}: ${formatNumber(result.skipped)}개 품목은 발주확정이 없어 제외됐습니다.`);
+      }
       const convertedAt = Date.now();
-      const label = COUPANG_TRANSPORT_LABEL[transport];
       const historyItem = {
         ...result,
         id: `${convertedAt}-coupang-direct-${transport.toLowerCase()}-browser`,

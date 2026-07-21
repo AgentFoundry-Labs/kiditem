@@ -58,6 +58,14 @@ export async function collectCoupangDirectFromExtension(run?: OrderCollectionExt
   return { pos: res.pos, centers: res.centers ?? {} };
 }
 
+/** 쿠팡직배송 변환 결과. `empty` 면 발주확정된 주문이 없어 파일이 생성되지 않았다. */
+export interface CoupangDirectConversionResult extends OrderCollectionConversionResult {
+  /** 활성 발주확정 라인이 하나도 없어 "수집할 확정 주문 없음"으로 끝난 경우 true. */
+  empty: boolean;
+  /** 발주확정이 없어 정산·수집에서 제외된 라인 수. */
+  skipped: number;
+}
+
 /** 수집한 발주 데이터를 운송유형별로 백엔드에서 셀피아 양식(.xls, 서식/시트 유지)으로 생성. */
 export async function convertCoupangDirectToSellpiaFile(
   data: CoupangDirectData,
@@ -67,7 +75,7 @@ export async function convertCoupangDirectToSellpiaFile(
     download?: boolean;
     signal?: AbortSignal;
   },
-): Promise<OrderCollectionConversionResult> {
+): Promise<CoupangDirectConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/coupang-directship/convert', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -82,6 +90,28 @@ export async function convertCoupangDirectToSellpiaFile(
   if (!res.ok) {
     throw new Error((await res.text().catch(() => '')) || '쿠팡직배송 변환에 실패했습니다.');
   }
+  const skippedRows = numHeader(res, 'X-Order-Collection-Skipped-Rows');
+  const reconciledRows = numHeader(res, 'X-Order-Collection-Reconciled-Rows');
+  const importRunId = res.headers.get('X-Order-Collection-Import-Run-Id');
+
+  // 활성 발주확정이 없으면 백엔드가 파일 대신 2xx JSON("수집할 확정 주문 없음")을 준다.
+  if (res.headers.get('X-Order-Collection-Confirmed-Empty') === '1') {
+    await res.text().catch(() => '');
+    return {
+      empty: true,
+      skipped: skippedRows ?? 0,
+      fileName: '',
+      blob: new Blob(),
+      previewRows: [],
+      sourceRows: 0,
+      productRows: 0,
+      outputRows: 0,
+      skippedRows,
+      importRunId,
+      reconciledRows,
+    };
+  }
+
   const blob = await res.blob();
   const cd = res.headers.get('Content-Disposition') ?? '';
   const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
@@ -90,15 +120,17 @@ export async function convertCoupangDirectToSellpiaFile(
     : `쿠팡직배송_${COUPANG_TRANSPORT_LABEL[transport]}_셀피아변환.xls`;
   if (options?.download !== false) downloadBlob(blob, fileName);
   return {
+    empty: false,
+    skipped: skippedRows ?? 0,
     fileName,
     blob,
     previewRows: await readPreviewRows(blob),
     sourceRows: numHeader(res, 'X-Order-Collection-Source-Rows'),
     productRows: numHeader(res, 'X-Order-Collection-Product-Rows'),
     outputRows: numHeader(res, 'X-Order-Collection-Output-Rows'),
-    skippedRows: numHeader(res, 'X-Order-Collection-Skipped-Rows'),
-    importRunId: res.headers.get('X-Order-Collection-Import-Run-Id'),
-    reconciledRows: numHeader(res, 'X-Order-Collection-Reconciled-Rows'),
+    skippedRows,
+    importRunId,
+    reconciledRows,
   };
 }
 

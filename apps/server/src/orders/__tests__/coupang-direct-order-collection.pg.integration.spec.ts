@@ -123,6 +123,32 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     ]);
   });
 
+  it('collects without throwing when no active confirmation exists, reporting the skip', async () => {
+    // 현재 운영 상태(rocket_purchase_confirmation_lines = 0)를 재현한다.
+    // 예전에는 ROCKET_REQUEST_COMMITMENT_NOT_FOUND 409 로 수집 전체가 터졌다.
+    const input = collectionRequest('PO-9', 'P-9', '8801234567890', 3);
+
+    const result = await service.collect({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      request: input,
+    });
+
+    expect(result).toMatchObject({
+      reconciledRows: 0,
+      confirmedLines: [],
+      skippedLines: [{ poNumber: 'PO-9', productNo: 'P-9' }],
+      duplicate: false,
+    });
+    // 최종주문 자체는 실제 주문이라 적재되지만, 발주확정이 없어 재고 커밋은 생기지 않는다.
+    expect(await prisma.order.count()).toBe(1);
+    expect(await prisma.orderLineItem.count()).toBe(1);
+    expect(await prisma.sourceImportRun.count({
+      where: { sourceType: 'coupang_rocket_final_order', status: 'completed' },
+    })).toBe(1);
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
+  });
+
   it('rolls back import run and Orders when reconciliation fails', async () => {
     await seedRequest('PO-1', 'P-1', '8801234567890', 4);
 

@@ -44,6 +44,32 @@ describe('Coupang direct-shipment collection lifecycle', () => {
     );
   });
 
+  it('reports "no confirmed orders" without a file when nothing is confirmed', async () => {
+    api.fetchRaw.mockResolvedValue(
+      new Response(JSON.stringify({ collected: 0, skipped: 2, message: '수집할 확정 주문이 없습니다.' }), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'X-Order-Collection-Confirmed-Empty': '1',
+          'X-Order-Collection-Skipped-Rows': '2',
+          'X-Order-Collection-Reconciled-Rows': '0',
+          'X-Order-Collection-Import-Run-Id': '11111111-1111-4111-8111-111111111111',
+        },
+      }),
+    );
+
+    const result = await convertCoupangDirectToSellpiaFile(
+      { pos: [], centers: {} },
+      'SHIPMENT',
+      { channelAccountId: '11111111-1111-4111-8111-111111111111', download: false },
+    );
+
+    expect(result.empty).toBe(true);
+    expect(result.skipped).toBe(2);
+    expect(result.reconciledRows).toBe(0);
+    expect(result.importRunId).toBe('11111111-1111-4111-8111-111111111111');
+  });
+
   it('passes cancellation to backend conversion', async () => {
     const abortController = new AbortController();
     api.fetchRaw.mockResolvedValue(new Response('conversion failed', { status: 400 }));

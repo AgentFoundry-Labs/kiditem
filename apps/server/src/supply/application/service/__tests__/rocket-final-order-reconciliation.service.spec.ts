@@ -4,7 +4,7 @@ import { RocketFinalOrderReconciliationService } from '../rocket-final-order-rec
 describe('RocketFinalOrderReconciliationService', () => {
   it('delegates the caller-owned transaction and authenticated scope unchanged', async () => {
     const transactions = {
-      reconcile: vi.fn().mockResolvedValue({ reconciledRows: 1 }),
+      reconcile: vi.fn().mockResolvedValue({ reconciledRows: 1, skippedLines: [] }),
     };
     const service = new RocketFinalOrderReconciliationService(transactions);
     const input = {
@@ -21,7 +21,7 @@ describe('RocketFinalOrderReconciliationService', () => {
       }],
     };
 
-    await expect(service.reconcile(input)).resolves.toEqual({ reconciledRows: 1 });
+    await expect(service.reconcile(input)).resolves.toEqual({ reconciledRows: 1, skippedLines: [] });
     expect(transactions.reconcile).toHaveBeenCalledWith(input);
   });
 });

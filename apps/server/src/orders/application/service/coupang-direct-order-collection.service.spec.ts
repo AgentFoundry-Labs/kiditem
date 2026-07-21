@@ -8,6 +8,8 @@ describe('CoupangDirectOrderCollectionService', () => {
       collect: vi.fn().mockResolvedValue({
         importRunId: '11111111-1111-4111-8111-111111111111',
         reconciledRows: 1,
+        confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        skippedLines: [],
         duplicate: false,
       }),
     };
@@ -50,6 +52,8 @@ describe('CoupangDirectOrderCollectionService', () => {
       collect: vi.fn().mockResolvedValue({
         importRunId: '11111111-1111-4111-8111-111111111111',
         reconciledRows: 1,
+        confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        skippedLines: [],
         duplicate: false,
       }),
     };
@@ -67,6 +71,8 @@ describe('CoupangDirectOrderCollectionService', () => {
     expect(result).toEqual({
       importRunId: '11111111-1111-4111-8111-111111111111',
       reconciledRows: 1,
+      confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+      skippedLines: [],
       duplicate: false,
     });
     expect(transactions.collect).toHaveBeenCalledTimes(1);

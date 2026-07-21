@@ -7,6 +7,8 @@ describe('OrderCollectionController Coupang direct boundary', () => {
       collect: vi.fn().mockResolvedValue({
         importRunId: '11111111-1111-4111-8111-111111111111',
         reconciledRows: 1,
+        confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        skippedLines: [],
         duplicate: false,
       }),
     };
@@ -45,6 +47,43 @@ describe('OrderCollectionController Coupang direct boundary', () => {
       'X-Order-Collection-Reconciled-Rows',
       '1',
     );
+  });
+
+  it('returns a "no confirmed orders" success without a workbook when nothing is confirmed', async () => {
+    const collection = {
+      collect: vi.fn().mockResolvedValue({
+        importRunId: '11111111-1111-4111-8111-111111111111',
+        reconciledRows: 0,
+        confirmedLines: [],
+        skippedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        duplicate: false,
+      }),
+    };
+    const workbook = { generate: vi.fn() };
+    const controller = new OrderCollectionController(
+      {} as never,
+      workbook as never,
+      collection as never,
+    );
+    const response = { setHeader: vi.fn() };
+
+    const result = await controller.convertCoupangDirectship(
+      request() as never,
+      '22222222-2222-4222-8222-222222222222',
+      { id: '33333333-3333-4333-8333-333333333333' } as never,
+      { once: vi.fn() } as never,
+      response as never,
+    );
+
+    // 확정 주문이 없으면 파일을 만들지 않고 2xx 로 사실대로 알린다.
+    expect(workbook.generate).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      collected: 0,
+      skipped: 1,
+      message: '수집할 확정 주문이 없습니다.',
+    });
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Skipped-Rows', '1');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Confirmed-Empty', '1');
   });
 
   it('does not generate a workbook when persistence or reconciliation fails', async () => {

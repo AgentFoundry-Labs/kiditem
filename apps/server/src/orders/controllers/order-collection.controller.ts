@@ -32,8 +32,16 @@ import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../auth/auth.types';
 import {
   COUPANG_DIRECT_ORDER_COLLECTION_PORT,
+  type CoupangDirectCollectionLineRef,
   type CoupangDirectOrderCollectionPort,
 } from '../application/port/in/coupang-direct-order-collection.port';
+
+interface CoupangDirectConfirmedEmptyResponse {
+  collected: 0;
+  skipped: number;
+  importRunId: string;
+  message: string;
+}
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([
@@ -64,6 +72,7 @@ export class OrderCollectionController {
     'X-Order-Collection-Skipped-Rows',
     'X-Order-Collection-Import-Run-Id',
     'X-Order-Collection-Reconciled-Rows',
+    'X-Order-Collection-Confirmed-Empty',
   ].join(', '))
   async convertCoupangDirectship(
     @Body() body: CoupangDirectOrderCollectionRequest,
@@ -71,7 +80,7 @@ export class OrderCollectionController {
     @CurrentUser() user: AuthUser,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
-  ): Promise<StreamableFile> {
+  ): Promise<StreamableFile | CoupangDirectConfirmedEmptyResponse> {
     const abortController = new AbortController();
     request.once('aborted', () => abortController.abort());
     const collected = await this.coupangDirectOrders.collect({
@@ -79,7 +88,25 @@ export class OrderCollectionController {
       userId: user.id,
       request: body,
     });
-    const result = await this.coupangDirectshipService.generate(body, {
+    response.setHeader('X-Order-Collection-Import-Run-Id', collected.importRunId);
+    response.setHeader('X-Order-Collection-Reconciled-Rows', String(collected.reconciledRows));
+    response.setHeader('X-Order-Collection-Skipped-Rows', String(collected.skippedLines.length));
+
+    // 활성 발주확정이 있는 라인이 하나도 없으면 배치를 터뜨리지 않고 "수집할 확정 주문 없음"을
+    // 2xx 성공으로 알린다. 파일은 만들지 않는다(확정된 주문만 셀피아 양식으로 내보낸다).
+    if (collected.reconciledRows === 0) {
+      response.setHeader('X-Order-Collection-Confirmed-Empty', '1');
+      return {
+        collected: 0,
+        skipped: collected.skippedLines.length,
+        importRunId: collected.importRunId,
+        message: '수집할 확정 주문이 없습니다.',
+      };
+    }
+
+    // 확정(정산)된 라인만 셀피아 양식에 담는다. 발주확정 없는 라인은 파일에서도 제외한다.
+    const confirmedRequest = filterConfirmedPurchaseOrders(body, collected.confirmedLines);
+    const result = await this.coupangDirectshipService.generate(confirmedRequest, {
       signal: abortController.signal,
     });
     response.setHeader('Content-Disposition', contentDispositionAttachment(result.fileName));
@@ -87,12 +114,7 @@ export class OrderCollectionController {
     response.setHeader('X-Order-Collection-Source-Rows', String(result.poCount));
     response.setHeader('X-Order-Collection-Product-Rows', String(result.rowCount));
     response.setHeader('X-Order-Collection-Output-Rows', String(result.rowCount));
-    response.setHeader('X-Order-Collection-Skipped-Rows', '0');
-    response.setHeader('X-Order-Collection-Import-Run-Id', collected.importRunId);
-    response.setHeader(
-      'X-Order-Collection-Reconciled-Rows',
-      String(collected.reconciledRows),
-    );
+    response.setHeader('X-Order-Collection-Confirmed-Empty', '0');
     return new StreamableFile(result.buffer);
   }
 
@@ -431,4 +453,25 @@ export class OrderCollectionController {
 function contentDispositionAttachment(fileName: string): string {
   const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');
   return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
+/**
+ * 확정(정산)된 (발주번호=seq, SKU=skuId) 라인만 남기도록 셀피아 양식 생성 입력을 좁힌다.
+ * 발주확정이 없어 제외된 품목은 파일에서도 빠지고, 남은 품목이 없는 발주는 통째로 제외된다.
+ */
+function filterConfirmedPurchaseOrders(
+  request: CoupangDirectOrderCollectionRequest,
+  confirmedLines: CoupangDirectCollectionLineRef[],
+): CoupangDirectOrderCollectionRequest {
+  const confirmedKeys = new Set(
+    confirmedLines.map(({ poNumber, productNo }) => JSON.stringify([poNumber, productNo])),
+  );
+  const pos = request.pos
+    .map((purchaseOrder) => ({
+      ...purchaseOrder,
+      items: purchaseOrder.items.filter((item) =>
+        confirmedKeys.has(JSON.stringify([String(purchaseOrder.seq).trim(), item.skuId]))),
+    }))
+    .filter((purchaseOrder) => purchaseOrder.items.length > 0);
+  return { ...request, pos };
 }
