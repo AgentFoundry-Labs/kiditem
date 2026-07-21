@@ -25,15 +25,14 @@ describe('ProductDetailPage navigation', () => {
     searchParamsValue.current = '';
   });
 
-  it('returns a newly generated product to the product generation page', () => {
+  it('returns a generated product workspace to the collected products list', () => {
     searchParamsValue.current = 'returnTo=%2Fproduct-pipeline%2Fproductgenerate';
 
     render(<ProductDetailPage />);
 
     expect(productWorkspaceProps.at(-1)).toEqual(expect.objectContaining({
-      backHref: '/product-pipeline/productgenerate',
-      selfHref:
-        '/product-pipeline/collected-products/candidate-1?returnTo=%2Fproduct-pipeline%2Fproductgenerate',
+      backHref: '/product-pipeline/collected-products',
+      selfHref: '/product-pipeline/collected-products/candidate-1',
     }));
   });
 });
