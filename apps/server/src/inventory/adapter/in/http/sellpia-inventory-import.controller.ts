@@ -8,17 +8,16 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { SELLPIA_WORKBOOK_FORMAT_LABEL } from '@kiditem/shared/inventory';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import {
   SELLPIA_INVENTORY_IMPORT_PORT,
   type SellpiaInventoryImportPort,
 } from '../../../application/port/in/stock/sellpia-inventory-import.port';
-import type { AuthUser } from '../../../../auth/auth.types';
 import { SellpiaInventoryImportDto } from './dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
-type UploadedWorkbookFile = {
+type UploadedInventoryArtifact = {
   buffer: Buffer;
   originalname: string;
   mimetype: string;
@@ -33,15 +32,15 @@ export class SellpiaInventoryImportController {
 
   @Post('import')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
-  importWorkbook(
+  importArtifact(
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @Body() dto: SellpiaInventoryImportDto,
-    @UploadedFile() file: UploadedWorkbookFile | undefined,
+    @UploadedFile() file: UploadedInventoryArtifact | undefined,
   ) {
     if (!file?.buffer) {
       throw new BadRequestException(
-        `Sellpia ${SELLPIA_WORKBOOK_FORMAT_LABEL} file is required`,
+        'Sellpia inventory snapshot JSON or XLS/XLSX/CSV file is required',
       );
     }
     return this.importer.importInventory({

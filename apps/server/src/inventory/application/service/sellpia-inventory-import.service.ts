@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 import {
   type ImportSellpiaInventoryInput,
   type SellpiaInventoryImportPort,
@@ -20,7 +19,8 @@ import {
   type SellpiaSnapshotPublicationRepositoryPort,
 } from '../port/out/repository/sellpia-snapshot-publication.repository.port';
 import { SellpiaInventoryFileValidator } from './sellpia-inventory-file.validator';
-import { parseSellpiaInventoryWorkbook } from './sellpia-inventory-workbook.parser';
+import { parseSellpiaInventoryArtifact } from './sellpia-inventory-workbook.parser';
+import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 
 @Injectable()
 export class SellpiaInventoryImportService implements SellpiaInventoryImportPort {
@@ -52,13 +52,13 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
     }
 
     const execution = publicationExecution(input, claim);
-    let parsed: ReturnType<typeof parseSellpiaInventoryWorkbook>;
+    let parsed: ReturnType<typeof parseSellpiaInventoryArtifact>;
     try {
       this.fileValidator.validate({
         buffer: input.file.buffer,
         mimeType: input.file.mimeType,
       });
-      parsed = parseSellpiaInventoryWorkbook(input.file.buffer);
+      parsed = parseSellpiaInventoryArtifact(input.file.buffer);
     } catch (error) {
       if (claim.kind === 'started') {
         try {
@@ -69,7 +69,7 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
             attemptToken: claim.attemptToken,
             execution,
             errorCode: 'sellpia_invalid_workbook',
-            errorMessage: 'Sellpia inventory workbook validation failed',
+            errorMessage: 'Sellpia inventory artifact validation failed',
           });
         } catch {
           // Publication or a newer fenced worker may already own the terminal state.

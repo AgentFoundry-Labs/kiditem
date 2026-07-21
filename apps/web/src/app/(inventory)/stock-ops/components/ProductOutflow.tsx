@@ -64,7 +64,7 @@ export default function ProductOutflow() {
     queryClient.invalidateQueries({ queryKey: queryKeys.inventory.productSalesAll() });
   }, [queryClient]);
 
-  // 현재고 갱신 요청(비필수) — 실제 Excel 수집/적재는 PR 330 공용 조정자가 수행한다.
+  // 현재고 갱신 요청(비필수) — 실제 JSON 스냅샷 수집/적재는 공용 조정자가 수행한다.
   const syncStock = useCallback(async (): Promise<boolean> => {
     try {
       await requestRefresh('manual_request');

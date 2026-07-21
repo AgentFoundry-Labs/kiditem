@@ -92,6 +92,6 @@ describe('Rocket purchase decision boundary', () => {
     expect(previewApiSource).not.toContain('/api/orders/rocket');
     expect(extensionSource).toContain('collectRocketPoRowsEvidenceV1: true');
     expect(extensionSource).toContain('collectRocketPoRowsConfirmationV1: true');
-    expect(extensionSource).toContain('collectSellpiaInventoryV2: true');
+    expect(extensionSource).toContain('collectSellpiaInventoryJsonV1: true');
   });
 });

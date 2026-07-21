@@ -7,6 +7,60 @@ import {
   SellpiaInventoryRefreshReasonSchema,
 } from './sellpia-inventory-freshness.js';
 
+export const MAX_SELLPIA_INVENTORY_BROWSER_SNAPSHOT_ROWS = 20_000;
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
+
+export const SellpiaInventoryBrowserSnapshotRowSchema = z.object({
+  productCode: z.string().trim().min(1).max(100),
+  optionCode: z.string().trim().max(100),
+  name: z.string().trim().max(500),
+  optionName: z.string().trim().min(1).max(500).nullable(),
+  barcode: z.string().trim().min(1).max(100).nullable(),
+  currentStock: z.number().int().min(0).max(POSTGRES_INTEGER_MAX),
+  purchasePrice: z.number().int().min(0).max(POSTGRES_INTEGER_MAX).nullable(),
+  salePrice: z.number().int().min(0).max(POSTGRES_INTEGER_MAX).nullable(),
+}).strict();
+export type SellpiaInventoryBrowserSnapshotRow = z.infer<
+  typeof SellpiaInventoryBrowserSnapshotRowSchema
+>;
+
+export const SellpiaInventoryBrowserSnapshotSchema = z.object({
+  source: z.literal('sellpia_product_search'),
+  version: z.literal(1),
+  rowCount: z.number().int().min(1).max(MAX_SELLPIA_INVENTORY_BROWSER_SNAPSHOT_ROWS),
+  rows: z.array(SellpiaInventoryBrowserSnapshotRowSchema)
+    .min(1)
+    .max(MAX_SELLPIA_INVENTORY_BROWSER_SNAPSHOT_ROWS),
+}).strict().superRefine((snapshot, ctx) => {
+  if (snapshot.rowCount !== snapshot.rows.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['rowCount'],
+      message: 'Sellpia snapshot rowCount must match rows length',
+    });
+  }
+
+  let previousIdentity: string | null = null;
+  for (let index = 0; index < snapshot.rows.length; index += 1) {
+    const row = snapshot.rows[index];
+    if (!row) continue;
+    const identity = `${row.productCode}-${row.optionCode}`;
+    if (previousIdentity !== null && identity <= previousIdentity) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['rows', index],
+        message: identity === previousIdentity
+          ? 'Sellpia snapshot contains a duplicate product-option identity'
+          : 'Sellpia snapshot rows must be sorted by product-option identity',
+      });
+    }
+    previousIdentity = identity;
+  }
+});
+export type SellpiaInventoryBrowserSnapshot = z.infer<
+  typeof SellpiaInventoryBrowserSnapshotSchema
+>;
+
 export const SourceImportTypeSchema = z.enum([
   'sellpia_inventory',
   'coupang_wing_catalog',

@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
 import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/repository/sellpia-import-run.repository.adapter';
@@ -10,8 +9,6 @@ import { SellpiaInventoryFileValidator } from '../application/service/sellpia-in
 import { SellpiaInventoryFreshnessService } from '../application/service/sellpia-inventory-freshness.service';
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
 import { parseSellpiaInventoryWorkbook } from '../application/service/sellpia-inventory-workbook.parser';
-import type { SellpiaImportExecution } from '../application/port/in/stock/sellpia-inventory-import.port';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -19,6 +16,9 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
+import type { SellpiaImportExecution } from '../application/port/in/stock/sellpia-inventory-import.port';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 describe('Sellpia unified import repositories (PG integration)', () => {
   let prisma: PrismaClient;
@@ -583,7 +583,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     });
     expect(failed).toMatchObject({
       errorCode: 'sellpia_invalid_workbook',
-      errorMessage: 'Sellpia inventory workbook validation failed',
+      errorMessage: 'Sellpia inventory artifact validation failed',
     });
     expect(failed.errorMessage).not.toContain('secret');
   });

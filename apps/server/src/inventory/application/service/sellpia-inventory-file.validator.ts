@@ -1,9 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
 import { TextDecoder } from 'node:util';
 import { inflateRawSync } from 'node:zlib';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { SellpiaInventoryBrowserSnapshotSchema } from '@kiditem/shared/source-import';
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/octet-stream',
+  'application/json',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'text/csv',
@@ -47,6 +49,10 @@ export class SellpiaInventoryFileValidator {
     if (!ALLOWED_MIME_TYPES.has(mimeType)) throw invalidEnvelope();
     if (input.buffer.length > MAX_COMPRESSED_BYTES) throw invalidEnvelope();
     if (looksLikeHtmlOrLogin(input.buffer)) throw invalidEnvelope();
+    if (mimeType === 'application/json') {
+      if (isBoundedSellpiaBrowserSnapshot(input.buffer)) return;
+      throw invalidEnvelope();
+    }
     if (input.buffer.subarray(0, OLE2_MAGIC.length).equals(OLE2_MAGIC)) return;
     if (isBoundedBiffWorksheetStream(input.buffer)) return;
     if (ZIP_MAGICS.some((magic) => input.buffer.subarray(0, magic.length).equals(magic))) {
@@ -55,6 +61,15 @@ export class SellpiaInventoryFileValidator {
     }
     if (looksLikeSellpiaDelimitedText(input.buffer)) return;
     throw invalidEnvelope();
+  }
+}
+
+function isBoundedSellpiaBrowserSnapshot(buffer: Buffer): boolean {
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    return SellpiaInventoryBrowserSnapshotSchema.safeParse(JSON.parse(decoded)).success;
+  } catch {
+    return false;
   }
 }
 
@@ -360,5 +375,5 @@ function looksLikeSellpiaDelimitedText(buffer: Buffer): boolean {
 }
 
 function invalidEnvelope(): BadRequestException {
-  return new BadRequestException('Sellpia inventory file has an invalid workbook envelope');
+  return new BadRequestException('Sellpia inventory file has an invalid artifact envelope');
 }

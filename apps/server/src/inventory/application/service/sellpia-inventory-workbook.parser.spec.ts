@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import {
   MAX_SELLPIA_INVENTORY_IMPORT_ROWS,
+  parseSellpiaInventoryArtifact,
   parseSellpiaInventoryWorkbook,
 } from './sellpia-inventory-workbook.parser';
 
@@ -55,6 +56,47 @@ function errorMessage(run: () => unknown): string {
 }
 
 describe('parseSellpiaInventoryWorkbook', () => {
+  it('parses a versioned Sellpia browser JSON snapshot into the canonical inventory rows', () => {
+    const parsed = parseSellpiaInventoryArtifact(Buffer.from(JSON.stringify({
+      source: 'sellpia_product_search',
+      version: 1,
+      rowCount: 1,
+      rows: [{
+        productCode: '92',
+        optionCode: '1',
+        name: '상품',
+        optionName: '블루',
+        barcode: '8801234567890',
+        currentStock: 39,
+        purchasePrice: 10_000,
+        salePrice: 20_000,
+      }],
+    })));
+
+    expect(parsed.headers).toEqual([
+      '상품코드', '상품명', '옵션명', '재고', '매입가', '판매가', '바코드',
+    ]);
+    expect(parsed.rows).toEqual([{
+      rowNumber: 1,
+      sellpiaProductCode: '92-1',
+      name: '상품',
+      optionName: '블루',
+      barcode: '8801234567890',
+      currentStock: 39,
+      purchasePrice: 10_000,
+      salePrice: 20_000,
+      rawJson: {
+        '상품코드': '92-1',
+        '상품명': '상품',
+        '옵션명': '블루',
+        '재고': 39,
+        '매입가': 10_000,
+        '판매가': 20_000,
+        '바코드': '8801234567890',
+      },
+    }]);
+  });
+
   it('reads legacy CP949 XLS files that omit the codepage record', () => {
     const parsed = parseSellpiaInventoryWorkbook(legacyCp949XlsBuffer());
 
