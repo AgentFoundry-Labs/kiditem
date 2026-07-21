@@ -338,7 +338,7 @@ export function RocketConfirmPanel({
         `재고 기준 발주확정 엑셀 생성 — 확정 ${formatNumber(confirmTotals.qty)}개 · 부족 ${confirmTotals.short}행`,
       );
     } else {
-      toast.error('엑셀 생성 실패 — "이 달 쿠팡에서 수집"으로 실데이터(센터·반품주소)를 받은 뒤 다시 시도하세요.');
+      toast.error('엑셀 생성에 실패했습니다. 상단 안내 메시지를 확인해 주세요.');
     }
   }
 

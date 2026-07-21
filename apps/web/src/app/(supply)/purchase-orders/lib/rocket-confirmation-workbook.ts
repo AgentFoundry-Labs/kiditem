@@ -37,6 +37,11 @@ export function buildRocketConfirmationWorkbook(input: {
   sourceRows: RocketPoCatalogRow[];
   confirmedRows: RocketPurchaseConfirmationResponse['rows'];
   now?: Date;
+  /**
+   * 쿠팡 실메타(센터·반품주소·가격 등, source.confirmation)가 없어도 그 칸을 빈칸으로 두고
+   * 파일을 만든다(재고 기준 내보내기 전용). 정식 확정 흐름은 이 값을 켜지 않는다.
+   */
+  allowMissingConfirmation?: boolean;
 }): RocketConfirmationWorkbookResult {
   const confirmedByLineId = new Map(input.confirmedRows.map((row) => [row.poLineId, row]));
   if (confirmedByLineId.size !== input.sourceRows.length) {
@@ -49,7 +54,7 @@ export function buildRocketConfirmationWorkbook(input: {
   for (const source of input.sourceRows) {
     const confirmation = source.confirmation;
     const confirmed = confirmedByLineId.get(source.poLineId);
-    if (!confirmation) {
+    if (!confirmation && !input.allowMissingConfirmation) {
       throw new Error('Rocket confirmation metadata is missing. Reload the order collector extension.');
     }
     if (!confirmed) {
@@ -58,11 +63,12 @@ export function buildRocketConfirmationWorkbook(input: {
     confirmedQuantity += confirmed.confirmedQuantity;
     if (confirmed.confirmedQuantity < source.orderQty) shortRows += 1;
     else fullyConfirmedRows += 1;
+    // 메타가 없으면(재고 기준 내보내기) 해당 칸은 빈칸으로.
     rows.push([
       source.poNumber,
-      confirmation.center,
-      confirmation.inboundType,
-      confirmation.poStatus,
+      confirmation?.center ?? '',
+      confirmation?.inboundType ?? '',
+      confirmation?.poStatus ?? '',
       source.productNo,
       source.barcode,
       source.productName,
@@ -72,16 +78,16 @@ export function buildRocketConfirmationWorkbook(input: {
       '',
       '',
       confirmed.shortageReason ?? '',
-      confirmation.returnManager,
-      confirmation.returnContact,
-      confirmation.returnAddress,
-      confirmation.purchasePrice,
-      confirmation.supplyPrice,
-      confirmation.vat,
-      confirmation.totalPurchase,
+      confirmation?.returnManager ?? '',
+      confirmation?.returnContact ?? '',
+      confirmation?.returnAddress ?? '',
+      confirmation?.purchasePrice ?? '',
+      confirmation?.supplyPrice ?? '',
+      confirmation?.vat ?? '',
+      confirmation?.totalPurchase ?? '',
       source.plannedDeliveryDate.replaceAll('-', ''),
-      confirmation.poRegisteredAt,
-      confirmation.xdock,
+      confirmation?.poRegisteredAt ?? '',
+      confirmation?.xdock ?? '',
     ]);
   }
 

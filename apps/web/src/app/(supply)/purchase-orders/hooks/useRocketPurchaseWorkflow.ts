@@ -410,16 +410,23 @@ export function useRocketPurchaseWorkflow({
             sourceRows,
             confirmedRows,
           })
-        : buildRocketConfirmationWorkbook({ sourceRows, confirmedRows });
+        : buildRocketConfirmationWorkbook({
+            sourceRows,
+            confirmedRows,
+            // 쿠팡 실메타가 없어도(백필·미등록) 그 칸을 비운 채 파일을 만든다.
+            allowMissingConfirmation: true,
+          });
       downloadBlob(workbook.blob, workbook.fileName);
       onActivity?.({
         status: 'succeeded',
         message: `재고 기준 발주확정 엑셀을 생성했습니다(확정 ${workbook.summary.confirmedQuantity}개).`,
       });
       return true;
-    } catch (cause) {
-      const message = friendlyError(cause)
-        ?? '엑셀을 만들지 못했습니다. 실제 쿠팡 수집(센터·반품주소 등) 데이터가 필요합니다. "이 달 쿠팡에서 수집" 후 다시 시도해 주세요.';
+    } catch {
+      // 남는 실패는 대부분 업로드한 쿠팡 양식이 발주 목록과 안 맞는 경우.
+      const message = templateFile
+        ? '업로드한 쿠팡 양식이 이 발주 목록과 맞지 않습니다(발주번호·상품번호·바코드 확인). 양식 없이 다시 시도하면 기본 양식으로 생성합니다.'
+        : '엑셀을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.';
       setError(message);
       onActivity?.({ status: 'failed', message });
       return false;
