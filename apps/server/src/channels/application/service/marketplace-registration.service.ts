@@ -77,6 +77,50 @@ export class MarketplaceRegistrationService {
     return { channel: 'coupang', vendorId };
   }
 
+  /**
+   * WING 브라우저 자동화가 반환한 DOM 결과를 권한 근거로 쓰지 않는다. 선택된
+   * ChannelAccount의 자격증명으로 등록상품을 다시 조회해 ID·판매자·상태를 확인한다.
+   */
+  async verifyExternalProductRegistration(input: {
+    organizationId: string;
+    channelAccountId: string;
+    externalListingId: string;
+  }): Promise<{
+    channel: 'coupang';
+    vendorId: string;
+    externalListingId: string;
+    status: string;
+    rawResult: unknown;
+  }> {
+    const account = await this.assertExternalProductRegistrationAccount(input);
+    if (!this.coupang) {
+      throw new Error('COUPANG_PROVIDER_PORT is required to verify external Coupang listings.');
+    }
+    const response = await this.coupang.getSellerProduct(
+      input.organizationId,
+      input.externalListingId,
+      input.channelAccountId,
+    );
+    const product = response.data;
+    if (!product || String(product.sellerProductId) !== input.externalListingId) {
+      throw new ConflictException('Coupang did not return the requested registered product.');
+    }
+    if (product.vendorId?.trim() && product.vendorId.trim() !== account.vendorId) {
+      throw new ConflictException('Registered product belongs to another Coupang vendor.');
+    }
+    const status = product.statusName?.trim() || '';
+    if (!status || ['DELETED', '상품삭제'].includes(status.toUpperCase())) {
+      throw new ConflictException('Coupang registered product is deleted or has no verifiable status.');
+    }
+    return {
+      channel: account.channel,
+      vendorId: account.vendorId,
+      externalListingId: input.externalListingId,
+      status,
+      rawResult: response,
+    };
+  }
+
   async reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
   ): Promise<MarketplaceSubmissionResult | null> {

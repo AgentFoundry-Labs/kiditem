@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Loader2, Store, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, Store, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   validateWingRegistrationOverrides,
@@ -23,16 +23,21 @@ import {
 export default function WingRegistrationConfirmDialog({
   draft,
   isSubmitting,
+  completion = null,
   onCancel,
   onConfirm,
+  onConfirmExternal,
 }: {
   /** `prepareWingRegistration()` 결과. `null` 이면 모달을 닫아 둔다. */
   draft: WingRegistrationDraft | null;
   isSubmitting: boolean;
+  completion?: { suggestedExternalListingId?: string | null } | null;
   onCancel: () => void;
   onConfirm: (overrides: WingRegistrationOverrides, autoSubmit: boolean) => void;
+  onConfirmExternal?: (externalListingId: string) => void;
 }) {
   const [overrides, setOverrides] = useState<WingRegistrationOverrides | null>(null);
+  const [externalListingId, setExternalListingId] = useState('');
   // ⚠️ 기본값은 반드시 OFF. 켜야만 확장이 WING 의 '상품등록' 버튼까지 누른다.
   const [autoSubmit, setAutoSubmit] = useState(false);
 
@@ -45,7 +50,84 @@ export default function WingRegistrationConfirmDialog({
     setAutoSubmit(false);
   }, [draft]);
 
+  useEffect(() => {
+    setExternalListingId(completion?.suggestedExternalListingId?.trim() ?? '');
+  }, [completion?.suggestedExternalListingId]);
+
   if (!draft || !overrides) return null;
+
+  if (completion) {
+    const validExternalListingId = /^\d{6,20}$/.test(externalListingId.trim());
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="쿠팡 WING 등록 완료 확인"
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4"
+      >
+        <div className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-xl">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+            <div>
+              <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                <CheckCircle2 size={18} />
+              </div>
+              <h2 className="mt-3 text-base font-black text-slate-900">쿠팡 등록 완료 확인</h2>
+              <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                WING에서 등록을 마친 뒤 발급된 등록상품ID를 입력하세요. 서버가 선택한 쿠팡 계정으로 실제 상품을 확인한 후 등록상품 목록에 반영합니다.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isSubmitting}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
+              aria-label="닫기"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="space-y-3 px-5 py-5">
+            <label className="block text-sm font-black text-slate-700">
+              쿠팡 등록상품ID
+              <input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                value={externalListingId}
+                onChange={(event) => setExternalListingId(event.target.value.replace(/\D/g, ''))}
+                placeholder="예: 427011919"
+                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-black text-slate-900 outline-none transition focus:border-emerald-500"
+              />
+            </label>
+            <p className="text-[11px] font-semibold leading-5 text-slate-500">
+              WING 상품 조회 화면의 등록상품ID를 사용합니다. 브라우저 화면 값만 신뢰하지 않고 쿠팡 Open API로 계정과 상태를 다시 검증합니다.
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isSubmitting}
+              className="inline-flex h-10 items-center rounded-lg border border-slate-200 px-4 text-sm font-black text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              닫기
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirmExternal?.(externalListingId.trim())}
+              disabled={isSubmitting || !validExternalListingId || !onConfirmExternal}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSubmitting ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+              등록 완료 확인
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const errors = validateWingRegistrationOverrides(overrides);
   const nameLength = overrides.productName.trim().length;

@@ -77,6 +77,7 @@ export interface ChannelListingRepositoryPort {
   authorizeDeletion(input: ChannelListingDeletionAuthorizationInput): Promise<ChannelListingDeletionOperationResult>;
   claimDeletionExecution(input: ChannelListingDeletionOperationLookup): Promise<ChannelListingDeletionExecutionClaim>;
   markDeletionUnresolved(input: ChannelListingDeletionUnresolvedInput): Promise<ChannelListingDeletionUnresolvedResult>;
+  completeDeletion(input: ChannelListingDeletionCompletionInput): Promise<ChannelListingDeletionUnresolvedResult>;
   getDeletionOperation(input: ChannelListingDeletionOperationLookup): Promise<ChannelListingDeletionOperationStatus | null>;
 }
 
@@ -122,8 +123,9 @@ export interface ChannelListingDeletionOperationResult {
   displayName: string;
   channel: string;
   expectedVendorId: string;
-  status: 'executing';
+  status: 'executing' | 'reconciling';
   providerOutcome: 'uncertain';
+  extensionClaimed: boolean;
 }
 
 export interface ChannelListingDeletionUnresolvedResult {
@@ -135,11 +137,19 @@ export interface ChannelListingDeletionUnresolvedResult {
 export interface ChannelListingDeletionOperationStatus {
   operationId: string;
   listingId: string;
+  channelAccountId: string;
+  expectedVendorId: string;
   externalId: string;
   status: string;
   providerOutcome: string;
   completedAt: string | null;
   lastErrorCode: string | null;
+}
+
+export interface ChannelListingDeletionCompletionInput
+  extends ChannelListingDeletionOperationLookup {
+  verifiedProviderAccountId: string;
+  verifiedExternalListingId: string;
 }
 
 /** 삭제 게이트가 판정에 쓰는 리스팅 사실들. */

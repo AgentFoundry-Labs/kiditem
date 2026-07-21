@@ -43,6 +43,7 @@ export interface SellerProductDetailResponse {
   message: string;
   data?: {
     sellerProductId: number;
+    vendorId?: string;
     sellerProductName: string;
     displayCategoryCode?: number;
     statusName?: string;
