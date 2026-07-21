@@ -70,28 +70,71 @@ export function lcsLength(a: string, b: string): number {
 }
 
 /**
+ * 이름 매칭 인덱스(전수 스캔 회피용). 완전일치는 코어 Map(O(1)), 퍼지는 bigram 버킷으로
+ * 코어를 공유하는 후보만 비교한다. byBigram 값은 `all` 배열의 인덱스라 원래 순서가 보존된다.
+ */
+export type NameMatchIndex = {
+  all: NameMatchEntry[];
+  byCore: Map<string, NameMatchEntry[]>;
+  byBigram: Map<string, number[]>;
+};
+
+/** NameMatchEntry 목록 → 매칭 인덱스. 매칭 전 한 번만 만든다. */
+export function buildNameMatchIndex(entries: NameMatchEntry[]): NameMatchIndex {
+  const byCore = new Map<string, NameMatchEntry[]>();
+  const byBigram = new Map<string, number[]>();
+  entries.forEach((entry, i) => {
+    if (entry.core.length < 2) return;
+    const coreBucket = byCore.get(entry.core);
+    if (coreBucket) coreBucket.push(entry);
+    else byCore.set(entry.core, [entry]);
+    const seen = new Set<string>();
+    for (let k = 0; k < entry.core.length - 1; k++) {
+      const g = entry.core.slice(k, k + 2);
+      if (seen.has(g)) continue;
+      seen.add(g);
+      const bucket = byBigram.get(g);
+      if (bucket) bucket.push(i);
+      else byBigram.set(g, [i]);
+    }
+  });
+  return { all: entries, byCore, byBigram };
+}
+
+/**
  * 코어 매칭: 완전일치 → 포함 → 퍼지(LCS/Dice) + 가격 가드. 매칭된 셀피아 항목을 반환.
  * fuzzy=true 는 이름이 갈렸지만 핵심이 크게 겹치는 후보 — 오매칭 가능성이 있어 확인이 더 필요.
+ * 결과는 전수 스캔과 동일하다(퍼지 후보 집합은 원래 후보의 상위집합을 원래 순서로 처리).
  */
 export function matchCoupangProductByName(
   core: string,
   price: string | null,
-  index: NameMatchEntry[],
+  index: NameMatchIndex,
 ): { stock: number; fuzzy: boolean; name: string } | null {
   if (core.length < 2) return null;
   const compatible = (s: NameMatchEntry) => !(price && s.price && price !== s.price);
-  const exact = index.find((s) => s.core === core && compatible(s));
+  const exact = index.byCore.get(core)?.find(compatible);
   if (exact) return { stock: exact.stock, fuzzy: false, name: exact.name };
   if (core.length < 3) return null;
-  const contained = index.find(
+  const contained = index.all.find(
     (s) => s.core.length >= 3 && compatible(s) && (core.includes(s.core) || s.core.includes(core)),
   );
   if (contained) return { stock: contained.stock, fuzzy: false, name: contained.name };
-  // 퍼지: 두 신호 중 하나라도 통과하면 후보(확인 필요).
+  // 퍼지: 쿼리 코어와 bigram 을 하나라도 공유하는 후보만 비교(전수 스캔 회피).
   if (core.length < 4) return null;
+  const candidateIdx = new Set<number>();
+  const seenBigrams = new Set<string>();
+  for (let k = 0; k < core.length - 1; k++) {
+    const g = core.slice(k, k + 2);
+    if (seenBigrams.has(g)) continue;
+    seenBigrams.add(g);
+    const bucket = index.byBigram.get(g);
+    if (bucket) for (const i of bucket) candidateIdx.add(i);
+  }
   let best: NameMatchEntry | null = null;
   let bestScore = 0;
-  for (const s of index) {
+  for (const i of [...candidateIdx].sort((a, b) => a - b)) {
+    const s = index.all[i]!;
     if (!compatible(s) || s.core.length < 4) continue;
     const minLen = Math.min(core.length, s.core.length);
     const lcs = lcsLength(core, s.core);

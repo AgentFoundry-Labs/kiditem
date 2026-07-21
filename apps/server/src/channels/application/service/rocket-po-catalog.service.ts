@@ -20,10 +20,10 @@ import {
 } from '../port/out/cross-domain/sellpia-recipe-evidence.port';
 import { ChannelRecipeAutomationService } from './channel-recipe-automation.service';
 import {
+  buildNameMatchIndex,
   coupangNamePrice,
   matchCoupangProductByName,
   normalizeCoupangName,
-  type NameMatchEntry,
 } from '../../domain/coupang-name-matcher';
 
 /** 셀피아/쿠팡 바코드 정규화 — 숫자만 남긴다(findByNormalizedBarcodes 규약과 동일). */
@@ -146,9 +146,15 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
           .filter((barcode) => barcode.length > 0),
       ),
     ];
-    const skus = normalizedBarcodes.length > 0
-      ? await this.evidence.findByNormalizedBarcodes(input.organizationId, normalizedBarcodes)
-      : [];
+    // 바코드 매칭용 SKU 와 이름매칭용 전체 SKU 를 병렬 조회한다(순차 대비 지연 절감).
+    const [skus, allSkusForName] = await Promise.all([
+      normalizedBarcodes.length > 0
+        ? this.evidence.findByNormalizedBarcodes(input.organizationId, normalizedBarcodes)
+        : Promise.resolve([]),
+      rows.length > 0
+        ? this.evidence.listActiveForMatching(input.organizationId)
+        : Promise.resolve([]),
+    ]);
 
     const stockByBarcode = new Map<string, { name: string; stock: number }>();
     for (const sku of skus) {
@@ -159,22 +165,17 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
       else stockByBarcode.set(key, { name: sku.name, stock: sku.currentStock });
     }
 
-    // 바코드로 못 찾은 상품용 이름 매칭 인덱스(전체 셀피아 SKU → 코어/가격/재고).
-    const barcodeMissRows = rows.filter(
-      (row) => !(normalizeBarcode(row.barcode) && stockByBarcode.has(normalizeBarcode(row.barcode))),
-    );
-    let nameIndex: NameMatchEntry[] = [];
-    if (barcodeMissRows.length > 0) {
-      const allSkus = await this.evidence.listActiveForMatching(input.organizationId);
-      nameIndex = allSkus
+    // 이름 매칭 인덱스(완전일치 Map + bigram 버킷)를 한 번만 만든다 — 행마다 전수 스캔하지 않는다.
+    const nameIndex = buildNameMatchIndex(
+      allSkusForName
         .map((sku) => ({
           core: normalizeCoupangName(sku.name),
           price: coupangNamePrice(sku.name),
           stock: sku.currentStock,
           name: sku.name,
         }))
-        .filter((entry) => entry.core.length >= 2);
-    }
+        .filter((entry) => entry.core.length >= 2),
+    );
 
     return rows.map((row) => {
       const base = {

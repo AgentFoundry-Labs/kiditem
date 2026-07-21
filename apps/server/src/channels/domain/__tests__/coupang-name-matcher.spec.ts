@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildNameMatchIndex,
   coupangNamePrice,
   diceBigram,
   lcsLength,
@@ -48,11 +49,11 @@ describe('lcsLength / diceBigram', () => {
 });
 
 describe('matchCoupangProductByName', () => {
-  const index: NameMatchEntry[] = [
+  const index = buildNameMatchIndex([
     { core: '곰돌이전동카메라비눗방울', price: '18000', stock: 200, name: '18000곰돌이전동카메라비눗방울' },
     { core: '아기욕조대형', price: '12000', stock: 5, name: '12000아기욕조대형' },
     { core: '아기욕조대형', price: '9900', stock: 99, name: '9900아기욕조대형(저가형)' },
-  ];
+  ]);
 
   it('완전일치는 fuzzy=false', () => {
     const m = matchCoupangProductByName('곰돌이전동카메라비눗방울', '18000', index);
@@ -67,7 +68,7 @@ describe('matchCoupangProductByName', () => {
 
   it('포함 매칭(부분 문자열)도 fuzzy=false', () => {
     const idx: NameMatchEntry[] = [{ core: '아기욕조', price: null, stock: 3, name: '아기욕조' }];
-    const m = matchCoupangProductByName('대형아기욕조세트', null, idx);
+    const m = matchCoupangProductByName('대형아기욕조세트', null, buildNameMatchIndex(idx));
     expect(m).toEqual({ stock: 3, fuzzy: false, name: '아기욕조' });
   });
 
@@ -75,9 +76,20 @@ describe('matchCoupangProductByName', () => {
     const idx: NameMatchEntry[] = [
       { core: '곰돌이전동카메라비눗방울총', price: null, stock: 7, name: '곰돌이전동카메라비눗방울총' },
     ];
-    const m = matchCoupangProductByName('곰돌이전동카메라비눗방울건', null, idx);
+    const m = matchCoupangProductByName('곰돌이전동카메라비눗방울건', null, buildNameMatchIndex(idx));
     expect(m?.fuzzy).toBe(true);
     expect(m?.stock).toBe(7);
+  });
+
+  it('퍼지 후보가 여럿이면 점수 높은(더 많이 겹치는) 후보를 고른다', () => {
+    // bigram 버킷 최적화가 후보를 놓치지 않고 최고점을 고르는지 검증(전수 스캔과 동일 결과).
+    const idx = buildNameMatchIndex([
+      { core: '무지개색블록쌓기놀이세트', price: null, stock: 1, name: '살짝겹침' },
+      { core: '알록달록블록쌓기놀이기차', price: null, stock: 2, name: '많이겹침' },
+    ]);
+    const m = matchCoupangProductByName('알록달록블록쌓기놀이자동차', null, idx);
+    expect(m?.fuzzy).toBe(true);
+    expect(m?.name).toBe('많이겹침');
   });
 
   it('코어가 너무 짧으면(<2) 매칭하지 않는다', () => {
