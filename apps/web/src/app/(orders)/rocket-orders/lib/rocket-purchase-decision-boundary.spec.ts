@@ -39,13 +39,15 @@ describe('Rocket purchase decision boundary', () => {
       '../../extensions/order-collector/background/service-worker.js',
     ), 'utf8');
 
-    expect(existsSync(resolve(routeRoot, 'components/RocketConfirmPanel.tsx'))).toBe(false);
-    expect(existsSync(resolve(routeRoot, 'lib/rocket-confirm-api.ts'))).toBe(false);
+    // 사용자 원본(03123c2f) 달력 데이터 경로 복원: 저장 발주(rocket_purchase_orders)
+    // 달력 공급을 위해 RocketConfirmPanel + rocket-confirm-api 를 되살렸다.
+    expect(existsSync(resolve(routeRoot, 'components/RocketConfirmPanel.tsx'))).toBe(true);
+    expect(existsSync(resolve(routeRoot, 'lib/rocket-confirm-api.ts'))).toBe(true);
 
     expect(pageSource).toContain('RocketOrdersWorkspace');
-    // The route keeps its operations shell; the workspace owns the canonical Supply preview.
-    expect(pageSource).not.toContain('decisionWorkspace');
-    expect(pageSource).not.toContain('RocketConfirmPanel');
+    // page 는 decisionWorkspace 렌더프롭으로 RocketConfirmPanel 을 주입한다.
+    expect(pageSource).toContain('decisionWorkspace');
+    expect(pageSource).toContain('RocketConfirmPanel');
     expect(pageSource).not.toContain('RocketPurchasePreviewSection');
     expect(pageSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(pageSource).not.toContain('redirect(');
@@ -72,8 +74,9 @@ describe('Rocket purchase decision boundary', () => {
     expect(purchaseWorkspaceSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(purchaseWorkspaceSource).not.toContain("activeTab === 'rocket'");
     expect(purchaseWorkspaceSource).not.toContain('RocketOrdersWorkspace');
-    // orders 워크스페이스 renders the Supply preview directly, without a legacy injection seam.
-    expect(operationsSource).not.toContain('decisionWorkspace');
+    // orders 워크스페이스는 Supply 미리보기를 직접 렌더하고, decisionWorkspace
+    // 렌더프롭으로 원본 확정 패널(저장 발주 달력 공급)을 주입한다.
+    expect(operationsSource).toContain('decisionWorkspace');
     expect(operationsSource).toContain('<RocketPurchasePreviewSection');
     expect(operationsSource).toContain('savedSourceImportRunId={selectedSavedSourceImportRunId}');
     expect(operationsSource).not.toContain('납품 수량 판단은 추후 연동합니다');

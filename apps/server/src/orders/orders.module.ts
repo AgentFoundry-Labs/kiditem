@@ -17,6 +17,8 @@ import { OrderCollectionMallAccountService } from './services/order-collection-m
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
+import { RocketPoController } from './controllers/rocket-po.controller';
+import { RocketPoConfirmService } from './services/rocket-po-confirm.service';
 import { CoupangDirectOrderCollectionService } from './application/service/coupang-direct-order-collection.service';
 import { CoupangDirectOrderCollectionTransactionAdapter } from './adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from './application/port/in/coupang-direct-order-collection.port';
@@ -32,6 +34,7 @@ import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/
     CsController,
     ReviewsController,
     ReturnTransfersController,
+    RocketPoController,
   ],
   providers: [
     OrdersService,
@@ -42,6 +45,7 @@ import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/
     CsService,
     ReviewsService,
     ReturnTransfersService,
+    RocketPoConfirmService,
     CoupangDirectOrderCollectionService,
     CoupangDirectOrderCollectionTransactionAdapter,
     {

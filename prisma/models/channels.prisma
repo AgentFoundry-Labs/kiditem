@@ -797,3 +797,28 @@ model ChannelListingDeletionOperation {
   @@index([organizationId, status, createdAt])
   @@map("channel_listing_deletion_operations")
 }
+
+/// @namespace Channels
+/// @describe 쿠팡 로켓 발주확정 시 확정수량을 예약(reserve)한 기록.
+/// 가용재고 = SellpiaInventorySku.currentStock − Σ(RocketPoReservation.qty).
+/// sourceActionId(rocket-confirm:poNumber:productNo:barcode)로 재예약 멱등 보장.
+/// 발주확정 양식 생성(orders 도메인) 전용 가산 저장소 — 셀피아-단일소유 재고 위에 얹는다.
+model RocketPoReservation {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  sourceActionId String @map("source_action_id") // rocket-confirm:poNumber:productNo:barcode (멱등키)
+  poNumber       String @map("po_number")
+  productNo      String @default("") @map("product_no")
+  barcode        String
+  qty            Int    @default(0) // 예약(확정) 수량
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sourceActionId])
+  @@index([organizationId, barcode])
+  @@map("rocket_po_reservations")
+}
