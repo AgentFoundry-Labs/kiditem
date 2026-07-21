@@ -20,6 +20,7 @@ import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { useRocketPurchaseWorkflow } from '@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow';
 import { RocketInventoryCommitmentList } from '@/app/(supply)/purchase-orders/components/RocketInventoryCommitmentList';
 import { matchRocketStock } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
+import { availablePacks, parseCoupangPackSize } from '@/app/(supply)/purchase-orders/lib/rocket-pack-size';
 import type { RocketDecisionWorkspaceContext } from './RocketOrdersWorkspace';
 import {
   RocketMatchStatusModal,
@@ -124,11 +125,13 @@ export function RocketConfirmPanel({
     : previewDates.length === 1
       ? previewDates[0]!
       : `수집본 전체 ${previewDates[0]} ~ ${previewDates.at(-1)}`;
-  // 가용수량: 등록상품은 레시피 가용(maxQuantity), 미등록은 셀피아 매칭 재고. 확정수량 기본값은 min(발주, 가용).
+  // 가용수량(발주 단위): 등록상품은 레시피 가용, 미등록은 셀피아 낱개 재고 ÷ 팩크기.
+  // 셀피아 재고=1개 기준, 쿠팡 발주=N개입 → 가용 발주수량 = floor(재고 / 팩크기).
   const availableFor = (row: RocketPurchasePreviewRow): number => {
     if (row.components.length > 0) return row.maxQuantity;
     const match = previewMatchByLineId.get(row.poLineId);
-    return match?.matched && match.currentStock !== null ? match.currentStock : 0;
+    const unitStock = match?.matched && match.currentStock !== null ? match.currentStock : 0;
+    return availablePacks(unitStock, parseCoupangPackSize(row.productName));
   };
   const recommendFor = (row: RocketPurchasePreviewRow): number =>
     row.components.length > 0
@@ -202,6 +205,28 @@ export function RocketConfirmPanel({
       cancelled = true;
     };
   }, [previewRowCount, channelAccountId, matchSourceImportRunId, previewFrom, previewTo]);
+
+  // 매칭이 로드되면 미등록 상품의 확정수량을 재고 기준(팩 환산)으로 자동 채운다.
+  // hook 이 미리보기 로드 시 editedQuantities 를 0 으로 채워두므로 '?? 기본값'이 안 먹는다 →
+  // 여기서 재고 기준값으로 직접 덮어쓴다. 이후 사용자가 직접 고치면(그 값이 유지) 재매칭 전까지 안 건드린다.
+  useEffect(() => {
+    if (rows.length === 0) return;
+    setEditedQuantities((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const row of rows) {
+        if (row.components.length > 0) continue; // 등록상품은 백엔드 추천값 유지
+        const recommend = Math.min(row.orderQuantity, availableFor(row));
+        if (next[row.poLineId] !== recommend) {
+          next[row.poLineId] = recommend;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+    // availableFor 는 previewMatchByLineId 에 의존 → 그 두 개를 deps 로.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview, previewMatchByLineId]);
 
   function handleExplorerDateSelection(date: string | null, sourceRunCount: number) {
     setSelectedDate(date ?? '');
@@ -533,6 +558,8 @@ export function RocketConfirmPanel({
                   const matchedWithStock = match?.matched && match.currentStock !== null;
                   const isUnmatched = Boolean(match) && !matchedWithStock;
                   const stockChip = matchedWithStock ? match! : undefined;
+                  // 팩 환산: 셀피아 낱개 재고 ÷ 팩크기 = 가용 발주수량. 팩크기>1일 때만 안내.
+                  const packSize = hasRecipe ? 1 : parseCoupangPackSize(row.productName);
                   const currentStockText = hasRecipe
                     ? componentValues(row, 'currentStock')
                     : matchedWithStock
@@ -565,7 +592,12 @@ export function RocketConfirmPanel({
                         </div>
                       </td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{formatNumber(row.orderQuantity)}</td>
-                      <td className={cn('px-3 py-1.5 text-right font-semibold tabular-nums', isUnmatched ? 'text-red-500' : 'text-slate-700')}>{currentStockText}</td>
+                      <td className={cn('px-3 py-1.5 text-right font-semibold tabular-nums', isUnmatched ? 'text-red-500' : 'text-slate-700')}>
+                        <div>{currentStockText}</div>
+                        {matchedWithStock && packSize > 1 ? (
+                          <div className="text-[10px] font-normal text-slate-400">÷{packSize} = {formatNumber(availableFor(row))}팩</div>
+                        ) : null}
+                      </td>
                       <td className="px-3 py-1.5 text-right">
                         <input
                           aria-label={`${row.poNumber} 검토수량`}
