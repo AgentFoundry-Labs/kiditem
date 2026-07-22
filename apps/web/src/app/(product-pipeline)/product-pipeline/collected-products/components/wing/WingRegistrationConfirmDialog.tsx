@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, Store, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { WING_CATEGORY_DEFINITIONS } from '../../lib/wing-category-presets';
 import {
   validateWingRegistrationOverrides,
   WING_DISPLAY_NAME_MAX,
@@ -171,6 +172,27 @@ export default function WingRegistrationConfirmDialog({
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <Field
+            label="WING 카테고리"
+            hint="KidItem에서 사용하는 고정 카테고리 목록입니다. 카테고리 변경은 옵션·고시정보를 바꾸지 않습니다."
+          >
+            <select
+              aria-label="WING 카테고리"
+              value={overrides.categoryKey}
+              onChange={(event) => patch({
+                categoryKey: event.target.value as WingRegistrationOverrides['categoryKey'],
+              })}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400"
+            >
+              <option value="">카테고리를 선택하세요</option>
+              {WING_CATEGORY_DEFINITIONS.map((definition) => (
+                <option key={definition.key} value={definition.key}>
+                  {definition.categoryCell}
+                </option>
+              ))}
+            </select>
+          </Field>
+
           <Field label="노출상품명" hint="구매자에게 보이는 이름입니다.">
             <textarea
               value={overrides.productName}

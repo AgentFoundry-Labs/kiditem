@@ -195,7 +195,7 @@ export default function SourcingPage() {
       const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       downloadWingExcel(bytes, `쿠팡WING_일괄등록_${stamp}.xlsx`);
       toast.success(`${productCount}개 상품의 쿠팡 WING 일괄등록 엑셀을 만들었어요`, {
-        description: '카테고리 자동 제안 · 상세페이지는 포함되지 않으므로 WING에서 추가하세요.',
+        description: '저장된 WING 카테고리 사용 · 상세페이지는 포함되지 않으므로 WING에서 추가하세요.',
       });
       return true;
     } catch (err) {
@@ -647,7 +647,7 @@ function QuickProcessSelectedDialog({
             쿠팡 WING 상품 등록
           </button>
           <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
-            카테고리 자동 제안 · WING 상품등록 페이지를 열어 직접 입력
+            고정 카테고리 확인 · WING 상품등록 페이지를 열어 직접 입력
           </p>
         </div>
 

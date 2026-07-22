@@ -125,19 +125,12 @@ export interface WingProduct {
   variants: WingVariant[];
 }
 
-/** 카테고리별 프리셋(대표 카테고리 확정용). */
-export interface WingCategoryPreset {
-  /** "[코드] 경로" */
-  categoryCell: string;
+/** 카테고리 선택과 분리된 기존 WING 상품 초안 기본값. */
+export interface WingProductDraftDefaults {
   /** 상품고시정보 카테고리명 */
   noticeCategory: string;
   /** 그 고시 카테고리의 값1~ 기본값(모두 "상세페이지 참조" 등) */
   defaultNoticeValues: string[];
-  /**
-   * 카테고리 필수 구매옵션 유형(각 SKU 가 반드시 채워야 함).
-   * 물총 = ['색상','수량']. 단일 상품은 '단품' 한 옵션으로도 등록 가능.
-   */
-  requiredPurchaseOptionTypes: string[];
   /** 카테고리 필수/권장 검색옵션 기본값 */
   defaultSearchOptions?: WingOption[];
   /** 판매자 기본 브랜드 (실제 등록 상품 기준). */
@@ -147,7 +140,8 @@ export interface WingCategoryPreset {
 }
 
 /**
- * 대표 완구 카테고리 = 물총. 사용자 기존 상품(물총/워터건) 기준으로 확정.
+ * 기존 상품 초안 기본값은 물총/워터건 등록값에서 시작했다.
+ * 카테고리 코드는 이 객체가 소유하지 않으며 고정 카테고리 레지스트리에서 별도로 선택한다.
  * 쿠팡 "전체 카테고리 입력정보"(V4.6) 에서 확인:
  *  - 코드/경로: [77390] 완구/취미>스포츠/야외완구>물총
  *  - 필수 구매옵션: 색상, 수량(개)
@@ -160,8 +154,7 @@ export interface WingCategoryPreset {
  * **제조사에 `해피프랜즈`** 를 넣는다. 이전 값(브랜드=해피프랜즈, 제조사=kiditem)은
  * 두 필드가 뒤바뀐 것이었고, 그 탓에 브랜드명이 카탈로그 검색창까지 흘러간 사고가 있었다.
  */
-export const WING_TOY_WATERGUN_PRESET: WingCategoryPreset = {
-  categoryCell: '[77390] 완구/취미>스포츠/야외완구>물총',
+export const WING_PRODUCT_DRAFT_DEFAULTS: WingProductDraftDefaults = {
   noticeCategory: '어린이제품',
   // "어린이제품" 고시 필드(제품명/KC인증/사용연령/제조자/제조국/취급주의/품질보증/AS 등) 기본값.
   defaultNoticeValues: [
@@ -173,7 +166,6 @@ export const WING_TOY_WATERGUN_PRESET: WingCategoryPreset = {
     '상세페이지 참조',
     '상세페이지 참조',
   ],
-  requiredPurchaseOptionTypes: ['색상', '수량'],
   // 엑셀 양식은 브랜드칸을 비울 수 없어 `노브랜드` 를 쓴다.
   // (단일 등록 경로는 확장이 `브랜드없음(또는 자체제작)` 체크박스를 대신 누른다)
   defaultBrand: '노브랜드',
