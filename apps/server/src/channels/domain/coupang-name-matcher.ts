@@ -4,13 +4,25 @@
  * (사용자 원본 로직을 codex 도메인으로 이식 — orders-owned 서비스/테이블과 무관한 순수 함수라 충돌 없음.)
  */
 
-/** 이름 매칭 인덱스 항목: 셀피아 상품명 → 코어/가격/재고. */
+/** 이름 매칭 인덱스 항목: 셀피아 상품명 → 코어/가격/재고/SKU id. */
 export type NameMatchEntry = {
   core: string;
   price: string | null;
   stock: number;
   name: string;
+  skuId: string;
 };
+
+/**
+ * 쿠팡 로켓 상품명에서 "1발주 = 셀피아 몇 개(팩 크기)"를 뽑는다. 셀피아 재고는 낱개 기준,
+ * 쿠팡은 "18개입"처럼 묶음 발주 → 가용 발주수량 = floor(낱개재고 / 팩크기). 없으면 1.
+ */
+export function parseCoupangPackSize(name: string): number {
+  const text = String(name ?? '');
+  const match = text.match(/(\d+)\s*개\s*입/) ?? text.match(/(\d+)\s*개(?!\s*월)/);
+  const size = match ? Number.parseInt(match[1]!, 10) : 1;
+  return Number.isFinite(size) && size > 0 ? size : 1;
+}
 
 /**
  * 상품명 → 코어 이름. 브랜드("KY I&D")·패키징(Pack_/Box_)·수량("N개입")·무게·
@@ -110,16 +122,16 @@ export function matchCoupangProductByName(
   core: string,
   price: string | null,
   index: NameMatchIndex,
-): { stock: number; fuzzy: boolean; name: string } | null {
+): { stock: number; fuzzy: boolean; name: string; skuId: string } | null {
   if (core.length < 2) return null;
   const compatible = (s: NameMatchEntry) => !(price && s.price && price !== s.price);
   const exact = index.byCore.get(core)?.find(compatible);
-  if (exact) return { stock: exact.stock, fuzzy: false, name: exact.name };
+  if (exact) return { stock: exact.stock, fuzzy: false, name: exact.name, skuId: exact.skuId };
   if (core.length < 3) return null;
   const contained = index.all.find(
     (s) => s.core.length >= 3 && compatible(s) && (core.includes(s.core) || s.core.includes(core)),
   );
-  if (contained) return { stock: contained.stock, fuzzy: false, name: contained.name };
+  if (contained) return { stock: contained.stock, fuzzy: false, name: contained.name, skuId: contained.skuId };
   // 퍼지: 쿼리 코어와 bigram 을 하나라도 공유하는 후보만 비교(전수 스캔 회피).
   if (core.length < 4) return null;
   const candidateIdx = new Set<number>();
@@ -148,5 +160,5 @@ export function matchCoupangProductByName(
       best = s;
     }
   }
-  return best ? { stock: best.stock, fuzzy: true, name: best.name } : null;
+  return best ? { stock: best.stock, fuzzy: true, name: best.name, skuId: best.skuId } : null;
 }

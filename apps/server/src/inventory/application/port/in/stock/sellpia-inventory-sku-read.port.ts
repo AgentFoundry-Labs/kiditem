@@ -44,4 +44,12 @@ export interface SellpiaInventorySkuReadPort {
     query: string,
     limit: number,
   ): Promise<SellpiaInventorySkuReadModel[]>;
+  /**
+   * SKU id별 활성 InventoryCommitment 합계(약정 수량). 없는 SKU 는 결과에서 생략.
+   * availableStock = max(currentStock - activeCommitmentQuantity, 0) 계산에 쓴다.
+   */
+  getActiveCommitmentBySkuIds(
+    organizationId: string,
+    sellpiaInventorySkuIds: string[],
+  ): Promise<Record<string, number>>;
 }

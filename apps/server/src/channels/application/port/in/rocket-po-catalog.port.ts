@@ -36,7 +36,19 @@ export type RocketStockMatchRow = {
   /** 매칭 방식: barcode(정확) · name(이름일치) · name-fuzzy(유사, 확인필요) · null(미매칭). */
   matchType: 'barcode' | 'name' | 'name-fuzzy' | null;
   sellpiaName: string | null;
+  /** 셀피아 낱개 현재고(매칭된 SKU 기준). 미매칭이면 null. */
   currentStock: number | null;
+  /** 매칭된 SKU 의 활성 약정 합계. 미매칭이면 null. */
+  activeCommitmentQuantity: number | null;
+  /** = max(currentStock - activeCommitmentQuantity, 0). 자동수량·상한의 기준. 미매칭이면 null. */
+  availableStock: number | null;
+  /** 상품명에서 파싱한 팩 크기(쿠팡 1발주 = packSize 낱개). 최소 1. */
+  packSize: number;
+  /**
+   * 서버가 계산한 확정수량(발주 단위). 같은 SKU 를 여러 행이 공유하면 availableStock 을
+   * poLineId 순서로 공동 할당해 모든 행의 합이 실제 가용재고를 넘지 않게 한다.
+   */
+  confirmQuantity: number;
 };
 
 export interface RocketPoCatalogPort {

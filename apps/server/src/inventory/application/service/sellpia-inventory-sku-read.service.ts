@@ -77,6 +77,15 @@ export class SellpiaInventorySkuReadService implements SellpiaInventorySkuReadPo
     return this.repository.search(organizationId, normalizedQuery, cappedLimit);
   }
 
+  getActiveCommitmentBySkuIds(
+    organizationId: string,
+    sellpiaInventorySkuIds: string[],
+  ): Promise<Record<string, number>> {
+    const ids = [...new Set(sellpiaInventorySkuIds.filter((value) => value.length > 0))];
+    if (ids.length === 0) return Promise.resolve({});
+    return this.repository.getActiveCommitmentBySkuIds(organizationId, ids);
+  }
+
   private readIdentifiers(
     values: string[],
     read: (normalized: string[]) => Promise<SellpiaInventorySkuReadModel[]>,

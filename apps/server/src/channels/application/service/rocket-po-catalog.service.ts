@@ -24,6 +24,7 @@ import {
   coupangNamePrice,
   matchCoupangProductByName,
   normalizeCoupangName,
+  parseCoupangPackSize,
 } from '../../domain/coupang-name-matcher';
 
 /** 셀피아/쿠팡 바코드 정규화 — 숫자만 남긴다(findByNormalizedBarcodes 규약과 동일). */
@@ -147,7 +148,7 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
       ),
     ];
     // 바코드 매칭용 SKU 와 이름매칭용 전체 SKU 를 병렬 조회한다(순차 대비 지연 절감).
-    const [skus, allSkusForName] = await Promise.all([
+    const [barcodeSkus, allSkusForName] = await Promise.all([
       normalizedBarcodes.length > 0
         ? this.evidence.findByNormalizedBarcodes(input.organizationId, normalizedBarcodes)
         : Promise.resolve([]),
@@ -156,16 +157,21 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
         : Promise.resolve([]),
     ]);
 
-    const stockByBarcode = new Map<string, { name: string; stock: number }>();
-    for (const sku of skus) {
+    // 바코드 자원: 정규화 바코드가 여러 SKU(쿠팡용/일반)에 걸리면 재고를 합산하고 SKU id 를 모은다.
+    const barcodeResource = new Map<string, { skuIds: string[]; name: string; stock: number }>();
+    for (const sku of barcodeSkus) {
       const key = normalizeBarcode(sku.barcode);
       if (!key) continue;
-      const existing = stockByBarcode.get(key);
-      if (existing) existing.stock += sku.currentStock;
-      else stockByBarcode.set(key, { name: sku.name, stock: sku.currentStock });
+      const existing = barcodeResource.get(key);
+      if (existing) {
+        existing.stock += sku.currentStock;
+        existing.skuIds.push(sku.sellpiaInventorySkuId);
+      } else {
+        barcodeResource.set(key, { skuIds: [sku.sellpiaInventorySkuId], name: sku.name, stock: sku.currentStock });
+      }
     }
 
-    // 이름 매칭 인덱스(완전일치 Map + bigram 버킷)를 한 번만 만든다 — 행마다 전수 스캔하지 않는다.
+    // 이름 매칭 인덱스(완전일치 Map + bigram 버킷) — 행마다 전수 스캔하지 않는다. skuId 포함.
     const nameIndex = buildNameMatchIndex(
       allSkusForName
         .map((sku) => ({
@@ -173,11 +179,76 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
           price: coupangNamePrice(sku.name),
           stock: sku.currentStock,
           name: sku.name,
+          skuId: sku.sellpiaInventorySkuId,
         }))
         .filter((entry) => entry.core.length >= 2),
     );
 
+    // 1차: 행별 매칭 자원 결정(바코드→이름→퍼지). 자원 키로 묶어 뒤에서 공동 할당한다.
+    type RowMatch = {
+      resourceKey: string;
+      skuIds: string[];
+      sellpiaName: string;
+      matchType: 'barcode' | 'name' | 'name-fuzzy';
+      stock: number;
+    };
+    const rowMatches = new Map<string, RowMatch>();
+    for (const row of rows) {
+      const key = normalizeBarcode(row.barcode);
+      const group = key ? barcodeResource.get(key) : undefined;
+      if (group) {
+        rowMatches.set(row.poLineId, {
+          resourceKey: `bc:${key}`, skuIds: group.skuIds, sellpiaName: group.name, matchType: 'barcode', stock: group.stock,
+        });
+        continue;
+      }
+      const nameMatch = matchCoupangProductByName(
+        normalizeCoupangName(row.productName),
+        coupangNamePrice(row.productName),
+        nameIndex,
+      );
+      if (nameMatch) {
+        rowMatches.set(row.poLineId, {
+          resourceKey: `sku:${nameMatch.skuId}`,
+          skuIds: [nameMatch.skuId],
+          sellpiaName: nameMatch.name,
+          matchType: nameMatch.fuzzy ? 'name-fuzzy' : 'name',
+          stock: nameMatch.stock,
+        });
+      }
+    }
+
+    // 관여한 SKU 의 활성 약정을 한 번에 조회 → 자원별 availableStock(= 현재고 - 약정) 계산.
+    const involvedSkuIds = [...new Set([...rowMatches.values()].flatMap((m) => m.skuIds))];
+    const commitmentBySku = involvedSkuIds.length > 0
+      ? await this.evidence.getActiveCommitmentBySkuIds(input.organizationId, involvedSkuIds)
+      : {};
+    const resource = new Map<string, {
+      currentStock: number; activeCommitment: number; availableStock: number; remaining: number;
+    }>();
+    for (const match of rowMatches.values()) {
+      if (resource.has(match.resourceKey)) continue;
+      const commitment = match.skuIds.reduce((sum, id) => sum + (commitmentBySku[id] ?? 0), 0);
+      const available = Math.max(0, match.stock - commitment);
+      resource.set(match.resourceKey, {
+        currentStock: match.stock, activeCommitment: commitment, availableStock: available, remaining: available,
+      });
+    }
+
+    // 공동 할당: poLineId 순서로 각 자원의 availableStock 을 소진(팩 환산). 합이 가용재고 초과 못함.
+    const confirmByLineId = new Map<string, number>();
+    for (const row of [...rows].sort((a, b) => a.poLineId.localeCompare(b.poLineId))) {
+      const match = rowMatches.get(row.poLineId);
+      if (!match) continue;
+      const info = resource.get(match.resourceKey)!;
+      const packSize = parseCoupangPackSize(row.productName);
+      const confirm = Math.min(row.orderQty, Math.floor(info.remaining / packSize));
+      info.remaining -= confirm * packSize;
+      confirmByLineId.set(row.poLineId, confirm);
+    }
+
     return rows.map((row) => {
+      const packSize = parseCoupangPackSize(row.productName);
       const base = {
         poLineId: row.poLineId,
         poNumber: row.poNumber,
@@ -185,28 +256,26 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
         barcode: row.barcode,
         orderQuantity: row.orderQty,
         plannedDeliveryDate: row.plannedDeliveryDate,
+        packSize,
       };
-      const key = normalizeBarcode(row.barcode);
-      const barcodeMatch = key ? stockByBarcode.get(key) : undefined;
-      if (barcodeMatch) {
-        return { ...base, matched: true, matchType: 'barcode' as const, sellpiaName: barcodeMatch.name, currentStock: barcodeMatch.stock };
-      }
-      // 바코드 실패 → 이름 매칭(완전→포함→퍼지+가격가드).
-      const nameMatch = matchCoupangProductByName(
-        normalizeCoupangName(row.productName),
-        coupangNamePrice(row.productName),
-        nameIndex,
-      );
-      if (nameMatch) {
+      const match = rowMatches.get(row.poLineId);
+      if (!match) {
         return {
-          ...base,
-          matched: true,
-          matchType: (nameMatch.fuzzy ? 'name-fuzzy' : 'name') as 'name' | 'name-fuzzy',
-          sellpiaName: nameMatch.name,
-          currentStock: nameMatch.stock,
+          ...base, matched: false, matchType: null, sellpiaName: null,
+          currentStock: null, activeCommitmentQuantity: null, availableStock: null, confirmQuantity: 0,
         };
       }
-      return { ...base, matched: false, matchType: null, sellpiaName: null, currentStock: null };
+      const info = resource.get(match.resourceKey)!;
+      return {
+        ...base,
+        matched: true,
+        matchType: match.matchType,
+        sellpiaName: match.sellpiaName,
+        currentStock: info.currentStock,
+        activeCommitmentQuantity: info.activeCommitment,
+        availableStock: info.availableStock,
+        confirmQuantity: confirmByLineId.get(row.poLineId) ?? 0,
+      };
     });
   }
 }

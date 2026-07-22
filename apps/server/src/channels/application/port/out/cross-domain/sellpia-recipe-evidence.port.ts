@@ -20,4 +20,12 @@ export interface SellpiaRecipeEvidencePort {
     organizationId: string,
     normalizedNames: string[],
   ): Promise<SellpiaRecipeEvidenceSku[]>;
+  /**
+   * SKU id별 활성 약정 합계. availableStock = max(currentStock - activeCommitmentQuantity, 0)
+   * 계산에 쓴다(로켓 재고매칭의 공동 할당·가용재고 기준).
+   */
+  getActiveCommitmentBySkuIds(
+    organizationId: string,
+    sellpiaInventorySkuIds: string[],
+  ): Promise<Record<string, number>>;
 }

@@ -96,6 +96,10 @@ export const RocketStockMatchRowSchema = z.object({
   matchType: z.enum(['barcode', 'name', 'name-fuzzy']).nullable(),
   sellpiaName: z.string().nullable(),
   currentStock: z.number().nullable(),
+  activeCommitmentQuantity: z.number().nullable(),
+  availableStock: z.number().nullable(),
+  packSize: z.number(),
+  confirmQuantity: z.number(),
 });
 export type RocketStockMatchRow = z.infer<typeof RocketStockMatchRowSchema>;
 const RocketStockMatchResponseSchema = z.object({
