@@ -420,22 +420,19 @@ export function createBrowserMallCollector({
       throw new Error('활성 쿠팡 로켓 채널 계정을 먼저 선택해 주세요.');
     }
     const data = await collectCoupangDirectFromExtension(run);
-    if (data.pos.length === 0) {
-      toast('발주확정 쿠팡직배송 신규 발주가 없습니다.');
-      return 0;
-    }
     const transports: CoupangTransport[] = ['SHIPMENT', 'MILKRUN'];
     let totalOrders = 0;
     let lastId: string | null = null;
     for (const transport of transports) {
       const matchingPos = data.pos.filter((po) => String(po.transport ?? '').toUpperCase() === transport);
-      if (matchingPos.length === 0) continue;
       const label = COUPANG_TRANSPORT_LABEL[transport];
-      const result = await convertCoupangDirectToSellpiaFile(data, transport, {
+      const conversion = await convertCoupangDirectToSellpiaFile(data, transport, {
         channelAccountId: rocketChannelAccountId,
         download: false,
         signal: run.signal,
       });
+      if (!conversion.file) continue;
+      const result = conversion.file;
       // 수집한 발주는 전부 파일에 담긴다 — 표시 건수는 발주 기준(sourceRows)으로 맞춘다.
       const itemRows = result.outputRows ?? 0;
       const orderNumbers = coupangDirectOrderNumbers(matchingPos);
@@ -444,7 +441,8 @@ export function createBrowserMallCollector({
       const convertedAt = Date.now();
       const historyItem = {
         ...result,
-        id: `${convertedAt}-coupang-direct-${transport.toLowerCase()}-browser`,
+        id: conversion.transmissionIntentKey
+          ?? `${convertedAt}-coupang-direct-${transport.toLowerCase()}-browser`,
         sourceName: `쿠팡직배송 ${label} (${formatNumber(poCount)}건 · ${formatNumber(itemRows)}품목)`,
         convertedAt,
         collectionDate: collectionDateOf(run),
@@ -453,9 +451,14 @@ export function createBrowserMallCollector({
         mallKey: 'coupang-direct',
         mallName: `쿠팡직배송 ${label}`,
         orderNumbers,
+        rocketWorkbookExportId: conversion.rocketWorkbookExportId,
+        transmissionIntentKey: conversion.transmissionIntentKey,
       };
       addGeneratedFile(historyItem);
       lastId = historyItem.id;
+    }
+    if (data.pos.length === 0) {
+      toast('발주확정 쿠팡직배송 신규 발주가 없습니다.');
     }
     if (lastId) setPreviewId(lastId);
     return totalOrders;

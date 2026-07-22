@@ -31,6 +31,14 @@ export const COUPANG_TRANSPORT_LABEL: Record<CoupangTransport, string> = {
   MILKRUN: '밀크런',
 };
 
+export interface CoupangDirectConversionResult {
+  file: OrderCollectionConversionResult | null;
+  matchedRows: number;
+  importRunId: string;
+  rocketWorkbookExportId: string | null;
+  transmissionIntentKey: string | null;
+}
+
 /**
  * order-collector 확장으로 쿠팡 공급사허브의 "발주확정(PA)" 발주를 수집한다.
  * 발주목록(po-web) + 발주별 품목(/scm 상세) + 센터주소(po-web) 를 모아 운송유형(쉽먼트/밀크런)까지 담아 온다.
@@ -67,7 +75,7 @@ export async function convertCoupangDirectToSellpiaFile(
     download?: boolean;
     signal?: AbortSignal;
   },
-): Promise<OrderCollectionConversionResult> {
+): Promise<CoupangDirectConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/coupang-directship/convert', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -82,6 +90,22 @@ export async function convertCoupangDirectToSellpiaFile(
   if (!res.ok) {
     throw new Error((await res.text().catch(() => '')) || '쿠팡직배송 변환에 실패했습니다.');
   }
+  const importRunId = requiredHeader(res, 'X-Order-Collection-Import-Run-Id');
+  const rocketWorkbookExportId = res.headers.get('X-Rocket-Workbook-Export-Id');
+  const transmissionIntentKey = res.headers.get('X-Sellpia-Transmission-Intent-Key');
+  const matchedRows = numHeader(res, 'X-Order-Collection-Output-Rows') ?? 0;
+  if (res.status === 204) {
+    return {
+      file: null,
+      matchedRows,
+      importRunId,
+      rocketWorkbookExportId,
+      transmissionIntentKey,
+    };
+  }
+  if (!rocketWorkbookExportId || !transmissionIntentKey) {
+    throw new Error('쿠팡 로켓 워크북 연결 정보가 없어 셀피아 파일을 저장하지 않았습니다.');
+  }
   const blob = await res.blob();
   const cd = res.headers.get('Content-Disposition') ?? '';
   const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
@@ -90,14 +114,31 @@ export async function convertCoupangDirectToSellpiaFile(
     : `쿠팡직배송_${COUPANG_TRANSPORT_LABEL[transport]}_셀피아변환.xls`;
   if (options?.download !== false) downloadBlob(blob, fileName);
   return {
-    fileName,
-    blob,
-    previewRows: await readPreviewRows(blob),
-    sourceRows: numHeader(res, 'X-Order-Collection-Source-Rows'),
-    productRows: numHeader(res, 'X-Order-Collection-Product-Rows'),
-    outputRows: numHeader(res, 'X-Order-Collection-Output-Rows'),
-    skippedRows: numHeader(res, 'X-Order-Collection-Skipped-Rows'),
+    file: {
+      fileName,
+      blob,
+      previewRows: await readPreviewRows(blob),
+      sourceRows: numHeader(res, 'X-Order-Collection-Source-Rows'),
+      productRows: numHeader(res, 'X-Order-Collection-Product-Rows'),
+      outputRows: numHeader(res, 'X-Order-Collection-Output-Rows'),
+      skippedRows: numHeader(res, 'X-Order-Collection-Skipped-Rows'),
+      importRunId,
+      rocketWorkbookExportId,
+      transmissionIntentKey,
+    },
+    matchedRows,
+    importRunId,
+    rocketWorkbookExportId,
+    transmissionIntentKey,
   };
+}
+
+function requiredHeader(res: Response, name: string): string {
+  const value = res.headers.get(name)?.trim();
+  if (!value) {
+    throw new Error('쿠팡 주문수집 저장 확인 정보가 없어 셀피아 파일을 저장하지 않았습니다.');
+  }
+  return value;
 }
 
 function numHeader(res: Response, name: string): number | null {

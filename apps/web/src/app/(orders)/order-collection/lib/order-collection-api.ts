@@ -12,6 +12,8 @@ export interface OrderCollectionConversionResult {
   skippedRows: number | null;
   importRunId?: string | null;
   reconciledRows?: number | null;
+  rocketWorkbookExportId?: string | null;
+  transmissionIntentKey?: string | null;
 }
 
 export interface BrowserOrderRowsPayload {
