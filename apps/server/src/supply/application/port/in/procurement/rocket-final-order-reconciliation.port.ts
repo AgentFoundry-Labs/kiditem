@@ -16,6 +16,9 @@ export type RocketFinalOrderSkippedLine = {
 };
 
 export type RocketFinalOrderReconciliationResult = {
+  exportId: string | null;
+  transmissionIntentKey: string | null;
+  matchedLineCount: number;
   reconciledRows: number;
   skippedLines: RocketFinalOrderSkippedLine[];
 };
@@ -26,6 +29,8 @@ export interface RocketFinalOrderReconciliationPort {
     organizationId: string;
     userId: string;
     channelAccountId: string;
+    sourceImportRunId: string;
+    transport: 'SHIPMENT' | 'MILKRUN';
     lines: RocketFinalOrderReconciliationLine[];
   }): Promise<RocketFinalOrderReconciliationResult>;
 }

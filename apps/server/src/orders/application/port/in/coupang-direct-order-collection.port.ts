@@ -15,6 +15,9 @@ export interface CoupangDirectOrderCollectionPort {
     request: CoupangDirectOrderCollectionRequest;
   }): Promise<{
     importRunId: string;
+    exportId: string | null;
+    transmissionIntentKey: string | null;
+    matchedLineCount: number;
     reconciledRows: number;
     confirmedLines: CoupangDirectCollectionLineRef[];
     skippedLines: CoupangDirectCollectionLineRef[];

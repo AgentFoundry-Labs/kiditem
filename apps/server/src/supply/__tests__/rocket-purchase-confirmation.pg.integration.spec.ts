@@ -9,6 +9,8 @@ import {
 import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
+import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
+import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/repository/rocket-workbook-progress.repository.adapter';
 
 const CHANNEL_ACCOUNT_ID = '21000000-0000-4000-8000-000000000001';
 const SOURCE_IMPORT_RUN_ID = '21000000-0000-4000-8000-000000000002';
@@ -29,6 +31,9 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     await prisma.$connect();
     adapter = new RocketPurchaseConfirmationTransactionAdapter(
       prisma as unknown as PrismaService,
+      new RocketWorkbookProgressService(
+        new RocketWorkbookProgressRepositoryAdapter(),
+      ),
     );
   });
 
@@ -248,6 +253,55 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       confirmationInput('21000000-0000-4000-8000-000000000018', 2),
     )).resolves.toMatchObject({ status: 'awaiting_coupang_confirmation' });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(2);
+  });
+
+  it('completes only after finalized transmission and a newer verified generation', async () => {
+    const created = await adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000019', 2),
+    );
+    await prisma.rocketPurchaseConfirmationLine.updateMany({
+      where: { confirmationId: created.exportId },
+      data: {
+        collectedAt: new Date(),
+        collectedOrderLineItemId: '21000000-0000-4000-8000-000000000020',
+      },
+    });
+    const intentKey = `rocket-workbook:${created.exportId}:shipment`;
+    await prisma.rocketPurchaseConfirmationTransmission.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: created.exportId,
+        sourceImportRunId: SOURCE_IMPORT_RUN_ID,
+        transport: 'SHIPMENT',
+        intentKey,
+        matchedLineCount: 1,
+      },
+    });
+    await prisma.sellpiaOrderTransmissionIntent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        intentKey,
+        status: 'finalized',
+        createdBy: TEST_USER_ID,
+        finalizedAt: new Date(),
+        finalizedGeneration: 13n,
+      },
+    });
+
+    await expect(adapter.getActiveWorkflow({
+      organizationId: TEST_ORGANIZATION_ID,
+    })).resolves.toMatchObject({ status: 'awaiting_inventory_sync' });
+
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { verifiedGeneration: 13n },
+    });
+    await expect(adapter.getActiveWorkflow({
+      organizationId: TEST_ORGANIZATION_ID,
+    })).resolves.toBeNull();
+    expect(await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: created.exportId },
+    })).toMatchObject({ status: 'completed', completedAt: expect.any(Date) });
   });
 });
 

@@ -143,6 +143,8 @@ implements CoupangDirectOrderCollectionTransactionPort {
         organizationId: input.organizationId,
         userId: input.userId,
         channelAccountId: input.request.channelAccountId,
+        sourceImportRunId: importRun.id,
+        transport: input.request.transport,
         lines: reconciliationLines,
       });
       // 활성 발주확정이 없어 정산에서 제외된 라인은 하드 에러가 아니라 스킵으로 보고한다.
@@ -168,6 +170,9 @@ implements CoupangDirectOrderCollectionTransactionPort {
       });
       return {
         importRunId: importRun.id,
+        exportId: reconciled.exportId,
+        transmissionIntentKey: reconciled.transmissionIntentKey,
+        matchedLineCount: reconciled.matchedLineCount,
         reconciledRows: reconciled.reconciledRows,
         confirmedLines,
         skippedLines,

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -14,6 +15,10 @@ import {
   type RocketPurchasePreviewRow,
 } from '@kiditem/shared/rocket-purchase-preview';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  ROCKET_WORKBOOK_PROGRESS_PORT,
+  type RocketWorkbookProgressPort,
+} from '../../../../inventory/application/port/in/stock/rocket-workbook-progress.port';
 import type { RocketWorkbookExportTransactionPort } from '../../../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
 
 const LOCK_NAMESPACE = 'rocket-workbook-workflow';
@@ -42,7 +47,11 @@ type WorkbookDecision = {
 @Injectable()
 export class RocketPurchaseConfirmationTransactionAdapter
 implements RocketWorkbookExportTransactionPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(ROCKET_WORKBOOK_PROGRESS_PORT)
+    private readonly progress: RocketWorkbookProgressPort,
+  ) {}
 
   async exportWorkbook(
     input: Parameters<RocketWorkbookExportTransactionPort['exportWorkbook']>[0],
@@ -68,10 +77,13 @@ implements RocketWorkbookExportTransactionPort {
           organizationId: input.organizationId,
           status: { notIn: [...TERMINAL_STATUSES] },
         },
-        select: { id: true, status: true },
+        include: exportInclude,
         orderBy: [{ confirmedAt: 'asc' }, { id: 'asc' }],
       });
-      if (active) {
+      const refreshedActive = active
+        ? await this.refreshWorkflow(tx, input.organizationId, active)
+        : null;
+      if (refreshedActive && !isTerminal(refreshedActive.status)) {
         throw new ConflictException(
           'A previous Rocket workbook workflow must complete before creating another workbook.',
         );
@@ -197,15 +209,20 @@ implements RocketWorkbookExportTransactionPort {
   async getActiveWorkflow(
     input: Parameters<RocketWorkbookExportTransactionPort['getActiveWorkflow']>[0],
   ): Promise<RocketWorkbookExportResponse | null> {
-    const record = await this.prisma.rocketPurchaseConfirmation.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        status: { notIn: [...TERMINAL_STATUSES] },
-      },
-      include: exportInclude,
-      orderBy: [{ confirmedAt: 'asc' }, { id: 'asc' }],
-    });
-    return record ? exportResponse(record, false) : null;
+    return this.prisma.$transaction(async (tx) => {
+      await lockWorkflow(tx, input.organizationId);
+      const record = await tx.rocketPurchaseConfirmation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          status: { notIn: [...TERMINAL_STATUSES] },
+        },
+        include: exportInclude,
+        orderBy: [{ confirmedAt: 'asc' }, { id: 'asc' }],
+      });
+      if (!record) return null;
+      const refreshed = await this.refreshWorkflow(tx, input.organizationId, record);
+      return isTerminal(refreshed.status) ? null : exportResponse(refreshed, false);
+    }, TRANSACTION_OPTIONS);
   }
 
   async downloadWorkbook(
@@ -265,6 +282,43 @@ implements RocketWorkbookExportTransactionPort {
       });
       return exportResponse(completed, false);
     }, TRANSACTION_OPTIONS);
+  }
+
+  private async refreshWorkflow(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    record: ExportRecord,
+  ): Promise<ExportRecord> {
+    if (isTerminal(record.status)) return record;
+    const positiveLines = record.lines.filter(
+      ({ confirmedQuantity }) => confirmedQuantity > 0,
+    );
+    const projected = await this.progress.read({
+      transaction: tx,
+      organizationId,
+      exportGeneration: record.freshnessGeneration,
+      allPositiveLinesCollected: positiveLines.every(
+        ({ collectedAt }) => collectedAt !== null,
+      ),
+      intentKeys: record.transmissions.flatMap(
+        ({ intentKey }) => intentKey ? [intentKey] : [],
+      ),
+    });
+    if (projected.status === publicStatus(record.status)) return record;
+    return tx.rocketPurchaseConfirmation.update({
+      where: { id: record.id },
+      data: {
+        status: projected.status,
+        completedAt: projected.status === 'completed' ? new Date() : null,
+        failureCode: projected.status === 'failed'
+          ? 'SELLPIA_TRANSMISSION_RETRY_REQUIRED'
+          : null,
+        failureMessage: projected.status === 'failed'
+          ? 'The linked Sellpia transmission must be retried or reconciled.'
+          : null,
+      },
+      include: exportInclude,
+    });
   }
 }
 
@@ -505,6 +559,10 @@ function publicStatus(status: string): RocketWorkbookWorkflowStatus {
     return status;
   }
   return 'failed';
+}
+
+function isTerminal(status: string): boolean {
+  return TERMINAL_STATUSES.includes(status as (typeof TERMINAL_STATUSES)[number]);
 }
 
 function canAbandon(record: ExportRecord): boolean {
