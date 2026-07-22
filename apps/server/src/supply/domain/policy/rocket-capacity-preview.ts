@@ -61,8 +61,8 @@ export function previewRocketCapacity(input: {
     remainingStock.set(
       component.sellpiaInventorySkuId,
       current === undefined
-        ? component.availableStock
-        : Math.min(current, component.availableStock),
+        ? component.currentStock
+        : Math.min(current, component.currentStock),
     );
   }
 

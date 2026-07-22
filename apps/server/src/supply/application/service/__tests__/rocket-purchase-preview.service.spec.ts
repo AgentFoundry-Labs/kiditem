@@ -292,7 +292,7 @@ describe('RocketPurchasePreviewService', () => {
     });
   });
 
-  it('replaces preliminary availability with one gated generation including active commitments', async () => {
+  it('uses the gated current stock while ignoring common active commitments', async () => {
     const deps = dependencies();
     vi.mocked((deps.freshness as unknown as {
       readFreshCapacity: ReturnType<typeof vi.fn>;
@@ -318,13 +318,11 @@ describe('RocketPurchasePreviewService', () => {
     expect(result).toMatchObject({
       inventoryGeneration: '1',
       rows: [{
-        maxQuantity: 80,
-        recommendedQuantity: 80,
+        maxQuantity: 100,
+        recommendedQuantity: 100,
         components: [{
           sellpiaInventorySkuId,
           currentStock: 100,
-          activeCommitmentQuantity: 20,
-          availableStock: 80,
         }],
       }],
     });
