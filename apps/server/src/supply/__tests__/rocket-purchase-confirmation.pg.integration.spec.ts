@@ -224,6 +224,23 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
   });
 
+  it('rejects zero quantity when the confirmed recipe changed after preview', async () => {
+    const input = confirmationInput(
+      '21000000-0000-4000-8000-000000000017',
+      0,
+    );
+    await prisma.productVariantComponent.deleteMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productVariantId: PRODUCT_VARIANT_ID,
+      },
+    });
+
+    await expect(adapter.confirm(input)).rejects.toThrow(/recipe/i);
+    expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
+  });
+
   it('releases an active confirmation and restores preview capacity', async () => {
     const created = await adapter.confirm(
       confirmationInput('21000000-0000-4000-8000-000000000015', 2),

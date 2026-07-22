@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isRocketConfirmationBlockingReason,
+  ROCKET_CONFIRMATION_BLOCKING_REASONS,
   RocketPurchaseConfirmationRequestSchema,
   RocketPurchaseConfirmationReleaseRequestSchema,
   RocketPurchaseConfirmationResponseSchema,
@@ -59,6 +61,19 @@ function request() {
 }
 
 describe('Rocket purchase preview contract', () => {
+  it('defines the exact reasons that block official confirmation', () => {
+    expect(ROCKET_CONFIRMATION_BLOCKING_REASONS).toEqual([
+      'mapping_required',
+      'configuration_required',
+      'review_required',
+    ]);
+    expect(isRocketConfirmationBlockingReason('mapping_required')).toBe(true);
+    expect(isRocketConfirmationBlockingReason('configuration_required')).toBe(true);
+    expect(isRocketConfirmationBlockingReason('review_required')).toBe(true);
+    expect(isRocketConfirmationBlockingReason('insufficient_capacity')).toBe(false);
+    expect(isRocketConfirmationBlockingReason(null)).toBe(false);
+  });
+
   it('publishes the scoped deterministic recipe automation result with the Rocket catalog', () => {
     const publication = RocketPoCatalogPublicationSchema.parse({
       run: {

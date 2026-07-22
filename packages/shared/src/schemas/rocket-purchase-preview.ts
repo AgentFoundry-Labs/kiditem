@@ -250,6 +250,19 @@ export type RocketPurchasePreviewReason = z.infer<
   typeof RocketPurchasePreviewReasonSchema
 >;
 
+export const ROCKET_CONFIRMATION_BLOCKING_REASONS = [
+  'mapping_required',
+  'configuration_required',
+  'review_required',
+] as const satisfies readonly RocketPurchasePreviewReason[];
+
+export function isRocketConfirmationBlockingReason(
+  reason: RocketPurchasePreviewReason | null,
+): reason is (typeof ROCKET_CONFIRMATION_BLOCKING_REASONS)[number] {
+  return reason !== null
+    && (ROCKET_CONFIRMATION_BLOCKING_REASONS as readonly string[]).includes(reason);
+}
+
 export const RocketPoCatalogPublicationSchema = z.object({
   run: CompletedSourceArtifactRunSchema.superRefine((run, ctx) => {
     if (run.sourceType !== 'coupang_rocket_po_catalog') {

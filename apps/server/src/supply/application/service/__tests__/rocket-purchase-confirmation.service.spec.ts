@@ -194,6 +194,42 @@ describe('RocketPurchaseConfirmationService', () => {
     expect(deps.transactions.confirm).not.toHaveBeenCalled();
   });
 
+  it.each([
+    'mapping_required',
+    'configuration_required',
+    'review_required',
+  ] as const)('rejects %s before persistence', async (reason) => {
+    const deps = dependencies();
+    deps.preview.preview.mockResolvedValue({
+      ...previewResult(),
+      rows: [{
+        ...previewResult().rows[0],
+        editedQuantity: 0,
+        recommendedQuantity: 0,
+        maxQuantity: 0,
+        reason,
+        channelSkuId: reason === 'mapping_required' ? null : previewResult().rows[0]!.channelSkuId,
+        masterProductId: reason === 'mapping_required' ? null : previewResult().rows[0]!.masterProductId,
+        productVariantId: reason === 'mapping_required' ? null : previewResult().rows[0]!.productVariantId,
+        components: [],
+      }],
+    });
+    const service = new RocketPurchaseConfirmationService(
+      deps.preview as never,
+      deps.transactions as never,
+    );
+
+    await expect(service.confirm({
+      organizationId,
+      userId,
+      request: {
+        ...request(),
+        editedQuantities: { [poLineId]: 0 },
+      },
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(deps.transactions.confirm).not.toHaveBeenCalled();
+  });
+
   it('releases capacity through the authenticated Supply transaction', async () => {
     const deps = dependencies();
     const service = new RocketPurchaseConfirmationService(

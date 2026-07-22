@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
+  isRocketConfirmationBlockingReason,
   RocketPurchaseConfirmationRequestSchema,
   RocketPurchaseConfirmationReleaseRequestSchema,
   RocketPurchaseConfirmationResponseSchema,
@@ -47,6 +48,11 @@ implements RocketPurchaseConfirmationPort {
     if (!preview.catalog) {
       throw new BadRequestException(
         'A complete Rocket PO collection is required before confirmation.',
+      );
+    }
+    if (preview.rows.some(({ reason }) => isRocketConfirmationBlockingReason(reason))) {
+      throw new BadRequestException(
+        'Every Rocket confirmation line requires a confirmed product recipe.',
       );
     }
     return RocketPurchaseConfirmationResponseSchema.parse(

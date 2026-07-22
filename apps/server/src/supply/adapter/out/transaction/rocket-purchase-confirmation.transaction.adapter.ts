@@ -300,16 +300,13 @@ function buildDecisions(
       throw new ConflictException('Rocket preview quantity changed before confirmation.');
     }
     if (
-      confirmedQuantity > 0
-      && (
-        !source.channelSkuId
-        || !source.productVariantId
-        || source.components.length === 0
-        || source.components.some((component) => !component.isActive)
-      )
+      !source.channelSkuId
+      || !source.productVariantId
+      || source.components.length === 0
+      || source.components.some((component) => !component.isActive)
     ) {
       throw new ConflictException(
-        'Positive Rocket confirmation requires a current confirmed recipe.',
+        'Every Rocket confirmation line requires a current confirmed recipe.',
       );
     }
     return {
@@ -332,8 +329,7 @@ async function assertCurrentRecipes(
   channelAccountId: string,
   decisions: ConfirmationDecision[],
 ): Promise<void> {
-  const positive = decisions.filter(({ confirmedQuantity }) => confirmedQuantity > 0);
-  const variantIds = [...new Set(positive.flatMap(({ source }) =>
+  const variantIds = [...new Set(decisions.flatMap(({ source }) =>
     source.productVariantId ? [source.productVariantId] : []))];
   if (variantIds.length === 0) return;
   const variants = await tx.productVariant.findMany({
@@ -355,7 +351,7 @@ async function assertCurrentRecipes(
     },
   });
   const byId = new Map(variants.map((variant) => [variant.id, variant]));
-  for (const decision of positive) {
+  for (const decision of decisions) {
     const variant = byId.get(decision.source.productVariantId!);
     const expected = decision.source.components
       .map(({ sellpiaInventorySkuId, quantity }) => ({ sellpiaInventorySkuId, quantity }))
