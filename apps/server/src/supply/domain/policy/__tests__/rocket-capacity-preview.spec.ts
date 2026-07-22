@@ -63,6 +63,58 @@ describe('previewRocketCapacity', () => {
     });
   });
 
+  it('derives pack conversion only from the confirmed recipe quantity', () => {
+    const rows = previewRocketCapacity({
+      rows: [{
+        ...earlierRow,
+        productName: '이름에는 2개입이라고 적힌 오해 유발 상품',
+        orderQuantity: 10,
+        components: [{
+          ...earlierRow.components[0]!,
+          quantity: 18,
+          currentStock: 35,
+          availableStock: 35,
+        }],
+      }],
+      editedQuantities: {},
+    });
+
+    expect(rows[0]).toMatchObject({
+      maxQuantity: 1,
+      recommendedQuantity: 1,
+      reason: 'insufficient_capacity',
+      components: [{ quantity: 18, availableStock: 35 }],
+    });
+  });
+
+  it('consumes one shared SKU pool once across multiple PO lines', () => {
+    const availableStock = 10;
+    const rows = previewRocketCapacity({
+      rows: [laterRow, earlierRow].map((row) => ({
+        ...row,
+        orderQuantity: 2,
+        components: [{
+          ...row.components[0]!,
+          quantity: 3,
+          currentStock: availableStock,
+          availableStock,
+        }],
+      })),
+      editedQuantities: {},
+    });
+
+    expect(rows.map((row) => [row.poLineId, row.recommendedQuantity])).toEqual([
+      ['line-earlier', 2],
+      ['line-later', 1],
+    ]);
+    const allocatedComponents = rows.reduce(
+      (total, row) => total + row.recommendedQuantity * row.components[0]!.quantity,
+      0,
+    );
+    expect(allocatedComponents).toBe(9);
+    expect(allocatedComponents).toBeLessThanOrEqual(availableStock);
+  });
+
   it('uses numeric PO order and then line ID as same-date tie breakers', () => {
     const rows = previewRocketCapacity({
       rows: [

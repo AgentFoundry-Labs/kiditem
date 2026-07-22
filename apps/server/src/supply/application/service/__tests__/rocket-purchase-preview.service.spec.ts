@@ -292,7 +292,7 @@ describe('RocketPurchasePreviewService', () => {
     });
   });
 
-  it('uses the common gated availability without subtracting a Supply aggregate again', async () => {
+  it('replaces preliminary availability with one gated generation including active commitments', async () => {
     const deps = dependencies();
     vi.mocked((deps.freshness as unknown as {
       readFreshCapacity: ReturnType<typeof vi.fn>;
@@ -317,7 +317,16 @@ describe('RocketPurchasePreviewService', () => {
 
     expect(result).toMatchObject({
       inventoryGeneration: '1',
-      rows: [{ maxQuantity: 80, recommendedQuantity: 80 }],
+      rows: [{
+        maxQuantity: 80,
+        recommendedQuantity: 80,
+        components: [{
+          sellpiaInventorySkuId,
+          currentStock: 100,
+          activeCommitmentQuantity: 20,
+          availableStock: 80,
+        }],
+      }],
     });
   });
 
