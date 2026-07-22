@@ -71,8 +71,7 @@ import {
 const COLLECT_ALL_CONCURRENCY = 4;
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
-export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
-  const Heading = headingLevel === 1 ? 'h1' : 'h2';
+export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
   const historyRef = useRef<ConversionHistoryItem[]>([]);
   const sellpiaSendLockRef = useRef(false);
@@ -628,7 +627,7 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
             <FileSpreadsheet size={20} className="text-purple-600" />
           </div>
           <div>
-            <Heading className="text-2xl font-bold tracking-tight text-slate-900">주문 수집</Heading>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">주문 수집</h1>
             <div className="text-sm text-slate-500">
               여러 몰 주문을 수집해 셀피아 납품 양식으로 변환합니다
             </div>

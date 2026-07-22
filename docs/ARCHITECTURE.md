@@ -337,7 +337,7 @@ Kinds:
 | `apps/web/src/app/(catalog)` | Route Group | Preserved product operations center at `/product-hub`, backed by the read-only Sellpia snapshot; read-only snapshot detail; dedicated read-only `/product-hub/options`; Coupang ChannelSku-to-Sellpia component matching at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
 | `apps/web/src/app/(inventory)` | Route Group | Active `/inventory-hub`, `/inventory`, `/stock-ops`, and `/coupang-shipments` surfaces; Warehouse reads remain reference data for `StockTransfers`, with no standalone warehouse-management route. |
-| `apps/web/src/app/(orders)` | Route Group | Preserved, independently reachable `/order-hub`, `/order-collection`, `/orders`, `/order-status-hub`, and `/rocket-orders` surfaces plus returns, CS, reviews, picking, and return scanning; `/orders` and `/order-collection` own their route-local workspaces while `/order-hub` temporarily composes them by import; the Rocket capacity placeholder consumes the shared preview contract. |
+| `apps/web/src/app/(orders)` | Route Group | Active `/order-collection`, `/orders`, `/rocket-orders`, and `/reviews` surfaces; order collection and processing own their route-local workspaces, while the Rocket capacity placeholder consumes the shared preview contract. |
 | `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
 | `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `/purchase-orders` general purchasing with additive Rocket preview at `?tab=rocket`, plus `suppliers`; Supply owns the preview contract also consumed by `/rocket-orders`. |
@@ -373,9 +373,8 @@ Notable route subtrees:
 
 - Current tab ownership is exact: `/inventory-hub` has `status`,
   `sellpia-sync`, `rocket-events`, and `checks`; `/stock-ops` has
-  `product-outflow` and `channel-zero`; `/order-hub` has `orders`, `collection`,
-  `picking`, the temporarily retained `outbound`, and `matching` tabs;
-  `/order-status-hub` has `inventory`, `delivery`, `compare`, and `sync`.
+  `product-outflow` and `channel-zero`. Active Orders routes are independent
+  workspaces and do not inherit tabs from retired hub screens.
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
   owns `/product-pipeline/collected-products`, the 1688/imported plus manual

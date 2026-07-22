@@ -1,5 +1,5 @@
 import { OrderCollectionWorkspace } from './components/OrderCollectionWorkspace';
 
 export default function OrderCollectionPage() {
-  return <OrderCollectionWorkspace headingLevel={1} />;
+  return <OrderCollectionWorkspace />;
 }
