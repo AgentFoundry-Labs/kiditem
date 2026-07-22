@@ -3,7 +3,6 @@ set -Eeuo pipefail
 
 API_ENV_FILE="${API_ENV_FILE:-.env.staging.api}"
 WEB_ENV_FILE="${WEB_ENV_FILE:-.env.staging.web}"
-BROWSER_ENV_FILE="${BROWSER_ENV_FILE:-.env.staging.browser}"
 
 fail() {
   echo "render-runtime-env: $*" >&2
@@ -69,22 +68,6 @@ write_web_env() {
   chmod 600 "$WEB_ENV_FILE"
 }
 
-write_browser_env() {
-  local tmp
-  tmp="$(mktemp "${BROWSER_ENV_FILE}.tmp.XXXXXX")"
-  chmod 600 "$tmp"
-
-  for name in "${required_browser_env[@]}"; do
-    require_env "$name"
-  done
-
-  append_env_line "$tmp" CUSTOM_USER "${SOURCING_BROWSER_UI_USER:-sourcing}"
-  append_env_line "$tmp" PASSWORD "$SOURCING_BROWSER_UI_PASSWORD"
-
-  mv "$tmp" "$BROWSER_ENV_FILE"
-  chmod 600 "$BROWSER_ENV_FILE"
-}
-
 required_api_env=(
   DATABASE_URL
   SUPABASE_URL
@@ -103,16 +86,11 @@ required_api_env=(
   AI_IMAGE_ANALYSIS_VERIFY_MODEL
   AGENT_RUNTIME_WORKER_ENABLED
   AGENT_DEFAULT_MODEL
-  SOURCING_PLAYWRIGHT_CDP_ENDPOINT
 )
 
 required_web_env=(
   NEXT_PUBLIC_SUPABASE_URL
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-)
-
-required_browser_env=(
-  SOURCING_BROWSER_UI_PASSWORD
 )
 
 optional_api_env=(
@@ -127,6 +105,7 @@ optional_api_env=(
   DIRECT_1688_MTOP_BASE_URL
   TMAPI_TOKEN
   TMAPI_BASE_URL
+  SOURCING_PLAYWRIGHT_CDP_ENDPOINT
   TAOBAO_TOP_APP_KEY
   TAOBAO_TOP_APP_SECRET
   TAOBAO_TOP_BASE_URL
@@ -139,6 +118,5 @@ optional_api_env=(
 
 write_api_env
 write_web_env
-write_browser_env
 
-echo "Rendered $API_ENV_FILE, $WEB_ENV_FILE, and $BROWSER_ENV_FILE"
+echo "Rendered $API_ENV_FILE and $WEB_ENV_FILE"

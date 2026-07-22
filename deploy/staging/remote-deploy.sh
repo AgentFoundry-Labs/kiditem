@@ -8,16 +8,11 @@ DEPLOYMENTS_DIR="${DEPLOYMENTS_DIR:-deployments}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.staging.yml}"
 WEB_ENV_FILE="${WEB_ENV_FILE:-.env.staging.web}"
 API_ENV_FILE="${API_ENV_FILE:-.env.staging.api}"
-BROWSER_ENV_FILE="${BROWSER_ENV_FILE:-.env.staging.browser}"
 DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-.env.staging.deploy}"
 NGINX_TEMPLATE_FILE="${NGINX_TEMPLATE_FILE:-deploy/staging/nginx.conf}"
 GENERATED_NGINX_FILE="${GENERATED_NGINX_FILE:-deployments/nginx.conf}"
 LOCAL_WEB_URL="${LOCAL_WEB_URL:-http://127.0.0.1:8080/login}"
 LOCAL_AUTH_URL="${LOCAL_AUTH_URL:-http://127.0.0.1:8080/api/auth/me}"
-SOURCING_CHROME_IMAGE="ghcr.io/linuxserver/chromium:version-b0ddd401@sha256:47fc8bb18cdb0844199a16e1e14b3b38ba97f6ad1659895c243ba5f2384aad1e"
-SOURCING_CHROME_CONTAINER="kiditem-staging-sourcing-chrome"
-SOURCING_CDP_PROXY_IMAGE="docker.io/alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
-SOURCING_CDP_PROXY_CONTAINER="kiditem-staging-sourcing-cdp-proxy"
 
 usage() {
   cat <<'USAGE'
@@ -308,9 +303,7 @@ stop_staging_stack_for_space() {
       "${CONTAINER_PREFIX}-worker-blue" \
       "${CONTAINER_PREFIX}-web-green" \
       "${CONTAINER_PREFIX}-api-green" \
-      "${CONTAINER_PREFIX}-worker-green" \
-      "$SOURCING_CHROME_CONTAINER" \
-      "$SOURCING_CDP_PROXY_CONTAINER" >/dev/null 2>&1 || true
+      "${CONTAINER_PREFIX}-worker-green" >/dev/null 2>&1 || true
   fi
 }
 
@@ -346,16 +339,6 @@ pull_staging_images() {
   pull_image "$KIDITEM_WEB_IMAGE" || status=$?
   [[ "$status" == "0" ]] || return "$status"
 
-  echo "Pulling staging sourcing Chrome image"
-  status=0
-  pull_image "$SOURCING_CHROME_IMAGE" || status=$?
-  [[ "$status" == "0" ]] || return "$status"
-
-  echo "Pulling staging sourcing CDP proxy image"
-  status=0
-  pull_image "$SOURCING_CDP_PROXY_IMAGE" || status=$?
-  [[ "$status" == "0" ]] || return "$status"
-
   return 0
 }
 
@@ -389,48 +372,6 @@ wait_for_container_health() {
   return 1
 }
 
-ensure_sourcing_browser() {
-  echo "Starting shared staging sourcing Chrome and private CDP proxy"
-  compose up -d sourcing-chrome sourcing-cdp-proxy
-  wait_for_container_health sourcing-chrome
-  wait_for_container_health sourcing-cdp-proxy
-}
-
-verify_sourcing_browser_cdp() {
-  local service="$1"
-  echo "Checking sourcing Chrome CDP connectivity from $service"
-  compose exec -T "$service" node - <<'NODE'
-const { chromium } = require('playwright');
-const endpoint = process.env.SOURCING_PLAYWRIGHT_CDP_ENDPOINT;
-
-if (!endpoint) {
-  throw new Error('SOURCING_PLAYWRIGHT_CDP_ENDPOINT is missing');
-}
-
-(async () => {
-  const versionUrl = new URL('/json/version', endpoint.endsWith('/') ? endpoint : `${endpoint}/`);
-  const response = await fetch(versionUrl, { signal: AbortSignal.timeout(10000) });
-  if (!response.ok) {
-    throw new Error(`CDP version endpoint returned HTTP ${response.status}`);
-  }
-
-  const version = await response.json();
-  if (typeof version.webSocketDebuggerUrl !== 'string' || !version.webSocketDebuggerUrl) {
-    throw new Error('CDP version response is missing webSocketDebuggerUrl');
-  }
-
-  const browser = await chromium.connectOverCDP(endpoint, { timeout: 10000 });
-  if (!browser.isConnected() || browser.contexts().length === 0) {
-    throw new Error('Playwright connected to CDP without a default browser context');
-  }
-  await browser.close();
-})().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
-NODE
-}
-
 verify_render_image_runtime() {
   local service="$1"
   echo "Checking API render-image browser runtime in $service"
@@ -457,7 +398,7 @@ candidate_logs() {
   echo "Compose status:" >&2
   compose ps >&2 || true
   echo "Recent candidate logs:" >&2
-  compose logs --tail=100 nginx sourcing-chrome sourcing-cdp-proxy "$(web_service "$color")" "$(api_service "$color")" "$(worker_service "$color")" >&2 || true
+  compose logs --tail=100 nginx "$(web_service "$color")" "$(api_service "$color")" "$(worker_service "$color")" >&2 || true
 }
 
 wait_for_candidate_health() {
@@ -468,7 +409,6 @@ wait_for_candidate_health() {
   worker="$(worker_service "$color")"
 
   wait_for_container_health "$api" || return 1
-  verify_sourcing_browser_cdp "$api" || return 1
   wait_for_container_health "$web" || return 1
   wait_for_container_health "$worker" || return 1
   verify_render_image_runtime "$api"
@@ -687,7 +627,6 @@ deploy() {
   require_file "$COMPOSE_FILE"
   require_file "$WEB_ENV_FILE"
   require_file "$API_ENV_FILE"
-  require_file "$BROWSER_ENV_FILE"
   require_file "$NGINX_TEMPLATE_FILE"
 
   local active_color target_color pull_status allow_downtime_for_space target_services
@@ -727,7 +666,6 @@ deploy() {
 
   validate_agent_os_runtime_env
   compose config >/dev/null
-  ensure_sourcing_browser
   render_nginx_for_color "$active_color"
   seed_agent_os "$target_color"
   read -r -a target_services <<<"$(slot_services "$target_color")"
@@ -750,7 +688,6 @@ deploy() {
     write_slot_deploy_env "$target_color" "$active_color"
     validate_agent_os_runtime_env
     compose config >/dev/null
-    ensure_sourcing_browser
     render_nginx_for_color "$active_color"
     seed_agent_os "$target_color"
     read -r -a target_services <<<"$(slot_services "$target_color")"
@@ -790,7 +727,6 @@ resume() {
   require_file "$COMPOSE_FILE"
   require_file "$DEPLOY_ENV_FILE"
   require_file "$WEB_ENV_FILE"
-  require_file "$BROWSER_ENV_FILE"
   require_file "$NGINX_TEMPLATE_FILE"
 
   local active_color active_services
@@ -798,7 +734,6 @@ resume() {
   read -r -a active_services <<<"$(slot_services "$active_color")"
   echo "Resuming previous $DEPLOY_ENVIRONMENT runtime on $active_color after pre-reset failure"
   compose config >/dev/null
-  ensure_sourcing_browser
   render_nginx_for_color "$active_color"
   compose up -d "${active_services[@]}"
   wait_for_candidate_health "$active_color"
@@ -833,18 +768,6 @@ status() {
   echo "Compose status:"
   if [[ -f "$DEPLOY_ENV_FILE" ]]; then
     compose ps
-
-    local active_api browser_cid proxy_cid browser_health proxy_health
-    active_api="$(api_service "$(current_color)")"
-    browser_cid="$(compose ps -q sourcing-chrome 2>/dev/null || true)"
-    proxy_cid="$(compose ps -q sourcing-cdp-proxy 2>/dev/null || true)"
-    [[ -n "$browser_cid" ]] || fail "shared sourcing Chrome is not running"
-    [[ -n "$proxy_cid" ]] || fail "shared sourcing CDP proxy is not running"
-    browser_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$browser_cid")"
-    proxy_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$proxy_cid")"
-    [[ "$browser_health" == "healthy" ]] || fail "shared sourcing Chrome status is $browser_health"
-    [[ "$proxy_health" == "healthy" ]] || fail "shared sourcing CDP proxy status is $proxy_health"
-    verify_sourcing_browser_cdp "$active_api"
   else
     echo "No $DEPLOY_ENV_FILE found; compose image variables are not available."
     echo "Matching containers:"

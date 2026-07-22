@@ -48,9 +48,6 @@ GitHub Environment `staging` secrets
 /opt/kiditem/.env.staging.web
   -> runtime env_file for the web container
 
-/opt/kiditem/.env.staging.browser
-  -> operator UI credentials for the shared sourcing-chrome container
-
 /opt/kiditem/.env.staging.deploy
   -> generated image refs for docker compose
 
@@ -88,16 +85,13 @@ Local development:
 
 Staging:
 
-- Source of truth examples are `deploy/staging/env/api.env.example` for the API
-  container and `deploy/staging/env/web.env.example` for the web container. The
-  browser credential file is rendered directly from GitHub Environment
-  `staging` and has no checked-in secret value.
+- Source of truth example is `deploy/staging/env/api.env.example` for the API
+  container and `deploy/staging/env/web.env.example` for the web container.
 - Staging should use a dedicated Supabase project, database, storage bucket, and
   provider keys once real QA begins. Reusing dev is allowed only as a short
   first-rollout bridge.
-- The current staging compose runtime runs API, web, nginx, and a shared
-  headful `sourcing-chrome`. It does not run `agents/` as a separate Python
-  runtime.
+- The current staging compose runtime runs API, web, and nginx. It does not run
+  `agents/` as a separate Python runtime.
 - Keep staging to the current minimum runtime env below. Add AI, Agent OS, or
   channel credential env only when that staging feature is intentionally
   enabled and verified.
@@ -143,7 +137,6 @@ AI_IMAGE_ANALYSIS_MODEL
 AI_IMAGE_ANALYSIS_VERIFY_MODEL
 AGENT_RUNTIME_WORKER_ENABLED
 AGENT_DEFAULT_MODEL
-SOURCING_PLAYWRIGHT_CDP_ENDPOINT
 ```
 
 Web container, current staging shape:
@@ -156,23 +149,6 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 
 `NEXT_PUBLIC_API_URL` stays empty in staging/production when nginx handles
 same-origin `/api/*` routing.
-
-## Staging Sourcing Browser
-
-| Variable | Owner | Required | Consumed by | Notes |
-|---|---|---:|---|---|
-| `STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | GitHub Environment variable | Yes in staging | Deploy env renderer | Set exactly to `http://sourcing-chrome.localhost:9223`. The `.localhost` Compose alias satisfies Chromium's CDP Host-header guard. It becomes API runtime variable `SOURCING_PLAYWRIGHT_CDP_ENDPOINT`; do not use an EC2 public address. |
-| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | API runtime | Yes in staging | Playwright sourcing adapters | Private Compose-network raw Chrome CDP endpoint. The deploy checks `/json/version` from the candidate API and requires `webSocketDebuggerUrl`. |
-| `STAGING_SOURCING_BROWSER_UI_PASSWORD` | GitHub Environment secret | Yes in staging | Deploy env renderer | Password-manager-backed operator password rendered as `PASSWORD` in `.env.staging.browser`. It is not exposed to the API or web app. |
-| `CUSTOM_USER` | Browser runtime | Rendered | LinuxServer Chromium UI | Fixed to `sourcing`. |
-| `PASSWORD` | Browser runtime | Rendered | LinuxServer Chromium UI | Basic-auth password sourced from `STAGING_SOURCING_BROWSER_UI_PASSWORD`. Never print or commit it. |
-
-The browser UI is bound to EC2 loopback port `3001` and requires an SSH
-tunnel. Chrome CDP binds to browser-local `9222`; a namespace-sharing relay
-exposes only port `9223` inside Docker Compose. Neither CDP port is published on
-the host. The persistent profile allows an operator to sign in and manually
-complete a 1688 slider or other verification, but raw Chrome CDP does not
-automatically solve CAPTCHAs.
 
 ## Core API Runtime
 

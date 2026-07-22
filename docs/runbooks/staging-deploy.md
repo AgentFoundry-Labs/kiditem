@@ -24,11 +24,6 @@ External services:
   Storage         -> Supabase Storage public bucket, via S3-compatible API
   DB baseline     -> Supabase Storage private bucket, via S3-compatible API
   Image registry  -> GHCR images tagged by git SHA
-
-Operator-only browser access:
-  SSH tunnel 127.0.0.1:3001 -> EC2 127.0.0.1:3001
-    -> shared headful sourcing-chrome UI
-      -> local Chrome CDP :9222 -> private relay :9223 -> active API slot
 ```
 
 ## Human Prerequisites
@@ -54,8 +49,8 @@ Operator-only browser access:
 
 Do not store secrets in git. GitHub Environment `staging` is the source of
 truth for staging runtime secrets and variables. Each deploy renders
-`.env.staging.api`, `.env.staging.web`, and `.env.staging.browser` from GitHub,
-uploads them to EC2 with `600` permissions, and then restarts the stack.
+`.env.staging.api` and `.env.staging.web` from GitHub, uploads them to EC2 with
+`600` permissions, and then restarts the stack.
 
 ## Expected Directory Shape
 
@@ -69,7 +64,6 @@ uploads them to EC2 with `600` permissions, and then restarts the stack.
   deploy/staging/host-nginx.conf.example
   .env.staging.api
   .env.staging.web
-  .env.staging.browser
   .env.staging.deploy
   deployments/nginx.conf
   deployments/current.json
@@ -189,7 +183,7 @@ STAGING_AGENT_DEFAULT_MODEL=gemini-2.5-flash
 STAGING_NAVER_API_HUB_BASE_URL=https://naverapihub.apigw.ntruss.com
 STAGING_NAVER_SEARCHAD_BASE_URL=https://api.searchad.naver.com
 STAGING_TMAPI_BASE_URL=https://api.tmapi.top
-STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT=http://sourcing-chrome.localhost:9223
+STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT=<managed-browser-cdp-endpoint>
 STAGING_TAOBAO_TOP_BASE_URL=https://eco.taobao.com/router/rest
 STAGING_TAOBAO_TOP_TIMEOUT_MS=15000
 STAGING_SOURCING_LINKFOX_SHADOW_ENABLED=0
@@ -224,7 +218,6 @@ STAGING_TMAPI_TOKEN=<tmapi-token>
 STAGING_TAOBAO_TOP_APP_KEY=<taobao-top-app-key>
 STAGING_TAOBAO_TOP_APP_SECRET=<taobao-top-app-secret>
 STAGING_LINKFOX_AGENT_API_KEY=<server-only-linkfox-key>
-STAGING_SOURCING_BROWSER_UI_PASSWORD=<password-manager-backed-operator-password>
 STAGING_DB_BASELINE_S3_ACCESS_KEY=<private-db-baseline-s3-access-key-id>
 STAGING_DB_BASELINE_S3_SECRET_KEY=<private-db-baseline-s3-secret-access-key>
 ```
@@ -261,7 +254,7 @@ gh variable set STAGING_AGENT_DEFAULT_MODEL --env staging --body "gemini-2.5-fla
 gh variable set STAGING_NAVER_API_HUB_BASE_URL --env staging --body "https://naverapihub.apigw.ntruss.com"
 gh variable set STAGING_NAVER_SEARCHAD_BASE_URL --env staging --body "https://api.searchad.naver.com"
 gh variable set STAGING_TMAPI_BASE_URL --env staging --body "https://api.tmapi.top"
-gh variable set STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT --env staging --body "http://sourcing-chrome.localhost:9223"
+gh variable set STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT --env staging --body "<managed-browser-cdp-endpoint>"
 gh variable set STAGING_TAOBAO_TOP_BASE_URL --env staging --body "https://eco.taobao.com/router/rest"
 gh variable set STAGING_TAOBAO_TOP_TIMEOUT_MS --env staging --body "15000"
 gh variable set STAGING_SOURCING_LINKFOX_SHADOW_ENABLED --env staging --body "0"
@@ -289,7 +282,6 @@ printf '%s' '<tmapi-token>' | gh secret set STAGING_TMAPI_TOKEN --env staging
 printf '%s' '<taobao-top-app-key>' | gh secret set STAGING_TAOBAO_TOP_APP_KEY --env staging
 printf '%s' '<taobao-top-app-secret>' | gh secret set STAGING_TAOBAO_TOP_APP_SECRET --env staging
 printf '%s' '<server-only-linkfox-key>' | gh secret set STAGING_LINKFOX_AGENT_API_KEY --env staging
-printf '%s' '<password-manager-backed-operator-password>' | gh secret set STAGING_SOURCING_BROWSER_UI_PASSWORD --env staging
 printf '%s' '<private-db-baseline-s3-access-key-id>' | gh secret set STAGING_DB_BASELINE_S3_ACCESS_KEY --env staging
 printf '%s' '<private-db-baseline-s3-secret-access-key>' | gh secret set STAGING_DB_BASELINE_S3_SECRET_KEY --env staging
 ```
@@ -316,61 +308,6 @@ passes initial health checks but the small staging host cannot keep both slots
 and the API render-image Chromium readiness check stable at the same time. In
 that case, the script stops the current stack and retries the candidate once
 before switching traffic.
-
-## 1688 Browser Verification
-
-The shared `sourcing-chrome` service runs a headful Chromium window on the
-existing staging EC2 host. Its `/config` directory is stored in the named Docker
-volume `kiditem-staging-sourcing-chrome-profile`, so 1688 login cookies and a
-completed verification survive container recreation and blue-green app
-deploys. Raw CDP does not solve a CAPTCHA automatically.
-
-When 1688 asks for user verification, open an SSH tunnel from an operator
-machine:
-
-```bash
-ssh -L 3001:127.0.0.1:3001 ubuntu@<staging-host>
-```
-
-Keep that SSH session open, browse to `http://127.0.0.1:3001`, and authenticate
-with user `sourcing` plus the password stored as GitHub Environment secret
-`STAGING_SOURCING_BROWSER_UI_PASSWORD`. In that browser, sign in to 1688 and
-complete the 1688 slider or other verification. Then retry the sourcing search
-in KidItem. The current API request that encountered verification does not
-pause and resume; the operator completes verification in the persistent browser
-and retries the request.
-
-The initially provisioned macOS operator machine keeps the same generated
-password in Login Keychain under service
-`kiditem-staging-sourcing-browser-ui`, account `sourcing`. Retrieve it only at
-the moment of operator login and do not paste it into chat or logs:
-
-```bash
-security find-generic-password -w \
-  -s kiditem-staging-sourcing-browser-ui \
-  -a sourcing
-```
-
-Do not add a security-group rule or public host mapping for ports `3001`,
-`9222`, or `9223`. Port `3001` is reachable only through the SSH tunnel. Chrome
-itself binds CDP to loopback `9222`; the `sourcing-cdp-proxy` container shares
-the browser network namespace and relays it to Compose-private port `9223` at
-`http://sourcing-chrome.localhost:9223`. The `.localhost` Compose alias also
-satisfies Chromium's CDP Host-header guard. Current headful Chromium ignores
-`--remote-debugging-address=0.0.0.0`, which is why this internal relay is
-required.
-
-Check browser state on EC2 without printing secrets:
-
-```bash
-cd /opt/kiditem
-docker inspect --format '{{.State.Health.Status}}' kiditem-staging-sourcing-chrome
-docker volume inspect kiditem-staging-sourcing-chrome-profile
-```
-
-Recreating the container is safe because the profile volume is retained. Do
-not delete that volume unless deliberately discarding the staging 1688 session;
-after deletion, an operator must sign in and complete verification again.
 
 Workflow actions are pinned to commit SHA with the tag version left as a YAML
 comment. When upgrading an action, resolve the new tag SHA with
