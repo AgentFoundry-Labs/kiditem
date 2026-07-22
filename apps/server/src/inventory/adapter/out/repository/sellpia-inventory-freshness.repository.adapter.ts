@@ -24,6 +24,28 @@ export class SellpiaInventoryFreshnessRepositoryAdapter
 implements SellpiaInventoryFreshnessRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
+  readState(
+    organizationId: string,
+  ): Promise<SellpiaInventoryFreshnessState | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const state = await tx.sellpiaInventoryState.findUnique({
+        where: { organizationId },
+      });
+      if (!state) return null;
+      const unresolvedOrderTransmissionIntentCount =
+        await tx.sellpiaOrderTransmissionIntent.count({
+          where: {
+            organizationId,
+            status: 'prepared',
+          },
+        });
+      return mapState(state, unresolvedOrderTransmissionIntentCount);
+    }, {
+      ...TRANSACTION_OPTIONS,
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
+  }
+
   withLockedState<T>(
     input: {
       organizationId: string;

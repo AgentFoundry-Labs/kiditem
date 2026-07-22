@@ -159,6 +159,11 @@ type FreshnessRecoveryDependencies = {
   waitForFreshGeneration: (generation: string) => Promise<void>;
 };
 
+export type FreshnessRecoveryOptions = {
+  dependencies?: FreshnessRecoveryDependencies;
+  onRefreshRequested?: () => void | Promise<void>;
+};
+
 const defaultRecoveryDependencies: FreshnessRecoveryDependencies = {
   submit: purchaseOrdersApi.submit,
   requestRefresh: (reason) => sellpiaInventoryFreshnessApi.requestRefresh(reason),
@@ -167,8 +172,9 @@ const defaultRecoveryDependencies: FreshnessRecoveryDependencies = {
 
 export async function submitPurchaseOrderWithFreshnessRecovery(
   input: SubmitPurchaseOrderRequest,
-  dependencies: FreshnessRecoveryDependencies = defaultRecoveryDependencies,
+  options: FreshnessRecoveryOptions = {},
 ): Promise<SubmitPurchaseOrderResponse> {
+  const dependencies = options.dependencies ?? defaultRecoveryDependencies;
   try {
     return await dependencies.submit(input);
   } catch (error) {
@@ -176,9 +182,13 @@ export async function submitPurchaseOrderWithFreshnessRecovery(
   }
 
   const requested = await dependencies.requestRefresh('manual_request');
+  await options.onRefreshRequested?.();
   await dependencies.waitForFreshGeneration(requested.requestedGeneration);
   return dependencies.submit(input);
 }
+
+export const SELLPIA_GENERATION_POLL_MS = 2_000;
+export const SELLPIA_GENERATION_MAX_POLLS = 60;
 
 export async function waitForCompletedFreshGeneration(
   generation: string,
@@ -191,8 +201,11 @@ export async function waitForCompletedFreshGeneration(
     maxPolls: number;
   } = {
     getState: sellpiaInventoryFreshnessApi.getState,
-    sleep: () => new Promise((resolve) => globalThis.setTimeout(resolve, 1_000)),
-    maxPolls: 120,
+    sleep: () => new Promise((resolve) => globalThis.setTimeout(
+      resolve,
+      SELLPIA_GENERATION_POLL_MS,
+    )),
+    maxPolls: SELLPIA_GENERATION_MAX_POLLS,
   },
 ): Promise<void> {
   const target = BigInt(generation);

@@ -43,9 +43,18 @@ describe('usePurchaseOrderSubmission', () => {
     });
 
     expect(createPurchaseOrderSubmissionIdempotencyKey).toHaveBeenCalledTimes(1);
-    expect(submitPurchaseOrderWithFreshnessRecovery).toHaveBeenCalledWith({
-      purchaseOrderId: 'po-1',
-      idempotencyKey: 'caller-key-1',
+    expect(submitPurchaseOrderWithFreshnessRecovery).toHaveBeenCalledWith(
+      {
+        purchaseOrderId: 'po-1',
+        idempotencyKey: 'caller-key-1',
+      },
+      { onRefreshRequested: expect.any(Function) },
+    );
+    const options = vi.mocked(submitPurchaseOrderWithFreshnessRecovery)
+      .mock.calls[0]?.[1];
+    await options?.onRefreshRequested?.();
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['inventory', 'sellpia-freshness'],
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['purchaseOrders'] });
   });

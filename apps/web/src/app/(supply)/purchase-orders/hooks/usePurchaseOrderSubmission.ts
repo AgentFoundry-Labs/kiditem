@@ -15,7 +15,11 @@ export function usePurchaseOrderSubmission() {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (input: SubmitPurchaseOrderRequest) =>
-      submitPurchaseOrderWithFreshnessRecovery(input),
+      submitPurchaseOrderWithFreshnessRecovery(input, {
+        onRefreshRequested: () => queryClient.invalidateQueries({
+          queryKey: queryKeys.inventory.freshness(),
+        }),
+      }),
     onSuccess: () => {
       toast.success('발주가 확정되었습니다.');
     },

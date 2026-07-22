@@ -29,7 +29,11 @@ export class AiDirectJobWorkerService
   private readonly logger = new Logger(AiDirectJobWorkerService.name);
   private readonly workerId = `${hostname()}-${process.pid}-${randomUUID()}`;
   private busy = false;
-  private interval: ReturnType<typeof setInterval> | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private stopped = true;
+  private wakeRequested = false;
+  private nextIdleDelayMs = 0;
+  private nextErrorDelayMs = 0;
 
   constructor(
     @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
@@ -40,34 +44,29 @@ export class AiDirectJobWorkerService
   ) {}
 
   onModuleInit(): void {
-    this.interval = setInterval(() => {
-      void this.tick().catch((error) => {
-        this.logger.error(
-          `AI direct job worker tick failed: ${errorMessage(error)}`,
-        );
-      });
-    }, this.config.workerIntervalMs);
-    this.interval.unref?.();
-    this.wake();
+    this.stopped = false;
+    this.resetBackoff();
+    this.schedule(0);
   }
 
   onModuleDestroy(): void {
-    if (this.interval) clearInterval(this.interval);
-    this.interval = null;
+    this.stopped = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
   }
 
   wake(): void {
-    setImmediate(() => {
-      void this.tick().catch((error) => {
-        this.logger.error(
-          `AI direct job worker wake failed: ${errorMessage(error)}`,
-        );
-      });
-    });
+    this.resetBackoff();
+    if (this.busy) {
+      this.wakeRequested = true;
+      return;
+    }
+    this.wakeRequested = false;
+    this.schedule(0);
   }
 
-  async tick(now = new Date()): Promise<void> {
-    if (this.busy) return;
+  async tick(now = new Date()): Promise<boolean> {
+    if (this.busy) return false;
     this.busy = true;
     try {
       const job = await this.repository.claimNext({
@@ -75,12 +74,12 @@ export class AiDirectJobWorkerService
         now,
         leaseExpiresAt: new Date(now.getTime() + this.config.leaseMs),
       });
-      if (!job) return;
+      if (!job) return false;
 
       const preflight = await this.processor.preflight(job);
       if (preflight !== 'runnable') {
         await this.finishPreflightRejection(job, preflight, now);
-        return;
+        return true;
       }
 
       const controller = new AbortController();
@@ -99,13 +98,13 @@ export class AiDirectJobWorkerService
             jobId: job.id,
             result,
           });
-          if (!checkpointed) return;
+          if (!checkpointed) return true;
         }
         const projectingJob = await this.repository.findById({
           organizationId: job.organizationId,
           jobId: job.id,
         });
-        if (!projectingJob || projectingJob.status !== 'projecting') return;
+        if (!projectingJob || projectingJob.status !== 'projecting') return true;
         await this.processor.project(projectingJob, result);
         await this.repository.markSucceeded({
           organizationId: job.organizationId,
@@ -113,7 +112,7 @@ export class AiDirectJobWorkerService
         });
       } catch (error) {
         if (controller.signal.aborted && controller.signal.reason !== 'provider_timeout') {
-          return;
+          return true;
         }
         const normalized = normalizeAiDirectJobError(
           error,
@@ -139,9 +138,65 @@ export class AiDirectJobWorkerService
         clearTimeout(providerTimeout);
         stopLease();
       }
+      return true;
     } finally {
       this.busy = false;
     }
+  }
+
+  private schedule(delayMs: number): void {
+    if (this.stopped) return;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.runScheduledTick();
+    }, delayMs);
+    this.timer.unref?.();
+  }
+
+  private async runScheduledTick(): Promise<void> {
+    let claimed = false;
+    let failed = false;
+    try {
+      claimed = await this.tick();
+    } catch (error) {
+      failed = true;
+      this.logger.error(
+        `AI direct job worker tick failed: ${errorMessage(error)}`,
+      );
+    }
+
+    if (this.stopped) return;
+    if (this.wakeRequested || claimed) {
+      this.wakeRequested = false;
+      this.resetBackoff();
+      this.schedule(0);
+      return;
+    }
+
+    if (failed) {
+      this.nextIdleDelayMs = this.config.workerIntervalMs;
+      const delayMs = this.nextErrorDelayMs;
+      this.nextErrorDelayMs = Math.min(
+        delayMs * 2,
+        this.config.workerErrorMaxIntervalMs,
+      );
+      this.schedule(delayMs);
+      return;
+    }
+
+    this.nextErrorDelayMs = this.config.workerIntervalMs;
+    const delayMs = this.nextIdleDelayMs;
+    this.nextIdleDelayMs = Math.min(
+      delayMs * 2,
+      this.config.workerMaxIntervalMs,
+    );
+    this.schedule(delayMs);
+  }
+
+  private resetBackoff(): void {
+    this.nextIdleDelayMs = this.config.workerIntervalMs;
+    this.nextErrorDelayMs = this.config.workerIntervalMs;
   }
 
   private startLeaseHeartbeat(
@@ -151,7 +206,7 @@ export class AiDirectJobWorkerService
     const intervalMs = Math.max(
       1,
       Math.min(
-        this.config.workerIntervalMs,
+        this.config.leaseHeartbeatMs,
         Math.floor(this.config.leaseMs / 3),
       ),
     );

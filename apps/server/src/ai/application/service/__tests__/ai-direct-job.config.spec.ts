@@ -82,9 +82,37 @@ describe('ai direct job configuration', () => {
     },
   );
 
+  it('rejects queue backoff maxima shorter than the minimum polling interval', () => {
+    expect(() =>
+      resolveAiDirectJobRuntimeConfig({
+        AI_DIRECT_JOB_WORKER_INTERVAL_MS: '5000',
+        AI_DIRECT_JOB_WORKER_MAX_INTERVAL_MS: '1000',
+      }),
+    ).toThrow(/maximum interval/i);
+
+    expect(() =>
+      resolveAiDirectJobRuntimeConfig({
+        AI_DIRECT_JOB_WORKER_INTERVAL_MS: '5000',
+        AI_DIRECT_JOB_WORKER_ERROR_MAX_INTERVAL_MS: '1000',
+      }),
+    ).toThrow(/error maximum interval/i);
+  });
+
+  it('rejects a lease heartbeat that is not shorter than the lease', () => {
+    expect(() =>
+      resolveAiDirectJobRuntimeConfig({
+        AI_DIRECT_JOB_LEASE_MS: '5000',
+        AI_DIRECT_JOB_HEARTBEAT_MS: '5000',
+      }),
+    ).toThrow(/heartbeat/i);
+  });
+
   it('uses always-enabled runtime defaults', () => {
     expect(resolveAiDirectJobRuntimeConfig({})).toEqual({
       workerIntervalMs: 1_000,
+      workerMaxIntervalMs: 10_000,
+      workerErrorMaxIntervalMs: 30_000,
+      leaseHeartbeatMs: 5_000,
       leaseMs: 60_000,
       providerTimeoutMs: 20 * 60_000,
       heldRecoveryMs: 30_000,

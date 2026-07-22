@@ -109,6 +109,10 @@ export interface SellpiaInventoryFreshnessRepositoryTransaction {
 }
 
 export interface SellpiaInventoryFreshnessRepositoryPort {
+  readState(
+    organizationId: string,
+  ): Promise<SellpiaInventoryFreshnessState | null>;
+
   withLockedState<T>(
     input: {
       organizationId: string;
