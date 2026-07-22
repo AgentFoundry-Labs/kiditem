@@ -171,13 +171,17 @@ export const ROCKET_SHORTAGE_REASONS = [
 export const RocketShortageReasonSchema = z.enum(ROCKET_SHORTAGE_REASONS);
 export type RocketShortageReason = z.infer<typeof RocketShortageReasonSchema>;
 
-export const RocketPurchaseConfirmationRequestSchema = RocketPurchaseRequestBaseSchema
+export const RocketWorkbookExportRequestSchema = RocketPurchaseRequestBaseSchema
   .omit({ clampEditedQuantities: true })
   .extend({
     idempotencyKey: z.string().uuid(),
     shortageReasons: z.record(
       z.string().min(1).max(300),
       RocketShortageReasonSchema,
+    ),
+    artifactFileName: requiredText(240),
+    artifactContentType: z.literal(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     ),
   })
   .strict()
@@ -189,14 +193,14 @@ export const RocketPurchaseConfirmationRequestSchema = RocketPurchaseRequestBase
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['rows', row.poLineId, 'confirmation'],
-          message: 'Every confirmation line requires complete workbook evidence',
+        message: 'Every workbook line requires complete workbook evidence',
         });
       }
       if (!Object.hasOwn(value.editedQuantities, row.poLineId)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['editedQuantities', row.poLineId],
-          message: 'Every confirmation line requires an explicit reviewed quantity',
+        message: 'Every workbook line requires an explicit reviewed quantity',
         });
         continue;
       }
@@ -205,7 +209,7 @@ export const RocketPurchaseConfirmationRequestSchema = RocketPurchaseRequestBase
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['editedQuantities', row.poLineId],
-          message: 'Confirmed quantity must not exceed the PO order quantity',
+        message: 'Workbook quantity must not exceed the PO order quantity',
         });
       }
       const hasShortageReason = Object.hasOwn(value.shortageReasons, row.poLineId);
@@ -213,14 +217,14 @@ export const RocketPurchaseConfirmationRequestSchema = RocketPurchaseRequestBase
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['shortageReasons', row.poLineId],
-          message: 'Every short confirmation line requires a shortage reason',
+        message: 'Every short workbook line requires a shortage reason',
         });
       }
       if (quantity >= row.orderQty && hasShortageReason) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['shortageReasons', row.poLineId],
-          message: 'A fully confirmed line must not include a shortage reason',
+        message: 'A full workbook line must not include a shortage reason',
         });
       }
     }
@@ -234,8 +238,8 @@ export const RocketPurchaseConfirmationRequestSchema = RocketPurchaseRequestBase
       }
     }
   });
-export type RocketPurchaseConfirmationRequest = z.infer<
-  typeof RocketPurchaseConfirmationRequestSchema
+export type RocketWorkbookExportRequest = z.infer<
+  typeof RocketWorkbookExportRequestSchema
 >;
 
 export const RocketPurchasePreviewReasonSchema = z.enum([
@@ -250,17 +254,17 @@ export type RocketPurchasePreviewReason = z.infer<
   typeof RocketPurchasePreviewReasonSchema
 >;
 
-export const ROCKET_CONFIRMATION_BLOCKING_REASONS = [
+export const ROCKET_WORKBOOK_BLOCKING_REASONS = [
   'mapping_required',
   'configuration_required',
   'review_required',
 ] as const satisfies readonly RocketPurchasePreviewReason[];
 
-export function isRocketConfirmationBlockingReason(
+export function isRocketWorkbookBlockingReason(
   reason: RocketPurchasePreviewReason | null,
-): reason is (typeof ROCKET_CONFIRMATION_BLOCKING_REASONS)[number] {
+): reason is (typeof ROCKET_WORKBOOK_BLOCKING_REASONS)[number] {
   return reason !== null
-    && (ROCKET_CONFIRMATION_BLOCKING_REASONS as readonly string[]).includes(reason);
+    && (ROCKET_WORKBOOK_BLOCKING_REASONS as readonly string[]).includes(reason);
 }
 
 export const RocketPoCatalogPublicationSchema = z.object({
@@ -297,22 +301,8 @@ export const RocketPurchasePreviewComponentSchema = z.object({
   sellpiaInventorySkuId: z.string().uuid(),
   quantity: z.number().int().positive(),
   currentStock: z.number().int().nonnegative(),
-  activeCommitmentQuantity: z.number().int().nonnegative(),
-  availableStock: z.number().int().nonnegative(),
   isActive: z.boolean(),
-}).strict().superRefine((component, ctx) => {
-  const expectedAvailableStock = Math.max(
-    component.currentStock - component.activeCommitmentQuantity,
-    0,
-  );
-  if (component.availableStock !== expectedAvailableStock) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['availableStock'],
-      message: 'availableStock must equal currentStock minus activeCommitmentQuantity',
-    });
-  }
-});
+}).strict();
 export type RocketPurchasePreviewComponent = z.infer<
   typeof RocketPurchasePreviewComponentSchema
 >;
@@ -357,37 +347,53 @@ export type RocketPurchasePreviewResponse = z.infer<
   typeof RocketPurchasePreviewResponseSchema
 >;
 
-export const RocketPurchaseConfirmationStatusSchema = z.enum(['active', 'released']);
-export type RocketPurchaseConfirmationStatus = z.infer<
-  typeof RocketPurchaseConfirmationStatusSchema
+export const RocketWorkbookWorkflowStatusSchema = z.enum([
+  'awaiting_coupang_confirmation',
+  'orders_collected',
+  'sellpia_transmitting',
+  'awaiting_inventory_sync',
+  'completed',
+  'failed',
+]);
+export type RocketWorkbookWorkflowStatus = z.infer<
+  typeof RocketWorkbookWorkflowStatusSchema
 >;
 
-export const RocketPurchaseConfirmationResponseSchema = z.object({
-  confirmationId: z.string().uuid(),
-  status: RocketPurchaseConfirmationStatusSchema,
+export const RocketWorkbookExportResponseSchema = z.object({
+  exportId: z.string().uuid(),
+  status: RocketWorkbookWorkflowStatusSchema,
   duplicate: z.boolean(),
+  canAbandon: z.boolean(),
   inventoryGeneration: z.string().regex(/^\d+$/).nullable(),
-  confirmedAt: z.string().datetime(),
+  generatedAt: z.string().datetime(),
+  artifact: z.object({
+    fileName: requiredText(240),
+    contentType: z.literal(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    byteLength: z.number().int().positive().max(10 * 1024 * 1024),
+  }).strict(),
   totals: z.object({
     lineCount: z.number().int().nonnegative().max(ROCKET_PO_ROW_LIMIT),
     orderQuantity: z.number().int().nonnegative(),
-    confirmedQuantity: z.number().int().nonnegative(),
-    allocatedQuantity: z.number().int().nonnegative(),
+    workbookQuantity: z.number().int().nonnegative(),
+    componentQuantity: z.number().int().nonnegative(),
   }).strict(),
   rows: z.array(z.object({
     poLineId: requiredText(300),
-    confirmedQuantity: z.number().int().nonnegative(),
+    workbookQuantity: z.number().int().nonnegative(),
     shortageReason: RocketShortageReasonSchema.nullable(),
   }).strict()).max(ROCKET_PO_ROW_LIMIT),
 }).strict();
-export type RocketPurchaseConfirmationResponse = z.infer<
-  typeof RocketPurchaseConfirmationResponseSchema
+export type RocketWorkbookExportResponse = z.infer<
+  typeof RocketWorkbookExportResponseSchema
 >;
 
-export const RocketPurchaseConfirmationReleaseRequestSchema = z.object({
-  confirmationId: z.string().uuid(),
+export const RocketWorkbookAbandonRequestSchema = z.object({
+  exportId: z.string().uuid(),
   reason: requiredText(500),
 }).strict();
-export type RocketPurchaseConfirmationReleaseRequest = z.infer<
-  typeof RocketPurchaseConfirmationReleaseRequestSchema
+export type RocketWorkbookAbandonRequest = z.infer<
+  typeof RocketWorkbookAbandonRequestSchema
 >;
