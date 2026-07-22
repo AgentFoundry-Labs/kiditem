@@ -384,6 +384,7 @@ jobs:
           TMAPI_TOKEN: ${{ secrets.STAGING_TMAPI_TOKEN }}
           TMAPI_BASE_URL: ${{ vars.STAGING_TMAPI_BASE_URL }}
           SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${{ vars.STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT }}
+          SOURCING_BROWSER_UI_PASSWORD: ${{ secrets.STAGING_SOURCING_BROWSER_UI_PASSWORD }}
           TAOBAO_TOP_APP_KEY: ${{ secrets.STAGING_TAOBAO_TOP_APP_KEY }}
           TAOBAO_TOP_APP_SECRET: ${{ secrets.STAGING_TAOBAO_TOP_APP_SECRET }}
           TAOBAO_TOP_BASE_URL: ${{ vars.STAGING_TAOBAO_TOP_BASE_URL }}
@@ -435,7 +436,7 @@ jobs:
           case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
           target="${STAGING_USER}@${STAGING_HOST}"
           remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
-          tar -czf - VERSION docker-compose.staging.yml .env.staging.api .env.staging.web deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+          tar -czf - VERSION docker-compose.staging.yml .env.staging.api .env.staging.web .env.staging.browser deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
             | ssh -i ~/.ssh/kiditem-staging "$target" \
                 "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
 
@@ -654,6 +655,7 @@ jobs:
           TMAPI_TOKEN: ${{ secrets.STAGING_TMAPI_TOKEN }}
           TMAPI_BASE_URL: ${{ vars.STAGING_TMAPI_BASE_URL }}
           SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${{ vars.STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT }}
+          SOURCING_BROWSER_UI_PASSWORD: ${{ secrets.STAGING_SOURCING_BROWSER_UI_PASSWORD }}
           TAOBAO_TOP_APP_KEY: ${{ secrets.STAGING_TAOBAO_TOP_APP_KEY }}
           TAOBAO_TOP_APP_SECRET: ${{ secrets.STAGING_TAOBAO_TOP_APP_SECRET }}
           TAOBAO_TOP_BASE_URL: ${{ vars.STAGING_TAOBAO_TOP_BASE_URL }}
@@ -704,7 +706,7 @@ jobs:
           case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
           target="${STAGING_USER}@${STAGING_HOST}"
           remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
-          tar -czf - VERSION docker-compose.staging.yml .env.staging.api .env.staging.web deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+          tar -czf - VERSION docker-compose.staging.yml .env.staging.api .env.staging.web .env.staging.browser deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
             | ssh -i ~/.ssh/kiditem-staging "$target" \
                 "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
 
