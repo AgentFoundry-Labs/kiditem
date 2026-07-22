@@ -55,6 +55,57 @@ x-worker-service: &worker-service
   restart: unless-stopped
 
 services:
+  sourcing-chrome:
+    container_name: kiditem-staging-sourcing-chrome
+    image: ghcr.io/linuxserver/chromium:version-b0ddd401@sha256:47fc8bb18cdb0844199a16e1e14b3b38ba97f6ad1659895c243ba5f2384aad1e
+    env_file:
+      - path: ./.env.staging.browser
+        required: false
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Seoul
+      START_DOCKER: "false"
+      SELKIES_ENABLE_SHARING: "False"
+      CHROME_CLI: >-
+        --remote-debugging-port=9222
+        --user-data-dir=/config/chromium-cdp-profile
+        https://www.1688.com/
+    expose:
+      - "9223"
+    networks:
+      default:
+        aliases:
+          - sourcing-chrome.localhost
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - sourcing-chrome-profile:/config
+    shm_size: "1gb"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9222/json/version >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  sourcing-cdp-proxy:
+    container_name: kiditem-staging-sourcing-cdp-proxy
+    image: docker.io/alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    network_mode: "service:sourcing-chrome"
+    depends_on:
+      sourcing-chrome:
+        condition: service_healthy
+    command: ["TCP-LISTEN:9223,fork,reuseaddr", "TCP:127.0.0.1:9222"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9223/json/version >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   api-blue:
     <<: *api-service
     container_name: kiditem-staging-api-blue
@@ -99,3 +150,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+volumes:
+  sourcing-chrome-profile:
+    name: kiditem-staging-sourcing-chrome-profile
