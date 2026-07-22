@@ -92,6 +92,105 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(hook.result.current.preview?.rows[0]?.reason).toBeNull();
   });
 
+  it('keeps the saved preview visible while a fresh collection is running', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    const freshCollection = deferred<Awaited<ReturnType<
+      typeof collectRocketPoRowsForConfirmationFromExtension
+    >>>();
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases)
+      .mockResolvedValueOnce(preview(source, [previewRow('LINE-A', null, 3)]))
+      .mockResolvedValueOnce(preview(source, [previewRow('LINE-A', null, 2)]));
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension)
+      .mockReturnValue(freshCollection.promise);
+    const hook = renderWorkflow({
+      channelAccountId: ACCOUNT_A,
+      savedSourceImportRunId: SOURCE_A,
+    });
+    await waitFor(() => expect(hook.result.current.preview?.rows[0]?.recommendedQuantity)
+      .toBe(3));
+
+    let collecting!: Promise<void>;
+    act(() => {
+      collecting = hook.result.current.recalculate();
+    });
+    await waitFor(() => expect(hook.result.current.loading).toBe(true));
+
+    expect(hook.result.current.preview?.rows[0]?.recommendedQuantity).toBe(3);
+    freshCollection.resolve({
+      collection: source.collection,
+      rows: source.rows,
+      poCount: 1,
+    });
+    await act(async () => collecting);
+  });
+
+  it('does not report or refresh an incomplete nonempty collection as saved', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    const onCatalogSaved = vi.fn();
+    const onActivity = vi.fn();
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
+      collection: { ...source.collection, truncated: true },
+      rows: source.rows,
+      poCount: 2,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      ...preview(source, [previewRow('LINE-A', 'collection_incomplete', 0)]),
+      catalog: null,
+      inventoryGeneration: null,
+    });
+    const hook = renderHook(() => useRocketPurchaseWorkflow({
+      channelAccountId: ACCOUNT_A,
+      hasConfiguredVendorId: true,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      savedSourceImportRunId: null,
+      onCatalogSaved,
+      onActivity,
+    }));
+
+    await act(async () => hook.result.current.recalculate());
+
+    expect(onCatalogSaved).not.toHaveBeenCalled();
+    expect(onActivity).toHaveBeenLastCalledWith({
+      status: 'failed',
+      message: '로켓 PO 2건 중 1건만 수집되어 저장하지 않았습니다.',
+    });
+    expect(hook.result.current.error)
+      .toBe('로켓 PO 2건 중 1건만 수집되어 저장하지 않았습니다.');
+  });
+
+  it('reports a complete fresh collection only after the catalog is saved', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    const onCatalogSaved = vi.fn();
+    const onActivity = vi.fn();
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
+      collection: source.collection,
+      rows: source.rows,
+      poCount: 1,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue(
+      preview(source, [previewRow('LINE-A', null, 3)]),
+    );
+    const hook = renderHook(() => useRocketPurchaseWorkflow({
+      channelAccountId: ACCOUNT_A,
+      hasConfiguredVendorId: true,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      savedSourceImportRunId: null,
+      onCatalogSaved,
+      onActivity,
+    }));
+
+    await act(async () => hook.result.current.recalculate());
+
+    expect(onCatalogSaved).toHaveBeenCalledTimes(1);
+    expect(onActivity).toHaveBeenLastCalledWith({
+      status: 'succeeded',
+      message: '로켓 PO 1/1건을 수집·저장하고 재고 미리보기를 계산했습니다.',
+    });
+  });
+
   it('sends a real operator edit and keeps the server-clamped reviewed value', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);

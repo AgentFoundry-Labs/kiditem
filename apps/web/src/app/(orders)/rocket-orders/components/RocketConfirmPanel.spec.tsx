@@ -156,6 +156,19 @@ describe('<RocketConfirmPanel />', () => {
     );
   });
 
+  it.each([
+    ['collection_incomplete', '수집 검증 필요'],
+    ['vendor_mismatch', '공급사 검증 필요'],
+  ] as const)('blocks quantity and shortage editing for %s', (reason, label) => {
+    renderPanel({ preview: previewWithReason(reason) });
+
+    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'PO-1 납품부족사유' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '전체 납품부족사유' })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: `${label} 해결` })).not.toBeInTheDocument();
+  });
+
   it('keeps an insufficient-capacity row editable and shows only physical current stock', () => {
     renderPanel({ preview: previewWithReason('insufficient_capacity') });
 
@@ -166,6 +179,38 @@ describe('<RocketConfirmPanel />', () => {
     expect(screen.getByRole('columnheader', { name: '엑셀 수량' })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '약정' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '가용재고' })).not.toBeInTheDocument();
+  });
+
+  it('applies one shortage reason to every eligible short row', () => {
+    const secondRow = {
+      ...previewWithReason('insufficient_capacity').rows[0]!,
+      poLineId: 'PO-2:PRODUCT-2:1',
+      poNumber: 'PO-2',
+      productNo: 'PRODUCT-2',
+      productName: '상품 2',
+      channelSkuId: '77777777-7777-4777-8777-777777777777',
+    };
+    renderPanel({
+      preview: {
+        ...previewWithReason('insufficient_capacity'),
+        rows: [previewWithReason('insufficient_capacity').rows[0]!, secondRow],
+      },
+    });
+
+    fireEvent.change(screen.getByRole('combobox', { name: '전체 납품부족사유' }), {
+      target: { value: '협력사 재고부족 - 수요예측 오류' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '부족 행 전체 적용' }));
+
+    const updateReasons = setShortageReasons.mock.calls.at(-1)?.[0] as (
+      current: Record<string, string>,
+    ) => Record<string, string>;
+    expect(updateReasons({ existing: '기존 사유' })).toEqual({
+      existing: '기존 사유',
+      'PO-1:PRODUCT-1:1': '협력사 재고부족 - 수요예측 오류',
+      'PO-2:PRODUCT-2:1': '협력사 재고부족 - 수요예측 오류',
+    });
+    expect(setPreviewDirty).toHaveBeenCalledWith(true);
   });
 
   it('recalculates the same saved preview after mapping is reflected', () => {

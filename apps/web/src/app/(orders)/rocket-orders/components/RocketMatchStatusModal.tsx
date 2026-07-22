@@ -20,13 +20,15 @@ export interface RocketMatchStatusRow {
   components: RocketPurchasePreviewComponent[];
 }
 
-type MatchBucket = 'mapping_required' | 'configuration_required' | 'review_required' | 'configured';
+type MatchBucket = Exclude<RocketPurchasePreviewReason, 'insufficient_capacity'> | 'configured';
 
 function bucketOfReason(reason: RocketPurchasePreviewReason | null): MatchBucket {
   switch (reason) {
     case 'mapping_required':
     case 'configuration_required':
     case 'review_required':
+    case 'collection_incomplete':
+    case 'vendor_mismatch':
       return reason;
     default:
       return 'configured';
@@ -55,6 +57,18 @@ const BUCKET_META: Record<MatchBucket, { label: string; chip: string; order: num
     chip: 'bg-amber-50 text-amber-700',
     order: 2,
     hint: '제안된 Sellpia 구성 레시피를 운영자가 검토해야 합니다.',
+  },
+  collection_incomplete: {
+    label: '수집 검증 필요',
+    chip: 'bg-rose-50 text-rose-700',
+    order: 0,
+    hint: '쿠팡 PO 전체 수집이 완료되지 않아 상품 매칭을 평가하지 않았습니다.',
+  },
+  vendor_mismatch: {
+    label: '공급사 검증 필요',
+    chip: 'bg-rose-50 text-rose-700',
+    order: 0,
+    hint: '선택한 로켓 계정과 수집한 PO의 공급사 정보를 확인해야 합니다.',
   },
   configured: {
     label: '구성 완료',
@@ -124,10 +138,12 @@ export function RocketMatchStatusModal({
       mapping_required: 0,
       configuration_required: 0,
       review_required: 0,
+      collection_incomplete: 0,
+      vendor_mismatch: 0,
       configured: 0,
     } as Record<MatchBucket, number>,
   );
-  const needsReview = counts.mapping_required + counts.configuration_required + counts.review_required;
+  const needsReview = rows.length - counts.configured;
   const sorted = [...rows].sort((a, b) => BUCKET_META[bucketOf(a)].order - BUCKET_META[bucketOf(b)].order);
 
   return (
@@ -162,7 +178,14 @@ export function RocketMatchStatusModal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs">
-          {(['mapping_required', 'configuration_required', 'review_required', 'configured'] as MatchBucket[]).map((bucket) => (
+          {([
+            'collection_incomplete',
+            'vendor_mismatch',
+            'mapping_required',
+            'configuration_required',
+            'review_required',
+            'configured',
+          ] as MatchBucket[]).map((bucket) => (
             <span key={bucket} className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium', BUCKET_META[bucket].chip)}>
               {BUCKET_META[bucket].label}
               <b className="tabular-nums">{formatNumber(counts[bucket])}</b>
@@ -201,7 +224,9 @@ export function RocketMatchStatusModal({
                         >
                           {meta.label}
                         </span>
-                        {bucket !== 'configured' ? (
+                        {bucket === 'mapping_required'
+                          || bucket === 'configuration_required'
+                          || bucket === 'review_required' ? (
                           <a
                             href={rocketProductMatchingHref({
                               channelAccountId,

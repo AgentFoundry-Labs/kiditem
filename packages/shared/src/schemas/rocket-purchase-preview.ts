@@ -2,9 +2,8 @@ import { z } from 'zod';
 import { ScopedChannelRecipeAutomationResultSchema } from './channel-recipe-automation.js';
 import { CompletedSourceArtifactRunSchema } from './source-import.js';
 
-export const ROCKET_PO_LIST_PAGE_LIMIT = 20;
-export const ROCKET_PO_DETAIL_LIMIT = 40;
 export const ROCKET_PO_ROW_LIMIT = 4_000;
+const ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 100_000;
 
 const boundedText = (max: number) => z.string().trim().max(max);
 const requiredText = (max: number) => boundedText(max).min(1);
@@ -13,11 +12,11 @@ const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const RocketPoCollectionEvidenceSchema = z.object({
   collectionRunId: z.string().uuid(),
   vendorId: boundedText(120),
-  listPagesRead: z.number().int().min(0).max(ROCKET_PO_LIST_PAGE_LIMIT),
-  totalListPages: z.number().int().min(0).max(100_000),
+  listPagesRead: z.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
+  totalListPages: z.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
   truncated: z.boolean(),
-  detailPoCount: z.number().int().min(0).max(ROCKET_PO_DETAIL_LIMIT),
-  failedPoNumbers: z.array(requiredText(80)).max(ROCKET_PO_DETAIL_LIMIT),
+  detailPoCount: z.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
+  failedPoNumbers: z.array(requiredText(80)).max(ROCKET_PO_ROW_LIMIT),
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.failedPoNumbers).size !== value.failedPoNumbers.length) {
     ctx.addIssue({

@@ -208,22 +208,34 @@ describe('Rocket purchase preview contract', () => {
     })).toThrow();
   });
 
-  it('enforces the 20 list-page and 40 detail-page collection bounds', () => {
+  it('enforces only the defensive evidence and payload bounds', () => {
     expect(() => RocketPurchasePreviewRequestSchema.parse({
       ...request(),
-      collection: { ...request().collection, listPagesRead: 21 },
+      collection: { ...request().collection, listPagesRead: 100_001 },
     })).toThrow();
     expect(() => RocketPurchasePreviewRequestSchema.parse({
       ...request(),
-      collection: { ...request().collection, detailPoCount: 41 },
+      collection: { ...request().collection, detailPoCount: 4_001 },
     })).toThrow();
     expect(() => RocketPurchasePreviewRequestSchema.parse({
       ...request(),
       collection: {
         ...request().collection,
-        failedPoNumbers: Array.from({ length: 41 }, (_, index) => String(index)),
+        failedPoNumbers: Array.from({ length: 4_001 }, (_, index) => String(index)),
       },
     })).toThrow();
+  });
+
+  it('accepts complete collection evidence beyond the former page and detail bounds', () => {
+    expect(() => RocketPurchasePreviewRequestSchema.parse({
+      ...request(),
+      collection: {
+        ...request().collection,
+        listPagesRead: 21,
+        totalListPages: 21,
+        detailPoCount: 63,
+      },
+    })).not.toThrow();
   });
 
   it('requires stable unique PO line IDs and edited quantities for known lines only', () => {

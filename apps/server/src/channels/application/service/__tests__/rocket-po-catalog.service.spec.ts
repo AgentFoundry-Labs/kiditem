@@ -267,6 +267,41 @@ describe('RocketPoCatalogService', () => {
     }));
   });
 
+  it('publishes a complete collection beyond the former page and detail bounds', async () => {
+    const repo = repository();
+    const { service: catalogService } = service(repo);
+    const rows = Array.from({ length: 63 }, (_, index) => ({
+      ...request().rows[0],
+      poLineId: `${1001 + index}:P-${index + 1}:8801234567890:1`,
+      poNumber: String(1001 + index),
+      productNo: `P-${index + 1}`,
+    }));
+
+    const result = await catalogService.publishAndResolve({
+      organizationId,
+      userId,
+      request: request({
+        collection: {
+          ...request().collection,
+          listPagesRead: 21,
+          totalListPages: 21,
+          detailPoCount: 63,
+        },
+        rows,
+      }),
+    });
+
+    expect(result.blockingReason).toBeNull();
+    expect(repo.publish).toHaveBeenCalledWith(expect.objectContaining({
+      collection: expect.objectContaining({
+        listPagesRead: 21,
+        totalListPages: 21,
+        detailPoCount: 63,
+      }),
+      rows,
+    }));
+  });
+
   it('applies safe recipes for the newly published Rocket options before returning the catalog', async () => {
     const { service: catalogService, automation } = service();
 

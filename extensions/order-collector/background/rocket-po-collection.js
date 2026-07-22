@@ -141,8 +141,6 @@
   // Runs in supplier.coupang.com through chrome.scripting.executeScript.
   async function scrapeRocketPoRows(from, to, statusCode, dateType, collectionRunId) {
     try {
-      const listPageLimit = 20;
-      const detailPoLimit = 40;
       const poSessionError = () => ({
         success: false,
         pendingLogin: true,
@@ -188,7 +186,7 @@
       let listPagesRead = 0;
       let totalListPages = 0;
       let truncated = false;
-      for (let page = 1; page <= listPageLimit; page += 1) {
+      for (let page = 1; ; page += 1) {
         const response = await fetch(listUrl(page), {
           credentials: "include",
           headers: { accept: "application/json" },
@@ -213,10 +211,7 @@
         totalListPages = Math.max(totalListPages, Number(body.lastPageNumber) || 1);
         purchaseOrders.push(...rows);
         if (page >= totalListPages) break;
-        if (page === listPageLimit) truncated = true;
       }
-      if (listPagesRead === listPageLimit) truncated = true;
-      if (purchaseOrders.length > detailPoLimit) truncated = true;
 
       const vendorIds = purchaseOrders.map((po) => String(po.vendorId || "").trim());
       const distinctVendorIds = new Set(vendorIds.filter(Boolean));
@@ -229,7 +224,7 @@
       const rows = [];
       const failedPoNumbers = [];
       let detailPoCount = 0;
-      const detailTargets = purchaseOrders.slice(0, detailPoLimit);
+      const detailTargets = purchaseOrders;
 
       const parseDetail = async (purchaseOrder) => {
         const poNumber = String(purchaseOrder.purchaseOrderSeq || "").trim();

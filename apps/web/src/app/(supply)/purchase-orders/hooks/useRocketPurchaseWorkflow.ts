@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   isRocketWorkbookBlockingReason,
-  ROCKET_PO_DETAIL_LIMIT,
-  ROCKET_PO_LIST_PAGE_LIMIT,
 } from '@kiditem/shared/rocket-purchase-preview';
 import { friendlyError } from '@/lib/api-error';
 import { downloadBlob } from '@/lib/browser-download';
@@ -85,9 +83,7 @@ function collectionIsIncomplete(summary: CollectionRunSummary): boolean {
   return (requiresVendorEvidence && collection.vendorId.length === 0)
     || collection.truncated
     || collection.failedPoNumbers.length > 0
-    || collection.listPagesRead >= ROCKET_PO_LIST_PAGE_LIMIT
-    || collection.detailPoCount >= ROCKET_PO_DETAIL_LIMIT
-    || collection.totalListPages > collection.listPagesRead
+    || collection.totalListPages !== collection.listPagesRead
     || collection.detailPoCount !== summary.uniqueRowPoCount
     || !summary.rowsMatchEvidenceVendor;
 }
@@ -244,11 +240,6 @@ export function useRocketPurchaseWorkflow({
     const generation = requestGenerationRef.current;
     setLoading(true);
     setError(null);
-    setPreview(null);
-    setSourceRows([]);
-    setCollectionRun(null);
-    setExportKey('');
-    setAbandonReason('');
     onActivity?.({ status: 'started', message: '쿠팡에서 로켓 PO를 새로 수집하고 있습니다.' });
     try {
       const collected = await collectRocketPoRowsForConfirmationFromExtension({ from, to });
@@ -266,6 +257,15 @@ export function useRocketPurchaseWorkflow({
         clampEditedQuantities: true,
       });
       if (generation !== requestGenerationRef.current) return;
+      if (collected.poCount > 0 && result.catalog === null) {
+        const incomplete = result.rows.some(({ reason }) => reason === 'collection_incomplete');
+        const message = incomplete
+          ? `로켓 PO ${collected.poCount}건 중 ${collected.collection.detailPoCount}건만 수집되어 저장하지 않았습니다.`
+          : `로켓 PO ${collected.poCount}건을 수집했지만 검증을 통과하지 못해 저장하지 않았습니다.`;
+        setError(message);
+        onActivity?.({ status: 'failed', message });
+        return;
+      }
       const effectiveEdits = visibleReviewQuantities(result);
       const currentLineIds = new Set(result.rows.map(({ poLineId }) => poLineId));
       setCollectionRun({
@@ -291,8 +291,12 @@ export function useRocketPurchaseWorkflow({
         effectiveEdits,
       ));
       setPreview(result);
+      setAbandonReason('');
       if (result.catalog) onCatalogSaved?.();
-      onActivity?.({ status: 'succeeded', message: `로켓 PO ${collected.poCount}건을 수집하고 재고 미리보기를 계산했습니다.` });
+      onActivity?.({
+        status: 'succeeded',
+        message: `로켓 PO ${collected.collection.detailPoCount}/${collected.poCount}건을 수집·저장하고 재고 미리보기를 계산했습니다.`,
+      });
     } catch (cause) {
       if (generation !== requestGenerationRef.current) return;
       const message = friendlyError(cause) ?? '로켓 발주 미리보기를 계산하지 못했습니다.';

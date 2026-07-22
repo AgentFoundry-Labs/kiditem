@@ -44,6 +44,12 @@ const WORKFLOW_LABEL = {
   failed: '재고 동기화 실패 — 다시 시도',
 } as const;
 
+function isRowReviewBlocked(reason: RocketPurchasePreviewRow['reason']): boolean {
+  return isRocketWorkbookBlockingReason(reason)
+    || reason === 'collection_incomplete'
+    || reason === 'vendor_mismatch';
+}
+
 export function RocketConfirmPanel({
   onSaved,
   activeMonth,
@@ -59,6 +65,7 @@ export function RocketConfirmPanel({
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedDateSourceRunCount, setSelectedDateSourceRunCount] = useState(0);
   const [matchModalOpen, setMatchModalOpen] = useState(false);
+  const [bulkShortageReason, setBulkShortageReason] = useState<RocketShortageReason | ''>('');
   const {
     editedQuantities,
     setReviewedQuantity,
@@ -107,6 +114,12 @@ export function RocketConfirmPanel({
     : previewDates.length === 1
       ? previewDates[0]!
       : `수집본 전체 ${previewDates[0]} ~ ${previewDates.at(-1)}`;
+  const eligibleShortageLineIds = rows.flatMap((row) => {
+    const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
+    return !isRowReviewBlocked(row.reason) && quantity < row.orderQuantity
+      ? [row.poLineId]
+      : [];
+  });
   const confirmTotals = rows.reduce((acc, row) => {
     const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
     const unitPrice = sourceByLineId.get(row.poLineId)?.confirmation?.purchasePrice ?? 0;
@@ -142,7 +155,19 @@ export function RocketConfirmPanel({
       return;
     }
     await recalculate();
-    onOrdersChanged();
+  }
+
+  function applyBulkShortageReason() {
+    if (!bulkShortageReason) return;
+    if (eligibleShortageLineIds.length === 0) return;
+    setShortageReasons((current) => ({
+      ...current,
+      ...Object.fromEntries(eligibleShortageLineIds.map((poLineId) => [
+        poLineId,
+        bulkShortageReason,
+      ])),
+    }));
+    setPreviewDirty(true);
   }
 
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
@@ -328,6 +353,30 @@ export function RocketConfirmPanel({
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <select
+                  aria-label="전체 납품부족사유"
+                  value={bulkShortageReason}
+                  disabled={busy || eligibleShortageLineIds.length === 0}
+                  onChange={(event) => setBulkShortageReason(
+                    event.target.value as RocketShortageReason | '',
+                  )}
+                  className="max-w-[260px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs disabled:opacity-50"
+                >
+                  <option value="">전체 사유 선택</option>
+                  {ROCKET_SHORTAGE_REASONS.map((reason) => (
+                    <option key={reason} value={reason}>{reason}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={applyBulkShortageReason}
+                  disabled={busy || !bulkShortageReason || eligibleShortageLineIds.length === 0}
+                  className="whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  부족 행 전체 적용
+                </button>
+              </div>
               <span className="text-xs text-slate-500">
                 엑셀 <b className="tabular-nums text-slate-900">{formatNumber(confirmTotals.qty)}</b>개 · 부족{' '}
                 <b className="tabular-nums text-amber-600">{confirmTotals.short}</b>행 · 금액{' '}
@@ -392,7 +441,8 @@ export function RocketConfirmPanel({
                   const source = sourceByLineId.get(row.poLineId);
                   const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
                   const short = quantity < row.orderQuantity;
-                  const blocking = isRocketWorkbookBlockingReason(row.reason);
+                  const blocking = isRowReviewBlocked(row.reason);
+                  const matchingBlocked = isRocketWorkbookBlockingReason(row.reason);
                   const matchStateLabel = rocketMatchStateLabel(row.reason);
                   return (
                     <tr key={row.poLineId} className={cn(
@@ -410,7 +460,7 @@ export function RocketConfirmPanel({
                           )}>
                             {matchStateLabel}
                           </span>
-                          {blocking ? (
+                          {matchingBlocked ? (
                             <a
                               href={rocketProductMatchingHref({
                                 channelAccountId,
