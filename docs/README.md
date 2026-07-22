@@ -1,12 +1,14 @@
 # KidItem Docs
 
 `docs/` is for durable project documentation: current architecture, testing
-policy, AI-executable runbooks, generated navigation, shared development data
-operations, and release notes that explain shipped behavior.
+policy, maintained implementation plans and design specs, AI-executable
+runbooks, generated navigation, shared development data operations, and release
+notes that explain shipped behavior.
 
-Do not put session plans, scratch specs, agent logs, or temporary coordination
-notes here. Keep those in local scratch space outside git and promote only
-enduring rules into the nearest scoped `AGENTS.md`.
+Keep implementation plans and design specs under `superpowers/` current as
+decisions, scope, and verification change. Disposable scratch files, agent
+logs, and temporary coordination notes belong in local scratch space outside
+git; promote enduring rules into the nearest scoped `AGENTS.md`.
 
 ## Start Here
 
@@ -14,6 +16,7 @@ enduring rules into the nearest scoped `AGENTS.md`.
 |---|---|
 | System shape and owner boundaries | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Test strategy and risk tiers | [TESTING.md](TESTING.md) |
+| Implementation plans and design specs | [superpowers/plans/](superpowers/plans/), [superpowers/specs/](superpowers/specs/) |
 | Shared Google Drive dev data concepts and operations | [DEV_DATA_BUNDLES.md](DEV_DATA_BUNDLES.md) |
 | Machine setup / repeatable procedures for AI agents | [runbooks/](runbooks/) |
 | Schema ERD and domain diagrams | [ERD.md](ERD.md), [erd/](erd/) |
@@ -24,8 +27,11 @@ enduring rules into the nearest scoped `AGENTS.md`.
 ## Directory Rules
 
 - `runbooks/` contains procedural, AI-executable setup/ops guides.
+- `superpowers/plans/` and `superpowers/specs/` contain maintained
+  implementation plans and design decisions. Update them when implementation
+  changes their authoritative scope, sequence, or verification.
 - `release-notes/` contains dated notes for shipped behavior and migration
-  context. Do not put scratch plans there.
+  context. Keep plans and specs under `superpowers/`, not release notes.
 - `references/` contains vendor docs and source assets used as reference
   material. Heavy binary files are allowed only when they are durable inputs.
 - `erd/` contains generated domain ERD pages.
