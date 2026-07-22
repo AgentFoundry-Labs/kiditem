@@ -247,6 +247,14 @@ describe('RocketPurchaseWorkspace', () => {
           editedQuantity: 2,
           recommendedQuantity: 2,
         }],
+      })
+      .mockResolvedValueOnce({
+        ...initialPreview,
+        rows: [{
+          ...initialPreview.rows[0]!,
+          editedQuantity: 2,
+          recommendedQuantity: 2,
+        }],
       });
     vi.mocked(confirmRocketPurchase).mockResolvedValue({
       confirmationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -282,6 +290,10 @@ describe('RocketPurchaseWorkspace', () => {
       screen.getByRole('combobox', { name: '1001 납품부족사유' }),
       '협력사 재고부족 - 수요예측 오류',
     );
+    expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '수량 다시 검증' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: '수량 다시 검증' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeEnabled());
     expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' }));
 

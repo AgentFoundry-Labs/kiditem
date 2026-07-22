@@ -21,12 +21,12 @@ vi.mock('@/app/(supply)/purchase-orders/components/RocketInventoryCommitmentList
   },
 }));
 
-const setEditedQuantities = vi.fn();
+const setReviewedQuantity = vi.fn();
 const setPreviewDirty = vi.fn();
 const setShortageReasons = vi.fn();
 const baseWorkflow = {
   editedQuantities: {},
-  setEditedQuantities,
+  setReviewedQuantity,
   preview: {
     collectionRunId: '22222222-2222-4222-8222-222222222222',
     catalog: null,
@@ -127,7 +127,7 @@ describe('<RocketConfirmPanel />', () => {
       current: Record<string, string>,
     ) => Record<string, string>;
     expect(updateReasons({})).toEqual({});
-    expect(setPreviewDirty).toHaveBeenCalledWith(true);
+    expect(setReviewedQuantity).toHaveBeenCalledWith('PO-1:PRODUCT-1:1', 2);
     expect(screen.getByRole('button', { name: '예약 확정' })).toBeDisabled();
   });
 

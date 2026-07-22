@@ -57,7 +57,7 @@ export function RocketConfirmPanel({
   const [commitmentRefreshKey, setCommitmentRefreshKey] = useState(0);
   const {
     editedQuantities,
-    setEditedQuantities,
+    setReviewedQuantity,
     preview,
     sourceRows,
     previewDirty,
@@ -139,7 +139,7 @@ export function RocketConfirmPanel({
 
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
     const bounded = Math.max(0, Math.min(row.orderQuantity, row.maxQuantity, quantity));
-    setEditedQuantities((current) => ({ ...current, [row.poLineId]: bounded }));
+    setReviewedQuantity(row.poLineId, bounded);
     setShortageReasons((current) => {
       if (bounded >= row.orderQuantity) {
         const next = { ...current };
@@ -150,7 +150,6 @@ export function RocketConfirmPanel({
       delete next[row.poLineId];
       return next;
     });
-    setPreviewDirty(true);
   }
 
   async function handleCommit() {

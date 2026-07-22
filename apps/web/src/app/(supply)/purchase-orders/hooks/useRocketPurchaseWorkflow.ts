@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  isRocketConfirmationBlockingReason,
   ROCKET_PO_DETAIL_LIMIT,
   ROCKET_PO_LIST_PAGE_LIMIT,
 } from '@kiditem/shared/rocket-purchase-preview';
@@ -39,6 +40,41 @@ interface CollectionRunSummary {
 function editFingerprint(quantities: Record<string, number>): string {
   return JSON.stringify(Object.entries(quantities).sort(([left], [right]) =>
     left.localeCompare(right)));
+}
+
+function visibleReviewQuantities(
+  preview: RocketPurchasePreviewResponse,
+): Record<string, number> {
+  return Object.fromEntries(preview.rows.map((row) => [
+    row.poLineId,
+    row.editedQuantity ?? row.recommendedQuantity,
+  ]));
+}
+
+function operatorEditsForRows(
+  operatorEditedLineIds: ReadonlySet<string>,
+  editedQuantities: Record<string, number>,
+  rows: readonly { poLineId: string }[],
+): Record<string, number> {
+  return Object.fromEntries(rows.flatMap(({ poLineId }) => (
+    operatorEditedLineIds.has(poLineId)
+      && Object.hasOwn(editedQuantities, poLineId)
+      ? [[poLineId, editedQuantities[poLineId]!]]
+      : []
+  )));
+}
+
+function pruneShortageReasons(
+  current: Record<string, RocketShortageReason>,
+  preview: RocketPurchasePreviewResponse,
+  reviewedQuantities: Record<string, number>,
+): Record<string, RocketShortageReason> {
+  const rowsByLineId = new Map(preview.rows.map((row) => [row.poLineId, row]));
+  return Object.fromEntries(Object.entries(current).filter(([poLineId]) => {
+    const row = rowsByLineId.get(poLineId);
+    if (!row || isRocketConfirmationBlockingReason(row.reason)) return false;
+    return (reviewedQuantities[poLineId] ?? row.recommendedQuantity) < row.orderQuantity;
+  }));
 }
 
 function collectionIsIncomplete(summary: CollectionRunSummary): boolean {
@@ -91,6 +127,9 @@ export function useRocketPurchaseWorkflow({
   onActivity?: (activity: RocketOrderActivityInput) => void;
 }) {
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
+  const [operatorEditedLineIds, setOperatorEditedLineIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [preview, setPreview] = useState<RocketPurchasePreviewResponse | null>(null);
   const [previewDirty, setPreviewDirty] = useState(false);
   const [validatedEditFingerprint, setValidatedEditFingerprint] = useState('');
@@ -106,10 +145,12 @@ export function useRocketPurchaseWorkflow({
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestGenerationRef = useRef(0);
 
   useEffect(() => {
-    if (savedSourceImportRunId) return;
+    requestGenerationRef.current += 1;
     setEditedQuantities({});
+    setOperatorEditedLineIds(new Set());
     setPreview(null);
     setPreviewDirty(false);
     setValidatedEditFingerprint('');
@@ -120,11 +161,13 @@ export function useRocketPurchaseWorkflow({
     setConfirmation(null);
     setConfirmationSourceRows([]);
     setReleaseReason('');
+    setLoading(false);
     setError(null);
   }, [channelAccountId, savedSourceImportRunId]);
 
   useEffect(() => {
     if (!savedSourceImportRunId) return;
+    const generation = requestGenerationRef.current;
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -146,11 +189,8 @@ export function useRocketPurchaseWorkflow({
           editedQuantities: {},
           clampEditedQuantities: true,
         });
-        if (cancelled) return;
-        const effectiveEdits = Object.fromEntries(result.rows.map((row) => [
-          row.poLineId,
-          row.editedQuantity ?? row.recommendedQuantity,
-        ]));
+        if (cancelled || generation !== requestGenerationRef.current) return;
+        const effectiveEdits = visibleReviewQuantities(result);
         setCollectionRun({
           collection: saved.collection,
           poCount,
@@ -162,6 +202,7 @@ export function useRocketPurchaseWorkflow({
         });
         setSourceRows(saved.rows);
         setEditedQuantities(effectiveEdits);
+        setOperatorEditedLineIds(new Set());
         setValidatedEditFingerprint(editFingerprint(effectiveEdits));
         setPreviewDirty(false);
         setConfirmationKey(globalThis.crypto.randomUUID());
@@ -170,12 +211,14 @@ export function useRocketPurchaseWorkflow({
         setPreview(result);
         onActivity?.({ status: 'succeeded', message: '저장된 로켓 PO를 최신 재고 기준으로 다시 계산했습니다.' });
       } catch (cause) {
-        if (cancelled) return;
+        if (cancelled || generation !== requestGenerationRef.current) return;
         const message = friendlyError(cause) ?? '저장된 로켓 PO를 불러오지 못했습니다.';
         setError(message);
         onActivity?.({ status: 'failed', message });
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && generation === requestGenerationRef.current) {
+          setLoading(false);
+        }
       }
     };
     void load();
@@ -185,6 +228,7 @@ export function useRocketPurchaseWorkflow({
   }, [channelAccountId, onActivity, savedSourceImportRunId]);
 
   const recalculate = async () => {
+    const generation = requestGenerationRef.current;
     setLoading(true);
     setError(null);
     setPreview(null);
@@ -193,11 +237,26 @@ export function useRocketPurchaseWorkflow({
     setConfirmationKey('');
     setConfirmation(null);
     setConfirmationSourceRows([]);
-    setShortageReasons({});
     setReleaseReason('');
     onActivity?.({ status: 'started', message: '쿠팡에서 로켓 PO를 새로 수집하고 있습니다.' });
     try {
       const collected = await collectRocketPoRowsForConfirmationFromExtension({ from, to });
+      if (generation !== requestGenerationRef.current) return;
+      const retainedEdits = operatorEditsForRows(
+        operatorEditedLineIds,
+        editedQuantities,
+        collected.rows,
+      );
+      const result = await previewRocketPurchases({
+        channelAccountId,
+        collection: collected.collection,
+        rows: collected.rows,
+        editedQuantities: retainedEdits,
+        clampEditedQuantities: true,
+      });
+      if (generation !== requestGenerationRef.current) return;
+      const effectiveEdits = visibleReviewQuantities(result);
+      const currentLineIds = new Set(result.rows.map(({ poLineId }) => poLineId));
       setCollectionRun({
         collection: collected.collection,
         poCount: collected.poCount,
@@ -207,41 +266,35 @@ export function useRocketPurchaseWorkflow({
           ({ vendorId }) => vendorId === collected.collection.vendorId,
         ),
       });
-      const retainedEdits = Object.fromEntries(collected.rows.flatMap((row) => {
-        if (!Object.hasOwn(editedQuantities, row.poLineId)) return [];
-        return [[row.poLineId, editedQuantities[row.poLineId]!]];
-      }));
-      const result = await previewRocketPurchases({
-        channelAccountId,
-        collection: collected.collection,
-        rows: collected.rows,
-        editedQuantities: retainedEdits,
-        clampEditedQuantities: true,
-      });
-      const effectiveEdits = Object.fromEntries(result.rows.map((row) => [
-        row.poLineId,
-        row.editedQuantity ?? row.recommendedQuantity,
-      ]));
       setEditedQuantities(effectiveEdits);
+      setOperatorEditedLineIds((current) => new Set(
+        [...current].filter((poLineId) => currentLineIds.has(poLineId)),
+      ));
       setValidatedEditFingerprint(editFingerprint(effectiveEdits));
       setPreviewDirty(false);
       setSourceRows(collected.rows);
       setConfirmationKey(globalThis.crypto.randomUUID());
-      setShortageReasons({});
+      setShortageReasons((current) => pruneShortageReasons(
+        current,
+        result,
+        effectiveEdits,
+      ));
       setPreview(result);
       if (result.catalog) onCatalogSaved?.();
       onActivity?.({ status: 'succeeded', message: `로켓 PO ${collected.poCount}건을 수집하고 재고 미리보기를 계산했습니다.` });
     } catch (cause) {
+      if (generation !== requestGenerationRef.current) return;
       const message = friendlyError(cause) ?? '로켓 발주 미리보기를 계산하지 못했습니다.';
       setError(message);
       onActivity?.({ status: 'failed', message });
     } finally {
-      setLoading(false);
+      if (generation === requestGenerationRef.current) setLoading(false);
     }
   };
 
   const revalidateEditedQuantities = async () => {
     if (!collectionRun || sourceRows.length === 0) return;
+    const generation = requestGenerationRef.current;
     setLoading(true);
     setError(null);
     onActivity?.({ status: 'started', message: '검토수량을 현재 재고 기준으로 다시 검증하고 있습니다.' });
@@ -250,25 +303,37 @@ export function useRocketPurchaseWorkflow({
         channelAccountId,
         collection: collectionRun.collection,
         rows: sourceRows,
-        editedQuantities,
+        editedQuantities: operatorEditsForRows(
+          operatorEditedLineIds,
+          editedQuantities,
+          sourceRows,
+        ),
         clampEditedQuantities: true,
       });
-      const effectiveEdits = Object.fromEntries(result.rows.map((row) => [
-        row.poLineId,
-        row.editedQuantity ?? row.recommendedQuantity,
-      ]));
+      if (generation !== requestGenerationRef.current) return;
+      const effectiveEdits = visibleReviewQuantities(result);
+      const currentLineIds = new Set(result.rows.map(({ poLineId }) => poLineId));
       setPreview(result);
       setEditedQuantities(effectiveEdits);
+      setOperatorEditedLineIds((current) => new Set(
+        [...current].filter((poLineId) => currentLineIds.has(poLineId)),
+      ));
       setValidatedEditFingerprint(editFingerprint(effectiveEdits));
       setPreviewDirty(false);
+      setShortageReasons((current) => pruneShortageReasons(
+        current,
+        result,
+        effectiveEdits,
+      ));
       onActivity?.({ status: 'succeeded', message: '검토수량 재검증을 완료했습니다.' });
     } catch (cause) {
+      if (generation !== requestGenerationRef.current) return;
       setPreviewDirty(true);
       const message = friendlyError(cause) ?? '수량을 다시 검증하지 못했습니다.';
       setError(message);
       onActivity?.({ status: 'failed', message });
     } finally {
-      setLoading(false);
+      if (generation === requestGenerationRef.current) setLoading(false);
     }
   };
 
@@ -290,15 +355,28 @@ export function useRocketPurchaseWorkflow({
     && sourceRows.every((row) => row.confirmation && row.barcode.length > 0)
     && !previewDirty
     && validatedEditFingerprint === editFingerprint(reviewedQuantities)
+    && preview.rows.every((row) => !isRocketConfirmationBlockingReason(row.reason))
     && preview.rows.every((row) => (
-      (reviewedQuantities[row.poLineId] ?? 0) >= row.orderQuantity
-      || Boolean(shortageReasons[row.poLineId])
+      (reviewedQuantities[row.poLineId] ?? 0) < row.orderQuantity
+        ? Boolean(shortageReasons[row.poLineId])
+        : !shortageReasons[row.poLineId]
     ))
     && !collectionWarning
     && confirmationKey
     && confirmation?.status !== 'active',
   );
   const canRedownload = confirmation?.status === 'active';
+
+  const setReviewedQuantity = (poLineId: string, quantity: number): void => {
+    setOperatorEditedLineIds((current) => {
+      if (current.has(poLineId)) return current;
+      const next = new Set(current);
+      next.add(poLineId);
+      return next;
+    });
+    setEditedQuantities((current) => ({ ...current, [poLineId]: quantity }));
+    setPreviewDirty(true);
+  };
 
   const downloadConfirmationWorkbook = async (
     result: RocketPurchaseConfirmationResponse,
@@ -414,7 +492,7 @@ export function useRocketPurchaseWorkflow({
 
   return {
     editedQuantities,
-    setEditedQuantities,
+    setReviewedQuantity,
     preview,
     sourceRows,
     previewDirty,

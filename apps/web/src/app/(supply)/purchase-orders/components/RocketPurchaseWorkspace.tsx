@@ -56,7 +56,7 @@ export function RocketPurchaseWorkspace({
   const templateInputRef = useRef<HTMLInputElement>(null);
   const {
     editedQuantities,
-    setEditedQuantities,
+    setReviewedQuantity,
     preview,
     previewDirty,
     setPreviewDirty,
@@ -303,11 +303,7 @@ export function RocketPurchaseWorkspace({
                           event.target.value,
                           Math.min(row.maxQuantity, row.orderQuantity),
                         );
-                        setEditedQuantities((current) => ({
-                          ...current,
-                          [row.poLineId]: quantity,
-                        }));
-                        setPreviewDirty(true);
+                        setReviewedQuantity(row.poLineId, quantity);
                         setShortageReasons((current) => {
                           if (quantity >= row.orderQuantity) {
                             const { [row.poLineId]: _removed, ...rest } = current;
@@ -336,6 +332,7 @@ export function RocketPurchaseWorkspace({
                             [row.poLineId]: reason as RocketShortageReason,
                           };
                         });
+                        setPreviewDirty(true);
                       }}
                       className="w-full rounded-md border border-[var(--border,#cbd5e1)] px-2 py-1 text-xs disabled:bg-slate-100"
                     >
