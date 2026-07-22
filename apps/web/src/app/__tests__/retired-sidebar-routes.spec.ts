@@ -106,6 +106,8 @@ const retiredSidebarRoutes = [
   '/order-status-hub',
   '/returns',
   '/return-scan',
+  '/finance-hub',
+  '/supplier-hub',
 ] as const;
 interface AppPageEntrypoint { href: string; relativePath: string; }
 

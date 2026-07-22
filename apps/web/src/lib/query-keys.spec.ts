@@ -22,6 +22,20 @@ describe('retired order route query keys', () => {
   });
 });
 
+describe('retired finance route query keys', () => {
+  it('removes route-only finance cache families', () => {
+    expect(queryKeys).not.toHaveProperty('manualLedger');
+    expect(queryKeys).not.toHaveProperty('processingCosts');
+    expect(queryKeys).not.toHaveProperty('supplierPayments');
+    expect(queryKeys.settlements.list('2026-05')).toEqual([
+      'settlements',
+      'list',
+      '2026-05',
+    ]);
+    expect(queryKeys).toHaveProperty('suppliers');
+  });
+});
+
 describe('queryKeys.settlements', () => {
   it('uses one settlement list key family for all settlement reads', () => {
     expect(queryKeys.settlements.all).toEqual(['settlements']);
