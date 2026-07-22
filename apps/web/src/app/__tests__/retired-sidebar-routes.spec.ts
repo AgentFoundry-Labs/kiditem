@@ -97,7 +97,16 @@ function pageExtensionsForNextProjectRoot(
 
 const appRoot = resolveEffectiveAppRoot(webRoot);
 const appPageExtensions = pageExtensionsForNextProjectRoot(webRoot);
-const retiredSidebarRoutes = ['/outbound', '/unshipped-items', '/warehouses'] as const;
+const retiredSidebarRoutes = [
+  '/outbound',
+  '/unshipped-items',
+  '/warehouses',
+  '/order-hub',
+  '/cs-management',
+  '/order-status-hub',
+  '/returns',
+  '/return-scan',
+] as const;
 interface AppPageEntrypoint { href: string; relativePath: string; }
 
 const interceptionMarkers = [

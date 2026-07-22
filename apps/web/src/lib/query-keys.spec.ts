@@ -6,7 +6,19 @@ describe('retired inventory route query keys', () => {
     expect(queryKeys).not.toHaveProperty('unshipped');
     expect(queryKeys.warehouses).not.toHaveProperty('list');
     expect(queryKeys.warehouses.all).toEqual(['warehouses']);
-    expect(queryKeys.orders.list({ status: 'confirmed' })).toEqual(['orders', 'list', { status: 'confirmed' }]);
+  });
+});
+
+describe('retired order route query keys', () => {
+  it('removes cache families with no active web consumer', () => {
+    expect(queryKeys).not.toHaveProperty('cs');
+    expect(queryKeys).not.toHaveProperty('returns');
+    expect(queryKeys).not.toHaveProperty('picking');
+    expect(queryKeys.orders).not.toHaveProperty('list');
+    expect(queryKeys.orders).not.toHaveProperty('stats');
+    expect(queryKeys.orders).not.toHaveProperty('search');
+    expect(queryKeys.orders).not.toHaveProperty('compare');
+    expect(queryKeys.orders).not.toHaveProperty('sync');
   });
 });
 

@@ -17,11 +17,7 @@ import {
   ORDER_PIPELINE_EDGES,
 } from "../lib/order-pipeline";
 
-export function OrderProcessingWorkspace({
-  headingLevel = 2,
-}: {
-  headingLevel?: 1 | 2;
-}) {
+export function OrderProcessingWorkspace() {
   const queryClient = useQueryClient();
   const [activeNode, setActiveNode] = useState("ACCEPT");
   const [showCompleted, setShowCompleted] = useState(false);
@@ -113,7 +109,6 @@ export function OrderProcessingWorkspace({
   return (
     <div className="space-y-4">
       <OrderHeader
-        headingLevel={headingLevel}
         totalOrders={totalOrders}
         error={error}
         lastUpdated={lastUpdated}

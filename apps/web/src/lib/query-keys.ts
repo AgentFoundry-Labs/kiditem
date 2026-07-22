@@ -136,13 +136,8 @@ export const queryKeys = {
   orders: {
     all: ['orders'] as const,
     pipeline: (params?: Record<string, string>) => [...queryKeys.orders.all, 'pipeline', params] as const,
-    list: (params: Record<string, string>) => [...queryKeys.orders.all, 'list', params] as const,
-    stats: () => [...queryKeys.orders.all, 'stats'] as const,
     scheduledSync: (dateHour: string) => [...queryKeys.orders.all, 'scheduledSync', dateHour] as const,
     action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
-    search: (params: Record<string, string>) => [...queryKeys.orders.all, 'search', params] as const,
-    compare: (params: Record<string, string>) => [...queryKeys.orders.all, 'compare', params] as const,
-    sync: (params: Record<string, string>) => [...queryKeys.orders.all, 'sync', params] as const,
     rocketSavedPoList: (params: {
       channelAccountId: string;
       from: string;
@@ -162,10 +157,6 @@ export const queryKeys = {
     returnReasons: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnReasons', params] as const,
     returnFaultSplit: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnFaultSplit', params] as const,
   },
-  cs: {
-    all: ['cs'] as const,
-    list: (params?: Record<string, string>) => [...queryKeys.cs.all, 'list', params] as const,
-  },
   logs: {
     all: ['logs'] as const,
     list: () => [...queryKeys.logs.all, 'list'] as const,
@@ -177,10 +168,6 @@ export const queryKeys = {
   purchaseOrders: {
     all: ['purchaseOrders'] as const,
     list: (params: Record<string, string>) => [...queryKeys.purchaseOrders.all, 'list', params] as const,
-  },
-  returns: {
-    all: ['returns'] as const,
-    list: () => [...queryKeys.returns.all, 'list'] as const,
   },
   reviews: {
     all: ['reviews'] as const,
@@ -371,9 +358,6 @@ export const queryKeys = {
   },
   salesPlans: {
     all: ['sales-plans'] as const,
-  },
-  picking: {
-    all: ['picking'] as const,
   },
   categories: {
     all: ['categories'] as const,

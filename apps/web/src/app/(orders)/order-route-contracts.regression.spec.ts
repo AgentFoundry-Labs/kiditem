@@ -3,6 +3,13 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ordersRoot = path.resolve(import.meta.dirname);
+const retiredOrderRoutes = [
+  'order-hub',
+  'cs-management',
+  'order-status-hub',
+  'returns',
+  'return-scan',
+] as const;
 
 describe('order route contracts', () => {
   it.each([
@@ -11,9 +18,39 @@ describe('order route contracts', () => {
   ])('%s owns its live workspace', (relativePath, importSource, workspace) => {
     const source = readFileSync(path.join(ordersRoot, relativePath), 'utf8');
     expect(source).toContain(importSource);
-    expect(source).toContain(workspace);
+    expect(source).toContain(`<${workspace} />`);
+    expect(source).not.toContain('headingLevel');
     expect(source).not.toContain('order-hub');
     expect(source).not.toContain('redirect(');
+  });
+
+  it.each([
+    [
+      'order-collection/components/OrderCollectionWorkspace.tsx',
+      ['headingLevel'],
+      '<h1 className="text-2xl font-bold tracking-tight text-slate-900">주문 수집</h1>',
+    ],
+    [
+      'orders/components/OrderProcessingWorkspace.tsx',
+      ['headingLevel'],
+      '<OrderHeader',
+    ],
+    [
+      'orders/components/OrderHeader.tsx',
+      ['headingLevel', 'showHeading'],
+      '<h1 className="page-title">주문 처리</h1>',
+    ],
+  ])('%s has a fixed page heading without hub-only props', (
+    relativePath,
+    retiredProps,
+    fixedHeading,
+  ) => {
+    const source = readFileSync(path.join(ordersRoot, relativePath), 'utf8');
+
+    expect(source).toContain(fixedHeading);
+    for (const retiredProp of retiredProps) {
+      expect(source).not.toContain(retiredProp);
+    }
   });
 
   it.each([
@@ -30,27 +67,10 @@ describe('order route contracts', () => {
     expect(existsSync(path.join(ordersRoot, relativePath))).toBe(false);
   });
 
-  it('keeps the former order-status tab screen instead of the order operations shell', () => {
-    const source = readFileSync(path.join(ordersRoot, 'order-status-hub/page.tsx'), 'utf8');
-
-    expect(source).toContain('title="주문 현황"');
-    expect(source).toContain("label: '주문-재고'");
-    expect(source).toContain("label: '배송 검색'");
-    expect(source).toContain("label: '주문 비교'");
-    expect(source).toContain("label: '동기화 체크'");
-    expect(source).not.toContain('resolveOperationsRedirect');
-    expect(source).not.toContain('주문 운영');
-  });
-
-  it('keeps the former order-processing hub labels without the replacement shell', () => {
-    const source = readFileSync(path.join(ordersRoot, 'order-hub/page.tsx'), 'utf8');
-
-    expect(source).toContain('title="주문 처리"');
-    expect(source).not.toContain('includePicking');
-    for (const label of ['주문 관리', '주문수집', '스마트 피킹', '출고 관리', '미매칭 주문']) {
-      expect(source).toContain(`label: '${label}'`);
-    }
-    expect(source).not.toContain('OrderHubWorkspace');
-    expect(source).not.toContain('주문 운영');
-  });
+  it.each(retiredOrderRoutes)(
+    '/%s and its route-only code are fully retired',
+    (route) => {
+      expect(existsSync(path.join(ordersRoot, route))).toBe(false);
+    },
+  );
 });
