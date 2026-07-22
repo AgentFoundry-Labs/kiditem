@@ -4,27 +4,20 @@ import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { formatTime } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
-import OrderHeader from "../../orders/components/OrderHeader";
-import PipelineVisualization from "../../orders/components/PipelineVisualization";
-import OrderTable from "../../orders/components/OrderTable";
-import { useOrdersPipeline } from "../../orders/hooks/useOrdersPipeline";
-import { useScheduledOrderSync } from "../../orders/hooks/useScheduledOrderSync";
-import { useOrderActions } from "../../orders/hooks/useOrderActions";
+import OrderHeader from "./OrderHeader";
+import PipelineVisualization from "./PipelineVisualization";
+import OrderTable from "./OrderTable";
+import { useOrdersPipeline } from "../hooks/useOrdersPipeline";
+import { useScheduledOrderSync } from "../hooks/useScheduledOrderSync";
+import { useOrderActions } from "../hooks/useOrderActions";
 import {
   EMPTY_PIPELINE_RESULT,
   ORDER_ACTIVE_NODES,
   ORDER_ALL_NODES,
   ORDER_PIPELINE_EDGES,
-} from "../../orders/lib/order-pipeline";
-import SmartPicking from './SmartPicking';
+} from "../lib/order-pipeline";
 
-export function OrderProcessingWorkspace({
-  headingLevel = 2,
-  includePicking = true,
-}: {
-  headingLevel?: 1 | 2;
-  includePicking?: boolean;
-}) {
+export function OrderProcessingWorkspace() {
   const queryClient = useQueryClient();
   const [activeNode, setActiveNode] = useState("ACCEPT");
   const [showCompleted, setShowCompleted] = useState(false);
@@ -116,7 +109,6 @@ export function OrderProcessingWorkspace({
   return (
     <div className="space-y-4">
       <OrderHeader
-        headingLevel={headingLevel}
         totalOrders={totalOrders}
         error={error}
         lastUpdated={lastUpdated}
@@ -152,7 +144,6 @@ export function OrderProcessingWorkspace({
         onPrintLabel={handlePrintLabel}
         onInvoice={handleInvoice}
       />
-      {includePicking ? <SmartPicking /> : null}
     </div>
   );
 }

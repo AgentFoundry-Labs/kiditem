@@ -65,7 +65,7 @@ edit `currentStock` or release a final commitment merely to imitate shipment.
 
 1. Open an authenticated KidItem operations screen and use a compact Sellpia
    freshness status to open the shared drawer. Matching views display the same
-   shared state without replacing the preserved matching-center UI. The
+   shared state without replacing the active matching-center UI. The
    dedicated sync entry is `/inventory-hub?tab=sellpia-sync`.
 2. Confirm that the drawer shows origin `https://kiditem.sellpia.com` and
    account `kiditem`.
@@ -116,47 +116,22 @@ successful extension request means only that
 transmission was requested; the later Sellpia snapshot is the acceptance and
 stock evidence.
 
-Internal operation links return to the screen that owns the action: mall collection to
-`/order-collection`, channel order results to `/orders`, channel inventory to
-`/inventory`, and inventory warnings to `/stock-ops`. This navigation contract
+Internal operation links return to the screen that owns the action: mall
+collection to `/order-collection`, channel order results to `/orders`, channel
+inventory to `/inventory`, and inventory analysis to `/stock-ops`. This
+navigation contract keeps those four active URLs independently reachable and
 does not change the server-owned TTL, lease, fence, or single-writer rules.
+
+Historical warning links such as `/stock-ops?tab=freshness` are compatibility
+ingress: `/stock-ops` redirects them to the owning `/inventory-hub` view. The
+independent `/stock-ops` route remains analysis-only and owns
+`product-outflow` and `channel-zero`; compatibility ingress does not transfer
+freshness ownership back to it.
 
 Order transmission and freshness recovery render in the existing generated-file
 flow on `/order-collection`. A successful transmission request updates that
 file's recovery state and schedules freshness without replacing the collection
 layout or creating a separate order-sync page.
-
-## Operations UI Preservation
-
-Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
-preservation baseline. Automatic sync and freshness controls are added to that
-UI; they do not replace existing pages or collapse their URLs:
-
-- `/product-hub` keeps the staged product-operations-center layout while its
-  rows read from KidItem `MasterProduct` operating products and inventory
-  metrics are calculated from linked variant recipes and the Sellpia snapshot.
-  `/product-hub/[id]` keeps the read-only snapshot detail, and
-  `/product-hub/matching` keeps the baseline Coupang ChannelSku
-  component-recipe workspace.
-- Order, inventory, fulfillment, supplier, and finance sidebar routes remain
-  independently reachable even when another hub reuses related components.
-- `/rocket-orders` keeps its baseline Rocket operations UI and replaces the
-  existing capacity-decision placeholder with the Supply-owned Sellpia
-  freshness/recipe preview and confirmation workspace. It is the only
-  operator-facing Rocket review route; `/purchase-orders` remains general
-  supplier purchasing.
-- `/product-hub/options` keeps the baseline dedicated read-only Sellpia table.
-
-The shared compact status/drawer and synchronization controls are additive and
-must not rearrange baseline layouts. Do not remove the standard Quick Action, a
-page header, tabs, tables, or existing actions merely to expose freshness.
-
-The preserved inventory tab sets are exact. `/inventory-hub` keeps `status`,
-`po`, `io`, `sellpia-sync`, `rocket-events`, `ledger`, `audits`, and `assets`;
-`/stock-ops` keeps `sellpia-zero`, `channel-zero`, `bottlenecks`,
-`mapping-attention`, `inventory-value`, `freshness`, `transfer`, and
-`return-transfer`. Do not restore an older inventory-control or stock-analysis
-tab set.
 
 An identical source artifact is not republished. The first post-order identical hash
 schedules one `same_hash_confirmation` at least three minutes later. The next

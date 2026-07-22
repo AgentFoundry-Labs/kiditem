@@ -13,22 +13,18 @@ interface OrderHeaderProps {
   loading: boolean;
   onToggleCompleted: () => void;
   onRefresh: () => void;
-  headingLevel?: 1 | 2;
-  showHeading?: boolean;
 }
 
 export default function OrderHeader({
   totalOrders, error, lastUpdated, syncStatus, syncError, showCompleted,
   completedCount, loading, onToggleCompleted, onRefresh,
-  headingLevel = 1, showHeading = true,
 }: OrderHeaderProps) {
-  const Heading = headingLevel === 1 ? 'h1' : 'h2';
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
         <Zap size={18} className="text-blue-500" />
         <div>
-          {showHeading ? <Heading className="page-title">주문 처리</Heading> : null}
+          <h1 className="page-title">주문 처리</h1>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-xs text-slate-400">{totalOrders}건</span>
             {error && (

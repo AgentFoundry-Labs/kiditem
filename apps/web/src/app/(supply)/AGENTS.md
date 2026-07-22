@@ -1,14 +1,14 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/supply - Suppliers and Purchase Orders
+# web/supply - Purchase Orders
 
-`app/(supply)/` owns supplier registry UI and purchase-order operations. It is
-the frontend surface for procurement workflows and does not own inventory stock
-state, finance settlement state, or catalog product editing.
+`app/(supply)/` owns purchase-order operations and the Supply-side Rocket
+procurement components composed into the preserved `/rocket-orders` screen. It
+does not own a standalone supplier registry UI, inventory stock state, finance
+settlement state, or catalog product editing.
 
 ## Owned Surfaces
 
-- Supplier list/create/delete operations
 - Purchase order list, status update, delete, and create modal
 - Purchase-order counts and status filters
 - Coupang Rocket collection, current-stock preview, durable workbook export,
@@ -22,9 +22,8 @@ state, finance settlement state, or catalog product editing.
 
 ```text
 React Query + apiClient
-  -> /api/suppliers
   -> /api/purchase-orders
-  -> queryKeys.suppliers and queryKeys.purchaseOrders
+  -> queryKeys.purchaseOrders
 
 logged-in order-collector extension
   -> collectRocketPoRows with a browser-created runId
@@ -39,7 +38,6 @@ logged-in order-collector extension
 
 ## State Rules
 
-- Supplier mutations invalidate `queryKeys.suppliers.all`.
 - Purchase-order mutations invalidate `queryKeys.purchaseOrders.all`.
 - `pending -> ordered` uses the submission hook with a browser-created stable
   idempotency key; it never uses generic status mutation.
@@ -54,7 +52,8 @@ logged-in order-collector extension
   rejects.
 - General purchase filters and paging belong in the route and preserve
   `orderId`/`supplierId`; backend owns status transitions and totals.
-- Keep purchase-order creation payloads aligned with backend DTO semantics.
+- Keep purchase-order creation payloads aligned with backend DTO semantics,
+  including free-text `supplierName` creation.
 - Rocket preview quantities are editable only up to the backend-recomputed
   maximum. Explicit new collection creates fresh provider evidence. A completed
   persisted catalog snapshot may be reopened, but every reopen reruns Inventory
@@ -97,6 +96,8 @@ logged-in order-collector extension
 - Do not update inventory quantities directly from supply screens.
 - Do not update supplier payments or settlements here; finance owns those
   workflows.
+- Do not recreate a standalone supplier registry route or browser-side supplier
+  cache family; backend Supplier contracts remain owned by Supply.
 - Do not send `organizationId`; backend session scope owns tenancy.
 - Do not add Rocket provider calls, `/api/orders/rocket/*` routes, local stock
   deductions, or Rocket-specific commitment/available-stock projections. The
