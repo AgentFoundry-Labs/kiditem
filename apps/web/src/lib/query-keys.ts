@@ -350,12 +350,6 @@ export const queryKeys = {
     list: (scope?: string) => [...queryKeys.actionTasks.all, 'list', scope ?? 'all'] as const,
   },
   syncInfo: () => ['syncInfo'] as const,
-  manualLedger: {
-    all: ['manual-ledger'] as const,
-  },
-  processingCosts: {
-    all: ['processing-costs'] as const,
-  },
   salesPlans: {
     all: ['sales-plans'] as const,
   },
@@ -364,9 +358,6 @@ export const queryKeys = {
   },
   bundleProducts: {
     all: ['bundle-products'] as const,
-  },
-  supplierPayments: {
-    all: ['supplier-payments'] as const,
   },
   alerts: {
     all: ['alerts'] as const,

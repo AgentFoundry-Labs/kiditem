@@ -5,7 +5,7 @@ import { zIsoDate } from './common.js';
  * Supplier stats response schemas — Plan B2c.orders T10.
  *
  * Backend `SupplierStatsService` 의 `getSalesBySupplier` / `getProductSales` / `getHistory`
- * 리포트 응답과 프론트 supplier-hub 화면 파싱 계약을 함께 고정한다.
+ * 리포트 응답 계약을 고정한다.
  * ChannelListingOption recipe -> physical MasterProduct -> primary SupplierProduct
  * aggregation contract. Bundle revenue is cost-weighted once; lines without a
  * complete primary-supplier/cost policy are exposed as unallocated revenue.
