@@ -44,11 +44,21 @@ export default function StockTransfers({ readOnly = false }: { readOnly?: boolea
     queryKey: queryKeys.stockTransfers.all,
     queryFn: () => apiClient.get<StockTransfer[]>('/api/stock-transfers'),
   });
-  const { data: warehouses = [] } = useQuery({
+  const warehouseQuery = useQuery({
     queryKey: queryKeys.warehouses.all,
     queryFn: () => apiClient.get<Warehouse[]>('/api/warehouses'),
     enabled: !readOnly,
+    meta: { suppressGlobalErrorToast: true },
   });
+  const warehouses = warehouseQuery.data ?? [];
+  const canCreateTransfer = warehouses.length > 0;
+  const warehouseReadBlocked = warehouseQuery.isError && !canCreateTransfer;
+  const warehouseRefreshWarning = warehouseQuery.isError && canCreateTransfer;
+  const warehouseMessageId = warehouseReadBlocked
+    ? 'warehouse-read-error'
+    : warehouseRefreshWarning
+      ? 'warehouse-refresh-warning'
+      : undefined;
   const create = useMutation({
     mutationFn: () => apiClient.post('/api/stock-transfers', form),
     onSuccess: async () => {
@@ -65,14 +75,31 @@ export default function StockTransfers({ readOnly = false }: { readOnly?: boolea
           <h2 className="flex items-center gap-2 text-lg font-semibold"><ArrowRightLeft className="h-5 w-5" aria-hidden="true" /> 창고 이관 기록</h2>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">물리 Sellpia SKU의 이동을 기록합니다. 완료 처리도 Sellpia 현재고는 변경하지 않습니다.</p>
         </div>
-        {!readOnly ? <button type="button" onClick={() => setShowForm(true)} className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white"><Plus className="h-4 w-4" aria-hidden="true" /> 이관 기록 추가</button> : null}
+        {!readOnly ? <button type="button" disabled={!canCreateTransfer} aria-describedby={warehouseMessageId} onClick={() => setShowForm(true)} className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" aria-hidden="true" /> 이관 기록 추가</button> : null}
       </div>
+      {!readOnly && warehouseReadBlocked ? (
+        <div id="warehouse-read-error" className="flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between" role="alert">
+          <p>창고 목록을 불러오지 못했습니다. 창고를 확인할 수 없어 이관 기록을 추가할 수 없습니다.</p>
+          <button type="button" disabled={warehouseQuery.isFetching} onClick={() => { void warehouseQuery.refetch(); }} className="shrink-0 rounded-lg border border-red-300 bg-white px-3 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-50">창고 다시 불러오기</button>
+        </div>
+      ) : null}
+      {!readOnly && warehouseRefreshWarning ? (
+        <div id="warehouse-refresh-warning" className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between" role="status">
+          <p>창고 목록을 새로 고치지 못했습니다. 기존 창고 목록을 사용 중입니다.</p>
+          <button type="button" disabled={warehouseQuery.isFetching} onClick={() => { void warehouseQuery.refetch(); }} className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-50">창고 다시 불러오기</button>
+        </div>
+      ) : null}
+      {!readOnly && warehouseQuery.isSuccess && warehouses.length === 0 ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
+          등록된 창고가 없습니다. 이관 기록을 추가하려면 관리자가 /api/warehouses API로 창고를 먼저 등록해야 합니다.
+        </p>
+      ) : null}
       {isLoading ? <p className="py-10 text-center text-[var(--text-secondary)]">불러오는 중...</p> : (
         <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
           <div className="overflow-x-auto"><table className="w-full min-w-[820px]"><thead><tr><th>Sellpia SKU</th><th>이동</th><th className="text-right">수량</th><th>상태</th><th>기록 시각</th></tr></thead><tbody>{transfers.length ? transfers.map((transfer) => <tr key={transfer.id}><td>{transfer.sellpiaInventorySku ? <><p className="font-medium">{transfer.sellpiaInventorySku.name}</p><p className="font-mono text-xs text-[var(--text-secondary)]">{transfer.sellpiaInventorySku.code} · {transfer.sellpiaInventorySku.optionName ?? '옵션 없음'}</p></> : <><p className="font-medium">상품 연결 없음</p><p className="font-mono text-xs text-[var(--text-secondary)]">Sellpia SKU ID: {transfer.sellpiaInventorySkuId}</p></>}</td><td>{transfer.fromWarehouse.name} → {transfer.toWarehouse.name}</td><td className="text-right">{formatNumber(transfer.quantity)}개</td><td>{transfer.status}</td><td className="text-sm text-[var(--text-secondary)]">{formatDateTime(transfer.createdAt)}</td></tr>) : <tr><td colSpan={5} className="py-12 text-center text-[var(--text-secondary)]">이관 기록이 없습니다.</td></tr>}</tbody></table></div>
         </div>
       )}
-      {!readOnly && showForm ? (
+      {!readOnly && canCreateTransfer && showForm ? (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <div className="modal-content max-w-lg" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-semibold">이관 기록 추가</h3><button type="button" aria-label="닫기" onClick={() => setShowForm(false)}><X className="h-5 w-5" /></button></div>

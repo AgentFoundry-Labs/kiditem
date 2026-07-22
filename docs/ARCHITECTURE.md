@@ -336,7 +336,7 @@ Kinds:
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
 | `apps/web/src/app/(catalog)` | Route Group | Preserved product operations center at `/product-hub`, backed by the read-only Sellpia snapshot; read-only snapshot detail; dedicated read-only `/product-hub/options`; Coupang ChannelSku-to-Sellpia component matching at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
-| `apps/web/src/app/(inventory)` | Route Group | Preserved, independently reachable `/inventory-hub`, `/inventory`, `/stock-ops`, `/outbound`, and `/unshipped-items` surfaces plus warehouses and Coupang shipment support; shared Sellpia status/sync controls are additive. |
+| `apps/web/src/app/(inventory)` | Route Group | Active `/inventory-hub`, `/inventory`, `/stock-ops`, and `/coupang-shipments` surfaces; Warehouse reads remain reference data for `StockTransfers`, with no standalone warehouse-management route. |
 | `apps/web/src/app/(orders)` | Route Group | Preserved, independently reachable `/order-hub`, `/order-collection`, `/orders`, `/order-status-hub`, and `/rocket-orders` surfaces plus returns, CS, reviews, picking, and return scanning; `/orders` and `/order-collection` own their route-local workspaces while `/order-hub` temporarily composes them by import; the Rocket capacity placeholder consumes the shared preview contract. |
 | `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
 | `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
@@ -350,14 +350,12 @@ Kinds:
 
 Notable route subtrees:
 
-- Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
-  preservation baseline. Existing sidebar sections and direct operations URLs
-  remain independently usable; shared components may reduce duplication but do
-  not turn those routes into redirects. The normal app shell, including Quick
-  Action, remains available unless a route has an unrelated documented reason
-  to suppress it. Sellpia compact status, shared drawer, synchronization, and
-  recipe links are added without replacing existing headers, tabs, tables, or
-  actions.
+- The current Frontend Route Map and nearest route guide are the preservation
+  authority for active routes. Before retiring a public URL, add it to the
+  central `src/app/__tests__/retired-sidebar-routes.spec.ts` scanner, relocate
+  every active consumer, and only then delete its route-only subtree. An
+  intentionally retired route has no compatibility redirect unless product
+  names a canonical replacement.
 
 - Product list, detail, matching, and options preserve their independent
   compositions. `/product-hub` is the staged product operations center backed
@@ -373,13 +371,11 @@ Notable route subtrees:
   is the only operator-facing Rocket review route. `/purchase-orders` remains
   the general supplier purchase-order screen.
 
-- The baseline tab ownership is exact: `/inventory-hub` has `status`, `po`,
-  `io`, `sellpia-sync`, `rocket-events`, `ledger`, `audits`, and `assets`;
-  `/stock-ops` has `sellpia-zero`, `channel-zero`, `bottlenecks`,
-  `mapping-attention`, `inventory-value`, `freshness`, `transfer`, and
-  `return-transfer`; `/order-hub` has `orders`, `collection`, `picking`,
-  `outbound`, and `matching`; `/order-status-hub` has `inventory`, `delivery`,
-  `compare`, and `sync`.
+- Current tab ownership is exact: `/inventory-hub` has `status`,
+  `sellpia-sync`, `rocket-events`, and `checks`; `/stock-ops` has
+  `product-outflow` and `channel-zero`; `/order-hub` has `orders`, `collection`,
+  `picking`, the temporarily retained `outbound`, and `matching` tabs;
+  `/order-status-hub` has `inventory`, `delivery`, `compare`, and `sync`.
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
   owns `/product-pipeline/collected-products`, the 1688/imported plus manual
@@ -669,16 +665,16 @@ badges while `/stock-ops?tab=product-outflow` preserves every linked product/
 variant destination. The screens remain separate and manual
 `MasterProduct.abcGrade` is not overwritten by sales-derived ABC.
 
-The frontend preserves the operations sidebar and route compositions from
-`c9e7caf875ca82574ae566a27fe0afa35c988918` and independently
-reachable product, order, inventory, fulfillment, supplier, and finance
-screens. One shared coordinator/drawer supplies Sellpia freshness, while pages
-may expose compact status and sync controls without rearranging baseline
-layouts. Product list, detail, matching, and read-only options keep their exact
-baseline ownership. The Supply-owned Rocket preview and confirmation workspace
-is wired only into the existing decision placeholder on `/rocket-orders`;
-`/purchase-orders` remains the general supplier purchase-order screen.
-Marketplace provider submission remains disabled.
+The frontend preserves the active route ownership and compositions recorded in
+the Frontend Route Map and nearest route guides. One shared coordinator/drawer
+supplies Sellpia freshness, while active pages may expose compact status and
+sync controls without rearranging their documented layouts. Product list,
+detail, matching, and read-only options keep their exact ownership. The
+Supply-owned Rocket preview and confirmation workspace is wired only into the
+existing decision placeholder on `/rocket-orders`; `/purchase-orders` remains
+the general supplier purchase-order screen. Intentionally retired URLs remain
+absent from sidebar navigation and the App Router unless product names a
+canonical replacement. Marketplace provider submission remains disabled.
 
 Exact operation and recovery steps live in the
 [freshness runbook](runbooks/sellpia-inventory-freshness.md),

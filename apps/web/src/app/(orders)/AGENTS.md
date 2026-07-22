@@ -14,9 +14,8 @@ explicitly documented.
 - Read-only Rocket PO list/summaries and local legacy file history
 - Returns, reviews, and CS operational screens
 - Picking/outbound widgets used by order hub screens
-- Preserved `/order-hub` composition and independently reachable
-  `/order-collection`, `/orders`, `/outbound`, `/unshipped-items`, and
-  `/order-status-hub` screens
+- Active `/order-hub`, `/order-collection`, `/orders`, `/order-status-hub`, and
+  `/rocket-orders` screens
 
 ## Data Flow
 
@@ -40,9 +39,13 @@ React Query + apiClient
   a separate synchronization workspace.
 - Existing local Rocket file history may use browser storage for operator
   convenience; it is not server truth or evidence that confirmation is active.
-- Preserve each route's `c9e7caf8` page composition and URL. Shared extracted
-  components may reduce duplication, but an independent route must not become a
-  redirect merely because `/order-hub` also composes related functionality.
+- `/order-collection` and `/orders` own their live workspaces and remain
+  independent active routes; `/order-hub` may compose them by import.
+- `/order-hub` is the current live consumer of the `outbound` tab and its
+  `OutboundWorkspace`. Retain both while that page renders the outbound
+  workflow; remove them only when `/order-hub` no longer exposes it and no
+  other active route imports the workspace. This consumer does not restore
+  `/outbound` as an independent URL.
 - `/order-hub` preserves the baseline `orders`, `collection`, `picking`,
   `outbound`, and `matching` tabs. `/order-status-hub` preserves `inventory`,
   `delivery`, `compare`, and `sync`.
