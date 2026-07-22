@@ -384,7 +384,11 @@ Notable route subtrees:
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
   owns `/product-pipeline/collected-products`, the 1688/imported plus manual
   product-registration `SourcingCandidate` inbox, candidate detail route
-  entries, and candidate-scoped generated content links.
+  entries, candidate-scoped generated content links, and the fixed WING category
+  registry used at registration confirmation. WING category selection uses the
+  saved `ProductPreparation.registrationInput.wingCategoryKey` or an exact
+  source-category alias; it does not read registered `ChannelListing` rows or
+  call a runtime category-suggestion API.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
   owns `/product-pipeline/registered-products`, the marketplace registered
   product management surface backed by active `ChannelListing` rows with

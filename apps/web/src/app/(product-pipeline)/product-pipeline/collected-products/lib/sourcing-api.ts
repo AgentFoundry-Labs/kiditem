@@ -178,6 +178,7 @@ export type ProductPreparationSelection = Omit<
   ProductPreparationProjection,
   'updatedAt'
 > & {
+  registrationInput: Record<string, unknown>;
   updatedAt: string | null;
 };
 
@@ -301,6 +302,11 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
   const prep = value as Record<string, unknown>;
   const id = typeof prep.id === 'string' ? prep.id : null;
   if (!id) return null;
+  const registrationInput = prep.registrationInput
+    && typeof prep.registrationInput === 'object'
+    && !Array.isArray(prep.registrationInput)
+    ? { ...prep.registrationInput as Record<string, unknown> }
+    : {};
   return {
     id,
     sourceCandidateId: typeof prep.sourceCandidateId === 'string' ? prep.sourceCandidateId : null,
@@ -316,6 +322,7 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
         ? prep.listingId
         : null,
     status: ProductPreparationStatusSchema.parse(prep.status),
+    registrationInput,
     selectedThumbnailUrl: normalizeImageUrl(prep.selectedThumbnailUrl),
     selectedThumbnailGenerationId: typeof prep.selectedThumbnailGenerationId === 'string'
       ? prep.selectedThumbnailGenerationId
