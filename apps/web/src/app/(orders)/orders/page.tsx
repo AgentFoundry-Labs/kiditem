@@ -1,5 +1,5 @@
-import { OrderProcessingWorkspace } from '../order-hub/components/OrderProcessingWorkspace';
+import { OrderProcessingWorkspace } from './components/OrderProcessingWorkspace';
 
 export default function OrdersPage() {
-  return <OrderProcessingWorkspace headingLevel={1} includePicking={false} />;
+  return <OrderProcessingWorkspace headingLevel={1} />;
 }

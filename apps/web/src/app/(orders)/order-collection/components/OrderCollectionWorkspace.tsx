@@ -12,29 +12,29 @@ import { BrowserCollectionRunControls } from '@/components/browser-collection/Br
 import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
-import { FilePreviewSection } from '../../order-collection/components/FilePreviewSection';
+import { FilePreviewSection } from './FilePreviewSection';
 import {
   GeneratedFilesSection,
   type GeneratedFilesBulkAction,
-} from '../../order-collection/components/GeneratedFilesSection';
-import { MallAccountSection } from '../../order-collection/components/MallAccountSection';
-import { OrderActivityFeed } from '../../order-collection/components/OrderActivityFeed';
-import { OrderCollectionDailyPanel } from '../../order-collection/components/OrderCollectionDailyPanel';
-import { OrderCollectionPipeline } from '../../order-collection/components/OrderCollectionPipeline';
-import { OrderUploadModal } from '../../order-collection/components/OrderUploadModal';
-import { useOrderActivityEvents } from '../../order-collection/hooks/use-order-activity-events';
+} from './GeneratedFilesSection';
+import { MallAccountSection } from './MallAccountSection';
+import { OrderActivityFeed } from './OrderActivityFeed';
+import { OrderCollectionDailyPanel } from './OrderCollectionDailyPanel';
+import { OrderCollectionPipeline } from './OrderCollectionPipeline';
+import { OrderUploadModal } from './OrderUploadModal';
+import { useOrderActivityEvents } from '../hooks/use-order-activity-events';
 import {
   AUTO_INTERVAL_OPTIONS_MIN,
   useOrderAutoDetect,
-} from '../../order-collection/hooks/use-order-auto-detect';
-import { useOrderCollectionSessionControls } from '../../order-collection/hooks/use-order-collection-session-controls';
-import { useSellpiaOrderTransmission } from '../../order-collection/hooks/use-sellpia-order-transmission';
-import { createBrowserMallCollector } from '../../order-collection/lib/browser-mall-collection';
-import { createGeneratedFileActionLock } from '../../order-collection/lib/generated-file-action-lock';
-import { isDuplicateGeneratedFile } from '../../order-collection/lib/generated-file-dedup';
-import { runWithConcurrency } from '../../order-collection/lib/order-collection-concurrency';
-import { downloadOrderCollectionFile } from '../../order-collection/lib/order-collection-download';
-import { type OrderCollectionExtensionRun } from '../../order-collection/lib/order-collection-extension';
+} from '../hooks/use-order-auto-detect';
+import { useOrderCollectionSessionControls } from '../hooks/use-order-collection-session-controls';
+import { useSellpiaOrderTransmission } from '../hooks/use-sellpia-order-transmission';
+import { createBrowserMallCollector } from '../lib/browser-mall-collection';
+import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
+import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
+import { runWithConcurrency } from '../lib/order-collection-concurrency';
+import { downloadOrderCollectionFile } from '../lib/order-collection-download';
+import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import {
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
@@ -48,25 +48,25 @@ import {
   type ConversionHistoryItem,
   type ConversionState,
   type MallAccountDraft,
-} from '../../order-collection/lib/order-collection-page-model';
+} from '../lib/order-collection-page-model';
 import {
   buildOrderCollectionPipelineSummary,
   buildOrderCollectionSummary,
-} from '../../order-collection/lib/order-collection-stats';
+} from '../lib/order-collection-stats';
 import {
   deleteGeneratedOrderFile,
   loadGeneratedOrderFiles,
   saveGeneratedOrderFile,
-} from '../../order-collection/lib/order-generated-file-store';
+} from '../lib/order-generated-file-store';
 import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
   type UpdateOrderCollectionMallAccountInput,
-} from '../../order-collection/lib/order-mall-account-api';
+} from '../lib/order-mall-account-api';
 import {
   runSellpiaPostProcess,
   uploadTrackingForMall,
-} from '../../order-collection/lib/order-tracking-actions';
+} from '../lib/order-tracking-actions';
 
 const COLLECT_ALL_CONCURRENCY = 4;
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
@@ -769,15 +769,15 @@ async function convertUploadedFile(
   password?: string,
 ) {
   if (mall.key === 'domeggook') {
-    const { convertDomeggookOrderFile } = await import('../../order-collection/lib/order-collection-api');
+    const { convertDomeggookOrderFile } = await import('../lib/order-collection-api');
     return convertDomeggookOrderFile(file);
   }
   if (mall.key === 'gs-shop') {
-    const { convertGsshopOrderFile } = await import('../../order-collection/lib/order-collection-api');
+    const { convertGsshopOrderFile } = await import('../lib/order-collection-api');
     return convertGsshopOrderFile(file, { download: false });
   }
   if (mall.key === ICECREAM_MALL_KEY) {
-    const { convertIcecreamMallOrderFile } = await import('../../order-collection/lib/order-collection-api');
+    const { convertIcecreamMallOrderFile } = await import('../lib/order-collection-api');
     return convertIcecreamMallOrderFile(file, password);
   }
   throw new Error(`${mall.name} 업로드 변환은 아직 준비 중입니다.`);

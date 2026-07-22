@@ -244,7 +244,7 @@ describe("MallAccountSection", () => {
   it("wires route collectionRun recovery and same-run restart", () => {
     const routeRoot = path.resolve(import.meta.dirname, "..");
     const workspace = readFileSync(
-      path.resolve(routeRoot, "../order-hub/components/OrderCollectionWorkspace.tsx"),
+      path.join(routeRoot, "components/OrderCollectionWorkspace.tsx"),
       "utf8",
     );
     const collector = readFileSync(
