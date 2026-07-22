@@ -5,8 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { OrderProcessingWorkspace } from './OrderProcessingWorkspace';
 
-vi.mock('./SmartPicking', () => ({ default: () => <div>스마트 피킹</div> }));
-
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => '/orders',
@@ -65,11 +63,11 @@ function makeAcceptResponse() {
   return { items: [orderItem], total: 1, deliveryCompanies: [] };
 }
 
-function renderPage({ includePicking = true }: { includePicking?: boolean } = {}) {
+function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <OrderProcessingWorkspace includePicking={includePicking} />
+      <OrderProcessingWorkspace />
     </QueryClientProvider>,
   );
 }
@@ -79,14 +77,6 @@ describe('<OrderProcessingWorkspace> (W3)', () => {
     vi.restoreAllMocks();
     // Default: skip scheduled sync (hour not in SYNC_HOURS)
     vi.spyOn(global.Date.prototype, 'getHours').mockReturnValue(10);
-  });
-
-  it('can keep Smart Picking in the former dedicated hub tab', () => {
-    vi.spyOn(apiClient, 'getParsed').mockResolvedValue(emptyResponse);
-
-    renderPage({ includePicking: false });
-
-    expect(screen.queryByText('스마트 피킹')).not.toBeInTheDocument();
   });
 
   it('calls GET /api/orders?status=ACCEPT via getParsed and renders primaryProductName, displayOrderNumber, totalQuantity', async () => {

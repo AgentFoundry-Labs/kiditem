@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { FileSpreadsheet, Link2Off, ListChecks, ShoppingCart, Truck } from 'lucide-react';
 import TabLayout from '@/components/ui/TabLayout';
-import { OrderCollectionWorkspace } from './components/OrderCollectionWorkspace';
-import { OrderProcessingWorkspace } from './components/OrderProcessingWorkspace';
+import { OrderCollectionWorkspace } from '../order-collection/components/OrderCollectionWorkspace';
+import { OrderProcessingWorkspace } from '../orders/components/OrderProcessingWorkspace';
 import OrderMatching from './components/OrderMatching';
 import { OutboundWorkspace } from './components/OutboundWorkspace';
 import SmartPicking from './components/SmartPicking';
@@ -31,7 +31,7 @@ export default function OrderHubPage() {
       onTabChange={(tab) => setActiveTab(tab as TabId)}
       unmountInactive
       tabs={[
-        { id: 'orders', label: '주문 관리', icon: ShoppingCart, content: <OrderProcessingWorkspace headingLevel={2} includePicking={false} /> },
+        { id: 'orders', label: '주문 관리', icon: ShoppingCart, content: <OrderProcessingWorkspace headingLevel={2} /> },
         { id: 'collection', label: '주문수집', icon: FileSpreadsheet, content: <OrderCollectionWorkspace headingLevel={2} /> },
         { id: 'picking', label: '스마트 피킹', icon: ListChecks, content: <SmartPicking /> },
         { id: 'outbound', label: '출고 관리', icon: Truck, content: <OutboundWorkspace headingLevel={2} /> },
