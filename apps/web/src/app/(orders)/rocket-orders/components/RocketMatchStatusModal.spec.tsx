@@ -31,8 +31,8 @@ describe('<RocketMatchStatusModal />', () => {
     );
     expect(screen.getByRole('link', { name: '상품 연결 필요 해결' })).toHaveAttribute('target', '_blank');
     expect(screen.getByRole('columnheader', { name: '현재고' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: '약정' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: '가용재고' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '약정' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '가용재고' })).not.toBeInTheDocument();
   });
 });
 
@@ -54,8 +54,6 @@ function row(
       sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
       quantity: 1,
       currentStock: 2,
-      activeCommitmentQuantity: 1,
-      availableStock: 1,
       isActive: true,
     }] : [],
   };

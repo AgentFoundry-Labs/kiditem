@@ -1,7 +1,10 @@
 'use client';
 
 import { useRef } from 'react';
-import { ROCKET_SHORTAGE_REASONS } from '@kiditem/shared/rocket-purchase-preview';
+import {
+  isRocketWorkbookBlockingReason,
+  ROCKET_SHORTAGE_REASONS,
+} from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { useRocketPurchaseWorkflow } from '../hooks/useRocketPurchaseWorkflow';
 import { RocketDeterministicMatchingPanel } from './RocketDeterministicMatchingPanel';
@@ -18,6 +21,15 @@ const PREVIEW_REASON_LABELS: Record<RocketPurchasePreviewReason, string> = {
   collection_incomplete: '수집 자료 불완전',
   vendor_mismatch: '채널 계정 불일치',
 };
+
+const WORKFLOW_LABEL = {
+  awaiting_coupang_confirmation: '쿠팡 업로드·발주확정 대기',
+  orders_collected: '주문수집 완료',
+  sellpia_transmitting: 'Sellpia 반영 중',
+  awaiting_inventory_sync: '재고 동기화 대기',
+  completed: '재고 동기화 완료',
+  failed: '재고 동기화 실패 — 다시 시도',
+} as const;
 
 function previewReasonLabel(
   reason: RocketPurchasePreviewReason,
@@ -63,22 +75,23 @@ export function RocketPurchaseWorkspace({
     collectionRun,
     shortageReasons,
     setShortageReasons,
-    confirmation,
-    confirming,
-    releaseReason,
-    setReleaseReason,
-    releasing,
+    workbookExport,
+    exporting,
+    abandonReason,
+    setAbandonReason,
+    abandoning,
     templateFile,
     setTemplateFile,
     loading,
     error,
     collectionWarning,
-    canConfirm,
+    canExport,
     canRedownload,
     recalculate,
     revalidateEditedQuantities,
-    confirmAndDownload,
-    releaseConfirmation,
+    exportAndDownload,
+    downloadActiveWorkbook,
+    abandonActiveWorkbook,
   } = useRocketPurchaseWorkflow({
     channelAccountId,
     hasConfiguredVendorId,
@@ -145,7 +158,7 @@ export function RocketPurchaseWorkspace({
           {preview?.rows.length ? (
             <button
               type="button"
-              disabled={!previewDirty || loading || confirming}
+              disabled={!previewDirty || loading || exporting}
               onClick={() => void revalidateEditedQuantities()}
               className="whitespace-nowrap rounded-lg border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-700 disabled:opacity-40"
             >
@@ -154,43 +167,41 @@ export function RocketPurchaseWorkspace({
           ) : null}
           <button
             type="button"
-            disabled={(!canConfirm && !canRedownload) || confirming || loading}
-            onClick={() => void confirmAndDownload()}
+            disabled={(!canExport && !canRedownload) || exporting || loading}
+            onClick={() => void (canRedownload ? downloadActiveWorkbook() : exportAndDownload())}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
           >
-            {confirming
-              ? canRedownload ? '엑셀 생성 중' : '확정 중'
-              : canRedownload ? '엑셀 다시 다운로드' : '확정 후 엑셀 다운로드'}
+            {exporting
+              ? '다운로드 중'
+              : canRedownload ? '동일 파일 다시 다운로드' : '쿠팡 엑셀 다운로드'}
           </button>
           <span className="text-sm font-semibold text-[var(--text-secondary,#475569)]">
-            {confirmation?.status === 'active'
-              ? `확정 완료 · 구성품 ${confirmation.totals.allocatedQuantity}개 예약 (실재고 반영 또는 취소 후 예약 종료)`
-              : confirmation?.status === 'released'
-                ? '예약 종료됨 · 다시 계산해 주세요.'
+            {workbookExport
+              ? WORKFLOW_LABEL[workbookExport.status]
                 : previewDirty
                   ? '수량이 변경되었습니다. 전체 수량을 다시 검증해 주세요.'
-                  : canConfirm
-                  ? '확정 시 구성품 재고를 예약하고 엑셀을 생성합니다.'
-                  : '미리보기 검토 후 확정할 수 있습니다.'}
+                  : canExport
+                  ? '검토한 수량으로 쿠팡 제출용 엑셀을 생성합니다.'
+                  : '미리보기 검토 후 엑셀을 다운로드할 수 있습니다.'}
           </span>
         </div>
-        {confirmation?.status === 'active' ? (
+        {workbookExport?.status === 'awaiting_coupang_confirmation' ? (
           <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border,#e2e8f0)] pt-3">
             <input
-              aria-label="예약 종료 사유"
-              value={releaseReason}
-              onChange={(event) => setReleaseReason(event.target.value)}
-              placeholder="실재고 반영 또는 취소 등 예약 종료 사유"
+              aria-label="워크북 미사용 사유"
+              value={abandonReason}
+              onChange={(event) => setAbandonReason(event.target.value)}
+              placeholder="쿠팡에 제출하지 않은 사유"
               maxLength={500}
               className="min-w-64 flex-1 rounded-lg border border-[var(--border,#cbd5e1)] px-3 py-2 text-sm"
             />
             <button
               type="button"
-              disabled={!releaseReason.trim() || releasing}
-              onClick={() => void releaseConfirmation()}
+              disabled={!workbookExport.canAbandon || !abandonReason.trim() || abandoning}
+              onClick={() => void abandonActiveWorkbook()}
               className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 disabled:opacity-50"
             >
-              {releasing ? '종료 중' : '예약 종료'}
+              {abandoning ? '종료 중' : '워크북 사용 안 함'}
             </button>
           </div>
         ) : null}
@@ -253,13 +264,11 @@ export function RocketPurchaseWorkspace({
           <p className="border-b border-[var(--border,#e2e8f0)] bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800">
             공유 재고는 빠른 납품예정일 → PO 번호 → 라인 순서로 배분됩니다.
           </p>
-          <table className="w-full min-w-[1480px] table-fixed text-sm">
+          <table className="w-full min-w-[1160px] table-fixed text-sm">
             <colgroup>
               <col className="w-[9%]" />
               <col className="w-[18%]" />
               <col className="w-[9%]" />
-              <col className="w-[7%]" />
-              <col className="w-[7%]" />
               <col className="w-[7%]" />
               <col className="w-[8%]" />
               <col className="w-[10%]" />
@@ -272,10 +281,8 @@ export function RocketPurchaseWorkspace({
                 <th className="px-3 py-2">상품</th>
                 <th className="px-3 py-2">납품예정일</th>
                 <th className="px-3 py-2 text-right">현재고</th>
-                <th className="px-3 py-2 text-right">약정</th>
-                <th className="px-3 py-2 text-right">가용재고</th>
                 <th className="px-3 py-2">발주수량</th>
-                <th className="px-3 py-2">검토수량</th>
+                <th className="px-3 py-2">엑셀 수량</th>
                 <th className="px-3 py-2">납품부족사유</th>
                 <th className="px-3 py-2">상태</th>
               </tr>
@@ -287,17 +294,19 @@ export function RocketPurchaseWorkspace({
                   <td className="overflow-hidden px-3 py-2"><span className="block truncate" title={row.productName}>{row.productName}</span></td>
                   <td className="whitespace-nowrap px-3 py-2">{row.plannedDeliveryDate}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.components.length ? row.components.map((component) => component.currentStock).join(' / ') : '—'}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.components.length ? row.components.map((component) => component.activeCommitmentQuantity).join(' / ') : '—'}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums">{row.components.length ? row.components.map((component) => component.availableStock).join(' / ') : '—'}</td>
                   <td className="whitespace-nowrap px-3 py-2">{row.orderQuantity}</td>
                   <td className="px-3 py-2">
                     <input
-                      aria-label={`${row.poNumber} 검토수량`}
+                      aria-label={`${row.poNumber} 엑셀 수량`}
                       type="number"
                       min={0}
                       max={Math.min(row.maxQuantity, row.orderQuantity)}
                       step={1}
                       value={editedQuantities[row.poLineId] ?? row.recommendedQuantity}
+                      disabled={
+                        isRocketWorkbookBlockingReason(row.reason)
+                        || Boolean(workbookExport && workbookExport.status !== 'completed')
+                      }
                       onChange={(event) => {
                         const quantity = normalizeReviewQuantity(
                           event.target.value,
@@ -319,7 +328,11 @@ export function RocketPurchaseWorkspace({
                     <select
                       aria-label={`${row.poNumber} 납품부족사유`}
                       value={shortageReasons[row.poLineId] ?? ''}
-                      disabled={(editedQuantities[row.poLineId] ?? row.recommendedQuantity) >= row.orderQuantity}
+                      disabled={
+                        isRocketWorkbookBlockingReason(row.reason)
+                        || (editedQuantities[row.poLineId] ?? row.recommendedQuantity) >= row.orderQuantity
+                        || Boolean(workbookExport && workbookExport.status !== 'completed')
+                      }
                       onChange={(event) => {
                         const reason = event.target.value;
                         setShortageReasons((current) => {

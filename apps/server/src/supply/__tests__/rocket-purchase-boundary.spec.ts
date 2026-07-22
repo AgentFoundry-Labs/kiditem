@@ -7,7 +7,7 @@ const serverRoot = process.cwd().endsWith('/apps/server')
   : resolve(process.cwd(), 'apps/server');
 
 describe('Rocket purchase boundary', () => {
-  it('keeps preview and confirmation canonical without a direct stock-matching action', () => {
+  it('keeps preview and durable workbook export canonical without a direct stock-matching action', () => {
     const sourcePaths = [
       'src/supply/adapter/in/http/dto/purchase-order-action.dto.ts',
       'src/supply/adapter/in/http/procurement.controller.ts',
@@ -22,6 +22,10 @@ describe('Rocket purchase boundary', () => {
       /matchRocketStock|matchSavedStock|RocketStockMatchRow/,
     );
     expect(sources).toContain("body.action === 'previewRocket'");
-    expect(sources).toContain("body.action === 'confirmRocket'");
+    expect(sources).toContain("body.action === 'exportRocketWorkbook'");
+    expect(sources).toContain("body.action === 'getActiveRocketWorkbook'");
+    expect(sources).toContain("body.action === 'downloadRocketWorkbook'");
+    expect(sources).toContain("body.action === 'abandonRocketWorkbook'");
+    expect(sources).not.toMatch(/confirmRocket|releaseRocketConfirmation/);
   });
 });

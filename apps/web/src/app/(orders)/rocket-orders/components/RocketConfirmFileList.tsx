@@ -39,7 +39,7 @@ export function RocketConfirmFileList({ refreshKey }: { refreshKey: number }) {
       <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
         <div className="flex items-center gap-2">
           <FileSpreadsheet size={16} className="text-slate-500" />
-          <span className="text-sm font-semibold text-slate-900">기존 발주확정 파일 이력</span>
+          <span className="text-sm font-semibold text-slate-900">쿠팡 엑셀 다운로드 이력</span>
         </div>
         <span className="text-xs tabular-nums text-slate-400">{files.length}개</span>
       </div>

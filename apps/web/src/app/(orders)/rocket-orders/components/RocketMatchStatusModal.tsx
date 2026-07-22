@@ -80,10 +80,9 @@ export function rocketMatchStateLabel(reason: RocketPurchasePreviewReason | null
 
 function componentValues(
   row: RocketMatchStatusRow,
-  field: 'currentStock' | 'activeCommitmentQuantity' | 'availableStock',
 ): string {
   if (row.components.length === 0) return '—';
-  return row.components.map((component) => formatNumber(component[field])).join(' / ');
+  return row.components.map((component) => formatNumber(component.currentStock)).join(' / ');
 }
 
 /**
@@ -182,8 +181,6 @@ export function RocketMatchStatusModal({
                 <th className="px-4 py-2 text-left font-semibold">상품·재고 상태</th>
                 <th className="px-3 py-2 text-right font-semibold">발주</th>
                 <th className="px-3 py-2 text-right font-semibold">현재고</th>
-                <th className="px-3 py-2 text-right font-semibold">약정</th>
-                <th className="px-4 py-2 text-right font-semibold">가용재고</th>
               </tr>
             </thead>
             <tbody>
@@ -222,9 +219,7 @@ export function RocketMatchStatusModal({
                       </div>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-600">{formatNumber(row.orderQuantity)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-500">{componentValues(row, 'currentStock')}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-500">{componentValues(row, 'activeCommitmentQuantity')}</td>
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-slate-700">{componentValues(row, 'availableStock')}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-500">{componentValues(row)}</td>
                   </tr>
                 );
               })}
