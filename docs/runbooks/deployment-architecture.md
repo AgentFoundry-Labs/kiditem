@@ -19,11 +19,6 @@ Internet
         -> active api slot    api-blue | api-green
         -> active web slot    web-blue | web-green
         -> active worker slot worker-blue | worker-green
-
-Operator SSH tunnel
-  -> EC2 127.0.0.1:3001
-    -> shared headful sourcing-chrome
-      -> local CDP :9222 -> private relay :9223 -> active api slot
 ```
 
 Each slot uses immutable GHCR image references. The API container sets
@@ -33,19 +28,6 @@ HTTP serving and Agent OS queue draining operationally separate without adding
 a second image build. The shared API image also bundles the compiled
 `@kiditem/templates` stylesheet used by server-side detail-page rasterization;
 the image build fails if that runtime asset cannot be resolved.
-
-Staging also runs one shared `sourcing-chrome` service outside the blue-green
-application slots. It uses a digest-pinned LinuxServer Chromium image and the
-named `kiditem-staging-sourcing-chrome-profile` volume so a human-completed
-1688 login or verification remains available after app deployments and browser
-container recreation. The browser UI is bound to EC2 loopback and is reached
-only through an operator SSH tunnel. Headful Chromium binds CDP to its own
-loopback even when `--remote-debugging-address=0.0.0.0` is passed, so a
-digest-pinned `sourcing-cdp-proxy` shares the browser network namespace and
-relays local port `9222` to Compose-private port `9223`. Neither port is
-published on the host. The browser has the Compose DNS alias
-`sourcing-chrome.localhost`, which passes Chromium's localhost Host-header
-guard; app containers reach `http://sourcing-chrome.localhost:9223`.
 
 ## CI/CD Gates
 
@@ -127,17 +109,13 @@ approved database recovery before starting a new reset run.
 
 1. Read the active color from `deployments/current.json`; fall back to
    `.env.<env>.deploy`, then `blue`.
-2. Pull the candidate API/web images and digest-pinned shared sourcing Chrome
-   and CDP relay images.
+2. Pull the candidate API and web images.
 3. Require both images' `org.opencontainers.image.revision` labels to equal the
    guarded full Git SHA; record `apiImageRevision` and `webImageRevision`.
 4. Write candidate slot image refs into `.env.<env>.deploy`.
-5. Start or retain the shared `sourcing-chrome`, then start only the inactive
-   `api-*`, `web-*`, and `worker-*` services.
-6. Wait for API/web health and worker running state. From the candidate API,
-   require the configured CDP `/json/version` endpoint to return a
-   `webSocketDebuggerUrl`, then verify API render-image browser runtime
-   readiness.
+5. Start only the inactive `api-*`, `web-*`, and `worker-*` services.
+6. Wait for API/web health, worker running state, and API render-image browser
+   runtime readiness.
 7. Render `deployments/nginx.conf` from the environment-specific nginx
    template and reload compose nginx. The generated file is mounted into the
    nginx container as a file bind mount, so the deploy script updates an
