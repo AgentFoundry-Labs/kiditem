@@ -330,10 +330,6 @@ export const queryKeys = {
     all: ['organizations'] as const,
     list: () => [...queryKeys.organizations.all, 'list'] as const,
   },
-  suppliers: {
-    all: ['suppliers'] as const,
-    list: () => [...queryKeys.suppliers.all, 'list'] as const,
-  },
   stockTransfers: {
     all: ['stockTransfers'] as const,
     list: (params?: Record<string, string>) => [...queryKeys.stockTransfers.all, 'list', params] as const,
