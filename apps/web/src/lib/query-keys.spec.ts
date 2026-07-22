@@ -32,7 +32,12 @@ describe('retired finance route query keys', () => {
       'list',
       '2026-05',
     ]);
-    expect(queryKeys).toHaveProperty('suppliers');
+  });
+});
+
+describe('retired supplier registry query keys', () => {
+  it('removes the supplier registry cache family', () => {
+    expect(queryKeys).not.toHaveProperty('suppliers');
   });
 });
 
