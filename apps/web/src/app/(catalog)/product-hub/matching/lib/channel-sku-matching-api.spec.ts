@@ -120,23 +120,16 @@ describe('channel product matching API', () => {
   });
 
   it('confirms listing-to-product and option-to-variant separately', async () => {
-    vi.mocked(apiClient.put).mockResolvedValueOnce({
-      channelAccount: { id: '55555555-5555-4555-8555-555555555555', channel: 'coupang', name: 'Wing' },
-      listing: { id: LISTING_ID, externalId: 'listing-1', displayName: '우산', status: 'active', masterProductId: PRODUCT_ID, updatedAt: '2026-07-16T00:00:00.000Z' },
-      linkedProduct: { id: PRODUCT_ID, code: 'KI-1', name: '우산' },
-      optionCount: 1,
-      linkedOptionCount: 1,
-    }).mockResolvedValueOnce({
-      channelAccount: { id: '55555555-5555-4555-8555-555555555555', channel: 'coupang', name: 'Wing' },
-      listing: { id: LISTING_ID, externalId: 'listing-1', masterProductId: PRODUCT_ID },
-      option: { id: OPTION_ID, externalOptionId: 'option-1', itemName: '분홍', sellerSku: null, barcode: null, productVariantId: VARIANT_ID, updatedAt: '2026-07-16T00:00:00.000Z' },
-      linkedVariant: { id: VARIANT_ID, masterProductId: PRODUCT_ID, code: 'KI-1-PINK', name: '분홍', optionLabel: '색상: 분홍' },
-      recipeStatus: 'configuration_required',
-      capacity: null,
-    });
+    vi.mocked(apiClient.put).mockResolvedValue(undefined);
 
-    await linkChannelListingProduct(LISTING_ID, { masterProductId: PRODUCT_ID });
-    await linkChannelListingOption(OPTION_ID, { productVariantId: VARIANT_ID });
+    await expect(linkChannelListingProduct(
+      LISTING_ID,
+      { masterProductId: PRODUCT_ID },
+    )).resolves.toBeUndefined();
+    await expect(linkChannelListingOption(
+      OPTION_ID,
+      { productVariantId: VARIANT_ID },
+    )).resolves.toBeUndefined();
 
     expect(apiClient.put).toHaveBeenNthCalledWith(1,
       `/api/channels/product-mappings/${LISTING_ID}/master-product`,
