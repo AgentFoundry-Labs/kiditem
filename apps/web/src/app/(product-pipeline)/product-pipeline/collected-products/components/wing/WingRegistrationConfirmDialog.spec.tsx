@@ -4,10 +4,13 @@ import WingRegistrationConfirmDialog from './WingRegistrationConfirmDialog';
 import type { WingRegistrationDraft } from '../../lib/wing-registration-flow';
 
 const draft = {
+  candidateId: 'candidate-1',
+  idempotencyKey: '33333333-3333-4333-8333-333333333333',
   product: {} as WingRegistrationDraft['product'],
   extensionId: 'ext-1',
   detailImageUrl: 'https://cdn.example.com/detail.jpg',
   overrides: {
+    categoryKey: '77390',
     productName: '테스트 노출상품명',
     sellerProductName: '테스트 등록상품명',
     colorValue: '핑크',
@@ -17,9 +20,39 @@ const draft = {
     stock: 100,
   },
   channelAccountId: '11111111-1111-4111-8111-111111111111',
+  registrationInput: {},
 } satisfies WingRegistrationDraft;
 
 describe('WingRegistrationConfirmDialog', () => {
+  it('requires a fixed WING category and returns the selected key', () => {
+    const onConfirm = vi.fn();
+    const missingCategoryDraft = {
+      ...draft,
+      overrides: { ...draft.overrides, categoryKey: '' as const },
+    };
+    render(
+      <WingRegistrationConfirmDialog
+        draft={missingCategoryDraft}
+        isSubmitting={false}
+        onCancel={() => {}}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    expect(screen.getByText('카테고리를 선택하세요.')).toBeInTheDocument();
+    const confirm = screen.getByRole('button', { name: '확인하고 WING 등록 시작' });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('WING 카테고리'), { target: { value: '64687' } });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryKey: '64687' }),
+      false,
+    );
+  });
+
   it('gives the stock field a hint so the 판매가/정상가/재고 row stays aligned', () => {
     // 회귀: 재고칸만 hint 가 없어 grid-cols-3 한 행에서 입력칸이 위로 붕 떴다.
     render(

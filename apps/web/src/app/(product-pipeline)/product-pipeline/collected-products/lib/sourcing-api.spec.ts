@@ -239,7 +239,7 @@ describe('sourcing candidate API', () => {
         selectedDetailPageArtifactId: '99999999-9999-4999-8999-999999999999',
         selectedDetailPageRevisionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         selectedDetailPageGenerationId: '33333333-3333-4333-8333-333333333333',
-        registrationInput: { category: '완구' },
+        registrationInput: { category: '완구', wingCategoryKey: '64687' },
         createdAt: '2026-05-17T00:30:00.000Z',
         updatedAt: '2026-05-17T01:00:00.000Z',
       },
@@ -262,6 +262,7 @@ describe('sourcing candidate API', () => {
       selectedDetailPageGenerationId: '33333333-3333-4333-8333-333333333333',
       selectedDetailPageArtifactId: '99999999-9999-4999-8999-999999999999',
       selectedDetailPageRevisionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      registrationInput: { category: '완구', wingCategoryKey: '64687' },
       updatedAt: '2026-05-17T01:00:00.000Z',
     });
     expect(detail).not.toHaveProperty('promotedMasterId');
