@@ -89,8 +89,12 @@ Route shape is frozen.
   allocation order, so rows sharing a component cannot each retain an
   independently valid but collectively impossible quantity.
 - `confirmRocket` reruns the canonical preview from the submitted collection,
-  requires an explicit reviewed quantity for every line, and requires a
-  controlled shortage reason for every short line.
+  requires a confirmed active `ChannelListingOption -> ProductVariant ->
+  ProductVariantComponent` recipe for every official line (including a
+  zero-quantity line), and requires an explicit reviewed quantity for every
+  line. Mapping, configuration, and recipe-review blockers cannot be
+  confirmed; only a recipe-backed insufficient-capacity row may continue with
+  a controlled shortage reason.
 - Rocket confirmation uses one organization advisory lock, the current
   Inventory generation, the completed Rocket source artifact, and unchanged
   `ChannelListingOption -> ProductVariant -> ProductVariantComponent` identity

@@ -20,6 +20,11 @@ list, chart, confirmation-panel position, and local file-history composition.
   require an explicit source choice before loading a saved preview.
 - A quantity or shortage-reason edit makes the preview dirty and disables
   confirmation until one whole-preview server revalidation succeeds.
+- Mapping, configuration, and recipe-review blockers link to the existing
+  Product Hub matching center. After correction, rerun the same saved-source
+  preview; do not collect from Coupang again. Quantity and shortage-reason
+  controls stay disabled for these blockers. Only a recipe-backed
+  insufficient-capacity row may proceed with an explicit shortage reason.
 - Workbook generation uses the canonical persisted confirmation result. Local
   file history is operator convenience, not confirmation evidence. A retry
   uses the source rows captured by that confirmation, never a newer preview.
@@ -34,6 +39,9 @@ list, chart, confirmation-panel position, and local file-history composition.
 - Catalog evidence is `SourceImportRun` + `RocketPoCatalogSnapshot` +
   `RocketPoCatalogLine`. Confirmation is `RocketPurchaseConfirmation`, and
   `InventoryCommitment` is the sole active stock hold ledger.
+- Every official confirmation line, including a zero-quantity line, requires
+  its current confirmed active `ProductVariantComponent` recipe. Never export
+  a draft workbook from an unmapped or stock-only row.
 - Confirmation must not call a marketplace provider or mutate Sellpia physical
   stock. Reopening saved evidence always reruns current Inventory freshness and
   capacity.

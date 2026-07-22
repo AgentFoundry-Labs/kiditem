@@ -71,12 +71,19 @@ logged-in order-collector extension
   recipes applied by the current completed collection and the remaining review
   or blocked counts. Each product-level status deep-links to
   `/product-hub/matching` with both `channelAccountId` and `status`; the product
-  matching center owns explicit reruns and focused corrections.
+  matching center owns explicit reruns and focused corrections. A blocked
+  Rocket line deep-links with its `productNo` search and `focusOptionId`, then
+  re-previews the same saved collection after the operator fixes the mapping;
+  it does not collect from Coupang again.
 - Confirmation stays disabled until the backend has published a complete
-  catalog, all rows include authoritative workbook fields, and the operator has
-  reviewed every quantity/shortage reason.
+  catalog, all rows include authoritative workbook fields and confirmed active
+  recipes, and the operator has reviewed every quantity/shortage reason.
+  Mapping, configuration, and recipe-review blockers must be resolved in
+  Product Hub. Only recipe-backed insufficient capacity may proceed with an
+  explicit shortage reason.
 - Confirmation uses a browser-created UUID idempotency key and downloads the
-  workbook only after the server persists the allocation. Persisted request/
+  workbook only after the server persists the allocation; no draft or
+  stock-only workbook path is allowed. Persisted request/
   final commitments remain durable after refresh but are not rendered as a
   separate operator list on the Rocket review page. Provisional cancellation is a release;
   final-order settlement requires a newer Sellpia snapshot proving the
