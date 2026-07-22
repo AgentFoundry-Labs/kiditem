@@ -1,10 +1,11 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/inventory - Sellpia Snapshot, Warehouses, Fulfillment Records
+# web/inventory - Sellpia Snapshot And Inventory Operations
 
-`app/(inventory)/` owns the preserved `/inventory-hub`, `/inventory`,
-`/stock-ops`, `/unshipped-items`, and `/outbound` operational surfaces,
-warehouses, and Coupang shipment support.
+`app/(inventory)/` owns the active `/inventory-hub`, `/inventory`, `/stock-ops`,
+and `/coupang-shipments` operational surfaces and their shared components.
+Warehouse rows remain organization-scoped reference data for `StockTransfers`;
+this group does not own a standalone warehouse-management route.
 The displayed stock is the latest completed Sellpia snapshot stored on
 physical `SellpiaInventorySku` rows.
 
@@ -12,9 +13,8 @@ physical `SellpiaInventorySku` rows.
 
 - Sellpia snapshot list, import history, freshness, and asset reporting
 - Channel availability, zero-stock, bottleneck, and mapping-attention views
-- Warehouse metadata and record-only transfer/picking/return views
-- Independently reachable unshipped and outbound screens; related composition
-  in `/order-hub` does not replace them
+- Warehouse reference reads for `StockTransfers` and record-only transfer and
+  return views
 - Coupang shipment file helpers and browser print support
 
 ## Data Flow
@@ -25,9 +25,10 @@ React Query + inventory API helpers
   -> /api/inventory/sellpia-sync/*
   -> /api/channels/sku-availability
   -> /api/stock-transfers
-  -> /api/warehouses
-  -> /api/unshipped
-  -> queryKeys.inventory and channel availability keys
+  -> /api/warehouses (reference reads for StockTransfers)
+  -> /api/return-transfers
+  -> queryKeys.inventory, queryKeys.stockTransfers, queryKeys.warehouses,
+     queryKeys.returnTransfers, and channel availability keys
 ```
 
 ## State Rules
@@ -83,8 +84,7 @@ React Query + inventory API helpers
   Sellpia import.
 - Do not compute channel capacity in UI code. Render the backend's nullable
   `sellableStock`, component capacities, and bottleneck flags.
-- Transfer, picking, and return forms select a physical `SellpiaInventorySku`
-  and create or update operational records only; completion does not imply a
-  stock write.
+- Transfer and return forms select a physical `SellpiaInventorySku` and create
+  or update operational records only; completion does not imply a stock write.
 - Coupang shipment extension/file behavior stays inside `coupang-shipments/`
   unless another inventory route imports it.

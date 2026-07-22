@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { queryKeys } from './query-keys';
 
+describe('retired inventory route query keys', () => {
+  it('removes unshipped and keeps warehouse reference lookup', () => {
+    expect(queryKeys).not.toHaveProperty('unshipped');
+    expect(queryKeys.warehouses).not.toHaveProperty('list');
+    expect(queryKeys.warehouses.all).toEqual(['warehouses']);
+    expect(queryKeys.orders.list({ status: 'confirmed' })).toEqual(['orders', 'list', { status: 'confirmed' }]);
+  });
+});
+
 describe('queryKeys.settlements', () => {
   it('uses one settlement list key family for all settlement reads', () => {
     expect(queryKeys.settlements.all).toEqual(['settlements']);

@@ -16,6 +16,9 @@ Runbooks are different from concept docs:
 
 Current runbooks:
 
+- [Warehouse API Provisioning](warehouse-api-provisioning.md) — safely read,
+  create, update, verify, and delete organization-scoped Warehouse reference
+  rows consumed by StockTransfers after standalone warehouse UI retirement.
 - [Sellpia/Channel SKU Matching](channel-sellpia-matching.md) — import the
   Sellpia-authoritative MasterProduct snapshot and account-scoped Wing catalog,
   confirm exact ChannelSku component recipes, and verify the `0.1.8` baseline.

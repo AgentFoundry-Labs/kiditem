@@ -249,10 +249,6 @@ export const queryKeys = {
     data: (params: Record<string, string>) => [...queryKeys.stockMovement.all, 'data', params] as const,
     summary: (params: Record<string, string>) => [...queryKeys.stockMovement.all, 'summary', params] as const,
   },
-  unshipped: {
-    all: ['unshipped'] as const,
-    list: (params?: Record<string, string>) => [...queryKeys.unshipped.all, 'list', params] as const,
-  },
   sourcing: {
     all: ['sourcing'] as const,
     list: (params: Record<string, string>) => [...queryKeys.sourcing.all, 'list', params] as const,
@@ -357,7 +353,6 @@ export const queryKeys = {
   },
   warehouses: {
     all: ['warehouses'] as const,
-    list: () => [...queryKeys.warehouses.all, 'list'] as const,
   },
   returnTransfers: {
     all: ['returnTransfers'] as const,
