@@ -39,7 +39,7 @@ React Query + apiClient
   baseline generated-file flow; do not replace the order-collection layout with
   a separate synchronization workspace.
 - Existing local Rocket file history may use browser storage for operator
-  convenience; it is not server truth or evidence that confirmation is active.
+  convenience; the server-persisted workbook artifact and workflow are truth.
 - Preserve each route's `c9e7caf8` page composition and URL. Shared extracted
   components may reduce duplication, but an independent route must not become a
   redirect merely because `/order-hub` also composes related functionality.
@@ -51,7 +51,7 @@ React Query + apiClient
 - `/rocket-orders` keeps the baseline calendar/list/file-history composition.
   Its calendar and reopened evidence use the account-scoped Supply catalog
   snapshot actions, and it injects `RocketConfirmPanel` through the workspace
-  `decisionWorkspace` render prop. Confirmation is read-only with respect to
+  `decisionWorkspace` render prop. Workbook export is read-only with respect to
   provider and physical Sellpia stock actions.
 
 ## Boundary Rules
@@ -63,14 +63,16 @@ React Query + apiClient
 - Picking and return-transfer operations reference physical
   `SellpiaInventorySku` rows and update operational records only; do not
   present them as direct Sellpia stock changes.
-- Rocket catalog listing, saved evidence load, preview, confirmation, workbook,
-  and release use the shared Supply `/api/purchase-orders` action contract.
-  `InventoryCommitment` is the only active stock hold ledger.
+- Rocket catalog listing, saved evidence load, preview, workbook export,
+  exact re-download, and evidence-gated abandonment use the shared Supply
+  `/api/purchase-orders` action contract. Rocket does not create or project
+  inventory commitments.
 - Extension-backed queries that render local error UI may suppress the global
   React Query error toast with query meta.
 - A successful order-collector extension submit is a Sellpia transmission
   request, not proof of Sellpia acceptance. The web app durably prepares an
-  organization-scoped intent before invoking that irreversible submit and
+  organization-scoped intent keyed by Rocket workbook export and transport
+  before invoking that irreversible submit and
   blocks submission if preparation fails or the same intent is unresolved.
   `{ success: true, submitted: true }` immediately finalizes the intent into a
   post-submit generation; only explicit non-submission aborts it. Raw mall
