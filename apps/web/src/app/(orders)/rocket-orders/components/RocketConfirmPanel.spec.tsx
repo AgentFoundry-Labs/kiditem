@@ -84,7 +84,6 @@ const baseWorkflow = {
   revalidateEditedQuantities: vi.fn(),
   confirmPurchase: vi.fn(),
   downloadActiveConfirmation: vi.fn(),
-  exportStockWorkbook: vi.fn(),
   releaseConfirmation: vi.fn(),
 };
 
@@ -103,7 +102,6 @@ function renderPanel(options?: { preview?: typeof baseWorkflow.preview | null })
       from="2026-07-01"
       to="2026-07-31"
       selectedSourceImportRunId={null}
-      primarySourceImportRunId={null}
       onActivity={vi.fn()}
       onOrdersChanged={vi.fn()}
       renderOrderExplorer={({ onSelectDate }) => (

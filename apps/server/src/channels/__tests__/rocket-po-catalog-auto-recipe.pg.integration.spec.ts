@@ -53,7 +53,6 @@ describe('Rocket PO catalog automatic recipe (PG integration)', () => {
         prismaService,
         new ChannelCatalogProductProvisioningRepositoryAdapter(),
       ),
-      evidence,
       recipeAutomation,
     );
   });

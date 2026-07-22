@@ -59,8 +59,6 @@ export interface RocketDecisionWorkspaceContext {
   from: string;
   to: string;
   selectedSourceImportRunId: string | null;
-  /** 현재 조회범위의 수집본이 하나면 그 id — 날짜 미선택 시 전체 상품 매칭에 쓴다. */
-  primarySourceImportRunId: string | null;
   onActivity: (activity: RocketOrderActivityInput) => void;
   onOrdersChanged: () => void;
   renderOrderExplorer: (options: RocketOrderExplorerRenderOptions) => ReactNode;
@@ -156,11 +154,6 @@ export function RocketOrdersWorkspace({
   });
 
   const orders = data ?? EMPTY_ROCKET_POS;
-  // 조회범위의 수집본이 하나면 그 id(날짜 미선택 전체 매칭용). 여러 수집본이면 null.
-  const primarySourceImportRunId = useMemo(() => {
-    const ids = new Set(orders.map((order) => order.sourceImportRunId));
-    return ids.size === 1 ? [...ids][0]! : null;
-  }, [orders]);
 
   // 입고예정일별 그룹
   const byDate = useMemo(() => {
@@ -536,7 +529,6 @@ export function RocketOrdersWorkspace({
         from,
         to,
         selectedSourceImportRunId,
-        primarySourceImportRunId,
         onActivity: recordActivity,
         onOrdersChanged: () => void refetch(),
         renderOrderExplorer,

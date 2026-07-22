@@ -87,21 +87,11 @@ function recipeAutomation() {
   };
 }
 
-function evidencePort() {
-  return {
-    listActiveForMatching: async () => [],
-    findByCodes: async () => [],
-    findByNormalizedBarcodes: async () => [],
-    findByNormalizedNames: async () => [],
-    getActiveCommitmentBySkuIds: async () => ({}),
-  };
-}
-
-function service(repo = repository(), automation = recipeAutomation(), evidence = evidencePort()) {
+function service(repo = repository(), automation = recipeAutomation()) {
   return {
     repo,
     automation,
-    service: new RocketPoCatalogService(repo, evidence as never, automation as never),
+    service: new RocketPoCatalogService(repo, automation as never),
   };
 }
 
@@ -297,40 +287,5 @@ describe('RocketPoCatalogService', () => {
         appliedVariants: 1,
       }),
     }));
-  });
-
-  it('matchSavedStock: 같은 SKU 공동할당 — 확정수량 합이 availableStock(현재고-약정)을 넘지 않는다', async () => {
-    const repo = repository();
-    repo.loadSavedCollection = vi.fn().mockResolvedValue({
-      channelAccountId,
-      collection: {
-        collectionRunId: '44444444-4444-4444-8444-444444444444',
-        vendorId: 'VENDOR-1', listPagesRead: 1, totalListPages: 1, truncated: false,
-        detailPoCount: 2, failedPoNumbers: [],
-      },
-      rows: [
-        { poLineId: 'A:1', poNumber: '1001', vendorId: 'VENDOR-1', productNo: 'P-1', barcode: '8801234567890', productName: 'Rocket item', orderQty: 5, plannedDeliveryDate: '2026-07-20' },
-        { poLineId: 'B:1', poNumber: '1002', vendorId: 'VENDOR-1', productNo: 'P-1', barcode: '8801234567890', productName: 'Rocket item', orderQty: 5, plannedDeliveryDate: '2026-07-20' },
-      ],
-    });
-    const evidence = {
-      ...evidencePort(),
-      findByNormalizedBarcodes: async () => [
-        { sellpiaInventorySkuId: 'sku-1', code: 'SP-1', name: '셀피아상품', optionName: null, barcode: '8801234567890', currentStock: 10 },
-      ],
-      getActiveCommitmentBySkuIds: async () => ({ 'sku-1': 4 }), // availableStock = 10 - 4 = 6
-    };
-    const catalog = new RocketPoCatalogService(repo, evidence as never, recipeAutomation() as never);
-
-    const rows = await catalog.matchSavedStock({ organizationId, channelAccountId, sourceImportRunId: '55555555-5555-4555-8555-555555555555' });
-    const byLine = new Map(rows.map((row) => [row.poLineId, row]));
-
-    expect(byLine.get('A:1')).toMatchObject({
-      matched: true, matchType: 'barcode', currentStock: 10, activeCommitmentQuantity: 4, availableStock: 6,
-    });
-    // 공동 할당(poLineId 순): A=5, B=1. 각각 6/10 이 아니라 합이 가용재고 6 이내.
-    expect(byLine.get('A:1')!.confirmQuantity).toBe(5);
-    expect(byLine.get('B:1')!.confirmQuantity).toBe(1);
-    expect(byLine.get('A:1')!.confirmQuantity + byLine.get('B:1')!.confirmQuantity).toBeLessThanOrEqual(6);
   });
 });

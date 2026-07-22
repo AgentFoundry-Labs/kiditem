@@ -109,6 +109,11 @@ describe('Rocket purchase decision boundary', () => {
     expect(canonicalConfirmationSource).toContain('globalThis.crypto.randomUUID()');
     expect(canonicalConfirmationSource).toContain('editedQuantities: reviewedQuantities');
     expect(canonicalConfirmationSource).toContain('shortageReasons');
+    expect(canonicalConfirmationSource).not.toMatch(
+      /matchRocketStock|exportStockWorkbook|allowMissingConfirmation|재고 기준 엑셀/,
+    );
+    expect(canonicalConfirmationSource).toContain('confirmRocketPurchase');
+    expect(canonicalConfirmationSource).toContain('downloadActiveConfirmation');
     expect(confirmPanelSource).not.toContain('previewSavedRocketConfirm');
     expect(confirmPanelSource).not.toContain('commitRocketConfirmRows');
     expect(previewSectionSource).toContain('<RocketPurchaseWorkspace');

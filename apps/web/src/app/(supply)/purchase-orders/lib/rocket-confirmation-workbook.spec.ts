@@ -125,33 +125,6 @@ describe('buildRocketConfirmationWorkbook', () => {
       }],
     })).toThrow(/metadata/i);
   });
-
-  it('allowMissingConfirmation: 메타 없이도 빈칸으로 파일을 만든다(재고 기준 내보내기)', async () => {
-    const { confirmation: _confirmation, ...noMetaRow } = sourceRow();
-    const result = buildRocketConfirmationWorkbook({
-      sourceRows: [noMetaRow],
-      confirmedRows: [{
-        poLineId: PO_LINE_ID,
-        confirmedQuantity: 2,
-        shortageReason: '협력사 재고부족 - 재고 할당정책',
-      }],
-      allowMissingConfirmation: true,
-      now: new Date('2026-07-17T00:00:00.000Z'),
-    });
-    const workbook = XLSX.read(await result.blob.arrayBuffer());
-    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(
-      workbook.Sheets['상품목록']!,
-      { header: 1, raw: true, defval: '' },
-    );
-    // 상품·발주·확정수량·부족사유는 채우고, 쿠팡 메타(센터/반품주소/가격)는 빈칸.
-    expect(rows[1]?.[0]).toBe('1001'); // 발주번호
-    expect(rows[1]?.[1]).toBe(''); // 센터(빈칸)
-    expect(rows[1]?.[6]).toBe('Rocket item'); // 상품명
-    expect(rows[1]?.[8]).toBe(2); // 확정수량
-    expect(rows[1]?.[12]).toBe('협력사 재고부족 - 재고 할당정책'); // 납품부족사유
-    expect(rows[1]?.[15]).toBe(''); // 반품주소(빈칸)
-    expect(result.summary).toMatchObject({ totalRows: 1, confirmedQuantity: 2, shortRows: 1 });
-  });
 });
 
 describe('fillRocketConfirmationWorkbook', () => {

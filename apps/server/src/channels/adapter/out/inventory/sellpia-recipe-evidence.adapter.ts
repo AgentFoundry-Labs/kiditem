@@ -41,13 +41,6 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
   ): Promise<SellpiaRecipeEvidenceSku[]> {
     return (await this.inventory.findByNormalizedNames(organizationId, normalizedNames)).map(toEvidenceSku);
   }
-
-  getActiveCommitmentBySkuIds(
-    organizationId: string,
-    sellpiaInventorySkuIds: string[],
-  ): Promise<Record<string, number>> {
-    return this.inventory.getActiveCommitmentBySkuIds(organizationId, sellpiaInventorySkuIds);
-  }
 }
 
 function toEvidenceSku(sku: {

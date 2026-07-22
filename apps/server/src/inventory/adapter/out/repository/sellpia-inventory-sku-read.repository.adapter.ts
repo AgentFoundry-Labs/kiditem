@@ -138,28 +138,6 @@ implements SellpiaInventorySkuReadRepositoryPort {
     return rows.map(toReadModel);
   }
 
-  async getActiveCommitmentBySkuIds(
-    organizationId: string,
-    sellpiaInventorySkuIds: string[],
-  ): Promise<Record<string, number>> {
-    const ids = [...new Set(sellpiaInventorySkuIds.filter((id) => id.length > 0))];
-    if (ids.length === 0) return {};
-    const totals = await this.prisma.inventoryCommitmentAllocation.groupBy({
-      by: ['sellpiaInventorySkuId'],
-      where: {
-        organizationId,
-        sellpiaInventorySkuId: { in: ids },
-        commitment: { is: { status: 'active', organizationId } },
-      },
-      _sum: { quantity: true },
-    });
-    const result: Record<string, number> = {};
-    for (const total of totals) {
-      result[total.sellpiaInventorySkuId] = total._sum.quantity ?? 0;
-    }
-    return result;
-  }
-
   private async find(
     where: Prisma.SellpiaInventorySkuWhereInput,
   ): Promise<SellpiaInventorySkuReadModel[]> {

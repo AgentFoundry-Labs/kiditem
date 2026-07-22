@@ -392,47 +392,6 @@ export function useRocketPurchaseWorkflow({
     if (result) await downloadActiveConfirmation(result);
   };
 
-  // 셀피아 재고 기준 확정 엑셀(레시피/서버 예약 없이 문서만 생성). 미등록 상품용.
-  // 실제 쿠팡 수집 메타(센터·반품주소 등, source.confirmation)가 있어야 유효한 양식이 나온다.
-  const exportStockWorkbook = async (
-    confirmedRows: RocketPurchaseConfirmationResponse['rows'],
-  ): Promise<boolean> => {
-    if (sourceRows.length === 0) {
-      setError('내보낼 발주 행이 없습니다.');
-      return false;
-    }
-    onActivity?.({ status: 'started', message: '셀피아 재고 기준 발주확정 엑셀을 생성하고 있습니다.' });
-    try {
-      const workbook = templateFile
-        ? fillRocketConfirmationWorkbook({
-            template: await templateFile.arrayBuffer(),
-            templateFileName: templateFile.name,
-            sourceRows,
-            confirmedRows,
-          })
-        : buildRocketConfirmationWorkbook({
-            sourceRows,
-            confirmedRows,
-            // 쿠팡 실메타가 없어도(백필·미등록) 그 칸을 비운 채 파일을 만든다.
-            allowMissingConfirmation: true,
-          });
-      downloadBlob(workbook.blob, workbook.fileName);
-      onActivity?.({
-        status: 'succeeded',
-        message: `재고 기준 발주확정 엑셀을 생성했습니다(확정 ${workbook.summary.confirmedQuantity}개).`,
-      });
-      return true;
-    } catch {
-      // 남는 실패는 대부분 업로드한 쿠팡 양식이 발주 목록과 안 맞는 경우.
-      const message = templateFile
-        ? '업로드한 쿠팡 양식이 이 발주 목록과 맞지 않습니다(발주번호·상품번호·바코드 확인). 양식 없이 다시 시도하면 기본 양식으로 생성합니다.'
-        : '엑셀을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.';
-      setError(message);
-      onActivity?.({ status: 'failed', message });
-      return false;
-    }
-  };
-
   const releaseConfirmation = async () => {
     if (confirmation?.status !== 'active' || !releaseReason.trim()) return;
     setReleasing(true);
@@ -480,7 +439,6 @@ export function useRocketPurchaseWorkflow({
     confirmPurchase,
     downloadActiveConfirmation,
     confirmAndDownload,
-    exportStockWorkbook,
     releaseConfirmation,
   };
 }

@@ -18,7 +18,7 @@ class PurchaseOrderItemDto {
  * organizationId 는 `req.authUser.organizationId` 에서 주입 — DTO 에는 포함하지 않는다.
  */
 export class PurchaseOrderActionBodyDto {
-  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'confirmRocket', 'releaseRocketConfirmation', 'listRocketCommitments', 'settleRocketFinalOrderCommitments', 'releaseRocketFinalOrderCommitments', 'listSavedRocketPos', 'loadSavedRocketCollection', 'matchRocketStock'])
+  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'confirmRocket', 'releaseRocketConfirmation', 'listRocketCommitments', 'settleRocketFinalOrderCommitments', 'releaseRocketFinalOrderCommitments', 'listSavedRocketPos', 'loadSavedRocketCollection'])
   action: string;
 
   @ValidateIf(o => o.action === 'create')
@@ -68,7 +68,7 @@ export class PurchaseOrderActionBodyDto {
   providerReference?: string | null;
 
   @ValidateIf(o =>
-    ['previewRocket', 'confirmRocket', 'listSavedRocketPos', 'loadSavedRocketCollection', 'matchRocketStock'].includes(o.action)
+    ['previewRocket', 'confirmRocket', 'listSavedRocketPos', 'loadSavedRocketCollection'].includes(o.action)
     || (o.action === 'listRocketCommitments' && o.channelAccountId !== undefined))
   @IsUUID()
   channelAccountId?: string;
@@ -85,18 +85,9 @@ export class PurchaseOrderActionBodyDto {
   @IsString() @MaxLength(80)
   rocketStatus?: string;
 
-  @ValidateIf(o => ['loadSavedRocketCollection', 'matchRocketStock'].includes(o.action))
+  @ValidateIf(o => o.action === 'loadSavedRocketCollection')
   @IsUUID()
   sourceImportRunId?: string;
-
-  // matchRocketStock 전용: 입고예정일 범위 스코핑(선택). 주면 그 범위 행만 매칭한다.
-  @ValidateIf(o => o.action === 'matchRocketStock' && o.fromDate !== undefined)
-  @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  fromDate?: string;
-
-  @ValidateIf(o => o.action === 'matchRocketStock' && o.toDate !== undefined)
-  @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  toDate?: string;
 
   @ValidateIf(o => ['previewRocket', 'confirmRocket'].includes(o.action))
   @IsObject()

@@ -8,11 +8,8 @@ describe('SellpiaRecipeEvidenceAdapter', () => {
       findByNormalizedBarcodes: vi.fn().mockResolvedValue([{ sellpiaInventorySkuId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890', currentStock: 3 }]),
       findByNormalizedNames: vi.fn().mockResolvedValue([]),
       listActiveForMatching: vi.fn().mockResolvedValue([]),
-      getActiveCommitmentBySkuIds: vi.fn().mockResolvedValue({ 'sku-1': 2 }),
     };
     const adapter = new SellpiaRecipeEvidenceAdapter(inventory as never);
-    await expect(adapter.getActiveCommitmentBySkuIds('org-1', ['sku-1'])).resolves.toEqual({ 'sku-1': 2 });
-    expect(inventory.getActiveCommitmentBySkuIds).toHaveBeenCalledWith('org-1', ['sku-1']);
     await expect(adapter.findByCodes('org-1', ['SP-1'])).resolves.toEqual([{
       sellpiaInventorySkuId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890', currentStock: 3,
     }]);

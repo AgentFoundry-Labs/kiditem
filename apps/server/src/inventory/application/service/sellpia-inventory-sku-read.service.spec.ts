@@ -99,8 +99,5 @@ function makeRepository() {
       .mockResolvedValue([]),
     search: vi.fn<SellpiaInventorySkuReadRepositoryPort['search']>()
       .mockResolvedValue([]),
-    getActiveCommitmentBySkuIds: vi
-      .fn<SellpiaInventorySkuReadRepositoryPort['getActiveCommitmentBySkuIds']>()
-      .mockResolvedValue({}),
   };
 }
