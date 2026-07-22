@@ -1,39 +1,90 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Package, X } from 'lucide-react';
+import { ExternalLink, Package, X } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
+import type {
+  RocketPurchasePreviewComponent,
+  RocketPurchasePreviewReason,
+} from '@kiditem/shared/rocket-purchase-preview';
 
 export interface RocketMatchStatusRow {
   poLineId: string;
   poNumber: string;
+  productNo: string;
   productName: string;
   barcode: string;
   orderQuantity: number;
-  availableStock: number | null;
-  mapped: boolean;
+  reason: RocketPurchasePreviewReason | null;
+  channelSkuId: string | null;
+  components: RocketPurchasePreviewComponent[];
 }
 
-type MatchBucket = 'mapped' | 'none';
+type MatchBucket = 'mapping_required' | 'configuration_required' | 'review_required' | 'configured';
+
+function bucketOfReason(reason: RocketPurchasePreviewReason | null): MatchBucket {
+  switch (reason) {
+    case 'mapping_required':
+    case 'configuration_required':
+    case 'review_required':
+      return reason;
+    default:
+      return 'configured';
+  }
+}
 
 function bucketOf(row: RocketMatchStatusRow): MatchBucket {
-  return row.mapped ? 'mapped' : 'none';
+  return bucketOfReason(row.reason);
 }
 
 const BUCKET_META: Record<MatchBucket, { label: string; chip: string; order: number; hint: string }> = {
-  none: {
-    label: '미매칭',
+  mapping_required: {
+    label: '상품 연결 필요',
     chip: 'bg-red-50 text-red-500',
     order: 0,
-    hint: '셀피아 재고에서 못 찾음 — 매핑 필요',
+    hint: '쿠팡 상품·옵션을 KidItem 운영 상품에 연결해야 합니다.',
   },
-  mapped: {
-    label: '구성 확인',
-    chip: 'bg-slate-100 text-slate-500',
+  configuration_required: {
+    label: '재고 구성 필요',
+    chip: 'bg-orange-50 text-orange-700',
     order: 1,
-    hint: '채널 옵션과 Sellpia 구성 레시피가 확인됨',
+    hint: '연결된 운영 옵션에 Sellpia 재고 구성 레시피가 필요합니다.',
+  },
+  review_required: {
+    label: '레시피 검토 필요',
+    chip: 'bg-amber-50 text-amber-700',
+    order: 2,
+    hint: '제안된 Sellpia 구성 레시피를 운영자가 검토해야 합니다.',
+  },
+  configured: {
+    label: '구성 완료',
+    chip: 'bg-emerald-50 text-emerald-700',
+    order: 3,
+    hint: '채널 옵션과 Sellpia 구성 레시피가 확인되었습니다.',
   },
 };
+
+export function rocketProductMatchingHref({
+  channelAccountId,
+  productNo,
+  channelSkuId,
+}: Pick<RocketMatchStatusRow, 'productNo' | 'channelSkuId'> & { channelAccountId: string }) {
+  const params = new URLSearchParams({ channelAccountId, search: productNo });
+  if (channelSkuId) params.set('focusOptionId', channelSkuId);
+  return `/product-hub/matching?${params.toString()}`;
+}
+
+export function rocketMatchStateLabel(reason: RocketPurchasePreviewReason | null): string {
+  return BUCKET_META[bucketOfReason(reason)].label;
+}
+
+function componentValues(
+  row: RocketMatchStatusRow,
+  field: 'currentStock' | 'activeCommitmentQuantity' | 'availableStock',
+): string {
+  if (row.components.length === 0) return '—';
+  return row.components.map((component) => formatNumber(component[field])).join(' / ');
+}
 
 /**
  * 쿠팡 로켓 발주 상품이 셀피아 재고에 "어떻게" 매칭됐는지 한눈에 보는 현황 모달.
@@ -44,12 +95,14 @@ export function RocketMatchStatusModal({
   onClose,
   rows,
   date,
+  channelAccountId,
   title = '매칭 현황',
 }: {
   open: boolean;
   onClose: () => void;
   rows: RocketMatchStatusRow[];
   date: string | null;
+  channelAccountId: string;
   title?: string;
 }) {
   useEffect(() => {
@@ -68,9 +121,14 @@ export function RocketMatchStatusModal({
       acc[bucketOf(row)] += 1;
       return acc;
     },
-    { none: 0, mapped: 0 } as Record<MatchBucket, number>,
+    {
+      mapping_required: 0,
+      configuration_required: 0,
+      review_required: 0,
+      configured: 0,
+    } as Record<MatchBucket, number>,
   );
-  const needsReview = counts.none;
+  const needsReview = counts.mapping_required + counts.configuration_required + counts.review_required;
   const sorted = [...rows].sort((a, b) => BUCKET_META[bucketOf(a)].order - BUCKET_META[bucketOf(b)].order);
 
   return (
@@ -91,7 +149,7 @@ export function RocketMatchStatusModal({
               <Package size={17} className="text-purple-600" /> {title}
             </div>
             <div className="mt-0.5 text-xs text-slate-400">
-              {date ? `${date} · ` : '전체 · '}발주 상품 {formatNumber(rows.length)}행 · 셀피아 재고 매칭 방식
+              {date ? `${date} · ` : '전체 · '}발주 상품 {formatNumber(rows.length)}행 · 상품·재고 구성 상태
             </div>
           </div>
           <button
@@ -105,7 +163,7 @@ export function RocketMatchStatusModal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs">
-          {(['mapped', 'none'] as MatchBucket[]).map((bucket) => (
+          {(['mapping_required', 'configuration_required', 'review_required', 'configured'] as MatchBucket[]).map((bucket) => (
             <span key={bucket} className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium', BUCKET_META[bucket].chip)}>
               {BUCKET_META[bucket].label}
               <b className="tabular-nums">{formatNumber(counts[bucket])}</b>
@@ -121,9 +179,11 @@ export function RocketMatchStatusModal({
             <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-4 py-2 text-left font-semibold">발주 상품 · 쿠팡 (바코드)</th>
-                <th className="px-4 py-2 text-left font-semibold">셀피아 상품 · 매칭</th>
+                <th className="px-4 py-2 text-left font-semibold">상품·재고 상태</th>
                 <th className="px-3 py-2 text-right font-semibold">발주</th>
-                <th className="px-4 py-2 text-right font-semibold">재고</th>
+                <th className="px-3 py-2 text-right font-semibold">현재고</th>
+                <th className="px-3 py-2 text-right font-semibold">약정</th>
+                <th className="px-4 py-2 text-right font-semibold">가용재고</th>
               </tr>
             </thead>
             <tbody>
@@ -137,28 +197,34 @@ export function RocketMatchStatusModal({
                       <div className="font-mono text-[10px] text-slate-400">{row.barcode || '—'}</div>
                     </td>
                     <td className="max-w-[320px] px-4 py-2">
-                      {bucket === 'none' ? (
-                        <span className="text-xs text-red-400">셀피아 재고에서 못 찾음</span>
-                      ) : (
-                        <div className="flex items-start gap-1.5">
-                          <span
-                            className={cn('mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium', meta.chip)}
-                            title={meta.hint}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium', meta.chip)}
+                          title={meta.hint}
+                        >
+                          {meta.label}
+                        </span>
+                        {bucket !== 'configured' ? (
+                          <a
+                            href={rocketProductMatchingHref({
+                              channelAccountId,
+                              productNo: row.productNo,
+                              channelSkuId: row.channelSkuId,
+                            })}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={`${meta.label} 해결`}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700 hover:underline"
                           >
-                            {meta.label}
-                          </span>
-                          <span className="truncate text-slate-600">Sellpia 구성 레시피 확인</span>
-                        </div>
-                      )}
+                            상품 매칭 센터 <ExternalLink size={11} />
+                          </a>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-600">{formatNumber(row.orderQuantity)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">
-                      {row.availableStock === null ? (
-                        <span className="text-red-400">—</span>
-                      ) : (
-                        <span className="text-slate-600">{formatNumber(row.availableStock)}</span>
-                      )}
-                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-500">{componentValues(row, 'currentStock')}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-500">{componentValues(row, 'activeCommitmentQuantity')}</td>
+                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-slate-700">{componentValues(row, 'availableStock')}</td>
                   </tr>
                 );
               })}
@@ -167,7 +233,7 @@ export function RocketMatchStatusModal({
         </div>
 
         <div className="border-t border-slate-100 px-5 py-3 text-[11px] text-slate-400">
-          <b className="text-slate-500">구성 확인</b>은 채널 옵션과 ProductVariant 구성 레시피가 검증된 상태입니다. 미매칭은 상품 매칭 센터에서 먼저 처리하세요.
+          <b className="text-slate-500">구성 완료</b>만 발주 수량을 검토할 수 있습니다. 나머지는 상품 매칭 센터에서 처리한 뒤 같은 미리보기를 다시 계산하세요.
         </div>
       </div>
     </div>

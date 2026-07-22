@@ -11,6 +11,7 @@ import {
   Upload,
 } from 'lucide-react';
 import {
+  isRocketConfirmationBlockingReason,
   ROCKET_SHORTAGE_REASONS,
   type RocketPurchasePreviewRow,
   type RocketShortageReason,
@@ -19,16 +20,14 @@ import { toast } from 'sonner';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { useRocketPurchaseWorkflow } from '@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow';
 import { RocketInventoryCommitmentList } from '@/app/(supply)/purchase-orders/components/RocketInventoryCommitmentList';
+import { RocketDeterministicMatchingPanel } from '@/app/(supply)/purchase-orders/components/RocketDeterministicMatchingPanel';
 import type { RocketDecisionWorkspaceContext } from './RocketOrdersWorkspace';
 import {
   RocketMatchStatusModal,
+  rocketMatchStateLabel,
+  rocketProductMatchingHref,
   type RocketMatchStatusRow,
 } from './RocketMatchStatusModal';
-
-function rowAvailableStock(row: RocketPurchasePreviewRow): number | null {
-  if (row.components.length === 0) return null;
-  return row.maxQuantity;
-}
 
 function componentValues(
   row: RocketPurchasePreviewRow,
@@ -114,12 +113,15 @@ export function RocketConfirmPanel({
   const matchRows: RocketMatchStatusRow[] = rows.map((row) => ({
     poLineId: row.poLineId,
     poNumber: row.poNumber,
+    productNo: row.productNo,
     productName: row.productName,
     barcode: sourceByLineId.get(row.poLineId)?.barcode ?? '',
     orderQuantity: row.orderQuantity,
-    availableStock: rowAvailableStock(row),
-    mapped: row.productVariantId !== null && row.components.length > 0,
+    reason: row.reason,
+    channelSkuId: row.channelSkuId,
+    components: row.components,
   }));
+  const hasBlockingRows = rows.some((row) => isRocketConfirmationBlockingReason(row.reason));
   const busy = loading || confirming || releasing;
 
   function handleExplorerDateSelection(date: string | null, sourceRunCount: number) {
@@ -290,6 +292,13 @@ export function RocketConfirmPanel({
         </div>
       ) : null}
 
+      {preview?.catalog ? (
+        <RocketDeterministicMatchingPanel
+          channelAccountId={channelAccountId}
+          latestAutomation={preview.catalog.recipeAutomation}
+        />
+      ) : null}
+
       {rows.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
@@ -314,6 +323,16 @@ export function RocketConfirmPanel({
                   className="rounded-lg border border-purple-300 bg-white px-3 py-1.5 text-sm font-medium text-purple-700 disabled:opacity-50"
                 >
                   수량 다시 검증
+                </button>
+              ) : null}
+              {hasBlockingRows ? (
+                <button
+                  type="button"
+                  onClick={() => void revalidateEditedQuantities()}
+                  disabled={busy}
+                  className="rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-semibold text-purple-800 disabled:opacity-50"
+                >
+                  매핑 반영해 다시 계산
                 </button>
               ) : null}
               <button
@@ -357,12 +376,40 @@ export function RocketConfirmPanel({
                   const source = sourceByLineId.get(row.poLineId);
                   const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
                   const short = quantity < row.orderQuantity;
+                  const blocking = isRocketConfirmationBlockingReason(row.reason);
+                  const matchStateLabel = rocketMatchStateLabel(row.reason);
                   return (
-                    <tr key={row.poLineId} className={cn('border-t border-slate-100', short && 'bg-amber-50/40')}>
+                    <tr key={row.poLineId} className={cn(
+                      'border-t border-slate-100',
+                      blocking ? 'bg-rose-50/40' : short && 'bg-amber-50/40',
+                    )}>
                       <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-slate-500">{row.poNumber}</td>
                       <td className="max-w-[260px] px-3 py-1.5">
                         <div className="truncate text-slate-700"><Package size={11} className="mr-1 inline text-purple-400" />{row.productName}</div>
                         <div className="font-mono text-[10px] text-slate-400">{source?.barcode || '—'}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className={cn(
+                            'rounded px-1.5 py-0.5 text-[10px] font-semibold',
+                            blocking ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700',
+                          )}>
+                            {matchStateLabel}
+                          </span>
+                          {blocking ? (
+                            <a
+                              href={rocketProductMatchingHref({
+                                channelAccountId,
+                                productNo: row.productNo,
+                                channelSkuId: row.channelSkuId,
+                              })}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={`${matchStateLabel} 해결`}
+                              className="text-[10px] font-semibold text-purple-700 hover:underline"
+                            >
+                              상품 매칭 센터
+                            </a>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{formatNumber(row.orderQuantity)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{componentValues(row, 'currentStock')}</td>
@@ -375,7 +422,7 @@ export function RocketConfirmPanel({
                           min={0}
                           max={Math.min(row.maxQuantity, row.orderQuantity)}
                           value={quantity}
-                          disabled={confirmation?.status === 'active'}
+                          disabled={blocking || confirmation?.status === 'active'}
                           onChange={(event) => editQuantity(row, Number(event.target.value) || 0)}
                           className={cn(
                             'w-20 rounded-md border px-2 py-1 text-right text-sm tabular-nums',
@@ -387,7 +434,7 @@ export function RocketConfirmPanel({
                         <select
                           aria-label={`${row.poNumber} 납품부족사유`}
                           value={shortageReasons[row.poLineId] ?? ''}
-                          disabled={!short || confirmation?.status === 'active'}
+                          disabled={blocking || !short || confirmation?.status === 'active'}
                           onChange={(event) => {
                             setShortageReasons((current) => ({
                               ...current,
@@ -433,6 +480,7 @@ export function RocketConfirmPanel({
         onClose={() => setMatchModalOpen(false)}
         rows={matchRows}
         date={selectedDate || null}
+        channelAccountId={channelAccountId}
       />
     </div>
   );

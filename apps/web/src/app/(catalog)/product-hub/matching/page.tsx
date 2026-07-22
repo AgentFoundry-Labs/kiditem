@@ -50,6 +50,7 @@ export default function MatchingPage() {
   const [status, setStatus] = useState(urlStatus);
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
   const initialSearch = searchParams.get('search')?.trim() ?? '';
+  const focusOptionId = searchParams.get('focusOptionId') ?? undefined;
   const [searchText, setSearchText] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const pendingInternalSearch = useRef<string | null>(null);
@@ -221,6 +222,7 @@ export default function MatchingPage() {
           onEditVariant={setVariantTarget}
           onShowRecipeSuggestion={setSuggestionTarget}
           automationItemsByOptionId={automationItemsByOptionId}
+          focusOptionId={focusOptionId}
         />
       ) : null}
       {selectedAccount && !mappingsQuery.error && filteredProducts.length > 50 ? <Pagination page={page} limit={50} total={filteredProducts.length} onPageChange={(nextPage) => updateUrl({ page: String(nextPage) }, false)} /> : null}
