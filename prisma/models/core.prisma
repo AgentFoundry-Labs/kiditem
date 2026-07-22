@@ -72,15 +72,16 @@ model Organization {
   orderReturnLineItems OrderReturnLineItem[]
 
   // Supplier & Procurement
-  suppliers                             Supplier[]
-  supplierPayments                      SupplierPayment[]
-  supplierProducts                      SupplierProduct[]
-  purchaseOrderItems                    PurchaseOrderItem[]
-  rocketPurchaseConfirmations           RocketPurchaseConfirmation[]
-  rocketPurchaseConfirmationLines       RocketPurchaseConfirmationLine[]
-  rocketPurchaseConfirmationAllocations RocketPurchaseConfirmationAllocation[]
-  inventoryCommitments                  InventoryCommitment[]
-  inventoryCommitmentAllocations        InventoryCommitmentAllocation[]
+  suppliers                               Supplier[]
+  supplierPayments                        SupplierPayment[]
+  supplierProducts                        SupplierProduct[]
+  purchaseOrderItems                      PurchaseOrderItem[]
+  rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
+  rocketPurchaseConfirmationLines         RocketPurchaseConfirmationLine[]
+  rocketPurchaseConfirmationAllocations   RocketPurchaseConfirmationAllocation[]
+  rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
+  inventoryCommitments                    InventoryCommitment[]
+  inventoryCommitmentAllocations          InventoryCommitmentAllocation[]
 
   // Warehouse & record-only inventory operations
   warehouses                                    Warehouse[]
@@ -354,17 +355,18 @@ model SourceImportRun {
   createdAt                    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount                      ChannelAccount?              @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  manualFreshExportConfirmer          User?                        @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
-  sellpiaInventorySkus                SellpiaInventorySku[]        @relation("SellpiaInventorySkuLastImport")
-  channelProducts                     ChannelListing[]             @relation("ChannelProductLastImport")
-  channelSkus                         ChannelListingOption[]       @relation("ChannelSkuLastImport")
-  channelScrapeRuns                   ChannelScrapeRun[]
-  lastCompletedSellpiaInventoryStates SellpiaInventoryState[]      @relation("SellpiaInventoryStateLastCompletedRun")
-  rocketPurchaseConfirmations         RocketPurchaseConfirmation[]
-  rocketPoCatalogSnapshot              RocketPoCatalogSnapshot?
-  orders                              Order[]
+  organization                            Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount                          ChannelAccount?                          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  manualFreshExportConfirmer              User?                                    @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
+  sellpiaInventorySkus                    SellpiaInventorySku[]                    @relation("SellpiaInventorySkuLastImport")
+  channelProducts                         ChannelListing[]                         @relation("ChannelProductLastImport")
+  channelSkus                             ChannelListingOption[]                   @relation("ChannelSkuLastImport")
+  channelScrapeRuns                       ChannelScrapeRun[]
+  lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
+  rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
+  rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
+  rocketPoCatalogSnapshot                 RocketPoCatalogSnapshot?
+  orders                                  Order[]
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))

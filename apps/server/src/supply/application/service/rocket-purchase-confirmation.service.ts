@@ -1,12 +1,12 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
-  isRocketConfirmationBlockingReason,
-  RocketPurchaseConfirmationRequestSchema,
-  RocketPurchaseConfirmationReleaseRequestSchema,
-  RocketPurchaseConfirmationResponseSchema,
-  type RocketPurchaseConfirmationRequest,
-  type RocketPurchaseConfirmationResponse,
-  type RocketPurchaseConfirmationReleaseRequest,
+  isRocketWorkbookBlockingReason,
+  RocketWorkbookAbandonRequestSchema,
+  RocketWorkbookExportRequestSchema,
+  RocketWorkbookExportResponseSchema,
+  type RocketWorkbookAbandonRequest,
+  type RocketWorkbookExportRequest,
+  type RocketWorkbookExportResponse,
   type RocketPurchasePreviewRequest,
 } from '@kiditem/shared/rocket-purchase-preview';
 import {
@@ -14,30 +14,36 @@ import {
   type RocketPurchasePreviewPort,
 } from '../port/in/procurement/rocket-purchase-preview.port';
 import {
-  ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT,
-  type RocketPurchaseConfirmationTransactionPort,
+  ROCKET_WORKBOOK_EXPORT_TRANSACTION_PORT,
+  type RocketWorkbookExportTransactionPort,
 } from '../port/out/transaction/rocket-purchase-confirmation.transaction.port';
-import type { RocketPurchaseConfirmationPort } from '../port/in/procurement/rocket-purchase-confirmation.port';
+import type { RocketWorkbookExportPort } from '../port/in/procurement/rocket-purchase-confirmation.port';
 
 @Injectable()
-export class RocketPurchaseConfirmationService
-implements RocketPurchaseConfirmationPort {
+export class RocketWorkbookExportService
+implements RocketWorkbookExportPort {
   constructor(
     @Inject(ROCKET_PURCHASE_PREVIEW_PORT)
     private readonly previewPort: RocketPurchasePreviewPort,
-    @Inject(ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT)
-    private readonly transactions: RocketPurchaseConfirmationTransactionPort,
+    @Inject(ROCKET_WORKBOOK_EXPORT_TRANSACTION_PORT)
+    private readonly transactions: RocketWorkbookExportTransactionPort,
   ) {}
 
-  async confirm(input: {
+  async exportWorkbook(input: {
     organizationId: string;
     userId: string;
-    request: RocketPurchaseConfirmationRequest;
-  }): Promise<RocketPurchaseConfirmationResponse> {
-    const request = RocketPurchaseConfirmationRequestSchema.parse(input.request);
+    request: RocketWorkbookExportRequest;
+    artifactBytes: Buffer;
+  }): Promise<RocketWorkbookExportResponse> {
+    const request = RocketWorkbookExportRequestSchema.parse(input.request);
+    if (input.artifactBytes.byteLength === 0 || input.artifactBytes.byteLength > 10 * 1024 * 1024) {
+      throw new BadRequestException('Rocket workbook artifact must be between 1 byte and 10 MiB.');
+    }
     const {
       idempotencyKey: _idempotencyKey,
       shortageReasons: _shortageReasons,
+      artifactFileName: _artifactFileName,
+      artifactContentType: _artifactContentType,
       ...previewRequest
     } = request;
     const preview = await this.previewPort.preview({
@@ -47,36 +53,51 @@ implements RocketPurchaseConfirmationPort {
     });
     if (!preview.catalog) {
       throw new BadRequestException(
-        'A complete Rocket PO collection is required before confirmation.',
+        'A complete Rocket PO collection is required before workbook export.',
       );
     }
-    if (preview.rows.some(({ reason }) => isRocketConfirmationBlockingReason(reason))) {
+    if (preview.rows.some(({ reason }) => isRocketWorkbookBlockingReason(reason))) {
       throw new BadRequestException(
-        'Every Rocket confirmation line requires a confirmed product recipe.',
+        'Every Rocket workbook line requires a confirmed product recipe.',
       );
     }
-    return RocketPurchaseConfirmationResponseSchema.parse(
-      await this.transactions.confirm({
+    return RocketWorkbookExportResponseSchema.parse(
+      await this.transactions.exportWorkbook({
         organizationId: input.organizationId,
         userId: input.userId,
         sourceImportRunId: preview.catalog.run.id,
         request,
         preview,
+        artifactBytes: input.artifactBytes,
       }),
     );
   }
 
-  async release(input: {
+  async getActiveWorkflow(input: {
+    organizationId: string;
+  }): Promise<RocketWorkbookExportResponse | null> {
+    const result = await this.transactions.getActiveWorkflow(input);
+    return result === null ? null : RocketWorkbookExportResponseSchema.parse(result);
+  }
+
+  downloadWorkbook(input: {
+    organizationId: string;
+    exportId: string;
+  }): Promise<{ fileName: string; contentType: string; bytes: Buffer }> {
+    return this.transactions.downloadWorkbook(input);
+  }
+
+  async abandonWorkbook(input: {
     organizationId: string;
     userId: string;
-    request: RocketPurchaseConfirmationReleaseRequest;
-  }): Promise<RocketPurchaseConfirmationResponse> {
-    const request = RocketPurchaseConfirmationReleaseRequestSchema.parse(input.request);
-    return RocketPurchaseConfirmationResponseSchema.parse(
-      await this.transactions.release({
+    request: RocketWorkbookAbandonRequest;
+  }): Promise<RocketWorkbookExportResponse> {
+    const request = RocketWorkbookAbandonRequestSchema.parse(input.request);
+    return RocketWorkbookExportResponseSchema.parse(
+      await this.transactions.abandonWorkbook({
         organizationId: input.organizationId,
         userId: input.userId,
-        confirmationId: request.confirmationId,
+        exportId: request.exportId,
         reason: request.reason,
       }),
     );

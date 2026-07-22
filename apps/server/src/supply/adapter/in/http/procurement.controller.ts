@@ -1,4 +1,19 @@
-import { Controller, Get, Post, Query, Body, BadRequestException, Inject, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Inject,
+  NotFoundException,
+  Post,
+  Query,
+  Res,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { ProcurementService } from '../../../application/service/procurement.service';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
@@ -11,19 +26,18 @@ import {
   type RocketPurchasePreviewPort,
 } from '../../../application/port/in/procurement/rocket-purchase-preview.port';
 import {
-  ROCKET_PURCHASE_CONFIRMATION_PORT,
-  type RocketPurchaseConfirmationPort,
+  ROCKET_WORKBOOK_EXPORT_PORT,
+  type RocketWorkbookExportPort,
 } from '../../../application/port/in/procurement/rocket-purchase-confirmation.port';
-import {
-  ROCKET_PURCHASE_COMMITMENT_QUERY_PORT,
-  type RocketPurchaseCommitmentQueryPort,
-} from '../../../application/port/in/procurement/rocket-purchase-commitment-query.port';
 import {
   ROCKET_PO_CATALOG_PORT,
   type RocketPoCatalogPort,
 } from '../../../../channels/application/port/in/rocket-po-catalog.port';
 import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
 import type { AuthUser } from '../../../../auth/auth.types';
+import type { MulterFile } from '../../../../common/types';
+
+const MAX_ROCKET_WORKBOOK_SIZE = 10 * 1024 * 1024;
 
 @Controller('purchase-orders')
 export class ProcurementController {
@@ -33,10 +47,8 @@ export class ProcurementController {
     private readonly submissions: PurchaseOrderSubmissionPort,
     @Inject(ROCKET_PURCHASE_PREVIEW_PORT)
     private readonly rocketPreview: RocketPurchasePreviewPort,
-    @Inject(ROCKET_PURCHASE_CONFIRMATION_PORT)
-    private readonly rocketConfirmation: RocketPurchaseConfirmationPort,
-    @Inject(ROCKET_PURCHASE_COMMITMENT_QUERY_PORT)
-    private readonly rocketCommitments: RocketPurchaseCommitmentQueryPort,
+    @Inject(ROCKET_WORKBOOK_EXPORT_PORT)
+    private readonly rocketWorkbooks: RocketWorkbookExportPort,
     @Inject(ROCKET_PO_CATALOG_PORT)
     private readonly rocketCatalog: RocketPoCatalogPort,
   ) {}
@@ -50,10 +62,15 @@ export class ProcurementController {
   }
 
   @Post()
+  @UseInterceptors(FileInterceptor('workbook', {
+    limits: { fileSize: MAX_ROCKET_WORKBOOK_SIZE },
+  }))
   async handleAction(
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @Body() body: PurchaseOrderActionBodyDto,
+    @UploadedFile() workbook?: MulterFile,
+    @Res({ passthrough: true }) response?: Response,
   ) {
     if (body.action === 'create') {
       return this.procurementService.create(organizationId, {
@@ -110,27 +127,43 @@ export class ProcurementController {
         },
       });
     }
-    if (body.action === 'confirmRocket') {
-      return this.rocketConfirmation.confirm({
+    if (body.action === 'exportRocketWorkbook') {
+      if (!workbook) throw new BadRequestException('Rocket workbook file is required.');
+      let request: unknown;
+      try {
+        request = JSON.parse(body.requestJson!);
+      } catch {
+        throw new BadRequestException('Rocket workbook request JSON is invalid.');
+      }
+      return this.rocketWorkbooks.exportWorkbook({
         organizationId,
         userId: user.id,
-        request: {
-          idempotencyKey: body.idempotencyKey!,
-          channelAccountId: body.channelAccountId!,
-          collection: body.collection!,
-          rows: body.rows!,
-          editedQuantities: body.editedQuantities!,
-          shortageReasons: body.shortageReasons!,
-        },
+        request: request as never,
+        artifactBytes: workbook.buffer,
       });
     }
-    if (body.action === 'releaseRocketConfirmation') {
-      return this.rocketConfirmation.release({
+    if (body.action === 'getActiveRocketWorkbook') {
+      return this.rocketWorkbooks.getActiveWorkflow({ organizationId });
+    }
+    if (body.action === 'downloadRocketWorkbook') {
+      const artifact = await this.rocketWorkbooks.downloadWorkbook({
+        organizationId,
+        exportId: body.exportId!,
+      });
+      response?.setHeader('Content-Type', artifact.contentType);
+      response?.setHeader(
+        'Content-Disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(artifact.fileName)}`,
+      );
+      return new StreamableFile(artifact.bytes);
+    }
+    if (body.action === 'abandonRocketWorkbook') {
+      return this.rocketWorkbooks.abandonWorkbook({
         organizationId,
         userId: user.id,
         request: {
-          confirmationId: body.confirmationId!,
-          reason: body.releaseReason!,
+          exportId: body.exportId!,
+          reason: body.abandonReason!,
         },
       });
     }
@@ -151,38 +184,6 @@ export class ProcurementController {
       });
       if (!collection) throw new NotFoundException('Saved Rocket PO collection not found');
       return collection;
-    }
-    if (body.action === 'listRocketCommitments') {
-      return this.rocketCommitments.list({
-        organizationId,
-        request: {
-          ...(body.channelAccountId && {
-            channelAccountId: body.channelAccountId,
-          }),
-          ...(body.cursor && { cursor: body.cursor }),
-          limit: body.limit ?? 50,
-        },
-      });
-    }
-    if (body.action === 'settleRocketFinalOrderCommitments') {
-      return this.rocketCommitments.settleFinalOrders({
-        organizationId,
-        userId: user.id,
-        request: {
-          commitmentIds: body.commitmentIds!,
-          reason: body.reason!,
-        },
-      });
-    }
-    if (body.action === 'releaseRocketFinalOrderCommitments') {
-      return this.rocketCommitments.releaseFinalOrders({
-        organizationId,
-        userId: user.id,
-        request: {
-          commitmentIds: body.commitmentIds!,
-          reason: body.reason!,
-        },
-      });
     }
     throw new BadRequestException(`Unknown action: ${body.action}`);
   }

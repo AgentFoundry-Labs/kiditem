@@ -319,10 +319,10 @@ model ProductRegistrationExecution {
   channelAccountId     String  @map("channel_account_id") @db.Uuid
   channelListingId     String? @map("channel_listing_id") @db.Uuid
 
-  executionKind  String @default("create") @map("execution_kind")
+  executionKind             String  @default("create") @map("execution_kind")
   expectedProviderAccountId String? @map("expected_provider_account_id")
-  idempotencyKey String @map("idempotency_key")
-  requestHash    String @map("request_hash")
+  idempotencyKey            String  @map("idempotency_key")
+  requestHash               String  @map("request_hash")
 
   submissionPayloadJson Json?   @map("submission_payload_json") @db.JsonB
   submissionPayloadHash String? @map("submission_payload_hash")
