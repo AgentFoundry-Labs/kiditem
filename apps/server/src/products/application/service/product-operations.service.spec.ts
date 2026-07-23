@@ -178,6 +178,18 @@ describe('ProductOperationsService', () => {
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
       expectedRecipe: [],
     });
+    await service.createRecipesIfEmpty(organizationId, userId, {
+      recipes: [{
+        productVariantId: variantId,
+        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
+      }],
+    });
+    await service.planRecipesIfEmpty(organizationId, {
+      recipes: [{
+        productVariantId: variantId,
+        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
+      }],
+    });
 
     expect(repository.getProduct).toHaveBeenCalledWith(organizationId, productId);
     expect(repository.updateProduct).toHaveBeenCalledWith(
@@ -203,6 +215,21 @@ describe('ProductOperationsService', () => {
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
       expectedRecipe: [],
     });
+    expect(repository.createManualRecipesIfEmpty).toHaveBeenCalledWith({
+      organizationId,
+      userId,
+      recipes: [{
+        productVariantId: variantId,
+        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
+      }],
+    });
+    expect(repository.planManualRecipesIfEmpty).toHaveBeenCalledWith({
+      organizationId,
+      recipes: [{
+        productVariantId: variantId,
+        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
+      }],
+    });
   });
 });
 
@@ -221,6 +248,14 @@ function makeRepository() {
     createVariant: vi.fn().mockResolvedValue(variant),
     updateVariant: vi.fn().mockResolvedValue(variant),
     replaceRecipe: vi.fn().mockResolvedValue(variant),
+    createManualRecipesIfEmpty: vi.fn().mockResolvedValue({
+      appliedProductVariantIds: [],
+      unchangedProductVariantIds: [variant.id],
+    }),
+    planManualRecipesIfEmpty: vi.fn().mockResolvedValue({
+      pendingProductVariantIds: [],
+      unchangedProductVariantIds: [variant.id],
+    }),
   } as unknown as {
     [K in keyof ProductOperationsRepositoryPort]: ReturnType<typeof vi.fn>;
   };

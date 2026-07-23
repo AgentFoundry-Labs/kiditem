@@ -33,6 +33,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'staging-db-baseline.ts',
   'storage-cache-control.ts',
   'sync-supabase-user.ts',
+  'transfer-channel-recipes.ts',
   'vitest.config.ts',
 ]);
 

@@ -20,8 +20,12 @@ Consult this document first instead of relying on memorized knowledge.
 - Adding, renaming, or deleting a script also updates:
   `scripts/README.md`, `scripts/check-script-inventory.mjs`, invoking
   package/runbook/CI references, and non-trivial script tests.
-- Do not store secrets, real tokens, local account identifiers, or copied
-  marketplace data in scripts, fixtures, comments, or expected output.
+- Do not store secrets, real tokens, organization/account UUIDs, names, prices,
+  stock values, or raw copied marketplace payloads in scripts, fixtures,
+  comments, or expected output. Explicitly reviewed channel-recipe datasets may
+  live under `scripts/channel-recipe-mappings/`; they contain only channel
+  listing/option external IDs, Sellpia SKU codes, and positive quantities and
+  remain operator data rather than matching logic.
 - Prefer deterministic helpers that run without the database.
 - Database or external-account mutation scripts need a runbook with
   prerequisites, confirmation flags, verification, and rollback/blocker notes.

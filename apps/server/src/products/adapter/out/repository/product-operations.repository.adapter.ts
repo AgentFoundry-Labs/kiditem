@@ -5,11 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   MasterProductOperationsListQuery,
   ReplaceProductVariantRecipeInput,
 } from '@kiditem/shared/product-operations';
-import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   NormalizedCreateMasterProduct,
   NormalizedCreateProductVariant,
@@ -248,6 +248,62 @@ implements ProductOperationsRepositoryPort {
     }
   }
 
+  async planManualRecipesIfEmpty(
+    input: Parameters<ProductOperationsRepositoryPort['planManualRecipesIfEmpty']>[0],
+  ) {
+    try {
+      const evaluation = await this.prisma.$transaction(
+        (tx) => evaluateManualRecipesIfEmpty(tx, input),
+        TRANSACTION_OPTIONS,
+      );
+      return {
+        pendingProductVariantIds: evaluation.pending.map(
+          (recipe) => recipe.productVariantId,
+        ),
+        unchangedProductVariantIds: evaluation.unchanged.map(
+          (recipe) => recipe.productVariantId,
+        ),
+      };
+    } catch (error) {
+      throw translateMutationError(error);
+    }
+  }
+
+  async createManualRecipesIfEmpty(
+    input: Parameters<ProductOperationsRepositoryPort['createManualRecipesIfEmpty']>[0],
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const evaluation = await evaluateManualRecipesIfEmpty(tx, input);
+        if (evaluation.pending.length > 0) {
+          const confirmedAt = new Date();
+          await tx.productVariantComponent.createMany({
+            data: evaluation.pending.flatMap((recipe) =>
+              recipe.components.map((component) => ({
+                organizationId: input.organizationId,
+                productVariantId: recipe.productVariantId,
+                sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+                quantity: component.quantity,
+                source: 'manual' as const,
+                confirmedBy: input.userId,
+                confirmedAt,
+              }))),
+          });
+        }
+        return {
+          appliedProductVariantIds: evaluation.pending.map(
+            (recipe) => recipe.productVariantId,
+          ),
+          unchangedProductVariantIds: evaluation.unchanged.map(
+            (recipe) => recipe.productVariantId,
+          ),
+        };
+      }, TRANSACTION_OPTIONS);
+    } catch (error) {
+      throw translateMutationError(error);
+    }
+  }
+
   async applyDeterministicRecipesIfEmpty(
     input: Parameters<ProductOperationsRepositoryPort['applyDeterministicRecipesIfEmpty']>[0],
   ) {
@@ -388,6 +444,104 @@ implements ProductOperationsRepositoryPort {
     if (!row) throw new NotFoundException('ProductVariant was not found');
     return toVariantDetail(row, row.masterProduct.originChannelListingId);
   }
+}
+
+async function evaluateManualRecipesIfEmpty(
+  tx: Prisma.TransactionClient,
+  input: Parameters<ProductOperationsRepositoryPort['planManualRecipesIfEmpty']>[0],
+) {
+  const recipes = [...input.recipes]
+    .sort((left, right) => left.productVariantId.localeCompare(right.productVariantId));
+  const variantIds = recipes.map((recipe) => recipe.productVariantId);
+  if (new Set(variantIds).size !== variantIds.length) {
+    throw new BadRequestException('Manual recipe batches must target distinct ProductVariants');
+  }
+  for (const recipe of recipes) {
+    if (recipe.components.length === 0) {
+      throw new BadRequestException('Manual recipe batches cannot create empty recipes');
+    }
+    assertRecipeComponentShape(recipe.components);
+  }
+  const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM product_variants
+    WHERE organization_id = ${input.organizationId}::uuid
+      AND id IN (${Prisma.join(variantIds)})
+    ORDER BY id ASC
+    FOR UPDATE
+  `);
+  if (locked.length !== variantIds.length) {
+    throw new NotFoundException('One or more ProductVariants were not found');
+  }
+  await validateActiveRecipeSkuIds(
+    tx,
+    input.organizationId,
+    [...new Set(recipes.flatMap((recipe) =>
+      recipe.components.map((component) => component.sellpiaInventorySkuId)))],
+  );
+
+  const existing = await tx.productVariantComponent.findMany({
+    where: {
+      organizationId: input.organizationId,
+      productVariantId: { in: variantIds },
+    },
+    select: {
+      productVariantId: true,
+      sellpiaInventorySkuId: true,
+      quantity: true,
+    },
+  });
+  const existingByVariant = new Map<string, typeof existing>();
+  for (const component of existing) {
+    const components = existingByVariant.get(component.productVariantId) ?? [];
+    components.push(component);
+    existingByVariant.set(component.productVariantId, components);
+  }
+  const pending = [] as typeof recipes;
+  const unchanged = [] as typeof recipes;
+  const conflictingProductVariantIds: string[] = [];
+  for (const recipe of recipes) {
+    const current = existingByVariant.get(recipe.productVariantId) ?? [];
+    if (current.length === 0) {
+      pending.push(recipe);
+    } else if (sameRecipeComponents(current, recipe.components)) {
+      unchanged.push(recipe);
+    } else {
+      conflictingProductVariantIds.push(recipe.productVariantId);
+    }
+  }
+  if (conflictingProductVariantIds.length > 0) {
+    throw new ConflictException({
+      message: 'One or more ProductVariants already have a different confirmed recipe',
+      conflictingProductVariantIds,
+    });
+  }
+  return { pending, unchanged };
+}
+
+function assertRecipeComponentShape(
+  components: readonly { sellpiaInventorySkuId: string; quantity: number }[],
+) {
+  if (components.some((component) => !Number.isInteger(component.quantity) || component.quantity <= 0)) {
+    throw new BadRequestException('ProductVariant component quantities must be positive integers');
+  }
+  const ids = components.map((component) => component.sellpiaInventorySkuId);
+  if (new Set(ids).size !== ids.length) {
+    throw new BadRequestException('ProductVariant component SKUs must be unique');
+  }
+}
+
+function sameRecipeComponents(
+  left: readonly { sellpiaInventorySkuId: string; quantity: number }[],
+  right: readonly { sellpiaInventorySkuId: string; quantity: number }[],
+) {
+  const canonical = (
+    components: readonly { sellpiaInventorySkuId: string; quantity: number }[],
+  ) => [...components]
+    .map(({ sellpiaInventorySkuId, quantity }) => ({ sellpiaInventorySkuId, quantity }))
+    .sort((first, second) =>
+      first.sellpiaInventorySkuId.localeCompare(second.sellpiaInventorySkuId));
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 }
 
 type RecipeSnapshot = {
