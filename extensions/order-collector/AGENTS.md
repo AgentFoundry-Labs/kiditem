@@ -97,9 +97,10 @@ conversion.
 - The web app creates the collection `runId`; the extension must echo that exact
   ID with structured evidence for list pages read, detail PO count, failed PO
   numbers, and truncation.
-- Collect at most 20 list pages and 40 PO details per run. Limit exhaustion,
-  detail failure, or an empty detail response is incomplete evidence and must
-  block preview publication in the backend.
+- Collect every provider-reported list page and every PO detail in the requested
+  range with bounded detail concurrency. A page/detail failure or an empty
+  detail response is incomplete evidence and must block preview publication in
+  the backend; never silently truncate a complete provider result.
 - Advertise `collectRocketPoRowsConfirmationV1` only when every publishable row
   also carries the allowlisted official-workbook fields collected from the
   authenticated Rocket list/detail response. Do not synthesize missing fields

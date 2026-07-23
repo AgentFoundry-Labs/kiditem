@@ -3,9 +3,9 @@
 `docs/release-notes/` contains dated notes for shipped behavior, migration
 context, and follow-up constraints that future agents need when reading history.
 
-Use this directory for durable release evidence, not session plans or scratch
-coordination. Temporary plans belong in local scratch space outside git and
-should not be committed.
+Use this directory for durable release evidence, not implementation plans or
+scratch coordination. Maintained plans and specs belong under
+`docs/superpowers/`; disposable scratch belongs in local space outside git.
 
 Naming convention:
 

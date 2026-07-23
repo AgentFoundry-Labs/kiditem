@@ -18,7 +18,7 @@ function productionSources(directory: string): string[] {
 }
 
 describe('Rocket purchase decision boundary', () => {
-  it('preserves the Rocket operations shell while keeping confirmation in the Supply boundary', () => {
+  it('preserves the Rocket operations shell while keeping workbook export in the Supply boundary', () => {
     const routeRoot = resolve(webRoot, 'src/app/(orders)/rocket-orders');
     const pageSource = readFileSync(resolve(routeRoot, 'page.tsx'), 'utf8');
     const operationsSource = readFileSync(resolve(
@@ -53,9 +53,9 @@ describe('Rocket purchase decision boundary', () => {
       webRoot,
       '../../extensions/order-collector/background/service-worker.js',
     ), 'utf8');
-    const canonicalConfirmationSource = `${confirmPanelSource}\n${previewWorkflowSource}`;
+    const canonicalWorkbookSource = `${confirmPanelSource}\n${previewWorkflowSource}`;
 
-    // 사용자 원본(03123c2f) 화면은 유지하되, 저장/확정 데이터 경로는 Supply의
+    // 사용자 원본(03123c2f) 화면은 유지하되, 워크북 데이터 경로는 Supply의
     // 계정 범위 canonical workflow 하나만 사용한다.
     expect(existsSync(resolve(routeRoot, 'components/RocketConfirmPanel.tsx'))).toBe(true);
     expect(existsSync(resolve(routeRoot, 'lib/rocket-confirm-api.ts'))).toBe(false);
@@ -95,7 +95,7 @@ describe('Rocket purchase decision boundary', () => {
     // orders 워크스페이스는 '발주 미리보기' 카드(RocketPurchasePreviewSection)를 더 이상
     // 렌더하지 않는다(사용자 요청 제거). 대신 활성 로켓 계정만 백그라운드로 선택
     // (RocketAccountBootstrap)해 달력·발주목록·차트에 공급하고, decisionWorkspace
-    // 렌더프롭으로 원본 확정 패널(저장 발주 달력 공급)을 주입한다.
+    // 렌더프롭으로 원본 워크북 패널(저장 발주 달력 공급)을 주입한다.
     expect(operationsSource).toContain('decisionWorkspace');
     expect(operationsSource).not.toContain('<RocketPurchasePreviewSection');
     expect(operationsSource).toContain('<RocketAccountBootstrap');
@@ -106,22 +106,35 @@ describe('Rocket purchase decision boundary', () => {
     expect(confirmPanelSource).toContain('savedSourceImportRunId');
     expect(confirmPanelSource).toContain('revalidateEditedQuantities');
     expect(confirmPanelSource).toContain('setPreviewDirty(true)');
-    expect(canonicalConfirmationSource).toContain('globalThis.crypto.randomUUID()');
-    expect(canonicalConfirmationSource).toContain('editedQuantities: reviewedQuantities');
-    expect(canonicalConfirmationSource).toContain('shortageReasons');
+    expect(canonicalWorkbookSource).toContain('globalThis.crypto.randomUUID()');
+    expect(canonicalWorkbookSource).toContain('editedQuantities: reviewedQuantities');
+    expect(canonicalWorkbookSource).toContain('shortageReasons');
+    expect(canonicalWorkbookSource).not.toMatch(
+      /matchRocketStock|exportStockWorkbook|allowMissingConfirmation|재고 기준 엑셀/,
+    );
+    expect(canonicalWorkbookSource).toContain('exportRocketWorkbook');
+    expect(canonicalWorkbookSource).toContain('downloadActiveWorkbook');
+    expect(canonicalWorkbookSource).toContain('getActiveRocketWorkbook');
+    expect(canonicalWorkbookSource).toContain('abandonRocketWorkbook');
+    expect(canonicalWorkbookSource).not.toMatch(
+      /RocketInventoryCommitmentList|activeCommitmentQuantity|availableStock|재고 예약|예약 확정/,
+    );
     expect(confirmPanelSource).not.toContain('previewSavedRocketConfirm');
     expect(confirmPanelSource).not.toContain('commitRocketConfirmRows');
     expect(previewSectionSource).toContain('<RocketPurchaseWorkspace');
     expect(previewSectionSource).not.toContain('<RocketInventoryCommitmentList');
     expect(previewSource).toContain('미리보기 다시 계산');
-    expect(previewSource).toContain('확정 후 엑셀 다운로드');
-    expect(previewWorkflowSource).toContain('releaseRocketPurchaseConfirmation');
+    expect(previewSource).toContain('쿠팡 엑셀 다운로드');
+    expect(previewSource).toContain('동일 파일 다시 다운로드');
     expect(previewWorkflowSource).toContain('loadSavedRocketCollection');
     expect(previewSource).not.toMatch(/providerSubmit|currentStock\s*=/);
-    expect(previewApiSource).toContain("action: 'confirmRocket'");
-    expect(previewApiSource).toContain("action: 'releaseRocketConfirmation'");
+    expect(previewApiSource).toContain("formData.append('action', 'exportRocketWorkbook')");
+    expect(previewApiSource).toContain("action: 'getActiveRocketWorkbook'");
+    expect(previewApiSource).toContain("action: 'downloadRocketWorkbook'");
+    expect(previewApiSource).toContain("action: 'abandonRocketWorkbook'");
     expect(previewApiSource).toContain("action: 'listSavedRocketPos'");
     expect(previewApiSource).toContain("action: 'loadSavedRocketCollection'");
+    expect(previewApiSource).not.toMatch(/confirmRocket|releaseRocketConfirmation/);
     expect(previewApiSource).not.toContain('/api/orders/rocket');
     expect(extensionSource).toContain('collectRocketPoRowsEvidenceV1: true');
     expect(extensionSource).toContain('collectRocketPoRowsConfirmationV1: true');

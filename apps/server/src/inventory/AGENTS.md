@@ -44,7 +44,10 @@ inventory/
 - Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
 - Physical-stock-independent commitments that reduce common available Sellpia
   capacity for cross-domain workflows. These records never mutate
-  `SellpiaInventorySku.currentStock`.
+  `SellpiaInventorySku.currentStock`. Rocket workbook workflows do not use
+  this ledger.
+- Read-only Rocket workbook progress projection from linked transmission
+  intents and Sellpia generation evidence
 - Unshipped reads: `/api/unshipped/*`
 - Warehouses: `/api/warehouses/*`
 - Record-only stock transfers: `/api/stock-transfers/*`
@@ -98,10 +101,9 @@ change stock.
 - Availability terms are fixed: `currentStock` is the latest physical Sellpia
   snapshot, `activeCommitmentQuantity` is the sum of active logical holds, and
   `availableStock = max(currentStock - activeCommitmentQuantity, 0)`.
-- The commitment port creates `rocket_request`, atomically replaces it with
-  `rocket_final_order`, bulk-reads request/final lineage, releases cancellations,
-  and settles final orders only after a strictly newer verified Sellpia
-  generation. None of these transitions writes `currentStock`.
+- Commitment ports remain available for non-Rocket workflows. Rocket workbook
+  export, order linkage, and completion never create, replace, release, or
+  settle an `InventoryCommitment`.
 - `InventoryModule` exports `SELLPIA_INVENTORY_REFRESH_REQUEST_PORT` for
   deterministic order/purchase refresh requests and
   `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT` for the final fresh-and-active
@@ -110,6 +112,9 @@ change stock.
   `currentStock` and active state from the same Inventory-owned freshness lock,
   fence, and verified generation. Rocket preview consumers must allocate from
   this gated snapshot rather than a stock value read before the gate.
+- `ROCKET_WORKBOOK_PROGRESS_PORT` projects a Rocket workflow from its linked
+  transmission intents and the latest verified Sellpia generation. It is
+  read-only and never adjusts stock.
 - External domains do not inject warehouse, transfer, or picking
   services directly.
 
@@ -149,8 +154,8 @@ change stock.
 - Route declaration order keeps static paths before `/:id`.
 - No controller or service may mutate physical `currentStock` through receive,
   issue, adjust, reserve, release, restock, stock-ledger, or Rocket stock-event
-  operations. Inventory-owned commitments may reserve, replace, release, and
-  settle logical capacity through the exported commitment port only.
+  operations. Inventory-owned commitments may serve other domains through the
+  exported commitment port only; Rocket must not use them.
 - Transfer, picking, and return completion updates operational record fields
   only; they do not write `SellpiaInventorySku.currentStock`.
 - Product operations reads must enter through Products APIs. The Inventory SKU

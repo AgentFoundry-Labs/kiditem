@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import { ROCKET_SHORTAGE_REASONS } from '@kiditem/shared/rocket-purchase-preview';
 import type {
   RocketPoCatalogRow,
-  RocketPurchaseConfirmationResponse,
+  RocketWorkbookExportResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
 
 const PRODUCT_SHEET = '상품목록';
@@ -19,7 +19,7 @@ interface RocketConfirmationWorkbookResult {
   fileName: string;
   summary: {
     totalRows: number;
-    confirmedQuantity: number;
+    workbookQuantity: number;
     fullyConfirmedRows: number;
     shortRows: number;
   };
@@ -35,28 +35,28 @@ const TEMPLATE_MATCH_HEADERS = [
 
 export function buildRocketConfirmationWorkbook(input: {
   sourceRows: RocketPoCatalogRow[];
-  confirmedRows: RocketPurchaseConfirmationResponse['rows'];
+  workbookRows: RocketWorkbookExportResponse['rows'];
   now?: Date;
 }): RocketConfirmationWorkbookResult {
-  const confirmedByLineId = new Map(input.confirmedRows.map((row) => [row.poLineId, row]));
-  if (confirmedByLineId.size !== input.sourceRows.length) {
-    throw new Error('Rocket confirmation rows do not match the collected source evidence.');
+  const workbookByLineId = new Map(input.workbookRows.map((row) => [row.poLineId, row]));
+  if (workbookByLineId.size !== input.sourceRows.length) {
+    throw new Error('Rocket workbook rows do not match the collected source evidence.');
   }
-  let confirmedQuantity = 0;
+  let workbookQuantity = 0;
   let fullyConfirmedRows = 0;
   let shortRows = 0;
   const rows: (string | number)[][] = [Array.from(HEADER)];
   for (const source of input.sourceRows) {
     const confirmation = source.confirmation;
-    const confirmed = confirmedByLineId.get(source.poLineId);
+    const workbookRow = workbookByLineId.get(source.poLineId);
     if (!confirmation) {
       throw new Error('Rocket confirmation metadata is missing. Reload the order collector extension.');
     }
-    if (!confirmed) {
-      throw new Error('Rocket confirmation result is missing a collected PO line.');
+    if (!workbookRow) {
+      throw new Error('Rocket workbook result is missing a collected PO line.');
     }
-    confirmedQuantity += confirmed.confirmedQuantity;
-    if (confirmed.confirmedQuantity < source.orderQty) shortRows += 1;
+    workbookQuantity += workbookRow.workbookQuantity;
+    if (workbookRow.workbookQuantity < source.orderQty) shortRows += 1;
     else fullyConfirmedRows += 1;
     rows.push([
       source.poNumber,
@@ -67,11 +67,11 @@ export function buildRocketConfirmationWorkbook(input: {
       source.barcode,
       source.productName,
       source.orderQty,
-      confirmed.confirmedQuantity,
+      workbookRow.workbookQuantity,
       '',
       '',
       '',
-      confirmed.shortageReason ?? '',
+      workbookRow.shortageReason ?? '',
       confirmation.returnManager,
       confirmation.returnContact,
       confirmation.returnAddress,
@@ -105,10 +105,10 @@ export function buildRocketConfirmationWorkbook(input: {
     blob: new Blob([bytes], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     }),
-    fileName: `발주확정_${calendarStamp(now)}.xlsx`,
+    fileName: `쿠팡_로켓_${calendarStamp(now)}.xlsx`,
     summary: {
       totalRows: input.sourceRows.length,
-      confirmedQuantity,
+      workbookQuantity,
       fullyConfirmedRows,
       shortRows,
     },
@@ -119,10 +119,10 @@ export function fillRocketConfirmationWorkbook(input: {
   template: ArrayBuffer;
   templateFileName: string;
   sourceRows: RocketPoCatalogRow[];
-  confirmedRows: RocketPurchaseConfirmationResponse['rows'];
+  workbookRows: RocketWorkbookExportResponse['rows'];
   now?: Date;
 }): RocketConfirmationWorkbookResult {
-  const confirmedByLineId = validateConfirmedRows(input.sourceRows, input.confirmedRows);
+  const workbookByLineId = validateWorkbookRows(input.sourceRows, input.workbookRows);
   const workbook = XLSX.read(input.template, { type: 'array', cellStyles: true });
   const sheet = workbook.Sheets[PRODUCT_SHEET];
   if (!sheet?.['!ref']) {
@@ -178,7 +178,7 @@ export function fillRocketConfirmationWorkbook(input: {
   }
 
   const occurrenceByKey = new Map<string, number>();
-  let confirmedQuantity = 0;
+  let workbookQuantity = 0;
   let fullyConfirmedRows = 0;
   let shortRows = 0;
   for (const source of input.sourceRows) {
@@ -186,14 +186,14 @@ export function fillRocketConfirmationWorkbook(input: {
     const occurrence = occurrenceByKey.get(key) ?? 0;
     occurrenceByKey.set(key, occurrence + 1);
     const templateRow = templateRowsByKey.get(key)?.[occurrence];
-    const confirmed = confirmedByLineId.get(source.poLineId);
-    if (templateRow === undefined || !confirmed) {
-      throw new Error('Rocket confirmation template rows do not match the collected source evidence.');
+    const workbookRow = workbookByLineId.get(source.poLineId);
+    if (templateRow === undefined || !workbookRow) {
+      throw new Error('Rocket workbook template rows do not match the collected source evidence.');
     }
-    writeTemplateCell(sheet, templateRow, quantityColumn, confirmed.confirmedQuantity);
-    writeTemplateCell(sheet, templateRow, reasonColumn, confirmed.shortageReason ?? '');
-    confirmedQuantity += confirmed.confirmedQuantity;
-    if (confirmed.confirmedQuantity < source.orderQty) shortRows += 1;
+    writeTemplateCell(sheet, templateRow, quantityColumn, workbookRow.workbookQuantity);
+    writeTemplateCell(sheet, templateRow, reasonColumn, workbookRow.shortageReason ?? '');
+    workbookQuantity += workbookRow.workbookQuantity;
+    if (workbookRow.workbookQuantity < source.orderQty) shortRows += 1;
     else fullyConfirmedRows += 1;
   }
 
@@ -207,29 +207,29 @@ export function fillRocketConfirmationWorkbook(input: {
     blob: new Blob([bytes], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     }),
-    fileName: `${templateFileStem(input.templateFileName)}_확정_${calendarStamp(now)}.xlsx`,
+    fileName: `${templateFileStem(input.templateFileName)}_쿠팡제출_${calendarStamp(now)}.xlsx`,
     summary: {
       totalRows: input.sourceRows.length,
-      confirmedQuantity,
+      workbookQuantity,
       fullyConfirmedRows,
       shortRows,
     },
   };
 }
 
-function validateConfirmedRows(
+function validateWorkbookRows(
   sourceRows: RocketPoCatalogRow[],
-  confirmedRows: RocketPurchaseConfirmationResponse['rows'],
-): Map<string, RocketPurchaseConfirmationResponse['rows'][number]> {
-  const confirmedByLineId = new Map(confirmedRows.map((row) => [row.poLineId, row]));
+  workbookRows: RocketWorkbookExportResponse['rows'],
+): Map<string, RocketWorkbookExportResponse['rows'][number]> {
+  const workbookByLineId = new Map(workbookRows.map((row) => [row.poLineId, row]));
   if (
-    confirmedRows.length !== sourceRows.length
-    || confirmedByLineId.size !== sourceRows.length
-    || sourceRows.some(({ poLineId }) => !confirmedByLineId.has(poLineId))
+    workbookRows.length !== sourceRows.length
+    || workbookByLineId.size !== sourceRows.length
+    || sourceRows.some(({ poLineId }) => !workbookByLineId.has(poLineId))
   ) {
-    throw new Error('Rocket confirmation rows do not match the collected source evidence.');
+    throw new Error('Rocket workbook rows do not match the collected source evidence.');
   }
-  return confirmedByLineId;
+  return workbookByLineId;
 }
 
 function isBlankCellValue(value: unknown): boolean {

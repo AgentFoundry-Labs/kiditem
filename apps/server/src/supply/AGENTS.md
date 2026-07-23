@@ -45,9 +45,9 @@ Route shape is frozen.
 - Delete is allowed only from `draft` or `pending`.
 - `/api/purchase-orders` keeps the single POST action body
   (`create | updateStatus | delete | submit | reconcileSubmission |
-  previewRocket | confirmRocket | releaseRocketConfirmation |
-  listRocketCommitments | settleRocketFinalOrderCommitments |
-  releaseRocketFinalOrderCommitments`).
+  previewRocket | exportRocketWorkbook | getActiveRocketWorkbook |
+  downloadRocketWorkbook | abandonRocketWorkbook | listSavedRocketPos |
+  loadSavedRocketCollection`).
 - `pending -> ordered` is forbidden through generic `updateStatus`; every real
   purchase uses `PurchaseOrderSubmissionPort` with an authenticated actor and
   caller-stable idempotency key.
@@ -73,12 +73,13 @@ Route shape is frozen.
   `CHANNEL_SKU_AVAILABILITY_PORT`, and applies the Inventory freshness gate
   before calculating quantities.
 - Rocket allocation replaces any earlier projected stock with Inventory's
-  same-generation gated capacity snapshot before calculation. A refresh cannot
-  bless quantities copied from an older generation.
-- Rocket preview allocation is a pure in-memory policy over Inventory-owned
-  `availableStock`, which already subtracts every active common commitment. It may return
+  same-generation gated `currentStock` snapshot before calculation. A refresh
+  cannot bless quantities copied from an older generation.
+- Rocket preview allocation is a pure in-memory policy over Sellpia
+  `currentStock`. It seeds one remaining-stock map per preview and consumes
+  shared component stock in stable ETA/PO/line order. It may return
   mapping, inactive-component, insufficient-capacity, or collection/account
-  blocking reasons, but the preview itself never commits, writes a workbook,
+  blocking reasons, but the preview itself never reserves stock, writes a workbook,
   mutates physical stock, or calls a purchase provider.
 - Edited quantities are bounded before every result, including collection,
   vendor, mapping, inactive-component, and zero-capacity rows. The pure domain
@@ -88,32 +89,30 @@ Route shape is frozen.
   request mode jointly clamps retained edits in the same stable ETA/PO/line
   allocation order, so rows sharing a component cannot each retain an
   independently valid but collectively impossible quantity.
-- `confirmRocket` reruns the canonical preview from the submitted collection,
-  requires an explicit reviewed quantity for every line, and requires a
-  controlled shortage reason for every short line.
-- Rocket confirmation uses one organization advisory lock, the current
+- `exportRocketWorkbook` reruns the canonical preview from the submitted collection,
+  requires a confirmed active `ChannelListingOption -> ProductVariant ->
+  ProductVariantComponent` recipe for every official line (including a
+  zero-quantity line), and requires an explicit reviewed quantity for every
+  line. Mapping, configuration, and recipe-review blockers cannot be
+  exported; only a recipe-backed insufficient-capacity row may continue with
+  a controlled shortage reason.
+- Rocket workbook export uses one organization advisory lock, the current
   Inventory generation, the completed Rocket source artifact, and unchanged
   `ChannelListingOption -> ProductVariant -> ProductVariantComponent` identity
-  before persisting an active capacity allocation.
-- A caller-stable UUID idempotency key returns the same confirmation only for
-  the same normalized request. Reusing it with different input is a conflict.
-- Inventory-owned active commitments reduce later previews and confirmations.
-  Supply keeps confirmation line/allocation rows as immutable audit evidence,
-  but does not aggregate them as a second capacity ledger. A provisional
-  request may be released after cancellation. PA collection replaces it with
-  one final-order commitment; that final commitment is settled only after a
-  newer Sellpia snapshot proves the physical movement, or released with an
-  explicit reason when the order is cancelled. None of these operations writes
-  `SellpiaInventorySku.currentStock` or calls Coupang.
+  before persisting the exact uploaded workbook bytes and immutable line audit
+  evidence. One organization may have at most one non-terminal workflow.
+- A caller-stable UUID idempotency key returns the same workbook only for the
+  same normalized request and bytes. Reusing it with different input is a
+  conflict. Re-download returns the stored artifact without recalculation.
 - Coupang PA order collection calls the exported
   `ROCKET_FINAL_ORDER_RECONCILIATION_PORT` with its caller-owned transaction.
-  Supply resolves exactly one active confirmation line by account, PO number,
-  and product number, verifies barcode evidence when both sides provide it,
-  and asks Inventory to replace the request commitment with the final-order
-  commitment. Supply does not write Orders tables.
-- Commitment list actions page Supply confirmation lines first and then use
-  one Inventory bulk read for their request/final lineage and availability.
-  Never issue an Inventory query per line.
+  Supply links an exact active workbook line by account, PO number, and product
+  number, verifies barcode evidence when both sides provide it, and returns the
+  stable `rocket-workbook:{exportId}:{transport}` transmission key. Supply does
+  not write Orders or Inventory stock tables.
+- Workflow completion requires all linked transmission intents to be finalized
+  and a strictly newer verified Sellpia generation. Abandonment requires fresh
+  SHIPMENT and MILKRUN probes with no matched rows plus an explicit reason.
 
 ## Cross-Domain Ports
 
@@ -129,15 +128,14 @@ Route shape is frozen.
 - Supplier and purchase-order single-resource access is repository-scoped by
   `{ id, organizationId }`.
 - Raw SQL uses Prisma tagged templates only.
-- Purchase-order submission and Rocket confirmation transaction adapters are
-  the Supply exceptions to repository-only Prisma access. Rocket confirmation
-  delegates generation fencing, capacity checks, and logical reserve/release
-  to `InventoryCommitmentPort` in the same Prisma transaction; it must not
-  derive Inventory policy, mutate Inventory state/current stock, or expose
-  those tables through a Supply repository.
+- Purchase-order submission and Rocket workbook transaction adapters are the
+  Supply exceptions to repository-only Prisma access. Workbook export delegates
+  generation fencing and progress projection to Inventory ports; it must not
+  mutate Inventory state/current stock or expose those tables through a Supply
+  repository.
 - Do not write `SupplierPayment`.
-- Rocket confirmation is an internal capacity commitment and workbook input,
-  not a purchase-provider submission or proof that Coupang accepted anything.
+- Rocket workbook export is an operator artifact, not a purchase-provider
+  submission or proof that Coupang accepted anything.
 - Do not reintroduce supplier/procurement controllers, services, DTOs, or
   supply model mutations under `src/sourcing/`.
 

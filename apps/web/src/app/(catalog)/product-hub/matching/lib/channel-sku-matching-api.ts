@@ -1,19 +1,15 @@
 import { z } from 'zod';
 import { ChannelAccountListItemSchema, type ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import {
-  ChannelOptionMatchingQueueRowSchema,
   ChannelRecipeSuggestionResponseSchema,
   ChannelProductCandidateListResponseSchema,
   ChannelProductMatchingQueueResponseSchema,
-  ChannelProductMatchingQueueRowSchema,
   ChannelVariantCandidateListResponseSchema,
   LinkChannelListingOptionInputSchema,
   LinkChannelListingProductInputSchema,
-  type ChannelOptionMatchingQueueRow,
   type ChannelRecipeSuggestionResponse,
   type ChannelProductCandidateListResponse,
   type ChannelProductMatchingQueueResponse,
-  type ChannelProductMatchingQueueRow,
   type ChannelVariantCandidateListResponse,
   type LinkChannelListingOptionInput,
   type LinkChannelListingProductInput,
@@ -77,25 +73,23 @@ export function getChannelRecipeSuggestion(
 export async function linkChannelListingProduct(
   channelListingId: string,
   input: LinkChannelListingProductInput,
-): Promise<ChannelProductMatchingQueueRow> {
+): Promise<void> {
   const body = LinkChannelListingProductInputSchema.parse(input);
-  const response = await apiClient.put<unknown>(
+  await apiClient.put<void>(
     `/api/channels/product-mappings/${encodeURIComponent(channelListingId)}/master-product`,
     body,
   );
-  return ChannelProductMatchingQueueRowSchema.parse(response);
 }
 
 export async function linkChannelListingOption(
   channelListingOptionId: string,
   input: LinkChannelListingOptionInput,
-): Promise<ChannelOptionMatchingQueueRow> {
+): Promise<void> {
   const body = LinkChannelListingOptionInputSchema.parse(input);
-  const response = await apiClient.put<unknown>(
+  await apiClient.put<void>(
     `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/product-variant`,
     body,
   );
-  return ChannelOptionMatchingQueueRowSchema.parse(response);
 }
 
 export function importCoupangWingCatalog(

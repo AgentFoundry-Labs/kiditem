@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  RocketPurchaseConfirmationRequestSchema,
-  RocketPurchaseConfirmationReleaseRequestSchema,
-  RocketPurchaseConfirmationResponseSchema,
+  isRocketWorkbookBlockingReason,
+  ROCKET_WORKBOOK_BLOCKING_REASONS,
+  RocketPurchasePreviewComponentSchema,
+  RocketWorkbookAbandonRequestSchema,
+  RocketWorkbookExportRequestSchema,
+  RocketWorkbookExportResponseSchema,
+  RocketWorkbookWorkflowStatusSchema,
   RocketPoCatalogPublicationSchema,
   RocketPurchasePreviewRequestSchema,
   RocketPurchasePreviewResponseSchema,
@@ -59,6 +63,19 @@ function request() {
 }
 
 describe('Rocket purchase preview contract', () => {
+  it('defines the exact reasons that block workbook export', () => {
+    expect(ROCKET_WORKBOOK_BLOCKING_REASONS).toEqual([
+      'mapping_required',
+      'configuration_required',
+      'review_required',
+    ]);
+    expect(isRocketWorkbookBlockingReason('mapping_required')).toBe(true);
+    expect(isRocketWorkbookBlockingReason('configuration_required')).toBe(true);
+    expect(isRocketWorkbookBlockingReason('review_required')).toBe(true);
+    expect(isRocketWorkbookBlockingReason('insufficient_capacity')).toBe(false);
+    expect(isRocketWorkbookBlockingReason(null)).toBe(false);
+  });
+
   it('publishes the scoped deterministic recipe automation result with the Rocket catalog', () => {
     const publication = RocketPoCatalogPublicationSchema.parse({
       run: {
@@ -191,22 +208,34 @@ describe('Rocket purchase preview contract', () => {
     })).toThrow();
   });
 
-  it('enforces the 20 list-page and 40 detail-page collection bounds', () => {
+  it('enforces only the defensive evidence and payload bounds', () => {
     expect(() => RocketPurchasePreviewRequestSchema.parse({
       ...request(),
-      collection: { ...request().collection, listPagesRead: 21 },
+      collection: { ...request().collection, listPagesRead: 100_001 },
     })).toThrow();
     expect(() => RocketPurchasePreviewRequestSchema.parse({
       ...request(),
-      collection: { ...request().collection, detailPoCount: 41 },
+      collection: { ...request().collection, detailPoCount: 4_001 },
     })).toThrow();
     expect(() => RocketPurchasePreviewRequestSchema.parse({
       ...request(),
       collection: {
         ...request().collection,
-        failedPoNumbers: Array.from({ length: 41 }, (_, index) => String(index)),
+        failedPoNumbers: Array.from({ length: 4_001 }, (_, index) => String(index)),
       },
     })).toThrow();
+  });
+
+  it('accepts complete collection evidence beyond the former page and detail bounds', () => {
+    expect(() => RocketPurchasePreviewRequestSchema.parse({
+      ...request(),
+      collection: {
+        ...request().collection,
+        listPagesRead: 21,
+        totalListPages: 21,
+        detailPoCount: 63,
+      },
+    })).not.toThrow();
   });
 
   it('requires stable unique PO line IDs and edited quantities for known lines only', () => {
@@ -280,8 +309,6 @@ describe('Rocket purchase preview contract', () => {
           sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
           quantity: 1,
           currentStock: 5,
-          activeCommitmentQuantity: 1,
-          availableStock: 4,
           isActive: true,
         }],
       }],
@@ -347,114 +374,132 @@ describe('Rocket purchase preview contract', () => {
     })).toThrow(/plannedDeliveryDate/i);
   });
 
-  it('rejects component availability that is inconsistent with active commitments', () => {
-    expect(() => RocketPurchasePreviewResponseSchema.parse({
-      collectionRunId: RUN_ID,
-      catalog: null,
-      inventoryGeneration: '12',
-      rows: [{
-        poLineId: request().rows[0]!.poLineId,
-        poNumber: '1001',
-        productNo: 'P-1',
-        productName: '로켓 상품',
-        plannedDeliveryDate: '2026-07-20',
-        orderQuantity: 4,
-        recommendedQuantity: 4,
-        maxQuantity: 5,
-        editedQuantity: null,
-        reason: null,
-        channelSkuId: ACCOUNT_ID,
-        masterProductId: MASTER_PRODUCT_ID,
-        productVariantId: PRODUCT_VARIANT_ID,
-        components: [{
-          sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
-          quantity: 1,
-          currentStock: 5,
-          activeCommitmentQuantity: 1,
-          availableStock: 5,
-          isActive: true,
-        }],
-      }],
-    })).toThrow(/availableStock/i);
+  it('accepts current stock as the only Rocket stock quantity', () => {
+    expect(RocketPurchasePreviewComponentSchema.parse({
+      sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      quantity: 1,
+      currentStock: 5,
+      isActive: true,
+    })).toEqual({
+      sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      quantity: 1,
+      currentStock: 5,
+      isActive: true,
+    });
+    expect(() => RocketPurchasePreviewComponentSchema.parse({
+      sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      quantity: 1,
+      currentStock: 5,
+      activeCommitmentQuantity: 1,
+      availableStock: 4,
+      isActive: true,
+    })).toThrow();
   });
 
-  it('requires an explicit reviewed quantity and shortage reason for every confirmation line', () => {
+  it('requires an explicit reviewed quantity, shortage reason, and artifact metadata for every workbook line', () => {
     const poLineId = request().rows[0]!.poLineId;
-    expect(RocketPurchaseConfirmationRequestSchema.parse({
+    expect(RocketWorkbookExportRequestSchema.parse({
       ...request(),
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: { [poLineId]: 2 },
       shortageReasons: { [poLineId]: '협력사 재고부족 - 수요예측 오류' },
+      artifactFileName: '쿠팡_로켓.xlsx',
+      artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })).toMatchObject({
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: { [poLineId]: 2 },
     });
 
-    expect(() => RocketPurchaseConfirmationRequestSchema.parse({
+    expect(() => RocketWorkbookExportRequestSchema.parse({
       ...request(),
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: {},
       shortageReasons: {},
+      artifactFileName: '쿠팡_로켓.xlsx',
+      artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })).toThrow(/reviewed quantity/i);
 
-    expect(() => RocketPurchaseConfirmationRequestSchema.parse({
+    expect(() => RocketWorkbookExportRequestSchema.parse({
       ...request(),
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: { [poLineId]: 2 },
       shortageReasons: {},
+      artifactFileName: '쿠팡_로켓.xlsx',
+      artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })).toThrow(/shortage reason/i);
 
-    expect(() => RocketPurchaseConfirmationRequestSchema.parse({
+    expect(() => RocketWorkbookExportRequestSchema.parse({
       ...request(),
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: { [poLineId]: 5 },
       shortageReasons: {},
+      artifactFileName: '쿠팡_로켓.xlsx',
+      artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })).toThrow(/order quantity/i);
 
-    expect(() => RocketPurchaseConfirmationRequestSchema.parse({
+    expect(() => RocketWorkbookExportRequestSchema.parse({
       ...request(),
       rows: [{ ...request().rows[0], confirmation: undefined }],
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: { [poLineId]: 2 },
       shortageReasons: { [poLineId]: '협력사 재고부족 - 수요예측 오류' },
+      artifactFileName: '쿠팡_로켓.xlsx',
+      artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })).toThrow(/workbook evidence/i);
   });
 
-  it('publishes a normalized confirmation result without raw workbook rows', () => {
-    const response = RocketPurchaseConfirmationResponseSchema.parse({
-      confirmationId: CONFIRMATION_ID,
-      status: 'active',
+  it('publishes workflow and immutable artifact metadata without raw workbook bytes', () => {
+    const response = RocketWorkbookExportResponseSchema.parse({
+      exportId: CONFIRMATION_ID,
+      status: 'awaiting_coupang_confirmation',
       duplicate: false,
+      canAbandon: false,
       inventoryGeneration: '12',
-      confirmedAt: '2026-07-17T00:00:00.000Z',
+      generatedAt: '2026-07-17T00:00:00.000Z',
+      artifact: {
+        fileName: '쿠팡_로켓.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        sha256: 'a'.repeat(64),
+        byteLength: 128,
+      },
       totals: {
         lineCount: 1,
         orderQuantity: 4,
-        confirmedQuantity: 2,
-        allocatedQuantity: 2,
+        workbookQuantity: 2,
+        componentQuantity: 2,
       },
       rows: [{
         poLineId: request().rows[0]!.poLineId,
-        confirmedQuantity: 2,
+        workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류',
       }],
     });
 
-    expect(response.status).toBe('active');
+    expect(response.status).toBe('awaiting_coupang_confirmation');
     expect(response).not.toHaveProperty('rawRows');
-    expect(response).not.toHaveProperty('workbook');
+    expect(response.artifact).not.toHaveProperty('bytes');
   });
 
-  it('requires an explicit audit reason to release reserved capacity', () => {
-    expect(RocketPurchaseConfirmationReleaseRequestSchema.parse({
-      confirmationId: CONFIRMATION_ID,
-      reason: '쿠팡 확정 수량 정정',
+  it('recognizes every workflow state and requires a reason to abandon a workbook', () => {
+    for (const status of [
+      'awaiting_coupang_confirmation',
+      'orders_collected',
+      'sellpia_transmitting',
+      'awaiting_inventory_sync',
+      'completed',
+      'failed',
+    ] as const) {
+      expect(RocketWorkbookWorkflowStatusSchema.parse(status)).toBe(status);
+    }
+    expect(RocketWorkbookAbandonRequestSchema.parse({
+      exportId: CONFIRMATION_ID,
+      reason: '쿠팡에 업로드하지 않음',
     })).toEqual({
-      confirmationId: CONFIRMATION_ID,
-      reason: '쿠팡 확정 수량 정정',
+      exportId: CONFIRMATION_ID,
+      reason: '쿠팡에 업로드하지 않음',
     });
-    expect(() => RocketPurchaseConfirmationReleaseRequestSchema.parse({
-      confirmationId: CONFIRMATION_ID,
+    expect(() => RocketWorkbookAbandonRequestSchema.parse({
+      exportId: CONFIRMATION_ID,
       reason: ' ',
     })).toThrow();
   });

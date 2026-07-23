@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   detectExtension: vi.fn(),
   ensureLogin: vi.fn(),
   collectKidsnote: vi.fn(),
+  collectCoupang: vi.fn(),
+  convertCoupang: vi.fn(),
   password: vi.fn(),
   toast: Object.assign(vi.fn(), {
     error: vi.fn(),
@@ -26,6 +28,11 @@ vi.mock('./kidsnote-orders-api', () => ({
 }));
 vi.mock('./order-mall-account-api', () => ({
   orderMallAccountApi: { password: mocks.password },
+}));
+vi.mock('./coupang-directship-api', () => ({
+  COUPANG_TRANSPORT_LABEL: { SHIPMENT: '쉽먼트', MILKRUN: '밀크런' },
+  collectCoupangDirectFromExtension: mocks.collectCoupang,
+  convertCoupangDirectToSellpiaFile: mocks.convertCoupang,
 }));
 
 import { createBrowserMallCollector } from './browser-mall-collection';
@@ -119,5 +126,61 @@ describe('createBrowserMallCollector', () => {
 
     expect(source.match(/todayYmd\(\)/g)).toHaveLength(1);
     expect(source).toContain('function collectionDateOf(');
+  });
+
+  it('probes both Rocket transports and stores the server transmission key as the file ID', async () => {
+    const exportId = '55555555-5555-4555-8555-555555555555';
+    const intentKey = `rocket-workbook:${exportId}:shipment`;
+    mocks.collectCoupang.mockResolvedValue({
+      pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
+      centers: {},
+    });
+    mocks.convertCoupang
+      .mockResolvedValueOnce({
+        file: {
+          fileName: 'shipment.xls',
+          blob: new Blob(['shipment']),
+          previewRows: [],
+          sourceRows: 1,
+          productRows: 1,
+          outputRows: 1,
+          skippedRows: 0,
+        },
+        matchedRows: 1,
+        importRunId: '66666666-6666-4666-8666-666666666666',
+        rocketWorkbookExportId: exportId,
+        transmissionIntentKey: intentKey,
+      })
+      .mockResolvedValueOnce({
+        file: null,
+        matchedRows: 0,
+        importRunId: '77777777-7777-4777-8777-777777777777',
+        rocketWorkbookExportId: exportId,
+        transmissionIntentKey: null,
+      });
+    const addGeneratedFile = vi.fn();
+    const collector = createBrowserMallCollector({
+      mallAccounts: [],
+      rocketChannelAccountId: '44444444-4444-4444-8444-444444444444',
+      addGeneratedFile,
+      setPreviewId: vi.fn(),
+    });
+
+    await collector({
+      ...ACCOUNT,
+      key: 'coupang-direct',
+      name: '쿠팡직배송',
+    }, { ...RUN, date: '2026-07-23' });
+
+    expect(mocks.convertCoupang).toHaveBeenCalledTimes(2);
+    expect(mocks.convertCoupang.mock.calls.map((call) => call[1])).toEqual([
+      'SHIPMENT',
+      'MILKRUN',
+    ]);
+    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
+      id: intentKey,
+      rocketWorkbookExportId: exportId,
+      transmissionIntentKey: intentKey,
+    }));
   });
 });

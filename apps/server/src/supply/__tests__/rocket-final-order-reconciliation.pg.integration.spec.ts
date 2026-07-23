@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -9,12 +8,11 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
-import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
 import { RocketFinalOrderReconciliationTransactionAdapter } from '../adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 
 const CHANNEL_ACCOUNT_ID = '41000000-0000-4000-8000-000000000001';
 const SKU_ID = '41000000-0000-4000-8000-000000000002';
+let finalImportRunId: string;
 
 describe('Rocket final-order reconciliation transaction (PG)', () => {
   let prisma: PrismaClient;
@@ -23,12 +21,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const prismaService = prisma as unknown as PrismaService;
-    adapter = new RocketFinalOrderReconciliationTransactionAdapter(
-      new InventoryCommitmentService(
-        new InventoryCommitmentRepositoryAdapter(prismaService),
-      ),
-    );
+    adapter = new RocketFinalOrderReconciliationTransactionAdapter();
   });
 
   afterAll(async () => prisma?.$disconnect());
@@ -61,34 +54,56 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         lastVerifiedAt: new Date(),
       },
     });
+    finalImportRunId = (await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        sourceType: 'coupang_rocket_final_order',
+        fileName: 'final-order.json',
+        fileHash: randomUUID(),
+        status: 'running',
+        createdBy: TEST_USER_ID,
+      },
+    })).id;
   });
 
-  it('replaces the request commitment with one final-order commitment idempotently', async () => {
-    await seedRequest(4, '8801234567890');
+  it('links the collected order and creates one stable transmission intent key idempotently', async () => {
+    const exportId = await seedRequest(4, '8801234567890');
     const finalOrderLineId = randomUUID();
     const input = reconciliationInput(finalOrderLineId, 3, '8801234567890');
 
-    await prisma.$transaction((tx) => adapter.reconcile({ ...input, transaction: tx }));
-    await prisma.$transaction((tx) => adapter.reconcile({ ...input, transaction: tx }));
+    const first = await prisma.$transaction((tx) => adapter.reconcile({ ...input, transaction: tx }));
+    const replay = await prisma.$transaction((tx) => adapter.reconcile({ ...input, transaction: tx }));
 
-    const commitments = await prisma.inventoryCommitment.findMany({
-      orderBy: { createdAt: 'asc' },
-      include: { allocations: true },
+    const expectedIntentKey = `rocket-workbook:${exportId}:shipment`;
+    expect(first).toEqual({
+      exportId,
+      transmissionIntentKey: expectedIntentKey,
+      matchedLineCount: 1,
+      reconciledRows: 1,
+      skippedLines: [],
     });
-    expect(commitments).toHaveLength(2);
-    expect(commitments[0]).toMatchObject({
-      kind: 'rocket_request',
-      status: 'released',
-      releaseReason: '쿠팡 발주확정 주문 전환',
+    expect(replay).toEqual(first);
+    expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
+      collectedOrderLineItemId: finalOrderLineId,
+      collectedAt: expect.any(Date),
     });
-    expect(commitments[1]).toMatchObject({
-      kind: 'rocket_final_order',
-      sourceId: finalOrderLineId,
-      status: 'active',
-      unitQuantity: 3,
-      predecessorCommitmentId: commitments[0]!.id,
-      allocations: [{ quantity: 3 }],
+    expect(await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: exportId },
+    })).toMatchObject({
+      status: 'orders_collected',
+      ordersCollectedAt: expect.any(Date),
     });
+    expect(await prisma.rocketPurchaseConfirmationTransmission.findMany()).toEqual([
+      expect.objectContaining({
+        confirmationId: exportId,
+        sourceImportRunId: finalImportRunId,
+        transport: 'SHIPMENT',
+        intentKey: expectedIntentKey,
+        matchedLineCount: 1,
+      }),
+    ]);
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('skips a line without an active confirmation instead of throwing 409', async () => {
@@ -100,6 +115,9 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     }));
 
     expect(result).toEqual({
+      exportId: null,
+      transmissionIntentKey: null,
+      matchedLineCount: 0,
       reconciledRows: 0,
       skippedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
     });
@@ -107,7 +125,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
   });
 
   it('reconciles matched lines and skips unmatched ones in the same batch', async () => {
-    await seedRequest(4, '8801234567890');
+    const exportId = await seedRequest(4, '8801234567890');
     const matchedLineId = randomUUID();
     const unmatchedLineId = randomUUID();
 
@@ -115,6 +133,8 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: CHANNEL_ACCOUNT_ID,
+      sourceImportRunId: finalImportRunId,
+      transport: 'SHIPMENT',
       transaction: tx,
       lines: [
         {
@@ -135,22 +155,13 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     }));
 
     expect(result).toEqual({
+      exportId,
+      transmissionIntentKey: `rocket-workbook:${exportId}:shipment`,
+      matchedLineCount: 1,
       reconciledRows: 1,
       skippedLines: [{ poNumber: 'PO-2', productNo: 'P-2' }],
     });
-    // 확정된 라인의 정산은 그대로 — 요청 커밋이 최종주문 커밋으로 교체된다.
-    const commitments = await prisma.inventoryCommitment.findMany({
-      orderBy: { createdAt: 'asc' },
-    });
-    expect(commitments).toMatchObject([
-      { kind: 'rocket_request', status: 'released' },
-      {
-        kind: 'rocket_final_order',
-        sourceId: matchedLineId,
-        status: 'active',
-        unitQuantity: 3,
-      },
-    ]);
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('rejects barcode mismatch without changing the request commitment', async () => {
@@ -160,10 +171,10 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       ...reconciliationInput(randomUUID(), 3, 'DIFFERENT'),
       transaction: tx,
     }))).rejects.toMatchObject({ code: 'ROCKET_FINAL_ORDER_BARCODE_MISMATCH' });
-    expect(await prisma.inventoryCommitment.findFirstOrThrow()).toMatchObject({
-      kind: 'rocket_request',
-      status: 'active',
+    expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
+      collectedOrderLineItemId: null,
     });
+    expect(await prisma.rocketPurchaseConfirmationTransmission.count()).toBe(0);
   });
 
   it('still rejects an ambiguous match (2+ confirmations) as a data-integrity error', async () => {
@@ -178,16 +189,41 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
-  it('rolls back replacement when the final quantity exceeds available stock', async () => {
-    await seedRequest(4, null);
+  it('does not re-check stock or create a commitment while linking a collected order', async () => {
+    const exportId = await seedRequest(4, null);
 
     await expect(prisma.$transaction((tx) => adapter.reconcile({
       ...reconciliationInput(randomUUID(), 11, null),
       transaction: tx,
-    }))).rejects.toThrow(/exceeds available/i);
-    expect(await prisma.inventoryCommitment.findFirstOrThrow()).toMatchObject({
-      kind: 'rocket_request',
-      status: 'active',
+    }))).resolves.toMatchObject({
+      exportId,
+      reconciledRows: 1,
+    });
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
+  });
+
+  it('records a no-match transport probe on the active export without creating an intent key', async () => {
+    const exportId = await seedRequest(4, '8801234567890');
+
+    const result = await prisma.$transaction((tx) => adapter.reconcile({
+      ...reconciliationInput(randomUUID(), 2, '8809999999999'),
+      transport: 'MILKRUN',
+      lines: [],
+      transaction: tx,
+    }));
+
+    expect(result).toEqual({
+      exportId,
+      transmissionIntentKey: null,
+      matchedLineCount: 0,
+      reconciledRows: 0,
+      skippedLines: [],
+    });
+    expect(await prisma.rocketPurchaseConfirmationTransmission.findFirstOrThrow()).toMatchObject({
+      confirmationId: exportId,
+      transport: 'MILKRUN',
+      intentKey: null,
+      matchedLineCount: 0,
     });
   });
 
@@ -210,7 +246,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),
         freshnessGeneration: 1n,
-        status: 'active',
+        status: 'awaiting_coupang_confirmation',
         confirmedBy: TEST_USER_ID,
       },
     });
@@ -236,27 +272,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         quantity,
       },
     });
-    const commitment = await prisma.inventoryCommitment.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        kind: 'rocket_request',
-        sourceId: line.id,
-        businessKey: `coupang-rocket:${CHANNEL_ACCOUNT_ID}:PO-1:P-1`,
-        unitQuantity: quantity,
-        status: 'active',
-        inventoryGeneration: 1n,
-        createdBy: TEST_USER_ID,
-      },
-    });
-    await prisma.inventoryCommitmentAllocation.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        commitmentId: commitment.id,
-        sellpiaInventorySkuId: SKU_ID,
-        unitsPerItem: 1,
-        quantity,
-      },
-    });
+    return confirmation.id;
   }
 
   // AMBIGUOUS 는 findMany 매칭 시점(커밋 이전)에 판별되므로 확정 라인만 있으면 재현된다.
@@ -279,7 +295,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),
         freshnessGeneration: 1n,
-        status: 'active',
+        status: 'awaiting_coupang_confirmation',
         confirmedBy: TEST_USER_ID,
       },
     });
@@ -308,6 +324,8 @@ function reconciliationInput(
     organizationId: TEST_ORGANIZATION_ID,
     userId: TEST_USER_ID,
     channelAccountId: CHANNEL_ACCOUNT_ID,
+    sourceImportRunId: finalImportRunId,
+    transport: 'SHIPMENT' as const,
     lines: [{
       finalOrderLineId,
       poNumber: 'PO-1',

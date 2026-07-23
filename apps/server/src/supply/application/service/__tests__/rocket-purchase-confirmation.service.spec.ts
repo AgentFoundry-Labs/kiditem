@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { RocketPurchaseConfirmationService } from '../rocket-purchase-confirmation.service';
+import { RocketWorkbookExportService } from '../rocket-purchase-confirmation.service';
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const userId = '22222222-2222-4222-8222-222222222222';
@@ -9,6 +9,7 @@ const collectionRunId = '44444444-4444-4444-8444-444444444444';
 const sourceImportRunId = '55555555-5555-4555-8555-555555555555';
 const idempotencyKey = '66666666-6666-4666-8666-666666666666';
 const poLineId = '1001:P-1:8801234567890:1';
+const artifactBytes = Buffer.from('workbook-bytes');
 
 function request() {
   return {
@@ -49,6 +50,8 @@ function request() {
     }],
     editedQuantities: { [poLineId]: 2 },
     shortageReasons: { [poLineId]: '협력사 재고부족 - 수요예측 오류' as const },
+    artifactFileName: '쿠팡_로켓.xlsx',
+    artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const,
   };
 }
 
@@ -79,8 +82,6 @@ function previewResult() {
         sellpiaInventorySkuId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         quantity: 1,
         currentStock: 5,
-        activeCommitmentQuantity: 0,
-        availableStock: 5,
         isActive: true,
       }],
     }],
@@ -90,74 +91,81 @@ function previewResult() {
 function dependencies() {
   const preview = { preview: vi.fn().mockResolvedValue(previewResult()) };
   const transactions = {
-    confirm: vi.fn().mockResolvedValue({
-      confirmationId: idempotencyKey,
-      status: 'active',
+    exportWorkbook: vi.fn().mockResolvedValue({
+      exportId: idempotencyKey,
+      status: 'awaiting_coupang_confirmation',
       duplicate: false,
+      canAbandon: false,
       inventoryGeneration: '12',
-      confirmedAt: '2026-07-17T00:00:00.000Z',
+      generatedAt: '2026-07-17T00:00:00.000Z',
+      artifact: {
+        fileName: '쿠팡_로켓.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        sha256: 'a'.repeat(64),
+        byteLength: artifactBytes.byteLength,
+      },
       totals: {
         lineCount: 1,
         orderQuantity: 4,
-        confirmedQuantity: 2,
-        allocatedQuantity: 2,
+        workbookQuantity: 2,
+        componentQuantity: 2,
       },
       rows: [{
         poLineId,
-        confirmedQuantity: 2,
+        workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류',
       }],
     }),
-    release: vi.fn().mockResolvedValue({
-      confirmationId: idempotencyKey,
-      status: 'released',
-      duplicate: false,
-      inventoryGeneration: '12',
-      confirmedAt: '2026-07-17T00:00:00.000Z',
-      totals: {
-        lineCount: 1,
-        orderQuantity: 4,
-        confirmedQuantity: 2,
-        allocatedQuantity: 2,
-      },
-      rows: [{
-        poLineId,
-        confirmedQuantity: 2,
-        shortageReason: '협력사 재고부족 - 수요예측 오류',
-      }],
+    getActiveWorkflow: vi.fn().mockResolvedValue(null),
+    downloadWorkbook: vi.fn().mockResolvedValue({
+      fileName: '쿠팡_로켓.xlsx',
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      bytes: artifactBytes,
     }),
+    abandonWorkbook: vi.fn(),
   };
   return { preview, transactions };
 }
 
-describe('RocketPurchaseConfirmationService', () => {
+describe('RocketWorkbookExportService', () => {
   it('recomputes the canonical preview and delegates the normalized decision', async () => {
     const deps = dependencies();
-    const service = new RocketPurchaseConfirmationService(
+    const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
     );
 
-    const result = await service.confirm({
+    const result = await service.exportWorkbook({
       organizationId,
       userId,
       request: request(),
+      artifactBytes,
     });
 
-    const { idempotencyKey: _key, shortageReasons: _reasons, ...previewRequest } = request();
+    const {
+      idempotencyKey: _key,
+      shortageReasons: _reasons,
+      artifactFileName: _fileName,
+      artifactContentType: _contentType,
+      ...previewRequest
+    } = request();
     expect(deps.preview.preview).toHaveBeenCalledWith({
       organizationId,
       userId,
       request: previewRequest,
     });
-    expect(deps.transactions.confirm).toHaveBeenCalledWith({
+    expect(deps.transactions.exportWorkbook).toHaveBeenCalledWith({
       organizationId,
       userId,
       sourceImportRunId,
       request: request(),
       preview: previewResult(),
+      artifactBytes,
     });
-    expect(result).toMatchObject({ status: 'active', duplicate: false });
+    expect(result).toMatchObject({
+      status: 'awaiting_coupang_confirmation',
+      duplicate: false,
+    });
   });
 
   it('rejects an incomplete or vendor-mismatched collection before persistence', async () => {
@@ -178,44 +186,76 @@ describe('RocketPurchaseConfirmationService', () => {
         components: [],
       }],
     });
-    const service = new RocketPurchaseConfirmationService(
+    const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
     );
 
-    await expect(service.confirm({
+    await expect(service.exportWorkbook({
       organizationId,
       userId,
       request: {
         ...request(),
         editedQuantities: { [poLineId]: 0 },
       },
+      artifactBytes,
     })).rejects.toBeInstanceOf(BadRequestException);
-    expect(deps.transactions.confirm).not.toHaveBeenCalled();
+    expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
   });
 
-  it('releases capacity through the authenticated Supply transaction', async () => {
+  it.each([
+    'mapping_required',
+    'configuration_required',
+    'review_required',
+  ] as const)('rejects %s before persistence', async (reason) => {
     const deps = dependencies();
-    const service = new RocketPurchaseConfirmationService(
+    deps.preview.preview.mockResolvedValue({
+      ...previewResult(),
+      rows: [{
+        ...previewResult().rows[0],
+        editedQuantity: 0,
+        recommendedQuantity: 0,
+        maxQuantity: 0,
+        reason,
+        channelSkuId: reason === 'mapping_required' ? null : previewResult().rows[0]!.channelSkuId,
+        masterProductId: reason === 'mapping_required' ? null : previewResult().rows[0]!.masterProductId,
+        productVariantId: reason === 'mapping_required' ? null : previewResult().rows[0]!.productVariantId,
+        components: [],
+      }],
+    });
+    const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
     );
 
-    const result = await service.release({
+    await expect(service.exportWorkbook({
       organizationId,
       userId,
       request: {
-        confirmationId: idempotencyKey,
-        reason: '쿠팡 확정 수량 정정',
+        ...request(),
+        editedQuantities: { [poLineId]: 0 },
       },
+      artifactBytes,
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
+  });
+
+  it('reads the exact stored artifact through the organization boundary', async () => {
+    const deps = dependencies();
+    const service = new RocketWorkbookExportService(
+      deps.preview as never,
+      deps.transactions as never,
+    );
+
+    const result = await service.downloadWorkbook({
+      organizationId,
+      exportId: idempotencyKey,
     });
 
-    expect(deps.transactions.release).toHaveBeenCalledWith({
+    expect(deps.transactions.downloadWorkbook).toHaveBeenCalledWith({
       organizationId,
-      userId,
-      confirmationId: idempotencyKey,
-      reason: '쿠팡 확정 수량 정정',
+      exportId: idempotencyKey,
     });
-    expect(result.status).toBe('released');
+    expect(result.bytes).toEqual(artifactBytes);
   });
 });

@@ -175,6 +175,18 @@ describe('/product-hub/matching', () => {
     expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0]).toEqual(expect.objectContaining({ search: 'KI-1' }));
   });
 
+  it('restores the exact Rocket option focus from the URL', () => {
+    const focusOptionId = '22222222-2222-4222-8222-222222222222';
+    navigation.params = new URLSearchParams(
+      `channelAccountId=${ACCOUNT_ID}&search=option-ready&focusOptionId=${focusOptionId}`,
+    );
+
+    render(<MatchingPage />);
+
+    expect(screen.getByRole('row', { name: '선택된 채널 옵션' })).toHaveTextContent('option-ready');
+    expect(screen.getByRole('button', { name: '상품별 확인' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('restores a product-level operator review queue from the URL', () => {
     navigation.params = new URLSearchParams(`channelAccountId=${ACCOUNT_ID}&status=operator_review&search=SP-1`);
     vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue(recipePreview({

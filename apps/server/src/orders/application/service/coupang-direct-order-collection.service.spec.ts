@@ -7,6 +7,9 @@ describe('CoupangDirectOrderCollectionService', () => {
     const transactions = {
       collect: vi.fn().mockResolvedValue({
         importRunId: '11111111-1111-4111-8111-111111111111',
+        exportId: '55555555-5555-4555-8555-555555555555',
+        transmissionIntentKey: 'rocket-workbook:55555555-5555-4555-8555-555555555555:shipment',
+        matchedLineCount: 1,
         reconciledRows: 1,
         confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
         skippedLines: [],
@@ -31,8 +34,19 @@ describe('CoupangDirectOrderCollectionService', () => {
     });
   });
 
-  it('rejects a collection with no confirmed PO for the selected transport', async () => {
-    const transactions = { collect: vi.fn() };
+  it('persists an empty transport probe when the selected transport has no new PO', async () => {
+    const transactions = {
+      collect: vi.fn().mockResolvedValue({
+        importRunId: '11111111-1111-4111-8111-111111111111',
+        exportId: '55555555-5555-4555-8555-555555555555',
+        transmissionIntentKey: null,
+        matchedLineCount: 0,
+        reconciledRows: 0,
+        confirmedLines: [],
+        skippedLines: [],
+        duplicate: false,
+      }),
+    };
     const service = new CoupangDirectOrderCollectionService(transactions as never);
     const input = request();
     input.pos = input.pos.filter(({ transport }) => transport === 'MILKRUN');
@@ -41,8 +55,10 @@ describe('CoupangDirectOrderCollectionService', () => {
       organizationId: '22222222-2222-4222-8222-222222222222',
       userId: '33333333-3333-4333-8333-333333333333',
       request: input as never,
-    })).rejects.toBeInstanceOf(BadRequestException);
-    expect(transactions.collect).not.toHaveBeenCalled();
+    })).resolves.toMatchObject({ matchedLineCount: 0, transmissionIntentKey: null });
+    expect(transactions.collect).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({ transport: 'SHIPMENT', pos: [] }),
+    }));
   });
 
   // Regression: 확장이 실제로 보내는 원본(센터 주소/우편/연락처 null, 납품예정일 빈값)을
@@ -51,6 +67,9 @@ describe('CoupangDirectOrderCollectionService', () => {
     const transactions = {
       collect: vi.fn().mockResolvedValue({
         importRunId: '11111111-1111-4111-8111-111111111111',
+        exportId: '55555555-5555-4555-8555-555555555555',
+        transmissionIntentKey: 'rocket-workbook:55555555-5555-4555-8555-555555555555:shipment',
+        matchedLineCount: 1,
         reconciledRows: 1,
         confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
         skippedLines: [],
@@ -70,6 +89,9 @@ describe('CoupangDirectOrderCollectionService', () => {
 
     expect(result).toEqual({
       importRunId: '11111111-1111-4111-8111-111111111111',
+      exportId: '55555555-5555-4555-8555-555555555555',
+      transmissionIntentKey: 'rocket-workbook:55555555-5555-4555-8555-555555555555:shipment',
+      matchedLineCount: 1,
       reconciledRows: 1,
       confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
       skippedLines: [],

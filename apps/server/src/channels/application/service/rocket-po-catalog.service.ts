@@ -106,9 +106,7 @@ function isCompleteCollection(request: RocketPurchasePreviewRequest): boolean {
   return (!requiresVendorEvidence || evidence.vendorId.length > 0)
     && !evidence.truncated
     && evidence.failedPoNumbers.length === 0
-    && evidence.listPagesRead < 20
-    && evidence.detailPoCount < 40
-    && evidence.totalListPages <= evidence.listPagesRead
+    && evidence.totalListPages === evidence.listPagesRead
     && evidence.detailPoCount === rowPoNumbers.size
     && (!requiresVendorEvidence
       || request.rows.every(({ vendorId }) => vendorId === evidence.vendorId));

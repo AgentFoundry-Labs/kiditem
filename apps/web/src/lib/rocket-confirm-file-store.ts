@@ -1,4 +1,4 @@
-// Generated Rocket confirmation workbooks are local operator conveniences,
+// Downloaded Rocket workbooks are local operator conveniences,
 // never server truth or marketplace acceptance evidence.
 
 export interface StoredRocketConfirmFile {
@@ -39,7 +39,7 @@ function openDb(): Promise<IDBDatabase> {
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(
-      request.error ?? new Error('발주확정 파일 저장소를 열 수 없습니다.'),
+      request.error ?? new Error('쿠팡 엑셀 파일 저장소를 열 수 없습니다.'),
     );
   });
 }

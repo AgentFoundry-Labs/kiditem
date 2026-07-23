@@ -24,9 +24,9 @@ are record-only; stock movement stays with inventory.
 - `platform` stores channel identity; provider payloads live in `metadata`.
 - `ReturnTransfer` currently lives in the Inventory Prisma namespace, but this
   module owns its HTTP/service surface.
-- Rocket PO catalog evidence and confirmation are not Orders-owned models.
-  Channels owns the account-scoped catalog publication, Supply owns
-  `RocketPurchaseConfirmation`, and Inventory owns `InventoryCommitment`.
+- Rocket PO catalog evidence and workbook workflow are not Orders-owned models.
+  Channels owns the account-scoped catalog publication, while Supply owns the
+  persisted workbook and its exact order-line links.
 
 ## Provider Action Flow
 
@@ -42,12 +42,11 @@ provider HTTP APIs directly.
 - Inventory owns actual stock movement; return transfers in orders are
   record-only.
 - Coupang directship conversion (`/api/orders/collection/coupang-directship/convert`)
-  is stateless workbook generation (user original design): the collected
-  directship purchase-order rows in the request are exported straight to the
-  Sellpia workbook. It does not persist orders/import runs and does not gate on
-  Supply reconciliation — collected rows are exported regardless of Supply
-  confirmation state. Supply's `RocketFinalOrderReconciliationPort` remains in
-  the module but is not on this convert path.
+  persists the collection, reconciles rows against the active Supply-owned
+  Rocket workbook, and exports only matching rows to the Sellpia workbook.
+  The service returns a stable transmission key derived from workbook export
+  and transport. An empty SHIPMENT or MILKRUN probe still persists no-match
+  evidence and returns HTTP 204.
 
 ## Boundary Rules
 
@@ -59,10 +58,11 @@ provider HTTP APIs directly.
   status. Keep them independent.
 - New channels add `platform` values and channel adapters, not
   channel-specific order tables.
-- Directship convert exports the collected rows as-is: no import-run
-  persistence, deterministic order identity, or reconciliation gate on this
-  path. The selected transport only splits shipment vs milkrun output; an empty
-  request is the only reason no workbook is produced.
+- Directship convert requires the active workbook identifiers supplied by the
+  extension headers, persists deterministic order/import identities, and links
+  exact PO/product rows through Supply reconciliation. The selected transport
+  splits SHIPMENT vs MILKRUN output. No matching rows returns no workbook, but
+  the probe remains durable evidence for safe workflow abandonment.
 - `CreateCsBodyDto.productId` is only a backward-compatible alias for
   `listingId`; new callers send `listingId`.
 

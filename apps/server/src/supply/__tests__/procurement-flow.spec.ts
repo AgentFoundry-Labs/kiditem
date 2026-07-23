@@ -245,11 +245,10 @@ describe('ProcurementController purchase submission boundary', () => {
       procurement: Record<string, unknown>,
       submissions: Record<string, unknown>,
       previews: Record<string, unknown>,
-      confirmations: Record<string, unknown>,
-      commitments: Record<string, unknown>,
+      workbookExports: Record<string, unknown>,
       catalog: typeof catalog,
     ) => ProcurementController;
-    const controller = new Controller({}, {}, {}, {}, {}, catalog);
+    const controller = new Controller({}, {}, {}, {}, catalog);
     const channelAccountId = '11111111-1111-4111-8111-111111111111';
     const sourceImportRunId = '22222222-2222-4222-8222-222222222222';
 
@@ -288,18 +287,18 @@ describe('ProcurementController purchase submission boundary', () => {
     });
   });
 
-  it('routes Rocket confirmation and release through the Supply-owned action endpoint', async () => {
-    const confirmations = {
-      confirm: vi.fn().mockResolvedValue({ status: 'active' }),
-      release: vi.fn().mockResolvedValue({ status: 'released' }),
+  it('routes Rocket workbook export and evidence-gated abandonment through the Supply action endpoint', async () => {
+    const workbookExports = {
+      exportWorkbook: vi.fn().mockResolvedValue({ status: 'awaiting_coupang_confirmation' }),
+      abandonWorkbook: vi.fn().mockResolvedValue({ status: 'completed' }),
     };
     const Controller = ProcurementController as unknown as new (
       procurement: Record<string, unknown>,
       submissions: Record<string, unknown>,
       previews: Record<string, unknown>,
-      confirmations: typeof confirmations,
+      workbookExports: typeof workbookExports,
     ) => ProcurementController;
-    const controller = new Controller({}, {}, {}, confirmations);
+    const controller = new Controller({}, {}, {}, workbookExports);
     const request = {
       idempotencyKey: '11111111-1111-4111-8111-111111111111',
       channelAccountId: '22222222-2222-4222-8222-222222222222',
@@ -315,34 +314,43 @@ describe('ProcurementController purchase submission boundary', () => {
       rows: [],
       editedQuantities: {},
       shortageReasons: {},
+      artifactFileName: 'coupang-rocket.xlsx',
+      artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    };
+    const workbook = {
+      originalname: 'coupang-rocket.xlsx',
+      mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from('workbook'),
     };
 
     await controller.handleAction(
       'organization-1',
       { id: 'authenticated-user' } as never,
-      { action: 'confirmRocket', ...request } as never,
+      { action: 'exportRocketWorkbook', requestJson: JSON.stringify(request) } as never,
+      workbook as never,
     );
     await controller.handleAction(
       'organization-1',
       { id: 'authenticated-user' } as never,
       {
-        action: 'releaseRocketConfirmation',
-        confirmationId: '44444444-4444-4444-8444-444444444444',
-        releaseReason: '쿠팡 확정 수량 정정',
+        action: 'abandonRocketWorkbook',
+        exportId: '44444444-4444-4444-8444-444444444444',
+        abandonReason: '쿠팡에 업로드하지 않음',
       } as never,
     );
 
-    expect(confirmations.confirm).toHaveBeenCalledWith({
+    expect(workbookExports.exportWorkbook).toHaveBeenCalledWith({
       organizationId: 'organization-1',
       userId: 'authenticated-user',
       request,
+      artifactBytes: workbook.buffer,
     });
-    expect(confirmations.release).toHaveBeenCalledWith({
+    expect(workbookExports.abandonWorkbook).toHaveBeenCalledWith({
       organizationId: 'organization-1',
       userId: 'authenticated-user',
       request: {
-        confirmationId: '44444444-4444-4444-8444-444444444444',
-        reason: '쿠팡 확정 수량 정정',
+        exportId: '44444444-4444-4444-8444-444444444444',
+        reason: '쿠팡에 업로드하지 않음',
       },
     });
   });

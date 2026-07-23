@@ -384,6 +384,7 @@ erDiagram
 | Organization | organization | referenced by external | Supply | RocketPurchaseConfirmation |
 | Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationAllocation |
 | Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationLine |
+| Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | Organization | organization | referenced by external | Supply | Supplier |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
 | Organization | organization | referenced by external | Supply | SupplierProduct |
@@ -400,6 +401,7 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Channels | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
+| SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |

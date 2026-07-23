@@ -11,6 +11,7 @@ import {
   Upload,
 } from 'lucide-react';
 import {
+  isRocketWorkbookBlockingReason,
   ROCKET_SHORTAGE_REASONS,
   type RocketPurchasePreviewRow,
   type RocketShortageReason,
@@ -18,31 +19,41 @@ import {
 import { toast } from 'sonner';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { useRocketPurchaseWorkflow } from '@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow';
-import { RocketInventoryCommitmentList } from '@/app/(supply)/purchase-orders/components/RocketInventoryCommitmentList';
+import { RocketDeterministicMatchingPanel } from '@/app/(supply)/purchase-orders/components/RocketDeterministicMatchingPanel';
 import type { RocketDecisionWorkspaceContext } from './RocketOrdersWorkspace';
 import {
   RocketMatchStatusModal,
+  rocketMatchStateLabel,
+  rocketProductMatchingHref,
   type RocketMatchStatusRow,
 } from './RocketMatchStatusModal';
 
-function rowAvailableStock(row: RocketPurchasePreviewRow): number | null {
-  if (row.components.length === 0) return null;
-  return row.maxQuantity;
-}
-
 function componentValues(
   row: RocketPurchasePreviewRow,
-  field: 'currentStock' | 'activeCommitmentQuantity' | 'availableStock',
 ): string {
   if (row.components.length === 0) return '—';
-  return row.components.map((component) => formatNumber(component[field])).join(' / ');
+  return row.components.map((component) => formatNumber(component.currentStock)).join(' / ');
+}
+
+const WORKFLOW_LABEL = {
+  awaiting_coupang_confirmation: '쿠팡 업로드·발주확정 대기',
+  orders_collected: '주문수집 완료',
+  sellpia_transmitting: 'Sellpia 반영 중',
+  awaiting_inventory_sync: '재고 동기화 대기',
+  completed: '재고 동기화 완료',
+  failed: '재고 동기화 실패 — 다시 시도',
+} as const;
+
+function isRowReviewBlocked(reason: RocketPurchasePreviewRow['reason']): boolean {
+  return isRocketWorkbookBlockingReason(reason)
+    || reason === 'collection_incomplete'
+    || reason === 'vendor_mismatch';
 }
 
 export function RocketConfirmPanel({
   onSaved,
   activeMonth,
   channelAccountId,
-  channelAccountName,
   hasConfiguredVendorId,
   from,
   to,
@@ -54,32 +65,33 @@ export function RocketConfirmPanel({
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedDateSourceRunCount, setSelectedDateSourceRunCount] = useState(0);
   const [matchModalOpen, setMatchModalOpen] = useState(false);
-  const [commitmentRefreshKey, setCommitmentRefreshKey] = useState(0);
+  const [bulkShortageReason, setBulkShortageReason] = useState<RocketShortageReason | ''>('');
   const {
     editedQuantities,
-    setEditedQuantities,
+    setReviewedQuantity,
     preview,
     sourceRows,
     previewDirty,
     setPreviewDirty,
     shortageReasons,
     setShortageReasons,
-    confirmation,
-    confirming,
-    releaseReason,
-    setReleaseReason,
-    releasing,
+    workbookExport,
+    exporting,
+    abandonReason,
+    setAbandonReason,
+    abandoning,
     setTemplateFile,
     loading,
     error,
     collectionWarning,
-    canConfirm,
+    canExport,
     canRedownload,
     recalculate,
     revalidateEditedQuantities,
-    confirmPurchase,
-    downloadActiveConfirmation,
-    releaseConfirmation,
+    exportAndDownload,
+    downloadActiveWorkbook,
+    refreshActiveWorkbook,
+    abandonActiveWorkbook,
   } = useRocketPurchaseWorkflow({
     channelAccountId,
     hasConfiguredVendorId,
@@ -102,6 +114,12 @@ export function RocketConfirmPanel({
     : previewDates.length === 1
       ? previewDates[0]!
       : `수집본 전체 ${previewDates[0]} ~ ${previewDates.at(-1)}`;
+  const eligibleShortageLineIds = rows.flatMap((row) => {
+    const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
+    return !isRowReviewBlocked(row.reason) && quantity < row.orderQuantity
+      ? [row.poLineId]
+      : [];
+  });
   const confirmTotals = rows.reduce((acc, row) => {
     const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
     const unitPrice = sourceByLineId.get(row.poLineId)?.confirmation?.purchasePrice ?? 0;
@@ -114,13 +132,16 @@ export function RocketConfirmPanel({
   const matchRows: RocketMatchStatusRow[] = rows.map((row) => ({
     poLineId: row.poLineId,
     poNumber: row.poNumber,
+    productNo: row.productNo,
     productName: row.productName,
     barcode: sourceByLineId.get(row.poLineId)?.barcode ?? '',
     orderQuantity: row.orderQuantity,
-    availableStock: rowAvailableStock(row),
-    mapped: row.productVariantId !== null && row.components.length > 0,
+    reason: row.reason,
+    channelSkuId: row.channelSkuId,
+    components: row.components,
   }));
-  const busy = loading || confirming || releasing;
+  const hasBlockingRows = rows.some((row) => isRocketWorkbookBlockingReason(row.reason));
+  const busy = loading || exporting || abandoning;
 
   function handleExplorerDateSelection(date: string | null, sourceRunCount: number) {
     setSelectedDate(date ?? '');
@@ -134,12 +155,24 @@ export function RocketConfirmPanel({
       return;
     }
     await recalculate();
-    onOrdersChanged();
+  }
+
+  function applyBulkShortageReason() {
+    if (!bulkShortageReason) return;
+    if (eligibleShortageLineIds.length === 0) return;
+    setShortageReasons((current) => ({
+      ...current,
+      ...Object.fromEntries(eligibleShortageLineIds.map((poLineId) => [
+        poLineId,
+        bulkShortageReason,
+      ])),
+    }));
+    setPreviewDirty(true);
   }
 
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
     const bounded = Math.max(0, Math.min(row.orderQuantity, row.maxQuantity, quantity));
-    setEditedQuantities((current) => ({ ...current, [row.poLineId]: bounded }));
+    setReviewedQuantity(row.poLineId, bounded);
     setShortageReasons((current) => {
       if (bounded >= row.orderQuantity) {
         const next = { ...current };
@@ -150,28 +183,27 @@ export function RocketConfirmPanel({
       delete next[row.poLineId];
       return next;
     });
-    setPreviewDirty(true);
   }
 
-  async function handleCommit() {
-    const result = await confirmPurchase();
+  async function handleExport() {
+    const result = await exportAndDownload();
     if (result) {
-      toast.success(`예약 확정 — ${formatNumber(result.totals.confirmedQuantity)}개`);
-      setCommitmentRefreshKey((current) => current + 1);
+      toast.success(`쿠팡 엑셀 다운로드 — ${formatNumber(result.totals.workbookQuantity)}개`);
+      onSaved();
       onOrdersChanged();
     }
   }
 
-  async function handleRelease() {
-    await releaseConfirmation();
-    setCommitmentRefreshKey((current) => current + 1);
+  async function handleAbandon() {
+    await abandonActiveWorkbook();
+    onOrdersChanged();
   }
 
   async function handleDownload() {
-    const downloaded = await downloadActiveConfirmation();
+    const downloaded = await downloadActiveWorkbook();
     if (downloaded) {
       onSaved();
-      toast.success('확정된 수량으로 엑셀을 다운로드했습니다.');
+      toast.success('서버에 저장된 동일 엑셀을 다운로드했습니다.');
     }
   }
 
@@ -215,7 +247,7 @@ export function RocketConfirmPanel({
               'inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600 hover:bg-slate-50',
               busy && 'pointer-events-none opacity-60',
             )}>
-              <Upload size={13} /> 쿠팡 양식 채우기
+              <Upload size={13} /> 쿠팡 양식 파일 선택
               <input
                 type="file"
                 accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -224,7 +256,7 @@ export function RocketConfirmPanel({
                 onChange={(event) => {
                   const file = event.target.files?.[0] ?? null;
                   setTemplateFile(file);
-                  if (file) toast.success(`${file.name} 양식을 선택했습니다. 확정 후 다운로드에 사용합니다.`);
+                  if (file) toast.success(`${file.name} 양식을 선택했습니다. 쿠팡 엑셀 생성에 사용합니다.`);
                   event.target.value = '';
                 }}
               />
@@ -257,38 +289,57 @@ export function RocketConfirmPanel({
         </div>
       ) : null}
 
-      {confirmation?.status === 'active' ? (
+      {workbookExport ? (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-5 py-2 text-xs text-emerald-800">
           <span>
-            예약 확정 · 품목 <b>{formatNumber(confirmation.totals.lineCount)}</b>행 · 구성품{' '}
-            <b>{formatNumber(confirmation.totals.allocatedQuantity)}</b>개
+            {WORKFLOW_LABEL[workbookExport.status]} · 품목{' '}
+            <b>{formatNumber(workbookExport.totals.lineCount)}</b>행 · 엑셀 수량{' '}
+            <b>{formatNumber(workbookExport.totals.workbookQuantity)}</b>개
           </span>
           <button
             type="button"
             onClick={() => void handleDownload()}
-            disabled={!canRedownload || confirming}
+            disabled={!canRedownload || exporting}
             className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-white px-2.5 py-1 font-semibold disabled:opacity-50"
           >
-            {confirming ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-            확정 엑셀 다운로드
+            {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            동일 파일 다시 다운로드
           </button>
-          <input
-            aria-label="예약 종료 사유"
-            value={releaseReason}
-            onChange={(event) => setReleaseReason(event.target.value)}
-            placeholder="취소 등 예약 종료 사유"
-            maxLength={500}
-            className="ml-auto min-w-56 rounded-md border border-emerald-200 bg-white px-2 py-1 text-xs"
-          />
           <button
             type="button"
-            disabled={!releaseReason.trim() || releasing}
-            onClick={() => void handleRelease()}
+            onClick={() => void refreshActiveWorkbook()}
             className="rounded-md border border-emerald-300 bg-white px-2.5 py-1 font-semibold disabled:opacity-50"
           >
-            {releasing ? '종료 중…' : '예약 종료'}
+            상태 새로고침
           </button>
+          {workbookExport.status === 'awaiting_coupang_confirmation' ? (
+            <>
+              <input
+                aria-label="워크북 미사용 사유"
+                value={abandonReason}
+                onChange={(event) => setAbandonReason(event.target.value)}
+                placeholder="쿠팡에 제출하지 않은 사유"
+                maxLength={500}
+                className="ml-auto min-w-56 rounded-md border border-emerald-200 bg-white px-2 py-1 text-xs"
+              />
+              <button
+                type="button"
+                disabled={!workbookExport.canAbandon || !abandonReason.trim() || abandoning}
+                onClick={() => void handleAbandon()}
+                className="rounded-md border border-emerald-300 bg-white px-2.5 py-1 font-semibold disabled:opacity-50"
+              >
+                {abandoning ? '종료 중…' : '워크북 사용 안 함'}
+              </button>
+            </>
+          ) : null}
         </div>
+      ) : null}
+
+      {preview?.catalog ? (
+        <RocketDeterministicMatchingPanel
+          channelAccountId={channelAccountId}
+          latestAutomation={preview.catalog.recipeAutomation}
+        />
       ) : null}
 
       {rows.length > 0 ? (
@@ -302,8 +353,32 @@ export function RocketConfirmPanel({
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <select
+                  aria-label="전체 납품부족사유"
+                  value={bulkShortageReason}
+                  disabled={busy || eligibleShortageLineIds.length === 0}
+                  onChange={(event) => setBulkShortageReason(
+                    event.target.value as RocketShortageReason | '',
+                  )}
+                  className="max-w-[260px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs disabled:opacity-50"
+                >
+                  <option value="">전체 사유 선택</option>
+                  {ROCKET_SHORTAGE_REASONS.map((reason) => (
+                    <option key={reason} value={reason}>{reason}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={applyBulkShortageReason}
+                  disabled={busy || !bulkShortageReason || eligibleShortageLineIds.length === 0}
+                  className="whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  부족 행 전체 적용
+                </button>
+              </div>
               <span className="text-xs text-slate-500">
-                확정 <b className="tabular-nums text-slate-900">{formatNumber(confirmTotals.qty)}</b>개 · 부족{' '}
+                엑셀 <b className="tabular-nums text-slate-900">{formatNumber(confirmTotals.qty)}</b>개 · 부족{' '}
                 <b className="tabular-nums text-amber-600">{confirmTotals.short}</b>행 · 금액{' '}
                 <b className="tabular-nums text-purple-700">{formatKRW(confirmTotals.amount)}</b>원
               </span>
@@ -317,6 +392,16 @@ export function RocketConfirmPanel({
                   수량 다시 검증
                 </button>
               ) : null}
+              {hasBlockingRows ? (
+                <button
+                  type="button"
+                  onClick={() => void revalidateEditedQuantities()}
+                  disabled={busy}
+                  className="rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-semibold text-purple-800 disabled:opacity-50"
+                >
+                  매핑 반영해 다시 계산
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setMatchModalOpen(true)}
@@ -326,30 +411,28 @@ export function RocketConfirmPanel({
               </button>
               <button
                 type="button"
-                onClick={() => void handleCommit()}
-                disabled={!canConfirm || busy}
+                onClick={() => void handleExport()}
+                disabled={!canExport || busy}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800',
-                  (!canConfirm || busy) && 'pointer-events-none opacity-60',
+                  (!canExport || busy) && 'pointer-events-none opacity-60',
                 )}
               >
-                {confirming && !canRedownload ? <Loader2 size={14} className="animate-spin" /> : <Package size={14} />}
-                예약 확정
+                {exporting && !canRedownload ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                쿠팡 엑셀 다운로드
               </button>
             </div>
           </div>
 
           <div className="max-h-[460px] overflow-auto">
-            <table className="min-w-[1080px] text-sm">
+            <table className="min-w-[900px] text-sm">
               <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold">발주번호</th>
                   <th className="px-3 py-2 text-left font-semibold">상품 (바코드)</th>
                   <th className="px-3 py-2 text-right font-semibold">발주</th>
                   <th className="px-3 py-2 text-right font-semibold">현재고</th>
-                  <th className="px-3 py-2 text-right font-semibold">약정</th>
-                  <th className="px-3 py-2 text-right font-semibold">가용재고</th>
-                  <th className="px-3 py-2 text-right font-semibold">확정수량</th>
+                  <th className="px-3 py-2 text-right font-semibold">엑셀 수량</th>
                   <th className="px-3 py-2 text-left font-semibold">납품부족사유</th>
                 </tr>
               </thead>
@@ -358,25 +441,52 @@ export function RocketConfirmPanel({
                   const source = sourceByLineId.get(row.poLineId);
                   const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
                   const short = quantity < row.orderQuantity;
+                  const blocking = isRowReviewBlocked(row.reason);
+                  const matchingBlocked = isRocketWorkbookBlockingReason(row.reason);
+                  const matchStateLabel = rocketMatchStateLabel(row.reason);
                   return (
-                    <tr key={row.poLineId} className={cn('border-t border-slate-100', short && 'bg-amber-50/40')}>
+                    <tr key={row.poLineId} className={cn(
+                      'border-t border-slate-100',
+                      blocking ? 'bg-rose-50/40' : short && 'bg-amber-50/40',
+                    )}>
                       <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-slate-500">{row.poNumber}</td>
                       <td className="max-w-[260px] px-3 py-1.5">
                         <div className="truncate text-slate-700"><Package size={11} className="mr-1 inline text-purple-400" />{row.productName}</div>
                         <div className="font-mono text-[10px] text-slate-400">{source?.barcode || '—'}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className={cn(
+                            'rounded px-1.5 py-0.5 text-[10px] font-semibold',
+                            blocking ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700',
+                          )}>
+                            {matchStateLabel}
+                          </span>
+                          {matchingBlocked ? (
+                            <a
+                              href={rocketProductMatchingHref({
+                                channelAccountId,
+                                productNo: row.productNo,
+                                channelSkuId: row.channelSkuId,
+                              })}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={`${matchStateLabel} 해결`}
+                              className="text-[10px] font-semibold text-purple-700 hover:underline"
+                            >
+                              상품 매칭 센터
+                            </a>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{formatNumber(row.orderQuantity)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{componentValues(row, 'currentStock')}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{componentValues(row, 'activeCommitmentQuantity')}</td>
-                      <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-slate-700">{componentValues(row, 'availableStock')}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{componentValues(row)}</td>
                       <td className="px-3 py-1.5 text-right">
                         <input
-                          aria-label={`${row.poNumber} 검토수량`}
+                          aria-label={`${row.poNumber} 엑셀 수량`}
                           type="number"
                           min={0}
                           max={Math.min(row.maxQuantity, row.orderQuantity)}
                           value={quantity}
-                          disabled={confirmation?.status === 'active'}
+                          disabled={blocking || Boolean(workbookExport && workbookExport.status !== 'completed')}
                           onChange={(event) => editQuantity(row, Number(event.target.value) || 0)}
                           className={cn(
                             'w-20 rounded-md border px-2 py-1 text-right text-sm tabular-nums',
@@ -388,7 +498,7 @@ export function RocketConfirmPanel({
                         <select
                           aria-label={`${row.poNumber} 납품부족사유`}
                           value={shortageReasons[row.poLineId] ?? ''}
-                          disabled={!short || confirmation?.status === 'active'}
+                          disabled={blocking || !short || Boolean(workbookExport && workbookExport.status !== 'completed')}
                           onChange={(event) => {
                             setShortageReasons((current) => ({
                               ...current,
@@ -420,20 +530,12 @@ export function RocketConfirmPanel({
         </div>
       ) : null}
 
-      {channelAccountId ? (
-        <RocketInventoryCommitmentList
-          key={channelAccountId}
-          channelAccountId={channelAccountId}
-          channelAccountLabel={channelAccountName || channelAccountId}
-          refreshKey={commitmentRefreshKey}
-        />
-      ) : null}
-
       <RocketMatchStatusModal
         open={matchModalOpen}
         onClose={() => setMatchModalOpen(false)}
         rows={matchRows}
         date={selectedDate || null}
+        channelAccountId={channelAccountId}
       />
     </div>
   );

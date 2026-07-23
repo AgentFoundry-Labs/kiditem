@@ -1,9 +1,10 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { operatorProductReference } from '../../lib/operator-product-reference';
 import { VariantRecipeSummary } from './VariantRecipeSummary';
+import { cn } from '@/lib/utils';
 import type {
   ChannelOptionMatchingQueueRow,
   ChannelProductMatchingQueueRow,
@@ -22,6 +23,7 @@ type Props = {
   onEditProduct: (row: ChannelProductMatchingQueueRow) => void;
   onEditVariant: (row: ChannelOptionMatchingQueueRow) => void;
   onShowRecipeSuggestion: (row: ChannelOptionMatchingQueueRow) => void;
+  focusOptionId?: string;
   loading?: boolean;
 };
 
@@ -33,14 +35,26 @@ export function ProductInventoryMatchingTable({
   onEditProduct,
   onEditVariant,
   onShowRecipeSuggestion,
+  focusOptionId,
   loading = false,
 }: Props) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const optionsByListingId = groupOptions(options);
+  const focusedListingId = options.find((row) => row.option.id === focusOptionId)?.listing.id;
   const productGroupsByListingId = new Map(productGroups.map((group) => [
     group.channelListingId,
     group,
   ]));
+
+  useEffect(() => {
+    if (!focusedListingId) return;
+    setExpandedIds((current) => {
+      if (current.has(focusedListingId)) return current;
+      const next = new Set(current);
+      next.add(focusedListingId);
+      return next;
+    });
+  }, [focusedListingId]);
 
   if (loading) {
     return (
@@ -146,6 +160,7 @@ export function ProductInventoryMatchingTable({
                           product={product}
                           options={childOptions}
                           automationItemsByOptionId={automationItemsByOptionId}
+                          focusOptionId={focusOptionId}
                           onEditProduct={onEditProduct}
                           onEditVariant={onEditVariant}
                           onShowRecipeSuggestion={onShowRecipeSuggestion}
@@ -185,6 +200,7 @@ function ProductDetails({
   product,
   options,
   automationItemsByOptionId,
+  focusOptionId,
   onEditProduct,
   onEditVariant,
   onShowRecipeSuggestion,
@@ -192,6 +208,7 @@ function ProductDetails({
   product: ChannelProductMatchingQueueRow;
   options: ChannelOptionMatchingQueueRow[];
   automationItemsByOptionId: Map<string, ChannelRecipeAutomationItem>;
+  focusOptionId?: string;
   onEditProduct: (row: ChannelProductMatchingQueueRow) => void;
   onEditVariant: (row: ChannelOptionMatchingQueueRow) => void;
   onShowRecipeSuggestion: (row: ChannelOptionMatchingQueueRow) => void;
@@ -236,8 +253,16 @@ function ProductDetails({
               <tr><td colSpan={4} className="px-3 py-8 text-center text-slate-500">수집된 하위 옵션이 없습니다.</td></tr>
             ) : options.map((row) => {
               const automationItem = automationItemsByOptionId.get(row.option.id);
+              const focused = row.option.id === focusOptionId;
               return (
-                <tr key={row.option.id} className="align-top">
+                <tr
+                  key={row.option.id}
+                  aria-label={focused ? '선택된 채널 옵션' : undefined}
+                  className={cn(
+                    'align-top',
+                    focused && 'bg-purple-50 ring-1 ring-inset ring-purple-300',
+                  )}
+                >
                   <td className="overflow-hidden px-3 py-3">
                     <p className="truncate font-semibold text-slate-900" title={row.option.itemName ?? undefined}>
                       {row.option.itemName ?? '옵션명 없음'}
@@ -245,6 +270,11 @@ function ProductDetails({
                     <p className="mt-1 break-all font-mono text-slate-500">
                       {row.option.sellerSku ?? row.option.externalOptionId}
                     </p>
+                    {focused ? (
+                      <span className="mt-1 inline-flex rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-bold text-purple-800">
+                        로켓 발주 대상
+                      </span>
+                    ) : null}
                   </td>
                   <td className="overflow-hidden px-3 py-3">
                     {row.linkedVariant ? (

@@ -53,8 +53,8 @@ Keep every active root-to-leaf instruction chain below 28 KiB. Run
 - No follow-up issues: apply all in-scope changes now and do not leave
   deferred handoffs.
 - Research major OSS projects before introducing new architectural patterns.
-- Temporary plans, scratch specs, agent logs, and coordination notes stay out of
-  git.
+- Maintain plans/specs in `docs/superpowers/`; keep scratch and agent logs out
+  of git.
 
 ## Core Contracts
 
