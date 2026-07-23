@@ -35,6 +35,15 @@ function componentValues(
   return row.components.map((component) => formatNumber(component.currentStock)).join(' / ');
 }
 
+function componentQuantityValues(
+  row: RocketPurchasePreviewRow,
+): string {
+  if (row.components.length === 0) return '구성 —';
+  return `구성 ${row.components
+    .map((component) => `×${formatNumber(component.quantity)}`)
+    .join(' / ')}`;
+}
+
 const WORKFLOW_LABEL = {
   awaiting_coupang_confirmation: '쿠팡 업로드·발주확정 대기',
   orders_collected: '주문수집 완료',
@@ -424,14 +433,20 @@ export function RocketConfirmPanel({
             </div>
           </div>
 
+          <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-2 text-xs text-slate-500">
+            Sellpia 원재고는 물리 재고입니다. 납품가능은 구성수량과 같은 수집본의 선행 발주 배정을
+            반영한 해당 행의 최대 수량입니다.
+          </div>
+
           <div className="max-h-[460px] overflow-auto">
-            <table className="min-w-[900px] text-sm">
+            <table className="min-w-[980px] text-sm">
               <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold">발주번호</th>
                   <th className="px-3 py-2 text-left font-semibold">상품 (바코드)</th>
                   <th className="px-3 py-2 text-right font-semibold">발주</th>
-                  <th className="px-3 py-2 text-right font-semibold">현재고</th>
+                  <th className="px-3 py-2 text-right font-semibold">Sellpia 원재고</th>
+                  <th className="px-3 py-2 text-right font-semibold">납품가능</th>
                   <th className="px-3 py-2 text-right font-semibold">엑셀 수량</th>
                   <th className="px-3 py-2 text-left font-semibold">납품부족사유</th>
                 </tr>
@@ -478,7 +493,19 @@ export function RocketConfirmPanel({
                         </div>
                       </td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{formatNumber(row.orderQuantity)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{componentValues(row)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">
+                        <div>{componentValues(row)}</div>
+                        <div className="text-[10px] text-slate-400">{componentQuantityValues(row)}</div>
+                      </td>
+                      <td
+                        aria-label={`${row.poNumber} 납품가능 ${row.maxQuantity}개`}
+                        className={cn(
+                          'px-3 py-1.5 text-right font-semibold tabular-nums',
+                          row.maxQuantity < row.orderQuantity ? 'text-amber-700' : 'text-slate-700',
+                        )}
+                      >
+                        {formatNumber(row.maxQuantity)}
+                      </td>
                       <td className="px-3 py-1.5 text-right">
                         <input
                           aria-label={`${row.poNumber} 엑셀 수량`}
