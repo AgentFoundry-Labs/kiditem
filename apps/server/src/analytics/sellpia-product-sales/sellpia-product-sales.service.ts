@@ -28,6 +28,8 @@ import {
 const INT4_MAX = 2_147_483_647;
 // createMany 벌크 청크. 14열 × 2000행 = 28k 바인드 < PG 65535 파라미터 한도.
 const INSERT_CHUNK = 2000;
+// 실제 13개월 payload는 Prisma interactive transaction 기본 5초를 넘을 수 있다.
+const INGEST_TRANSACTION_TIMEOUT_MS = 30_000;
 const DEFAULT_MONTHS = 13; // 1년치(완결 12개월 + 진행 월) — 시즌 분류/추세 근거
 
 /**
@@ -90,27 +92,30 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     // - 조회는 커밋 전까지 이전 데이터를 보므로 빈 창이 없다.
     // - 삭제를 크롤 창(연월)으로 한정하므로 더 짧은 창의 수집이 그 밖의 과거 월을
     //   지우지 않는다(1년 히스토리 보존). 같은 창의 재수집은 그 월들만 새로 채운다.
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(
-        Prisma.sql`
-          -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
-          SELECT pg_advisory_xact_lock(
-            hashtextextended(${`kiditem.sellpia-product-sales:${organizationId}`}, 0)
-          )::text AS "lock"
-        `,
-      );
-      await tx.sellpiaProductMonthlySales.deleteMany({
-        where: {
-          organizationId,
-          yearMonth: { in: authoritativeMonths },
-        },
-      });
-      for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
-        await tx.sellpiaProductMonthlySales.createMany({
-          data: rows.slice(i, i + INSERT_CHUNK),
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`
+            -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
+            SELECT pg_advisory_xact_lock(
+              hashtextextended(${`kiditem.sellpia-product-sales:${organizationId}`}, 0)
+            )::text AS "lock"
+          `,
+        );
+        await tx.sellpiaProductMonthlySales.deleteMany({
+          where: {
+            organizationId,
+            yearMonth: { in: authoritativeMonths },
+          },
         });
-      }
-    });
+        for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+          await tx.sellpiaProductMonthlySales.createMany({
+            data: rows.slice(i, i + INSERT_CHUNK),
+          });
+        }
+      },
+      { timeout: INGEST_TRANSACTION_TIMEOUT_MS },
+    );
 
     await this.eventEmitter.emitAsync(
       SELLPIA_PRODUCT_SALES_EVENTS.INGESTED,

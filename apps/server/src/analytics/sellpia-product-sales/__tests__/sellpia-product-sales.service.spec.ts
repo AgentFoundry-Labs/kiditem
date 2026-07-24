@@ -130,6 +130,10 @@ describe('SellpiaProductSalesService.ingest', () => {
       where: { organizationId: ORGANIZATION_ID, yearMonth: { in: ['2026-05', '2026-06', '2026-07'] } },
     });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { timeout: 30_000 },
+    );
     expect(queryRaw).toHaveBeenCalledOnce();
     const lockStatement = queryRaw.mock.calls[0]?.[0] as { values?: unknown[] };
     expect(lockStatement.values).toContain(`kiditem.sellpia-product-sales:${ORGANIZATION_ID}`);
