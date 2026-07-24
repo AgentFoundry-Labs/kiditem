@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "kiditem.channel-recipe-transfer.v1",
+  "channel": "rocket",
+  "exportedAt": "2026-07-23T17:07:14.477Z",
+  "recipes": [
+    {
+      "listingExternalId": "14736823",
+      "optionExternalId": "14736823",
+      "components": [{ "sellpiaSkuCode": "7599-1", "quantity": 36 }]
+    },
+    {
+      "listingExternalId": "15130823",
+      "optionExternalId": "15130823",
+      "components": [{ "sellpiaSkuCode": "10188-1", "quantity": 16 }]
+    },
+    {
+      "listingExternalId": "1896544",
+      "optionExternalId": "1896544",
+      "components": [{ "sellpiaSkuCode": "3189-1", "quantity": 1 }]
+    },
+    {
+      "listingExternalId": "34673653",
+      "optionExternalId": "34673653",
+      "components": [{ "sellpiaSkuCode": "8907-1", "quantity": 12 }]
+    },
+    {
+      "listingExternalId": "35468765",
+      "optionExternalId": "35468765",
+      "components": [{ "sellpiaSkuCode": "10173-1", "quantity": 18 }]
+    },
+    {
+      "listingExternalId": "40902863",
+      "optionExternalId": "40902863",
+      "components": [{ "sellpiaSkuCode": "9605-1", "quantity": 8 }]
+    },
+    {
+      "listingExternalId": "41112905",
+      "optionExternalId": "41112905",
+      "components": [{ "sellpiaSkuCode": "9484-2", "quantity": 1 }]
+    },
+    {
+      "listingExternalId": "41114064",
+      "optionExternalId": "41114064",
+      "components": [{ "sellpiaSkuCode": "9484-3", "quantity": 1 }]
+    },
+    {
+      "listingExternalId": "45408692",
+      "optionExternalId": "45408692",
+      "components": [{ "sellpiaSkuCode": "10180-1", "quantity": 2 }]
+    },
+    {
+      "listingExternalId": "48138752",
+      "optionExternalId": "48138752",
+      "components": [{ "sellpiaSkuCode": "10100-1", "quantity": 12 }]
+    },
+    {
+      "listingExternalId": "48139963",
+      "optionExternalId": "48139963",
+      "components": [{ "sellpiaSkuCode": "7683-1", "quantity": 5 }]
+    },
+    {
+      "listingExternalId": "48207212",
+      "optionExternalId": "48207212",
+      "components": [{ "sellpiaSkuCode": "8701-1", "quantity": 3 }]
+    },
+    {
+      "listingExternalId": "48207508",
+      "optionExternalId": "48207508",
+      "components": [{ "sellpiaSkuCode": "9808-1", "quantity": 9 }]
+    },
+    {
+      "listingExternalId": "48659067",
+      "optionExternalId": "48659067",
+      "components": [{ "sellpiaSkuCode": "9029-1", "quantity": 12 }]
+    },
+    {
+      "listingExternalId": "48659371",
+      "optionExternalId": "48659371",
+      "components": [{ "sellpiaSkuCode": "10410-1", "quantity": 4 }]
+    },
+    {
+      "listingExternalId": "48825601",
+      "optionExternalId": "48825601",
+      "components": [{ "sellpiaSkuCode": "8212-1", "quantity": 3 }]
+    },
+    {
+      "listingExternalId": "50710607",
+      "optionExternalId": "50710607",
+      "components": [{ "sellpiaSkuCode": "10073-1", "quantity": 4 }]
+    },
+    {
+      "listingExternalId": "51288311",
+      "optionExternalId": "51288311",
+      "components": [{ "sellpiaSkuCode": "10167-1", "quantity": 4 }]
+    },
+    {
+      "listingExternalId": "51288313",
+      "optionExternalId": "51288313",
+      "components": [{ "sellpiaSkuCode": "10010-1", "quantity": 4 }]
+    },
+    {
+      "listingExternalId": "51781467",
+      "optionExternalId": "51781467",
+      "components": [{ "sellpiaSkuCode": "9795-1", "quantity": 6 }]
+    },
+    {
+      "listingExternalId": "58202362",
+      "optionExternalId": "58202362",
+      "components": [{ "sellpiaSkuCode": "10025-3", "quantity": 1 }]
+    },
+    {
+      "listingExternalId": "58978762",
+      "optionExternalId": "58978762",
+      "components": [{ "sellpiaSkuCode": "10051-1", "quantity": 24 }]
+    },
+    {
+      "listingExternalId": "59261814",
+      "optionExternalId": "59261814",
+      "components": [{ "sellpiaSkuCode": "10061-1", "quantity": 6 }]
+    },
+    {
+      "listingExternalId": "60348929",
+      "optionExternalId": "60348929",
+      "components": [{ "sellpiaSkuCode": "10432-1", "quantity": 2 }]
+    },
+    {
+      "listingExternalId": "71581776",
+      "optionExternalId": "71581776",
+      "components": [{ "sellpiaSkuCode": "10324-1", "quantity": 1 }]
+    },
+    {
+      "listingExternalId": "8187315",
+      "optionExternalId": "8187315",
+      "components": [{ "sellpiaSkuCode": "634-1", "quantity": 12 }]
+    }
+  ]
+}

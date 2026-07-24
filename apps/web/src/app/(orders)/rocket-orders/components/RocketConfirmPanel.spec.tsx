@@ -175,10 +175,35 @@ describe('<RocketConfirmPanel />', () => {
     expect(screen.getByText('구성 완료')).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeEnabled();
     expect(screen.getByRole('combobox', { name: 'PO-1 납품부족사유' })).toBeEnabled();
-    expect(screen.getByRole('columnheader', { name: '현재고' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Sellpia 원재고' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '납품가능' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '엑셀 수량' })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '약정' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '가용재고' })).not.toBeInTheDocument();
+  });
+
+  it('distinguishes Sellpia physical stock from the per-line deliverable limit', () => {
+    const preview = previewWithReason('insufficient_capacity');
+    renderPanel({
+      preview: {
+        ...preview,
+        rows: preview.rows.map((row) => ({
+          ...row,
+          orderQuantity: 18,
+          recommendedQuantity: 0,
+          maxQuantity: 0,
+          components: row.components.map((component) => ({
+            ...component,
+            currentStock: 307,
+            quantity: 4,
+          })),
+        })),
+      },
+    });
+
+    expect(screen.getByRole('columnheader', { name: 'Sellpia 원재고' })).toBeInTheDocument();
+    expect(screen.getByText('구성 ×4')).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'PO-1 납품가능 0개' })).toBeInTheDocument();
   });
 
   it('applies one shortage reason to every eligible short row', () => {

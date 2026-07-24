@@ -44,8 +44,11 @@ Inventory freshness and publication are owned by
   Its only write is the version-fenced, explicitly invoked deterministic
   command, which creates an empty recipe as one active Sellpia component with a
   verified positive integer quantity and never replaces an existing recipe.
-- Product detail remains the only manual recipe mutation surface. An operator
-  saves the complete replacement recipe there after confirming the full BOM.
+- Products' complete-recipe replacement API remains the only manual recipe
+  mutation owner. Product detail is its ordinary UI; an explicitly reviewed
+  private transfer artifact may call Products' manual batch plan/create-if-empty
+  APIs for staging replay under
+  [`channel-recipe-transfer.md`](channel-recipe-transfer.md).
 - A later channel recollection may change channel identity links but must not
   rewrite the central product-variant recipe.
 

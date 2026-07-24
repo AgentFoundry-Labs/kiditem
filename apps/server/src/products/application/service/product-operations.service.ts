@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   CreateMasterProductInputSchema,
+  CreateProductVariantRecipesIfEmptyInputSchema,
   CreateProductVariantInputSchema,
   MasterProductOperationsListQuerySchema,
   UpdateMasterProductInputSchema,
@@ -13,7 +14,6 @@ import {
   type ProductDepletionProjection,
   type ProductOperationsListSummary,
 } from '@kiditem/shared/product-operations';
-import type { ProductOperationsPort } from '../port/in/product-operations.port';
 import {
   PRODUCT_OPERATIONS_REPOSITORY_PORT,
   type NormalizedCreateProductVariant,
@@ -32,6 +32,7 @@ import {
   mapProductOperationsListItem,
   mapProductOperationsVariant,
 } from '../../mapper/product-operations-inventory.mapper';
+import type { ProductOperationsPort } from '../port/in/product-operations.port';
 
 @Injectable()
 export class ProductOperationsService implements ProductOperationsPort {
@@ -205,6 +206,38 @@ export class ProductOperationsService implements ProductOperationsPort {
       variant,
       await this.loadInventory(organizationId, [variant]),
     );
+  }
+
+  async planRecipesIfEmpty(
+    organizationId: string,
+    rawInput: unknown,
+  ) {
+    const input = parseOrBadRequest(
+      CreateProductVariantRecipesIfEmptyInputSchema,
+      rawInput,
+      'Invalid create-if-empty ProductVariant recipe plan',
+    );
+    return this.repository.planManualRecipesIfEmpty({
+      organizationId,
+      recipes: input.recipes,
+    });
+  }
+
+  async createRecipesIfEmpty(
+    organizationId: string,
+    userId: string,
+    rawInput: unknown,
+  ) {
+    const input = parseOrBadRequest(
+      CreateProductVariantRecipesIfEmptyInputSchema,
+      rawInput,
+      'Invalid create-if-empty ProductVariant recipe batch',
+    );
+    return this.repository.createManualRecipesIfEmpty({
+      organizationId,
+      userId,
+      recipes: input.recipes,
+    });
   }
 
   private async loadInventory(

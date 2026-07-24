@@ -40,7 +40,7 @@ describe('Products architecture', () => {
     );
   });
 
-  it('publishes the eight product-operation routes', () => {
+  it('publishes the ten product-operation routes', () => {
     expect(Reflect.getMetadata('path', ProductOperationsController)).toBe('products');
     const routes = [
       ['listProducts', 'masters', RequestMethod.GET],
@@ -51,6 +51,8 @@ describe('Products architecture', () => {
       ['createVariant', 'masters/:masterProductId/variants', RequestMethod.POST],
       ['updateVariant', 'variants/:productVariantId', RequestMethod.PATCH],
       ['replaceRecipe', 'variants/:productVariantId/components', RequestMethod.PUT],
+      ['planRecipesIfEmpty', 'variant-recipes/create-if-empty/plan', RequestMethod.POST],
+      ['createRecipesIfEmpty', 'variant-recipes/create-if-empty', RequestMethod.POST],
     ] as const;
 
     for (const [methodName, path, method] of routes) {
