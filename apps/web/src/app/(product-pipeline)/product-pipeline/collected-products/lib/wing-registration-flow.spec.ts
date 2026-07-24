@@ -429,6 +429,15 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(overrides.stock).toBe(999);
   });
 
+  it('상품명에 카테고리 단어가 있어도 정확한 별칭 선택 없이는 미선택으로 둔다', () => {
+    const unresolved = product();
+    unresolved.categoryCell = '';
+    unresolved.productName = '과일바구니 딸깍이 키링 3종';
+    unresolved.sellerProductName = '키링 기획상품';
+
+    expect(buildWingRegistrationOverrides(unresolved).categoryKey).toBe('');
+  });
+
   it('사용자가 고친 값이 등록 payload 에 실린다', () => {
     const applied = applyWingRegistrationOverrides(product(), {
       categoryKey: '64687',

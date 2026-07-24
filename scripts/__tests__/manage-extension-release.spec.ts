@@ -48,10 +48,10 @@ describe("manual extension release management", () => {
     const releaseDirectory = join(
       outputDirectory,
       "order-collector",
-      "0.1.79",
+      "0.1.80",
       "staging",
     );
-    const assetBase = "kiditem-order-collector-v0.1.79-staging";
+    const assetBase = "kiditem-order-collector-v0.1.80-staging";
     const archivePath = join(releaseDirectory, `${assetBase}.zip`);
     const checksumPath = join(releaseDirectory, `${assetBase}.zip.sha256`);
     const metadataPath = join(releaseDirectory, `${assetBase}.release.json`);
@@ -67,7 +67,7 @@ describe("manual extension release management", () => {
     );
 
     const manifest = JSON.parse(readFileSync(unpackedManifestPath, "utf8"));
-    expect(manifest.version).toBe("0.1.79");
+    expect(manifest.version).toBe("0.1.80");
     expect(manifest.externally_connectable.matches).toEqual([
       "https://staging.example.com/*",
     ]);
@@ -86,11 +86,11 @@ describe("manual extension release management", () => {
     expect(metadata).toMatchObject({
       schemaVersion: "kiditem.extension.release.v1",
       extension: "order-collector",
-      manifestVersion: "0.1.79",
+      manifestVersion: "0.1.80",
       target: "staging",
       webOrigin: "https://staging.example.com",
       apiOrigin: "https://staging.example.com",
-      tag: "extension-order-collector-v0.1.79-staging",
+      tag: "extension-order-collector-v0.1.80-staging",
       archive: {
         fileName: `${assetBase}.zip`,
         sha256: checksum,
@@ -123,7 +123,7 @@ describe("manual extension release management", () => {
       join(
         repeatedOutputDirectory,
         "order-collector",
-        "0.1.79",
+        "0.1.80",
         "staging",
         `${assetBase}.zip`,
       ),
@@ -162,7 +162,7 @@ describe("manual extension release management", () => {
         join(
           outputDirectory,
           "coupang-ads-scraper",
-          "1.2.66",
+          "1.2.69",
           "staging",
           "unpacked",
           "manifest.json",
@@ -178,7 +178,7 @@ describe("manual extension release management", () => {
         join(
           outputDirectory,
           "coupang-ads-scraper",
-          "1.2.66",
+          "1.2.69",
           "staging",
           "unpacked",
           "popup",
@@ -189,7 +189,7 @@ describe("manual extension release management", () => {
     ).not.toContain("localhost:4000");
     const output = JSON.parse(result.stdout);
     expect(output.metadata.tag).toBe(
-      "extension-coupang-ads-scraper-v1.2.66-staging",
+      "extension-coupang-ads-scraper-v1.2.69-staging",
     );
     expect(output.release).toMatchObject({
       dryRun: true,
@@ -239,7 +239,7 @@ describe("manual extension release management", () => {
       join(
         outputDirectory,
         "product-scraper",
-        "2.2.2",
+        "2.2.3",
         "staging",
         "unpacked",
         "background.js",

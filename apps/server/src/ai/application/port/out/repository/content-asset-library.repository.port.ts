@@ -146,6 +146,18 @@ export interface ContentAssetLibraryRepositoryPort {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<CandidateContentAssetRow[]>;
+  /**
+   * 후보의 활성 워크스페이스가 현재 고른 썸네일 자산 URL 목록(중복 제거).
+   *
+   * `listCandidateAssets` 는 자산의 원본 그룹 소유(=원본 워크스페이스)로 조회하므로,
+   * **중복 상품끼리 재사용된 썸네일**(다른 워크스페이스 그룹 소유 자산)을 놓친다.
+   * 현재 선택 포인터는 재사용분을 잡되 append-only 과거 선택은 제외한다 —
+   * `listRegistrationImages` 가 이 값을 갤러리와 합쳐 Wing 추가이미지에 태운다.
+   */
+  listCandidateSelectedThumbnailUrls(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<string[]>;
   findCandidateCurrentThumbnail(input: {
     organizationId: string;
     sourceCandidateId: string;

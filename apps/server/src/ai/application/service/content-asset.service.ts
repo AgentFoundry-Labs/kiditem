@@ -64,6 +64,14 @@ export class ContentAssetService implements CandidateContentAssetPort {
       if (grouped[row.role].includes(url)) continue;
       grouped[row.role].push(url);
     }
+    // 갤러리 스캔(자산 그룹 소유 기준)은 중복 상품끼리 재사용된 썸네일을 놓친다.
+    // 워크스페이스의 현재 선택 포인터(워크스페이스 id 기준)로 그 재사용분을 보강한다.
+    // 순수 갤러리 저장분은 위에서 이미 채웠으므로 여기서는 빠진 것만 합친다.
+    const selectedThumbnailUrls = await this.repository.listCandidateSelectedThumbnailUrls(input);
+    for (const url of selectedThumbnailUrls) {
+      if (!url || grouped.thumbnail.includes(url)) continue;
+      grouped.thumbnail.push(url);
+    }
     return grouped;
   }
 

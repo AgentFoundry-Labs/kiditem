@@ -860,6 +860,257 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     })).toBe(1);
   });
 
+  it('abandons a never-submitted prepared execution and prepares fresh when a later attempt changes the payload', async () => {
+    const base = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+    };
+    const staleIdempotencyKey = randomUUID();
+    const stale = await repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: staleIdempotencyKey,
+    }, ensureWorkspace, resolveSelections);
+
+    // A later attempt with a changed payload (e.g. an edited category) freezes a
+    // different hash, so the prepared execution can no longer resume. Because the
+    // stale intent never reached the provider, it is abandoned and a fresh
+    // preparation/execution is created instead of hard-conflicting.
+    const fresh = await repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots (edited)',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots', wingCategoryKey: '64687' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+
+    expect(fresh.status).toBe('prepared');
+    expect(fresh.executionId).not.toBe(stale.executionId);
+    expect(fresh.preparationId).not.toBe(stale.preparationId);
+    await expect(prisma.productPreparation.findUniqueOrThrow({
+      where: { id: stale.preparationId },
+      select: { status: true, isDeleted: true, deletedAt: true },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      isDeleted: true,
+      deletedAt: expect.any(Date),
+    });
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: stale.executionId },
+      select: {
+        status: true,
+        providerOutcome: true,
+        completedAt: true,
+        leaseToken: true,
+        leaseClaimedAt: true,
+      },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      providerOutcome: 'not_attempted',
+      completedAt: expect.any(Date),
+      leaseToken: null,
+      leaseClaimedAt: null,
+    });
+    expect(await prisma.productPreparation.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidateId,
+        isDeleted: false,
+      },
+    })).toBe(1);
+
+    // Superseding never erases the frozen idempotency ledger. Retrying the old
+    // request must surface its terminal cancellation instead of reviving it.
+    await expect(repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: staleIdempotencyKey,
+    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('never revives a legacy active preparation whose execution ledger is missing', async () => {
+    const base = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+    };
+    const stale = await repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+    // Simulate a pre-ledger/partially migrated active row. The production path
+    // must reconcile or reject it, never treat `every([])` as safe to replace.
+    await prisma.productRegistrationExecution.delete({ where: { id: stale.executionId } });
+
+    await expect(repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Changed without a ledger',
+      registrationInput: { wingProduct: { productName: 'Changed without a ledger' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+    await expect(prisma.productPreparation.findUniqueOrThrow({
+      where: { id: stale.preparationId },
+      select: { status: true, isDeleted: true },
+    })).resolves.toEqual({ status: 'submitting', isDeleted: false });
+  });
+
+  it('never supersedes an ordinary create execution or its live claim lease', async () => {
+    const draft = await repository.createOrGetActiveDraft(
+      createInput(ACCOUNT_ID),
+      ensureWorkspace,
+      resolveSelections,
+    );
+    const claimed = await repository.claimForSubmission(
+      TEST_ORGANIZATION_ID,
+      draft.preparationId,
+      TEST_USER_ID,
+      resolveSelections,
+    );
+    if (claimed.status === 'registered') throw new Error('unexpected registered claim');
+
+    await expect(repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Changed into manual WING flow',
+      registrationInput: { wingProduct: { productName: 'Changed into manual WING flow' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: claimed.executionId },
+      select: {
+        executionKind: true,
+        status: true,
+        providerOutcome: true,
+        leaseToken: true,
+      },
+    })).resolves.toEqual({
+      executionKind: 'create',
+      status: 'prepared',
+      providerOutcome: 'not_attempted',
+      leaseToken: claimed.submissionLeaseToken,
+    });
+  });
+
+  it('still blocks a changed-payload attempt once the existing external execution has started', async () => {
+    const base = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+    };
+    const prepared = await repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+    // Once started, the execution is uncertain (may have reached Coupang); a
+    // changed-payload retry must never silently replace it.
+    await repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+
+    await expect(repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Changed after start',
+      registrationInput: { wingProduct: { productName: 'Changed after start' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('serializes start behind a concurrent supersede and never resurrects the stale execution', async () => {
+    const base = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+    };
+    const stale = await repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+
+    let releaseSupersede!: () => void;
+    let reportCandidateLocked!: () => void;
+    const supersedeRelease = new Promise<void>((resolve) => {
+      releaseSupersede = resolve;
+    });
+    const candidateLocked = new Promise<void>((resolve) => {
+      reportCandidateLocked = resolve;
+    });
+    let didPause = false;
+    const pausedPrisma = {
+      $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) =>
+        prisma.$transaction(async (transaction) => callback(new Proxy(transaction, {
+          get(target, property, receiver) {
+            if (property !== '$queryRaw') return Reflect.get(target, property, receiver);
+            return async <R>(query: Prisma.Sql): Promise<R> => {
+              const rows = await transaction.$queryRaw<R>(query);
+              if (!didPause) {
+                didPause = true;
+                reportCandidateLocked();
+                await supersedeRelease;
+              }
+              return rows;
+            };
+          },
+        }))),
+    };
+    const pausedRepository = new ProductPreparationRepositoryAdapter(
+      pausedPrisma as unknown as PrismaService,
+    );
+    const supersede = pausedRepository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots (edited while start races)',
+      registrationInput: {
+        wingProduct: {
+          productName: 'Kids rain boots',
+          wingCategoryKey: '64687',
+        },
+      },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+    await candidateLocked;
+
+    const start = repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: stale.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    const startState = await Promise.race([
+      start.then(() => 'settled' as const, () => 'settled' as const),
+      new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 100)),
+    ]);
+    expect(startState).toBe('blocked');
+    releaseSupersede();
+
+    const fresh = await supersede;
+    await expect(start).rejects.toBeInstanceOf(ConflictException);
+    expect(fresh.executionId).not.toBe(stale.executionId);
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: stale.executionId },
+      select: { status: true, providerOutcome: true, startedAt: true },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      providerOutcome: 'not_attempted',
+      startedAt: null,
+    });
+  });
+
   it('rejects external preparation when the persisted account is not a vendor-identified Wing account', async () => {
     await prisma.channelAccount.update({
       where: { id: ACCOUNT_ID },

@@ -223,7 +223,7 @@ test('advertises the logged-in Chrome trend and live-commerce collector capabili
   assert.equal(response?.capabilities?.sourcing1688TrendCollector, true);
   assert.equal(response?.capabilities?.sourcingLiveCommerceCollector, true);
   assert.equal(response?.capabilities?.browserCollectionSessions, true);
-  assert.equal(manifest.version, '2.2.2');
+  assert.equal(manifest.version, '2.2.3');
 });
 
 test('loads collection sessions and the interactive focus owner before sourcing collectors', () => {

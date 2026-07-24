@@ -89,7 +89,12 @@ implements RocketFinalOrderReconciliationTransactionPort {
         );
       }
       await tx.rocketPurchaseConfirmationLine.update({
-        where: { id: match.id },
+        where: {
+          id_organizationId: {
+            id: match.id,
+            organizationId: input.organizationId,
+          },
+        },
         data: {
           collectedOrderLineItemId: line.finalOrderLineId,
           collectedAt: match.collectedOrderLineItemId ? undefined : new Date(),

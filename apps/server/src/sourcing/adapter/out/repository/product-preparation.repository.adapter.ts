@@ -313,7 +313,7 @@ export class ProductPreparationRepositoryAdapter
       });
       let sourceContentWorkspaceId: string;
       if (!preparation) {
-        const active = await tx.productPreparation.findFirst({
+        const activeIdentity = await tx.productPreparation.findFirst({
           where: {
             organizationId: input.organizationId,
             sourceCandidateId: input.sourceCandidateId,
@@ -322,7 +322,102 @@ export class ProductPreparationRepositoryAdapter
           },
           select: { id: true },
         });
-        if (active) throw new ConflictException('An active registration preparation already exists.');
+        if (activeIdentity) {
+          // A leftover preparation whose intent never reached the provider can be
+          // safely abandoned so a fresh attempt proceeds. This happens when an
+          // earlier attempt set up a `prepared` execution but never submitted it
+          // (e.g. the Wing fill was blocked before start), and a later payload
+          // change — such as editing the category — gives the retry a different
+          // hash so the prepared execution can no longer resume.
+          //
+          // Candidate/preparation/execution locks and the post-lock reload are
+          // deliberate. `startExternalExecution` may otherwise promote the same
+          // execution to `executing/uncertain` between an eligibility read and the
+          // supersede write. Only one pristine external-WING intent can be
+          // superseded; missing ledgers, ordinary create claims, live leases, and
+          // any provider/start evidence remain hard conflicts.
+          await lockPreparation(tx, input.organizationId, activeIdentity.id);
+          const executionIdentities = await tx.productRegistrationExecution.findMany({
+            where: {
+              organizationId: input.organizationId,
+              productPreparationId: activeIdentity.id,
+            },
+            select: { id: true },
+          });
+          if (executionIdentities.length !== 1) {
+            throw new ConflictException('An active registration preparation already exists.');
+          }
+          await lockExecution(
+            tx,
+            input.organizationId,
+            executionIdentities[0]!.id,
+          );
+          const active = await tx.productPreparation.findFirst({
+            where: {
+              id: activeIdentity.id,
+              organizationId: input.organizationId,
+              sourceCandidateId: input.sourceCandidateId,
+              channelAccountId: input.channelAccountId,
+              isDeleted: false,
+            },
+          });
+          const execution = await tx.productRegistrationExecution.findFirst({
+            where: {
+              id: executionIdentities[0]!.id,
+              organizationId: input.organizationId,
+              productPreparationId: activeIdentity.id,
+            },
+          });
+          if (
+            !active
+            || !execution
+            || !canSupersedePreparedExternalExecution({
+              preparation: active,
+              execution,
+              requestedByUserId: input.requestedByUserId,
+              expectedProviderAccountId,
+              nextRequestHash: frozen.hash,
+            })
+          ) {
+            throw new ConflictException('An active registration preparation already exists.');
+          }
+
+          const supersededAt = new Date();
+          await tx.productRegistrationExecution.update({
+            where: { id: execution.id },
+            data: {
+              status: 'cancelled',
+              completedAt: supersededAt,
+              leaseToken: null,
+              leaseClaimedAt: null,
+            },
+          });
+          const cancelled = await tx.productPreparation.updateMany({
+            where: {
+              id: active.id,
+              organizationId: input.organizationId,
+              sourceCandidateId: input.sourceCandidateId,
+              channelAccountId: input.channelAccountId,
+              status: 'submitting',
+              providerOutcome: 'not_attempted',
+              submissionLeaseToken: null,
+              submissionLeaseClaimedAt: null,
+              isDeleted: false,
+            },
+            data: {
+              status: 'cancelled',
+              isDeleted: true,
+              deletedAt: supersededAt,
+              submissionLeaseToken: null,
+              submissionLeaseClaimedAt: null,
+            },
+          });
+          if (cancelled.count !== 1) {
+            throw new ConflictException(
+              'Registration preparation changed while it was being superseded.',
+            );
+          }
+        }
         sourceContentWorkspaceId = await resolveSourceWorkspace(tx as unknown as SourcingRepositoryTransaction);
         const resolved = await resolveSelections(
           tx as unknown as SourcingRepositoryTransaction,
@@ -413,23 +508,74 @@ export class ProductPreparationRepositoryAdapter
     requestedByUserId: string | null;
   }): Promise<ExternalRegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
-      const execution = await tx.productRegistrationExecution.findFirst({
+      const identity = await tx.productRegistrationExecution.findFirst({
         where: {
           id: input.executionId,
           organizationId: input.organizationId,
           executionKind: 'external_wing',
           productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
         },
+        select: { id: true, productPreparationId: true },
       });
-      if (!execution) throw new NotFoundException('External registration execution not found.');
-      await lockExecution(tx, input.organizationId, execution.id);
+      if (!identity) throw new NotFoundException('External registration execution not found.');
+      await lockCandidate(tx, input.organizationId, input.sourceCandidateId);
+      await lockPreparation(tx, input.organizationId, identity.productPreparationId);
+      await lockExecution(tx, input.organizationId, identity.id);
+      const execution = await tx.productRegistrationExecution.findFirst({
+        where: {
+          id: identity.id,
+          organizationId: input.organizationId,
+          executionKind: 'external_wing',
+          productPreparationId: identity.productPreparationId,
+        },
+        include: {
+          productPreparation: true,
+        },
+      });
+      if (
+        !execution
+        || execution.productPreparation.sourceCandidateId !== input.sourceCandidateId
+        || execution.productPreparation.organizationId !== input.organizationId
+      ) {
+        throw new NotFoundException('External registration execution not found.');
+      }
       if (execution.requestedByUserId !== input.requestedByUserId) {
         throw new ConflictException('External registration execution belongs to a different actor.');
       }
+      const preparation = execution.productPreparation;
+      if (
+        preparation.isDeleted
+        || preparation.status !== 'submitting'
+        || preparation.channelAccountId !== execution.channelAccountId
+      ) {
+        throw new ConflictException(
+          'External registration execution no longer has an active preparation.',
+        );
+      }
       if (execution.status === 'executing' && execution.providerOutcome === 'uncertain') {
+        if (
+          preparation.providerOutcome !== 'uncertain'
+          || !execution.leaseToken
+          || preparation.submissionLeaseToken !== execution.leaseToken
+        ) {
+          throw new ConflictException(
+            'External registration execution drifted from its active preparation.',
+          );
+        }
         return externalExecutionResult(execution);
       }
-      if (execution.status !== 'prepared' || execution.providerOutcome !== 'not_attempted') {
+      if (
+        execution.status !== 'prepared'
+        || execution.providerOutcome !== 'not_attempted'
+        || execution.leaseToken !== null
+        || execution.leaseClaimedAt !== null
+        || execution.startedAt !== null
+        || preparation.providerOutcome !== 'not_attempted'
+        || preparation.providerSubmissionId !== null
+        || preparation.registrationResult !== null
+        || preparation.submissionLeaseToken !== null
+        || preparation.submissionLeaseClaimedAt !== null
+      ) {
         throw new ConflictException('External registration execution cannot be started from its current state.');
       }
       const leaseToken = randomUUID();
@@ -438,10 +584,24 @@ export class ProductPreparationRepositoryAdapter
         where: { id: execution.id },
         data: { status: 'executing', providerOutcome: 'uncertain', leaseToken, leaseClaimedAt: startedAt, startedAt },
       });
-      await tx.productPreparation.updateMany({
-        where: { id: execution.productPreparationId, organizationId: input.organizationId, isDeleted: false },
+      const preparationUpdated = await tx.productPreparation.updateMany({
+        where: {
+          id: execution.productPreparationId,
+          organizationId: input.organizationId,
+          sourceCandidateId: input.sourceCandidateId,
+          status: 'submitting',
+          providerOutcome: 'not_attempted',
+          submissionLeaseToken: null,
+          submissionLeaseClaimedAt: null,
+          isDeleted: false,
+        },
         data: { status: 'submitting', providerOutcome: 'uncertain', submissionLeaseToken: leaseToken, submissionLeaseClaimedAt: startedAt },
       });
+      if (preparationUpdated.count !== 1) {
+        throw new ConflictException(
+          'External registration preparation changed while the execution was starting.',
+        );
+      }
       return externalExecutionResult(updated);
     });
   }
@@ -1120,6 +1280,43 @@ async function requireExecution(
   });
   if (!execution) throw new ConflictException('Product registration execution is missing.');
   return execution;
+}
+
+function canSupersedePreparedExternalExecution(input: {
+  preparation: ProductPreparation;
+  execution: ProductRegistrationExecution;
+  requestedByUserId: string | null;
+  expectedProviderAccountId: string;
+  nextRequestHash: string;
+}): boolean {
+  const { preparation, execution } = input;
+  return preparation.status === 'submitting'
+    && preparation.providerOutcome === 'not_attempted'
+    && preparation.providerSubmissionId === null
+    && preparation.registrationResult === null
+    && preparation.channelListingId === null
+    && preparation.submissionLeaseToken === null
+    && preparation.submissionLeaseClaimedAt === null
+    && preparation.submissionPayloadJson !== null
+    && preparation.submissionPayloadHash === execution.requestHash
+    && preparation.submissionKey === execution.idempotencyKey
+    && preparation.approvedByUserId === input.requestedByUserId
+    && execution.executionKind === 'external_wing'
+    && execution.status === 'prepared'
+    && execution.providerOutcome === 'not_attempted'
+    && execution.providerSubmissionId === null
+    && execution.externalListingId === null
+    && execution.channelListingId === null
+    && execution.resultJson === null
+    && execution.leaseToken === null
+    && execution.leaseClaimedAt === null
+    && execution.startedAt === null
+    && execution.completedAt === null
+    && execution.submissionPayloadJson !== null
+    && execution.submissionPayloadHash === execution.requestHash
+    && execution.requestedByUserId === input.requestedByUserId
+    && execution.expectedProviderAccountId === input.expectedProviderAccountId
+    && execution.requestHash !== input.nextRequestHash;
 }
 
 function externalExecutionResult(

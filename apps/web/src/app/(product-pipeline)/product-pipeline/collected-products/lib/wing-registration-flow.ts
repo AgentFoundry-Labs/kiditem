@@ -247,6 +247,10 @@ export function resolveWingCategoryKey(detail: ProductDetailResponse): WingCateg
     if (saved) return saved.key;
   }
 
+  // 일괄등록(엑셀) 경로는 사람 검토가 없으므로 추천으로 자동 채우지 않는다.
+  // 정확 별칭이 없으면 ''를 돌려 `resolveWingCategorySelections`가 사용자에게
+  // 직접 선택을 강제한다. 단일 등록 다이얼로그도 상품명으로 추천하지 않고,
+  // 미선택 상태를 보여준 뒤 사용자가 명시적으로 고르게 한다.
   return matchWingCategoryAlias(detail.basicInfo.category)?.key ?? '';
 }
 

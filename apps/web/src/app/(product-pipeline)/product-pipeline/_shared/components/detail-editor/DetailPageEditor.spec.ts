@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import grapesjs from 'grapesjs';
 import { DETAIL_TEMPLATE_STYLES_ATTR } from '../../lib/template-html';
 import {
+  registerEditableTableCellType,
   repairPackageImageFramesInDocument,
   sanitizePersistedHead,
 } from './DetailPageEditor';
@@ -55,5 +57,54 @@ describe('detail editor persisted HTML', () => {
     expect(image?.style.objectFit).toBe('contain');
     expect(image?.style.borderRadius).toBe('24px');
     expect(image?.style.mixBlendMode).toBe('multiply');
+  });
+
+  it('edits table cells without losing valid cell tags or row-only drag constraints', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = grapesjs.init({
+      container,
+      height: '0px',
+      storageManager: false,
+    });
+
+    try {
+      registerEditableTableCellType(editor);
+      editor.setComponents(`
+        <table>
+          <tbody>
+            <tr><th>항목</th><td>제품명</td></tr>
+          </tbody>
+        </table>
+      `);
+
+      const cells = editor.getWrapper()?.findType('cell') ?? [];
+      expect(cells.map((cell) => cell.get('tagName'))).toEqual(['th', 'td']);
+      expect(cells.every((cell) => cell.get('editable') === true)).toBe(true);
+      expect(cells.map((cell) => cell.get('draggable'))).toEqual([['tr'], ['tr']]);
+      expect(
+        typeof editor.DomComponents.getType('cell')?.view.prototype.onActive,
+      ).toBe('function');
+
+      const row = editor.getWrapper()?.findType('row')[0];
+      expect(row).toBeDefined();
+      row?.append({ type: 'cell', components: '재질' });
+
+      const firstPass = editor.getHtml();
+      editor.setComponents(firstPass);
+      const persisted = new DOMParser().parseFromString(editor.getHtml(), 'text/html');
+      const persistedRow = persisted.querySelector('tr');
+
+      expect(
+        Array.from(persistedRow?.children ?? []).map((cell) => cell.tagName.toLowerCase()),
+      ).toEqual(['th', 'td', 'td']);
+      expect(persistedRow?.querySelector('div')).toBeNull();
+      expect(
+        Array.from(persistedRow?.children ?? []).map((cell) => cell.textContent),
+      ).toEqual(['항목', '제품명', '재질']);
+    } finally {
+      editor.destroy();
+      container.remove();
+    }
   });
 });

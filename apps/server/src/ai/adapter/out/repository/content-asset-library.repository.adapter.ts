@@ -284,6 +284,45 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
   }
 
   /**
+   * 후보의 활성 워크스페이스가 현재 고른 썸네일 자산 URL(중복 제거).
+   *
+   * `listCandidateAssets` 는 자산→그룹→워크스페이스 소유로 조회해 원본 상품의
+   * 워크스페이스에서 만든 뒤 재사용된 썸네일을 놓친다. 워크스페이스의 현재
+   * 선택 포인터는 재사용분까지 잡되 append-only 과거 선택은 제외하므로,
+   * 폐기한 대표 이미지가 WING 추가이미지로 되살아나지 않는다.
+   */
+  async listCandidateSelectedThumbnailUrls(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<string[]> {
+    const workspaces = await this.prisma.contentWorkspace.findMany({
+      where: {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.sourceCandidateId,
+        status: 'active',
+        isDeleted: false,
+        currentThumbnailSelectionId: { not: null },
+      },
+      orderBy: { updatedAt: 'asc' },
+      select: {
+        currentThumbnailSelection: {
+          select: {
+            contentAsset: { select: { url: true, isDeleted: true } },
+          },
+        },
+      },
+    });
+    const urls: string[] = [];
+    for (const workspace of workspaces) {
+      const asset = workspace.currentThumbnailSelection?.contentAsset;
+      if (!asset || asset.isDeleted) continue;
+      const url = asset.url.trim();
+      if (url && !urls.includes(url)) urls.push(url);
+    }
+    return urls;
+  }
+
+  /**
    * `findCandidateCurrentThumbnail` 의 배치판. 수집상품 목록은 한 페이지에
    * 후보가 20~100개라 후보마다 한 번씩 조회하면 N+1 이 된다. 목록 경로는
    * 반드시 이쪽을 쓴다.
