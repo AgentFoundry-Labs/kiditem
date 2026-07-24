@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { ProductAbcGradeSchema } from './product-abc.js';
 
 export const ProductInventoryStatusSchema = z.enum([
   'sellable',
@@ -70,7 +71,7 @@ export const MasterProductOperationsListQuerySchema = z.object({
   category: z.string().trim().min(1).max(100).optional(),
   activeStatus: ProductOperationsActiveStatusSchema.default('all'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
-  abcGrade: z.string().trim().min(1).max(20).optional(),
+  abcGrade: ProductAbcGradeSchema.optional(),
   adStatus: ProductOperationsAdStatusSchema.default('all'),
 }).strict();
 export type MasterProductOperationsListQuery = z.infer<
@@ -135,7 +136,7 @@ export const MasterProductOperationsMetadataSchema = z.object({
   brand: z.string().nullable(),
   tags: z.array(z.string().min(1)),
   imageUrls: z.array(z.string().min(1)),
-  abcGrade: z.string().nullable(),
+  abcGrade: ProductAbcGradeSchema.nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
@@ -345,7 +346,6 @@ const MasterProductMutationFieldsSchema = z.object({
   brand: z.string().trim().min(1).max(100).nullable(),
   tags: z.array(z.string().trim().min(1).max(100)).max(50),
   imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50),
-  abcGrade: z.string().trim().min(1).max(20).nullable(),
   profitTag: z.string().trim().min(1).max(50).nullable(),
   adTier: z.string().trim().min(1).max(50).nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
@@ -361,7 +361,6 @@ export const CreateMasterProductInputSchema = z.object({
   brand: z.string().trim().min(1).max(100).nullable().optional(),
   tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
   imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50).optional(),
-  abcGrade: z.string().trim().min(1).max(20).nullable().optional(),
   profitTag: z.string().trim().min(1).max(50).nullable().optional(),
   adTier: z.string().trim().min(1).max(50).nullable().optional(),
   adBudgetLimit: z.number().int().nonnegative().nullable().optional(),

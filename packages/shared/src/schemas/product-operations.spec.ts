@@ -37,6 +37,16 @@ describe('product operations contracts', () => {
       organizationId: productId,
     })).toThrow();
     expect(() => MasterProductOperationsListQuerySchema.parse({ periodDays: 15 })).toThrow();
+    expect(() => MasterProductOperationsListQuerySchema.parse({ abcGrade: 'manual' })).toThrow();
+  });
+
+  it('exposes stored ABC as read-only product metadata', () => {
+    expect(() => CreateMasterProductInputSchema.parse({
+      code: 'KI-001',
+      name: '식판',
+      abcGrade: 'A',
+    })).toThrow();
+    expect(() => UpdateMasterProductInputSchema.parse({ abcGrade: 'B' })).toThrow();
   });
 
   it('freezes the product inventory status vocabulary', () => {

@@ -29,6 +29,7 @@ export default defineConfig({
     'src/channel-sku-availability.ts',
     'src/inventory-commitment.ts',
     'src/product-operations.ts',
+    'src/product-abc.ts',
     'src/channel-product-matching.ts',
     'src/channel-recipe-automation.ts',
     'src/source-import.ts',

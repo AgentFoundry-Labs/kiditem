@@ -140,6 +140,11 @@
       "import": "./dist/product-operations.js",
       "require": "./dist/product-operations.cjs"
     },
+    "./product-abc": {
+      "types": "./dist/product-abc.d.ts",
+      "import": "./dist/product-abc.js",
+      "require": "./dist/product-abc.cjs"
+    },
     "./channel-product-matching": {
       "types": "./dist/channel-product-matching.d.ts",
       "import": "./dist/channel-product-matching.js",
@@ -322,6 +327,9 @@
       ],
       "product-operations": [
         "dist/product-operations.d.ts"
+      ],
+      "product-abc": [
+        "dist/product-abc.d.ts"
       ],
       "channel-product-matching": [
         "dist/channel-product-matching.d.ts"
