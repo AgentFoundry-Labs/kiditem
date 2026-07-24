@@ -14,5 +14,6 @@ export interface MasterProductAbcRepositoryPort {
     sourceCapturedAt: Date | null;
     grades: ReadonlyMap<string, ProductAbcGrade | null>;
     metricValues: ReadonlyMap<string, number | null>;
-  }): Promise<{ changedProductCount: number; policy: MasterProductAbcPolicyRecord }>;
+    allowPolicyReplacement?: boolean;
+  }): Promise<{ changedProductCount: number; policy: MasterProductAbcPolicyRecord; stale: boolean }>;
 }

@@ -21,8 +21,23 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
     sourceCapturedAt: Date | null;
     grades: ReadonlyMap<string, ProductAbcGrade | null>;
     metricValues: ReadonlyMap<string, number | null>;
+    allowPolicyReplacement?: boolean;
   }) {
     return this.prisma.$transaction(async (tx) => {
+      const persistedPolicy = await tx.masterProductAbcPolicy.findUnique({
+        where: { organizationId: input.organizationId },
+      });
+      if (
+        persistedPolicy
+        && !input.allowPolicyReplacement
+        && !samePolicyConfig(persistedPolicy, input.policy)
+      ) {
+        return {
+          changedProductCount: 0,
+          policy: toPolicy(persistedPolicy),
+          stale: true,
+        };
+      }
       const ids = [...input.grades.keys()].sort();
       const current = ids.length === 0 ? [] : await tx.masterProduct.findMany({
         where: { organizationId: input.organizationId, id: { in: ids } },
@@ -75,9 +90,19 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
           sourceCapturedAt: input.sourceCapturedAt,
         },
       });
-      return { changedProductCount: applied.length, policy: toPolicy(policy) };
+      return { changedProductCount: applied.length, policy: toPolicy(policy), stale: false };
     });
   }
+}
+
+function samePolicyConfig(
+  persisted: Pick<MasterProductAbcPolicyRecord, 'metric' | 'periodDays' | 'aCumulativeThreshold' | 'bCumulativeThreshold'>,
+  candidate: MasterProductAbcPolicyRecord,
+): boolean {
+  return persisted.metric === candidate.metric
+    && persisted.periodDays === candidate.periodDays
+    && persisted.aCumulativeThreshold === candidate.aCumulativeThreshold
+    && persisted.bCumulativeThreshold === candidate.bCumulativeThreshold;
 }
 
 function toPolicy(row: {

@@ -46,19 +46,23 @@ export class MasterProductAbcService {
       ...parsed.data,
       lastCalculatedAt: null,
       sourceCapturedAt: null,
-    });
+    }, true);
     return published;
   }
 
   async recalculate(organizationId: string): Promise<MasterProductAbcRecalculationResult> {
     const policy = await this.getPolicy(organizationId);
-    return (await this.recalculateWithPolicy(organizationId, policy)).result;
+    const first = await this.recalculateWithPolicy(organizationId, policy);
+    if (!first.stale) return first.result;
+    const latestPolicy = await this.getPolicy(organizationId);
+    return (await this.recalculateWithPolicy(organizationId, latestPolicy)).result;
   }
 
   private async recalculateWithPolicy(
     organizationId: string,
     policy: MasterProductAbcPolicyResponse,
-  ): Promise<{ policy: MasterProductAbcPolicyResponse; result: MasterProductAbcRecalculationResult }> {
+    allowPolicyReplacement = false,
+  ): Promise<{ policy: MasterProductAbcPolicyResponse; result: MasterProductAbcRecalculationResult; stale: boolean }> {
     const snapshot = await this.metrics.readMetricSnapshot({
       organizationId,
       metric: policy.metric,
@@ -75,6 +79,7 @@ export class MasterProductAbcService {
       sourceCapturedAt: snapshot.sourceCapturedAt,
       grades,
       metricValues,
+      allowPolicyReplacement,
     });
     const gradeItems = [...grades.entries()].map(([masterProductId, abcGrade]) => ({
       masterProductId,
@@ -82,6 +87,7 @@ export class MasterProductAbcService {
     }));
     return {
       policy: published.policy,
+      stale: published.stale,
       result: {
         changedProductCount: published.changedProductCount,
         classifiedProductCount: gradeItems.filter(({ abcGrade }) => abcGrade !== null).length,

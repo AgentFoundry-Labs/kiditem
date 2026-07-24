@@ -97,4 +97,32 @@ describe('MasterProductAbcService', () => {
     expect(repository.publishGrades).not.toHaveBeenCalled();
     expect(repository.findPolicy).not.toHaveBeenCalled();
   });
+
+  it('retries once with the latest policy after a stale ingest publication no-op', async () => {
+    const { MasterProductAbcService } = await serviceModule();
+    const oldPolicy = {
+      metric: 'SALES_QUANTITY', periodDays: 30,
+      aCumulativeThreshold: 70, bCumulativeThreshold: 90,
+      lastCalculatedAt: null, sourceCapturedAt: null,
+    };
+    const latestPolicy = { ...oldPolicy, metric: 'SALES_AMOUNT' as const, periodDays: 90 as const };
+    const repository = {
+      findPolicy: vi.fn().mockResolvedValueOnce(oldPolicy).mockResolvedValueOnce(latestPolicy),
+      publishGrades: vi.fn()
+        .mockResolvedValueOnce({ changedProductCount: 0, policy: latestPolicy, stale: true })
+        .mockResolvedValueOnce({ changedProductCount: 1, policy: latestPolicy, stale: false }),
+    };
+    const metrics = { readMetricSnapshot: vi.fn().mockResolvedValue({ sourceCapturedAt: null, evidence: [] }) };
+    const service = new MasterProductAbcService(repository as never, metrics as never);
+
+    await expect(service.recalculate(organizationId)).resolves.toMatchObject({ changedProductCount: 1 });
+
+    expect(metrics.readMetricSnapshot).toHaveBeenNthCalledWith(1, {
+      organizationId, metric: 'SALES_QUANTITY', periodDays: 30,
+    });
+    expect(metrics.readMetricSnapshot).toHaveBeenNthCalledWith(2, {
+      organizationId, metric: 'SALES_AMOUNT', periodDays: 90,
+    });
+    expect(repository.publishGrades).toHaveBeenNthCalledWith(1, expect.objectContaining({ allowPolicyReplacement: false }));
+  });
 });

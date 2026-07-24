@@ -48,10 +48,20 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
       sourceCapturedAt: new Date('2026-07-24T00:00:00Z'),
       grades: new Map([[own.id, 'A']]),
       metricValues: new Map([[own.id, 10]]),
+      allowPolicyReplacement: true,
+    });
+    const stale = await repository.publishGrades({
+      organizationId: TEST_ORGANIZATION_ID,
+      policy,
+      sourceCapturedAt: new Date('2026-07-25T00:00:00Z'),
+      grades: new Map([[own.id, 'B']]),
+      metricValues: new Map([[own.id, 10]]),
+      allowPolicyReplacement: false,
     });
 
     expect(first.changedProductCount).toBe(1);
     expect(retry.changedProductCount).toBe(0);
+    expect(stale).toMatchObject({ changedProductCount: 0, stale: true });
     expect((await prisma.masterProduct.findUniqueOrThrow({ where: { id: own.id } })).abcGrade).toBe('A');
     expect((await prisma.masterProduct.findUniqueOrThrow({ where: { id: foreign.id } })).abcGrade).toBeNull();
     await expect(prisma.masterProductAbcGradeHistory.findMany({ where: { organizationId: TEST_ORGANIZATION_ID } }))
