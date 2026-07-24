@@ -45,8 +45,8 @@
 - Search, filters, period, and page on `/product-hub` are URL-authoritative.
   Period may refresh both global and row projections, but list filters are not
   sent to the global command-center query.
-- Product create/edit mutations invalidate only the product operations list and
-  affected detail keys.
+- Product edits invalidate operations/detail keys. ABC is read-only; policy
+  save/recalc refreshes grade consumers. Null renders `미분류`.
 - Product detail owns manual complete recipe replacement through the focused
   physical Inventory candidate search. Manual variant recipe edits are complete
   atomic replacements: operators select confirmed physical Inventory identities,
@@ -73,9 +73,8 @@
 - Product list/detail never read `/api/inventory/sellpia-skus`; options is the
   only product-hub route that owns the Sellpia inventory collection. The detail
   recipe picker uses the Products-owned focused candidate endpoint.
-- Product operations and product-outflow remain separate screens over the same
-  depletion projection. Manual `MasterProduct.abcGrade` is not overwritten by
-  sales-derived ABC.
+- Product operations and product-outflow are separate views of one automatic
+  `MasterProduct.abcGrade`; do not add manual or secondary sales grades.
 - Do not create catalog-owned stock balances or editable Sellpia stock/price
   inputs.
 - Do not infer identity from display text, normalized names, or AI. The nested

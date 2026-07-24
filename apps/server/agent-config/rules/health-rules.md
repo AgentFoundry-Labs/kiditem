@@ -81,13 +81,13 @@
 
 | 규칙명 | 조건 | severity | 메시지 | 액션 |
 |--------|------|----------|--------|------|
-| 대량 주문 상품 | orderCount ≥ 50 | info | 주문 {값}건 — 핵심 상품 관리 강화 필요 | upgrade_grade |
+| 대량 주문 상품 | orderCount ≥ 50 | info | 주문 {값}건 — 판매/재고 운영 점검 필요 | create_purchase_order |
 | 주문 없음 | orderCount ≤ 0 | warning | 주문 없음 — 노출/가격 경쟁력 점검 | check_listing |
 | 주문 저조 | orderCount < 5 | info | 주문 {값}건 — 판매 활성화 필요 | create_promotion |
 | 취소율 과다 | cancelRate ≥ 10% | warning | 취소율 {값}% — 품질/배송 점검 필요 | review_quality |
 | 취소율 위험 | cancelRate ≥ 20% | critical | 취소율 {값}% — 즉시 원인 분석 필요 | review_quality |
 | 반품율 경고 | returnRate ≥ 5% | warning | 반품율 {값}% — 상품 설명/품질 점검 | review_quality |
-| 핵심상품 후보 | orderCount ≥ 100 | info | 주문 {값}건 — A등급 승격 + 재고 확보 검토 | upgrade_grade |
+| 고판매 상품 | orderCount ≥ 100 | info | 주문 {값}건 — 재고 확보 검토 | create_purchase_order |
 | 주문 급증 | orderCount ≥ 200 | warning | 주문 {값}건 급증 — 재고/품질 관리 강화 | create_purchase_order |
 | 휴면 상품 | orderCount ≤ 0 (재고 있을 때) | info | 주문 없음 + 재고 보유 — 정리 또는 프로모션 검토 | create_promotion |
 

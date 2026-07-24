@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  assignAbcGrades,
   computeDeadStock,
   computeReorder,
   computeSeasonTag,
@@ -47,24 +46,6 @@ describe('detectAnomaly', () => {
       65,
     );
     expect(r.anomalyMonths).toEqual([]);
-  });
-});
-
-describe('assignAbcGrades', () => {
-  it('총 소진량 파레토로 A≤70% / B≤90% / C 나머지를 매긴다', () => {
-    // grand=1000. 700(70%)→A, +200(90%)→B, +100→C, 0→C
-    const grades = assignAbcGrades([700, 200, 100, 0]);
-    expect(grades).toEqual(['A', 'B', 'C', 'C']);
-  });
-
-  it('원래 인덱스 순서를 보존한다(입력이 정렬돼있지 않아도)', () => {
-    const grades = assignAbcGrades([100, 700, 0, 200]);
-    // 700=A(누적70%), 200=B(누적90%), 100=C, 0=C
-    expect(grades).toEqual(['C', 'A', 'C', 'B']);
-  });
-
-  it('전량 무판매면 모두 C', () => {
-    expect(assignAbcGrades([0, 0, 0])).toEqual(['C', 'C', 'C']);
   });
 });
 

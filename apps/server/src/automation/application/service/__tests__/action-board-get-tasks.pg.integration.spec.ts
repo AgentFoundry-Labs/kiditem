@@ -231,10 +231,10 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     expect(taskKeys).toEqual(expect.arrayContaining([
       'h-zero-stock',
       'h-ad-csv',
-      'recalc-grade',
       'analyze-ad-rules',
       'analyze-category',
     ]));
+    expect(taskKeys).not.toContain('recalc-grade');
     expect(taskKeys).not.toContain('h-minus-ad-stop');
     expect(taskKeys).not.toContain('h-ad-bid');
 

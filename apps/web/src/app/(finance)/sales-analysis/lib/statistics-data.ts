@@ -63,7 +63,7 @@ export const statisticsTabs: Array<{
   { key: 'categories', label: '카테고리별', icon: BarChart3 },
   { key: 'delivery', label: '배송/일별', icon: Truck },
   { key: 'grades', label: '등급별', icon: BarChart3 },
-  { key: 'pareto', label: 'ABC 파레토', icon: PieChart },
+  { key: 'pareto', label: '매출 파레토', icon: PieChart },
   { key: 'repurchase', label: '재구매율', icon: Users },
 ];
 

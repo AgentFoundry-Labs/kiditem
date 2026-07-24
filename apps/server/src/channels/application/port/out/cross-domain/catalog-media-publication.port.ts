@@ -1,4 +1,9 @@
-import type { CoupangCatalogMediaV1 } from '@kiditem/shared/coupang-catalog-snapshot';
+export type ChannelCatalogMedia = Readonly<{
+  sourceUrl: string;
+  role: 'primary' | 'detail' | 'option';
+  sortOrder: number;
+  externalOptionId: string | null;
+}>;
 
 export interface CatalogMediaPublicationPort {
   publishProviderMedia(input: {
@@ -11,8 +16,9 @@ export interface CatalogMediaPublicationPort {
     };
     listings: Array<{
       listingId: string;
+      channel: string;
       displayName: string;
-      media: CoupangCatalogMediaV1[];
+      media: ChannelCatalogMedia[];
     }>;
   }): Promise<{
     imageCount: number;

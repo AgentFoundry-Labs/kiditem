@@ -37,16 +37,19 @@ const snapshot = (
 describe("KeywordRankService Wing sales rank overview", () => {
   let repo: MockKeywordRankRepo;
   let service: KeywordRankService;
-  const findAbcGradesByProductVariantIds = vi.fn();
+  const findStoredAbcGradesByProductVariantIds = vi.fn();
 
   beforeEach(() => {
     repo = buildMockKeywordRankRepo();
     service = new KeywordRankService(
       repo as unknown as KeywordRankRepositoryPort,
-      { findAbcGradesByProductVariantIds } as never,
+      {
+        findAbcGradesByProductVariantIds:
+          findStoredAbcGradesByProductVariantIds,
+      } as never,
     );
-    findAbcGradesByProductVariantIds.mockReset();
-    findAbcGradesByProductVariantIds.mockResolvedValue(new Map());
+    findStoredAbcGradesByProductVariantIds.mockReset();
+    findStoredAbcGradesByProductVariantIds.mockResolvedValue(new Map());
     repo.listTrackers.mockResolvedValue([]);
     repo.listRepresentativeKeywordOverrides.mockResolvedValue([]);
     repo.listOwnVendorItems.mockResolvedValue([]);
@@ -204,7 +207,7 @@ describe("KeywordRankService Wing sales rank overview", () => {
     });
   });
 
-  it("links CP-* channel products to Analytics ABC grades by confirmed variant", async () => {
+  it("links channel products to the Products-owned stored ABC grade by confirmed variant", async () => {
     repo.listOwnVendorItems.mockResolvedValue([
       {
         vendorItemId: "V-1",
@@ -214,13 +217,13 @@ describe("KeywordRankService Wing sales rank overview", () => {
         productVariantId: "variant-confirmed",
       },
     ]);
-    findAbcGradesByProductVariantIds.mockResolvedValue(
+    findStoredAbcGradesByProductVariantIds.mockResolvedValue(
       new Map([["variant-confirmed", ["A"]]]),
     );
 
     const result = await service.getProductRankOverview(30, "organization-1");
 
-    expect(findAbcGradesByProductVariantIds).toHaveBeenCalledWith({
+    expect(findStoredAbcGradesByProductVariantIds).toHaveBeenCalledWith({
       organizationId: "organization-1",
       productVariantIds: ["variant-confirmed"],
     });
@@ -244,7 +247,7 @@ describe("KeywordRankService Wing sales rank overview", () => {
         productVariantId: "variant-c",
       },
     ]);
-    findAbcGradesByProductVariantIds.mockResolvedValue(
+    findStoredAbcGradesByProductVariantIds.mockResolvedValue(
       new Map([
         ["variant-a", ["A"]],
         ["variant-c", ["C"]],

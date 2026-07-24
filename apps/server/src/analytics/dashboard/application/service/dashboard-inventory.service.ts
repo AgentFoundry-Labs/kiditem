@@ -64,10 +64,21 @@ export class DashboardInventoryService {
         this.repository.findAGradeReviewCounts(organizationId),
       ]);
 
-      // gradeCount assembly
-      const gradeCount = gradeRows.reduce<Record<string, number>>(
-        (acc, g) => ({ ...acc, [g.abcGrade ?? 'C']: g.count }),
-        {},
+      const gradeCount = { A: 0, B: 0, C: 0 };
+      for (const row of gradeRows) {
+        if (
+          row.abcGrade === 'A' ||
+          row.abcGrade === 'B' ||
+          row.abcGrade === 'C'
+        ) {
+          gradeCount[row.abcGrade] += row.count;
+        }
+      }
+      const classifiedProductCount =
+        gradeCount.A + gradeCount.B + gradeCount.C;
+      const unclassifiedProductCount = Math.max(
+        totalActiveProducts - classifiedProductCount,
+        0,
       );
 
       // lowReviewProducts — A-grade products with < 10 reviews (legacy)
@@ -114,6 +125,8 @@ export class DashboardInventoryService {
         totalProducts: totalActiveProducts,
         channelLinkedProducts,
         channelUnlinkedProducts: Math.max(totalActiveProducts - channelLinkedProducts, 0),
+        classifiedProductCount,
+        unclassifiedProductCount,
         gradeCount,
         mappingStatusCounts: {
           matched: mappingStatusRows.find((row) => row.mappingStatus === 'matched')?.count ?? 0,
@@ -138,9 +151,12 @@ export class DashboardInventoryService {
    * matching legacy behavior (always assigns gradeChanges, never undefined).
    */
   private computeGradeChanges(rows: GradeChangeRow[]): GradeChanges {
-    const grades = ['D', 'C', 'B', 'A'] as const;
-    const gradeIndex = (g: string | null): number =>
-      grades.indexOf((g ?? 'D') as typeof grades[number]);
+    const gradeIndex = (grade: string | null): number => {
+      if (grade === 'A') return 3;
+      if (grade === 'B') return 2;
+      if (grade === 'C') return 1;
+      return 0;
+    };
 
     const upgraded = rows.filter(
       (g) => gradeIndex(g.newGrade) > gradeIndex(g.oldGrade),

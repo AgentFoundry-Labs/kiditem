@@ -28,7 +28,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 20 |
 | [Channels](erd/channels.md) | 21 |
-| [Core](erd/core.md) | 12 |
+| [Core](erd/core.md) | 14 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 13 |
 | [Orders](erd/orders.md) | 10 |
@@ -109,6 +109,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelListingOption | Core | `channel_listing_options` | One sellable SKU under a channel listing. |
 | LegalEntity | Core | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | Core | `master_products` | KidItem-operated product identity and product-level operating metadata. |
+| MasterProductAbcGradeHistory | Core | `master_product_abc_grade_histories` | Immutable publication history for automatic MasterProduct ABC grade changes. |
+| MasterProductAbcPolicy | Core | `master_product_abc_policies` | Organization-owned automatic MasterProduct ABC calculation policy. |
 | Organization | Core | `organizations` | - |
 | OrganizationMembership | Core | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductVariant | Core | `product_variants` | Reusable sellable unit beneath one MasterProduct. Code is stable organization-scoped identity. |
@@ -1390,6 +1392,30 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  MasterProductAbcGradeHistory {
+    String id PK
+    String organizationId FK
+    String masterProductId FK
+    String oldGrade
+    String newGrade
+    String metric
+    Int periodDays
+    Decimal metricValue
+    DateTime calculatedAt
+  }
+  MasterProductAbcPolicy {
+    String id PK
+    String organizationId FK,UK
+    String metric
+    Int periodDays
+    Int aCumulativeThreshold
+    Int bCumulativeThreshold
+    Int revision
+    DateTime lastCalculatedAt
+    DateTime sourceCapturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   MigrationCheckpoint {
     String id PK
     String scriptName
@@ -2614,6 +2640,7 @@ erDiagram
   InventoryCommitment ||--o{ InventoryCommitmentAllocation : "commitment"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
+  MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
   MasterProduct ||--o{ ProcessingCost : "master"
   MasterProduct ||--o{ ProductVariant : "masterProduct"
   MasterProduct o|--o| SourcingCandidate : "provenanceMasterProduct"
@@ -2685,6 +2712,8 @@ erDiagram
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
   Organization ||--o{ ManualLedger : "organization"
   Organization ||--o{ MasterProduct : "organization"
+  Organization ||--o{ MasterProductAbcGradeHistory : "organization"
+  Organization ||--|| MasterProductAbcPolicy : "organization"
   Organization ||--o{ NaverKeywordDailySnapshot : "organization"
   Organization ||--o{ NaverPopularKeywordDailySnapshot : "organization"
   Organization ||--o{ Order : "organization"

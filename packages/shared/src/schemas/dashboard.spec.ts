@@ -3,6 +3,7 @@ import {
   DashboardInventorySummarySchema,
   SellpiaSalesIngestPayloadSchema,
   SellpiaSalesSummarySchema,
+  TopProductSchema,
 } from './dashboard.js';
 
 describe('dashboard schemas', () => {
@@ -19,6 +20,8 @@ describe('dashboard schemas', () => {
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
+      classifiedProductCount: 5,
+      unclassifiedProductCount: 0,
       mappingStatusCounts: { matched: 10, unmatched: 1, needsReview: 1 },
       alerts: [],
       warnings: {
@@ -32,6 +35,8 @@ describe('dashboard schemas', () => {
 
     expect(summary.channelLinkedProducts).toBe(3);
     expect(summary.channelUnlinkedProducts).toBe(2);
+    expect(summary.classifiedProductCount).toBe(5);
+    expect(summary.unclassifiedProductCount).toBe(0);
     expect(summary.warnings.outOfStockSkus).toBe(4);
     expect(summary.warnings.mappingAttentionSkus).toBe(2);
     expect(summary.warnings).not.toHaveProperty('needReorder');
@@ -43,6 +48,8 @@ describe('dashboard schemas', () => {
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
+      classifiedProductCount: 5,
+      unclassifiedProductCount: 0,
       mappingStatusCounts: { matched: 10, unmatched: 0, needsReview: 0 },
       alerts: [{
         id: 'alert-1',
@@ -72,6 +79,20 @@ describe('dashboard schemas', () => {
 
     expect(summary.alerts[0].status).toBe('succeeded');
     expect(summary.alerts[0].href).toBe('/product-pipeline/thumbnail-ai?generationId=gen-1');
+  });
+
+  it('keeps top-product stored ABC nullable and rejects non-ABC labels', () => {
+    const base = {
+      id: 'product-1',
+      name: '상품',
+      organization: '조직',
+      revenue: 10_000,
+      netProfit: 2_000,
+      profitRate: 20,
+    };
+
+    expect(TopProductSchema.parse({ ...base, grade: null }).grade).toBeNull();
+    expect(() => TopProductSchema.parse({ ...base, grade: 'manual' })).toThrow();
   });
 
   it('requires the Sellpia receipt profit after collected Coupang ad spend', () => {

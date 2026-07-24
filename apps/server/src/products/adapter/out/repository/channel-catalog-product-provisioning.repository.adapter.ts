@@ -84,6 +84,7 @@ implements ChannelCatalogProductProvisioningRepositoryPort {
       input.listings.map((listing) => listing.channelListingId),
     );
     const resolutions = resolveProducts(input.listings, scope.currentMasters, allOrigins, evidence);
+    await fillEmptyProductImages(tx, input.organizationId, resolutions);
     const createdVariantCount = await createMissingOriginVariants(
       tx,
       input.organizationId,
@@ -365,6 +366,7 @@ async function createMissingOriginProducts(
         name: listing.name,
         category: listing.category,
         brand: listing.brand,
+        imageUrls: [...listing.imageUrls],
       })),
       skipDuplicates: true,
     });
@@ -379,6 +381,51 @@ async function createMissingOriginProducts(
     throw new ConflictException('Channel-origin product code is already in use');
   }
   return created;
+}
+
+async function fillEmptyProductImages(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  resolutions: readonly ListingResolution[],
+): Promise<void> {
+  const selected = new Map<string, { imageUrls: readonly string[]; isOrigin: boolean }>();
+  for (const resolution of resolutions) {
+    if (resolution.listing.imageUrls.length === 0) continue;
+    const existing = selected.get(resolution.masterProduct.id);
+    if (!existing || (!existing.isOrigin && resolution.isOriginProduct)) {
+      selected.set(resolution.masterProduct.id, {
+        imageUrls: resolution.listing.imageUrls,
+        isOrigin: resolution.isOriginProduct,
+      });
+    }
+  }
+  const writes = [...selected].map(([masterProductId, value]) => ({
+    masterProductId,
+    imageUrls: value.imageUrls,
+  }));
+  for (let offset = 0; offset < writes.length; offset += WRITE_BATCH_SIZE) {
+    const payload = JSON.stringify(writes.slice(offset, offset + WRITE_BATCH_SIZE));
+    await tx.$executeRaw`
+      WITH incoming AS (
+        SELECT
+          record."masterProductId",
+          ARRAY(
+            SELECT jsonb_array_elements_text(record."imageUrls")
+          ) AS "imageUrls"
+        FROM jsonb_to_recordset(${payload}::jsonb) AS record(
+          "masterProductId" uuid,
+          "imageUrls" jsonb
+        )
+      )
+      UPDATE master_products AS product
+      SET image_urls = incoming."imageUrls", updated_at = NOW()
+      FROM incoming
+      WHERE product.id = incoming."masterProductId"
+        AND product.organization_id = ${organizationId}::uuid
+        AND cardinality(product.image_urls) = 0
+        AND cardinality(incoming."imageUrls") > 0
+    `;
+  }
 }
 
 async function createMissingOriginVariants(

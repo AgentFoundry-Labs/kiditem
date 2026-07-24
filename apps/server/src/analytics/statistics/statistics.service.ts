@@ -254,9 +254,8 @@ export class StatisticsService {
 
     const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
 
-    // Compute full pareto items with cumulative percent
     let cumulativeRevenue = 0;
-    const fullParetoItems = metrics.map((metric, index) => {
+    const paretoItems = metrics.map((metric, index) => {
       cumulativeRevenue += metric.revenue;
       const revenuePercent = totalRevenue > 0
         ? Math.round((metric.revenue / totalRevenue) * 1000) / 10
@@ -264,35 +263,31 @@ export class StatisticsService {
       const cumulativePercent = totalRevenue > 0
         ? Math.round((cumulativeRevenue / totalRevenue) * 1000) / 10
         : 0;
-      const currentGrade = metric.grade ?? 'N/A';
-      const suggestedGrade = cumulativePercent <= 70 ? 'A' : cumulativePercent <= 90 ? 'B' : 'C';
+      const paretoBand = cumulativePercent <= 70
+        ? 'top70' as const
+        : cumulativePercent <= 90
+          ? 'next20' as const
+          : 'tail10' as const;
       return {
         id: metric.listingId,
         rank: index + 1,
         name: metric.masterName,
-        currentGrade,
-        suggestedGrade,
-        gradeMatch: currentGrade === suggestedGrade,
+        paretoBand,
         revenue: metric.revenue,
         revenuePercent,
         cumulativePercent,
       };
     });
 
-    // Grade distribution as object
-    const gradeDistribution = { A: 0, B: 0, C: 0 } as { A: number; B: number; C: number };
-    for (const item of fullParetoItems) {
-      const g = item.currentGrade as 'A' | 'B' | 'C';
-      if (g in gradeDistribution) gradeDistribution[g] += 1;
+    const bandDistribution = { top70: 0, next20: 0, tail10: 0 };
+    for (const item of paretoItems) {
+      bandDistribution[item.paretoBand] += 1;
     }
-
-    const mismatchCount = fullParetoItems.filter((item) => !item.gradeMatch).length;
 
     return {
       totalRevenue,
-      gradeDistribution,
-      mismatchCount,
-      data: fullParetoItems,
+      bandDistribution,
+      data: paretoItems,
     } satisfies StatisticsParetoResponse;
   }
 

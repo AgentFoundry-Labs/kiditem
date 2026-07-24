@@ -33,7 +33,22 @@ export function DashboardTopProducts({
             {products.map((product, index) => (
               <tr key={product.id} className="border-b border-slate-50">
                 <td className="pl-4 text-sm tabular-nums text-slate-400">{index + 1}</td>
-                <td><span className={cn('inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold', getGradeColor(product.grade))}>{product.grade}</span></td>
+                <td>
+                  {product.grade ? (
+                    <span
+                      className={cn(
+                        'inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold',
+                        getGradeColor(product.grade),
+                      )}
+                    >
+                      {product.grade}
+                    </span>
+                  ) : (
+                    <span className="inline-flex w-6 items-center justify-center text-slate-400">
+                      —
+                    </span>
+                  )}
+                </td>
                 <td className="text-sm font-medium max-w-[300px] truncate text-slate-900">{product.name}</td>
                 <td className="text-right text-sm tabular-nums text-slate-900">{formatKRW(product.revenue)}<span className="text-slate-400">원</span></td>
                 <td className={cn('text-right text-sm tabular-nums', getProfitColor(product.profitRate))}>{formatKRW(product.netProfit)}<span className="text-slate-400">원</span></td>

@@ -111,6 +111,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       include: { variants: { include: { components: true } } },
     });
     expect(operationalProduct.originChannelListingId).toBe(listing.id);
+    expect(operationalProduct.imageUrls).toEqual(['https://example.com/P-1.jpg']);
     expect(operationalProduct.variants).toEqual([
       expect.objectContaining({
         id: listing.options[0]!.productVariantId,
@@ -127,6 +128,10 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
         url: 'https://example.com/P-1.jpg',
         role: 'primary',
         isDeleted: false,
+        metadata: expect.objectContaining({
+          sourceType: 'channel_catalog',
+          channel: 'coupang',
+        }),
       }),
     ]);
     expect(workspace.currentThumbnailSelection?.contentAsset.url).toBe(

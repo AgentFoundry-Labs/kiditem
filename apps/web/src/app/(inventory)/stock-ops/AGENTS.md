@@ -25,6 +25,13 @@ not what an operator does to it. Inventory operations live in
   projection. Matched rows show physical current stock, active common
   commitment, and available stock separately; reorder and months-left use
   available stock.
+- Every matched destination renders its nullable stored
+  `MasterProduct.abcGrade`; shared SKUs may therefore show multiple destination
+  grades. Filters and summaries use those same values and keep unclassified
+  destinations separate from C.
+- Destination images are read-only active Coupang catalog media selected for
+  the matched option/product. Do not copy the URL into Inventory or use AI
+  thumbnail quality grades as product ABC.
 - `mapping_required` (`SKU 없음`, `비활성 SKU`, `바코드 중복`) and
   `not_collected` are not zero stock and must not enter reorder counts.
   Preserve all linked operating-product destinations and label duplicated

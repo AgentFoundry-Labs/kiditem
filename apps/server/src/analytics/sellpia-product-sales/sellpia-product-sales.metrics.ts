@@ -1,5 +1,4 @@
 import type {
-  SellpiaProductAbcGrade,
   SellpiaProductTrend,
 } from '@kiditem/shared/dashboard';
 
@@ -7,7 +6,7 @@ import type {
  * Sellpia 상품별 소진 재고관리 파생 지표(순수 함수).
  *
  * 입력은 모두 "완결 월"(진행 중인 현재 월 제외) 오름차순 소진량 배열 기준.
- * 재고(현재고)가 필요한 발주 계산만 별도이며, ABC/추세/악성/시즌은 판매만으로 산정한다.
+ * 재고(현재고)가 필요한 발주 계산만 별도이며, 추세/악성/시즌은 판매만으로 산정한다.
  */
 
 // 발주점 = 월평균 소진 × (리드타임 + 안전재고). 리드타임 1개월 + 안전 0.5개월.
@@ -49,31 +48,6 @@ export function detectAnomaly(
   }
   if (!anomalyMonths.length) return { anomalyMonths: [], anomalyReason: null };
   return { anomalyMonths, anomalyReason: '단일월 급증(일회성)' };
-}
-
-// ─── ABC 등급 (소진량 파레토) ────────────────────────────────────────────────
-// 총 소진량 내림차순 누적 비중: A ≤ 70%, B ≤ 90%, C 나머지. 무판매(0)는 항상 C.
-export function assignAbcGrades(totals: number[]): SellpiaProductAbcGrade[] {
-  const grand = totals.reduce((a, b) => a + b, 0);
-  if (grand <= 0) return totals.map(() => 'C');
-  // 내림차순 순회하되 원래 인덱스 순서로 결과를 되돌린다.
-  const order = totals
-    .map((qty, idx) => ({ qty, idx }))
-    .sort((x, y) => y.qty - x.qty);
-  const grades: SellpiaProductAbcGrade[] = new Array(totals.length).fill('C');
-  let cum = 0;
-  for (const { qty, idx } of order) {
-    if (qty <= 0) {
-      grades[idx] = 'C';
-      continue;
-    }
-    // 누적 "이전" 비중 기준: 밴드를 교차하는 상품은 상위 밴드에 포함(표준 ABC).
-    // 한 상품이 총량을 지배해도 최상위 상품은 A가 된다.
-    const shareBefore = cum / grand;
-    grades[idx] = shareBefore < 0.7 ? 'A' : shareBefore < 0.9 ? 'B' : 'C';
-    cum += qty;
-  }
-  return grades;
 }
 
 // ─── 추세 ───────────────────────────────────────────────────────────────────

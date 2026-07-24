@@ -79,6 +79,14 @@ import {
   DETAIL_PAGE_TEMPLATE_STYLES_PORT,
 } from '../application/port/out/runtime';
 import { AiDirectJobWorkerService } from '../application/service/ai-direct-job-worker.service';
+import { CatalogDisplayMediaService } from '../application/service/catalog-display-media.service';
+import { CatalogDisplayMediaRepositoryAdapter } from '../adapter/out/repository/catalog-display-media.repository.adapter';
+import {
+  CATALOG_DISPLAY_MEDIA_PORT,
+} from '../application/port/in/workspace/catalog-display-media.port';
+import {
+  CATALOG_DISPLAY_MEDIA_REPOSITORY_PORT,
+} from '../application/port/out/repository/catalog-display-media.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const PROVIDERS_KEY = 'providers';
@@ -132,6 +140,7 @@ describe('AiModule hexagonal wiring contract', () => {
       [THUMBNAIL_TRACKING_REPOSITORY_PORT, ThumbnailTrackingRepositoryAdapter],
       [THUMBNAIL_VISION_PROVIDER_PORT, GeminiThumbnailVisionAdapter],
       [THUMBNAIL_WING_REPOSITORY_PORT, ThumbnailWingRepositoryAdapter],
+      [CATALOG_DISPLAY_MEDIA_REPOSITORY_PORT, CatalogDisplayMediaRepositoryAdapter],
     ].forEach(([token, adapter]) => {
       expectExistingBinding(providers, token as symbol, adapter);
     });
@@ -150,6 +159,7 @@ describe('AiModule hexagonal wiring contract', () => {
       [REGISTRATION_CONTENT_WORKSPACE_PORT, RegistrationContentWorkspaceService],
       [CANDIDATE_CONTENT_ASSET_PORT, ContentAssetService],
       [CATALOG_MEDIA_PUBLICATION_PORT, AiCatalogMediaPublicationRepositoryAdapter],
+      [CATALOG_DISPLAY_MEDIA_PORT, CatalogDisplayMediaService],
     ].forEach(([token, adapter]) => {
       expectExistingBinding(providers, token as symbol, adapter);
     });
@@ -161,6 +171,7 @@ describe('AiModule hexagonal wiring contract', () => {
       REGISTRATION_CONTENT_WORKSPACE_PORT,
       CANDIDATE_CONTENT_ASSET_PORT,
       CATALOG_MEDIA_PUBLICATION_PORT,
+      CATALOG_DISPLAY_MEDIA_PORT,
     ]);
   });
 });

@@ -271,6 +271,36 @@ describe('createActionCandidate — 5 rules', () => {
   });
 
   describe('Rule 5: low-performance campaign budget shrink', () => {
+    it('does not treat an unclassified product as C when ROAS is healthy', () => {
+      const row = baseRow({
+        abcGrade: null,
+        dailyBudget: 20_000,
+        spend: 5_000,
+        revenue: 10_000,
+      });
+
+      expect(createActionCandidate(row, new Map())).toBeNull();
+    });
+
+    it('uses only the metric rule for an unclassified low-ROAS product', () => {
+      const row = baseRow({
+        abcGrade: null,
+        dailyBudget: 20_000,
+        spend: 10_000,
+        revenue: 8_000,
+      });
+
+      const candidate = createActionCandidate(row, new Map());
+
+      expect(candidate).toMatchObject({
+        actionType: 'change_daily_budget',
+        priority: 'medium',
+      });
+      expect(candidate?.reason).toContain('ROAS 80%');
+      expect(candidate?.reason).not.toContain('C등급');
+      expect(candidate?.reason).not.toContain('null등급');
+    });
+
     it('grade=C + dailyBudget>3000 → change_daily_budget high (max(3000, budget*0.5))', () => {
       const row = baseRow({
         dailyBudget: 20000,

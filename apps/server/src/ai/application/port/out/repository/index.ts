@@ -13,3 +13,4 @@ export * from './thumbnail-generation-ledger.repository.port';
 export * from './thumbnail-tracking.repository.port';
 export * from './thumbnail-wing.repository.port';
 export * from './ai-direct-job.repository.port';
+export * from './catalog-display-media.repository.port';

@@ -20,7 +20,7 @@ import owner-domain services or take mutation authority from them.
   `GET /api/sellpia-product-sales`
   (확장이 Sellpia stat_prd_profit 을 상품×월별로 수집해 적재하는 monthly-fact
   ingest 레인 + Inventory가 소유하는 공통 가용재고 read + 상품별
-  1/2개월 평균 소진량·ABC·악성재고·시즌·현재고·약정·가용재고·발주 read)
+  1/2개월 평균 소진량·악성재고·시즌·현재고·약정·가용재고·발주 read)
 
 ## Main Data Models
 
@@ -43,6 +43,10 @@ hydration.
   바꾸지 않으며, 발주·악성재고 계산은 확정 매칭된 공통 `availableStock`만 쓴다.
 - 같은 Sellpia SKU로 resolve된 판매 행은 소진·발주 계산 전에 SKU 단위로 합산한다.
   `reorderCount`와 `deadStockCount`는 distinct SKU를 한 번만 센다.
+- 상품 ABC 계산용 Analytics 포트는 현재 진행 월을 제외한 완결 월 facts를
+  Products에 제공한다. Products가 평가 정책, 계산, 이력, 최종
+  `MasterProduct.abcGrade`를 소유하며 Analytics는 별도 상품 등급을 만들거나
+  저장하지 않는다.
 
 ## Cross-Domain Reads
 

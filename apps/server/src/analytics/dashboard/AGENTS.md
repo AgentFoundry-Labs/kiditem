@@ -34,7 +34,8 @@ dashboard/
 - `ChannelAccountDailyKpiSnapshot` for Wing adSummary/Coupang ads daily facts.
 - `MasterProduct`, `ChannelListing`, and `ChannelListingOption` for ranking and
   grade/listing context.
-- `MasterProduct`, `ChannelListingOption`, `Alert`, `GradeHistory`, and
+- `MasterProduct`, `ChannelListingOption`, `Alert`,
+  `MasterProductAbcGradeHistory`, and
   `Thumbnail` for Sellpia zero-stock, mapping-attention, and inventory tiles.
 
 ## Source-Of-Truth Rules
@@ -48,6 +49,11 @@ dashboard/
   zero revenue.
 - Top-N ranking uses the documented 30% margin approximation; precise
   per-listing math lives in `/api/profit-loss`.
+- Inventory ABC counts and Top Products read the nullable stored
+  `MasterProduct.abcGrade`. A/B/C ratios use classified products as the
+  denominator and expose unclassified products separately; `null` never means C.
+- Thumbnail analysis quality grades remain AI-owned product-registration
+  evidence and are not a fallback or input for inventory ABC.
 
 ## Boundary Rules
 

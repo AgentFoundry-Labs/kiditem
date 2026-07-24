@@ -48,7 +48,7 @@ const state = vi.hoisted(() => ({
     page: 2,
     limit: 50,
     summary: {
-      abcGradeCounts: { A: 37, B: 29, C: 60 },
+      abcGradeCounts: { A: 37, B: 29, C: 50, unclassified: 10 },
       channelConnectionCounts: { connected: 120, unconnected: 6 },
       inventoryStatusCounts: {
         sellable: 81,
@@ -97,6 +97,10 @@ vi.mock('./ProductEditorDialog', () => ({
   ProductEditorDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">상품 만들기</div> : null,
 }));
 
+vi.mock('./MasterProductAbcPolicyDialog', () => ({
+  MasterProductAbcPolicyDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">자동 ABC 정책</div> : null,
+}));
+
 describe('<ProductsPageContent>', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -120,7 +124,9 @@ describe('<ProductsPageContent>', () => {
     expect(within(catalogCard!).getByText('A등급')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('B등급')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('C등급')).toBeInTheDocument();
+    expect(within(catalogCard!).getByText('미분류')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('37')).toBeInTheDocument();
+    expect(within(catalogCard!).getByText('10')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('120')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('6')).toBeInTheDocument();
     expect(within(catalogCard!).queryByText(/현재 페이지 A등급/)).not.toBeInTheDocument();
@@ -139,6 +145,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByRole('columnheader', { name: '재고' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '매출' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '광고비율' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '미분류' })).toHaveValue('unclassified');
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
     expect(screen.getByText(/KI-001/)).toBeInTheDocument();
     expect(screen.getAllByText('재고 연결 필요').length).toBeGreaterThan(0);
@@ -184,6 +191,8 @@ describe('<ProductsPageContent>', () => {
     expect(state.setCategory).toHaveBeenCalledWith('완구/놀이');
     fireEvent.click(screen.getByRole('button', { name: '+ 상품 추가' }));
     expect(screen.getByRole('dialog', { name: '' })).toHaveTextContent('상품 만들기');
+    fireEvent.click(screen.getByRole('button', { name: '자동 ABC 정책' }));
+    expect(screen.getAllByRole('dialog', { name: '' }).at(-1)).toHaveTextContent('자동 ABC 정책');
   });
 
   it('uses full-result operating summaries and only applies the matching inventory filter', () => {
@@ -199,13 +208,23 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getAllByText('8').length).toBeGreaterThan(0);
   });
 
+  it('filters the product list by unclassified automatic ABC results', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    fireEvent.change(screen.getByRole('combobox', { name: '상품 등급' }), {
+      target: { value: 'unclassified' },
+    });
+
+    expect(state.setAbcGrade).toHaveBeenCalledWith('unclassified');
+  });
+
   it('keeps overview metrics global while filters change only the product list result', () => {
     state.data = {
       ...defaultData,
       total: 9,
       summary: {
         ...defaultData.summary,
-        abcGradeCounts: { A: 1, B: 2, C: 6 },
+        abcGradeCounts: { A: 1, B: 2, C: 5, unclassified: 1 },
         channelConnectionCounts: { connected: 8, unconnected: 1 },
       },
     };

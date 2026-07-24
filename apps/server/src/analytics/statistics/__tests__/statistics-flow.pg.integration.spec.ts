@@ -304,22 +304,19 @@ describe('Statistics flow (PG integration)', () => {
     ]);
   });
 
-  it('pareto sorts by live revenue and keeps grade distribution semantics', async () => {
+  it('pareto sorts by live revenue and exposes neutral revenue bands', async () => {
     const { listingL1, listingL2 } = await seedStatisticsFixture();
 
     const result = await service.pareto(TEST_ORGANIZATION_ID, '2026-04');
 
     expect(result.totalRevenue).toBe(52_000);
-    expect(result.gradeDistribution).toEqual({ A: 1, B: 1, C: 0 });
-    expect(result.mismatchCount).toBe(1);
+    expect(result.bandDistribution).toEqual({ top70: 1, next20: 0, tail10: 1 });
     expect(result.data).toEqual([
       {
         id: listingL1,
         rank: 1,
         name: 'TEST Master M1',
-        currentGrade: 'A',
-        suggestedGrade: 'A',
-        gradeMatch: true,
+        paretoBand: 'top70',
         revenue: 32_000,
         revenuePercent: 61.5,
         cumulativePercent: 61.5,
@@ -328,9 +325,7 @@ describe('Statistics flow (PG integration)', () => {
         id: listingL2,
         rank: 2,
         name: 'TEST Master M2',
-        currentGrade: 'B',
-        suggestedGrade: 'C',
-        gradeMatch: false,
+        paretoBand: 'tail10',
         revenue: 20_000,
         revenuePercent: 38.5,
         cumulativePercent: 100,

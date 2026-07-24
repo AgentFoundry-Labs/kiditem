@@ -298,8 +298,8 @@ API 재리버스보다 현실적이다(§6).
 `channels/sellpia-recipe-evidence.adapter.ts` 둘뿐이고 **sourcing 참조 0건**이다.
 `sourcing.architecture.spec.ts:92` 가 금지목록에 `inventory` 를 포함하므로
 **직접 import 는 스펙 실패** — outbound cross-domain 포트가 유일한 적법 형태다.
-선례: advertising 이 analytics 의 ABC 등급을 쓰려고 만든 `SELLPIA_ABC_GRADE_PORT`
-(cross-domain port + `useExisting` 바인딩) 패턴을 그대로 복제한다.
+선례: advertising 이 Products 의 `PRODUCT_VARIANT_ABC_GRADE_READ_PORT` 를 구독하는
+owner-provided read-port 패턴을 그대로 복제한다.
 
 ### D6. 수집상품 ↔ 셀피아 SKU 조인키 — **미확정**
 
@@ -389,7 +389,7 @@ API 재리버스보다 현실적이다(§6).
 |---|---|
 | **무엇을** | sourcing 에 아웃바운드 포트 신설 → `SELLPIA_INVENTORY_SKU_READ_PORT` 에 `useExisting` 바인딩. `product-basics.presenter.ts:125-126` 에 셀피아 폴백(preparation 우선, 없으면 SKU 가격). 조인키는 바코드 우선 → 정규화 이름 |
 | **어디를** | `apps/server/src/sourcing/application/port/out/cross-domain/`(신규), `sourcing.module.ts`, `product-basics.presenter.ts`, 이후 `wing-registration-flow.ts:106` 의 `stock: 999` 제거 |
-| **왜** | 판매가·재고 두 블로커의 공통 뿌리. `SELLPIA_ABC_GRADE_PORT` 선례가 있어 패턴 리스크가 낮다 |
+| **왜** | 판매가·재고 두 블로커의 공통 뿌리. owner-provided read-port 선례가 있어 패턴 리스크가 낮다 |
 | **검증** | `sourcing.architecture.spec.ts` 통과(직접 import 금지 준수) + `npm run dev:server` 부팅 확인 + 포트 단위 스펙 |
 | **독립배포** | ✅ (S1 이후 권장 — 가드가 먼저 있어야 조인 실패가 0원으로 새지 않는다) |
 | **선결** | **D6 조인키 정책 확정** — 이게 안 되면 이 단계는 시작할 수 없다 |

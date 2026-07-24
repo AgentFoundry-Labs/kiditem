@@ -8,7 +8,7 @@ import {
 
 describe('buildCatalogProductProvisioningListings', () => {
   it('maps persisted identities and typed exact evidence without raw aliases', () => {
-    const products: ChannelCatalogIdentityProduct[] = [{
+    const products = [{
       externalProductId: 'P-1',
       registeredName: '등록상품명',
       displayName: '노출상품명',
@@ -17,6 +17,12 @@ describe('buildCatalogProductProvisioningListings', () => {
       brand: '브랜드',
       productStatus: '승인완료',
       raw: { productCode: 'RAW-PRODUCT-CODE' },
+      media: [{
+        sourceUrl: 'https://cdn.example.com/primary.jpg',
+        role: 'primary',
+        sortOrder: 1,
+        externalOptionId: null,
+      }],
       options: [{
         externalOptionId: 'O-1',
         optionName: '파랑',
@@ -27,8 +33,14 @@ describe('buildCatalogProductProvisioningListings', () => {
         skuStatus: '판매중',
         attributes: [],
         raw: { sellpiaCode: 'RAW-SELLPIA-CODE' },
+        media: [{
+          sourceUrl: 'https://cdn.example.com/option.jpg',
+          role: 'option',
+          sortOrder: 0,
+          externalOptionId: 'O-1',
+        }],
       }],
-    }];
+    }] as unknown as ChannelCatalogIdentityProduct[];
 
     expect(buildCatalogProductProvisioningListings(products, [{
       id: 'listing-1',
@@ -45,6 +57,10 @@ describe('buildCatalogProductProvisioningListings', () => {
       name: '등록상품명',
       category: '완구',
       brand: '브랜드',
+      imageUrls: [
+        'https://cdn.example.com/primary.jpg',
+        'https://cdn.example.com/option.jpg',
+      ],
       options: [{
         channelListingOptionId: 'option-1',
         currentProductVariantId: null,

@@ -14,6 +14,14 @@ export type ChannelCatalogIdentityOption = {
   skuStatus: string | null;
   attributes: unknown;
   raw: Record<string, unknown>;
+  media?: readonly ChannelCatalogIdentityMedia[];
+};
+
+export type ChannelCatalogIdentityMedia = {
+  sourceUrl: string;
+  role: 'primary' | 'detail' | 'option';
+  sortOrder: number;
+  externalOptionId: string | null;
 };
 
 export type ChannelCatalogIdentityProduct = {
@@ -25,6 +33,7 @@ export type ChannelCatalogIdentityProduct = {
   brand: string | null;
   productStatus: string | null;
   raw: Record<string, unknown>;
+  media?: readonly ChannelCatalogIdentityMedia[];
   options: ChannelCatalogIdentityOption[];
 };
 

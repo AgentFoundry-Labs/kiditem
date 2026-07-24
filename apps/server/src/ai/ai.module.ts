@@ -32,6 +32,7 @@ import { DetailPageContentGenerationSinkAdapter } from './adapter/out/direct-out
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { AiOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from './adapter/out/repository/ai-catalog-media-publication.repository.adapter';
+import { CatalogDisplayMediaRepositoryAdapter } from './adapter/out/repository/catalog-display-media.repository.adapter';
 import { AiDirectJobRepositoryAdapter } from './adapter/out/repository/ai-direct-job.repository.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
@@ -109,6 +110,7 @@ import { AiDirectJobInputAssetsService } from './application/service/ai-direct-j
 import { AiDirectJobPayloadHydratorService } from './application/service/ai-direct-job-payload-hydrator.service';
 import { AiDirectJobProcessorService } from './application/service/ai-direct-job-processor.service';
 import { AiDirectJobWorkerService } from './application/service/ai-direct-job-worker.service';
+import { CatalogDisplayMediaService } from './application/service/catalog-display-media.service';
 import {
   AI_DIRECT_JOB_RUNTIME_CONFIG,
   resolveAiDirectJobRuntimeConfig,
@@ -123,6 +125,7 @@ import {
 import {
   AI_WORKSPACE_ARCHIVE_PORT,
   CANDIDATE_CONTENT_ASSET_PORT,
+  CATALOG_DISPLAY_MEDIA_PORT,
   REGISTRATION_CONTENT_WORKSPACE_PORT,
 } from './application/port/in/workspace';
 
@@ -143,6 +146,7 @@ import {
 } from './application/port/out/provider';
 import {
   AI_DIRECT_JOB_REPOSITORY_PORT,
+  CATALOG_DISPLAY_MEDIA_REPOSITORY_PORT,
   CONTENT_ARCHIVE_REPOSITORY_PORT,
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
@@ -200,6 +204,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     AiDirectJobPayloadHydratorService,
     AiDirectJobProcessorService,
     AiDirectJobWorkerService,
+    CatalogDisplayMediaService,
     AiGenerationCancellationService,
     ImageAssetOperationService,
     DetailPageAiService,
@@ -243,6 +248,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailWingService,
     AiWingRegistrationCapabilityAdapter,
     AiCatalogMediaPublicationRepositoryAdapter,
+    CatalogDisplayMediaRepositoryAdapter,
     AiDirectJobRepositoryAdapter,
 
     // outgoing adapters
@@ -288,6 +294,10 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     {
       provide: AI_DIRECT_JOB_REPOSITORY_PORT,
       useExisting: AiDirectJobRepositoryAdapter,
+    },
+    {
+      provide: CATALOG_DISPLAY_MEDIA_REPOSITORY_PORT,
+      useExisting: CatalogDisplayMediaRepositoryAdapter,
     },
     {
       provide: AI_DIRECT_JOB_WAKE_PORT,
@@ -396,6 +406,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
       useExisting: RegistrationContentWorkspaceService,
     },
     { provide: CANDIDATE_CONTENT_ASSET_PORT, useExisting: ContentAssetService },
+    { provide: CATALOG_DISPLAY_MEDIA_PORT, useExisting: CatalogDisplayMediaService },
   ],
   exports: [
     PRODUCT_GENERATION_AI_TRIGGER_PORT,
@@ -404,6 +415,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     REGISTRATION_CONTENT_WORKSPACE_PORT,
     CANDIDATE_CONTENT_ASSET_PORT,
     CATALOG_MEDIA_PUBLICATION_PORT,
+    CATALOG_DISPLAY_MEDIA_PORT,
   ],
 })
 export class AiModule {}

@@ -6,8 +6,11 @@ import type {
 } from '../../../../products/application/port/in/channel-catalog-product-provisioning.port';
 import type {
   ChannelCatalogIdentityProduct,
+  ChannelCatalogIdentityMedia,
   PersistedChannelCatalogListing,
 } from './channel-catalog-identity-upsert';
+
+const MAX_MASTER_PRODUCT_IMAGES = 50;
 
 export function buildCatalogProductProvisioningListings(
   products: readonly ChannelCatalogIdentityProduct[],
@@ -30,6 +33,7 @@ export function buildCatalogProductProvisioningListings(
       name: product.registeredName ?? product.displayName ?? product.externalProductId,
       category: product.category,
       brand: product.brand,
+      imageUrls: selectProductImageUrls(product),
       options: product.options.map((option) => {
         const persistedOption = optionByExternalId.get(option.externalOptionId);
         if (!persistedOption) {
@@ -45,6 +49,43 @@ export function buildCatalogProductProvisioningListings(
       }),
     };
   });
+}
+
+function selectProductImageUrls(product: ChannelCatalogIdentityProduct): string[] {
+  const media = [
+    ...(product.media ?? []),
+    ...product.options.flatMap((option) => option.media ?? []),
+  ].filter((item) => isHttpUrl(item.sourceUrl));
+  const urls = new Set<string>();
+  for (const item of [...media].sort(compareProductMedia)) {
+    urls.add(item.sourceUrl.trim());
+    if (urls.size === MAX_MASTER_PRODUCT_IMAGES) break;
+  }
+  return [...urls];
+}
+
+function compareProductMedia(
+  left: ChannelCatalogIdentityMedia,
+  right: ChannelCatalogIdentityMedia,
+): number {
+  return mediaRolePriority(left.role) - mediaRolePriority(right.role)
+    || left.sortOrder - right.sortOrder
+    || left.sourceUrl.localeCompare(right.sourceUrl);
+}
+
+function mediaRolePriority(role: ChannelCatalogIdentityMedia['role']): number {
+  if (role === 'primary') return 0;
+  if (role === 'option') return 1;
+  return 2;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value.trim()).protocol;
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 type OperationalProductPublicationInput = {

@@ -39,6 +39,35 @@ confirmation.
 7. The registered-products list refreshes whenever the server reports a higher
    `publishedProducts` count, not only when the full collection completes.
 
+## 2026-07-24 Catalog Image Extension
+
+Classification: same-domain cross-layer product-catalog behavior. The change
+crosses Channels, Products, AI media projection, Analytics inventory reads,
+shared response contracts, and Product Hub UI without moving ownership or
+introducing a new platform boundary.
+
+- Channels normalizes provider media into ordered HTTP(S) `imageUrls`; adding a
+  channel requires only its collector/publication adapter to provide the same
+  normalized media facts.
+- Products owns the `MasterProduct.imageUrls` mutation. Provisioning fills the
+  field only while it is empty, so recollection never replaces operator-managed
+  images.
+- The channel-origin listing wins when multiple listings in one publication
+  resolve to the same product. Primary-account and other active listing order
+  remains the read-side fallback for inventory display media.
+- AI catalog assets use the channel-neutral `channel_catalog` source plus a
+  `channel` discriminator. Existing `coupang_catalog` assets remain readable as
+  a compatibility path.
+- `/product-hub` list and detail both render the first Products-owned image and
+  fall back to the package placeholder when the URL is absent or fails.
+- Thumbnail quality/compliance grades remain listing-content concerns and do
+  not affect the product ABC grade or MasterProduct image selection.
+
+The development-data fill is not a schema migration: it copies active linked
+catalog URLs only into empty `MasterProduct.imageUrls`. No production backfill
+is implied by pulling this code; release operators must make an explicit
+environment-specific backfill decision.
+
 ## Domain Model Delta
 
 The existing ownership graph remains:

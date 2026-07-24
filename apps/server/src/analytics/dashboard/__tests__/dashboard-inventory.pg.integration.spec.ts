@@ -100,6 +100,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.channelUnlinkedProducts).toBe(2);
     expect(result.gradeCount.A).toBe(1);
     expect(result.gradeCount.B).toBe(1);
+    expect(result.gradeCount.C).toBe(0);
+    expect(result.classifiedProductCount).toBe(2);
+    expect(result.unclassifiedProductCount).toBe(0);
     expect(result.alerts.length).toBe(1);
     expect(result.alerts[0].title).toBe('Test alert');
   });
@@ -169,6 +172,77 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.warnings.highAdProducts).toBe(0);
     expect(result.warnings.outOfStockSkus).toBe(0);
     expect(result.warnings.mappingAttentionSkus).toBe(0);
+    expect(result.gradeCount).toEqual({ A: 0, B: 0, C: 0 });
+    expect(result.classifiedProductCount).toBe(0);
+    expect(result.unclassifiedProductCount).toBe(0);
+  });
+
+  it('keeps active products without an automatic grade unclassified', async () => {
+    await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-CLASSIFIED',
+      name: 'Classified Master',
+      abcGrade: 'A',
+    });
+    await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-UNCLASSIFIED',
+      name: 'Unclassified Master',
+      abcGrade: null,
+    });
+
+    const result = await service.getSummary(
+      buildDashboardContext(),
+      TEST_ORGANIZATION_ID,
+    );
+
+    expect(result.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
+    expect(result.classifiedProductCount).toBe(1);
+    expect(result.unclassifiedProductCount).toBe(1);
+  });
+
+  it('counts only organization-scoped automatic MasterProduct grade history', async () => {
+    const ownMaster = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-HISTORY',
+      name: 'History Master',
+      abcGrade: 'A',
+    });
+    const foreignMaster = await setupMaster(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID,
+      code: 'M-O-HISTORY',
+      name: 'Foreign History Master',
+      abcGrade: 'C',
+    });
+    await prisma.masterProductAbcGradeHistory.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId: ownMaster.id,
+          oldGrade: null,
+          newGrade: 'A',
+          metric: 'SALES_QUANTITY',
+          periodDays: 30,
+          metricValue: 10,
+        },
+        {
+          organizationId: OTHER_ORGANIZATION_ID,
+          masterProductId: foreignMaster.id,
+          oldGrade: 'A',
+          newGrade: 'C',
+          metric: 'SALES_QUANTITY',
+          periodDays: 30,
+          metricValue: 1,
+        },
+      ],
+    });
+
+    const result = await service.getSummary(
+      buildDashboardContext(),
+      TEST_ORGANIZATION_ID,
+    );
+
+    expect(result.gradeChanges).toEqual({ upgraded: 1, downgraded: 0, total: 1 });
   });
 
   it('T4: minusProduct — seeded loss order surfaces in warnings.minusProducts', async () => {

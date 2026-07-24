@@ -1,5 +1,5 @@
 import { Pagination } from '@/components/ui/Pagination';
-import { cn, formatKRW, formatPercent, getGradeColor } from '@/lib/utils';
+import { cn, formatKRW, formatPercent } from '@/lib/utils';
 import { PAGE_SIZE } from '../../lib/statistics-data';
 import { StatBox } from './StatBox';
 import type { StatisticsParetoResponse } from '@kiditem/shared/statistics';
@@ -10,6 +10,18 @@ type ParetoPanelProps = {
   onPageChange: (page: number) => void;
 };
 
+const PARETO_BAND_LABEL = {
+  top70: '누적 70% 이하',
+  next20: '누적 70~90%',
+  tail10: '누적 90% 초과',
+} as const;
+
+const PARETO_BAND_COLOR = {
+  top70: 'bg-green-100 text-green-700',
+  next20: 'bg-amber-100 text-amber-700',
+  tail10: 'bg-slate-100 text-slate-600',
+} as const;
+
 export function ParetoPanel({ pareto, page, onPageChange }: ParetoPanelProps) {
   const pagedPareto = pareto.data.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -17,9 +29,9 @@ export function ParetoPanel({ pareto, page, onPageChange }: ParetoPanelProps) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatBox label="총 매출" value={formatKRW(pareto.totalRevenue)} unit="원" />
-        <StatBox label="A등급 (70%)" value={pareto.gradeDistribution.A} unit="개" />
-        <StatBox label="B등급 (20%)" value={pareto.gradeDistribution.B} unit="개" />
-        <StatBox label="등급 불일치" value={pareto.mismatchCount} unit="개" />
+        <StatBox label="누적 70% 이하" value={pareto.bandDistribution.top70} unit="개" />
+        <StatBox label="누적 70~90%" value={pareto.bandDistribution.next20} unit="개" />
+        <StatBox label="누적 90% 초과" value={pareto.bandDistribution.tail10} unit="개" />
       </div>
 
       <div className="table-card">
@@ -29,8 +41,7 @@ export function ParetoPanel({ pareto, page, onPageChange }: ParetoPanelProps) {
               <tr>
                 <th>#</th>
                 <th>상품명</th>
-                <th>현재등급</th>
-                <th>추천등급</th>
+                <th>매출 구간</th>
                 <th className="text-right">매출</th>
                 <th className="text-right">매출비율</th>
                 <th className="text-right">누적비율</th>
@@ -38,10 +49,7 @@ export function ParetoPanel({ pareto, page, onPageChange }: ParetoPanelProps) {
             </thead>
             <tbody>
               {pagedPareto.map((item) => (
-                <tr
-                  key={item.id}
-                  className={!item.gradeMatch ? 'bg-amber-50/60' : undefined}
-                >
+                <tr key={item.id}>
                   <td className="tabular-nums text-[var(--text-muted)]">
                     {item.rank}
                   </td>
@@ -52,24 +60,11 @@ export function ParetoPanel({ pareto, page, onPageChange }: ParetoPanelProps) {
                     <span
                       className={cn(
                         'rounded px-1.5 py-0.5 text-[10px] font-bold',
-                        getGradeColor(item.currentGrade),
+                        PARETO_BAND_COLOR[item.paretoBand],
                       )}
                     >
-                      {item.currentGrade}
+                      {PARETO_BAND_LABEL[item.paretoBand]}
                     </span>
-                  </td>
-                  <td>
-                    <span
-                      className={cn(
-                        'rounded px-1.5 py-0.5 text-[10px] font-bold',
-                        getGradeColor(item.suggestedGrade),
-                      )}
-                    >
-                      {item.suggestedGrade}
-                    </span>
-                    {!item.gradeMatch && (
-                      <span className="ml-1 text-[9px] text-red-500">불일치</span>
-                    )}
                   </td>
                   <td className="text-right tabular-nums">
                     {formatKRW(item.revenue)}원
