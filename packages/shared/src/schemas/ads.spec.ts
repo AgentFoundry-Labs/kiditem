@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AdCampaignReportScopeSchema,
   AdCampaignSnapshotSchema,
+  AdCampaignSyncStatusSchema,
   AdExtensionReplayIdempotencyKeySchema,
   AdProductSnapshotSchema,
 } from './ads';
@@ -35,11 +36,31 @@ describe('advertising campaign identity contracts', () => {
     cvr: 8,
   };
 
+  it('accepts only durable campaign sync freshness states', () => {
+    expect(AdCampaignSyncStatusSchema.parse({
+      status: 'fresh',
+      lastCompletedAt: '2026-07-25T00:00:00.000Z',
+      campaignCount: 9,
+    })).toEqual({
+      status: 'fresh',
+      lastCompletedAt: '2026-07-25T00:00:00.000Z',
+      campaignCount: 9,
+    });
+    expect(() => AdCampaignSyncStatusSchema.parse({
+      status: 'fresh',
+      lastCompletedAt: null,
+      campaignCount: -1,
+    })).toThrow();
+  });
+
   it('requires account and stable identity on campaign snapshots', () => {
     expect(() => AdCampaignSnapshotSchema.parse({
       listing: null,
       campaignId: null,
       campaignName: '표시명',
+      metricsAvailable: true,
+      status: null,
+      onOff: null,
       period: '7d',
       conversionsAvailable: false,
       metrics,
@@ -51,10 +72,41 @@ describe('advertising campaign identity contracts', () => {
       campaignIdentity: 'href:https://advertising.coupang.com/marketing/campaign/1/product',
       campaignId: null,
       campaignName: '표시명',
+      metricsAvailable: true,
+      status: '운영중',
+      onOff: 'ON',
       period: '7d',
       conversionsAvailable: false,
       metrics,
     })).toMatchObject({ campaignIdentity: expect.any(String) });
+  });
+
+  it('makes metadata-only campaign metrics explicitly unavailable', () => {
+    expect(AdCampaignSnapshotSchema.parse({
+      listing: null,
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      campaignIdentity: 'campaign:paused',
+      campaignId: 'paused',
+      campaignName: '중지 캠페인',
+      metricsAvailable: false,
+      status: '일시정지',
+      onOff: 'OFF',
+      period: '14d',
+      conversionsAvailable: false,
+      metrics: {
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        revenue: 0,
+        ctr: null,
+        roas: null,
+        cvr: null,
+      },
+    })).toMatchObject({
+      metricsAvailable: false,
+      onOff: 'OFF',
+    });
   });
 
   it('exposes nullable identity for legitimate campaign-less product facts', () => {

@@ -10,10 +10,10 @@ import { sendToExtension } from '@/lib/extension-bridge';
 export const READINESS_COLLECTION_PRODUCERS = {
   wing_sales: 'dashboard.wing_sales',
   coupang_ads: 'dashboard.coupang_ads',
-  coupang_products: 'dashboard.coupang_products',
+  coupang_products: 'channels.coupang_catalog',
   wing_kpi: 'advertising.wing_rank',
 } as const satisfies Record<string, BrowserCollectionProducer>;
-export const COUPANG_COLLECTION_EXTENSION_MIN_VERSION = '1.2.42';
+export const COUPANG_COLLECTION_EXTENSION_MIN_VERSION = '1.2.83';
 
 const POLL_INTERVAL_MS = 2_000;
 // The extension content-script watchdog is 30 minutes. Keep the web poller

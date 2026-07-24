@@ -39,6 +39,12 @@ export {
   IngestExtension1688TrendResultsDto,
 } from './extension-1688-trend.dto';
 export {
+  ExtensionTiktokCcTrendErrorDto,
+  ExtensionTiktokCcTrendItemDto,
+  IngestExtensionTiktokCcTrendResultsDto,
+  TIKTOK_CC_TREND_TYPES,
+} from './extension-tiktok-cc-trend.dto';
+export {
   CollectTaobaoLiveDto,
   ExtensionLiveCommerceBroadcastDto,
   ExtensionLiveCommerceProductDto,

@@ -2,6 +2,7 @@ importScripts("collection-session.js");
 importScripts("interactive-tabs.js");
 importScripts("1688-trend-collector.js");
 importScripts("live-commerce-collector.js");
+importScripts("tiktok-cc-collector.js");
 
 const DEFAULT_API = "http://localhost:4000/api/sourcing/extension";
 const EXTRACT_TIMEOUT_MS = 20000;
@@ -180,6 +181,13 @@ const liveCommerceCollector = ProductScraperLiveCommerce.create({
   sessions: collectionSessions,
 });
 
+const tiktokCcCollector = ProductScraperTiktokCcTrend.create({
+  chrome,
+  getBackendRequestConfig: backendRequestConfig,
+  ensureContentScripts: injectTiktokCcContentScripts,
+  sessions: collectionSessions,
+});
+
 async function cancelCollectionSession(runId) {
   const session = await collectionSessions.get(runId);
   if (!session) return null;
@@ -187,6 +195,8 @@ async function cancelCollectionSession(runId) {
     await trendCollector.cancel(runId);
   } else if (session.producer === "sourcing.live_commerce") {
     await liveCommerceCollector.cancel(runId);
+  } else if (session.producer === "sourcing.tiktok_cc_trend") {
+    await tiktokCcCollector.cancel(runId);
   } else {
     throw new Error("Unsupported collection producer");
   }
@@ -198,6 +208,10 @@ async function restartCollectionSession(runId) {
   if (!session) throw new Error("Collection session not found");
   if (session.producer === "sourcing.1688_trend") {
     await trendCollector.restart(runId);
+    return collectionSessions.get(runId);
+  }
+  if (session.producer === "sourcing.tiktok_cc_trend") {
+    await tiktokCcCollector.restart(runId);
     return collectionSessions.get(runId);
   }
   if (session.producer === "sourcing.live_commerce") {
@@ -249,6 +263,23 @@ function validateTrendStartMessage(msg) {
 function validateOptionalRunId(value) {
   return value === undefined ||
     (typeof value === "string" && value.length > 0 && value.length <= 200);
+}
+
+function validateTiktokCcStartMessage(msg) {
+  const options = {};
+  if (msg.maxItems !== undefined) {
+    if (!Number.isInteger(msg.maxItems) || msg.maxItems < 1 || msg.maxItems > 500) {
+      return { ok: false, error: "maxItems must be an integer from 1 to 500" };
+    }
+    options.maxItems = msg.maxItems;
+  }
+  if (msg.region !== undefined) {
+    if (typeof msg.region !== "string" || !/^[A-Za-z]{2,8}$/.test(msg.region)) {
+      return { ok: false, error: "region must be 2 to 8 letters" };
+    }
+    options.region = msg.region;
+  }
+  return { ok: true, options };
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -303,6 +334,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         sourcingProductScraper: true,
         sourcing1688TrendCollector: true,
         sourcingLiveCommerceCollector: true,
+        sourcingTiktokCcCollector: true,
         browserCollectionSessions: true,
       },
     });
@@ -336,6 +368,34 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       return;
     }
     trendCollector.cancel(msg.runId).then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "startTiktokCcCollection") {
+    const validated = validateTiktokCcStartMessage(msg);
+    if (!validated.ok) {
+      sendResponse({ success: false, error: validated.error });
+      return;
+    }
+    tiktokCcCollector.start(validated.options).then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "getTiktokCcCollectionStatus") {
+    if (!validateOptionalRunId(msg.runId)) {
+      sendResponse({ success: false, error: "invalid runId" });
+      return;
+    }
+    tiktokCcCollector.getStatus(msg.runId).then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "cancelTiktokCcCollection") {
+    if (!validateOptionalRunId(msg.runId)) {
+      sendResponse({ success: false, error: "invalid runId" });
+      return;
+    }
+    tiktokCcCollector.cancel(msg.runId).then(sendResponse);
     return true;
   }
 
@@ -493,6 +553,29 @@ async function injectLiveCommerceContentScripts(tabId) {
     return true;
   } catch (error) {
     console.log("[bg] live commerce script injection failed:", error.message);
+    return false;
+  }
+}
+
+async function injectTiktokCcContentScripts(tabId) {
+  try {
+    // Content scripts FIRST (ISOLATED) so the capture listener is ready, then the
+    // MAIN-world hook. Programmatic hook injection is best-effort — it cannot
+    // retroactively capture API calls fired before it wrapped fetch/XHR, so the
+    // manifest document_start declaration is the primary capture path.
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["tiktok-cc-extractor.js", "tiktok-cc-content.js"],
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["tiktok-cc-hook.js"],
+      world: "MAIN",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return true;
+  } catch (error) {
+    console.log("[bg] tiktok cc script injection failed:", error.message);
     return false;
   }
 }

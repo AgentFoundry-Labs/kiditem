@@ -1,4 +1,4 @@
-import { kstInclusiveDaysStart } from '../../common/kst';
+import { kstBusinessDate } from '../../common/kst';
 import {
   recomputeRoas,
   recomputeCtr,
@@ -15,6 +15,11 @@ export type AdMetricSums = {
 };
 
 export type AdPeriod = '7d' | '14d' | 'month';
+
+export type AdPeriodBounds = {
+  from: Date;
+  to: Date;
+};
 
 /**
  * Pure metric helpers shared by hub / campaign / benchmark services.
@@ -38,21 +43,39 @@ export function buildAdMetrics(sums: AdMetricSums): AdMetrics {
 }
 
 /**
- * Period → days. 'month' resolves to KST day-of-month so the inclusive
- * window matches the "current month" the user expects (server may be UTC).
+ * Complete Coupang advertising business-date window.
+ *
+ * Coupang's daily advertising report is complete through yesterday KST. A
+ * rolling period therefore ends yesterday rather than including today's
+ * incomplete row:
+ *
+ * - `7d`: yesterday plus the six preceding business dates
+ * - `14d`: yesterday plus the thirteen preceding business dates
+ * - `month`: current KST month start through yesterday
+ *
+ * Values are UTC-midnight `Date`s because the destination columns are
+ * PostgreSQL `date` (`@db.Date`) fields. On the first day of a KST month the
+ * month range is intentionally empty (`from > to`).
  */
-export function periodToDays(period: AdPeriod, fallback = 14): number {
-  if (period === '7d') return 7;
-  if (period === 'month') {
-    const kstDay = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCDate();
-    return Math.max(kstDay, 1);
-  }
-  return fallback;
-}
+export function periodBounds(
+  period: AdPeriod,
+  now: Date = new Date(),
+): AdPeriodBounds {
+  const today = kstBusinessDate(now);
+  const yesterday = shiftUtcDate(today, -1);
 
-/** Inclusive KST cutoff: today + N-1 prior businessDates. */
-export function periodCutoff(period: AdPeriod): Date {
-  return kstInclusiveDaysStart(periodToDays(period, 14));
+  if (period === 'month') {
+    return {
+      from: new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)),
+      to: yesterday,
+    };
+  }
+
+  const days = period === '7d' ? 7 : 14;
+  return {
+    from: shiftUtcDate(yesterday, -(days - 1)),
+    to: yesterday,
+  };
 }
 
 /** Aggregate AdMetrics across daily entries (recomputes ratios from totals). */
@@ -68,4 +91,8 @@ export function aggregateAdMetrics(entries: { metrics: AdMetrics }[]): AdMetrics
     { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
   );
   return buildAdMetrics(sums);
+}
+
+function shiftUtcDate(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * 86_400_000);
 }

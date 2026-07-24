@@ -1,9 +1,11 @@
 import {
+  Body,
   Controller,
   Get,
   Header,
   Inject,
   Param,
+  Put,
   Res,
   StreamableFile,
 } from '@nestjs/common';
@@ -15,6 +17,7 @@ import {
   COUPANG_SHIPMENTS_PORT,
   type CoupangShipmentsPort,
 } from '../../../application/port/in/fulfillment';
+import { SaveCoupangShipmentDateSummaryDto } from './dto';
 
 @Controller('coupang-shipments')
 export class CoupangShipmentsController {
@@ -26,6 +29,19 @@ export class CoupangShipmentsController {
   @Get()
   list(@CurrentOrganization() organizationId: string) {
     return this.coupangShipments.listLocalFiles(organizationId);
+  }
+
+  @Get('date-summary')
+  listDateSummary(@CurrentOrganization() organizationId: string) {
+    return this.coupangShipments.listDateSummary(organizationId);
+  }
+
+  @Put('date-summary')
+  saveDateSummary(
+    @CurrentOrganization() organizationId: string,
+    @Body() dto: SaveCoupangShipmentDateSummaryDto,
+  ) {
+    return this.coupangShipments.saveDateSummary(organizationId, dto.items);
   }
 
   @Get('files/:runId/:date/:fileName')

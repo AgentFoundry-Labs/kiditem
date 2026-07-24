@@ -14,6 +14,8 @@ const trendCollectorPath = path.resolve('extensions/product-scraper/1688-trend-c
 const trendCollectorSource = fs.readFileSync(trendCollectorPath, 'utf8');
 const liveCommerceCollectorPath = path.resolve('extensions/product-scraper/live-commerce-collector.js');
 const liveCommerceCollectorSource = fs.readFileSync(liveCommerceCollectorPath, 'utf8');
+const tiktokCcCollectorPath = path.resolve('extensions/product-scraper/tiktok-cc-collector.js');
+const tiktokCcCollectorSource = fs.readFileSync(tiktokCcCollectorPath, 'utf8');
 const manifest = JSON.parse(
   fs.readFileSync(path.resolve('extensions/product-scraper/manifest.json'), 'utf8'),
 );
@@ -151,6 +153,12 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
       });
       return;
     }
+    if (file === 'tiktok-cc-collector.js') {
+      vm.runInContext(tiktokCcCollectorSource, context, {
+        filename: tiktokCcCollectorPath,
+      });
+      return;
+    }
     assert.fail(`Unexpected background import: ${file}`);
   };
   vm.runInContext(backgroundSource, context, { filename: backgroundPath });
@@ -222,8 +230,9 @@ test('advertises the logged-in Chrome trend and live-commerce collector capabili
   assert.equal(response?.success, true);
   assert.equal(response?.capabilities?.sourcing1688TrendCollector, true);
   assert.equal(response?.capabilities?.sourcingLiveCommerceCollector, true);
+  assert.equal(response?.capabilities?.sourcingTiktokCcCollector, true);
   assert.equal(response?.capabilities?.browserCollectionSessions, true);
-  assert.equal(manifest.version, '2.2.3');
+  assert.equal(manifest.version, '2.3.0');
 });
 
 test('loads collection sessions and the interactive focus owner before sourcing collectors', () => {
@@ -231,11 +240,13 @@ test('loads collection sessions and the interactive focus owner before sourcing 
   const interactiveTabs = backgroundSource.indexOf('importScripts("interactive-tabs.js")');
   const trendCollector = backgroundSource.indexOf('importScripts("1688-trend-collector.js")');
   const liveCommerceCollector = backgroundSource.indexOf('importScripts("live-commerce-collector.js")');
+  const tiktokCcCollector = backgroundSource.indexOf('importScripts("tiktok-cc-collector.js")');
 
   assert.ok(collectionSession >= 0);
   assert.ok(interactiveTabs > collectionSession);
   assert.ok(trendCollector > interactiveTabs);
   assert.ok(liveCommerceCollector > trendCollector);
+  assert.ok(tiktokCcCollector > liveCommerceCollector);
   assert.match(backgroundSource, /KidItemCollectionSession\.create\(/);
   assert.match(backgroundSource, /storageKey:\s*["']kiditem_collection_sessions["']/);
 });

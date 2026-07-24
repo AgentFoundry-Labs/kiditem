@@ -7,6 +7,7 @@ import { queryKeys } from '@/lib/query-keys';
 const RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const mockSendControl = vi.hoisted(() => vi.fn());
 const mockSyncAlert = vi.hoisted(() => vi.fn());
+const mockToastError = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
   ...(await importOriginal<
@@ -14,6 +15,12 @@ vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
   >()),
   sendBrowserCollectionControl: mockSendControl,
   syncBrowserCollectionAlert: mockSyncAlert,
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: mockToastError,
+  },
 }));
 
 import { BrowserCollectionRunControls } from './BrowserCollectionRunControls';
@@ -81,6 +88,7 @@ describe('BrowserCollectionRunControls', () => {
     vi.clearAllMocks();
     mockSendControl.mockResolvedValue(null);
     mockSyncAlert.mockResolvedValue(undefined);
+    mockToastError.mockReset();
   });
 
   it('renders progress, attempt, and cancel while running', () => {
@@ -240,6 +248,47 @@ describe('BrowserCollectionRunControls', () => {
     );
   });
 
+  it('keeps cancel actionable during a pending web restart and blocks duplicate restarts', async () => {
+    const current = attentionSession({ restartStrategy: 'web' });
+    let resolveRestart: (() => void) | undefined;
+    const onWebRestart = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRestart = resolve;
+        }),
+    );
+    renderWithQueryClient(
+      <BrowserCollectionRunControls
+        session={current}
+        onWebRestart={onWebRestart}
+      />,
+    );
+
+    const restartButton = screen.getByRole('button', {
+      name: '처음부터 재실행',
+    });
+    fireEvent.click(restartButton);
+    fireEvent.click(restartButton);
+
+    await waitFor(() => expect(onWebRestart).toHaveBeenCalledTimes(1));
+    expect(restartButton).toBeDisabled();
+
+    const cancelButton = screen.getByRole('button', { name: '중단' });
+    expect(cancelButton).toBeEnabled();
+    fireEvent.click(cancelButton);
+
+    await waitFor(() => {
+      expect(mockSendControl).toHaveBeenCalledWith(
+        RUN_ID,
+        'cancelCollectionSession',
+      );
+    });
+    expect(onWebRestart).toHaveBeenCalledTimes(1);
+
+    resolveRestart?.();
+    await waitFor(() => expect(restartButton).toBeEnabled());
+  });
+
   it('explains when this route cannot safely restart a web-strategy session', () => {
     const onWebRestart = vi.fn();
     renderWithQueryClient(
@@ -312,5 +361,25 @@ describe('BrowserCollectionRunControls', () => {
     );
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('shows a visible error when cancellation is not confirmed', async () => {
+    mockSendControl.mockRejectedValueOnce(
+      new Error('브라우저 수집 중단 상태를 확인하지 못했습니다.'),
+    );
+    renderWithQueryClient(
+      <BrowserCollectionRunControls
+        session={attentionSession()}
+        onWebRestart={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '중단' }));
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith(
+        '브라우저 수집 중단 상태를 확인하지 못했습니다.',
+      );
+    });
   });
 });

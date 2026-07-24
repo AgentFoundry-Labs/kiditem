@@ -199,8 +199,8 @@ export function ToyCategorySourcingPage() {
   }
 
   return (
-    <main className="min-h-full bg-transparent px-6 py-6 text-[var(--text-primary)] 2xl:px-8">
-      <div className="mx-auto w-full max-w-[1740px] space-y-5">
+    <main className="min-h-full bg-transparent text-[var(--text-primary)]">
+      <div className="w-full space-y-5">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">

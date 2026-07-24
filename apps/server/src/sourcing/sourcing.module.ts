@@ -18,6 +18,7 @@ import { Sourcing1688KeywordSearchController } from "./adapter/in/http/sourcing-
 import { SourcingAgentRagController } from "./adapter/in/http/sourcing-agent-rag.controller";
 import { SourcingExtensionIngestController } from "./adapter/in/http/sourcing-extension-ingest.controller";
 import { Sourcing1688TrendExtensionController } from "./adapter/in/http/sourcing-1688-trend-extension.controller";
+import { SourcingTiktokCcTrendExtensionController } from "./adapter/in/http/sourcing-tiktok-cc-trend-extension.controller";
 import { SourcingLiveCommerceExtensionController } from "./adapter/in/http/sourcing-live-commerce-extension.controller";
 import { SourcingKeywordResearchController } from "./adapter/in/http/sourcing-keyword-research.controller";
 import { SourcingMarketModelController } from "./adapter/in/http/sourcing-market-model.controller";
@@ -137,6 +138,7 @@ import {
   controllers: [
     SourcingExtensionIngestController,
     Sourcing1688TrendExtensionController,
+    SourcingTiktokCcTrendExtensionController,
     SourcingLiveCommerceExtensionController,
     SourcingKeywordResearchController,
     Sourcing1688ImageSearchController,

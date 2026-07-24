@@ -20,7 +20,12 @@
 // numerator/denominator columns are stored; provider ratios survive in
 // `metaJson` for audit. Reads recompute ratios.
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import {
   resolveBusinessDate,
   toBusinessDate,
@@ -74,6 +79,7 @@ export class AdCampaignIngestHandler {
     organizationId: string,
     map: ListingMap,
   ) {
+    assertValidCampaignSweepMarker(payload);
     const campaignName = cleanString(payload.campaignName) || '_전체';
     const period = String(payload.period || '7d');
     const businessDate = resolveBusinessDate(
@@ -122,6 +128,17 @@ export class AdCampaignIngestHandler {
     );
     const baseMeta = {
       campaignName,
+      collectionRunId: payload.collectionRunId ?? null,
+      collectionAttempt: payload.collectionAttempt ?? null,
+      campaignSweepComplete: payload.campaignSweepComplete === true,
+      campaignIdentityComplete: payload.campaignIdentityComplete === true,
+      campaignCount: payload.campaignCount ?? null,
+      rawOnlyCampaignCount: payload.rawOnlyCampaignCount ?? null,
+      campaignDailyCollectionComplete:
+        payload.campaignDailyCollectionComplete === true,
+      campaignDailyWindowDays: payload.campaignDailyWindowDays ?? null,
+      campaignDailyFrom: payload.campaignDailyFrom ?? null,
+      campaignDailyTo: payload.campaignDailyTo ?? null,
       requestedCampaignReportScope: authority.requestedScope,
       effectiveCampaignReportScope: authority.effectiveScope,
       campaignReportAuthorityReason: authority.reason,
@@ -434,6 +451,80 @@ export class AdCampaignIngestHandler {
       throw err;
     }
   }
+}
+
+const MAX_POSTGRES_INT = 2147483647;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function assertValidCampaignSweepMarker(payload: ExtensionSyncDto): void {
+  if (payload.campaignSweepComplete !== true) return;
+
+  const validCount = (value: unknown, minimum: number) =>
+    Number.isInteger(value) &&
+    (value as number) >= minimum &&
+    (value as number) <= MAX_POSTGRES_INT;
+  const rawOnlyCampaignCount = payload.rawOnlyCampaignCount;
+  const hasDailyCollectionContract = [
+    payload.campaignDailyCollectionComplete,
+    payload.campaignDailyWindowDays,
+    payload.campaignDailyFrom,
+    payload.campaignDailyTo,
+  ].some((value) => value !== undefined);
+  const validDailyCollectionContract =
+    !hasDailyCollectionContract ||
+    (
+      payload.campaignDailyCollectionComplete === true &&
+      payload.campaignDailyWindowDays === 31 &&
+      isExactDailyWindow(
+        payload.campaignDailyFrom,
+        payload.campaignDailyTo,
+        payload.campaignDailyWindowDays,
+      )
+    );
+  const valid =
+    typeof payload.collectionRunId === 'string' &&
+    UUID_PATTERN.test(payload.collectionRunId) &&
+    validCount(payload.collectionAttempt, 1) &&
+    payload.campaignName === '_SWEEP_COMPLETE' &&
+    payload.campaignReportScope === 'multi_campaign_raw' &&
+    Array.isArray(payload.data) &&
+    payload.data.length === 0 &&
+    Array.isArray(payload.normalizedRows) &&
+    payload.normalizedRows.length === 0 &&
+    validCount(payload.campaignCount, 0) &&
+    validCount(rawOnlyCampaignCount, 0) &&
+    typeof payload.campaignIdentityComplete === 'boolean' &&
+    payload.campaignIdentityComplete === (rawOnlyCampaignCount === 0) &&
+    validDailyCollectionContract;
+
+  if (!valid) {
+    throw new BadRequestException('invalid campaign sweep completion marker');
+  }
+}
+
+function isExactDailyWindow(
+  from: unknown,
+  to: unknown,
+  windowDays: number,
+): boolean {
+  if (
+    typeof from !== 'string' ||
+    typeof to !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(from) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(to)
+  ) {
+    return false;
+  }
+  const fromDate = new Date(`${from}T00:00:00.000Z`);
+  const toDate = new Date(`${to}T00:00:00.000Z`);
+  return (
+    Number.isFinite(fromDate.getTime()) &&
+    Number.isFinite(toDate.getTime()) &&
+    fromDate.toISOString().slice(0, 10) === from &&
+    toDate.toISOString().slice(0, 10) === to &&
+    (toDate.getTime() - fromDate.getTime()) / 86_400_000 + 1 === windowDays
+  );
 }
 
 const REQUIRED_ADDITIVE_METRICS = [

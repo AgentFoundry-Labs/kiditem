@@ -9,13 +9,14 @@ import { cn } from '@/lib/utils';
 import {
   CHINESE_SEED_SUGGESTIONS,
   KOREAN_SEED_SUGGESTIONS,
+  TREND_SEED_SOURCE_ORDER,
   TREND_SOURCE_META,
   TREND_SOURCE_ORDER,
   deleteTrendSeed,
   updateTrendSeed,
   upsertTrendSeed,
   type TrendSeed,
-  type TrendSource,
+  type TrendSeedSource,
 } from '../lib/trend-collection-api';
 
 const pressable =
@@ -32,7 +33,7 @@ export function TrendSeedManager({
   const queryClient = useQueryClient();
   const [keyword, setKeyword] = useState('');
   const [keywordCn, setKeywordCn] = useState('');
-  const [sources, setSources] = useState<Set<TrendSource>>(new Set(TREND_SOURCE_ORDER));
+  const [sources, setSources] = useState<Set<TrendSeedSource>>(new Set(TREND_SOURCE_ORDER));
 
   const invalidateSeeds = () =>
     queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trendSeeds() });
@@ -56,7 +57,7 @@ export function TrendSeedManager({
   });
 
   const sourcesMutation = useMutation({
-    mutationFn: (input: { seed: TrendSeed; next: TrendSource[] }) =>
+    mutationFn: (input: { seed: TrendSeed; next: TrendSeedSource[] }) =>
       updateTrendSeed(input.seed.id, { sources: input.next }),
     onSuccess: invalidateSeeds,
     onError: (err) => toast.error(err instanceof Error ? err.message : '수집 소스 변경 실패'),
@@ -71,7 +72,7 @@ export function TrendSeedManager({
     onError: (err) => toast.error(err instanceof Error ? err.message : '시드 삭제 실패'),
   });
 
-  const toggleFormSource = (source: TrendSource) => {
+  const toggleFormSource = (source: TrendSeedSource) => {
     setSources((prev) => {
       const next = new Set(prev);
       if (next.has(source)) next.delete(source);
@@ -91,11 +92,11 @@ export function TrendSeedManager({
     upsertMutation.mutate({
       keyword: trimmed,
       keywordCn: keywordCn.trim() || undefined,
-      sources: TREND_SOURCE_ORDER.filter((source) => sources.has(source)),
+      sources: TREND_SEED_SOURCE_ORDER.filter((source) => sources.has(source)),
     });
   };
 
-  const toggleSeedSource = (seed: TrendSeed, source: TrendSource) => {
+  const toggleSeedSource = (seed: TrendSeed, source: TrendSeedSource) => {
     if (sourcesMutation.isPending) return;
     const has = seed.sources.includes(source);
     const next = has
@@ -119,7 +120,8 @@ export function TrendSeedManager({
             <h2 className="text-sm font-bold text-[var(--text-primary)]">시드 키워드</h2>
             <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
               기본 문구·완구 시드와 저장한 사용자 시드로 네이버·1688·쇼츠를 조회합니다. 1688 은
-              中文 검색어가 있으면 우선 사용합니다.
+              中文 검색어가 있으면 우선 사용합니다. 틱톡 태그는 크리에이티브 센터 확장 수집 대상만
+              지정합니다.
             </p>
           </div>
         </div>
@@ -174,7 +176,7 @@ export function TrendSeedManager({
           <div>
             <span className="mb-1 block text-xs font-semibold text-[var(--text-secondary)]">수집 소스</span>
             <div className="flex flex-wrap gap-1.5">
-              {TREND_SOURCE_ORDER.map((source) => {
+              {TREND_SEED_SOURCE_ORDER.map((source) => {
                 const active = sources.has(source);
                 const meta = TREND_SOURCE_META[source];
                 return (
@@ -229,7 +231,7 @@ export function TrendSeedManager({
                 </td>
                 <td className="px-3 py-3">
                   <div className="flex flex-wrap gap-1">
-                    {TREND_SOURCE_ORDER.map((source) => {
+                    {TREND_SEED_SOURCE_ORDER.map((source) => {
                       const active = seed.sources.includes(source);
                       const meta = TREND_SOURCE_META[source];
                       return (

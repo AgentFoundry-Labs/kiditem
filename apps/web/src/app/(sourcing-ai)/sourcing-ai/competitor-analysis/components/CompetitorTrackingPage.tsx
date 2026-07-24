@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserCollectionRunIdSchema } from "@kiditem/shared/browser-collection-session";
 import Link from "next/link";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   AlertCircle,
   Building2,
@@ -70,6 +75,8 @@ export function CompetitorTrackingPage() {
     queryKey: queryKeys.sourcing.competitors(periodDays),
     queryFn: () => fetchCompetitorTrackingOverview(periodDays),
     refetchInterval: activeRun ? 5_000 : 60_000,
+    // 기간 전환 시 전체화면 스켈레톤으로 되돌아가지 않도록 직전 데이터를 유지한다.
+    placeholderData: keepPreviousData,
   });
 
   useEffect(() => {

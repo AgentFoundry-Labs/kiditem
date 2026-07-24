@@ -28,6 +28,31 @@ export interface CoupangShipmentDownloadResult {
   error?: string;
 }
 
+/**
+ * 쿠팡 접속이 많아 쿠키가 커지면 supplier.coupang.com(Tomcat)이 요청 헤더 과다로 400 을
+ * 반환한다. 확장이 이 코드로 알려주면 웹은 "쿠키 정리" 복구 흐름을 제안한다.
+ */
+export const COUPANG_COOKIE_BLOAT_CODE = 'coupang_cookie_bloat';
+
+export class CoupangShipmentExtensionError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'CoupangShipmentExtensionError';
+    this.code = code;
+  }
+}
+
+export function isCoupangCookieBloatError(error: unknown): boolean {
+  return error instanceof CoupangShipmentExtensionError && error.code === COUPANG_COOKIE_BLOAT_CODE;
+}
+
+/** 확장 응답의 errorCode 를 살펴 쿠키 과다면 타입드 에러, 아니면 일반 에러를 던진다. */
+function throwExtensionError(response: { error?: string; errorCode?: string } | null, fallback: string): never {
+  const message = response?.error ?? fallback;
+  throw new CoupangShipmentExtensionError(message, response?.errorCode);
+}
+
 export async function openCoupangShipmentPageViaExtension(): Promise<string> {
   const extensionId = await getOrderCollectorExtensionId();
   const response = await sendToExtension<CoupangShipmentDownloadResult>(
@@ -83,6 +108,7 @@ export interface CoupangShipmentDateSummaryItem {
 interface CoupangShipmentDateSummaryResult {
   success: boolean;
   error?: string;
+  errorCode?: string;
   scannedPages?: number;
   totalRows?: number;
   dates?: CoupangShipmentDateSummaryItem[];
@@ -95,8 +121,24 @@ export async function collectCoupangShipmentDateSummaryViaExtension(): Promise<C
     { action: 'collectCoupangShipmentDateSummary' },
     90000,
   );
-  if (!response?.success) throw new Error(response?.error ?? '쿠팡 쉽먼트 발송일 조회에 실패했습니다.');
+  if (!response?.success) throwExtensionError(response, '쿠팡 쉽먼트 발송일 조회에 실패했습니다.');
   return response.dates ?? [];
+}
+
+/**
+ * 쿠키 과다(400)를 복구: supplier.coupang.com 쿠키를 정리한다(정리 후 재로그인 필요).
+ * 반환값은 정리한 쿠키 수. 파괴적이라 호출 전 사용자 확인을 받는다.
+ */
+export async function clearCoupangCookiesViaExtension(): Promise<number> {
+  // 쿠키 정리 기능(0.1.81+)을 명시적으로 요구 → 구버전 확장은 재로드 안내로 거절.
+  const extensionId = await getOrderCollectorExtensionId('clearCoupangCookies');
+  const response = await sendToExtension<{ success: boolean; cleared?: number; error?: string }>(
+    extensionId,
+    { action: 'clearCoupangCookies' },
+    20000,
+  );
+  if (!response?.success) throw new Error(response?.error ?? '쿠팡 쿠키 정리에 실패했습니다.');
+  return response.cleared ?? 0;
 }
 
 // ── 원클릭 자동 수집·병합 (직접 엔드포인트) ──
@@ -118,6 +160,7 @@ export interface CoupangShipmentListItem {
 interface CoupangShipmentListResult {
   success: boolean;
   error?: string;
+  errorCode?: string;
   date?: string;
   count?: number;
   scannedPages?: number;
@@ -136,6 +179,7 @@ interface CoupangShipmentPdfFile {
 interface CoupangShipmentPdfBatchResult {
   success: boolean;
   error?: string;
+  errorCode?: string;
   files?: CoupangShipmentPdfFile[];
 }
 
@@ -162,7 +206,7 @@ export async function collectCoupangShipmentDraftsViaExtension(
     { action: 'collectCoupangShipmentList', date },
     90000,
   );
-  if (!list?.success) throw new Error(list?.error ?? '쿠팡 쉽먼트 목록 수집에 실패했습니다.');
+  if (!list?.success) throwExtensionError(list, '쿠팡 쉽먼트 목록 수집에 실패했습니다.');
   const shipments = list.shipments ?? [];
   if (shipments.length === 0) {
     throw new Error(`발송일 ${date} 에 해당하는 쉽먼트가 없습니다.`);
@@ -183,7 +227,7 @@ export async function collectCoupangShipmentDraftsViaExtension(
       { action: 'fetchCoupangShipmentPdfBatch', items: slice },
       120000,
     );
-    if (!response?.success) throw new Error(response?.error ?? '쿠팡 쉽먼트 PDF 수집에 실패했습니다.');
+    if (!response?.success) throwExtensionError(response, '쿠팡 쉽먼트 PDF 수집에 실패했습니다.');
     for (const file of response.files ?? []) {
       if (file.ok && file.b64) bySeqKind.set(`${file.seq}:${file.kind}`, file);
     }

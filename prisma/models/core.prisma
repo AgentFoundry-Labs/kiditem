@@ -88,6 +88,7 @@ model Organization {
   stockTransfers                                StockTransfer[]
   stockAudits                                   StockAudit[]
   sellpiaReceiptUploadBatches                   SellpiaReceiptUploadBatch[]
+  coupangShipmentDateSummaries                  CoupangShipmentDateSummary[]
   sellpiaInventoryState                         SellpiaInventoryState?
   sellpiaOrderTransmissionIntents               SellpiaOrderTransmissionIntent[]
   sellpiaOrderTransmissionIntentReconciliations SellpiaOrderTransmissionIntentReconciliation[]
@@ -177,6 +178,7 @@ model Organization {
   shortsTrendDailySnapshots            ShortsTrendDailySnapshot[]
   liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
   liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]
+  tiktokCreativeTrendDailySnapshots    TiktokCreativeTrendDailySnapshot[]
 
   @@map("organizations")
 }

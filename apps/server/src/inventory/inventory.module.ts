@@ -23,6 +23,7 @@ import { SellpiaReceiptBatchRepositoryAdapter } from './adapter/out/repository/s
 import { TransfersRepositoryAdapter } from './adapter/out/repository/transfers.repository.adapter';
 import { UnshippedRepositoryAdapter } from './adapter/out/repository/unshipped.repository.adapter';
 import { WarehousesRepositoryAdapter } from './adapter/out/repository/warehouses.repository.adapter';
+import { CoupangShipmentDateSummaryRepositoryAdapter } from './adapter/out/repository/coupang-shipment-date-summary.repository.adapter';
 import { LocalCoupangShipmentFilesAdapter } from './adapter/out/storage/local-coupang-shipment-files.adapter';
 import { COUPANG_SHIPMENTS_PORT, PICKING_PORT, UNSHIPPED_PORT } from './application/port/in/fulfillment';
 import {
@@ -52,6 +53,7 @@ import { SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT } from './application/port/out/re
 import { TRANSFERS_REPOSITORY_PORT } from './application/port/out/repository/transfers.repository.port';
 import { UNSHIPPED_REPOSITORY_PORT } from './application/port/out/repository/unshipped.repository.port';
 import { WAREHOUSES_REPOSITORY_PORT } from './application/port/out/repository/warehouses.repository.port';
+import { COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT } from './application/port/out/repository/coupang-shipment-date-summary.repository.port';
 import { COUPANG_SHIPMENT_FILE_STORAGE_PORT } from './application/port/out/storage';
 import { CoupangShipmentsService } from './application/service/coupang-shipments.service';
 import { InventorySkuSnapshotListService } from './application/service/inventory-sku-snapshot-list.service';
@@ -107,6 +109,10 @@ const REPOSITORY_PORT_BINDINGS = [
   { provide: PICKING_REPOSITORY_PORT, useExisting: PickingRepositoryAdapter },
   { provide: CONFIRMED_ORDERS_PORT, useExisting: ConfirmedOrdersRepositoryAdapter },
   { provide: COUPANG_SHIPMENT_FILE_STORAGE_PORT, useExisting: LocalCoupangShipmentFilesAdapter },
+  {
+    provide: COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT,
+    useExisting: CoupangShipmentDateSummaryRepositoryAdapter,
+  },
 ];
 
 const APPLICATION_PORT_BINDINGS = [
@@ -156,6 +162,7 @@ const APPLICATION_PORT_BINDINGS = [
     PickingRepositoryAdapter,
     ConfirmedOrdersRepositoryAdapter,
     LocalCoupangShipmentFilesAdapter,
+    CoupangShipmentDateSummaryRepositoryAdapter,
     InventorySkuSnapshotListService,
     InventoryCommitmentService,
     RocketWorkbookProgressService,

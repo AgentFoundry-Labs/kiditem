@@ -14,40 +14,68 @@ export class KiditemStorefrontAdapter implements KiditemStorefrontPort {
     products: KiditemStorefrontProduct[];
     fetchedAt: number;
   } | null = null;
+  private refreshInFlight: Promise<KiditemStorefrontProduct[]> | null = null;
 
+  // 자사몰은 외부 HTTP 스크래핑(euc-kr, 최대 20페이지)이라 느리고 불안정하다.
+  // 경쟁 판매자 개요 응답이 이 fetch에 매번 블로킹되면 스켈레톤이 길어지므로
+  // stale-while-revalidate: 만료된 캐시라도 즉시 반환하고 갱신은 백그라운드로 돌려
+  // 외부 fetch를 응답 크리티컬 패스에서 뺀다. 캐시가 아예 없을 때만 네트워크를 기다린다.
   async listNewProducts(): Promise<KiditemStorefrontProduct[]> {
-    const now = Date.now();
-    if (this.cache && now - this.cache.fetchedAt < CACHE_TTL_MS) {
-      return this.cache.products;
+    const cache = this.cache;
+
+    if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
+      return cache.products;
     }
 
-    try {
-      const firstPageHtml = await this.fetchPage(STOREFRONT_URL);
-      const pageCount = parseKiditemStorefrontPageCount(firstPageHtml);
-      const remainingPages = await Promise.all(
-        Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => {
-          const url = new URL(STOREFRONT_URL);
-          url.searchParams.set("page", String(index + 2));
-          return this.fetchPage(url.toString());
-        }),
-      );
-      const products = [firstPageHtml, ...remainingPages].flatMap((html) =>
-        parseKiditemStorefrontHtml(html),
-      );
-      const uniqueProducts = [
-        ...new Map(
-          products.map((product) => [product.externalId, product]),
-        ).values(),
-      ];
-      if (uniqueProducts.length === 0) {
-        throw new Error("KidItem storefront returned no product rows");
-      }
-      this.cache = { products: uniqueProducts, fetchedAt: now };
-      return uniqueProducts;
-    } catch (error) {
-      if (this.cache) return this.cache.products;
-      throw error;
+    if (cache) {
+      void this.refresh().catch(() => undefined);
+      return cache.products;
     }
+
+    return this.refresh();
+  }
+
+  private refresh(): Promise<KiditemStorefrontProduct[]> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+    const run = this.fetchAllPages()
+      .then((products) => {
+        this.cache = { products, fetchedAt: Date.now() };
+        return products;
+      })
+      .catch((error: unknown) => {
+        // 갱신 실패 시 기존 캐시를 유지한다. 캐시가 없는 최초 로드 실패만 상위로 던진다.
+        if (this.cache) return this.cache.products;
+        throw error;
+      })
+      .finally(() => {
+        this.refreshInFlight = null;
+      });
+    this.refreshInFlight = run;
+    return run;
+  }
+
+  private async fetchAllPages(): Promise<KiditemStorefrontProduct[]> {
+    const firstPageHtml = await this.fetchPage(STOREFRONT_URL);
+    const pageCount = parseKiditemStorefrontPageCount(firstPageHtml);
+    const remainingPages = await Promise.all(
+      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => {
+        const url = new URL(STOREFRONT_URL);
+        url.searchParams.set("page", String(index + 2));
+        return this.fetchPage(url.toString());
+      }),
+    );
+    const products = [firstPageHtml, ...remainingPages].flatMap((html) =>
+      parseKiditemStorefrontHtml(html),
+    );
+    const uniqueProducts = [
+      ...new Map(
+        products.map((product) => [product.externalId, product]),
+      ).values(),
+    ];
+    if (uniqueProducts.length === 0) {
+      throw new Error("KidItem storefront returned no product rows");
+    }
+    return uniqueProducts;
   }
 
   private async fetchPage(url: string): Promise<string> {

@@ -220,6 +220,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         orderCollectionIcecreamMall: true,
         coupangShipmentDownloads: true,
         collectCoupangShipmentFiles: true,
+        clearCoupangCookies: true,
         art09Orders: true,
         boriboriOrders: true,
         collectRocketPoRows: true,
@@ -458,6 +459,18 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error?.message || "쿠팡 쉽먼트 PDF 수집 실패",
+        });
+      });
+    return true;
+  }
+
+  if (msg?.action === "clearCoupangCookies") {
+    clearCoupangSupplierCookies()
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 쿠키 정리 실패",
         });
       });
     return true;
@@ -855,7 +868,11 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
       `/ibs/shipment/parcel/list?pageNumber=${n}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`,
       { credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" } },
     );
-    if (!r.ok) throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
+    if (!r.ok) {
+      // 쿠팡 접속이 많아 쿠키가 커지면 Tomcat 이 헤더 과다로 400(때때로 413/431)을 반환한다.
+      if (r.status === 400 || r.status === 413 || r.status === 431) throw new Error("COUPANG_COOKIE_BLOAT");
+      throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
+    }
     return await r.text();
   }
   function parseRows(html) {
@@ -928,7 +945,25 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
       .sort((a, b) => b.date.localeCompare(a.date));
     return { success: true, scannedPages, totalRows, dates };
   } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
+    const msg = String((e && e.message) || e);
+    // 쿠팡 접속이 많아 쿠키가 커지면 supplier.coupang.com(Tomcat)이 400/413/431 로 요청을 거부한다.
+    // 재시도로는 안 풀리므로(쿠키가 그대로) 쿠키 정리/재로그인 안내로 치환한다.
+    if (msg === 'COUPANG_COOKIE_BLOAT') {
+      return {
+        success: false,
+        errorCode: 'coupang_cookie_bloat',
+        error: '쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 조회하세요.',
+      };
+    }
+    // 세션 만료/미로그인 시 supplier 목록 fetch 가 브라우저 일반 오류("Failed to fetch")로
+    // 떨어진다. 조작 가능한 안내로 치환해 운영자가 원인을 바로 알게 한다.
+    if (msg === 'Failed to fetch') {
+      return {
+        success: false,
+        error: 'supplier.coupang.com 세션을 확인할 수 없습니다. 쿠팡 supplier에 로그인한 뒤 다시 조회해주세요.',
+      };
+    }
+    return { success: false, error: msg };
   }
 }
 
@@ -984,6 +1019,39 @@ async function fetchCoupangShipmentPdfBatch(options) {
   );
 }
 
+// ── 쿠키 과다(400 Bad Request) 복구: supplier.coupang.com 에 적용되는 쿠키를 정리 ──
+// 헤비하게 쓰면 쿠키가 누적돼 요청 헤더가 서버 상한을 넘고 Tomcat 이 400 을 뱉는다.
+// 재시도로는 안 풀리므로 도메인 쿠키를 지워 초기화한다(정리 후 재로그인 필요).
+// 주의: 쿠키 "값"은 읽어서 반환/전달/저장하지 않는다(이름만으로 remove). 파괴적이라 웹에서 확인 후 호출.
+async function clearCoupangSupplierCookies() {
+  if (!chrome.cookies || typeof chrome.cookies.getAll !== "function") {
+    return {
+      success: false,
+      error: "쿠키 정리 권한이 없습니다. 확장프로그램을 최신 버전으로 다시 로드해주세요.",
+    };
+  }
+  const url = "https://supplier.coupang.com/";
+  let cookies;
+  try {
+    cookies = await chrome.cookies.getAll({ url });
+  } catch (e) {
+    return { success: false, error: "쿠팡 쿠키를 읽지 못했습니다: " + String((e && e.message) || e) };
+  }
+  let cleared = 0;
+  for (const c of cookies) {
+    // 호스트 권한을 가진 supplier 호스트 + 각 쿠키의 path 로 remove(값은 다루지 않음).
+    // path 별 쿠키까지 지우려 supplier 호스트에 쿠키 path 를 붙인다(.coupang.com 도메인 쿠키 포함).
+    const removeUrl = "https://supplier.coupang.com" + (c.path || "/");
+    try {
+      await chrome.cookies.remove({ url: removeUrl, name: c.name, storeId: c.storeId });
+      cleared += 1;
+    } catch (_) {
+      /* 개별 실패는 무시하고 계속 */
+    }
+  }
+  return { success: true, cleared, total: cookies.length };
+}
+
 // [페이지 주입] 발송일(YYYY-MM-DD) 로 쉽먼트 목록을 페이지네이션하며 전량 수집.
 // ⚠️ estimatedDeliveryDate(입고예정일) 필터는 발송일과 1:1 이 아니라 누락되므로 무필터로 받고 발송일로 거른다.
 // 목록 응답은 JSON 이 아니라 table#parcel-tab HTML 조각. 날짜 파라미터는 YYYYMMDD.
@@ -994,7 +1062,11 @@ async function scrapeCoupangShipmentList(targetDate) {
       `/ibs/shipment/parcel/list?pageNumber=${n}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`,
       { credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" } },
     );
-    if (!r.ok) throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
+    if (!r.ok) {
+      // 쿠팡 접속이 많아 쿠키가 커지면 Tomcat 이 헤더 과다로 400(때때로 413/431)을 반환한다.
+      if (r.status === 400 || r.status === 413 || r.status === 431) throw new Error("COUPANG_COOKIE_BLOAT");
+      throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
+    }
     return await r.text();
   }
   function parseRows(html) {
@@ -1051,7 +1123,15 @@ async function scrapeCoupangShipmentList(targetDate) {
       shipments: matched,
     };
   } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
+    const msg = String((e && e.message) || e);
+    if (msg === 'COUPANG_COOKIE_BLOAT') {
+      return {
+        success: false,
+        errorCode: 'coupang_cookie_bloat',
+        error: '쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 조회하세요.',
+      };
+    }
+    return { success: false, error: msg };
   }
 }
 
@@ -1076,6 +1156,14 @@ async function fetchCoupangShipmentPdfsInPage(items) {
         { credentials: "include" },
       );
       if (!r.ok) {
+        // 쿠키 과다(400/413/431)는 모든 PDF 에 동일하게 발생 → 즉시 중단하고 안내로 치환.
+        if (r.status === 400 || r.status === 413 || r.status === 431) {
+          return {
+            success: false,
+            errorCode: "coupang_cookie_bloat",
+            error: "쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) PDF 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 다시 시도하세요.",
+          };
+        }
         files.push({ seq: it.seq, kind: it.kind, ok: false, error: `HTTP ${r.status}` });
         continue;
       }

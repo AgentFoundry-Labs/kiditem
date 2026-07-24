@@ -95,16 +95,18 @@ export type RegisterCampaignPayload = {
 };
 
 function campaignTotals(campaigns: AdCampaignSnapshot[]): Record<string, number> {
-  const total = campaigns.reduce(
-    (acc, c) => ({
-      adSpend: acc.adSpend + c.metrics.spend,
-      adRevenue: acc.adRevenue + c.metrics.revenue,
-      impressions: acc.impressions + c.metrics.impressions,
-      clicks: acc.clicks + c.metrics.clicks,
-      conversions: acc.conversions + c.metrics.conversions,
-    }),
-    { adSpend: 0, adRevenue: 0, impressions: 0, clicks: 0, conversions: 0 },
-  );
+  const total = campaigns
+    .filter((campaign) => campaign.metricsAvailable !== false)
+    .reduce(
+      (acc, c) => ({
+        adSpend: acc.adSpend + c.metrics.spend,
+        adRevenue: acc.adRevenue + c.metrics.revenue,
+        impressions: acc.impressions + c.metrics.impressions,
+        clicks: acc.clicks + c.metrics.clicks,
+        conversions: acc.conversions + c.metrics.conversions,
+      }),
+      { adSpend: 0, adRevenue: 0, impressions: 0, clicks: 0, conversions: 0 },
+    );
   return {
     ...total,
     roas: total.adSpend > 0 ? Math.round((total.adRevenue / total.adSpend) * 10000) / 100 : 0,
@@ -254,7 +256,6 @@ export function useAdProducts(period: string, enabled: boolean) {
     queryFn: () =>
       apiClient.get<AdProductSnapshot[]>(`/api/ads/products?period=${campPeriod}`),
     enabled,
-    placeholderData: previousData => previousData,
   });
 
   const products: AdProductRow[] = (productsQuery.data ?? []).map((snapshot) => ({
@@ -286,6 +287,9 @@ export function useAdProducts(period: string, enabled: boolean) {
     products,
     isLoading: productsQuery.isLoading,
     isFetching: productsQuery.isFetching,
+    isError: productsQuery.isError,
+    error: productsQuery.error,
+    refetch: productsQuery.refetch,
   };
 }
 

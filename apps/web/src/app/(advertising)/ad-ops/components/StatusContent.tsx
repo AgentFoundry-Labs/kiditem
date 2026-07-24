@@ -1,27 +1,18 @@
 "use client";
 
 import { Megaphone, AlertTriangle, ChevronRight } from "lucide-react";
-import {
-  ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, CartesianGrid,
-} from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { cn, formatKRW, formatNumber, formatDateTime } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { roasColor } from "../lib/status-colors";
 import AdSidePanel from "./AdSidePanel";
+import AdCollectionDailyChart from "./AdCollectionDailyChart";
+import type { AdCollectionPeriod } from "./AdCollectionDailyChart";
 import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus, AdStrategyAction } from "@kiditem/shared/advertising";
 import type { CampaignSelection } from "./CampaignTable";
 
-type ChartTooltipPayload = {
-  dataKey?: string | number | ((obj: unknown) => unknown);
-  value?: unknown;
-  color?: string;
-  name?: string | number;
-};
-
-function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapshot[]; onSelect: (campaign?: CampaignSelection) => void }) {
+export function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapshot[]; onSelect: (campaign?: CampaignSelection) => void }) {
   const { data: adsConfig } = useQuery({
     queryKey: queryKeys.ads.config(),
     queryFn: () =>
@@ -31,7 +22,9 @@ function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapsho
   });
   const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
 
-  const top = campaigns.slice(0, 5);
+  const top = campaigns
+    .filter((campaign) => campaign.metricsAvailable !== false)
+    .slice(0, 5);
   if (top.length === 0) return null;
 
   return (
@@ -49,24 +42,42 @@ function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapsho
         {top.map((c) => {
           const rowKey = `${c.channelAccountId}:${c.campaignIdentity}`;
           const displayName = c.campaignName ?? c.listing?.masterProduct.name ?? "알 수 없는 캠페인";
+          const campaignState = (c.onOff ?? c.status)?.trim().toUpperCase() || null;
           return (
             <button
               key={rowKey}
+              type="button"
               onClick={() => onSelect({
                 channelAccountId: c.channelAccountId,
                 campaignIdentity: c.campaignIdentity,
                 campaignName: displayName,
               })}
-              className="w-full flex items-center justify-between px-5 py-3 transition-colors text-left hover:bg-[var(--surface-sunken)]"
+              className="flex w-full items-center justify-between px-5 py-3 text-left transition-colors hover:bg-[var(--surface-sunken)]"
             >
-              <div>
-                <div className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>{displayName}</div>
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>
+                    {displayName}
+                  </span>
+                  {campaignState && (
+                    <span
+                      className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold"
+                      style={campaignState === "ON"
+                        ? { background: "var(--primary-soft)", color: "var(--success)" }
+                        : { background: "var(--surface-sunken)", color: "var(--text-tertiary)" }}
+                    >
+                      {campaignState}
+                    </span>
+                  )}
+                </div>
                 <div className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-                  클릭 {formatNumber(c.metrics.clicks)} · 전환 {c.metrics.conversions}
+                  클릭 {formatNumber(c.metrics.clicks)} · 전환 {c.conversionsAvailable ? formatNumber(c.metrics.conversions) : "-"}
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(c.metrics.revenue)}원</div>
+                <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                  {formatKRW(c.metrics.revenue)}원
+                </div>
                 <div className={cn("text-[11px] font-semibold tabular-nums", roasColor(c.metrics.roas ?? 0, roasT))}>
                   ROAS {c.metrics.roas ?? 0}%
                 </div>
@@ -86,6 +97,8 @@ interface StatusContentProps {
   wingKpis: Record<string, string | { value: string; change?: string; numValue?: number }>;
   campaigns: AdCampaignSnapshot[];
   onGoToCampaign: (campaign?: CampaignSelection) => void;
+  period: AdCollectionPeriod;
+  onPeriodChange: (period: AdCollectionPeriod) => void;
   // H3 — current-state extension status surfaced from `/api/ads/extension/status`.
   // Carries `latestScrapeAt` / `latestChannelStateAt` / `rawSnapshotCount` /
   // `currentWinnerObservedListings` (renamed from legacy lifetime counts).
@@ -101,131 +114,20 @@ export default function StatusContent({
   wingKpis,
   campaigns,
   onGoToCampaign,
+  period,
+  onPeriodChange,
   extensionStatus,
 }: StatusContentProps) {
-  const listingDaily = trends?.daily ?? [];
-  const accountDaily = trends?.accountDaily ?? [];
-  const listingDailyHasChartSignal = listingDaily.some((d) =>
-    d.metrics.spend > 0 ||
-    d.metrics.revenue > 0 ||
-    (d.metrics.roas ?? 0) > 0,
-  );
-  const accountDailyHasChartSignal = accountDaily.some((d) =>
-    d.metrics.spend > 0 ||
-    d.metrics.revenue > 0 ||
-    (d.metrics.roas ?? 0) > 0,
-  );
-  const chartSource = listingDailyHasChartSignal
-    ? "listing"
-    : accountDailyHasChartSignal
-      ? "account"
-      : "empty";
-  const chartDaily = chartSource === "listing"
-    ? listingDaily
-    : chartSource === "account"
-      ? accountDaily
-      : [];
-  const chartTitle = chartSource === "account"
-    ? "계정 광고비 · 전환매출 · ROAS"
-    : "광고비 · 전환매출 · ROAS";
-  const chartSourceLabel = chartSource === "account"
-    ? "쿠팡 광고센터 계정 일별"
-    : chartSource === "listing"
-      ? "listing daily fact"
-      : "광고비/전환매출 수집 필요";
-
   return (
     <div className="space-y-5">
       {/* 차트 + 할일/알림 */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-3" style={{ height: 520 }}>
-        {/* 왼쪽 3칸: 광고비 · 전환매출 · ROAS 통합 차트 */}
-        <div className="lg:col-span-3 rounded-2xl flex flex-col overflow-hidden h-full" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
-          <div className="flex items-center justify-between px-5 pt-4 pb-0">
-            <div>
-              <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{chartTitle}</h3>
-              <div className="text-[10px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>{chartSourceLabel}</div>
-            </div>
-            <div className="flex items-center gap-5 text-[11px] font-medium" style={{ color: "var(--text-tertiary)" }}>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-[10px] rounded-[3px]" style={{ background: "#d1d6db" }} />광고비</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-[10px] rounded-[3px]" style={{ background: "#3182f6" }} />전환매출</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ border: "2px solid #00c471" }} />ROAS</span>
-              <span className="flex items-center gap-1.5"><span className="w-3.5 h-[1.5px] inline-block rounded-full" style={{ background: "#f04452", opacity: 0.5 }} />손익분기</span>
-            </div>
-          </div>
-          <div className="flex-1 p-4" style={{ minHeight: 280 }}>
-            {chartDaily.length > 0 ? (() => {
-              const maxRoas = Math.max(...chartDaily.map((d) => d.metrics.roas || 0), 1);
-              const chartData = chartDaily.map((d) => ({
-                label: d.date.slice(5),
-                spend: d.metrics.spend,
-                revenue: d.metrics.revenue,
-                roas: d.metrics.roas ?? 0,
-              }));
-              return (
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="35%">
-                    <defs>
-                      <linearGradient id="barSpendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#d1d6db" stopOpacity={0.9} />
-                        <stop offset="100%" stopColor="#e8ebed" stopOpacity={0.5} />
-                      </linearGradient>
-                      <linearGradient id="barRevenueGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#3182f6" stopOpacity={0.85} />
-                        <stop offset="100%" stopColor="#3182f6" stopOpacity={0.45} />
-                      </linearGradient>
-                      <filter id="barShadow" x="-10%" y="-10%" width="120%" height="130%">
-                        <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#3182f6" floodOpacity="0.15" />
-                      </filter>
-                    </defs>
-                    <CartesianGrid strokeDasharray="0" stroke="var(--border-subtle)" strokeOpacity={0.3} vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--text-quaternary)", fontWeight: 500 }} tickLine={false} axisLine={false} dy={8} />
-                    <YAxis yAxisId="left" tick={{ fontSize: 10, fill: "var(--text-quaternary)" }} tickLine={false} axisLine={false} width={48} tickFormatter={(v: number) => v >= 10000 ? `${Math.round(v / 10000)}만` : v >= 1000 ? `${Math.round(v / 1000)}천` : String(v)} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: "var(--text-quaternary)" }} tickLine={false} axisLine={false} width={42} domain={[0, Math.ceil(maxRoas / 100) * 100 + 100]} tickFormatter={(v: number) => `${v}%`} />
-                    <Tooltip cursor={{ fill: "var(--primary-subtle)", radius: 8 }} content={({ active, payload, label }: { active?: boolean; payload?: readonly ChartTooltipPayload[]; label?: string | number }) => {
-                      if (!active || !payload?.length) return null;
-                      const roasEntry = payload.find((p) => p.dataKey === "roas");
-                      const roasVal = Math.round(Number(roasEntry?.value ?? 0));
-                      const isLow = roasVal < 300;
-                      return (
-                        <div style={{ background: "rgba(255,255,255,0.96)", backdropFilter: "blur(16px)", color: "var(--text-primary)", borderRadius: 16, padding: "14px 18px", fontSize: 12, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.03)" }}>
-                          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 10, fontWeight: 500 }}>{label}일</div>
-                          {payload.map((p) => {
-                            if (p.name === "breakeven") return null;
-                            const dataKey = String(p.dataKey ?? "");
-                            const isRoas = dataKey === "roas";
-                            const nameMap: Record<string, string> = { spend: "광고비", revenue: "전환매출", roas: "ROAS" };
-                            const colorMap: Record<string, string> = { spend: "#b0b8c1", revenue: "#3182f6", roas: isLow ? "#f04452" : "#00c471" };
-                            return (
-                              <div key={dataKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                                <span style={{ width: 7, height: 7, borderRadius: isRoas ? "50%" : 2, background: colorMap[dataKey] || p.color, flexShrink: 0 }} />
-                                <span style={{ color: "var(--text-tertiary)", minWidth: 52, fontWeight: 500 }}>{nameMap[dataKey] || dataKey}</span>
-                                <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isRoas && isLow ? "#f04452" : "var(--text-primary)" }}>{isRoas ? `${p.value ?? 0}%` : `${formatKRW(Number(p.value ?? 0))}원`}</span>
-                              </div>
-                            );
-                          })}
-                          {isLow && <div style={{ fontSize: 10, color: "#f04452", marginTop: 6, fontWeight: 500 }}>손익분기(300%) 미달</div>}
-                        </div>
-                      );
-                    }} />
-                    <Bar yAxisId="left" dataKey="spend" fill="url(#barSpendGrad)" radius={[6, 6, 6, 6]} maxBarSize={18} />
-                    <Bar yAxisId="left" dataKey="revenue" fill="url(#barRevenueGrad)" radius={[6, 6, 6, 6]} maxBarSize={18} filter="url(#barShadow)" />
-                    <Line yAxisId="right" type="monotone" dataKey="roas" stroke="#00c471" strokeWidth={2.5} dot={{ r: 3, fill: "#fff", stroke: "#00c471", strokeWidth: 2 }} activeDot={{ r: 5.5, fill: "#00c471", stroke: "#fff", strokeWidth: 3 }} />
-                    <Line yAxisId="right" type="monotone" dataKey={() => 300} stroke="#f04452" strokeWidth={1} strokeDasharray="6 4" strokeOpacity={0.4} dot={false} name="breakeven" />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              );
-            })() : (
-              <div className="h-full flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-center">
-                <span className="text-sm font-bold" style={{ color: "var(--text-secondary)" }}>
-                  광고비 · 전환매출 데이터가 아직 없습니다
-                </span>
-                <span className="mt-2 max-w-md text-xs leading-5" style={{ color: "var(--text-tertiary)" }}>
-                  현재 수집된 listing daily fact에는 광고비/전환매출/ROAS 값이 0입니다.
-                  쿠팡 광고 성과 수집을 실행하면 이 영역에 일별 추이가 표시됩니다.
-                </span>
-              </div>
-            )}
-          </div>
+        <div className="lg:col-span-3 h-full">
+          <AdCollectionDailyChart
+            initialTrends={trends}
+            period={period}
+            onPeriodChange={onPeriodChange}
+          />
         </div>
 
         {/* 오른쪽 1칸: 할일 + 알림 */}

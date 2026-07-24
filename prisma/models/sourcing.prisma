@@ -311,6 +311,39 @@ model LiveCommerceProductDailySnapshot {
 }
 
 /// @namespace Sourcing
+/// @describe 틱톡 크리에이티브 센터(Creative Center)에서 확장이 스크랩한 인기 트렌드 일별 스냅샷. trendType(hashtag|keyword|product|song)으로 종류를, region(국가코드)으로 시장을 구분하고 (region,trendType,entityKey)가 외부 식별자를 이룬다. viewCount 는 int4 를 초과할 수 있어 BigInt. ⚠️ 라이브 틱톡 원본은 봇/리전 차단이라 무료로는 확장 스크랩 경로로만 적재한다([[reference_market_trend_research_tools]]).
+model TiktokCreativeTrendDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  businessDate   DateTime @map("business_date") @db.Date
+  region         String
+  trendType      String   @map("trend_type")
+  entityKey      String   @map("entity_key")
+
+  rank          Int?
+  label         String?
+  industry      String?
+  sourceKeyword String?  @map("source_keyword")
+  postCount     Int?     @map("post_count")
+  viewCount     BigInt?  @map("view_count")
+  growthPct     Decimal? @map("growth_pct") @db.Decimal(12, 2)
+  thumbnailUrl  String?  @map("thumbnail_url")
+  sourceUrl     String?  @map("source_url")
+
+  source     String   @default("tiktok-cc")
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, businessDate, region, trendType, entityKey])
+  @@index([organizationId, businessDate])
+  @@map("tiktok_creative_trend_daily_snapshots")
+}
+
+/// @namespace Sourcing
 /// @describe Reviewed product preparation의 marketplace create/reconcile side effect 실행 기록. 준비 입력과 provider lifecycle을 분리해 보존한다.
 model ProductRegistrationExecution {
   id                   String  @id @default(uuid()) @db.Uuid

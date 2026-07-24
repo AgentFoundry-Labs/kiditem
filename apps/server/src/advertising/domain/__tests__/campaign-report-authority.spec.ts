@@ -51,20 +51,68 @@ describe('resolveCampaignReportAuthority', () => {
     }).effectiveScope).toBe('single_campaign_authoritative');
   });
 
+  it('accepts mixed ON/OFF products inside one dashboard-ON campaign', () => {
+    expect(resolveCampaignReportAuthority({
+      campaignReportScope: 'single_campaign_authoritative',
+      dashboardOnOff: 'ON',
+      normalizedRows: [
+        detail({ externalId: 'product-on', onOff: 'ON' }),
+        detail({ externalId: 'product-off', onOff: 'OFF' }),
+      ],
+      hasSingleDayRange: true,
+    })).toEqual({
+      requestedScope: 'single_campaign_authoritative',
+      effectiveScope: 'single_campaign_authoritative',
+      reason: 'authoritative_single_campaign',
+      projectionRejectionCode: null,
+    });
+  });
+
+  it('does not infer campaign authority from product-level ON/OFF states', () => {
+    expect(resolveCampaignReportAuthority({
+      campaignReportScope: 'single_campaign_authoritative',
+      dashboardOnOff: null,
+      normalizedRows: [
+        detail({ externalId: 'product-on', onOff: 'ON' }),
+        detail({ externalId: 'product-off', onOff: 'OFF' }),
+      ],
+      hasSingleDayRange: true,
+    })).toMatchObject({
+      effectiveScope: 'raw_only',
+      reason: 'invalid_authoritative_shape',
+      projectionRejectionCode: 'invalid_authoritative_shape',
+    });
+  });
+
   it.each([
     { dashboardOnOff: ' off ', normalizedRows: [detail()] },
     {
       dashboardOnOff: 'ON',
       normalizedRows: [detail({ _campaignOnly: true, onOff: ' off ' })],
     },
-  ])('downgrades OFF metadata without rejection', (evidence) => {
+  ])('keeps an exact-day historical detail authoritative when the campaign is now OFF', (evidence) => {
     expect(resolveCampaignReportAuthority({
       campaignReportScope: 'single_campaign_authoritative',
       ...evidence,
       hasSingleDayRange: true,
     })).toMatchObject({
+      effectiveScope: 'single_campaign_authoritative',
+      reason: 'authoritative_single_campaign',
+      projectionRejectionCode: null,
+    });
+  });
+
+  it('keeps an explicitly metadata-only OFF campaign out of daily facts', () => {
+    expect(resolveCampaignReportAuthority({
+      campaignReportScope: 'single_campaign_metadata_raw',
+      dashboardOnOff: 'OFF',
+      normalizedRows: [
+        detail({ _campaignOnly: true, onOff: 'OFF' }),
+      ],
+      hasSingleDayRange: false,
+    })).toMatchObject({
       effectiveScope: 'raw_only',
-      reason: 'off_campaign_metadata',
+      reason: 'non_authoritative_scope',
       projectionRejectionCode: null,
     });
   });
@@ -91,7 +139,6 @@ describe('resolveCampaignReportAuthority', () => {
   it.each([
     { normalizedRows: [detail(), detail({ campaignIdentity: 'campaign:2' })] },
     { normalizedRows: [detail({ _campaignOnly: true }), detail({ _campaignOnly: true })] },
-    { normalizedRows: [detail({ onOff: 'OFF' })] },
     { normalizedRows: [] },
   ])('rejects malformed claimed-authoritative shapes', ({ normalizedRows }) => {
     expect(resolveCampaignReportAuthority({

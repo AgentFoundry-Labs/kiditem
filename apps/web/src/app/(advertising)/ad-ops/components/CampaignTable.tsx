@@ -36,11 +36,14 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
   });
   const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
 
-  const sorted = [...campaigns].sort((a, b) =>
-    sortBy === 'revenue'
+  const sorted = [...campaigns].sort((a, b) => {
+    const aHasMetrics = a.metricsAvailable !== false;
+    const bHasMetrics = b.metricsAvailable !== false;
+    if (aHasMetrics !== bHasMetrics) return aHasMetrics ? -1 : 1;
+    return sortBy === 'revenue'
       ? b.metrics.revenue - a.metrics.revenue
-      : (b.metrics.roas ?? 0) - (a.metrics.roas ?? 0),
-  );
+      : (b.metrics.roas ?? 0) - (a.metrics.roas ?? 0);
+  });
 
   return (
     <div className="table-card">
@@ -87,6 +90,8 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
             {sorted.map((c) => {
               const rowKey = `${c.channelAccountId}:${c.campaignIdentity}`;
               const displayName = c.campaignName ?? c.listing?.channelName ?? c.listing?.masterProduct.name ?? '알 수 없는 캠페인';
+              const hasMetrics = c.metricsAvailable !== false;
+              const campaignState = (c.onOff ?? c.status)?.trim().toUpperCase() || null;
               const selection = {
                 channelAccountId: c.channelAccountId,
                 campaignIdentity: c.campaignIdentity,
@@ -95,32 +100,67 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
               return (
                 <tr
                   key={rowKey}
-                  onClick={() => onSelectCampaign(isSelected(selectedCampaign, c) ? null : selection)}
-                  className={cn('cursor-pointer transition-colors', isSelected(selectedCampaign, c) ? 'bg-purple-50' : 'hover:bg-slate-50')}
+                  onClick={hasMetrics
+                    ? () => onSelectCampaign(isSelected(selectedCampaign, c) ? null : selection)
+                    : undefined}
+                  aria-disabled={!hasMetrics}
+                  title={hasMetrics ? '상품별 광고 성과 보기' : '캠페인 상태만 수집되어 상품별 성과를 열 수 없습니다.'}
+                  className={cn(
+                    'transition-colors',
+                    hasMetrics ? 'cursor-pointer' : 'cursor-default',
+                    isSelected(selectedCampaign, c)
+                      ? 'bg-purple-50'
+                      : hasMetrics
+                        ? 'hover:bg-slate-50'
+                        : 'bg-slate-50/50',
+                  )}
                 >
-                  <td className="font-medium text-slate-900 max-w-[240px] truncate">
-                    {displayName}
-                    {c.listing == null && (
-                      <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500">
-                        캠페인 단위
-                      </span>
-                    )}
+                  <td className="max-w-[280px] font-medium text-slate-900">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="max-w-[240px] truncate">{displayName}</span>
+                      {campaignState && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[10px] font-bold"
+                          style={campaignState === 'ON'
+                            ? { background: 'var(--primary-soft)', color: 'var(--success)' }
+                            : { background: 'var(--surface-sunken)', color: 'var(--text-tertiary)' }}
+                        >
+                          {campaignState}
+                        </span>
+                      )}
+                      {!hasMetrics && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                          style={{ background: 'var(--surface-sunken)', color: 'var(--text-tertiary)' }}
+                        >
+                          성과 미수집
+                        </span>
+                      )}
+                      {c.listing == null && hasMetrics && (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                          캠페인 단위
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td className="text-right">{formatKRW(c.metrics.spend)}</td>
-                  <td className="text-right">{formatKRW(c.metrics.revenue)}</td>
-                  <td className={cn('text-right font-semibold', roasColor(c.metrics.roas ?? 0, roasT))}>
-                    {c.metrics.roas ?? 0}%
+                  <td className="text-right">{hasMetrics ? formatKRW(c.metrics.spend) : '-'}</td>
+                  <td className="text-right">{hasMetrics ? formatKRW(c.metrics.revenue) : '-'}</td>
+                  <td className={cn(
+                    'text-right font-semibold',
+                    hasMetrics && roasColor(c.metrics.roas ?? 0, roasT),
+                  )}>
+                    {hasMetrics ? `${c.metrics.roas ?? 0}%` : '-'}
                   </td>
-                  <td className="text-right">{formatNumber(c.metrics.impressions)}</td>
-                  <td className="text-right">{formatNumber(c.metrics.clicks)}</td>
-                  <td className="text-right">{(c.metrics.ctr ?? 0).toFixed(2)}%</td>
+                  <td className="text-right">{hasMetrics ? formatNumber(c.metrics.impressions) : '-'}</td>
+                  <td className="text-right">{hasMetrics ? formatNumber(c.metrics.clicks) : '-'}</td>
+                  <td className="text-right">{hasMetrics ? `${(c.metrics.ctr ?? 0).toFixed(2)}%` : '-'}</td>
                   {/* Coupang's campaign list grid has no conversion-count
                       column, so a 0 here is "not collected", not "zero sales".
                       Show unknown instead of fabricating a number. */}
-                  <td className="text-right" style={c.conversionsAvailable ? undefined : { color: 'var(--text-tertiary)' }}>
-                    {c.conversionsAvailable ? formatNumber(c.metrics.conversions) : '-'}
+                  <td className="text-right" style={hasMetrics && c.conversionsAvailable ? undefined : { color: 'var(--text-tertiary)' }}>
+                    {hasMetrics && c.conversionsAvailable ? formatNumber(c.metrics.conversions) : '-'}
                   </td>
-                  <td className="text-right">{(c.metrics.cvr ?? 0).toFixed(2)}%</td>
+                  <td className="text-right">{hasMetrics ? `${(c.metrics.cvr ?? 0).toFixed(2)}%` : '-'}</td>
                 </tr>
               );
             })}

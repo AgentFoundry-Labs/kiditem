@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import {
+  COUPANG_CATALOG_COLLECTOR_VERSION,
+  type CoupangCatalogCollectionRun,
+} from '@kiditem/shared/coupang-catalog-snapshot';
 import { toast } from 'sonner';
 import {
   detectRankExtensionGate,
   rankExtensionGateMessage,
   runWingSalesRankCheck,
 } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
+import { useAuthSession } from '@/components/providers/AuthProvider';
 import { useAuth } from '@/hooks/useAuth';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
 import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
+import { startCoupangCatalogBrowser } from '@/lib/coupang-catalog-extension';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
@@ -26,6 +32,18 @@ import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-colle
 
 interface UseReadinessCollectionOptions {
   refetchReadiness: () => Promise<unknown>;
+}
+
+interface ChannelAccountOption {
+  id: string;
+  channel: string;
+  isPrimary?: boolean | null;
+}
+
+interface BackgroundReadinessRun {
+  runId: string;
+  checkKey: 'coupang_products' | 'wing_kpi';
+  producer: 'channels.coupang_catalog' | 'advertising.wing_rank';
 }
 
 function makeRunId(): string {
@@ -81,14 +99,18 @@ export function useReadinessCollection({
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [activeSession, setActiveSession] =
     useState<BrowserCollectionSessionView | null>(null);
-  const [wingRunId, setWingRunId] = useState<string | null>(null);
-  const settledWingRunIdRef = useRef<string | null>(null);
+  const [backgroundRun, setBackgroundRun] =
+    useState<BackgroundReadinessRun | null>(null);
+  const settledBackgroundRunIdRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const wingSessionQuery = useBrowserCollectionSession(wingRunId);
-  const wingSession =
-    wingSessionQuery.data?.producer === 'advertising.wing_rank'
-      ? wingSessionQuery.data
+  const { session: authSession } = useAuthSession();
+  const backgroundSessionQuery = useBrowserCollectionSession(
+    backgroundRun?.runId ?? null,
+  );
+  const backgroundSession =
+    backgroundRun && backgroundSessionQuery.data?.producer === backgroundRun.producer
+      ? backgroundSessionQuery.data
       : null;
 
   const invalidateCollectedData = async () => {
@@ -115,24 +137,28 @@ export function useReadinessCollection({
   };
 
   useEffect(() => {
-    if (!wingSession) return;
-    setActiveSession(wingSession);
+    if (!backgroundRun || !backgroundSession) return;
+    setActiveSession(backgroundSession);
     if (
-      wingSession.status === 'running' ||
-      wingSession.status === 'attention_required'
+      backgroundSession.status === 'running' ||
+      backgroundSession.status === 'attention_required'
     ) {
       return;
     }
-    if (settledWingRunIdRef.current === wingSession.runId) return;
-    settledWingRunIdRef.current = wingSession.runId;
-    announceSession(wingSession);
-    setPendingKey((current) => (current === 'wing_kpi' ? null : current));
+    if (settledBackgroundRunIdRef.current === backgroundSession.runId) return;
+    settledBackgroundRunIdRef.current = backgroundSession.runId;
+    announceSession(backgroundSession);
+    setPendingKey((current) =>
+      current === backgroundRun.checkKey ? null : current,
+    );
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
       queryClient.invalidateQueries({ queryKey: ['traffic'] }),
     ]).then(() => refetchReadiness());
-  }, [queryClient, refetchReadiness, wingSession]);
+  }, [backgroundRun, backgroundSession, queryClient, refetchReadiness]);
 
   const runExtensionCollection = async (
     check: ReadinessCheck,
@@ -189,6 +215,54 @@ export function useReadinessCollection({
       return;
     }
 
+    if (check.key === 'coupang_products') {
+      setPendingKey(check.key);
+      setActiveSession(null);
+      settledBackgroundRunIdRef.current = null;
+      try {
+        if (!authSession?.access_token) {
+          throw new Error('로그인 세션을 확인할 수 없습니다.');
+        }
+        const accounts = await apiClient.get<ChannelAccountOption[]>(
+          '/api/channels/accounts',
+        );
+        const coupangAccounts = accounts.filter(
+          (account) => account.channel === 'coupang',
+        );
+        const account =
+          coupangAccounts.find((candidate) => candidate.isPrimary === true) ??
+          coupangAccounts[0];
+        if (!account) {
+          throw new Error('활성 쿠팡 채널 계정을 찾을 수 없습니다.');
+        }
+        const run = await apiClient.post<CoupangCatalogCollectionRun>(
+          `/api/channels/accounts/${encodeURIComponent(account.id)}` +
+            '/catalog-imports/coupang-wing/runs',
+          {
+            clientRunKey: makeRunId(),
+            collectorVersion: COUPANG_CATALOG_COLLECTOR_VERSION,
+          },
+        );
+        await startCoupangCatalogBrowser({
+          channelAccountId: account.id,
+          runId: run.id,
+          accessToken: authSession.access_token,
+        });
+        setBackgroundRun({
+          runId: run.id,
+          checkKey: 'coupang_products',
+          producer: 'channels.coupang_catalog',
+        });
+        toast.info('쿠팡 전체 상품 수집을 백그라운드에서 시작했습니다.');
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : '쿠팡 상품 수집 시작 실패',
+        );
+        setPendingKey(null);
+      }
+      return;
+    }
+
     if (check.key === 'wing_kpi') {
       const producer = readinessCollectionProducer(check.key);
       if (producer !== 'advertising.wing_rank') {
@@ -198,7 +272,7 @@ export function useReadinessCollection({
 
       setPendingKey(check.key);
       setActiveSession(null);
-      settledWingRunIdRef.current = null;
+      settledBackgroundRunIdRef.current = null;
       try {
         const gate = await detectRankExtensionGate();
         if (gate.status !== 'ready') {
@@ -225,7 +299,11 @@ export function useReadinessCollection({
           setPendingKey(null);
           return;
         }
-        setWingRunId(result.runId ?? runId);
+        setBackgroundRun({
+          runId: result.runId ?? runId,
+          checkKey: 'wing_kpi',
+          producer: 'advertising.wing_rank',
+        });
         toast.info(
           `자사 상품 ${result.productTotal ?? 0}개의 Wing 판매순위 수집을 시작했습니다.`,
         );

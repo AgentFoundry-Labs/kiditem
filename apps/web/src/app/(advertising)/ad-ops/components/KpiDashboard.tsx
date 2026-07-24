@@ -166,6 +166,10 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
         </div>
         <div className="mt-3 pt-3 space-y-1.5" style={{ borderTop: "1px solid rgba(147,51,234,0.15)" }}>
           <div className="flex justify-between text-[13px]">
+            <span style={{ color: "var(--text-secondary)" }}>일평균 전환매출</span>
+            <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(Math.round(adRevenue / periodDays))}원</span>
+          </div>
+          <div className="flex justify-between text-[13px]">
             <span style={{ color: "var(--text-secondary)" }}>노출수</span>
             <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatNumber(impressions)}</span>
           </div>

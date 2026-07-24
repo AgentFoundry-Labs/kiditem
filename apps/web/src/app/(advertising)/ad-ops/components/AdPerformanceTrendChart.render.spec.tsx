@@ -1,7 +1,7 @@
 /**
  * 성과 그래프의 쿠팡 광고센터 형식 계약을 고정한다.
  * - 좌/우축 지표 드롭다운 2개 + `닫기` 토글 + 다운로드 버튼
- * - listing 일별에 신호가 없으면 계정 일별로 폴백
+ * - 계정 일별을 우선하고, 계정 데이터가 없을 때만 상품 귀속 일별을 보조 사용
  *
  * recharts 는 jsdom 에서 크기를 못 재 SVG 를 그리지 않으므로, 차트 본체
  * 대신 헤더 컨트롤과 시리즈 선택/폴백 판정을 검증한다.
@@ -101,6 +101,37 @@ describe('AdPerformanceTrendChart', () => {
     );
 
     expect(screen.getByText('쿠팡 광고센터 계정 일별')).toBeTruthy();
+  });
+
+  it('uses the complete account collection even when listing daily has a positive row', () => {
+    render(
+      <AdPerformanceTrendChart
+        period="14d"
+        trends={buildTrends({
+          daily: [{ date: '2026-07-17', metrics: metrics(10, 20) }],
+          accountDaily: [
+            { date: '2026-07-16', metrics: metrics(100, 500), orders: 1 },
+            { date: '2026-07-17', metrics: metrics(200, 900), orders: 2 },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('쿠팡 광고센터 계정 일별')).toBeTruthy();
+  });
+
+  it('keeps listing-only facts as a performance fallback without affecting collection status', () => {
+    render(
+      <AdPerformanceTrendChart
+        period="7d"
+        trends={buildTrends({
+          daily: [{ date: '2026-07-17', metrics: metrics(64_512, 368_890) }],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('listing daily fact')).toBeTruthy();
+    expect(screen.queryByText('표시할 광고 성과 데이터가 없습니다.')).toBeNull();
   });
 
   it('shows an empty state and disables download when there is nothing to plot', () => {

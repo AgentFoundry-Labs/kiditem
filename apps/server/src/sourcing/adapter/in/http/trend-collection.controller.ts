@@ -110,6 +110,20 @@ export class TrendCollectionController {
   ) {
     return this.queryService.getShorts(organizationId, query.days ?? DEFAULT_TREND_HISTORY_DAYS);
   }
+
+  @Get('tiktok-cc')
+  getTiktokCc(
+    @Query() query: TrendHistoryQueryDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.queryService.getTiktokCc(organizationId, query.days ?? DEFAULT_TREND_HISTORY_DAYS);
+  }
+
+  @Get('tiktok-cc-targets')
+  async getTiktokCcTargets(@CurrentOrganization() organizationId: string) {
+    const targets = await this.collectService.listTiktokCcTargets(organizationId);
+    return { targets };
+  }
 }
 
 function toSeedResponse(seed: {

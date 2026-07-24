@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
+import { apiClient } from '@/lib/api-client';
+import { startCoupangCatalogBrowser } from '@/lib/coupang-catalog-extension';
 import { sendToExtension } from '@/lib/extension-bridge';
 import { runWingSalesRankCheck } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
 import {
@@ -24,7 +26,7 @@ import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-colle
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const COMPATIBLE_PING = {
   success: true,
-  version: '1.2.42',
+  version: '1.2.83',
   capabilities: { browserCollectionSessions: true },
 };
 
@@ -34,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   ingestSellpiaSales: vi.fn(),
   detectRankExtensionGate: vi.fn(),
   runWingSalesRankCheck: vi.fn(),
+  startCoupangCatalogBrowser: vi.fn(),
   wingSession: null as BrowserCollectionSessionView | null,
 }));
 
@@ -44,6 +47,13 @@ vi.mock('@/lib/extension-bridge', () => ({
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ status: 'ready', user: { organizationId: 'org-1' } }),
+}));
+
+vi.mock('@/components/providers/AuthProvider', () => ({
+  useAuthSession: () => ({
+    session: { access_token: 'kiditem-access-token' },
+    isLoading: false,
+  }),
 }));
 
 vi.mock('@/hooks/useBrowserCollectionSession', () => ({
@@ -68,7 +78,11 @@ vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
 }));
 
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { post: vi.fn() },
+  apiClient: { get: vi.fn(), post: vi.fn() },
+}));
+
+vi.mock('@/lib/coupang-catalog-extension', () => ({
+  startCoupangCatalogBrowser: mocks.startCoupangCatalogBrowser,
 }));
 
 vi.mock('@/lib/sellpia-sales-collection', () => ({
@@ -177,6 +191,15 @@ describe('readiness extension collection', () => {
       runId: RUN_ID,
       productTotal: 244,
     });
+    vi.mocked(apiClient.get).mockResolvedValue([
+      {
+        id: '00000000-0000-4000-8000-000000000001',
+        channel: 'coupang',
+        isPrimary: true,
+      },
+    ]);
+    vi.mocked(apiClient.post).mockResolvedValue({ id: RUN_ID });
+    mocks.startCoupangCatalogBrowser.mockResolvedValue('coupang-extension');
     mocks.wingSession = null;
     vi.mocked(syncBrowserCollectionAlert).mockResolvedValue(undefined);
     vi.mocked(recordMissingBrowserCollection).mockResolvedValue({ runId: RUN_ID });
@@ -280,11 +303,11 @@ describe('readiness extension collection', () => {
     expect(result.current.pendingKey).toBeNull();
   });
 
-  it('rejects the prior collection-session worker before starting a scrape', async () => {
+  it('rejects an extension from before the stale attention cancellation fix', async () => {
     vi.mocked(sendToExtension).mockResolvedValueOnce({
       success: false,
       error: 'old worker reached scrapeTargets',
-      version: '1.2.38',
+      version: '1.2.71',
       capabilities: { browserCollectionSessions: true },
     });
 
@@ -295,8 +318,8 @@ describe('readiness extension collection', () => {
         extensionId: 'coupang-extension',
         runId: RUN_ID,
       }),
-    ).rejects.toThrow(/1\.2\.42|새로고침/);
-    expect(COUPANG_COLLECTION_EXTENSION_MIN_VERSION).toBe('1.2.42');
+    ).rejects.toThrow(/1\.2\.72|새로고침/);
+    expect(COUPANG_COLLECTION_EXTENSION_MIN_VERSION).toBe('1.2.83');
     expect(sendToExtension).toHaveBeenCalledTimes(1);
   });
 
@@ -363,7 +386,7 @@ describe('readiness extension collection', () => {
     const onStarted = vi.fn();
     vi.mocked(sendToExtension).mockResolvedValueOnce({
       success: false,
-      version: '1.2.38',
+      version: '1.2.71',
       capabilities: { browserCollectionSessions: true },
     });
 
@@ -375,7 +398,7 @@ describe('readiness extension collection', () => {
         runId: RUN_ID,
         onStarted,
       }),
-    ).rejects.toThrow(/1\.2\.42|새로고침/);
+    ).rejects.toThrow(/1\.2\.72|새로고침/);
 
     expect(onStarted).not.toHaveBeenCalled();
     expect(sendToExtension).toHaveBeenCalledTimes(1);
@@ -403,7 +426,7 @@ describe('readiness extension collection', () => {
     warn.mockRestore();
   });
 
-  it('passes the exact dashboard producer for every readiness key', async () => {
+  it('routes each readiness key to its owned collection flow', async () => {
     const producerByRun = new Map<string, BrowserCollectionSessionView['producer']>();
     vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) => {
       const command = message as {
@@ -448,14 +471,48 @@ describe('readiness extension collection', () => {
         ([, message]) =>
           (message as { producer?: string }).producer,
     );
-    expect(producers).toEqual([
-      'dashboard.coupang_ads',
-      'dashboard.coupang_products',
-    ]);
+    expect(producers).toEqual(['dashboard.coupang_ads']);
+    expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      runId: RUN_ID,
+      accessToken: 'kiditem-access-token',
+    });
+    expect(READINESS_COLLECTION_PRODUCERS.coupang_products).toBe(
+      'channels.coupang_catalog',
+    );
     expect(runWingSalesRankCheck).toHaveBeenCalledWith(
       'coupang-extension',
       expect.stringMatching(/^[0-9a-f-]{36}$/i),
     );
+  });
+
+  it('keeps product collection pending until the full catalog session settles', async () => {
+    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness }),
+      { wrapper: wrapper() },
+    );
+
+    await act(async () => {
+      await view.result.current.handleCollect(check('coupang_products'));
+    });
+
+    expect(apiClient.get).toHaveBeenCalledWith('/api/channels/accounts');
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/channels/accounts/00000000-0000-4000-8000-000000000001/catalog-imports/coupang-wing/runs',
+      expect.objectContaining({
+        clientRunKey: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+        collectorVersion: expect.any(String),
+      }),
+    );
+    expect(view.result.current.pendingKey).toBe('coupang_products');
+
+    mocks.wingSession = session('channels.coupang_catalog');
+    view.rerender();
+
+    await waitFor(() => expect(view.result.current.pendingKey).toBeNull());
+    expect(refetchReadiness).toHaveBeenCalledTimes(1);
+    expect(toast.success).toHaveBeenCalledWith('1/1개 수집 완료');
   });
 
   it('records personal attention when detection fails and never opens a tab', async () => {

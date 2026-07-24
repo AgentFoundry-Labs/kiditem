@@ -15,6 +15,11 @@ import type { PanelAlertItem } from '@kiditem/shared/panel';
 import { usePanelStore } from '@/components/panel/lib/panel-store';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import {
+  browserCollectionRunIdFromOperationKey,
+  sendBrowserCollectionControl,
+  syncBrowserCollectionAlert,
+} from '@/lib/browser-collection-session';
 import { cancelOperation } from '@/lib/operation-cancellation';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
@@ -90,6 +95,8 @@ function DashboardAlertRow({
   const href = alert.href ?? (alert.type === 'strategy_change' ? '/ad-ops' : alert.type === 'stock_low' ? '/stock-ops?tab=sellpia-zero' : alert.type === 'minus_product' ? '/product-hub?tab=cleanup' : alert.type === 'ad_high' ? '/ad-ops' : undefined);
   const statusLabel = alert.kind === 'operation' ? alertStatusLabel(alert.status) : null;
   const operationKey = operationKeyOf(alert);
+  const browserCollectionRunId =
+    browserCollectionRunIdFromOperationKey(operationKey);
   const canCancel = isActiveOperation(alert) && operationKey != null;
   const content = (
     <>
@@ -124,6 +131,21 @@ function DashboardAlertRow({
     if (!operationKey || isCancelling) return;
     setIsCancelling(true);
     try {
+      if (browserCollectionRunId) {
+        const session = await sendBrowserCollectionControl(
+          browserCollectionRunId,
+          'cancelCollectionSession',
+        );
+        if (!session || session.status !== 'cancelled') {
+          throw new Error('브라우저 수집 중단 상태를 확인하지 못했습니다.');
+        }
+        await syncBrowserCollectionAlert(session).catch((error) => {
+          console.warn('[dashboard] browser collection alert sync failed', error);
+        });
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+        return;
+      }
+
       await cancelOperation({
         targetType: 'operation_key',
         operationKey,
@@ -156,7 +178,7 @@ function DashboardAlertRow({
             aria-label="작업 중단"
             title="작업 중단"
             className={cn(
-              'mt-0.5 shrink-0 rounded border border-slate-200 p-1 text-slate-400 transition',
+              'relative z-[60] mt-0.5 mr-12 shrink-0 rounded border border-slate-200 p-1 text-slate-400 transition',
               'opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-slate-50 hover:text-red-600',
               isCancelling && 'cursor-wait opacity-100',
             )}

@@ -107,6 +107,18 @@ describe('channel product matching query keys', () => {
   });
 });
 
+describe('advertising query keys', () => {
+  it('keeps campaign freshness separate from period campaign responses', () => {
+    expect(queryKeys.ads.campaignSyncStatus()).toEqual([
+      'ads',
+      'campaign-sync-status',
+    ]);
+    expect(queryKeys.ads.campaignSyncStatus()).not.toEqual(
+      queryKeys.ads.campaigns('sync-status'),
+    );
+  });
+});
+
 describe('product operations query keys', () => {
   it('keeps product operations lists, details, and mutations in one family', () => {
     expect(queryKeys.products.operations.all).toEqual(['products', 'operations']);
