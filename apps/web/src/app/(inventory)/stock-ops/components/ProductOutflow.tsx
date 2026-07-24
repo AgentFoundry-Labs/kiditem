@@ -5,7 +5,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowDownRight, ArrowUpRight, Loader2, Minus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import type {
-  SellpiaProductAbcGrade,
   SellpiaProductSalesRow,
   SellpiaProductSalesSummary,
   SellpiaProductTrend,
@@ -36,7 +35,7 @@ const STOCK_FRESHNESS_META: Record<string, { label: string; className: string }>
 
 // 정렬 키: 고정 지표('avg2m'|'currentStock'|'availableStock') 또는 특정 연월("YYYY-MM").
 type SortKey = 'avg2m' | 'currentStock' | 'availableStock' | string;
-type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C';
+type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C' | 'unclassified';
 
 function todayKst(): string {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -60,8 +59,8 @@ export default function ProductOutflow() {
     refetchInterval: 60_000,
   });
 
-  const invalidate = useCallback(() => {
-    void Promise.all([
+  const invalidate = useCallback(async () => {
+    await Promise.all([
       queryClient.invalidateQueries({
         queryKey: queryKeys.inventory.productSalesAll(),
       }),
@@ -70,6 +69,12 @@ export default function ProductOutflow() {
       }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.dashboard.all,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.ads.all,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.actionTasks.all,
       }),
     ]);
   }, [queryClient]);
@@ -89,9 +94,9 @@ export default function ProductOutflow() {
     try {
       const payload = await collectSellpiaProductProfitFromExtension();
       const result = await ingestSellpiaProductSales(payload);
+      await invalidate();
       const stockOk = await syncStock();
       safeStorageSet('local', AUTO_SYNC_KEY, todayKst());
-      invalidate();
       toast.success(
         `상품별 소진 수집 완료 (${result.productCount}개 상품, ${result.months.length}개월)` +
           (stockOk ? ' · 현재고 갱신 요청' : ' · 현재고 갱신 요청 실패'),
@@ -108,7 +113,7 @@ export default function ProductOutflow() {
     setStockSyncing(true);
     try {
       const ok = await syncStock();
-      invalidate();
+      await invalidate();
       if (ok) toast.success('셀피아 재고 동기화를 시작했습니다.');
       else toast.error('셀피아 재고 동기화 요청에 실패했습니다.');
     } finally {
@@ -128,9 +133,9 @@ export default function ProductOutflow() {
       try {
         const payload = await collectSellpiaProductProfitFromExtension();
         const result = await ingestSellpiaProductSales(payload);
+        await invalidate();
         await syncStock();
         safeStorageSet('local', AUTO_SYNC_KEY, todayKst());
-        invalidate();
         toast.success(`상품별 소진 수집 완료 (${result.productCount}개 상품)`);
       } catch { /* 확장 미설치/미로그인 — 조용히 스킵(수동 버튼으로 유도) */ }
     })();
@@ -217,12 +222,6 @@ export default function ProductOutflow() {
   );
 }
 
-const ABC_STYLE: Record<SellpiaProductAbcGrade, string> = {
-  A: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  B: 'bg-sky-50 text-sky-700 ring-sky-200',
-  C: 'bg-slate-100 text-slate-500 ring-slate-200',
-};
-
 const SEASON_STYLE: Record<string, string> = {
   여름: 'bg-amber-50 text-amber-700',
   겨울: 'bg-blue-50 text-blue-700',
@@ -274,9 +273,10 @@ function ProductOutflowTable({
     chips.push({ key: 'mapping', label: '매칭 필요', count: summary.inventoryResolutionCounts.mappingRequiredSalesRows, tone: 'orange' });
     chips.push({ key: 'dead', label: '악성재고', count: summary.deadStockCount, tone: 'rose' });
     chips.push({ key: 'anomaly', label: '이상치', count: summary.anomalyCount, tone: 'orange' });
-    chips.push({ key: 'A', label: 'A등급', count: summary.abcCounts.a, tone: 'emerald' });
-    chips.push({ key: 'B', label: 'B등급', count: summary.abcCounts.b, tone: 'sky' });
-    chips.push({ key: 'C', label: 'C등급', count: summary.abcCounts.c, tone: 'slate' });
+    chips.push({ key: 'A', label: 'A등급', count: summary.abcCounts.A, tone: 'emerald' });
+    chips.push({ key: 'B', label: 'B등급', count: summary.abcCounts.B, tone: 'sky' });
+    chips.push({ key: 'C', label: 'C등급', count: summary.abcCounts.C, tone: 'slate' });
+    chips.push({ key: 'unclassified', label: '미분류', count: summary.unclassifiedProductCount, tone: 'slate' });
     return chips;
   }, [summary, hasStock]);
 
@@ -295,7 +295,13 @@ function ProductOutflowTable({
     else if (filter === 'mapping') list = list.filter((p) => p.inventoryResolution.status === 'mapping_required');
     else if (filter === 'dead') list = list.filter((p) => p.deadStock);
     else if (filter === 'anomaly') list = list.filter((p) => p.anomaly);
-    else if (filter === 'A' || filter === 'B' || filter === 'C') list = list.filter((p) => p.abcGrade === filter);
+    else if (filter === 'A' || filter === 'B' || filter === 'C') {
+      list = list.filter((p) => p.inventoryResolution.status === 'matched'
+        && p.inventoryResolution.destinations.some((destination) => destination.abcGrade === filter));
+    } else if (filter === 'unclassified') {
+      list = list.filter((p) => p.inventoryResolution.status === 'matched'
+        && p.inventoryResolution.destinations.some((destination) => destination.abcGrade === null));
+    }
 
     const vms: RowVM[] = list.map((row) => {
       const monthMap = new Map<string, number>();
@@ -440,9 +446,6 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
     <tr className={cn('border-t border-slate-50 group', rowBg)}>
       <td className={cn('sticky left-0 z-10 px-3 py-2 border-b border-slate-50 max-w-[300px]', rowBg, 'group-hover:bg-slate-50')}>
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className={cn('inline-flex items-center justify-center w-4 h-4 rounded text-[10px] font-bold ring-1', ABC_STYLE[p.abcGrade])}>
-            {p.abcGrade}
-          </span>
           <span className="text-slate-800 truncate" title={p.productName}>{p.productName}</span>
         </div>
         <div className="flex items-center gap-1.5 mt-0.5">

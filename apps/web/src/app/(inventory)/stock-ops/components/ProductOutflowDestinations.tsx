@@ -4,10 +4,18 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Package } from 'lucide-react';
 import type { SellpiaProductDestination } from '@kiditem/shared/dashboard';
+import { cn } from '@/lib/utils';
 
 export type ProductOutflowDestinationsProps = {
   destinations: SellpiaProductDestination[];
 };
+
+const ABC_STYLE = {
+  A: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  B: 'bg-sky-50 text-sky-700 ring-sky-200',
+  C: 'bg-slate-100 text-slate-600 ring-slate-200',
+  unclassified: 'bg-amber-50 text-amber-700 ring-amber-200',
+} as const;
 
 export function ProductOutflowDestinations({
   destinations,
@@ -28,7 +36,8 @@ export function ProductOutflowDestinations({
     >
       {destinations.slice(0, 2).map((destination) => {
         const alt = `${destination.masterProductName} · ${destination.productVariantName}`;
-        const showImage = destination.displayImage
+        const displayImage = destination.displayImage;
+        const showImage = displayImage
           && !failedImageVariantIds.has(destination.productVariantId);
         return (
           <Link
@@ -39,7 +48,7 @@ export function ProductOutflowDestinations({
           >
             {showImage ? (
               <img
-                src={destination.displayImage.url}
+                src={displayImage.url}
                 alt={alt}
                 className="h-9 w-9 shrink-0 rounded object-cover bg-slate-100"
                 onError={() => setFailedImageVariantIds((current) => {
@@ -57,7 +66,17 @@ export function ProductOutflowDestinations({
                 <span className="sr-only">이미지 없음</span>
               </span>
             )}
-            <span className="truncate">{alt}</span>
+            <span className="min-w-0">
+              <span className="block truncate">{alt}</span>
+              <span
+                className={cn(
+                  'mt-0.5 inline-flex rounded px-1 py-px text-[10px] font-bold leading-none ring-1',
+                  ABC_STYLE[destination.abcGrade ?? 'unclassified'],
+                )}
+              >
+                {destination.abcGrade ? `${destination.abcGrade}등급` : '미분류'}
+              </span>
+            </span>
           </Link>
         );
       })}

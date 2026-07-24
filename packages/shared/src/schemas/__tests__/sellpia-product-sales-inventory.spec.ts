@@ -17,6 +17,7 @@ const destination = {
   productVariantCode: 'PV-1',
   productVariantName: '기본 옵션',
   unitsPerVariant: 1,
+  abcGrade: 'A',
   displayImage: {
     url: 'https://image.coupangcdn.com/catalog.jpg',
     source: 'coupang_catalog',
@@ -40,7 +41,6 @@ function salesRow() {
     qty2m: 20,
     avg2m: 10,
     totalQty: 20,
-    abcGrade: 'A',
     trend: 'flat',
     deadStock: false,
     deadStockReason: null,
@@ -137,7 +137,9 @@ describe('Sellpia product-sales inventory contracts', () => {
       reorderCount: 0,
       deadStockCount: 0,
       anomalyCount: 0,
-      abcCounts: { a: 1, b: 0, c: 0 },
+      abcCounts: { A: 1, B: 0, C: 0 },
+      classifiedProductCount: 1,
+      unclassifiedProductCount: 0,
       leadTimeMonths: 1,
     };
 

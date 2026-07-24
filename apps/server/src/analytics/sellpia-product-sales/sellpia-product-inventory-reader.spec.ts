@@ -10,16 +10,17 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
       channelListingId: 'listing-origin',
       externalOptionId: 'option-origin',
     }]]));
+    const destinationFindMany = vi.fn(async () => [{
+      sellpiaInventorySkuId: skuId,
+      quantity: 1,
+      productVariant: variant(),
+    }]);
     const reader = new SellpiaProductInventoryReader({
       sellpiaInventorySku: {
         findMany: vi.fn(async () => [{ id: skuId, code: 'SKU-1', barcode: null, isActive: true }]),
       },
       productVariantComponent: {
-        findMany: vi.fn(async () => [{
-          sellpiaInventorySkuId: skuId,
-          quantity: 1,
-          productVariant: variant(),
-        }]),
+        findMany: destinationFindMany,
       },
     } as never, {
       findBySkuIds: vi.fn(async () => ({
@@ -46,8 +47,25 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     });
     expect(result.projection.byProductKey.get('SKU-1')?.inventoryResolution).toMatchObject({
       status: 'matched',
-      destinations: [{ displayImage: { url: 'https://cdn.example/exact.jpg' } }],
+      destinations: [{
+        abcGrade: 'B',
+        displayImage: { url: 'https://cdn.example/exact.jpg' },
+      }],
     });
+    expect(destinationFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        organizationId: 'org-1',
+        productVariant: {
+          is: expect.objectContaining({
+            organizationId: 'org-1',
+            isActive: true,
+            masterProduct: {
+              is: expect.objectContaining({ organizationId: 'org-1', isActive: true }),
+            },
+          }),
+        },
+      }),
+    }));
   });
 
   it('logs media failure and preserves the inventory projection with null images', async () => {
@@ -77,7 +95,10 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
 function variant() {
   return {
     id: 'variant-1', code: 'VAR-1', name: 'Variant',
-    masterProduct: { id: 'master-1', code: 'MASTER-1', name: 'Master', originChannelListingId: 'listing-origin' },
+    masterProduct: {
+      id: 'master-1', code: 'MASTER-1', name: 'Master', abcGrade: 'B',
+      originChannelListingId: 'listing-origin',
+    },
     channelListingOptions: [
       option('listing-primary', 'option-primary', 'B', true),
       option('listing-origin', 'option-origin', 'A', false),

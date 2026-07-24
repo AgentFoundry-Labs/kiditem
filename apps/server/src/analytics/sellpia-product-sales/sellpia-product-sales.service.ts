@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
@@ -6,14 +7,12 @@ import type {
   SellpiaProductSalesRow,
   SellpiaProductSalesMonthPoint,
   SellpiaProductSalesIngestResult,
-  SellpiaProductAbcGrade,
 } from '@kiditem/shared/dashboard';
 import type {
   SellpiaProductSalesIngestBodyDto,
 } from './dto/sellpia-product-sales.dto';
 import {
   LEAD_TIME_MONTHS,
-  assignAbcGrades,
   computeSeasonTag,
   computeTrend,
   detectAnomaly,
@@ -21,7 +20,10 @@ import {
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 import type { SellpiaProductDepletionReadPort } from './sellpia-product-depletion-read.port';
 import { buildProductDepletionProjections } from './sellpia-product-depletion-projection';
-import type { SellpiaVariantAbcGradeReadPort } from '../application/port/in/sellpia-variant-abc-grade-read.port';
+import {
+  SELLPIA_PRODUCT_SALES_EVENTS,
+  type SellpiaProductSalesIngestedEvent,
+} from './sellpia-product-sales.events';
 
 const INT4_MAX = 2_147_483_647;
 // createMany 벌크 청크. 14열 × 2000행 = 28k 바인드 < PG 65535 파라미터 한도.
@@ -37,13 +39,11 @@ const DEFAULT_MONTHS = 13; // 1년치(완결 12개월 + 진행 월) — 시즌 �
  * 평균은 현재 월(진행 중)을 제외한 완결 월에서 산정한다. 메이크샵 주문 기준.
  */
 @Injectable()
-export class SellpiaProductSalesService implements
-  SellpiaProductDepletionReadPort,
-  SellpiaVariantAbcGradeReadPort
-{
+export class SellpiaProductSalesService implements SellpiaProductDepletionReadPort {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryReader: SellpiaProductInventoryReader,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async ingest(
@@ -51,7 +51,8 @@ export class SellpiaProductSalesService implements
     body: SellpiaProductSalesIngestBodyDto,
   ): Promise<SellpiaProductSalesIngestResult> {
     const capturedAt = new Date();
-    const months = new Set<string>();
+    const authoritativeMonths = yearMonthsInRange(body.range);
+    const authoritativeMonthSet = new Set(authoritativeMonths);
     // (productCode, optionCode, yearMonth) 유니크 키로 중복 제거(마지막 값 우선) —
     // createMany 유니크 위반 방지 + 페이로드 내 중복 방어.
     const byKey = new Map<string, {
@@ -63,7 +64,7 @@ export class SellpiaProductSalesService implements
     for (const p of body.products) {
       for (const m of p.months) {
         if (!/^\d{4}-\d{2}$/.test(m.yearMonth)) continue;
-        months.add(m.yearMonth);
+        if (!authoritativeMonthSet.has(m.yearMonth)) continue;
         byKey.set(`${p.productCode} ${p.optionCode} ${m.yearMonth}`, {
           organizationId,
           productCode: p.productCode,
@@ -84,27 +85,42 @@ export class SellpiaProductSalesService implements
       }
     }
     const rows = [...byKey.values()];
-    const payloadMonths = [...months];
-
-    // 원자적 월-범위 교체. 청크 upsert(느려서 동시 read 를 굶김) 대신
-    // deleteMany(페이로드에 담긴 연월만) + 벌크 createMany 를 한 트랜잭션으로.
+    // 원자적 요청 범위 교체. 청크 upsert(느려서 동시 read 를 굶김) 대신
+    // deleteMany(요청 range 의 연월) + 벌크 createMany 를 한 트랜잭션으로.
     // - 조회는 커밋 전까지 이전 데이터를 보므로 빈 창이 없다.
     // - 삭제를 크롤 창(연월)으로 한정하므로 더 짧은 창의 수집이 그 밖의 과거 월을
     //   지우지 않는다(1년 히스토리 보존). 같은 창의 재수집은 그 월들만 새로 채운다.
-    const ops: Prisma.PrismaPromise<unknown>[] = [
-      this.prisma.sellpiaProductMonthlySales.deleteMany({
-        where: { organizationId, yearMonth: { in: payloadMonths } },
-      }),
-    ];
-    for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
-      ops.push(this.prisma.sellpiaProductMonthlySales.createMany({ data: rows.slice(i, i + INSERT_CHUNK) }));
-    }
-    await this.prisma.$transaction(ops);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`
+          -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${`kiditem.sellpia-product-sales:${organizationId}`}, 0)
+          )::text AS "lock"
+        `,
+      );
+      await tx.sellpiaProductMonthlySales.deleteMany({
+        where: {
+          organizationId,
+          yearMonth: { in: authoritativeMonths },
+        },
+      });
+      for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+        await tx.sellpiaProductMonthlySales.createMany({
+          data: rows.slice(i, i + INSERT_CHUNK),
+        });
+      }
+    });
+
+    await this.eventEmitter.emitAsync(
+      SELLPIA_PRODUCT_SALES_EVENTS.INGESTED,
+      { organizationId } satisfies SellpiaProductSalesIngestedEvent,
+    );
 
     return {
       upserted: rows.length,
       productCount: body.products.length,
-      months: [...months].sort(),
+      months: authoritativeMonths,
     } satisfies SellpiaProductSalesIngestResult;
   }
 
@@ -199,7 +215,7 @@ export class SellpiaProductSalesService implements
     const completeMonthCount = completeMonths.length;
     const last1Ym = completeMonths.slice(-1)[0];
 
-    // 1) 기본 행. 이상치(일회성 벌크/저가 대량)를 감지해 평균/ABC/발주는 clean(이상치 제외)로,
+    // 1) 기본 행. 이상치(일회성 벌크/저가 대량)를 감지해 평균/발주는 clean(이상치 제외)로,
     //    월별 컬럼은 raw + 이상치 표시로 낸다.
     const bases = [...byProduct.values()].map((a) => {
       const rawMonthly = months.map((m) => ({ yearMonth: m, orderQty: a.monthMap.get(m) ?? 0 }));
@@ -235,9 +251,6 @@ export class SellpiaProductSalesService implements
       };
     });
 
-    // 2) ABC 등급(이상치 제외 소진량 파레토) — 정렬 전 원래 순서 기준
-    const abcGrades = assignAbcGrades(bases.map((b) => b.cleanTotal));
-
     const inventoryInputs = bases.map((base) => ({
       key: base.key,
       evidence: {
@@ -252,17 +265,12 @@ export class SellpiaProductSalesService implements
 
     // 3) 파생 지표.
     let anomalyCount = 0;
-    const abcCounts = { a: 0, b: 0, c: 0 };
-    const products: SellpiaProductSalesRow[] = bases.map((b, i) => {
+    const products: SellpiaProductSalesRow[] = bases.map((b) => {
       const { a } = b;
       const inventory = inventoryProjection.byProductKey.get(b.key)!;
-      const abcGrade = abcGrades[i];
       const trend = computeTrend(b.completeQtys);
       const seasonTag = computeSeasonTag(b.completeMonthly, completeMonthCount);
       if (b.anomaly) anomalyCount++;
-      if (abcGrade === 'A') abcCounts.a++;
-      else if (abcGrade === 'B') abcCounts.b++;
-      else abcCounts.c++;
       return {
         productCode: a.productCode,
         optionCode: a.optionCode,
@@ -277,7 +285,6 @@ export class SellpiaProductSalesService implements
         qty2m: b.qty2m,
         avg2m: b.avg2m,
         totalQty: b.cleanTotal,
-        abcGrade,
         trend,
         deadStock: inventory.deadStock,
         deadStockReason: inventory.deadStockReason,
@@ -291,6 +298,24 @@ export class SellpiaProductSalesService implements
       } satisfies SellpiaProductSalesRow;
     });
     products.sort((x, y) => y.avg2m - x.avg2m || y.totalQty - x.totalQty);
+    const gradeByMasterProductId = new Map<string, 'A' | 'B' | 'C' | null>();
+    for (const product of products) {
+      if (product.inventoryResolution.status !== 'matched') continue;
+      for (const destination of product.inventoryResolution.destinations) {
+        if (!gradeByMasterProductId.has(destination.masterProductId)) {
+          gradeByMasterProductId.set(
+            destination.masterProductId,
+            destination.abcGrade,
+          );
+        }
+      }
+    }
+    const abcCounts = { A: 0, B: 0, C: 0 };
+    let unclassifiedProductCount = 0;
+    for (const grade of gradeByMasterProductId.values()) {
+      if (grade === null) unclassifiedProductCount += 1;
+      else abcCounts[grade] += 1;
+    }
 
     return {
       range: { from: months[0] ?? cutoffYm, to: months[months.length - 1] ?? currentYm },
@@ -315,24 +340,11 @@ export class SellpiaProductSalesService implements
       deadStockCount: inventoryProjection.summary.deadStockCount,
       anomalyCount,
       abcCounts,
+      classifiedProductCount:
+        abcCounts.A + abcCounts.B + abcCounts.C,
+      unclassifiedProductCount,
       leadTimeMonths: LEAD_TIME_MONTHS,
     } satisfies SellpiaProductSalesSummary;
-  }
-
-  /**
-   * 상품별 소진 ABC 등급을 `{productCode}-{optionCode}` 키(= SellpiaInventorySku.code,
-   * = MasterProduct.code)로 반환한다. getSummary 의 계산을 그대로 재사용하므로
-   * 재고분석 화면과 등급이 100% 동일하다. 순위추적 등 다른 도메인이 소비한다.
-   */
-  async getAbcGradeByCode(
-    organizationId: string,
-  ): Promise<Map<string, SellpiaProductAbcGrade>> {
-    const summary = await this.getSummary(organizationId);
-    const map = new Map<string, SellpiaProductAbcGrade>();
-    for (const product of summary.products) {
-      map.set(`${product.productCode}-${product.optionCode}`, product.abcGrade);
-    }
-    return map;
   }
 
   async findByMasterProductIds(input: {
@@ -349,34 +361,45 @@ export class SellpiaProductSalesService implements
     return buildProductDepletionProjections(masterProductIds, summary.products);
   }
 
-  async findAbcGradesByProductVariantIds(input: {
-    organizationId: string;
-    productVariantIds: string[];
-  }): Promise<Map<string, SellpiaProductAbcGrade[]>> {
-    const requestedVariantIds = new Set(input.productVariantIds);
-    if (requestedVariantIds.size === 0) return new Map();
+}
 
-    const summary = await this.getSummary(input.organizationId);
-    const gradesByVariant = new Map<string, Set<SellpiaProductAbcGrade>>();
-    for (const product of summary.products) {
-      if (product.inventoryResolution.status !== 'matched') continue;
-      for (const destination of product.inventoryResolution.destinations) {
-        if (!requestedVariantIds.has(destination.productVariantId)) continue;
-        const grades = gradesByVariant.get(destination.productVariantId) ?? new Set();
-        grades.add(product.abcGrade);
-        gradesByVariant.set(destination.productVariantId, grades);
-      }
-    }
-    const gradeOrder: Record<SellpiaProductAbcGrade, number> = {
-      A: 0,
-      B: 1,
-      C: 2,
-    };
-    return new Map([...gradesByVariant].map(([productVariantId, grades]) => [
-      productVariantId,
-      [...grades].sort((left, right) => gradeOrder[left] - gradeOrder[right]),
-    ]));
+function yearMonthsInRange(range: { from: string; to: string }): string[] {
+  const fromDate = parseCalendarDate(range.from);
+  const toDate = parseCalendarDate(range.to);
+  if (
+    fromDate === null
+    || toDate === null
+    || fromDate.timestamp > toDate.timestamp
+    || toDate.yearMonthIndex - fromDate.yearMonthIndex + 1 > 24
+  ) {
+    throw new BadRequestException('Invalid Sellpia product-sales range');
   }
+  const months: string[] = [];
+  for (
+    let index = fromDate.yearMonthIndex;
+    index <= toDate.yearMonthIndex;
+    index += 1
+  ) {
+    const year = Math.floor(index / 12);
+    const month = index % 12 + 1;
+    months.push(`${year}-${String(month).padStart(2, '0')}`);
+  }
+  return months;
+}
+
+function parseCalendarDate(value: string): {
+  timestamp: number;
+  yearMonthIndex: number;
+} | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(timestamp)) return null;
+  const date = new Date(timestamp);
+  if (date.toISOString().slice(0, 10) !== value) return null;
+  return {
+    timestamp,
+    yearMonthIndex: date.getUTCFullYear() * 12 + date.getUTCMonth(),
+  };
 }
 
 function clampInt(n: number): number {

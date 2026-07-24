@@ -5,7 +5,7 @@ import { AiModule } from '../../../ai/ai.module';
 import { SellpiaProductSalesModule } from '../sellpia-product-sales.module';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from '../sellpia-product-depletion-read.port';
-import { SELLPIA_VARIANT_ABC_GRADE_READ_PORT } from '../../application/port/in/sellpia-variant-abc-grade-read.port';
+import { MASTER_PRODUCT_ABC_METRIC_READ_PORT } from '../../application/port/in/master-product-abc-metric-read.port';
 
 describe('SellpiaProductSalesModule wiring', () => {
   it('imports Inventory and AI owner ports, and exports the depletion read port through the service', () => {
@@ -26,7 +26,7 @@ describe('SellpiaProductSalesModule wiring', () => {
     expect(exports).toContain(SELLPIA_PRODUCT_DEPLETION_READ_PORT);
   });
 
-  it('publishes a second typed Analytics read port without exporting its concrete service', () => {
+  it('publishes the MasterProduct ABC metric read port without exporting its concrete provider', () => {
     const providers: unknown[] = Reflect.getMetadata('providers', SellpiaProductSalesModule) ?? [];
     const exports: unknown[] = Reflect.getMetadata('exports', SellpiaProductSalesModule) ?? [];
     const abcBinding = providers.find((provider) =>
@@ -34,10 +34,11 @@ describe('SellpiaProductSalesModule wiring', () => {
       && provider !== null
       && 'provide' in provider
       && (provider as { provide: unknown }).provide
-        === SELLPIA_VARIANT_ABC_GRADE_READ_PORT);
+        === MASTER_PRODUCT_ABC_METRIC_READ_PORT) as { useExisting?: unknown } | undefined;
 
-    expect(abcBinding).toMatchObject({ useExisting: SellpiaProductSalesService });
-    expect(exports).toContain(SELLPIA_VARIANT_ABC_GRADE_READ_PORT);
-    expect(exports).not.toContain(SellpiaProductSalesService);
+    expect(abcBinding?.useExisting).toBeDefined();
+    expect(abcBinding?.useExisting).not.toBe(SellpiaProductSalesService);
+    expect(exports).toContain(MASTER_PRODUCT_ABC_METRIC_READ_PORT);
+    expect(exports).not.toContain(abcBinding?.useExisting);
   });
 });

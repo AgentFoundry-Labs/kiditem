@@ -38,6 +38,7 @@ describe('Sellpia product inventory projection', () => {
         productVariantId: '33333333-3333-4333-8333-333333333333',
         productVariantCode: 'PV-1',
         productVariantName: 'Variant',
+        abcGrade: 'A',
       }],
     });
 
@@ -117,8 +118,8 @@ describe('Sellpia product inventory projection', () => {
     expect(result.byProductKey.get('row-1')?.inventoryResolution).toMatchObject({
       status: 'matched',
       destinations: [
-        { productVariantId: 'variant-1', displayImage: { url: 'https://cdn.example/one.jpg' } },
-        { productVariantId: 'variant-2', displayImage: { url: 'https://cdn.example/two.jpg' } },
+        { productVariantId: 'variant-1', abcGrade: null, displayImage: { url: 'https://cdn.example/one.jpg' } },
+        { productVariantId: 'variant-2', abcGrade: null, displayImage: { url: 'https://cdn.example/two.jpg' } },
       ],
     });
   });
@@ -145,6 +146,7 @@ function destination(productVariantId: string, url: string) {
     productVariantId,
     productVariantCode: productVariantId,
     productVariantName: productVariantId,
+    abcGrade: null,
     displayImage: {
       url,
       source: 'coupang_catalog' as const,

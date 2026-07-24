@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
+import { ProductAbcGradeSchema } from './product-abc.js';
 
 // ─── Shared building blocks ───────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ export const TopProductSchema = z.object({
   id: z.string(),
   name: z.string(),
   organization: z.string(),
-  grade: z.string(),
+  grade: ProductAbcGradeSchema.nullable(),
   revenue: z.number(),
   netProfit: z.number(),
   profitRate: z.number(),
@@ -268,7 +269,13 @@ export const DashboardInventorySummarySchema = z.object({
   totalProducts: z.number(),
   channelLinkedProducts: z.number().int().nonnegative(),
   channelUnlinkedProducts: z.number().int().nonnegative(),
-  gradeCount: z.record(z.number()),
+  gradeCount: z.object({
+    A: z.number().int().nonnegative(),
+    B: z.number().int().nonnegative(),
+    C: z.number().int().nonnegative(),
+  }).strict(),
+  classifiedProductCount: z.number().int().nonnegative(),
+  unclassifiedProductCount: z.number().int().nonnegative(),
   mappingStatusCounts: z.object({
     matched: z.number().int().nonnegative(),
     unmatched: z.number().int().nonnegative(),
@@ -437,7 +444,6 @@ export const SellpiaProductSalesMonthPointSchema = z.object({
   orderQty: z.number(),
   anomaly: z.boolean().optional(), // 이상치(일회성 벌크/저가 대량) 월 — 평균/등급 산정 제외
 });
-export const SellpiaProductAbcGradeSchema = z.enum(['A', 'B', 'C']);
 export const SellpiaProductTrendSchema = z.enum(['up', 'down', 'flat']);
 export const SellpiaProductDestinationDisplayImageSchema = z.object({
   url: z.string().url(),
@@ -457,6 +463,7 @@ export const SellpiaProductDestinationSchema = z.object({
   productVariantCode: z.string().min(1),
   productVariantName: z.string().min(1),
   unitsPerVariant: z.number().int().positive(),
+  abcGrade: ProductAbcGradeSchema.nullable(),
   displayImage: SellpiaProductDestinationDisplayImageSchema.nullable(),
 }).strict();
 
@@ -511,7 +518,6 @@ export const SellpiaProductSalesRowSchema = z.object({
   avg2m: z.number(), // 2개월 월평균 = qty2m / 2
   totalQty: z.number(), // 조회범위 총 소진량
   // ─── 재고관리 파생 지표 ───
-  abcGrade: SellpiaProductAbcGradeSchema, // 소진량 파레토 A/B/C
   trend: SellpiaProductTrendSchema, // 최근 소진 추세
   deadStock: z.boolean(), // 악성재고 여부(정체/급감)
   deadStockReason: z.string().nullable(), // 악성 사유
@@ -546,7 +552,13 @@ export const SellpiaProductSalesSummarySchema = z.object({
   reorderCount: z.number().int().nonnegative(), // 발주 필요 distinct SKU 수
   deadStockCount: z.number().int().nonnegative(), // 악성재고 distinct SKU 수
   anomalyCount: z.number(), // 이상치 포함 상품 수
-  abcCounts: z.object({ a: z.number(), b: z.number(), c: z.number() }),
+  abcCounts: z.object({
+    A: z.number().int().nonnegative(),
+    B: z.number().int().nonnegative(),
+    C: z.number().int().nonnegative(),
+  }).strict(),
+  classifiedProductCount: z.number().int().nonnegative(),
+  unclassifiedProductCount: z.number().int().nonnegative(),
   leadTimeMonths: z.number(), // 발주점 산정 리드타임(개월) — 에코
 });
 
@@ -589,7 +601,6 @@ export type SellpiaProductSalesIngestItem = z.infer<typeof SellpiaProductSalesIn
 export type SellpiaProductSalesIngestPayload = z.infer<typeof SellpiaProductSalesIngestPayloadSchema>;
 export type SellpiaProductSalesIngestResult = z.infer<typeof SellpiaProductSalesIngestResultSchema>;
 export type SellpiaProductSalesMonthPoint = z.infer<typeof SellpiaProductSalesMonthPointSchema>;
-export type SellpiaProductAbcGrade = z.infer<typeof SellpiaProductAbcGradeSchema>;
 export type SellpiaProductTrend = z.infer<typeof SellpiaProductTrendSchema>;
 export type SellpiaProductDestination = z.infer<typeof SellpiaProductDestinationSchema>;
 export type SellpiaProductInventoryResolution = z.infer<

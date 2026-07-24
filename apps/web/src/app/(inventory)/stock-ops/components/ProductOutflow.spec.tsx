@@ -78,7 +78,9 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
       reorderCount: 0,
       deadStockCount: 0,
       anomalyCount: 0,
-      abcCounts: { a: 0, b: 0, c: 0 },
+      abcCounts: { A: 0, B: 0, C: 0 },
+      classifiedProductCount: 0,
+      unclassifiedProductCount: 0,
       leadTimeMonths: 1,
     });
     productProfitCollection.mockResolvedValue({
@@ -111,7 +113,18 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     expect(requestRefresh).toHaveBeenCalledWith('manual_request');
   });
 
-  it('invalidates inventory sales, product operations, and dashboard data after a successful manual ingest', async () => {
+  it('invalidates every stored-grade consumer immediately after a successful manual ingest', async () => {
+    const { client } = renderProductOutflow();
+    const invalidateQueries = vi.spyOn(client, 'invalidateQueries');
+
+    fireEvent.click(screen.getByRole('button', { name: '지금 수집' }));
+
+    await waitFor(() => expect(productSalesApi.ingest).toHaveBeenCalledOnce());
+    await waitFor(() => expectInvalidationTargets(invalidateQueries));
+  });
+
+  it('does not wait for the optional stock refresh before invalidating stored-grade consumers', async () => {
+    requestRefresh.mockImplementationOnce(() => new Promise(() => undefined));
     const { client } = renderProductOutflow();
     const invalidateQueries = vi.spyOn(client, 'invalidateQueries');
 
@@ -131,13 +144,13 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
   });
 
   it('does not invalidate query families when the manual ingest fails', async () => {
-    productProfitCollection.mockRejectedValueOnce(new Error('extension failed'));
+    productSalesApi.ingest.mockRejectedValueOnce(new Error('ingest failed'));
     const { client } = renderProductOutflow();
     const invalidateQueries = vi.spyOn(client, 'invalidateQueries');
 
     fireEvent.click(screen.getByRole('button', { name: '지금 수집' }));
 
-    await waitFor(() => expect(productProfitCollection).toHaveBeenCalledOnce());
+    await waitFor(() => expect(productSalesApi.ingest).toHaveBeenCalledOnce());
     expect(invalidateQueries).not.toHaveBeenCalled();
   });
 
@@ -198,7 +211,6 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
           qty2m: 800,
           avg2m: 400,
           totalQty: 800,
-          abcGrade: 'A',
           trend: 'flat',
           deadStock: false,
           deadStockReason: null,
@@ -220,6 +232,8 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
               productVariantCode: 'PV-1',
               productVariantName: '기본 옵션',
               unitsPerVariant: 1,
+              abcGrade: 'A',
+              displayImage: null,
             }],
           },
           monthsOfAvailableStockLeft: 0.38,
@@ -243,7 +257,6 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
           qty2m: 0,
           avg2m: 0,
           totalQty: 0,
-          abcGrade: 'C',
           trend: 'down',
           deadStock: true,
           deadStockReason: '재고 정체(2개월+ 미판매)',
@@ -257,7 +270,17 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
             activeCommitmentQuantity: 0,
             availableStock: 50,
             salesRowCount: 1,
-            destinations: [],
+            destinations: [{
+              masterProductId: '51111111-1111-4111-8111-111111111111',
+              masterProductCode: 'MP-NULL',
+              masterProductName: '미분류 운영 상품',
+              productVariantId: '61111111-1111-4111-8111-111111111111',
+              productVariantCode: 'PV-NULL',
+              productVariantName: '기본 옵션',
+              unitsPerVariant: 1,
+              abcGrade: null,
+              displayImage: null,
+            }],
           },
           monthsOfAvailableStockLeft: null,
           reorderPoint: 0,
@@ -280,7 +303,9 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
       reorderCount: 1,
       deadStockCount: 1,
       anomalyCount: 1,
-      abcCounts: { a: 1, b: 0, c: 1 },
+      abcCounts: { A: 1, B: 0, C: 0 },
+      classifiedProductCount: 1,
+      unclassifiedProductCount: 1,
       leadTimeMonths: 1,
     });
 
@@ -296,8 +321,18 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     expect(screen.getByText('이상치 · 저가 대량(단가 50원)')).toBeInTheDocument();
     expect(screen.getByTitle('이상치(일회성 벌크) — 평균·발주 산정 제외')).toHaveTextContent('60,000');
     expect(screen.getByText('판매 행 2개 수요 합산')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '운영 상품 · 기본 옵션' })).toHaveAttribute('href', '/product-hub/21111111-1111-4111-8111-111111111111');
-    expect(screen.getByText('운영 상품 미연결')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '운영 상품 · 기본 옵션' }))
+      .toHaveAttribute('href', '/product-hub/21111111-1111-4111-8111-111111111111');
+    expect(screen.getByRole('link', { name: '운영 상품 · 기본 옵션' })).toHaveTextContent('A등급');
+    expect(screen.getByRole('link', { name: '미분류 운영 상품 · 기본 옵션' })).toHaveTextContent('미분류');
+
+    fireEvent.click(screen.getByRole('button', { name: /A등급\s*1/ }));
+    await waitFor(() => expect(screen.queryByText('이상치 재고 상품')).not.toBeInTheDocument());
+    expect(screen.getByText('발주 대상 상품')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /미분류\s*1/ }));
+    await waitFor(() => expect(screen.queryByText('발주 대상 상품')).not.toBeInTheDocument());
+    expect(screen.getByText('이상치 재고 상품')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /이상치\s*1/ }));
     await waitFor(() => expect(screen.queryByText('발주 대상 상품')).not.toBeInTheDocument());
@@ -314,5 +349,11 @@ function expectInvalidationTargets(invalidateQueries: ReturnType<typeof vi.fn>) 
   });
   expect(invalidateQueries).toHaveBeenCalledWith({
     queryKey: queryKeys.dashboard.all,
+  });
+  expect(invalidateQueries).toHaveBeenCalledWith({
+    queryKey: queryKeys.ads.all,
+  });
+  expect(invalidateQueries).toHaveBeenCalledWith({
+    queryKey: queryKeys.actionTasks.all,
   });
 }

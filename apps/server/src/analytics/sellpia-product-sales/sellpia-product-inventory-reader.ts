@@ -45,6 +45,15 @@ export class SellpiaProductInventoryReader {
         where: {
           organizationId,
           sellpiaInventorySkuId: { in: resolved.matchedSkuIds },
+          productVariant: {
+            is: {
+              organizationId,
+              isActive: true,
+              masterProduct: {
+                is: { organizationId, isActive: true },
+              },
+            },
+          },
         },
         select: {
           sellpiaInventorySkuId: true,
@@ -59,6 +68,7 @@ export class SellpiaProductInventoryReader {
                   id: true,
                   code: true,
                   name: true,
+                  abcGrade: true,
                   originChannelListingId: true,
                 },
               },
@@ -139,6 +149,12 @@ export class SellpiaProductInventoryReader {
         productVariantId: row.productVariant.id,
         productVariantCode: row.productVariant.code,
         productVariantName: row.productVariant.name,
+        abcGrade:
+          row.productVariant.masterProduct.abcGrade === 'A'
+          || row.productVariant.masterProduct.abcGrade === 'B'
+          || row.productVariant.masterProduct.abcGrade === 'C'
+            ? row.productVariant.masterProduct.abcGrade
+            : null,
         displayImage: mediaByVariantId.get(row.productVariant.id) ?? null,
       })),
     });
