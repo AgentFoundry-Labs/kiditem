@@ -97,7 +97,7 @@ export class ProductOperationsService implements ProductOperationsPort {
   ) {
     const input = parseOrBadRequest(
       CreateMasterProductInputSchema,
-      rawInput,
+      omitLegacyAbcGrade(rawInput),
       'Invalid MasterProduct creation',
     );
     const variants = input.variants?.map(normalizeVariant) ?? [{
@@ -126,7 +126,7 @@ export class ProductOperationsService implements ProductOperationsPort {
   ) {
     const input = parseOrBadRequest(
       UpdateMasterProductInputSchema,
-      rawInput,
+      omitLegacyAbcGrade(rawInput),
       'Invalid MasterProduct update',
     );
     const product = await this.repository.updateProduct(
@@ -257,6 +257,12 @@ export class ProductOperationsService implements ProductOperationsPort {
       item,
     ]));
   }
+}
+
+function omitLegacyAbcGrade(rawInput: unknown): unknown {
+  if (!rawInput || typeof rawInput !== 'object' || Array.isArray(rawInput)) return rawInput;
+  const { abcGrade: _legacyAbcGrade, ...input } = rawInput as Record<string, unknown>;
+  return input;
 }
 
 function noDirectSales(): ProductDepletionProjection {

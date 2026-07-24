@@ -20,7 +20,7 @@ export default function ProductInfoCards({ product }: { product: MasterProductOp
         />
         <InfoRow label="카테고리" value={product.category ?? '미등록'} />
         <InfoRow label="브랜드" value={product.brand ?? '미등록'} />
-        <InfoRow label="ABC 등급" value={product.abcGrade ?? '미등록'} />
+        <InfoRow label="ABC 등급" value={product.abcGrade ?? '미분류'} />
         <InfoRow label="태그" value={product.tags.length > 0 ? product.tags.join(', ') : '미등록'} />
       </InfoCard>
 

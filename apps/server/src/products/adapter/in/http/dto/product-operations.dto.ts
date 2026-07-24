@@ -55,9 +55,8 @@ export class ProductOperationsListQueryDto {
   inventoryStatus?: (typeof INVENTORY_STATUSES)[number];
 
   @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  abcGrade?: string;
+  @IsIn(['A', 'B', 'C'])
+  abcGrade?: 'A' | 'B' | 'C';
 
   @IsIn(AD_STATUSES)
   adStatus: (typeof AD_STATUSES)[number] = 'all';

@@ -46,6 +46,7 @@ export const queryKeys = {
           params,
         ] as const,
     },
+    abcPolicy: () => [...queryKeys.products.all, 'abc-policy'] as const,
     images: (masterId: string) => [...queryKeys.products.all, 'images', masterId] as const,
     pipelineStats: (status?: string, period?: number) =>
       [...queryKeys.products.all, 'pipelineStats', status, period] as const,

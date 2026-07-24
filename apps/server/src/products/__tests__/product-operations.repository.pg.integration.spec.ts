@@ -179,20 +179,25 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   });
 
   it('summarizes ABC grades across the full result instead of the current page', async () => {
-    await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+    const first = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'GRADE-A-1',
       name: 'A grade one',
-      abcGrade: 'A',
     });
-    await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+    const second = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'GRADE-A-2',
       name: 'A grade two',
-      abcGrade: 'A',
     });
-    await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+    const third = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'GRADE-B-1',
       name: 'B grade one',
-      abcGrade: 'B',
+    });
+    await prisma.masterProduct.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, id: { in: [first.id, second.id] } },
+      data: { abcGrade: 'A' },
+    });
+    await prisma.masterProduct.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, id: third.id },
+      data: { abcGrade: 'B' },
     });
 
     const page = await service.listProducts(TEST_ORGANIZATION_ID, {

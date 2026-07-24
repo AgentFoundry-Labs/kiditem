@@ -97,6 +97,10 @@ vi.mock('./ProductEditorDialog', () => ({
   ProductEditorDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">상품 만들기</div> : null,
 }));
 
+vi.mock('./MasterProductAbcPolicyDialog', () => ({
+  MasterProductAbcPolicyDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">자동 ABC 정책</div> : null,
+}));
+
 describe('<ProductsPageContent>', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -184,6 +188,8 @@ describe('<ProductsPageContent>', () => {
     expect(state.setCategory).toHaveBeenCalledWith('완구/놀이');
     fireEvent.click(screen.getByRole('button', { name: '+ 상품 추가' }));
     expect(screen.getByRole('dialog', { name: '' })).toHaveTextContent('상품 만들기');
+    fireEvent.click(screen.getByRole('button', { name: '자동 ABC 정책' }));
+    expect(screen.getAllByRole('dialog', { name: '' }).at(-1)).toHaveTextContent('자동 ABC 정책');
   });
 
   it('uses full-result operating summaries and only applies the matching inventory filter', () => {

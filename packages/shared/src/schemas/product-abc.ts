@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 export const ProductAbcGradeSchema = z.enum(['A', 'B', 'C']);
 export type ProductAbcGrade = z.infer<typeof ProductAbcGradeSchema>;
@@ -19,16 +20,16 @@ export type MasterProductAbcPeriodDays = z.infer<
   typeof MasterProductAbcPeriodDaysSchema
 >;
 
-export const MasterProductAbcPolicySchema = z
-  .object({
-    metric: MasterProductAbcMetricSchema,
-    periodDays: MasterProductAbcPeriodDaysSchema,
-    aCumulativeThreshold: z.number().int().min(1).max(99),
-    bCumulativeThreshold: z.number().int().min(2).max(100),
-  })
-  .strict()
-  .superRefine((value, context) => {
-    if (value.aCumulativeThreshold >= value.bCumulativeThreshold) {
+const MasterProductAbcPolicyFieldsSchema = z.object({
+  metric: MasterProductAbcMetricSchema,
+  periodDays: MasterProductAbcPeriodDaysSchema,
+  aCumulativeThreshold: z.number().int().min(1).max(99),
+  bCumulativeThreshold: z.number().int().min(2).max(100),
+}).strict();
+
+export const MasterProductAbcPolicySchema = MasterProductAbcPolicyFieldsSchema
+  .superRefine((policy, context) => {
+    if (policy.aCumulativeThreshold >= policy.bCumulativeThreshold) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['bCumulativeThreshold'],
@@ -43,6 +44,23 @@ export type MasterProductAbcPolicy = z.infer<
 export const UpdateMasterProductAbcPolicySchema = MasterProductAbcPolicySchema;
 export type UpdateMasterProductAbcPolicy = z.infer<
   typeof UpdateMasterProductAbcPolicySchema
+>;
+
+export const MasterProductAbcPolicyResponseSchema =
+  MasterProductAbcPolicyFieldsSchema.extend({
+    lastCalculatedAt: zIsoDate.nullable(),
+    sourceCapturedAt: zIsoDate.nullable(),
+  }).superRefine((policy, context) => {
+    if (policy.aCumulativeThreshold >= policy.bCumulativeThreshold) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['bCumulativeThreshold'],
+        message: 'bCumulativeThreshold must be greater than aCumulativeThreshold',
+      });
+    }
+  });
+export type MasterProductAbcPolicyResponse = z.infer<
+  typeof MasterProductAbcPolicyResponseSchema
 >;
 
 export const MasterProductAbcGradeResultSchema = z

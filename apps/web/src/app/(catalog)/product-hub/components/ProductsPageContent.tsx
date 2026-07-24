@@ -9,6 +9,7 @@ import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageSta
 import { PERIOD_OPTIONS } from '../lib/product-page-config';
 import { ProductCategoryTabs } from './ProductCategoryTabs';
 import { ProductEditorDialog } from './ProductEditorDialog';
+import { MasterProductAbcPolicyDialog } from './MasterProductAbcPolicyDialog';
 import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
@@ -16,6 +17,7 @@ import { ProductsColumnHeader } from './ProductsColumnHeader';
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
   const [editorOpen, setEditorOpen] = useState(false);
+  const [abcPolicyOpen, setAbcPolicyOpen] = useState(false);
   const data = state.data;
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
 
@@ -72,6 +74,13 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setAbcPolicyOpen(true)}
+            className="flex h-9 items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-4 text-[13px] font-semibold text-[var(--text-secondary)]"
+          >
+            자동 ABC 정책
+          </button>
           <button
             type="button"
             disabled
@@ -258,6 +267,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         onOpenChange={setEditorOpen}
         onSaved={() => undefined}
       />
+      <MasterProductAbcPolicyDialog open={abcPolicyOpen} onOpenChange={setAbcPolicyOpen} />
     </div>
   );
 }
