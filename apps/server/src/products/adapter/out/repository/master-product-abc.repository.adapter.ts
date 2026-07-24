@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
 import type {
@@ -24,6 +25,9 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
     allowPolicyReplacement?: boolean;
   }) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(${input.organizationId}, 0::bigint))
+      `);
       const persistedPolicy = await tx.masterProductAbcPolicy.findUnique({
         where: { organizationId: input.organizationId },
       });

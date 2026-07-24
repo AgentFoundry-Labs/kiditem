@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 const modulePath = './master-product-abc.service.js';
@@ -124,5 +125,23 @@ describe('MasterProductAbcService', () => {
       organizationId, metric: 'SALES_AMOUNT', periodDays: 90,
     });
     expect(repository.publishGrades).toHaveBeenNthCalledWith(1, expect.objectContaining({ allowPolicyReplacement: false }));
+  });
+
+  it('fails explicitly when the bounded stale retry also becomes stale', async () => {
+    const { MasterProductAbcService } = await serviceModule();
+    const policy = {
+      metric: 'SALES_QUANTITY', periodDays: 30,
+      aCumulativeThreshold: 70, bCumulativeThreshold: 90,
+      lastCalculatedAt: null, sourceCapturedAt: null,
+    };
+    const repository = {
+      findPolicy: vi.fn().mockResolvedValue(policy),
+      publishGrades: vi.fn().mockResolvedValue({ changedProductCount: 0, policy, stale: true }),
+    };
+    const metrics = { readMetricSnapshot: vi.fn().mockResolvedValue({ sourceCapturedAt: null, evidence: [] }) };
+    const service = new MasterProductAbcService(repository as never, metrics as never);
+
+    await expect(service.recalculate(organizationId)).rejects.toBeInstanceOf(ConflictException);
+    expect(repository.publishGrades).toHaveBeenCalledTimes(2);
   });
 });

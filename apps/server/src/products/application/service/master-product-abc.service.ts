@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
   MasterProductAbcPolicySchema,
   type MasterProductAbcPolicy,
@@ -55,7 +55,11 @@ export class MasterProductAbcService {
     const first = await this.recalculateWithPolicy(organizationId, policy);
     if (!first.stale) return first.result;
     const latestPolicy = await this.getPolicy(organizationId);
-    return (await this.recalculateWithPolicy(organizationId, latestPolicy)).result;
+    const retry = await this.recalculateWithPolicy(organizationId, latestPolicy);
+    if (retry.stale) {
+      throw new ConflictException('MasterProduct ABC policy changed during recalculation');
+    }
+    return retry.result;
   }
 
   private async recalculateWithPolicy(
