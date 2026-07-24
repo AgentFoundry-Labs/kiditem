@@ -439,6 +439,16 @@ export const SellpiaProductSalesMonthPointSchema = z.object({
 });
 export const SellpiaProductAbcGradeSchema = z.enum(['A', 'B', 'C']);
 export const SellpiaProductTrendSchema = z.enum(['up', 'down', 'flat']);
+export const SellpiaProductDestinationDisplayImageSchema = z.object({
+  url: z.string().url(),
+  source: z.literal('coupang_catalog'),
+  channelListingId: z.string().uuid(),
+  externalOptionId: z.string().min(1).nullable(),
+}).strict();
+export type SellpiaProductDestinationDisplayImage = z.infer<
+  typeof SellpiaProductDestinationDisplayImageSchema
+>;
+
 export const SellpiaProductDestinationSchema = z.object({
   masterProductId: z.string().uuid(),
   masterProductCode: z.string().min(1),
@@ -447,6 +457,7 @@ export const SellpiaProductDestinationSchema = z.object({
   productVariantCode: z.string().min(1),
   productVariantName: z.string().min(1),
   unitsPerVariant: z.number().int().positive(),
+  displayImage: SellpiaProductDestinationDisplayImageSchema.nullable(),
 }).strict();
 
 export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(

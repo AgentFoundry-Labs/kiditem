@@ -17,6 +17,12 @@ const destination = {
   productVariantCode: 'PV-1',
   productVariantName: '기본 옵션',
   unitsPerVariant: 1,
+  displayImage: {
+    url: 'https://image.coupangcdn.com/catalog.jpg',
+    source: 'coupang_catalog',
+    channelListingId: '44444444-4444-4444-8444-444444444444',
+    externalOptionId: null,
+  },
 };
 
 function salesRow() {
@@ -78,6 +84,18 @@ describe('Sellpia product-sales inventory contracts', () => {
   it('preserves matched availability and operational destinations', () => {
     const matched = salesRow().inventoryResolution;
     expect(SellpiaProductInventoryResolutionSchema.parse(matched)).toEqual(matched);
+  });
+
+  it('requires a read-only Coupang catalog display image shape when present', () => {
+    expect(SellpiaProductInventoryResolutionSchema.parse(salesRow().inventoryResolution))
+      .toEqual(salesRow().inventoryResolution);
+    expect(() => SellpiaProductInventoryResolutionSchema.parse({
+      ...salesRow().inventoryResolution,
+      destinations: [{ ...destination, displayImage: {
+        ...destination.displayImage,
+        source: 'manual_upload',
+      } }],
+    })).toThrow();
   });
 
   it('rejects inconsistent matched availability', () => {
