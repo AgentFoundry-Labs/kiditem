@@ -88,6 +88,40 @@ describe('Sellpia product inventory projection', () => {
     });
     expect(result.summary.reorderCount).toBe(0);
   });
+
+  it('keeps each matched destination attached to its own provider image', () => {
+    const products = [product('row-1', 'SKU-1', [10, 10])];
+    const resolved = resolveSellpiaProductInventoryRows(products, [
+      { id: SKU_ID, code: 'SKU-1', barcode: null, isActive: true },
+    ]);
+    const result = projectSellpiaProductInventory({
+      products,
+      resolutions: resolved.resolutions,
+      availability: {
+        snapshot: { collected: true, generation: '12', verifiedAt: '2026-07-17T00:00:00.000Z' },
+        items: [{
+          sellpiaInventorySkuId: SKU_ID,
+          currentStock: 100,
+          activeCommitmentQuantity: 0,
+          availableStock: 100,
+          isActive: true,
+          generation: '12',
+        }],
+      },
+      destinations: [
+        destination('variant-1', 'https://cdn.example/one.jpg'),
+        destination('variant-2', 'https://cdn.example/two.jpg'),
+      ],
+    });
+
+    expect(result.byProductKey.get('row-1')?.inventoryResolution).toMatchObject({
+      status: 'matched',
+      destinations: [
+        { productVariantId: 'variant-1', displayImage: { url: 'https://cdn.example/one.jpg' } },
+        { productVariantId: 'variant-2', displayImage: { url: 'https://cdn.example/two.jpg' } },
+      ],
+    });
+  });
 });
 
 function product(key: string, code: string, quantities: number[]) {
@@ -98,5 +132,24 @@ function product(key: string, code: string, quantities: number[]) {
       yearMonth: `2026-0${index + 5}`,
       orderQty,
     })),
+  };
+}
+
+function destination(productVariantId: string, url: string) {
+  return {
+    sellpiaInventorySkuId: SKU_ID,
+    unitsPerVariant: 1,
+    masterProductId: '22222222-2222-4222-8222-222222222222',
+    masterProductCode: 'MP-1',
+    masterProductName: 'Product',
+    productVariantId,
+    productVariantCode: productVariantId,
+    productVariantName: productVariantId,
+    displayImage: {
+      url,
+      source: 'coupang_catalog' as const,
+      channelListingId: '44444444-4444-4444-8444-444444444444',
+      externalOptionId: 'option-1',
+    },
   };
 }

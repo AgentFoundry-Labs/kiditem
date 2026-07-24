@@ -217,6 +217,7 @@ function groupDestinations(
       productVariantCode: row.productVariantCode,
       productVariantName: row.productVariantName,
       unitsPerVariant: row.unitsPerVariant,
+      displayImage: row.displayImage,
     });
     grouped.set(row.sellpiaInventorySkuId, byVariant);
   }

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { SellpiaProductSalesController } from './sellpia-product-sales.controller';
 import { SellpiaProductSalesService } from './sellpia-product-sales.service';
 import { InventoryModule } from '../../inventory/inventory.module';
+import { AiModule } from '../../ai/ai.module';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from './sellpia-product-depletion-read.port';
 import { SELLPIA_VARIANT_ABC_GRADE_READ_PORT } from '../application/port/in/sellpia-variant-abc-grade-read.port';
@@ -10,7 +11,7 @@ import { SELLPIA_VARIANT_ABC_GRADE_READ_PORT } from '../application/port/in/sell
 // analytics owner 의 daily/monthly-fact ingest 예외 레인(traffic upload·sellpia-sales 와 동일 성격).
 // PrismaModule 은 @Global 이므로 별도 import 불필요.
 @Module({
-  imports: [InventoryModule],
+  imports: [InventoryModule, AiModule],
   controllers: [SellpiaProductSalesController],
   providers: [
     SellpiaProductSalesService,
