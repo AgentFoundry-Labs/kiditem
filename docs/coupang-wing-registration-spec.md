@@ -628,9 +628,9 @@ code     name                          sale_price  purchase_price  barcode
 이름 정규화 매칭은 SQL 로 구현돼 있다
 (`sellpia-inventory-sku-read.repository.adapter.ts:52-78`, NFKC + 공백 제거 후 매칭).
 
-**sourcing 도메인이 이 포트를 구독하지 않을 뿐이다.** 세션 앞부분에서 advertising 이 analytics 의
-ABC 등급을 쓰려고 만든 `SELLPIA_ABC_GRADE_PORT` (cross-domain port + `useExisting` 바인딩)와
-**동일한 패턴**을 그대로 적용하면 된다.
+**sourcing 도메인이 이 포트를 구독하지 않을 뿐이다.** Advertising 이 Products 의
+`PRODUCT_VARIANT_ABC_GRADE_READ_PORT` 를 구독하는 owner-provided read-port 패턴과
+**동일한 경계**를 적용하면 된다.
 
 작업 순서:
 1. sourcing 에 아웃바운드 포트 추가 → 모듈에서 inventory 읽기 어댑터에 `useExisting` 바인딩

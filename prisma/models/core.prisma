@@ -474,7 +474,7 @@ model MasterProductAbcGradeHistory {
   organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   masterProduct MasterProduct @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
-  @@index([organizationId])
+  @@index([organizationId, calculatedAt])
   @@index([masterProductId])
   @@index([masterProductId, calculatedAt])
   @@map("master_product_abc_grade_histories")

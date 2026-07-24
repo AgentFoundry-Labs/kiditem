@@ -755,7 +755,7 @@ function metadata(row: ProductRow) {
     brand: row.brand,
     tags: row.tags,
     imageUrls: row.imageUrls,
-    abcGrade: row.abcGrade,
+    abcGrade: productAbcGrade(row.abcGrade),
     profitTag: row.profitTag,
     adTier: row.adTier,
     adBudgetLimit: row.adBudgetLimit,
@@ -763,6 +763,10 @@ function metadata(row: ProductRow) {
     healthUpdatedAt: row.healthUpdatedAt,
     isActive: row.isActive,
   };
+}
+
+function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
+  return value === 'A' || value === 'B' || value === 'C' ? value : null;
 }
 
 function toVariantDetail(

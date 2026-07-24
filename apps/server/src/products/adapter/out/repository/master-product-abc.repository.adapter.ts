@@ -26,7 +26,10 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
   }) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw(Prisma.sql`
-        SELECT pg_advisory_xact_lock(hashtextextended(${input.organizationId}, 0::bigint))
+        -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${`kiditem.master-product-abc:${input.organizationId}`}, 0::bigint)
+        )::text AS "lock"
       `);
       const persistedPolicy = await tx.masterProductAbcPolicy.findUnique({
         where: { organizationId: input.organizationId },
@@ -100,7 +103,12 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
 }
 
 function samePolicyConfig(
-  persisted: Pick<MasterProductAbcPolicyRecord, 'metric' | 'periodDays' | 'aCumulativeThreshold' | 'bCumulativeThreshold'>,
+  persisted: {
+    metric: string;
+    periodDays: number;
+    aCumulativeThreshold: number;
+    bCumulativeThreshold: number;
+  },
   candidate: MasterProductAbcPolicyRecord,
 ): boolean {
   return persisted.metric === candidate.metric

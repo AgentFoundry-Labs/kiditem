@@ -278,12 +278,9 @@ function summarizeProducts(
   products: Array<ReturnType<typeof mapProductOperationsListItem>>,
 ): ProductOperationsListSummary {
   return products.reduce<ProductOperationsListSummary>((counts, product) => {
-    if (
-      product.abcGrade === 'A'
-      || product.abcGrade === 'B'
-      || product.abcGrade === 'C'
-    ) {
-      counts.abcGradeCounts[product.abcGrade] += 1;
+    const abcGrade = product.abcGrade;
+    if (abcGrade === 'A' || abcGrade === 'B' || abcGrade === 'C') {
+      counts.abcGradeCounts[abcGrade] += 1;
     }
     counts.channelConnectionCounts[
       product.channelCount > 0 ? 'connected' : 'unconnected'

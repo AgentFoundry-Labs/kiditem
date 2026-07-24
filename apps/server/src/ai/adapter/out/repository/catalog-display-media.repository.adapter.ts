@@ -68,7 +68,8 @@ export class CatalogDisplayMediaRepositoryAdapter
     });
 
     return workspaces.flatMap((workspace) => {
-      if (!workspace.channelListingId) return [];
+      const channelListingId = workspace.channelListingId;
+      if (!channelListingId) return [];
       return workspace.contentGenerationGroups.flatMap((group) =>
         group.originatingAssets.flatMap((asset): CatalogDisplayMediaCandidate[] => {
           const metadata = record(asset.metadata);
@@ -80,7 +81,7 @@ export class CatalogDisplayMediaRepositoryAdapter
           ) return [];
           return [{
             id: asset.id,
-            channelListingId: workspace.channelListingId,
+            channelListingId,
             url: asset.url,
             role: asset.role,
             sortOrder: asset.sortOrder,
