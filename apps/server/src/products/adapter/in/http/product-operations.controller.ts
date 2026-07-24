@@ -108,4 +108,21 @@ export class ProductOperationsController {
       body,
     );
   }
+
+  @Post('variant-recipes/create-if-empty/plan')
+  planRecipesIfEmpty(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.recipes.planCreateIfEmpty(organizationId, body);
+  }
+
+  @Post('variant-recipes/create-if-empty')
+  createRecipesIfEmpty(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: unknown,
+  ) {
+    return this.recipes.createIfEmpty(organizationId, user.id, body);
+  }
 }

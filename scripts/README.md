@@ -49,6 +49,7 @@ npm run test:scripts
 | `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
 | `scripts/storage-cache-control.ts` | Supabase/S3 Storage cache-control inspection and staging backfill helper for public immutable image assets | `npm run storage:cache-control`, `docs/runbooks/storage-cache-control.md` |
 | `scripts/sync-supabase-user.ts` | Supabase auth mirror helper | `docs/runbooks/auth-supabase.md` |
+| `scripts/transfer-channel-recipes.ts` | exports confirmed local channel recipes to a stable-identity artifact and plans/applies create-if-empty manual recipes through authenticated local or staging APIs | `npm run recipes:transfer`, `docs/runbooks/channel-recipe-transfer.md` |
 
 ## Support Files
 
@@ -57,6 +58,7 @@ npm run test:scripts
 | `scripts/.shared-interface-names-baseline.txt` | existing exported Zod contracts not yet renamed to `FooSchema` |
 | `scripts/.shared-root-imports-baseline.txt` | baseline for `check-shared-root-imports.sh` |
 | `scripts/.tenant-scope-allowlist.txt` | narrow false-positive allowlist for `check-tenant-scope.sh` |
+| `scripts/channel-recipe-mappings/` | explicitly reviewed, shareable channel external ID → Sellpia SKU/quantity datasets; never contains organization/account UUIDs, credentials, names, prices, stock, or raw payloads |
 | `scripts/vitest.config.ts` | isolated Vitest config for script helper tests |
 | `scripts/__tests__/` | tests for script helpers and runbook automation |
 

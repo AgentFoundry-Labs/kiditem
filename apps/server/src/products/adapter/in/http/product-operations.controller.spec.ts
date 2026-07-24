@@ -35,4 +35,27 @@ describe('ProductOperationsController', () => {
     expect(conflict.getStatus()).toBe(409);
     expect(conflict.getResponse()).toMatchObject({ currentRecipe: [{ id: 'component-1' }] });
   });
+
+  it('forwards an authenticated create-if-empty recipe batch', async () => {
+    const recipes = {
+      planCreateIfEmpty: vi.fn().mockResolvedValue({
+        pendingProductVariantIds: [],
+        unchangedProductVariantIds: [],
+      }),
+      createIfEmpty: vi.fn().mockResolvedValue({
+        appliedProductVariantIds: [],
+        unchangedProductVariantIds: [],
+      }),
+    };
+    const controller = new ProductOperationsController({} as never, recipes as never, {} as never);
+    const organizationId = '00000000-0000-4000-8000-000000000001';
+    const user = { id: '00000000-0000-4000-8000-000000000002' };
+    const body = { recipes: [] };
+
+    await controller.planRecipesIfEmpty(organizationId, body);
+    await controller.createRecipesIfEmpty(organizationId, user as never, body);
+
+    expect(recipes.planCreateIfEmpty).toHaveBeenCalledWith(organizationId, body);
+    expect(recipes.createIfEmpty).toHaveBeenCalledWith(organizationId, user.id, body);
+  });
 });

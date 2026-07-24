@@ -88,18 +88,23 @@ implements RocketFinalOrderReconciliationTransactionPort {
           'The Rocket workbook line is already linked to a different collected order line.',
         );
       }
-      await tx.rocketPurchaseConfirmationLine.update({
+      const updated = await tx.rocketPurchaseConfirmationLine.updateMany({
         where: {
-          id_organizationId: {
-            id: match.id,
-            organizationId: input.organizationId,
-          },
+          id: match.id,
+          organizationId: input.organizationId,
         },
         data: {
           collectedOrderLineItemId: line.finalOrderLineId,
           collectedAt: match.collectedOrderLineItemId ? undefined : new Date(),
         },
       });
+      if (updated.count !== 1) {
+        throw new AppException(
+          409,
+          'ROCKET_WORKBOOK_LINE_CHANGED',
+          'The matched Rocket workbook line changed before reconciliation.',
+        );
+      }
       matchedExportIds.add(match.confirmationId);
       reconciledRows += 1;
     }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CreateMasterProductInputSchema,
+  CreateProductVariantRecipesIfEmptyInputSchema,
   CreateProductVariantInputSchema,
   MasterProductOperationsDetailSchema,
   MasterProductOperationsListItemSchema,
@@ -348,6 +349,43 @@ describe('product operations contracts', () => {
         confirmedBy: null,
         confirmedAt: 'not-a-date',
       }],
+    })).toThrow();
+  });
+
+  it('bounds create-if-empty recipe imports and rejects duplicate variants', () => {
+    const secondVariantId = '00000000-0000-4000-8000-000000000004';
+    expect(CreateProductVariantRecipesIfEmptyInputSchema.parse({
+      recipes: [
+        {
+          productVariantId: variantId,
+          components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
+        },
+        {
+          productVariantId: secondVariantId,
+          components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
+        },
+      ],
+    }).recipes).toHaveLength(2);
+    expect(() => CreateProductVariantRecipesIfEmptyInputSchema.parse({
+      recipes: [{ productVariantId: variantId, components: [] }],
+    })).toThrow();
+    expect(() => CreateProductVariantRecipesIfEmptyInputSchema.parse({
+      recipes: [
+        {
+          productVariantId: variantId,
+          components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
+        },
+        {
+          productVariantId: variantId,
+          components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
+        },
+      ],
+    })).toThrow(/distinct ProductVariant/);
+    expect(() => CreateProductVariantRecipesIfEmptyInputSchema.parse({
+      recipes: Array.from({ length: 101 }, (_, index) => ({
+        productVariantId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
+      })),
     })).toThrow();
   });
 });

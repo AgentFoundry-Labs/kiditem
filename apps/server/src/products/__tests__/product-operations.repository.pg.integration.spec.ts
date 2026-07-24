@@ -360,6 +360,81 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   });
 
+  it('creates reviewed manual recipe batches only when variants are empty and remains idempotent', async () => {
+    const skuA = await inventorySku('SP-BATCH-A', 8);
+    const skuB = await inventorySku('SP-BATCH-B', 8);
+    const first = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'KI-BATCH-A', name: 'Batch A',
+    });
+    const second = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'KI-BATCH-B', name: 'Batch B',
+    });
+    const recipes = [{
+      productVariantId: first.variants[0]!.id,
+      components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }],
+    }, {
+      productVariantId: second.variants[0]!.id,
+      components: [{ sellpiaInventorySkuId: skuB.id, quantity: 2 }],
+    }];
+
+    await expect(service.planRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      { recipes },
+    )).resolves.toEqual({
+      pendingProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
+      unchangedProductVariantIds: [],
+    });
+
+    await expect(service.createRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { recipes },
+    )).resolves.toEqual({
+      appliedProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
+      unchangedProductVariantIds: [],
+    });
+    await expect(service.createRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { recipes },
+    )).resolves.toEqual({
+      appliedProductVariantIds: [],
+      unchangedProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
+    });
+    await expect(service.planRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      { recipes },
+    )).resolves.toEqual({
+      pendingProductVariantIds: [],
+      unchangedProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
+    });
+    expect(await prisma.productVariantComponent.findMany({
+      where: { productVariantId: { in: recipes.map(({ productVariantId }) => productVariantId) } },
+      select: { source: true, confirmedBy: true },
+    })).toEqual([
+      { source: 'manual', confirmedBy: TEST_USER_ID },
+      { source: 'manual', confirmedBy: TEST_USER_ID },
+    ]);
+
+    const third = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'KI-BATCH-C', name: 'Batch C',
+    });
+    await expect(service.createRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { recipes: [{
+        productVariantId: first.variants[0]!.id,
+        components: [{ sellpiaInventorySkuId: skuB.id, quantity: 1 }],
+      }, {
+        productVariantId: third.variants[0]!.id,
+        components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }],
+      }] },
+    )).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.productVariantComponent.count({
+      where: { productVariantId: third.variants[0]!.id },
+    })).toBe(0);
+  });
+
   it('serializes competing full recipe replacements without merging component sets', async () => {
     const skuA = await inventorySku('SP-RACE-A', 9);
     const skuB = await inventorySku('SP-RACE-B', 12);

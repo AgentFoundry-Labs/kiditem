@@ -11,6 +11,8 @@ compatibility CRUD. It never owns physical stock.
 - `/api/products/masters` product-operations list/detail and metadata mutations
 - product variant create/update capabilities
 - complete `ProductVariantComponent` recipe replacement
+- reviewed manual recipe batch plan/create-if-empty capabilities for private
+  stable-identity environment transfers
 - create-if-empty deterministic recipe capability consumed by Channels after a
   version-fenced, explicitly confirmed preview
 - transaction-aware channel-origin `MasterProduct` / `ProductVariant`
@@ -38,8 +40,10 @@ compatibility CRUD. It never owns physical stock.
 - Do not add physical stock, source price/barcode/raw import fields, or direct
   Inventory writers to `MasterProduct`.
 - Manual recipe writes replace the complete `ProductVariantComponent` set and
-  validate positive quantities and tenant ownership. The only automatic writer
-  is the locked create-if-empty capability: it accepts one active,
+  validate positive quantities and tenant ownership. An explicitly reviewed
+  manual batch may plan or create exact recipes only for empty variants;
+  identical recipes are idempotent and different recipes conflict. The only
+  automatic writer is the locked create-if-empty capability: it accepts one active,
   organization-owned Sellpia component with a positive integer quantity, marks its source
   deterministic, and preserves every existing recipe. Channels may invoke it
   only from a matching version-fenced preview based on a unique,

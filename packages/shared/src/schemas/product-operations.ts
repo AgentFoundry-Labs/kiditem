@@ -424,3 +424,48 @@ export const ReplaceProductVariantRecipeInputSchema = z.object({
 export type ReplaceProductVariantRecipeInput = z.infer<
   typeof ReplaceProductVariantRecipeInputSchema
 >;
+
+export const MAX_CREATE_IF_EMPTY_PRODUCT_VARIANT_RECIPES = 100;
+
+const CreateProductVariantRecipeIfEmptySchema = z.object({
+  productVariantId: z.string().uuid(),
+  components: z.array(ProductVariantRecipeComponentInputSchema).min(1).max(50),
+}).strict().superRefine(rejectDuplicateRecipeComponents);
+
+export const CreateProductVariantRecipesIfEmptyInputSchema = z.object({
+  recipes: z.array(CreateProductVariantRecipeIfEmptySchema)
+    .min(1)
+    .max(MAX_CREATE_IF_EMPTY_PRODUCT_VARIANT_RECIPES),
+}).strict().superRefine((value, context) => {
+  const seen = new Set<string>();
+  value.recipes.forEach((recipe, index) => {
+    const key = recipe.productVariantId.toLowerCase();
+    if (seen.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['recipes', index, 'productVariantId'],
+        message: 'recipes must target distinct ProductVariants',
+      });
+    }
+    seen.add(key);
+  });
+});
+export type CreateProductVariantRecipesIfEmptyInput = z.infer<
+  typeof CreateProductVariantRecipesIfEmptyInputSchema
+>;
+
+export const PlanProductVariantRecipesIfEmptyResponseSchema = z.object({
+  pendingProductVariantIds: z.array(z.string().uuid()),
+  unchangedProductVariantIds: z.array(z.string().uuid()),
+}).strict();
+export type PlanProductVariantRecipesIfEmptyResponse = z.infer<
+  typeof PlanProductVariantRecipesIfEmptyResponseSchema
+>;
+
+export const CreateProductVariantRecipesIfEmptyResponseSchema = z.object({
+  appliedProductVariantIds: z.array(z.string().uuid()),
+  unchangedProductVariantIds: z.array(z.string().uuid()),
+}).strict();
+export type CreateProductVariantRecipesIfEmptyResponse = z.infer<
+  typeof CreateProductVariantRecipesIfEmptyResponseSchema
+>;

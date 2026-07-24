@@ -1,6 +1,8 @@
 import type {
   CreateMasterProductInput,
   CreateProductVariantInput,
+  CreateProductVariantRecipesIfEmptyInput,
+  CreateProductVariantRecipesIfEmptyResponse,
   MasterProductOperationsDetail,
   MasterProductOperationsListItem,
   MasterProductOperationsListQuery,
@@ -9,6 +11,7 @@ import type {
   ProductVariantComponentDetail,
   ReplaceProductVariantRecipeInput,
   ProductVariantRecipeComponentInput,
+  PlanProductVariantRecipesIfEmptyResponse,
   UpdateMasterProductInput,
   UpdateProductVariantInput,
 } from '@kiditem/shared/product-operations';
@@ -71,6 +74,15 @@ export const PRODUCT_OPERATIONS_REPOSITORY_PORT = Symbol(
 );
 
 export interface ProductOperationsRepositoryPort {
+  planManualRecipesIfEmpty(input: {
+    organizationId: string;
+    recipes: CreateProductVariantRecipesIfEmptyInput['recipes'];
+  }): Promise<PlanProductVariantRecipesIfEmptyResponse>;
+  createManualRecipesIfEmpty(input: {
+    organizationId: string;
+    userId: string;
+    recipes: CreateProductVariantRecipesIfEmptyInput['recipes'];
+  }): Promise<CreateProductVariantRecipesIfEmptyResponse>;
   applyDeterministicRecipesIfEmpty(input: {
     organizationId: string;
     recipes: DeterministicVariantRecipeInput[];

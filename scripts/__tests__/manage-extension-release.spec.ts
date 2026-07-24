@@ -9,6 +9,19 @@ const repoRoot = process.cwd();
 const scriptPath = join(repoRoot, "scripts/manage-extension-release.mjs");
 const temporaryDirectories: string[] = [];
 
+function extensionVersion(extension: string): string {
+  const manifest = JSON.parse(
+    readFileSync(
+      join(repoRoot, "extensions", extension, "manifest.json"),
+      "utf8",
+    ),
+  ) as { version?: unknown };
+  if (typeof manifest.version !== "string") {
+    throw new Error(`${extension} manifest version is missing`);
+  }
+  return manifest.version;
+}
+
 function temporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), "kiditem-extension-release-"));
   temporaryDirectories.push(directory);
@@ -23,6 +36,7 @@ afterEach(() => {
 
 describe("manual extension release management", () => {
   it("packages a reproducible staging-targeted release from its manifest version", async () => {
+    const version = extensionVersion("order-collector");
     const outputDirectory = temporaryDirectory();
     const result = spawnSync(
       process.execPath,
@@ -48,10 +62,10 @@ describe("manual extension release management", () => {
     const releaseDirectory = join(
       outputDirectory,
       "order-collector",
-      "0.1.80",
+      version,
       "staging",
     );
-    const assetBase = "kiditem-order-collector-v0.1.80-staging";
+    const assetBase = `kiditem-order-collector-v${version}-staging`;
     const archivePath = join(releaseDirectory, `${assetBase}.zip`);
     const checksumPath = join(releaseDirectory, `${assetBase}.zip.sha256`);
     const metadataPath = join(releaseDirectory, `${assetBase}.release.json`);
@@ -67,7 +81,7 @@ describe("manual extension release management", () => {
     );
 
     const manifest = JSON.parse(readFileSync(unpackedManifestPath, "utf8"));
-    expect(manifest.version).toBe("0.1.80");
+    expect(manifest.version).toBe(version);
     expect(manifest.externally_connectable.matches).toEqual([
       "https://staging.example.com/*",
     ]);
@@ -86,11 +100,11 @@ describe("manual extension release management", () => {
     expect(metadata).toMatchObject({
       schemaVersion: "kiditem.extension.release.v1",
       extension: "order-collector",
-      manifestVersion: "0.1.80",
+      manifestVersion: version,
       target: "staging",
       webOrigin: "https://staging.example.com",
       apiOrigin: "https://staging.example.com",
-      tag: "extension-order-collector-v0.1.80-staging",
+      tag: `extension-order-collector-v${version}-staging`,
       archive: {
         fileName: `${assetBase}.zip`,
         sha256: checksum,
@@ -123,7 +137,7 @@ describe("manual extension release management", () => {
       join(
         repeatedOutputDirectory,
         "order-collector",
-        "0.1.80",
+        version,
         "staging",
         `${assetBase}.zip`,
       ),
@@ -134,6 +148,7 @@ describe("manual extension release management", () => {
   });
 
   it("prepares a draft GitHub Release command bound to the packaged tag and git SHA", () => {
+    const version = extensionVersion("coupang-ads-scraper");
     const outputDirectory = temporaryDirectory();
     const result = spawnSync(
       process.execPath,
@@ -162,7 +177,7 @@ describe("manual extension release management", () => {
         join(
           outputDirectory,
           "coupang-ads-scraper",
-          "1.2.69",
+          version,
           "staging",
           "unpacked",
           "manifest.json",
@@ -178,7 +193,7 @@ describe("manual extension release management", () => {
         join(
           outputDirectory,
           "coupang-ads-scraper",
-          "1.2.69",
+          version,
           "staging",
           "unpacked",
           "popup",
@@ -189,7 +204,7 @@ describe("manual extension release management", () => {
     ).not.toContain("localhost:4000");
     const output = JSON.parse(result.stdout);
     expect(output.metadata.tag).toBe(
-      "extension-coupang-ads-scraper-v1.2.69-staging",
+      `extension-coupang-ads-scraper-v${version}-staging`,
     );
     expect(output.release).toMatchObject({
       dryRun: true,
@@ -214,6 +229,7 @@ describe("manual extension release management", () => {
   });
 
   it("keeps distinct web and API origins separate during packaging", () => {
+    const version = extensionVersion("product-scraper");
     const outputDirectory = temporaryDirectory();
     const result = spawnSync(
       process.execPath,
@@ -239,7 +255,7 @@ describe("manual extension release management", () => {
       join(
         outputDirectory,
         "product-scraper",
-        "2.2.3",
+        version,
         "staging",
         "unpacked",
         "background.js",
