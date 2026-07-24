@@ -20,6 +20,9 @@ const draft = {
     stock: 100,
   },
   channelAccountId: '11111111-1111-4111-8111-111111111111',
+  channelAccounts: [
+    { id: '11111111-1111-4111-8111-111111111111', name: 'Wing A' },
+  ],
   registrationInput: {},
 } satisfies WingRegistrationDraft;
 
@@ -50,6 +53,39 @@ describe('WingRegistrationConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledWith(
       expect.objectContaining({ categoryKey: '64687' }),
       false,
+      '11111111-1111-4111-8111-111111111111',
+    );
+  });
+
+  it('requires an explicit account selection when multiple WING accounts are available', () => {
+    const onConfirm = vi.fn();
+    render(
+      <WingRegistrationConfirmDialog
+        draft={{
+          ...draft,
+          channelAccountId: '',
+          channelAccounts: [
+            { id: '11111111-1111-4111-8111-111111111111', name: 'Wing A' },
+            { id: '22222222-2222-4222-8222-222222222222', name: 'Wing B' },
+          ],
+        }}
+        isSubmitting={false}
+        onCancel={() => {}}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    const confirm = screen.getByRole('button', { name: '확인하고 WING 등록 시작' });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('쿠팡 WING 계정'), {
+      target: { value: '22222222-2222-4222-8222-222222222222' },
+    });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.any(Object),
+      false,
+      '22222222-2222-4222-8222-222222222222',
     );
   });
 

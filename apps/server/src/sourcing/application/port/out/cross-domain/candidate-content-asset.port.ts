@@ -27,6 +27,13 @@ export interface CandidateCurrentThumbnail {
 }
 
 export interface CandidateContentAssetPort {
+  loadRegistrationMedia(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<{
+    registrationImages: CandidateRegistrationImages;
+    currentThumbnail: CandidateCurrentThumbnail | null;
+  }>;
   listRegistrationImages(input: {
     organizationId: string;
     sourceCandidateId: string;

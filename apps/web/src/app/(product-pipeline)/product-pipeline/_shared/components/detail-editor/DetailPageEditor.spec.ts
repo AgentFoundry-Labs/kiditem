@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import grapesjs from 'grapesjs';
 import { DETAIL_TEMPLATE_STYLES_ATTR } from '../../lib/template-html';
-import {
-  registerEditableTableCellType,
-  repairPackageImageFramesInDocument,
-  sanitizePersistedHead,
-} from './DetailPageEditor';
+import { repairPackageImageFramesInDocument, sanitizePersistedHead } from './DetailPageEditor';
+import { registerEditableTableCellType } from './lib/editor-text-types';
 
 const CANONICAL_TEMPLATE_CSS = `/*! tailwindcss v4.2.2 */
 .brightness-\\[0\\.7\\] { filter: brightness(0.7); }
@@ -86,6 +83,10 @@ describe('detail editor persisted HTML', () => {
         typeof editor.DomComponents.getType('cell')?.view.prototype.onActive,
       ).toBe('function');
 
+      // RTE가 저장하는 것과 같은 component 콘텐츠 경로로 셀 내용을 수정한다.
+      // 셀 타입/태그/드래그 제약이 그대로 유지되어야 한다.
+      cells[1]?.components('수정된 제품명');
+
       const row = editor.getWrapper()?.findType('row')[0];
       expect(row).toBeDefined();
       row?.append({ type: 'cell', components: '재질' });
@@ -101,7 +102,7 @@ describe('detail editor persisted HTML', () => {
       expect(persistedRow?.querySelector('div')).toBeNull();
       expect(
         Array.from(persistedRow?.children ?? []).map((cell) => cell.textContent),
-      ).toEqual(['항목', '제품명', '재질']);
+      ).toEqual(['항목', '수정된 제품명', '재질']);
     } finally {
       editor.destroy();
       container.remove();

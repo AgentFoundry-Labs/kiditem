@@ -73,6 +73,7 @@ export type TrendExtensionErrorCode =
   | 'extension_reload_required'
   | 'verification_required'
   | 'collection_failed'
+  | 'collection_aborted'
   | 'collection_timeout';
 
 export class TrendExtensionError extends Error {
@@ -96,7 +97,9 @@ export interface Chrome1688TrendCollectionResult {
 export async function collect1688TrendsFromChrome(
   keywords: readonly string[],
   onRunStarted?: (runId: string) => void,
+  signal?: AbortSignal,
 ): Promise<Chrome1688TrendCollectionResult> {
+  throwIfAborted(signal);
   const normalizedKeywords = Array.from(
     new Set(keywords.map((keyword) => keyword.trim()).filter(Boolean)),
   ).slice(0, 20);
@@ -158,11 +161,13 @@ export async function collect1688TrendsFromChrome(
   let lastKeywordTotal = normalizedKeywords.length;
 
   while (Date.now() < hardDeadline && Date.now() < stallDeadline) {
+    throwIfAborted(signal, started.runId);
     const status = await sendToExtension<ExtensionResponse>(
       extensionId,
       { action: 'get1688TrendCollectionStatus', runId: started.runId },
       EXTENSION_REQUEST_TIMEOUT_MS,
     );
+    throwIfAborted(signal, started.runId);
 
     if (status.status === 'completed') {
       return {
@@ -208,7 +213,7 @@ export async function collect1688TrendsFromChrome(
       }
     }
 
-    await wait(STATUS_POLL_INTERVAL_MS);
+    await wait(STATUS_POLL_INTERVAL_MS, signal, started.runId);
   }
 
   await sendToExtension<ExtensionResponse>(
@@ -250,6 +255,30 @@ function normalizeCollectionErrors(
     .filter((item) => item.keyword.length > 0 && item.message.length > 0);
 }
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+function throwIfAborted(signal?: AbortSignal, runId: string | null = null): void {
+  if (!signal?.aborted) return;
+  throw new TrendExtensionError(
+    'collection_aborted',
+    '웹의 상태 관찰을 종료했습니다. Chrome 확장의 수집은 계속 진행됩니다.',
+    runId,
+  );
+}
+
+function wait(ms: number, signal?: AbortSignal, runId: string | null = null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', onAbort);
+      reject(new TrendExtensionError(
+        'collection_aborted',
+        '웹의 상태 관찰을 종료했습니다. Chrome 확장의 수집은 계속 진행됩니다.',
+        runId,
+      ));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }

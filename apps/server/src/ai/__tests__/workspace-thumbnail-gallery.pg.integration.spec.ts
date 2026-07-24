@@ -259,10 +259,14 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     // 그룹 소유(=A) 기준 자산 스캔은 B 에서 재사용 자산을 놓친다.
     await expect(galleryThumbnails(duplicate.candidateId)).resolves.toEqual([]);
     // 현재 선택만 재사용분으로 잡고, append-only 과거 선택은 되살리지 않는다.
-    await expect(adapter.listCandidateSelectedThumbnailUrls({
+    await expect(adapter.findCandidateCurrentThumbnail({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: duplicate.candidateId,
-    })).resolves.toEqual(['https://cdn.example.com/reused-thumb.png']);
+    })).resolves.toEqual({
+      url: 'https://cdn.example.com/reused-thumb.png',
+      sourceThumbnailGenerationId: null,
+      sourceThumbnailCandidateId: null,
+    });
     expect(historicalSelection.id).not.toBe(currentSelection.id);
   });
 

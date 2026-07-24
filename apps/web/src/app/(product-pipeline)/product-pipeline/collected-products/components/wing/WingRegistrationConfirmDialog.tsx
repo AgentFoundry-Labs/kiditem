@@ -34,10 +34,15 @@ export default function WingRegistrationConfirmDialog({
   isSubmitting: boolean;
   completion?: { suggestedExternalListingId?: string | null } | null;
   onCancel: () => void;
-  onConfirm: (overrides: WingRegistrationOverrides, autoSubmit: boolean) => void;
+  onConfirm: (
+    overrides: WingRegistrationOverrides,
+    autoSubmit: boolean,
+    channelAccountId: string,
+  ) => void;
   onConfirmExternal?: (externalListingId: string) => void;
 }) {
   const [overrides, setOverrides] = useState<WingRegistrationOverrides | null>(null);
+  const [channelAccountId, setChannelAccountId] = useState('');
   const [externalListingId, setExternalListingId] = useState('');
   // ⚠️ 기본값은 반드시 OFF. 켜야만 확장이 WING 의 '상품등록' 버튼까지 누른다.
   const [autoSubmit, setAutoSubmit] = useState(false);
@@ -48,6 +53,7 @@ export default function WingRegistrationConfirmDialog({
   // 확인 없이 쿠팡에 등록되는 사고가 난다.
   useEffect(() => {
     setOverrides(draft ? { ...draft.overrides } : null);
+    setChannelAccountId(draft?.channelAccountId ?? '');
     setAutoSubmit(false);
   }, [draft]);
 
@@ -130,7 +136,10 @@ export default function WingRegistrationConfirmDialog({
     );
   }
 
-  const errors = validateWingRegistrationOverrides(overrides);
+  const errors = [
+    ...validateWingRegistrationOverrides(overrides),
+    ...(!channelAccountId ? ['쿠팡 WING 계정을 선택하세요.'] : []),
+  ];
   const nameLength = overrides.productName.trim().length;
   const nameOverLimit = nameLength > WING_DISPLAY_NAME_MAX;
   const patch = (next: Partial<WingRegistrationOverrides>) =>
@@ -172,6 +181,25 @@ export default function WingRegistrationConfirmDialog({
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <Field
+            label="쿠팡 WING 계정"
+            hint="실제 등록 및 등록상품 확인에 사용할 판매자 계정입니다."
+          >
+            <select
+              aria-label="쿠팡 WING 계정"
+              value={channelAccountId}
+              onChange={(event) => setChannelAccountId(event.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400"
+            >
+              <option value="">계정을 선택하세요</option>
+              {(draft.channelAccounts ?? []).map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
           <Field
             label="WING 카테고리"
             hint="KidItem에서 사용하는 고정 카테고리 목록입니다. 카테고리 변경은 옵션·고시정보를 바꾸지 않습니다."
@@ -338,7 +366,7 @@ export default function WingRegistrationConfirmDialog({
             </button>
             <button
               type="button"
-              onClick={() => onConfirm(overrides, autoSubmit)}
+              onClick={() => onConfirm(overrides, autoSubmit, channelAccountId)}
               disabled={isSubmitting || errors.length > 0}
               className={cn(
                 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-50',

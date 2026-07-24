@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { sendToExtension } from '@/lib/extension-bridge';
+import { apiClient } from '@/lib/api-client';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import {
   applyWingRegistrationOverrides,
   buildWingDisplayName,
   buildWingRegistrationOverrides,
   candidateToWingProduct,
   isConfirmedWingRegistration,
+  prepareWingRegistration,
   requireRenderedDetailImage,
   resolveWingCategoryKey,
   resolveWingCategorySelections,
@@ -17,19 +19,28 @@ import {
   WING_FORM_FILL_TIMEOUT_MS,
 } from './wing-registration-flow';
 import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
-import { candidatesApi } from './sourcing-api';
+import { candidatesApi, productsApi } from './sourcing-api';
+import { renderCandidateDetailImage } from './detail-page-image-api';
 import type { WingProduct } from './wing-registration-excel';
 
 vi.mock('@/lib/extension-bridge', () => ({
-  detectExtensionId: vi.fn(),
+  detectExtensionId: vi.fn().mockResolvedValue('extension-1'),
   isChromeExtensionRuntimeAvailable: vi.fn(() => true),
   sendToExtension: vi.fn(),
+}));
+
+vi.mock('./detail-page-image-api', () => ({
+  renderCandidateDetailImage: vi.fn(),
 }));
 
 vi.mock('./sourcing-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./sourcing-api')>();
   return {
     ...actual,
+    productsApi: {
+      ...actual.productsApi,
+      getDetail: vi.fn(),
+    },
     candidatesApi: {
       ...actual.candidatesApi,
       prepareExternalWingRegistration: vi.fn().mockResolvedValue({
@@ -46,6 +57,9 @@ beforeEach(() => {
   vi.mocked(candidatesApi.prepareExternalWingRegistration).mockClear();
   vi.mocked(candidatesApi.startExternalWingRegistration).mockClear();
   vi.mocked(candidatesApi.markExternalWingRegistrationUnresolved).mockClear();
+  vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
+  vi.mocked(productsApi.getDetail).mockReset();
+  vi.mocked(renderCandidateDetailImage).mockReset();
 });
 
 const SOURCE_IMAGE = 'https://cbu01.alicdn.com/img/original-source.jpg';
@@ -108,6 +122,54 @@ describe('direct WING form handoff', () => {
         message: '저장된 상세페이지가 없습니다.',
       }),
     ).toThrow(/저장한 상세페이지가 준비된 상품만/);
+  });
+});
+
+describe('direct WING account selection', () => {
+  const renderedDetail = {
+    status: 'rendered' as const,
+    imageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
+    outputWidth: 780,
+    contentType: 'image/jpeg',
+    byteLength: 100,
+    revisionId: 'revision-1',
+    artifactId: 'artifact-1',
+  };
+
+  it('uses the account already bound to the product preparation regardless of list order', async () => {
+    const prepared = detail(basics());
+    prepared.productPreparation = {
+      id: '44444444-4444-4444-8444-444444444444',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      registrationInput: {},
+    } as ProductDetailResponse['productPreparation'];
+    vi.mocked(productsApi.getDetail).mockResolvedValue(prepared);
+    vi.mocked(renderCandidateDetailImage).mockResolvedValue(renderedDetail);
+    vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
+      { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
+      { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
+    ]);
+
+    const draft = await prepareWingRegistration('candidate-1');
+
+    expect(draft.channelAccountId).toBe('11111111-1111-4111-8111-111111111111');
+  });
+
+  it('requires an explicit choice when an unprepared product has multiple Coupang accounts', async () => {
+    vi.mocked(productsApi.getDetail).mockResolvedValue(detail(basics()));
+    vi.mocked(renderCandidateDetailImage).mockResolvedValue(renderedDetail);
+    vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
+      { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
+      { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
+    ]);
+
+    const draft = await prepareWingRegistration('candidate-1');
+
+    expect(draft.channelAccountId).toBe('');
+    expect(draft.channelAccounts.map((account) => account.id)).toEqual([
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+    ]);
   });
 });
 
@@ -697,6 +759,23 @@ describe('external WING pre-intent choreography', () => {
     expect(candidatesApi.prepareExternalWingRegistration).toHaveBeenNthCalledWith(
       2, 'candidate-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
     );
+  });
+
+  it('rotates the modal idempotency key when the canonical payload changes', async () => {
+    vi.mocked(sendToExtension).mockResolvedValue({
+      ok: true,
+      submission: { attempted: false },
+    });
+
+    await submitWingRegistration(draft, draft.overrides, false);
+    await submitWingRegistration(draft, {
+      ...draft.overrides,
+      productName: '사용자가 수정한 노출상품명',
+    }, false);
+
+    const firstKey = vi.mocked(candidatesApi.prepareExternalWingRegistration).mock.calls[0]?.[1].idempotencyKey;
+    const secondKey = vi.mocked(candidatesApi.prepareExternalWingRegistration).mock.calls[1]?.[1].idempotencyKey;
+    expect(secondKey).not.toBe(firstKey);
   });
 });
 

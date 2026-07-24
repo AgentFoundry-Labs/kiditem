@@ -814,6 +814,85 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     })).resolves.toMatchObject({ status: 'succeeded', listingId: completed.listingId });
   });
 
+  it('does not downgrade provider success when an unresolved report was waiting on the execution lock', async () => {
+    const prepared = await repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+    await repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+
+    let releaseSuccessWriter!: () => void;
+    let reportExecutionLocked!: () => void;
+    const successWriterRelease = new Promise<void>((resolve) => {
+      releaseSuccessWriter = resolve;
+    });
+    const executionLocked = new Promise<void>((resolve) => {
+      reportExecutionLocked = resolve;
+    });
+    const successWriter = prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw(Prisma.sql`
+        SELECT id
+        FROM product_registration_executions
+        WHERE id = ${prepared.executionId}::uuid
+          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `);
+      reportExecutionLocked();
+      await successWriterRelease;
+      await transaction.productRegistrationExecution.update({
+        where: { id: prepared.executionId },
+        data: {
+          status: 'executing',
+          providerOutcome: 'succeeded',
+          providerSubmissionId: '427011919',
+          externalListingId: '427011919',
+          resultJson: { source: 'wing' },
+        },
+      });
+    });
+    await executionLocked;
+
+    const unresolved = repository.markExternalExecutionUnresolved({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      evidence: { reason: 'late_browser_timeout' },
+    });
+    const observation = await Promise.race([
+      unresolved.then(() => 'settled' as const, () => 'settled' as const),
+      new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 100)),
+    ]);
+    expect(observation).toBe('blocked');
+
+    releaseSuccessWriter();
+    await successWriter;
+    await expect(unresolved).resolves.toMatchObject({
+      status: 'executing',
+      providerOutcome: 'succeeded',
+    });
+    await expect(repository.getExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).resolves.toMatchObject({
+      status: 'executing',
+      providerOutcome: 'succeeded',
+      listingId: null,
+    });
+  });
+
   it('replays a concurrent same-hash external preparation after the candidate lock', async () => {
     const idempotencyKey = randomUUID();
     const input = {

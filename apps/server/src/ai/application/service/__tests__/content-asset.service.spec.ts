@@ -18,7 +18,7 @@ function repository(
     syncGenerationImageUsagesInScope: vi.fn(),
     listAssets: vi.fn(),
     listCandidateAssets: vi.fn().mockResolvedValue([]),
-    listCandidateSelectedThumbnailUrls: vi.fn().mockResolvedValue([]),
+    findCandidateCurrentThumbnail: vi.fn().mockResolvedValue(null),
     replaceWorkspaceThumbnailGallery: vi.fn(async (input: { urls: string[] }) => ({
       urls: input.urls,
     })),
@@ -95,9 +95,11 @@ describe('ContentAssetService.listRegistrationImages', () => {
       listCandidateAssets: vi.fn().mockResolvedValue([
         { role: 'thumbnail', url: 'http://localhost:9000/a/gallery.png', sortOrder: 0 },
       ]),
-      listCandidateSelectedThumbnailUrls: vi.fn().mockResolvedValue([
-        'http://localhost:9000/reused/from-other-workspace.png',
-      ]),
+      findCandidateCurrentThumbnail: vi.fn().mockResolvedValue({
+        url: 'http://localhost:9000/reused/from-other-workspace.png',
+        sourceThumbnailGenerationId: null,
+        sourceThumbnailCandidateId: null,
+      }),
     });
     const service = new ContentAssetService(repo);
 
@@ -111,6 +113,37 @@ describe('ContentAssetService.listRegistrationImages', () => {
       ],
       detail: [],
     });
+  });
+
+  it('returns registration images and the exact same current selection from one media read', async () => {
+    const currentThumbnail = {
+      url: 'http://localhost:9000/reused/current.png',
+      sourceThumbnailGenerationId: 'generation-1',
+      sourceThumbnailCandidateId: 'candidate-thumb-1',
+    };
+    const repo = repository({
+      listCandidateAssets: vi.fn().mockResolvedValue([
+        { role: 'thumbnail', url: 'http://localhost:9000/a/gallery.png', sortOrder: 0 },
+      ]),
+      findCandidateCurrentThumbnail: vi.fn().mockResolvedValue(currentThumbnail),
+    });
+    const service = new ContentAssetService(repo);
+
+    await expect(service.loadRegistrationMedia({
+      organizationId: ORG,
+      sourceCandidateId: CANDIDATE,
+    })).resolves.toEqual({
+      registrationImages: {
+        primary: [],
+        thumbnail: [
+          'http://localhost:9000/a/gallery.png',
+          'http://localhost:9000/reused/current.png',
+        ],
+        detail: [],
+      },
+      currentThumbnail,
+    });
+    expect(repo.findCandidateCurrentThumbnail).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -633,7 +633,7 @@ export class ProductPreparationRepositoryAdapter
     evidence: unknown;
   }): Promise<ExternalRegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
-      const current = await tx.productRegistrationExecution.findFirst({
+      const identity = await tx.productRegistrationExecution.findFirst({
         where: {
           id: input.executionId,
           organizationId: input.organizationId,
@@ -641,16 +641,58 @@ export class ProductPreparationRepositoryAdapter
           requestedByUserId: input.requestedByUserId,
           productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
         },
+        select: { id: true, productPreparationId: true },
+      });
+      if (!identity) throw new NotFoundException('External registration execution not found.');
+      await lockCandidate(tx, input.organizationId, input.sourceCandidateId);
+      await lockPreparation(tx, input.organizationId, identity.productPreparationId);
+      await lockExecution(tx, input.organizationId, identity.id);
+      const current = await tx.productRegistrationExecution.findFirst({
+        where: {
+          id: identity.id,
+          organizationId: input.organizationId,
+          executionKind: 'external_wing',
+          requestedByUserId: input.requestedByUserId,
+          productPreparationId: identity.productPreparationId,
+          productPreparation: {
+            sourceCandidateId: input.sourceCandidateId,
+            organizationId: input.organizationId,
+          },
+        },
       });
       if (!current) throw new NotFoundException('External registration execution not found.');
-      await lockExecution(tx, input.organizationId, current.id);
+      if (current.providerOutcome === 'succeeded') {
+        return externalExecutionResult(current);
+      }
       if (!['executing', 'reconciling'].includes(current.status)) {
         throw new ConflictException('Only a started external registration may be reconciled.');
       }
+      if (
+        current.providerOutcome !== 'uncertain'
+        || current.providerSubmissionId !== null
+        || current.externalListingId !== null
+        || current.resultJson !== null
+      ) {
+        throw new ConflictException('Recorded provider identity cannot become unresolved.');
+      }
       const evidence = JSON.stringify(input.evidence ?? null).slice(0, 4_000);
-      const updated = await tx.productRegistrationExecution.update({
-        where: { id: current.id },
+      const changed = await tx.productRegistrationExecution.updateMany({
+        where: {
+          id: current.id,
+          organizationId: input.organizationId,
+          status: { in: ['executing', 'reconciling'] },
+          providerOutcome: 'uncertain',
+          providerSubmissionId: null,
+          externalListingId: null,
+          resultJson: { equals: Prisma.DbNull },
+        },
         data: { status: 'reconciling', providerOutcome: 'uncertain', lastErrorMessage: evidence },
+      });
+      if (changed.count !== 1) {
+        throw new ConflictException('External registration changed while it was being reconciled.');
+      }
+      const updated = await tx.productRegistrationExecution.findFirstOrThrow({
+        where: { id: current.id, organizationId: input.organizationId },
       });
       return externalExecutionResult(updated);
     });

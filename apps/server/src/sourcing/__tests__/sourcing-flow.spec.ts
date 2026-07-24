@@ -52,6 +52,12 @@ describe('SourcingService — candidate ingest', () => {
   let alerts: ReturnType<typeof makeAlerts>;
   let sellpiaSalePrices: ReturnType<typeof makeSellpiaSalePrices>;
   let registrationContentWorkspaces: ReturnType<typeof makeRegistrationContentWorkspaces>;
+  let candidateContentAssets: {
+    loadRegistrationMedia: ReturnType<typeof vi.fn>;
+    listRegistrationImages: ReturnType<typeof vi.fn>;
+    findCurrentThumbnail: ReturnType<typeof vi.fn>;
+    findCurrentThumbnails: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     repo = makeCandidateRepo();
@@ -59,15 +65,20 @@ describe('SourcingService — candidate ingest', () => {
     alerts = makeAlerts();
     sellpiaSalePrices = makeSellpiaSalePrices();
     registrationContentWorkspaces = makeRegistrationContentWorkspaces();
+    candidateContentAssets = {
+      loadRegistrationMedia: vi.fn().mockResolvedValue({
+        registrationImages: { primary: [], thumbnail: [], detail: [] },
+        currentThumbnail: null,
+      }),
+      listRegistrationImages: vi.fn().mockResolvedValue({ primary: [], thumbnail: [], detail: [] }),
+      findCurrentThumbnail: vi.fn().mockResolvedValue(null),
+      findCurrentThumbnails: vi.fn().mockResolvedValue(new Map()),
+    };
     service = new SourcingService(
       repo as any,
       gateway as any,
       alerts as any,
-      {
-        listRegistrationImages: vi.fn().mockResolvedValue({ primary: [], thumbnail: [], detail: [] }),
-        findCurrentThumbnail: vi.fn().mockResolvedValue(null),
-        findCurrentThumbnails: vi.fn().mockResolvedValue(new Map()),
-      } as any,
+      candidateContentAssets as any,
       sellpiaSalePrices as any,
       registrationContentWorkspaces as any,
     );
@@ -459,6 +470,31 @@ describe('SourcingService — candidate ingest', () => {
   it('getProduct findById null → NotFoundException', async () => {
     repo.findById.mockResolvedValueOnce(null);
     await expect(service.getProduct('cand-x', 'org-1')).rejects.toThrow('Sourcing candidate not found');
+  });
+
+  it('getProduct reads registration images and the current thumbnail as one media snapshot', async () => {
+    repo.findById.mockResolvedValueOnce({
+      id: 'cand-1',
+      name: '상품',
+      description: null,
+      category: null,
+      tags: [],
+      rawData: {},
+      thumbnailUrl: null,
+      imageUrl: null,
+      images: [],
+      productPreparation: null,
+    });
+
+    await service.getProduct('cand-1', 'org-1');
+
+    expect(candidateContentAssets.loadRegistrationMedia).toHaveBeenCalledOnce();
+    expect(candidateContentAssets.loadRegistrationMedia).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      sourceCandidateId: 'cand-1',
+    });
+    expect(candidateContentAssets.listRegistrationImages).not.toHaveBeenCalled();
+    expect(candidateContentAssets.findCurrentThumbnail).not.toHaveBeenCalled();
   });
 
   describe('getProduct 셀피아 판매가 폴백', () => {

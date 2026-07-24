@@ -296,9 +296,66 @@ describe('1688 trend Chrome extension bridge', () => {
       const assertion = expect(promise).rejects.toMatchObject({
         code: 'collection_timeout',
         runId: 'run-stall',
+        message: expect.stringContaining('4/13 키워드에서 멈춤'),
       });
       await vi.advanceTimersByTimeAsync(100_000);
       await assertion;
+      expect(mockedSend.mock.calls.filter(([, message]) => (
+        (message as { action?: string }).action === 'cancel1688TrendCollection'
+      ))).toEqual([
+        [
+          'sourcing-extension',
+          { action: 'cancel1688TrendCollection', runId: 'run-stall' },
+          8_000,
+        ],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops only the web observer on abort and leaves the extension run alive', async () => {
+    vi.useFakeTimers();
+    try {
+      mockedSend
+        .mockResolvedValueOnce({
+          success: true,
+          capabilities: {
+            sourcing1688TrendCollector: true,
+            browserCollectionSessions: true,
+          },
+        })
+        .mockResolvedValueOnce({ success: true, runId: 'run-detached', status: 'running' });
+      mockedSend.mockImplementation(async (_id: string, message: any) => {
+        if (message?.action !== 'get1688TrendCollectionStatus') return { success: true };
+        return {
+          success: true,
+          runId: 'run-detached',
+          status: 'running',
+          currentKeywordIndex: 0,
+          totalKeywords: 1,
+          collected: 0,
+        };
+      });
+
+      const controller = new AbortController();
+      const promise = collect1688TrendsFromChrome(
+        ['文具'],
+        undefined,
+        controller.signal,
+      );
+      const assertion = expect(promise).rejects.toMatchObject({
+        code: 'collection_aborted',
+        runId: 'run-detached',
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      controller.abort();
+      await vi.runAllTimersAsync();
+
+      await assertion;
+      expect(mockedSend.mock.calls.some(([, message]) => (
+        (message as { action?: string }).action === 'cancel1688TrendCollection'
+      ))).toBe(false);
     } finally {
       vi.useRealTimers();
     }
@@ -313,7 +370,9 @@ describe('1688 trend Chrome extension bridge', () => {
     );
 
     expect(source).toContain('useBrowserCollectionSession');
+    expect(source).toContain('enabled: !collectMutation.isPending');
     expect(source).toContain('BrowserCollectionRunControls');
     expect(source).toContain("recordMissingBrowserCollection('sourcing.1688_trend'");
+    expect(source).not.toContain('최대 2분');
   });
 });
