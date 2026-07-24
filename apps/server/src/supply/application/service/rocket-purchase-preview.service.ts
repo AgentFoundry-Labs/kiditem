@@ -103,8 +103,6 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
           sellpiaInventorySkuId: component.sellpiaInventorySkuId,
           quantity: component.quantity,
           currentStock: component.currentStock,
-          activeCommitmentQuantity: component.activeCommitmentQuantity,
-          availableStock: component.availableStock,
           isActive: component.isActive,
         })) ?? [],
       };
@@ -130,9 +128,6 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
           return {
             ...component,
             currentStock: inventorySku?.currentStock ?? 0,
-            activeCommitmentQuantity:
-              inventorySku?.activeCommitmentQuantity ?? 0,
-            availableStock: inventorySku?.availableStock ?? 0,
             isActive: inventorySku?.isActive ?? false,
           };
         });

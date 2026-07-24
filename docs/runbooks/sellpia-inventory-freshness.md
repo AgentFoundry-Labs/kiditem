@@ -17,8 +17,8 @@ ledger; that logical hold is not a physical stock write.
   4000 during local verification.
 - The operator is signed in to the intended KidItem organization and to
   `https://kiditem.sellpia.com` in Chrome.
-- `extensions/order-collector` version `0.1.67` or newer is loaded and its ping
-  advertises `collectSellpiaInventory: true`.
+- `extensions/order-collector` version `0.1.79` or newer is loaded and its ping
+  advertises `collectSellpiaInventoryJsonV1: true`.
 - The organization has confirmed the fixed source binding:
   `https://kiditem.sellpia.com` / `kiditem`. Only an owner or admin can confirm
   it. The authenticated organization and user come from the KidItem session;
@@ -65,7 +65,7 @@ edit `currentStock` or release a final commitment merely to imitate shipment.
 
 1. Open an authenticated KidItem operations screen and use a compact Sellpia
    freshness status to open the shared drawer. Matching views display the same
-   shared state without replacing the preserved matching-center UI. The
+   shared state without replacing the active matching-center UI. The
    dedicated sync entry is `/inventory-hub?tab=sellpia-sync`.
 2. Confirm that the drawer shows origin `https://kiditem.sellpia.com` and
    account `kiditem`.
@@ -82,20 +82,20 @@ edit `currentStock` or release a final commitment merely to imitate shipment.
    heartbeat every 20 seconds. Other tabs receive the same `syncing` state but
    cannot control the claim.
 3. The extension uses the already authenticated Chrome session. It loads
-   `product_list_total.html` without stealing focus, verifies the fixed form
-   contract, selects option products (`downopt=2`) in the request, and posts
-   directly to `product_search.down.html`. It does not click the visible
-   download button.
-4. The extension rejects login HTML, wrong origin/path, changed form contract,
-   unsupported workbook envelopes, oversized data, and timed-out/network
-   responses before returning bytes to the KidItem tab.
-5. The authenticated KidItem tab uploads the collected workbook to
+   `product_list_total.html` without stealing focus and posts the fixed
+   `mode=soldout_manager`, `soldout_include=Y`, `limit=0` request directly to
+   `product_search.ajax.html`. It does not generate or download Excel.
+4. The extension rejects login HTML, wrong origin/path, invalid or empty JSON,
+   duplicate product-option identities, incomplete rows, more than 20,000
+   rows, oversized data, and timed-out/network responses. It returns only the
+   normalized, identity-sorted, versioned snapshot to the KidItem tab.
+5. The authenticated KidItem tab serializes and uploads that JSON snapshot to
    `POST /api/inventory/sellpia-sync/import` with its claim token, generation,
    trigger, and fixed source identity.
-6. Inventory validates the file and headers, parses the full option-product
-   snapshot, evaluates bounded quality evidence, and publishes in one fenced
-   transaction. Known product codes absent from a valid new snapshot stay
-   identifiable but become inactive with stock zero.
+6. Inventory validates the version, row count, ordering, identities, and row
+   fields again, evaluates bounded quality evidence, and publishes in one
+   fenced transaction. Known product codes absent from a valid new snapshot
+   stay identifiable but become inactive with stock zero.
 7. Publication rotates the opaque fence, completes the generation, invalidates
    stock/history queries, and updates the compact status. File imports and
    pre-download collection failures appear in the same history.
@@ -116,51 +116,26 @@ successful extension request means only that
 transmission was requested; the later Sellpia snapshot is the acceptance and
 stock evidence.
 
-Internal operation links return to the screen that owns the action: mall collection to
-`/order-collection`, channel order results to `/orders`, channel inventory to
-`/inventory`, and inventory warnings to `/stock-ops`. This navigation contract
+Internal operation links return to the screen that owns the action: mall
+collection to `/order-collection`, channel order results to `/orders`, channel
+inventory to `/inventory`, and inventory analysis to `/stock-ops`. This
+navigation contract keeps those four active URLs independently reachable and
 does not change the server-owned TTL, lease, fence, or single-writer rules.
+
+Historical warning links such as `/stock-ops?tab=freshness` are compatibility
+ingress: `/stock-ops` redirects them to the owning `/inventory-hub` view. The
+independent `/stock-ops` route remains analysis-only and owns
+`product-outflow` and `channel-zero`; compatibility ingress does not transfer
+freshness ownership back to it.
 
 Order transmission and freshness recovery render in the existing generated-file
 flow on `/order-collection`. A successful transmission request updates that
 file's recovery state and schedules freshness without replacing the collection
 layout or creating a separate order-sync page.
 
-## Operations UI Preservation
-
-Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
-preservation baseline. Automatic sync and freshness controls are added to that
-UI; they do not replace existing pages or collapse their URLs:
-
-- `/product-hub` keeps the staged product-operations-center layout while its
-  rows read from KidItem `MasterProduct` operating products and inventory
-  metrics are calculated from linked variant recipes and the Sellpia snapshot.
-  `/product-hub/[id]` keeps the read-only snapshot detail, and
-  `/product-hub/matching` keeps the baseline Coupang ChannelSku
-  component-recipe workspace.
-- Order, inventory, fulfillment, supplier, and finance sidebar routes remain
-  independently reachable even when another hub reuses related components.
-- `/rocket-orders` keeps its baseline Rocket operations UI and replaces the
-  existing capacity-decision placeholder with the Supply-owned Sellpia
-  freshness/recipe preview and confirmation workspace. It is the only
-  operator-facing Rocket review route; `/purchase-orders` remains general
-  supplier purchasing.
-- `/product-hub/options` keeps the baseline dedicated read-only Sellpia table.
-
-The shared compact status/drawer and synchronization controls are additive and
-must not rearrange baseline layouts. Do not remove the standard Quick Action, a
-page header, tabs, tables, or existing actions merely to expose freshness.
-
-The preserved inventory tab sets are exact. `/inventory-hub` keeps `status`,
-`po`, `io`, `sellpia-sync`, `rocket-events`, `ledger`, `audits`, and `assets`;
-`/stock-ops` keeps `sellpia-zero`, `channel-zero`, `bottlenecks`,
-`mapping-attention`, `inventory-value`, `freshness`, `transfer`, and
-`return-transfer`. Do not restore an older inventory-control or stock-analysis
-tab set.
-
-An identical workbook is not republished. The first post-order identical hash
+An identical source artifact is not republished. The first post-order identical hash
 schedules one `same_hash_confirmation` at least three minutes later. The next
-identical download verifies the generation; it does not create a third loop.
+identical collection verifies the generation; it does not create a third loop.
 Normal TTL/manual verification of an unchanged file verifies the existing run
 without stock mutation.
 
@@ -188,9 +163,9 @@ status green.
 | Source binding unconfirmed | Owner/admin confirms only the fixed origin/account in the drawer. Do not insert the state row manually. |
 | `sellpia_login_required` | Sign in to the intended Sellpia account in Chrome, return to KidItem, and choose **다시 갱신**. Do not copy cookies to the server. |
 | Extension absent | Load/re-enable `extensions/order-collector`, confirm it responds, then retry. |
-| Extension outdated | Reload/update to version `0.1.67` or newer and confirm the collection capability before retrying. |
-| `sellpia_download_contract_drift` | Stop automatic use. Inspect the Sellpia form action/method and option-product/export fields; update the extension contract with tests before retrying. Do not fall back to a blind click. |
-| `sellpia_invalid_workbook` or HTML response | Confirm the response is a real XLS/XLSX full option-product file from the fixed origin. Retry after login/session or Sellpia export recovery. |
+| Extension outdated | Reload/update to version `0.1.79` or newer and confirm `collectSellpiaInventoryJsonV1` before retrying. |
+| `sellpia_download_contract_drift` | Stop automatic use. Inspect the fixed Sellpia JSON endpoint and response shape; update the extension contract with tests before retrying. Do not fall back to a blind click. |
+| `sellpia_invalid_workbook` or HTML response | Automatic flow: confirm the fixed endpoint returned a complete versioned JSON snapshot. Manual recovery: confirm the file is a fresh XLS/XLSX/CSV full option-product export. Retry after login/session recovery. |
 | Timeout/network failure | Confirm Chrome connectivity and the Sellpia page, then retry. Repeated failures may use the attested manual fallback. |
 | Quality hard block | Compare the fresh export with the prior completed snapshot. Row loss or active-code loss of at least 30% is blocked. Correct the export/source issue and retry; never accept by editing rows. |
 | Quality warning | Review missing name/barcode/price, duplicate barcode, 10–30% snapshot churn, and inactive confirmed-recipe references. Warnings are keyed by file hash and do not auto-change recipes. |
@@ -221,7 +196,8 @@ An agent may:
 An agent must not:
 
 - print, capture, persist, or transmit passwords, cookies, auth tokens, raw
-  provider responses, raw workbook contents, or workbook base64;
+  provider responses, raw snapshot contents, raw workbook contents, or
+  workbook base64;
 - attach a real workbook to Git, a PR, an issue, chat, fixture, dev-data bundle,
   screenshot, or log;
 - edit `currentStock`, freshness rows, source runs, attempts, or confirmed

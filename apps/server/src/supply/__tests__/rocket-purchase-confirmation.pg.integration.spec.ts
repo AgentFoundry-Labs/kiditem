@@ -9,8 +9,8 @@ import {
 import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
-import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
-import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
+import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
+import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/repository/rocket-workbook-progress.repository.adapter';
 
 const CHANNEL_ACCOUNT_ID = '21000000-0000-4000-8000-000000000001';
 const SOURCE_IMPORT_RUN_ID = '21000000-0000-4000-8000-000000000002';
@@ -22,7 +22,7 @@ const SELLPIA_SKU_ID = '21000000-0000-4000-8000-000000000007';
 const COLLECTION_RUN_ID = '21000000-0000-4000-8000-000000000008';
 const PO_LINE_ID = '1001:P-1:8801234567890:1';
 
-describe('Rocket purchase confirmation transaction (PG integration)', () => {
+describe('Rocket workbook export transaction (PG integration)', () => {
   let prisma: PrismaClient;
   let adapter: RocketPurchaseConfirmationTransactionAdapter;
 
@@ -31,10 +31,8 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
     await prisma.$connect();
     adapter = new RocketPurchaseConfirmationTransactionAdapter(
       prisma as unknown as PrismaService,
-      new InventoryCommitmentService(
-        new InventoryCommitmentRepositoryAdapter(
-          prisma as unknown as PrismaService,
-        ),
+      new RocketWorkbookProgressService(
+        new RocketWorkbookProgressRepositoryAdapter(),
       ),
     );
   });
@@ -132,59 +130,62 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
     });
   });
 
-  it('replays the same request as one durable confirmation', async () => {
+  it('replays the same request as one durable export with exact artifact bytes', async () => {
     const input = confirmationInput('21000000-0000-4000-8000-000000000009', 2);
 
-    const first = await adapter.confirm(input);
-    const replay = await adapter.confirm(input);
+    const first = await adapter.exportWorkbook(input);
+    const replay = await adapter.exportWorkbook(input);
 
-    expect(first).toMatchObject({ duplicate: false, status: 'active' });
+    expect(first).toMatchObject({
+      duplicate: false,
+      status: 'awaiting_coupang_confirmation',
+      artifact: {
+        fileName: 'coupang-rocket.xlsx',
+        byteLength: input.artifactBytes.byteLength,
+      },
+    });
     expect(replay).toMatchObject({
-      confirmationId: first.confirmationId,
+      exportId: first.exportId,
       duplicate: true,
-      status: 'active',
+      status: 'awaiting_coupang_confirmation',
     });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
     expect(await prisma.rocketPurchaseConfirmationAllocation.aggregate({
       _sum: { quantity: true },
     })).toEqual({ _sum: { quantity: 2 } });
-    expect(await prisma.inventoryCommitment.count()).toBe(1);
-    expect(await prisma.inventoryCommitment.findFirstOrThrow({
-      include: { allocations: true },
-    })).toMatchObject({
-      kind: 'rocket_request',
-      status: 'active',
-      unitQuantity: 2,
-      allocations: [{
-        sellpiaInventorySkuId: SELLPIA_SKU_ID,
-        unitsPerItem: 1,
-        quantity: 2,
-      }],
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
+    expect(await adapter.downloadWorkbook({
+      organizationId: TEST_ORGANIZATION_ID,
+      exportId: first.exportId,
+    })).toEqual({
+      fileName: 'coupang-rocket.xlsx',
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      bytes: input.artifactBytes,
     });
   });
 
   it('rejects reusing an idempotency key for a different decision', async () => {
     const key = '21000000-0000-4000-8000-000000000010';
-    await adapter.confirm(confirmationInput(key, 2));
+    await adapter.exportWorkbook(confirmationInput(key, 2));
 
-    await expect(adapter.confirm(confirmationInput(key, 3)))
+    await expect(adapter.exportWorkbook(confirmationInput(key, 3)))
       .rejects.toThrow(/idempotency/i);
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
   });
 
   it('rejects reusing an idempotency key after workbook evidence changes', async () => {
     const key = '21000000-0000-4000-8000-000000000016';
-    await adapter.confirm(confirmationInput(key, 2));
+    await adapter.exportWorkbook(confirmationInput(key, 2));
 
-    await expect(adapter.confirm(confirmationInput(key, 2, '고양1센터')))
+    await expect(adapter.exportWorkbook(confirmationInput(key, 2, '고양1센터')))
       .rejects.toThrow(/idempotency/i);
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
   });
 
-  it('serializes competing confirmations against the same physical stock', async () => {
+  it('serializes competing workbook workflows across the organization', async () => {
     const results = await Promise.allSettled([
-      adapter.confirm(confirmationInput('21000000-0000-4000-8000-000000000011', 4)),
-      adapter.confirm(confirmationInput('21000000-0000-4000-8000-000000000012', 4)),
+      adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000011', 4)),
+      adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000012', 4)),
     ]);
 
     expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
@@ -192,9 +193,7 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
     expect(await prisma.rocketPurchaseConfirmationAllocation.aggregate({
       _sum: { quantity: true },
     })).toEqual({ _sum: { quantity: 4 } });
-    expect(await prisma.inventoryCommitmentAllocation.aggregate({
-      _sum: { quantity: true },
-    })).toEqual({ _sum: { quantity: 4 } });
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('rejects a stale inventory generation without creating a confirmation', async () => {
@@ -203,7 +202,7 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
       data: { verifiedGeneration: 13n },
     });
 
-    await expect(adapter.confirm(
+    await expect(adapter.exportWorkbook(
       confirmationInput('21000000-0000-4000-8000-000000000013', 2),
     )).rejects.toThrow(/generation/i);
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
@@ -218,43 +217,91 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
       data: { quantity: 2 },
     });
 
-    await expect(adapter.confirm(
+    await expect(adapter.exportWorkbook(
       confirmationInput('21000000-0000-4000-8000-000000000014', 2),
     )).rejects.toThrow(/recipe/i);
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
   });
 
-  it('releases an active confirmation and restores preview capacity', async () => {
-    const created = await adapter.confirm(
+  it('rejects zero quantity when the confirmed recipe changed after preview', async () => {
+    const input = confirmationInput(
+      '21000000-0000-4000-8000-000000000017',
+      0,
+    );
+    await prisma.productVariantComponent.deleteMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productVariantId: PRODUCT_VARIANT_ID,
+      },
+    });
+
+    await expect(adapter.exportWorkbook(input)).rejects.toThrow(/recipe/i);
+    expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
+  });
+
+  it('allows a new export after the previous workflow completed', async () => {
+    const created = await adapter.exportWorkbook(
       confirmationInput('21000000-0000-4000-8000-000000000015', 2),
     );
+    await prisma.rocketPurchaseConfirmation.update({
+      where: { id: created.exportId },
+      data: { status: 'completed', completedAt: new Date() },
+    });
 
-    const released = await adapter.release({
+    await expect(adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000018', 2),
+    )).resolves.toMatchObject({ status: 'awaiting_coupang_confirmation' });
+    expect(await prisma.rocketPurchaseConfirmation.count()).toBe(2);
+  });
+
+  it('completes only after finalized transmission and a newer verified generation', async () => {
+    const created = await adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000019', 2),
+    );
+    await prisma.rocketPurchaseConfirmationLine.updateMany({
+      where: { confirmationId: created.exportId },
+      data: {
+        collectedAt: new Date(),
+        collectedOrderLineItemId: '21000000-0000-4000-8000-000000000020',
+      },
+    });
+    const intentKey = `rocket-workbook:${created.exportId}:shipment`;
+    await prisma.rocketPurchaseConfirmationTransmission.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: created.exportId,
+        sourceImportRunId: SOURCE_IMPORT_RUN_ID,
+        transport: 'SHIPMENT',
+        intentKey,
+        matchedLineCount: 1,
+      },
+    });
+    await prisma.sellpiaOrderTransmissionIntent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        intentKey,
+        status: 'finalized',
+        createdBy: TEST_USER_ID,
+        finalizedAt: new Date(),
+        finalizedGeneration: 13n,
+      },
+    });
+
+    await expect(adapter.getActiveWorkflow({
       organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      confirmationId: created.confirmationId,
-      reason: '쿠팡 확정 수량 정정',
-    });
+    })).resolves.toMatchObject({ status: 'awaiting_inventory_sync' });
 
-    expect(released).toMatchObject({
-      confirmationId: created.confirmationId,
-      status: 'released',
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { verifiedGeneration: 13n },
     });
-    expect(await prisma.inventoryCommitment.findFirstOrThrow()).toMatchObject({
-      kind: 'rocket_request',
-      status: 'released',
-      releasedBy: TEST_USER_ID,
-      releaseReason: '쿠팡 확정 수량 정정',
-      releasedAt: expect.any(Date),
-    });
+    await expect(adapter.getActiveWorkflow({
+      organizationId: TEST_ORGANIZATION_ID,
+    })).resolves.toBeNull();
     expect(await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
-      where: { id: created.confirmationId },
-    })).toMatchObject({
-      status: 'released',
-      releasedBy: TEST_USER_ID,
-      releaseReason: '쿠팡 확정 수량 정정',
-      releasedAt: expect.any(Date),
-    });
+      where: { id: created.exportId },
+    })).toMatchObject({ status: 'completed', completedAt: expect.any(Date) });
   });
 });
 
@@ -303,6 +350,8 @@ function confirmationInput(
     shortageReasons: quantity < 4
       ? { [PO_LINE_ID]: '협력사 재고부족 - 수요예측 오류' as const }
       : {},
+    artifactFileName: 'coupang-rocket.xlsx',
+    artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const,
   };
   return {
     organizationId: TEST_ORGANIZATION_ID,
@@ -335,11 +384,10 @@ function confirmationInput(
           sellpiaInventorySkuId: SELLPIA_SKU_ID,
           quantity: 1,
           currentStock: 5,
-          activeCommitmentQuantity: 0,
-          availableStock: 5,
           isActive: true,
         }],
       }],
     },
+    artifactBytes: Buffer.from('exact-coupang-workbook'),
   } as const;
 }

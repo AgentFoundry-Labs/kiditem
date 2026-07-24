@@ -6,6 +6,9 @@ import type {
 
 export interface AiDirectJobRuntimeConfig {
   workerIntervalMs: number;
+  workerMaxIntervalMs: number;
+  workerErrorMaxIntervalMs: number;
+  leaseHeartbeatMs: number;
   leaseMs: number;
   providerTimeoutMs: number;
   heldRecoveryMs: number;
@@ -43,12 +46,42 @@ export function resolveAiDirectJobModels(
 export function resolveAiDirectJobRuntimeConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): AiDirectJobRuntimeConfig {
+  const workerIntervalMs = positiveInt(
+    env.AI_DIRECT_JOB_WORKER_INTERVAL_MS,
+    1_000,
+  );
+  const workerMaxIntervalMs = positiveInt(
+    env.AI_DIRECT_JOB_WORKER_MAX_INTERVAL_MS,
+    10_000,
+  );
+  const workerErrorMaxIntervalMs = positiveInt(
+    env.AI_DIRECT_JOB_WORKER_ERROR_MAX_INTERVAL_MS,
+    30_000,
+  );
+  const leaseMs = positiveInt(env.AI_DIRECT_JOB_LEASE_MS, 60_000);
+  const leaseHeartbeatMs = positiveInt(
+    env.AI_DIRECT_JOB_HEARTBEAT_MS,
+    5_000,
+  );
+  if (workerMaxIntervalMs < workerIntervalMs) {
+    throw new Error(
+      'AI direct job maximum interval must be at least the minimum interval.',
+    );
+  }
+  if (workerErrorMaxIntervalMs < workerIntervalMs) {
+    throw new Error(
+      'AI direct job error maximum interval must be at least the minimum interval.',
+    );
+  }
+  if (leaseHeartbeatMs >= leaseMs) {
+    throw new Error('AI direct job heartbeat must be shorter than the lease.');
+  }
   return {
-    workerIntervalMs: positiveInt(
-      env.AI_DIRECT_JOB_WORKER_INTERVAL_MS,
-      1_000,
-    ),
-    leaseMs: positiveInt(env.AI_DIRECT_JOB_LEASE_MS, 60_000),
+    workerIntervalMs,
+    workerMaxIntervalMs,
+    workerErrorMaxIntervalMs,
+    leaseHeartbeatMs,
+    leaseMs,
     providerTimeoutMs: positiveInt(env.AI_PROVIDER_TIMEOUT_MS, 20 * 60_000),
     heldRecoveryMs: 30_000,
     retryDelaysMs: [5_000, 30_000, 120_000],

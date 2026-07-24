@@ -69,6 +69,19 @@ describe('useBrowserCollectionSession', () => {
     expect(mockFindSession).not.toHaveBeenCalled();
   });
 
+  it('does not start a second observer when the caller temporarily disables polling', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    renderHook(() => useBrowserCollectionSession(RUN_ID, { enabled: false }), {
+      wrapper: wrapper(queryClient),
+    });
+    await Promise.resolve();
+
+    expect(mockFindSession).not.toHaveBeenCalled();
+  });
+
   it('loads the run through the shared browser collection query key', async () => {
     const current = session();
     mockFindSession.mockResolvedValue(current);

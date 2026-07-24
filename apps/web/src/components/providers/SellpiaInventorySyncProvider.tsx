@@ -294,7 +294,7 @@ export function SellpiaInventorySyncProvider({
         operationKey: `browser-collection:${claimToken}`,
         type: 'browser_collection',
         title: 'Sellpia 재고 갱신',
-        message: 'Sellpia 재고 파일을 수집하고 있습니다.',
+        message: 'Sellpia 재고 스냅샷을 수집하고 있습니다.',
         sourceType: 'browser_collection_session',
         sourceId: 'inventory.sellpia',
         href: '/inventory-hub?tab=sellpia-sync',
@@ -312,7 +312,7 @@ export function SellpiaInventorySyncProvider({
       await bestEffortAlert(() => progressOperationAlert(
         `browser-collection:${claimToken}`,
         {
-          message: 'Sellpia 재고 파일을 검증하고 있습니다.',
+          message: 'Sellpia 재고 스냅샷을 검증하고 있습니다.',
           progress: 0.5,
           metadata: nextAlertMetadata(claimToken),
         },

@@ -41,8 +41,12 @@ describe('ChannelCatalogProductProvisioningRepositoryAdapter (PG integration)', 
 
   it('creates one stable channel-origin product and variant with no recipe', async () => {
     const fixture = await channelFixture();
-    const first = await provision(fixture.listing);
-    const second = await provision(fixture.listing);
+    const listing = {
+      ...fixture.listing,
+      imageUrls: ['https://cdn.example.com/channel-primary.jpg'],
+    } as ChannelCatalogProvisioningListing;
+    const first = await provision(listing);
+    const second = await provision(listing);
 
     expect(first).toMatchObject({
       createdMasterProductCount: 1,
@@ -68,6 +72,7 @@ describe('ChannelCatalogProductProvisioningRepositoryAdapter (PG integration)', 
       name: '쿠팡 등록 상품',
       category: '완구',
       brand: 'KidItem',
+      imageUrls: ['https://cdn.example.com/channel-primary.jpg'],
     });
     expect(product.variants).toEqual([
       expect.objectContaining({
@@ -108,6 +113,7 @@ describe('ChannelCatalogProductProvisioningRepositoryAdapter (PG integration)', 
         category: '운영자 카테고리',
         brand: '운영자 브랜드',
         tags: ['operator'],
+        imageUrls: ['https://cdn.example.com/operator.jpg'],
       },
     });
 
@@ -116,6 +122,7 @@ describe('ChannelCatalogProductProvisioningRepositoryAdapter (PG integration)', 
       name: '수집된 새 상품명',
       category: '수집된 카테고리',
       brand: '수집된 브랜드',
+      imageUrls: ['https://cdn.example.com/recollected.jpg'],
       options: [
         fixture.listing.options[0]!,
         {
@@ -132,12 +139,13 @@ describe('ChannelCatalogProductProvisioningRepositoryAdapter (PG integration)', 
     expect(replay.createdVariantCount).toBe(1);
     await expect(prisma.masterProduct.findUniqueOrThrow({
       where: { id: origin.id },
-      select: { name: true, category: true, brand: true, tags: true },
+      select: { name: true, category: true, brand: true, tags: true, imageUrls: true },
     })).resolves.toEqual({
       name: '운영자 상품명',
       category: '운영자 카테고리',
       brand: '운영자 브랜드',
       tags: ['operator'],
+      imageUrls: ['https://cdn.example.com/operator.jpg'],
     });
     const variants = await prisma.productVariant.findMany({
       where: { masterProductId: origin.id },
@@ -158,6 +166,7 @@ describe('ChannelCatalogProductProvisioningRepositoryAdapter (PG integration)', 
 
     const result = await provision({
       ...fixture.listing,
+      imageUrls: ['https://cdn.example.com/matched.jpg'],
       options: [{
         ...fixture.listing.options[0]!,
         sellerSku: 'SELLER-001',
@@ -177,6 +186,12 @@ describe('ChannelCatalogProductProvisioningRepositoryAdapter (PG integration)', 
     expect(await prisma.masterProduct.count({
       where: { originChannelListingId: fixture.listing.channelListingId },
     })).toBe(0);
+    await expect(prisma.masterProduct.findUniqueOrThrow({
+      where: { id: exact.productId },
+      select: { imageUrls: true },
+    })).resolves.toEqual({
+      imageUrls: ['https://cdn.example.com/matched.jpg'],
+    });
   });
 
   it('creates an origin identity for name-only, unsafe barcode, or conflicting exact evidence', async () => {
@@ -340,6 +355,7 @@ describe('ChannelCatalogProductProvisioningRepositoryAdapter (PG integration)', 
         name: '쿠팡 등록 상품',
         category: '완구',
         brand: 'KidItem',
+        imageUrls: [],
         options: [{
           channelListingOptionId: option.id,
           currentProductVariantId: null,

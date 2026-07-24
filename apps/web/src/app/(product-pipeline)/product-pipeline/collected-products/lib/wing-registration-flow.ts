@@ -10,14 +10,14 @@ import {
 } from './detail-page-image-api';
 import { candidatesApi, productsApi, type ProductDetailResponse } from './sourcing-api';
 import {
-  buildUnresolvedCategoryError,
-  collectUnresolvedNames,
-  resolveWingCategories,
-} from './wing-category-resolution';
+  getWingCategoryDefinition,
+  matchWingCategoryAlias,
+  type WingCategoryKey,
+} from './wing-category-presets';
 import {
   buildWingRegistrationWorkbook,
-  WING_TOY_WATERGUN_PRESET,
-  type WingCategoryPreset,
+  WING_PRODUCT_DRAFT_DEFAULTS,
+  type WingProductDraftDefaults,
   type WingProduct,
   type WingVariant,
 } from './wing-registration-excel';
@@ -25,9 +25,8 @@ import {
 // 수집상품(SourcingCandidate) → 쿠팡 WING 일괄등록 엑셀 생성·다운로드 플로우.
 // 쿠팡 Open API 를 쓰지 않고, 확장이 WING 일괄등록 화면에 올릴 엑셀을 만든다.
 //
-// 카테고리는 기존 리스팅 코퍼스 추론(`resolveWingCategories`)으로 상품별로 정한다.
-// 확신이 낮으면 임의 카테고리로 대체하지 않고 등록을 막는다 — 잘못된 카테고리는
-// 수수료율과 판매 정책을 바꾸기 때문이다. 프리셋은 카테고리 외 기본값(고시·브랜드)만 담당한다.
+// 카테고리는 수집상품에 저장된 key 또는 원본 category 의 정확한 별칭으로만 정한다.
+// 등록상품(ChannelListing)이나 런타임 카테고리 API는 이 흐름의 입력이 아니다.
 //
 // 상세설명은 **렌더된 긴 이미지 1장**이다(`renderCandidateDetailImage`).
 // 확장이 이를 쿠팡 CDN 에 올리고, 최종 상세설명은 `HTML 작성` 탭의 중앙 정렬 <img> 로
@@ -144,8 +143,8 @@ export function buildWingDisplayName(
 /**
  * ProductBasics(수집상품 상세) → WingProduct 매핑.
  *
- * `categoryCell` 을 넘기면 그 값이 카테고리가 된다. 넘기지 않으면 프리셋 값으로 떨어지므로,
- * 실제 등록 경로는 반드시 추론 결과를 넘겨야 한다(아래 두 함수가 그렇게 한다).
+ * `categoryCell` 을 넘기면 그 값이 카테고리가 된다. 넘기지 않으면 빈 값으로 두며,
+ * 실제 등록 경로는 저장 key 또는 정확한 alias로 해석한 값만 넘긴다.
  *
  * `detailImageUrl` 은 저장된 상세페이지를 780px 로 렌더한 **긴 이미지 1장**의 URL 이다.
  * 넘기지 않으면 상세설명은 빈 채로 남는다 — 대표이미지나 role=detail 섹션 이미지로
@@ -153,8 +152,8 @@ export function buildWingDisplayName(
  */
 export function candidateToWingProduct(
   detail: ProductDetailResponse,
-  preset: WingCategoryPreset = WING_TOY_WATERGUN_PRESET,
-  categoryCell?: string,
+  defaults: WingProductDraftDefaults = WING_PRODUCT_DRAFT_DEFAULTS,
+  categoryCell = '',
   detailImageUrl?: string | null,
 ): WingProduct {
   const b = detail.basicInfo;
@@ -208,12 +207,12 @@ export function candidateToWingProduct(
     representativeImageUrl: repImage,
   };
 
-  const noticeValues = [...preset.defaultNoticeValues];
+  const noticeValues = [...defaults.defaultNoticeValues];
   if (noticeValues.length > 0) noticeValues[0] = b.name || noticeValues[0]; // 품명 및 모델명
 
   const rawName = b.name || detail.name;
   return {
-    categoryCell: categoryCell ?? preset.categoryCell,
+    categoryCell,
     // 노출상품명은 구매자용이라 셀피아 수집명을 그대로 쓰지 않는다.
     // `{상품명} {수량}p  {키워드}` 로 조립하고 선행 가격 코드를 뗀다.
     productName: buildWingDisplayName(
@@ -225,45 +224,76 @@ export function candidateToWingProduct(
     // 판매용으로 다듬어진 이름이라 판매자 내부 조회에는 원본이 더 쓸모 있다.
     // 둘이 같아지는 경우(편집 전)는 그대로 둔다 — 빈 값보다 낫다.
     sellerProductName: detail.name || b.name,
-    brand: preset.defaultBrand,
-    maker: preset.defaultMaker,
+    brand: defaults.defaultBrand,
+    maker: defaults.defaultMaker,
     searchKeyword: (b.keywords.length ? b.keywords : b.tags).slice(0, 20).join(','),
-    searchOptions: preset.defaultSearchOptions,
+    searchOptions: defaults.defaultSearchOptions,
     additionalImageUrls,
     detailImageUrls,
-    noticeCategory: preset.noticeCategory,
+    noticeCategory: defaults.noticeCategory,
     noticeValues,
     variants: [variant],
   };
 }
 
+/** 저장된 선택을 우선하고, 없을 때만 수집상품의 정확한 category 별칭을 사용한다. */
+export function resolveWingCategoryKey(detail: ProductDetailResponse): WingCategoryKey | '' {
+  const preparation = detail.productPreparation as
+    | ({ registrationInput?: Record<string, unknown> } & object)
+    | null;
+  const savedKey = preparation?.registrationInput?.wingCategoryKey;
+  if (typeof savedKey === 'string') {
+    const saved = getWingCategoryDefinition(savedKey);
+    if (saved) return saved.key;
+  }
+
+  // 일괄등록(엑셀) 경로는 사람 검토가 없으므로 추천으로 자동 채우지 않는다.
+  // 정확 별칭이 없으면 ''를 돌려 `resolveWingCategorySelections`가 사용자에게
+  // 직접 선택을 강제한다. 단일 등록 다이얼로그도 상품명으로 추천하지 않고,
+  // 미선택 상태를 보여준 뒤 사용자가 명시적으로 고르게 한다.
+  return matchWingCategoryAlias(detail.basicInfo.category)?.key ?? '';
+}
+
+export function resolveWingCategorySelections(
+  details: readonly ProductDetailResponse[],
+): WingCategoryKey[] {
+  const categoryKeys = details.map(resolveWingCategoryKey);
+  const unresolvedNames = details
+    .filter((_, index) => !categoryKeys[index])
+    .map((detail) => detail.basicInfo.name || detail.name);
+  if (unresolvedNames.length > 0) {
+    const preview = unresolvedNames.slice(0, 3).join(', ');
+    throw new Error(
+      `WING 카테고리가 선택되지 않은 상품이 ${unresolvedNames.length}건 있습니다. ${preview} `
+      + '각 상품의 WING 등록 확인에서 카테고리를 먼저 선택해 주세요.',
+    );
+  }
+  return categoryKeys as WingCategoryKey[];
+}
+
 /** 선택한 수집상품들로 WING 일괄등록 엑셀 바이트 생성. */
 export async function generateWingExcelForCandidates(
   candidateIds: string[],
-  preset: WingCategoryPreset = WING_TOY_WATERGUN_PRESET,
+  defaults: WingProductDraftDefaults = WING_PRODUCT_DRAFT_DEFAULTS,
 ): Promise<{ bytes: Uint8Array; productCount: number }> {
   if (candidateIds.length === 0) throw new Error('선택한 상품이 없습니다.');
 
-  const [templateBytes, details] = await Promise.all([
-    fetch(TEMPLATE_URL).then((res) => {
-      if (!res.ok) throw new Error(`WING 양식 템플릿 로드 실패 (${res.status})`);
-      return res.arrayBuffer();
-    }),
-    Promise.all(candidateIds.map((id) => productsApi.getDetail(id))),
-  ]);
+  const details = await Promise.all(candidateIds.map((id) => productsApi.getDetail(id)));
+  const categoryKeys = resolveWingCategorySelections(details);
 
-  // 카테고리는 상품별로 추론한다. 확신이 낮은 건이 하나라도 있으면 엑셀을 만들지 않는다.
-  const names = details.map((detail) => detail.basicInfo.name || detail.name);
-  const resolved = await resolveWingCategories(names);
-  const unresolved = collectUnresolvedNames(names, resolved);
-  if (unresolved.length > 0) throw new Error(buildUnresolvedCategoryError(unresolved, resolved));
+  const templateResponse = await fetch(TEMPLATE_URL);
+  if (!templateResponse.ok) {
+    throw new Error(`WING 양식 템플릿 로드 실패 (${templateResponse.status})`);
+  }
+  const templateBytes = await templateResponse.arrayBuffer();
 
   // 일괄등록 엑셀 경로는 상세설명 이미지를 채우지 않는다. 상세설명은 상품별로 서버
   // 래스터라이즈가 필요한데(단일 직접 등록 경로가 그렇게 한다), 엑셀은 그 배선이 없다.
   // 없는 것을 아무 이미지로 채우느니 비워 둔다.
-  const products = details.map((detail, index) =>
-    candidateToWingProduct(detail, preset, resolved.get(names[index].trim())?.categoryCell ?? undefined),
-  );
+  const products = details.map((detail, index) => {
+    const definition = getWingCategoryDefinition(categoryKeys[index]);
+    return candidateToWingProduct(detail, defaults, definition?.categoryCell ?? '');
+  });
   const bytes = buildWingRegistrationWorkbook(templateBytes, products);
   return { bytes, productCount: products.length };
 }
@@ -299,20 +329,15 @@ export interface WingSubmissionResult {
   evidence?: Record<string, unknown>;
 }
 
-/** 등록상품으로 올려도 되는 확증된 성공인지. 추측은 전부 false. */
+/** 브라우저가 등록 완료와 상품 ID를 관찰했는지. 최종 확정은 서버 provider 조회가 맡는다. */
 export function isConfirmedWingRegistration(
   submission: WingSubmissionResult | undefined,
-): submission is WingSubmissionResult & {
-  externalListingId: string;
-  evidence: { wingVendorId: string; wingIdentitySource: string };
-} {
+): submission is WingSubmissionResult & { externalListingId: string } {
   return (
     submission?.ok === true
     && submission.status === 'registered'
     && typeof submission.externalListingId === 'string'
     && submission.externalListingId.trim().length > 0
-    && typeof submission.evidence?.wingVendorId === 'string'
-    && typeof submission.evidence?.wingIdentitySource === 'string'
   );
 }
 
@@ -327,6 +352,8 @@ export function isConfirmedWingRegistration(
  * 이 경계에서는 파싱이 끝나 있어야 검증 규칙이 한곳에 모인다.
  */
 export interface WingRegistrationOverrides {
+  /** KidItem 고정 WING 카테고리 코드. 미선택 상태는 빈 문자열이다. */
+  categoryKey: WingCategoryKey | '';
   /** 노출상품명(구매자에게 보이는 이름). 100자 이하. */
   productName: string;
   /** 등록상품명(판매자관리용). 기본값은 원본 수집명. */
@@ -348,6 +375,8 @@ export interface WingRegistrationDraft {
   candidateId: string;
   /** 모달을 닫기 전까지 유지하는 pre-intent 재시도 키. */
   idempotencyKey: string;
+  /** 마지막 prepare 요청의 payload 지문. 같은 payload만 같은 키를 재사용한다. */
+  idempotencyFingerprint?: string | null;
   /** 자동 조립된 등록 payload. 사용자가 고친 값은 아직 반영 전이다. */
   product: WingProduct;
   /** 모달 기본값. `product` 에서 뽑아낸 편집 가능한 부분집합. */
@@ -359,8 +388,17 @@ export interface WingRegistrationDraft {
    * 등록 성공 후 `ChannelListing` 을 만들 때 필요하다 — 계정 없이는 등록상품 정체성이 없다.
    */
   channelAccountId: string;
+  /** 모달에서 명시적으로 선택할 수 있는 활성 쿠팡 WING 계정. */
+  channelAccounts?: WingChannelAccountOption[];
   /** 렌더된 상세설명 이미지 URL(이 경로의 필수값). */
   detailImageUrl: string;
+  /** 기존 ProductPreparation 검토 입력. 카테고리 저장 시 함께 보존한다. */
+  registrationInput: Record<string, unknown>;
+}
+
+export interface WingChannelAccountOption {
+  id: string;
+  name: string;
 }
 
 const PURCHASE_OPTION_COLOR = '색상';
@@ -379,6 +417,7 @@ const findOptionValue = (product: WingProduct, type: string): string =>
 export function buildWingRegistrationOverrides(product: WingProduct): WingRegistrationOverrides {
   const variant = product.variants[0];
   return {
+    categoryKey: matchWingCategoryAlias(product.categoryCell)?.key ?? '',
     productName: product.productName ?? '',
     sellerProductName: product.sellerProductName ?? '',
     colorValue: findOptionValue(product, PURCHASE_OPTION_COLOR),
@@ -399,6 +438,9 @@ export function validateWingRegistrationOverrides(
   overrides: WingRegistrationOverrides,
 ): string[] {
   const errors: string[] = [];
+  if (!getWingCategoryDefinition(overrides.categoryKey)) {
+    errors.push('카테고리를 선택하세요.');
+  }
   const productName = overrides.productName.trim();
   if (!productName) errors.push('노출상품명을 입력하세요.');
   else if (productName.length > WING_DISPLAY_NAME_MAX) {
@@ -437,18 +479,27 @@ export function applyWingRegistrationOverrides(
   overrides: WingRegistrationOverrides,
 ): WingProduct {
   const variant = product.variants[0];
-  if (!variant) return product;
+  const category = getWingCategoryDefinition(overrides.categoryKey);
+  if (!variant) {
+    return category ? { ...product, categoryCell: category.categoryCell } : product;
+  }
   const salePrice = overrides.salePrice;
-  const purchaseOptions = [
-    ...(overrides.colorValue.trim()
-      ? [{ type: PURCHASE_OPTION_COLOR, value: overrides.colorValue.trim() }]
-      : []),
-    ...(overrides.quantityValue.trim()
-      ? [{ type: PURCHASE_OPTION_QUANTITY, value: overrides.quantityValue.trim() }]
-      : []),
-  ];
+  const editableValues = new Map([
+    [PURCHASE_OPTION_COLOR, overrides.colorValue.trim()],
+    [PURCHASE_OPTION_QUANTITY, overrides.quantityValue.trim()],
+  ]);
+  const existingTypes = new Set(variant.purchaseOptions.map((option) => option.type));
+  const purchaseOptions = variant.purchaseOptions.flatMap((option) => {
+    if (!editableValues.has(option.type)) return [option];
+    const value = editableValues.get(option.type) ?? '';
+    return value ? [{ ...option, value }] : [];
+  });
+  for (const [type, value] of editableValues) {
+    if (value && !existingTypes.has(type)) purchaseOptions.push({ type, value });
+  }
   return {
     ...product,
+    ...(category ? { categoryCell: category.categoryCell } : {}),
     productName: overrides.productName.trim(),
     sellerProductName: overrides.sellerProductName.trim(),
     variants: [
@@ -476,7 +527,7 @@ export function applyWingRegistrationOverrides(
  */
 export async function prepareWingRegistration(
   candidateId: string,
-  preset: WingCategoryPreset = WING_TOY_WATERGUN_PRESET,
+  defaults: WingProductDraftDefaults = WING_PRODUCT_DRAFT_DEFAULTS,
 ): Promise<WingRegistrationDraft> {
   if (!isChromeExtensionRuntimeAvailable()) {
     throw new Error('쿠팡 WING 직접 등록은 Chrome 확장에서 실행됩니다. Chrome에서 이 페이지를 열고 다시 시도하세요.');
@@ -486,10 +537,8 @@ export async function prepareWingRegistration(
     throw new Error('KidItem 확장을 찾지 못했습니다. 확장을 설치/리로드한 뒤 다시 시도하세요.');
   }
   const detail = await productsApi.getDetail(candidateId);
-  const name = detail.basicInfo.name || detail.name;
-  const resolved = await resolveWingCategories([name]);
-  const categoryCell = resolved.get(name.trim())?.categoryCell;
-  if (!categoryCell) throw new Error(buildUnresolvedCategoryError([name], resolved));
+  const categoryKey = resolveWingCategoryKey(detail);
+  const categoryCell = getWingCategoryDefinition(categoryKey)?.categoryCell ?? '';
 
   // 상세설명은 이 직접등록 경로의 필수값이다. 없으면 WING 탭을 열기 전에 중단한다.
   // 대표이미지·원본 수집 이미지로 대체하지 않는다 — 잘못된 상세페이지가 등록되는 것이
@@ -499,17 +548,21 @@ export async function prepareWingRegistration(
 
   // 등록 성공 시 ChannelListing 을 만들 계정을 미리 확정한다. 활성 쿠팡 Wing 계정이
   // 없으면 WING 탭을 열기 전에 멈춘다 — 등록만 되고 우리 목록에 못 올리는 상태를 막는다.
-  const channelAccountId = await resolveWingChannelAccountId();
+  const accountSelection = await resolveWingChannelAccount(
+    detail.productPreparation?.channelAccountId ?? null,
+  );
 
-  const product = candidateToWingProduct(detail, preset, categoryCell, detailImageUrl);
+  const product = candidateToWingProduct(detail, defaults, categoryCell, detailImageUrl);
   return {
     candidateId,
     idempotencyKey: crypto.randomUUID(),
     product,
     overrides: buildWingRegistrationOverrides(product),
     extensionId,
-    channelAccountId,
+    channelAccountId: accountSelection.channelAccountId,
+    channelAccounts: accountSelection.channelAccounts,
     detailImageUrl,
+    registrationInput: { ...(detail.productPreparation?.registrationInput ?? {}) },
   };
 }
 
@@ -519,17 +572,33 @@ export async function prepareWingRegistration(
  * Wing 과 Rocket 은 별개의 `ChannelAccount` 행이다. 계정 표시명으로 채널을 추측하지
  * 않고 `channel === 'coupang'` 만 본다(rocket 은 별도 채널값).
  */
-async function resolveWingChannelAccountId(): Promise<string> {
+async function resolveWingChannelAccount(
+  preparedChannelAccountId: string | null,
+): Promise<{ channelAccountId: string; channelAccounts: WingChannelAccountOption[] }> {
   const accounts = await apiClient.get<Array<{ id: string; channel: string; name: string }>>(
     '/api/channels/accounts',
   );
-  const wing = accounts.find((account) => account.channel === 'coupang');
-  if (!wing) {
+  const channelAccounts = accounts
+    .filter((account) => account.channel === 'coupang')
+    .map(({ id, name }) => ({ id, name }));
+  if (channelAccounts.length === 0) {
     throw new Error(
       '활성화된 쿠팡 Wing 채널 계정이 없습니다. 설정에서 쿠팡 계정을 먼저 연결하세요.',
     );
   }
-  return wing.id;
+  if (preparedChannelAccountId) {
+    const prepared = channelAccounts.find((account) => account.id === preparedChannelAccountId);
+    if (!prepared) {
+      throw new Error(
+        '상품 준비에 연결된 쿠팡 WING 계정이 비활성화됐거나 현재 조직에서 찾을 수 없습니다.',
+      );
+    }
+    return { channelAccountId: prepared.id, channelAccounts };
+  }
+  return {
+    channelAccountId: channelAccounts.length === 1 ? channelAccounts[0]!.id : '',
+    channelAccounts,
+  };
 }
 
 /**
@@ -547,22 +616,46 @@ export async function submitWingRegistration(
    * ⚠️ 엄격한 `=== true` 로만 켠다 — 기본값·누락·다른 truthy 값은 전부 "누르지 않음".
    */
   autoSubmit = false,
+  channelAccountId = draft.channelAccountId,
 ): Promise<WingSingleRegistrationResult> {
   const errors = validateWingRegistrationOverrides(overrides);
   if (errors.length > 0) throw new Error(errors.join(' '));
   const product = applyWingRegistrationOverrides(draft.product, overrides);
+  const availableAccounts = draft.channelAccounts ?? (
+    draft.channelAccountId ? [{ id: draft.channelAccountId, name: '' }] : []
+  );
+  if (!channelAccountId || !availableAccounts.some((account) => account.id === channelAccountId)) {
+    throw new Error('등록할 쿠팡 WING 계정을 선택하세요.');
+  }
   // 판매가 0 은 WING 탭을 열기 전에 막는다. 모달 검증이 이미 걸러내지만,
   // 확장으로 나가는 마지막 지점이라 방어적으로 한 번 더 확인한다.
   requireSalePrice(product.variants[0]?.salePrice ?? 0, product.productName);
   let execution: { executionId: string; expectedVendorId: string } | null = null;
   try {
-    execution = await candidatesApi.prepareExternalWingRegistration(draft.candidateId, {
-      channelAccountId: draft.channelAccountId,
+    const request = {
+      channelAccountId,
       displayName: product.productName,
-      registrationInput: { source: 'coupang-wing-extension', wingProduct: product },
+      registrationInput: {
+        ...draft.registrationInput,
+        source: 'coupang-wing-extension',
+        wingCategoryKey: overrides.categoryKey,
+        wingProduct: product,
+      },
+    };
+    const fingerprint = JSON.stringify(request);
+    if (draft.idempotencyFingerprint && draft.idempotencyFingerprint !== fingerprint) {
+      draft.idempotencyKey = crypto.randomUUID();
+    }
+    draft.idempotencyFingerprint = fingerprint;
+    execution = await candidatesApi.prepareExternalWingRegistration(draft.candidateId, {
+      ...request,
       idempotencyKey: draft.idempotencyKey,
     });
-    await candidatesApi.startExternalWingRegistration(draft.candidateId, execution.executionId);
+    // 폼만 채우는 기본 경로는 아직 마켓 부작용이 없다. 사용자가 WING 에서
+    // 실제 등록한 뒤 등록상품ID를 확인할 때 서버가 실행을 시작한다.
+    if (autoSubmit === true) {
+      await candidatesApi.startExternalWingRegistration(draft.candidateId, execution.executionId);
+    }
   } catch (error) {
     throw error instanceof Error ? error : new Error('WING 등록 실행 준비에 실패했습니다.');
   }
@@ -581,18 +674,25 @@ export async function submitWingRegistration(
     expectedVendorId: execution.expectedVendorId,
   }, WING_FORM_FILL_TIMEOUT_MS);
   } catch (error) {
-    await candidatesApi.markExternalWingRegistrationUnresolved(
-      draft.candidateId, execution.executionId, { reason: 'extension_throw', message: String(error) },
-    ).catch(() => undefined);
+    if (autoSubmit === true) {
+      await candidatesApi.markExternalWingRegistrationUnresolved(
+        draft.candidateId, execution.executionId, { reason: 'extension_throw', message: String(error) },
+      ).catch(() => undefined);
+    }
     throw error;
   }
   if (!res?.ok) {
-    await candidatesApi.markExternalWingRegistrationUnresolved(
-      draft.candidateId, execution.executionId, { reason: 'extension_error', error: res?.error ?? null },
-    ).catch(() => undefined);
+    if (autoSubmit === true) {
+      await candidatesApi.markExternalWingRegistrationUnresolved(
+        draft.candidateId, execution.executionId, { reason: 'extension_error', error: res?.error ?? null },
+      ).catch(() => undefined);
+    }
     throw new Error(res?.error || '쿠팡 WING 상품등록 페이지 열기에 실패했습니다. 확장을 리로드했는지 확인하세요.');
   }
-  if (res.submission?.status === 'unknown' || res.submission?.attempted === true && !isConfirmedWingRegistration(res.submission)) {
+  if (autoSubmit === true && (
+    res.submission?.status === 'unknown'
+    || res.submission?.attempted === true && !isConfirmedWingRegistration(res.submission)
+  )) {
     await candidatesApi.markExternalWingRegistrationUnresolved(
       draft.candidateId, execution.executionId, { reason: 'unknown', extensionEvidence: res.evidence ?? null },
     ).catch(() => undefined);

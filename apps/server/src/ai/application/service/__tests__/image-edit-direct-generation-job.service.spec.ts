@@ -59,6 +59,9 @@ function makeService() {
       worker as never,
       {
         workerIntervalMs: 1_000,
+        workerMaxIntervalMs: 10_000,
+        workerErrorMaxIntervalMs: 30_000,
+        leaseHeartbeatMs: 5_000,
         leaseMs: 60_000,
         providerTimeoutMs: 120_000,
         heldRecoveryMs: 30_000,

@@ -161,6 +161,67 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
     await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } })).resolves.toMatchObject({ isActive: true });
   });
 
+  it('atomically completes the operation and deactivates the listing after provider verification', async () => {
+    const operation = await startOperation();
+    await repository.markDeletionUnresolved({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      listingId,
+      operationId: operation.operationId,
+      reason: 'provider_observed',
+    });
+
+    await expect(repository.completeDeletion({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      listingId,
+      operationId: operation.operationId,
+      verifiedProviderAccountId: 'A00012345',
+      verifiedExternalListingId: '16311428128',
+    })).resolves.toEqual({
+      operationId: operation.operationId,
+      status: 'succeeded',
+      providerOutcome: 'succeeded',
+    });
+    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listingId } }))
+      .resolves.toMatchObject({ isActive: false, status: 'deleted' });
+    await expect(prisma.channelListingDeletionOperation.findUniqueOrThrow({
+      where: { id: operation.operationId },
+    })).resolves.toMatchObject({ status: 'succeeded', providerOutcome: 'succeeded' });
+  });
+
+  it('resumes an active reconciliation after the browser dialog is reopened with a new key', async () => {
+    const operation = await startOperation();
+    await repository.claimDeletionExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      listingId,
+      operationId: operation.operationId,
+    });
+    await repository.markDeletionUnresolved({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      listingId,
+      operationId: operation.operationId,
+      reason: 'provider_observed',
+    });
+
+    const resumed = await repository.authorizeDeletion({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      listingId,
+      idempotencyKey: randomUUID(),
+      requestHash: 'b'.repeat(64),
+    });
+
+    expect(resumed).toMatchObject({
+      operationId: operation.operationId,
+      status: 'reconciling',
+      providerOutcome: 'uncertain',
+      extensionClaimed: true,
+    });
+  });
+
   async function startOperation() {
     return repository.authorizeDeletion({
       organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, listingId, idempotencyKey: randomUUID(), requestHash: 'b'.repeat(64),

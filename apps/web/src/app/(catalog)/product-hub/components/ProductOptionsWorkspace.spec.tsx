@@ -149,7 +149,9 @@ describe('<ProductOptionsWorkspace>', () => {
     expect(screen.getByText('현재 상태 범위 Sellpia SKU 8개')).toBeInTheDocument();
     expect(screen.getByText('레시피 연결 3개')).toBeInTheDocument();
     expect(screen.getByText('연결 필요 5개')).toBeInTheDocument();
-    expect(screen.getByText('최근 성공 가져오기: 2026. 7. 14. 오전 10:00 · 완료')).toBeInTheDocument();
+    expect(screen.getByText(
+      /최근 성공 가져오기: 2026\. 7\. 14\. (?:오전|AM) 10:00 · 완료/,
+    )).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '레시피 구성 안내' })).toHaveAttribute(
       'href',
       '/product-hub/matching?level=options',

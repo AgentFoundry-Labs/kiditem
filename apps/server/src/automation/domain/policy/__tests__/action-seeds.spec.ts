@@ -17,7 +17,6 @@ describe('generateActionTaskSeeds', () => {
 
     expect(seeds.map((seed) => seed.taskKey)).toEqual([
       'h-ad-csv',
-      'recalc-grade',
       'analyze-ad-rules',
       'analyze-category',
     ]);
@@ -26,10 +25,6 @@ describe('generateActionTaskSeeds', () => {
         .filter((seed) => seed.apiCall)
         .map((seed) => [seed.taskKey, seed.apiCall]),
     )).toEqual({
-      'recalc-grade': {
-        url: '/api/statistics?type=pareto',
-        method: 'GET',
-      },
       'analyze-ad-rules': {
         url: '/api/ads/strategy/recommend',
         method: 'GET',
@@ -39,6 +34,7 @@ describe('generateActionTaskSeeds', () => {
         method: 'GET',
       },
     });
+    expect(seeds.map((seed) => seed.taskKey)).not.toContain('recalc-grade');
   });
 
   it('adds urgent finance and ad actions when loss and ad-cost thresholds fire', () => {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   AdCampaignReportScopeSchema,
+  AdCampaignSnapshotSchema,
   AdExtensionReplayIdempotencyKeySchema,
+  AdProductSnapshotSchema,
 } from './ads';
 
 describe('AdCampaignReportScopeSchema', () => {
@@ -18,6 +20,62 @@ describe('AdCampaignReportScopeSchema', () => {
     expect(() => AdCampaignReportScopeSchema.parse('future_authoritative'))
       .toThrow();
     expect(() => AdCampaignReportScopeSchema.parse('')).toThrow();
+  });
+});
+
+describe('advertising campaign identity contracts', () => {
+  const metrics = {
+    spend: 1,
+    impressions: 2,
+    clicks: 3,
+    conversions: 4,
+    revenue: 5,
+    ctr: 6,
+    roas: 7,
+    cvr: 8,
+  };
+
+  it('requires account and stable identity on campaign snapshots', () => {
+    expect(() => AdCampaignSnapshotSchema.parse({
+      listing: null,
+      campaignId: null,
+      campaignName: '표시명',
+      period: '7d',
+      conversionsAvailable: false,
+      metrics,
+    })).toThrow();
+
+    expect(AdCampaignSnapshotSchema.parse({
+      listing: null,
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      campaignIdentity: 'href:https://advertising.coupang.com/marketing/campaign/1/product',
+      campaignId: null,
+      campaignName: '표시명',
+      period: '7d',
+      conversionsAvailable: false,
+      metrics,
+    })).toMatchObject({ campaignIdentity: expect.any(String) });
+  });
+
+  it('exposes nullable identity for legitimate campaign-less product facts', () => {
+    expect(AdProductSnapshotSchema.parse({
+      listing: null,
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      campaignIdentity: null,
+      externalId: 'product-1',
+      externalOptionId: null,
+      campaignId: null,
+      campaignName: null,
+      keyword: null,
+      status: null,
+      onOff: null,
+      productName: null,
+      imageUrl: null,
+      productUrl: null,
+      saleType: null,
+      period: '7d',
+      metrics,
+    })).toMatchObject({ campaignIdentity: null });
   });
 });
 

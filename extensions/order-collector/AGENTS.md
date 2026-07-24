@@ -20,8 +20,8 @@ conversion.
 - Sellpia 판매현황(sale_summary) 몰별·일별 매출 조회(읽기 전용) + `chrome.alarms`
   매일 자동수집 캐시(웹앱이 백엔드로 flush).
 - Sellpia 상품별 이익현황(stat_prd_profit) 상품×월별 소진(판매수량) 조회(읽기 전용).
-- Sellpia option-product inventory workbook download from the fixed
-  `kiditem.sellpia.com` product-list contract.
+- Sellpia option-product inventory full-snapshot collection from the fixed
+  authenticated `kiditem.sellpia.com` product-search JSON contract.
 - Domeggook and Onchannel tracking registration initiated from the KidItem
   order-collection page.
 - KidItem localhost extension-id discovery for order operations only.
@@ -48,30 +48,32 @@ conversion.
 
 ## Sellpia Inventory Contract
 
-- Advertise `collectSellpiaInventoryV2` only for the hardened inactive-tab,
-  managed-lifecycle, selector-validated collector. The web app must reject an
-  older unpacked extension and request a reload instead of falling back to the
-  original unversioned capability.
+- Advertise `collectSellpiaInventoryJsonV1` only for the hardened inactive-tab,
+  managed-lifecycle JSON collector. The web app must reject an older unpacked
+  extension and request a reload instead of falling back to an Excel collector.
 - `collectSellpiaInventory` runs only against the inactive
-  `https://kiditem.sellpia.com/product_list_total.html` page and posts fixed
-  fields `downopt=2` and `downtype=excel` to
-  `/product_search.down.html`. The existing `https://*.sellpia.com/*` host
-  permission covers this authenticated same-origin request.
+  `https://kiditem.sellpia.com/product_list_total.html` page and posts the fixed
+  `mode=soldout_manager`, `soldout_include=Y`, and `limit=0` full-snapshot
+  request to `/product_search.ajax.html`. The existing
+  `https://*.sellpia.com/*` host permission covers this authenticated
+  same-origin request.
 - Reuse requires an exact matching tab with `active === false`. If every match
   is active, create a separate inactive managed tab; never execute the download
   request in the user's foreground tab.
 - The `inventory.sellpia` lifecycle requires a valid caller run ID and forces
   deferred terminal handling even when an untrusted message omits or falsifies
-  `deferTerminal`. Successful download stays running until import finalization.
+  `deferTerminal`. Successful collection stays running until import
+  finalization.
 - Attach extension-created tabs to the run as owned immediately after creation,
   before readiness checks or page execution, so restart and cancellation can
   reclaim them.
-- Validate the observed `#div_prod_down #downForm` selector/request contract
-  before downloading. Do not depend on translated visible labels for runtime
-  selection.
-- Accept bounded OLE2/XLSX envelopes and a fully walked raw BIFF worksheet
-  stream. Raw BIFF requires a supported worksheet BOF, bounded records, LABEL
-  evidence, and an exact terminal EOF with no trailing bytes.
+- Accept only a bounded, non-empty response of at most 20,000 rows. Every row
+  must have a valid product/option identity and bounded stock/price integers;
+  duplicate identities, partial rows, invalid JSON, and oversized responses
+  fail the run.
+- Return only the versioned normalized snapshot fields required by Inventory,
+  sorted by product-option identity with an exact `rowCount`. Never return the
+  raw Sellpia response, response headers, cookies, or credentials.
 - Only login attention retains an extension-created inactive Sellpia tab for
   the explicit generic open action. Never return cookies, credentials, response
   headers, DOM text, or raw error/response bodies.
@@ -95,9 +97,10 @@ conversion.
 - The web app creates the collection `runId`; the extension must echo that exact
   ID with structured evidence for list pages read, detail PO count, failed PO
   numbers, and truncation.
-- Collect at most 20 list pages and 40 PO details per run. Limit exhaustion,
-  detail failure, or an empty detail response is incomplete evidence and must
-  block preview publication in the backend.
+- Collect every provider-reported list page and every PO detail in the requested
+  range with bounded detail concurrency. A page/detail failure or an empty
+  detail response is incomplete evidence and must block preview publication in
+  the backend; never silently truncate a complete provider result.
 - Advertise `collectRocketPoRowsConfirmationV1` only when every publishable row
   also carries the allowlisted official-workbook fields collected from the
   authenticated Rocket list/detail response. Do not synthesize missing fields

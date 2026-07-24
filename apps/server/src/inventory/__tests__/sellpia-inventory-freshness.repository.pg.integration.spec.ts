@@ -42,6 +42,58 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
+  it('reads an existing freshness snapshot without waiting for the mutation row lock', async () => {
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceAccountKey: 'kiditem',
+        lastVerifiedAt: new Date(),
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+        refreshReason: 'legacy_manual_import',
+      },
+    });
+
+    let signalLocked!: () => void;
+    let releaseLock!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      signalLocked = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const blocker = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT organization_id
+        FROM sellpia_inventory_states
+        WHERE organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `;
+      signalLocked();
+      await release;
+    });
+    await locked;
+
+    const getState = service.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    try {
+      const result = await Promise.race([
+        getState,
+        new Promise<'blocked'>((resolve) => {
+          setTimeout(() => resolve('blocked'), 1_000);
+        }),
+      ]);
+      expect(result).not.toBe('blocked');
+      expect(result).toMatchObject({ status: 'fresh' });
+    } finally {
+      releaseLock();
+      await blocker;
+      await getState;
+    }
+  });
+
   it('atomically creates one ttl generation and idempotently records its failure', async () => {
     const now = new Date();
     await prisma.sellpiaInventoryState.create({

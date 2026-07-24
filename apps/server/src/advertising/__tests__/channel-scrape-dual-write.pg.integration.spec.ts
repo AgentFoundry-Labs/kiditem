@@ -616,6 +616,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
         normalizedRows: [
           {
             pageType: 'product',
+            campaignId: 'CAMP-RAW-AD',
             campaignName: 'Raw Campaign',
             productName: 'Raw Product',
             vendorItemId: 'VENDOR-RAW-AD',

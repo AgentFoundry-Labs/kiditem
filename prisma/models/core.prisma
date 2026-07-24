@@ -72,15 +72,16 @@ model Organization {
   orderReturnLineItems OrderReturnLineItem[]
 
   // Supplier & Procurement
-  suppliers                             Supplier[]
-  supplierPayments                      SupplierPayment[]
-  supplierProducts                      SupplierProduct[]
-  purchaseOrderItems                    PurchaseOrderItem[]
-  rocketPurchaseConfirmations           RocketPurchaseConfirmation[]
-  rocketPurchaseConfirmationLines       RocketPurchaseConfirmationLine[]
-  rocketPurchaseConfirmationAllocations RocketPurchaseConfirmationAllocation[]
-  inventoryCommitments                  InventoryCommitment[]
-  inventoryCommitmentAllocations        InventoryCommitmentAllocation[]
+  suppliers                               Supplier[]
+  supplierPayments                        SupplierPayment[]
+  supplierProducts                        SupplierProduct[]
+  purchaseOrderItems                      PurchaseOrderItem[]
+  rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
+  rocketPurchaseConfirmationLines         RocketPurchaseConfirmationLine[]
+  rocketPurchaseConfirmationAllocations   RocketPurchaseConfirmationAllocation[]
+  rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
+  inventoryCommitments                    InventoryCommitment[]
+  inventoryCommitmentAllocations          InventoryCommitmentAllocation[]
 
   // Warehouse & record-only inventory operations
   warehouses                                    Warehouse[]
@@ -133,6 +134,8 @@ model Organization {
 
   // Product operations, Sellpia physical items, and channel catalogs
   masterProducts                   MasterProduct[]
+  masterProductAbcPolicy            MasterProductAbcPolicy?
+  masterProductAbcGradeHistories    MasterProductAbcGradeHistory[]
   productVariants                  ProductVariant[]
   productVariantComponents         ProductVariantComponent[]
   sellpiaInventorySkus             SellpiaInventorySku[]
@@ -315,6 +318,7 @@ model ChannelAccount {
   orders                           Order[]
   orderReturns                     OrderReturn[]
   channelScrapeRuns                ChannelScrapeRun[]
+  channelAdTargetDailySnapshots    ChannelAdTargetDailySnapshot[]
   channelAccountDailyKpiSnapshots  ChannelAccountDailyKpiSnapshot[]
   rocketPurchaseConfirmations      RocketPurchaseConfirmation[]
   rocketPoCatalogSnapshots         RocketPoCatalogSnapshot[]
@@ -353,17 +357,18 @@ model SourceImportRun {
   createdAt                    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount                      ChannelAccount?              @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  manualFreshExportConfirmer          User?                        @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
-  sellpiaInventorySkus                SellpiaInventorySku[]        @relation("SellpiaInventorySkuLastImport")
-  channelProducts                     ChannelListing[]             @relation("ChannelProductLastImport")
-  channelSkus                         ChannelListingOption[]       @relation("ChannelSkuLastImport")
-  channelScrapeRuns                   ChannelScrapeRun[]
-  lastCompletedSellpiaInventoryStates SellpiaInventoryState[]      @relation("SellpiaInventoryStateLastCompletedRun")
-  rocketPurchaseConfirmations         RocketPurchaseConfirmation[]
-  rocketPoCatalogSnapshot              RocketPoCatalogSnapshot?
-  orders                              Order[]
+  organization                            Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount                          ChannelAccount?                          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  manualFreshExportConfirmer              User?                                    @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
+  sellpiaInventorySkus                    SellpiaInventorySku[]                    @relation("SellpiaInventorySkuLastImport")
+  channelProducts                         ChannelListing[]                         @relation("ChannelProductLastImport")
+  channelSkus                             ChannelListingOption[]                   @relation("ChannelSkuLastImport")
+  channelScrapeRuns                       ChannelScrapeRun[]
+  lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
+  rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
+  rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
+  rocketPoCatalogSnapshot                 RocketPoCatalogSnapshot?
+  orders                                  Order[]
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))
@@ -424,6 +429,7 @@ model MasterProduct {
   channelListings      ChannelListing[]   @relation("ChannelListingOperationalProduct")
   originChannelListing ChannelListing?    @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   processingCosts      ProcessingCost[]
+  abcGradeHistories    MasterProductAbcGradeHistory[]
 
   @@unique([organizationId, code])
   @@unique([originChannelListingId, organizationId])
@@ -431,6 +437,48 @@ model MasterProduct {
   @@index([organizationId])
   @@index([organizationId, isActive])
   @@map("master_products")
+}
+
+/// @namespace Core
+/// @describe Organization-owned automatic MasterProduct ABC calculation policy.
+model MasterProductAbcPolicy {
+  id                   String   @id @default(uuid()) @db.Uuid
+  organizationId       String   @unique @map("organization_id") @db.Uuid
+  metric               String   @default("SALES_QUANTITY")
+  periodDays           Int      @default(30) @map("period_days")
+  aCumulativeThreshold Int      @default(70) @map("a_cumulative_threshold")
+  bCumulativeThreshold Int      @default(90) @map("b_cumulative_threshold")
+  revision             Int      @default(0)
+  lastCalculatedAt     DateTime? @map("last_calculated_at") @db.Timestamptz
+  sourceCapturedAt     DateTime? @map("source_captured_at") @db.Timestamptz
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("master_product_abc_policies")
+}
+
+/// @namespace Core
+/// @describe Immutable publication history for automatic MasterProduct ABC grade changes.
+model MasterProductAbcGradeHistory {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  masterProductId String    @map("master_product_id") @db.Uuid
+  oldGrade        String?   @map("old_grade")
+  newGrade        String?   @map("new_grade")
+  metric          String
+  periodDays      Int       @map("period_days")
+  metricValue     Decimal?  @map("metric_value") @db.Decimal(20, 6)
+  calculatedAt    DateTime  @default(now()) @map("calculated_at") @db.Timestamptz
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct MasterProduct @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@index([organizationId, calculatedAt])
+  @@index([masterProductId])
+  @@index([masterProductId, calculatedAt])
+  @@map("master_product_abc_grade_histories")
 }
 
 /// @namespace Core

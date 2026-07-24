@@ -1,18 +1,18 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/supply - Suppliers and Purchase Orders
+# web/supply - Purchase Orders
 
-`app/(supply)/` owns supplier registry UI and purchase-order operations. It is
-the frontend surface for procurement workflows and does not own inventory stock
-state, finance settlement state, or catalog product editing.
+`app/(supply)/` owns purchase-order operations and the Supply-side Rocket
+procurement components composed into the preserved `/rocket-orders` screen. It
+does not own a standalone supplier registry UI, inventory stock state, finance
+settlement state, or catalog product editing.
 
 ## Owned Surfaces
 
-- Supplier list/create/delete operations
 - Purchase order list, status update, delete, and create modal
 - Purchase-order counts and status filters
-- Coupang Rocket collection, component-capacity preview, confirmation,
-  workbook, and allocation-release workspace
+- Coupang Rocket collection, current-stock preview, durable workbook export,
+  exact re-download, and evidence-gated abandonment workspace
 - Supply-owned Rocket preview components and action contracts composed into the
   capacity-decision placeholder on the preserved `/rocket-orders` screen
 - `/purchase-orders` remains the general supplier purchase-order workspace;
@@ -22,24 +22,22 @@ state, finance settlement state, or catalog product editing.
 
 ```text
 React Query + apiClient
-  -> /api/suppliers
   -> /api/purchase-orders
-  -> queryKeys.suppliers and queryKeys.purchaseOrders
+  -> queryKeys.purchaseOrders
 
 logged-in order-collector extension
   -> collectRocketPoRows with a browser-created runId
--> POST /api/purchase-orders { action: 'previewRocket' | 'confirmRocket' |
-'releaseRocketConfirmation' | 'listSavedRocketPos' |
-'loadSavedRocketCollection' | 'listRocketCommitments' |
-'settleRocketFinalOrderCommitments' | 'releaseRocketFinalOrderCommitments', ... }
+-> POST /api/purchase-orders { action: 'previewRocket' |
+'exportRocketWorkbook' | 'getActiveRocketWorkbook' |
+'downloadRocketWorkbook' | 'abandonRocketWorkbook' |
+'listSavedRocketPos' | 'loadSavedRocketCollection', ... }
   -> immutable PO catalog evidence, collection-scoped safe recipe automation,
-     current-inventory preview, internal capacity allocation, official workbook
-     download, release
+     current-inventory preview, exact official workbook persistence/download,
+     and serialized workflow completion
 ```
 
 ## State Rules
 
-- Supplier mutations invalidate `queryKeys.suppliers.all`.
 - Purchase-order mutations invalidate `queryKeys.purchaseOrders.all`.
 - `pending -> ordered` uses the submission hook with a browser-created stable
   idempotency key; it never uses generic status mutation.
@@ -54,7 +52,8 @@ logged-in order-collector extension
   rejects.
 - General purchase filters and paging belong in the route and preserve
   `orderId`/`supplierId`; backend owns status transitions and totals.
-- Keep purchase-order creation payloads aligned with backend DTO semantics.
+- Keep purchase-order creation payloads aligned with backend DTO semantics,
+  including free-text `supplierName` creation.
 - Rocket preview quantities are editable only up to the backend-recomputed
   maximum. Explicit new collection creates fresh provider evidence. A completed
   persisted catalog snapshot may be reopened, but every reopen reruns Inventory
@@ -62,7 +61,7 @@ logged-in order-collector extension
 - Recollection intersects retained edit keys with fresh PO lines and sends all
   retained edits once using the backend's joint clamp mode. UI state uses the
   returned effective quantities because multiple rows may share component
-  stock. Any later edit marks the preview dirty and confirmation stays disabled
+  stock. Any later edit marks the preview dirty and workbook export stays disabled
   until one whole-preview revalidation succeeds.
 - Changing the selected Rocket ChannelAccount remounts account-scoped errors,
   preview rows, and edits. The `/rocket-orders` calendar owns the date range,
@@ -71,18 +70,24 @@ logged-in order-collector extension
   recipes applied by the current completed collection and the remaining review
   or blocked counts. Each product-level status deep-links to
   `/product-hub/matching` with both `channelAccountId` and `status`; the product
-  matching center owns explicit reruns and focused corrections.
-- Confirmation stays disabled until the backend has published a complete
-  catalog, all rows include authoritative workbook fields, and the operator has
-  reviewed every quantity/shortage reason.
-- Confirmation uses a browser-created UUID idempotency key and downloads the
-  workbook only after the server persists the allocation. Persisted request/
-  final commitments remain durable after refresh but are not rendered as a
-  separate operator list on the Rocket review page. Provisional cancellation is a release;
-  final-order settlement requires a newer Sellpia snapshot proving the
-  movement, while final-order cancellation requires an explicit release
-  reason.
-- Commitment and preview tables use scoped horizontal overflow, explicit
+  matching center owns explicit reruns and focused corrections. A blocked
+  Rocket line deep-links with its `productNo` search and `focusOptionId`, then
+  re-previews the same saved collection after the operator fixes the mapping;
+  it does not collect from Coupang again.
+- Workbook export stays disabled until the backend has published a complete
+  catalog, all rows include authoritative workbook fields and confirmed active
+  recipes, and the operator has reviewed every quantity/shortage reason.
+  Mapping, configuration, and recipe-review blockers must be resolved in
+  Product Hub. Only recipe-backed insufficient capacity may proceed with an
+  explicit shortage reason.
+- Workbook export uses a browser-created UUID idempotency key, uploads the
+  generated bytes to the server, and downloads only the persisted artifact.
+  Repeated downloads return those exact bytes and never recalculate quantities.
+  At most one non-terminal Rocket workbook exists per organization; it completes
+  only after every matching order transmission is finalized and a newer verified
+  Sellpia inventory generation exists. Abandonment requires fresh SHIPMENT and
+  MILKRUN no-match evidence plus an explicit reason.
+- Rocket preview tables use scoped horizontal overflow, explicit
   minimum widths, truncated product names, and non-wrapping identifiers/actions.
   Do not apply these rules to every table globally.
 
@@ -91,7 +96,10 @@ logged-in order-collector extension
 - Do not update inventory quantities directly from supply screens.
 - Do not update supplier payments or settlements here; finance owns those
   workflows.
+- Do not recreate a standalone supplier registry route or browser-side supplier
+  cache family; backend Supplier contracts remain owned by Supply.
 - Do not send `organizationId`; backend session scope owns tenancy.
-- Do not add Rocket provider calls, `/api/orders/rocket/*` routes, or local
-  stock deductions. Confirmation/reservation stays on the Supply action API and
-  never represents provider acceptance.
+- Do not add Rocket provider calls, `/api/orders/rocket/*` routes, local stock
+  deductions, or Rocket-specific commitment/available-stock projections. The
+  workbook workflow stays on the Supply action API and never represents Coupang
+  acceptance by itself.

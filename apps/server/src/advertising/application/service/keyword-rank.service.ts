@@ -18,10 +18,10 @@ import {
   type UpsertKeywordTrackerInput,
 } from "../port/out/repository/keyword-rank.repository.port";
 import {
-  SELLPIA_VARIANT_ABC_GRADE_READ_PORT,
-  type SellpiaVariantAbcGradeReadPort,
-} from "../../../analytics/application/port/in/sellpia-variant-abc-grade-read.port";
-import type { SellpiaProductAbcGrade } from "@kiditem/shared/dashboard";
+  PRODUCT_VARIANT_ABC_GRADE_READ_PORT,
+  type ProductVariantAbcGradeReadPort,
+} from "../../../products/application/port/in/product-variant-abc-grade-read.port";
+import type { ProductAbcGrade } from "@kiditem/shared/product-abc";
 
 export type ProductKeywordRankStatus =
   "rising" | "falling" | "steady" | "out_of_range" | "not_collected";
@@ -40,8 +40,8 @@ export interface ProductKeywordRankRow {
   groupedOptionCount: number;
   skuId: string | null;
   productName: string | null;
-  /** 재고분석 '상품별 소진'과 동일한 ABC 등급. 셀피아 연결분만 채워짐. */
-  abcGrades: SellpiaProductAbcGrade[];
+  /** 연결된 운영 상품의 저장된 자동 ABC 등급. 미분류는 빈 배열. */
+  abcGrades: ProductAbcGrade[];
   currentSalesRank: number | null;
   previousSalesRank: number | null;
   rankChange: number | null;
@@ -83,8 +83,8 @@ export class KeywordRankService {
   constructor(
     @Inject(KEYWORD_RANK_REPOSITORY_PORT)
     private readonly keywordRankRepo: KeywordRankRepositoryPort,
-    @Inject(SELLPIA_VARIANT_ABC_GRADE_READ_PORT)
-    private readonly sellpiaVariantAbcGrades: SellpiaVariantAbcGradeReadPort,
+    @Inject(PRODUCT_VARIANT_ABC_GRADE_READ_PORT)
+    private readonly productVariantAbcGrades: ProductVariantAbcGradeReadPort,
   ) {}
 
   listTrackers(organizationId: string): Promise<KeywordTrackerRow[]> {
@@ -168,7 +168,7 @@ export class KeywordRankService {
       dedupedOwnItems.map((item) => [item.vendorItemId, item]),
     );
     const abcGradesByVariant =
-      await this.sellpiaVariantAbcGrades.findAbcGradesByProductVariantIds({
+      await this.productVariantAbcGrades.findAbcGradesByProductVariantIds({
         organizationId,
         productVariantIds: [
           ...new Set(
@@ -551,9 +551,9 @@ function collapseDuplicateProductNames(
 }
 
 function sortAbcGrades(
-  grades: ReadonlySet<SellpiaProductAbcGrade>,
-): SellpiaProductAbcGrade[] {
-  const order: Record<SellpiaProductAbcGrade, number> = { A: 0, B: 1, C: 2 };
+  grades: ReadonlySet<ProductAbcGrade>,
+): ProductAbcGrade[] {
+  const order: Record<ProductAbcGrade, number> = { A: 0, B: 1, C: 2 };
   return [...grades].sort((left, right) => order[left] - order[right]);
 }
 

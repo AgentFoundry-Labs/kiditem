@@ -43,15 +43,18 @@ route groups need it.
 - When adding a route group or moving a route, update `apps/web/AGENTS.md` and
   `docs/ARCHITECTURE.md`.
 
-## Preserved Operations Surfaces (`0.1.19` baseline, `0.1.20` confirmation)
+## Active And Retired Route Contracts
 
-Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
-preservation baseline. Its direct operations URLs, page hierarchy, primary
-interactions, and normal app-shell affordances remain independently usable;
-shared components must not turn them into redirects or consolidated
-replacements. Sellpia freshness, synchronization, matching, and Rocket capacity
-features are additive.
+The Frontend Route Map in
+[`docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md) is the preservation
+authority for active routes. Before changing an active route's composition or
+tabs, read the nearest route guide; it owns the exact route-specific layout and
+tab contract.
 
-Before changing a preserved route's composition or tabs, read the nearest route
-guide and the Frontend Route Map in [`docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md).
-The nearest guide owns the exact route-specific layout and tab contract.
+To retire a public URL, add it to
+`src/app/__tests__/retired-sidebar-routes.spec.ts`, move every live consumer,
+then delete route-only code. The scanner covers sidebar links and App Router
+pages with root-app precedence, symlinks, default page extensions, and one
+longest exact `(.)`/`(..)`/`(..)(..)`/`(...)` marker; parent underflow fails
+closed. Do not leave a compatibility redirect without a product-named
+canonical replacement.

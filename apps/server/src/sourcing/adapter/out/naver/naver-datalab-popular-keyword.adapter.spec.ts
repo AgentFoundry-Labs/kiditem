@@ -95,7 +95,7 @@ describe('NaverDatalabPopularKeywordAdapter', () => {
     });
   });
 
-  it('uses a deterministic board candidate set capped at the official five-keyword limit', async () => {
+  it('batches the board candidate pool into official five-keyword requests', async () => {
     const fetchMock = vi.fn(async (_url, init) => {
       const request = JSON.parse(String(init?.body));
       return shoppingInsightResponse(
@@ -112,18 +112,106 @@ describe('NaverDatalabPopularKeywordAdapter', () => {
       boardKeys: ['toys_dolls'],
       startDate: '2026-04-20',
       endDate: '2026-05-20',
+      limit: 20,
     });
 
-    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(request.keyword).toEqual([
+    const firstRequest = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(firstRequest.keyword).toEqual([
       { name: '레고', param: ['레고'] },
       { name: '포켓몬카드', param: ['포켓몬카드'] },
       { name: '캐릭터인형', param: ['캐릭터인형'] },
       { name: '역할놀이', param: ['역할놀이'] },
       { name: '유아블록', param: ['유아블록'] },
     ]);
-    expect(result.boards[0].ranks).toHaveLength(5);
-    expect(result.boards[0].ranks[0].keyword).toBe('유아블록');
+
+    // 5 + 4 + 4 + 4 + 3 = 20개 후보를 5개 배치로 나눠 호출한다.
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      const request = JSON.parse(String(call[1]?.body));
+      expect(request.keyword.length).toBeLessThanOrEqual(5);
+      expect(request.keyword[0]).toEqual({ name: '레고', param: ['레고'] });
+    }
+
+    // 표시 개수(limit)만큼 실제로 채워져야 한다. 5개로 잘리면 버튼이 먹지 않는다.
+    expect(result.boards[0].ranks).toHaveLength(20);
+    expect(result.boards[0].ranks.map((rank) => rank.rank)).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 1),
+    );
+    expect(new Set(result.boards[0].ranks.map((rank) => rank.keyword)).size).toBe(20);
+  });
+
+  it('honours the requested display limit instead of clamping to five', async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      return shoppingInsightResponse(
+        request.keyword.map((entry: { name: string }, index: number) => ({
+          keyword: entry.name,
+          ratios: [index + 1],
+        })),
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const adapter = new NaverDatalabPopularKeywordAdapter();
+    const result = await adapter.searchPopularKeywords({
+      boardKeys: ['toys_dolls'],
+      startDate: '2026-04-20',
+      endDate: '2026-05-20',
+      limit: 10,
+    });
+
+    expect(result.boards[0].ranks).toHaveLength(10);
+  });
+
+  it('rescales later batches by the shared anchor so cross-batch scores stay comparable', async () => {
+    // 배치별 ratio 는 요청 안에서 100 으로 정규화된다. 앵커('레고')가 1번 배치에서 100,
+    // 2번 배치에서 50 이면 2번 배치 점수는 2배로 재척도돼야 1번 배치와 비교 가능하다.
+    const fetchMock = vi.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      const names = request.keyword.map((entry: { name: string }) => entry.name);
+      if (names.includes('캐릭터인형')) {
+        return shoppingInsightResponse([
+          { keyword: '레고', ratios: [100] },
+          { keyword: '포켓몬카드', ratios: [40] },
+          { keyword: '캐릭터인형', ratios: [30] },
+          { keyword: '역할놀이', ratios: [20] },
+          { keyword: '유아블록', ratios: [10] },
+        ]);
+      }
+      if (names.includes('인형')) {
+        return shoppingInsightResponse([
+          { keyword: '레고', ratios: [50] },
+          // 재척도 후 30 * (100/50) = 60 -> 포켓몬카드(40)보다 위로 올라와야 한다.
+          { keyword: '인형', ratios: [30] },
+          { keyword: names[2], ratios: [5] },
+          { keyword: names[3], ratios: [5] },
+          { keyword: names[4], ratios: [5] },
+        ]);
+      }
+      // 나머지 배치는 앵커만 살아 있고 새 후보는 모두 낮은 점수.
+      return shoppingInsightResponse([
+        { keyword: '레고', ratios: [50] },
+        { keyword: names[1], ratios: [2] },
+        { keyword: names[2], ratios: [2] },
+        { keyword: names[3], ratios: [2] },
+        { keyword: names[4], ratios: [2] },
+      ]);
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const adapter = new NaverDatalabPopularKeywordAdapter();
+    const result = await adapter.searchPopularKeywords({
+      boardKeys: ['toys_dolls'],
+      startDate: '2026-04-20',
+      endDate: '2026-05-20',
+      limit: 10,
+    });
+
+    const ranks = result.boards[0].ranks;
+    expect(ranks[0].keyword).toBe('레고');
+    // '인형'은 2번 배치의 첫 새 후보다. 재척도가 없으면 30 < 40 이라 포켓몬카드 아래에 남는다.
+    expect(ranks[1].keyword).toBe('인형');
+    expect(ranks[2].keyword).toBe('포켓몬카드');
   });
 
   it.each([

@@ -83,8 +83,8 @@ describe('channel product matching hooks', () => {
   });
 
   it('invalidates the shared queue after separate product and option confirmations', async () => {
-    vi.mocked(linkChannelListingProduct).mockResolvedValue({} as never);
-    vi.mocked(linkChannelListingOption).mockResolvedValue({} as never);
+    vi.mocked(linkChannelListingProduct).mockResolvedValue(undefined);
+    vi.mocked(linkChannelListingOption).mockResolvedValue(undefined);
     const client = createClient();
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     const product = renderHook(() => useLinkChannelListingProduct(), { wrapper: wrapper(client) });
@@ -96,6 +96,9 @@ describe('channel product matching hooks', () => {
     });
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelProductMappings'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelSkuAvailability'] });
+    expect(product.result.current.isError).toBe(false);
+    expect(option.result.current.isError).toBe(false);
   });
 
   it('waits for an account before previewing recipe automation', async () => {

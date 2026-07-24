@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { ProductAbcGradeSchema } from './product-abc.js';
 
 export const ProductInventoryStatusSchema = z.enum([
   'sellable',
@@ -62,6 +63,14 @@ export type ProductOperationsPeriodDays = z.infer<
   typeof ProductOperationsPeriodDaysSchema
 >;
 
+export const ProductOperationsAbcGradeFilterSchema = z.union([
+  ProductAbcGradeSchema,
+  z.literal('unclassified'),
+]);
+export type ProductOperationsAbcGradeFilter = z.infer<
+  typeof ProductOperationsAbcGradeFilterSchema
+>;
+
 export const MasterProductOperationsListQuerySchema = z.object({
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().max(100).default(50),
@@ -70,7 +79,7 @@ export const MasterProductOperationsListQuerySchema = z.object({
   category: z.string().trim().min(1).max(100).optional(),
   activeStatus: ProductOperationsActiveStatusSchema.default('all'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
-  abcGrade: z.string().trim().min(1).max(20).optional(),
+  abcGrade: ProductOperationsAbcGradeFilterSchema.optional(),
   adStatus: ProductOperationsAdStatusSchema.default('all'),
 }).strict();
 export type MasterProductOperationsListQuery = z.infer<
@@ -135,7 +144,7 @@ export const MasterProductOperationsMetadataSchema = z.object({
   brand: z.string().nullable(),
   tags: z.array(z.string().min(1)),
   imageUrls: z.array(z.string().min(1)),
-  abcGrade: z.string().nullable(),
+  abcGrade: ProductAbcGradeSchema.nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
@@ -189,6 +198,7 @@ export const ProductOperationsListSummarySchema = z.object({
     A: z.number().int().nonnegative(),
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
+    unclassified: z.number().int().nonnegative(),
   }).strict(),
   channelConnectionCounts: z.object({
     connected: z.number().int().nonnegative(),
@@ -345,7 +355,6 @@ const MasterProductMutationFieldsSchema = z.object({
   brand: z.string().trim().min(1).max(100).nullable(),
   tags: z.array(z.string().trim().min(1).max(100)).max(50),
   imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50),
-  abcGrade: z.string().trim().min(1).max(20).nullable(),
   profitTag: z.string().trim().min(1).max(50).nullable(),
   adTier: z.string().trim().min(1).max(50).nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
@@ -361,7 +370,6 @@ export const CreateMasterProductInputSchema = z.object({
   brand: z.string().trim().min(1).max(100).nullable().optional(),
   tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
   imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50).optional(),
-  abcGrade: z.string().trim().min(1).max(20).nullable().optional(),
   profitTag: z.string().trim().min(1).max(50).nullable().optional(),
   adTier: z.string().trim().min(1).max(50).nullable().optional(),
   adBudgetLimit: z.number().int().nonnegative().nullable().optional(),
@@ -423,4 +431,49 @@ export const ReplaceProductVariantRecipeInputSchema = z.object({
 }).strict().superRefine(rejectDuplicateRecipeComponents);
 export type ReplaceProductVariantRecipeInput = z.infer<
   typeof ReplaceProductVariantRecipeInputSchema
+>;
+
+export const MAX_CREATE_IF_EMPTY_PRODUCT_VARIANT_RECIPES = 100;
+
+const CreateProductVariantRecipeIfEmptySchema = z.object({
+  productVariantId: z.string().uuid(),
+  components: z.array(ProductVariantRecipeComponentInputSchema).min(1).max(50),
+}).strict().superRefine(rejectDuplicateRecipeComponents);
+
+export const CreateProductVariantRecipesIfEmptyInputSchema = z.object({
+  recipes: z.array(CreateProductVariantRecipeIfEmptySchema)
+    .min(1)
+    .max(MAX_CREATE_IF_EMPTY_PRODUCT_VARIANT_RECIPES),
+}).strict().superRefine((value, context) => {
+  const seen = new Set<string>();
+  value.recipes.forEach((recipe, index) => {
+    const key = recipe.productVariantId.toLowerCase();
+    if (seen.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['recipes', index, 'productVariantId'],
+        message: 'recipes must target distinct ProductVariants',
+      });
+    }
+    seen.add(key);
+  });
+});
+export type CreateProductVariantRecipesIfEmptyInput = z.infer<
+  typeof CreateProductVariantRecipesIfEmptyInputSchema
+>;
+
+export const PlanProductVariantRecipesIfEmptyResponseSchema = z.object({
+  pendingProductVariantIds: z.array(z.string().uuid()),
+  unchangedProductVariantIds: z.array(z.string().uuid()),
+}).strict();
+export type PlanProductVariantRecipesIfEmptyResponse = z.infer<
+  typeof PlanProductVariantRecipesIfEmptyResponseSchema
+>;
+
+export const CreateProductVariantRecipesIfEmptyResponseSchema = z.object({
+  appliedProductVariantIds: z.array(z.string().uuid()),
+  unchangedProductVariantIds: z.array(z.string().uuid()),
+}).strict();
+export type CreateProductVariantRecipesIfEmptyResponse = z.infer<
+  typeof CreateProductVariantRecipesIfEmptyResponseSchema
 >;

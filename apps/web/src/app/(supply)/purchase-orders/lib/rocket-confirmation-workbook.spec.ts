@@ -86,9 +86,9 @@ describe('buildRocketConfirmationWorkbook', () => {
   it('renders the canonical 23-column Coupang sheet from confirmed source evidence', async () => {
     const result = buildRocketConfirmationWorkbook({
       sourceRows: [sourceRow()],
-      confirmedRows: [{
+      workbookRows: [{
         poLineId: PO_LINE_ID,
-        confirmedQuantity: 2,
+        workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류',
       }],
       now: new Date('2026-07-17T00:00:00.000Z'),
@@ -108,8 +108,8 @@ describe('buildRocketConfirmationWorkbook', () => {
       '20260720', '2026-07-17 09:00:00', 'N',
     ]);
     expect(result).toMatchObject({
-      fileName: '발주확정_20260717.xlsx',
-      summary: { totalRows: 1, confirmedQuantity: 2, shortRows: 1 },
+      fileName: '쿠팡_로켓_20260717.xlsx',
+      summary: { totalRows: 1, workbookQuantity: 2, shortRows: 1 },
     });
     expect(workbook.SheetNames).toEqual(['상품목록', 'hiddenSheet']);
   });
@@ -118,9 +118,9 @@ describe('buildRocketConfirmationWorkbook', () => {
     const { confirmation: _confirmation, ...legacyRow } = sourceRow();
     expect(() => buildRocketConfirmationWorkbook({
       sourceRows: [legacyRow],
-      confirmedRows: [{
+      workbookRows: [{
         poLineId: PO_LINE_ID,
-        confirmedQuantity: 2,
+        workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류',
       }],
     })).toThrow(/metadata/i);
@@ -133,9 +133,9 @@ describe('fillRocketConfirmationWorkbook', () => {
       template: templateBytes(),
       templateFileName: '쿠팡_원본.xlsx',
       sourceRows: [sourceRow()],
-      confirmedRows: [{
+      workbookRows: [{
         poLineId: PO_LINE_ID,
-        confirmedQuantity: 2,
+        workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류',
       }],
       now: new Date('2026-07-17T00:00:00.000Z'),
@@ -153,8 +153,8 @@ describe('fillRocketConfirmationWorkbook', () => {
     expect(workbook.Sheets['안내']?.['A1']?.v).toBe('보존값');
     expect(workbook.Sheets['안내']?.['A2']?.v).toBe('원본 안내 문구');
     expect(result).toMatchObject({
-      fileName: '쿠팡_원본_확정_20260717.xlsx',
-      summary: { totalRows: 1, confirmedQuantity: 2, shortRows: 1 },
+      fileName: '쿠팡_원본_쿠팡제출_20260717.xlsx',
+      summary: { totalRows: 1, workbookQuantity: 2, shortRows: 1 },
     });
   });
 
@@ -162,9 +162,9 @@ describe('fillRocketConfirmationWorkbook', () => {
     const input = {
       templateFileName: '쿠팡_원본.xlsx',
       sourceRows: [sourceRow()],
-      confirmedRows: [{
+      workbookRows: [{
         poLineId: PO_LINE_ID,
-        confirmedQuantity: 2,
+        workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류' as const,
       }],
     };
@@ -192,9 +192,9 @@ describe('fillRocketConfirmationWorkbook', () => {
       template: templateBytes({ duplicateMatchingRow: true }),
       templateFileName: '쿠팡_원본.xlsx',
       sourceRows: [sourceRow(), secondSource],
-      confirmedRows: [
-        { poLineId: PO_LINE_ID, confirmedQuantity: 1, shortageReason: null },
-        { poLineId: secondSource.poLineId, confirmedQuantity: 3, shortageReason: null },
+      workbookRows: [
+        { poLineId: PO_LINE_ID, workbookQuantity: 1, shortageReason: null },
+        { poLineId: secondSource.poLineId, workbookQuantity: 3, shortageReason: null },
       ],
     });
     const workbook = XLSX.read(await result.blob.arrayBuffer());

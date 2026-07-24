@@ -63,6 +63,9 @@ function makeWorker(claimed: ReturnType<typeof job> | null = job()) {
     processor as never,
     {
       workerIntervalMs: 1_000,
+      workerMaxIntervalMs: 10_000,
+      workerErrorMaxIntervalMs: 30_000,
+      leaseHeartbeatMs: 5_000,
       leaseMs: 60_000,
       providerTimeoutMs: 120_000,
       heldRecoveryMs: 30_000,
@@ -154,7 +157,7 @@ describe('AiDirectJobWorkerService', () => {
       .mockResolvedValueOnce(null);
 
     await expect(worker.tick(NOW)).rejects.toThrow('database unavailable');
-    await expect(worker.tick(NOW)).resolves.toBeUndefined();
+    await expect(worker.tick(NOW)).resolves.toBe(false);
     expect(repository.claimNext).toHaveBeenCalledTimes(2);
   });
 
@@ -173,7 +176,73 @@ describe('AiDirectJobWorkerService', () => {
     await first;
   });
 
-  it('observes cancellation within one worker polling interval', async () => {
+  it('backs empty queue polls off from one second to ten seconds', async () => {
+    vi.useFakeTimers();
+    const { worker, repository } = makeWorker(null);
+
+    worker.onModuleInit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(repository.claimNext).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(repository.claimNext).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(repository.claimNext).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(repository.claimNext).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(repository.claimNext).toHaveBeenCalledTimes(5);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(repository.claimNext).toHaveBeenCalledTimes(6);
+
+    worker.onModuleDestroy();
+  });
+
+  it('backs database errors off independently to thirty seconds', async () => {
+    vi.useFakeTimers();
+    const { worker, repository } = makeWorker(null);
+    repository.claimNext.mockRejectedValue(new Error('database unavailable'));
+    vi.spyOn((worker as unknown as { logger: { error: () => void } }).logger, 'error')
+      .mockImplementation(() => undefined);
+
+    worker.onModuleInit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(repository.claimNext).toHaveBeenCalledTimes(1);
+    for (const [delay, expectedCalls] of [
+      [1_000, 2],
+      [2_000, 3],
+      [4_000, 4],
+      [8_000, 5],
+      [16_000, 6],
+      [30_000, 7],
+    ] as const) {
+      await vi.advanceTimersByTimeAsync(delay);
+      expect(repository.claimNext).toHaveBeenCalledTimes(expectedCalls);
+    }
+
+    worker.onModuleDestroy();
+  });
+
+  it('wakes immediately and resets the idle backoff', async () => {
+    vi.useFakeTimers();
+    const { worker, repository } = makeWorker(null);
+
+    worker.onModuleInit();
+    await vi.advanceTimersByTimeAsync(3_000);
+    const callsBeforeWake = repository.claimNext.mock.calls.length;
+
+    worker.wake();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(repository.claimNext).toHaveBeenCalledTimes(callsBeforeWake + 1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(repository.claimNext).toHaveBeenCalledTimes(callsBeforeWake + 1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(repository.claimNext).toHaveBeenCalledTimes(callsBeforeWake + 2);
+
+    worker.onModuleDestroy();
+  });
+
+  it('observes cancellation on the dedicated lease heartbeat interval', async () => {
     vi.useFakeTimers();
     const { worker, repository, processor } = makeWorker();
     repository.extendLease.mockResolvedValueOnce('cancelled');
@@ -189,7 +258,9 @@ describe('AiDirectJobWorkerService', () => {
     );
 
     const tick = worker.tick(NOW);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(repository.extendLease).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     await tick;
 
     expect(repository.extendLease).toHaveBeenCalled();

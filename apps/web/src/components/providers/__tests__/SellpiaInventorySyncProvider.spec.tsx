@@ -182,7 +182,7 @@ describe('SellpiaInventorySyncProvider', () => {
 
   it.each([
     '/inventory-hub',
-    '/order-hub',
+    '/orders',
     '/purchase-orders',
   ])('keeps a floating Sellpia status entry on restored screen %s', async (pathname) => {
     navigation.pathname = pathname;

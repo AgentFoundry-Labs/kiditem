@@ -299,6 +299,7 @@ async function upsertCoupangCatalogRows(
     publicationReference: input.publicationReference,
     listings: input.products.map(({ product }) => ({
       listingId: identities.listingIds.get(product.externalProductId)!,
+      channel: CHANNEL,
       displayName: product.displayName ?? product.registeredName ?? product.externalProductId,
       media: flattenMedia(product.media, product.options.flatMap((option) => option.media)),
     })),

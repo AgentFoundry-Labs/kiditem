@@ -429,11 +429,31 @@
               failed += 1;
               latestError = result.error || target.label || "수집 실패";
             }
-            if (preservesContentProgress && result.progress) {
+            if (preservesContentProgress && result.success && result.progress) {
               // advertising.ad_sync는 content script가 캠페인 단위 progress를
               // 보고한다. 여기서 URL target 단위 1/1로 덮으면 완료 순간 UI가
               // 11/11 → 1/1로 회귀하므로 content의 terminal snapshot을 유지한다.
               await sessions.progress(runId, result.progress);
+            } else if (preservesContentProgress && !result.success) {
+              // 실패는 반드시 사유를 남긴다.
+              //
+              // 예전에는 실패해도 content 의 progress 가 있으면 그걸 그대로 썼고
+              // (label 은 마지막 캠페인명), 없으면 두 분기 모두 건너뛰어 progress
+              // 를 아예 갱신하지 않았다. sessions.fail() 은 status 만 바꾸므로
+              // label 에는 직전 성공 문구("광고 동기화 완료")가 남았다. 웹 UI 는
+              // 그 label 을 toast.error 로 띄우기 때문에 사용자는 실패 사유 대신
+              // 캠페인 이름이나 완료 문구를 봤다 — 실패가 조용히 성공처럼 보였다.
+              // 실제 사유(예: "Collection content script timed out after 1800s")
+              // 는 chrome.storage.local 의 batch status 에만 적혔고 웹은 그 키를
+              // 읽지 않는다.
+              await sessions.progress(runId, {
+                ...(result.progress || {}),
+                current: index + 1,
+                total: targets.length,
+                completed,
+                failed,
+                label: latestError,
+              });
             } else if (!preservesContentProgress) {
               await sessions.progress(runId, {
                 current: index + 1,

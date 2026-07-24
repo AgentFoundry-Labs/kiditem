@@ -17,8 +17,6 @@ const earlierRow = {
     sellpiaInventorySkuId: 'sellpia-sku-1',
     quantity: 1,
     currentStock: 5,
-    activeCommitmentQuantity: 0,
-    availableStock: 5,
     isActive: true,
   }],
 };
@@ -41,7 +39,7 @@ describe('previewRocketCapacity', () => {
     expect(rows[0]?.plannedDeliveryDate).toBe('2026-07-20');
   });
 
-  it('uses Inventory available stock without subtracting commitments twice', () => {
+  it('uses Sellpia current stock as the workbook capacity', () => {
     const rows = previewRocketCapacity({
       rows: [{
         ...earlierRow,
@@ -49,18 +47,66 @@ describe('previewRocketCapacity', () => {
         components: [{
           ...earlierRow.components[0]!,
           currentStock: 100,
-          activeCommitmentQuantity: 20,
-          availableStock: 80,
         }],
       }],
       editedQuantities: {},
     });
 
     expect(rows[0]).toMatchObject({
-      maxQuantity: 80,
-      recommendedQuantity: 80,
-      reason: 'insufficient_capacity',
+      maxQuantity: 100,
+      recommendedQuantity: 100,
+      reason: null,
     });
+  });
+
+  it('derives pack conversion only from the confirmed recipe quantity', () => {
+    const rows = previewRocketCapacity({
+      rows: [{
+        ...earlierRow,
+        productName: '이름에는 2개입이라고 적힌 오해 유발 상품',
+        orderQuantity: 10,
+        components: [{
+          ...earlierRow.components[0]!,
+          quantity: 18,
+          currentStock: 35,
+        }],
+      }],
+      editedQuantities: {},
+    });
+
+    expect(rows[0]).toMatchObject({
+      maxQuantity: 1,
+      recommendedQuantity: 1,
+      reason: 'insufficient_capacity',
+      components: [{ quantity: 18, currentStock: 35 }],
+    });
+  });
+
+  it('consumes one shared SKU pool once across multiple PO lines', () => {
+    const currentStock = 10;
+    const rows = previewRocketCapacity({
+      rows: [laterRow, earlierRow].map((row) => ({
+        ...row,
+        orderQuantity: 2,
+        components: [{
+          ...row.components[0]!,
+          quantity: 3,
+          currentStock,
+        }],
+      })),
+      editedQuantities: {},
+    });
+
+    expect(rows.map((row) => [row.poLineId, row.recommendedQuantity])).toEqual([
+      ['line-earlier', 2],
+      ['line-later', 1],
+    ]);
+    const allocatedComponents = rows.reduce(
+      (total, row) => total + row.recommendedQuantity * row.components[0]!.quantity,
+      0,
+    );
+    expect(allocatedComponents).toBe(9);
+    expect(allocatedComponents).toBeLessThanOrEqual(currentStock);
   });
 
   it('uses numeric PO order and then line ID as same-date tie breakers', () => {
@@ -74,7 +120,6 @@ describe('previewRocketCapacity', () => {
         components: [{
           ...row.components[0]!,
           currentStock: 1,
-          availableStock: 1,
         }],
       })),
       editedQuantities: {},
@@ -129,7 +174,6 @@ describe('previewRocketCapacity', () => {
         components: [{
           ...earlierRow.components[0]!,
           currentStock: 0,
-          availableStock: 0,
         }],
       },
       quantity: 1,
@@ -164,7 +208,6 @@ describe('previewRocketCapacity', () => {
           components: [{
             ...earlierRow.components[0]!,
             currentStock: sharedStock,
-            availableStock: sharedStock,
           }],
         },
         {
@@ -173,7 +216,6 @@ describe('previewRocketCapacity', () => {
           components: [{
             ...laterRow.components[0]!,
             currentStock: sharedStock,
-            availableStock: sharedStock,
           }],
         },
       ],

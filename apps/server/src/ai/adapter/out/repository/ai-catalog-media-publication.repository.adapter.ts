@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type ContentAsset } from '@prisma/client';
-import type { CoupangCatalogMediaV1 } from '@kiditem/shared/coupang-catalog-snapshot';
-import type { CatalogMediaPublicationPort } from '../../../../channels/application/port/out/cross-domain/catalog-media-publication.port';
+import type {
+  CatalogMediaPublicationPort,
+  ChannelCatalogMedia,
+} from '../../../../channels/application/port/out/cross-domain/catalog-media-publication.port';
 
 @Injectable()
 export class AiCatalogMediaPublicationRepositoryAdapter
@@ -64,7 +66,7 @@ implements CatalogMediaPublicationPort {
           groupType: 'workspace_assets',
           title: 'Workspace managed assets',
           createdByUserId: input.userId,
-          metadata: { sourceType: 'coupang_catalog' },
+          metadata: { sourceType: 'channel_catalog', channel: listing.channel },
         },
         select: { id: true },
       });
@@ -75,17 +77,20 @@ implements CatalogMediaPublicationPort {
           originGenerationGroupId: group.id,
         },
       });
-      const providerAssets = existingAssets.filter(isCoupangProviderAsset);
+      const providerAssets = existingAssets.filter((asset) =>
+        isChannelProviderAsset(asset, listing.channel));
       const desiredKeys = new Set<string>();
       const activeAssets: ContentAsset[] = [];
       for (const media of uniqueMedia(listing.media)) {
-        const assetKey = providerAssetKey(workspace.id, media);
-        desiredKeys.add(assetKey);
-        const existing = providerAssets.find((asset) => asset.assetKey === assetKey);
+        const assetKeys = providerAssetKeys(workspace.id, listing.channel, media);
+        const assetKey = assetKeys[0]!;
+        const existing = providerAssets.find((asset) => assetKeys.includes(asset.assetKey));
+        desiredKeys.add(existing?.assetKey ?? assetKey);
         const existingMetadata = jsonRecord(existing?.metadata) ?? {};
         const metadata = {
           ...withoutMaterializationMetadata(existingMetadata),
-          sourceType: 'coupang_catalog',
+          sourceType: 'channel_catalog',
+          channel: listing.channel,
           sourceUrl: media.sourceUrl,
           externalOptionId: media.externalOptionId,
           publicationReference: input.publicationReference,
@@ -166,7 +171,10 @@ implements CatalogMediaPublicationPort {
         .filter((asset) => asset.role === 'primary')
         .sort((left, right) => left.sortOrder - right.sortOrder)[0];
       const currentIsProvider = workspace.currentThumbnailSelection
-        ? isProviderMetadata(workspace.currentThumbnailSelection.contentAsset.metadata)
+        ? isProviderMetadata(
+            workspace.currentThumbnailSelection.contentAsset.metadata,
+            listing.channel,
+          )
         : false;
       if (
         primary &&
@@ -208,8 +216,8 @@ function transactionClient(value: unknown): Prisma.TransactionClient {
   return value as Prisma.TransactionClient;
 }
 
-function uniqueMedia(media: CoupangCatalogMediaV1[]): CoupangCatalogMediaV1[] {
-  const unique = new Map<string, CoupangCatalogMediaV1>();
+function uniqueMedia(media: ChannelCatalogMedia[]): ChannelCatalogMedia[] {
+  const unique = new Map<string, ChannelCatalogMedia>();
   for (const item of media) {
     const key = `${item.role}\u0000${item.externalOptionId ?? ''}\u0000${item.sourceUrl}`;
     const existing = unique.get(key);
@@ -220,18 +228,27 @@ function uniqueMedia(media: CoupangCatalogMediaV1[]): CoupangCatalogMediaV1[] {
   );
 }
 
-function providerAssetKey(workspaceId: string, media: CoupangCatalogMediaV1): string {
+function providerAssetKeys(
+  workspaceId: string,
+  channel: string,
+  media: ChannelCatalogMedia,
+): string[] {
   const identity = `${media.role}\u0000${media.externalOptionId ?? ''}\u0000${media.sourceUrl}`;
   const hash = createHash('sha256').update(identity).digest('hex');
-  return `coupang-provider:${workspaceId}:${hash}`;
+  return [
+    `channel-provider:${channel}:${workspaceId}:${hash}`,
+    ...(channel === 'coupang' ? [`coupang-provider:${workspaceId}:${hash}`] : []),
+  ];
 }
 
-function isCoupangProviderAsset(asset: ContentAsset): boolean {
-  return isProviderMetadata(asset.metadata);
+function isChannelProviderAsset(asset: ContentAsset, channel: string): boolean {
+  return isProviderMetadata(asset.metadata, channel);
 }
 
-function isProviderMetadata(value: unknown): boolean {
-  return jsonRecord(value)?.sourceType === 'coupang_catalog';
+function isProviderMetadata(value: unknown, channel: string): boolean {
+  const metadata = jsonRecord(value);
+  if (metadata?.sourceType === 'coupang_catalog') return channel === 'coupang';
+  return metadata?.sourceType === 'channel_catalog' && metadata.channel === channel;
 }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {

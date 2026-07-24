@@ -373,7 +373,7 @@ test('Coupang direct-order list maps its first auth response to the shared retry
   assert.equal(result.errorCode, 'coupang_po_session_required');
 });
 
-test('Rocket collection marks the 20-list-page and 40-detail limits incomplete', async () => {
+test('Rocket collection reads every provider page and PO detail beyond the former limits', async () => {
   const listRows = Array.from({ length: 3 }, (_, index) => ({
     purchaseOrderSeq: index + 1,
     vendorId: 'A00123',
@@ -390,7 +390,7 @@ test('Rocket collection marks the 20-list-page and 40-detail limits incomplete',
               ...row,
               purchaseOrderSeq: row.purchaseOrderSeq + ((listCalls - 1) * 3),
             })),
-            lastPageNumber: 20,
+            lastPageNumber: 21,
           },
         }),
       };
@@ -414,7 +414,10 @@ test('Rocket collection marks the 20-list-page and 40-detail limits incomplete',
     '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
   );
 
-  assert.equal(result.evidence.listPagesRead, 20);
-  assert.equal(result.evidence.detailPoCount, 40);
-  assert.equal(result.evidence.truncated, true);
+  assert.equal(result.evidence.listPagesRead, 21);
+  assert.equal(result.evidence.totalListPages, 21);
+  assert.equal(result.poCount, 63);
+  assert.equal(result.evidence.detailPoCount, 63);
+  assert.equal(result.rows.length, 63);
+  assert.equal(result.evidence.truncated, false);
 });

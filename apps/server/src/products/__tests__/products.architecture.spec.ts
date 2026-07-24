@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { ProductOperationsController } from '../adapter/in/http/product-operations.controller';
@@ -15,7 +17,30 @@ import { PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT } from '../application/port/in/p
 import { ProductVariantRecipeAutomationService } from '../application/service/product-variant-recipe-automation.service';
 
 describe('Products architecture', () => {
-  it('publishes the eight product-operation routes', () => {
+  it('does not depend on registered listings to choose WING categories', () => {
+    const sourceFiles = (directory: string): string[] => readdirSync(directory, {
+      withFileTypes: true,
+    }).flatMap((entry) => {
+      if (entry.name === '__tests__' || entry.name.endsWith('.spec.ts')) return [];
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return sourceFiles(path);
+      return entry.name.endsWith('.ts') ? [path] : [];
+    });
+    const productsRoot = join(import.meta.dirname, '..');
+    const inferencePath = join(productsRoot, 'domain/coupang-category-inference.ts');
+    const source = [
+      ...sourceFiles(join(productsRoot, 'categories')),
+      ...(existsSync(inferencePath) ? [inferencePath] : []),
+    ]
+      .map((path) => readFileSync(path, 'utf8'))
+      .join('\n');
+
+    expect(source).not.toMatch(
+      /CoupangCategorySuggestionService|channelListing|inferCoupangCategory|coupang-suggestions/,
+    );
+  });
+
+  it('publishes the ten product-operation routes', () => {
     expect(Reflect.getMetadata('path', ProductOperationsController)).toBe('products');
     const routes = [
       ['listProducts', 'masters', RequestMethod.GET],
@@ -26,6 +51,8 @@ describe('Products architecture', () => {
       ['createVariant', 'masters/:masterProductId/variants', RequestMethod.POST],
       ['updateVariant', 'variants/:productVariantId', RequestMethod.PATCH],
       ['replaceRecipe', 'variants/:productVariantId/components', RequestMethod.PUT],
+      ['planRecipesIfEmpty', 'variant-recipes/create-if-empty/plan', RequestMethod.POST],
+      ['createRecipesIfEmpty', 'variant-recipes/create-if-empty', RequestMethod.POST],
     ] as const;
 
     for (const [methodName, path, method] of routes) {

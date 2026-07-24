@@ -143,8 +143,21 @@ implements CoupangDirectOrderCollectionTransactionPort {
         organizationId: input.organizationId,
         userId: input.userId,
         channelAccountId: input.request.channelAccountId,
+        sourceImportRunId: importRun.id,
+        transport: input.request.transport,
         lines: reconciliationLines,
       });
+      // 활성 발주확정이 없어 정산에서 제외된 라인은 하드 에러가 아니라 스킵으로 보고한다.
+      // 확정(정산)된 라인만 셀피아 양식·후속 처리 대상이 되도록 (발주번호, SKU) 식별자로 분리한다.
+      const skippedKeys = new Set(
+        reconciled.skippedLines.map(({ poNumber, productNo }) => lineKey(poNumber, productNo)),
+      );
+      const confirmedLines = dedupeLineRefs(
+        reconciliationLines
+          .filter(({ poNumber, productNo }) => !skippedKeys.has(lineKey(poNumber, productNo)))
+          .map(({ poNumber, productNo }) => ({ poNumber, productNo })),
+      );
+      const skippedLines = dedupeLineRefs(reconciled.skippedLines);
       await tx.sourceImportRun.update({
         where: { id: importRun.id },
         data: {
@@ -157,7 +170,12 @@ implements CoupangDirectOrderCollectionTransactionPort {
       });
       return {
         importRunId: importRun.id,
+        exportId: reconciled.exportId,
+        transmissionIntentKey: reconciled.transmissionIntentKey,
+        matchedLineCount: reconciled.matchedLineCount,
         reconciledRows: reconciled.reconciledRows,
+        confirmedLines,
+        skippedLines,
         duplicate: existingRun?.status === 'completed',
       };
     }, TRANSACTION_OPTIONS);
@@ -167,6 +185,24 @@ implements CoupangDirectOrderCollectionTransactionPort {
 function orderData(mapped: ReturnType<typeof mapCoupangDirectOrder>) {
   const { lines: _lines, metadata, ...data } = mapped;
   return { ...data, metadata: metadata as Prisma.InputJsonValue };
+}
+
+function lineKey(poNumber: string, productNo: string): string {
+  return JSON.stringify([poNumber, productNo]);
+}
+
+function dedupeLineRefs(
+  refs: Array<{ poNumber: string; productNo: string }>,
+): Array<{ poNumber: string; productNo: string }> {
+  const seen = new Set<string>();
+  const result: Array<{ poNumber: string; productNo: string }> = [];
+  for (const ref of refs) {
+    const key = lineKey(ref.poNumber, ref.productNo);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ poNumber: ref.poNumber, productNo: ref.productNo });
+  }
+  return result;
 }
 
 async function assertActiveActor(

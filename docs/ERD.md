@@ -28,12 +28,12 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 20 |
 | [Channels](erd/channels.md) | 21 |
-| [Core](erd/core.md) | 12 |
+| [Core](erd/core.md) | 14 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 13 |
 | [Orders](erd/orders.md) | 10 |
 | [Sourcing](erd/sourcing.md) | 11 |
-| [Supply](erd/supply.md) | 9 |
+| [Supply](erd/supply.md) | 10 |
 | [System](erd/system.md) | 9 |
 
 ## Model Index
@@ -109,6 +109,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelListingOption | Core | `channel_listing_options` | One sellable SKU under a channel listing. |
 | LegalEntity | Core | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | Core | `master_products` | KidItem-operated product identity and product-level operating metadata. |
+| MasterProductAbcGradeHistory | Core | `master_product_abc_grade_histories` | Immutable publication history for automatic MasterProduct ABC grade changes. |
+| MasterProductAbcPolicy | Core | `master_product_abc_policies` | Organization-owned automatic MasterProduct ABC calculation policy. |
 | Organization | Core | `organizations` | - |
 | OrganizationMembership | Core | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductVariant | Core | `product_variants` | Reusable sellable unit beneath one MasterProduct. Code is stable organization-scoped identity. |
@@ -157,9 +159,10 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
 | PurchaseOrderSubmissionAttempt | Supply | `purchase_order_submission_attempts` | Durable idempotency intent and reconciliation record for an external purchase-order submission. |
-| RocketPurchaseConfirmation | Supply | `rocket_purchase_confirmations` | One operator-confirmed Rocket PO decision. It reserves component capacity without mutating Sellpia physical stock. |
-| RocketPurchaseConfirmationAllocation | Supply | `rocket_purchase_confirmation_allocations` | Immutable component-capacity allocation captured from the confirmed ProductVariant recipe. |
-| RocketPurchaseConfirmationLine | Supply | `rocket_purchase_confirmation_lines` | Audited Rocket PO line decision. Positive quantities require a confirmed channel variant recipe. |
+| RocketPurchaseConfirmation | Supply | `rocket_purchase_confirmations` | Durable immutable Rocket workbook export and external synchronization workflow. |
+| RocketPurchaseConfirmationAllocation | Supply | `rocket_purchase_confirmation_allocations` | Immutable component recipe evidence captured for one Rocket workbook line. |
+| RocketPurchaseConfirmationLine | Supply | `rocket_purchase_confirmation_lines` | Immutable Rocket workbook line decision and matching final-order evidence. |
+| RocketPurchaseConfirmationTransmission | Supply | `rocket_purchase_confirmation_transmissions` | One transport-specific Coupang collection probe and optional stable Sellpia transmission key for a Rocket workbook export. |
 | Supplier | Supply | `suppliers` | - |
 | SupplierPayment | Supply | `supplier_payments` | - |
 | SupplierProduct | Supply | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
@@ -666,6 +669,7 @@ erDiagram
   ChannelAdTargetDailySnapshot {
     String id PK
     String organizationId FK
+    String channelAccountId FK
     String channel
     DateTime businessDate
     String listingId FK
@@ -675,6 +679,7 @@ erDiagram
     String targetType
     String targetKey
     String campaignId
+    String campaignIdentity
     String campaignName
     String adGroup
     String keyword
@@ -1387,6 +1392,30 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  MasterProductAbcGradeHistory {
+    String id PK
+    String organizationId FK
+    String masterProductId FK
+    String oldGrade
+    String newGrade
+    String metric
+    Int periodDays
+    Decimal metricValue
+    DateTime calculatedAt
+  }
+  MasterProductAbcPolicy {
+    String id PK
+    String organizationId FK,UK
+    String metric
+    Int periodDays
+    Int aCumulativeThreshold
+    Int bCumulativeThreshold
+    Int revision
+    DateTime lastCalculatedAt
+    DateTime sourceCapturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   MigrationCheckpoint {
     String id PK
     String scriptName
@@ -1807,6 +1836,15 @@ erDiagram
     String status
     String confirmedBy FK
     DateTime confirmedAt
+    String artifactFileName
+    String artifactContentType
+    String artifactSha256
+    Bytes artifactBytes
+    DateTime artifactStoredAt
+    DateTime ordersCollectedAt
+    DateTime completedAt
+    String failureCode
+    String failureMessage
     String releasedBy FK
     DateTime releasedAt
     String releaseReason
@@ -1836,7 +1874,21 @@ erDiagram
     String shortageReason
     String channelListingOptionId FK
     String productVariantId FK
+    String collectedOrderLineItemId
+    DateTime collectedAt
     DateTime createdAt
+  }
+  RocketPurchaseConfirmationTransmission {
+    String id PK
+    String organizationId FK
+    String confirmationId FK
+    String sourceImportRunId FK
+    String transport
+    String intentKey
+    Int matchedLineCount
+    DateTime observedAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   RocketPurchaseOrder {
     String id PK
@@ -2511,6 +2563,7 @@ erDiagram
   AgentToolInvocation o|--o{ AgentArtifact : "toolInvocation"
   CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAccount ||--o{ ChannelAccountDailyKpiSnapshot : "channelAccount"
+  ChannelAccount ||--o{ ChannelAdTargetDailySnapshot : "channelAccount"
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
   ChannelAccount ||--o{ ChannelListingDeletionOperation : "channelAccount"
   ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"
@@ -2587,6 +2640,7 @@ erDiagram
   InventoryCommitment ||--o{ InventoryCommitmentAllocation : "commitment"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
+  MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
   MasterProduct ||--o{ ProcessingCost : "master"
   MasterProduct ||--o{ ProductVariant : "masterProduct"
   MasterProduct o|--o| SourcingCandidate : "provenanceMasterProduct"
@@ -2658,6 +2712,8 @@ erDiagram
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
   Organization ||--o{ ManualLedger : "organization"
   Organization ||--o{ MasterProduct : "organization"
+  Organization ||--o{ MasterProductAbcGradeHistory : "organization"
+  Organization ||--|| MasterProductAbcPolicy : "organization"
   Organization ||--o{ NaverKeywordDailySnapshot : "organization"
   Organization ||--o{ NaverPopularKeywordDailySnapshot : "organization"
   Organization ||--o{ Order : "organization"
@@ -2683,6 +2739,7 @@ erDiagram
   Organization ||--o{ RocketPurchaseConfirmation : "organization"
   Organization ||--o{ RocketPurchaseConfirmationAllocation : "organization"
   Organization ||--o{ RocketPurchaseConfirmationLine : "organization"
+  Organization ||--o{ RocketPurchaseConfirmationTransmission : "organization"
   Organization ||--o{ RocketPurchaseOrder : "organization"
   Organization ||--o{ RocketSupplyDailySnapshot : "organization"
   Organization ||--o{ SalesPlan : "organization"
@@ -2731,6 +2788,7 @@ erDiagram
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
   RocketPoCatalogSnapshot ||--o{ RocketPoCatalogLine : "snapshot"
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
+  RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationTransmission : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
   SellpiaInventorySku ||--o{ InventoryCommitmentAllocation : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
@@ -2748,6 +2806,7 @@ erDiagram
   SourceImportRun o|--o{ Order : "sourceImportRun"
   SourceImportRun ||--|| RocketPoCatalogSnapshot : "sourceImportRun"
   SourceImportRun ||--o{ RocketPurchaseConfirmation : "sourceImportRun"
+  SourceImportRun ||--o{ RocketPurchaseConfirmationTransmission : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaInventorySku : "lastImportRun"
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
   SourcingCandidate ||--o{ CandidateImage : "candidate"

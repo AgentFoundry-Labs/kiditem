@@ -9,8 +9,6 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
-import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
 import { RocketFinalOrderReconciliationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 import { RocketFinalOrderReconciliationService } from '../../supply/application/service/rocket-final-order-reconciliation.service';
 import { CoupangDirectOrderCollectionTransactionAdapter } from '../adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
@@ -27,11 +25,8 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    const inventory = new InventoryCommitmentService(
-      new InventoryCommitmentRepositoryAdapter(prismaService),
-    );
     const reconciliation = new RocketFinalOrderReconciliationService(
-      new RocketFinalOrderReconciliationTransactionAdapter(inventory),
+      new RocketFinalOrderReconciliationTransactionAdapter(),
     );
     service = new CoupangDirectOrderCollectionService(
       new CoupangDirectOrderCollectionTransactionAdapter(
@@ -73,8 +68,8 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     });
   });
 
-  it('persists Orders and replaces request commitments atomically on replay', async () => {
-    await seedRequest('PO-1', 'P-1', '8801234567890', 4);
+  it('persists Orders and links one stable Sellpia transmission intent atomically on replay', async () => {
+    const exportId = await seedRequest('PO-1', 'P-1', '8801234567890', 4);
     const input = collectionRequest('PO-1', 'P-1', '8801234567890', 3);
 
     const first = await service.collect({
@@ -88,7 +83,13 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       request: input,
     });
 
-    expect(first).toMatchObject({ duplicate: false, reconciledRows: 1 });
+    expect(first).toMatchObject({
+      exportId,
+      transmissionIntentKey: `rocket-workbook:${exportId}:shipment`,
+      matchedLineCount: 1,
+      duplicate: false,
+      reconciledRows: 1,
+    });
     expect(replay).toEqual({ ...first, duplicate: true });
     expect(await prisma.order.count()).toBe(1);
     expect(await prisma.orderLineItem.count()).toBe(1);
@@ -109,18 +110,49 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         quantity: 3,
       }],
     });
-    const commitments = await prisma.inventoryCommitment.findMany({
-      orderBy: { createdAt: 'asc' },
+    expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
+      collectedOrderLineItemId: order.lineItems[0]!.id,
+      collectedAt: expect.any(Date),
     });
-    expect(commitments).toMatchObject([
-      { kind: 'rocket_request', status: 'released' },
-      {
-        kind: 'rocket_final_order',
-        sourceId: order.lineItems[0]!.id,
-        status: 'active',
-        unitQuantity: 3,
-      },
+    expect(await prisma.rocketPurchaseConfirmationTransmission.findMany()).toEqual([
+      expect.objectContaining({
+        confirmationId: exportId,
+        sourceImportRunId: first.importRunId,
+        transport: 'SHIPMENT',
+        intentKey: `rocket-workbook:${exportId}:shipment`,
+        matchedLineCount: 1,
+      }),
     ]);
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
+  });
+
+  it('collects without throwing when no active confirmation exists, reporting the skip', async () => {
+    // 현재 운영 상태(rocket_purchase_confirmation_lines = 0)를 재현한다.
+    // 예전에는 ROCKET_REQUEST_COMMITMENT_NOT_FOUND 409 로 수집 전체가 터졌다.
+    const input = collectionRequest('PO-9', 'P-9', '8801234567890', 3);
+
+    const result = await service.collect({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      request: input,
+    });
+
+    expect(result).toMatchObject({
+      exportId: null,
+      transmissionIntentKey: null,
+      matchedLineCount: 0,
+      reconciledRows: 0,
+      confirmedLines: [],
+      skippedLines: [{ poNumber: 'PO-9', productNo: 'P-9' }],
+      duplicate: false,
+    });
+    // 최종주문 자체는 실제 주문이라 적재되지만, 발주확정이 없어 재고 커밋은 생기지 않는다.
+    expect(await prisma.order.count()).toBe(1);
+    expect(await prisma.orderLineItem.count()).toBe(1);
+    expect(await prisma.sourceImportRun.count({
+      where: { sourceType: 'coupang_rocket_final_order', status: 'completed' },
+    })).toBe(1);
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('rolls back import run and Orders when reconciliation fails', async () => {
@@ -136,9 +168,40 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     expect(await prisma.sourceImportRun.count({
       where: { sourceType: 'coupang_rocket_final_order' },
     })).toBe(0);
-    expect(await prisma.inventoryCommitment.findFirstOrThrow()).toMatchObject({
-      kind: 'rocket_request',
-      status: 'active',
+    expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
+      collectedOrderLineItemId: null,
+    });
+    expect(await prisma.rocketPurchaseConfirmationTransmission.count()).toBe(0);
+    expect(await prisma.inventoryCommitment.count()).toBe(0);
+  });
+
+  it('persists an empty transport probe so a fresh no-match check is durable', async () => {
+    const exportId = await seedRequest('PO-1', 'P-1', '8801234567890', 4);
+    const request = {
+      ...collectionRequest('PO-1', 'P-1', '8801234567890', 3),
+      transport: 'MILKRUN' as const,
+      pos: [],
+    };
+
+    const result = await service.collect({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      request,
+    });
+
+    expect(result).toMatchObject({
+      exportId,
+      transmissionIntentKey: null,
+      matchedLineCount: 0,
+      confirmedLines: [],
+      skippedLines: [],
+    });
+    expect(await prisma.rocketPurchaseConfirmationTransmission.findFirstOrThrow()).toMatchObject({
+      confirmationId: exportId,
+      sourceImportRunId: result.importRunId,
+      transport: 'MILKRUN',
+      intentKey: null,
+      matchedLineCount: 0,
     });
   });
 
@@ -166,7 +229,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),
         freshnessGeneration: 1n,
-        status: 'active',
+        status: 'awaiting_coupang_confirmation',
         confirmedBy: TEST_USER_ID,
       },
     });
@@ -192,27 +255,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         quantity,
       },
     });
-    const commitment = await prisma.inventoryCommitment.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        kind: 'rocket_request',
-        sourceId: line.id,
-        businessKey: `coupang-rocket:${CHANNEL_ACCOUNT_ID}:${poNumber}:${productNo}`,
-        unitQuantity: quantity,
-        status: 'active',
-        inventoryGeneration: 1n,
-        createdBy: TEST_USER_ID,
-      },
-    });
-    await prisma.inventoryCommitmentAllocation.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        commitmentId: commitment.id,
-        sellpiaInventorySkuId: SKU_ID,
-        unitsPerItem: 1,
-        quantity,
-      },
-    });
+    return confirmation.id;
   }
 });
 

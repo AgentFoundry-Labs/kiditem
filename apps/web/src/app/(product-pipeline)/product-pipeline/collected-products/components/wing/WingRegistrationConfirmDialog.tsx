@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Loader2, Store, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, Store, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { WING_CATEGORY_DEFINITIONS } from '../../lib/wing-category-presets';
 import {
   validateWingRegistrationOverrides,
   WING_DISPLAY_NAME_MAX,
@@ -23,16 +24,26 @@ import {
 export default function WingRegistrationConfirmDialog({
   draft,
   isSubmitting,
+  completion = null,
   onCancel,
   onConfirm,
+  onConfirmExternal,
 }: {
   /** `prepareWingRegistration()` 결과. `null` 이면 모달을 닫아 둔다. */
   draft: WingRegistrationDraft | null;
   isSubmitting: boolean;
+  completion?: { suggestedExternalListingId?: string | null } | null;
   onCancel: () => void;
-  onConfirm: (overrides: WingRegistrationOverrides, autoSubmit: boolean) => void;
+  onConfirm: (
+    overrides: WingRegistrationOverrides,
+    autoSubmit: boolean,
+    channelAccountId: string,
+  ) => void;
+  onConfirmExternal?: (externalListingId: string) => void;
 }) {
   const [overrides, setOverrides] = useState<WingRegistrationOverrides | null>(null);
+  const [channelAccountId, setChannelAccountId] = useState('');
+  const [externalListingId, setExternalListingId] = useState('');
   // ⚠️ 기본값은 반드시 OFF. 켜야만 확장이 WING 의 '상품등록' 버튼까지 누른다.
   const [autoSubmit, setAutoSubmit] = useState(false);
 
@@ -42,12 +53,93 @@ export default function WingRegistrationConfirmDialog({
   // 확인 없이 쿠팡에 등록되는 사고가 난다.
   useEffect(() => {
     setOverrides(draft ? { ...draft.overrides } : null);
+    setChannelAccountId(draft?.channelAccountId ?? '');
     setAutoSubmit(false);
   }, [draft]);
 
+  useEffect(() => {
+    setExternalListingId(completion?.suggestedExternalListingId?.trim() ?? '');
+  }, [completion?.suggestedExternalListingId]);
+
   if (!draft || !overrides) return null;
 
-  const errors = validateWingRegistrationOverrides(overrides);
+  if (completion) {
+    const validExternalListingId = /^\d{6,20}$/.test(externalListingId.trim());
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="쿠팡 WING 등록 완료 확인"
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4"
+      >
+        <div className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-xl">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+            <div>
+              <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                <CheckCircle2 size={18} />
+              </div>
+              <h2 className="mt-3 text-base font-black text-slate-900">쿠팡 등록 완료 확인</h2>
+              <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                WING에서 등록을 마친 뒤 발급된 등록상품ID를 입력하세요. 서버가 선택한 쿠팡 계정으로 실제 상품을 확인한 후 등록상품 목록에 반영합니다.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isSubmitting}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
+              aria-label="닫기"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="space-y-3 px-5 py-5">
+            <label className="block text-sm font-black text-slate-700">
+              쿠팡 등록상품ID
+              <input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                value={externalListingId}
+                onChange={(event) => setExternalListingId(event.target.value.replace(/\D/g, ''))}
+                placeholder="예: 427011919"
+                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-black text-slate-900 outline-none transition focus:border-emerald-500"
+              />
+            </label>
+            <p className="text-[11px] font-semibold leading-5 text-slate-500">
+              WING 상품 조회 화면의 등록상품ID를 사용합니다. 브라우저 화면 값만 신뢰하지 않고 쿠팡 Open API로 계정과 상태를 다시 검증합니다.
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isSubmitting}
+              className="inline-flex h-10 items-center rounded-lg border border-slate-200 px-4 text-sm font-black text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              닫기
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirmExternal?.(externalListingId.trim())}
+              disabled={isSubmitting || !validExternalListingId || !onConfirmExternal}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSubmitting ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+              등록 완료 확인
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const errors = [
+    ...validateWingRegistrationOverrides(overrides),
+    ...(!channelAccountId ? ['쿠팡 WING 계정을 선택하세요.'] : []),
+  ];
   const nameLength = overrides.productName.trim().length;
   const nameOverLimit = nameLength > WING_DISPLAY_NAME_MAX;
   const patch = (next: Partial<WingRegistrationOverrides>) =>
@@ -89,6 +181,46 @@ export default function WingRegistrationConfirmDialog({
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <Field
+            label="쿠팡 WING 계정"
+            hint="실제 등록 및 등록상품 확인에 사용할 판매자 계정입니다."
+          >
+            <select
+              aria-label="쿠팡 WING 계정"
+              value={channelAccountId}
+              onChange={(event) => setChannelAccountId(event.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400"
+            >
+              <option value="">계정을 선택하세요</option>
+              {(draft.channelAccounts ?? []).map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field
+            label="WING 카테고리"
+            hint="KidItem에서 사용하는 고정 카테고리 목록입니다. 카테고리 변경은 옵션·고시정보를 바꾸지 않습니다."
+          >
+            <select
+              aria-label="WING 카테고리"
+              value={overrides.categoryKey}
+              onChange={(event) => patch({
+                categoryKey: event.target.value as WingRegistrationOverrides['categoryKey'],
+              })}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400"
+            >
+              <option value="">카테고리를 선택하세요</option>
+              {WING_CATEGORY_DEFINITIONS.map((definition) => (
+                <option key={definition.key} value={definition.key}>
+                  {definition.categoryCell}
+                </option>
+              ))}
+            </select>
+          </Field>
+
           <Field label="노출상품명" hint="구매자에게 보이는 이름입니다.">
             <textarea
               value={overrides.productName}
@@ -234,7 +366,7 @@ export default function WingRegistrationConfirmDialog({
             </button>
             <button
               type="button"
-              onClick={() => onConfirm(overrides, autoSubmit)}
+              onClick={() => onConfirm(overrides, autoSubmit, channelAccountId)}
               disabled={isSubmitting || errors.length > 0}
               className={cn(
                 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-50',

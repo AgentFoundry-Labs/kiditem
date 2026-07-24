@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { sendToExtension } from '@/lib/extension-bridge';
+import { apiClient } from '@/lib/api-client';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import {
   applyWingRegistrationOverrides,
   buildWingDisplayName,
   buildWingRegistrationOverrides,
   candidateToWingProduct,
+  isConfirmedWingRegistration,
+  prepareWingRegistration,
   requireRenderedDetailImage,
+  resolveWingCategoryKey,
+  resolveWingCategorySelections,
   stripLeadingPriceCode,
   submitWingRegistration,
   validateWingRegistrationOverrides,
@@ -14,19 +19,28 @@ import {
   WING_FORM_FILL_TIMEOUT_MS,
 } from './wing-registration-flow';
 import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
-import { candidatesApi } from './sourcing-api';
+import { candidatesApi, productsApi } from './sourcing-api';
+import { renderCandidateDetailImage } from './detail-page-image-api';
 import type { WingProduct } from './wing-registration-excel';
 
 vi.mock('@/lib/extension-bridge', () => ({
-  detectExtensionId: vi.fn(),
+  detectExtensionId: vi.fn().mockResolvedValue('extension-1'),
   isChromeExtensionRuntimeAvailable: vi.fn(() => true),
   sendToExtension: vi.fn(),
+}));
+
+vi.mock('./detail-page-image-api', () => ({
+  renderCandidateDetailImage: vi.fn(),
 }));
 
 vi.mock('./sourcing-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./sourcing-api')>();
   return {
     ...actual,
+    productsApi: {
+      ...actual.productsApi,
+      getDetail: vi.fn(),
+    },
     candidatesApi: {
       ...actual.candidatesApi,
       prepareExternalWingRegistration: vi.fn().mockResolvedValue({
@@ -43,6 +57,9 @@ beforeEach(() => {
   vi.mocked(candidatesApi.prepareExternalWingRegistration).mockClear();
   vi.mocked(candidatesApi.startExternalWingRegistration).mockClear();
   vi.mocked(candidatesApi.markExternalWingRegistrationUnresolved).mockClear();
+  vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
+  vi.mocked(productsApi.getDetail).mockReset();
+  vi.mocked(renderCandidateDetailImage).mockReset();
 });
 
 const SOURCE_IMAGE = 'https://cbu01.alicdn.com/img/original-source.jpg';
@@ -105,6 +122,54 @@ describe('direct WING form handoff', () => {
         message: '저장된 상세페이지가 없습니다.',
       }),
     ).toThrow(/저장한 상세페이지가 준비된 상품만/);
+  });
+});
+
+describe('direct WING account selection', () => {
+  const renderedDetail = {
+    status: 'rendered' as const,
+    imageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
+    outputWidth: 780,
+    contentType: 'image/jpeg',
+    byteLength: 100,
+    revisionId: 'revision-1',
+    artifactId: 'artifact-1',
+  };
+
+  it('uses the account already bound to the product preparation regardless of list order', async () => {
+    const prepared = detail(basics());
+    prepared.productPreparation = {
+      id: '44444444-4444-4444-8444-444444444444',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      registrationInput: {},
+    } as ProductDetailResponse['productPreparation'];
+    vi.mocked(productsApi.getDetail).mockResolvedValue(prepared);
+    vi.mocked(renderCandidateDetailImage).mockResolvedValue(renderedDetail);
+    vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
+      { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
+      { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
+    ]);
+
+    const draft = await prepareWingRegistration('candidate-1');
+
+    expect(draft.channelAccountId).toBe('11111111-1111-4111-8111-111111111111');
+  });
+
+  it('requires an explicit choice when an unprepared product has multiple Coupang accounts', async () => {
+    vi.mocked(productsApi.getDetail).mockResolvedValue(detail(basics()));
+    vi.mocked(renderCandidateDetailImage).mockResolvedValue(renderedDetail);
+    vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
+      { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
+      { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
+    ]);
+
+    const draft = await prepareWingRegistration('candidate-1');
+
+    expect(draft.channelAccountId).toBe('');
+    expect(draft.channelAccounts.map((account) => account.id)).toEqual([
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+    ]);
   });
 });
 
@@ -378,9 +443,46 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
       'http://localhost:9000/rendered/detail-780.jpg',
     );
 
+  it('저장된 카테고리 키를 수집상품 카테고리보다 우선한다', () => {
+    const saved = detail(basics({ category: '물총' }));
+    saved.productPreparation = {
+      registrationInput: { wingCategoryKey: '64687' },
+    } as ProductDetailResponse['productPreparation'];
+
+    expect(resolveWingCategoryKey(saved)).toBe('64687');
+  });
+
+  it('저장 키가 없으면 수집상품 카테고리의 정확한 별칭만 사용한다', () => {
+    expect(resolveWingCategoryKey(detail(basics({ category: '키링' })))).toBe('64687');
+    expect(resolveWingCategoryKey(detail(basics({ category: '과일바구니 딸깍이' })))).toBe('');
+  });
+
+  it('카테고리가 없을 때 물총 카테고리로 대체하지 않는다', () => {
+    expect(candidateToWingProduct(detail(basics())).categoryCell).toBe('');
+  });
+
+  it('일괄등록에서 상품별 카테고리를 독립적으로 결정한다', () => {
+    const saved = detail(basics({ name: '저장 키링', category: '물총' }));
+    saved.productPreparation = {
+      registrationInput: { wingCategoryKey: '64687' },
+    } as ProductDetailResponse['productPreparation'];
+    const aliased = detail(basics({ name: '원본 물총', category: '물총' }));
+
+    expect(resolveWingCategorySelections([saved, aliased])).toEqual(['64687', '77390']);
+  });
+
+  it('일괄등록에서 미선택 상품이 있으면 일부 엑셀을 만들지 않는다', () => {
+    const unresolved = detail(basics({ name: '분류 안 된 상품', category: '기타' }));
+
+    expect(() => resolveWingCategorySelections([unresolved])).toThrow(
+      /WING 카테고리가 선택되지 않은 상품이 1건.*분류 안 된 상품.*카테고리를 먼저 선택/,
+    );
+  });
+
   it('자동 조립된 값을 모달 기본값으로 꺼낸다', () => {
     const overrides = buildWingRegistrationOverrides(product());
 
+    expect(overrides.categoryKey).toBe('77390');
     expect(overrides.productName).toBe('선인장딸깍키링 1p  휴대용 열쇠고리');
     expect(overrides.sellerProductName).toBe('딸깍이 키링');
     expect(overrides.colorValue).toBe('단일');
@@ -389,8 +491,18 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(overrides.stock).toBe(999);
   });
 
+  it('상품명에 카테고리 단어가 있어도 정확한 별칭 선택 없이는 미선택으로 둔다', () => {
+    const unresolved = product();
+    unresolved.categoryCell = '';
+    unresolved.productName = '과일바구니 딸깍이 키링 3종';
+    unresolved.sellerProductName = '키링 기획상품';
+
+    expect(buildWingRegistrationOverrides(unresolved).categoryKey).toBe('');
+  });
+
   it('사용자가 고친 값이 등록 payload 에 실린다', () => {
     const applied = applyWingRegistrationOverrides(product(), {
+      categoryKey: '64687',
       productName: '  손으로 고친 노출상품명 2p  ',
       sellerProductName: '내부관리명-001',
       colorValue: '핑크',
@@ -409,9 +521,28 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(applied.variants[0].salePrice).toBe(3900);
     expect(applied.variants[0].origPrice).toBe(5900);
     expect(applied.variants[0].stock).toBe(30);
-    // 모달이 다루지 않는 값(카테고리·상세설명·추가이미지)은 그대로 유지된다.
-    expect(applied.categoryCell).toBe('[77390] 완구/취미>스포츠/야외완구>물총');
+    expect(applied.categoryCell).toBe('[64687] 생활용품>생활소품>열쇠고리/키홀더');
     expect(applied.detailImageUrls).toEqual(['http://localhost:9000/rendered/detail-780.jpg']);
+  });
+
+  it('카테고리를 바꿔도 상품별 구매옵션과 고시정보는 보존한다', () => {
+    const original = product();
+    original.variants[0].purchaseOptions.push({ type: '개당 중량', value: '120g' });
+    original.noticeCategory = '기타 재화';
+    original.noticeValues = ['사용자가 고친 품명', '대한민국'];
+
+    const applied = applyWingRegistrationOverrides(original, {
+      ...buildWingRegistrationOverrides(original),
+      categoryKey: '64687',
+    });
+
+    expect(applied.variants[0].purchaseOptions).toEqual([
+      { type: '색상', value: '단일' },
+      { type: '수량', value: '1' },
+      { type: '개당 중량', value: '120g' },
+    ]);
+    expect(applied.noticeCategory).toBe('기타 재화');
+    expect(applied.noticeValues).toEqual(['사용자가 고친 품명', '대한민국']);
   });
 
   it('정상가를 비우면 판매가를 할인율 기준가로 쓴다', () => {
@@ -438,6 +569,9 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     const base = buildWingRegistrationOverrides(product());
 
     expect(validateWingRegistrationOverrides(base)).toEqual([]);
+    expect(validateWingRegistrationOverrides({ ...base, categoryKey: '' })).toContain(
+      '카테고리를 선택하세요.',
+    );
     expect(validateWingRegistrationOverrides({ ...base, salePrice: 0 })).toContain(
       '판매가는 0원보다 커야 합니다.',
     );
@@ -464,6 +598,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
       extensionId: 'ext-1',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
+      registrationInput: { salePrice: 2200, category: '키링' },
     };
 
     await expect(
@@ -482,6 +617,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
       extensionId: 'ext-1',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
+      registrationInput: { salePrice: 2200, category: '키링' },
     };
 
     await submitWingRegistration(draft, {
@@ -498,18 +634,34 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(sent.productName).toBe('확인한 노출상품명');
     expect(sent.variants[0].salePrice).toBe(4900);
     expect(sent.variants[0].stock).toBe(12);
+    expect(candidatesApi.prepareExternalWingRegistration).toHaveBeenCalledWith(
+      'candidate-1',
+      expect.objectContaining({
+        registrationInput: expect.objectContaining({
+          salePrice: 2200,
+          category: '키링',
+          wingCategoryKey: '77390',
+        }),
+      }),
+    );
   });
 });
 
 describe('external WING pre-intent choreography', () => {
+  const registrationProduct = candidateToWingProduct(
+    detail(basics()),
+    undefined,
+    '[77390] 완구/취미>스포츠/야외완구>물총',
+  );
   const draft = {
     candidateId: 'candidate-1',
     idempotencyKey: '33333333-3333-4333-8333-333333333333',
     extensionId: 'extension-1',
     channelAccountId: 'account-1',
     detailImageUrl: 'http://localhost:9000/detail.jpg',
-    product: candidateToWingProduct(detail(basics())),
-    overrides: buildWingRegistrationOverrides(candidateToWingProduct(detail(basics()))),
+    registrationInput: {},
+    product: registrationProduct,
+    overrides: buildWingRegistrationOverrides(registrationProduct),
   };
 
   it('orders prepare, start, extension, then reconciles an unknown outcome with extension evidence', async () => {
@@ -542,6 +694,44 @@ describe('external WING pre-intent choreography', () => {
     });
   });
 
+  it('keeps manual form fill in not-attempted state until the user actually submits in WING', async () => {
+    const order: string[] = [];
+    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockImplementation(async () => {
+      order.push('prepare');
+      return { executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345' } as never;
+    });
+    vi.mocked(candidatesApi.startExternalWingRegistration).mockImplementation(async () => {
+      order.push('start');
+      return { status: 'executing' } as never;
+    });
+    vi.mocked(sendToExtension).mockImplementation(async () => {
+      order.push('extension');
+      return {
+        ok: true,
+        submission: { attempted: false },
+        evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+      };
+    });
+
+    const result = await submitWingRegistration(draft, draft.overrides, false);
+
+    expect(order).toEqual(['prepare', 'extension']);
+    expect(result.submission).toMatchObject({
+      attempted: false,
+      executionId: '33333333-3333-4333-8333-333333333333',
+    });
+    expect(candidatesApi.markExternalWingRegistrationUnresolved).not.toHaveBeenCalled();
+  });
+
+  it('accepts a registered product id for server verification even when browser evidence is absent', () => {
+    expect(isConfirmedWingRegistration({
+      attempted: true,
+      ok: true,
+      status: 'registered',
+      externalListingId: '427011919',
+    })).toBe(true);
+  });
+
   it('marks the durable execution unresolved when the extension throws after start', async () => {
     vi.mocked(sendToExtension).mockRejectedValue(new Error('extension disconnected'));
     await expect(submitWingRegistration(draft, draft.overrides, true)).rejects.toThrow('extension disconnected');
@@ -569,6 +759,23 @@ describe('external WING pre-intent choreography', () => {
     expect(candidatesApi.prepareExternalWingRegistration).toHaveBeenNthCalledWith(
       2, 'candidate-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
     );
+  });
+
+  it('rotates the modal idempotency key when the canonical payload changes', async () => {
+    vi.mocked(sendToExtension).mockResolvedValue({
+      ok: true,
+      submission: { attempted: false },
+    });
+
+    await submitWingRegistration(draft, draft.overrides, false);
+    await submitWingRegistration(draft, {
+      ...draft.overrides,
+      productName: '사용자가 수정한 노출상품명',
+    }, false);
+
+    const firstKey = vi.mocked(candidatesApi.prepareExternalWingRegistration).mock.calls[0]?.[1].idempotencyKey;
+    const secondKey = vi.mocked(candidatesApi.prepareExternalWingRegistration).mock.calls[1]?.[1].idempotencyKey;
+    expect(secondKey).not.toBe(firstKey);
   });
 });
 

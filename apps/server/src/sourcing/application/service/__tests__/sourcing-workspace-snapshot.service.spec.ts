@@ -98,6 +98,68 @@ describe('SourcingWorkspaceSnapshotService', () => {
     }));
   });
 
+  it('accepts a full keyword-analysis board set without a silent payload 400', async () => {
+    // 인기 트렌드 키워드 보드는 10개 보드 × TOP 20 이다. result.boards 배열 상한이
+    // 이보다 낮으면 저장 PUT 이 400 으로 떨어지고 클라이언트가 catch 로 삼켜 매 로드
+    // 재조회가 발생한다. 실제 구성 이상을 담아도 통과해야 한다.
+    const boards = Array.from({ length: 14 }, (_, boardIndex) => ({
+      key: `board_${boardIndex}`,
+      label: `보드 ${boardIndex}`,
+      cid: 50000000 + boardIndex,
+      categoryPath: '완구/인형',
+      date: '2026-07-21',
+      datetime: '',
+      range: '',
+      ranks: Array.from({ length: 20 }, (_, rankIndex) => ({
+        rank: rankIndex + 1,
+        keyword: `키워드-${boardIndex}-${rankIndex}`,
+        linkId: null,
+        categories: ['완구/인형'],
+      })),
+      error: null,
+    }));
+    const payload = {
+      version: 1,
+      input: {
+        filters: {
+          timeUnit: 'date',
+          gender: 'all',
+          age: 'all',
+          device: 'all',
+          selectedBoardKey: 'all',
+          rankLimit: '20',
+          focusMode: 'all',
+        },
+        keywordQuery: '레고',
+        trendText: '레고\n포켓몬카드',
+      },
+      result: {
+        boards,
+        trendItems: [],
+        relatedSearchSeed: null,
+        searchAdRelatedItems: [],
+        relatedSearchItems: [],
+        autocompleteItems: [],
+        coupangKeywordItems: [],
+        coupangProductNameTokens: [],
+        trendAgentResult: null,
+      },
+      meta: {
+        generatedAt: '2026-07-21T01:00:00.000Z',
+        generationSource: 'manual',
+        generatorVersion: 'sourcing-workspace-snapshot.v1',
+      },
+    };
+
+    await expect(
+      service.saveToday('00000000-0000-4000-8000-000000000001', 'keyword_analysis', payload),
+    ).resolves.toBeDefined();
+    expect(repository.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      scope: 'keyword_analysis',
+      payload,
+    }));
+  });
+
   it('loads recent snapshots with a bounded business-date window', async () => {
     await service.getRecent('00000000-0000-4000-8000-000000000001', 'interest_tracking', 3);
 

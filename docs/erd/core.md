@@ -15,6 +15,8 @@
 | ChannelListingOption | `channel_listing_options` | One sellable SKU under a channel listing. |
 | LegalEntity | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | `master_products` | KidItem-operated product identity and product-level operating metadata. |
+| MasterProductAbcGradeHistory | `master_product_abc_grade_histories` | Immutable publication history for automatic MasterProduct ABC grade changes. |
+| MasterProductAbcPolicy | `master_product_abc_policies` | Organization-owned automatic MasterProduct ABC calculation policy. |
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductVariant | `product_variants` | Reusable sellable unit beneath one MasterProduct. Code is stable organization-scoped identity. |
@@ -132,6 +134,30 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  MasterProductAbcGradeHistory {
+    String id PK
+    String organizationId FK
+    String masterProductId FK
+    String oldGrade
+    String newGrade
+    String metric
+    Int periodDays
+    Decimal metricValue
+    DateTime calculatedAt
+  }
+  MasterProductAbcPolicy {
+    String id PK
+    String organizationId FK,UK
+    String metric
+    Int periodDays
+    Int aCumulativeThreshold
+    Int bCumulativeThreshold
+    Int revision
+    DateTime lastCalculatedAt
+    DateTime sourceCapturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   Organization {
     String id PK
     String name
@@ -221,6 +247,7 @@ erDiagram
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing o|--o| MasterProduct : "originChannelListing"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
+  MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
   MasterProduct ||--o{ ProductVariant : "masterProduct"
   Organization ||--o{ CategoryMapping : "organization"
   Organization ||--o{ ChannelAccount : "organization"
@@ -228,6 +255,8 @@ erDiagram
   Organization ||--o{ ChannelListingOption : "organization"
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ MasterProduct : "organization"
+  Organization ||--o{ MasterProductAbcGradeHistory : "organization"
+  Organization ||--|| MasterProductAbcPolicy : "organization"
   Organization ||--o{ OrganizationMembership : "organization"
   Organization ||--o{ ProductVariant : "organization"
   Organization ||--o{ ProductVariantComponent : "organization"
@@ -247,6 +276,7 @@ erDiagram
 |---|---|---|---|---|
 | ChannelAccount | channelAccount | referenced by external | AI | ProductPreparation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
+| ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
 | ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |
@@ -383,6 +413,7 @@ erDiagram
 | Organization | organization | referenced by external | Supply | RocketPurchaseConfirmation |
 | Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationAllocation |
 | Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationLine |
+| Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | Organization | organization | referenced by external | Supply | Supplier |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
 | Organization | organization | referenced by external | Supply | SupplierProduct |
@@ -399,6 +430,7 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Channels | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
+| SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |

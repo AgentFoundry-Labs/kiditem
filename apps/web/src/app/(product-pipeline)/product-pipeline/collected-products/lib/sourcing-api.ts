@@ -178,6 +178,7 @@ export type ProductPreparationSelection = Omit<
   ProductPreparationProjection,
   'updatedAt'
 > & {
+  registrationInput: Record<string, unknown>;
   updatedAt: string | null;
 };
 
@@ -301,6 +302,11 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
   const prep = value as Record<string, unknown>;
   const id = typeof prep.id === 'string' ? prep.id : null;
   if (!id) return null;
+  const registrationInput = prep.registrationInput
+    && typeof prep.registrationInput === 'object'
+    && !Array.isArray(prep.registrationInput)
+    ? { ...prep.registrationInput as Record<string, unknown> }
+    : {};
   return {
     id,
     sourceCandidateId: typeof prep.sourceCandidateId === 'string' ? prep.sourceCandidateId : null,
@@ -316,6 +322,7 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
         ? prep.listingId
         : null,
     status: ProductPreparationStatusSchema.parse(prep.status),
+    registrationInput,
     selectedThumbnailUrl: normalizeImageUrl(prep.selectedThumbnailUrl),
     selectedThumbnailGenerationId: typeof prep.selectedThumbnailGenerationId === 'string'
       ? prep.selectedThumbnailGenerationId
@@ -708,7 +715,8 @@ export const candidatesApi = {
    *
    * 쿠팡 WING 등록은 확장이 화면을 조작해 수행하므로 서버의 provider create 경로를
    * 탈 수 없다. 이 호출은 **이미 발급된 등록상품ID** 를 근거로 `ChannelListing` 만
-   * 만들어 등록상품 목록에 올린다. 서버가 provider 를 호출하지 않는다.
+   * 만들어 등록상품 목록에 올린다. 서버는 새 상품을 생성하지 않고 선택된 계정으로
+   * 등록상품ID를 조회해 실제 판매자와 상태를 검증한다.
    */
   confirmExternalRegistration: (
     candidateId: string,

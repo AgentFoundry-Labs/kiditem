@@ -69,13 +69,13 @@ describe('<RocketPurchasePreviewSection>', () => {
     ]);
   });
 
-  it('mounts the confirmation workspace behind an active Rocket account selector', async () => {
+  it('mounts the workbook workspace behind an active Rocket account selector', async () => {
     renderSection();
 
     expect(await screen.findByRole('combobox', { name: '로켓 채널 계정' }))
       .toHaveValue(rocketAccountId);
     expect(screen.getByRole('button', { name: '미리보기 다시 계산' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '쿠팡 엑셀 다운로드' })).toBeDisabled();
   });
 
   it('keeps the calendar-owned range while remounting account-scoped workspace state', async () => {

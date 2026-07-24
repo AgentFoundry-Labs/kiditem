@@ -30,7 +30,6 @@ describe('<ProductEditorDialog>', () => {
       brand: null,
       tags: [],
       imageUrls: [],
-      abcGrade: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -39,6 +38,11 @@ describe('<ProductEditorDialog>', () => {
     }));
     expect(onSaved).toHaveBeenCalledWith('product-1');
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('does not render or submit a manual ABC grade', () => {
+    renderDialog({ onOpenChange: vi.fn(), onSaved: vi.fn() });
+    expect(screen.queryByLabelText('ABC 등급')).not.toBeInTheDocument();
   });
 
   it('shows the channel product number without exposing the internal CP code', () => {

@@ -52,6 +52,8 @@ describe('SellpiaInventoryFreshnessService', () => {
     });
     expect(second.requestedGeneration).toBe('1');
     expect(repository.initializeCount).toBe(1);
+    expect(repository.readCount).toBe(2);
+    expect(repository.lockCount).toBe(1);
   });
 
   it('timestamps lazy initialization after the organization lock is acquired', async () => {
@@ -64,17 +66,17 @@ describe('SellpiaInventoryFreshnessService', () => {
     expect(view.refreshRequestedAt).toBe('2026-07-15T00:00:30.000Z');
   });
 
-  it('derives GET freshness from the time the lock is acquired', async () => {
+  it('derives GET freshness without acquiring the mutation lock for existing state', async () => {
     repository.seedState({
       lastVerifiedAt: new Date('2026-07-14T23:50:00.001Z'),
     });
-    repository.onLockAcquired = () => {
-      vi.setSystemTime(new Date('2026-07-15T00:00:00.001Z'));
-    };
+    vi.setSystemTime(new Date('2026-07-15T00:00:00.001Z'));
 
     const view = await service.getState({ organizationId: ORG_ID, userId: USER_ID });
 
     expect(view.status).toBe('refresh_required');
+    expect(repository.readCount).toBe(1);
+    expect(repository.lockCount).toBe(0);
   });
 
   it('serializes BigInt generations as decimal strings', async () => {
@@ -916,6 +918,7 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     }>
   >();
   initializeCount = 0;
+  readCount = 0;
   lockCount = 0;
   onLockAcquired: (() => void) | null = null;
   failedAttempts: FailedSellpiaInventoryAttempt[] = [];
@@ -928,6 +931,20 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     outcome: 'submitted' | 'not_submitted';
   }> = [];
   lastInventorySkuIds: string[] = [];
+
+  async readState(
+    organizationId: string,
+  ): Promise<SellpiaInventoryFreshnessState | null> {
+    this.readCount += 1;
+    const state = this.states.get(organizationId);
+    return state
+      ? {
+          ...state,
+          unresolvedOrderTransmissionIntentCount:
+            this.unresolvedIntentCount(organizationId),
+        }
+      : null;
+  }
 
   async withLockedState<T>(
     input: {

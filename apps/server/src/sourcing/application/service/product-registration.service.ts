@@ -260,15 +260,15 @@ export class ProductRegistrationService {
    *
    * 쿠팡 WING 등록은 Open API 가 아니라 확장이 WING 화면을 직접 조작해 수행한다.
    * 그래서 서버가 provider create 를 부르는 `submit()` 경로를 탈 수 없다. 대신
-   * **이미 발급된 등록상품ID를 근거로** 같은 finalize 트랜잭션(=`ChannelListing` 생성)만
-   * 재사용한다. provider 호출은 일어나지 않는다.
+   * **이미 발급된 등록상품ID를 근거로** 선택된 계정의 provider 조회를 수행하고,
+   * 실제 ID·판매자·상태가 확인된 경우에만 같은 finalize 트랜잭션을 재사용한다.
    *
    * 두 갈래가 이 경로를 쓴다:
-   *  - 확장이 자동 제출 후 완료를 **확증**하고 등록상품ID를 돌려준 경우
-   *  - 사용자가 WING 에서 직접 등록한 뒤 등록상품ID를 입력해 "등록됨으로 표시" 한 경우
+   *  - 확장이 자동 제출 후 완료를 관찰하고 등록상품ID를 돌려준 경우
+   *  - 사용자가 WING 에서 직접 등록한 뒤 등록상품ID를 입력해 "등록 완료 확인" 한 경우
    *
-   * `externalListingId` 는 사용자/확장이 주는 값이므로 신뢰 경계다. 여기서는 형식만
-   * 검사하고, 소유권·중복·교차 후보 충돌은 채널의 `resolveListing` 이 판정한다.
+   * `externalListingId` 는 사용자/확장이 주는 값이므로 신뢰 경계다. Channels가 선택된
+   * 계정으로 provider 조회를 수행하고, 소유권·중복·교차 후보 충돌도 다시 판정한다.
    */
   async confirmExternalRegistration(
     organizationId: string,
@@ -277,19 +277,29 @@ export class ProductRegistrationService {
     input: {
       executionId: string;
       externalListingId: string;
-      evidence: { wingVendorId: string; wingIdentitySource: string };
+      evidence?: { wingVendorId: string; wingIdentitySource: string };
     },
   ): Promise<ProductPreparationCommandResult> {
     const externalListingId = input.externalListingId.trim();
     if (!externalListingId) {
       throw new Error('등록상품ID가 비어 있습니다.');
     }
-    const operation = await this.preparations.getExternalExecution({
+    let operation = await this.preparations.getExternalExecution({
       organizationId, sourceCandidateId: candidateId, executionId: input.executionId,
       requestedByUserId: userId,
     });
     if (operation.status === 'succeeded' && operation.listingId) {
       return { preparationId: operation.preparationId, status: 'registered', listingId: operation.listingId };
+    }
+    if (operation.status === 'prepared' && operation.providerOutcome === 'not_attempted') {
+      // 기본 수동 경로에서는 폼을 채울 때 부작용이 없다. 사용자가 WING에서
+      // 등록을 마치고 ID를 제출한 이 시점에만 실행을 uncertain으로 승격한다.
+      operation = await this.preparations.startExternalExecution({
+        organizationId,
+        sourceCandidateId: candidateId,
+        executionId: input.executionId,
+        requestedByUserId: userId,
+      });
     }
     if (!['executing', 'reconciling'].includes(operation.status)) {
       throw new Error('External registration must be started before completion.');
@@ -301,16 +311,20 @@ export class ProductRegistrationService {
     if (submission.executionId !== input.executionId || submission.channelAccountId === '') {
       throw new Error('External registration execution does not match its frozen preparation.');
     }
-    if (!input.evidence
-      || input.evidence.wingVendorId !== operation.expectedProviderAccountId
-      || !['dom:data-vendor-id', 'meta:vendor-id', 'url:vendorId'].includes(input.evidence.wingIdentitySource)) {
-      throw new Error('External registration evidence does not match the approved WING account identity.');
-    }
     const account = await this.channels.assertExternalRegistrationAccount({
       organizationId, channelAccountId: submission.channelAccountId,
     });
     if (account.vendorId !== operation.expectedProviderAccountId) {
       throw new Error('Persisted WING account identity changed after external registration was prepared.');
+    }
+    const providerVerification = await this.channels.verifyExternalRegistration({
+      organizationId,
+      channelAccountId: submission.channelAccountId,
+      externalListingId,
+    });
+    if (providerVerification.vendorId !== operation.expectedProviderAccountId
+      || providerVerification.externalListingId !== externalListingId) {
+      throw new Error('Coupang provider verification does not match the prepared registration.');
     }
     const submissionLeaseToken = submission.submissionLeaseToken;
     if (!submissionLeaseToken) {
@@ -318,7 +332,7 @@ export class ProductRegistrationService {
     }
 
     try {
-      // provider create 를 부르지 않는다. 외부에서 이미 끝난 등록의 결과만 기록한다.
+      // provider create는 부르지 않는다. 독립 조회로 확인한 외부 등록 결과만 기록한다.
       await this.preparations.recordProviderResult(
         organizationId,
         submission.preparationId,
@@ -332,6 +346,7 @@ export class ProductRegistrationService {
             source: 'coupang-wing-extension',
             confirmedAt: new Date().toISOString(),
             evidence: input.evidence ?? null,
+            providerVerification: providerVerification.rawResult,
           },
         },
       );

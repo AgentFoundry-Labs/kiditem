@@ -68,10 +68,14 @@ implements
   ) {}
 
   async getState(input: ActorScope): Promise<SellpiaInventoryFreshnessView> {
+    const state = await this.repository.readState(input.organizationId);
+    if (state) {
+      return toFreshnessView(state, new Date(), input.userId);
+    }
     return this.withLockedState(input.organizationId, async (transaction) => {
-      const state = await transaction.getState();
+      const initializedState = await transaction.getState();
       const now = new Date();
-      return toFreshnessView(state, now, input.userId);
+      return toFreshnessView(initializedState, now, input.userId);
     });
   }
 

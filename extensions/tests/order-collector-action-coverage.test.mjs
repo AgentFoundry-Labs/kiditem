@@ -126,8 +126,7 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   const worker = readFileSync(workerPath, 'utf8');
   assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*order-collection-lifecycle\.js[\s\S]*sellpia-inventory\.js/);
   assert.match(worker, /browserCollectionSessions:\s*true/);
-  assert.match(worker, /collectSellpiaInventory:\s*true/);
-  assert.match(worker, /collectSellpiaInventoryV2:\s*true/);
+  assert.match(worker, /collectSellpiaInventoryJsonV1:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
   assert.match(worker, /collectSellpiaProductProfit:\s*true/);
@@ -144,11 +143,32 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest publishes authoritative Sellpia sales evidence at version 0.1.78', () => {
+test('order collector manifest publishes JSON Sellpia inventory evidence at version 0.1.80', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.78');
+  assert.equal(manifest.version, '0.1.80');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
+});
+
+test('web bridge reaches both localhost and the staging KidItem origin', () => {
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+
+  const externalMatches = manifest.externally_connectable?.matches ?? [];
+  assert.ok(externalMatches.includes('http://localhost:3000/*'));
+  assert.ok(
+    externalMatches.includes('https://staging.merchon.org/*'),
+    'staging web origin must be externally connectable for chrome.runtime.sendMessage',
+  );
+
+  const hostBridge = (manifest.content_scripts ?? []).find((entry) =>
+    (entry.js ?? []).includes('content/host-bridge.js'),
+  );
+  assert.ok(hostBridge, 'host-bridge content script must be declared');
+  assert.ok(hostBridge.matches.includes('http://localhost:3000/*'));
+  assert.ok(
+    hostBridge.matches.includes('https://staging.merchon.org/*'),
+    'host-bridge must inject on staging so the web app can discover the extension id',
+  );
 });
 
 test('Coupang shipment date summary scans its bounded range in concurrent batches', () => {

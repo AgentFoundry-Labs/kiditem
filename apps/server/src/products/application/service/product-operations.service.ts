@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   CreateMasterProductInputSchema,
+  CreateProductVariantRecipesIfEmptyInputSchema,
   CreateProductVariantInputSchema,
   MasterProductOperationsListQuerySchema,
   UpdateMasterProductInputSchema,
@@ -13,7 +14,6 @@ import {
   type ProductDepletionProjection,
   type ProductOperationsListSummary,
 } from '@kiditem/shared/product-operations';
-import type { ProductOperationsPort } from '../port/in/product-operations.port';
 import {
   PRODUCT_OPERATIONS_REPOSITORY_PORT,
   type NormalizedCreateProductVariant,
@@ -32,6 +32,7 @@ import {
   mapProductOperationsListItem,
   mapProductOperationsVariant,
 } from '../../mapper/product-operations-inventory.mapper';
+import type { ProductOperationsPort } from '../port/in/product-operations.port';
 
 @Injectable()
 export class ProductOperationsService implements ProductOperationsPort {
@@ -96,7 +97,7 @@ export class ProductOperationsService implements ProductOperationsPort {
   ) {
     const input = parseOrBadRequest(
       CreateMasterProductInputSchema,
-      rawInput,
+      omitLegacyAbcGrade(rawInput),
       'Invalid MasterProduct creation',
     );
     const variants = input.variants?.map(normalizeVariant) ?? [{
@@ -125,7 +126,7 @@ export class ProductOperationsService implements ProductOperationsPort {
   ) {
     const input = parseOrBadRequest(
       UpdateMasterProductInputSchema,
-      rawInput,
+      omitLegacyAbcGrade(rawInput),
       'Invalid MasterProduct update',
     );
     const product = await this.repository.updateProduct(
@@ -207,6 +208,38 @@ export class ProductOperationsService implements ProductOperationsPort {
     );
   }
 
+  async planRecipesIfEmpty(
+    organizationId: string,
+    rawInput: unknown,
+  ) {
+    const input = parseOrBadRequest(
+      CreateProductVariantRecipesIfEmptyInputSchema,
+      rawInput,
+      'Invalid create-if-empty ProductVariant recipe plan',
+    );
+    return this.repository.planManualRecipesIfEmpty({
+      organizationId,
+      recipes: input.recipes,
+    });
+  }
+
+  async createRecipesIfEmpty(
+    organizationId: string,
+    userId: string,
+    rawInput: unknown,
+  ) {
+    const input = parseOrBadRequest(
+      CreateProductVariantRecipesIfEmptyInputSchema,
+      rawInput,
+      'Invalid create-if-empty ProductVariant recipe batch',
+    );
+    return this.repository.createManualRecipesIfEmpty({
+      organizationId,
+      userId,
+      recipes: input.recipes,
+    });
+  }
+
   private async loadInventory(
     organizationId: string,
     variants: Array<{ components: Array<{ sellpiaInventorySkuId: string }> }>,
@@ -226,6 +259,12 @@ export class ProductOperationsService implements ProductOperationsPort {
   }
 }
 
+function omitLegacyAbcGrade(rawInput: unknown): unknown {
+  if (!rawInput || typeof rawInput !== 'object' || Array.isArray(rawInput)) return rawInput;
+  const { abcGrade: _legacyAbcGrade, ...input } = rawInput as Record<string, unknown>;
+  return input;
+}
+
 function noDirectSales(): ProductDepletionProjection {
   return {
     coverage: 'no_direct_sales',
@@ -239,12 +278,11 @@ function summarizeProducts(
   products: Array<ReturnType<typeof mapProductOperationsListItem>>,
 ): ProductOperationsListSummary {
   return products.reduce<ProductOperationsListSummary>((counts, product) => {
-    if (
-      product.abcGrade === 'A'
-      || product.abcGrade === 'B'
-      || product.abcGrade === 'C'
-    ) {
-      counts.abcGradeCounts[product.abcGrade] += 1;
+    const abcGrade = product.abcGrade;
+    if (abcGrade === 'A' || abcGrade === 'B' || abcGrade === 'C') {
+      counts.abcGradeCounts[abcGrade] += 1;
+    } else {
+      counts.abcGradeCounts.unclassified += 1;
     }
     counts.channelConnectionCounts[
       product.channelCount > 0 ? 'connected' : 'unconnected'
@@ -262,7 +300,7 @@ function summarizeProducts(
     }
     return counts;
   }, {
-    abcGradeCounts: { A: 0, B: 0, C: 0 },
+    abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 0 },
     channelConnectionCounts: { connected: 0, unconnected: 0 },
     inventoryStatusCounts: {
       sellable: 0,

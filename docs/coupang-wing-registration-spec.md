@@ -248,6 +248,45 @@ document.querySelector('#tab-content-2 + label').click();
 > 각 항목을 우리 코드가 얼마나 채우는지(커버리지·갭·우선순위)는 이 문서가 아니라
 > [`coupang-wing-registration-replan.md`](./coupang-wing-registration-replan.md) §2 에 있다.
 
+## 1.1 KidItem의 WING 카테고리 선택 계약
+
+수집상품의 WING 카테고리는 등록상품(`ChannelListing`) 데이터나 상품명 유사도 추론으로
+정하지 않는다. `docs/references/Coupang_detailinfo_260711.xlsx`의 `Template` 시트에서
+확인한 `[숫자] 전체경로` 형식의 현행 카테고리 102개를 collected-products 프론트의
+고정 레지스트리로 관리한다. `(OLD)` 26개와 `사용하지 않는 카테고리`는 제외한다.
+
+선택 우선순위는 다음과 같다.
+
+```text
+ProductPreparation.registrationInput.wingCategoryKey
+→ SourcingCandidate 기본 category의 정확한 별칭
+→ 미선택 상태에서 사용자가 WING 등록 확인 모달에서 선택
+```
+
+- 저장 key는 카테고리 코드 문자열이다. 예: 열쇠고리/키홀더는 `64687`.
+- 상품명, 태그, 등록상품 corpus를 fuzzy matching하지 않는다.
+- 선택한 category는 `WingProduct.categoryCell`만 변경한다.
+- 구매옵션, 상품정보제공고시, 이름, 가격, 재고 등 상품별 초안은 그대로 보존한다.
+- 확인 시 기존 `registrationInput`에 `wingCategoryKey`를 병합해 저장한다. Prisma schema
+  변경, 기존 데이터 백필, 런타임 쿠팡 카테고리 API 호출은 필요하지 않다.
+- 일괄등록은 모든 상품에 저장 key 또는 정확한 별칭이 있을 때만 엑셀을 만든다. 한 건이라도
+  미선택이면 전체 생성을 중단하고 먼저 개별 WING 등록 확인에서 선택하도록 안내한다.
+
+현재 회귀 기준 카테고리는 다음과 같다.
+
+| key | 전체 경로 |
+|---|---|
+| `64687` | `[64687] 생활용품>생활소품>열쇠고리/키홀더` |
+| `77390` | `[77390] 완구/취미>스포츠/야외완구>물총` |
+| `77448` | `[77448] 완구/취미>보드게임>기타보드게임` |
+| `79914` | `[79914] 문구/오피스>문구/학용품>과목별준비물>학용품세트/문구세트` |
+
+카테고리를 추가하거나 갱신할 때는 WING에서 코드·전체 경로가 현재 사용 가능한 leaf인지
+확인하고, 엑셀 기준과 고정 레지스트리를 함께 검토한 뒤 완결성·별칭 테스트를 수정한다.
+구매옵션이나 고시 기본값은 같은 카테고리 안에서도 상품별로 다를 수 있으므로 카테고리
+항목에 함께 넣지 않는다. 아래 §2 API는 WING 화면 리버스 및 수동 검증 참고자료일 뿐,
+KidItem 등록 실행 중 호출하는 API가 아니다.
+
 ## 2. 카테고리 API
 
 ```
@@ -589,9 +628,9 @@ code     name                          sale_price  purchase_price  barcode
 이름 정규화 매칭은 SQL 로 구현돼 있다
 (`sellpia-inventory-sku-read.repository.adapter.ts:52-78`, NFKC + 공백 제거 후 매칭).
 
-**sourcing 도메인이 이 포트를 구독하지 않을 뿐이다.** 세션 앞부분에서 advertising 이 analytics 의
-ABC 등급을 쓰려고 만든 `SELLPIA_ABC_GRADE_PORT` (cross-domain port + `useExisting` 바인딩)와
-**동일한 패턴**을 그대로 적용하면 된다.
+**sourcing 도메인이 이 포트를 구독하지 않을 뿐이다.** Advertising 이 Products 의
+`PRODUCT_VARIANT_ABC_GRADE_READ_PORT` 를 구독하는 owner-provided read-port 패턴과
+**동일한 경계**를 적용하면 된다.
 
 작업 순서:
 1. sourcing 에 아웃바운드 포트 추가 → 모듈에서 inventory 읽기 어댑터에 `useExisting` 바인딩

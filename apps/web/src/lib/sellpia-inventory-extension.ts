@@ -30,22 +30,12 @@ export type CollectedSellpiaInventory = {
   file: File;
 };
 
-function decodeWorkbook(
-  encoded: string,
-  fileName: string,
-  mimeType: string,
-  expectedSize: number,
-): File {
-  const binary = atob(encoded);
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  if (bytes.byteLength !== expectedSize) {
-    throw new SellpiaInventoryExtensionError(
-      'Sellpia workbook byte length did not match the extension reply.',
-      'unknown',
-      'sellpia_invalid_workbook',
-    );
-  }
-  return new File([bytes], fileName, { type: mimeType });
+function snapshotFile(snapshot: object): File {
+  return new File(
+    [JSON.stringify(snapshot)],
+    'sellpia-inventory-snapshot-v1.json',
+    { type: 'application/json' },
+  );
 }
 
 function isServiceWorkerCommunicationRestart(error: unknown): boolean {
@@ -62,7 +52,7 @@ export async function collectSellpiaInventory({
 }): Promise<CollectedSellpiaInventory> {
   const extensionId = await detectOrderCollectionExtensionId(
     1_200,
-    'collectSellpiaInventoryV2',
+    'collectSellpiaInventoryJsonV1',
   );
   if (!extensionId) {
     const compatibleExtensionId = await detectOrderCollectionExtensionId(1_200, null);
@@ -102,12 +92,7 @@ export async function collectSellpiaInventory({
 
   return {
     extensionId,
-    file: decodeWorkbook(
-      reply.workbookBase64,
-      reply.fileName,
-      reply.mimeType,
-      reply.size,
-    ),
+    file: snapshotFile(reply.snapshot),
   };
 }
 

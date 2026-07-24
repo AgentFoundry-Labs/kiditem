@@ -23,6 +23,25 @@ describe('resolveCampaignReportAuthority', () => {
     });
   });
 
+  it('treats provider id and equivalent Coupang detail href as one campaign authority', () => {
+    expect(resolveCampaignReportAuthority({
+      campaignReportScope: 'single_campaign_authoritative',
+      dashboardOnOff: 'ON',
+      normalizedRows: [
+        detail({ campaignId: 'X', campaignIdentity: null }),
+        detail({
+          campaignIdentity:
+            'href:https://advertising.coupang.com/marketing/campaign/X/product?campaignId=X#ignored',
+        }),
+      ],
+      hasSingleDayRange: true,
+    })).toMatchObject({
+      effectiveScope: 'single_campaign_authoritative',
+      reason: 'authoritative_single_campaign',
+      projectionRejectionCode: null,
+    });
+  });
+
   it('accepts exactly one explicit-empty ON descriptor', () => {
     expect(resolveCampaignReportAuthority({
       campaignReportScope: 'single_campaign_authoritative',
@@ -70,7 +89,6 @@ describe('resolveCampaignReportAuthority', () => {
   });
 
   it.each([
-    { normalizedRows: [detail({ campaignIdentity: null, campaignId: null })] },
     { normalizedRows: [detail(), detail({ campaignIdentity: 'campaign:2' })] },
     { normalizedRows: [detail({ _campaignOnly: true }), detail({ _campaignOnly: true })] },
     { normalizedRows: [detail({ onOff: 'OFF' })] },
@@ -85,6 +103,38 @@ describe('resolveCampaignReportAuthority', () => {
       effectiveScope: 'raw_only',
       reason: 'invalid_authoritative_shape',
       projectionRejectionCode: 'invalid_authoritative_shape',
+    });
+  });
+
+  it('reports a distinct observable reason when stable identity is missing', () => {
+    expect(resolveCampaignReportAuthority({
+      campaignReportScope: 'single_campaign_authoritative',
+      dashboardOnOff: 'ON',
+      normalizedRows: [detail({ campaignIdentity: null, campaignId: null })],
+      hasSingleDayRange: true,
+    })).toMatchObject({
+      effectiveScope: 'raw_only',
+      reason: 'missing_stable_campaign_identity',
+      projectionRejectionCode: 'missing_stable_campaign_identity',
+    });
+  });
+
+  it.each([
+    'name:표시명',
+    'href:https://advertising.coupang.com/marketing/dashboard/sales',
+    'href:https://advertising.coupang.com.evil.test/campaign/1',
+    'href:https://example.test/campaign/1',
+    'arbitrary-token',
+  ])('treats unsafe pseudo identity %s as missing', (campaignIdentity) => {
+    expect(resolveCampaignReportAuthority({
+      campaignReportScope: 'single_campaign_authoritative',
+      dashboardOnOff: 'ON',
+      normalizedRows: [detail({ campaignIdentity, campaignId: null })],
+      hasSingleDayRange: true,
+    })).toMatchObject({
+      effectiveScope: 'raw_only',
+      reason: 'missing_stable_campaign_identity',
+      projectionRejectionCode: 'missing_stable_campaign_identity',
     });
   });
 

@@ -539,6 +539,45 @@ test("campaign identity is anchored to href/id so duplicate names remain distinc
   );
 });
 
+test("campaign href identity accepts only canonical specific Coupang ad URLs", () => {
+  const contract = loadContract();
+  const first =
+    "https://advertising.coupang.com/marketing/campaign/X/product?z=2&campaignId=X&a=1#ignored";
+  const reordered =
+    "https://advertising.coupang.com/marketing/campaign/X/product?a=1&campaignId=X&z=2#different";
+
+  assert.equal(contract.campaignIdentityFromHref(first), "campaign:X");
+  assert.equal(contract.campaignIdentityFromHref(reordered), "campaign:X");
+  assert.equal(
+    contract.campaignIdentityFromHref("https://example.test/campaign/X"),
+    null,
+  );
+  assert.equal(
+    contract.campaignIdentityFromHref(
+      "https://advertising.coupang.com.evil.test/campaign/X",
+    ),
+    null,
+  );
+  assert.equal(
+    contract.campaignIdentityFromHref(
+      "http://advertising.coupang.com/campaign/X",
+    ),
+    null,
+  );
+  assert.equal(
+    contract.campaignIdentityFromHref(
+      "https://user@advertising.coupang.com/campaign/X",
+    ),
+    null,
+  );
+  assert.equal(
+    contract.campaignIdentityFromHref(
+      "https://advertising.coupang.com/campaign/#X",
+    ),
+    null,
+  );
+});
+
 test("duplicate campaign names are both listed and clicked by href identity", () => {
   const clicked = [];
   const makeRow = (campaignId) => {
@@ -800,4 +839,109 @@ test("campaign sweep progress total never decreases and current never exceeds to
   assert.equal(normalized.current, 12);
   assert.equal(normalized.total, 12);
   assert.ok(normalized.current <= normalized.total);
+});
+
+// Regression: 상세 페이지가 없는 캠페인(AI스마트광고 등)의 anchor 는 대시보드
+// 목록 URL 로 resolve 된다. 그 URL 을 identity 로 쓰면 그런 캠페인들이 전부
+// 하나의 identity 로 붕괴해 서버에서 같은 target_key 를 덮어쓴다.
+// 실측(2026-07-19): 캠페인 팩트가 `campaign:href:.../dashboard/sales` 1행만
+// 남고 전부 0원이었다.
+test("dashboard list url never becomes a campaign identity", () => {
+  const contract = loadContract();
+  const listHref = "https://advertising.coupang.com/marketing/dashboard/sales";
+
+  const smartWing = contract.campaignIdentityFromHref(listHref, "AI스마트광고(wing)");
+  const smartHub = contract.campaignIdentityFromHref(listHref, "AI스마트광고(HUB)");
+
+  assert.notEqual(smartWing, "href:https://advertising.coupang.com/marketing/dashboard/sales");
+  assert.notEqual(smartHub, "href:https://advertising.coupang.com/marketing/dashboard/sales");
+  // 표시명은 identity가 아니다. 상세 href/id가 없는 행은 raw evidence로만
+  // 남고 authoritative campaign projection에서는 제외된다.
+  assert.equal(smartWing, null);
+  assert.equal(smartHub, null);
+
+  // 이름조차 없으면 identity 를 만들지 않는다(=수집 큐에서 제외).
+  assert.equal(contract.campaignIdentityFromHref(listHref, ""), null);
+});
+
+// Regression: 상세 URL 이 없는 캠페인을 상세 리포트 대상으로 잡으면 sweep 이
+// 도달할 수 없는 화면을 계속 기다린다. 사용자가 본 "처리 0.0개/분 /
+// 완료 예상 1437시간 6분" 증상.
+test("campaigns without a detail url never enter the detail-report path", () => {
+  const contract = loadContract();
+
+  assert.equal(
+    contract.campaignUsesDetailReport({ onOff: "ON", hasDetailHref: false }),
+    false,
+  );
+  assert.equal(
+    contract.campaignUsesDetailReport({ onOff: "ON", hasDetailHref: true }),
+    true,
+  );
+  // hasDetailHref 를 모르는 기존 호출부는 onOff 판정을 그대로 유지한다.
+  assert.equal(contract.campaignUsesDetailReport({ onOff: "ON" }), true);
+  assert.equal(contract.campaignUsesDetailReport({ onOff: "OFF" }), false);
+});
+
+// Regression: 백그라운드(가려진) 창에서 수집이 실패하던 직접 원인.
+//
+// 수집 창은 focused:false 로 열린다. 다른 창에 가려지면 Chrome 은 hidden 으로
+// 보고 타이머를 클램프하고, 5분 넘게 hidden 이면 intensive throttling 으로
+// nested timer 예산이 분당 1회까지 떨어진다. 기존 대기 루프는 전부
+// `while (Date.now() - start < timeoutMs) { ... await sleep(300) }` 라서
+// sleep(300) 이 60초가 되면 조건을 딱 한 번 검사하고 만료됐다.
+//
+// pollUntil 은 벽시계 예산과 별개로 최소 시도 횟수를 보장한다.
+test("waits survive background timer throttling instead of giving up after one try", async () => {
+  const contract = loadContract();
+
+  // 스로틀된 시계: sleep 한 번이 60초로 늘어난다(예산 15초를 즉시 초과).
+  let clock = 0;
+  const throttledWait = async () => {
+    clock += 60000;
+  };
+  const now = () => clock;
+
+  let attempts = 0;
+  const settlesOnFifthAttempt = () => {
+    attempts += 1;
+    return attempts >= 5;
+  };
+
+  const result = await contract.pollUntil(settlesOnFifthAttempt, {
+    timeoutMs: 15000,
+    intervalMs: 300,
+    now,
+    wait: throttledWait,
+  });
+
+  // 예전 루프였다면 1회 시도 후 타임아웃했다.
+  assert.equal(result, true);
+  assert.equal(attempts, 5);
+});
+
+test("pollUntil still gives up once the budget and the attempt floor are both spent", async () => {
+  const contract = loadContract();
+
+  let clock = 0;
+  const throttledWait = async () => {
+    clock += 60000;
+  };
+  let attempts = 0;
+  const neverSettles = () => {
+    attempts += 1;
+    return false;
+  };
+
+  const result = await contract.pollUntil(neverSettles, {
+    timeoutMs: 15000,
+    intervalMs: 300,
+    minAttempts: 6,
+    now: () => clock,
+    wait: throttledWait,
+  });
+
+  // 무한 루프가 아니라 실패를 돌려준다. 실패는 조용히 성공이 되지 않는다.
+  assert.equal(result, null);
+  assert.equal(attempts, 6);
 });

@@ -25,21 +25,17 @@ describe('action board inventory semantics', () => {
     );
   });
 
-  it('renders the current Pareto statistics response for grade analysis', () => {
+  it('does not interpret the retired recalc-grade suggestion result', () => {
     const result = parseActionResult('recalc-grade', {
       totalRevenue: 120000,
-      gradeDistribution: { A: 1, B: 1, C: 0 },
-      mismatchCount: 1,
-      data: [
-        { name: '상품 A', currentGrade: 'B', suggestedGrade: 'A', gradeMatch: false },
-        { name: '상품 B', currentGrade: 'B', suggestedGrade: 'B', gradeMatch: true },
-      ],
+      data: [{ name: '레거시 상품' }],
     });
 
-    expect(result).toEqual(expect.arrayContaining([
-      { label: '총 상품', value: '2개' },
-      { label: '등급 변경 제안', value: '1개', highlight: true },
-      { label: 'A등급', value: '1개' },
+    expect(result).toEqual([
+      expect.objectContaining({ label: '결과' }),
+    ]);
+    expect(result).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '등급 변경 제안' }),
     ]));
   });
 

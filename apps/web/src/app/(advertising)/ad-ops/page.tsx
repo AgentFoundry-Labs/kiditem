@@ -20,6 +20,7 @@ import RegisterCampaignModal from "./components/RegisterCampaignModal";
 import ExposureAnalysis from "./components/ExposureAnalysis";
 import type { TabKey } from "./lib/types";
 import type { RegisterCampaignPayload } from "./hooks/useAdOpsData";
+import type { CampaignSelection } from "./components/CampaignTable";
 
 export default function AdOpsPage() {
   const [tab, setTab] = useState<TabKey>("status");
@@ -32,7 +33,7 @@ export default function AdOpsPage() {
   const [budgetInput, setBudgetInput] = useState("300,000");
   const [registerModal, setRegisterModal] = useState<RegisterCampaignPayload | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
-  const [initialCampaign, setInitialCampaign] = useState<string | null>(null);
+  const [initialCampaign, setInitialCampaign] = useState<CampaignSelection | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -78,8 +79,8 @@ export default function AdOpsPage() {
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
   };
 
-  const handleGoToCampaign = (name?: string) => {
-    setInitialCampaign(name ?? null);
+  const handleGoToCampaign = (campaign?: CampaignSelection) => {
+    setInitialCampaign(campaign ?? null);
     setTab("campaign");
   };
 
@@ -196,6 +197,8 @@ export default function AdOpsPage() {
             <StrategyContent
               strategy={strategy}
               rules={rules}
+              trends={trends}
+              period={period}
               totalBudget={totalBudget}
               budgetInput={budgetInput}
               expandedProduct={expandedProduct}

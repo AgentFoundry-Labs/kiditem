@@ -49,13 +49,11 @@ export class AdCampaignsService {
    */
   async getCampaigns(
     period: AdPeriod,
-    campaignName: string | undefined,
     organizationId: string,
   ): Promise<AdCampaignSnapshot[]> {
     const rollups = await this.campaignRepo.findCampaignRollups(
       organizationId,
       period,
-      campaignName,
     );
     if (rollups.length === 0) return [];
 
@@ -86,14 +84,23 @@ export class AdCampaignsService {
    * Product-grain ad rows from normalized target daily facts. Raw
    * `ChannelScrapeSnapshot` rows stay audit/replay evidence; the UI reads
    * this fact projection instead.
+   *
+   * Account plus stable campaign identity narrows to one campaign's member
+   * products. The repository's product-grain filter keeps campaign rollup rows
+   * out, so a campaign never lists itself as a product.
    */
   async getProducts(
     period: AdPeriod,
     organizationId: string,
+    campaign?: {
+      channelAccountId: string;
+      campaignIdentity: string;
+    },
   ): Promise<AdProductSnapshot[]> {
     const rollups = await this.campaignRepo.findProductTargetRollups(
       organizationId,
       period,
+      campaign,
     );
     if (rollups.length === 0) return [];
 

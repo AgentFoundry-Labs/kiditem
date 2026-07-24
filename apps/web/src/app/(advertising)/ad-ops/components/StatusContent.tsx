@@ -12,6 +12,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { roasColor } from "../lib/status-colors";
 import AdSidePanel from "./AdSidePanel";
 import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus, AdStrategyAction } from "@kiditem/shared/advertising";
+import type { CampaignSelection } from "./CampaignTable";
 
 type ChartTooltipPayload = {
   dataKey?: string | number | ((obj: unknown) => unknown);
@@ -20,7 +21,7 @@ type ChartTooltipPayload = {
   name?: string | number;
 };
 
-function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapshot[]; onSelect: (name?: string) => void }) {
+function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapshot[]; onSelect: (campaign?: CampaignSelection) => void }) {
   const { data: adsConfig } = useQuery({
     queryKey: queryKeys.ads.config(),
     queryFn: () =>
@@ -46,12 +47,16 @@ function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapsho
       </div>
       <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
         {top.map((c) => {
-          const rowKey = `${c.campaignName ?? c.campaignId ?? c.listing?.listingId ?? "unknown"}`;
+          const rowKey = `${c.channelAccountId}:${c.campaignIdentity}`;
           const displayName = c.campaignName ?? c.listing?.masterProduct.name ?? "알 수 없는 캠페인";
           return (
             <button
               key={rowKey}
-              onClick={() => onSelect(c.campaignName ?? undefined)}
+              onClick={() => onSelect({
+                channelAccountId: c.channelAccountId,
+                campaignIdentity: c.campaignIdentity,
+                campaignName: displayName,
+              })}
               className="w-full flex items-center justify-between px-5 py-3 transition-colors text-left hover:bg-[var(--surface-sunken)]"
             >
               <div>
@@ -80,7 +85,7 @@ interface StatusContentProps {
   trends: AdTrendsData | null;
   wingKpis: Record<string, string | { value: string; change?: string; numValue?: number }>;
   campaigns: AdCampaignSnapshot[];
-  onGoToCampaign: (name?: string) => void;
+  onGoToCampaign: (campaign?: CampaignSelection) => void;
   // H3 — current-state extension status surfaced from `/api/ads/extension/status`.
   // Carries `latestScrapeAt` / `latestChannelStateAt` / `rawSnapshotCount` /
   // `currentWinnerObservedListings` (renamed from legacy lifetime counts).

@@ -3,6 +3,8 @@ import { ApiError } from '@/lib/api-error';
 import { apiClient } from '@/lib/api-client';
 import {
   purchaseOrdersApi,
+  SELLPIA_GENERATION_MAX_POLLS,
+  SELLPIA_GENERATION_POLL_MS,
   submitPurchaseOrderWithFreshnessRecovery,
   waitForCompletedFreshGeneration,
 } from './purchase-orders-api';
@@ -50,16 +52,22 @@ describe('submitPurchaseOrderWithFreshnessRecovery', () => {
       .mockResolvedValueOnce({ status: 'ordered' });
     const requestRefresh = vi.fn().mockResolvedValue({ requestedGeneration: '8' });
     const waitForFreshGeneration = vi.fn().mockResolvedValue(undefined);
+    const onRefreshRequested = vi.fn().mockResolvedValue(undefined);
     const input = { purchaseOrderId: 'po-1', idempotencyKey: 'stable-key' };
 
     const result = await submitPurchaseOrderWithFreshnessRecovery(input, {
-      submit,
-      requestRefresh,
-      waitForFreshGeneration,
+      dependencies: {
+        submit,
+        requestRefresh,
+        waitForFreshGeneration,
+      },
+      onRefreshRequested,
     });
 
     expect(submit).toHaveBeenNthCalledWith(1, input);
     expect(requestRefresh).toHaveBeenCalledWith('manual_request');
+    expect(onRefreshRequested).toHaveBeenCalledTimes(1);
+    expect(onRefreshRequested).toHaveBeenCalledBefore(waitForFreshGeneration);
     expect(waitForFreshGeneration).toHaveBeenCalledWith('8');
     expect(submit).toHaveBeenNthCalledWith(2, input);
     expect(submit).toHaveBeenCalledTimes(2);
@@ -79,7 +87,7 @@ describe('submitPurchaseOrderWithFreshnessRecovery', () => {
 
     await expect(submitPurchaseOrderWithFreshnessRecovery(
       { purchaseOrderId: 'po-1', idempotencyKey: 'stable-key' },
-      { submit, requestRefresh, waitForFreshGeneration },
+      { dependencies: { submit, requestRefresh, waitForFreshGeneration } },
     )).rejects.toBe(error);
 
     expect(submit).toHaveBeenCalledTimes(1);
@@ -97,7 +105,7 @@ describe('submitPurchaseOrderWithFreshnessRecovery', () => {
 
     await expect(submitPurchaseOrderWithFreshnessRecovery(
       { purchaseOrderId: 'po-1', idempotencyKey: 'stable-key' },
-      { submit, requestRefresh, waitForFreshGeneration },
+      { dependencies: { submit, requestRefresh, waitForFreshGeneration } },
     )).rejects.toBe(second);
 
     expect(submit).toHaveBeenCalledTimes(2);
@@ -107,6 +115,13 @@ describe('submitPurchaseOrderWithFreshnessRecovery', () => {
 });
 
 describe('waitForCompletedFreshGeneration', () => {
+  it('keeps the explicit waiter at a two-minute budget with two-second polls', () => {
+    expect(SELLPIA_GENERATION_POLL_MS).toBe(2_000);
+    expect(SELLPIA_GENERATION_MAX_POLLS).toBe(60);
+    expect(SELLPIA_GENERATION_POLL_MS * SELLPIA_GENERATION_MAX_POLLS)
+      .toBe(120_000);
+  });
+
   it('waits until the requested generation is both verified and fresh', async () => {
     const getState = vi.fn()
       .mockResolvedValueOnce({ status: 'syncing', verifiedGeneration: '7' })

@@ -67,8 +67,8 @@ export class SourcingCandidateWorkspaceController {
    * 마켓에 이미 등록된 상품을 등록상품으로 확정한다.
    *
    * 쿠팡 WING 은 확장이 화면을 직접 조작해 등록하므로 서버가 provider create 를
-   * 부르는 `preparations/:id/submit` 을 탈 수 없다. 이 경로는 provider 를 호출하지 않고
-   * 이미 발급된 등록상품ID 로 `ChannelListing` 확정만 수행한다.
+   * 부르는 `preparations/:id/submit` 을 탈 수 없다. 이 경로는 새 상품을 생성하지 않고,
+   * 이미 발급된 등록상품ID를 선택된 계정의 provider 조회로 검증한 뒤 확정한다.
    */
   @Post('candidates/:id/registration/confirm-external')
   confirmExternalRegistration(

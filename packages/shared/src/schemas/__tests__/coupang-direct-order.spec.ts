@@ -82,4 +82,25 @@ describe('CoupangDirectOrderCollectionRequestSchema', () => {
 
     expect(() => CoupangDirectOrderCollectionRequestSchema.parse(request)).toThrow();
   });
+
+  // 확장 수집 원본에서 흔한 빈 정보 필드는 데이터 무결성과 무관하므로 흡수한다.
+  it('absorbs blank informational fields (null center fields, blank edd)', () => {
+    const request = validRequest();
+    request.centers.덕평센터 = { addr: null, zip: null, contact: null } as never;
+    request.pos[0]!.edd = '';
+
+    const parsed = CoupangDirectOrderCollectionRequestSchema.parse(request);
+    expect(parsed.centers.덕평센터).toEqual({});
+    expect(parsed.pos[0]!.edd).toBe('');
+    // 식별자·수량·품목은 그대로 유지된다.
+    expect(parsed.pos[0]!.items).toHaveLength(1);
+  });
+
+  it('allows a purchase order whose item details failed to collect (empty items)', () => {
+    const request = validRequest();
+    request.pos[0]!.items = [];
+
+    const parsed = CoupangDirectOrderCollectionRequestSchema.parse(request);
+    expect(parsed.pos[0]!.items).toEqual([]);
+  });
 });

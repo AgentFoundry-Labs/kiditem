@@ -235,11 +235,11 @@ describe('ActionBoardService.getTasks', () => {
         'h-zero-stock',
         'h-mapping-attention',
         'h-ad-csv',
-        'recalc-grade',
         'analyze-ad-rules',
         'analyze-category',
       ]),
     );
+    expect(seededTaskKeys).not.toContain('recalc-grade');
     expect(seededTaskKeys).not.toContain('h-minus-ad-stop');
     expect(seededTaskKeys).not.toContain('h-ad-bid');
 

@@ -11,8 +11,22 @@ interface Props {
   campaigns: AdCampaignSnapshot[];
   sortBy: 'revenue' | 'roas';
   onSortChange: (sort: 'revenue' | 'roas') => void;
-  selectedCampaign: string | null;
-  onSelectCampaign: (name: string | null) => void;
+  selectedCampaign: CampaignSelection | null;
+  onSelectCampaign: (campaign: CampaignSelection | null) => void;
+}
+
+export interface CampaignSelection {
+  channelAccountId: string;
+  campaignIdentity: string;
+  campaignName: string;
+}
+
+function isSelected(
+  selected: CampaignSelection | null,
+  campaign: Pick<AdCampaignSnapshot, 'channelAccountId' | 'campaignIdentity'>,
+) {
+  return selected?.channelAccountId === campaign.channelAccountId &&
+    selected.campaignIdentity === campaign.campaignIdentity;
 }
 
 export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaign, onSelectCampaign }: Props) {
@@ -55,7 +69,12 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
               <th className="text-right">노출</th>
               <th className="text-right">클릭</th>
               <th className="text-right">CTR</th>
-              <th className="text-right">전환</th>
+              <th
+                className="text-right"
+                title="쿠팡 광고센터의 캠페인 목록에는 전환 판매수 컬럼이 없습니다. 캠페인을 클릭하면 상품별 전환 판매수를 볼 수 있습니다."
+              >
+                전환
+              </th>
               <th className="text-right">전환율</th>
             </tr>
           </thead>
@@ -66,13 +85,18 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
               </tr>
             )}
             {sorted.map((c) => {
-              const rowKey = `${c.campaignName ?? c.campaignId ?? c.listing?.listingId ?? 'unknown'}`;
+              const rowKey = `${c.channelAccountId}:${c.campaignIdentity}`;
               const displayName = c.campaignName ?? c.listing?.channelName ?? c.listing?.masterProduct.name ?? '알 수 없는 캠페인';
+              const selection = {
+                channelAccountId: c.channelAccountId,
+                campaignIdentity: c.campaignIdentity,
+                campaignName: displayName,
+              } satisfies CampaignSelection;
               return (
                 <tr
                   key={rowKey}
-                  onClick={() => onSelectCampaign(selectedCampaign === c.campaignName ? null : c.campaignName)}
-                  className={cn('cursor-pointer transition-colors', selectedCampaign === c.campaignName ? 'bg-purple-50' : 'hover:bg-slate-50')}
+                  onClick={() => onSelectCampaign(isSelected(selectedCampaign, c) ? null : selection)}
+                  className={cn('cursor-pointer transition-colors', isSelected(selectedCampaign, c) ? 'bg-purple-50' : 'hover:bg-slate-50')}
                 >
                   <td className="font-medium text-slate-900 max-w-[240px] truncate">
                     {displayName}
@@ -90,7 +114,12 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
                   <td className="text-right">{formatNumber(c.metrics.impressions)}</td>
                   <td className="text-right">{formatNumber(c.metrics.clicks)}</td>
                   <td className="text-right">{(c.metrics.ctr ?? 0).toFixed(2)}%</td>
-                  <td className="text-right">{c.metrics.conversions}</td>
+                  {/* Coupang's campaign list grid has no conversion-count
+                      column, so a 0 here is "not collected", not "zero sales".
+                      Show unknown instead of fabricating a number. */}
+                  <td className="text-right" style={c.conversionsAvailable ? undefined : { color: 'var(--text-tertiary)' }}>
+                    {c.conversionsAvailable ? formatNumber(c.metrics.conversions) : '-'}
+                  </td>
                   <td className="text-right">{(c.metrics.cvr ?? 0).toFixed(2)}%</td>
                 </tr>
               );

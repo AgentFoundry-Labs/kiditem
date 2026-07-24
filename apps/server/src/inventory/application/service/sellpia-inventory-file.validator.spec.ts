@@ -1,5 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
 import { deflateRawSync } from 'node:zlib';
+import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import { SellpiaInventoryFileValidator } from './sellpia-inventory-file.validator';
@@ -8,6 +8,25 @@ describe('SellpiaInventoryFileValidator', () => {
   const validator = new SellpiaInventoryFileValidator();
 
   it.each([
+    [
+      'browser JSON snapshot',
+      Buffer.from(JSON.stringify({
+        source: 'sellpia_product_search',
+        version: 1,
+        rowCount: 1,
+        rows: [{
+          productCode: '92',
+          optionCode: '1',
+          name: '상품',
+          optionName: null,
+          barcode: null,
+          currentStock: 3,
+          purchasePrice: null,
+          salePrice: null,
+        }],
+      })),
+      'application/json',
+    ],
     ['OLE2', ole2Buffer(), 'application/vnd.ms-excel'],
     ['raw BIFF worksheet', rawBiffWorksheetBuffer(), 'application/vnd.ms-excel'],
     ['XLSX', xlsxBuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],

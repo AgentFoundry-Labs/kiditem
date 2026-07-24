@@ -81,6 +81,28 @@ describe('<ProductInventoryMatchingTable>', () => {
     await user.click(screen.getByRole('button', { name: '상품별 확인' }));
     expect(screen.getByText('자동 매칭 가능 · 고신뢰 상품명 일치 · 수량 2')).toBeInTheDocument();
   });
+
+  it('auto-expands and highlights the exact option requested by the Rocket preview', () => {
+    render(
+      <ProductInventoryMatchingTable
+        products={[product()]}
+        options={[
+          option(OPTION_A, '블루', VARIANT_ID),
+          option(OPTION_B, '핑크', null),
+        ]}
+        productGroups={[group()]}
+        automationItemsByOptionId={new Map()}
+        focusOptionId={OPTION_B}
+        onEditProduct={vi.fn()}
+        onEditVariant={vi.fn()}
+        onShowRecipeSuggestion={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('핑크')).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: '선택된 채널 옵션' })).toHaveTextContent('핑크');
+    expect(screen.getByRole('button', { name: '상품별 확인' })).toHaveAttribute('aria-expanded', 'true');
+  });
 });
 
 function product(): ChannelProductMatchingQueueRow {

@@ -4,6 +4,8 @@
   const EXTRACT_DELAY_MS = 2000;
   const SCROLL_STEP_MS = 300;
   const SCROLL_SETTLE_MS = 1500;
+  const TREND_MAX_ATTEMPTS = 16;
+  const TREND_RETRY_DELAY_MS = 750;
 
   const EXTRACTORS = {
     ALIBABA: ProductScraper.alibaba,
@@ -72,7 +74,15 @@
 
     let best = null;
     let unchangedAttempts = 0;
-    for (let attempt = 0; attempt < 12; attempt++) {
+    // 1688 검색 결과는 클라이언트 렌더라 `tab.status === 'complete'` 이후에도
+    // 한참 뒤에 그려진다. 수집 탭은 `active:false`(백그라운드)라 렌더가 더 느리다.
+    // 예전 12회로는 다 그려지기 전에 추출해 0건으로 끝나는 경우가 있었다.
+    // 다만 background 탭의 750ms timer 는 약 1초로 throttle 될 수 있으므로,
+    // 16회/최대 15회 wait 로 제한해 수집기의 20초 메시지 타임아웃에 5초
+    // 이상의 응답 여유를 남긴다.
+    // 카드를 찾으면 아래 unchangedAttempts 조건으로 곧바로 빠져나가므로
+    // 정상 페이지에서는 느려지지 않는다.
+    for (let attempt = 0; attempt < TREND_MAX_ATTEMPTS; attempt++) {
       if (is1688VerificationPage()) {
         return {
           ok: false,
@@ -91,6 +101,9 @@
 
       if (best && best.items.length >= limit) break;
       if (best && best.items.length > 0 && unchangedAttempts >= 3) break;
+      // 마지막 관측 뒤에는 새 DOM 을 읽을 다음 iteration 이 없으므로 scroll/sleep
+      // 하지 않는다. 특히 background timer throttling 아래서 불필요한 1초가 된다.
+      if (attempt + 1 >= TREND_MAX_ATTEMPTS) break;
 
       window.scrollTo({
         top: Math.min(
@@ -99,12 +112,23 @@
         ),
         behavior: "instant",
       });
-      await new Promise((resolve) => setTimeout(resolve, 750));
+      await new Promise((resolve) => setTimeout(resolve, TREND_RETRY_DELAY_MS));
     }
 
     window.scrollTo({ top: 0, behavior: "instant" });
     if (!best) {
       return { ok: false, error: "search_results_not_rendered" };
+    }
+    if (!best.items || best.items.length === 0) {
+      // 추출기는 돌았지만 상품 카드를 하나도 못 잡은 상태. 예전에는 이걸
+      // `ok:true` + 0건으로 보고해서 "에러 0건인데 수집 0건"이 되어 원인을
+      // 볼 수 없었다(운영자는 그냥 빈 결과로만 보임). 소프트 차단(빈 결과)인지
+      // 검색 DOM 변경으로 선택자가 늙은 것인지 가리려면 실패로 드러내야 한다.
+      return {
+        ...best,
+        ok: false,
+        error: "1688 검색 결과에서 상품 카드를 찾지 못했습니다(차단 또는 검색 페이지 구조 변경).",
+      };
     }
     return { ok: true, ...best };
   }

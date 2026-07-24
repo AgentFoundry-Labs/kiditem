@@ -1,25 +1,33 @@
 import type {
-  RocketPurchaseConfirmationRequest,
-  RocketPurchaseConfirmationResponse,
+  RocketWorkbookExportRequest,
+  RocketWorkbookExportResponse,
   RocketPurchasePreviewResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
 
-export interface RocketPurchaseConfirmationTransactionPort {
-  confirm(input: {
+export interface RocketWorkbookExportTransactionPort {
+  exportWorkbook(input: {
     organizationId: string;
     userId: string;
     sourceImportRunId: string;
-    request: RocketPurchaseConfirmationRequest;
+    request: RocketWorkbookExportRequest;
     preview: RocketPurchasePreviewResponse;
-  }): Promise<RocketPurchaseConfirmationResponse>;
-  release(input: {
+    artifactBytes: Buffer;
+  }): Promise<RocketWorkbookExportResponse>;
+  getActiveWorkflow(input: {
+    organizationId: string;
+  }): Promise<RocketWorkbookExportResponse | null>;
+  downloadWorkbook(input: {
+    organizationId: string;
+    exportId: string;
+  }): Promise<{ fileName: string; contentType: string; bytes: Buffer }>;
+  abandonWorkbook(input: {
     organizationId: string;
     userId: string;
-    confirmationId: string;
+    exportId: string;
     reason: string;
-  }): Promise<RocketPurchaseConfirmationResponse>;
+  }): Promise<RocketWorkbookExportResponse>;
 }
 
-export const ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT = Symbol(
-  'ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT',
+export const ROCKET_WORKBOOK_EXPORT_TRANSACTION_PORT = Symbol(
+  'ROCKET_WORKBOOK_EXPORT_TRANSACTION_PORT',
 );

@@ -150,7 +150,7 @@ describe('AppLayout auth gate', () => {
   it.each([
     '/inventory-hub',
     '/purchase-orders',
-    '/order-hub',
+    '/orders',
     '/product-hub',
     '/product-hub/matching',
   ])('keeps the former quick action button on %s', (pathname) => {

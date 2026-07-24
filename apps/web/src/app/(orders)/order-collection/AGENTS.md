@@ -14,13 +14,15 @@ manage local generated-file history.
   responses.
 - Coupang Rocket PA collection sends the selected active Rocket
   `channelAccountId`. The backend must persist `SourceImportRun`, `Order`, and
-  `OrderLineItem` and reconcile the request commitment before the 17-column
-  Sellpia workbook is accepted into local file history. Missing import headers
-  or any reconciliation failure is a hard failure with no downloadable file.
+  `OrderLineItem`, link only rows matching the active Rocket workbook, and
+  return a 17-column Sellpia workbook only for those rows. Both SHIPMENT and
+  MILKRUN probes run even when one transport has no matching rows. Missing
+  import/workflow headers or any linkage failure is a hard failure.
 - Local generated file history and seen-row detection may use browser storage
   for operator convenience only.
 - Before invoking the irreversible Sellpia extension submit, durably prepare
-  an intent keyed by the generated file ID; if preparation fails or returns
+  an intent keyed by `{rocketWorkbookExportId, transport}`; the backend returns
+  that stable key as the generated file ID. If preparation fails or returns
   `already_prepared`, do not invoke the extension. An `already_prepared` file
   with local `transmissionRequestedAt` retries only idempotent finalization;
   without that marker it remains blocked for operator verification.
@@ -48,6 +50,9 @@ manage local generated-file history.
 - Do not treat localStorage or IndexedDB rows as durable order records.
 - For PA, server `SourceImportRun` and `Order` rows are durable truth; local
   generated-file history is only a convenience cache.
+- Rocket workflow completion requires all matched transport intents to be
+  finalized and a newer verified Sellpia generation; collection alone does not
+  complete or subtract stock.
 - Do not expose unmasked personal data in preview tables unless backend and
   route policy explicitly allow it.
 - Keep extension capabilities aligned with `extensions/order-collector`.

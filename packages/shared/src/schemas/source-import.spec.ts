@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CompletedSourceArtifactRunSchema,
   CoupangWingCatalogImportResponseSchema,
+  SellpiaInventoryBrowserSnapshotSchema,
   SellpiaInventoryImportOutcomeSchema,
   SellpiaInventoryImportResponseSchema,
   SourceImportRunSchema,
@@ -50,6 +51,59 @@ const wingChanges = {
 };
 
 describe('source import contracts', () => {
+  it('parses a bounded, versioned Sellpia browser full snapshot', () => {
+    const parsed = SellpiaInventoryBrowserSnapshotSchema.parse({
+      source: 'sellpia_product_search',
+      version: 1,
+      rowCount: 1,
+      rows: [{
+        productCode: '92',
+        optionCode: '1',
+        name: '상품',
+        optionName: '블루',
+        barcode: '8801234567890',
+        currentStock: 39,
+        purchasePrice: 10_000,
+        salePrice: 20_000,
+      }],
+    });
+
+    expect(parsed.rowCount).toBe(parsed.rows.length);
+  });
+
+  it('rejects truncated, duplicate, and out-of-range Sellpia browser snapshots', () => {
+    const row = {
+      productCode: '92',
+      optionCode: '1',
+      name: '상품',
+      optionName: null,
+      barcode: null,
+      currentStock: 0,
+      purchasePrice: null,
+      salePrice: null,
+    };
+    const snapshot = {
+      source: 'sellpia_product_search' as const,
+      version: 1 as const,
+      rowCount: 1,
+      rows: [row],
+    };
+
+    expect(() => SellpiaInventoryBrowserSnapshotSchema.parse({
+      ...snapshot,
+      rowCount: 2,
+    })).toThrow();
+    expect(() => SellpiaInventoryBrowserSnapshotSchema.parse({
+      ...snapshot,
+      rowCount: 2,
+      rows: [row, row],
+    })).toThrow();
+    expect(() => SellpiaInventoryBrowserSnapshotSchema.parse({
+      ...snapshot,
+      rows: [{ ...row, currentStock: 2_147_483_648 }],
+    })).toThrow();
+  });
+
   it('parses a completed Sellpia full-snapshot result', () => {
     const parsed = SellpiaInventoryImportResponseSchema.parse({
       run,

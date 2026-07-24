@@ -35,11 +35,6 @@
       "import": "./dist/channel-listing.js",
       "require": "./dist/channel-listing.cjs"
     },
-    "./coupang-category": {
-      "types": "./dist/coupang-category.d.ts",
-      "import": "./dist/coupang-category.js",
-      "require": "./dist/coupang-category.cjs"
-    },
     "./order": {
       "types": "./dist/order.d.ts",
       "import": "./dist/order.js",
@@ -144,6 +139,11 @@
       "types": "./dist/product-operations.d.ts",
       "import": "./dist/product-operations.js",
       "require": "./dist/product-operations.cjs"
+    },
+    "./product-abc": {
+      "types": "./dist/product-abc.d.ts",
+      "import": "./dist/product-abc.js",
+      "require": "./dist/product-abc.cjs"
     },
     "./channel-product-matching": {
       "types": "./dist/channel-product-matching.d.ts",
@@ -328,6 +328,9 @@
       "product-operations": [
         "dist/product-operations.d.ts"
       ],
+      "product-abc": [
+        "dist/product-abc.d.ts"
+      ],
       "channel-product-matching": [
         "dist/channel-product-matching.d.ts"
       ],
@@ -378,9 +381,6 @@
       ],
       "readiness": [
         "dist/readiness.d.ts"
-      ],
-      "coupang-category": [
-        "dist/coupang-category.d.ts"
       ],
       "auth": [
         "dist/auth.d.ts"

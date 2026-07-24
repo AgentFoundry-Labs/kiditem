@@ -9,8 +9,12 @@ compatibility CRUD. It never owns physical stock.
 ## Owned Surface
 
 - `/api/products/masters` product-operations list/detail and metadata mutations
+- `/api/products/abc-policy` policy reads/updates and
+  `/api/products/abc-grade/recalculate` explicit automatic recalculation
 - product variant create/update capabilities
 - complete `ProductVariantComponent` recipe replacement
+- reviewed manual recipe batch plan/create-if-empty capabilities for private
+  stable-identity environment transfers
 - create-if-empty deterministic recipe capability consumed by Channels after a
   version-fenced, explicitly confirmed preview
 - transaction-aware channel-origin `MasterProduct` / `ProductVariant`
@@ -22,6 +26,7 @@ compatibility CRUD. It never owns physical stock.
 ## Final Owners
 
 - KidItem product metadata: Products `MasterProduct`.
+- Automatic product ABC policy, grade publication, and grade history: Products.
 - Reusable sellable units and component recipes: Products `ProductVariant` and
   `ProductVariantComponent`.
 - Sellpia physical identity and imported quantity: Inventory
@@ -38,8 +43,10 @@ compatibility CRUD. It never owns physical stock.
 - Do not add physical stock, source price/barcode/raw import fields, or direct
   Inventory writers to `MasterProduct`.
 - Manual recipe writes replace the complete `ProductVariantComponent` set and
-  validate positive quantities and tenant ownership. The only automatic writer
-  is the locked create-if-empty capability: it accepts one active,
+  validate positive quantities and tenant ownership. An explicitly reviewed
+  manual batch may plan or create exact recipes only for empty variants;
+  identical recipes are idempotent and different recipes conflict. The only
+  automatic writer is the locked create-if-empty capability: it accepts one active,
   organization-owned Sellpia component with a positive integer quantity, marks its source
   deterministic, and preserves every existing recipe. Channels may invoke it
   only from a matching version-fenced preview based on a unique,
@@ -76,6 +83,16 @@ compatibility CRUD. It never owns physical stock.
   the origin listing and option external IDs; they do not replace stored codes.
 - Creating a product creates supplied variants or one default variant when the
   request omits variants.
+- `MasterProduct.abcGrade` is a nullable automatic result, never operator input.
+  Products calculates it from Analytics metric facts, updates only changed
+  grades with history, and recalculates after policy changes or authoritative
+  sales ingest. Missing, ambiguous, inactive, or insufficient evidence remains
+  `null` rather than synthetic C.
+- Every policy/grade publication increments the policy `revision`; publication
+  compares the expected revision under the organization advisory lock so an
+  older metric snapshot cannot overwrite a newer completed publication.
+- Thumbnail analysis quality grades are AI-owned registration evidence and
+  remain independent from the automatic product ABC grade.
 - Category controllers receive `organizationId` from
   `@CurrentOrganization()` and never accept tenant identity from the client.
 - Product and category mutations scope every single-resource operation by

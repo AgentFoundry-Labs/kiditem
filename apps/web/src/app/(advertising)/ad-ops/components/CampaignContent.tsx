@@ -9,13 +9,14 @@ import { cn, formatKRW } from "@/lib/utils";
 import { roasColor } from "../lib/status-colors";
 import { toCampaignsResponse } from "../hooks/useAdOpsData";
 import { CampaignTable } from "./CampaignTable";
+import type { CampaignSelection } from "./CampaignTable";
 import { ProductDrilldown } from "./ProductDrilldown";
 import type { AdCampaignSnapshot, AdTrendsData } from "@kiditem/shared/advertising";
 
-export default function CampaignContent({ initialCampaign }: { initialCampaign: string | null }) {
+export default function CampaignContent({ initialCampaign }: { initialCampaign: CampaignSelection | null }) {
   const [period, setPeriod] = useState("7d");
   const [sortBy, setSortBy] = useState<"revenue" | "roas">("revenue");
-  const [selectedCampaign, setSelectedCampaign] = useState<string | null>(initialCampaign);
+  const [selectedCampaign, setSelectedCampaign] = useState<CampaignSelection | null>(initialCampaign);
 
   const { data: adsConfig } = useQuery({
     queryKey: queryKeys.ads.config(),
@@ -164,7 +165,7 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
 
       {/* 상품 드릴다운 */}
       {selectedCampaign && (
-        <ProductDrilldown campaignName={selectedCampaign} period={period} />
+        <ProductDrilldown campaign={selectedCampaign} period={period} />
       )}
       </div>
     </div>

@@ -33,6 +33,7 @@ import type { AuthUser } from '../../auth/auth.types';
 import {
   COUPANG_DIRECT_ORDER_COLLECTION_PORT,
   type CoupangDirectOrderCollectionPort,
+  type CoupangDirectCollectionLineRef,
 } from '../application/port/in/coupang-direct-order-collection.port';
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
@@ -52,7 +53,7 @@ export class OrderCollectionController {
     private readonly orderCollectionService: OrderCollectionService,
     private readonly coupangDirectshipService: CoupangDirectshipService,
     @Inject(COUPANG_DIRECT_ORDER_COLLECTION_PORT)
-    private readonly coupangDirectOrders: CoupangDirectOrderCollectionPort,
+    private readonly coupangDirectOrderCollection: CoupangDirectOrderCollectionPort,
   ) {}
 
   @Post('coupang-directship/convert')
@@ -63,7 +64,8 @@ export class OrderCollectionController {
     'X-Order-Collection-Output-Rows',
     'X-Order-Collection-Skipped-Rows',
     'X-Order-Collection-Import-Run-Id',
-    'X-Order-Collection-Reconciled-Rows',
+    'X-Rocket-Workbook-Export-Id',
+    'X-Sellpia-Transmission-Intent-Key',
   ].join(', '))
   async convertCoupangDirectship(
     @Body() body: CoupangDirectOrderCollectionRequest,
@@ -71,15 +73,38 @@ export class OrderCollectionController {
     @CurrentUser() user: AuthUser,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
-  ): Promise<StreamableFile> {
-    const abortController = new AbortController();
-    request.once('aborted', () => abortController.abort());
-    const collected = await this.coupangDirectOrders.collect({
+  ): Promise<StreamableFile | void> {
+    const collected = await this.coupangDirectOrderCollection.collect({
       organizationId,
       userId: user.id,
       request: body,
     });
-    const result = await this.coupangDirectshipService.generate(body, {
+    response.setHeader('X-Order-Collection-Import-Run-Id', collected.importRunId);
+    if (collected.exportId) {
+      response.setHeader('X-Rocket-Workbook-Export-Id', collected.exportId);
+    }
+    if (collected.transmissionIntentKey) {
+      response.setHeader(
+        'X-Sellpia-Transmission-Intent-Key',
+        collected.transmissionIntentKey,
+      );
+    }
+    response.setHeader(
+      'X-Order-Collection-Skipped-Rows',
+      String(collected.skippedLines.length),
+    );
+    if (collected.confirmedLines.length === 0) {
+      response.setHeader('X-Order-Collection-Source-Rows', '0');
+      response.setHeader('X-Order-Collection-Product-Rows', '0');
+      response.setHeader('X-Order-Collection-Output-Rows', '0');
+      response.status(204);
+      return;
+    }
+
+    const matchedRequest = filterCoupangRequest(body, collected.confirmedLines);
+    const abortController = new AbortController();
+    request.once('aborted', () => abortController.abort());
+    const result = await this.coupangDirectshipService.generate(matchedRequest, {
       signal: abortController.signal,
     });
     response.setHeader('Content-Disposition', contentDispositionAttachment(result.fileName));
@@ -87,12 +112,6 @@ export class OrderCollectionController {
     response.setHeader('X-Order-Collection-Source-Rows', String(result.poCount));
     response.setHeader('X-Order-Collection-Product-Rows', String(result.rowCount));
     response.setHeader('X-Order-Collection-Output-Rows', String(result.rowCount));
-    response.setHeader('X-Order-Collection-Skipped-Rows', '0');
-    response.setHeader('X-Order-Collection-Import-Run-Id', collected.importRunId);
-    response.setHeader(
-      'X-Order-Collection-Reconciled-Rows',
-      String(collected.reconciledRows),
-    );
     return new StreamableFile(result.buffer);
   }
 
@@ -426,6 +445,26 @@ export class OrderCollectionController {
     response.setHeader('X-Order-Collection-Output-Rows', String(result.outputRows));
     response.setHeader('X-Order-Collection-Skipped-Rows', String(result.skippedRows));
   }
+}
+
+function filterCoupangRequest(
+  request: CoupangDirectOrderCollectionRequest,
+  confirmedLines: CoupangDirectCollectionLineRef[],
+): CoupangDirectOrderCollectionRequest {
+  const confirmed = new Set(
+    confirmedLines.map(({ poNumber, productNo }) =>
+      JSON.stringify([poNumber, productNo])),
+  );
+  return {
+    ...request,
+    pos: request.pos
+      .map((purchaseOrder) => ({
+        ...purchaseOrder,
+        items: purchaseOrder.items.filter(({ skuId }) =>
+          confirmed.has(JSON.stringify([purchaseOrder.seq, skuId]))),
+      }))
+      .filter(({ items }) => items.length > 0),
+  };
 }
 
 function contentDispositionAttachment(fileName: string): string {

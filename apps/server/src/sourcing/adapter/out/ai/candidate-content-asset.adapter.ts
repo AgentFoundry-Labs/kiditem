@@ -16,6 +16,16 @@ export class CandidateContentAssetAdapter implements CandidateContentAssetPort {
     private readonly assets: AiCandidateContentAssetPort,
   ) {}
 
+  loadRegistrationMedia(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<{
+    registrationImages: CandidateRegistrationImages;
+    currentThumbnail: CandidateCurrentThumbnail | null;
+  }> {
+    return this.assets.loadRegistrationMedia(input);
+  }
+
   listRegistrationImages(input: {
     organizationId: string;
     sourceCandidateId: string;

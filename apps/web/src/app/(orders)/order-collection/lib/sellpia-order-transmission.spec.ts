@@ -97,6 +97,40 @@ describe('transmitSellpiaOrder', () => {
     );
   });
 
+  it('uses the server-issued Rocket transmission key for every durable intent action', async () => {
+    const transmissionIntentKey = 'rocket-workbook:export-1:shipment';
+    extension.sendSellpiaOrders.mockResolvedValue({
+      success: false,
+      outcome: 'not_submitted',
+      error: null,
+    });
+
+    await transmitSellpiaOrder({
+      ...input(),
+      file: { ...generatedFile(), transmissionIntentKey },
+    });
+
+    expect(freshness.prepareOrderTransmissionIntent).toHaveBeenCalledWith(
+      transmissionIntentKey,
+    );
+    expect(freshness.abortOrderTransmissionIntent).toHaveBeenCalledWith(
+      transmissionIntentKey,
+    );
+
+    extension.sendSellpiaOrders.mockResolvedValue({
+      success: true,
+      outcome: 'submitted',
+      shop: '키드키즈',
+    });
+    await transmitSellpiaOrder({
+      ...input(),
+      file: { ...generatedFile(), transmissionIntentKey },
+    });
+    expect(freshness.finalizeOrderTransmissionIntent).toHaveBeenCalledWith(
+      transmissionIntentKey,
+    );
+  });
+
   it('aborts the prepared intent when the extension explicitly did not submit', async () => {
     extension.sendSellpiaOrders.mockResolvedValue({
       success: false,

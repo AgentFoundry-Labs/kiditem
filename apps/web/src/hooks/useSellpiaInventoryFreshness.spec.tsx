@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ZodError } from 'zod';
+import { ApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 const api = vi.hoisted(() => ({
   getState: vi.fn(),
@@ -19,7 +21,11 @@ vi.mock('@/app/(inventory)/_shared/invalidate-sellpia-inventory', () => ({
   invalidateSellpiaInventory,
 }));
 
-import { useSellpiaInventoryFreshness } from './useSellpiaInventoryFreshness';
+import {
+  getSellpiaFreshnessPollInterval,
+  shouldRetrySellpiaFreshness,
+  useSellpiaInventoryFreshness,
+} from './useSellpiaInventoryFreshness';
 
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
@@ -34,6 +40,29 @@ describe('useSellpiaInventoryFreshness', () => {
     api.getCurrentBasis.mockResolvedValue(null);
     api.listHistory.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     invalidateSellpiaInventory.mockResolvedValue(undefined);
+  });
+
+  it('polls active synchronization every 15 seconds and idle state every 60 seconds', () => {
+    expect(getSellpiaFreshnessPollInterval(false, 'syncing', false)).toBe(false);
+    expect(getSellpiaFreshnessPollInterval(true, 'syncing', false)).toBe(15_000);
+    expect(getSellpiaFreshnessPollInterval(true, 'refresh_required', false)).toBe(15_000);
+    expect(getSellpiaFreshnessPollInterval(true, 'fresh', false)).toBe(60_000);
+    expect(getSellpiaFreshnessPollInterval(true, 'failed', false)).toBe(60_000);
+    expect(getSellpiaFreshnessPollInterval(true, null, true)).toBe(60_000);
+  });
+
+  it('retries transient freshness reads once without retrying ordinary API errors', () => {
+    expect(shouldRetrySellpiaFreshness(0, new Error('network reset'))).toBe(true);
+    expect(shouldRetrySellpiaFreshness(1, new Error('network reset'))).toBe(false);
+    expect(shouldRetrySellpiaFreshness(0, new ApiError(503, null, 'unavailable')))
+      .toBe(true);
+    expect(shouldRetrySellpiaFreshness(1, new ApiError(503, null, 'unavailable')))
+      .toBe(false);
+    expect(shouldRetrySellpiaFreshness(
+      0,
+      new ApiError(500, 'sellpia_schema_missing', 'schema missing'),
+    )).toBe(false);
+    expect(shouldRetrySellpiaFreshness(0, new ZodError([]))).toBe(false);
   });
 
   it('does not poll until authenticated coordination is enabled', async () => {

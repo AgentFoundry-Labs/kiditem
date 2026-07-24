@@ -22,7 +22,12 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
   const warningCount = configurationCount + reviewCount;
   const lowProfitCount = data.summary.negativeProfitCount;
   const reorderProductCount = data.summary.reorderProductCount;
-  const { A: aGradeCount, B: bGradeCount, C: cGradeCount } = data.summary.abcGradeCounts;
+  const {
+    A: aGradeCount,
+    B: bGradeCount,
+    C: cGradeCount,
+    unclassified: unclassifiedGradeCount,
+  } = data.summary.abcGradeCounts;
 
   return (
     <div>
@@ -49,6 +54,7 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
           <Breakdown label="A등급" value={aGradeCount} tone="text-emerald-700" />
           <Breakdown label="B등급" value={bGradeCount} tone="text-amber-600" />
           <Breakdown label="C등급" value={cGradeCount} tone="text-rose-600" />
+          <Breakdown label="미분류" value={unclassifiedGradeCount} />
         </div>
       </article>
 

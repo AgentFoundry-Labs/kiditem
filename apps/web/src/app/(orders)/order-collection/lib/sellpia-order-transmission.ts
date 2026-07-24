@@ -42,11 +42,12 @@ export async function transmitSellpiaOrder(
   input: SellpiaOrderTransmissionInput,
 ): Promise<SellpiaOrderTransmissionResult> {
   const shopName = input.file.mallName ?? '아이스크림몰';
+  const intentKey = input.file.transmissionIntentKey ?? input.file.id;
   let preparation: Awaited<
     ReturnType<SellpiaOrderTransmissionInput['freshness']['prepareOrderTransmissionIntent']>
   >;
   try {
-    preparation = await input.freshness.prepareOrderTransmissionIntent(input.file.id);
+    preparation = await input.freshness.prepareOrderTransmissionIntent(intentKey);
   } catch {
     throw new Error('전송 준비 상태 저장에 실패해 셀피아 전송을 시작하지 않았습니다.');
   }
@@ -61,7 +62,7 @@ export async function transmitSellpiaOrder(
   let submittedShopName = shopName;
   let finalizationWarning = false;
   if (preparation.disposition === 'already_prepared') {
-    finalizationWarning = !await finalizeWithRetry(input);
+    finalizationWarning = !await finalizeWithRetry(input, intentKey);
   } else if (preparation.disposition !== 'already_finalized') {
     const extensionResult = await input.extension.sendSellpiaOrders({
       shopName,
@@ -72,7 +73,7 @@ export async function transmitSellpiaOrder(
     if (extensionResult.outcome === 'not_submitted') {
       let abortWarning = false;
       try {
-        await input.freshness.abortOrderTransmissionIntent(input.file.id);
+        await input.freshness.abortOrderTransmissionIntent(intentKey);
       } catch {
         abortWarning = true;
       }
@@ -88,7 +89,7 @@ export async function transmitSellpiaOrder(
       );
     }
     submittedShopName = extensionResult.shop ?? shopName;
-    finalizationWarning = !await finalizeWithRetry(input);
+    finalizationWarning = !await finalizeWithRetry(input, intentKey);
   }
 
   const transmissionRequestedAt = input.file.transmissionRequestedAt
@@ -123,10 +124,11 @@ export async function transmitSellpiaOrder(
 
 async function finalizeWithRetry(
   input: SellpiaOrderTransmissionInput,
+  intentKey: string,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      await input.freshness.finalizeOrderTransmissionIntent(input.file.id);
+      await input.freshness.finalizeOrderTransmissionIntent(intentKey);
       return true;
     } catch {
       // Finalization is idempotent; one immediate retry covers a lost response.

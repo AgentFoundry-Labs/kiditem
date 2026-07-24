@@ -19,7 +19,8 @@ const DELETE_TIMEOUT_MS = 180_000;
  *   1) 서버 인가 — 삭제 비밀번호 + "우리가 등록한 상품인가" 를 서버가 검증하고,
  *      마켓에서 지울 `externalId` 를 돌려준다. 이 단계는 아무것도 바꾸지 않는다.
  *   2) 확장이 WING 에서 실제 삭제.
- *   3) 서버가 우리 리스팅을 비활성화(다시 검증한다).
+ *   3) 서버가 선택된 계정의 쿠팡 API로 DELETED 상태를 독립 검증한다.
+ *   4) 검증이 끝난 경우에만 우리 리스팅을 비활성화한다.
  *
  * 마켓을 먼저 지운다. 우리 DB 를 먼저 지우면 2단계가 실패했을 때
  * "쿠팡에는 살아 있는데 우리는 지운 줄 아는" 상태가 된다.
@@ -36,12 +37,14 @@ export default function ListingDeleteDialog({
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
+  const [reconciliationOperationId, setReconciliationOperationId] = useState<string | null>(null);
 
   useEffect(() => {
     setPassword('');
     setBusy(false);
     setPhase(null);
     setIdempotencyKey(null);
+    setReconciliationOperationId(null);
   }, [listing]);
 
   const { data: passwordStatus } = useQuery({
@@ -59,13 +62,46 @@ export default function ListingDeleteDialog({
   // 우리가 등록한 상품만 삭제 대상이다. 서버도 같은 규칙으로 다시 막지만,
   // 지울 수 없는 것을 지울 수 있는 것처럼 보여주지 않는다.
   const isOurs = Boolean(listing.sourceCandidateId);
-  const canDelete = configured && isOurs && password.length > 0 && !busy;
+  const canDelete = reconciliationOperationId !== null
+    ? !busy
+    : configured && isOurs && password.length > 0 && !busy;
 
   const errorMessage = (err: unknown, fallback: string): string =>
     isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback;
 
   const handleDelete = async () => {
     if (!canDelete) return;
+    if (reconciliationOperationId) {
+      setBusy(true);
+      setPhase('쿠팡 삭제 상태를 다시 확인하는 중…');
+      try {
+        const reconciled = await apiClient.post<{
+          status: 'succeeded' | 'reconciling';
+          providerOutcome: 'succeeded' | 'uncertain';
+        }>(`/api/channels/listings/${listing.id}/deletion-reconciliation`, {
+          operationId: reconciliationOperationId,
+        });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+        if (reconciled.status === 'succeeded') {
+          toast.success('상품을 삭제했습니다', {
+            description: `${listing.listingName} (등록상품ID ${listing.externalId})`,
+          });
+          onClose();
+        } else {
+          toast.success('쿠팡 삭제 확인을 기다리고 있어요', {
+            description: '잠시 후 삭제 상태 다시 확인을 눌러 주세요.',
+          });
+        }
+      } catch (err) {
+        toast.success('쿠팡 삭제 확인이 아직 끝나지 않았어요', {
+          description: errorMessage(err, '잠시 후 삭제 상태 다시 확인을 눌러 주세요.'),
+        });
+      } finally {
+        setBusy(false);
+        setPhase(null);
+      }
+      return;
+    }
     setBusy(true);
     let operationId: string | null = null;
     let providerDeleteConfirmed = false;
@@ -81,11 +117,38 @@ export default function ListingDeleteDialog({
         displayName: string;
         channel: string;
         expectedVendorId: string;
+        status?: 'executing' | 'reconciling';
+        extensionClaimed?: boolean;
       }>(`/api/channels/listings/${listing.id}/deletion-authorization`, {
         password,
         idempotencyKey: attemptKey,
       });
       operationId = authorized.operationId;
+
+      // 새로고침 뒤 재진입했거나 확장 claim이 이미 소비된 실행은 provider 삭제를
+      // 다시 누르지 않는다. 같은 원장의 독립 확인만 재개한다.
+      if (authorized.status === 'reconciling' || authorized.extensionClaimed === true) {
+        setPhase('쿠팡 삭제 상태를 다시 확인하는 중…');
+        const reconciled = await apiClient.post<{
+          status: 'succeeded' | 'reconciling';
+          providerOutcome: 'succeeded' | 'uncertain';
+        }>(`/api/channels/listings/${listing.id}/deletion-reconciliation`, {
+          operationId: authorized.operationId,
+        });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+        if (reconciled.status === 'succeeded') {
+          toast.success('상품을 삭제했습니다', {
+            description: `${authorized.displayName} (등록상품ID ${authorized.externalId})`,
+          });
+          onClose();
+        } else {
+          setReconciliationOperationId(authorized.operationId);
+          toast.success('쿠팡 삭제 확인을 기다리고 있어요', {
+            description: '잠시 후 삭제 상태 다시 확인을 눌러 주세요.',
+          });
+        }
+        return;
+      }
 
       // 2) 확장이 WING 에서 실제 삭제.
       setPhase('쿠팡 WING 에서 삭제하는 중…');
@@ -110,9 +173,25 @@ export default function ListingDeleteDialog({
         throw new Error(result?.error || '쿠팡 WING 삭제에 실패했습니다.');
       }
       providerDeleteConfirmed = true;
-      // The extension is not an independent provider authority. Preserve the
-      // local listing and enter durable reconciliation even after its DOM check.
-      throw new Error('쿠팡 삭제가 관찰되었습니다. 로컬 정산이 필요합니다.');
+      setPhase('쿠팡 삭제 상태를 확인하는 중…');
+      const reconciled = await apiClient.post<{
+        status: 'succeeded' | 'reconciling';
+        providerOutcome: 'succeeded' | 'uncertain';
+      }>(`/api/channels/listings/${listing.id}/deletion-reconciliation`, {
+        operationId: authorized.operationId,
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+      if (reconciled.status === 'succeeded') {
+        toast.success('상품을 삭제했습니다', {
+          description: `${authorized.displayName} (등록상품ID ${authorized.externalId})`,
+        });
+      } else {
+        toast.success('쿠팡 삭제를 확인하고 있어요', {
+          description: '잠시 후 삭제 상태 다시 확인을 눌러 주세요.',
+        });
+        setReconciliationOperationId(authorized.operationId);
+      }
+      if (reconciled.status === 'succeeded') onClose();
     } catch (err) {
       if (operationId) {
         // A timeout, extension error, or completion transport failure is uncertain;
@@ -122,9 +201,15 @@ export default function ListingDeleteDialog({
           reason: providerDeleteConfirmed ? 'provider_delete_observed_requires_reconciliation' : 'extension_unknown',
         }).catch(() => undefined);
       }
-      toast.error(providerDeleteConfirmed
-        ? '쿠팡 삭제가 관찰되었습니다. 독립 정산 전까지 로컬 상품은 유지됩니다.'
-        : errorMessage(err, '상품 삭제에 실패했습니다.'));
+      if (providerDeleteConfirmed) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+        setReconciliationOperationId(operationId);
+        toast.success('쿠팡 삭제를 확인하고 있어요', {
+          description: '서버 확인이 일시 지연됐습니다. 잠시 후 삭제 상태 다시 확인을 눌러 주세요.',
+        });
+      } else {
+        toast.error(errorMessage(err, '상품 삭제에 실패했습니다.'));
+      }
     } finally {
       setBusy(false);
       setPhase(null);
@@ -219,7 +304,7 @@ export default function ListingDeleteDialog({
             className="inline-flex h-10 items-center gap-2 rounded-lg bg-rose-600 px-4 text-sm font-black text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-            삭제
+            {reconciliationOperationId ? '삭제 상태 다시 확인' : '삭제'}
           </button>
         </div>
       </div>

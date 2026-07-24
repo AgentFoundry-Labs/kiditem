@@ -155,6 +155,8 @@ definitions.
   through their owner application services.
 - Provider/media/fetch/storage behavior belongs behind the relevant
   `application/port/out/{provider,storage}/` contract.
+- Inventory's read-only display-media port returns organization-owned active
+  Coupang catalog assets by exact option then primary fallback.
 - Direct detail page, thumbnail, and image-edit generation use `AI_*`.
   Agent OS uses `AGENT_*` only for real Agent definitions.
 
@@ -172,6 +174,7 @@ definitions.
   `domain/detail-page-media-prompts.ts`.
 - Asset deletion and archive GC must reject assets referenced by active
   generation usage or any current-thumbnail selection.
+- Thumbnail quality grades are registration-only and independent from product ABC.
 - When generation controls change, check shared tuple/type, HTTP DTO, web
   payload, direct generation input/output schema, stored raw-input normalizer,
   sink, and recovery behavior together.

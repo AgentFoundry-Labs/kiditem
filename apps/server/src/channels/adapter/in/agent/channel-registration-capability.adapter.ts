@@ -32,6 +32,14 @@ export class ChannelRegistrationCapabilityAdapter
     return this.marketplaceRegistration.assertExternalProductRegistrationAccount(input);
   }
 
+  verifyExternalProductRegistration(input: {
+    organizationId: string;
+    channelAccountId: string;
+    externalListingId: string;
+  }) {
+    return this.marketplaceRegistration.verifyExternalProductRegistration(input);
+  }
+
   reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
   ): Promise<MarketplaceSubmissionResult | null> {

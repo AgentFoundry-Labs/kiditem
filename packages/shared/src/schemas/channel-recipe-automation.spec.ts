@@ -64,8 +64,8 @@ describe('channel recipe automation contracts', () => {
     })).toThrow(/automatic variant/);
   });
 
-  it('rejects automatic variants on a non-automatic product group', () => {
-    expect(() => ChannelRecipeAutomationPreviewSchema.parse({
+  it('allows safe automatic variants within an operator-review product group', () => {
+    expect(ChannelRecipeAutomationPreviewSchema.parse({
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       proposalVersion: 'a'.repeat(64),
       generatedAt: '2026-07-18T00:00:00.000Z',
@@ -87,7 +87,9 @@ describe('channel recipe automation contracts', () => {
         decision: 'operator_review',
       }],
       items: [],
-    })).toThrow(/must not contain automatic variants/);
+    }).productGroups[0]?.autoApplyProductVariantIds).toEqual([
+      '22222222-2222-4222-8222-222222222222',
+    ]);
   });
 
   it('requires the exact preview version when applying', () => {
@@ -97,7 +99,7 @@ describe('channel recipe automation contracts', () => {
     })).toThrow();
   });
 
-  it('requires one quantity-one SKU for an automatic item', () => {
+  it('requires one SKU with a positive quantity for an automatic item', () => {
     expect(() => ChannelRecipeAutomationPreviewSchema.parse({
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       proposalVersion: 'a'.repeat(64),
@@ -127,7 +129,7 @@ describe('channel recipe automation contracts', () => {
         recommendedQuantity: null,
         evidenceLabels: ['seller_sku_code:SP-1'],
       }],
-    })).toThrow(/quantity 1/);
+    })).toThrow(/positive quantity/);
   });
 
   it('accepts product-level apply counts', () => {

@@ -179,20 +179,29 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   });
 
   it('summarizes ABC grades across the full result instead of the current page', async () => {
-    await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+    const first = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'GRADE-A-1',
       name: 'A grade one',
-      abcGrade: 'A',
     });
-    await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+    const second = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'GRADE-A-2',
       name: 'A grade two',
-      abcGrade: 'A',
     });
-    await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+    const third = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'GRADE-B-1',
       name: 'B grade one',
-      abcGrade: 'B',
+    });
+    const unclassified = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'GRADE-NULL-1',
+      name: 'Unclassified grade',
+    });
+    await prisma.masterProduct.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, id: { in: [first.id, second.id] } },
+      data: { abcGrade: 'A' },
+    });
+    await prisma.masterProduct.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, id: third.id },
+      data: { abcGrade: 'B' },
     });
 
     const page = await service.listProducts(TEST_ORGANIZATION_ID, {
@@ -202,17 +211,26 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
 
     expect(page.items).toHaveLength(1);
-    expect(page.total).toBe(3);
-    expect(page.summary.abcGradeCounts).toEqual({ A: 2, B: 1, C: 0 });
-    expect(page.summary.channelConnectionCounts).toEqual({ connected: 0, unconnected: 3 });
+    expect(page.total).toBe(4);
+    expect(page.summary.abcGradeCounts).toEqual({ A: 2, B: 1, C: 0, unclassified: 1 });
+    expect(page.summary.channelConnectionCounts).toEqual({ connected: 0, unconnected: 4 });
     expect(page.summary.inventoryStatusCounts).toEqual({
       sellable: 0,
       partial_out_of_stock: 0,
       out_of_stock: 0,
-      configuration_required: 3,
+      configuration_required: 4,
       review_required: 0,
     });
     expect(page.summary.negativeProfitCount).toBe(0);
+
+    const unclassifiedPage = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      abcGrade: 'unclassified',
+    });
+    expect(unclassifiedPage.total).toBe(1);
+    expect(unclassifiedPage.items.map((item) => item.id)).toEqual([unclassified.id]);
   });
 
   it('allows organization-local codes and rejects organization-local variant collisions', async () => {
@@ -358,6 +376,81 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       capacity: null,
       warningState: 'review_required',
     });
+  });
+
+  it('creates reviewed manual recipe batches only when variants are empty and remains idempotent', async () => {
+    const skuA = await inventorySku('SP-BATCH-A', 8);
+    const skuB = await inventorySku('SP-BATCH-B', 8);
+    const first = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'KI-BATCH-A', name: 'Batch A',
+    });
+    const second = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'KI-BATCH-B', name: 'Batch B',
+    });
+    const recipes = [{
+      productVariantId: first.variants[0]!.id,
+      components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }],
+    }, {
+      productVariantId: second.variants[0]!.id,
+      components: [{ sellpiaInventorySkuId: skuB.id, quantity: 2 }],
+    }];
+
+    await expect(service.planRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      { recipes },
+    )).resolves.toEqual({
+      pendingProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
+      unchangedProductVariantIds: [],
+    });
+
+    await expect(service.createRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { recipes },
+    )).resolves.toEqual({
+      appliedProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
+      unchangedProductVariantIds: [],
+    });
+    await expect(service.createRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { recipes },
+    )).resolves.toEqual({
+      appliedProductVariantIds: [],
+      unchangedProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
+    });
+    await expect(service.planRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      { recipes },
+    )).resolves.toEqual({
+      pendingProductVariantIds: [],
+      unchangedProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
+    });
+    expect(await prisma.productVariantComponent.findMany({
+      where: { productVariantId: { in: recipes.map(({ productVariantId }) => productVariantId) } },
+      select: { source: true, confirmedBy: true },
+    })).toEqual([
+      { source: 'manual', confirmedBy: TEST_USER_ID },
+      { source: 'manual', confirmedBy: TEST_USER_ID },
+    ]);
+
+    const third = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'KI-BATCH-C', name: 'Batch C',
+    });
+    await expect(service.createRecipesIfEmpty(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { recipes: [{
+        productVariantId: first.variants[0]!.id,
+        components: [{ sellpiaInventorySkuId: skuB.id, quantity: 1 }],
+      }, {
+        productVariantId: third.variants[0]!.id,
+        components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }],
+      }] },
+    )).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.productVariantComponent.count({
+      where: { productVariantId: third.variants[0]!.id },
+    })).toBe(0);
   });
 
   it('serializes competing full recipe replacements without merging component sets', async () => {

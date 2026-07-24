@@ -1,5 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { StatisticsRepurchaseResponseSchema } from './statistics.js';
+import {
+  StatisticsParetoResponseSchema,
+  StatisticsRepurchaseResponseSchema,
+} from './statistics.js';
+
+describe('StatisticsParetoResponseSchema', () => {
+  it('models revenue bands without a second product ABC comparison', () => {
+    const parsed = StatisticsParetoResponseSchema.parse({
+      totalRevenue: 1_000,
+      bandDistribution: { top70: 1, next20: 1, tail10: 1 },
+      data: [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          rank: 1,
+          name: '상품 A',
+          paretoBand: 'top70',
+          revenue: 700,
+          revenuePercent: 70,
+          cumulativePercent: 70,
+        },
+      ],
+    });
+
+    expect(parsed.data[0].paretoBand).toBe('top70');
+    expect(parsed.data[0]).not.toHaveProperty('currentGrade');
+    expect(parsed.data[0]).not.toHaveProperty('suggestedGrade');
+    expect(parsed).not.toHaveProperty('mismatchCount');
+  });
+});
 
 describe('StatisticsRepurchaseResponseSchema', () => {
   it('accepts ISO string lastOrder values from JSON responses', () => {
