@@ -478,20 +478,10 @@ export class SourcingService {
     // Registration images come from ContentAsset.role, not from the scrape
     // originals on the candidate row. Missing assets stay empty so the caller
     // can fall back explicitly instead of shipping an off-spec source image.
-    const [
-      registrationImages,
-      workspaceThumbnailSelection,
-      salePriceMatches,
-      contentWorkspaceId,
-    ] = await Promise.all([
-      this.candidateContentAssets.listRegistrationImages({
-        organizationId,
-        sourceCandidateId: productId,
-      }),
-      // 워크스페이스에 저장된 대표 썸네일. `ProductPreparation` 이 없는 후보는
-      // 대표를 여기에만 남길 수 있고, 이걸 안 읽으면 저장은 됐는데 재진입하면
-      // `등록 대표` 배지가 사라진다. 준비가 있으면 프리젠터가 준비를 우선한다.
-      this.candidateContentAssets.findCurrentThumbnail({
+    const [registrationMedia, salePriceMatches, contentWorkspaceId] = await Promise.all([
+      // 갤러리와 현재 대표를 하나의 미디어 읽기로 받아, 응답 중간에
+      // 선택이 바뀌어도 등록 이미지와 `등록 대표` 배지가 엇갈리지 않게 한다.
+      this.candidateContentAssets.loadRegistrationMedia({
         organizationId,
         sourceCandidateId: productId,
       }),
@@ -506,6 +496,10 @@ export class SourcingService {
         sourceCandidateId: productId,
       }),
     ]);
+    const {
+      registrationImages,
+      currentThumbnail: workspaceThumbnailSelection,
+    } = registrationMedia;
     const sellpiaSalePrice =
       salePriceMatches.find((match) => match.normalizedName === nameKey)?.salePrice ?? null;
     return {

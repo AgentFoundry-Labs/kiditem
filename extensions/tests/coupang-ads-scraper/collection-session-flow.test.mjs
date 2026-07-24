@@ -108,7 +108,7 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /unsupported collection producer/i);
-  assert.equal(manifest.version, '1.2.68');
+  assert.equal(manifest.version, '1.2.69');
 });
 
 test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {

@@ -8,7 +8,10 @@ import {
 } from '@/lib/browser-collection-session';
 import { queryKeys } from '@/lib/query-keys';
 
-export function useBrowserCollectionSession(runId: string | null | undefined) {
+export function useBrowserCollectionSession(
+  runId: string | null | undefined,
+  options: { enabled?: boolean } = {},
+) {
   const queryClient = useQueryClient();
   return useQuery({
     queryKey: queryKeys.browserCollection.session(runId ?? ''),
@@ -21,7 +24,7 @@ export function useBrowserCollectionSession(runId: string | null | undefined) {
       const current = parsedCurrent.success ? parsedCurrent.data : null;
       return preferBrowserCollectionSession(current, candidate);
     },
-    enabled: Boolean(runId),
+    enabled: Boolean(runId) && options.enabled !== false,
     refetchInterval: (query) =>
       query.state.data?.status === 'running' ? 2_000 : false,
   });

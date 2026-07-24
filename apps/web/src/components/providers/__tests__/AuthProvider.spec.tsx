@@ -12,6 +12,7 @@ const onAuthStateChangeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
 const consumeSignOutReasonMock = vi.hoisted(() => vi.fn());
+const refreshOrFailMock = vi.hoisted(() => vi.fn());
 const syncExtensionAuthMock = vi.hoisted(() => vi.fn());
 const browserCollectionEnabledMock = vi.hoisted(() => vi.fn());
 const sellpiaSyncMountedMock = vi.hoisted(() => vi.fn());
@@ -28,6 +29,7 @@ vi.mock('@/lib/supabase/client', () => ({
 
 vi.mock('@/lib/supabase/refresh', () => ({
   consumeSignOutReason: () => consumeSignOutReasonMock(),
+  refreshOrFail: () => refreshOrFailMock(),
 }));
 
 vi.mock('@/lib/extension-auth', () => ({
@@ -85,6 +87,8 @@ describe('AuthProvider', () => {
     unsubscribeMock.mockReset();
     replaceMock.mockReset();
     consumeSignOutReasonMock.mockReset();
+    refreshOrFailMock.mockReset();
+    refreshOrFailMock.mockResolvedValue(true);
     syncExtensionAuthMock.mockReset();
     browserCollectionEnabledMock.mockReset();
     sellpiaSyncMountedMock.mockReset();
@@ -255,11 +259,12 @@ describe('AuthProvider', () => {
   });
 
   it('AP7: extension auth-required events coalesce one forced refresh and resync', async () => {
+    // 회전은 `lib/supabase/refresh` 의 `refreshOrFail` 단일 소유자를 거친다.
+    // apiClient 와 같은 mutex 를 써야 서로의 회전 토큰을 태우지 않는다.
     const rotated = { access_token: 'rotated', user: { id: 'u1' } };
-    refreshSessionMock.mockResolvedValue({
-      data: { session: rotated },
-      error: null,
-    });
+    getSessionMock
+      .mockResolvedValueOnce({ data: { session: null } })
+      .mockResolvedValue({ data: { session: rotated } });
     renderWithProvider(<div />);
     await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
     syncExtensionAuthMock.mockClear();
@@ -269,7 +274,7 @@ describe('AuthProvider', () => {
       window.dispatchEvent(new Event(EXTENSION_AUTH_REQUIRED_EVENT));
     });
 
-    await waitFor(() => expect(refreshSessionMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(refreshOrFailMock).toHaveBeenCalledTimes(1));
     expect(syncExtensionAuthMock).toHaveBeenCalledWith(rotated);
   });
 
@@ -309,6 +314,100 @@ describe('AuthProvider', () => {
 
     await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(2));
     expect(syncExtensionAuthMock).toHaveBeenCalledWith(current);
+  });
+
+  it('AP10: clears persisted extension auth when the initialized session is null', async () => {
+    getSessionMock.mockResolvedValue({ data: { session: null } });
+    renderWithProvider(<div />);
+
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(syncExtensionAuthMock).toHaveBeenCalledWith(null));
+  });
+
+  it('AP11: preserves the extension token when the initial read fails and Supabase emits null', async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: null },
+      error: new Error('temporary storage failure'),
+    });
+    renderWithProvider(<div />);
+
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      lastHandler?.('INITIAL_SESSION', null);
+    });
+    expect(syncExtensionAuthMock).not.toHaveBeenCalled();
+  });
+
+  it('AP12: SIGNED_OUT still clears extension auth after an initial read failure', async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: null },
+      error: new Error('temporary storage failure'),
+    });
+    renderWithProvider(<div />);
+    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
+
+    await act(async () => {
+      lastHandler?.('INITIAL_SESSION', null);
+    });
+    expect(syncExtensionAuthMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      lastHandler?.('SIGNED_OUT', null);
+    });
+    await waitFor(() => expect(syncExtensionAuthMock).toHaveBeenCalledWith(null));
+  });
+
+  it('AP13: still hands the extension a token when refresh-token rotation fails', async () => {
+    // Supabase 는 refresh token 을 회전시키므로, 다른 탭이 먼저 소비했거나
+    // apiClient 의 갱신과 경합하면 회전은 정상 사용 중에도 실패한다. 그때
+    // 메모리의 access_token 은 여전히 유효하므로 확장에 넘겨야 한다.
+    const live = { access_token: 'still-valid', user: { id: 'u1' } };
+    refreshOrFailMock.mockResolvedValue(false);
+    getSessionMock
+      .mockResolvedValueOnce({ data: { session: null } })
+      .mockResolvedValue({ data: { session: live } });
+    renderWithProvider(<div />);
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
+    syncExtensionAuthMock.mockClear();
+
+    await act(async () => {
+      window.dispatchEvent(new Event(EXTENSION_AUTH_REQUIRED_EVENT));
+    });
+
+    await waitFor(() => expect(syncExtensionAuthMock).toHaveBeenCalledWith(live));
+    expect(syncExtensionAuthMock).not.toHaveBeenCalledWith(null);
+  });
+
+  it('AP14: a queued sign-out clear runs after an older token sync finishes', async () => {
+    const session = { access_token: 'old-token', user: { id: 'u1' } };
+    let finishOldSync: (() => void) | null = null;
+    syncExtensionAuthMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldSync = () => resolve({});
+          }),
+      )
+      .mockResolvedValue({});
+    getSessionMock.mockResolvedValue({ data: { session } });
+
+    renderWithProvider(<div />);
+    await waitFor(() =>
+      expect(syncExtensionAuthMock).toHaveBeenCalledWith(session),
+    );
+
+    await act(async () => {
+      lastHandler?.('SIGNED_OUT', null);
+    });
+    expect(syncExtensionAuthMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishOldSync?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(syncExtensionAuthMock).toHaveBeenLastCalledWith(null);
+    });
   });
 
   it('enables browser collection synchronization only for an authenticated session', async () => {

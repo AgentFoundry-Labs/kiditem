@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle2,
@@ -43,7 +43,7 @@ export function TrendCollectionSection() {
   );
   const [lastResult, setLastResult] = useState<TrendCollectResult | null>(null);
   const [collectionRunId, setCollectionRunId] = useState<string | null>(null);
-  const collectionSession = useBrowserCollectionSession(collectionRunId);
+  const collectionAbortControllerRef = useRef<AbortController | null>(null);
 
   const seedsQuery = useQuery({
     queryKey: queryKeys.sourcing.trendSeeds(),
@@ -56,7 +56,19 @@ export function TrendCollectionSection() {
   const collectMutation = useMutation({
     mutationFn: async () => {
       const selected = TREND_SOURCE_ORDER.filter((source) => collectSources.has(source));
-      return collectSelectedTrendSources(selected, setCollectionRunId);
+      const controller = new AbortController();
+      collectionAbortControllerRef.current = controller;
+      try {
+        return await collectSelectedTrendSources(
+          selected,
+          setCollectionRunId,
+          controller.signal,
+        );
+      } finally {
+        if (collectionAbortControllerRef.current === controller) {
+          collectionAbortControllerRef.current = null;
+        }
+      }
     },
     onSuccess: (result) => {
       setLastResult(result);
@@ -71,6 +83,16 @@ export function TrendCollectionSection() {
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : '트렌드 수집 실패'),
   });
+  const collectionSession = useBrowserCollectionSession(collectionRunId, {
+    // 1688 mutation 내부 observer가 1초 주기로 종료를 기다리므로,
+    // 같은 run을 generic query가 중복 polling하지 않도록 한다.
+    enabled: !collectMutation.isPending,
+  });
+
+  useEffect(() => () => {
+    // 페이지가 사라져도 확장의 run은 계속한다. 웹 observer만 정리한다.
+    collectionAbortControllerRef.current?.abort();
+  }, []);
 
   const toggleCollectSource = (source: TrendSource) => {
     setCollectSources((prev) => {
@@ -149,7 +171,7 @@ export function TrendCollectionSection() {
               {running ? (
                 <>
                   <Loader2 size={17} className="animate-spin" />
-                  수집 중… 최대 2분
+                  수집 중… 키워드별 순차 처리
                 </>
               ) : (
                 <>
@@ -210,6 +232,7 @@ export function TrendCollectionSection() {
 async function collectSelectedTrendSources(
   selected: TrendSource[],
   onCollectionRunId: (runId: string) => void,
+  signal?: AbortSignal,
 ): Promise<TrendCollectResult> {
   const serverSources = selected.filter((source) => source !== '1688');
   const serverResult = serverSources.length > 0
@@ -226,6 +249,7 @@ async function collectSelectedTrendSources(
       const extensionResult = await collect1688TrendsFromChrome(
         targets.map((target) => target.keyword),
         onCollectionRunId,
+        signal,
       );
       onCollectionRunId(extensionResult.runId);
       businessDate = extensionResult.businessDate ?? businessDate;

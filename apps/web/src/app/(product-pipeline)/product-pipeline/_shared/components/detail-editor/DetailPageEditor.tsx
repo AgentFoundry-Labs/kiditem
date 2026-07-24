@@ -77,6 +77,10 @@ import {
 } from './lib/direct-detail-generation';
 import { extractEditedImageUrl } from './lib/image-edit-result';
 import {
+  DETAIL_EDITOR_TEXT_TAGS,
+  registerEditableTableCellType,
+} from './lib/editor-text-types';
+import {
   buildTemplateSectionBlockHtml,
   TEMPLATE_SECTION_PRESETS,
 } from './template-section-blocks';
@@ -156,7 +160,6 @@ const DETAIL_EDITOR_FONT_STYLE_ATTR = 'data-kiditem-editor-fonts';
 
 const DETAIL_EDITOR_BODY_FONT = 'var(--font-sans)';
 const DETAIL_EDITOR_DISPLAY_FONT = 'var(--font-display)';
-const DETAIL_EDITOR_TEXT_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'li', 'strong', 'em']);
 const TEXT_FONT_SIZE_MIN_PX = 8;
 const TEXT_FONT_SIZE_MAX_PX = 180;
 const TEXT_FONT_SIZE_STEP_PX = 2;
@@ -3997,6 +4000,9 @@ export default function DetailPageEditor({
       editorCleanupRef.current = null;
       setEditorRef(editor);
       editor.setDevice(parsed.viewportWidth <= 720 ? 'detail-640' : 'detail-720');
+      // INFO/spec table copy (제품명·용량·재질 …)도 본문처럼 인라인 편집한다.
+      // 초기 HTML 파싱 전에 등록해야 <td>/<th>가 editable cell 모델을 사용한다.
+      registerEditableTableCellType(editor);
       let frameHeightSyncTimer: number | null = null;
       const frameListenerCleanups: Array<() => void> = [];
       const scheduleFrameHeightSync = () => {
@@ -4020,7 +4026,7 @@ export default function DetailPageEditor({
         const imageComponent = getEditableImageComponent(component);
         const type = (component.get('type') as string) ?? '';
         const tagName = ((component.get('tagName') as string) ?? '').toLowerCase();
-        const TEXT_TAGS = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'li'];
+        const TEXT_TAGS = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'li', 'td', 'th'];
         const BLOCK_TAGS = new Set(['div', 'section', 'article', 'header', 'footer', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'table', 'blockquote', 'figure']);
 
         if (imageComponent) {

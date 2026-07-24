@@ -206,6 +206,70 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     expect(roles.map((row) => row.role).sort()).toEqual(['source', 'thumbnail']);
   });
 
+  it('surfaces only the current thumbnail reused from another workspace', async () => {
+    // 원본 상품 A 의 워크스페이스에서 만든 썸네일 자산을, 거의 동일한 중복 상품 B 가
+    // 재사용(선택)하는 실제 시나리오. 자산은 A 의 그룹이 소유하므로 B 기준 자산 스캔은
+    // 이를 놓치지만(=버그), 선택 레코드는 워크스페이스 id 로 묶여 잡아낸다(=수정).
+    const original = await seedCandidateWorkspace();
+    await adapter.replaceWorkspaceThumbnailGallery({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: original.workspaceId,
+      createdByUserId: TEST_USER_ID,
+      urls: ['https://cdn.example.com/reused-thumb.png'],
+    });
+    const reusedAsset = await prisma.contentAsset.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        url: 'https://cdn.example.com/reused-thumb.png',
+        isDeleted: false,
+      },
+    });
+
+    const duplicate = await seedCandidateWorkspace();
+    const historicalAsset = await prisma.contentAsset.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        assetKey: `historical-selection:${randomUUID()}`,
+        url: 'https://cdn.example.com/historical-thumb.png',
+        assetType: 'image',
+        role: 'thumbnail',
+      },
+    });
+    const historicalSelection = await prisma.contentWorkspaceThumbnailSelection.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        contentWorkspaceId: duplicate.workspaceId,
+        contentAssetId: historicalAsset.id,
+        createdByUserId: TEST_USER_ID,
+      },
+    });
+    const currentSelection = await prisma.contentWorkspaceThumbnailSelection.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        contentWorkspaceId: duplicate.workspaceId,
+        contentAssetId: reusedAsset.id,
+        createdByUserId: TEST_USER_ID,
+      },
+    });
+    await prisma.contentWorkspace.update({
+      where: { id: duplicate.workspaceId },
+      data: { currentThumbnailSelectionId: currentSelection.id },
+    });
+
+    // 그룹 소유(=A) 기준 자산 스캔은 B 에서 재사용 자산을 놓친다.
+    await expect(galleryThumbnails(duplicate.candidateId)).resolves.toEqual([]);
+    // 현재 선택만 재사용분으로 잡고, append-only 과거 선택은 되살리지 않는다.
+    await expect(adapter.findCandidateCurrentThumbnail({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: duplicate.candidateId,
+    })).resolves.toEqual({
+      url: 'https://cdn.example.com/reused-thumb.png',
+      sourceThumbnailGenerationId: null,
+      sourceThumbnailCandidateId: null,
+    });
+    expect(historicalSelection.id).not.toBe(currentSelection.id);
+  });
+
   it('refuses to write a gallery into another organization workspace', async () => {
     const { workspaceId } = await seedCandidateWorkspace();
 

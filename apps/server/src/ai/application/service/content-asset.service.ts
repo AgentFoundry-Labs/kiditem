@@ -55,7 +55,27 @@ export class ContentAssetService implements CandidateContentAssetPort {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<CandidateRegistrationImages> {
-    const rows = await this.repository.listCandidateAssets(input);
+    const media = await this.loadRegistrationMedia(input);
+    return media.registrationImages;
+  }
+
+  /**
+   * Reads the gallery and canonical representative together, then uses that
+   * same representative object for both the registration gallery and detail
+   * response. This avoids two competing current-selection reads during one
+   * candidate-detail request.
+   */
+  async loadRegistrationMedia(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<{
+    registrationImages: CandidateRegistrationImages;
+    currentThumbnail: CandidateCurrentThumbnail | null;
+  }> {
+    const [rows, currentThumbnail] = await Promise.all([
+      this.repository.listCandidateAssets(input),
+      this.repository.findCandidateCurrentThumbnail(input),
+    ]);
     const grouped: CandidateRegistrationImages = { primary: [], thumbnail: [], detail: [] };
     for (const row of rows) {
       if (!isRegistrationRole(row.role)) continue;
@@ -64,7 +84,12 @@ export class ContentAssetService implements CandidateContentAssetPort {
       if (grouped[row.role].includes(url)) continue;
       grouped[row.role].push(url);
     }
-    return grouped;
+    // 원본 워크스페이스가 다른 재사용 썸네일은 자산 소유 스캔에서 놓친다.
+    // 상세 응답에 내보낼 바로 그 현재 선택을 같은 스냅샷으로 그룹에 보강한다.
+    if (currentThumbnail && !grouped.thumbnail.includes(currentThumbnail.url)) {
+      grouped.thumbnail.push(currentThumbnail.url);
+    }
+    return { registrationImages: grouped, currentThumbnail };
   }
 
   /**

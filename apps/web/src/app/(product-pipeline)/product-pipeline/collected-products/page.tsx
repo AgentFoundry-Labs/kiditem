@@ -238,12 +238,18 @@ export default function SourcingPage() {
   const handleWingConfirm = async (
     overrides: WingRegistrationOverrides,
     autoSubmit: boolean,
+    channelAccountId: string,
   ) => {
     if (!wingDraft || wingSubmitting) return;
     const candidateId = wingDraft.candidateId;
     setWingSubmitting(true);
     try {
-      const result = await submitWingRegistration(wingDraft, overrides, autoSubmit);
+      const result = await submitWingRegistration(
+        wingDraft,
+        overrides,
+        autoSubmit,
+        channelAccountId,
+      );
       const executionId = result.submission.executionId;
       if (!executionId) throw new Error('WING 등록 실행 ID를 확인하지 못했습니다.');
 

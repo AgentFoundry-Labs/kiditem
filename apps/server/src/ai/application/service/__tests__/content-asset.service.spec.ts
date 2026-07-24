@@ -18,6 +18,7 @@ function repository(
     syncGenerationImageUsagesInScope: vi.fn(),
     listAssets: vi.fn(),
     listCandidateAssets: vi.fn().mockResolvedValue([]),
+    findCandidateCurrentThumbnail: vi.fn().mockResolvedValue(null),
     replaceWorkspaceThumbnailGallery: vi.fn(async (input: { urls: string[] }) => ({
       urls: input.urls,
     })),
@@ -85,6 +86,64 @@ describe('ContentAssetService.listRegistrationImages', () => {
     await expect(
       service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
     ).resolves.toEqual({ primary: [], thumbnail: [], detail: [] });
+  });
+
+  it('unions the current workspace thumbnail so a reused pick reaches registration thumbnails', async () => {
+    // 중복 상품끼리 재사용된 썸네일은 다른 워크스페이스 그룹 소유라 자산 스캔이
+    // 놓친다. 현재 워크스페이스 선택은 이를 잡으므로 갤러리 뒤에 합쳐진다.
+    const repo = repository({
+      listCandidateAssets: vi.fn().mockResolvedValue([
+        { role: 'thumbnail', url: 'http://localhost:9000/a/gallery.png', sortOrder: 0 },
+      ]),
+      findCandidateCurrentThumbnail: vi.fn().mockResolvedValue({
+        url: 'http://localhost:9000/reused/from-other-workspace.png',
+        sourceThumbnailGenerationId: null,
+        sourceThumbnailCandidateId: null,
+      }),
+    });
+    const service = new ContentAssetService(repo);
+
+    await expect(
+      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+    ).resolves.toEqual({
+      primary: [],
+      thumbnail: [
+        'http://localhost:9000/a/gallery.png',
+        'http://localhost:9000/reused/from-other-workspace.png',
+      ],
+      detail: [],
+    });
+  });
+
+  it('returns registration images and the exact same current selection from one media read', async () => {
+    const currentThumbnail = {
+      url: 'http://localhost:9000/reused/current.png',
+      sourceThumbnailGenerationId: 'generation-1',
+      sourceThumbnailCandidateId: 'candidate-thumb-1',
+    };
+    const repo = repository({
+      listCandidateAssets: vi.fn().mockResolvedValue([
+        { role: 'thumbnail', url: 'http://localhost:9000/a/gallery.png', sortOrder: 0 },
+      ]),
+      findCandidateCurrentThumbnail: vi.fn().mockResolvedValue(currentThumbnail),
+    });
+    const service = new ContentAssetService(repo);
+
+    await expect(service.loadRegistrationMedia({
+      organizationId: ORG,
+      sourceCandidateId: CANDIDATE,
+    })).resolves.toEqual({
+      registrationImages: {
+        primary: [],
+        thumbnail: [
+          'http://localhost:9000/a/gallery.png',
+          'http://localhost:9000/reused/current.png',
+        ],
+        detail: [],
+      },
+      currentThumbnail,
+    });
+    expect(repo.findCandidateCurrentThumbnail).toHaveBeenCalledTimes(1);
   });
 });
 
