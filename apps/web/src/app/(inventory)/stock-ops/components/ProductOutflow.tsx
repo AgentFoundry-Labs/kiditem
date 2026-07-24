@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowDownRight, ArrowUpRight, Loader2, Minus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
-import Link from 'next/link';
 import type {
   SellpiaProductAbcGrade,
   SellpiaProductSalesRow,
@@ -22,6 +21,7 @@ import {
   collectSellpiaProductProfitFromExtension,
 } from '@/lib/sellpia-product-sales-collection';
 import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
+import { ProductOutflowDestinations } from './ProductOutflowDestinations';
 
 const AUTO_SYNC_KEY = 'kiditem-sellpia-product-sales-autosync';
 const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
@@ -61,7 +61,17 @@ export default function ProductOutflow() {
   });
 
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.inventory.productSalesAll() });
+    void Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.inventory.productSalesAll(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.products.operations.all,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboard.all,
+      }),
+    ]);
   }, [queryClient]);
 
   // 현재고 갱신 요청(비필수) — 실제 JSON 스냅샷 수집/적재는 공용 조정자가 수행한다.
@@ -477,18 +487,7 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
       )}
       <td className="max-w-[280px] px-3 py-2 border-b border-slate-50">
         {resolution.status === 'matched' ? (
-          resolution.destinations.length === 0 ? (
-            <span className="whitespace-nowrap text-xs font-semibold text-slate-400">운영 상품 미연결</span>
-          ) : (
-            <div className="min-w-0 space-y-0.5" title={resolution.destinations.map((destination) => `${destination.masterProductName} · ${destination.productVariantName}`).join('\n')}>
-              {resolution.destinations.slice(0, 2).map((destination) => (
-                <Link key={destination.productVariantId} href={`/product-hub/${destination.masterProductId}`} className="block truncate text-xs font-semibold text-violet-700 hover:underline">
-                  {destination.masterProductName} · {destination.productVariantName}
-                </Link>
-              ))}
-              {resolution.destinations.length > 2 ? <span className="text-[10px] text-slate-500">외 {resolution.destinations.length - 2}개</span> : null}
-            </div>
-          )
+          <ProductOutflowDestinations destinations={resolution.destinations} />
         ) : resolution.status === 'mapping_required' ? (
           <span className="whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-800">
             매칭 필요 · {resolution.reason === 'not_found' ? 'SKU 없음' : resolution.reason === 'inactive_candidate' ? '비활성 SKU' : '바코드 중복'}
