@@ -63,6 +63,14 @@ export type ProductOperationsPeriodDays = z.infer<
   typeof ProductOperationsPeriodDaysSchema
 >;
 
+export const ProductOperationsAbcGradeFilterSchema = z.union([
+  ProductAbcGradeSchema,
+  z.literal('unclassified'),
+]);
+export type ProductOperationsAbcGradeFilter = z.infer<
+  typeof ProductOperationsAbcGradeFilterSchema
+>;
+
 export const MasterProductOperationsListQuerySchema = z.object({
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().max(100).default(50),
@@ -71,7 +79,7 @@ export const MasterProductOperationsListQuerySchema = z.object({
   category: z.string().trim().min(1).max(100).optional(),
   activeStatus: ProductOperationsActiveStatusSchema.default('all'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
-  abcGrade: ProductAbcGradeSchema.optional(),
+  abcGrade: ProductOperationsAbcGradeFilterSchema.optional(),
   adStatus: ProductOperationsAdStatusSchema.default('all'),
 }).strict();
 export type MasterProductOperationsListQuery = z.infer<
@@ -190,6 +198,7 @@ export const ProductOperationsListSummarySchema = z.object({
     A: z.number().int().nonnegative(),
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
+    unclassified: z.number().int().nonnegative(),
   }).strict(),
   channelConnectionCounts: z.object({
     connected: z.number().int().nonnegative(),

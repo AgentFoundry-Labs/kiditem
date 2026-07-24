@@ -191,6 +191,10 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       code: 'GRADE-B-1',
       name: 'B grade one',
     });
+    const unclassified = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'GRADE-NULL-1',
+      name: 'Unclassified grade',
+    });
     await prisma.masterProduct.updateMany({
       where: { organizationId: TEST_ORGANIZATION_ID, id: { in: [first.id, second.id] } },
       data: { abcGrade: 'A' },
@@ -207,17 +211,26 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
 
     expect(page.items).toHaveLength(1);
-    expect(page.total).toBe(3);
-    expect(page.summary.abcGradeCounts).toEqual({ A: 2, B: 1, C: 0 });
-    expect(page.summary.channelConnectionCounts).toEqual({ connected: 0, unconnected: 3 });
+    expect(page.total).toBe(4);
+    expect(page.summary.abcGradeCounts).toEqual({ A: 2, B: 1, C: 0, unclassified: 1 });
+    expect(page.summary.channelConnectionCounts).toEqual({ connected: 0, unconnected: 4 });
     expect(page.summary.inventoryStatusCounts).toEqual({
       sellable: 0,
       partial_out_of_stock: 0,
       out_of_stock: 0,
-      configuration_required: 3,
+      configuration_required: 4,
       review_required: 0,
     });
     expect(page.summary.negativeProfitCount).toBe(0);
+
+    const unclassifiedPage = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      abcGrade: 'unclassified',
+    });
+    expect(unclassifiedPage.total).toBe(1);
+    expect(unclassifiedPage.items.map((item) => item.id)).toEqual([unclassified.id]);
   });
 
   it('allows organization-local codes and rejects organization-local variant collisions', async () => {

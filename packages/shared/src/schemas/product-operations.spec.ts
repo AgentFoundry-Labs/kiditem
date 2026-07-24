@@ -30,9 +30,14 @@ describe('product operations contracts', () => {
       category: '  주방  ',
       activeStatus: 'active',
       inventoryStatus: 'partial_out_of_stock',
-      abcGrade: 'A',
+      abcGrade: 'unclassified',
       adStatus: 'active',
-    })).toMatchObject({ query: '식판', category: '주방', periodDays: 14 });
+    })).toMatchObject({
+      query: '식판',
+      category: '주방',
+      periodDays: 14,
+      abcGrade: 'unclassified',
+    });
     expect(() => MasterProductOperationsListQuerySchema.parse({
       organizationId: productId,
     })).toThrow();
@@ -132,7 +137,7 @@ describe('product operations contracts', () => {
       page: 1,
       limit: 1,
       summary: {
-        abcGradeCounts: { A: 23, B: 17, C: 40 },
+        abcGradeCounts: { A: 23, B: 17, C: 40, unclassified: 0 },
         channelConnectionCounts: { connected: 71, unconnected: 9 },
         inventoryStatusCounts: {
           sellable: 41,
@@ -148,6 +153,7 @@ describe('product operations contracts', () => {
       },
     });
     expect(response.summary.abcGradeCounts.A).toBe(23);
+    expect(response.summary.abcGradeCounts.unclassified).toBe(0);
     expect(response.summary.channelConnectionCounts.connected).toBe(71);
     expect(response.summary.inventoryStatusCounts.out_of_stock).toBe(7);
     expect(response.summary.negativeProfitCount).toBe(6);

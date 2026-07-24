@@ -281,6 +281,8 @@ function summarizeProducts(
     const abcGrade = product.abcGrade;
     if (abcGrade === 'A' || abcGrade === 'B' || abcGrade === 'C') {
       counts.abcGradeCounts[abcGrade] += 1;
+    } else {
+      counts.abcGradeCounts.unclassified += 1;
     }
     counts.channelConnectionCounts[
       product.channelCount > 0 ? 'connected' : 'unconnected'
@@ -298,7 +300,7 @@ function summarizeProducts(
     }
     return counts;
   }, {
-    abcGradeCounts: { A: 0, B: 0, C: 0 },
+    abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 0 },
     channelConnectionCounts: { connected: 0, unconnected: 0 },
     inventoryStatusCounts: {
       sellable: 0,

@@ -590,7 +590,11 @@ function productListWhere(
     ...(query.category ? { category: query.category } : {}),
     ...(query.activeStatus === 'active' ? { isActive: true } : {}),
     ...(query.activeStatus === 'inactive' ? { isActive: false } : {}),
-    ...(query.abcGrade ? { abcGrade: query.abcGrade } : {}),
+    ...(query.abcGrade === 'unclassified'
+      ? { abcGrade: null }
+      : query.abcGrade
+        ? { abcGrade: query.abcGrade }
+        : {}),
     ...(query.adStatus === 'active' ? { adTier: { not: null } } : {}),
     ...(query.adStatus === 'inactive' ? { adTier: 'inactive' } : {}),
     ...(query.adStatus === 'unconfigured' ? { adTier: null } : {}),

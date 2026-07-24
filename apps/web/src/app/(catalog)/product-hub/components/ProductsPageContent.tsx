@@ -192,6 +192,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           <option value="A">A등급</option>
           <option value="B">B등급</option>
           <option value="C">C등급</option>
+          <option value="unclassified">미분류</option>
         </select>
         <span className="text-[13px] font-semibold tabular-nums text-[var(--text-tertiary)]">
           {formatNumber(data?.total ?? 0)}개 표시
