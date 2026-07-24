@@ -661,8 +661,16 @@ unique normalized barcode are deterministic resolution signals; missing,
 inactive, or ambiguous candidates remain `mapping_required`, never synthetic
 zero stock. Products reuses this projection for operating-product summary
 badges while `/stock-ops?tab=product-outflow` preserves every linked product/
-variant destination. The screens remain separate and manual
-`MasterProduct.abcGrade` is not overwritten by sales-derived ABC.
+variant destination. Products owns the automatic ABC evaluation policy,
+publishes the one nullable `MasterProduct.abcGrade` from Analytics' completed-
+month facts, and records changed-grade history. Product Hub, product-outflow,
+Dashboard, and Advertising consume that stored value; missing evidence remains
+unclassified instead of C. A monotonic policy publication revision fences
+stale concurrent calculations under the organization advisory lock. AI
+thumbnail analysis quality grades remain an
+independent product-registration signal. Product-outflow may display matched
+active Coupang catalog media through AI's read-only media capability without
+copying image URLs into Inventory.
 
 The frontend preserves the active route ownership and compositions recorded in
 the Frontend Route Map and nearest route guides. One shared coordinator/drawer

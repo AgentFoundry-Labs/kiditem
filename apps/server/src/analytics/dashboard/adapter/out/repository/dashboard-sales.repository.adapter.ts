@@ -107,7 +107,10 @@ export class DashboardSalesRepositoryAdapter
         id: r.id,
         name: r.name,
         organization: r.organization ?? '미지정',
-        grade: r.grade ?? 'C',
+        grade:
+          r.grade === 'A' || r.grade === 'B' || r.grade === 'C'
+            ? r.grade
+            : null,
         revenue,
         netProfit,
         profitRate,

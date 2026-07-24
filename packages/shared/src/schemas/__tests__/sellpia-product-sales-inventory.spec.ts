@@ -17,6 +17,14 @@ const destination = {
   productVariantCode: 'PV-1',
   productVariantName: '기본 옵션',
   unitsPerVariant: 1,
+  abcGrade: 'A',
+  displayImage: {
+    url: 'https://image.coupangcdn.com/catalog.jpg',
+    source: 'channel_catalog',
+    channel: 'coupang',
+    channelListingId: '44444444-4444-4444-8444-444444444444',
+    externalOptionId: null,
+  },
 };
 
 function salesRow() {
@@ -34,7 +42,6 @@ function salesRow() {
     qty2m: 20,
     avg2m: 10,
     totalQty: 20,
-    abcGrade: 'A',
     trend: 'flat',
     deadStock: false,
     deadStockReason: null,
@@ -80,6 +87,18 @@ describe('Sellpia product-sales inventory contracts', () => {
     expect(SellpiaProductInventoryResolutionSchema.parse(matched)).toEqual(matched);
   });
 
+  it('requires a read-only channel catalog display image shape when present', () => {
+    expect(SellpiaProductInventoryResolutionSchema.parse(salesRow().inventoryResolution))
+      .toEqual(salesRow().inventoryResolution);
+    expect(() => SellpiaProductInventoryResolutionSchema.parse({
+      ...salesRow().inventoryResolution,
+      destinations: [{ ...destination, displayImage: {
+        ...destination.displayImage,
+        source: 'manual_upload',
+      } }],
+    })).toThrow();
+  });
+
   it('rejects inconsistent matched availability', () => {
     expect(() => SellpiaProductInventoryResolutionSchema.parse({
       ...salesRow().inventoryResolution,
@@ -119,7 +138,9 @@ describe('Sellpia product-sales inventory contracts', () => {
       reorderCount: 0,
       deadStockCount: 0,
       anomalyCount: 0,
-      abcCounts: { a: 1, b: 0, c: 0 },
+      abcCounts: { A: 1, B: 0, C: 0 },
+      classifiedProductCount: 1,
+      unclassifiedProductCount: 0,
       leadTimeMonths: 1,
     };
 

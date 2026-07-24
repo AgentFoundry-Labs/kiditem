@@ -14,6 +14,7 @@ import { CurrentUser } from '../../../../auth/decorators/current-user.decorator'
 import { ProductOperationsService } from '../../../application/service/product-operations.service';
 import { ProductRecipeComponentCandidateService } from '../../../application/service/product-recipe-component-candidate.service';
 import { ProductVariantRecipeService } from '../../../application/service/product-variant-recipe.service';
+import { MasterProductAbcService } from '../../../application/service/master-product-abc.service';
 import {
   ProductOperationsListQueryDto,
   ProductRecipeComponentCandidateQueryDto,
@@ -26,7 +27,26 @@ export class ProductOperationsController {
     private readonly products: ProductOperationsService,
     private readonly recipes: ProductVariantRecipeService,
     private readonly recipeCandidates: ProductRecipeComponentCandidateService,
+    private readonly abc: MasterProductAbcService,
   ) {}
+
+  @Get('abc-policy')
+  getAbcPolicy(@CurrentOrganization() organizationId: string) {
+    return this.abc.getPolicy(organizationId);
+  }
+
+  @Put('abc-policy')
+  updateAbcPolicy(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.abc.updatePolicy(organizationId, body);
+  }
+
+  @Post('abc-grade/recalculate')
+  recalculateAbcGrade(@CurrentOrganization() organizationId: string) {
+    return this.abc.recalculate(organizationId);
+  }
 
   @Get('masters')
   listProducts(

@@ -43,7 +43,7 @@ export function createActionCandidate(
   row: LatestTargetRow,
   channelSkuEvidenceMap: Map<string, ChannelSkuAdEvidence>,
 ): ActionCandidate | null {
-  const grade = row.abcGrade || 'C';
+  const grade = row.abcGrade;
   // Per-row ROAS for rule decisions — daily target row holds today's revenue
   // and spend for the (campaign|keyword|product) at this grain. Recompute
   // from the row's own numerator/denominator (do not trust any provider
@@ -169,7 +169,7 @@ export function createActionCandidate(
           targetType: 'campaign',
           externalId: row.externalId,
           targetLabel,
-          reason: `${grade}등급 / ROAS ${Math.round(roas)}%로 예산 축소 구간입니다. 현재 ${formatNumber(row.dailyBudget)}원 → ${formatNumber(nextBudget)}원.`,
+        reason: `${grade ? `${grade}등급 / ` : ''}ROAS ${Math.round(roas)}%로 예산 축소 구간입니다. 현재 ${formatNumber(row.dailyBudget)}원 → ${formatNumber(nextBudget)}원.`,
           priority: grade === 'C' ? 'high' : 'medium',
           currentValue: row.dailyBudget,
           proposedValue: nextBudget,

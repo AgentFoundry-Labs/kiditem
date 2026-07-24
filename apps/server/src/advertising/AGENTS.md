@@ -69,6 +69,9 @@ snapshot preservation.
   balance or reads stock fields from marketplace SKU metadata.
 - Advertising intentionally reads/writes channel daily fact models because the
   scrape ingest path owns raw/fact projection traceability.
+- Product ABC reads go through Products' exported stored-grade port. An
+  unclassified product stays `null`; Advertising must not calculate a Sellpia
+  row grade or coerce it to C.
 - Advertising must not inject concrete Channels services.
 
 ## Boundary Rules

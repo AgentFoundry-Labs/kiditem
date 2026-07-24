@@ -39,6 +39,7 @@ describe("data migration registry", () => {
       "v0.1.25:003_repair_ad_campaign_target_conversions",
       "v0.1.25:004_rekey_ad_campaign_product_targets",
       "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
+      "v0.1.26:001_initialize_master_product_abc_policy",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -59,6 +60,9 @@ describe("data migration registry", () => {
       "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
     );
     expect(migrationIds).toContain("v0.1.21:001_backfill_inventory_commitments");
+    expect(migrationIds).toContain(
+      "v0.1.26:001_initialize_master_product_abc_policy",
+    );
   });
 
   it("keeps historical release 0.1.22 migration-free and never registers ahead of the root VERSION", () => {

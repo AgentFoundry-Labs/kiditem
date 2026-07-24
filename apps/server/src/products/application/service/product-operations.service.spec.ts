@@ -112,6 +112,22 @@ describe('ProductOperationsService', () => {
     });
   });
 
+  it('accepts a one-release legacy abcGrade but never forwards it to persistence', async () => {
+    const repository = makeRepository();
+    const service = makeService(repository);
+
+    await service.updateProduct(organizationId, productId, {
+      name: 'Renamed',
+      abcGrade: 'A',
+    });
+
+    expect(repository.updateProduct).toHaveBeenCalledWith(
+      organizationId,
+      productId,
+      { name: 'Renamed' },
+    );
+  });
+
   it('atomically forwards supplied variants and their recipes', async () => {
     const repository = makeRepository();
     const service = makeService(repository);

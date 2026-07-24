@@ -14,6 +14,12 @@ import { ProductVariantRecipeService } from './application/service/product-varia
 import { CategoriesModule } from './categories/categories.module';
 import { PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT } from './application/port/in/product-variant-recipe-automation.port';
 import { ProductVariantRecipeAutomationService } from './application/service/product-variant-recipe-automation.service';
+import { MasterProductAbcService } from './application/service/master-product-abc.service';
+import { MasterProductAbcSalesIngestedBridge } from './application/service/master-product-abc-sales-ingested.bridge';
+import { MasterProductAbcRepositoryAdapter } from './adapter/out/repository/master-product-abc.repository.adapter';
+import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/repository/master-product-abc.repository.port';
+import { ProductVariantAbcGradeReadAdapter } from './adapter/out/repository/product-variant-abc-grade-read.adapter';
+import { PRODUCT_VARIANT_ABC_GRADE_READ_PORT } from './application/port/in/product-variant-abc-grade-read.port';
 
 @Module({
   imports: [CategoriesModule, InventoryModule, AnalyticsModule],
@@ -23,6 +29,10 @@ import { ProductVariantRecipeAutomationService } from './application/service/pro
     ProductRecipeComponentCandidateService,
     ProductVariantRecipeService,
     ProductVariantRecipeAutomationService,
+    MasterProductAbcService,
+    MasterProductAbcSalesIngestedBridge,
+    MasterProductAbcRepositoryAdapter,
+    ProductVariantAbcGradeReadAdapter,
     ChannelCatalogProductProvisioningService,
     ChannelCatalogProductProvisioningRepositoryAdapter,
     {
@@ -42,12 +52,21 @@ import { ProductVariantRecipeAutomationService } from './application/service/pro
       provide: PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT,
       useExisting: ProductVariantRecipeAutomationService,
     },
+    {
+      provide: MASTER_PRODUCT_ABC_REPOSITORY_PORT,
+      useExisting: MasterProductAbcRepositoryAdapter,
+    },
+    {
+      provide: PRODUCT_VARIANT_ABC_GRADE_READ_PORT,
+      useExisting: ProductVariantAbcGradeReadAdapter,
+    },
   ],
   exports: [
     ProductOperationsService,
     ProductVariantRecipeService,
     CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT,
     PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT,
+    PRODUCT_VARIANT_ABC_GRADE_READ_PORT,
   ],
 })
 export class ProductsModule {}

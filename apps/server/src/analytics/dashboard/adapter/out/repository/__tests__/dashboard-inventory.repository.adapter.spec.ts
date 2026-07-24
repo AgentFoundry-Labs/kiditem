@@ -48,4 +48,27 @@ describe('DashboardInventoryRepositoryAdapter listing and physical inventory rea
       },
     });
   });
+
+  it('reads automatic MasterProduct grade history instead of legacy listing history', async () => {
+    const legacyFindMany = vi.fn().mockResolvedValue([]);
+    const automaticFindMany = vi.fn().mockResolvedValue([
+      { oldGrade: null, newGrade: 'A' },
+    ]);
+    const repository = new DashboardInventoryRepositoryAdapter({
+      gradeHistory: { findMany: legacyFindMany },
+      masterProductAbcGradeHistory: { findMany: automaticFindMany },
+    } as never);
+    const since = new Date('2026-07-17T00:00:00.000Z');
+
+    await repository.findGradeHistory('org-1', since);
+
+    expect(automaticFindMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org-1',
+        calculatedAt: { gte: since },
+      },
+      select: { oldGrade: true, newGrade: true },
+    });
+    expect(legacyFindMany).not.toHaveBeenCalled();
+  });
 });

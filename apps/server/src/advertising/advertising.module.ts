@@ -3,7 +3,7 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { AgentOsModule } from "../agent-os/agent-os.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
-import { SellpiaProductSalesModule } from "../analytics/sellpia-product-sales/sellpia-product-sales.module";
+import { ProductsModule } from "../products/products.module";
 
 import { AdvertisingActionsController } from "./adapter/in/http/advertising-actions.controller";
 import { AdvertisingCampaignsController } from "./adapter/in/http/advertising-campaigns.controller";
@@ -167,7 +167,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AgentOsModule,
     AutomationModule,
     ChannelsModule,
-    SellpiaProductSalesModule,
+    ProductsModule,
   ],
   controllers: [
     AdvertisingConfigController,
