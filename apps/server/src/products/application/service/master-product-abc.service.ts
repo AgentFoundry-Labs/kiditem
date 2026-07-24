@@ -1,7 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
   MasterProductAbcPolicySchema,
-  type MasterProductAbcPolicy,
   type MasterProductAbcPolicyResponse,
   type MasterProductAbcRecalculationResult,
 } from '@kiditem/shared/product-abc';
@@ -12,14 +11,18 @@ import {
 import { calculateMasterProductAbcGrades } from '../../domain/master-product-abc';
 import {
   MASTER_PRODUCT_ABC_REPOSITORY_PORT,
+  type MasterProductAbcPolicyRecord,
   type MasterProductAbcRepositoryPort,
 } from '../port/out/repository/master-product-abc.repository.port';
 
-const DEFAULT_POLICY: MasterProductAbcPolicy = {
+const DEFAULT_POLICY: MasterProductAbcPolicyRecord = {
   metric: 'SALES_QUANTITY',
   periodDays: 30,
   aCumulativeThreshold: 70,
   bCumulativeThreshold: 90,
+  revision: 0,
+  lastCalculatedAt: null,
+  sourceCapturedAt: null,
 };
 
 @Injectable()
@@ -32,29 +35,36 @@ export class MasterProductAbcService {
   ) {}
 
   async getPolicy(organizationId: string): Promise<MasterProductAbcPolicyResponse> {
-    return (await this.repository.findPolicy(organizationId)) ?? {
-      ...DEFAULT_POLICY,
-      lastCalculatedAt: null,
-      sourceCapturedAt: null,
-    };
+    return publicPolicy(await this.getPolicyRecord(organizationId));
   }
 
   async updatePolicy(organizationId: string, rawInput: unknown) {
     const parsed = MasterProductAbcPolicySchema.safeParse(rawInput);
     if (!parsed.success) throw new BadRequestException('Invalid MasterProduct ABC policy');
-    const published = await this.recalculateWithPolicy(organizationId, {
-      ...parsed.data,
-      lastCalculatedAt: null,
-      sourceCapturedAt: null,
-    }, true);
-    return published;
+    const current = await this.getPolicyRecord(organizationId);
+    const first = await this.recalculateWithPolicy(
+      organizationId,
+      { ...current, ...parsed.data },
+      true,
+    );
+    if (!first.stale) return publicPublication(first);
+    const latest = await this.getPolicyRecord(organizationId);
+    const retry = await this.recalculateWithPolicy(
+      organizationId,
+      { ...latest, ...parsed.data },
+      true,
+    );
+    if (retry.stale) {
+      throw new ConflictException('MasterProduct ABC publication changed during policy update');
+    }
+    return publicPublication(retry);
   }
 
   async recalculate(organizationId: string): Promise<MasterProductAbcRecalculationResult> {
-    const policy = await this.getPolicy(organizationId);
+    const policy = await this.getPolicyRecord(organizationId);
     const first = await this.recalculateWithPolicy(organizationId, policy);
     if (!first.stale) return first.result;
-    const latestPolicy = await this.getPolicy(organizationId);
+    const latestPolicy = await this.getPolicyRecord(organizationId);
     const retry = await this.recalculateWithPolicy(organizationId, latestPolicy);
     if (retry.stale) {
       throw new ConflictException('MasterProduct ABC policy changed during recalculation');
@@ -64,9 +74,9 @@ export class MasterProductAbcService {
 
   private async recalculateWithPolicy(
     organizationId: string,
-    policy: MasterProductAbcPolicyResponse,
+    policy: MasterProductAbcPolicyRecord,
     allowPolicyReplacement = false,
-  ): Promise<{ policy: MasterProductAbcPolicyResponse; result: MasterProductAbcRecalculationResult; stale: boolean }> {
+  ): Promise<{ policy: MasterProductAbcPolicyRecord; result: MasterProductAbcRecalculationResult; stale: boolean }> {
     const snapshot = await this.metrics.readMetricSnapshot({
       organizationId,
       metric: policy.metric,
@@ -100,4 +110,23 @@ export class MasterProductAbcService {
       },
     };
   }
+
+  private async getPolicyRecord(
+    organizationId: string,
+  ): Promise<MasterProductAbcPolicyRecord> {
+    return (await this.repository.findPolicy(organizationId)) ?? DEFAULT_POLICY;
+  }
+}
+
+function publicPolicy(policy: MasterProductAbcPolicyRecord): MasterProductAbcPolicyResponse {
+  const { revision: _revision, ...response } = policy;
+  return response;
+}
+
+function publicPublication(input: {
+  policy: MasterProductAbcPolicyRecord;
+  result: MasterProductAbcRecalculationResult;
+  stale: boolean;
+}) {
+  return { ...input, policy: publicPolicy(input.policy) };
 }

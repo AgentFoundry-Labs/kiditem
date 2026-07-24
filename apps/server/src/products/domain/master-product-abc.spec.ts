@@ -51,14 +51,14 @@ describe('calculateMasterProductAbcGrades', () => {
     ]));
   });
 
-  it('classifies explicit zero only when a positive cohort exists', async () => {
+  it('keeps explicit zero unclassified even when a positive cohort exists', async () => {
     const { calculateMasterProductAbcGrades } = await calculator();
     expect(calculateMasterProductAbcGrades(defaultPolicy, [
       { masterProductId: 'positive', metricValue: 1, eligible: true },
       { masterProductId: 'zero', metricValue: 0, eligible: true },
     ])).toEqual(new Map([
       ['positive', 'A'],
-      ['zero', 'C'],
+      ['zero', null],
     ]));
   });
 

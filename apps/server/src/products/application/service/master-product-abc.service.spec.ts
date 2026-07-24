@@ -61,7 +61,7 @@ describe('MasterProductAbcService', () => {
     const policy = {
       metric: 'SALES_AMOUNT', periodDays: 90,
       aCumulativeThreshold: 60, bCumulativeThreshold: 85,
-      lastCalculatedAt: null, sourceCapturedAt: null,
+      lastCalculatedAt: null, sourceCapturedAt: null, revision: 0,
     };
     const repository = {
       findPolicy: vi.fn().mockResolvedValue(policy),
@@ -84,6 +84,60 @@ describe('MasterProductAbcService', () => {
     }));
   });
 
+  it('retries a policy update from a fresh metric snapshot when another publication wins', async () => {
+    const { MasterProductAbcService } = await serviceModule();
+    const currentPolicy = {
+      metric: 'SALES_QUANTITY' as const, periodDays: 30 as const,
+      aCumulativeThreshold: 70, bCumulativeThreshold: 90,
+      lastCalculatedAt: null, sourceCapturedAt: null, revision: 0,
+    };
+    const interveningPolicy = {
+      ...currentPolicy,
+      lastCalculatedAt: new Date('2026-07-24T00:00:00Z'),
+      revision: 1,
+    };
+    const requestedPolicy = {
+      ...interveningPolicy,
+      metric: 'SALES_AMOUNT' as const,
+      periodDays: 90 as const,
+    };
+    const repository = {
+      findPolicy: vi.fn()
+        .mockResolvedValueOnce(currentPolicy)
+        .mockResolvedValueOnce(interveningPolicy),
+      publishGrades: vi.fn()
+        .mockResolvedValueOnce({ changedProductCount: 0, policy: interveningPolicy, stale: true })
+        .mockResolvedValueOnce({ changedProductCount: 1, policy: requestedPolicy, stale: false }),
+    };
+    const metrics = {
+      readMetricSnapshot: vi.fn()
+        .mockResolvedValueOnce({
+          sourceCapturedAt: new Date('2026-07-23T00:00:00Z'),
+          evidence: [{ masterProductId: 'product-1', metricValue: 1, eligible: true }],
+        })
+        .mockResolvedValueOnce({
+          sourceCapturedAt: new Date('2026-07-24T00:00:00Z'),
+          evidence: [{ masterProductId: 'product-1', metricValue: 2, eligible: true }],
+        }),
+    };
+    const service = new MasterProductAbcService(repository as never, metrics as never);
+
+    await expect(service.updatePolicy(organizationId, {
+      metric: 'SALES_AMOUNT', periodDays: 90,
+      aCumulativeThreshold: 60, bCumulativeThreshold: 85,
+    })).resolves.toMatchObject({
+      policy: { metric: 'SALES_AMOUNT', periodDays: 90 },
+      stale: false,
+    });
+
+    expect(repository.findPolicy).toHaveBeenCalledTimes(2);
+    expect(metrics.readMetricSnapshot).toHaveBeenCalledTimes(2);
+    expect(repository.publishGrades).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      policy: expect.objectContaining({ revision: 1 }),
+      allowPolicyReplacement: true,
+    }));
+  });
+
   it('leaves policy and grades untouched when candidate metric collection fails', async () => {
     const { MasterProductAbcService } = await serviceModule();
     const repository = { publishGrades: vi.fn(), findPolicy: vi.fn() };
@@ -96,7 +150,7 @@ describe('MasterProductAbcService', () => {
     })).rejects.toThrow('source unavailable');
 
     expect(repository.publishGrades).not.toHaveBeenCalled();
-    expect(repository.findPolicy).not.toHaveBeenCalled();
+    expect(repository.findPolicy).toHaveBeenCalledOnce();
   });
 
   it('retries once with the latest policy after a stale ingest publication no-op', async () => {
@@ -104,7 +158,7 @@ describe('MasterProductAbcService', () => {
     const oldPolicy = {
       metric: 'SALES_QUANTITY', periodDays: 30,
       aCumulativeThreshold: 70, bCumulativeThreshold: 90,
-      lastCalculatedAt: null, sourceCapturedAt: null,
+      lastCalculatedAt: null, sourceCapturedAt: null, revision: 0,
     };
     const latestPolicy = { ...oldPolicy, metric: 'SALES_AMOUNT' as const, periodDays: 90 as const };
     const repository = {
@@ -132,7 +186,7 @@ describe('MasterProductAbcService', () => {
     const policy = {
       metric: 'SALES_QUANTITY', periodDays: 30,
       aCumulativeThreshold: 70, bCumulativeThreshold: 90,
-      lastCalculatedAt: null, sourceCapturedAt: null,
+      lastCalculatedAt: null, sourceCapturedAt: null, revision: 0,
     };
     const repository = {
       findPolicy: vi.fn().mockResolvedValue(policy),

@@ -34,14 +34,25 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
       const persistedPolicy = await tx.masterProductAbcPolicy.findUnique({
         where: { organizationId: input.organizationId },
       });
+      const persistedRevision = persistedPolicy?.revision ?? 0;
       if (
-        persistedPolicy
-        && !input.allowPolicyReplacement
-        && !samePolicyConfig(persistedPolicy, input.policy)
+        persistedRevision !== input.policy.revision
+        || (
+          persistedPolicy
+          && !input.allowPolicyReplacement
+          && !samePolicyConfig(persistedPolicy, input.policy)
+        )
       ) {
         return {
           changedProductCount: 0,
-          policy: toPolicy(persistedPolicy),
+          policy: persistedPolicy
+            ? toPolicy(persistedPolicy)
+            : {
+              ...input.policy,
+              revision: 0,
+              lastCalculatedAt: null,
+              sourceCapturedAt: null,
+            },
           stale: true,
         };
       }
@@ -85,6 +96,7 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
           periodDays: input.policy.periodDays,
           aCumulativeThreshold: input.policy.aCumulativeThreshold,
           bCumulativeThreshold: input.policy.bCumulativeThreshold,
+          revision: 1,
           lastCalculatedAt: calculatedAt,
           sourceCapturedAt: input.sourceCapturedAt,
         },
@@ -93,6 +105,7 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
           periodDays: input.policy.periodDays,
           aCumulativeThreshold: input.policy.aCumulativeThreshold,
           bCumulativeThreshold: input.policy.bCumulativeThreshold,
+          revision: { increment: 1 },
           lastCalculatedAt: calculatedAt,
           sourceCapturedAt: input.sourceCapturedAt,
         },
@@ -119,6 +132,7 @@ function samePolicyConfig(
 
 function toPolicy(row: {
   metric: string; periodDays: number; aCumulativeThreshold: number; bCumulativeThreshold: number;
+  revision: number;
   lastCalculatedAt: Date | null; sourceCapturedAt: Date | null;
 }): MasterProductAbcPolicyRecord {
   return {
@@ -126,6 +140,7 @@ function toPolicy(row: {
     periodDays: row.periodDays as MasterProductAbcPolicyRecord['periodDays'],
     aCumulativeThreshold: row.aCumulativeThreshold,
     bCumulativeThreshold: row.bCumulativeThreshold,
+    revision: row.revision,
     lastCalculatedAt: row.lastCalculatedAt,
     sourceCapturedAt: row.sourceCapturedAt,
   };

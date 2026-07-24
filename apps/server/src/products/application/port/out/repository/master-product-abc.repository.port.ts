@@ -4,7 +4,9 @@ export const MASTER_PRODUCT_ABC_REPOSITORY_PORT = Symbol(
   'MASTER_PRODUCT_ABC_REPOSITORY_PORT',
 );
 
-export type MasterProductAbcPolicyRecord = MasterProductAbcPolicyResponse;
+export type MasterProductAbcPolicyRecord = MasterProductAbcPolicyResponse & {
+  revision: number;
+};
 
 export interface MasterProductAbcRepositoryPort {
   findPolicy(organizationId: string): Promise<MasterProductAbcPolicyRecord | null>;

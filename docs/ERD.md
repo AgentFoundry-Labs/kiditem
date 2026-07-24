@@ -1410,6 +1410,7 @@ erDiagram
     Int periodDays
     Int aCumulativeThreshold
     Int bCumulativeThreshold
+    Int revision
     DateTime lastCalculatedAt
     DateTime sourceCapturedAt
     DateTime createdAt

@@ -448,6 +448,7 @@ model MasterProductAbcPolicy {
   periodDays           Int      @default(30) @map("period_days")
   aCumulativeThreshold Int      @default(70) @map("a_cumulative_threshold")
   bCumulativeThreshold Int      @default(90) @map("b_cumulative_threshold")
+  revision             Int      @default(0)
   lastCalculatedAt     DateTime? @map("last_calculated_at") @db.Timestamptz
   sourceCapturedAt     DateTime? @map("source_captured_at") @db.Timestamptz
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz

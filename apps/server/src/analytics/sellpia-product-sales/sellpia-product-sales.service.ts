@@ -298,24 +298,24 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       } satisfies SellpiaProductSalesRow;
     });
     products.sort((x, y) => y.avg2m - x.avg2m || y.totalQty - x.totalQty);
-    const gradeByMasterProductId = new Map<string, 'A' | 'B' | 'C' | null>();
-    for (const product of products) {
-      if (product.inventoryResolution.status !== 'matched') continue;
-      for (const destination of product.inventoryResolution.destinations) {
-        if (!gradeByMasterProductId.has(destination.masterProductId)) {
-          gradeByMasterProductId.set(
-            destination.masterProductId,
-            destination.abcGrade,
-          );
-        }
-      }
-    }
-    const abcCounts = { A: 0, B: 0, C: 0 };
-    let unclassifiedProductCount = 0;
-    for (const grade of gradeByMasterProductId.values()) {
-      if (grade === null) unclassifiedProductCount += 1;
-      else abcCounts[grade] += 1;
-    }
+    const matchesDestinationGrade = (
+      product: SellpiaProductSalesRow,
+      grade: 'A' | 'B' | 'C' | null,
+    ) => product.inventoryResolution.status === 'matched'
+      && product.inventoryResolution.destinations.some(
+        (destination) => destination.abcGrade === grade,
+      );
+    const abcCounts = {
+      A: products.filter((product) => matchesDestinationGrade(product, 'A')).length,
+      B: products.filter((product) => matchesDestinationGrade(product, 'B')).length,
+      C: products.filter((product) => matchesDestinationGrade(product, 'C')).length,
+    };
+    const classifiedProductCount = products.filter((product) =>
+      matchesDestinationGrade(product, 'A')
+      || matchesDestinationGrade(product, 'B')
+      || matchesDestinationGrade(product, 'C')).length;
+    const unclassifiedProductCount = products.filter((product) =>
+      matchesDestinationGrade(product, null)).length;
 
     return {
       range: { from: months[0] ?? cutoffYm, to: months[months.length - 1] ?? currentYm },
@@ -340,8 +340,7 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       deadStockCount: inventoryProjection.summary.deadStockCount,
       anomalyCount,
       abcCounts,
-      classifiedProductCount:
-        abcCounts.A + abcCounts.B + abcCounts.C,
+      classifiedProductCount,
       unclassifiedProductCount,
       leadTimeMonths: LEAD_TIME_MONTHS,
     } satisfies SellpiaProductSalesSummary;

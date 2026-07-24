@@ -20,7 +20,7 @@ function hasUsableMetricValue(
     evidence.eligible &&
     evidence.metricValue !== null &&
     Number.isFinite(evidence.metricValue) &&
-    evidence.metricValue >= 0
+    evidence.metricValue > 0
   );
 }
 

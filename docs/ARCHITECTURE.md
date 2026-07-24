@@ -665,7 +665,9 @@ variant destination. Products owns the automatic ABC evaluation policy,
 publishes the one nullable `MasterProduct.abcGrade` from Analytics' completed-
 month facts, and records changed-grade history. Product Hub, product-outflow,
 Dashboard, and Advertising consume that stored value; missing evidence remains
-unclassified instead of C. AI thumbnail analysis quality grades remain an
+unclassified instead of C. A monotonic policy publication revision fences
+stale concurrent calculations under the organization advisory lock. AI
+thumbnail analysis quality grades remain an
 independent product-registration signal. Product-outflow may display matched
 active Coupang catalog media through AI's read-only media capability without
 copying image URLs into Inventory.

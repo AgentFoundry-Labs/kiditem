@@ -347,7 +347,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
     expect(out.reorderCount).toBe(1);
   });
 
-  it('destination의 저장 등급을 distinct MasterProduct 기준으로 집계한다', async () => {
+  it('destination의 저장 등급을 실제 필터 결과인 판매 행 기준으로 집계한다', async () => {
     const {
       service,
       findMany,
@@ -368,13 +368,14 @@ describe('SellpiaProductSalesService.getSummary', () => {
     destinationFindMany.mockResolvedValueOnce([
       destinationRow(inventoryRows[0].id, 'variant-a1', 'master-a', 'A'),
       destinationRow(inventoryRows[0].id, 'variant-a2', 'master-a', 'A'),
+      destinationRow(inventoryRows[1].id, 'variant-a3', 'master-a', 'A'),
       destinationRow(inventoryRows[1].id, 'variant-c', 'master-c', 'C'),
       destinationRow(inventoryRows[1].id, 'variant-null', 'master-null', null),
     ]);
 
     const out = await service.getSummary(ORGANIZATION_ID);
 
-    expect(out.abcCounts).toEqual({ A: 1, B: 0, C: 1 });
+    expect(out.abcCounts).toEqual({ A: 2, B: 0, C: 1 });
     expect(out.classifiedProductCount).toBe(2);
     expect(out.unclassifiedProductCount).toBe(1);
     expect(out.products.flatMap((product) =>

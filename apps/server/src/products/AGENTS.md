@@ -88,6 +88,9 @@ compatibility CRUD. It never owns physical stock.
   grades with history, and recalculates after policy changes or authoritative
   sales ingest. Missing, ambiguous, inactive, or insufficient evidence remains
   `null` rather than synthetic C.
+- Every policy/grade publication increments the policy `revision`; publication
+  compares the expected revision under the organization advisory lock so an
+  older metric snapshot cannot overwrite a newer completed publication.
 - Thumbnail analysis quality grades are AI-owned registration evidence and
   remain independent from the automatic product ABC grade.
 - Category controllers receive `organizationId` from
