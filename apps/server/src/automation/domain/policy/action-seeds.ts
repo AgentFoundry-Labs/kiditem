@@ -109,12 +109,6 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
     where: '쿠팡 광고센터 → 업로드', priority: 'medium', role: 'ad',
   });
 
-  seeds.push({
-    taskKey: 'recalc-grade', type: 'ai',
-    label: 'ABC 등급 제안 분석', detail: '매출 Pareto 기준 현재 등급과 제안 등급 비교',
-    priority: 'high', role: 'data',
-    apiCall: { url: '/api/statistics?type=pareto', method: 'GET' },
-  });
   if (metrics.minusProducts > 0) {
     seeds.push({
       taskKey: 'analyze-deficit', type: 'ai',

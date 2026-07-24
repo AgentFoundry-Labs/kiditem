@@ -185,7 +185,7 @@ export class DashboardInventoryRepositoryAdapter
     organizationId: string,
     since: Date,
   ): Promise<GradeChangeRow[]> {
-    return this.prisma.gradeHistory.findMany({
+    return this.prisma.masterProductAbcGradeHistory.findMany({
       where: { organizationId, calculatedAt: { gte: since } },
       select: { oldGrade: true, newGrade: true },
     });

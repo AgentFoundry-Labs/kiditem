@@ -294,6 +294,52 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     expect(result.topProducts[0].netProfit).toBe(Math.round(12_000 * 0.3));
   });
 
+  it('keeps an unclassified stored MasterProduct grade null in Top Products', async () => {
+    const master = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-TOP-UNCLASSIFIED',
+      name: 'Unclassified Top Product',
+      abcGrade: null,
+    });
+    const option = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: master.id,
+      sku: 'SKU-T-TOP-UNCLASSIFIED',
+      costPrice: 0,
+      commissionRate: 0,
+    });
+    const listing = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: master.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-TOP-UNCLASSIFIED',
+      optionId: option.id,
+      externalOptionId: 'VI-T-TOP-UNCLASSIFIED',
+    });
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'SALES-T-TOP-UNCLASSIFIED',
+      orderedAt: midMonth().toISOString(),
+      shippingPrice: 0,
+      lineItems: [{
+        quantity: 1,
+        totalPrice: 10_000,
+        optionId: option.id,
+        listingOptionId: listing.listingOptionId,
+      }],
+    });
+
+    const result = await service.getSummary(
+      buildDashboardContext(),
+      TEST_ORGANIZATION_ID,
+    );
+
+    expect(result.topProducts[0]).toMatchObject({
+      name: 'Unclassified Top Product',
+      grade: null,
+    });
+  });
+
   it('T7: a bundle listing contributes its line revenue exactly once', async () => {
     const primary = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID,

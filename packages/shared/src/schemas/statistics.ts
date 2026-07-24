@@ -66,13 +66,17 @@ export type StatisticsGradeRow = z.infer<typeof StatisticsGradeRowSchema>;
 
 // ───── Pareto ─────
 
+export const StatisticsParetoBandSchema = z.enum([
+  'top70',
+  'next20',
+  'tail10',
+]);
+
 export const StatisticsParetoItemSchema = z.object({
   id: z.string().uuid(),
   rank: z.number().int(),
   name: z.string(),
-  currentGrade: z.string(),
-  suggestedGrade: z.string(),
-  gradeMatch: z.boolean(),
+  paretoBand: StatisticsParetoBandSchema,
   revenue: z.number().int(),
   revenuePercent: z.number(),
   cumulativePercent: z.number(),
@@ -81,12 +85,11 @@ export type StatisticsParetoItem = z.infer<typeof StatisticsParetoItemSchema>;
 
 export const StatisticsParetoResponseSchema = z.object({
   totalRevenue: z.number().int(),
-  gradeDistribution: z.object({
-    A: z.number().int(),
-    B: z.number().int(),
-    C: z.number().int(),
+  bandDistribution: z.object({
+    top70: z.number().int(),
+    next20: z.number().int(),
+    tail10: z.number().int(),
   }),
-  mismatchCount: z.number().int(),
   data: z.array(StatisticsParetoItemSchema),
 });
 export type StatisticsParetoResponse = z.infer<typeof StatisticsParetoResponseSchema>;

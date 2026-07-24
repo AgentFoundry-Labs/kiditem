@@ -44,6 +44,7 @@ import { DashboardSectionError } from './components/DashboardSectionError';
 import { DashboardSidePanel } from './components/DashboardSidePanel';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
 import { DashboardExpenseAmount } from './components/DashboardExpenseAmount';
+import { DashboardGradeCards } from './components/DashboardGradeCards';
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
@@ -767,29 +768,11 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* 등급 카드 */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {(['A', 'B', 'C'] as const).map(g => {
-          const count = inventoryData.gradeCount[g] ?? 0;
-          const total = channelLinkedProducts;
-          const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-          const barColor = g === 'C' ? 'bg-red-500' : 'bg-purple-600';
-          const labelMap = { A: '핵심상품', B: '성장상품', C: '정리대상' };
-          return (
-            <Link key={g} href={g === 'A' ? '/product-hub?tab=core' : g === 'C' ? '/product-hub?tab=cleanup' : '/product-hub'} className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-bold text-slate-900">{g}등급</span>
-                <span className="text-xs text-slate-400">{labelMap[g]}</span>
-              </div>
-              <div className="text-2xl font-extrabold tabular-nums text-slate-900">{count}<span className="text-sm ml-0.5">개</span></div>
-              <div className="mt-2 h-1.5 rounded-full overflow-hidden bg-slate-100">
-                <div className={cn('h-full rounded-full', barColor)} style={{ width: `${pct}%` }} />
-              </div>
-              <div className="text-xs mt-1 text-slate-400">평가대상 중 {pct}%</div>
-            </Link>
-          );
-        })}
-      </div>
+      <DashboardGradeCards
+        gradeCount={inventoryData.gradeCount}
+        classifiedProductCount={inventoryData.classifiedProductCount}
+        unclassifiedProductCount={inventoryData.unclassifiedProductCount}
+      />
 
       {/* 경고 카드 */}
       {inventoryHasErr ? (

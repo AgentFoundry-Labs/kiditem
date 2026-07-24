@@ -270,7 +270,7 @@ describe('StatisticsService', () => {
   });
 
   describe('pareto', () => {
-    it('computes rank, cumulativePercent, and suggestedGrade from live metrics', async () => {
+    it('computes neutral revenue Pareto bands without comparing stored product grades', async () => {
       mockedBuildPerListingMetrics.mockResolvedValue([
         { ...baseMetric, listingId: 'listing-1', masterName: 'Product A', grade: 'A', revenue: 700 },
         { ...baseMetric, listingId: 'listing-2', masterName: 'Product B', grade: 'C', revenue: 200 },
@@ -281,16 +281,13 @@ describe('StatisticsService', () => {
 
       expect(result).toEqual({
         totalRevenue: 1000,
-        gradeDistribution: { A: 1, B: 0, C: 1 },
-        mismatchCount: 2,
+        bandDistribution: { top70: 1, next20: 1, tail10: 1 },
         data: [
           {
             id: 'listing-1',
             rank: 1,
             name: 'Product A',
-            currentGrade: 'A',
-            suggestedGrade: 'A',
-            gradeMatch: true,
+            paretoBand: 'top70',
             revenue: 700,
             revenuePercent: 70,
             cumulativePercent: 70,
@@ -299,9 +296,7 @@ describe('StatisticsService', () => {
             id: 'listing-2',
             rank: 2,
             name: 'Product B',
-            currentGrade: 'C',
-            suggestedGrade: 'B',
-            gradeMatch: false,
+            paretoBand: 'next20',
             revenue: 200,
             revenuePercent: 20,
             cumulativePercent: 90,
@@ -310,9 +305,7 @@ describe('StatisticsService', () => {
             id: 'listing-3',
             rank: 3,
             name: 'Product C',
-            currentGrade: 'N/A',
-            suggestedGrade: 'C',
-            gradeMatch: false,
+            paretoBand: 'tail10',
             revenue: 100,
             revenuePercent: 10,
             cumulativePercent: 100,

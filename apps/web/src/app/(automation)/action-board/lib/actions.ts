@@ -7,26 +7,7 @@ export interface ActionResult { label: string; value: string; highlight?: boolea
 export function parseActionResult(taskKey: string, json: any): ActionResult[] {
   const results: ActionResult[] = [];
 
-  if (taskKey === 'recalc-grade') {
-    const items = Array.isArray(json.data) ? json.data : [];
-    const mismatchCount = Number(json.mismatchCount ?? 0);
-    const gradeCounts = json.gradeDistribution ?? {};
-    results.push({ label: '총 상품', value: `${items.length}개` });
-    results.push({ label: '등급 변경 제안', value: `${mismatchCount}개`, highlight: mismatchCount > 0 });
-    results.push({ label: 'A등급', value: `${gradeCounts.A || 0}개` });
-    results.push({ label: 'B등급', value: `${gradeCounts.B || 0}개` });
-    results.push({ label: 'C등급', value: `${gradeCounts.C || 0}개` });
-    results.push({ label: '총 매출', value: formatKRW(json.totalRevenue || 0) + '원' });
-    const mismatches = items.filter((item: { gradeMatch?: boolean }) => item.gradeMatch === false);
-    if (mismatches.length > 0) {
-      results.push({
-        label: '변경 제안',
-        value: '',
-        list: mismatches.slice(0, 10).map((item: { name?: string; currentGrade?: string; suggestedGrade?: string }) =>
-          `${item.name ?? '상품'}: ${item.currentGrade ?? '-'}→${item.suggestedGrade ?? '-'}`),
-      });
-    }
-  } else if (taskKey === 'analyze-deficit') {
+  if (taskKey === 'analyze-deficit') {
     const rows = Array.isArray(json) ? json : (json.data || []);
     const prods = rows.filter((p: { profitRate: number }) => p.profitRate < 0).slice(0, 15);
     results.push({ label: '적자 상품 수', value: `${prods.length}개`, highlight: true });
