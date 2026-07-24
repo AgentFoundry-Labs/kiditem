@@ -3,6 +3,7 @@ import type {
   HydratedListing,
   ListingMetricsRow,
 } from './model/strategy-types';
+import { periodBounds } from './ad-metrics';
 import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-availability';
 
 /**
@@ -13,32 +14,24 @@ import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-ava
  */
 
 export function getCurrentPeriod(now: Date = new Date()): { year: number; month: number } {
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return { year: kst.getUTCFullYear(), month: kst.getUTCMonth() + 1 };
 }
 
 /**
- * Analysis period range as ISO date strings (local timezone — KST in
- * production). `toISOString()` would shift to UTC which is wrong at KST
- * midnight, so we format from local Date components.
+ * Analysis period labels use the same complete-day bounds as the underlying
+ * advertising reads. This keeps strategy headers aligned with the chart and
+ * KPI totals in UTC production containers as well as KST developer machines.
  */
-export function getWeekRange(period: '7d' | '14d' | 'month'): { start: string; end: string } {
-  const today = new Date();
-  const end = formatLocalDate(today);
-  let start: string;
-  if (period === 'month') {
-    start = formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1));
-  } else {
-    const days = period === '7d' ? 7 : 14;
-    start = formatLocalDate(new Date(today.getTime() - days * 24 * 60 * 60 * 1000));
-  }
-  return { start, end };
-}
-
-function formatLocalDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+export function getWeekRange(
+  period: '7d' | '14d' | 'month',
+  now: Date = new Date(),
+): { start: string; end: string } {
+  const bounds = periodBounds(period, now);
+  return {
+    start: bounds.from.toISOString().slice(0, 10),
+    end: bounds.to.toISOString().slice(0, 10),
+  };
 }
 
 export function uniqueIds(ids: Array<string | null | undefined>): string[] {

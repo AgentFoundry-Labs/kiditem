@@ -40,12 +40,14 @@ export interface UpsertAccountKpiInput {
 
 export interface AdAccountKpiRepositoryPort {
   /**
-   * Read the per-day `coupang_ads_daily` rows over the period cutoff.
+   * Read per-day `coupang_ads_daily` rows over the complete period bounds
+   * (through yesterday KST) or an explicit inclusive custom range.
    * Reads recompute ratios from sums; provider ratios are not trusted.
    */
   findCoupangAdsDaily(
     organizationId: string,
     period: AdPeriod,
+    dateRange?: { from: Date; to: Date },
   ): Promise<AdAccountKpiDayRow[]>;
 
   /**

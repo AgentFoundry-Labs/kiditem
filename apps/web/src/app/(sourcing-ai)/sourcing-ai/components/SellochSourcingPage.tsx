@@ -1,12 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import {
   ChevronDown,
   Download,
   Home,
   Search,
-  ShoppingCart,
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import {
@@ -15,18 +13,14 @@ import {
   trendKeywords,
   type SourcingReport,
 } from '../lib/sourcing-ai-dashboard';
-import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
-import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows';
-import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
-import { HomeRankingBoard } from './SellochSourcingHomeRankings';
-import { SellochMarketAnalysisPage } from './SellochMarketAnalysisPage';
 import { CompetitorTrackingPage } from '../competitor-analysis/components/CompetitorTrackingPage';
+import { SellochMarketAnalysisPage } from './SellochMarketAnalysisPage';
 import { SourcingHomeHero } from './SourcingHomeHero';
+import { SourcingHomeRankTracking } from './SourcingHomeRankTracking';
 import { SellochFinalSelectionPage } from './SellochFinalSelectionPage';
 import { SellochWholesaleCoupangMatches } from './SellochWholesaleCoupangMatches';
 import { SellochWholesaleKeywordSearch } from './SellochWholesaleKeywordSearch';
 import { SellochWholesaleRankingTabs } from './SellochWholesaleRankingTabs';
-import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
 export type SellochSourcingPageKind =
   | 'home'
@@ -76,7 +70,7 @@ export function SellochSourcingPage({ kind }: { kind: SellochSourcingPageKind })
     <main className="min-h-full bg-transparent text-[#171923]">
       <div className={cn(
         'flex w-full flex-col',
-        kind === 'final' ? 'gap-0 px-0 py-0' : 'gap-10 px-8 py-8',
+        kind === 'final' ? 'gap-0 px-0 py-0' : 'gap-4 px-0 py-0',
       )}>
         {kind !== 'home' && kind !== 'final' && <PageTitle title={meta.title} />}
 
@@ -104,124 +98,12 @@ function PageTitle({ title }: { title: string }) {
 
 function HomePage() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
+      {/* 헤더 + 5열 랭킹 보드 + 오늘의 추천(세로 스크롤)은 SourcingHomeHero 안에서 렌더된다. */}
       <SourcingHomeHero />
-      <TodayRecommendationImageRail />
-      <HomeRankingBoard />
-
-      <SellochMarketAnalysisPage compact />
+      <SourcingHomeRankTracking />
     </div>
   );
-}
-
-type TodayRecommendationSnapshotPayload = {
-  result?: {
-    rows?: TodayRecommendationRow[];
-  };
-};
-
-function TodayRecommendationImageRail() {
-  const localRows = useTodayRecommendationRows();
-  const [snapshotRows, setSnapshotRows] = useState<TodayRecommendationRow[]>([]);
-
-  useEffect(() => {
-    let active = true;
-
-    getTodaySourcingWorkspaceSnapshot<TodayRecommendationSnapshotPayload>('today_recommendations')
-      .then(({ snapshot }) => {
-        if (!active) return;
-        const rows = snapshot?.payload?.result?.rows;
-        if (Array.isArray(rows)) setSnapshotRows(rows);
-      })
-      .catch(() => {
-        if (active) setSnapshotRows([]);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const recommendationRows = useMemo(() => {
-    const source = localRows.length > 0 ? localRows : snapshotRows;
-    const seen = new Set<string>();
-
-    return [...source]
-      .filter((row) => {
-        const key = recommendationRowKey(row);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 18);
-  }, [localRows, snapshotRows]);
-
-  return (
-    <section className="rounded-[22px] border border-[#dbe5f4] bg-white/88 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-black text-[#6d5dfc]">오늘의 추천</p>
-          <h2 className="mt-1 text-xl font-black tracking-normal text-[#111827]">실시간 후보 상품</h2>
-        </div>
-        <span className="rounded-full border border-[#e3eaf5] bg-[#f7faff] px-3 py-1.5 text-xs font-black text-[#64748b]">
-          {recommendationRows.length > 0 ? `${formatNumber(recommendationRows.length)}개 표시` : '검증 대기'}
-        </span>
-      </div>
-
-      {recommendationRows.length > 0 ? (
-        <div className="mt-4 grid snap-x grid-flow-col auto-cols-[calc((100%-0.75rem)/2)] gap-3 overflow-x-auto pb-2 [scrollbar-width:thin] md:auto-cols-[calc((100%-2.25rem)/4)] xl:auto-cols-[calc((100%-3.75rem)/6)]">
-          {recommendationRows.map((row) => (
-            <TodayRecommendationImageCard key={recommendationRowKey(row)} row={row} />
-          ))}
-        </div>
-      ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-[#cfd9e8] bg-[#f7faff] px-4 py-6 text-sm font-bold text-[#667085]">
-          오늘의 추천에서 Wing 검증을 실행하면 상품 이미지가 한 줄 레일로 표시됩니다.
-        </div>
-      )}
-    </section>
-  );
-}
-
-function TodayRecommendationImageCard({ row }: { row: TodayRecommendationRow }) {
-  const imageUrl = resolveCoupangCatalogImageUrl(row.imagePath);
-  const salesLast3d = row.salesLast3d > 0 ? row.salesLast3d : row.salesLast28d ?? 0;
-
-  return (
-    <article className="min-w-0 snap-start overflow-hidden rounded-2xl border border-[#dbe5f4] bg-white">
-      <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-[#f1f5fb]">
-        {imageUrl ? (
-          <img src={imageUrl} alt={row.productName} className="h-full w-full object-cover" loading="lazy" />
-        ) : (
-          <ShoppingCart size={28} className="text-[#9aa8ba]" />
-        )}
-        <span className="absolute left-2 top-2 rounded-full bg-white/92 px-2 py-1 text-[11px] font-black text-[#ff5a1f] ring-1 ring-[#f0d4c7]">
-          {row.grade}
-        </span>
-      </div>
-      <div className="space-y-2 p-3">
-        <p className="line-clamp-2 min-h-10 text-sm font-black leading-5 text-[#111827]">{row.productName}</p>
-        <div className="flex items-center justify-between gap-2 text-[11px] font-black text-[#667085]">
-          <span className="truncate">{row.primaryKeyword}</span>
-          <span className="text-[#6d5dfc]">{row.score}점</span>
-        </div>
-        <div className="grid grid-cols-2 gap-1 text-[11px] font-bold text-[#667085]">
-          <span>
-            판매 <b className="text-[#111827]">{formatNumber(salesLast3d)}</b>
-          </span>
-          <span className="text-right">
-            리뷰 <b className="text-[#111827]">{formatNumber(row.ratingCount ?? 0)}</b>
-          </span>
-        </div>
-        <p className="text-sm font-black text-[#111827]">{formatKRW(row.salePrice)}원</p>
-      </div>
-    </article>
-  );
-}
-
-function recommendationRowKey(row: Pick<TodayRecommendationRow, 'productId' | 'itemId' | 'vendorItemId' | 'productName'>): string {
-  return [row.productId, row.itemId, row.vendorItemId, row.productName].filter(Boolean).join(':');
 }
 
 function RecommendationsPage() {

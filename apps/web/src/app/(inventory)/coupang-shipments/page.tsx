@@ -13,15 +13,24 @@ import {
   type CoupangShipmentMergedFile,
 } from './lib/coupang-shipment-files';
 import {
+  clearCoupangCookiesViaExtension,
   collectCoupangShipmentDateSummaryViaExtension,
   collectCoupangShipmentDraftsViaExtension,
+  isCoupangCookieBloatError,
   openCoupangShipmentPageViaExtension,
   type CoupangShipmentDateSummaryItem,
 } from './lib/coupang-shipment-extension';
 import { ShipmentDateCalendar } from './components/ShipmentDateCalendar';
 import {
+  ShipmentNotifications,
+  type ShipmentNotification,
+  type ShipmentNotificationStatus,
+} from './components/ShipmentNotifications';
+import {
   downloadCoupangShipmentServerFile,
+  loadCoupangShipmentDateSummary,
   loadCoupangShipmentServerFiles,
+  saveCoupangShipmentDateSummary,
   type CoupangShipmentServerDay,
   type CoupangShipmentServerFile,
   type CoupangShipmentServerFileKind,
@@ -70,6 +79,73 @@ export default function CoupangShipmentsPage() {
   const [dateSummary, setDateSummary] = useState<CoupangShipmentDateSummaryItem[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryLoaded, setSummaryLoaded] = useState(false);
+  const [notifications, setNotifications] = useState<ShipmentNotification[]>([]);
+
+  const notify = useCallback((status: ShipmentNotificationStatus, message: string) => {
+    setNotifications((prev) =>
+      [{ id: crypto.randomUUID(), status, message, at: Date.now() }, ...prev].slice(0, 30),
+    );
+  }, []);
+
+  // 쿠팡 접속이 많아 쿠키가 커져 400 이 나면: 도메인 쿠키를 정리하고 재로그인하도록 안내한다.
+  const remediateCoupangCookies = useCallback(async () => {
+    const ok = window.confirm(
+      '쿠팡 쿠키를 정리하면 supplier뿐 아니라 WING·로켓 등 모든 쿠팡(*.coupang.com) 로그인이 풀립니다. ' +
+        '진행 중인 다른 쿠팡 작업이 있으면 끊길 수 있어요. 정리 후 다시 로그인해야 합니다. 진행할까요?',
+    );
+    if (!ok) return;
+    const toastId = toast.loading('쿠팡 쿠키 정리 중…');
+    notify('started', '쿠팡 쿠키 정리를 시작합니다…');
+    try {
+      const cleared = await clearCoupangCookiesViaExtension();
+      const message = `쿠팡 쿠키 ${formatNumber(cleared)}개를 정리했습니다. 쿠팡에 다시 로그인한 뒤 조회하세요.`;
+      toast.success(message, { id: toastId });
+      notify('succeeded', message);
+      // 재로그인할 수 있도록 supplier 창을 연다(실패해도 무시).
+      try {
+        await openCoupangShipmentPageViaExtension();
+      } catch {
+        /* noop */
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '쿠팡 쿠키 정리 실패';
+      toast.error(message, { id: toastId });
+      notify('failed', message);
+    }
+  }, [notify]);
+
+  // 확장 오류를 토스트로 알린다. 쿠키 과다(400)면 '쿠팡 쿠키 정리' 복구 버튼을 함께 띄운다.
+  const showExtensionErrorToast = useCallback(
+    (error: unknown, fallback: string, toastId?: string | number): string => {
+      const message = error instanceof Error ? error.message : fallback;
+      const base = toastId !== undefined ? { id: toastId } : {};
+      if (isCoupangCookieBloatError(error)) {
+        toast.error(message, {
+          ...base,
+          duration: 12000,
+          action: { label: '쿠팡 쿠키 정리', onClick: () => void remediateCoupangCookies() },
+        });
+      } else {
+        toast.error(message, base);
+      }
+      notify('failed', message);
+      return message;
+    },
+    [notify, remediateCoupangCookies],
+  );
+
+  // 발송일 요약을 달력에 반영하고(가장 최근 발송일로) 필요 시 자동 선택한다.
+  const applyDateSummary = useCallback(
+    (items: CoupangShipmentDateSummaryItem[], options?: { autoSelect?: boolean }) => {
+      setDateSummary(items);
+      setSummaryLoaded(true);
+      if (options?.autoSelect && items.length > 0) {
+        const latest = [...items].sort((a, b) => b.date.localeCompare(a.date))[0];
+        setSelectedDate((current) => current || latest.date);
+      }
+    },
+    [],
+  );
 
   const refreshServerHistory = useCallback(async () => {
     setServerHistoryLoading(true);
@@ -101,6 +177,25 @@ export default function CoupangShipmentsPage() {
     void refreshServerHistory();
   }, [refreshServerHistory]);
 
+  // DB에 저장해 둔 발송일 요약을 마운트 시 불러와 달력을 미리 채운다(새로고침해도 유지).
+  useEffect(() => {
+    let active = true;
+    loadCoupangShipmentDateSummary()
+      .then((response) => {
+        if (!active || response.items.length === 0) return;
+        applyDateSummary(
+          response.items.map((item) => ({ date: item.date, count: item.count, boxes: item.boxes })),
+          { autoSelect: true },
+        );
+      })
+      .catch(() => {
+        /* 저장된 요약이 없거나 조회 실패 — 조회 버튼으로 수집하면 된다. */
+      });
+    return () => {
+      active = false;
+    };
+  }, [applyDateSummary]);
+
   const historyByDate = useMemo(() => groupHistoryByDate(history, serverHistory), [history, serverHistory]);
 
   const openCoupang = async () => {
@@ -118,19 +213,38 @@ export default function CoupangShipmentsPage() {
 
   const queryDateSummary = async () => {
     setSummaryLoading(true);
+    notify('started', '발송일 조회를 시작합니다…');
     try {
       const dates = await collectCoupangShipmentDateSummaryViaExtension();
-      setDateSummary(dates);
-      setSummaryLoaded(true);
-      if (dates.length > 0) {
-        const latest = [...dates].sort((a, b) => b.date.localeCompare(a.date))[0];
-        setSelectedDate(latest.date);
-        toast.success(`발송일 ${formatNumber(dates.length)}일 · 최신 ${latest.date} (${formatNumber(latest.count)}건)`);
-      } else {
-        toast.info('최근 쉽먼트가 없습니다.');
+      if (dates.length === 0) {
+        setSummaryLoaded(true);
+        toast.info('새로 조회된 쉽먼트가 없습니다.');
+        notify('info', '새로 조회된 쉽먼트가 없습니다.');
+        return;
       }
+
+      const latest = [...dates].sort((a, b) => b.date.localeCompare(a.date))[0];
+      setSelectedDate(latest.date);
+
+      // 조회 결과를 DB에 저장(신규 추가·기존 갱신)하고, 병합된 전체 세트로 달력을 채운다.
+      let merged: CoupangShipmentDateSummaryItem[] = dates;
+      try {
+        const saved = await saveCoupangShipmentDateSummary(dates);
+        merged = saved.items.map((item) => ({
+          date: item.date,
+          count: item.count,
+          boxes: item.boxes,
+        }));
+      } catch {
+        notify('info', '조회는 됐지만 DB 저장에 실패했습니다. 값은 이번 세션에만 표시됩니다.');
+      }
+      applyDateSummary(merged);
+
+      const message = `발송일 ${formatNumber(merged.length)}일 · 최신 ${latest.date} (${formatNumber(latest.count)}건)`;
+      toast.success(message);
+      notify('succeeded', message);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '발송일 조회 실패');
+      showExtensionErrorToast(error, '발송일 조회 실패');
     } finally {
       setSummaryLoading(false);
     }
@@ -143,6 +257,7 @@ export default function CoupangShipmentsPage() {
     }
     setExtensionBusy(true);
     const toastId = toast.loading(`${selectedDate} 쉽먼트 목록 조회 중…`);
+    notify('started', `${selectedDate} 수집·병합을 시작합니다…`);
     try {
       const { shipments, failed, drafts } = await collectCoupangShipmentDraftsViaExtension(
         selectedDate,
@@ -174,12 +289,11 @@ export default function CoupangShipmentsPage() {
       );
 
       const failedNote = failed.length > 0 ? ` · 실패 ${formatNumber(failed.length)}건` : '';
-      toast.success(
-        `${selectedDate} 수집·병합 완료 — 쉽먼트 ${formatNumber(shipments.length)}건 → Label·내역서 ${formatNumber(mergedFiles.length)}개${failedNote}`,
-        { id: toastId },
-      );
+      const message = `${selectedDate} 수집·병합 완료 — 쉽먼트 ${formatNumber(shipments.length)}건 → Label·내역서 ${formatNumber(mergedFiles.length)}개${failedNote}`;
+      toast.success(message, { id: toastId });
+      notify('succeeded', message);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '수집·병합 실패', { id: toastId });
+      showExtensionErrorToast(error, '수집·병합 실패', toastId);
     } finally {
       setExtensionBusy(false);
     }
@@ -226,6 +340,9 @@ export default function CoupangShipmentsPage() {
         </button>
       </div>
 
+      {/* 좌: 발송일 달력(3/4) · 우: 일별 결과 알림 패널(1/4) — 쿠팡 로켓 페이지와 동일 구조 */}
+      <div className="grid items-start gap-4 xl:grid-cols-4">
+      <div className="min-w-0 xl:col-span-3">
       <ShipmentDateCalendar
         summary={dateSummary}
         selectedDate={selectedDate}
@@ -236,7 +353,12 @@ export default function CoupangShipmentsPage() {
         onCollect={collectAndMerge}
         collecting={extensionBusy}
       />
+      </div>
 
+      <ShipmentNotifications notifications={notifications} />
+      </div>
+
+      {/* 일별 결과 — 하단 전체 폭 */}
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div className="text-sm font-semibold text-slate-900">일별 결과</div>
@@ -263,7 +385,7 @@ export default function CoupangShipmentsPage() {
                   <div className="font-semibold tabular-nums text-slate-900">{group.date}</div>
                   <div className="text-xs text-slate-400">{formatNumber(group.files.length)}개</div>
                 </div>
-                <div className="grid gap-3 lg:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3">
                   {group.files.map((file) => (
                     <div key={file.id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="flex items-start justify-between gap-3">

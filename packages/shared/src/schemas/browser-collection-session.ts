@@ -15,6 +15,7 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'sourcing.wing_catalog',
   'sourcing.1688_trend',
   'sourcing.live_commerce',
+  'sourcing.tiktok_cc_trend',
   'orders.mall',
   'inventory.sellpia',
 ] as const;

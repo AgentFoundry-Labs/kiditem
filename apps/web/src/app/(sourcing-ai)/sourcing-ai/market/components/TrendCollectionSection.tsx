@@ -114,21 +114,6 @@ export function TrendCollectionSection() {
             <h2 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">
               트렌드 수집
             </h2>
-            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-              네이버 검색량·인기키워드, 1688 거래 표시값, 쇼츠 급상승을 매일 스냅샷으로
-              저장합니다. 기본 시드와 저장한 사용자 시드를 함께 쓰고, 1688은 로그인된 Chrome
-              확장을 우선 사용합니다.
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--text-tertiary)]">
-              <span>
-                사용자 시드{' '}
-                <strong className="font-bold tabular-nums text-[var(--text-primary)]">
-                  {seedsQuery.isLoading ? '…' : enabledSeedCount}
-                </strong>
-                개
-              </span>
-              <span>기본 카테고리 시드 10개 · 인기키워드 보드는 사용자 시드와 무관하게 수집</span>
-            </div>
           </div>
 
           <div className="flex flex-col items-stretch gap-3 sm:min-w-[280px]">

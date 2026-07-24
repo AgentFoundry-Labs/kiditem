@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { useAdCampaignSyncStatus } from '@/components/readiness/useAdCampaignSyncStatus';
 import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
 import { cn } from '@/lib/utils';
 import type { LucideIcon } from 'lucide-react';
@@ -136,21 +137,58 @@ function DateStrip({
   );
 }
 
+function DailyStatusDisclosure({ check }: { check: ReadinessCheck }) {
+  const [expanded, setExpanded] = useState(false);
+  const expectedDates = check.expectedDates ?? [];
+  if (expectedDates.length === 0) return null;
+  const title = getDisplay(check).title;
+  const actionLabel = expanded ? '날짜별 현황 접기' : '날짜별 현황 보기';
+
+  return (
+    <div className="border-t border-[var(--border-subtle)] px-4 pb-3 pt-2">
+      <button
+        type="button"
+        aria-label={`${title} ${actionLabel}`}
+        onClick={() => setExpanded((value) => !value)}
+        className={cn(
+          'inline-flex items-center gap-1 text-[11px] font-medium transition-colors',
+          'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
+        )}
+      >
+        <ChevronDown
+          className={cn('h-3 w-3 transition-transform', expanded && 'rotate-180')}
+        />
+        {actionLabel}
+      </button>
+      {expanded && (
+        <DateStrip
+          expectedDates={expectedDates}
+          missingDates={check.missingDates ?? []}
+          referenceDate={check.referenceDate}
+        />
+      )}
+    </div>
+  );
+}
+
 export function CompactOkRow({ check }: { check: ReadinessCheck }) {
   const meta = getDisplay(check);
   const Icon = meta.icon;
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
-        <Icon className="h-3.5 w-3.5" />
+    <div className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)]">
+      <div className="flex items-center gap-3 px-3 py-2">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
+          <Icon className="h-3.5 w-3.5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-[var(--text-primary)]">{meta.title}</p>
+        </div>
+        <span className="inline-flex items-center gap-1 text-[11px] text-[var(--text-tertiary)]">
+          <Check className="h-3 w-3 text-emerald-500" />
+          {formatRelative(check.lastSyncedAt)} 업데이트
+        </span>
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-[var(--text-primary)]">{meta.title}</p>
-      </div>
-      <span className="inline-flex items-center gap-1 text-[11px] text-[var(--text-tertiary)]">
-        <Check className="h-3 w-3 text-emerald-500" />
-        {formatRelative(check.lastSyncedAt)} 업데이트
-      </span>
+      <DailyStatusDisclosure check={check} />
     </div>
   );
 }
@@ -164,12 +202,10 @@ export function ActionCheckCard({
   onCollect: (c: ReadinessCheck) => void;
   pending: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const meta = getDisplay(check);
   const Icon = meta.icon;
   const status = statusMeta(check.status);
   const missingCount = check.missingDates?.length ?? 0;
-  const hasStrip = !!check.expectedDates && check.expectedDates.length > 0;
 
   const subline = (() => {
     if (missingCount > 0) return `최근 ${check.expectedDates!.length}일 중 ${missingCount}일이 비어 있어요`;
@@ -238,35 +274,15 @@ export function ActionCheckCard({
         </button>
       </div>
 
-      {hasStrip && (
-        <div className="border-t border-[var(--border-subtle)] px-4 pb-3 pt-2">
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className={cn(
-              'inline-flex items-center gap-1 text-[11px] font-medium transition-colors',
-              'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
-            )}
-          >
-            <ChevronDown
-              className={cn('h-3 w-3 transition-transform', expanded && 'rotate-180')}
-            />
-            {expanded ? '날짜별 현황 접기' : '날짜별 현황 보기'}
-          </button>
-          {expanded && (
-            <DateStrip
-              expectedDates={check.expectedDates!}
-              missingDates={check.missingDates ?? []}
-              referenceDate={check.referenceDate}
-            />
-          )}
-        </div>
-      )}
+      <DailyStatusDisclosure check={check} />
     </div>
   );
 }
 
 export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
   const { collectionSession, loading, run } = useAdSync({ onComplete });
+  const syncStatusQuery = useAdCampaignSyncStatus();
+  const isFresh = syncStatusQuery.data?.status === 'fresh';
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -278,12 +294,24 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">광고 동기화</h3>
+            {isFresh && (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                최신
+              </span>
+            )}
           </div>
           <p className="mt-1 text-xs text-[var(--text-secondary)]">
-            운영중 캠페인을 자동 순회하며 캠페인별 상품 데이터를 수집해요
+            캠페인을 자동 순회하며 최근 31일 캠페인·광고상품 데이터를 수집해요
           </p>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-            백그라운드에서 자동 처리 - 수 분 소요될 수 있어요
+            {isFresh
+              ? `마지막 완료 ${formatRelative(
+                  typeof syncStatusQuery.data?.lastCompletedAt === 'string'
+                    ? syncStatusQuery.data.lastCompletedAt
+                    : syncStatusQuery.data?.lastCompletedAt?.toISOString() ??
+                        null,
+                )}`
+              : '백그라운드에서 자동 처리 - 수 분 소요될 수 있어요'}
           </p>
         </div>
 

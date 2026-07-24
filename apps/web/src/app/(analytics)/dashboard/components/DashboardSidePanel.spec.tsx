@@ -29,6 +29,13 @@ const mockCancelOperation = vi.hoisted(() =>
   })),
 );
 const mockToastError = vi.hoisted(() => vi.fn());
+const mockSendBrowserCollectionControl = vi.hoisted(() =>
+  vi.fn(async () => ({
+    runId: '3a8cadc9-6f0d-4d0d-9c68-1921457bf182',
+    status: 'cancelled',
+  })),
+);
+const mockSyncBrowserCollectionAlert = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -38,6 +45,17 @@ vi.mock('@/lib/api-client', () => ({
 
 vi.mock('@/lib/operation-cancellation', () => ({
   cancelOperation: mockCancelOperation,
+}));
+
+vi.mock('@/lib/browser-collection-session', () => ({
+  browserCollectionRunIdFromOperationKey: (operationKey: string | null | undefined) => {
+    const prefix = 'browser-collection:';
+    return operationKey?.startsWith(prefix)
+      ? operationKey.slice(prefix.length)
+      : null;
+  },
+  sendBrowserCollectionControl: mockSendBrowserCollectionControl,
+  syncBrowserCollectionAlert: mockSyncBrowserCollectionAlert,
 }));
 
 vi.mock('sonner', () => ({
@@ -124,6 +142,8 @@ describe('DashboardSidePanel', () => {
   beforeEach(() => {
     mockApiPatch.mockClear();
     mockCancelOperation.mockClear();
+    mockSendBrowserCollectionControl.mockClear();
+    mockSyncBrowserCollectionAlert.mockClear();
     mockToastError.mockClear();
     usePanelStore.setState({
       byId: {},
@@ -155,6 +175,41 @@ describe('DashboardSidePanel', () => {
         reason: '사용자 요청',
       });
     });
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it('routes browser collection cancellation to the owning extension', async () => {
+    const queryClient = makeQueryClient();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    const runId = '3a8cadc9-6f0d-4d0d-9c68-1921457bf182';
+    render(
+      <DashboardSidePanel
+        alerts={[
+          makeAlert({
+            operationKey: `browser-collection:${runId}`,
+            sourceType: null,
+            title: '광고 동기화',
+          }),
+        ]}
+        queryClient={queryClient}
+      />,
+    );
+
+    const stopButton = screen.getByRole('button', { name: '작업 중단' });
+    expect(stopButton).toHaveClass('mr-12', 'z-[60]');
+    fireEvent.click(stopButton);
+    fireEvent.click(screen.getByRole('button', { name: '중단' }));
+
+    await waitFor(() => {
+      expect(mockSendBrowserCollectionControl).toHaveBeenCalledWith(
+        runId,
+        'cancelCollectionSession',
+      );
+    });
+    expect(mockCancelOperation).not.toHaveBeenCalled();
+    expect(mockSyncBrowserCollectionAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ runId, status: 'cancelled' }),
+    );
     expect(invalidate).toHaveBeenCalled();
   });
 

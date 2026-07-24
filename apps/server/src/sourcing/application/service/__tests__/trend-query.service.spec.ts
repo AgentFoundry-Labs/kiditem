@@ -28,9 +28,11 @@ function repositoryStub(): TrendCollectionRepositoryPort {
     replaceNaverPopularKeywordSnapshots: vi.fn(async () => 0),
     upsert1688HotProductSnapshots: vi.fn(async () => 0),
     upsertShortsSnapshots: vi.fn(async () => 0),
+    upsertTiktokCcSnapshots: vi.fn(async () => 0),
     findNaverKeywordHistory: vi.fn(async () => []),
     findPopularKeywordHistory: vi.fn(async () => []),
     find1688HotHistory: vi.fn(async () => []),
+    findTiktokCcHistory: vi.fn(async () => []),
     findShortsHistory: vi.fn(async () => [
       {
         businessDate: BUSINESS_DATE,
@@ -227,5 +229,64 @@ describe('TrendQueryService Shorts relevance', () => {
     const result = await new TrendQueryService(repository).getShorts(ORGANIZATION_ID, 7);
 
     expect(result.items.map((item) => item.videoKey)).toEqual(['recent-toy']);
+  });
+});
+
+describe('TrendQueryService TikTok Creative Center', () => {
+  const PRIOR_DATE = new Date('2026-07-12T00:00:00.000Z');
+  const LATEST_DATE = new Date('2026-07-13T00:00:00.000Z');
+
+  function ttccRow(over: Record<string, unknown>) {
+    return {
+      businessDate: LATEST_DATE,
+      capturedAt: CAPTURED_AT,
+      region: 'US',
+      trendType: 'hashtag',
+      entityKey: '#squishy',
+      rank: 1,
+      label: 'squishy',
+      industry: 'Toys',
+      sourceKeyword: null,
+      postCount: 1000,
+      viewCount: 9_000_000_000,
+      growthPct: 10,
+      thumbnailUrl: null,
+      sourceUrl: null,
+      ...over,
+    };
+  }
+
+  it('groups the latest capture by region, sorts by type then rank, and flags newly ranked entities', async () => {
+    const repository = repositoryStub();
+    vi.mocked(repository.findTiktokCcHistory).mockResolvedValue([
+      // prior day — establishes that #squishy is NOT newly ranked
+      ttccRow({ businessDate: PRIOR_DATE }),
+      // latest day
+      ttccRow({ trendType: 'product', entityKey: 'prod-1', rank: 1, label: 'squishy set' }),
+      ttccRow({ entityKey: '#slime', rank: 2, label: 'slime' }),
+      ttccRow({ entityKey: '#squishy', rank: 1 }),
+      ttccRow({ region: 'KR', entityKey: '#다꾸', rank: 1, label: '다꾸' }),
+    ] as never);
+
+    const result = await new TrendQueryService(repository).getTiktokCc(ORGANIZATION_ID, 7);
+
+    expect(result.businessDate).toBe('2026-07-13');
+    expect(result.regions.map((r) => r.region)).toEqual(['KR', 'US']);
+    const us = result.regions.find((r) => r.region === 'US')!;
+    // hashtag rows sort before product rows; within hashtag, rank asc
+    expect(us.items.map((i) => [i.trendType, i.entityKey])).toEqual([
+      ['hashtag', '#squishy'],
+      ['hashtag', '#slime'],
+      ['product', 'prod-1'],
+    ]);
+    expect(us.items.find((i) => i.entityKey === '#squishy')!.newlyRanked).toBe(false);
+    expect(us.items.find((i) => i.entityKey === '#slime')!.newlyRanked).toBe(true);
+  });
+
+  it('returns empty regions when no snapshots exist', async () => {
+    const repository = repositoryStub();
+    vi.mocked(repository.findTiktokCcHistory).mockResolvedValue([]);
+    const result = await new TrendQueryService(repository).getTiktokCc(ORGANIZATION_ID, 7);
+    expect(result).toEqual({ days: 7, businessDate: null, capturedAt: null, regions: [] });
   });
 });

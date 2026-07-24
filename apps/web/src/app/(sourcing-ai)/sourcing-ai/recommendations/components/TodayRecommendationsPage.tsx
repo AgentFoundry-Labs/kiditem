@@ -244,7 +244,7 @@ export function TodayRecommendationsPage() {
 
   return (
     <main className="min-h-full bg-[var(--surface-sunken)] text-[var(--text-primary)]">
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-5 px-6 py-6">
+      <div className="flex w-full flex-col gap-5">
         <header className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-5 py-4 shadow-sm">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>

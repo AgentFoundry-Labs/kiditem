@@ -13,37 +13,43 @@ import {
 import type { HydratedListing } from '../model/strategy-types';
 
 describe('domain/strategy-context — date helpers', () => {
-  it('getCurrentPeriod returns year + 1-indexed month from injected Date', () => {
-    const fixed = new Date(2026, 3, 19);
-    expect(getCurrentPeriod(fixed)).toEqual({ year: 2026, month: 4 });
+  it('getCurrentPeriod returns the KST year + 1-indexed month', () => {
+    const fixed = new Date('2026-04-30T16:00:00.000Z');
+    expect(getCurrentPeriod(fixed)).toEqual({ year: 2026, month: 5 });
   });
 
   it('getCurrentPeriod uses current Date when no arg', () => {
     const result = getCurrentPeriod();
-    const now = new Date();
-    expect(result.year).toBe(now.getFullYear());
-    expect(result.month).toBe(now.getMonth() + 1);
+    const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    expect(result.year).toBe(kstNow.getUTCFullYear());
+    expect(result.month).toBe(kstNow.getUTCMonth() + 1);
   });
 
-  it('getWeekRange 7d returns 7-day range ending today', () => {
-    const { start, end } = getWeekRange('7d');
-    const diffDays = Math.round(
-      (new Date(end).getTime() - new Date(start).getTime()) / (24 * 60 * 60 * 1000),
-    );
-    expect(diffDays).toBe(7);
+  it('getWeekRange 7d returns exactly seven complete dates ending yesterday', () => {
+    expect(
+      getWeekRange('7d', new Date('2026-07-24T03:00:00.000Z')),
+    ).toEqual({
+      start: '2026-07-17',
+      end: '2026-07-23',
+    });
   });
 
-  it('getWeekRange 14d returns 14-day range', () => {
-    const { start, end } = getWeekRange('14d');
-    const diffDays = Math.round(
-      (new Date(end).getTime() - new Date(start).getTime()) / (24 * 60 * 60 * 1000),
-    );
-    expect(diffDays).toBe(14);
+  it('getWeekRange 14d returns exactly fourteen complete dates', () => {
+    expect(
+      getWeekRange('14d', new Date('2026-07-24T03:00:00.000Z')),
+    ).toEqual({
+      start: '2026-07-10',
+      end: '2026-07-23',
+    });
   });
 
-  it('getWeekRange month returns from 1st of current month to today', () => {
-    const { start } = getWeekRange('month');
-    expect(start.endsWith('-01')).toBe(true);
+  it('getWeekRange month returns from KST month start through yesterday', () => {
+    expect(
+      getWeekRange('month', new Date('2026-07-24T03:00:00.000Z')),
+    ).toEqual({
+      start: '2026-07-01',
+      end: '2026-07-23',
+    });
   });
 });
 

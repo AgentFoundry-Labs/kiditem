@@ -3,6 +3,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Package, RefreshCw } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { isApiError } from '@/lib/api-error';
 import { roasColor } from '../lib/status-colors';
 import { cardRaised } from '../lib/card-styles';
 import { useAdProducts, useAdsConfig } from '../hooks/useAdOpsData';
@@ -16,7 +17,14 @@ interface Props {
 }
 
 export default function AdProductsContent({ period }: Props) {
-  const { products, isLoading, isFetching } = useAdProducts(period, true);
+  const {
+    products,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useAdProducts(period, true);
   const roasT = useAdsConfig();
   const isRefreshing = isFetching && !isLoading;
 
@@ -68,6 +76,33 @@ export default function AdProductsContent({ period }: Props) {
     return (
       <div className="flex items-center justify-center py-24">
         <div className="text-sm" style={{ color: 'var(--text-tertiary)' }}>광고상품 데이터 로딩 중...</div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    const errorHint =
+      isApiError(error) && (error.status === 401 || error.status === 403)
+        ? '로그인 상태와 광고 데이터 조회 권한을 확인해 주세요.'
+        : '광고상품 0건이 아니라 조회 요청이 실패한 상태입니다.';
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center text-center">
+        <Package size={28} style={{ color: 'var(--danger)' }} />
+        <p className="mt-3 text-sm font-semibold" style={{ color: 'var(--danger)' }}>
+          광고상품 데이터를 불러오지 못했습니다.
+        </p>
+        <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+          {errorHint}
+        </p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
+          style={{ background: 'var(--primary)' }}
+        >
+          <RefreshCw size={13} />
+          다시 시도
+        </button>
       </div>
     );
   }

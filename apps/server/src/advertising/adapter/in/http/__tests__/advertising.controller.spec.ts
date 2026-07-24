@@ -30,6 +30,7 @@ function makeServices() {
     },
     campaigns: {
       getCampaigns: vi.fn(),
+      getCampaignSyncStatus: vi.fn(),
       getTrends: vi.fn(),
     },
     strategy: {
@@ -146,6 +147,55 @@ describe('AdvertisingController — defaults + body transformations', () => {
     const { ctrl, svcs } = makeCampaignsController();
     ctrl.getCampaigns({} as any, COMPANY);
     expect(svcs.campaigns.getCampaigns).toHaveBeenCalledWith('7d', COMPANY);
+  });
+
+  it('GET /campaigns/sync-status uses the authenticated organization scope', () => {
+    const { ctrl, svcs } = makeCampaignsController();
+
+    ctrl.getCampaignSyncStatus(COMPANY);
+
+    expect(svcs.campaigns.getCampaignSyncStatus).toHaveBeenCalledWith(COMPANY);
+  });
+
+  it('GET /campaigns/trends passes an inclusive custom date range', () => {
+    const { ctrl, svcs } = makeCampaignsController();
+    ctrl.getTrends(
+      { from: '2026-07-01', to: '2026-07-24' },
+      COMPANY,
+    );
+
+    expect(svcs.campaigns.getTrends).toHaveBeenCalledWith(
+      '14d',
+      undefined,
+      COMPANY,
+      {
+        from: new Date('2026-07-01T00:00:00.000Z'),
+        to: new Date('2026-07-24T00:00:00.000Z'),
+      },
+    );
+  });
+
+  it('GET /campaigns/trends rejects reversed or over-90-day ranges', () => {
+    const { ctrl } = makeCampaignsController();
+
+    expect(() =>
+      ctrl.getTrends(
+        { from: '2026-07-24', to: '2026-07-01' },
+        COMPANY,
+      ),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      ctrl.getTrends(
+        { from: '2026-01-01', to: '2026-07-24' },
+        COMPANY,
+      ),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      ctrl.getTrends(
+        { from: '2026-02-31', to: '2026-03-03' },
+        COMPANY,
+      ),
+    ).toThrow(BadRequestException);
   });
 
   it('GET /strategy/rules falls back to period 14d when query omitted', () => {

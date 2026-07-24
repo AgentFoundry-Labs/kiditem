@@ -192,7 +192,99 @@ describe('AdCampaignIngestHandler business dates', () => {
     });
   });
 
-  it('preserves raw OFF evidence without projecting historical daily facts', async () => {
+  it('persists mixed ON/OFF product states from one authoritative ON campaign replacement', async () => {
+    const mixedProductMap: ListingMap = {
+      ...map,
+      externalOptionIdMap: new Map([
+        ...map.externalOptionIdMap,
+        [
+          'vendor-item-2',
+          {
+            listingId: 'listing-2',
+            listingOptionId: 'listing-option-2',
+            externalId: 'seller-product-2',
+          },
+        ],
+      ]),
+    };
+
+    const result = await handler.execute(
+      {
+        type: 'ad_campaign',
+        campaignReportScope: 'single_campaign_authoritative',
+        dashboardOnOff: 'ON',
+        campaignName: 'Mixed product states',
+        startDate: '2026-07-17',
+        endDate: '2026-07-17',
+        normalizedRows: [
+          {
+            pageType: 'product',
+            campaignId: 'campaign-mixed',
+            campaignName: 'Mixed product states',
+            vendorItemId: 'vendor-item-1',
+            onOff: 'ON',
+            spend: 100,
+            revenue: 200,
+            impressions: 300,
+            clicks: 4,
+            conversions: 2,
+            orders: 1,
+            _observedMetrics: observedMetrics,
+          },
+          {
+            pageType: 'product',
+            campaignId: 'campaign-mixed',
+            campaignName: 'Mixed product states',
+            vendorItemId: 'vendor-item-2',
+            onOff: 'OFF',
+            spend: 50,
+            revenue: 0,
+            impressions: 100,
+            clicks: 1,
+            conversions: 0,
+            orders: 0,
+            _observedMetrics: observedMetrics,
+          },
+        ],
+      },
+      'organization-1',
+      mixedProductMap,
+    );
+
+    expect(targetDailyRepo.replaceCampaignDay).toHaveBeenCalledTimes(1);
+    expect(targetDailyRepo.replaceCampaignDay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        campaignId: 'campaign-mixed',
+        campaignIdentity: 'campaign:campaign-mixed',
+        targets: [
+          expect.objectContaining({
+            externalOptionId: 'vendor-item-1',
+            onOff: 'ON',
+          }),
+          expect.objectContaining({
+            externalOptionId: 'vendor-item-2',
+            onOff: 'OFF',
+          }),
+        ],
+      }),
+    );
+    expect(result).toMatchObject({
+      success: true,
+      targetDailyCount: 2,
+      dailyProjectionSkipped: false,
+      projectionRejectionCode: null,
+    });
+    expect(scrapeRepo.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'complete',
+        rowCount: 2,
+        errorCount: 0,
+        errorJson: null,
+      }),
+    );
+  });
+
+  it('projects an exact historical day even when the campaign is now OFF', async () => {
     const result = await handler.execute(
       {
         type: 'ad_campaign',
@@ -230,18 +322,142 @@ describe('AdCampaignIngestHandler business dates', () => {
     expect(scrapeRepo.createRun).toHaveBeenCalledWith(
       expect.objectContaining({
         metaJson: expect.objectContaining({
-          effectiveCampaignReportScope: 'raw_only',
-          campaignReportAuthorityReason: 'off_campaign_metadata',
-          dailyProjectionSkipped: true,
+          effectiveCampaignReportScope: 'single_campaign_authoritative',
+          campaignReportAuthorityReason: 'authoritative_single_campaign',
+          dailyProjectionSkipped: false,
+        }),
+      }),
+    );
+    expect(targetDailyRepo.replaceCampaignDay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessDate: new Date('2026-07-17T00:00:00.000Z'),
+        campaignIdentity: 'campaign:paused',
+        targets: [
+          expect.objectContaining({
+            onOff: 'OFF',
+            spend: 0,
+            revenue: 0,
+          }),
+        ],
+      }),
+    );
+    expect(result).toMatchObject({
+      success: true,
+      dailyProjectionSkipped: false,
+      targetDailyCount: 1,
+      projectionRejectionCode: null,
+    });
+  });
+
+  it('persists an identity-complete sweep marker with its restart attempt', async () => {
+    const result = await handler.execute(
+      {
+        type: 'ad_campaign',
+        campaignReportScope: 'multi_campaign_raw',
+        campaignName: '_SWEEP_COMPLETE',
+        collectionRunId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        collectionAttempt: 3,
+        campaignSweepComplete: true,
+        campaignIdentityComplete: true,
+        campaignCount: 0,
+        rawOnlyCampaignCount: 0,
+        campaignDailyCollectionComplete: true,
+        campaignDailyWindowDays: 31,
+        campaignDailyFrom: '2026-06-24',
+        campaignDailyTo: '2026-07-24',
+        data: [],
+        normalizedRows: [],
+      },
+      'organization-1',
+      map,
+    );
+
+    expect(scrapeRepo.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metaJson: expect.objectContaining({
+          collectionRunId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          collectionAttempt: 3,
+          campaignSweepComplete: true,
+          campaignIdentityComplete: true,
+          campaignCount: 0,
+          rawOnlyCampaignCount: 0,
+          campaignDailyCollectionComplete: true,
+          campaignDailyWindowDays: 31,
+          campaignDailyFrom: '2026-06-24',
+          campaignDailyTo: '2026-07-24',
         }),
       }),
     );
     expect(targetDailyRepo.replaceCampaignDay).not.toHaveBeenCalled();
+    expect(scrapeRepo.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'complete',
+        rowCount: 0,
+        errorCount: 0,
+      }),
+    );
     expect(result).toMatchObject({
       success: true,
+      scrapeSnapshotCount: 0,
       dailyProjectionSkipped: true,
-      projectionRejectionCode: null,
     });
+  });
+
+  it.each([
+    ['missing run identity', { collectionRunId: undefined }],
+    ['missing attempt', { collectionAttempt: undefined }],
+    ['wrong sentinel', { campaignName: '_전체' }],
+    [
+      'nonempty marker rows',
+      {
+        data: [{ campaignName: 'forged' }],
+        normalizedRows: [{ campaignIdentity: 'campaign:forged' }],
+      },
+    ],
+    ['missing counts', { campaignCount: undefined }],
+    [
+      'identity coverage mismatch',
+      { campaignIdentityComplete: true, rawOnlyCampaignCount: 1 },
+    ],
+    [
+      'partial daily contract',
+      {
+        campaignDailyCollectionComplete: true,
+        campaignDailyWindowDays: 31,
+      },
+    ],
+    [
+      'non-contiguous daily contract',
+      {
+        campaignDailyCollectionComplete: true,
+        campaignDailyWindowDays: 31,
+        campaignDailyFrom: '2026-06-25',
+        campaignDailyTo: '2026-07-24',
+      },
+    ],
+  ])('rejects a malformed terminal sweep marker before persistence: %s', async (
+    _label,
+    patch,
+  ) => {
+    const payload = {
+      type: 'ad_campaign',
+      campaignReportScope: 'multi_campaign_raw',
+      campaignName: '_SWEEP_COMPLETE',
+      collectionRunId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      collectionAttempt: 3,
+      campaignSweepComplete: true,
+      campaignIdentityComplete: true,
+      campaignCount: 9,
+      rawOnlyCampaignCount: 0,
+      data: [],
+      normalizedRows: [],
+      ...patch,
+    } as ExtensionSyncDto;
+
+    await expect(
+      handler.execute(payload, 'organization-1', map),
+    ).rejects.toThrow('invalid campaign sweep completion marker');
+    expect(scrapeRepo.createRun).not.toHaveBeenCalled();
   });
 
   it('fail-closes an unproven empty report instead of wiping prior campaign targets', async () => {
@@ -388,6 +604,58 @@ describe('AdCampaignIngestHandler business dates', () => {
     expect(result).toMatchObject({
       success: true,
       dailyProjectionSkipped: true,
+      targetDailyCount: 0,
+    });
+  });
+
+  it('accepts identity-less dashboard campaigns as multi-campaign raw evidence without projecting target facts', async () => {
+    const result = await handler.execute(
+      {
+        type: 'ad_campaign',
+        campaignReportScope: 'multi_campaign_raw',
+        campaignName: '_전체',
+        data: [
+          {
+            campaignName: 'AI스마트광고(wing)',
+            dashboardOnOff: 'ON',
+            dashboardStatus: '운영중',
+            _campaignOnly: true,
+            _rawOnly: true,
+          },
+        ],
+        normalizedRows: [
+          {
+            pageType: 'campaign',
+            campaignId: null,
+            campaignIdentity: null,
+            campaignName: 'AI스마트광고(wing)',
+            onOff: 'ON',
+            status: '운영중',
+            _campaignOnly: true,
+            _rawOnly: true,
+          },
+        ],
+      },
+      'organization-1',
+      map,
+    );
+
+    expect(scrapeRepo.appendSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessDate: null,
+        normalizedJson: expect.objectContaining({
+          campaignIdentity: null,
+          campaignName: 'AI스마트광고(wing)',
+          _rawOnly: true,
+        }),
+      }),
+    );
+    expect(targetDailyRepo.replaceCampaignDay).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      success: true,
+      dailyProjectionSkipped: true,
+      projectionRejectionCode: null,
+      scrapeSnapshotCount: 1,
       targetDailyCount: 0,
     });
   });

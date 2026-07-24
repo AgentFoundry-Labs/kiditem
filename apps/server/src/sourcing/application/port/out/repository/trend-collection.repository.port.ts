@@ -1,6 +1,6 @@
 export const TREND_COLLECTION_REPOSITORY_PORT = Symbol('TrendCollectionRepositoryPort');
 
-export const TREND_SEED_SOURCES = ['naver', 'shorts', '1688'] as const;
+export const TREND_SEED_SOURCES = ['naver', 'shorts', '1688', 'tiktok-cc'] as const;
 export type TrendSeedSource = (typeof TREND_SEED_SOURCES)[number];
 
 export interface TrendSeedRow {
@@ -145,6 +145,41 @@ export interface ShortsSnapshotRow {
   videoUrl: string | null;
 }
 
+export interface TiktokCcSnapshotUpsert {
+  organizationId: string;
+  businessDate: Date;
+  region: string;
+  trendType: string;
+  entityKey: string;
+  rank: number | null;
+  label: string | null;
+  industry: string | null;
+  sourceKeyword: string | null;
+  postCount: number | null;
+  viewCount: number | null;
+  growthPct: number | null;
+  thumbnailUrl: string | null;
+  sourceUrl: string | null;
+  capturedAt: Date;
+}
+
+export interface TiktokCcSnapshotRow {
+  businessDate: Date;
+  capturedAt: Date;
+  region: string;
+  trendType: string;
+  entityKey: string;
+  rank: number | null;
+  label: string | null;
+  industry: string | null;
+  sourceKeyword: string | null;
+  postCount: number | null;
+  viewCount: number | null;
+  growthPct: number | null;
+  thumbnailUrl: string | null;
+  sourceUrl: string | null;
+}
+
 export interface TrendHistoryQuery {
   organizationId: string;
   days: number;
@@ -161,9 +196,11 @@ export interface TrendCollectionRepositoryPort {
   replaceNaverPopularKeywordSnapshots(rows: NaverPopularKeywordSnapshotUpsert[]): Promise<number>;
   upsert1688HotProductSnapshots(rows: Sourcing1688HotProductSnapshotUpsert[]): Promise<number>;
   upsertShortsSnapshots(rows: ShortsSnapshotUpsert[]): Promise<number>;
+  upsertTiktokCcSnapshots(rows: TiktokCcSnapshotUpsert[]): Promise<number>;
 
   findNaverKeywordHistory(query: TrendHistoryQuery): Promise<NaverKeywordSnapshotRow[]>;
   findPopularKeywordHistory(query: TrendHistoryQuery): Promise<NaverPopularKeywordSnapshotRow[]>;
   find1688HotHistory(query: TrendHistoryQuery): Promise<Sourcing1688HotProductSnapshotRow[]>;
   findShortsHistory(query: TrendHistoryQuery): Promise<ShortsSnapshotRow[]>;
+  findTiktokCcHistory(query: TrendHistoryQuery): Promise<TiktokCcSnapshotRow[]>;
 }

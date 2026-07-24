@@ -67,6 +67,10 @@ const COLLECTION_PRODUCERS = new Map<
     'sourcing.live_commerce',
     { title: '라이브커머스 수집', href: '/sourcing-ai/market' },
   ],
+  [
+    'sourcing.tiktok_cc_trend',
+    { title: '틱톡 트렌드 수집', href: '/sourcing-ai/market' },
+  ],
   ['orders.mall', { title: '주문 데이터 수집', href: '/order-collection' }],
   [
     'inventory.sellpia',

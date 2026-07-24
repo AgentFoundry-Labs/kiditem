@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AdBenchmarkService } from '../ad-benchmark.service';
 import { AdvertisingService } from '../advertising.service';
-import { periodToDays } from '../../../domain/ad-metrics';
+import { periodBounds } from '../../../domain/ad-metrics';
 import type { AdBenchmarkRepositoryPort } from '../../port/out/repository/ad-benchmark.repository.port';
 import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
 import {
@@ -110,15 +110,7 @@ describe('Advertising read services — KST cutoff', () => {
   });
 });
 
-/**
- * H3a residual fix — `periodToDays('month')` must derive day-of-month from
- * the KST view of `now`, not the server-local view. Pin a UTC moment that
- * sits on the *previous* UTC day vs. KST: 2026-04-30T16:00:00Z is
- * 2026-05-01T01:00:00 KST. UTC day-of-month = 30, KST day-of-month = 1.
- * Pre-fix: returns 30 (would request a 30-day month-to-date window crossing
- * into April). Post-fix: returns 1.
- */
-describe('AdCampaignsService.periodToDays — KST month cutoff', () => {
+describe('advertising complete-day period bounds', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -127,21 +119,32 @@ describe('AdCampaignsService.periodToDays — KST month cutoff', () => {
     vi.useRealTimers();
   });
 
-  it("'month' returns KST day-of-month (= 1), not UTC day-of-month (= 30)", () => {
+  it("'month' is empty on the first KST day instead of reading today's partial data", () => {
     // 2026-04-30 16:00 UTC = 2026-05-01 01:00 KST
     vi.setSystemTime(new Date('2026-04-30T16:00:00.000Z'));
-    expect(periodToDays('month')).toBe(1);
+    expect(periodBounds('month')).toEqual({
+      from: new Date('2026-05-01T00:00:00.000Z'),
+      to: new Date('2026-04-30T00:00:00.000Z'),
+    });
   });
 
-  it("'month' on a same-day-in-both-zones moment still returns the KST day", () => {
-    // 2026-04-15 03:00 UTC = 2026-04-15 12:00 KST → both day-of-month = 15
-    vi.setSystemTime(new Date('2026-04-15T03:00:00.000Z'));
-    expect(periodToDays('month')).toBe(15);
+  it("'month' returns current KST month start through yesterday", () => {
+    vi.setSystemTime(new Date('2026-05-15T03:00:00.000Z'));
+    expect(periodBounds('month')).toEqual({
+      from: new Date('2026-05-01T00:00:00.000Z'),
+      to: new Date('2026-05-14T00:00:00.000Z'),
+    });
   });
 
-  it("'7d' / '14d' branches are unchanged by the KST shift", () => {
+  it("'7d' and '14d' contain exactly N complete dates ending yesterday", () => {
     vi.setSystemTime(new Date('2026-04-30T16:00:00.000Z'));
-    expect(periodToDays('7d')).toBe(7);
-    expect(periodToDays('14d')).toBe(14);
+    expect(periodBounds('7d')).toEqual({
+      from: new Date('2026-04-24T00:00:00.000Z'),
+      to: new Date('2026-04-30T00:00:00.000Z'),
+    });
+    expect(periodBounds('14d')).toEqual({
+      from: new Date('2026-04-17T00:00:00.000Z'),
+      to: new Date('2026-04-30T00:00:00.000Z'),
+    });
   });
 });

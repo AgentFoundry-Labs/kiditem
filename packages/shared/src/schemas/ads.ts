@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 export const AdExtensionReplayIdempotencyKeySchema = z.string()
   .max(160)
@@ -95,6 +96,19 @@ export const AdCampaignSnapshotSchema = z.object({
   campaignIdentity: z.string().min(1),
   campaignId: z.string().nullable(),
   campaignName: z.string().nullable(),
+  /**
+   * Whether the requested period has additive campaign facts.
+   *
+   * A completed campaign sweep can observe an OFF campaign without producing
+   * dated performance facts. In that case the structural `metrics` object is
+   * still present, but consumers must render unknown values rather than its
+   * zero placeholders.
+   */
+  metricsAvailable: z.boolean(),
+  /** Current provider state from the latest identity-complete sweep. */
+  status: z.string().nullable(),
+  /** Current provider ON/OFF state from the latest identity-complete sweep. */
+  onOff: z.string().nullable(),
   period: z.string(),
   /**
    * Whether `metrics.conversions` is a collected value at all.
@@ -108,6 +122,22 @@ export const AdCampaignSnapshotSchema = z.object({
   metrics: AdMetricsSchema,
 });
 export type AdCampaignSnapshot = z.infer<typeof AdCampaignSnapshotSchema>;
+
+/**
+ * Durable browser campaign/product sweep freshness.
+ *
+ * Only the persisted identity-complete terminal sweep marker may produce
+ * `fresh` or `stale`. A browser success callback by itself is not evidence
+ * that every campaign identity and its product rows were collected.
+ */
+export const AdCampaignSyncStatusSchema = z.object({
+  status: z.enum(['fresh', 'stale', 'incomplete', 'missing']),
+  lastCompletedAt: zIsoDate.nullable(),
+  campaignCount: z.number().int().nonnegative(),
+});
+export type AdCampaignSyncStatus = z.infer<
+  typeof AdCampaignSyncStatusSchema
+>;
 
 export const AdProductSnapshotSchema = z.object({
   listing: AdListingSummarySchema.nullable(),

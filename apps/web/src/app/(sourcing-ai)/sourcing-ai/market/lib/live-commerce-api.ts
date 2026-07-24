@@ -67,3 +67,24 @@ export function fetchLiveCommerceSnapshots(days: number): Promise<{
 }> {
   return apiClient.get(`/api/sourcing/live-commerce/snapshots?days=${days}`);
 }
+
+export interface LiveTrendKeywordView {
+  keyword: string;
+  productCount: number;
+  broadcastCount: number;
+  sources: string[];
+  totalSales: number | null;
+  minPriceCny: number | null;
+  maxPriceCny: number | null;
+  sampleTitles: string[];
+  topImageUrl: string | null;
+  latestCapturedAt: string | null;
+}
+
+/** 라이브 방송 노출 상품명에서 역추출한 문구·완구 트렌드 키워드. */
+export function fetchLiveCommerceKeywords(days: number): Promise<{
+  days: number;
+  keywords: LiveTrendKeywordView[];
+}> {
+  return apiClient.get(`/api/sourcing/live-commerce/keywords?days=${days}`);
+}

@@ -2,7 +2,8 @@
 
 import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
 import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { toast } from 'sonner';
 import {
   sendBrowserCollectionControl,
   syncBrowserCollectionAlert,
@@ -27,15 +28,26 @@ export function BrowserCollectionRunControls({
   showCancel = true,
 }: BrowserCollectionRunControlsProps) {
   const queryClient = useQueryClient();
-  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [busyControlAction, setBusyControlAction] =
+    useState<BrowserCollectionControlAction | null>(null);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const controlInFlightRef = useRef(false);
+  const restartInFlightRef = useRef(false);
   const isRunning = session.status === 'running';
   const needsAttention = session.status === 'attention_required';
 
   if (!isRunning && !needsAttention) return null;
 
   const runControl = async (action: BrowserCollectionControlAction) => {
-    if (busyAction) return;
-    setBusyAction(action);
+    const canRunDuringRestart = action === 'cancelCollectionSession';
+    if (
+      controlInFlightRef.current ||
+      (restartInFlightRef.current && !canRunDuringRestart)
+    ) {
+      return;
+    }
+    controlInFlightRef.current = true;
+    setBusyControlAction(action);
     try {
       const response = await sendBrowserCollectionControl(session.runId, action);
       if (response) {
@@ -44,14 +56,21 @@ export function BrowserCollectionRunControls({
       }
     } catch (error) {
       console.warn(`[browser-collection] ${action} failed`, error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : '브라우저 수집 제어 요청에 실패했습니다.',
+      );
     } finally {
-      setBusyAction(null);
+      controlInFlightRef.current = false;
+      setBusyControlAction(null);
     }
   };
 
   const restart = async () => {
-    if (busyAction) return;
-    setBusyAction('restart');
+    if (restartInFlightRef.current || controlInFlightRef.current) return;
+    restartInFlightRef.current = true;
+    setIsRestarting(true);
     try {
       if (session.restartStrategy === 'web') {
         await onWebRestart(session);
@@ -68,7 +87,8 @@ export function BrowserCollectionRunControls({
     } catch (error) {
       console.warn('[browser-collection] restart failed', error);
     } finally {
-      setBusyAction(null);
+      restartInFlightRef.current = false;
+      setIsRestarting(false);
     }
   };
 
@@ -78,6 +98,8 @@ export function BrowserCollectionRunControls({
       : 0;
   const buttonClassName =
     'rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-sunken)] disabled:cursor-wait disabled:opacity-60';
+  const isControlBusy = busyControlAction !== null;
+  const isRestartControlBusy = isRestarting || isControlBusy;
 
   return (
     <div
@@ -121,7 +143,7 @@ export function BrowserCollectionRunControls({
           <button
             type="button"
             className={buttonClassName}
-            disabled={busyAction !== null}
+            disabled={isRestartControlBusy}
             onClick={() => void runControl('openCollectionAttentionTab')}
           >
             확인 탭 열기
@@ -133,7 +155,7 @@ export function BrowserCollectionRunControls({
           <button
             type="button"
             className={buttonClassName}
-            disabled={busyAction !== null}
+            disabled={isRestartControlBusy}
             onClick={() => void restart()}
           >
             처음부터 재실행
@@ -143,7 +165,7 @@ export function BrowserCollectionRunControls({
           <button
             type="button"
             className={buttonClassName}
-            disabled={busyAction !== null}
+            disabled={isControlBusy}
             onClick={() => void runControl('cancelCollectionSession')}
           >
             중단
