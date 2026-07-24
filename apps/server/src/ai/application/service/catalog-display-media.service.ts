@@ -19,7 +19,7 @@ export class CatalogDisplayMediaService implements CatalogDisplayMediaPort {
     private readonly repository: CatalogDisplayMediaRepositoryPort,
   ) {}
 
-  async findCoupangDisplayMedia(input: {
+  async findDisplayMedia(input: {
     organizationId: string;
     requests: CatalogDisplayMediaRequest[];
   }): Promise<Map<string, CatalogDisplayMedia>> {
@@ -30,7 +30,7 @@ export class CatalogDisplayMediaService implements CatalogDisplayMediaPort {
     )].sort((left, right) => left.localeCompare(right));
     if (channelListingIds.length === 0) return new Map();
 
-    const candidates = await this.repository.findCoupangCandidates({
+    const candidates = await this.repository.findCandidates({
       organizationId: input.organizationId,
       channelListingIds,
     });
@@ -40,7 +40,8 @@ export class CatalogDisplayMediaService implements CatalogDisplayMediaPort {
       if (!picked) continue;
       result.set(request.key, {
         url: picked.asset.url,
-        source: 'coupang_catalog',
+        source: 'channel_catalog',
+        channel: picked.asset.channel,
         channelListingId: picked.target.channelListingId,
         externalOptionId: picked.target.externalOptionId,
       });

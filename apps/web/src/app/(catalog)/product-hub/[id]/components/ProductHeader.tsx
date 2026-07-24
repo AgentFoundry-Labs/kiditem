@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { ArrowLeft, Package, Pencil } from 'lucide-react';
+import { ArrowLeft, Pencil } from 'lucide-react';
 import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
+import { MasterProductImage } from '../../components/MasterProductImage';
 
 export default function ProductHeader({
   product,
@@ -19,8 +20,13 @@ export default function ProductHeader({
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--card-bg)] p-6">
         <div className="flex min-w-0 items-center gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[var(--primary-soft)] text-[var(--primary)]">
-            <Package size={24} />
+          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--primary-soft)] text-[var(--primary)]">
+            <MasterProductImage
+              imageUrl={product.imageUrls[0]}
+              productName={product.name}
+              className="h-full w-full object-cover"
+              loading="eager"
+            />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">

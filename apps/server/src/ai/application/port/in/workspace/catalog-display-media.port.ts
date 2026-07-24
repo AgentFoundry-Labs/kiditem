@@ -12,13 +12,14 @@ export type CatalogDisplayMediaRequest = Readonly<{
 
 export type CatalogDisplayMedia = Readonly<{
   url: string;
-  source: 'coupang_catalog';
+  source: 'channel_catalog';
+  channel: string;
   channelListingId: string;
   externalOptionId: string | null;
 }>;
 
 export interface CatalogDisplayMediaPort {
-  findCoupangDisplayMedia(input: {
+  findDisplayMedia(input: {
     organizationId: string;
     requests: CatalogDisplayMediaRequest[];
   }): Promise<Map<string, CatalogDisplayMedia>>;

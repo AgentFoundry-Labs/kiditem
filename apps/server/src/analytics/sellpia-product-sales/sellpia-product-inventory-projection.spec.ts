@@ -149,7 +149,8 @@ function destination(productVariantId: string, url: string) {
     abcGrade: null,
     displayImage: {
       url,
-      source: 'coupang_catalog' as const,
+      source: 'channel_catalog' as const,
+      channel: 'coupang',
       channelListingId: '44444444-4444-4444-8444-444444444444',
       externalOptionId: 'option-1',
     },

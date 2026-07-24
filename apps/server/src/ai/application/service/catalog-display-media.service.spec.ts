@@ -3,15 +3,15 @@ import { CatalogDisplayMediaService } from './catalog-display-media.service';
 
 describe('CatalogDisplayMediaService', () => {
   it('selects an exact option image, then a listing primary, across ordered listing candidates', async () => {
-    const findCoupangCandidates = vi.fn(async () => [
-      candidate({ id: 'primary-first', channelListingId: 'listing-1', role: 'primary', url: 'https://cdn.example/primary-1.jpg' }),
-      candidate({ id: 'wrong-option', channelListingId: 'listing-1', role: 'option', externalOptionId: 'other', url: 'https://cdn.example/other.jpg' }),
-      candidate({ id: 'exact-second', channelListingId: 'listing-2', role: 'option', externalOptionId: 'option-2', url: 'https://cdn.example/exact-2.jpg' }),
-      candidate({ id: 'primary-second', channelListingId: 'listing-2', role: 'primary', url: 'https://cdn.example/primary-2.jpg' }),
+    const findCandidates = vi.fn(async () => [
+      candidate({ id: 'primary-first', channel: 'coupang', channelListingId: 'listing-1', role: 'primary', url: 'https://cdn.example/primary-1.jpg' }),
+      candidate({ id: 'wrong-option', channel: 'coupang', channelListingId: 'listing-1', role: 'option', externalOptionId: 'other', url: 'https://cdn.example/other.jpg' }),
+      candidate({ id: 'exact-second', channel: 'naver', channelListingId: 'listing-2', role: 'option', externalOptionId: 'option-2', url: 'https://cdn.example/exact-2.jpg' }),
+      candidate({ id: 'primary-second', channel: 'naver', channelListingId: 'listing-2', role: 'primary', url: 'https://cdn.example/primary-2.jpg' }),
     ]);
-    const service = new CatalogDisplayMediaService({ findCoupangCandidates });
+    const service = new CatalogDisplayMediaService({ findCandidates } as never);
 
-    const result = await service.findCoupangDisplayMedia({
+    const result = await service.findDisplayMedia({
       organizationId: 'org-1',
       requests: [
         {
@@ -32,13 +32,14 @@ describe('CatalogDisplayMediaService', () => {
       ],
     });
 
-    expect(findCoupangCandidates).toHaveBeenCalledWith({
+    expect(findCandidates).toHaveBeenCalledWith({
       organizationId: 'org-1',
       channelListingIds: ['listing-1', 'listing-2', 'listing-empty'],
     });
     expect(result.get('exact')).toEqual({
       url: 'https://cdn.example/exact-2.jpg',
-      source: 'coupang_catalog',
+      source: 'channel_catalog',
+      channel: 'naver',
       channelListingId: 'listing-2',
       externalOptionId: 'option-2',
     });
@@ -56,14 +57,14 @@ describe('CatalogDisplayMediaService', () => {
 
   it('uses deterministic asset ties, omits requests without an eligible asset, and rejects duplicate keys', async () => {
     const service = new CatalogDisplayMediaService({
-      findCoupangCandidates: vi.fn(async () => [
-        candidate({ id: 'z-id', channelListingId: 'listing-1', role: 'primary', sortOrder: 1, url: 'https://cdn.example/z.jpg' }),
-        candidate({ id: 'a-id', channelListingId: 'listing-1', role: 'primary', sortOrder: 1, url: 'https://cdn.example/a.jpg' }),
-        candidate({ id: 'first-id', channelListingId: 'listing-1', role: 'primary', sortOrder: 0, url: 'https://cdn.example/x.jpg' }),
+      findCandidates: vi.fn(async () => [
+        candidate({ id: 'z-id', channel: 'coupang', channelListingId: 'listing-1', role: 'primary', sortOrder: 1, url: 'https://cdn.example/z.jpg' }),
+        candidate({ id: 'a-id', channel: 'coupang', channelListingId: 'listing-1', role: 'primary', sortOrder: 1, url: 'https://cdn.example/a.jpg' }),
+        candidate({ id: 'first-id', channel: 'coupang', channelListingId: 'listing-1', role: 'primary', sortOrder: 0, url: 'https://cdn.example/x.jpg' }),
       ]),
-    });
+    } as never);
 
-    const result = await service.findCoupangDisplayMedia({
+    const result = await service.findDisplayMedia({
       organizationId: 'org-1',
       requests: [
         { key: 'winner', candidates: [{ channelListingId: 'listing-1', externalOptionId: null }] },
@@ -73,7 +74,7 @@ describe('CatalogDisplayMediaService', () => {
 
     expect(result.get('winner')?.url).toBe('https://cdn.example/x.jpg');
     expect(result.has('missing')).toBe(false);
-    await expect(service.findCoupangDisplayMedia({
+    await expect(service.findDisplayMedia({
       organizationId: 'org-1',
       requests: [
         { key: 'duplicate', candidates: [] },
@@ -85,6 +86,7 @@ describe('CatalogDisplayMediaService', () => {
 
 function candidate(input: {
   id: string;
+  channel: string;
   channelListingId: string;
   url: string;
   role: 'primary' | 'option';

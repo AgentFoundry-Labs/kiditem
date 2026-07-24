@@ -37,7 +37,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       new SellpiaProductInventoryReader(
         prismaService,
         inventory,
-        { findCoupangDisplayMedia: async () => new Map() },
+        { findDisplayMedia: async () => new Map() },
       ),
       eventEmitter,
     );

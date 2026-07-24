@@ -11,7 +11,7 @@ export class CatalogDisplayMediaRepositoryAdapter
 {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findCoupangCandidates(input: {
+  async findCandidates(input: {
     organizationId: string;
     channelListingIds: string[];
   }): Promise<CatalogDisplayMediaCandidate[]> {
@@ -32,7 +32,6 @@ export class CatalogDisplayMediaRepositoryAdapter
             channelAccount: {
               is: {
                 organizationId: input.organizationId,
-                channel: 'coupang',
                 status: 'active',
               },
             },
@@ -41,6 +40,9 @@ export class CatalogDisplayMediaRepositoryAdapter
       },
       select: {
         channelListingId: true,
+        channelListing: {
+          select: { channelAccount: { select: { channel: true } } },
+        },
         contentGenerationGroups: {
           where: {
             organizationId: input.organizationId,
@@ -70,27 +72,39 @@ export class CatalogDisplayMediaRepositoryAdapter
     return workspaces.flatMap((workspace) => {
       const channelListingId = workspace.channelListingId;
       if (!channelListingId) return [];
+      const channel = workspace.channelListing?.channelAccount.channel;
+      if (!channel) return [];
       return workspace.contentGenerationGroups.flatMap((group) =>
         group.originatingAssets.flatMap((asset): CatalogDisplayMediaCandidate[] => {
           const metadata = record(asset.metadata);
           if (
-            metadata?.sourceType !== 'coupang_catalog'
-            || metadata.active === false
+            !isChannelCatalogMetadata(metadata, channel)
+            || metadata?.active === false
             || !asset.url.trim()
             || (asset.role !== 'primary' && asset.role !== 'option')
           ) return [];
           return [{
             id: asset.id,
+            channel,
             channelListingId,
             url: asset.url,
             role: asset.role,
             sortOrder: asset.sortOrder,
-            externalOptionId: nonEmptyString(metadata.externalOptionId),
+            externalOptionId: nonEmptyString(metadata?.externalOptionId),
           }];
         }),
       );
     });
   }
+}
+
+function isChannelCatalogMetadata(
+  metadata: Record<string, unknown> | null,
+  channel: string,
+): boolean {
+  if (metadata?.sourceType === 'coupang_catalog') return channel === 'coupang';
+  return metadata?.sourceType === 'channel_catalog'
+    && nonEmptyString(metadata.channel) === channel;
 }
 
 function record(value: unknown): Record<string, unknown> | null {

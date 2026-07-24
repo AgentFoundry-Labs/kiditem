@@ -46,7 +46,7 @@ function makePrisma() {
   const inventoryReader = new SellpiaProductInventoryReader(
     prisma as never,
     { findBySkuIds: inventoryAvailability } as never,
-    { findCoupangDisplayMedia: vi.fn(async () => new Map()) } as never,
+    { findDisplayMedia: vi.fn(async () => new Map()) } as never,
   );
   const eventEmitter = {
     emitAsync: vi.fn(async () => {

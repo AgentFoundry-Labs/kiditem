@@ -58,7 +58,8 @@ function destination(
     abcGrade,
     displayImage: url ? {
       url,
-      source: 'coupang_catalog' as const,
+      source: 'channel_catalog' as const,
+      channel: 'coupang',
       channelListingId: `listing-${suffix}`,
       externalOptionId: `option-${suffix}`,
     } : null,

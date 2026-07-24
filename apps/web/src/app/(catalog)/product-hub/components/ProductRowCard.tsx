@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowUpRight, PackageSearch } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
+import { MasterProductImage } from './MasterProductImage';
 
 const INVENTORY_LABELS = {
   sellable: '판매 가능',
@@ -38,11 +39,11 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
             <p className="mt-1 text-[10px] font-semibold text-[var(--text-muted)]">등급</p>
           </div>
           <div className="flex h-[88px] w-[88px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-muted)]">
-            {product.imageUrls[0] ? (
-              <img src={product.imageUrls[0]} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <PackageSearch size={22} />
-            )}
+            <MasterProductImage
+              imageUrl={product.imageUrls[0]}
+              productName={product.name}
+              className="h-full w-full object-cover"
+            />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">

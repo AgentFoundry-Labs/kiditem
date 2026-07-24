@@ -4,9 +4,10 @@ import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reade
 describe('SellpiaProductInventoryReader display-media enrichment', () => {
   it('batches one ordered request per destination variant and retains the returned image', async () => {
     const skuId = '11111111-1111-4111-8111-111111111111';
-    const findCoupangDisplayMedia = vi.fn(async () => new Map([['variant-1', {
+    const findDisplayMedia = vi.fn(async () => new Map([['variant-1', {
       url: 'https://cdn.example/exact.jpg',
-      source: 'coupang_catalog' as const,
+      source: 'channel_catalog' as const,
+      channel: 'coupang',
       channelListingId: 'listing-origin',
       externalOptionId: 'option-origin',
     }]]));
@@ -27,7 +28,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
         items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, activeCommitmentQuantity: 0, availableStock: 10, isActive: true, generation: '1' }],
       })),
-    } as never, { findCoupangDisplayMedia });
+    } as never, { findDisplayMedia });
 
     const result = await reader.project('org-1', [{
       key: 'SKU-1',
@@ -35,13 +36,14 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
       completeMonthly: [{ yearMonth: '2026-06', orderQty: 1 }],
     }]);
 
-    expect(findCoupangDisplayMedia).toHaveBeenCalledWith({
+    expect(findDisplayMedia).toHaveBeenCalledWith({
       organizationId: 'org-1',
       requests: [{
         key: 'variant-1',
         candidates: [
           { channelListingId: 'listing-origin', externalOptionId: 'option-origin' },
           { channelListingId: 'listing-primary', externalOptionId: 'option-primary' },
+          { channelListingId: 'listing-naver', externalOptionId: 'option-naver' },
         ],
       }],
     });
@@ -66,6 +68,9 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
         },
       }),
     }));
+    expect(destinationFindMany.mock.calls[0]?.[0]).not.toHaveProperty(
+      'select.productVariant.select.channelListingOptions.where.listing.is.channelAccount.is.channel',
+    );
   });
 
   it('logs media failure and preserves the inventory projection with null images', async () => {
@@ -78,7 +83,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
         items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, activeCommitmentQuantity: 0, availableStock: 10, isActive: true, generation: '1' }],
       })),
-    } as never, { findCoupangDisplayMedia: vi.fn(async () => { throw new Error('unavailable'); }) });
+    } as never, { findDisplayMedia: vi.fn(async () => { throw new Error('unavailable'); }) });
     const warn = vi.spyOn((reader as never as { logger: { warn: () => void } }).logger, 'warn').mockImplementation(() => undefined);
 
     const result = await reader.project('org-1', [{
@@ -102,16 +107,23 @@ function variant() {
     channelListingOptions: [
       option('listing-primary', 'option-primary', 'B', true),
       option('listing-origin', 'option-origin', 'A', false),
+      option('listing-naver', 'option-naver', 'C', false, 'naver'),
     ],
   };
 }
 
-function option(listingId: string, externalOptionId: string, externalId: string, isPrimary: boolean) {
+function option(
+  listingId: string,
+  externalOptionId: string,
+  externalId: string,
+  isPrimary: boolean,
+  channel = 'coupang',
+) {
   return {
     organizationId: 'org-1', productVariantId: 'variant-1', externalOptionId, isActive: true,
     listing: {
       id: listingId, organizationId: 'org-1', masterProductId: 'master-1', externalId, isActive: true,
-      channelAccount: { organizationId: 'org-1', channel: 'coupang', status: 'active', isPrimary },
+      channelAccount: { organizationId: 'org-1', channel, status: 'active', isPrimary },
     },
   };
 }

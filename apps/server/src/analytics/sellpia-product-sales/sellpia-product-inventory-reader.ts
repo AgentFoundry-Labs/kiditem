@@ -83,7 +83,6 @@ export class SellpiaProductInventoryReader {
                       channelAccount: {
                         is: {
                           organizationId,
-                          channel: 'coupang',
                           status: 'active',
                         },
                       },
@@ -121,11 +120,11 @@ export class SellpiaProductInventoryReader {
       : [];
     const mediaRequests = uniqueMediaRequests(organizationId, destinationRows);
     let mediaByVariantId = new Map<string, Awaited<ReturnType<
-      CatalogDisplayMediaPort['findCoupangDisplayMedia']
+      CatalogDisplayMediaPort['findDisplayMedia']
     >> extends Map<string, infer Media> ? Media : never>();
     if (mediaRequests.length > 0) {
       try {
-        mediaByVariantId = await this.catalogDisplayMedia.findCoupangDisplayMedia({
+        mediaByVariantId = await this.catalogDisplayMedia.findDisplayMedia({
           organizationId,
           requests: mediaRequests,
         });
@@ -251,7 +250,7 @@ function selectDestinationOptionTargets(input: {
       || listing.masterProductId !== input.masterProductId
       || !listing.isActive
       || account.organizationId !== input.organizationId
-      || account.channel !== 'coupang'
+      || !account.channel.trim()
       || account.status !== 'active'
     ) return [];
     return [{

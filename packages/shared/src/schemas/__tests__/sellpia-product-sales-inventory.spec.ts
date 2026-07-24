@@ -20,7 +20,8 @@ const destination = {
   abcGrade: 'A',
   displayImage: {
     url: 'https://image.coupangcdn.com/catalog.jpg',
-    source: 'coupang_catalog',
+    source: 'channel_catalog',
+    channel: 'coupang',
     channelListingId: '44444444-4444-4444-8444-444444444444',
     externalOptionId: null,
   },
@@ -86,7 +87,7 @@ describe('Sellpia product-sales inventory contracts', () => {
     expect(SellpiaProductInventoryResolutionSchema.parse(matched)).toEqual(matched);
   });
 
-  it('requires a read-only Coupang catalog display image shape when present', () => {
+  it('requires a read-only channel catalog display image shape when present', () => {
     expect(SellpiaProductInventoryResolutionSchema.parse(salesRow().inventoryResolution))
       .toEqual(salesRow().inventoryResolution);
     expect(() => SellpiaProductInventoryResolutionSchema.parse({

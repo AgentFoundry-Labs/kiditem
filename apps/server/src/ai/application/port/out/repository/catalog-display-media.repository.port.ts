@@ -4,6 +4,7 @@ export const CATALOG_DISPLAY_MEDIA_REPOSITORY_PORT = Symbol(
 
 export type CatalogDisplayMediaCandidate = Readonly<{
   id: string;
+  channel: string;
   channelListingId: string;
   url: string;
   role: 'primary' | 'option';
@@ -12,7 +13,7 @@ export type CatalogDisplayMediaCandidate = Readonly<{
 }>;
 
 export interface CatalogDisplayMediaRepositoryPort {
-  findCoupangCandidates(input: {
+  findCandidates(input: {
     organizationId: string;
     channelListingIds: string[];
   }): Promise<CatalogDisplayMediaCandidate[]>;

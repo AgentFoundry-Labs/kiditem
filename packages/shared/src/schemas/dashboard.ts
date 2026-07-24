@@ -447,7 +447,8 @@ export const SellpiaProductSalesMonthPointSchema = z.object({
 export const SellpiaProductTrendSchema = z.enum(['up', 'down', 'flat']);
 export const SellpiaProductDestinationDisplayImageSchema = z.object({
   url: z.string().url(),
-  source: z.literal('coupang_catalog'),
+  source: z.literal('channel_catalog'),
+  channel: z.string().trim().min(1).max(100),
   channelListingId: z.string().uuid(),
   externalOptionId: z.string().min(1).nullable(),
 }).strict();
