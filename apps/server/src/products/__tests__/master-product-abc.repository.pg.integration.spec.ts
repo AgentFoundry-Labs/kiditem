@@ -42,6 +42,13 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
       grades: new Map([[own.id, 'A']]),
       metricValues: new Map([[own.id, 10]]),
     });
+    await repository.publishGrades({
+      organizationId: TEST_ORGANIZATION_ID,
+      policy: { ...policy, metric: 'SALES_AMOUNT', periodDays: 90 },
+      sourceCapturedAt: new Date('2026-07-24T00:00:00Z'),
+      grades: new Map([[own.id, 'A']]),
+      metricValues: new Map([[own.id, 10]]),
+    });
 
     expect(first.changedProductCount).toBe(1);
     expect(retry.changedProductCount).toBe(0);
@@ -49,5 +56,8 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
     expect((await prisma.masterProduct.findUniqueOrThrow({ where: { id: foreign.id } })).abcGrade).toBeNull();
     await expect(prisma.masterProductAbcGradeHistory.findMany({ where: { organizationId: TEST_ORGANIZATION_ID } }))
       .resolves.toEqual([expect.objectContaining({ masterProductId: own.id, oldGrade: null, newGrade: 'A' })]);
+    await expect(repository.findPolicy(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
+      metric: 'SALES_AMOUNT', periodDays: 90,
+    });
   });
 });

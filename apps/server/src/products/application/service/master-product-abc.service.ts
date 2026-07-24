@@ -42,13 +42,23 @@ export class MasterProductAbcService {
   async updatePolicy(organizationId: string, rawInput: unknown) {
     const parsed = MasterProductAbcPolicySchema.safeParse(rawInput);
     if (!parsed.success) throw new BadRequestException('Invalid MasterProduct ABC policy');
-    await this.repository.savePolicy(organizationId, parsed.data);
-    const result = await this.recalculate(organizationId);
-    return { policy: await this.getPolicy(organizationId), result };
+    const published = await this.recalculateWithPolicy(organizationId, {
+      ...parsed.data,
+      lastCalculatedAt: null,
+      sourceCapturedAt: null,
+    });
+    return published;
   }
 
   async recalculate(organizationId: string): Promise<MasterProductAbcRecalculationResult> {
     const policy = await this.getPolicy(organizationId);
+    return (await this.recalculateWithPolicy(organizationId, policy)).result;
+  }
+
+  private async recalculateWithPolicy(
+    organizationId: string,
+    policy: MasterProductAbcPolicyResponse,
+  ): Promise<{ policy: MasterProductAbcPolicyResponse; result: MasterProductAbcRecalculationResult }> {
     const snapshot = await this.metrics.readMetricSnapshot({
       organizationId,
       metric: policy.metric,
@@ -71,10 +81,13 @@ export class MasterProductAbcService {
       abcGrade,
     }));
     return {
-      changedProductCount: published.changedProductCount,
-      classifiedProductCount: gradeItems.filter(({ abcGrade }) => abcGrade !== null).length,
-      unclassifiedProductCount: gradeItems.filter(({ abcGrade }) => abcGrade === null).length,
-      grades: gradeItems,
+      policy: published.policy,
+      result: {
+        changedProductCount: published.changedProductCount,
+        classifiedProductCount: gradeItems.filter(({ abcGrade }) => abcGrade !== null).length,
+        unclassifiedProductCount: gradeItems.filter(({ abcGrade }) => abcGrade === null).length,
+        grades: gradeItems,
+      },
     };
   }
 }

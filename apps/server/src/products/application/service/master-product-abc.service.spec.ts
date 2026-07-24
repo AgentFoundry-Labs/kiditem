@@ -55,7 +55,7 @@ describe('MasterProductAbcService', () => {
     }));
   });
 
-  it('validates and stores a complete policy under the authenticated organization', async () => {
+  it('publishes a policy change atomically with recalculation under the authenticated organization', async () => {
     const { MasterProductAbcService } = await serviceModule();
     const policy = {
       metric: 'SALES_AMOUNT', periodDays: 90,
@@ -63,7 +63,6 @@ describe('MasterProductAbcService', () => {
       lastCalculatedAt: null, sourceCapturedAt: null,
     };
     const repository = {
-      savePolicy: vi.fn().mockResolvedValue(policy),
       findPolicy: vi.fn().mockResolvedValue(policy),
       publishGrades: vi.fn().mockResolvedValue({ changedProductCount: 0, policy }),
     };
@@ -74,12 +73,28 @@ describe('MasterProductAbcService', () => {
       metric: 'SALES_AMOUNT', periodDays: 90,
       aCumulativeThreshold: 60, bCumulativeThreshold: 85,
     });
-    expect(repository.savePolicy).toHaveBeenCalledWith(organizationId, expect.objectContaining({
-      metric: 'SALES_AMOUNT', periodDays: 90,
-    }));
     expect(metrics.readMetricSnapshot).toHaveBeenCalledWith({
       organizationId, metric: 'SALES_AMOUNT', periodDays: 90,
     });
     expect(repository.publishGrades).toHaveBeenCalledOnce();
+    expect(repository.publishGrades).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId,
+      policy: expect.objectContaining({ metric: 'SALES_AMOUNT', periodDays: 90 }),
+    }));
+  });
+
+  it('leaves policy and grades untouched when candidate metric collection fails', async () => {
+    const { MasterProductAbcService } = await serviceModule();
+    const repository = { publishGrades: vi.fn(), findPolicy: vi.fn() };
+    const metrics = { readMetricSnapshot: vi.fn().mockRejectedValue(new Error('source unavailable')) };
+    const service = new MasterProductAbcService(repository as never, metrics as never);
+
+    await expect(service.updatePolicy(organizationId, {
+      metric: 'SALES_AMOUNT', periodDays: 90,
+      aCumulativeThreshold: 60, bCumulativeThreshold: 85,
+    })).rejects.toThrow('source unavailable');
+
+    expect(repository.publishGrades).not.toHaveBeenCalled();
+    expect(repository.findPolicy).not.toHaveBeenCalled();
   });
 });

@@ -15,15 +15,6 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
     return row ? toPolicy(row) : null;
   }
 
-  async savePolicy(organizationId: string, policy: Omit<MasterProductAbcPolicyRecord, 'lastCalculatedAt' | 'sourceCapturedAt'>) {
-    const row = await this.prisma.masterProductAbcPolicy.upsert({
-      where: { organizationId },
-      create: { organizationId, ...policy },
-      update: { ...policy },
-    });
-    return toPolicy(row);
-  }
-
   async publishGrades(input: {
     organizationId: string;
     policy: MasterProductAbcPolicyRecord;
@@ -75,7 +66,14 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
           lastCalculatedAt: calculatedAt,
           sourceCapturedAt: input.sourceCapturedAt,
         },
-        update: { lastCalculatedAt: calculatedAt, sourceCapturedAt: input.sourceCapturedAt },
+        update: {
+          metric: input.policy.metric,
+          periodDays: input.policy.periodDays,
+          aCumulativeThreshold: input.policy.aCumulativeThreshold,
+          bCumulativeThreshold: input.policy.bCumulativeThreshold,
+          lastCalculatedAt: calculatedAt,
+          sourceCapturedAt: input.sourceCapturedAt,
+        },
       });
       return { changedProductCount: applied.length, policy: toPolicy(policy) };
     });
