@@ -2,13 +2,14 @@
 
 ## Purpose
 
-Package and publish each KidItem Chrome extension as one universal artifact
-that supports local and staging simultaneously. Publishing is a manual GitHub
-Release operation; there is no GitHub Actions extension-publishing workflow.
+Package all KidItem Chrome extensions as universal artifacts that support local
+and staging simultaneously, then publish them together in the GitHub Release
+for the staging deployment tag. Publishing is manual; there is no GitHub
+Actions extension-publishing workflow.
 GitHub Packages/GHCR remains for server images and is not an extension
 distribution channel.
 
-Each extension owns its independent Chrome manifest version:
+Each extension keeps an independent Chrome manifest version inside the bundle:
 
 | Extension | Source of truth |
 |---|---|
@@ -16,8 +17,9 @@ Each extension owns its independent Chrome manifest version:
 | Coupang Wing and ads | `extensions/coupang-ads-scraper/manifest.json` |
 | Order and inventory collection | `extensions/order-collector/manifest.json` |
 
-Root `VERSION` remains the deployable application release train. Do not bump it
-only to publish an extension.
+Root `VERSION` remains the deployable application release train. The public
+distribution unit is one `staging-v<VERSION>-<date>-<sha>` Release containing
+all three extension ZIPs, not three extension-specific Releases.
 
 ## Universal Environment Contract
 
@@ -35,8 +37,8 @@ only to publish an extension.
 
 ## Prerequisites
 
-- Work from a clean local `main` that exactly matches `origin/main` before
-  publishing.
+- Work from a clean local `main` that exactly matches `origin/main` and the
+  staging deployment tag before publishing.
 - Install and authenticate GitHub CLI with repository release permission.
 - Keep the `zip` CLI available on `PATH`.
 - Never place tokens, cookies, marketplace credentials, or browser session data
@@ -52,13 +54,14 @@ only to publish an extension.
 2. Chrome versions are one to four dot-separated non-negative integers.
 3. Update tests that deliberately lock the exact manifest version.
 4. Merge the versioned source to `main` before publishing.
-5. A published tag and its assets are immutable. A correction receives a
-   higher manifest version; never replace a prior Release asset.
+5. A published deployment tag and its assets are immutable. A correction is
+   included in a later staging deployment bundle; never replace prior assets.
 
-Release tags use this format:
+Bundle Release tags are the staging deployment tags created by the deployment
+workflow:
 
 ```text
-extension-<directory>-v<manifest-version>
+staging-v<VERSION>-<YYYYMMDD>-<short-sha>
 ```
 
 ## Pack Without Publishing
@@ -67,33 +70,40 @@ Create a universal local package:
 
 ```bash
 npm run extension:release -- pack \
-  --extension coupang-ads-scraper
+  --deployment-tag staging-v0.1.26-20260725-58dacdef
 ```
 
-Supported extension names are `product-scraper`, `coupang-ads-scraper`, and
+This always packages `product-scraper`, `coupang-ads-scraper`, and
 `order-collector`. Use `--output-dir <path>` only when the default ignored
-output root is unsuitable.
+output root is unsuitable. Per-extension packaging is intentionally unsupported.
 
 The default output layout is:
 
 ```text
-output/extensions/<extension>/<version>/universal/
+output/extensions/bundles/<deployment-tag>/
 ├── unpacked/
-├── kiditem-<extension>-v<version>.zip
-├── kiditem-<extension>-v<version>.zip.sha256
-└── kiditem-<extension>-v<version>.release.json
+│   ├── product-scraper/
+│   ├── coupang-ads-scraper/
+│   └── order-collector/
+├── kiditem-product-scraper-v<version>.zip
+├── kiditem-product-scraper-v<version>.zip.sha256
+├── kiditem-coupang-ads-scraper-v<version>.zip
+├── kiditem-coupang-ads-scraper-v<version>.zip.sha256
+├── kiditem-order-collector-v<version>.zip
+├── kiditem-order-collector-v<version>.zip.sha256
+└── kiditem-extension-bundle-<deployment-tag>.release.json
 ```
 
-The metadata uses `kiditem.extension.release.v2`, records the universal target,
-the local/staging environment profiles, the current Git SHA, and the archive
-hash. Verify the local artifact before publishing:
+The combined metadata uses `kiditem.extension.release.v3` and records the
+deployment tag, Git SHA, environments, and all archive versions and hashes.
+Verify every artifact before publishing:
 
 ```bash
-RELEASE_DIR="output/extensions/coupang-ads-scraper/<version>/universal"
-ASSET="kiditem-coupang-ads-scraper-v<version>"
+DEPLOYMENT_TAG="staging-v<VERSION>-<YYYYMMDD>-<short-sha>"
+RELEASE_DIR="output/extensions/bundles/$DEPLOYMENT_TAG"
 
-(cd "$RELEASE_DIR" && shasum -a 256 -c "$ASSET.zip.sha256")
-unzip -l "$RELEASE_DIR/$ASSET.zip"
+(cd "$RELEASE_DIR" && for checksum in *.zip.sha256; do shasum -a 256 -c "$checksum"; done)
+for archive in "$RELEASE_DIR"/*.zip; do unzip -l "$archive"; done
 ```
 
 ## Create A Draft GitHub Release
@@ -106,21 +116,20 @@ git switch main
 git pull --ff-only origin main
 
 npm run extension:release -- publish \
-  --extension coupang-ads-scraper
+  --deployment-tag "$DEPLOYMENT_TAG"
 ```
 
 The publisher refuses to run unless the worktree is clean and `HEAD` exactly
-matches `origin/main`. It refuses to replace an existing Release tag and marks
-extension Releases as prerelease and non-latest so they do not replace the
+matches `origin/main`, and the deployment tag points to that exact SHA. It
+refuses to replace an existing Release and marks bundle Releases as prerelease
+and non-latest so they do not replace the
 repository's application-level Latest release.
 
 Inspect and publish the draft:
 
 ```bash
-TAG="extension-coupang-ads-scraper-v<version>"
-
-gh release view "$TAG"
-gh release edit "$TAG" --draft=false --prerelease --latest=false
+gh release view "$DEPLOYMENT_TAG"
+gh release edit "$DEPLOYMENT_TAG" --draft=false --prerelease --latest=false
 ```
 
 An operator may publish immediately only after completing the same inspection
@@ -128,7 +137,7 @@ against a local package:
 
 ```bash
 npm run extension:release -- publish \
-  --extension coupang-ads-scraper \
+  --deployment-tag "$DEPLOYMENT_TAG" \
   --release-state published
 ```
 
@@ -140,7 +149,8 @@ command without mutating GitHub.
 GitHub Release ZIP files are manual unpacked-extension packages; Chrome does
 not install the ZIP directly.
 
-1. Download the ZIP and matching `.sha256` file from the intended Release.
+1. Open the intended staging deployment Release and download the required ZIPs
+   with their matching `.sha256` files.
 2. Verify the checksum.
 3. Extract it into a stable directory that is not deleted between restarts.
 4. Open `chrome://extensions`, enable Developer mode, and choose **Load

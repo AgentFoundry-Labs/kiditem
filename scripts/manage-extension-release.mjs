@@ -16,11 +16,11 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const supportedExtensions = new Set([
+const supportedExtensions = [
   "product-scraper",
   "coupang-ads-scraper",
   "order-collector",
-]);
+];
 const environmentProfiles = ["local", "staging"];
 
 function parseArgs(argv) {
@@ -121,14 +121,7 @@ function createArchive(unpackedDirectory, archivePath) {
   }
 }
 
-export function packExtensionRelease({
-  extension,
-  outputDirectory,
-}) {
-  if (!supportedExtensions.has(extension)) {
-    throw new Error(`Unsupported extension: ${extension}`);
-  }
-
+function packExtension(extension, releaseDirectory) {
   const sourceDirectory = join(repoRoot, "extensions", extension);
   const sourceManifest = JSON.parse(
     readFileSync(join(sourceDirectory, "manifest.json"), "utf8"),
@@ -138,17 +131,12 @@ export function packExtensionRelease({
     throw new Error(`Invalid Chrome manifest version: ${version}`);
   }
 
-  const target = "universal";
-  const releaseDirectory = resolve(outputDirectory, extension, version, target);
-  const unpackedDirectory = join(releaseDirectory, "unpacked");
+  const unpackedDirectory = join(releaseDirectory, "unpacked", extension);
   const assetBase = `kiditem-${extension}-v${version}`;
   const archiveFileName = `${assetBase}.zip`;
   const archivePath = join(releaseDirectory, archiveFileName);
   const checksumPath = `${archivePath}.sha256`;
-  const metadataPath = join(releaseDirectory, `${assetBase}.release.json`);
-
-  rmSync(releaseDirectory, { recursive: true, force: true });
-  mkdirSync(releaseDirectory, { recursive: true });
+  mkdirSync(unpackedDirectory, { recursive: true });
   copyLoadableExtension(sourceDirectory, unpackedDirectory);
   const manifest = JSON.parse(
     readFileSync(join(unpackedDirectory, "manifest.json"), "utf8"),
@@ -162,25 +150,53 @@ export function packExtensionRelease({
   const sha256 = createHash("sha256").update(archive).digest("hex");
   writeFileSync(checksumPath, `${sha256}  ${archiveFileName}\n`);
 
-  const metadata = {
-    schemaVersion: "kiditem.extension.release.v2",
+  return {
     extension,
     displayName: manifest.name,
     manifestVersion: version,
-    target,
-    environmentProfiles,
-    gitSha: gitSha(),
-    tag: `extension-${extension}-v${version}`,
     archive: {
       fileName: archiveFileName,
       sha256,
       size: statSync(archivePath).size,
     },
   };
+}
+
+function validateDeploymentTag(deploymentTag) {
+  if (!/^staging-v\d+\.\d+\.\d+-\d{8}-[0-9a-f]{8}$/.test(deploymentTag)) {
+    throw new Error(`Invalid staging deployment tag: ${deploymentTag}`);
+  }
+}
+
+export function packExtensionBundle({ deploymentTag, outputDirectory }) {
+  validateDeploymentTag(deploymentTag);
+  const releaseDirectory = resolve(outputDirectory, "bundles", deploymentTag);
+  const metadataPath = join(
+    releaseDirectory,
+    `kiditem-extension-bundle-${deploymentTag}.release.json`,
+  );
+
+  rmSync(releaseDirectory, { recursive: true, force: true });
+  mkdirSync(releaseDirectory, { recursive: true });
+  const extensions = supportedExtensions.map((extension) =>
+    packExtension(extension, releaseDirectory),
+  );
+  const metadata = {
+    schemaVersion: "kiditem.extension.release.v3",
+    deploymentTag,
+    target: "universal",
+    environmentProfiles,
+    gitSha: gitSha(),
+    extensions,
+  };
   writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
   return {
-    archivePath,
-    checksumPath,
+    archivePaths: extensions.map(({ archive }) =>
+      join(releaseDirectory, archive.fileName),
+    ),
+    checksumPaths: extensions.map(({ archive }) =>
+      join(releaseDirectory, `${archive.fileName}.sha256`),
+    ),
     metadataPath,
     releaseDirectory,
     metadata,
@@ -198,6 +214,15 @@ function assertPublishableMain(metadata) {
   if (remoteMainSha !== metadata.gitSha) {
     throw new Error("HEAD must exactly match origin/main before publishing");
   }
+  const deploymentSha = gitOutput([
+    "rev-list",
+    "-n",
+    "1",
+    metadata.deploymentTag,
+  ]);
+  if (deploymentSha !== metadata.gitSha) {
+    throw new Error("Deployment tag must point to the current main SHA");
+  }
 }
 
 export function githubReleaseCommand(result, { state = "draft" } = {}) {
@@ -208,28 +233,36 @@ export function githubReleaseCommand(result, { state = "draft" } = {}) {
   const args = [
     "release",
     "create",
-    metadata.tag,
+    metadata.deploymentTag,
     "--target",
     metadata.gitSha,
     "--latest=false",
     "--prerelease",
     "--title",
-    `${metadata.displayName} v${metadata.manifestVersion} (${metadata.target})`,
+    `KidItem Extension Bundle · ${metadata.deploymentTag}`,
     "--notes",
     [
-      `Extension: ${metadata.extension}`,
-      `Manifest version: ${metadata.manifestVersion}`,
+      `Deployment: ${metadata.deploymentTag}`,
       `Target: ${metadata.target}`,
       `Environments: ${metadata.environmentProfiles.join(", ")}`,
       `Git SHA: ${metadata.gitSha}`,
+      "",
+      ...metadata.extensions.map(
+        ({ extension, manifestVersion }) =>
+          `- ${extension}: v${manifestVersion}`,
+      ),
     ].join("\n"),
   ];
   if (state === "draft") args.push("--draft");
-  args.push(result.archivePath, result.checksumPath, result.metadataPath);
+  args.push(
+    ...result.archivePaths,
+    ...result.checksumPaths,
+    result.metadataPath,
+  );
   return { executable: "gh", args, state };
 }
 
-export function publishExtensionRelease(
+export function publishExtensionBundle(
   result,
   { dryRun = false, state = "draft" } = {},
 ) {
@@ -237,12 +270,18 @@ export function publishExtensionRelease(
   if (dryRun) return { ...command, dryRun: true };
 
   assertPublishableMain(result.metadata);
-  const existing = spawnSync("gh", ["release", "view", result.metadata.tag], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  });
+  const existing = spawnSync(
+    "gh",
+    ["release", "view", result.metadata.deploymentTag],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+    },
+  );
   if (existing.status === 0) {
-    throw new Error(`GitHub Release already exists: ${result.metadata.tag}`);
+    throw new Error(
+      `GitHub Release already exists: ${result.metadata.deploymentTag}`,
+    );
   }
 
   const published = spawnSync(command.executable, command.args, {
@@ -267,13 +306,13 @@ function main() {
   assertAllowedArguments(
     values,
     new Set([
-      "extension",
+      "deployment-tag",
       "output-dir",
       ...(command === "publish" ? ["dry-run", "release-state"] : []),
     ]),
   );
-  const result = packExtensionRelease({
-    extension: required(values, "extension"),
+  const result = packExtensionBundle({
+    deploymentTag: required(values, "deployment-tag"),
     outputDirectory:
       values.get("output-dir") || join(repoRoot, "output/extensions"),
   });
@@ -281,7 +320,7 @@ function main() {
     command === "publish"
       ? {
           ...result,
-          release: publishExtensionRelease(result, {
+          release: publishExtensionBundle(result, {
             dryRun: values.get("dry-run") === "true",
             state: values.get("release-state") || "draft",
           }),
