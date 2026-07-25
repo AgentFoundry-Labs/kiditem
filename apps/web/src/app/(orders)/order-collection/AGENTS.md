@@ -23,11 +23,15 @@ manage local generated-file history.
 - Before invoking the irreversible Sellpia extension submit, durably prepare
   an intent keyed by `{rocketWorkbookExportId, transport}`; the backend returns
   that stable key as the generated file ID. If preparation fails or returns
-  `already_prepared`, do not invoke the extension. An `already_prepared` file
-  with local `transmissionRequestedAt` retries only idempotent finalization;
-  without that marker it remains blocked for operator verification.
-  `{ submitted: true }`
-  immediately finalizes a strictly newer freshness generation before local
+  `already_prepared` or `already_finalized`, do not invoke the extension unless
+  an owner/admin explicitly confirms in the UI that Sellpia did not receive the
+  file. That recovery records an audited `not_submitted` reconciliation, reopens
+  the same stable intent key, and prepares it again before one retry. Without
+  that explicit confirmation, an `already_prepared` file remains blocked for
+  operator verification and an already-finalized file remains idempotent.
+  `{ submitted: true }` is valid only after the extension observes Sellpia
+  upload evidence such as newly accepted pending rows. It immediately finalizes
+  a strictly newer freshness generation before local
   `transmissionRequestedAt` persistence and freshness/history invalidation.
   Only explicit `{ submitted: false }` aborts the intent for safe retry;
   extension errors and tab crashes remain unresolved and conservatively stale.
@@ -56,7 +60,8 @@ manage local generated-file history.
 - Do not expose unmasked personal data in preview tables unless backend and
   route policy explicitly allow it.
 - Keep extension capabilities aligned with `extensions/order-collector`.
-- Do not label an extension submit as accepted or completed, auto-resend it,
+- Require `sellpiaOrderFileUploadEvidenceV1` before sending an order file. Do
+  not label a click without upload evidence as accepted or completed, auto-resend it,
   debounce refresh requests in the client, mutate stock locally, or infer
   freshness. The server owns transmission settle/coalescing policy.
 

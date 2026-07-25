@@ -140,6 +140,9 @@ type SellpiaSendResultMetadata = {
   shop?: string;
   fileName?: string;
   url?: string;
+  excelFormat?: string | null;
+  acceptedRows?: number;
+  pendingRows?: number;
 };
 
 export type SellpiaSendResult =
@@ -162,13 +165,16 @@ export async function sendOrderFileToSellpiaViaExtension(params: {
   fileName: string;
   blob: Blob;
 }): Promise<SellpiaSendResult> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(
+    1200,
+    'sellpiaOrderFileUploadEvidenceV1',
+  );
   if (!extensionId) {
     return {
       success: false,
       outcome: 'not_submitted',
       error:
-        '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드한 뒤 다시 시도해주세요.',
+        '셀피아 접수 확인 기능이 포함된 최신 주문수집 확장프로그램이 필요합니다. 확장프로그램을 다시 로드한 뒤 재시도해주세요.',
     };
   }
 

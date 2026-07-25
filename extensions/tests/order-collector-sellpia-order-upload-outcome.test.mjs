@@ -20,10 +20,11 @@ function extractAsyncFunction(name) {
 
 function injectedContext(overrides = {}) {
   const fileInput = { files: [], dispatchEvent() {} };
+  let pendingCount = 0;
   const shopSelect = {
     options: [{ value: '', textContent: '' }, { value: 'shop', textContent: '키드키즈' }],
   };
-  const submitButton = { click() {} };
+  const submitButton = { click() { pendingCount = 2; } };
   const elements = {
     search_om_shop: shopSelect,
     userfile: fileInput,
@@ -35,7 +36,14 @@ function injectedContext(overrides = {}) {
     items = { add: (file) => this.files.push(file) };
   }
   return {
-    document: { getElementById: (id) => elements[id] ?? null },
+    document: {
+      getElementById: (id) => elements[id] ?? null,
+      querySelectorAll: () => [],
+    },
+    window: {
+      dataView: { getLength: () => pendingCount },
+      jQuery: { active: 0 },
+    },
     File: class FakeFile {},
     DataTransfer: FakeDataTransfer,
     Event: class FakeEvent {},
@@ -69,12 +77,29 @@ test('Sellpia page injection marks every pre-click failure as not_submitted', as
     fileName: 'orders.xlsx',
     fileBase64: Buffer.from('orders').toString('base64'),
   });
+  const noGridContext = injectedContext();
+  let clickedWithoutGrid = false;
+  noGridContext.window.dataView = null;
+  noGridContext.elements.btn_om_upload.click = () => {
+    clickedWithoutGrid = true;
+  };
+  const injectWithoutGrid = vm.runInNewContext(
+    `(${extractAsyncFunction('injectSellpiaOrderFile')})`,
+    noGridContext,
+  );
+  const missingGrid = await injectWithoutGrid({
+    shopName: null,
+    fileName: 'orders.xlsx',
+    fileBase64: Buffer.from('orders').toString('base64'),
+  });
 
   assert.equal(decoded.outcome, 'not_submitted');
   assert.equal(missingButton.outcome, 'not_submitted');
+  assert.equal(missingGrid.outcome, 'not_submitted');
+  assert.equal(clickedWithoutGrid, false);
 });
 
-test('Sellpia page injection distinguishes click completion from click uncertainty', async () => {
+test('Sellpia page injection requires accepted rows after the upload click', async () => {
   const submittedContext = injectedContext();
   const injectSubmitted = vm.runInNewContext(
     `(${extractAsyncFunction('injectSellpiaOrderFile')})`,
@@ -98,7 +123,26 @@ test('Sellpia page injection distinguishes click completion from click uncertain
   const unknown = await injectUnknown(payload);
 
   assert.equal(submitted.outcome, 'submitted');
+  assert.equal(submitted.acceptedRows, 2);
   assert.equal(unknown.outcome, 'unknown');
+});
+
+test('Sellpia page injection stays unknown when the click produces no acceptance evidence', async () => {
+  const context = injectedContext();
+  context.elements.btn_om_upload.click = () => {};
+  const inject = vm.runInNewContext(
+    `(${extractAsyncFunction('injectSellpiaOrderFile')})`,
+    context,
+  );
+
+  const result = await inject({
+    shopName: null,
+    fileName: 'orders.xlsx',
+    fileBase64: Buffer.from('orders').toString('base64'),
+  });
+
+  assert.equal(result.outcome, 'unknown');
+  assert.match(result.error, /접수 결과/);
 });
 
 test('Sellpia service worker separates preflight failure from post-injection uncertainty', async () => {

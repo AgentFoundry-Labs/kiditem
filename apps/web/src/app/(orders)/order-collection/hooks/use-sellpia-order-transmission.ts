@@ -34,12 +34,13 @@ export function useSellpiaOrderTransmission({
   const transmit = useCallback(
     async (
       file: StoredOrderCollectionFile,
-      options: { showSuccessToast?: boolean } = {},
+      options: { showSuccessToast?: boolean; retryConfirmed?: boolean } = {},
     ): Promise<boolean> => {
       setSendingId(file.id);
       try {
         const result = await transmitSellpiaOrder({
           file,
+          retryConfirmed: options.retryConfirmed,
           extension: { sendSellpiaOrders: sendOrderFileToSellpiaViaExtension },
           store: {
             markTransmissionRequested: markGeneratedOrderFileTransmissionRequested,
@@ -77,7 +78,9 @@ export function useSellpiaOrderTransmission({
           && !result.finalizationWarning
           && options.showSuccessToast !== false
         ) {
-          toast.success(`셀피아 전송 요청됨 — ${result.shopName}`);
+          toast.success(
+            `${options.retryConfirmed ? '셀피아 재전송 요청됨' : '셀피아 전송 요청됨'} — ${result.shopName}`,
+          );
         }
         return true;
       } catch (error) {

@@ -128,6 +128,21 @@ describe('order collection extension session bridge', () => {
     expect(bridge.sendToExtension).not.toHaveBeenCalled();
   });
 
+  it('requires the Sellpia upload-evidence capability before sending a file', async () => {
+    bridge.detectOrderCollectionExtensionId.mockResolvedValue(null);
+
+    await sendOrderFileToSellpiaViaExtension({
+      shopName: '키드키즈',
+      fileName: 'orders.xlsx',
+      blob: new Blob(['orders']),
+    });
+
+    expect(bridge.detectOrderCollectionExtensionId).toHaveBeenCalledWith(
+      1200,
+      'sellpiaOrderFileUploadEvidenceV1',
+    );
+  });
+
   it('classifies a local file encoding failure as definitely not submitted', async () => {
     class FailingFileReader {
       result: string | ArrayBuffer | null = null;

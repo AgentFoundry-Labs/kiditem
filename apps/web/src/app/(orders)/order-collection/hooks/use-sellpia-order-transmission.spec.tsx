@@ -16,6 +16,7 @@ const freshness = vi.hoisted(() => ({
   prepareOrderTransmissionIntent: vi.fn(),
   finalizeOrderTransmissionIntent: vi.fn(),
   abortOrderTransmissionIntent: vi.fn(),
+  reconcileOrderTransmissionIntent: vi.fn(),
 }));
 const toast = vi.hoisted(() => ({
   error: vi.fn(),
@@ -78,6 +79,11 @@ describe('useSellpiaOrderTransmission', () => {
     freshness.abortOrderTransmissionIntent.mockResolvedValue({
       intentKey: 'orders-1',
       status: 'aborted',
+    });
+    freshness.reconcileOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      status: 'aborted',
+      outcome: 'not_submitted',
     });
   });
 
@@ -240,5 +246,34 @@ describe('useSellpiaOrderTransmission', () => {
     expect(toast.warning).toHaveBeenCalledWith(
       '셀피아 전송 요청은 완료됐지만 재고 최신화 확정에 실패했습니다. 재전송하지 말고 이전 전송 결과를 확인하세요.',
     );
+  });
+
+  it('resends after an operator-confirmed missing submission is reconciled', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    freshness.prepareOrderTransmissionIntent
+      .mockResolvedValueOnce({
+        intentKey: 'orders-1',
+        disposition: 'already_finalized',
+      })
+      .mockResolvedValueOnce({
+        intentKey: 'orders-1',
+        disposition: 'prepared',
+      });
+    const onTransmissionRequested = vi.fn();
+    const { result } = renderHook(
+      () => useSellpiaOrderTransmission({ onTransmissionRequested }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await expect(result.current.transmit(
+        { ...generatedFile(), transmissionRequestedAt: 1_720_000_000_000 },
+        { retryConfirmed: true },
+      )).resolves.toBe(true);
+    });
+
+    expect(freshness.reconcileOrderTransmissionIntent).toHaveBeenCalledOnce();
+    expect(extension.sendOrderFileToSellpiaViaExtension).toHaveBeenCalledOnce();
+    expect(toast.success).toHaveBeenCalledWith('셀피아 재전송 요청됨 — 키드키즈');
   });
 });

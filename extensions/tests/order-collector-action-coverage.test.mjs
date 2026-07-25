@@ -143,11 +143,15 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest publishes JSON Sellpia inventory evidence at version 0.1.82', () => {
+test('order collector manifest publishes verified Sellpia upload evidence at version 0.1.83', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.82');
+  assert.equal(manifest.version, '0.1.83');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
+  assert.match(
+    readFileSync(workerPath, 'utf8'),
+    /sellpiaOrderFileUploadEvidenceV1:\s*true/,
+  );
 });
 
 test('web bridge reaches both localhost and the staging KidItem origin', () => {

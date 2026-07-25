@@ -371,6 +371,42 @@ describe('SellpiaInventoryFreshnessService', () => {
     expect(repository.reconciliationAudits).toHaveLength(1);
   });
 
+  it('audits a false finalized submission as not submitted and reopens it for retry', async () => {
+    repository.seedState({
+      requestedGeneration: 4n,
+      verifiedGeneration: 4n,
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+    });
+    await service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    await service.finalizeOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+
+    await expect(service.reconcileOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: OTHER_USER_ID,
+      intentKey: INTENT_KEY,
+      outcome: 'not_submitted',
+      note: '셀피아 미접수 확인 후 재전송',
+    })).resolves.toMatchObject({
+      status: 'aborted',
+      outcome: 'not_submitted',
+      finalizedGeneration: null,
+    });
+    await expect(service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    })).resolves.toMatchObject({ disposition: 'prepared' });
+    expect(repository.reconciliationAudits).toHaveLength(1);
+  });
+
   it('aborts an explicit non-submit idempotently and reopens it for a safe retry', async () => {
     repository.seedState({
       requestedGeneration: 1n,
@@ -1083,7 +1119,13 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     },
   ) {
     const intent = this.findIntent(organizationId, input.intentKey);
-    if (!intent || intent.status !== 'prepared') {
+    if (
+      !intent
+      || (
+        intent.status !== 'prepared'
+        && !(intent.status === 'finalized' && input.outcome === 'not_submitted')
+      )
+    ) {
       throw new ConflictException('intent is not prepared');
     }
     intent.status = input.outcome === 'submitted' ? 'finalized' : 'aborted';
