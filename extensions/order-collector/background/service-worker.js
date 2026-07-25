@@ -242,6 +242,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         orderCollectionIcecreamMall: true,
         coupangShipmentDownloads: true,
         collectCoupangShipmentFiles: true,
+        collectCoupangShipmentDateSummaryValidatedV1: true,
         clearCoupangCookies: true,
         art09Orders: true,
         boriboriOrders: true,
@@ -892,6 +893,8 @@ async function collectCoupangShipmentDateSummary(options) {
 // [페이지 주입] 최근 쉽먼트를 페이지네이션하며 발송일별로 집계.
 async function scrapeCoupangShipmentDateSummary(maxPages) {
   const PAGE_FETCH_CONCURRENCY = 6;
+  const SESSION_REQUIRED = "COUPANG_SHIPMENT_SESSION_REQUIRED";
+  const RESPONSE_INVALID = "COUPANG_SHIPMENT_RESPONSE_INVALID";
 
   async function fetchPage(n) {
     const r = await fetch(
@@ -901,24 +904,43 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
     if (!r.ok) {
       // 쿠팡 접속이 많아 쿠키가 커지면 Tomcat 이 헤더 과다로 400(때때로 413/431)을 반환한다.
       if (r.status === 400 || r.status === 413 || r.status === 431) throw new Error("COUPANG_COOKIE_BLOAT");
+      if (r.status === 401 || r.status === 403) throw new Error(SESSION_REQUIRED);
       throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
     }
-    return await r.text();
+    const html = await r.text();
+    const responseUrl = String(r.url || "");
+    if (r.redirected || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(responseUrl)) {
+      throw new Error(SESSION_REQUIRED);
+    }
+    // 미로그인/세션 만료 응답은 HTTP 200 로그인 HTML일 수 있다. parcel-tab 계약이 없으면
+    // 정상적인 빈 결과가 아니므로 빈 배열로 축약하지 않는다.
+    if (!/<table\b[^>]*\bid=["']parcel-tab["']/i.test(html)) {
+      if (/(?:로그인|login|sign[ -]?in)/i.test(html)) throw new Error(SESSION_REQUIRED);
+      throw new Error(RESPONSE_INVALID);
+    }
+    return html;
   }
   function parseRows(html) {
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const table = doc.querySelector("table#parcel-tab") || doc.querySelector("table");
-    if (!table) return [];
+    const table = doc.querySelector("table#parcel-tab");
+    if (!table) throw new Error(RESPONSE_INVALID);
     const heads = Array.from(table.querySelectorAll("thead th")).map((h) => (h.textContent || "").trim());
     const idx = (name) => heads.findIndex((h) => h.includes(name));
     const iSeq = idx("쉽먼트 번호"), iOut = idx("발송일"), iBox = idx("박스수");
-    return Array.from(table.querySelectorAll("tbody tr"))
-      .map((tr) => {
-        const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
-        if (c.length < 6) return null;
-        return { seq: c[iSeq], outbound: c[iOut], boxes: c[iBox] };
-      })
-      .filter(Boolean);
+    if ([iSeq, iOut, iBox].some((index) => index < 0)) throw new Error(RESPONSE_INVALID);
+    const requiredCellCount = Math.max(iSeq, iOut, iBox) + 1;
+    const rows = [];
+    for (const tr of table.querySelectorAll("tbody tr")) {
+      const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
+      // 쿠팡의 정상적인 빈 결과 placeholder는 단일 colspan 셀이다.
+      if (c.length <= 1) continue;
+      if (c.length < requiredCellCount) throw new Error(RESPONSE_INVALID);
+      const seq = c[iSeq];
+      const outbound = c[iOut];
+      if (!seq || !/^\d{4}-\d{2}-\d{2}/.test(outbound)) throw new Error(RESPONSE_INVALID);
+      rows.push({ seq, outbound, boxes: c[iBox] });
+    }
+    return rows;
   }
   try {
     const seen = new Set();
@@ -956,8 +978,7 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
           if (seen.has(row.seq)) continue;
           seen.add(row.seq);
           totalRows += 1;
-          const date = (row.outbound || "").slice(0, 10);
-          if (!date) continue;
+          const date = row.outbound.slice(0, 10);
           const boxMatch = String(row.boxes || "").match(/(\d+)/);
           const current = byDate.get(date) || { count: 0, boxes: 0 };
           current.count += 1;
@@ -985,12 +1006,18 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
         error: '쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 조회하세요.',
       };
     }
-    // 세션 만료/미로그인 시 supplier 목록 fetch 가 브라우저 일반 오류("Failed to fetch")로
-    // 떨어진다. 조작 가능한 안내로 치환해 운영자가 원인을 바로 알게 한다.
-    if (msg === 'Failed to fetch') {
+    if (msg === SESSION_REQUIRED || msg === 'Failed to fetch') {
       return {
         success: false,
-        error: 'supplier.coupang.com 세션을 확인할 수 없습니다. 쿠팡 supplier에 로그인한 뒤 다시 조회해주세요.',
+        errorCode: 'coupang_shipment_session_required',
+        error: 'Supplier Hub 로그인 세션이 없거나 만료되었습니다. supplier.coupang.com에 로그인한 뒤 다시 조회해주세요.',
+      };
+    }
+    if (msg === RESPONSE_INVALID) {
+      return {
+        success: false,
+        errorCode: 'coupang_shipment_response_invalid',
+        error: '쿠팡 쉽먼트 목록 응답 형식이 예상과 다릅니다. 주문수집 확장프로그램을 새로고침한 뒤 다시 조회해주세요.',
       };
     }
     return { success: false, error: msg };
