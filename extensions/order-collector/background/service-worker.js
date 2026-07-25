@@ -257,6 +257,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         collectSellpiaInventoryJsonV1: true,
         browserCollectionSessions: true,
         kiditemEnvironmentProfilesV1: true,
+        sellpiaOrderFileUploadEvidenceV1: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
         sellpiaPostTransfer: true,
@@ -3459,6 +3460,66 @@ async function injectSellpiaOrderFile(payload) {
   const fileBase64 = payload.fileBase64;
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  function pendingRowCount() {
+    if (!window.dataView || typeof window.dataView.getLength !== "function") return null;
+    const count = Number(window.dataView.getLength());
+    return Number.isFinite(count) && count >= 0 ? count : null;
+  }
+
+  function visibleDialogText() {
+    if (typeof document.querySelectorAll !== "function") return "";
+    const nodes = document.querySelectorAll(
+      ".jconfirm .jconfirm-content, .ui-dialog-content, .swal2-html-container, .swal2-title",
+    );
+    return Array.from(nodes)
+      .filter((node) => {
+        if (node.hidden) return false;
+        if (typeof window.getComputedStyle !== "function") return true;
+        const style = window.getComputedStyle(node);
+        return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+      })
+      .map((node) => String(node.textContent || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  async function waitForStablePendingRowCount() {
+    let previousCount = pendingRowCount();
+    let stableChecks = 0;
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const currentCount = pendingRowCount();
+      const activeRequests = Number(window.jQuery?.active || 0);
+      if (currentCount !== null && currentCount === previousCount && activeRequests === 0) {
+        stableChecks += 1;
+        if (stableChecks >= 2) return currentCount;
+      } else {
+        stableChecks = 0;
+      }
+      previousCount = currentCount;
+      await delay(200);
+    }
+    return pendingRowCount();
+  }
+
+  async function waitForUploadEvidence(beforeCount) {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const dialogText = visibleDialogText();
+      if (dialogText && /실패|오류|잘못|불가|업로드할 수 없|접수할 수 없/.test(dialogText)) {
+        return { kind: "rejected", message: dialogText.slice(0, 300) };
+      }
+      const afterCount = pendingRowCount();
+      if (afterCount !== null && afterCount > beforeCount) {
+        return {
+          kind: "accepted",
+          acceptedRows: afterCount - beforeCount,
+          pendingRows: afterCount,
+        };
+      }
+      await delay(300);
+    }
+    return { kind: "unknown" };
+  }
+
   // 0) 화면/판매처 옵션 로딩 대기 — 새 탭은 옵션이 AJAX 로 늦게 채워진다.
   // 몰 표기명 ≠ 셀피아 판매처 등록명인 경우 별칭으로 치환 후 검색.
   // 키=shopName 공백제거, 값=셀피아 판매처명의 고유 부분문자열. 대부분은 부분일치로 잡히지만(키즈노트→
@@ -3568,6 +3629,19 @@ async function injectSellpiaOrderFile(payload) {
       error: "파일은 주입했지만 '주문접수' 버튼을 찾지 못했습니다.",
     };
   }
+  // 기존 대기 목록의 초기 AJAX 로딩을 업로드 성공으로 오인하지 않도록 기준 행 수가
+  // 안정화된 뒤 클릭한다. 이후 실제 행 수 증가만 접수 성공 근거로 인정한다.
+  const pendingRowsBefore = await waitForStablePendingRowCount();
+  if (pendingRowsBefore === null) {
+    return {
+      success: false,
+      outcome: "not_submitted",
+      shop: matched ? String(matched.textContent || "").trim() : null,
+      fileName,
+      error:
+        "셀피아 대기 주문 목록을 읽지 못해 주문접수를 실행하지 않았습니다. 화면을 새로고침한 뒤 다시 시도해주세요.",
+    };
+  }
   try {
     submitButton.click();
   } catch (error) {
@@ -3580,12 +3654,35 @@ async function injectSellpiaOrderFile(payload) {
     };
   }
 
+  const uploadEvidence = await waitForUploadEvidence(pendingRowsBefore);
+  if (uploadEvidence.kind === "rejected") {
+    return {
+      success: false,
+      outcome: "unknown",
+      shop: matched ? String(matched.textContent || "").trim() : null,
+      fileName,
+      error: `셀피아 주문접수 결과 확인 필요: ${uploadEvidence.message}`,
+    };
+  }
+  if (uploadEvidence.kind !== "accepted") {
+    return {
+      success: false,
+      outcome: "unknown",
+      shop: matched ? String(matched.textContent || "").trim() : null,
+      fileName,
+      error:
+        "주문접수 버튼은 실행됐지만 셀피아 접수 결과를 확인하지 못했습니다. 셀피아 대기 주문을 확인해주세요.",
+    };
+  }
+
   return {
     success: true,
     outcome: "submitted",
     shop: matched ? String(matched.textContent || "").trim() : null,
     excelFormat: excelSelect ? excelSelect.value : null,
     fileName,
+    acceptedRows: uploadEvidence.acceptedRows,
+    pendingRows: uploadEvidence.pendingRows,
   };
 
   function setSelectValue(element, value) {

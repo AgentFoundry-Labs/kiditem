@@ -82,11 +82,26 @@ describe('sellpiaInventoryFreshnessApi', () => {
         finalizedGeneration: '5',
         state,
       })
-      .mockResolvedValueOnce({ intentKey: 'orders-1', status: 'aborted', state });
+      .mockResolvedValueOnce({ intentKey: 'orders-1', status: 'aborted', state })
+      .mockResolvedValueOnce({
+        intentKey: 'orders-1',
+        status: 'aborted',
+        outcome: 'not_submitted',
+        finalizedGeneration: null,
+        reconciledBy: '11111111-1111-4111-8111-111111111111',
+        reconciledAt: '2026-07-16T00:02:00.000Z',
+        note: '셀피아 미접수 확인 후 재전송',
+        state,
+      });
 
     await sellpiaInventoryFreshnessApi.prepareOrderTransmissionIntent('orders-1');
     await sellpiaInventoryFreshnessApi.finalizeOrderTransmissionIntent('orders-1');
     await sellpiaInventoryFreshnessApi.abortOrderTransmissionIntent('orders-1');
+    await sellpiaInventoryFreshnessApi.reconcileOrderTransmissionIntent({
+      intentKey: 'orders-1',
+      outcome: 'not_submitted',
+      note: '셀피아 미접수 확인 후 재전송',
+    });
 
     expect(apiClient.post).toHaveBeenNthCalledWith(
       1,
@@ -102,6 +117,15 @@ describe('sellpiaInventoryFreshnessApi', () => {
       3,
       '/api/inventory/sellpia-freshness/order-transmission-intents/abort',
       { intentKey: 'orders-1' },
+    );
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      4,
+      '/api/inventory/sellpia-freshness/order-transmission-intents/reconcile',
+      {
+        intentKey: 'orders-1',
+        outcome: 'not_submitted',
+        note: '셀피아 미접수 확인 후 재전송',
+      },
     );
   });
 

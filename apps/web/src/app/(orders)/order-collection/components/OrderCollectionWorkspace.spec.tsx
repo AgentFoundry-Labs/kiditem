@@ -17,6 +17,8 @@ describe('OrderCollectionWorkspace', () => {
     const generated = source.indexOf('<GeneratedFilesSection');
 
     expect(source).toContain('<SellpiaWorkspaceFreshnessStatus');
+    expect(source).toContain('미접수 확인 후 재전송');
+    expect(source).toContain('retryConfirmed: true');
     expect(source).not.toContain('<OrderCollectionRecovery');
     expect(pipeline).toBeLessThan(daily);
     expect(daily).toBeLessThan(activity);

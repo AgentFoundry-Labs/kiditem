@@ -248,7 +248,9 @@ implements
       );
       if (!intent) throw intentNotFound();
       const now = new Date();
-      if (intent.status !== 'prepared') {
+      const correctsFalseFinalization = intent.status === 'finalized'
+        && input.outcome === 'not_submitted';
+      if (intent.status !== 'prepared' && !correctsFalseFinalization) {
         const audit = intent.latestReconciliation;
         if (!audit || audit.outcome !== input.outcome) {
           throw new ConflictException('Sellpia order transmission is already resolved');

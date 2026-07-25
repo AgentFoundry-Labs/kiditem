@@ -301,7 +301,9 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
       where: {
         organizationId: this.organizationId,
         intentKey: input.intentKey,
-        status: 'prepared',
+        status: input.outcome === 'not_submitted'
+          ? { in: ['prepared', 'finalized'] }
+          : 'prepared',
       },
       select: { id: true },
     });
@@ -309,7 +311,9 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
       where: {
         id: intent.id,
         organizationId: this.organizationId,
-        status: 'prepared',
+        status: input.outcome === 'not_submitted'
+          ? { in: ['prepared', 'finalized'] }
+          : 'prepared',
       },
       data: input.outcome === 'submitted'
         ? {

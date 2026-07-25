@@ -57,8 +57,9 @@ React Query + apiClient
   inventory commitments.
 - Extension-backed queries that render local error UI may suppress the global
   React Query error toast with query meta.
-- A successful order-collector extension submit is a Sellpia transmission
-  request, not proof of Sellpia acceptance. The web app durably prepares an
+- A successful order-collector extension submit requires observed Sellpia
+  upload evidence and remains a transmission request rather than final order
+  registration. The web app durably prepares an
   organization-scoped intent keyed by Rocket workbook export and transport
   before invoking that irreversible submit and
   blocks submission if preparation fails or the same intent is unresolved.

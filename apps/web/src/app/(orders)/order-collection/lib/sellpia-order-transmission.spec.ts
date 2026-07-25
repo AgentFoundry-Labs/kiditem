@@ -25,6 +25,7 @@ describe('transmitSellpiaOrder', () => {
     prepareOrderTransmissionIntent: vi.fn(),
     finalizeOrderTransmissionIntent: vi.fn(),
     abortOrderTransmissionIntent: vi.fn(),
+    reconcileOrderTransmissionIntent: vi.fn(),
   };
   const invalidateFreshnessHistory = vi.fn();
   const now = vi.fn(() => 1_721_000_000_000);
@@ -63,6 +64,11 @@ describe('transmitSellpiaOrder', () => {
     freshness.abortOrderTransmissionIntent.mockResolvedValue({
       intentKey: 'orders-1',
       status: 'aborted',
+    });
+    freshness.reconcileOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      status: 'aborted',
+      outcome: 'not_submitted',
     });
     invalidateFreshnessHistory.mockResolvedValue(undefined);
   });
@@ -236,6 +242,34 @@ describe('transmitSellpiaOrder', () => {
     expect(extension.sendSellpiaOrders).not.toHaveBeenCalled();
     expect(freshness.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();
     expect(store.markTransmissionRequested).toHaveBeenCalledOnce();
+  });
+
+  it('reopens an operator-confirmed missing finalized submission and resends it once', async () => {
+    freshness.prepareOrderTransmissionIntent
+      .mockResolvedValueOnce({
+        intentKey: 'orders-1',
+        disposition: 'already_finalized',
+      })
+      .mockResolvedValueOnce({
+        intentKey: 'orders-1',
+        disposition: 'prepared',
+      });
+
+    const result = await transmitSellpiaOrder({
+      ...input(),
+      file: { ...generatedFile(), transmissionRequestedAt: 1_720_000_000_000 },
+      retryConfirmed: true,
+    });
+
+    expect(result).toMatchObject({ status: 'transmission_requested' });
+    expect(freshness.reconcileOrderTransmissionIntent).toHaveBeenCalledWith({
+      intentKey: 'orders-1',
+      outcome: 'not_submitted',
+      note: expect.stringContaining('재전송'),
+    });
+    expect(freshness.prepareOrderTransmissionIntent).toHaveBeenCalledTimes(2);
+    expect(extension.sendSellpiaOrders).toHaveBeenCalledOnce();
+    expect(freshness.finalizeOrderTransmissionIntent).toHaveBeenCalledOnce();
   });
 
   it('retries idempotent finalization once before warning', async () => {

@@ -378,7 +378,17 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     await expect(service.reconcileOrderTransmissionIntent({
       ...submittedInput,
       outcome: 'not_submitted',
-    })).rejects.toBeInstanceOf(ConflictException);
+      note: '최초 접수 결과 오판 확인 후 재전송 허용',
+    })).resolves.toMatchObject({
+      status: 'aborted',
+      outcome: 'not_submitted',
+      finalizedGeneration: null,
+    });
+    await expect(service.prepareOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: submittedInput.intentKey,
+    })).resolves.toMatchObject({ disposition: 'prepared' });
   });
 
   it('prevents organization B from viewing, claiming, controlling, binding, or gating organization A state', async () => {
