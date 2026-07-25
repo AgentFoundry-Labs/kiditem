@@ -6,6 +6,8 @@ import vm from 'node:vm';
 
 const backgroundPath = path.resolve('extensions/product-scraper/background.js');
 const backgroundSource = fs.readFileSync(backgroundPath, 'utf8');
+const environmentContextPath = path.resolve('extensions/product-scraper/environment-context.js');
+const environmentContextSource = fs.readFileSync(environmentContextPath, 'utf8');
 const collectionSessionPath = path.resolve('extensions/product-scraper/collection-session.js');
 const collectionSessionSource = fs.readFileSync(collectionSessionPath, 'utf8');
 const interactiveTabsPath = path.resolve('extensions/product-scraper/interactive-tabs.js');
@@ -81,6 +83,7 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
   const dispatchedEvents = [];
 
   const context = {
+    AbortController,
     chrome: {
       runtime: {
         id: 'product-scraper-extension',
@@ -135,6 +138,10 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
 
   vm.createContext(context);
   context.importScripts = (file) => {
+    if (file === 'environment-context.js') {
+      vm.runInContext(environmentContextSource, context, { filename: environmentContextPath });
+      return;
+    }
     if (file === 'collection-session.js') {
       vm.runInContext(collectionSessionSource, context, { filename: collectionSessionPath });
       return;
@@ -189,7 +196,7 @@ async function waitForCallCount(calls, count) {
   assert.equal(calls.length, count);
 }
 
-test('stores the common KidItem Supabase token sent by the logged-in web app', async () => {
+test('stores the local KidItem Supabase token in its environment profile', async () => {
   const env = loadBackground({
     kiditem_sourcing_ingest_token: 'legacy-token',
     kiditem_sourcing_ingest_token_expires_at: '2026-05-21T12:30:00.000Z',
@@ -202,14 +209,21 @@ test('stores the common KidItem Supabase token sent by the logged-in web app', a
   });
 
   assert.equal(response?.success, true);
-  assert.equal(env.storage.kiditem_auth_token, 'token-from-web');
+  assert.equal(
+    env.storage.kiditem_environment_profiles_v1.local.accessToken,
+    'token-from-web',
+  );
+  assert.equal(env.storage.kiditem_auth_token, undefined);
   assert.equal(env.storage.kiditem_sourcing_ingest_token, undefined);
   assert.equal(env.storage.kiditem_sourcing_ingest_token_expires_at, undefined);
 });
 
-test('clears common and legacy KidItem tokens on sign-out', async () => {
+test('clears only the sender environment profile on sign-out', async () => {
   const env = loadBackground({
-    kiditem_auth_token: 'current-token',
+    kiditem_environment_profiles_v1: {
+      local: { accessToken: 'local-token', updatedAt: 1 },
+      staging: { accessToken: 'staging-token', updatedAt: 2 },
+    },
     kiditem_sourcing_ingest_token: 'legacy-token',
   });
 
@@ -218,8 +232,11 @@ test('clears common and legacy KidItem tokens on sign-out', async () => {
   });
 
   assert.equal(response?.success, true);
-  assert.equal(env.storage.kiditem_auth_token, undefined);
-  assert.equal(env.storage.kiditem_sourcing_ingest_token, undefined);
+  assert.equal(env.storage.kiditem_environment_profiles_v1.local, undefined);
+  assert.equal(
+    env.storage.kiditem_environment_profiles_v1.staging.accessToken,
+    'staging-token',
+  );
 });
 
 test('advertises the logged-in Chrome trend and live-commerce collector capabilities', async () => {
@@ -232,17 +249,20 @@ test('advertises the logged-in Chrome trend and live-commerce collector capabili
   assert.equal(response?.capabilities?.sourcingLiveCommerceCollector, true);
   assert.equal(response?.capabilities?.sourcingTiktokCcCollector, true);
   assert.equal(response?.capabilities?.browserCollectionSessions, true);
-  assert.equal(manifest.version, '2.3.0');
+  assert.equal(response?.capabilities?.kiditemEnvironmentProfilesV1, true);
+  assert.equal(manifest.version, '2.3.1');
 });
 
 test('loads collection sessions and the interactive focus owner before sourcing collectors', () => {
+  const environmentContext = backgroundSource.indexOf('importScripts("environment-context.js")');
   const collectionSession = backgroundSource.indexOf('importScripts("collection-session.js")');
   const interactiveTabs = backgroundSource.indexOf('importScripts("interactive-tabs.js")');
   const trendCollector = backgroundSource.indexOf('importScripts("1688-trend-collector.js")');
   const liveCommerceCollector = backgroundSource.indexOf('importScripts("live-commerce-collector.js")');
   const tiktokCcCollector = backgroundSource.indexOf('importScripts("tiktok-cc-collector.js")');
 
-  assert.ok(collectionSession >= 0);
+  assert.ok(environmentContext >= 0);
+  assert.ok(collectionSession > environmentContext);
   assert.ok(interactiveTabs > collectionSession);
   assert.ok(trendCollector > interactiveTabs);
   assert.ok(liveCommerceCollector > trendCollector);
@@ -297,7 +317,7 @@ test('rejects invalid 1688 trend collection inputs before opening a tab', async 
   assert.equal(oversized?.success, false);
 });
 
-test('stores staging API base and auth token from the staging web app', async () => {
+test('stores staging auth without accepting a client API base', async () => {
   const env = loadBackground();
 
   const response = await sendExternal(
@@ -311,8 +331,11 @@ test('stores staging API base and auth token from the staging web app', async ()
   );
 
   assert.equal(response?.success, true);
-  assert.equal(env.storage.apiBase, 'https://staging.merchon.org/api/sourcing/extension');
-  assert.equal(env.storage.kiditem_auth_token, 'token-from-web');
+  assert.equal(env.storage.apiBase, undefined);
+  assert.equal(
+    env.storage.kiditem_environment_profiles_v1.staging.accessToken,
+    'token-from-web',
+  );
 });
 
 test('rejects auth tokens sent from non-KidItem web origins', async () => {
@@ -325,13 +348,20 @@ test('rejects auth tokens sent from non-KidItem web origins', async () => {
   );
 
   assert.equal(response?.success, false);
-  assert.equal(env.storage.kiditem_auth_token, undefined);
+  assert.equal(env.storage.kiditem_environment_profiles_v1, undefined);
 });
 
 test('sends the stored token as Bearer auth to the sourcing ingest API', async () => {
-  const env = loadBackground({ kiditem_auth_token: 'stored-token' });
+  const env = loadBackground({
+    kiditem_environment_profiles_v1: {
+      local: { accessToken: 'stored-token', updatedAt: 1 },
+    },
+  });
 
-  await env.context.sendToBackend({ source_url: 'https://detail.1688.com/offer/607635921546.html' });
+  await env.context.sendToBackend(
+    { source_url: 'https://detail.1688.com/offer/607635921546.html' },
+    'local',
+  );
 
   assert.equal(env.fetchCalls.length, 1);
   const headers = new Headers(env.fetchCalls[0].init.headers);
@@ -341,14 +371,15 @@ test('sends the stored token as Bearer auth to the sourcing ingest API', async (
 
 test('sends stored tokens to the approved staging API base', async () => {
   const env = loadBackground({
-    apiBase: 'https://staging.merchon.org/api/sourcing/extension',
-    kiditem_auth_token: 'stored-token',
+    kiditem_environment_profiles_v1: {
+      staging: { accessToken: 'stored-token', updatedAt: 1 },
+    },
   });
-  env.installListeners[0]();
 
-  await env.context.sendToBackend({
-    source_url: 'https://detail.1688.com/offer/607635921546.html',
-  });
+  await env.context.sendToBackend(
+    { source_url: 'https://detail.1688.com/offer/607635921546.html' },
+    'staging',
+  );
 
   assert.equal(env.fetchCalls.length, 1);
   assert.equal(
@@ -359,32 +390,41 @@ test('sends stored tokens to the approved staging API base', async () => {
   assert.equal(headers.get('authorization'), 'Bearer stored-token');
 });
 
-test('does not send stored tokens to unapproved API bases', async () => {
+test('ignores ambiguous legacy API bases and tokens', async () => {
   const env = loadBackground({
     apiBase: 'https://evil.example/api/sourcing/extension',
     kiditem_auth_token: 'stored-token',
   });
-  env.installListeners[0]();
 
-  const result = await env.context.sendToBackend({
-    source_url: 'https://detail.1688.com/offer/607635921546.html',
-  });
+  const result = await env.context.sendToBackend(
+    { source_url: 'https://detail.1688.com/offer/607635921546.html' },
+    'local',
+  );
 
   assert.equal(result.ok, false);
+  assert.match(result.error, /로그인/);
   assert.equal(env.fetchCalls.length, 0);
 });
 
 test('requests web refresh and retries once after 401 with a changed token', async () => {
   const env = loadBackground(
-    { kiditem_auth_token: 'expired-token' },
+    {
+      kiditem_environment_profiles_v1: {
+        local: { accessToken: 'expired-token', updatedAt: 1 },
+      },
+    },
     [{ status: 401 }, { status: 200 }],
   );
 
-  const pending = env.context.sendToBackend({
-    source_url: 'https://detail.1688.com/offer/607635921546.html',
-  });
+  const pending = env.context.sendToBackend(
+    { source_url: 'https://detail.1688.com/offer/607635921546.html' },
+    'local',
+  );
   await waitForCallCount(env.fetchCalls, 1);
-  env.storageApi.set({ kiditem_auth_token: 'rotated-token' });
+  await sendExternal(env.externalListeners[0], {
+    action: 'setAuthToken',
+    token: 'rotated-token',
+  });
   const result = await pending;
 
   assert.equal(result.ok, true);
@@ -398,14 +438,27 @@ test('requests web refresh and retries once after 401 with a changed token', asy
 
 test('coalesces concurrent 401 refresh signals and retries each request once', async () => {
   const env = loadBackground(
-    { kiditem_auth_token: 'expired-token' },
+    {
+      kiditem_environment_profiles_v1: {
+        local: { accessToken: 'expired-token', updatedAt: 1 },
+      },
+    },
     [{ status: 401 }, { status: 401 }, { status: 200 }, { status: 200 }],
   );
 
-  const first = env.context.sendToBackend({ source_url: 'https://detail.1688.com/offer/1.html' });
-  const second = env.context.sendToBackend({ source_url: 'https://detail.1688.com/offer/2.html' });
+  const first = env.context.sendToBackend(
+    { source_url: 'https://detail.1688.com/offer/1.html' },
+    'local',
+  );
+  const second = env.context.sendToBackend(
+    { source_url: 'https://detail.1688.com/offer/2.html' },
+    'local',
+  );
   await waitForCallCount(env.fetchCalls, 2);
-  env.storageApi.set({ kiditem_auth_token: 'rotated-token' });
+  await sendExternal(env.externalListeners[0], {
+    action: 'setAuthToken',
+    token: 'rotated-token',
+  });
   const results = await Promise.all([first, second]);
 
   assert.deepEqual(results.map((result) => result.ok), [true, true]);
@@ -413,20 +466,13 @@ test('coalesces concurrent 401 refresh signals and retries each request once', a
   assert.deepEqual(env.dispatchedEvents, ['kiditem:extension-auth-required']);
 });
 
-test('recovers a missing extension token from the logged-in web tab', async () => {
-  const env = loadBackground({}, [{ status: 200 }]);
-
-  const pending = env.context.sendToBackend({
-    source_url: 'https://detail.1688.com/offer/1.html',
-  });
-  await waitForCallCount(env.dispatchedEvents, 1);
-  env.storageApi.set({ kiditem_auth_token: 'restored-token' });
-  const result = await pending;
-
-  assert.equal(result.ok, true);
-  assert.equal(env.fetchCalls.length, 1);
-  assert.equal(
-    new Headers(env.fetchCalls[0].init.headers).get('authorization'),
-    'Bearer restored-token',
+test('fails closed when the selected environment is not authenticated', async () => {
+  const env = loadBackground();
+  const result = await env.context.sendToBackend(
+    { source_url: 'https://detail.1688.com/offer/1.html' },
+    'local',
   );
+  assert.equal(result.ok, false);
+  assert.match(result.error, /로그인/);
+  assert.equal(env.fetchCalls.length, 0);
 });

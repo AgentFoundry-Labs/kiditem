@@ -4,6 +4,9 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
+import { contentWorkspaceHistoryToGenerationHistory } from '../../_shared/lib/detail-generation-history';
+import { buildGenerationHistoryHtml } from '../../_shared/lib/generated-detail-html';
 import {
   renderCandidateDetailImage,
   type CandidateDetailImageResponse,
@@ -70,6 +73,46 @@ export function requireRenderedDetailImage(
     );
   }
   return rendered.imageUrl;
+}
+
+async function renderSavedCandidateDetailImage(
+  candidateId: string,
+  detail: ProductDetailResponse,
+): Promise<CandidateDetailImageResponse> {
+  const firstRender = await renderCandidateDetailImage(candidateId);
+  if (
+    firstRender.status === 'rendered'
+    || firstRender.reason !== 'no_saved_detail_page'
+    || !detail.contentWorkspaceId
+  ) {
+    return firstRender;
+  }
+
+  const workspace = await contentWorkspacesApi.get(detail.contentWorkspaceId);
+  if (workspace.currentDetailPageRevisionId) return firstRender;
+
+  const history = contentWorkspaceHistoryToGenerationHistory(workspace.history);
+  const preferredGenerationIds = [
+    workspace.currentDetailPageGenerationId,
+    workspace.latestGenerationId,
+  ].filter((id): id is string => typeof id === 'string' && id.length > 0);
+  const generated = preferredGenerationIds
+    .map((id) => history.find((item) => item.id === id))
+    .find((item) => item?.detailPageData && ['READY', 'COMPLETED'].includes(item.status))
+    ?? history.find(
+      (item) => item.detailPageData && ['READY', 'COMPLETED'].includes(item.status),
+    );
+  if (!generated) return firstRender;
+
+  const templateCss = await fetch('/templates-styles.css', { cache: 'no-store' })
+    .then((response) => (response.ok ? response.text() : ''))
+    .catch(() => '');
+  const html = buildGenerationHistoryHtml(generated, templateCss);
+  await apiClient.post(
+    `/api/ai/detail-page/${encodeURIComponent(generated.id)}/edited-html`,
+    { html },
+  );
+  return renderCandidateDetailImage(candidateId);
 }
 
 /** 노출상품명 상한(쿠팡 WING). */
@@ -543,7 +586,7 @@ export async function prepareWingRegistration(
   // 상세설명은 이 직접등록 경로의 필수값이다. 없으면 WING 탭을 열기 전에 중단한다.
   // 대표이미지·원본 수집 이미지로 대체하지 않는다 — 잘못된 상세페이지가 등록되는 것이
   // 등록을 멈추는 것보다 나쁘다.
-  const rendered = await renderCandidateDetailImage(candidateId);
+  const rendered = await renderSavedCandidateDetailImage(candidateId, detail);
   const detailImageUrl = requireRenderedDetailImage(rendered);
 
   // 등록 성공 시 ChannelListing 을 만들 계정을 미리 확정한다. 활성 쿠팡 Wing 계정이

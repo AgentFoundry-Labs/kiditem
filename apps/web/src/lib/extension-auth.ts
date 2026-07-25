@@ -1,10 +1,9 @@
-import type { Session } from '@supabase/supabase-js';
-import { getApiBase } from './api';
 import {
   detectExtensionId,
   detectSourcingExtensionId,
   sendToExtension,
 } from './extension-bridge';
+import type { Session } from '@supabase/supabase-js';
 
 export const EXTENSION_AUTH_REQUIRED_EVENT = 'kiditem:extension-auth-required';
 
@@ -26,7 +25,6 @@ type DetectExtension = () => Promise<string | null>;
 async function syncTarget(
   detect: DetectExtension,
   session: SessionWithToken,
-  apiBase?: string,
 ): Promise<ExtensionAuthSyncStatus> {
   try {
     const extensionId = await detect();
@@ -35,7 +33,6 @@ async function syncTarget(
     const message = session?.access_token
       ? {
           action: 'setAuthToken',
-          ...(apiBase ? { apiBase } : {}),
           token: session.access_token,
         }
       : { action: 'clearAuthToken' };
@@ -55,19 +52,7 @@ export async function syncExtensionAuth(
 ): Promise<ExtensionAuthSyncResult> {
   const [coupang, sourcing] = await Promise.all([
     syncTarget(() => detectExtensionId(), session),
-    syncTarget(
-      () => detectSourcingExtensionId(),
-      session,
-      sourcingExtensionApiBase(),
-    ),
+    syncTarget(() => detectSourcingExtensionId(), session),
   ]);
   return { coupang, sourcing };
-}
-
-function sourcingExtensionApiBase(): string {
-  const configuredApiBase = getApiBase();
-  const base =
-    configuredApiBase ||
-    (typeof window !== 'undefined' ? window.location.origin : '');
-  return `${base.replace(/\/$/, '')}/api/sourcing/extension`;
 }

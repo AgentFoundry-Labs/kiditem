@@ -1,7 +1,7 @@
-import { safeStorageGet, safeStorageSet } from './browser-storage';
 import { z } from 'zod';
 import { SellpiaInventoryCollectionFailureCodeSchema } from '@kiditem/shared/sellpia-inventory-freshness';
 import { SellpiaInventoryBrowserSnapshotSchema } from '@kiditem/shared/source-import';
+import { safeStorageGet, safeStorageSet } from './browser-storage';
 
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
 export const KIDITEM_SOURCING_EXTENSION_ID_KEY = 'kiditem-sourcing-ext-id';
@@ -114,6 +114,10 @@ type DetectExtensionOptions = {
   accepts: (response: ExtensionPingResponse) => boolean;
 };
 
+function supportsEnvironmentProfiles(response: ExtensionPingResponse): boolean {
+  return response.capabilities?.kiditemEnvironmentProfilesV1 === true;
+}
+
 async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): Promise<string | null> {
   if (typeof window === 'undefined') return null;
 
@@ -168,7 +172,7 @@ export async function detectExtensionId(timeoutMs = 1200): Promise<string | null
     requestType: 'kiditem:request-ext-id',
     responseType: 'kiditem:ext-id',
     timeoutMs,
-    accepts: () => true,
+    accepts: supportsEnvironmentProfiles,
   });
 }
 
@@ -178,7 +182,9 @@ export async function detectSourcingExtensionId(timeoutMs = 1200): Promise<strin
     requestType: 'kiditem:request-sourcing-ext-id',
     responseType: 'kiditem:sourcing-ext-id',
     timeoutMs,
-    accepts: (response) => response.capabilities?.sourcingProductScraper === true,
+    accepts: (response) =>
+      supportsEnvironmentProfiles(response) &&
+      response.capabilities?.sourcingProductScraper === true,
   });
 }
 
@@ -192,7 +198,9 @@ export async function detectOrderCollectionExtensionId(
     responseType: 'kiditem:order-ext-id',
     timeoutMs,
     accepts: (response) =>
-      requiredCapability === null || response.capabilities?.[requiredCapability] === true,
+      supportsEnvironmentProfiles(response) &&
+      (requiredCapability === null ||
+        response.capabilities?.[requiredCapability] === true),
   });
 }
 

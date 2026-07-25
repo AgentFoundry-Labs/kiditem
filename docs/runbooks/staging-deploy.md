@@ -495,18 +495,12 @@ staging URL is the Cloudflare proxied HTTPS origin configured in
 `STAGING_URL`.
 
 If authenticated Wing catalog collection is tested from staging registered
-products, the local Chrome extension must allow the same public origin. Do not
-commit the real staging origin into the default extension manifest; create a
-local-only copy instead:
-
-```bash
-STAGING_URL="$(gh variable get STAGING_URL --env staging)" \
-  node scripts/prepare-coupang-extension.mjs
-```
-
-Then load `.secrets/extensions/coupang-ads-scraper-staging` from
-`chrome://extensions`, open staging `/product-pipeline/registered-products`,
-and keep an authenticated Wing inventory tab in the same Chrome profile.
+products, load the committed `extensions/coupang-ads-scraper` directory or the
+universal release package from `chrome://extensions`. The same installed copy
+supports both `http://localhost:3000` and `https://staging.merchon.org`; do not
+generate a staging-only copy. Open staging
+`/product-pipeline/registered-products` and keep an authenticated Wing inventory
+tab in the same Chrome profile.
 Select the intended Coupang account and verify **Wing에서 가져오기** starts a
 resumable catalog collection. The extension must advertise
 `coupangCatalogSnapshot = true`.

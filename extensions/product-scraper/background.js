@@ -1,170 +1,64 @@
+importScripts("environment-context.js");
 importScripts("collection-session.js");
 importScripts("interactive-tabs.js");
 importScripts("1688-trend-collector.js");
 importScripts("live-commerce-collector.js");
 importScripts("tiktok-cc-collector.js");
 
-const DEFAULT_API = "http://localhost:4000/api/sourcing/extension";
 const EXTRACT_TIMEOUT_MS = 20000;
-const AUTH_TOKEN_KEY = "kiditem_auth_token";
 const LEGACY_AUTH_TOKEN_KEYS = [
+  "kiditem_auth_token",
+  "apiBase",
   "kiditem_sourcing_ingest_token",
   "kiditem_sourcing_ingest_token_expires_at",
   "kiditem_sourcing_ingest_token_max_expires_at",
 ];
-const AUTH_REQUIRED_EVENT = "kiditem:extension-auth-required";
-const AUTH_REFRESH_TIMEOUT_MS = 10_000;
 const TREND_KEEPALIVE_PORT = "kiditem-1688-trend-keepalive";
-const ALLOWED_WEB_ORIGINS = new Set([
-  "http://localhost:3000",
-  "https://staging.merchon.org",
-]);
-const ALLOWED_API_BASES = new Set([
-  "http://localhost:4000/api/sourcing/extension",
-  "http://127.0.0.1:4000/api/sourcing/extension",
-  "https://staging.merchon.org/api/sourcing/extension",
-]);
-const KIDITEM_WEB_URL_PATTERNS = [
-  "http://localhost:3000/*",
-  "https://staging.merchon.org/*",
-];
+const environmentContext = KidItemEnvironmentContext.create({
+  chrome,
+  fetchFn: fetch,
+  legacyStorageKeys: LEGACY_AUTH_TOKEN_KEYS,
+});
 
-let apiBase = DEFAULT_API;
-let pendingCollect = null;
-let authRefreshInFlight = null;
+const pendingCollects = new Map();
 
-function getLocal(keys) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(keys, resolve);
-  });
-}
-
-function setLocal(values) {
-  return new Promise((resolve) => {
-    chrome.storage.local.set(values, resolve);
-  });
-}
-
-function approvedApiBase() {
-  return normalizeApprovedApiBase(apiBase);
-}
-
-function normalizeApprovedApiBase(value) {
+async function backendRequestConfig(environmentId) {
+  let environment;
   try {
-    const parsed = new URL(value);
-    const normalized = `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
-    return ALLOWED_API_BASES.has(normalized) ? normalized : null;
+    environment = environmentContext.requireEnvironment(environmentId);
   } catch {
-    return null;
+    return { ok: false, error: "지원하지 않는 KidItem 환경입니다." };
   }
-}
-
-function isAllowedExternalSender(sender) {
-  try {
-    if (!sender?.url) return false;
-    return ALLOWED_WEB_ORIGINS.has(new URL(sender.url).origin);
-  } catch {
-    return false;
-  }
-}
-
-async function getAuthToken() {
-  const stored = await getLocal(AUTH_TOKEN_KEY);
-  const token = stored[AUTH_TOKEN_KEY];
-  return typeof token === "string" && token.trim() ? token : null;
-}
-
-function waitForAuthTokenChange(previousToken) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (token) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      chrome.storage.onChanged.removeListener(handleStorageChange);
-      resolve(token);
-    };
-    const handleStorageChange = (changes, areaName) => {
-      if (areaName !== "local") return;
-      const nextToken = changes[AUTH_TOKEN_KEY]?.newValue;
-      if (
-        typeof nextToken === "string" &&
-        nextToken.trim() &&
-        nextToken !== previousToken
-      ) {
-        finish(nextToken);
-      }
-    };
-    const timer = setTimeout(() => finish(null), AUTH_REFRESH_TIMEOUT_MS);
-    chrome.storage.onChanged.addListener(handleStorageChange);
-    getAuthToken().then((currentToken) => {
-      if (currentToken && currentToken !== previousToken) finish(currentToken);
-    });
-  });
-}
-
-async function notifyKidItemAuthRequired() {
-  const tabs = await chrome.tabs.query({ url: KIDITEM_WEB_URL_PATTERNS });
-  await Promise.all(
-    tabs
-      .filter((tab) => tab?.id)
-      .map((tab) =>
-        chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: (eventName) =>
-            window.dispatchEvent(new CustomEvent(eventName)),
-          args: [AUTH_REQUIRED_EVENT],
-        }).catch(() => null),
-      ),
-  );
-}
-
-function requestFreshAuthToken(previousToken) {
-  if (authRefreshInFlight) return authRefreshInFlight;
-  authRefreshInFlight = (async () => {
-    const changedToken = waitForAuthTokenChange(previousToken);
-    await notifyKidItemAuthRequired().catch(() => null);
-    return changedToken;
-  })().finally(() => {
-    authRefreshInFlight = null;
-  });
-  return authRefreshInFlight;
-}
-
-async function fetchKidItem(url, init = {}, allowAuthRetry = true) {
-  const token = await getAuthToken();
-  const headers = new Headers(init.headers || {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(url, { ...init, headers });
-  if (response.status !== 401 || !allowAuthRetry) return response;
-
-  const nextToken = await requestFreshAuthToken(token);
-  if (!nextToken || nextToken === token) return response;
-  return fetchKidItem(url, init, false);
-}
-
-async function backendRequestConfig() {
-  const base = approvedApiBase();
-  if (!base) {
-    return { ok: false, error: "허용되지 않은 KidItem API 주소입니다." };
-  }
-  const headers = { "Content-Type": "application/json" };
-  let token = await getAuthToken();
-  if (!token) token = await requestFreshAuthToken(null);
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (!headers.Authorization) {
+  const token = await environmentContext.getAccessToken(environmentId);
+  if (!token) {
     return {
       ok: false,
-      error: "KidItem 웹 앱에서 로그인 후 다시 시도해주세요.",
+      error: "선택한 KidItem 환경에서 로그인 후 다시 시도해주세요.",
     };
   }
-  return { ok: true, base, headers, request: fetchKidItem };
+  const base = `${environment.apiOrigin}/api/sourcing/extension`;
+  return {
+    ok: true,
+    base,
+    headers: { "Content-Type": "application/json" },
+    request(url, init = {}) {
+      const parsed = new URL(url);
+      if (parsed.origin !== environment.apiOrigin) {
+        throw new Error("KidItem API 환경이 일치하지 않습니다.");
+      }
+      return environmentContext.authedFetch(
+        environmentId,
+        `${parsed.pathname}${parsed.search}`,
+        init,
+      );
+    },
+  };
 }
 
 const collectionSessions = KidItemCollectionSession.create({
   chrome,
   storageKey: "kiditem_collection_sessions",
-  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
+  environmentContext,
 });
 
 const trendCollector = ProductScraper1688Trend.create({
@@ -188,8 +82,8 @@ const tiktokCcCollector = ProductScraperTiktokCcTrend.create({
   sessions: collectionSessions,
 });
 
-async function cancelCollectionSession(runId) {
-  const session = await collectionSessions.get(runId);
+async function cancelCollectionSession(runId, environmentId) {
+  const session = await collectionSessions.getOwned(runId, environmentId);
   if (!session) return null;
   if (session.producer === "sourcing.1688_trend") {
     await trendCollector.cancel(runId);
@@ -203,8 +97,8 @@ async function cancelCollectionSession(runId) {
   return collectionSessions.get(runId);
 }
 
-async function restartCollectionSession(runId) {
-  const session = await collectionSessions.get(runId);
+async function restartCollectionSession(runId, environmentId) {
+  const session = await collectionSessions.getOwned(runId, environmentId);
   if (!session) throw new Error("Collection session not found");
   if (session.producer === "sourcing.1688_trend") {
     await trendCollector.restart(runId);
@@ -283,16 +177,16 @@ function validateTiktokCcStartMessage(msg) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(["apiBase"], (result) => {
-    if (result.apiBase) apiBase = result.apiBase;
-  });
+  void environmentContext.migrateLegacyStorage();
 });
 
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
-  if (!isAllowedExternalSender(sender)) {
+  const environment = environmentContext.resolveSender(sender);
+  if (!environment) {
     sendResponse({ success: false, error: "forbidden_origin" });
     return;
   }
+  const environmentId = environment.environmentId;
   if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
     sendResponse({ success: false, error: "invalid_message" });
     return;
@@ -311,19 +205,24 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   };
 
   if (msg.action === "listCollectionSessions") {
-    return respond(collectionSessions.list());
+    return respond(collectionSessions.list(environmentId));
   }
   if (msg.action === "getCollectionSession") {
-    return respond(collectionSessions.get(msg.runId));
+    return respond(collectionSessions.getOwned(msg.runId, environmentId));
   }
   if (msg.action === "cancelCollectionSession") {
-    return respond(cancelCollectionSession(msg.runId));
+    return respond(cancelCollectionSession(msg.runId, environmentId));
   }
   if (msg.action === "openCollectionAttentionTab") {
-    return respond(collectionSessions.openAttentionTab(msg.runId));
+    return respond(
+      collectionSessions.getOwned(msg.runId, environmentId).then((session) => {
+        if (!session) throw new Error("Collection session not found");
+        return collectionSessions.openAttentionTab(msg.runId);
+      }),
+    );
   }
   if (msg.action === "restartCollectionSession") {
-    return respond(restartCollectionSession(msg.runId));
+    return respond(restartCollectionSession(msg.runId, environmentId));
   }
 
   if (msg.action === "ping") {
@@ -336,6 +235,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         sourcingLiveCommerceCollector: true,
         sourcingTiktokCcCollector: true,
         browserCollectionSessions: true,
+        kiditemEnvironmentProfilesV1: true,
       },
     });
     return;
@@ -348,7 +248,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       return;
     }
     trendCollector
-      .start(validated.keywords, validated.maxResultsPerKeyword)
+      .start(validated.keywords, validated.maxResultsPerKeyword, environmentId)
       .then(sendResponse);
     return true;
   }
@@ -358,7 +258,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: "invalid runId" });
       return;
     }
-    trendCollector.getStatus(msg.runId).then(sendResponse);
+    trendCollector.getStatus(msg.runId, environmentId).then(sendResponse);
     return true;
   }
 
@@ -367,7 +267,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: "invalid runId" });
       return;
     }
-    trendCollector.cancel(msg.runId).then(sendResponse);
+    trendCollector.cancel(msg.runId, environmentId).then(sendResponse);
     return true;
   }
 
@@ -377,7 +277,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: validated.error });
       return;
     }
-    tiktokCcCollector.start(validated.options).then(sendResponse);
+    tiktokCcCollector.start(validated.options, environmentId).then(sendResponse);
     return true;
   }
 
@@ -386,7 +286,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: "invalid runId" });
       return;
     }
-    tiktokCcCollector.getStatus(msg.runId).then(sendResponse);
+    tiktokCcCollector.getStatus(msg.runId, environmentId).then(sendResponse);
     return true;
   }
 
@@ -395,7 +295,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: "invalid runId" });
       return;
     }
-    tiktokCcCollector.cancel(msg.runId).then(sendResponse);
+    tiktokCcCollector.cancel(msg.runId, environmentId).then(sendResponse);
     return true;
   }
 
@@ -404,7 +304,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: "invalid runId" });
       return;
     }
-    return respond(liveCommerceCollector.collect(msg.url, msg.runId));
+    return respond(liveCommerceCollector.collect(msg.url, msg.runId, environmentId));
   }
 
   if (msg.action === "setAuthToken") {
@@ -413,44 +313,75 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: "token required" });
       return;
     }
-    const approvedMessageApiBase = normalizeApprovedApiBase(msg.apiBase);
-    if (approvedMessageApiBase) apiBase = approvedMessageApiBase;
-    chrome.storage.local.set({
-      ...(approvedMessageApiBase ? { apiBase: approvedMessageApiBase } : {}),
-      [AUTH_TOKEN_KEY]: token,
-    }, () => {
-      chrome.storage.local.remove(LEGACY_AUTH_TOKEN_KEYS, () => {
-        sendResponse({ success: true });
-      });
-    });
-    return true;
+    return respond(
+      environmentContext
+        .migrateLegacyStorage()
+        .then(() => environmentContext.setAccessToken(environmentId, token))
+        .then(() => ({ success: true })),
+    );
   }
 
   if (msg.action === "clearAuthToken") {
-    chrome.storage.local.remove([
-      AUTH_TOKEN_KEY,
-      ...LEGACY_AUTH_TOKEN_KEYS,
-    ], () => {
-      sendResponse({ success: true });
-    });
-    return true;
+    return respond(
+      environmentContext
+        .clearAccessToken(environmentId)
+        .then(() => environmentContext.migrateLegacyStorage())
+        .then(() => ({ success: true })),
+    );
   }
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === "getConnectedKidItemEnvironments") {
+    environmentContext
+      .connectedEnvironmentIds()
+      .then((environmentIds) =>
+        sendResponse({
+          success: true,
+          environments: environmentIds.map((environmentId) =>
+            environmentContext.requireEnvironment(environmentId),
+          ),
+        }),
+      )
+      .catch((error) =>
+        sendResponse({ success: false, error: error?.message || String(error) }),
+      );
+    return true;
+  }
+
   if (msg.type === "COLLECT_CURRENT") {
-    if (msg.apiBase) apiBase = msg.apiBase;
-    collectFromTab(msg.tabId).then(sendResponse);
+    environmentContext
+      .connectedEnvironmentIds()
+      .then((environmentIds) => {
+        if (!environmentIds.includes(msg.environmentId)) {
+          return { ok: false, error: "선택한 KidItem 환경에서 로그인해주세요." };
+        }
+        return collectFromTab(msg.tabId, msg.environmentId);
+      })
+      .then(sendResponse)
+      .catch((error) =>
+        sendResponse({ ok: false, error: error?.message || String(error) }),
+      );
     return true;
   }
 
   if (msg.type === "PRODUCT_DATA") {
-    handleProductData(msg.data, sender.tab?.id);
+    const pending = pendingCollects.get(sender.tab?.id);
+    if (!pending) {
+      sendResponse({ ok: false, error: "수집 환경을 확인할 수 없습니다." });
+      return;
+    }
+    handleProductData(msg.data, sender.tab.id, pending.environmentId);
     sendResponse({ ok: true });
   }
 
   if (msg.type === "DESCRIPTION_DATA") {
-    sendDescriptionToBackend(msg.data);
+    const pending = pendingCollects.get(sender.tab?.id);
+    if (!pending) {
+      sendResponse({ ok: false, error: "수집 환경을 확인할 수 없습니다." });
+      return;
+    }
+    sendDescriptionToBackend(msg.data, pending.environmentId);
     sendResponse({ ok: true });
   }
 
@@ -465,35 +396,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-function collectFromTab(tabId) {
+function collectFromTab(tabId, environmentId) {
   return new Promise((resolve) => {
-    if (pendingCollect) {
-      clearTimeout(pendingCollect.timer);
-      pendingCollect.resolve({ ok: false, error: "cancelled" });
+    const previous = pendingCollects.get(tabId);
+    if (previous) {
+      clearTimeout(previous.timer);
+      previous.resolve({ ok: false, error: "cancelled" });
     }
 
     const timer = setTimeout(() => {
-      if (pendingCollect?.resolve === resolve) {
-        pendingCollect = null;
+      if (pendingCollects.get(tabId)?.resolve === resolve) {
+        pendingCollects.delete(tabId);
         resolve({ ok: false, error: "추출 시간 초과 (20초)" });
       }
     }, EXTRACT_TIMEOUT_MS);
 
-    pendingCollect = { resolve, timer, tabId };
+    pendingCollects.set(tabId, { resolve, timer, tabId, environmentId });
 
     chrome.tabs.sendMessage(tabId, { type: "TRIGGER_EXTRACT" }, (resp) => {
       if (chrome.runtime.lastError) {
         injectContentScripts(tabId).then((ok) => {
           if (!ok) {
             clearTimeout(timer);
-            pendingCollect = null;
+            pendingCollects.delete(tabId);
             resolve({ ok: false, error: "콘텐츠 스크립트 주입 실패. 페이지를 새로고침 해주세요." });
             return;
           }
           chrome.tabs.sendMessage(tabId, { type: "TRIGGER_EXTRACT" }, (resp2) => {
             if (chrome.runtime.lastError) {
               clearTimeout(timer);
-              pendingCollect = null;
+              pendingCollects.delete(tabId);
               resolve({ ok: false, error: "페이지를 새로고침 후 다시 시도해주세요." });
             }
           });
@@ -580,7 +512,7 @@ async function injectTiktokCcContentScripts(tabId) {
   }
 }
 
-async function handleProductData(data, tabId) {
+async function handleProductData(data, tabId, environmentId) {
   if (data._detail_url && data.source_platform === "1688") {
     const desc = await fetchDescriptionContent(data._detail_url, data.source_url);
     if (desc) {
@@ -590,13 +522,17 @@ async function handleProductData(data, tabId) {
     }
   }
 
-  chrome.storage.local.set({ lastExtraction: data });
-  const result = await sendToBackend(data);
+  chrome.storage.local.set({
+    lastExtraction: data,
+    lastExtractionEnvironmentId: environmentId,
+  });
+  const result = await sendToBackend(data, environmentId);
 
-  if (pendingCollect && pendingCollect.tabId === tabId) {
-    clearTimeout(pendingCollect.timer);
-    const cb = pendingCollect.resolve;
-    pendingCollect = null;
+  const pending = pendingCollects.get(tabId);
+  if (pending && pending.environmentId === environmentId) {
+    clearTimeout(pending.timer);
+    const cb = pending.resolve;
+    pendingCollects.delete(tabId);
 
     if (result.ok) {
       cb({ ok: true });
@@ -606,11 +542,12 @@ async function handleProductData(data, tabId) {
   }
 }
 
-async function sendToBackend(productData) {
+async function sendToBackend(productData, environmentId) {
+  let url = "";
   try {
-    const config = await backendRequestConfig();
+    const config = await backendRequestConfig(environmentId);
     if (!config.ok) return config;
-    const url = `${config.base}/product-data`;
+    url = `${config.base}/product-data`;
     const resp = await config.request(url, {
       method: "POST",
       headers: config.headers,
@@ -628,7 +565,7 @@ async function sendToBackend(productData) {
   }
 }
 
-async function sendDescriptionToBackend(data) {
+async function sendDescriptionToBackend(data, environmentId) {
   const stored = await chrome.storage.local.get("lastExtraction");
   if (stored.lastExtraction && stored.lastExtraction.source_url === data.source_url) {
     stored.lastExtraction.description_images = data.description_images;
@@ -638,7 +575,7 @@ async function sendDescriptionToBackend(data) {
   }
 
   try {
-    const config = await backendRequestConfig();
+    const config = await backendRequestConfig(environmentId);
     if (!config.ok) return;
     await config.request(`${config.base}/product-data`, {
       method: "POST",

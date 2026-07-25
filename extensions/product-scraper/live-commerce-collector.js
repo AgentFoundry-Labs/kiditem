@@ -17,14 +17,20 @@
     });
     const activeRuns = new Map();
 
-    async function collect(urlValue, requestedRunId) {
+    async function collect(urlValue, requestedRunId, environmentId) {
       const validated = validateLiveUrl(urlValue);
       if (!validated.ok) return { success: false, error: validated.error };
-      const backendConfig = await getBackendRequestConfig();
+      const backendConfig = await getBackendRequestConfig(environmentId);
       if (!backendConfig.ok) return { success: false, error: backendConfig.error };
 
-      const runId = await prepareRun(requestedRunId, validated);
-      const run = { runId, tabId: null, keepTabOpen: false, cancelRequested: false };
+      const runId = await prepareRun(requestedRunId, validated, environmentId);
+      const run = {
+        environmentId,
+        runId,
+        tabId: null,
+        keepTabOpen: false,
+        cancelRequested: false,
+      };
       activeRuns.set(runId, run);
       let tabId = null;
       try {
@@ -151,10 +157,11 @@
       }
     }
 
-    async function prepareRun(requestedRunId, validated) {
+    async function prepareRun(requestedRunId, validated, environmentId) {
       if (typeof requestedRunId !== "string" || !requestedRunId) {
         const runId = createRunId();
         await sessions.start({
+          environmentId,
           runId,
           producer: "sourcing.live_commerce",
           classification: "background_preferred",
@@ -170,6 +177,7 @@
       const session = await sessions.get(requestedRunId);
       if (
         !session ||
+        session.environmentId !== environmentId ||
         session.producer !== "sourcing.live_commerce" ||
         session.restartStrategy !== "web"
       ) {

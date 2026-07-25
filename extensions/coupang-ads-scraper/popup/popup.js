@@ -1,293 +1,276 @@
-const API_URL = "http://localhost:4000";
-const POPUP_AUTH_TOKEN_KEY = "kiditem_auth_token";
+const ENVIRONMENTS = Object.freeze({
+  local: { label: '로컬', webOrigin: 'http://localhost:3000' },
+  staging: { label: '스테이징', webOrigin: 'https://staging.merchon.org' },
+});
 
-function popupGetAuthToken() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get([POPUP_AUTH_TOKEN_KEY], (r) => resolve(r[POPUP_AUTH_TOKEN_KEY] || null));
-    } catch {
-      resolve(null);
-    }
+let selectedEnvironmentId = null;
+
+function runtimeMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response);
+    });
   });
+}
+
+function requireSelectedEnvironment() {
+  if (!selectedEnvironmentId || !ENVIRONMENTS[selectedEnvironmentId]) {
+    throw new Error('사용할 KidItem 환경을 선택해주세요.');
+  }
+  return selectedEnvironmentId;
 }
 
 async function popupFetch(path, init = {}) {
-  const token = await popupGetAuthToken();
-  const headers = new Headers(init.headers || {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(`${API_URL}${path}`, { ...init, headers });
+  const response = await runtimeMessage({
+    action: 'kiditemApiRequest',
+    environmentId: requireSelectedEnvironment(),
+    path,
+    init,
+  });
+  if (!response?.success) throw new Error(response?.error || '서버 요청 실패');
+  return response;
+}
+
+async function bindActiveTab() {
+  const environmentId = requireSelectedEnvironment();
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) throw new Error('현재 탭을 찾을 수 없습니다.');
+  const result = await runtimeMessage({
+    action: 'bindKidItemEnvironment',
+    tabId: tab.id,
+    environmentId,
+  });
+  if (!result?.success) throw new Error(result?.error || '환경 연결 실패');
+  return tab;
 }
 
 function timeAgo(ts) {
-  if (!ts) return "-";
+  if (!ts) return '-';
   const diff = Date.now() - ts;
-  if (diff < 60000) return "방금 전";
-  if (diff < 3600000) return Math.floor(diff / 60000) + "분 전";
-  if (diff < 86400000) return Math.floor(diff / 3600000) + "시간 전";
-  return Math.floor(diff / 86400000) + "일 전";
+  if (diff < 60000) return '방금 전';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}분 전`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}시간 전`;
+  return `${Math.floor(diff / 86400000)}일 전`;
 }
 
-function setCardValue(id, text, hasDot, dotColor) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const dot = hasDot ? `<span class="dot ${dotColor}"></span>` : "";
-  el.innerHTML = dot + text;
-  el.className = text === "-" || text === "아직 없음" ? "value none" : "value";
+function setCardValue(id, text, hasDot = false, dotColor = 'dot-gray') {
+  const element = document.getElementById(id);
+  if (!element) return;
+  const dot = hasDot ? `<span class="dot ${dotColor}"></span>` : '';
+  element.innerHTML = dot + text;
+  element.className = text === '-' || text === '아직 없음' ? 'value none' : 'value';
 }
 
-async function init() {
-  // 서버 연결 확인
-  try {
-    await popupFetch(`/api/ads/extension/sync`);
-    setCardValue("serverStatus", "연결됨 ✅", false);
-    document.getElementById("connBadge").textContent = "연결됨";
-    document.getElementById("connBadge").className = "badge";
-  } catch {
-    setCardValue("serverStatus", "연결 안됨 ❌", false);
-    document.getElementById("connBadge").textContent = "오프라인";
-    document.getElementById("connBadge").className = "badge offline";
+function showResult(message, error = false) {
+  const element = document.getElementById('syncResult');
+  element.textContent = message;
+  element.className = `sync-result ${error ? 'error' : 'success'}`;
+}
+
+function scopedKey(base) {
+  return `${base}:${requireSelectedEnvironment()}`;
+}
+
+async function configureEnvironmentSelector() {
+  const result = await runtimeMessage({ action: 'getConnectedKidItemEnvironments' });
+  const environmentIds = Array.isArray(result?.environmentIds)
+    ? result.environmentIds.filter((id) => ENVIRONMENTS[id])
+    : [];
+  const select = document.getElementById('environmentSelect');
+  select.replaceChildren();
+
+  if (environmentIds.length === 0) {
+    select.append(new Option('연결된 환경 없음', ''));
+    select.disabled = true;
+    selectedEnvironmentId = null;
+    showResult('로컬 또는 스테이징 KidItem에 로그인한 뒤 다시 열어주세요.', true);
+    return false;
   }
 
-  // 마지막 동기화 시간
-  chrome.storage.local.get(["kiditem_last_sync_traffic", "kiditem_last_sync_itemwinner", "kiditem_last_sync_ads"], (data) => {
-    const t = data.kiditem_last_sync_traffic;
-    const w = data.kiditem_last_sync_itemwinner;
-    const a = data.kiditem_last_sync_ads;
+  select.disabled = false;
+  if (environmentIds.length > 1) {
+    select.append(new Option('환경 선택', ''));
+    selectedEnvironmentId = null;
+  }
+  for (const environmentId of environmentIds) {
+    select.append(new Option(ENVIRONMENTS[environmentId].label, environmentId));
+  }
+  if (environmentIds.length === 1) {
+    selectedEnvironmentId = environmentIds[0];
+    select.value = selectedEnvironmentId;
+  }
+  select.addEventListener('change', () => {
+    selectedEnvironmentId = select.value || null;
+    if (selectedEnvironmentId) initEnvironmentStatus();
+  });
+  return selectedEnvironmentId !== null;
+}
 
-    if (t) {
-      setCardValue("trafficSync", `${timeAgo(t.time)} (${t.count}개)`, true, "dot-green");
-    } else {
-      setCardValue("trafficSync", "아직 없음", true, "dot-gray");
-    }
+async function initEnvironmentStatus() {
+  if (!selectedEnvironmentId) return;
+  try {
+    const status = await popupFetch('/api/ads/extension/sync');
+    if (!status.ok) throw new Error(`HTTP ${status.status}`);
+    setCardValue('serverStatus', '연결됨 ✅');
+    document.getElementById('connBadge').textContent = ENVIRONMENTS[selectedEnvironmentId].label;
+    document.getElementById('connBadge').className = 'badge';
+  } catch {
+    setCardValue('serverStatus', '연결 안됨 ❌');
+    document.getElementById('connBadge').textContent = '오프라인';
+    document.getElementById('connBadge').className = 'badge offline';
+  }
 
-    if (w) {
-      setCardValue("winnerSync", `${timeAgo(w.time)} (${w.count}개)`, true, "dot-green");
-    } else {
-      setCardValue("winnerSync", "아직 없음", true, "dot-gray");
-    }
-
-    if (a) {
-      setCardValue("adsSync", `${timeAgo(a.time)} (${a.count}개)`, true, "dot-green");
-    } else {
-      setCardValue("adsSync", "아직 없음", true, "dot-gray");
+  const syncKeys = ['traffic', 'itemwinner', 'ads'];
+  const keys = syncKeys.map((type) => scopedKey(`kiditem_last_sync_${type}`));
+  chrome.storage.local.get(keys, (data) => {
+    for (const [type, elementId] of [
+      ['traffic', 'trafficSync'],
+      ['itemwinner', 'winnerSync'],
+      ['ads', 'adsSync'],
+    ]) {
+      const value = data[scopedKey(`kiditem_last_sync_${type}`)];
+      setCardValue(
+        elementId,
+        value ? `${timeAgo(value.time)} (${value.count}개)` : '아직 없음',
+        true,
+        value ? 'dot-green' : 'dot-gray',
+      );
     }
   });
 
   try {
-    const res = await popupFetch(`/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50`);
-    const json = await res.json();
-    const count = Array.isArray(json.items) ? json.items.length : 0;
-    if (count > 0) {
-      setCardValue("approvedActions", `${count}개 대기`, true, "dot-orange");
-    } else {
-      setCardValue("approvedActions", "없음", true, "dot-gray");
-    }
+    const result = await popupFetch('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50');
+    const count = Array.isArray(result.body?.items) ? result.body.items.length : 0;
+    setCardValue('approvedActions', count > 0 ? `${count}개 대기` : '없음', true, count > 0 ? 'dot-orange' : 'dot-gray');
   } catch {
-    setCardValue("approvedActions", "조회 실패", true, "dot-gray");
+    setCardValue('approvedActions', '조회 실패', true);
   }
 }
 
-// 현재 페이지 동기화 버튼
-document.getElementById("btnSync").addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return;
-
-  const resultEl = document.getElementById("syncResult");
-  resultEl.textContent = "동기화 중...";
-  resultEl.className = "sync-result success";
-
-  chrome.tabs.sendMessage(tab.id, { action: "manualSync" }, (response) => {
-    if (chrome.runtime.lastError) {
-      resultEl.textContent = "이 페이지에서는 동기화할 수 없습니다. Wing 또는 광고센터를 열어주세요.";
-      resultEl.className = "sync-result error";
-      return;
-    }
-    if (response?.success) {
-      resultEl.textContent = `✅ ${response.type} ${response.count}개 동기화 완료`;
-      resultEl.className = "sync-result success";
-      setTimeout(init, 1000);
-    } else {
-      resultEl.textContent = `❌ ${response?.error || "동기화 실패"}`;
-      resultEl.className = "sync-result error";
-    }
-  });
-});
-
-document.getElementById("btnRunApproved").addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return;
-
-  const resultEl = document.getElementById("syncResult");
-  resultEl.textContent = "승인 액션 조회 중...";
-  resultEl.className = "sync-result success";
-
+document.getElementById('btnSync').addEventListener('click', async () => {
   try {
-    const res = await popupFetch(`/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20`);
-    const json = await res.json();
-    const actions = Array.isArray(json.items) ? json.items : [];
-
-    if (actions.length === 0) {
-      resultEl.textContent = "실행할 승인 액션이 없습니다.";
-      resultEl.className = "sync-result error";
-      return;
-    }
-
+    const tab = await bindActiveTab();
+    showResult('동기화 중...');
     chrome.tabs.sendMessage(
       tab.id,
-      { action: "executeApprovedAdActions", payload: { actions, apiUrl: `${API_URL}/api/ads/actions` } },
+      { action: 'manualSync', environmentId: selectedEnvironmentId },
       (response) => {
-        if (chrome.runtime.lastError) {
-          resultEl.textContent = "광고센터 탭에서 실행해주세요.";
-          resultEl.className = "sync-result error";
+        if (chrome.runtime.lastError || !response?.success) {
+          showResult(`❌ ${chrome.runtime.lastError?.message || response?.error || '동기화 실패'}`, true);
           return;
         }
-
-        if (response?.success) {
-          resultEl.textContent = `✅ ${response.executed || 0}개 실행, ${response.skipped || 0}개 보류`;
-          resultEl.className = "sync-result success";
-          setTimeout(init, 500);
-        } else {
-          resultEl.textContent = `❌ ${response?.error || "실행 실패"}`;
-          resultEl.className = "sync-result error";
-        }
-      }
+        showResult(`✅ ${response.type} ${response.count}개 동기화 완료`);
+        setTimeout(initEnvironmentStatus, 1000);
+      },
     );
-  } catch (e) {
-    resultEl.textContent = `❌ ${e?.message || "실행 실패"}`;
-    resultEl.className = "sync-result error";
+  } catch (error) {
+    showResult(`❌ ${error.message}`, true);
   }
 });
 
-// 월별 일별 동기화
-(function () {
-  const now = new Date();
-  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  document.getElementById("monthInput").value = defaultMonth;
-})();
-
-document.getElementById("btnMonthlySync").addEventListener("click", () => {
-  const monthVal = document.getElementById("monthInput").value; // "2026-04"
-  if (!monthVal) return;
-
-  const [year, month] = monthVal.split("-").map(Number);
-  const progressEl = document.getElementById("monthlySyncProgress");
-  progressEl.style.display = "block";
-  progressEl.className = "sync-progress";
-  progressEl.textContent = "수집 준비 중...";
-
-  let pollInterval = null;
-
-  chrome.runtime.sendMessage({ action: "monthlyScrape", year, month }, (response) => {
-    if (chrome.runtime.lastError || !response?.success) {
-      progressEl.className = "sync-progress error";
-      progressEl.textContent = "❌ " + (chrome.runtime.lastError?.message || response?.error || "실패");
-      return;
-    }
-
-    // 진행상황 polling
-    pollInterval = setInterval(() => {
-      chrome.storage.local.get(["kiditem_monthly_sync"], (data) => {
-        const s = data.kiditem_monthly_sync;
-        if (!s || s.year !== year || s.month !== month) return;
-
-        if (s.status === "running") {
-          progressEl.className = "sync-progress";
-          progressEl.textContent = `📊 ${s.completed} / ${s.total}일 수집 중...`;
-        } else if (s.status === "done") {
-          progressEl.className = "sync-progress done";
-          progressEl.textContent = `✅ ${s.completed}일 동기화 완료 (${year}-${String(month).padStart(2, "0")})`;
-          clearInterval(pollInterval);
-          setTimeout(init, 1000);
-        } else if (s.status === "error") {
-          progressEl.className = "sync-progress error";
-          progressEl.textContent = `❌ 오류: ${s.error || "알 수 없는 오류"}`;
-          clearInterval(pollInterval);
+document.getElementById('btnRunApproved').addEventListener('click', async () => {
+  try {
+    const tab = await bindActiveTab();
+    const result = await popupFetch('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20');
+    const actions = Array.isArray(result.body?.items) ? result.body.items : [];
+    if (actions.length === 0) throw new Error('실행할 승인 액션이 없습니다.');
+    chrome.tabs.sendMessage(
+      tab.id,
+      { action: 'executeApprovedAdActions', payload: { actions } },
+      (response) => {
+        if (chrome.runtime.lastError || !response?.success) {
+          showResult(`❌ ${chrome.runtime.lastError?.message || response?.error || '실행 실패'}`, true);
+          return;
         }
+        showResult(`✅ ${response.executed || 0}개 실행, ${response.skipped || 0}개 보류`);
+      },
+    );
+  } catch (error) {
+    showResult(`❌ ${error.message}`, true);
+  }
+});
+
+const now = new Date();
+document.getElementById('monthInput').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+document.getElementById('btnMonthlySync').addEventListener('click', async () => {
+  try {
+    const environmentId = requireSelectedEnvironment();
+    const [year, month] = document.getElementById('monthInput').value.split('-').map(Number);
+    const response = await runtimeMessage({ action: 'monthlyScrape', year, month, environmentId });
+    if (!response?.success) throw new Error(response?.error || '수집 시작 실패');
+    const progress = document.getElementById('monthlySyncProgress');
+    progress.style.display = 'block';
+    const key = scopedKey('kiditem_monthly_sync');
+    const poll = setInterval(() => {
+      chrome.storage.local.get(key, (data) => {
+        const state = data[key];
+        if (!state) return;
+        progress.textContent = state.status === 'running'
+          ? `📊 ${state.completed} / ${state.total}일 수집 중...`
+          : state.status === 'done'
+            ? `✅ ${state.completed}일 동기화 완료`
+            : `❌ ${state.error || '수집 실패'}`;
+        progress.className = `sync-progress ${state.status === 'done' ? 'done' : state.status === 'error' ? 'error' : ''}`;
+        if (['done', 'error'].includes(state.status)) clearInterval(poll);
       });
     }, 1000);
-  });
+  } catch (error) {
+    showResult(`❌ ${error.message}`, true);
+  }
 });
 
-// 상품목록 스크래핑 (Wing vendor-inventory/list)
-document.getElementById("btnInventoryScrape").addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return;
-
-  const resultEl = document.getElementById("syncResult");
-
-  if (!tab.url || !tab.url.includes("vendor-inventory/list")) {
-    resultEl.textContent = "Wing 상품목록 페이지(vendor-inventory/list)를 먼저 열어주세요.";
-    resultEl.className = "sync-result error";
-    return;
+document.getElementById('btnInventoryScrape').addEventListener('click', async () => {
+  try {
+    const tab = await bindActiveTab();
+    if (!tab.url?.includes('vendor-inventory/list')) {
+      throw new Error('Wing 상품목록 페이지를 먼저 열어주세요.');
+    }
+    chrome.tabs.sendMessage(tab.id, { action: 'scrapeInventoryList' }, (response) => {
+      if (chrome.runtime.lastError || !response?.success) {
+        showResult(`❌ ${chrome.runtime.lastError?.message || response?.error || '스크래핑 실패'}`, true);
+        return;
+      }
+      showResult(`✅ ${response.total}개 상품 스크래핑 완료`);
+    });
+  } catch (error) {
+    showResult(`❌ ${error.message}`, true);
   }
+});
 
-  resultEl.textContent = "상품목록 스크래핑 중... (페이지 순회, 완료까지 기다려주세요)";
-  resultEl.className = "sync-result success";
+function openDashboard() {
+  try {
+    chrome.tabs.create({ url: ENVIRONMENTS[requireSelectedEnvironment()].webOrigin });
+  } catch (error) {
+    showResult(`❌ ${error.message}`, true);
+  }
+}
 
-  chrome.tabs.sendMessage(tab.id, { action: "scrapeInventoryList" }, (response) => {
-    if (chrome.runtime.lastError) {
-      resultEl.textContent = "스크래핑 실패: " + chrome.runtime.lastError.message;
-      resultEl.className = "sync-result error";
+document.getElementById('btnOpen').addEventListener('click', openDashboard);
+document.getElementById('footerLink').addEventListener('click', (event) => {
+  event.preventDefault();
+  openDashboard();
+});
+
+document.getElementById('btnRegister').addEventListener('click', async () => {
+  try {
+    const environment = ENVIRONMENTS[requireSelectedEnvironment()];
+    const tabs = await chrome.tabs.query({ url: `${environment.webOrigin}/*` });
+    if (tabs.length === 0) {
+      chrome.tabs.create({ url: environment.webOrigin });
+      showResult('KidItem 탭을 열었습니다. 로그인하면 자동으로 확장을 찾습니다.');
       return;
     }
-    if (response?.success) {
-      resultEl.textContent = `✅ ${response.total}개 상품 스크래핑 완료 — 엑셀 다운로드됨`;
-      resultEl.className = "sync-result success";
-    } else {
-      resultEl.textContent = `❌ ${response?.error || "스크래핑 실패"}`;
-      resultEl.className = "sync-result error";
-    }
-  });
-});
-
-// 대시보드 열기
-document.getElementById("btnOpen").addEventListener("click", () => {
-  chrome.tabs.create({ url: API_URL });
-});
-
-// 대시보드에 익스텐션 ID 등록
-document.getElementById("btnRegister").addEventListener("click", async () => {
-  const extId = chrome.runtime.id;
-  const resultEl = document.getElementById("syncResult");
-
-  try {
-    const tabs = await chrome.tabs.query({ url: `${API_URL}/*` });
-
-    if (tabs.length === 0) {
-      const newTab = await chrome.tabs.create({ url: API_URL });
-      chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
-        if (tabId === newTab.id && changeInfo.status === "complete") {
-          chrome.tabs.onUpdated.removeListener(listener);
-          chrome.scripting.executeScript({
-            target: { tabId: newTab.id },
-            func: (id) => { localStorage.setItem("kiditem-ext-id", id); },
-            args: [extId],
-          });
-        }
-      });
-      resultEl.textContent = `✅ 익스텐션 ID 등록됨: ${extId.substring(0, 12)}...`;
-      resultEl.className = "sync-result success";
-    } else {
-      for (const tab of tabs) {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: (id) => { localStorage.setItem("kiditem-ext-id", id); },
-          args: [extId],
-        });
-      }
-      resultEl.textContent = `✅ 익스텐션 ID 등록됨: ${extId.substring(0, 12)}...`;
-      resultEl.className = "sync-result success";
-    }
-  } catch (e) {
-    resultEl.textContent = `❌ 등록 실패: ${e.message}`;
-    resultEl.className = "sync-result error";
+    showResult(`✅ ${environment.label} KidItem과 연결됨`);
+  } catch (error) {
+    showResult(`❌ ${error.message}`, true);
   }
 });
 
-// Footer link
-document.getElementById("footerLink")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  chrome.tabs.create({ url: API_URL });
+configureEnvironmentSelector().then((ready) => {
+  if (ready) initEnvironmentStatus();
 });
-
-init();

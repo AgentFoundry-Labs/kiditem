@@ -134,7 +134,11 @@ function loadWorker() {
 
 function dispatch(listener, message) {
   return new Promise((resolve) => {
-    const keepAlive = listener(message, {}, resolve);
+    const keepAlive = listener(
+      message,
+      { url: 'http://localhost:3000/order-collection' },
+      resolve,
+    );
     assert.equal(keepAlive, true);
   });
 }

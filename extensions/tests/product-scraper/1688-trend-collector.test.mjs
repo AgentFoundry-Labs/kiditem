@@ -121,7 +121,7 @@ function loadCollector({ fakeChrome, fetchImpl, backendConfig }) {
 async function waitForStatus(collector, runId, expected) {
   const deadline = Date.now() + 2_000;
   while (Date.now() < deadline) {
-    const status = await collector.getStatus(runId);
+    const status = await collector.getStatus(runId, 'local');
     if (status.status === expected) return status;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -167,7 +167,7 @@ test('collects keywords sequentially in one Chrome tab and preserves backend com
     },
   });
 
-  const started = await collector.start(['文具', '玩具'], 2);
+  const started = await collector.start(['文具', '玩具'], 2, 'local');
   assert.equal(started.success, true);
   assert.equal(started.status, 'running');
 
@@ -221,7 +221,7 @@ test('keeps CAPTCHA attention inactive until the generic open command and restar
     }),
   });
 
-  const first = await collector.start(['文具', '玩具'], 20);
+  const first = await collector.start(['文具', '玩具'], 20, 'local');
   const blocked = await waitForStatus(collector, first.runId, 'attention_required');
   assert.match(blocked.verificationUrl, /action=captcha/);
   assert.equal(fake.calls.create.length, 1);
@@ -263,7 +263,7 @@ test('fails before opening 1688 when the common Supabase token is unavailable', 
     fetchImpl: async () => assert.fail('fetch must not run'),
   });
 
-  const started = await collector.start(['文具'], 20);
+  const started = await collector.start(['文具'], 20, 'local');
 
   assert.equal(started.success, false);
   assert.match(started.error, /로그인/);
@@ -280,12 +280,12 @@ test('cancels an active run and exposes the cancelled status', async () => {
     fetchImpl: async () => assert.fail('cancelled run must not post'),
   });
 
-  const started = await collector.start(['文具'], 20);
+  const started = await collector.start(['文具'], 20, 'local');
   while (fake.calls.messages.length === 0) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-  const cancelled = await collector.cancel(started.runId);
-  const status = await collector.getStatus(started.runId);
+  const cancelled = await collector.cancel(started.runId, 'local');
+  const status = await collector.getStatus(started.runId, 'local');
 
   assert.equal(cancelled.status, 'cancelled');
   assert.equal(status.status, 'cancelled');

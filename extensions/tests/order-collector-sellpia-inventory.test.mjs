@@ -271,7 +271,12 @@ function createRealLifecycle(browser) {
 }
 
 function inventoryMessage() {
-  return { action: 'collectSellpiaInventory', runId: RUN_ID, deferTerminal: false };
+  return {
+    action: 'collectSellpiaInventory',
+    runId: RUN_ID,
+    deferTerminal: false,
+    environmentId: 'local',
+  };
 }
 
 function inventoryIdentity() {

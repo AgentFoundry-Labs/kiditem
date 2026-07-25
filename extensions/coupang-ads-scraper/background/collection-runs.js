@@ -20,8 +20,14 @@
   function create(options) {
     const chromeApi = options.chrome;
     const sessions = options.sessions;
-    const collectionWindow = options.collectionWindow;
     const now = options.now || Date.now;
+
+    function collectionWindowFor(environmentId) {
+      if (typeof options.collectionWindowFor === "function") {
+        return options.collectionWindowFor(environmentId);
+      }
+      return options.collectionWindow;
+    }
 
     function createRunId() {
       if (typeof options.randomUUID === "function") return options.randomUUID();
@@ -80,6 +86,7 @@
       inputIdentity,
       requestedRunId,
       stableOwnerKeys = [],
+      environmentId,
     ) {
       const hasRequestedRunId = requestedRunId !== undefined;
       if (
@@ -92,6 +99,9 @@
       const runId = hasRequestedRunId ? requestedRunId : createRunId();
       const existing = hasRequestedRunId ? await sessions.get(runId) : null;
       if (existing) {
+        if (existing.environmentId !== environmentId) {
+          throw new Error("Collection session environment does not match owner");
+        }
         if (existing.producer !== producer) {
           throw new Error("Collection session owner does not match producer");
         }
@@ -110,7 +120,7 @@
           }
         }
         if (SCRAPE_PRODUCERS.has(producer)) {
-          await collectionWindow.close(runId);
+          await collectionWindowFor(environmentId).close(runId);
           await sessions.restart(runId);
         } else {
           await sessions.restart(runId, { closeManagedTab: true });
@@ -119,6 +129,7 @@
       }
       await sessions.start({
         runId,
+        environmentId,
         producer,
         classification: "background_preferred",
         restartStrategy: "web",
@@ -164,11 +175,12 @@
       };
     }
 
-    async function startCatalog(message) {
+    async function startCatalog(message, environmentId) {
       const runId =
         typeof message?.runId === "string" ? message.runId : createRunId();
       await sessions.start({
         runId,
+        environmentId,
         producer: "channels.coupang_catalog",
         classification: "background_preferred",
         restartStrategy: "extension",
@@ -182,26 +194,30 @@
         },
       });
       try {
-        return await options.startCatalog(message);
+        return await options.startCatalog(message, environmentId);
       } catch (error) {
         await sessions.fail(runId);
         throw error;
       }
     }
 
-    async function cancel(runId) {
+    async function cancel(runId, environmentId) {
       if (typeof runId !== "string" || !runId) {
         return { success: false, cancelled: false, error: "runId required" };
       }
       const session = await sessions.get(runId);
       if (!session) return { success: true, cancelled: false, runId };
+      if (environmentId && session.environmentId !== environmentId) {
+        throw new Error("Collection session environment does not match owner");
+      }
+      const ownerEnvironmentId = session.environmentId;
       if (
         isDashboardProducer(session.producer) ||
         session.producer === "advertising.ad_sync" ||
         session.producer === "advertising.scrape_targets"
       ) {
         return (
-          (await options.cancelScrape(runId)) || {
+          (await options.cancelScrape(runId, ownerEnvironmentId)) || {
             success: true,
             cancelled: true,
             runId,
@@ -209,17 +225,17 @@
         );
       }
       if (session.producer === "channels.coupang_catalog") {
-        await options.cancelCatalog(runId);
+        await options.cancelCatalog(runId, ownerEnvironmentId);
         return { success: true, cancelled: true, runId };
       }
 
       await sessions.cancel(runId, { closeManagedTab: true });
       if (session.producer === "advertising.wing_rank") {
-        await options.cancelWingRank(runId);
+        await options.cancelWingRank(runId, ownerEnvironmentId);
       } else if (session.producer === "advertising.keyword_rank") {
-        await options.cancelKeywordRank(runId);
+        await options.cancelKeywordRank(runId, ownerEnvironmentId);
       } else if (session.producer === "advertising.competitor_catalog") {
-        await options.cancelCompetitorCatalog(runId);
+        await options.cancelCompetitorCatalog(runId, ownerEnvironmentId);
       }
       return { success: true, cancelled: true, runId };
     }
@@ -232,9 +248,12 @@
       return sessions.get(runId);
     }
 
-    async function restart(runId) {
+    async function restart(runId, environmentId) {
       const session = await sessions.get(runId);
       if (!session) throw new Error("Collection session not found");
+      if (environmentId && session.environmentId !== environmentId) {
+        throw new Error("Collection session environment does not match owner");
+      }
       if (session.restartStrategy !== "extension") {
         return manualConfirmation(
           runId,
@@ -250,13 +269,14 @@
       );
       try {
         if (session.producer === "advertising.scrape_targets") {
-          const targets = await options.loadScheduledTargets();
+          const targets = await options.loadScheduledTargets(session.environmentId);
           await options.startScheduledScrape({
             targets,
             runId,
             startedAt: now(),
             startIndex: 0,
             sessionStarted: true,
+            environmentId: session.environmentId,
           });
         } else if (session.producer === "advertising.wing_rank") {
           await options.startWingRank({
@@ -264,9 +284,10 @@
             runId,
             restartStrategy: "extension",
             sessionStarted: true,
+            environmentId: session.environmentId,
           });
         } else if (session.producer === "channels.coupang_catalog") {
-          await options.restartCatalog(runId);
+          await options.restartCatalog(runId, session.environmentId);
         } else {
           throw new Error("Collection restart source is no longer valid");
         }
@@ -281,7 +302,9 @@
     }
 
     async function recover() {
-      const active = await sessions.list();
+      const active = typeof sessions.listAll === "function"
+        ? await sessions.listAll()
+        : await sessions.list();
       for (const session of active) {
         if (
           session.status !== "running" &&
@@ -289,7 +312,7 @@
         ) {
           continue;
         }
-        const owned = await collectionWindow.reattach(session.runId);
+        const owned = await collectionWindowFor(session.environmentId).reattach(session.runId);
         if (owned) {
           await sessions.attachTab(session.runId, {
             tabId: owned.tabId,
@@ -298,7 +321,7 @@
         }
         if (session.status === "attention_required") continue;
         if (session.restartStrategy === "extension") {
-          await restart(session.runId);
+          await restart(session.runId, session.environmentId);
         } else {
           await manualConfirmation(
             session.runId,

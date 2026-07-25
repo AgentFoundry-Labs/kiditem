@@ -1,12 +1,23 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
 const repoRoot = process.cwd();
 const scriptPath = join(repoRoot, "scripts/manage-extension-release.mjs");
+const supportedExtensions = [
+  "product-scraper",
+  "coupang-ads-scraper",
+  "order-collector",
+] as const;
 const temporaryDirectories: string[] = [];
 
 function extensionVersion(extension: string): string {
@@ -28,6 +39,41 @@ function temporaryDirectory(): string {
   return directory;
 }
 
+function loadableSourceFiles(directory: string): string[] {
+  const files: string[] = [];
+  function visit(current: string): void {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (
+        entry.name.startsWith(".") ||
+        entry.name === "AGENTS.md" ||
+        entry.name === "CLAUDE.md"
+      ) {
+        continue;
+      }
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.isFile()) files.push(relative(directory, path));
+    }
+  }
+  visit(directory);
+  return files.sort();
+}
+
+function pack(extension: string, outputDirectory: string) {
+  return spawnSync(
+    process.execPath,
+    [
+      scriptPath,
+      "pack",
+      "--extension",
+      extension,
+      "--output-dir",
+      outputDirectory,
+    ],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+}
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
@@ -35,27 +81,10 @@ afterEach(() => {
 });
 
 describe("manual extension release management", () => {
-  it("packages a reproducible staging-targeted release from its manifest version", async () => {
+  it("packages a reproducible universal release from its manifest version", async () => {
     const version = extensionVersion("order-collector");
     const outputDirectory = temporaryDirectory();
-    const result = spawnSync(
-      process.execPath,
-      [
-        scriptPath,
-        "pack",
-        "--extension",
-        "order-collector",
-        "--target",
-        "staging",
-        "--web-origin",
-        "https://staging.example.com",
-        "--api-origin",
-        "https://staging.example.com",
-        "--output-dir",
-        outputDirectory,
-      ],
-      { cwd: repoRoot, encoding: "utf8" },
-    );
+    const result = pack("order-collector", outputDirectory);
 
     expect(result.status, result.stderr).toBe(0);
 
@@ -63,31 +92,31 @@ describe("manual extension release management", () => {
       outputDirectory,
       "order-collector",
       version,
-      "staging",
+      "universal",
     );
-    const assetBase = `kiditem-order-collector-v${version}-staging`;
+    const assetBase = `kiditem-order-collector-v${version}`;
     const archivePath = join(releaseDirectory, `${assetBase}.zip`);
     const checksumPath = join(releaseDirectory, `${assetBase}.zip.sha256`);
     const metadataPath = join(releaseDirectory, `${assetBase}.release.json`);
+    const sourceManifestPath = join(
+      repoRoot,
+      "extensions/order-collector/manifest.json",
+    );
     const unpackedManifestPath = join(
       releaseDirectory,
       "unpacked",
       "manifest.json",
     );
-    const unpackedWorkerPath = join(
-      releaseDirectory,
-      "unpacked",
-      "background/service-worker.js",
-    );
 
+    expect(readFileSync(unpackedManifestPath)).toEqual(
+      readFileSync(sourceManifestPath),
+    );
     const manifest = JSON.parse(readFileSync(unpackedManifestPath, "utf8"));
-    expect(manifest.version).toBe(version);
-    expect(manifest.externally_connectable.matches).toEqual([
-      "https://staging.example.com/*",
-    ]);
-    expect(JSON.stringify(manifest)).not.toContain("localhost");
-    expect(readFileSync(unpackedWorkerPath, "utf8")).not.toContain(
-      "http://localhost:3000",
+    expect(manifest.externally_connectable.matches).toEqual(
+      expect.arrayContaining([
+        "http://localhost:3000/*",
+        "https://staging.merchon.org/*",
+      ]),
     );
 
     const archive = readFileSync(archivePath);
@@ -98,47 +127,32 @@ describe("manual extension release management", () => {
 
     const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
     expect(metadata).toMatchObject({
-      schemaVersion: "kiditem.extension.release.v1",
+      schemaVersion: "kiditem.extension.release.v2",
       extension: "order-collector",
       manifestVersion: version,
-      target: "staging",
-      webOrigin: "https://staging.example.com",
-      apiOrigin: "https://staging.example.com",
-      tag: `extension-order-collector-v${version}-staging`,
+      target: "universal",
+      environmentProfiles: ["local", "staging"],
+      tag: `extension-order-collector-v${version}`,
       archive: {
         fileName: `${assetBase}.zip`,
         sha256: checksum,
       },
     });
+    expect(metadata).not.toHaveProperty("webOrigin");
+    expect(metadata).not.toHaveProperty("apiOrigin");
     expect(metadata.gitSha).toMatch(/^[0-9a-f]{40}$/);
+    expect(statSync(archivePath).size).toBeGreaterThan(0);
 
     await new Promise((resolve) => setTimeout(resolve, 2_100));
     const repeatedOutputDirectory = temporaryDirectory();
-    const repeated = spawnSync(
-      process.execPath,
-      [
-        scriptPath,
-        "pack",
-        "--extension",
-        "order-collector",
-        "--target",
-        "staging",
-        "--web-origin",
-        "https://staging.example.com",
-        "--api-origin",
-        "https://staging.example.com",
-        "--output-dir",
-        repeatedOutputDirectory,
-      ],
-      { cwd: repoRoot, encoding: "utf8" },
-    );
+    const repeated = pack("order-collector", repeatedOutputDirectory);
     expect(repeated.status, repeated.stderr).toBe(0);
     const repeatedArchive = readFileSync(
       join(
         repeatedOutputDirectory,
         "order-collector",
         version,
-        "staging",
+        "universal",
         `${assetBase}.zip`,
       ),
     );
@@ -147,7 +161,7 @@ describe("manual extension release management", () => {
     );
   });
 
-  it("prepares a draft GitHub Release command bound to the packaged tag and git SHA", () => {
+  it("prepares a draft GitHub Release command bound to the universal package", () => {
     const version = extensionVersion("coupang-ads-scraper");
     const outputDirectory = temporaryDirectory();
     const result = spawnSync(
@@ -157,12 +171,6 @@ describe("manual extension release management", () => {
         "publish",
         "--extension",
         "coupang-ads-scraper",
-        "--target",
-        "staging",
-        "--web-origin",
-        "https://staging.example.com",
-        "--api-origin",
-        "https://staging.example.com",
         "--output-dir",
         outputDirectory,
         "--dry-run",
@@ -172,39 +180,9 @@ describe("manual extension release management", () => {
     );
 
     expect(result.status, result.stderr).toBe(0);
-    const packagedManifest = JSON.parse(
-      readFileSync(
-        join(
-          outputDirectory,
-          "coupang-ads-scraper",
-          version,
-          "staging",
-          "unpacked",
-          "manifest.json",
-        ),
-        "utf8",
-      ),
-    );
-    expect(packagedManifest.host_permissions).toContain(
-      "http://localhost:9000/*",
-    );
-    expect(
-      readFileSync(
-        join(
-          outputDirectory,
-          "coupang-ads-scraper",
-          version,
-          "staging",
-          "unpacked",
-          "popup",
-          "popup.html",
-        ),
-        "utf8",
-      ),
-    ).not.toContain("localhost:4000");
     const output = JSON.parse(result.stdout);
     expect(output.metadata.tag).toBe(
-      `extension-coupang-ads-scraper-v${version}-staging`,
+      `extension-coupang-ads-scraper-v${version}`,
     );
     expect(output.release).toMatchObject({
       dryRun: true,
@@ -228,46 +206,47 @@ describe("manual extension release management", () => {
     );
   });
 
-  it("keeps distinct web and API origins separate during packaging", () => {
-    const version = extensionVersion("product-scraper");
-    const outputDirectory = temporaryDirectory();
+  it("rejects removed environment-targeting package arguments", () => {
     const result = spawnSync(
       process.execPath,
       [
         scriptPath,
         "pack",
         "--extension",
-        "product-scraper",
+        "order-collector",
         "--target",
         "staging",
-        "--web-origin",
-        "https://web.example.com",
-        "--api-origin",
-        "https://staging.merchon.org",
-        "--output-dir",
-        outputDirectory,
       ],
       { cwd: repoRoot, encoding: "utf8" },
     );
 
-    expect(result.status, result.stderr).toBe(0);
-    const background = readFileSync(
-      join(
-        outputDirectory,
-        "product-scraper",
-        version,
-        "staging",
-        "unpacked",
-        "background.js",
-      ),
-      "utf8",
-    );
-    expect(background).toContain(
-      "https://staging.merchon.org/api/sourcing/extension",
-    );
-    expect(background).toContain("https://web.example.com/*");
-    expect(background).not.toContain(
-      "https://web.example.com/api/sourcing/extension",
-    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Unsupported argument: --target");
   });
+
+  it.each(supportedExtensions)(
+    "copies every loadable %s source file without environment rewriting",
+    (extension) => {
+      const version = extensionVersion(extension);
+      const outputDirectory = temporaryDirectory();
+      const result = pack(extension, outputDirectory);
+      expect(result.status, result.stderr).toBe(0);
+
+      const sourceDirectory = join(repoRoot, "extensions", extension);
+      const unpackedDirectory = join(
+        outputDirectory,
+        extension,
+        version,
+        "universal",
+        "unpacked",
+      );
+      const sourceFiles = loadableSourceFiles(sourceDirectory);
+      expect(loadableSourceFiles(unpackedDirectory)).toEqual(sourceFiles);
+      for (const file of sourceFiles) {
+        expect(readFileSync(join(unpackedDirectory, file))).toEqual(
+          readFileSync(join(sourceDirectory, file)),
+        );
+      }
+    },
+  );
 });
