@@ -143,9 +143,9 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest publishes JSON Sellpia inventory evidence at version 0.1.80', () => {
+test('order collector manifest publishes JSON Sellpia inventory evidence at version 0.1.81', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.80');
+  assert.equal(manifest.version, '0.1.81');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
 });
