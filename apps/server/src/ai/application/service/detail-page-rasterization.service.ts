@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import puppeteer, { type Page } from 'puppeteer';
+import sharp from 'sharp';
 import type { RenderImageInput } from './detail-page-requests';
 
 const STATIC_ROOT = '/data/products';
@@ -12,6 +13,7 @@ const DEFAULT_VIEWPORT_WIDTH = 720;
 const DEFAULT_VIEWPORT_HEIGHT = 1200;
 const MAX_RENDER_SCALE = 3;
 const MAX_RASTER_OUTPUT_PIXELS = 45_000_000;
+const MAX_SCREENSHOT_TILE_OUTPUT_HEIGHT = 4096;
 
 interface ScreenshotClip {
   x: number;
@@ -30,6 +32,94 @@ interface RasterConfig {
 interface RasterizedDetailPage {
   buffer: Buffer;
   contentType: 'image/png' | 'image/jpeg';
+}
+
+function splitScreenshotClip(
+  clip: ScreenshotClip,
+  renderScale: number,
+): ScreenshotClip[] {
+  const maxCssHeight = Math.max(
+    1,
+    Math.floor(MAX_SCREENSHOT_TILE_OUTPUT_HEIGHT / renderScale),
+  );
+  const tiles: ScreenshotClip[] = [];
+  const endY = clip.y + clip.height;
+  for (let y = clip.y; y < endY; y += maxCssHeight) {
+    tiles.push({
+      x: clip.x,
+      y,
+      width: clip.width,
+      height: Math.min(maxCssHeight, endY - y),
+    });
+  }
+  return tiles;
+}
+
+async function stitchScreenshotTiles(
+  tiles: Buffer[],
+  config: RasterConfig,
+): Promise<Buffer> {
+  const metadata = await Promise.all(
+    tiles.map((tile) => sharp(tile).metadata()),
+  );
+  const width = metadata[0]?.width;
+  if (!width || metadata.some((item) => item.width !== width || !item.height)) {
+    throw new Error('Detail-page screenshot tiles have inconsistent dimensions.');
+  }
+
+  let top = 0;
+  const layers = tiles.map((input, index) => {
+    const layer = { input, left: 0, top };
+    top += metadata[index]!.height!;
+    return layer;
+  });
+  const canvas = sharp({
+    create: {
+      width,
+      height: top,
+      channels: 3,
+      background: '#ffffff',
+    },
+  }).composite(layers);
+  return config.format === 'jpeg'
+    ? canvas.jpeg({ quality: config.quality }).toBuffer()
+    : canvas.png().toBuffer();
+}
+
+async function captureScreenshot(
+  page: Page,
+  clip: ScreenshotClip | null,
+  config: RasterConfig,
+): Promise<Buffer> {
+  if (!clip) {
+    return Buffer.from(await page.screenshot({
+      fullPage: true,
+      type: config.format,
+      omitBackground: false,
+      quality: config.quality,
+    }));
+  }
+
+  const clips = splitScreenshotClip(clip, config.renderScale);
+  if (clips.length === 1) {
+    return Buffer.from(await page.screenshot({
+      clip,
+      type: config.format,
+      omitBackground: false,
+      quality: config.quality,
+    }));
+  }
+
+  const tiles: Buffer[] = [];
+  for (const tile of clips) {
+    tiles.push(Buffer.from(await page.screenshot({
+      clip: tile,
+      captureBeyondViewport: true,
+      type: 'png',
+      omitBackground: false,
+    })));
+  }
+  return stitchScreenshotTiles(tiles, config);
 }
 
 function mimeFromExt(ext: string): string {
@@ -283,14 +373,9 @@ export class DetailPageRasterizationService {
       await waitForPageAssets(page);
       const clip = await getContentClip(page, config.viewportWidth);
       assertRasterPixelBudget(clip, config);
-      const buffer = await page.screenshot({
-        ...(clip ? { clip } : { fullPage: true }),
-        type: config.format,
-        omitBackground: false,
-        quality: config.quality,
-      });
+      const buffer = await captureScreenshot(page, clip, config);
       return {
-        buffer: Buffer.from(buffer),
+        buffer,
         contentType: config.format === 'jpeg' ? 'image/jpeg' : 'image/png',
       };
     } finally {

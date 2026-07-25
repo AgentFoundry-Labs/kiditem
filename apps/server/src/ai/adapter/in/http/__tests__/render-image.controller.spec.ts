@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import puppeteer from 'puppeteer';
+import sharp from 'sharp';
 import { DetailPageRasterizationService } from '../../../../application/service/detail-page-rasterization.service';
 import { RenderImageController } from '../render-image.controller';
 
@@ -112,6 +113,60 @@ describe('RenderImageController', () => {
     expect(page.screenshot).toHaveBeenCalledWith(expect.not.objectContaining({
       fullPage: true,
     }));
+  });
+
+  it('captures a tall detail page in bounded tiles and returns one JPEG', async () => {
+    page.evaluate
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ x: 0, y: 0, width: 720, height: 7600 });
+    page.screenshot.mockImplementation(async (options: {
+      clip?: { width: number; height: number };
+    }) => {
+      const clip = options.clip;
+      if (!clip || clip.height > 4000) {
+        throw new Error('simulated Page.captureScreenshot timeout');
+      }
+      return sharp({
+        create: {
+          width: Math.round(clip.width * (780 / 720)),
+          height: Math.round(clip.height * (780 / 720)),
+          channels: 3,
+          background: '#ffffff',
+        },
+      }).png().toBuffer();
+    });
+    const controller = makeController();
+    const res = {
+      setHeader: vi.fn(),
+      send: vi.fn(),
+    };
+
+    await controller.render(
+      {
+        html: '<main><h1>tall detail page</h1></main>',
+        viewportWidth: 720,
+        outputWidth: 780,
+        format: 'jpeg',
+        quality: 82,
+      },
+      res as never,
+    );
+
+    expect(page.screenshot.mock.calls.length).toBeGreaterThan(1);
+    for (const [options] of page.screenshot.mock.calls) {
+      expect(options).toEqual(expect.objectContaining({
+        clip: expect.objectContaining({ height: expect.any(Number) }),
+        type: 'png',
+      }));
+      expect(options.clip.height).toBeLessThanOrEqual(4000);
+    }
+    const output = res.send.mock.calls[0]?.[0] as Buffer;
+    await expect(sharp(output).metadata()).resolves.toMatchObject({
+      format: 'jpeg',
+      width: 780,
+      height: 8233,
+    });
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/jpeg');
   });
 
   it('rejects output widths that would exceed the server scale budget', async () => {
