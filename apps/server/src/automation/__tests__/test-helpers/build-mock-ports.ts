@@ -88,6 +88,7 @@ export function buildMockOperationAlertRepo(): MockOperationAlertRepo {
     findLatestBySource: vi.fn(),
     findByOperationKey: vi.fn(),
     closeStaleOperations: vi.fn(),
+    dismissExtensionMissingBrowserCollections: vi.fn(),
   };
 }
 

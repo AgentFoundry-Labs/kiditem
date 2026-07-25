@@ -7,6 +7,7 @@ import { queryKeys } from '@/lib/query-keys';
 const RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const mockListSessions = vi.hoisted(() => vi.fn());
 const mockSyncAlert = vi.hoisted(() => vi.fn());
+const mockDismissExtensionMissing = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
   ...(await importOriginal<
@@ -14,6 +15,11 @@ vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
   >()),
   listBrowserCollectionSessions: mockListSessions,
   syncBrowserCollectionAlert: mockSyncAlert,
+}));
+
+vi.mock('@/lib/operation-alerts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/operation-alerts')>()),
+  dismissExtensionMissingBrowserCollectionAlerts: mockDismissExtensionMissing,
 }));
 
 import {
@@ -73,6 +79,7 @@ describe('BrowserCollectionProvider', () => {
     vi.clearAllMocks();
     mockListSessions.mockResolvedValue([]);
     mockSyncAlert.mockResolvedValue(undefined);
+    mockDismissExtensionMissing.mockResolvedValue({ dismissed: 0 });
     localStorage.clear();
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -87,6 +94,7 @@ describe('BrowserCollectionProvider', () => {
     renderProvider();
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
+    expect(mockDismissExtensionMissing).toHaveBeenCalledTimes(1);
     expect(mockSyncAlert).toHaveBeenCalledWith(current);
   });
 
@@ -292,5 +300,6 @@ describe('BrowserCollectionProvider', () => {
 
     expect(mockListSessions).not.toHaveBeenCalled();
     expect(mockSyncAlert).not.toHaveBeenCalled();
+    expect(mockDismissExtensionMissing).not.toHaveBeenCalled();
   });
 });
