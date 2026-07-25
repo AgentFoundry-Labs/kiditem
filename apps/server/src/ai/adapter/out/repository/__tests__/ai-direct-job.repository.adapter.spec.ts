@@ -38,6 +38,110 @@ function record(overrides: Record<string, unknown> = {}) {
 }
 
 describe('AiDirectJobRepositoryAdapter', () => {
+  it('finds a raster job by its organization-scoped source identity', async () => {
+    const rasterPayload = {
+      jobType: 'detail_page_rasterize' as const,
+      models: {},
+      input: {
+        revisionId: '60620087-f5d8-4307-8591-221fd018eaa0',
+        artifactId: '71429ba3-af81-409e-a976-029c67d86bcb',
+        outputWidth: 780,
+      },
+    };
+    const found = record({
+      jobType: 'detail_page_rasterize',
+      payload: rasterPayload,
+      status: 'succeeded',
+    });
+    const findFirst = vi.fn().mockResolvedValue(found);
+    const repository = new AiDirectJobRepositoryAdapter({
+      aiDirectJob: { findFirst },
+    } as never);
+
+    await expect(repository.findBySource({
+      organizationId: found.organizationId,
+      jobType: 'detail_page_rasterize',
+      sourceResourceId: found.sourceResourceId,
+    })).resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: found.organizationId,
+        jobType: 'detail_page_rasterize',
+        sourceResourceId: found.sourceResourceId,
+      },
+    });
+  });
+
+  it('preserves a succeeded raster checkpoint instead of restarting it', async () => {
+    const rasterPayload = {
+      jobType: 'detail_page_rasterize' as const,
+      models: {},
+      input: {
+        revisionId: '60620087-f5d8-4307-8591-221fd018eaa0',
+        artifactId: '71429ba3-af81-409e-a976-029c67d86bcb',
+        outputWidth: 780,
+      },
+    };
+    const succeeded = record({
+      jobType: 'detail_page_rasterize',
+      payload: rasterPayload,
+      status: 'succeeded',
+      result: { imageUrl: 'https://cdn.example.com/detail.jpg' },
+    });
+    const findUnique = vi.fn().mockResolvedValue(succeeded);
+    const updateMany = vi.fn();
+    const create = vi.fn();
+    const repository = new AiDirectJobRepositoryAdapter({
+      aiDirectJob: { findUnique, updateMany, create },
+    } as never);
+
+    await expect(repository.restartHeldRasterization({
+      organizationId: succeeded.organizationId,
+      jobType: 'detail_page_rasterize',
+      sourceResourceId: succeeded.sourceResourceId,
+      payload: rasterPayload,
+      status: 'held',
+      scheduledFor: NOW,
+    })).resolves.toMatchObject({ status: 'succeeded', result: succeeded.result });
+
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('adopts the winning raster job when concurrent scheduling hits source uniqueness', async () => {
+    const rasterPayload = {
+      jobType: 'detail_page_rasterize' as const,
+      models: {},
+      input: {
+        revisionId: '60620087-f5d8-4307-8591-221fd018eaa0',
+        artifactId: '71429ba3-af81-409e-a976-029c67d86bcb',
+        outputWidth: 780,
+      },
+    };
+    const winner = record({
+      jobType: 'detail_page_rasterize',
+      payload: rasterPayload,
+      status: 'held',
+    });
+    const findUnique = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(winner);
+    const create = vi.fn().mockRejectedValue({ code: 'P2002' });
+    const repository = new AiDirectJobRepositoryAdapter({
+      aiDirectJob: { findUnique, create },
+    } as never);
+
+    await expect(repository.restartHeldRasterization({
+      organizationId: winner.organizationId,
+      jobType: 'detail_page_rasterize',
+      sourceResourceId: winner.sourceResourceId,
+      payload: rasterPayload,
+      status: 'held',
+      scheduledFor: NOW,
+    })).resolves.toMatchObject({ id: winner.id, status: 'held' });
+  });
+
   it('creates a held job through the provided write scope', async () => {
     const created = record();
     const prisma = {

@@ -138,7 +138,19 @@ function validateRocketPurchaseLines(
   }
 }
 
+export const RocketPurchasePreviewScopeSchema = z.enum([
+  'all_rows',
+  'confirmation_requested',
+]);
+export type RocketPurchasePreviewScope = z.infer<
+  typeof RocketPurchasePreviewScopeSchema
+>;
+
 export const RocketPurchasePreviewRequestSchema = RocketPurchaseRequestBaseSchema
+  .extend({
+    previewScope: RocketPurchasePreviewScopeSchema.optional(),
+  })
+  .strict()
   .superRefine(validateRocketPurchaseLines);
 export type RocketPurchasePreviewRequest = z.infer<
   typeof RocketPurchasePreviewRequestSchema

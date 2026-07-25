@@ -116,7 +116,12 @@ export interface DetailPageQueryRepositoryPort {
     assetUrlMap: Record<string, string>;
     imageUrls: string[];
     savedAt: Date;
-  }): Promise<{ html: string; createdAt: Date }>;
+  }): Promise<{
+    revisionId: string;
+    artifactId: string;
+    html: string;
+    createdAt: Date;
+  }>;
   getEditedHtml(input: {
     id: string;
     organizationId: string;
@@ -124,5 +129,10 @@ export interface DetailPageQueryRepositoryPort {
   findCandidateCurrentDetailPageHtml(input: {
     sourceCandidateId: string;
     organizationId: string;
+  }): Promise<CandidateDetailPageHtmlSnapshot | null>;
+  findDetailPageRevisionHtml(input: {
+    organizationId: string;
+    revisionId: string;
+    artifactId: string;
   }): Promise<CandidateDetailPageHtmlSnapshot | null>;
 }

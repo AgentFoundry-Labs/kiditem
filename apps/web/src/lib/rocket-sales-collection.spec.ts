@@ -131,6 +131,15 @@ describe('collectRocketPoRowsFromExtension', () => {
       1200,
       'collectRocketPoRowsConfirmationV1',
     );
+    expect(sendToExtension).toHaveBeenCalledWith(
+      'extension-id',
+      expect.objectContaining({
+        action: 'collectRocketPoRows',
+        status: '',
+        dateType: 'WAREHOUSING_PLAN_DATE',
+      }),
+      190000,
+    );
   });
 
   it('rejects confirmation collection rows without official workbook evidence', async () => {

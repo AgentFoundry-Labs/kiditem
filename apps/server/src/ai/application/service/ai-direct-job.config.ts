@@ -29,9 +29,18 @@ const DEPRECATED_DIRECT_AI_MODELS = new Map<string, string>([
 ]);
 
 export function resolveAiDirectJobModels(
+  jobType: 'detail_page_rasterize',
+  env?: NodeJS.ProcessEnv,
+): Record<string, never>;
+export function resolveAiDirectJobModels(
+  jobType: Exclude<AiDirectJobType, 'detail_page_rasterize'>,
+  env?: NodeJS.ProcessEnv,
+): AiDirectJobModels;
+export function resolveAiDirectJobModels(
   jobType: AiDirectJobType,
   env: NodeJS.ProcessEnv = process.env,
-): AiDirectJobModels {
+): AiDirectJobModels | Record<string, never> {
+  if (jobType === 'detail_page_rasterize') return {};
   const image = requireEnv('AI_IMAGE_MODEL', env);
   if (jobType === 'detail_page_generate') {
     return {

@@ -79,6 +79,8 @@ import {
   DETAIL_PAGE_TEMPLATE_STYLES_PORT,
 } from '../application/port/out/runtime';
 import { AiDirectJobWorkerService } from '../application/service/ai-direct-job-worker.service';
+import { DetailPageRasterJobExecutorService } from '../application/service/detail-page-raster-job-executor.service';
+import { DetailPageRasterJobService } from '../application/service/detail-page-raster-job.service';
 import { CatalogDisplayMediaService } from '../application/service/catalog-display-media.service';
 import { CatalogDisplayMediaRepositoryAdapter } from '../adapter/out/repository/catalog-display-media.repository.adapter';
 import {
@@ -145,6 +147,8 @@ describe('AiModule hexagonal wiring contract', () => {
       expectExistingBinding(providers, token as symbol, adapter);
     });
     expect(providers).toContain(ContentWorkspaceThumbnailSelectionService);
+    expect(providers).toContain(DetailPageRasterJobExecutorService);
+    expect(providers).toContain(DetailPageRasterJobService);
   });
 
   it('exports AI owner-side incoming ports through application services', () => {

@@ -73,6 +73,7 @@ const baseWorkflow = {
   abandoning: false,
   setTemplateFile: vi.fn(),
   loading: false,
+  collecting: false,
   error: null,
   collectionWarning: null,
   canExport: false,
@@ -118,6 +119,12 @@ function renderPanel(options?: {
 
 describe('<RocketConfirmPanel />', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('labels saved-date loading separately from a fresh Coupang collection', () => {
+    renderPanel({ workflow: { loading: true, collecting: false } });
+
+    expect(screen.getByRole('button', { name: '저장본 계산 중…' })).toBeDisabled();
+  });
 
   it('requires an explicit shortage reason without choosing the first option for the operator', () => {
     renderPanel();

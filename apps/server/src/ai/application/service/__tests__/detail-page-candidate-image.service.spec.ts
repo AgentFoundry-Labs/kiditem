@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DetailPageQueryRepositoryPort } from '../../port/out/repository/detail-page-query.repository.port';
-import type { ImageStoragePort } from '../../port/out/storage/image-storage.port';
-import type { DetailPageRasterizationService } from '../detail-page-rasterization.service';
 import {
-  COUPANG_DETAIL_LAYOUT_WIDTH,
   COUPANG_DETAIL_JPEG_QUALITY,
   DetailPageCandidateImageService,
   buildRenderDocument,
@@ -13,44 +10,58 @@ const COMPILED_TEMPLATE_CSS = '/*! tailwindcss v4.2.2 */ .text-xl{font-size:1.25
 
 const ORG = '3bc63d9d-74a1-4806-bbba-1e49710b5467';
 const CANDIDATE = '7dbe40a5-8684-4347-b790-c54f014f627d';
+const REVISION = '60620087-f5d8-4307-8591-221fd018eaa0';
+const ARTIFACT = '71429ba3-af81-409e-a976-029c67d86bcb';
 
 function buildService(overrides: {
   savedHtml?: string | null;
-  render?: ReturnType<typeof vi.fn>;
-  save?: ReturnType<typeof vi.fn>;
+  jobStatus?: { status: string; [key: string]: unknown };
+  ensureStatus?: { status: string; [key: string]: unknown };
 } = {}) {
   const findCandidateCurrentDetailPageHtml = vi.fn().mockResolvedValue(
     overrides.savedHtml === undefined
       ? {
-          revisionId: 'revision-1',
-          artifactId: 'artifact-1',
+          revisionId: REVISION,
+          artifactId: ARTIFACT,
           html: '<html><head><meta name="viewport" content="width=860, initial-scale=1.0" /></head><body>x</body></html>',
           createdAt: new Date('2026-07-19T00:00:00.000Z'),
         }
       : overrides.savedHtml === null
         ? null
         : {
-            revisionId: 'revision-1',
-            artifactId: 'artifact-1',
+            revisionId: REVISION,
+            artifactId: ARTIFACT,
             html: overrides.savedHtml,
             createdAt: new Date('2026-07-19T00:00:00.000Z'),
           },
   );
-  const render =
-    overrides.render
-    ?? vi.fn().mockResolvedValue({
-      buffer: Buffer.from('jpeg-bytes'),
-      contentType: 'image/jpeg',
-    });
-  const save = overrides.save ?? vi.fn().mockResolvedValue('http://localhost:9000/kiditem/detail.jpg');
+  const statusForRevision = vi.fn().mockResolvedValue(
+    overrides.jobStatus ?? {
+      status: 'rendered',
+      output: {
+        revisionId: REVISION,
+        artifactId: ARTIFACT,
+        imageUrl: 'http://localhost:9000/kiditem/detail.jpg',
+        outputWidth: 780,
+        contentType: 'image/jpeg',
+        byteLength: 10,
+      },
+    },
+  );
+  const ensureScheduled = vi.fn().mockResolvedValue(
+    overrides.ensureStatus ?? { status: 'processing' },
+  );
 
   const service = new DetailPageCandidateImageService(
     { findCandidateCurrentDetailPageHtml } as unknown as DetailPageQueryRepositoryPort,
-    { render } as unknown as DetailPageRasterizationService,
-    { save } as unknown as ImageStoragePort,
-    { getCompiledCss: () => COMPILED_TEMPLATE_CSS },
+    { statusForRevision, ensureScheduled } as never,
   );
-  return { service, findCandidateCurrentDetailPageHtml, render, save };
+  return {
+    service,
+    findCandidateCurrentDetailPageHtml,
+    statusForRevision,
+    ensureScheduled,
+  };
 }
 
 describe('DetailPageCandidateImageService', () => {
@@ -58,8 +69,8 @@ describe('DetailPageCandidateImageService', () => {
     expect(COUPANG_DETAIL_JPEG_QUALITY).toBe(82);
   });
 
-  it('renders the saved detail page as one 780px image and returns its storage URL', async () => {
-    const { service, render, save } = buildService();
+  it('returns the cached 780px rendition without invoking a renderer or storage', async () => {
+    const { service, statusForRevision, ensureScheduled } = buildService();
 
     const result = await service.renderCandidateDetailImage({
       organizationId: ORG,
@@ -71,29 +82,74 @@ describe('DetailPageCandidateImageService', () => {
       imageUrl: 'http://localhost:9000/kiditem/detail.jpg',
       outputWidth: 780,
       contentType: 'image/jpeg',
-      revisionId: 'revision-1',
-      artifactId: 'artifact-1',
+      revisionId: REVISION,
+      artifactId: ARTIFACT,
     });
-    // 저장 meta가 860이어도 편집기/다운로드 계약인 720에서 렌더하고 출력만 780으로 맞춘다.
-    expect(render).toHaveBeenCalledWith(
-      expect.objectContaining({
-        viewportWidth: COUPANG_DETAIL_LAYOUT_WIDTH,
-        outputWidth: 780,
-        format: 'jpeg',
-        quality: COUPANG_DETAIL_JPEG_QUALITY,
-      }),
-    );
-    expect(save).toHaveBeenCalledWith(
-      expect.stringContaining(`detail-page-images/${ORG}/revision-1/`),
-      expect.any(Buffer),
-      'image/jpeg',
-    );
+    expect(statusForRevision).toHaveBeenCalledWith({
+      organizationId: ORG,
+      revisionId: REVISION,
+      outputWidth: 780,
+    });
+    expect(ensureScheduled).not.toHaveBeenCalled();
+  });
+
+  it('lazy-enqueues a legacy saved revision and returns processing immediately', async () => {
+    const { service, ensureScheduled } = buildService({
+      jobStatus: { status: 'absent' },
+    });
+
+    await expect(service.renderCandidateDetailImage({
+      organizationId: ORG,
+      sourceCandidateId: CANDIDATE,
+    })).resolves.toMatchObject({
+      status: 'processing',
+      revisionId: REVISION,
+      artifactId: ARTIFACT,
+    });
+    expect(ensureScheduled).toHaveBeenCalledWith({
+      organizationId: ORG,
+      revisionId: REVISION,
+      artifactId: ARTIFACT,
+      outputWidth: 780,
+    });
+  });
+
+  it('does not enqueue a second job while the rendition is processing', async () => {
+    const { service, ensureScheduled } = buildService({
+      jobStatus: { status: 'processing' },
+    });
+
+    await expect(service.renderCandidateDetailImage({
+      organizationId: ORG,
+      sourceCandidateId: CANDIDATE,
+    })).resolves.toMatchObject({ status: 'processing' });
+    expect(ensureScheduled).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed job during polling and restarts it only on an explicit retry', async () => {
+    const { service, ensureScheduled } = buildService({
+      jobStatus: { status: 'failed', message: 'Puppeteer failed' },
+    });
+
+    await expect(service.renderCandidateDetailImage({
+      organizationId: ORG,
+      sourceCandidateId: CANDIDATE,
+      retryFailed: false,
+    })).resolves.toMatchObject({ status: 'failed', message: 'Puppeteer failed' });
+    expect(ensureScheduled).not.toHaveBeenCalled();
+
+    await expect(service.renderCandidateDetailImage({
+      organizationId: ORG,
+      sourceCandidateId: CANDIDATE,
+      retryFailed: true,
+    })).resolves.toMatchObject({ status: 'processing' });
+    expect(ensureScheduled).toHaveBeenCalledOnce();
   });
 
   // 상세페이지가 없을 때 예외/404 대신 명시적 'missing' 을 준다.
   // 호출자가 대표이미지 같은 다른 이미지로 조용히 폴백하지 못하게 하려는 계약이다.
   it('reports missing instead of throwing when no detail page is saved', async () => {
-    const { service, render, save } = buildService({ savedHtml: null });
+    const { service, statusForRevision, ensureScheduled } = buildService({ savedHtml: null });
 
     const result = await service.renderCandidateDetailImage({
       organizationId: ORG,
@@ -105,12 +161,12 @@ describe('DetailPageCandidateImageService', () => {
       reason: 'no_saved_detail_page',
       message: expect.any(String),
     });
-    expect(render).not.toHaveBeenCalled();
-    expect(save).not.toHaveBeenCalled();
+    expect(statusForRevision).not.toHaveBeenCalled();
+    expect(ensureScheduled).not.toHaveBeenCalled();
   });
 
   it('reports missing when the saved HTML is blank', async () => {
-    const { service, render } = buildService({ savedHtml: '   \n  ' });
+    const { service, statusForRevision } = buildService({ savedHtml: '   \n  ' });
 
     const result = await service.renderCandidateDetailImage({
       organizationId: ORG,
@@ -118,7 +174,7 @@ describe('DetailPageCandidateImageService', () => {
     });
 
     expect(result).toMatchObject({ status: 'missing', reason: 'empty_html' });
-    expect(render).not.toHaveBeenCalled();
+    expect(statusForRevision).not.toHaveBeenCalled();
   });
 
   it('scopes the lookup to the session organization', async () => {

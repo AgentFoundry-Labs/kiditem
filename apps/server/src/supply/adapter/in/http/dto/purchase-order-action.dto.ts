@@ -103,6 +103,10 @@ export class PurchaseOrderActionBodyDto {
   @IsBoolean() @IsOptional()
   clampEditedQuantities?: boolean;
 
+  @ValidateIf(o => o.action === 'previewRocket')
+  @IsIn(['all_rows', 'confirmation_requested']) @IsOptional()
+  previewScope?: 'all_rows' | 'confirmation_requested';
+
   @ValidateIf(o => o.action === 'exportRocketWorkbook')
   @IsString() @MinLength(2)
   requestJson?: string;

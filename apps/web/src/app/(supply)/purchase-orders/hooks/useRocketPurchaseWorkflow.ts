@@ -64,6 +64,15 @@ function operatorEditsForRows(
   )));
 }
 
+function confirmationRequestedRows(
+  rows: readonly RocketPoCatalogRow[],
+): RocketPoCatalogRow[] {
+  return rows.filter((row) => (
+    row.poStatusCode?.toUpperCase() === 'RP'
+    || row.confirmation?.poStatus.trim() === '거래처확인요청'
+  ));
+}
+
 function pruneShortageReasons(
   current: Record<string, RocketShortageReason>,
   preview: RocketPurchasePreviewResponse,
@@ -141,6 +150,7 @@ export function useRocketPurchaseWorkflow({
   const [abandoning, setAbandoning] = useState(false);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [collecting, setCollecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestGenerationRef = useRef(0);
 
@@ -157,6 +167,7 @@ export function useRocketPurchaseWorkflow({
     setExportKey('');
     setAbandonReason('');
     setLoading(false);
+    setCollecting(false);
     setError(null);
   }, [channelAccountId, savedSourceImportRunId]);
 
@@ -190,6 +201,7 @@ export function useRocketPurchaseWorkflow({
           channelAccountId,
           sourceImportRunId: savedSourceImportRunId,
         });
+        const reviewRows = confirmationRequestedRows(saved.rows);
         const poCount = new Set(saved.rows.map(({ poNumber }) => poNumber)).size;
         const result = await previewRocketPurchases({
           channelAccountId,
@@ -197,6 +209,7 @@ export function useRocketPurchaseWorkflow({
           rows: saved.rows,
           editedQuantities: {},
           clampEditedQuantities: true,
+          previewScope: 'confirmation_requested',
         });
         if (cancelled || generation !== requestGenerationRef.current) return;
         const effectiveEdits = visibleReviewQuantities(result);
@@ -209,7 +222,7 @@ export function useRocketPurchaseWorkflow({
             ({ vendorId }) => vendorId === saved.collection.vendorId,
           ),
         });
-        setSourceRows(saved.rows);
+        setSourceRows(reviewRows);
         setEditedQuantities(effectiveEdits);
         setOperatorEditedLineIds(new Set());
         setValidatedEditFingerprint(editFingerprint(effectiveEdits));
@@ -239,15 +252,17 @@ export function useRocketPurchaseWorkflow({
   const recalculate = async () => {
     const generation = requestGenerationRef.current;
     setLoading(true);
+    setCollecting(true);
     setError(null);
     onActivity?.({ status: 'started', message: '쿠팡에서 로켓 PO를 새로 수집하고 있습니다.' });
     try {
       const collected = await collectRocketPoRowsForConfirmationFromExtension({ from, to });
       if (generation !== requestGenerationRef.current) return;
+      const reviewRows = confirmationRequestedRows(collected.rows);
       const retainedEdits = operatorEditsForRows(
         operatorEditedLineIds,
         editedQuantities,
-        collected.rows,
+        reviewRows,
       );
       const result = await previewRocketPurchases({
         channelAccountId,
@@ -255,6 +270,7 @@ export function useRocketPurchaseWorkflow({
         rows: collected.rows,
         editedQuantities: retainedEdits,
         clampEditedQuantities: true,
+        previewScope: 'confirmation_requested',
       });
       if (generation !== requestGenerationRef.current) return;
       if (collected.poCount > 0 && result.catalog === null) {
@@ -283,7 +299,7 @@ export function useRocketPurchaseWorkflow({
       ));
       setValidatedEditFingerprint(editFingerprint(effectiveEdits));
       setPreviewDirty(false);
-      setSourceRows(collected.rows);
+      setSourceRows(reviewRows);
       setExportKey(globalThis.crypto.randomUUID());
       setShortageReasons((current) => pruneShortageReasons(
         current,
@@ -295,7 +311,7 @@ export function useRocketPurchaseWorkflow({
       if (result.catalog) onCatalogSaved?.();
       onActivity?.({
         status: 'succeeded',
-        message: `로켓 PO ${collected.collection.detailPoCount}/${collected.poCount}건을 수집·저장하고 재고 미리보기를 계산했습니다.`,
+        message: `로켓 PO ${collected.collection.detailPoCount}/${collected.poCount}건을 수집·저장하고 거래확인요청 ${new Set(result.rows.map(({ poNumber }) => poNumber)).size}건의 재고 미리보기를 계산했습니다.`,
       });
     } catch (cause) {
       if (generation !== requestGenerationRef.current) return;
@@ -303,7 +319,10 @@ export function useRocketPurchaseWorkflow({
       setError(message);
       onActivity?.({ status: 'failed', message });
     } finally {
-      if (generation === requestGenerationRef.current) setLoading(false);
+      if (generation === requestGenerationRef.current) {
+        setLoading(false);
+        setCollecting(false);
+      }
     }
   };
 
@@ -549,6 +568,7 @@ export function useRocketPurchaseWorkflow({
     templateFile,
     setTemplateFile,
     loading,
+    collecting,
     error,
     collectionWarning,
     canExport,

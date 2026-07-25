@@ -45,12 +45,13 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       userId: input.userId,
       request,
     });
+    const selectedRows = previewRowsForScope(request);
     if (catalog.blockingReason) {
       return translatePreviewPolicy(() => ({
         collectionRunId: request.collection.collectionRunId,
         catalog: null,
         inventoryGeneration: null,
-        rows: request.rows.map((row) => {
+        rows: selectedRows.map((row) => {
           const editedQuantity = resolveRocketPreviewEditedQuantity(
             row.poLineId,
             request.editedQuantities[row.poLineId] ?? null,
@@ -85,7 +86,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       ? await this.availability.findByChannelSkuIds(input.organizationId, channelSkuIds)
       : [];
     const availabilityBySku = new Map(availability.map((item) => [item.sku.id, item]));
-    const previewRows = request.rows.map((row) => {
+    const previewRows = selectedRows.map((row) => {
       const channelSkuId = identityByLine.get(row.poLineId) ?? null;
       const item = channelSkuId ? availabilityBySku.get(channelSkuId) : undefined;
       return {
@@ -145,6 +146,16 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       })),
     };
   }
+}
+
+function previewRowsForScope(
+  request: RocketPurchasePreviewRequest,
+): RocketPurchasePreviewRequest['rows'] {
+  if (request.previewScope !== 'confirmation_requested') return request.rows;
+  return request.rows.filter((row) => (
+    row.poStatusCode?.toUpperCase() === 'RP'
+    || row.confirmation?.poStatus.trim() === '거래처확인요청'
+  ));
 }
 
 function translatePreviewPolicy<T>(operation: () => T): T {
