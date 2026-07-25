@@ -944,6 +944,7 @@ test('retries manual sync across receiver startup and campaign-page navigation',
   });
 
   const result = await helper.collectTargets({
+    environmentId: 'local',
     producer: 'advertising.ad_sync',
     runId: 'run-content-ready',
     startedAt: 1,
@@ -969,6 +970,7 @@ test('retries manual sync across receiver startup and campaign-page navigation',
       action: 'manualSync',
       collectionRunId: 'run-content-ready',
       collectionAttempt: 4,
+      environmentId: 'local',
     })),
   );
   assert.ok(
@@ -1191,6 +1193,7 @@ test('resumes an interrupted campaign sweep in the same owned tab', async () => 
   });
 
   const result = await helper.collectTargets({
+    environmentId: 'local',
     producer: 'advertising.ad_sync',
     runId: 'run-resume',
     startedAt: 1,
@@ -1215,11 +1218,13 @@ test('resumes an interrupted campaign sweep in the same owned tab', async () => 
         action: 'manualSync',
         collectionRunId: 'run-resume',
         collectionAttempt: 1,
+        environmentId: 'local',
       },
       {
         action: 'manualSync',
         collectionRunId: 'run-resume',
         collectionAttempt: 1,
+        environmentId: 'local',
       },
     ],
   );

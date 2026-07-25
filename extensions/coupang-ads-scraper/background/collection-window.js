@@ -102,6 +102,7 @@
     const statusKey = options.statusKey || null;
     const cancelKey = options.cancelKey || null;
     const markScraped = options.markScraped || (() => Promise.resolve());
+    const bindTab = options.bindTab || (() => Promise.resolve());
     const notify = options.notify || (() => undefined);
     const wait = options.delay || ((milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)));
@@ -567,7 +568,7 @@
       }
     }
 
-    async function runManualSync(tabId, runId, resumeUrl) {
+    async function runManualSync(tabId, runId, resumeUrl, environmentId) {
       const attempt = await collectionAttempt(runId);
       try {
         for (
@@ -579,6 +580,7 @@
             action: "manualSync",
             collectionRunId: runId,
             collectionAttempt: attempt,
+            environmentId,
           });
           if (
             response?.error !== "ad_sync_already_running" ||
@@ -626,11 +628,12 @@
       }
     }
 
-    async function collectTarget(runId, target) {
+    async function collectTarget(runId, target, environmentId) {
       let tab = await navigate(runId, target.url);
+      await bindTab(tab.tabId, environmentId);
       await waitForTabComplete(tab.tabId);
       await wait(4000);
-      let response = await runManualSync(tab.tabId, runId, target.url);
+      let response = await runManualSync(tab.tabId, runId, target.url, environmentId);
 
       // 광고 캠페인 sweep가 SPA 상세 화면에서 대시보드 복귀에 실패하면 content
       // script가 unload되기 전에 명시적으로 응답한다. 캠페인 수가 4개보다 많아도
@@ -648,9 +651,10 @@
         if (await isCancelled(runId)) break;
         const resumeUrl = response.resumeUrl || target.url;
         tab = await navigate(runId, resumeUrl);
+        await bindTab(tab.tabId, environmentId);
         await waitForTabComplete(tab.tabId);
         await wait(2500);
-        response = await runManualSync(tab.tabId, runId, target.url);
+        response = await runManualSync(tab.tabId, runId, target.url, environmentId);
         const nextProgress = campaignSweepProgress(response);
         if (hasCampaignSweepProgressed(resumeProgress, nextProgress)) {
           stalledResumeAttempts = 0;
@@ -688,7 +692,7 @@
             "쿠팡 로그인이 필요합니다. 알림에서 확인 탭을 열어주세요.",
         };
       }
-      if (response?.success && target.id) await markScraped(target.id);
+      if (response?.success && target.id) await markScraped(target.id, environmentId);
       return {
         success: !!response?.success,
         type: response?.type || "unknown",
@@ -725,7 +729,7 @@
 
     async function collectTargets(input) {
       requireCollectionDependencies();
-      const { runId, targets, startedAt, producer } = input;
+      const { runId, targets, startedAt, producer, environmentId } = input;
       const preservesContentProgress = producer === "advertising.ad_sync";
       return runExclusive(async () => {
         let completed = 0;
@@ -735,6 +739,7 @@
         await chromeApi.storage.local.remove(cancelKey);
         try {
           const owned = await getOrCreate(runId, targets[0].url, producer);
+          await bindTab(owned.tabId, environmentId);
           await sessions.attachTab(runId, {
             tabId: owned.tabId,
             windowId: owned.windowId,
@@ -777,7 +782,7 @@
               status: "running",
               startedAt,
             });
-            const result = await collectTarget(runId, target);
+            const result = await collectTarget(runId, target, environmentId);
             if (await isCancelled(runId)) {
               cancelled = true;
               break;

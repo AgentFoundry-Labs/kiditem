@@ -98,7 +98,7 @@ test('collectRocketPoRows message forwards the requested status and date basis',
         dateType: 'PURCHASE_ORDER_DATE',
         runId: RUN_ID,
       },
-      {},
+      { url: 'http://localhost:3000/order-collection' },
       resolve,
     );
     assert.equal(keepAlive, true);

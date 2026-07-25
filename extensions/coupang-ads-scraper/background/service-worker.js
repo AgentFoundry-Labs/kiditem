@@ -1,7 +1,8 @@
 // KIDITEM OS — Background Service Worker
 
 importScripts(
-  "kiditem-auth.js",
+  "environment-context.js",
+  "environment-runtime.js",
   "collection-session.js",
   "collection-window.js",
   "collection-runs.js",
@@ -20,14 +21,12 @@ if (
   throw new Error("쿠팡 카탈로그 수집기 계약 revision이 일치하지 않습니다");
 }
 
-const API_URL = "http://localhost:4000";
 // KidItem 웹앱이 열리는 커밋된 origin. externally_connectable / 대시보드 탭 조회 /
 // 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
 const KIDITEM_WEB_URL_PATTERNS = [
   "http://localhost:3000/*",
   "https://staging.merchon.org/*",
 ];
-const AUTH_TOKEN_KEY = "kiditem_auth_token";
 const AD_ACTION_URL =
   "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
 const WING_CATALOG_FORM_URL =
@@ -58,49 +57,77 @@ const COLLECTION_WINDOW_STORAGE_KEY = "kiditem_coupang_collection_window";
 const CATALOG_COLLECTION_WINDOW_STORAGE_KEY =
   "kiditem_coupang_catalog_collection_window";
 
-const kidItemAuth = KidItemAuth.create({
+const environmentContext = KidItemEnvironmentContext.create({
   chrome,
   fetchFn: fetch,
-  apiUrl: API_URL,
-  tokenKey: AUTH_TOKEN_KEY,
-  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
+  legacyStorageKeys: ["kiditem_auth_token", "apiBase"],
 });
-const { authedFetch, getAuthToken } = kidItemAuth;
+const coupangEnvironment = KidItemCoupangEnvironmentRuntime.create({
+  chrome,
+  environmentContext,
+});
+const authedFetch = (environmentId, path, init) =>
+  environmentContext.authedFetch(environmentId, path, init);
+const getAuthToken = (environmentId) =>
+  environmentContext.getAccessToken(environmentId);
 const collectionSessions = KidItemCollectionSession.create({
   chrome,
   storageKey: "kiditem_collection_sessions",
-  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
+  environmentContext,
 });
-const collectionWindow = KidItemCollectionWindow.create({
-  chrome,
-  storageKey: COLLECTION_WINDOW_STORAGE_KEY,
-  sessions: collectionSessions,
-  statusKey: BATCH_SCRAPE_STATUS_KEY,
-  cancelKey: BATCH_SCRAPE_CANCEL_KEY,
-  markScraped: (targetId) =>
-    authedFetch(`/api/ads/scrape-targets`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "markScraped", id: targetId }),
-    }).then(() => undefined),
-  notify: notifyDashboard,
-});
-const catalogCollectionWindow = KidItemCollectionWindow.create({
-  chrome,
-  storageKey: CATALOG_COLLECTION_WINDOW_STORAGE_KEY,
-});
+const collectionWindows = Object.fromEntries(
+  ["local", "staging"].map((environmentId) => [
+    environmentId,
+    KidItemCollectionWindow.create({
+      chrome,
+      storageKey: coupangEnvironment.stateKey(COLLECTION_WINDOW_STORAGE_KEY, environmentId),
+      sessions: collectionSessions,
+      statusKey: coupangEnvironment.stateKey(BATCH_SCRAPE_STATUS_KEY, environmentId),
+      cancelKey: coupangEnvironment.stateKey(BATCH_SCRAPE_CANCEL_KEY, environmentId),
+      bindTab: (tabId) => coupangEnvironment.bindTab(tabId, environmentId),
+      markScraped: (targetId) =>
+        authedFetch(environmentId, `/api/ads/scrape-targets`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "markScraped", id: targetId }),
+        }).then(() => undefined),
+      notify: () => notifyDashboard(environmentId),
+    }),
+  ]),
+);
+const catalogCollectionWindows = Object.fromEntries(
+  ["local", "staging"].map((environmentId) => [
+    environmentId,
+    KidItemCollectionWindow.create({
+      chrome,
+      storageKey: coupangEnvironment.stateKey(
+        CATALOG_COLLECTION_WINDOW_STORAGE_KEY,
+        environmentId,
+      ),
+    }),
+  ]),
+);
+function collectionWindowFor(environmentId) {
+  environmentContext.requireEnvironment(environmentId);
+  return collectionWindows[environmentId];
+}
+function catalogCollectionWindowFor(environmentId) {
+  environmentContext.requireEnvironment(environmentId);
+  return catalogCollectionWindows[environmentId];
+}
 const collectionRuns = KidItemCollectionRuns.create({
   chrome,
   sessions: collectionSessions,
-  collectionWindow,
-  cancelScrape: (runId) => collectionWindow.cancelRun(runId),
+  collectionWindowFor,
+  cancelScrape: (runId, environmentId) =>
+    collectionWindowFor(environmentId).cancelRun(runId),
   cancelWingRank: requestWingSalesRankCancellation,
   cancelKeywordRank: requestCoupangKeywordRankCancellation,
   cancelCompetitorCatalog: requestCoupangCompetitorCatalogCancellation,
-  cancelCatalog: (runId) =>
+  cancelCatalog: (runId, environmentId) =>
     KidItemCoupangCatalogImport.cancel(
       runId,
-      coupangCatalogImportDependencies(),
+      coupangCatalogImportDependencies(environmentId),
     ),
   loadScheduledTargets: loadScheduledScrapeTargets,
   startScheduledScrape: (input) =>
@@ -108,17 +135,18 @@ const collectionRuns = KidItemCollectionRuns.create({
       producer: "advertising.scrape_targets",
       restartStrategy: "extension",
       sessionStarted: input.sessionStarted,
+      environmentId: input.environmentId,
     }),
   startWingRank: startWingSalesRankCheck,
-  restartCatalog: (runId) =>
+  restartCatalog: (runId, environmentId) =>
     KidItemCoupangCatalogImport.restart(
       runId,
-      coupangCatalogImportDependencies(),
+      coupangCatalogImportDependencies(environmentId),
     ),
-  startCatalog: (message) =>
+  startCatalog: (message, environmentId) =>
     KidItemCoupangCatalogImport.start(
       message,
-      coupangCatalogImportDependencies(),
+      coupangCatalogImportDependencies(environmentId),
     ),
 });
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
@@ -135,21 +163,30 @@ chrome.runtime.onInstalled.addListener(() => {
   cleanupStorage();
   // 알람은 onInstalled에서만 등록 (서비스워커 재시작 시 유지됨)
   chrome.alarms.create("storage-cleanup", { periodInMinutes: 1440 });
-  chrome.alarms.create("auto-scrape", { periodInMinutes: 180 });
-  chrome.alarms.create("keyword-rank-check", { periodInMinutes: 720 });
-  chrome.alarms.create(WING_RANK_RESUME_ALARM, { periodInMinutes: 1 });
-  chrome.alarms.create("coupang-keyword-serp-rank", { periodInMinutes: 720 });
+  for (const environmentId of ["local", "staging"]) {
+    chrome.alarms.create(coupangEnvironment.alarmName("auto-scrape", environmentId), { periodInMinutes: 180 });
+    chrome.alarms.create(coupangEnvironment.alarmName("keyword-rank-check", environmentId), { periodInMinutes: 720 });
+    chrome.alarms.create(coupangEnvironment.alarmName(WING_RANK_RESUME_ALARM, environmentId), { periodInMinutes: 1 });
+    chrome.alarms.create(coupangEnvironment.alarmName("coupang-keyword-serp-rank", environmentId), { periodInMinutes: 720 });
+  }
+  environmentContext.migrateLegacyStorage().catch(() => undefined);
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "storage-cleanup") cleanupStorage();
-  if (alarm.name === "auto-scrape") autoScrape();
-  if (alarm.name === "keyword-rank-check") runScheduledWingSalesRankCheck();
-  if (alarm.name === WING_RANK_RESUME_ALARM)
-    resumeInterruptedWingSalesRankCheck();
-  if (alarm.name === "coupang-keyword-serp-rank")
-    runScheduledKeywordRankCheck();
-  KidItemCoupangCatalogImport.handleAlarm(alarm, coupangCatalogImportDependencies());
+  const scheduled = coupangEnvironment.parseAlarm(alarm.name);
+  if (scheduled?.base === "auto-scrape") autoScrape(scheduled.environmentId);
+  if (scheduled?.base === "keyword-rank-check") runScheduledWingSalesRankCheck(scheduled.environmentId);
+  if (scheduled?.base === WING_RANK_RESUME_ALARM)
+    resumeInterruptedWingSalesRankCheck(scheduled.environmentId);
+  if (scheduled?.base === "coupang-keyword-serp-rank")
+    runScheduledKeywordRankCheck(scheduled.environmentId);
+  if (scheduled?.base === "kiditem-coupang-catalog-import-step") {
+    KidItemCoupangCatalogImport.handleAlarm(
+      alarm,
+      coupangCatalogImportDependencies(scheduled.environmentId),
+    );
+  }
 });
 
 function cleanupStorage() {
@@ -176,18 +213,8 @@ function cleanupStorage() {
 }
 
 // 동기화 완료 후 대시보드 탭 자동 새로고침
-function notifyDashboard() {
-  chrome.tabs.query({ url: KIDITEM_WEB_URL_PATTERNS }, (tabs) => {
-    for (const tab of tabs) {
-      if (!tab.id) continue;
-      chrome.scripting
-        .executeScript({
-          target: { tabId: tab.id },
-          func: () => window.dispatchEvent(new CustomEvent("kiditem-sync")),
-        })
-        .catch(() => {});
-    }
-  });
+function notifyDashboard(environmentId) {
+  return environmentContext.publish(environmentId, "kiditem-sync");
 }
 
 // 아이콘 클릭 시 사이드 패널 열기
@@ -195,23 +222,62 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
 // ═══ content script에서 메시지 수신 ═══
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === "setAuthToken") {
-    const token = typeof msg.token === "string" ? msg.token : null;
-    if (!token) {
-      sendResponse({ success: false, error: "token required" });
+  if (msg.action === "bindKidItemEnvironment") {
+    const tabId = sender?.tab?.id || msg.tabId;
+    Promise.resolve()
+      .then(async () => {
+        environmentContext.requireEnvironment(msg.environmentId);
+        const connected = await environmentContext.connectedEnvironmentIds();
+        if (!connected.includes(msg.environmentId)) {
+          throw new Error("선택한 환경에 로그인된 KidItem 탭이 없습니다.");
+        }
+        await coupangEnvironment.bindTab(tabId, msg.environmentId);
+        return { success: true, environmentId: msg.environmentId };
+      })
+      .then(sendResponse)
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (msg.action === "getConnectedKidItemEnvironments") {
+    environmentContext.connectedEnvironmentIds()
+      .then((environmentIds) => sendResponse({ success: true, environmentIds }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (msg.action === "kiditemApiRequest") {
+    const path = typeof msg.path === "string" ? msg.path : "";
+    if (!path.startsWith("/api/") || /^https?:/i.test(path)) {
+      sendResponse({ success: false, error: "허용되지 않은 API 경로입니다." });
       return;
     }
-    chrome.storage.local.set({ [AUTH_TOKEN_KEY]: token }, () => {
-      sendResponse({ success: true });
-    });
+    Promise.resolve()
+      .then(async () => {
+        const environmentId = msg.environmentId ||
+          (await coupangEnvironment.environmentForTab(sender?.tab?.id));
+        environmentContext.requireEnvironment(environmentId);
+        const headers = new Headers(msg.init?.headers || {});
+        headers.delete("authorization");
+        const response = await authedFetch(environmentId, path, {
+          ...(msg.init || {}),
+          headers,
+        });
+        const body = await response.json().catch(() => null);
+        return { success: true, ok: response.ok, status: response.status, body };
+      })
+      .then(sendResponse)
+      .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
 
   if (msg.action === "triggerAutoScrape") {
-    autoScrape()
+    const environmentId = msg.environmentId;
+    autoScrape(environmentId)
       .then(() => {
-        chrome.storage.local.get(["kiditem_auto_scrape"], (data) => {
-          const result = data.kiditem_auto_scrape || {};
+        const key = coupangEnvironment.stateKey("kiditem_auto_scrape", environmentId);
+        chrome.storage.local.get([key], (data) => {
+          const result = data[key] || {};
           sendResponse({
             success: true,
             completed: result.completed || 0,
@@ -229,8 +295,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: "year/month 필수" });
       return;
     }
+    const environmentId = msg.environmentId;
+    const monthlySyncKey = coupangEnvironment.stateKey("kiditem_monthly_sync", environmentId);
     chrome.storage.local.set({
-      kiditem_monthly_sync: {
+      [monthlySyncKey]: {
         year,
         month,
         completed: 0,
@@ -238,9 +306,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         status: "starting",
       },
     });
-    doMonthlyScrape(year, month).catch((e) => {
+    doMonthlyScrape(year, month, environmentId).catch((e) => {
       chrome.storage.local.set({
-        kiditem_monthly_sync: {
+        [monthlySyncKey]: {
           year,
           month,
           completed: 0,
@@ -313,19 +381,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === "syncToServer") {
     const payload = msg.payload || {};
-    authedFetch(`/api/ads/extension/sync`, {
+    const environmentIdPromise = msg.environmentId
+      ? Promise.resolve(msg.environmentId)
+      : coupangEnvironment.environmentForTab(sender?.tab?.id);
+    environmentIdPromise.then((environmentId) => {
+      environmentContext.requireEnvironment(environmentId);
+      return authedFetch(environmentId, `/api/ads/extension/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      }).then((response) => ({ response, environmentId }));
     })
-      .then((r) => r.json())
-      .then((json) => {
+      .then(({ response, environmentId }) => response.json().then((json) => ({ json, environmentId })))
+      .then(({ json, environmentId }) => {
         if (json.success) {
-          const key = `kiditem_last_sync_${payload.type || "unknown"}`;
+          const key = coupangEnvironment.stateKey(
+            `kiditem_last_sync_${payload.type || "unknown"}`,
+            environmentId,
+          );
           const count = Array.isArray(payload.data) ? payload.data.length : 0;
           chrome.storage.local.set({ [key]: { time: Date.now(), count } });
           // 대시보드 탭에 리로드 신호 전송
-          notifyDashboard();
+          notifyDashboard(environmentId);
         }
         sendResponse(json);
       })
@@ -336,6 +413,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // ═══ 대시보드(외부 웹페이지)에서 메시지 수신 ═══
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  const senderEnvironment = environmentContext.resolveSender(sender);
+  if (!senderEnvironment) {
+    sendResponse({ success: false, error: "Untrusted KidItem web origin" });
+    return false;
+  }
+  const environmentId = senderEnvironment.environmentId;
+  msg = { ...msg, environmentId };
   const respond = (operation) => {
     Promise.resolve(operation)
       .then((result) => sendResponse(result))
@@ -349,19 +433,24 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   };
 
   if (msg.action === "listCollectionSessions")
-    return respond(collectionSessions.list());
+    return respond(collectionSessions.list(environmentId));
   if (msg.action === "getCollectionSession")
-    return respond(collectionSessions.get(msg.runId));
+    return respond(collectionSessions.getOwned(msg.runId, environmentId));
   if (msg.action === "cancelCollectionSession")
     return respond(
       collectionRuns
-        .cancel(msg.runId)
-        .then(() => collectionSessions.get(msg.runId)),
+        .cancel(msg.runId, environmentId)
+        .then(() => collectionSessions.getOwned(msg.runId, environmentId)),
     );
   if (msg.action === "openCollectionAttentionTab")
-    return respond(collectionSessions.openAttentionTab(msg.runId));
+    return respond(
+      collectionSessions.getOwned(msg.runId, environmentId).then((session) => {
+        if (!session) throw new Error("Collection session not found");
+        return collectionSessions.openAttentionTab(msg.runId);
+      }),
+    );
   if (msg.action === "restartCollectionSession")
-    return respond(collectionRuns.restart(msg.runId));
+    return respond(collectionRuns.restart(msg.runId, environmentId));
 
   if (msg.action === "scrapeTargets") {
     // MV3 service worker가 긴 async chain 중 idle 종료되면 port가 닫혀 loop 중단됨.
@@ -387,6 +476,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     prepareScrapeTargets(urls, runId, startedAt, {
       producer,
       restartStrategy: "web",
+      environmentId,
     })
       .then(({ runId: preparedRunId, producer: preparedProducer }) => {
         sendResponse({
@@ -406,16 +496,17 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         const keepAlive = setInterval(() => {
           chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
         }, 20000);
-        collectionWindow
+        collectionWindowFor(environmentId)
           .collectTargets({
             runId: preparedRunId,
             targets: urls,
             startedAt,
             producer: preparedProducer,
+            environmentId,
           })
           .catch((error) => {
             chrome.storage.local.set({
-              [BATCH_SCRAPE_STATUS_KEY]: {
+              [coupangEnvironment.stateKey(BATCH_SCRAPE_STATUS_KEY, environmentId)]: {
                 runId: preparedRunId,
                 status: "error",
                 error: error?.message || String(error),
@@ -438,8 +529,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "getBatchScrapeStatus") {
-    chrome.storage.local.get(BATCH_SCRAPE_STATUS_KEY, (data) => {
-      const status = data[BATCH_SCRAPE_STATUS_KEY] || { status: "idle" };
+    const statusKey = coupangEnvironment.stateKey(BATCH_SCRAPE_STATUS_KEY, environmentId);
+    chrome.storage.local.get(statusKey, (data) => {
+      const status = data[statusKey] || { status: "idle" };
       const runId = typeof msg.runId === "string" ? msg.runId : null;
       if (runId && status.runId && status.runId !== runId) {
         sendResponse({ status: "idle", runId, staleRunId: status.runId });
@@ -451,7 +543,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "cancelBatchScrape") {
-    cancelBatchScrape(typeof msg.runId === "string" ? msg.runId : null)
+    cancelBatchScrape(typeof msg.runId === "string" ? msg.runId : null, environmentId)
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({ success: false, error: e?.message || "수집 중단 실패" }),
@@ -483,6 +575,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         coupangCatalogSnapshot: true,
         coupangCatalogSnapshotSource: "wing-inventory-v1",
         browserCollectionSessions: true,
+        kiditemEnvironmentProfilesV1: true,
         wingFormRegister: true,
         wingFormRegisterSource: "wing-formV2-fill",
       },
@@ -491,7 +584,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "startCoupangCatalogImport") {
-    collectionRuns.startCatalog(msg)
+    collectionRuns.startCatalog(msg, environmentId)
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({
@@ -505,7 +598,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === "getCoupangCatalogImportStatus") {
     KidItemCoupangCatalogImport.getStatus(
       typeof msg.runId === "string" ? msg.runId : null,
-      coupangCatalogImportDependencies(),
+      coupangCatalogImportDependencies(environmentId),
     )
       .then((result) => sendResponse(result))
       .catch((e) => sendResponse({ status: "error", runId: msg.runId, error: e?.message || "쿠팡 상품 수집 상태 조회 실패" }));
@@ -515,7 +608,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === "cancelCoupangCatalogImport") {
     KidItemCoupangCatalogImport.cancel(
       typeof msg.runId === "string" ? msg.runId : null,
-      coupangCatalogImportDependencies(),
+      coupangCatalogImportDependencies(environmentId),
     )
       .then((result) => sendResponse(result))
       .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 상품 수집 중단 실패" }));
@@ -577,7 +670,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "runCoupangKeywordRankCheck") {
-    startCoupangKeywordRankCheck({ runId: msg.runId })
+    startCoupangKeywordRankCheck({ runId: msg.runId, environmentId })
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({
@@ -603,8 +696,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "getCoupangCompetitorSellerCatalogStatus") {
-    chrome.storage.local.get(COMPETITOR_SELLER_CATALOG_STATUS_KEY, (data) => {
-      const status = data[COMPETITOR_SELLER_CATALOG_STATUS_KEY] || {
+    const statusKey = coupangEnvironment.stateKey(COMPETITOR_SELLER_CATALOG_STATUS_KEY, environmentId);
+    chrome.storage.local.get(statusKey, (data) => {
+      const status = data[statusKey] || {
         status: "idle",
       };
       const runId = typeof msg.runId === "string" ? msg.runId : null;
@@ -618,7 +712,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "runWingSalesRankCheck") {
-    startWingSalesRankCheck({ runId: msg.runId })
+    startWingSalesRankCheck({ runId: msg.runId, environmentId })
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({
@@ -632,7 +726,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === "cancelWingSalesRankCheck") {
     const requestedRunId = typeof msg.runId === "string" ? msg.runId : null;
-    collectionRuns.cancel(requestedRunId)
+    collectionRuns.cancel(requestedRunId, environmentId)
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({
@@ -645,11 +739,13 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "getWingSalesRankCheckStatus") {
+    const statusKey = coupangEnvironment.stateKey(RANK_CHECK_STATUS_KEY, environmentId);
+    const cancelKey = coupangEnvironment.stateKey(RANK_CHECK_CANCEL_KEY, environmentId);
     chrome.storage.local.get(
-      [RANK_CHECK_STATUS_KEY, RANK_CHECK_CANCEL_KEY],
+      [statusKey, cancelKey],
       (data) => {
-        const status = data[RANK_CHECK_STATUS_KEY] || { status: "idle" };
-        const cancellation = data[RANK_CHECK_CANCEL_KEY];
+        const status = data[statusKey] || { status: "idle" };
+        const cancellation = data[cancelKey];
         const runId = typeof msg.runId === "string" ? msg.runId : null;
         if (runId && status.runId && status.runId !== runId) {
           sendResponse({ status: "idle", runId, staleRunId: status.runId });
@@ -667,8 +763,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "getCoupangRankCheckStatus") {
-    chrome.storage.local.get(KEYWORD_RANK_STATUS_KEY, (data) => {
-      const status = data[KEYWORD_RANK_STATUS_KEY] || { status: "idle" };
+    const statusKey = coupangEnvironment.stateKey(KEYWORD_RANK_STATUS_KEY, environmentId);
+    chrome.storage.local.get(statusKey, (data) => {
+      const status = data[statusKey] || { status: "idle" };
       const runId = typeof msg.runId === "string" ? msg.runId : null;
       if (runId && status.runId && status.runId !== runId) {
         sendResponse({ status: "idle", runId, staleRunId: status.runId });
@@ -697,21 +794,21 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: "token required" });
       return;
     }
-    chrome.storage.local.set({ [AUTH_TOKEN_KEY]: token }, () => {
-      sendResponse({ success: true });
-    });
+    environmentContext.setAccessToken(environmentId, token)
+      .then(() => sendResponse({ success: true, environmentId }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
 
   if (msg.action === "clearAuthToken") {
-    chrome.storage.local.remove(AUTH_TOKEN_KEY, () =>
-      sendResponse({ success: true }),
-    );
+    environmentContext.clearAccessToken(environmentId)
+      .then(() => sendResponse({ success: true, environmentId }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
 
   if (msg.action === "openAndExecuteAdActions") {
-    openAndExecuteAdActions(msg.url || AD_ACTION_URL)
+    openAndExecuteAdActions(AD_ACTION_URL, environmentId)
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({
@@ -737,19 +834,28 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 });
 
-function coupangCatalogImportDependencies() {
+function coupangCatalogImportDependencies(environmentId) {
+  environmentContext.requireEnvironment(environmentId);
   return {
-    authedFetch,
-    collectionWindow: catalogCollectionWindow,
+    authedFetch: (path, init) => authedFetch(environmentId, path, init),
+    alarmName: coupangEnvironment.alarmName(
+      "kiditem-coupang-catalog-import-step",
+      environmentId,
+    ),
+    stateKey: coupangEnvironment.stateKey(
+      "kiditem_coupang_catalog_import",
+      environmentId,
+    ),
+    collectionWindow: catalogCollectionWindowFor(environmentId),
     collectionSessions,
-    notifyDashboard,
+    notifyDashboard: () => notifyDashboard(environmentId),
     sendTabMessage,
     waitForTabComplete,
   };
 }
 
-async function loadScheduledScrapeTargets() {
-  const response = await authedFetch(`/api/ads/scrape-targets`);
+async function loadScheduledScrapeTargets(environmentId) {
+  const response = await authedFetch(environmentId, `/api/ads/scrape-targets`);
   if (!response.ok) {
     throw new Error(`수집 대상 조회 실패 (${response.status})`);
   }
@@ -858,6 +964,7 @@ async function deleteWingProduct(message) {
   // External messages are untrusted: freeze every provider fact through an
   // authenticated, one-time server claim before opening or clicking WING.
   const claimResponse = await authedFetch(
+    message.environmentId,
     `/api/channels/listings/${encodeURIComponent(listingId)}/deletion-operations/${encodeURIComponent(operationId)}/extension-claim`,
     { method: "POST" },
   );
@@ -881,6 +988,7 @@ async function deleteWingProduct(message) {
     url,
     reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
   });
+  await coupangEnvironment.bindTab(tab.id, message.environmentId);
   await waitForTabComplete(tab.id, 60000);
   await new Promise((r) => setTimeout(r, 2500));
   try {
@@ -931,6 +1039,7 @@ async function searchWingCatalogProducts(message) {
         },
         message.runId,
         ["collectionMode", "keywordFingerprint"],
+        message.environmentId,
       )
     : message.collectionRunId;
   const tab = Number.isInteger(message.collectionTabId)
@@ -941,6 +1050,9 @@ async function searchWingCatalogProducts(message) {
   if (!tabId) {
     if (ownsSession) await collectionSessions.fail(runId);
     return { success: false, error: "Wing 카탈로그 검색 탭을 열 수 없습니다" };
+  }
+  if (typeof coupangEnvironment !== "undefined") {
+    await coupangEnvironment.bindTab(tabId, message.environmentId);
   }
   await collectionRuns.attachTab(runId, tab);
   const cancelledResult = {
@@ -1109,12 +1221,16 @@ async function searchCoupangKeywordSuggestions(message) {
     },
     message.runId,
     ["collectionMode", "keywordFingerprint"],
+    message.environmentId,
   );
   const tab = await getOrCreateCoupangSearchTab(keyword);
   const tabId = tab?.id;
   if (!tabId) {
     await collectionSessions.fail(runId);
     return { success: false, error: "쿠팡 검색 탭을 열 수 없습니다", runId };
+  }
+  if (typeof coupangEnvironment !== "undefined") {
+    await coupangEnvironment.bindTab(tabId, message.environmentId);
   }
   await collectionRuns.attachTab(runId, tab);
   const cancelledResult = {
@@ -1413,11 +1529,21 @@ async function executeCoupangKeywordSuggestionSearch(
 // ═══ Wing 상품분석 최근 28일 판매량순 × 자사 카탈로그 전체 ═══
 
 async function startWingSalesRankCheck(options = {}) {
+  const environmentId = options.environmentId;
+  if (typeof environmentContext !== "undefined") {
+    environmentContext.requireEnvironment(environmentId);
+  }
+  const rankStatusKey = typeof coupangEnvironment === "undefined"
+    ? RANK_CHECK_STATUS_KEY
+    : coupangEnvironment.stateKey(RANK_CHECK_STATUS_KEY, environmentId);
+  const rankCancelKey = typeof coupangEnvironment === "undefined"
+    ? RANK_CHECK_CANCEL_KEY
+    : coupangEnvironment.stateKey(RANK_CHECK_CANCEL_KEY, environmentId);
   const now = Date.now();
   let runId = options.runId || collectionRuns.createRunId();
   let startedAt = now;
-  const existingData = await getStorage(RANK_CHECK_STATUS_KEY);
-  const existing = existingData[RANK_CHECK_STATUS_KEY];
+  const existingData = await getStorage(rankStatusKey);
+  const existing = existingData[rankStatusKey];
   const existingIsActive =
     existing &&
     (existing.status === "running" || existing.status === "starting");
@@ -1448,11 +1574,11 @@ async function startWingSalesRankCheck(options = {}) {
     !options.forceRestart &&
     !canRestartExisting &&
     existingIsActive &&
-    (await isWingSalesRankCancelled(existing.runId))
+    (await isWingSalesRankCancelled(existing.runId, environmentId))
   ) {
-    await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
+    await chrome.storage.local.remove(rankCancelKey);
     await chrome.storage.local.set({
-      [RANK_CHECK_STATUS_KEY]: {
+      [rankStatusKey]: {
         ...existing,
         status: "cancelled",
         cancelled: true,
@@ -1467,7 +1593,7 @@ async function startWingSalesRankCheck(options = {}) {
       runId: existing.runId || null,
     };
   }
-  await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
+  await chrome.storage.local.remove(rankCancelKey);
   if (existingIsActive && !options.forceRestart && canRestartExisting) {
     runId = existing.runId || runId;
     startedAt = existing.startedAt || startedAt;
@@ -1477,6 +1603,7 @@ async function startWingSalesRankCheck(options = {}) {
     if (options.restartStrategy === "extension") {
       await collectionSessions.start({
         runId,
+        environmentId,
         producer: "advertising.wing_rank",
         classification: "background_preferred",
         restartStrategy: "extension",
@@ -1488,6 +1615,7 @@ async function startWingSalesRankCheck(options = {}) {
         { collectionMode: "batch", startedAt, scheduled: false },
         options.runId,
         ["collectionMode"],
+        environmentId,
       );
     }
   }
@@ -1499,15 +1627,15 @@ async function startWingSalesRankCheck(options = {}) {
     runId,
   };
   const stopIfCancelled = async () => {
-    if (!(await isWingSalesRankCancelled(runId))) return false;
-    await markStoredCollectionCancelled(RANK_CHECK_STATUS_KEY, runId);
+    if (!(await isWingSalesRankCancelled(runId, environmentId))) return false;
+    await markStoredCollectionCancelled(rankStatusKey, runId);
     return true;
   };
   if (await stopIfCancelled()) return cancelledResult;
 
   let targetResponse;
   try {
-    const response = await authedFetch(`/api/ads/keyword-rank/wing-targets`);
+    const response = await authedFetch(environmentId, `/api/ads/keyword-rank/wing-targets`);
     if (!response.ok)
       throw new Error(`자사 상품 대표 키워드 조회 실패 (${response.status})`);
     targetResponse = await response.json();
@@ -1515,7 +1643,7 @@ async function startWingSalesRankCheck(options = {}) {
     if (await stopIfCancelled()) return cancelledResult;
     const errorMessage = error?.message || "자사 상품 대표 키워드 조회 실패";
     await chrome.storage.local.set({
-      [RANK_CHECK_STATUS_KEY]: {
+      [rankStatusKey]: {
         runId,
         total: 0,
         completed: 0,
@@ -1546,7 +1674,7 @@ async function startWingSalesRankCheck(options = {}) {
   if (targets.length === 0) {
     if (await stopIfCancelled()) return cancelledResult;
     await chrome.storage.local.set({
-      [RANK_CHECK_STATUS_KEY]: {
+      [rankStatusKey]: {
         runId,
         total: 0,
         productTotal,
@@ -1566,7 +1694,7 @@ async function startWingSalesRankCheck(options = {}) {
 
   if (await stopIfCancelled()) return cancelledResult;
   await chrome.storage.local.set({
-    [RANK_CHECK_STATUS_KEY]: {
+    [rankStatusKey]: {
       runId,
       total: targets.length,
       productTotal,
@@ -1589,10 +1717,10 @@ async function startWingSalesRankCheck(options = {}) {
     label: null,
   });
   if (await stopIfCancelled()) return cancelledResult;
-  runWingSalesRankBatch(targets, productTotal, runId, startedAt).catch(
+  runWingSalesRankBatch(targets, productTotal, runId, startedAt, environmentId).catch(
     (error) => {
       chrome.storage.local.set({
-        [RANK_CHECK_STATUS_KEY]: {
+        [rankStatusKey]: {
           runId,
           total: targets.length,
           productTotal,
@@ -1617,7 +1745,19 @@ async function startWingSalesRankCheck(options = {}) {
   };
 }
 
-async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
+async function runWingSalesRankBatch(
+  targets,
+  productTotal,
+  runId,
+  startedAt,
+  environmentId,
+) {
+  const rankStatusKey = typeof coupangEnvironment === "undefined"
+    ? RANK_CHECK_STATUS_KEY
+    : coupangEnvironment.stateKey(RANK_CHECK_STATUS_KEY, environmentId);
+  const rankCancelKey = typeof coupangEnvironment === "undefined"
+    ? RANK_CHECK_CANCEL_KEY
+    : coupangEnvironment.stateKey(RANK_CHECK_CANCEL_KEY, environmentId);
   const total = targets.length;
   let completed = 0;
   let failed = 0;
@@ -1645,7 +1785,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
         5,
       );
       await chrome.storage.local.set({
-        [RANK_CHECK_STATUS_KEY]: {
+        [rankStatusKey]: {
           runId,
           total,
           productTotal,
@@ -1677,6 +1817,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
             maxPages,
             collectionRunId: runId,
             collectionTabId: tabId,
+            environmentId,
           });
           if (search?.tabId) tabId = search.tabId;
           if (await isWingSalesRankCancelled(runId)) {
@@ -1713,7 +1854,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
               ? Number(search.upstreamTotal)
               : null,
             items: sortedItems,
-          });
+          }, environmentId);
           if (await isWingSalesRankCancelled(runId)) {
             cancelled = true;
             break;
@@ -1752,7 +1893,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
       }
       if (index < targets.length - 1) await sleep(randomDelayMs(1200, 2500));
       await chrome.storage.local.set({
-        [RANK_CHECK_STATUS_KEY]: {
+        [rankStatusKey]: {
           runId,
           total,
           productTotal,
@@ -1774,9 +1915,9 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   }
 
   if (await isWingSalesRankCancelled(runId)) cancelled = true;
-  await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
+  await chrome.storage.local.remove(rankCancelKey);
   await chrome.storage.local.set({
-    [RANK_CHECK_STATUS_KEY]: {
+    [rankStatusKey]: {
       runId,
       total,
       productTotal,
@@ -1800,7 +1941,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   });
   if (await isWingSalesRankCancelled(runId)) {
     cancelled = true;
-    await markStoredCollectionCancelled(RANK_CHECK_STATUS_KEY, runId);
+    await markStoredCollectionCancelled(rankStatusKey, runId);
   }
   if (cancelled) {
     await collectionSessions.cancel(runId, { closeManagedTab: true });
@@ -1809,9 +1950,9 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   else if (!attentionRequired) await collectionSessions.succeed(runId);
   if (await isWingSalesRankCancelled(runId)) {
     cancelled = true;
-    await markStoredCollectionCancelled(RANK_CHECK_STATUS_KEY, runId);
+    await markStoredCollectionCancelled(rankStatusKey, runId);
   }
-  notifyDashboard();
+  notifyDashboard(environmentId);
   return {
     success: !cancelled && !attentionRequired && failed === 0,
     completed,
@@ -1825,14 +1966,16 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   };
 }
 
-async function isWingSalesRankCancelled(runId) {
+async function isWingSalesRankCancelled(runId, environmentId = null) {
   if (await collectionRuns.isCancelled(runId)) return true;
-  const data = await getStorage(RANK_CHECK_CANCEL_KEY);
-  const cancel = data[RANK_CHECK_CANCEL_KEY];
+  const ownerEnvironmentId = environmentId || (await collectionSessions.get(runId))?.environmentId;
+  const cancelKey = coupangEnvironment.stateKey(RANK_CHECK_CANCEL_KEY, ownerEnvironmentId);
+  const data = await getStorage(cancelKey);
+  const cancel = data[cancelKey];
   return !!cancel?.cancelled && (!cancel.runId || cancel.runId === runId);
 }
 
-async function requestWingSalesRankCancellation(runId = null) {
+async function requestWingSalesRankCancellation(runId = null, environmentId = null) {
   if (!runId) {
     return {
       success: false,
@@ -1840,35 +1983,43 @@ async function requestWingSalesRankCancellation(runId = null) {
       error: "Wing 판매순위 실행 ID가 필요합니다",
     };
   }
+  const ownerEnvironmentId = environmentId || (await collectionSessions.get(runId))?.environmentId;
+  const cancelKey = coupangEnvironment.stateKey(RANK_CHECK_CANCEL_KEY, ownerEnvironmentId);
+  const statusKey = coupangEnvironment.stateKey(RANK_CHECK_STATUS_KEY, ownerEnvironmentId);
   await chrome.storage.local.set({
-    [RANK_CHECK_CANCEL_KEY]: {
+    [cancelKey]: {
       cancelled: true,
       runId,
       requestedAt: Date.now(),
     },
   });
-  const data = await getStorage(RANK_CHECK_STATUS_KEY);
-  const status = data[RANK_CHECK_STATUS_KEY] || { status: "idle" };
+  const data = await getStorage(statusKey);
+  const status = data[statusKey] || { status: "idle" };
   if (runId && status.runId && status.runId !== runId) {
-    await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
+    await chrome.storage.local.remove(cancelKey);
     return { success: true, cancelled: false, staleRunId: status.runId };
   }
   if (status.status !== "running" && status.status !== "starting") {
-    await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
-    return markStoredCollectionCancelled(RANK_CHECK_STATUS_KEY, runId);
+    await chrome.storage.local.remove(cancelKey);
+    return markStoredCollectionCancelled(statusKey, runId);
   }
 
   const activeRunId = status.runId || runId;
   return { success: true, cancelled: true, runId: activeRunId };
 }
 
-async function requestCoupangKeywordRankCancellation(runId) {
-  return markStoredCollectionCancelled(KEYWORD_RANK_STATUS_KEY, runId);
+async function requestCoupangKeywordRankCancellation(runId, environmentId = null) {
+  const ownerEnvironmentId = environmentId || (await collectionSessions.get(runId))?.environmentId;
+  return markStoredCollectionCancelled(
+    coupangEnvironment.stateKey(KEYWORD_RANK_STATUS_KEY, ownerEnvironmentId),
+    runId,
+  );
 }
 
-async function requestCoupangCompetitorCatalogCancellation(runId) {
+async function requestCoupangCompetitorCatalogCancellation(runId, environmentId = null) {
+  const ownerEnvironmentId = environmentId || (await collectionSessions.get(runId))?.environmentId;
   return markStoredCollectionCancelled(
-    COMPETITOR_SELLER_CATALOG_STATUS_KEY,
+    coupangEnvironment.stateKey(COMPETITOR_SELLER_CATALOG_STATUS_KEY, ownerEnvironmentId),
     runId,
   );
 }
@@ -1903,9 +2054,9 @@ function sortWingCatalogRowsBySales(rows) {
     .map((item, index) => ({ ...item, salesRank: index + 1 }));
 }
 
-async function postWingSalesRankSync(capture) {
+async function postWingSalesRankSync(capture, environmentId) {
   const capturedAt = new Date().toISOString();
-  const response = await authedFetch(`/api/ads/extension/sync`, {
+  const response = await authedFetch(environmentId, `/api/ads/extension/sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1918,9 +2069,9 @@ async function postWingSalesRankSync(capture) {
   const json = await response.json().catch(() => null);
   if (json?.success) {
     chrome.storage.local.set({
-      kiditem_last_sync_wing_sales_rank: { time: Date.now(), count: 1 },
+      [coupangEnvironment.stateKey("kiditem_last_sync_wing_sales_rank", environmentId)]: { time: Date.now(), count: 1 },
     });
-    notifyDashboard();
+    notifyDashboard(environmentId);
   }
   return (
     json || {
@@ -1930,11 +2081,11 @@ async function postWingSalesRankSync(capture) {
   );
 }
 
-async function runScheduledWingSalesRankCheck() {
-  const token = await getAuthToken();
+async function runScheduledWingSalesRankCheck(environmentId) {
+  const token = await getAuthToken(environmentId);
   if (!token) return;
   try {
-    await startWingSalesRankCheck({ restartStrategy: "extension" });
+    await startWingSalesRankCheck({ restartStrategy: "extension", environmentId });
   } catch (error) {
     console.error(
       "[KIDITEM] Wing 판매순위 자동 확인 실패:",
@@ -1943,17 +2094,18 @@ async function runScheduledWingSalesRankCheck() {
   }
 }
 
-async function resumeInterruptedWingSalesRankCheck() {
-  const token = await getAuthToken();
+async function resumeInterruptedWingSalesRankCheck(environmentId) {
+  const token = await getAuthToken(environmentId);
   if (!token) return;
-  const data = await getStorage(RANK_CHECK_STATUS_KEY);
-  const status = data[RANK_CHECK_STATUS_KEY];
+  const statusKey = coupangEnvironment.stateKey(RANK_CHECK_STATUS_KEY, environmentId);
+  const data = await getStorage(statusKey);
+  const status = data[statusKey];
   if (!status || (status.status !== "running" && status.status !== "starting"))
     return;
   const lastHeartbeatAt = status.heartbeatAt || status.startedAt || 0;
   if (Date.now() - lastHeartbeatAt < WING_RANK_STALE_AFTER_MS) return;
   try {
-    await collectionRuns.restart(status.runId);
+    await collectionRuns.restart(status.runId, environmentId);
   } catch (error) {
     console.error(
       "[KIDITEM] 중단된 Wing 판매순위 재개 실패:",
@@ -1967,6 +2119,7 @@ async function resumeInterruptedWingSalesRankCheck() {
 // /api/ads/extension/sync 로 keyword_rank 페이로드를 전송한다. 순위 매칭/저장은 서버가 담당.
 
 async function checkCoupangKeywordRank(message) {
+  const environmentId = message.environmentId;
   const keyword =
     typeof message.keyword === "string" ? message.keyword.trim() : "";
   if (!keyword) return { success: false, error: "검색 키워드를 입력하세요" };
@@ -1982,9 +2135,10 @@ async function checkCoupangKeywordRank(message) {
     },
     message.runId,
     ["collectionMode", "keywordFingerprint"],
+    environmentId,
   );
 
-  const capture = await captureCoupangKeywordSerp(keyword, maxPages, { runId });
+  const capture = await captureCoupangKeywordSerp(keyword, maxPages, { runId, environmentId });
   if (await collectionRuns.isCancelled(runId)) {
     return { success: false, cancelled: true, runId, keyword };
   }
@@ -2013,12 +2167,12 @@ async function checkCoupangKeywordRank(message) {
   let posted = false;
   let sync = null;
   if (message.post !== false) {
-    const token = await getAuthToken();
+    const token = await getAuthToken(environmentId);
     if (token) {
       if (await collectionRuns.isCancelled(runId)) {
         return { success: false, cancelled: true, runId, keyword };
       }
-      sync = await postKeywordRankSync(capture).catch((e) => ({
+      sync = await postKeywordRankSync(capture, environmentId).catch((e) => ({
         success: false,
         error: e?.message || "순위 데이터 전송 실패",
       }));
@@ -2057,11 +2211,20 @@ async function checkCoupangKeywordRank(message) {
 // 등록된 트래커 전체를 순차 확인. 즉시 응답 + fire-and-forget (scrapeTargets 패턴).
 // 진행률은 chrome.storage.local[KEYWORD_RANK_STATUS_KEY] 에 기록(Wing 판매순위 배치와 별도 키).
 async function startCoupangKeywordRankCheck(options = {}) {
+  const environmentId = options.environmentId;
+  if (typeof environmentContext !== "undefined") {
+    environmentContext.requireEnvironment(environmentId);
+  }
+  const keywordStatusKey = typeof coupangEnvironment === "undefined"
+    ? (typeof KEYWORD_RANK_STATUS_KEY === "undefined"
+        ? "kiditem_keyword_rank_check"
+        : KEYWORD_RANK_STATUS_KEY)
+    : coupangEnvironment.stateKey(KEYWORD_RANK_STATUS_KEY, environmentId);
   let runId = options.runId || collectionRuns.createRunId();
   const startedAt = Date.now();
 
-  const existingData = await getStorage(KEYWORD_RANK_STATUS_KEY);
-  const existing = existingData[KEYWORD_RANK_STATUS_KEY];
+  const existingData = await getStorage(keywordStatusKey);
+  const existing = existingData[keywordStatusKey];
   const requestedSession =
     typeof options.runId === "string"
       ? await collectionSessions.get(options.runId)
@@ -2091,6 +2254,7 @@ async function startCoupangKeywordRankCheck(options = {}) {
       { startedAt, collectionMode: "all_trackers" },
       options.runId,
       ["collectionMode"],
+      environmentId,
     );
   }
 
@@ -2102,14 +2266,14 @@ async function startCoupangKeywordRankCheck(options = {}) {
   };
   const stopIfCancelled = async () => {
     if (!(await collectionRuns.isCancelled(runId))) return false;
-    await requestCoupangKeywordRankCancellation(runId);
+    await requestCoupangKeywordRankCancellation(runId, environmentId);
     return true;
   };
   if (await stopIfCancelled()) return cancelledResult;
 
   let trackers = [];
   try {
-    const res = await authedFetch(`/api/ads/keyword-rank/trackers`);
+    const res = await authedFetch(environmentId, `/api/ads/keyword-rank/trackers`);
     if (!res.ok) throw new Error(`키워드 트래커 조회 실패 (${res.status})`);
     const json = await res.json();
     trackers = Array.isArray(json)
@@ -2123,7 +2287,7 @@ async function startCoupangKeywordRankCheck(options = {}) {
     if (await stopIfCancelled()) return cancelledResult;
     const errorMessage = error?.message || "키워드 트래커 조회 실패";
     await chrome.storage.local.set({
-      [KEYWORD_RANK_STATUS_KEY]: {
+      [keywordStatusKey]: {
         runId,
         total: 0,
         completed: 0,
@@ -2151,7 +2315,7 @@ async function startCoupangKeywordRankCheck(options = {}) {
   if (enabled.length === 0) {
     if (await stopIfCancelled()) return cancelledResult;
     await chrome.storage.local.set({
-      [KEYWORD_RANK_STATUS_KEY]: {
+      [keywordStatusKey]: {
         runId,
         total: 0,
         completed: 0,
@@ -2168,7 +2332,7 @@ async function startCoupangKeywordRankCheck(options = {}) {
 
   if (await stopIfCancelled()) return cancelledResult;
   await chrome.storage.local.set({
-    [KEYWORD_RANK_STATUS_KEY]: {
+    [keywordStatusKey]: {
       runId,
       total: enabled.length,
       completed: 0,
@@ -2188,10 +2352,10 @@ async function startCoupangKeywordRankCheck(options = {}) {
   });
   if (await stopIfCancelled()) return cancelledResult;
 
-  runCoupangKeywordRankBatch(enabled, runId, startedAt).catch(async (e) => {
+  runCoupangKeywordRankBatch(enabled, runId, startedAt, environmentId).catch(async (e) => {
     if (await collectionRuns.isCancelled(runId)) return;
     chrome.storage.local.set({
-      [KEYWORD_RANK_STATUS_KEY]: {
+      [keywordStatusKey]: {
         runId,
         total: enabled.length,
         status: "error",
@@ -2207,6 +2371,16 @@ async function startCoupangKeywordRankCheck(options = {}) {
 }
 
 async function startCoupangCompetitorSellerCatalogCollection(message) {
+  const environmentId = message.environmentId;
+  if (typeof environmentContext !== "undefined") {
+    environmentContext.requireEnvironment(environmentId);
+  }
+  const competitorStatusKey = typeof coupangEnvironment === "undefined"
+    ? COMPETITOR_SELLER_CATALOG_STATUS_KEY
+    : coupangEnvironment.stateKey(
+        COMPETITOR_SELLER_CATALOG_STATUS_KEY,
+        environmentId,
+      );
   const sellerId =
     typeof message?.sellerId === "string" ? message.sellerId.trim() : "";
   if (!/^[A-Za-z0-9_-]{1,120}$/.test(sellerId)) {
@@ -2222,8 +2396,8 @@ async function startCoupangCompetitorSellerCatalogCollection(message) {
       ? message.runId
       : collectionRuns.createRunId();
   const startedAt = Date.now();
-  const existingData = await getStorage(COMPETITOR_SELLER_CATALOG_STATUS_KEY);
-  const existing = existingData[COMPETITOR_SELLER_CATALOG_STATUS_KEY];
+  const existingData = await getStorage(competitorStatusKey);
+  const existing = existingData[competitorStatusKey];
   const requestedSession =
     typeof message?.runId === "string"
       ? await collectionSessions.get(message.runId)
@@ -2261,6 +2435,7 @@ async function startCoupangCompetitorSellerCatalogCollection(message) {
     { sellerId, sellerCount: 1, startedAt },
     message?.runId,
     ["sellerId"],
+    environmentId,
   );
   const cancelledResult = {
     success: false,
@@ -2271,14 +2446,14 @@ async function startCoupangCompetitorSellerCatalogCollection(message) {
   };
   const stopIfCancelled = async () => {
     if (!(await collectionRuns.isCancelled(runId))) return false;
-    await requestCoupangCompetitorCatalogCancellation(runId);
+    await requestCoupangCompetitorCatalogCancellation(runId, environmentId);
     return true;
   };
   if (await stopIfCancelled()) return cancelledResult;
 
   let targets;
   try {
-    targets = await fetchCoupangCompetitorSellerTargets(200);
+    targets = await fetchCoupangCompetitorSellerTargets(200, environmentId);
   } catch (error) {
     if (await stopIfCancelled()) return cancelledResult;
     await collectionSessions.fail(runId);
@@ -2300,7 +2475,7 @@ async function startCoupangCompetitorSellerCatalogCollection(message) {
 
   if (await stopIfCancelled()) return cancelledResult;
   await chrome.storage.local.set({
-    [COMPETITOR_SELLER_CATALOG_STATUS_KEY]: {
+    [competitorStatusKey]: {
       runId,
       sellerId,
       sellerName: target.sellerName || sellerId,
@@ -2314,11 +2489,16 @@ async function startCoupangCompetitorSellerCatalogCollection(message) {
   });
   if (await stopIfCancelled()) return cancelledResult;
 
-  runCoupangCompetitorSellerCatalogCollection(target, runId, startedAt).catch(
+  runCoupangCompetitorSellerCatalogCollection(
+    target,
+    runId,
+    startedAt,
+    environmentId,
+  ).catch(
     async (error) => {
       if (await collectionRuns.isCancelled(runId)) return;
       chrome.storage.local.set({
-        [COMPETITOR_SELLER_CATALOG_STATUS_KEY]: {
+        [competitorStatusKey]: {
           runId,
           sellerId,
           sellerName: target.sellerName || sellerId,
@@ -2350,7 +2530,14 @@ async function runCoupangCompetitorSellerCatalogCollection(
   target,
   runId,
   startedAt,
+  environmentId,
 ) {
+  const competitorStatusKey = typeof coupangEnvironment === "undefined"
+    ? COMPETITOR_SELLER_CATALOG_STATUS_KEY
+    : coupangEnvironment.stateKey(
+        COMPETITOR_SELLER_CATALOG_STATUS_KEY,
+        environmentId,
+      );
   let tabId = null;
   let attentionRequired = false;
   try {
@@ -2360,9 +2547,12 @@ async function runCoupangCompetitorSellerCatalogCollection(
     });
     tabId = tab?.id || null;
     if (!tabId) throw new Error("쿠팡 판매자샵 탭을 열 수 없습니다");
+    if (typeof coupangEnvironment !== "undefined") {
+      await coupangEnvironment.bindTab(tabId, environmentId);
+    }
     await collectionRuns.attachTab(runId, tab);
     if (await collectionRuns.isCancelled(runId)) {
-      await requestCoupangCompetitorCatalogCancellation(runId);
+      await requestCoupangCompetitorCatalogCancellation(runId, environmentId);
       return;
     }
     await collectionSessions.progress(runId, {
@@ -2374,7 +2564,7 @@ async function runCoupangCompetitorSellerCatalogCollection(
     });
 
     await chrome.storage.local.set({
-      [COMPETITOR_SELLER_CATALOG_STATUS_KEY]: {
+      [competitorStatusKey]: {
         runId,
         sellerId: target.sellerId,
         sellerName: target.sellerName || target.sellerId,
@@ -2387,7 +2577,7 @@ async function runCoupangCompetitorSellerCatalogCollection(
       },
     });
     if (await collectionRuns.isCancelled(runId)) {
-      await requestCoupangCompetitorCatalogCancellation(runId);
+      await requestCoupangCompetitorCatalogCancellation(runId, environmentId);
       return;
     }
 
@@ -2406,11 +2596,11 @@ async function runCoupangCompetitorSellerCatalogCollection(
         "판매자샵 수집을 계속하려면 쿠팡 로그인 또는 보안문자 확인이 필요합니다.",
       );
       if (attention?.cancelled) {
-        await requestCoupangCompetitorCatalogCancellation(runId);
+        await requestCoupangCompetitorCatalogCancellation(runId, environmentId);
         return;
       }
       await chrome.storage.local.set({
-        [COMPETITOR_SELLER_CATALOG_STATUS_KEY]: {
+        [competitorStatusKey]: {
           runId,
           sellerId: target.sellerId,
           sellerName: target.sellerName || target.sellerId,
@@ -2423,17 +2613,17 @@ async function runCoupangCompetitorSellerCatalogCollection(
         },
       });
       if (await collectionRuns.isCancelled(runId)) {
-        await requestCoupangCompetitorCatalogCancellation(runId);
+        await requestCoupangCompetitorCatalogCancellation(runId, environmentId);
       }
       return;
     }
     if (await collectionRuns.isCancelled(runId)) {
-      await requestCoupangCompetitorCatalogCancellation(runId);
+      await requestCoupangCompetitorCatalogCancellation(runId, environmentId);
       return;
     }
-    const sync = await postCompetitorSellerCatalogSync([catalog]);
+    const sync = await postCompetitorSellerCatalogSync([catalog], environmentId);
     if (await collectionRuns.isCancelled(runId)) {
-      await requestCoupangCompetitorCatalogCancellation(runId);
+      await requestCoupangCompetitorCatalogCancellation(runId, environmentId);
       return;
     }
     if (!sync?.success) {
@@ -2441,7 +2631,7 @@ async function runCoupangCompetitorSellerCatalogCollection(
     }
 
     await chrome.storage.local.set({
-      [COMPETITOR_SELLER_CATALOG_STATUS_KEY]: {
+      [competitorStatusKey]: {
         runId,
         sellerId: target.sellerId,
         sellerName: catalog.sellerName || target.sellerName || target.sellerId,
@@ -2456,14 +2646,14 @@ async function runCoupangCompetitorSellerCatalogCollection(
       },
     });
     if (await collectionRuns.isCancelled(runId)) {
-      await requestCoupangCompetitorCatalogCancellation(runId);
+      await requestCoupangCompetitorCatalogCancellation(runId, environmentId);
       return;
     }
     await collectionSessions.succeed(runId);
-    notifyDashboard();
+    notifyDashboard(environmentId);
   } catch (error) {
     if (await collectionRuns.isCancelled(runId)) {
-      await requestCoupangCompetitorCatalogCancellation(runId);
+      await requestCoupangCompetitorCatalogCancellation(runId, environmentId);
       return;
     }
     await collectionSessions.fail(runId);
@@ -2479,7 +2669,12 @@ async function runCoupangCompetitorSellerCatalogCollection(
   }
 }
 
-async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
+async function runCoupangKeywordRankBatch(trackers, runId, startedAt, environmentId) {
+  const keywordStatusKey = typeof coupangEnvironment === "undefined"
+    ? (typeof KEYWORD_RANK_STATUS_KEY === "undefined"
+        ? "kiditem_keyword_rank_check"
+        : KEYWORD_RANK_STATUS_KEY)
+    : coupangEnvironment.stateKey(KEYWORD_RANK_STATUS_KEY, environmentId);
   const total = trackers.length;
   let completed = 0;
   let failed = 0;
@@ -2493,7 +2688,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
   const stopIfCancelled = async (reassert = false) => {
     if (!(await collectionRuns.isCancelled(runId))) return false;
     cancelled = true;
-    if (reassert) await requestCoupangKeywordRankCancellation(runId);
+    if (reassert) await requestCoupangKeywordRankCancellation(runId, environmentId);
     return true;
   };
 
@@ -2514,7 +2709,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
       );
 
       await chrome.storage.local.set({
-        [KEYWORD_RANK_STATUS_KEY]: {
+        [keywordStatusKey]: {
           runId,
           total,
           completed,
@@ -2538,6 +2733,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
         const capture = await captureCoupangKeywordSerp(keyword, maxPages, {
           tabId,
           runId,
+          environmentId,
         });
         if (capture.tabId) tabId = capture.tabId;
         if (await stopIfCancelled()) break;
@@ -2554,7 +2750,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
         if (!capture.success)
           throw new Error(capture.error || "쿠팡 키워드 순위 수집 실패");
         if (await stopIfCancelled()) break;
-        const sync = await postKeywordRankSync(capture);
+        const sync = await postKeywordRankSync(capture, environmentId);
         if (await stopIfCancelled()) break;
         if (!sync?.success)
           throw new Error(sync?.error || "순위 데이터 전송 실패");
@@ -2580,10 +2776,11 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
       const trackedSellerIds = new Set();
       const initialSellerTargets = await fetchCoupangCompetitorSellerTargets(
         COUPANG_SELLER_CATALOG_BATCH_LIMIT,
+        environmentId,
       );
       if (await stopIfCancelled()) return cancelledResult;
       await chrome.storage.local.set({
-        [KEYWORD_RANK_STATUS_KEY]: {
+        [keywordStatusKey]: {
           runId,
           total,
           completed,
@@ -2602,6 +2799,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
       if (initialSellerCatalogs.length > 0) {
         const initialCatalogSync = await postCompetitorSellerCatalogSync(
           initialSellerCatalogs,
+          environmentId,
         );
         if (await stopIfCancelled()) return cancelledResult;
         if (!initialCatalogSync?.success) {
@@ -2616,10 +2814,11 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
 
       const productTargets = await fetchCoupangCompetitorProductTargets(
         COUPANG_OVERLAP_PRODUCT_DETAIL_LIMIT,
+        environmentId,
       );
       if (await stopIfCancelled()) return cancelledResult;
       await chrome.storage.local.set({
-        [KEYWORD_RANK_STATUS_KEY]: {
+        [keywordStatusKey]: {
           runId,
           total,
           completed,
@@ -2635,7 +2834,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
         async ({ processed, targetCount }) => {
           if (await collectionRuns.isCancelled(runId)) return;
           await chrome.storage.local.set({
-            [KEYWORD_RANK_STATUS_KEY]: {
+            [keywordStatusKey]: {
               runId,
               total,
               completed,
@@ -2650,7 +2849,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
       if (await stopIfCancelled()) return cancelledResult;
       if (sellerIdentities.length > 0) {
         const identitySync =
-          await postCompetitorSellerIdentitySync(sellerIdentities);
+          await postCompetitorSellerIdentitySync(sellerIdentities, environmentId);
         if (await stopIfCancelled()) return cancelledResult;
         if (!identitySync?.success) {
           throw new Error(
@@ -2662,13 +2861,14 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
 
       const targets = await fetchCoupangCompetitorSellerTargets(
         COUPANG_SELLER_CATALOG_BATCH_LIMIT,
+        environmentId,
       );
       if (await stopIfCancelled()) return cancelledResult;
       const remainingTargets = targets.filter(
         (target) => !trackedSellerIds.has(String(target?.sellerId || "")),
       );
       await chrome.storage.local.set({
-        [KEYWORD_RANK_STATUS_KEY]: {
+        [keywordStatusKey]: {
           runId,
           total,
           completed,
@@ -2685,7 +2885,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
       );
       if (await stopIfCancelled()) return cancelledResult;
       if (sellerCatalogs.length > 0) {
-        const sync = await postCompetitorSellerCatalogSync(sellerCatalogs);
+        const sync = await postCompetitorSellerCatalogSync(sellerCatalogs, environmentId);
         if (await stopIfCancelled()) return cancelledResult;
         if (!sync?.success) {
           throw new Error(sync?.error || "겹치는 판매자 상품 전송 실패");
@@ -2705,7 +2905,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
 
   if (cancelled || (await stopIfCancelled())) return cancelledResult;
   await chrome.storage.local.set({
-    [KEYWORD_RANK_STATUS_KEY]: {
+    [keywordStatusKey]: {
       runId,
       total,
       completed,
@@ -2721,7 +2921,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
   });
   if (await stopIfCancelled(true)) return cancelledResult;
   if (!attentionRequired) await collectionSessions.succeed(runId);
-  notifyDashboard();
+  notifyDashboard(environmentId);
 
   console.log(
     `[KIDITEM] 키워드 순위 일괄 확인 완료: ${completed}/${total} 성공, ${failed} 실패`,
@@ -2739,11 +2939,11 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
 }
 
 // 12시간마다 자동 실행 — 토큰 없으면 조용히 건너뜀
-async function runScheduledKeywordRankCheck() {
-  const token = await getAuthToken();
+async function runScheduledKeywordRankCheck(environmentId) {
+  const token = await getAuthToken(environmentId);
   if (!token) return;
   try {
-    await startCoupangKeywordRankCheck();
+    await startCoupangKeywordRankCheck({ environmentId, restartStrategy: "extension" });
   } catch (e) {
     console.error("[KIDITEM] 키워드 순위 자동 확인 실패:", e?.message || e);
   }
@@ -2770,6 +2970,9 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
       if (!tabId)
         return { success: false, error: "쿠팡 검색 탭을 열 수 없습니다" };
       if (options.runId) await collectionRuns.attachTab(options.runId, tab);
+      if (typeof coupangEnvironment !== "undefined") {
+        await coupangEnvironment.bindTab(tabId, options.environmentId);
+      }
     } else {
       const loaded = await updateTabAndWait(tabId, pageUrl, {
         active: false,
@@ -3068,8 +3271,9 @@ async function collectCoupangSellerCatalogs(tabId, targets, limit) {
   return catalogs;
 }
 
-async function fetchCoupangCompetitorSellerTargets(limit) {
+async function fetchCoupangCompetitorSellerTargets(limit, environmentId) {
   const response = await authedFetch(
+    environmentId,
     `/api/ads/competitors/seller-targets?days=30&limit=${limit}`,
   );
   if (!response.ok) {
@@ -3079,8 +3283,9 @@ async function fetchCoupangCompetitorSellerTargets(limit) {
   return Array.isArray(json?.targets) ? json.targets : [];
 }
 
-async function fetchCoupangCompetitorProductTargets(limit) {
+async function fetchCoupangCompetitorProductTargets(limit, environmentId) {
   const response = await authedFetch(
+    environmentId,
     `/api/ads/competitors/product-detail-targets?days=30&limit=${limit}`,
   );
   if (!response.ok) {
@@ -3455,7 +3660,7 @@ async function executeCoupangSerpExtraction(tabId) {
   return result?.result || null;
 }
 
-async function postKeywordRankSync(capture) {
+async function postKeywordRankSync(capture, environmentId) {
   const capturedAt = new Date().toISOString();
   const payload = {
     type: "keyword_rank",
@@ -3471,7 +3676,7 @@ async function postKeywordRankSync(capture) {
       },
     ],
   };
-  const response = await authedFetch(`/api/ads/extension/sync`, {
+  const response = await authedFetch(environmentId, `/api/ads/extension/sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -3479,9 +3684,9 @@ async function postKeywordRankSync(capture) {
   const json = await response.json().catch(() => null);
   if (json?.success) {
     chrome.storage.local.set({
-      kiditem_last_sync_keyword_rank: { time: Date.now(), count: 1 },
+      [coupangEnvironment.stateKey("kiditem_last_sync_keyword_rank", environmentId)]: { time: Date.now(), count: 1 },
     });
-    notifyDashboard();
+    notifyDashboard(environmentId);
   }
   return (
     json || {
@@ -3491,9 +3696,9 @@ async function postKeywordRankSync(capture) {
   );
 }
 
-async function postCompetitorSellerCatalogSync(catalogs) {
+async function postCompetitorSellerCatalogSync(catalogs, environmentId) {
   const capturedAt = new Date().toISOString();
-  const response = await authedFetch(`/api/ads/extension/sync`, {
+  const response = await authedFetch(environmentId, `/api/ads/extension/sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -3506,12 +3711,12 @@ async function postCompetitorSellerCatalogSync(catalogs) {
   const json = await response.json().catch(() => null);
   if (json?.success) {
     chrome.storage.local.set({
-      kiditem_last_sync_competitor_seller_catalog: {
+      [coupangEnvironment.stateKey("kiditem_last_sync_competitor_seller_catalog", environmentId)]: {
         time: Date.now(),
         count: catalogs.length,
       },
     });
-    notifyDashboard();
+    notifyDashboard(environmentId);
   }
   return (
     json || {
@@ -3521,9 +3726,9 @@ async function postCompetitorSellerCatalogSync(catalogs) {
   );
 }
 
-async function postCompetitorSellerIdentitySync(identities) {
+async function postCompetitorSellerIdentitySync(identities, environmentId) {
   const capturedAt = new Date().toISOString();
-  const response = await authedFetch(`/api/ads/extension/sync`, {
+  const response = await authedFetch(environmentId, `/api/ads/extension/sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -3536,7 +3741,7 @@ async function postCompetitorSellerIdentitySync(identities) {
   const json = await response.json().catch(() => null);
   if (json?.success) {
     chrome.storage.local.set({
-      kiditem_last_sync_competitor_seller_identity: {
+      [coupangEnvironment.stateKey("kiditem_last_sync_competitor_seller_identity", environmentId)]: {
         time: Date.now(),
         count: identities.length,
       },
@@ -3871,11 +4076,12 @@ function isCoupangSearchUrl(url) {
   }
 }
 
-async function openAndExecuteAdActions(url = AD_ACTION_URL) {
+async function openAndExecuteAdActions(url = AD_ACTION_URL, environmentId) {
   const tab = await interactiveTabs.createTab({
     url,
     reason: INTERACTIVE_TAB_REASONS.AD_MUTATION,
   });
+  await coupangEnvironment.bindTab(tab.id, environmentId);
   return new Promise((resolve) => {
       const tabId = tab.id;
       let sent = false;
@@ -4112,6 +4318,16 @@ async function prepareScrapeTargets(
   startedAt = Date.now(),
   options = {},
 ) {
+  const environmentId = options.environmentId;
+  if (typeof environmentContext !== "undefined") {
+    environmentContext.requireEnvironment(environmentId);
+  }
+  const batchStatusKey = typeof coupangEnvironment === "undefined"
+    ? BATCH_SCRAPE_STATUS_KEY
+    : coupangEnvironment.stateKey(BATCH_SCRAPE_STATUS_KEY, environmentId);
+  const batchCancelKey = typeof coupangEnvironment === "undefined"
+    ? BATCH_SCRAPE_CANCEL_KEY
+    : coupangEnvironment.stateKey(BATCH_SCRAPE_CANCEL_KEY, environmentId);
   if (!urls || urls.length === 0) {
     throw new Error("수집 대상 URL이 없습니다");
   }
@@ -4121,6 +4337,7 @@ async function prepareScrapeTargets(
     if (options.restartStrategy === "extension") {
       await collectionSessions.start({
         runId,
+        environmentId,
         producer,
         classification: "background_preferred",
         restartStrategy: "extension",
@@ -4142,13 +4359,14 @@ async function prepareScrapeTargets(
         },
         runId,
         ["collectionMode", "targetFingerprint"],
+        environmentId,
       );
     }
   }
 
-  await chrome.storage.local.remove(BATCH_SCRAPE_CANCEL_KEY);
+  await chrome.storage.local.remove(batchCancelKey);
   await chrome.storage.local.set({
-    [BATCH_SCRAPE_STATUS_KEY]: {
+    [batchStatusKey]: {
       runId,
       total: urls.length,
       completed: 0,
@@ -4178,16 +4396,17 @@ async function handleScrapeTargets(
     options,
   );
 
-  return collectionWindow.collectTargets({
+  return collectionWindowFor(options.environmentId).collectTargets({
     runId: prepared.runId,
     targets: urls,
     startedAt,
     producer: prepared.producer,
+    environmentId: options.environmentId,
   });
 }
 
-async function cancelBatchScrape(runId = null) {
-  return collectionWindow.cancelRun(runId);
+async function cancelBatchScrape(runId = null, environmentId) {
+  return collectionWindowFor(environmentId).cancelRun(runId);
 }
 
 /**
@@ -4200,18 +4419,20 @@ async function cancelBatchScrape(runId = null) {
 /**
  * 3시간마다 자동 실행 — 서버에서 등록 URL 가져와서 순차 스크래핑
  */
-async function autoScrape() {
+async function autoScrape(environmentId) {
+  environmentContext.requireEnvironment(environmentId);
+  const autoScrapeKey = coupangEnvironment.stateKey("kiditem_auto_scrape", environmentId);
   console.log("[KIDITEM] 자동 수집 시작");
 
   try {
-    const res = await authedFetch(`/api/ads/scrape-targets`);
+    const res = await authedFetch(environmentId, `/api/ads/scrape-targets`);
     const json = await res.json();
     const targets = json.targets || [];
 
     if (targets.length === 0) {
       console.log("[KIDITEM] 등록된 수집 URL 없음");
       chrome.storage.local.set({
-        kiditem_auto_scrape: { time: Date.now(), count: 0, status: "empty" },
+        [autoScrapeKey]: { time: Date.now(), count: 0, status: "empty" },
       });
       return;
     }
@@ -4225,6 +4446,7 @@ async function autoScrape() {
       {
         producer: "advertising.scrape_targets",
         restartStrategy: "extension",
+        environmentId,
       },
     );
 
@@ -4234,7 +4456,7 @@ async function autoScrape() {
 
     // 결과 저장
     chrome.storage.local.set({
-      kiditem_auto_scrape: {
+      [autoScrapeKey]: {
         time: Date.now(),
         completed: result.completed,
         failed: result.failed,
@@ -4253,7 +4475,7 @@ async function autoScrape() {
   } catch (e) {
     console.error("[KIDITEM] 자동 수집 실패:", e.message);
     chrome.storage.local.set({
-      kiditem_auto_scrape: {
+      [autoScrapeKey]: {
         time: Date.now(),
         count: 0,
         status: "error",
@@ -4266,7 +4488,8 @@ async function autoScrape() {
 /**
  * 월별 일별 동기화 — 하루씩 Wing 매출분석 페이지 열고 스크래핑
  */
-async function doMonthlyScrape(year, month) {
+async function doMonthlyScrape(year, month, environmentId) {
+  const monthlySyncKey = coupangEnvironment.stateKey("kiditem_monthly_sync", environmentId);
   const today = new Date();
   const lastDay = new Date(year, month, 0).getDate();
   // 미래 날짜는 수집 불필요 (당월이면 오늘까지만)
@@ -4277,7 +4500,7 @@ async function doMonthlyScrape(year, month) {
 
   const total = endDay;
   chrome.storage.local.set({
-    kiditem_monthly_sync: {
+    [monthlySyncKey]: {
       year,
       month,
       completed: 0,
@@ -4300,11 +4523,11 @@ async function doMonthlyScrape(year, month) {
     urls,
     collectionRuns.createRunId(),
     Date.now(),
-    { producer: "dashboard.wing_sales", restartStrategy: "web" },
+    { producer: "dashboard.wing_sales", restartStrategy: "web", environmentId },
   );
 
   chrome.storage.local.set({
-    kiditem_monthly_sync: {
+    [monthlySyncKey]: {
       year,
       month,
       completed: result.completed,
@@ -4312,7 +4535,7 @@ async function doMonthlyScrape(year, month) {
       status: result.success ? "done" : "error",
     },
   });
-  notifyDashboard();
+  notifyDashboard(environmentId);
 }
 
 collectionRuns.recover().catch((error) => {

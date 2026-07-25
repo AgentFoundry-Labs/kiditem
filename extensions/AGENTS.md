@@ -36,8 +36,10 @@ extension-specific guide before editing a concrete extension.
   Supabase client logic.
 - Do not send client-provided `organizationId`; backend auth/session scope owns
   organization context.
-- Staging/unpacked variants belong under `.secrets/` or runbooks, not committed
-  source.
+- Each extension source must support the committed local and staging KidItem
+  origins in one installed copy. Keep environment-specific auth and run state
+  isolated by the verified external sender origin; do not generate or maintain
+  environment-specific extension variants.
 
 ## Verification
 

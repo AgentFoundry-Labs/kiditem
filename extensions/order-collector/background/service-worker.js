@@ -1,4 +1,5 @@
 importScripts(
+  "environment-context.js",
   "collection-session.js",
   "interactive-tabs.js",
   "order-collection-lifecycle.js",
@@ -11,10 +12,15 @@ const KIDITEM_WEB_URL_PATTERNS = [
   "http://localhost:3000/*",
   "https://staging.merchon.org/*",
 ];
+const environmentContext = KidItemEnvironmentContext.create({
+  chrome,
+  requiresAuth: false,
+  legacyStorageKeys: ["apiBase", "kiditem_auth_token"],
+});
 const collectionSessions = KidItemCollectionSession.create({
   chrome,
   storageKey: "kiditem_collection_sessions",
-  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
+  environmentContext,
 });
 const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
@@ -58,20 +64,20 @@ const rocketPoCollection = KidItemRocketPoCollection.create({
   withTimeout,
 });
 
-async function lifecycleForRun(runId) {
-  const session = await collectionSessions.get(runId);
+async function lifecycleForRun(runId, environmentId) {
+  const session = await collectionSessions.getOwned(runId, environmentId);
   if (session?.producer === "inventory.sellpia") return sellpiaInventoryLifecycle;
   if (session?.producer === "orders.mall") return orderCollectionLifecycle;
   return null;
 }
 
-async function cancelCollectionSession(runId) {
-  const lifecycle = await lifecycleForRun(runId);
+async function cancelCollectionSession(runId, environmentId) {
+  const lifecycle = await lifecycleForRun(runId, environmentId);
   return lifecycle ? lifecycle.cancel(runId) : null;
 }
 
-async function finalizeCollectionSession(runId, status, message) {
-  const lifecycle = await lifecycleForRun(runId);
+async function finalizeCollectionSession(runId, status, message, environmentId) {
+  const lifecycle = await lifecycleForRun(runId, environmentId);
   return lifecycle ? lifecycle.finalize(runId, status, message) : null;
 }
 
@@ -96,6 +102,9 @@ const SELLPIA_PRODUCT_PROFIT_URL = "https://kiditem.sellpia.com/stat_prd_profit.
 const SELLPIA_SALES_CACHE_KEY = "sellpiaSaleSummaryCache";
 const SELLPIA_SALES_ORGANIZATION_KEY = "sellpiaSaleSummaryOrganizationId";
 const SELLPIA_SALES_ALARM = "sellpiaSaleSummaryDaily";
+function sellpiaSalesKey(base, environmentId) {
+  return environmentContext.storageKey(base, environmentId);
+}
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
 const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
 const KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
@@ -176,7 +185,15 @@ const ICECREAM_DELIVERY_HEADERS = [
   "출고완료일시",
 ];
 
-chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  const senderEnvironment = environmentContext.resolveSender(sender);
+  if (!senderEnvironment) {
+    sendResponse({ success: false, error: "Untrusted KidItem web origin" });
+    return false;
+  }
+  const environmentId = senderEnvironment.environmentId;
+  msg = { ...msg, environmentId };
+  environmentContext.connect(environmentId).catch(() => undefined);
   const respond = (operation) => {
     Promise.resolve(operation)
       .then(sendResponse)
@@ -190,26 +207,31 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   };
 
   if (msg?.action === "listCollectionSessions") {
-    return respond(collectionSessions.list());
+    return respond(collectionSessions.list(environmentId));
   }
   if (msg?.action === "getCollectionSession") {
-    return respond(collectionSessions.get(msg.runId));
+    return respond(collectionSessions.getOwned(msg.runId, environmentId));
   }
   if (msg?.action === "cancelCollectionSession") {
-    return respond(cancelCollectionSession(msg.runId));
+    return respond(cancelCollectionSession(msg.runId, environmentId));
   }
   if (msg?.action === "openCollectionAttentionTab") {
-    return respond(collectionSessions.openAttentionTab(msg.runId));
+    return respond(
+      collectionSessions.getOwned(msg.runId, environmentId).then((session) => {
+        if (!session) throw new Error("Collection session not found");
+        return collectionSessions.openAttentionTab(msg.runId);
+      }),
+    );
   }
   if (msg?.action === "restartCollectionSession") {
-    return respond(collectionSessions.get(msg.runId));
+    return respond(collectionSessions.getOwned(msg.runId, environmentId));
   }
   if (msg?.action === "finalizeCollectionSession") {
     const status = msg.status === "failed" ? "failed" : msg.status === "succeeded" ? "succeeded" : null;
     if (!status || typeof msg.message !== "string" || msg.message.length < 1 || msg.message.length > 300) {
       return respond(Promise.reject(new Error("Invalid collection finalization")));
     }
-    return respond(finalizeCollectionSession(msg.runId, status, msg.message));
+    return respond(finalizeCollectionSession(msg.runId, status, msg.message, environmentId));
   }
 
   if (msg?.action === "ping") {
@@ -234,6 +256,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         collectSellpiaProductProfit: true,
         collectSellpiaInventoryJsonV1: true,
         browserCollectionSessions: true,
+        kiditemEnvironmentProfilesV1: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
         sellpiaPostTransfer: true,
@@ -275,8 +298,12 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
       sendResponse({ success: false, error: "판매현황 수집 조직 정보가 없습니다." });
       return false;
     }
+    const organizationKey = sellpiaSalesKey(
+      SELLPIA_SALES_ORGANIZATION_KEY,
+      environmentId,
+    );
     chrome.storage.local
-      .set({ [SELLPIA_SALES_ORGANIZATION_KEY]: organizationId })
+      .set({ [organizationKey]: organizationId })
       .then(() => collectSellpiaSaleSummary({
         startDate: typeof msg.startDate === "string" ? msg.startDate : null,
         endDate: typeof msg.endDate === "string" ? msg.endDate : null,
@@ -309,10 +336,11 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
       sendResponse({ success: false, error: "판매현황 캐시 조직 정보가 없습니다." });
       return false;
     }
+    const cacheKey = sellpiaSalesKey(SELLPIA_SALES_CACHE_KEY, environmentId);
     chrome.storage.local
-      .get(SELLPIA_SALES_CACHE_KEY)
+      .get(cacheKey)
       .then((o) => {
-        const cache = o?.[SELLPIA_SALES_CACHE_KEY] ?? null;
+        const cache = o?.[cacheKey] ?? null;
         sendResponse({
           success: true,
           cache: cache?.organizationId === organizationId ? cache : null,
@@ -328,12 +356,13 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
       sendResponse({ success: false, error: "판매현황 캐시 조직 정보가 없습니다." });
       return false;
     }
+    const cacheKey = sellpiaSalesKey(SELLPIA_SALES_CACHE_KEY, environmentId);
     chrome.storage.local
-      .get(SELLPIA_SALES_CACHE_KEY)
+      .get(cacheKey)
       .then((o) => {
-        const cache = o?.[SELLPIA_SALES_CACHE_KEY] ?? null;
+        const cache = o?.[cacheKey] ?? null;
         if (cache?.organizationId !== organizationId) return;
-        return chrome.storage.local.remove(SELLPIA_SALES_CACHE_KEY);
+        return chrome.storage.local.remove(cacheKey);
       })
       .then(() => sendResponse({ success: true }))
       .catch((error) => sendResponse({ success: false, error: error?.message || String(error) }));
@@ -5541,18 +5570,32 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
 // 인증/전송 소유), 캐시는 KidItem 웹앱이 열릴 때 getSellpiaSalesCache 로 flush 된다.
 function ensureSellpiaSalesAlarm() {
   try {
-    chrome.alarms.create(SELLPIA_SALES_ALARM, { delayInMinutes: 1, periodInMinutes: 360 });
+    for (const environmentId of ["local", "staging"]) {
+      chrome.alarms.create(
+        environmentContext.alarmName(SELLPIA_SALES_ALARM, environmentId),
+        { delayInMinutes: 1, periodInMinutes: 360 },
+      );
+    }
   } catch { /* alarms 권한/생성 실패 무시 */ }
 }
 chrome.runtime.onInstalled.addListener(ensureSellpiaSalesAlarm);
 chrome.runtime.onStartup.addListener(ensureSellpiaSalesAlarm);
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm?.name !== SELLPIA_SALES_ALARM) return;
+  const environmentId = environmentContext.parseAlarmName(
+    SELLPIA_SALES_ALARM,
+    alarm?.name,
+  );
+  if (!environmentId) return;
   try {
-    const binding = await chrome.storage.local.get(SELLPIA_SALES_ORGANIZATION_KEY);
+    const organizationKey = sellpiaSalesKey(
+      SELLPIA_SALES_ORGANIZATION_KEY,
+      environmentId,
+    );
+    const cacheKey = sellpiaSalesKey(SELLPIA_SALES_CACHE_KEY, environmentId);
+    const binding = await chrome.storage.local.get(organizationKey);
     const organizationId = normalizeSellpiaSalesOrganizationId(
-      binding?.[SELLPIA_SALES_ORGANIZATION_KEY],
+      binding?.[organizationKey],
     );
     if (!organizationId) return;
     const result = await collectSellpiaSaleSummary({});
@@ -5567,7 +5610,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       result.payload?.provenance?.explicitEmpty === true;
     if (result?.success && Array.isArray(sellers) && (sellers.length > 0 || explicitEmpty)) {
       await chrome.storage.local.set({
-        [SELLPIA_SALES_CACHE_KEY]: {
+        [cacheKey]: {
           organizationId,
           payload: result.payload,
           capturedAt: Date.now(),

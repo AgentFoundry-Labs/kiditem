@@ -28,10 +28,13 @@ conversion.
   authenticated `kiditem.sellpia.com` product-search JSON contract.
 - Domeggook and Onchannel tracking registration initiated from the KidItem
   order-collection page.
-- KidItem localhost extension-id discovery for order operations only.
+- KidItem local and staging extension-id discovery for order operations only.
 
 ## Browser Boundary
 
+- Resolve the KidItem environment from the verified external sender origin and
+  bind every run, status lookup, cancellation, tab, alarm, and callback to that
+  environment. Local and staging may run concurrently in one installed copy.
 - Host permissions stay exact to the supported marketplace origins.
 - Do not persist, log, return, forward, commit, or store marketplace session
   tokens, cookies, passwords, or browser credential-store values.

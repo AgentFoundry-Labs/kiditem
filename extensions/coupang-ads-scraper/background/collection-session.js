@@ -57,7 +57,16 @@
     const chromeApi = options.chrome;
     const storageKey = options.storageKey;
     const webUrlPatterns = options.webUrlPatterns;
+    const environmentContext = options.environmentContext || null;
     const now = options.now || Date.now;
+
+    function requireEnvironmentId(environmentId) {
+      if (environmentId !== 'local' && environmentId !== 'staging') {
+        throw new Error('Collection environment is required');
+      }
+      environmentContext?.requireEnvironment(environmentId);
+      return environmentId;
+    }
 
     function prune(sessions) {
       const cutoff = now() - RETENTION_MS;
@@ -88,6 +97,7 @@
 
     function toPublicView(session) {
       return {
+        environmentId: session.environmentId,
         runId: session.runId,
         producer: session.producer,
         classification: session.classification,
@@ -104,6 +114,18 @@
     }
 
     async function publish(view) {
+      if (environmentContext) {
+        try {
+          await environmentContext.publish(
+            view.environmentId,
+            'kiditem:browser-collection-session',
+            view,
+          );
+        } catch {
+          // Session persistence must survive a stale or unavailable web tab.
+        }
+        return;
+      }
       let tabs;
       try {
         tabs = await chromeApi.tabs.query({ url: webUrlPatterns });
@@ -155,6 +177,7 @@
         const sessions = await readSessions();
         const timestamp = now();
         const session = {
+          environmentId: requireEnvironmentId(input.environmentId),
           runId: input.runId,
           producer: input.producer,
           classification: input.classification,
@@ -375,11 +398,33 @@
       });
     }
 
-    function list() {
+    function getOwned(runId, environmentId) {
+      requireEnvironmentId(environmentId);
       return enqueueStorageMutation(storageKey, async () => {
         const sessions = await readSessions();
-        return Object.values(sessions).map(toPublicView);
+        const session = sessions[runId];
+        return session?.environmentId === environmentId
+          ? toPublicView(session)
+          : null;
       });
+    }
+
+    function list(environmentId) {
+      if (environmentId !== undefined) requireEnvironmentId(environmentId);
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        return Object.values(sessions)
+          .filter(
+            (session) =>
+              environmentId === undefined ||
+              session.environmentId === environmentId,
+          )
+          .map(toPublicView);
+      });
+    }
+
+    function listAll() {
+      return list();
     }
 
     function openAttentionTab(runId) {
@@ -414,7 +459,9 @@
       cancel,
       restart,
       get,
+      getOwned,
       list,
+      listAll,
       openAttentionTab,
     };
   }

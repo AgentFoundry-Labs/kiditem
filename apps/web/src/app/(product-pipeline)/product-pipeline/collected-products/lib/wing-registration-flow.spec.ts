@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
+import { buildGenerationHistoryHtml } from '../../_shared/lib/generated-detail-html';
 import {
   applyWingRegistrationOverrides,
   buildWingDisplayName,
@@ -18,9 +20,9 @@ import {
   WING_DISPLAY_NAME_MAX,
   WING_FORM_FILL_TIMEOUT_MS,
 } from './wing-registration-flow';
-import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
 import { candidatesApi, productsApi } from './sourcing-api';
 import { renderCandidateDetailImage } from './detail-page-image-api';
+import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
 import type { WingProduct } from './wing-registration-excel';
 
 vi.mock('@/lib/extension-bridge', () => ({
@@ -31,6 +33,16 @@ vi.mock('@/lib/extension-bridge', () => ({
 
 vi.mock('./detail-page-image-api', () => ({
   renderCandidateDetailImage: vi.fn(),
+}));
+
+vi.mock('../../_shared/lib/content-workspaces-api', () => ({
+  contentWorkspacesApi: {
+    get: vi.fn(),
+  },
+}));
+
+vi.mock('../../_shared/lib/generated-detail-html', () => ({
+  buildGenerationHistoryHtml: vi.fn(),
 }));
 
 vi.mock('./sourcing-api', async (importOriginal) => {
@@ -60,6 +72,13 @@ beforeEach(() => {
   vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
   vi.mocked(productsApi.getDetail).mockReset();
   vi.mocked(renderCandidateDetailImage).mockReset();
+  vi.mocked(contentWorkspacesApi.get).mockReset();
+  vi.mocked(buildGenerationHistoryHtml).mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const SOURCE_IMAGE = 'https://cbu01.alicdn.com/img/original-source.jpg';
@@ -170,6 +189,78 @@ describe('direct WING account selection', () => {
       '11111111-1111-4111-8111-111111111111',
       '22222222-2222-4222-8222-222222222222',
     ]);
+  });
+
+  it('automatically saves the latest generated detail page before retrying WING rendering', async () => {
+    const product = detail(basics());
+    product.contentWorkspaceId = '44444444-4444-4444-8444-444444444444';
+    vi.mocked(productsApi.getDetail).mockResolvedValue(product);
+    vi.mocked(renderCandidateDetailImage)
+      .mockResolvedValueOnce({
+        status: 'missing',
+        reason: 'no_saved_detail_page',
+        message: '저장된 상세페이지가 없습니다.',
+      })
+      .mockResolvedValueOnce(renderedDetail);
+    vi.mocked(contentWorkspacesApi.get).mockResolvedValue({
+      id: product.contentWorkspaceId,
+      ownerType: 'sourcing_candidate',
+      sourceCandidateId: product.id,
+      channelListingId: null,
+      originWorkspaceId: null,
+      displayName: product.name,
+      normalizedTitle: product.name,
+      status: 'active',
+      href: '',
+      generationCount: 1,
+      latestGenerationId: '55555555-5555-4555-8555-555555555555',
+      latestStatus: 'READY',
+      currentDetailPageArtifactId: '66666666-6666-4666-8666-666666666666',
+      currentDetailPageRevisionId: null,
+      currentDetailPageGenerationId: '55555555-5555-4555-8555-555555555555',
+      currentThumbnailSelection: null,
+      createdAt: '2026-07-25T03:13:40.804Z',
+      updatedAt: '2026-07-25T03:17:38.618Z',
+      history: [{
+        id: '55555555-5555-4555-8555-555555555555',
+        contentType: 'detail_page',
+        status: 'READY',
+        generatedTitle: product.name,
+        templateId: 'kids-playful',
+        generationInput: {},
+        detailPageData: { hook: { headline: product.name } },
+        imageUrls: [],
+        processedImages: {},
+        detailPageArtifactId: '66666666-6666-4666-8666-666666666666',
+        href: '',
+        createdAt: '2026-07-25T03:13:40.804Z',
+        updatedAt: '2026-07-25T03:17:38.618Z',
+      }],
+    });
+    vi.mocked(buildGenerationHistoryHtml).mockReturnValue(
+      '<!DOCTYPE html><html><body><section>saved detail</section></body></html>',
+    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('/* template css */'),
+    }));
+    const saveRequest = vi.spyOn(apiClient, 'post').mockResolvedValue({
+      html: '<!DOCTYPE html><html><body><section>saved detail</section></body></html>',
+      savedAt: '2026-07-25T03:30:00.000Z',
+      assetUrlMap: {},
+    });
+    vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
+      { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
+    ]);
+
+    const draft = await prepareWingRegistration(product.id);
+
+    expect(saveRequest).toHaveBeenCalledWith(
+      '/api/ai/detail-page/55555555-5555-4555-8555-555555555555/edited-html',
+      { html: '<!DOCTYPE html><html><body><section>saved detail</section></body></html>' },
+    );
+    expect(renderCandidateDetailImage).toHaveBeenCalledTimes(2);
+    expect(draft.detailImageUrl).toBe(renderedDetail.imageUrl);
   });
 });
 

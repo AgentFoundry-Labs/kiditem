@@ -45,7 +45,7 @@
       return `tiktok-cc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     });
 
-    let activeRun = null;
+    const activeRuns = new Map();
     const runsById = new Map();
 
     function storageGet(key) {
@@ -56,7 +56,10 @@
 
     function storageSet(value) {
       return new Promise((resolve) => {
-        chromeApi.storage.local.set({ [STATUS_KEY]: value }, resolve);
+        chromeApi.storage.local.set(
+          { [`${STATUS_KEY}:${value.environmentId}`]: value },
+          resolve,
+        );
       });
     }
 
@@ -372,7 +375,9 @@
       } finally {
         if (!run.keepTabOpen) await removeTab(run.tabId);
         if (!run.keepTabOpen) runsById.delete(run.runId);
-        if (activeRun === run) activeRun = null;
+        if (activeRuns.get(run.environmentId) === run) {
+          activeRuns.delete(run.environmentId);
+        }
       }
     }
 
@@ -381,8 +386,9 @@
       return Math.max(1, Math.min(MAX_ITEMS_DEFAULT, value));
     }
 
-    async function start(startOptions) {
+    async function start(startOptions, environmentId) {
       const opts = startOptions || {};
+      const activeRun = activeRuns.get(environmentId);
       if (activeRun && activeRun.status.status === "running") {
         return {
           success: false,
@@ -391,7 +397,7 @@
         };
       }
 
-      const backendConfig = await getBackendRequestConfig();
+      const backendConfig = await getBackendRequestConfig(environmentId);
       if (!backendConfig.ok) {
         return {
           success: false,
@@ -416,6 +422,7 @@
       const runId = createRunId();
       const startedAt = now().toISOString();
       const run = {
+        environmentId,
         runId,
         targets: collectionTargets,
         maxItems,
@@ -426,6 +433,7 @@
         cancelRequested: false,
         keepTabOpen: false,
         status: {
+          environmentId,
           runId,
           status: "running",
           collected: 0,
@@ -442,9 +450,10 @@
           tabId: null,
         },
       };
-      activeRun = run;
+      activeRuns.set(environmentId, run);
       runsById.set(runId, run);
       await sessions.start({
+        environmentId,
         runId,
         producer: "sourcing.tiktok_cc_trend",
         classification: "background_preferred",
@@ -459,8 +468,10 @@
       return { success: true, runId, status: "running" };
     }
 
-    async function getStatus(runId) {
-      const status = (activeRun && activeRun.status) || await storageGet(STATUS_KEY);
+    async function getStatus(runId, environmentId) {
+      const status =
+        activeRuns.get(environmentId)?.status ||
+        await storageGet(`${STATUS_KEY}:${environmentId}`);
       if (!status) return { success: false, error: "collection_not_found" };
       if (runId && status.runId !== runId) {
         return { success: false, error: "run_not_found", runId };
@@ -469,8 +480,10 @@
       return { success: true, ...publicStatus };
     }
 
-    async function cancel(runId) {
-      const stored = (activeRun && activeRun.status) || await storageGet(STATUS_KEY);
+    async function cancel(runId, environmentId) {
+      const activeRun = activeRuns.get(environmentId);
+      const stored =
+        activeRun?.status || await storageGet(`${STATUS_KEY}:${environmentId}`);
       if (!stored) return { success: false, error: "collection_not_found" };
       if (runId && stored.runId !== runId) {
         return { success: false, error: "run_not_found", runId };
@@ -488,6 +501,7 @@
         await sessions.cancel(activeRun.runId);
         await removeTab(activeRun.tabId);
         runsById.delete(activeRun.runId);
+        activeRuns.delete(environmentId);
         return { success: true, runId: activeRun.runId, status: "cancelled" };
       }
 
@@ -506,16 +520,17 @@
     }
 
     async function restart(runId) {
-      if (activeRun && activeRun.status.status === "running") {
+      const run = runsById.get(runId);
+      const session = await sessions.get(runId);
+      if (!run || !session) throw new Error("Collection session not found");
+      const activeRun = activeRuns.get(session.environmentId);
+      if (activeRun?.status.status === "running") {
         return {
           success: false,
           error: "collection_in_progress",
           runId: activeRun.runId,
         };
       }
-      const run = runsById.get(runId);
-      const session = await sessions.get(runId);
-      if (!run || !session) throw new Error("Collection session not found");
       if (session.restartStrategy !== "extension") {
         throw new Error("Collection session requires a web restart");
       }
@@ -540,7 +555,7 @@
         updatedAt: restartedAt,
         completedAt: null,
       };
-      activeRun = run;
+      activeRuns.set(session.environmentId, run);
       await storageSet(run.status);
       Promise.resolve().then(() => executeRun(run));
       return { success: true, runId, status: "running" };

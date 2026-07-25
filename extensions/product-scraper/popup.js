@@ -2,7 +2,6 @@
   "use strict";
 
   const $ = (id) => document.getElementById(id);
-
   const dom = {
     detectBadge: $("detectBadge"),
     detectIcon: $("detectIcon"),
@@ -13,15 +12,14 @@
     dot: $("dot"),
     statusText: $("statusText"),
     lastError: $("lastError"),
-    apiUrl: $("apiUrl"),
-    btnSave: $("btnSave"),
+    environmentSelect: $("environmentSelect"),
+    environmentHelp: $("environmentHelp"),
   };
 
   const PLATFORM_LABELS = {
     ALIBABA: "Alibaba",
     ALIBABA_1688: "1688",
   };
-
   const PAGE_LABELS = {
     detail: "상품 페이지",
     search: "검색 결과",
@@ -29,6 +27,51 @@
 
   let currentTabId = null;
   let collecting = false;
+  let siteSupported = false;
+  let connected = [];
+
+  function selectedEnvironmentId() {
+    if (connected.length === 1) return connected[0];
+    const chosen = dom.environmentSelect.value;
+    return connected.includes(chosen) ? chosen : null;
+  }
+
+  function updateCollectAvailability() {
+    dom.btnCollect.disabled =
+      collecting || !siteSupported || !selectedEnvironmentId();
+  }
+
+  function loadConnectedEnvironments() {
+    chrome.runtime.sendMessage(
+      { action: "getConnectedKidItemEnvironments" },
+      (response) => {
+        connected = Array.isArray(response?.environments)
+          ? response.environments.map((item) => item.environmentId)
+          : [];
+        dom.environmentSelect.replaceChildren();
+        if (connected.length === 0) {
+          dom.environmentSelect.append(new Option("로그인된 환경 없음", ""));
+          dom.environmentSelect.disabled = true;
+          dom.environmentHelp.textContent =
+            "로컬 또는 스테이징 KidItem에 로그인해주세요.";
+        } else {
+          dom.environmentSelect.append(new Option("환경 선택", ""));
+          for (const environmentId of connected) {
+            const label = environmentId === "local" ? "로컬" : "스테이징";
+            dom.environmentSelect.append(new Option(label, environmentId));
+          }
+          dom.environmentSelect.disabled = connected.length === 1;
+          if (connected.length === 1) {
+            dom.environmentSelect.value = connected[0];
+          }
+          dom.environmentHelp.textContent = connected.length === 1
+            ? "연결된 환경을 사용합니다."
+            : "이번 수집을 보낼 환경을 선택하세요.";
+        }
+        updateCollectAvailability();
+      },
+    );
+  }
 
   function detectSite() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -36,48 +79,41 @@
         showUnsupported();
         return;
       }
-
       currentTabId = tabs[0].id;
       const url = tabs[0].url || "";
-
       let platform = null;
       let pageType = null;
-
-      if (url.match(/alibaba\.com/)) {
-        platform = "ALIBABA";
-      } else if (url.match(/1688\.com/)) {
-        platform = "1688";
-      }
-
+      if (url.match(/alibaba\.com/)) platform = "ALIBABA";
+      else if (url.match(/1688\.com/)) platform = "1688";
       if (!platform) {
         showUnsupported();
         return;
       }
-
       if (url.match(/\/offer\/|\/product\/|productdetail|item\.htm/)) {
         pageType = "detail";
       } else if (url.match(/search|SearchText|keywords/)) {
         pageType = "search";
       }
-
       showDetected(platform, pageType);
     });
   }
 
   function showDetected(platform, pageType) {
+    siteSupported = true;
     dom.detectBadge.classList.add("detected");
-    dom.detectIcon.textContent = "\u2713";
+    dom.detectIcon.textContent = "✓";
     dom.detectPlatform.textContent = PLATFORM_LABELS[platform] || platform;
     dom.detectPage.textContent = pageType ? PAGE_LABELS[pageType] || pageType : "";
-    dom.btnCollect.disabled = false;
+    updateCollectAvailability();
   }
 
   function showUnsupported() {
+    siteSupported = false;
     dom.detectBadge.classList.add("unsupported");
-    dom.detectIcon.textContent = "\u2014";
-    dom.detectPlatform.textContent = "\uc9c0\uc6d0\ud558\uc9c0 \uc54a\ub294 \uc0ac\uc774\ud2b8";
-    dom.detectPage.textContent = "Alibaba \ub610\ub294 1688 \ud398\uc774\uc9c0\uc5d0\uc11c \uc0ac\uc6a9\ud558\uc138\uc694";
-    dom.btnCollect.disabled = true;
+    dom.detectIcon.textContent = "—";
+    dom.detectPlatform.textContent = "지원하지 않는 사이트";
+    dom.detectPage.textContent = "Alibaba 또는 1688 페이지에서 사용하세요";
+    updateCollectAvailability();
   }
 
   function showStatus(text, isError) {
@@ -92,59 +128,39 @@
     dom.statusSection.style.display = "";
     dom.dot.classList.remove("active");
     dom.dot.classList.add("error");
-    dom.statusText.textContent = "\uc2e4\ud328";
+    dom.statusText.textContent = "실패";
     dom.lastError.textContent = text;
   }
 
   dom.btnCollect.addEventListener("click", () => {
     if (collecting || !currentTabId) return;
-
+    const environmentId = selectedEnvironmentId();
+    if (!environmentId) {
+      showError("수집할 KidItem 환경을 선택해주세요.");
+      return;
+    }
     collecting = true;
-    dom.btnCollect.disabled = true;
-    dom.btnCollect.textContent = "\uc218\uc9d1 \uc911...";
-    showStatus("\ucd94\ucd9c \uc911...", false);
-
-    const apiBase = dom.apiUrl.value.trim();
-
+    updateCollectAvailability();
+    dom.btnCollect.textContent = "수집 중...";
+    showStatus("추출 중...", false);
     chrome.runtime.sendMessage(
-      { type: "COLLECT_CURRENT", tabId: currentTabId, apiBase },
-      (resp) => {
-        if (chrome.runtime.lastError || !resp) {
-          showError(chrome.runtime.lastError?.message || "\uc751\ub2f5 \uc5c6\uc74c");
-          resetButton();
-          return;
-        }
-
-        if (resp.ok) {
-          showStatus("\uc218\uc9d1 \uc644\ub8cc", false);
+      { type: "COLLECT_CURRENT", tabId: currentTabId, environmentId },
+      (response) => {
+        if (chrome.runtime.lastError || !response) {
+          showError(chrome.runtime.lastError?.message || "응답 없음");
+        } else if (response.ok) {
+          showStatus("수집 완료", false);
         } else {
-          showError(resp.error || "\uc218\uc9d1 \uc2e4\ud328");
+          showError(response.error || "수집 실패");
         }
-        resetButton();
-      }
+        collecting = false;
+        dom.btnCollect.textContent = "수집";
+        updateCollectAvailability();
+      },
     );
   });
 
-  function resetButton() {
-    collecting = false;
-    dom.btnCollect.disabled = false;
-    dom.btnCollect.textContent = "\uc218\uc9d1";
-  }
-
-  dom.btnSave.addEventListener("click", () => {
-    const url = dom.apiUrl.value.trim();
-    if (url) {
-      chrome.storage.local.set({ apiBase: url });
-      dom.btnSave.textContent = "\uc800\uc7a5\ub428";
-      setTimeout(() => { dom.btnSave.textContent = "\uc800\uc7a5"; }, 1000);
-    }
-  });
-
-  chrome.storage.local.get(["apiBase"], (result) => {
-    if (result.apiBase) {
-      dom.apiUrl.value = result.apiBase;
-    }
-  });
-
+  dom.environmentSelect.addEventListener("change", updateCollectAvailability);
+  loadConnectedEnvironments();
   detectSite();
 })();

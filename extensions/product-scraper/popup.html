@@ -32,16 +32,16 @@
       <div class="error-text" id="lastError"></div>
     </section>
 
-    <details class="api-details">
-      <summary>API 설정</summary>
-      <div class="input-row">
-        <input type="text" id="apiUrl" value="http://localhost:4000/api/sourcing/extension">
-        <button id="btnSave" class="btn btn-sm">저장</button>
-      </div>
-    </details>
+    <section class="environment-section">
+      <label for="environmentSelect">KidItem 환경</label>
+      <select id="environmentSelect" disabled>
+        <option value="">로그인된 환경 없음</option>
+      </select>
+      <p id="environmentHelp">로컬 또는 스테이징 KidItem에 로그인해주세요.</p>
+    </section>
   </main>
 
-  <footer>v2.0.0</footer>
+  <footer>v2.3.1</footer>
 
   <script src="popup.js"></script>
 </body>

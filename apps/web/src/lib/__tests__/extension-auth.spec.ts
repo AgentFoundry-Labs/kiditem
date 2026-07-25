@@ -38,7 +38,6 @@ describe('syncExtensionAuth', () => {
     });
     expect(sendToExtension).toHaveBeenCalledWith('sourcing-ext', {
       action: 'setAuthToken',
-      apiBase: 'http://localhost:4000/api/sourcing/extension',
       token: 'supabase-token',
     });
     expect(result).toEqual({
@@ -86,7 +85,6 @@ describe('syncExtensionAuth', () => {
     expect(sendToExtension).toHaveBeenCalledTimes(1);
     expect(sendToExtension).toHaveBeenCalledWith('sourcing-ext', {
       action: 'setAuthToken',
-      apiBase: 'http://localhost:4000/api/sourcing/extension',
       token: 'supabase-token',
     });
     expect(result).toEqual({

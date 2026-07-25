@@ -330,8 +330,6 @@ for them.
 | `KIDITEM_DEV_DATA_CLOUD_STORAGE_ROOT` | Dev data cloud-storage bundle root is used | Dev data scripts | Optional alternative to local Drive path. |
 | `DEV_DEFAULT_USER_ID` | Dev data replay compatibility | Dev data scripts | Optional fallback local user id. Prefer explicit organization scope for imports. |
 | `AGENT_SEED_ORG_IDS` | Seeding Agent OS for only specific organizations | `scripts/seed-agent-os.ts` | Empty means seed every active local organization. |
-| `STAGING_URL` | Preparing a staging-targeted Coupang extension package | `scripts/prepare-coupang-extension.mjs`, staging workflow | Public staging origin. |
-| `EXTENSION_OUTPUT_DIR` | Custom extension package output directory is needed | `scripts/prepare-coupang-extension.mjs` | Optional; script has a default output directory. |
 
 ## Browser Automation
 

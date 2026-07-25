@@ -82,6 +82,7 @@ function loadAdapter(relativePath, fake = createFakeChrome()) {
 
 function startInput(runId = RUN_ID) {
   return {
+    environmentId: 'local',
     runId,
     producer: 'sourcing.1688_trend',
     classification: 'background_preferred',
@@ -149,7 +150,9 @@ for (const relativePath of generatedPaths) {
         'detachTab',
         'fail',
         'get',
+        'getOwned',
         'list',
+        'listAll',
         'openAttentionTab',
         'progress',
         'requireAttention',
@@ -160,6 +163,48 @@ for (const relativePath of generatedPaths) {
     );
   });
 }
+
+test('requires, persists, filters, and publishes the collection environment owner', async () => {
+  const runtime = loadAdapter(generatedPaths[1]);
+  const published = [];
+  const environmentContext = {
+    requireEnvironment(environmentId) {
+      if (!['local', 'staging'].includes(environmentId)) {
+        throw new Error('Unsupported KidItem environment');
+      }
+      return { environmentId };
+    },
+    async publish(environmentId, eventName, detail) {
+      published.push({ environmentId, eventName, detail });
+    },
+  };
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    environmentContext,
+    now: () => 100,
+  });
+
+  await assert.rejects(
+    manager.start({ ...startInput(), environmentId: undefined }),
+    /Collection environment is required/,
+  );
+  const local = await manager.start(startInput());
+  await manager.start({ ...startInput(OTHER_RUN_ID), environmentId: 'staging' });
+
+  assert.equal(local.environmentId, 'local');
+  assert.deepEqual(Array.from((await manager.list('local')).map((item) => item.runId)), [RUN_ID]);
+  assert.equal(await manager.getOwned(RUN_ID, 'staging'), null);
+  assert.equal((await manager.getOwned(RUN_ID, 'local')).runId, RUN_ID);
+  assert.equal((await manager.listAll()).length, 2);
+  assert.deepEqual(
+    published.map(({ environmentId, eventName }) => ({ environmentId, eventName })),
+    [
+      { environmentId: 'local', eventName: 'kiditem:browser-collection-session' },
+      { environmentId: 'staging', eventName: 'kiditem:browser-collection-session' },
+    ],
+  );
+});
 
 test('start sanitizes identity and publishes only the public session view', async () => {
   const runtime = loadAdapter(generatedPaths[1]);

@@ -11,7 +11,7 @@
   const WING_DETAIL_URL =
     "https://wing.coupang.com/tenants/seller-web/vendor-inventory/modify";
 
-  let activeStep = null;
+  const activeSteps = new Map();
 
   async function start(message, dependencies) {
     const channelAccountId = requiredUuid(message?.channelAccountId, "channelAccountId");
@@ -21,7 +21,7 @@
       throw new Error("수집 실행과 쿠팡 채널 계정이 일치하지 않습니다");
     }
 
-    const current = await getState();
+    const current = await getState(dependencies);
     if (
       current?.status === "running" &&
       current.runId !== runId
@@ -52,9 +52,9 @@
           updatedAt: Date.now(),
           error: null,
     };
-    await setState(state);
+    await setState(state, dependencies);
     if (state.status === "done") {
-      await clearAlarm();
+      await clearAlarm(dependencies);
       await closeManagedWindow(dependencies, state.runId);
       await dependencies.collectionSessions.succeed(runId);
     }
@@ -68,26 +68,26 @@
       });
     }
     if (state.status === "running") {
-      scheduleNextStep();
+      scheduleNextStep(dependencies);
       runSoon(dependencies);
     }
     return { success: true, started: state.status === "running", ...publicStatus(state) };
   }
 
   async function getStatus(runId, dependencies) {
-    const state = await getState();
+    const state = await getState(dependencies);
     if (!state || (runId && state.runId !== runId)) {
       return { runId: runId || null, status: "idle" };
     }
     if (state.status === "running") {
-      scheduleNextStep();
+      scheduleNextStep(dependencies);
       runSoon(dependencies);
     }
     return publicStatus(state);
   }
 
   async function cancel(runId, dependencies) {
-    const state = await getState();
+    const state = await getState(dependencies);
     if (!state || (runId && state.runId !== runId)) {
       return { success: true, cancelled: false, runId };
     }
@@ -98,8 +98,8 @@
       endedAt: Date.now(),
       updatedAt: Date.now(),
     };
-    await setState(cancelled);
-    await clearAlarm();
+    await setState(cancelled, dependencies);
+    await clearAlarm(dependencies);
     await closeManagedWindow(dependencies, cancelled.runId);
     if (dependencies?.collectionSessions) {
       await dependencies.collectionSessions.cancel(cancelled.runId);
@@ -108,7 +108,7 @@
   }
 
   async function restart(runId, dependencies) {
-    const state = await getState();
+    const state = await getState(dependencies);
     if (!state || state.runId !== runId) {
       throw new Error("쿠팡 상품 수집 재시작 원본을 찾을 수 없습니다");
     }
@@ -133,35 +133,38 @@
       updatedAt: Date.now(),
     };
     await closeManagedWindow(dependencies, restarted.runId);
-    await setState(restarted);
+    await setState(restarted, dependencies);
     if (restarted.status === "done") {
-      await clearAlarm();
+      await clearAlarm(dependencies);
       await dependencies.collectionSessions.succeed(restarted.runId);
     }
     if (restarted.status === "running") {
-      scheduleNextStep();
+      scheduleNextStep(dependencies);
       runSoon(dependencies);
     }
     return { success: true, started: restarted.status === "running", ...publicStatus(restarted) };
   }
 
   function handleAlarm(alarm, dependencies) {
-    if (alarm?.name !== ALARM_NAME) return;
+    if (alarm?.name !== alarmName(dependencies)) return;
     runSoon(dependencies);
   }
 
   function runSoon(dependencies) {
+    const key = stateKey(dependencies);
+    const activeStep = activeSteps.get(key);
     if (activeStep) return activeStep;
-    activeStep = runOneStep(dependencies)
+    const nextStep = runOneStep(dependencies)
       .catch((error) => handleStepError(error, dependencies))
       .finally(() => {
-        activeStep = null;
+        activeSteps.delete(key);
       });
-    return activeStep;
+    activeSteps.set(key, nextStep);
+    return nextStep;
   }
 
   async function runOneStep(dependencies) {
-    let state = await getState();
+    let state = await getState(dependencies);
     if (!state || state.status !== "running") return;
 
     const server = await getServerStatus(
@@ -187,7 +190,7 @@
       return;
     }
 
-    state = await getState();
+    state = await getState(dependencies);
     const refreshed = await getServerStatus(
       dependencies,
       state.channelAccountId,
@@ -287,7 +290,7 @@
       discoveryItems,
       uploadedChunks: state.uploadedChunks + 1,
       updatedAt: Date.now(),
-    });
+    }, dependencies);
     await dependencies.collectionSessions.progress(state.runId, {
       current: page,
       total: manifest.expectedPages,
@@ -295,7 +298,7 @@
       failed: 0,
       label: `Wing 상품 목록 ${page}페이지`,
     });
-    scheduleNextStep();
+    scheduleNextStep(dependencies);
   }
 
   async function confirmManifest(state, dependencies) {
@@ -356,8 +359,8 @@
       hydratedProducts: server.progress?.hydratedProducts || 0,
       uploadedChunks: state.uploadedChunks + 1,
       updatedAt: Date.now(),
-    });
-    scheduleNextStep();
+    }, dependencies);
+    scheduleNextStep(dependencies);
   }
 
   async function collectProductChunk(state, server, missingIds, dependencies) {
@@ -372,8 +375,8 @@
         discoveryItems: [],
         discoveredProducts: 0,
         updatedAt: Date.now(),
-      });
-      scheduleNextStep();
+      }, dependencies);
+      scheduleNextStep(dependencies);
       return;
     }
 
@@ -432,7 +435,7 @@
         (server.progress?.hydratedProducts || 0) + products.length,
       uploadedChunks: state.uploadedChunks + 1,
       updatedAt: Date.now(),
-    });
+    }, dependencies);
     await dependencies.collectionSessions.progress(state.runId, {
       current: startOrdinal + products.length,
       total: state.manifest.totalItems,
@@ -442,7 +445,7 @@
       failed: 0,
       label: "Wing 상품 상세 수집",
     });
-    scheduleNextStep();
+    scheduleNextStep(dependencies);
   }
 
   async function pauseForAttention(state, dependencies, tab, message) {
@@ -459,8 +462,8 @@
       status: "attention_required",
       error: null,
       updatedAt: Date.now(),
-    });
-    await clearAlarm();
+    }, dependencies);
+    await clearAlarm(dependencies);
   }
 
   async function collectSellerProduct(tabId) {
@@ -556,7 +559,7 @@
   }
 
   async function handleStepError(error, dependencies) {
-    const state = await getState();
+    const state = await getState(dependencies);
     if (!state || state.status !== "running") return;
     const message = error?.message || String(error);
     const failed = {
@@ -566,8 +569,8 @@
       endedAt: Date.now(),
       updatedAt: Date.now(),
     };
-    await setState(failed);
-    await clearAlarm();
+    await setState(failed, dependencies);
+    await clearAlarm(dependencies);
     await closeManagedWindow(dependencies, state.runId);
     await dependencies.collectionSessions.fail(state.runId);
     try {
@@ -596,8 +599,8 @@
       endedAt: Date.now(),
       updatedAt: Date.now(),
     };
-    await setState(done);
-    await clearAlarm();
+    await setState(done, dependencies);
+    await clearAlarm(dependencies);
     await closeManagedWindow(dependencies, state.runId);
     await dependencies.collectionSessions.succeed(state.runId);
     dependencies.notifyDashboard();
@@ -697,22 +700,31 @@
     return text;
   }
 
-  function scheduleNextStep() {
-    chrome.alarms.create(ALARM_NAME, { when: Date.now() + 1_000 });
+  function stateKey(dependencies) {
+    return dependencies?.stateKey || STATE_KEY;
   }
 
-  function clearAlarm() {
-    return new Promise((resolve) => chrome.alarms.clear(ALARM_NAME, resolve));
+  function alarmName(dependencies) {
+    return dependencies?.alarmName || ALARM_NAME;
   }
 
-  function getState() {
+  function scheduleNextStep(dependencies) {
+    chrome.alarms.create(alarmName(dependencies), { when: Date.now() + 1_000 });
+  }
+
+  function clearAlarm(dependencies) {
+    return new Promise((resolve) => chrome.alarms.clear(alarmName(dependencies), resolve));
+  }
+
+  function getState(dependencies) {
+    const key = stateKey(dependencies);
     return new Promise((resolve) => {
-      chrome.storage.local.get(STATE_KEY, (data) => resolve(data?.[STATE_KEY] || null));
+      chrome.storage.local.get(key, (data) => resolve(data?.[key] || null));
     });
   }
 
-  function setState(state) {
-    return chrome.storage.local.set({ [STATE_KEY]: state });
+  function setState(state, dependencies) {
+    return chrome.storage.local.set({ [stateKey(dependencies)]: state });
   }
 
   async function getOrCreateManagedTab(state, dependencies) {

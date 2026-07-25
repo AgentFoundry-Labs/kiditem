@@ -80,11 +80,16 @@
       if (requireRunId && !validRunId(message?.runId)) {
         throw new Error("Collection run ID is required");
       }
+      const environmentId = message?.environmentId;
+      if (environmentId !== "local" && environmentId !== "staging") {
+        throw new Error("Collection environment is required");
+      }
       const runId = validRunId(message?.runId) ? message.runId : createRunId();
       const current = await sessions.get(runId);
       if (current) {
         if (
           current.producer !== producer ||
+          current.environmentId !== environmentId ||
           !sameIdentity(current.inputIdentity, inputIdentity)
         ) {
           throw new Error("Collection run does not belong to this producer input");
@@ -93,6 +98,7 @@
       } else {
         await sessions.start({
           runId,
+          environmentId,
           producer,
           classification,
           restartStrategy,
@@ -112,6 +118,7 @@
 
       const collection = Object.freeze({
         runId,
+        environmentId: message.environmentId,
         async attachTab(tab, attachment = {}) {
           if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId)) {
             throw new Error("Order collection tab is unavailable");

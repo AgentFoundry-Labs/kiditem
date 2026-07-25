@@ -11,7 +11,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -21,12 +21,7 @@ const supportedExtensions = new Set([
   "coupang-ads-scraper",
   "order-collector",
 ]);
-const textExtensions = new Set([".css", ".html", ".js", ".json"]);
-const sourceWebOrigins = [
-  "http://localhost:3000",
-  "https://staging.merchon.org",
-];
-const sourceApiOrigins = ["http://localhost:4000", "http://127.0.0.1:4000"];
+const environmentProfiles = ["local", "staging"];
 
 function parseArgs(argv) {
   const [command, ...tokens] = argv;
@@ -54,16 +49,12 @@ function required(values, name) {
   return value;
 }
 
-function normalizeOrigin(rawValue, name) {
-  const url = new URL(rawValue);
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error(`--${name} must use http or https`);
+function assertAllowedArguments(values, allowed) {
+  for (const name of values.keys()) {
+    if (!allowed.has(name)) {
+      throw new Error(`Unsupported argument: --${name}`);
+    }
   }
-  return url.origin;
-}
-
-function unique(values) {
-  return [...new Set(values)];
 }
 
 function copyLoadableExtension(sourceDirectory, outputDirectory) {
@@ -84,71 +75,6 @@ function visitFiles(directory, visitor) {
     if (entry.isDirectory()) visitFiles(path, visitor);
     else if (entry.isFile()) visitor(path);
   }
-}
-
-function patchRuntimeFiles(directory, webOrigin, apiOrigin) {
-  const webOriginToken = "__KIDITEM_RELEASE_WEB_ORIGIN__";
-  const apiOriginToken = "__KIDITEM_RELEASE_API_ORIGIN__";
-  const webHostToken = "__KIDITEM_RELEASE_WEB_HOST__";
-  const apiHostToken = "__KIDITEM_RELEASE_API_HOST__";
-  const webHost = new URL(webOrigin).host;
-  const apiHost = new URL(apiOrigin).host;
-  visitFiles(directory, (path) => {
-    if (!textExtensions.has(extname(path))) return;
-    let content = readFileSync(path, "utf8");
-    for (const origin of sourceApiOrigins) {
-      content = content.replaceAll(origin, apiOriginToken);
-    }
-    content = content.replaceAll(
-      "https://staging.merchon.org/api",
-      `${apiOriginToken}/api`,
-    );
-    for (const origin of sourceWebOrigins) {
-      content = content.replaceAll(origin, webOriginToken);
-    }
-    content = content
-      .replaceAll("localhost:3000", webHostToken)
-      .replaceAll("localhost:4000", apiHostToken)
-      .replaceAll("127.0.0.1:4000", apiHostToken)
-      .replaceAll(webOriginToken, webOrigin)
-      .replaceAll(apiOriginToken, apiOrigin)
-      .replaceAll(webHostToken, webHost)
-      .replaceAll(apiHostToken, apiHost);
-    writeFileSync(path, content);
-  });
-}
-
-function patchManifest(manifestPath, webOrigin, apiOrigin) {
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const webMatch = `${webOrigin}/*`;
-  const apiMatch = `${apiOrigin}/*`;
-  manifest.externally_connectable = {
-    ...(manifest.externally_connectable ?? {}),
-    matches: [webMatch],
-  };
-  manifest.host_permissions = unique(
-    (manifest.host_permissions ?? []).flatMap((match) => {
-      if (sourceWebOrigins.some((origin) => match === `${origin}/*`)) {
-        return [webMatch];
-      }
-      if (sourceApiOrigins.some((origin) => match === `${origin}/*`)) {
-        return [apiMatch];
-      }
-      return [match];
-    }),
-  );
-  manifest.content_scripts = (manifest.content_scripts ?? []).map((script) => ({
-    ...script,
-    matches: unique(
-      (script.matches ?? []).map((match) =>
-        sourceWebOrigins.some((origin) => match === `${origin}/*`)
-          ? webMatch
-          : match,
-      ),
-    ),
-  }));
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  return manifest;
 }
 
 function gitSha() {
@@ -197,19 +123,12 @@ function createArchive(unpackedDirectory, archivePath) {
 
 export function packExtensionRelease({
   extension,
-  target,
-  webOrigin,
-  apiOrigin,
   outputDirectory,
 }) {
   if (!supportedExtensions.has(extension)) {
     throw new Error(`Unsupported extension: ${extension}`);
   }
-  if (target !== "staging")
-    throw new Error("Only the staging target is supported");
 
-  const normalizedWebOrigin = normalizeOrigin(webOrigin, "web-origin");
-  const normalizedApiOrigin = normalizeOrigin(apiOrigin, "api-origin");
   const sourceDirectory = join(repoRoot, "extensions", extension);
   const sourceManifest = JSON.parse(
     readFileSync(join(sourceDirectory, "manifest.json"), "utf8"),
@@ -219,9 +138,10 @@ export function packExtensionRelease({
     throw new Error(`Invalid Chrome manifest version: ${version}`);
   }
 
+  const target = "universal";
   const releaseDirectory = resolve(outputDirectory, extension, version, target);
   const unpackedDirectory = join(releaseDirectory, "unpacked");
-  const assetBase = `kiditem-${extension}-v${version}-${target}`;
+  const assetBase = `kiditem-${extension}-v${version}`;
   const archiveFileName = `${assetBase}.zip`;
   const archivePath = join(releaseDirectory, archiveFileName);
   const checksumPath = `${archivePath}.sha256`;
@@ -230,18 +150,12 @@ export function packExtensionRelease({
   rmSync(releaseDirectory, { recursive: true, force: true });
   mkdirSync(releaseDirectory, { recursive: true });
   copyLoadableExtension(sourceDirectory, unpackedDirectory);
-  patchRuntimeFiles(
-    unpackedDirectory,
-    normalizedWebOrigin,
-    normalizedApiOrigin,
+  const manifest = JSON.parse(
+    readFileSync(join(unpackedDirectory, "manifest.json"), "utf8"),
   );
-  const manifest = patchManifest(
-    join(unpackedDirectory, "manifest.json"),
-    normalizedWebOrigin,
-    normalizedApiOrigin,
-  );
-  if (manifest.version !== version)
+  if (manifest.version !== version) {
     throw new Error("Packaged manifest version changed");
+  }
 
   createArchive(unpackedDirectory, archivePath);
   const archive = readFileSync(archivePath);
@@ -249,15 +163,14 @@ export function packExtensionRelease({
   writeFileSync(checksumPath, `${sha256}  ${archiveFileName}\n`);
 
   const metadata = {
-    schemaVersion: "kiditem.extension.release.v1",
+    schemaVersion: "kiditem.extension.release.v2",
     extension,
     displayName: manifest.name,
     manifestVersion: version,
     target,
-    webOrigin: normalizedWebOrigin,
-    apiOrigin: normalizedApiOrigin,
+    environmentProfiles,
     gitSha: gitSha(),
-    tag: `extension-${extension}-v${version}-${target}`,
+    tag: `extension-${extension}-v${version}`,
     archive: {
       fileName: archiveFileName,
       sha256,
@@ -307,9 +220,8 @@ export function githubReleaseCommand(result, { state = "draft" } = {}) {
       `Extension: ${metadata.extension}`,
       `Manifest version: ${metadata.manifestVersion}`,
       `Target: ${metadata.target}`,
+      `Environments: ${metadata.environmentProfiles.join(", ")}`,
       `Git SHA: ${metadata.gitSha}`,
-      `Web origin: ${metadata.webOrigin}`,
-      `API origin: ${metadata.apiOrigin}`,
     ].join("\n"),
   ];
   if (state === "draft") args.push("--draft");
@@ -352,11 +264,16 @@ function main() {
   if (command !== "pack" && command !== "publish") {
     throw new Error("Usage: manage-extension-release.mjs <pack|publish> ...");
   }
+  assertAllowedArguments(
+    values,
+    new Set([
+      "extension",
+      "output-dir",
+      ...(command === "publish" ? ["dry-run", "release-state"] : []),
+    ]),
+  );
   const result = packExtensionRelease({
     extension: required(values, "extension"),
-    target: required(values, "target"),
-    webOrigin: required(values, "web-origin"),
-    apiOrigin: values.get("api-origin") || required(values, "web-origin"),
     outputDirectory:
       values.get("output-dir") || join(repoRoot, "output/extensions"),
   });
