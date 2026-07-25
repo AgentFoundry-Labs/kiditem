@@ -54,7 +54,7 @@ all three extension ZIPs, not three extension-specific Releases.
 2. Chrome versions are one to four dot-separated non-negative integers.
 3. Update tests that deliberately lock the exact manifest version.
 4. Merge the versioned source to `main` before publishing.
-5. A published deployment tag and its assets are immutable. A correction is
+5. A published deployment tag and its ZIP assets are immutable. A correction is
    included in a later staging deployment bundle; never replace prior assets.
 
 Bundle Release tags are the staging deployment tags created by the deployment
@@ -86,30 +86,25 @@ output/extensions/bundles/<deployment-tag>/
 │   ├── coupang-ads-scraper/
 │   └── order-collector/
 ├── kiditem-product-scraper-v<version>.zip
-├── kiditem-product-scraper-v<version>.zip.sha256
 ├── kiditem-coupang-ads-scraper-v<version>.zip
-├── kiditem-coupang-ads-scraper-v<version>.zip.sha256
-├── kiditem-order-collector-v<version>.zip
-├── kiditem-order-collector-v<version>.zip.sha256
-└── kiditem-extension-bundle-<deployment-tag>.release.json
+└── kiditem-order-collector-v<version>.zip
 ```
 
-The combined metadata uses `kiditem.extension.release.v3` and records the
-deployment tag, Git SHA, environments, and all archive versions and hashes.
-Verify every artifact before publishing:
+The command output records the deployment tag, Git SHA, environments, and the
+manifest version of each ZIP for operator inspection. Only the three ZIP files
+are uploaded as GitHub Release assets. Verify every archive before publishing:
 
 ```bash
 DEPLOYMENT_TAG="staging-v<VERSION>-<YYYYMMDD>-<short-sha>"
 RELEASE_DIR="output/extensions/bundles/$DEPLOYMENT_TAG"
 
-(cd "$RELEASE_DIR" && for checksum in *.zip.sha256; do shasum -a 256 -c "$checksum"; done)
-for archive in "$RELEASE_DIR"/*.zip; do unzip -l "$archive"; done
+for archive in "$RELEASE_DIR"/*.zip; do unzip -t "$archive"; done
 ```
 
 ## Create A Draft GitHub Release
 
-Publishing defaults to a draft so the operator can inspect the tag, SHA,
-archive, checksum, and metadata before making it visible:
+Publishing defaults to a draft so the operator can inspect the tag, SHA, and
+all three archives before making it visible:
 
 ```bash
 git switch main
@@ -149,17 +144,16 @@ command without mutating GitHub.
 GitHub Release ZIP files are manual unpacked-extension packages; Chrome does
 not install the ZIP directly.
 
-1. Open the intended staging deployment Release and download the required ZIPs
-   with their matching `.sha256` files.
-2. Verify the checksum.
-3. Extract it into a stable directory that is not deleted between restarts.
-4. Open `chrome://extensions`, enable Developer mode, and choose **Load
+1. Open the intended staging deployment Release and download the required ZIPs.
+2. Test and extract each ZIP into a stable directory that is not deleted between
+   restarts.
+3. Open `chrome://extensions`, enable Developer mode, and choose **Load
    unpacked** for a first install.
-5. For an update, replace the directory contents and click **Reload** on the
+4. For an update, replace the directory contents and click **Reload** on the
    existing extension card. Do not leave old and new copies enabled together.
-6. Reload each open KidItem page. Confirm local and staging handshakes report
+5. Reload each open KidItem page. Confirm local and staging handshakes report
    the expected extension version and environment-profile capability.
-7. Visit and authenticate both KidItem origins when both profiles are needed.
+6. Visit and authenticate both KidItem origins when both profiles are needed.
    Marketplace login and OTP stay in the operator's normal Chrome profile.
 
 ## Verification

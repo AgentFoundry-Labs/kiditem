@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -67,14 +66,9 @@ describe("deployment-scoped extension release management", () => {
 
     expect(result.status, result.stderr).toBe(0);
     const bundleDirectory = join(outputDirectory, "bundles", deploymentTag);
-    const metadataPath = join(
-      bundleDirectory,
-      `kiditem-extension-bundle-${deploymentTag}.release.json`,
-    );
-    const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
+    const metadata = JSON.parse(result.stdout).metadata;
 
     expect(metadata).toMatchObject({
-      schemaVersion: "kiditem.extension.release.v3",
       deploymentTag,
       target: "universal",
       environmentProfiles: ["local", "staging"],
@@ -88,7 +82,6 @@ describe("deployment-scoped extension release management", () => {
       const version = extensionVersion(extension);
       const assetBase = `kiditem-${extension}-v${version}`;
       const archivePath = join(bundleDirectory, `${assetBase}.zip`);
-      const checksumPath = `${archivePath}.sha256`;
       const sourceManifestPath = join(
         repoRoot,
         "extensions",
@@ -105,22 +98,24 @@ describe("deployment-scoped extension release management", () => {
       expect(readFileSync(unpackedManifestPath)).toEqual(
         readFileSync(sourceManifestPath),
       );
-      const archive = readFileSync(archivePath);
-      const sha256 = createHash("sha256").update(archive).digest("hex");
-      expect(readFileSync(checksumPath, "utf8")).toBe(
-        `${sha256}  ${assetBase}.zip\n`,
-      );
+      expect(readFileSync(archivePath).length).toBeGreaterThan(0);
       expect(metadata.extensions).toContainEqual(
         expect.objectContaining({
           extension,
           manifestVersion: version,
           archive: expect.objectContaining({
             fileName: `${assetBase}.zip`,
-            sha256,
           }),
         }),
       );
     }
+
+    expect(readdirSync(bundleDirectory).sort()).toEqual([
+      "kiditem-coupang-ads-scraper-v1.2.84.zip",
+      "kiditem-order-collector-v0.1.82.zip",
+      "kiditem-product-scraper-v2.3.1.zip",
+      "unpacked",
+    ]);
   });
 
   it("reproduces every extension archive across bundle directories", () => {
@@ -140,7 +135,7 @@ describe("deployment-scoped extension release management", () => {
     }
   });
 
-  it("creates one GitHub prerelease command containing all bundle assets", () => {
+  it("creates one GitHub prerelease command containing only three ZIP assets", () => {
     const outputDirectory = temporaryDirectory();
     const result = run("publish", outputDirectory, ["--dry-run", "true"]);
 
@@ -173,6 +168,14 @@ describe("deployment-scoped extension release management", () => {
         ),
       );
     }
+    expect(
+      output.release.args.filter((argument: string) =>
+        argument.startsWith(`${outputDirectory}/`),
+      ),
+    ).toHaveLength(3);
+    expect(output.release.args.join("\n")).not.toMatch(
+      /\.sha256|\.release\.json/,
+    );
   });
 
   it("rejects the removed per-extension release argument", () => {

@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
 import {
   cpSync,
   mkdirSync,
@@ -9,7 +8,6 @@ import {
   rmSync,
   statSync,
   utimesSync,
-  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -135,7 +133,6 @@ function packExtension(extension, releaseDirectory) {
   const assetBase = `kiditem-${extension}-v${version}`;
   const archiveFileName = `${assetBase}.zip`;
   const archivePath = join(releaseDirectory, archiveFileName);
-  const checksumPath = `${archivePath}.sha256`;
   mkdirSync(unpackedDirectory, { recursive: true });
   copyLoadableExtension(sourceDirectory, unpackedDirectory);
   const manifest = JSON.parse(
@@ -146,9 +143,6 @@ function packExtension(extension, releaseDirectory) {
   }
 
   createArchive(unpackedDirectory, archivePath);
-  const archive = readFileSync(archivePath);
-  const sha256 = createHash("sha256").update(archive).digest("hex");
-  writeFileSync(checksumPath, `${sha256}  ${archiveFileName}\n`);
 
   return {
     extension,
@@ -156,7 +150,6 @@ function packExtension(extension, releaseDirectory) {
     manifestVersion: version,
     archive: {
       fileName: archiveFileName,
-      sha256,
       size: statSync(archivePath).size,
     },
   };
@@ -171,33 +164,22 @@ function validateDeploymentTag(deploymentTag) {
 export function packExtensionBundle({ deploymentTag, outputDirectory }) {
   validateDeploymentTag(deploymentTag);
   const releaseDirectory = resolve(outputDirectory, "bundles", deploymentTag);
-  const metadataPath = join(
-    releaseDirectory,
-    `kiditem-extension-bundle-${deploymentTag}.release.json`,
-  );
-
   rmSync(releaseDirectory, { recursive: true, force: true });
   mkdirSync(releaseDirectory, { recursive: true });
   const extensions = supportedExtensions.map((extension) =>
     packExtension(extension, releaseDirectory),
   );
   const metadata = {
-    schemaVersion: "kiditem.extension.release.v3",
     deploymentTag,
     target: "universal",
     environmentProfiles,
     gitSha: gitSha(),
     extensions,
   };
-  writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
   return {
     archivePaths: extensions.map(({ archive }) =>
       join(releaseDirectory, archive.fileName),
     ),
-    checksumPaths: extensions.map(({ archive }) =>
-      join(releaseDirectory, `${archive.fileName}.sha256`),
-    ),
-    metadataPath,
     releaseDirectory,
     metadata,
   };
@@ -254,11 +236,7 @@ export function githubReleaseCommand(result, { state = "draft" } = {}) {
     ].join("\n"),
   ];
   if (state === "draft") args.push("--draft");
-  args.push(
-    ...result.archivePaths,
-    ...result.checksumPaths,
-    result.metadataPath,
-  );
+  args.push(...result.archivePaths);
   return { executable: "gh", args, state };
 }
 
