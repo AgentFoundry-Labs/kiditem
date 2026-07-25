@@ -119,7 +119,7 @@ function createArchive(unpackedDirectory, archivePath) {
   }
 }
 
-function packExtension(extension, releaseDirectory) {
+function stageExtension(extension, releaseDirectory) {
   const sourceDirectory = join(repoRoot, "extensions", extension);
   const sourceManifest = JSON.parse(
     readFileSync(join(sourceDirectory, "manifest.json"), "utf8"),
@@ -130,9 +130,6 @@ function packExtension(extension, releaseDirectory) {
   }
 
   const unpackedDirectory = join(releaseDirectory, "unpacked", extension);
-  const assetBase = `kiditem-${extension}-v${version}`;
-  const archiveFileName = `${assetBase}.zip`;
-  const archivePath = join(releaseDirectory, archiveFileName);
   mkdirSync(unpackedDirectory, { recursive: true });
   copyLoadableExtension(sourceDirectory, unpackedDirectory);
   const manifest = JSON.parse(
@@ -142,16 +139,10 @@ function packExtension(extension, releaseDirectory) {
     throw new Error("Packaged manifest version changed");
   }
 
-  createArchive(unpackedDirectory, archivePath);
-
   return {
     extension,
     displayName: manifest.name,
     manifestVersion: version,
-    archive: {
-      fileName: archiveFileName,
-      size: statSync(archivePath).size,
-    },
   };
 }
 
@@ -167,19 +158,24 @@ export function packExtensionBundle({ deploymentTag, outputDirectory }) {
   rmSync(releaseDirectory, { recursive: true, force: true });
   mkdirSync(releaseDirectory, { recursive: true });
   const extensions = supportedExtensions.map((extension) =>
-    packExtension(extension, releaseDirectory),
+    stageExtension(extension, releaseDirectory),
   );
+  const archiveFileName = `kiditem-scrapers-${deploymentTag}.zip`;
+  const archivePath = join(releaseDirectory, archiveFileName);
+  createArchive(join(releaseDirectory, "unpacked"), archivePath);
   const metadata = {
     deploymentTag,
     target: "universal",
     environmentProfiles,
     gitSha: gitSha(),
     extensions,
+    archive: {
+      fileName: archiveFileName,
+      size: statSync(archivePath).size,
+    },
   };
   return {
-    archivePaths: extensions.map(({ archive }) =>
-      join(releaseDirectory, archive.fileName),
-    ),
+    archivePath,
     releaseDirectory,
     metadata,
   };
@@ -236,7 +232,7 @@ export function githubReleaseCommand(result, { state = "draft" } = {}) {
     ].join("\n"),
   ];
   if (state === "draft") args.push("--draft");
-  args.push(...result.archivePaths);
+  args.push(result.archivePath);
   return { executable: "gh", args, state };
 }
 

@@ -267,15 +267,15 @@ exact API origins in their host permissions. `order-collector` does not gain API
 host permission. No manifest may use `<all_urls>` or a broad KidItem wildcard.
 
 Release packaging copies all three loadable extensions, removes agent
-documentation, creates deterministic archives, and reports every manifest
-version with the Git SHA. It no longer rewrites web/API origins or emits
+documentation, creates one deterministic archive containing three top-level
+extension directories, and reports every manifest version with the Git SHA. It no longer rewrites web/API origins or emits
 environment-targeted runtime variants.
 
 New releases use the staging deployment tag and the output path
-`output/extensions/bundles/<deployment-tag>/`. One GitHub Release contains all
-three independently versioned universal ZIP assets. Existing extension-specific
-releases remain historical artifacts; the public distribution contract no
-longer creates them.
+`output/extensions/bundles/<deployment-tag>/`. One GitHub Release contains one
+universal ZIP asset with all three independently versioned extension
+directories. Existing extension-specific releases remain historical artifacts;
+the public distribution contract no longer creates them.
 
 Chrome Web Store publication remains outside this implementation. The universal
 archive is suitable for a future private Store item after listing, privacy, and
@@ -317,10 +317,10 @@ Extension tests cover:
 
 Release-script tests cover:
 
-- one reproducible archive per extension version;
+- one reproducible archive containing all three extensions;
 - no environment-specific origin rewriting;
-- manifest at the archive root;
-- checksum, Git SHA, and universal tag metadata;
+- one manifest under each top-level extension directory;
+- Git SHA, manifest versions, and deployment tag in command output;
 - preservation of reviewed non-KidItem permissions.
 
 Required automated verification:

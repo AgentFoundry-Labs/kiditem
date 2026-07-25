@@ -14,7 +14,7 @@
 `extensions/product-scraper`, `extensions/coupang-ads-scraper`, 또는
 `extensions/order-collector`를 `chrome://extensions`에서 바로 로드한다.
 배포본은 [GitHub Releases](https://github.com/AgentFoundry-Labs/kiditem/releases)의
-해당 staging 배포 버전에 함께 묶인 3개 universal ZIP을 사용한다. 버전 게시·검증·업데이트 방법은
+해당 staging 배포 버전의 통합 ZIP을 한 번 풀어 세 익스텐션 폴더를 사용한다. 버전 게시·검증·업데이트 방법은
 [Chrome Extension Releases runbook](docs/runbooks/extension-releases.md)을 따른다.
 
 ## 셋업
