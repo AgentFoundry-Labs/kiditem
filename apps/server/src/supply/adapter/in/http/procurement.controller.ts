@@ -124,6 +124,9 @@ export class ProcurementController {
           ...(body.clampEditedQuantities !== undefined && {
             clampEditedQuantities: body.clampEditedQuantities,
           }),
+          ...(body.previewScope !== undefined && {
+            previewScope: body.previewScope,
+          }),
         },
       });
     }

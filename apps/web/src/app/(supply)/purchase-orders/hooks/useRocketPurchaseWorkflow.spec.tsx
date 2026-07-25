@@ -187,8 +187,42 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(onCatalogSaved).toHaveBeenCalledTimes(1);
     expect(onActivity).toHaveBeenLastCalledWith({
       status: 'succeeded',
-      message: '로켓 PO 1/1건을 수집·저장하고 재고 미리보기를 계산했습니다.',
+      message: '로켓 PO 1/1건을 수집·저장하고 거래확인요청 1건의 재고 미리보기를 계산했습니다.',
     });
+  });
+
+  it('keeps completed rows in the saved archive while reviewing only confirmation requests', async () => {
+    const confirmationRow = { ...sourceRow('LINE-A'), poStatusCode: 'RP' };
+    const completedRow = {
+      ...sourceRow('LINE-B'),
+      poStatusCode: 'CI',
+      confirmation: {
+        ...sourceRow('LINE-B').confirmation!,
+        poStatus: '입고완료',
+      },
+    };
+    const source = savedCollection(
+      ACCOUNT_A,
+      SOURCE_A,
+      COLLECTION_A,
+      [confirmationRow, completedRow],
+    );
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases).mockResolvedValue(
+      preview(source, [previewRow('LINE-A', null, 3)]),
+    );
+    const hook = renderWorkflow({
+      channelAccountId: ACCOUNT_A,
+      savedSourceImportRunId: SOURCE_A,
+    });
+
+    await waitFor(() => expect(hook.result.current.preview?.rows).toHaveLength(1));
+
+    expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
+      rows: [confirmationRow, completedRow],
+      previewScope: 'confirmation_requested',
+    }));
+    expect(hook.result.current.sourceRows).toEqual([confirmationRow]);
   });
 
   it('sends a real operator edit and keeps the server-clamped reviewed value', async () => {

@@ -17,7 +17,7 @@ import {
   type RocketWorkbookExportResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
 import { apiClient } from '@/lib/api-client';
-import { z } from 'zod';
+import { z, type ZodType } from 'zod';
 
 const LoadSavedRocketCollectionRequestSchema = z.object({
   channelAccountId: z.string().uuid(),
@@ -32,7 +32,11 @@ export async function previewRocketPurchases(
     action: 'previewRocket',
     ...request,
   });
-  return RocketPurchasePreviewResponseSchema.parse(response);
+  return parseRocketResponse(
+    'previewRocket',
+    RocketPurchasePreviewResponseSchema,
+    response,
+  );
 }
 
 export async function exportRocketWorkbook(
@@ -49,14 +53,23 @@ export async function exportRocketWorkbook(
     body: formData,
   });
   if (!response.ok) throw new Error(await response.text());
-  return RocketWorkbookExportResponseSchema.parse(await response.json());
+  return parseRocketResponse(
+    'exportRocketWorkbook',
+    RocketWorkbookExportResponseSchema,
+    await response.json(),
+  );
 }
 
 export async function getActiveRocketWorkbook(): Promise<RocketWorkbookExportResponse | null> {
   const response = await apiClient.post('/api/purchase-orders', {
     action: 'getActiveRocketWorkbook',
   });
-  return response === null ? null : RocketWorkbookExportResponseSchema.parse(response);
+  if (isEmptyResponse(response)) return null;
+  return parseRocketResponse(
+    'getActiveRocketWorkbook',
+    RocketWorkbookExportResponseSchema,
+    response,
+  );
 }
 
 export async function downloadRocketWorkbook(exportId: string): Promise<{
@@ -90,7 +103,11 @@ export async function abandonRocketWorkbook(
     exportId: request.exportId,
     abandonReason: request.reason,
   });
-  return RocketWorkbookExportResponseSchema.parse(response);
+  return parseRocketResponse(
+    'abandonRocketWorkbook',
+    RocketWorkbookExportResponseSchema,
+    response,
+  );
 }
 
 export async function listSavedRocketPos(
@@ -104,7 +121,11 @@ export async function listSavedRocketPos(
     to: request.to,
     ...(request.status && { rocketStatus: request.status }),
   });
-  return z.array(RocketSavedPoSummarySchema).parse(response);
+  return parseRocketResponse(
+    'listSavedRocketPos',
+    z.array(RocketSavedPoSummarySchema),
+    response,
+  );
 }
 
 export async function loadSavedRocketCollection(input: {
@@ -116,7 +137,36 @@ export async function loadSavedRocketCollection(input: {
     action: 'loadSavedRocketCollection',
     ...request,
   });
-  return RocketSavedPoCollectionSchema.parse(response);
+  return parseRocketResponse(
+    'loadSavedRocketCollection',
+    RocketSavedPoCollectionSchema,
+    response,
+  );
+}
+
+function isEmptyResponse(response: unknown): boolean {
+  return response == null
+    || (typeof response === 'object'
+      && !Array.isArray(response)
+      && Object.keys(response).length === 0);
+}
+
+function parseRocketResponse<T>(
+  action: string,
+  schema: ZodType<T>,
+  response: unknown,
+): T {
+  const parsed = schema.safeParse(response);
+  if (parsed.success) return parsed.data;
+  console.error('[rocket-purchase-preview-api] Invalid response', {
+    action,
+    issues: parsed.error.issues.map(({ code, message, path }) => ({
+      code,
+      message,
+      path,
+    })),
+  });
+  throw parsed.error;
 }
 
 function fileNameFromContentDisposition(value: string | null): string | null {
