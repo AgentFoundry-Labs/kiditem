@@ -78,10 +78,12 @@ export function requireRenderedDetailImage(
 async function renderSavedCandidateDetailImage(
   candidateId: string,
   detail: ProductDetailResponse,
+  retryFailed: boolean,
 ): Promise<CandidateDetailImageResponse> {
-  const firstRender = await renderCandidateDetailImage(candidateId);
+  const firstRender = await renderCandidateDetailImage(candidateId, undefined, retryFailed);
   if (
     firstRender.status === 'rendered'
+    || firstRender.status !== 'missing'
     || firstRender.reason !== 'no_saved_detail_page'
     || !detail.contentWorkspaceId
   ) {
@@ -112,7 +114,7 @@ async function renderSavedCandidateDetailImage(
     `/api/ai/detail-page/${encodeURIComponent(generated.id)}/edited-html`,
     { html },
   );
-  return renderCandidateDetailImage(candidateId);
+  return renderCandidateDetailImage(candidateId, undefined, retryFailed);
 }
 
 /** 노출상품명 상한(쿠팡 WING). */
@@ -439,6 +441,11 @@ export interface WingRegistrationDraft {
   registrationInput: Record<string, unknown>;
 }
 
+export type WingRegistrationPreparationResult =
+  | { status: 'ready'; draft: WingRegistrationDraft }
+  | { status: 'processing'; candidateId: string; message: string }
+  | { status: 'failed'; candidateId: string; message: string };
+
 export interface WingChannelAccountOption {
   id: string;
   name: string;
@@ -571,7 +578,8 @@ export function applyWingRegistrationOverrides(
 export async function prepareWingRegistration(
   candidateId: string,
   defaults: WingProductDraftDefaults = WING_PRODUCT_DRAFT_DEFAULTS,
-): Promise<WingRegistrationDraft> {
+  options: { retryFailed?: boolean } = {},
+): Promise<WingRegistrationPreparationResult> {
   if (!isChromeExtensionRuntimeAvailable()) {
     throw new Error('쿠팡 WING 직접 등록은 Chrome 확장에서 실행됩니다. Chrome에서 이 페이지를 열고 다시 시도하세요.');
   }
@@ -586,7 +594,18 @@ export async function prepareWingRegistration(
   // 상세설명은 이 직접등록 경로의 필수값이다. 없으면 WING 탭을 열기 전에 중단한다.
   // 대표이미지·원본 수집 이미지로 대체하지 않는다 — 잘못된 상세페이지가 등록되는 것이
   // 등록을 멈추는 것보다 나쁘다.
-  const rendered = await renderSavedCandidateDetailImage(candidateId, detail);
+  const rendered = await renderSavedCandidateDetailImage(
+    candidateId,
+    detail,
+    options.retryFailed === true,
+  );
+  if (rendered.status === 'processing' || rendered.status === 'failed') {
+    return {
+      status: rendered.status,
+      candidateId,
+      message: rendered.message,
+    };
+  }
   const detailImageUrl = requireRenderedDetailImage(rendered);
 
   // 등록 성공 시 ChannelListing 을 만들 계정을 미리 확정한다. 활성 쿠팡 Wing 계정이
@@ -597,15 +616,18 @@ export async function prepareWingRegistration(
 
   const product = candidateToWingProduct(detail, defaults, categoryCell, detailImageUrl);
   return {
-    candidateId,
-    idempotencyKey: crypto.randomUUID(),
-    product,
-    overrides: buildWingRegistrationOverrides(product),
-    extensionId,
-    channelAccountId: accountSelection.channelAccountId,
-    channelAccounts: accountSelection.channelAccounts,
-    detailImageUrl,
-    registrationInput: { ...(detail.productPreparation?.registrationInput ?? {}) },
+    status: 'ready',
+    draft: {
+      candidateId,
+      idempotencyKey: crypto.randomUUID(),
+      product,
+      overrides: buildWingRegistrationOverrides(product),
+      extensionId,
+      channelAccountId: accountSelection.channelAccountId,
+      channelAccounts: accountSelection.channelAccounts,
+      detailImageUrl,
+      registrationInput: { ...(detail.productPreparation?.registrationInput ?? {}) },
+    },
   };
 }
 

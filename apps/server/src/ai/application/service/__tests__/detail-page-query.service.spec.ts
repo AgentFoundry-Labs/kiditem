@@ -6,6 +6,8 @@ const ORG = '11111111-1111-4111-8111-111111111111';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
 const CANDIDATE_ID = '44444444-4444-4444-8444-444444444444';
 const WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
+const REVISION_ID = '60620087-f5d8-4307-8591-221fd018eaa0';
+const ARTIFACT_ID = '71429ba3-af81-409e-a976-029c67d86bcb';
 
 function makeRepository(
   overrides: Partial<Record<keyof DetailPageQueryRepositoryPort, ReturnType<typeof vi.fn>>> = {},
@@ -43,9 +45,16 @@ function makeService(
     delete: vi.fn(),
     ...overrides.imageStorage,
   };
+  const rasterJobs = { ensureScheduled: vi.fn().mockResolvedValue({ status: 'processing' }) };
   return {
-    service: new DetailPageQueryService(repository, refiner as never, imageStorage as never),
+    service: new DetailPageQueryService(
+      repository,
+      refiner as never,
+      imageStorage as never,
+      rasterJobs as never,
+    ),
     imageStorage,
+    rasterJobs,
     repository,
   };
 }
@@ -96,11 +105,13 @@ describe('DetailPageQueryService edited HTML', () => {
       const durableUrl = `https://cdn.example.com/content-assets/${ORG}/${GENERATION_ID}/promoted.png`;
       const repository = makeRepository({
         saveEditedHtmlRevision: vi.fn().mockResolvedValue({
+          revisionId: REVISION_ID,
+          artifactId: ARTIFACT_ID,
           html: `<section><img src="${durableUrl}" /></section>`,
           createdAt: new Date('2026-05-13T10:30:00.000Z'),
         }),
       });
-      const { service, imageStorage } = makeService(repository, {
+      const { service, imageStorage, rasterJobs } = makeService(repository, {
         imageStorage: {
           extractKey: vi.fn((url: string) => (
             url === tmpUrl ? 'tmp/image-edits/org-1/custom.png' : null
@@ -131,6 +142,12 @@ describe('DetailPageQueryService edited HTML', () => {
         assetUrlMap: { [tmpUrl]: durableUrl },
         imageUrls: [durableUrl],
         savedAt: new Date('2026-05-13T10:30:00.000Z'),
+      });
+      expect(rasterJobs.ensureScheduled).toHaveBeenCalledWith({
+        organizationId: ORG,
+        revisionId: REVISION_ID,
+        artifactId: ARTIFACT_ID,
+        outputWidth: 780,
       });
       expect(imageStorage.delete).toHaveBeenCalledWith('tmp/image-edits/org-1/custom.png');
     } finally {

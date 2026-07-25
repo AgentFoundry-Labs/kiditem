@@ -80,6 +80,8 @@ import { DetailPageAiService } from './application/service/detail-page-ai.servic
 import { DetailPageGenerationService } from './application/service/detail-page-generation.service';
 import { DetailPageCandidateImageService } from './application/service/detail-page-candidate-image.service';
 import { DetailPageRasterizationService } from './application/service/detail-page-rasterization.service';
+import { DetailPageRasterJobExecutorService } from './application/service/detail-page-raster-job-executor.service';
+import { DetailPageRasterJobService } from './application/service/detail-page-raster-job.service';
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from './application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
@@ -210,6 +212,8 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     DetailPageAiService,
     DetailPageCandidateImageService,
     DetailPageGenerationService,
+    DetailPageRasterJobExecutorService,
+    DetailPageRasterJobService,
     DetailPageRasterizationService,
     ContentArchiveService,
     ContentAssetService,

@@ -240,7 +240,12 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
     assetUrlMap: Record<string, string>;
     imageUrls: string[];
     savedAt: Date;
-  }): Promise<{ html: string; createdAt: Date }> {
+  }): Promise<{
+    revisionId: string;
+    artifactId: string;
+    html: string;
+    createdAt: Date;
+  }> {
     return this.prisma.$transaction(async (tx) => {
       const row = await tx.contentGeneration.findFirst({
         where: {
@@ -295,6 +300,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         },
         select: {
           id: true,
+          artifactId: true,
           html: true,
           createdAt: true,
         },
@@ -332,6 +338,8 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
       });
 
       return {
+        revisionId: createdRevision.id,
+        artifactId: createdRevision.artifactId,
         html: createdRevision.html,
         createdAt: createdRevision.createdAt,
       };
@@ -391,6 +399,37 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
       ?? null;
     if (!revision) return null;
 
+    return {
+      revisionId: revision.id,
+      artifactId: revision.artifactId,
+      html: revision.html,
+      createdAt: revision.createdAt,
+    };
+  }
+
+  async findDetailPageRevisionHtml(input: {
+    organizationId: string;
+    revisionId: string;
+    artifactId: string;
+  }): Promise<CandidateDetailPageHtmlSnapshot | null> {
+    const revision = await this.prisma.detailPageRevision.findFirst({
+      where: {
+        id: input.revisionId,
+        artifactId: input.artifactId,
+        organizationId: input.organizationId,
+        artifact: {
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+      },
+      select: {
+        id: true,
+        artifactId: true,
+        html: true,
+        createdAt: true,
+      },
+    });
+    if (!revision) return null;
     return {
       revisionId: revision.id,
       artifactId: revision.artifactId,

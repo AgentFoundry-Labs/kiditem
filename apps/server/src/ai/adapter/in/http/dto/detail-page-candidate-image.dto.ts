@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 /**
  * 마켓 상세설명용 폭. 기본값은 쿠팡 권장 780px.
@@ -12,4 +12,9 @@ export class RenderCandidateDetailImageBodyDto {
   @Min(320)
   @Max(2400)
   outputWidth?: number;
+
+  /** Explicit user retry. Status polling must leave terminal failures intact. */
+  @IsOptional()
+  @IsBoolean()
+  retryFailed?: boolean;
 }

@@ -59,6 +59,7 @@ describe('DetailPageQueryRepositoryAdapter', () => {
       detailPageRevision: {
         create: vi.fn().mockResolvedValue({
           id: REVISION_ID,
+          artifactId: ARTIFACT_ID,
           html: '<section><img src="https://cdn.example.com/a.jpg" /></section>',
           createdAt: savedAt,
         }),
@@ -80,6 +81,8 @@ describe('DetailPageQueryRepositoryAdapter', () => {
       imageUrls: ['https://cdn.example.com/a.jpg'],
       savedAt,
     })).resolves.toEqual({
+      revisionId: REVISION_ID,
+      artifactId: ARTIFACT_ID,
       html: '<section><img src="https://cdn.example.com/a.jpg" /></section>',
       createdAt: savedAt,
     });
@@ -114,6 +117,7 @@ describe('DetailPageQueryRepositoryAdapter', () => {
       }),
       select: {
         id: true,
+        artifactId: true,
         html: true,
         createdAt: true,
       },

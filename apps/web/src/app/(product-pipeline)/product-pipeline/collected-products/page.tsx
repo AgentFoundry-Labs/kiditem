@@ -25,6 +25,7 @@ import ScrapeUrlInput from './components/list/ScrapeUrlInput';
 import SourcingToolbar from './components/list/SourcingToolbar';
 import { useProcessingIds } from './hooks/useProcessingIds';
 import { useScrapeUrl } from './hooks/useScrapeUrl';
+import { useWingRegistrationPreparation } from './hooks/useWingRegistrationPreparation';
 import {
   candidatesApi,
   isInProgress,
@@ -37,7 +38,6 @@ import {
   downloadWingExcel,
   generateWingExcelForCandidates,
   isConfirmedWingRegistration,
-  prepareWingRegistration,
   submitWingRegistration,
   waitForRegisteredListing,
   type WingRegistrationDraft,
@@ -71,6 +71,10 @@ export default function SourcingPage() {
     suggestedExternalListingId?: string | null;
   } | null>(null);
   const [wingSubmitting, setWingSubmitting] = useState(false);
+  const wingPreparation = useWingRegistrationPreparation({
+    onReady: (draft) => setWingDraft(draft),
+    onError: (message) => toast.error(message),
+  });
 
   const scrape = useScrapeUrl();
   const platform = platformForSourceFilter(sourceFilter);
@@ -219,18 +223,10 @@ export default function SourcingPage() {
   //
   // 확장으로 넘기기 전에 등록 확인 모달을 한 번 거친다. 노출상품명·옵션·가격·재고는
   // WING 폼이 열린 뒤에는 고치기 어려우므로 여기서 확정받는다.
-  const handleModalWingRegister = async () => {
+  const handleModalWingRegister = () => {
     const ids = [...quickProcessTargetIds];
-    if (ids.length === 0 || wingGenerating) return;
-    setWingGenerating(true);
-    try {
-      const draft = await prepareWingRegistration(ids[0]);
-      setWingDraft(draft);
-    } catch (err) {
-      toast.error(wingErrorMessage(err, '쿠팡 WING 등록 준비에 실패했습니다.'));
-    } finally {
-      setWingGenerating(false);
-    }
+    if (ids.length === 0 || wingGenerating || wingPreparation.isPreparing) return;
+    wingPreparation.start(ids[0]);
   };
 
   // 사용자가 고친 값(`overrides`)을 그대로 넘긴다. 초안의 원본 payload 를 보내면
@@ -393,6 +389,7 @@ export default function SourcingPage() {
 
   const closeQuickProcessModal = () => {
     if (quickProcessMutation.isPending) return;
+    wingPreparation.cancel();
     setQuickProcessModalOpen(false);
     setQuickProcessTargetIds([]);
   };
@@ -505,7 +502,8 @@ export default function SourcingPage() {
         targetCount={quickProcessTargetIds.length}
         targetProducts={quickProcessTargetProducts}
         isSubmitting={quickProcessMutation.isPending}
-        wingRegistering={wingGenerating}
+        wingRegistering={wingGenerating || wingPreparation.isPreparing}
+        wingRegisteringMessage={wingPreparation.message}
         onClose={closeQuickProcessModal}
         onConfirm={(task) => quickProcessMutation.mutate({ ids: quickProcessTargetIds, task })}
         onWingRegister={handleModalWingRegister}
@@ -539,6 +537,7 @@ function QuickProcessSelectedDialog({
   targetProducts,
   isSubmitting,
   wingRegistering,
+  wingRegisteringMessage,
   onClose,
   onConfirm,
   onWingRegister,
@@ -548,6 +547,7 @@ function QuickProcessSelectedDialog({
   targetProducts: Array<{ id: string; name: string; thumbnailUrl: string | null }>;
   isSubmitting: boolean;
   wingRegistering: boolean;
+  wingRegisteringMessage: string | null;
   onClose: () => void;
   onConfirm: (task: QuickProcessTask) => void;
   onWingRegister: () => void;
@@ -650,7 +650,9 @@ function QuickProcessSelectedDialog({
             ) : (
               <Store size={15} />
             )}
-            쿠팡 WING 상품 등록
+            {wingRegistering
+              ? wingRegisteringMessage ?? '쿠팡 WING 등록 준비 중'
+              : '쿠팡 WING 상품 등록'}
           </button>
           <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
             고정 카테고리 확인 · WING 상품등록 페이지를 열어 직접 입력
