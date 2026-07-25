@@ -20,7 +20,7 @@ export function SellpiaSyncHistory({
               <th>파일</th>
               <th>상태</th>
               <th className="text-right">행</th>
-              <th>시각</th>
+              <th>검증/시도 시각</th>
             </tr>
           </thead>
           <tbody>
@@ -33,7 +33,9 @@ export function SellpiaSyncHistory({
                 <td>{run.fileName ?? '다운로드 전 실패'}</td>
                 <td>{run.status === 'completed' ? '완료' : run.status === 'running' ? '진행 중' : '실패'}</td>
                 <td className="text-right">{formatNumber(run.rowCount)}</td>
-                <td>{formatDateTime(run.importedAt ?? run.updatedAt)}</td>
+                <td>{formatDateTime(
+                  run.lastVerifiedAt ?? run.importedAt ?? run.updatedAt,
+                )}</td>
               </tr>
             ))}
           </tbody>
