@@ -21,18 +21,11 @@ change physical `SellpiaInventorySku` stock or central
 - Load `extensions/coupang-ads-scraper` in the same Chrome profile.
 - Keep an authenticated Wing inventory tab open. A human completes login, OTP,
   and account selection; never record credentials, cookies, or session dumps.
-- Start the KidItem API and web app for local use.
-
-For staging, generate a local-only extension copy with the committed helper:
-
-```bash
-STAGING_URL="$(gh variable get STAGING_URL --env staging)" \
-  node scripts/prepare-coupang-extension.mjs
-```
-
-Load `.secrets/extensions/coupang-ads-scraper-staging` from
-`chrome://extensions`. Do not commit the real staging origin or the generated
-copy.
+- Start the KidItem API and web app for local use, or open
+  `https://staging.merchon.org` for staging use.
+- Use the same loaded `extensions/coupang-ads-scraper` directory or universal
+  release package for local and staging. The extension resolves the environment
+  from the verified KidItem page origin and keeps auth/runs separate.
 
 ## Operator Flow
 

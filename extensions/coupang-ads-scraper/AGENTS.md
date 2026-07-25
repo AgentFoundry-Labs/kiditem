@@ -18,13 +18,18 @@ supports explicit Wing page automation.
 
 ## API Contract
 
-- Default KidItem API origin is `http://localhost:4000`.
+- KidItem environment profiles are fixed: local web/API use
+  `http://localhost:3000` / `http://localhost:4000`, and staging web/API use
+  `https://staging.merchon.org`.
+- Resolve the active profile from the verified external sender origin. Never
+  trust a message-provided environment id or keep one global API/token pair.
 - Data sync posts to `/api/ads/extension/sync`.
 - Approved queued ad actions are fetched from `/api/ads/actions`.
 - Full catalog collection uses the account-scoped
   `/api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/runs`
   start/status/chunk/finalize contract.
-- Authorization uses `kiditem_auth_token` from `chrome.storage.local`.
+- Authorization profiles use `kiditem_environment_profiles_v1` in
+  `chrome.storage.local`; tokens and operational state stay environment-bound.
 - Do not send `organizationId`; backend auth resolves organization scope.
 
 ## Browser Boundary
@@ -52,12 +57,13 @@ supports explicit Wing page automation.
 - Keep action execution idempotent from the backend perspective.
 - Do not store Coupang account credentials, cookies, or page session dumps.
 
-## Transitional Exceptions
+## Environment Boundary
 
-- Committed manifest is for local/dev origins. Staging unpacked variants belong
-  under `.secrets/extensions/`.
-- Follow `docs/runbooks/coupang-wing-catalog-collection.md` when staging origins
-  or extension ids change.
+- One installed extension supports local and staging simultaneously.
+- The popup requires an explicit environment selection when both profiles are
+  authenticated and auto-selects only when exactly one profile is available.
+- Follow `docs/runbooks/coupang-wing-catalog-collection.md` for local and
+  staging browser acceptance.
 
 ## Verification
 

@@ -58,7 +58,7 @@ test('Sellpia sales background cache is bound to the active organization', () =>
   );
   assert.match(
     worker,
-    /\[SELLPIA_SALES_CACHE_KEY\]: \{\s*organizationId,\s*payload: result\.payload,/,
+    /\[cacheKey\]: \{\s*organizationId,\s*payload: result\.payload,/,
   );
   assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
   assert.match(worker, /sellers\.length > 0 \|\| explicitEmpty/);

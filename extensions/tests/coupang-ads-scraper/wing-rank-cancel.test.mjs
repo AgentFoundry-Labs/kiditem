@@ -25,22 +25,19 @@ test("Wing sales-rank collection supports cooperative cancellation", () => {
     source,
     /const requestedRunId = typeof msg\.runId === "string" \? msg\.runId : null;/,
   );
-  assert.match(source, /collectionRuns\.cancel\(requestedRunId\)/);
+  assert.match(source, /collectionRuns\.cancel\(requestedRunId, environmentId\)/);
   assert.match(
     source,
     /collectionSessions\.cancel\(runId, \{ closeManagedTab: true \}\)/,
   );
-  assert.match(
-    source,
-    /chrome\.storage\.local\.get\(\s*\[RANK_CHECK_STATUS_KEY, RANK_CHECK_CANCEL_KEY\]/,
-  );
+  assert.match(source, /\[statusKey, cancelKey\]/);
   assert.match(source, /isWingSalesRankCancelled\(runId\)/);
   assert.match(
     source,
-    /existingIsActive[\s\S]*?isWingSalesRankCancelled\(existing\.runId\)/,
+    /existingIsActive[\s\S]*?isWingSalesRankCancelled\(existing\.runId, environmentId\)/,
   );
   assert.match(source, /status:\s*cancelled[\s\S]*?"cancelled"/);
-  assert.match(source, /chrome\.storage\.local\.remove\(RANK_CHECK_CANCEL_KEY\)/);
+  assert.match(source, /storage\.local\.remove\(rankCancelKey\)/);
 });
 
 test("Wing rank pauses the whole session on login or bounded upstream exhaustion", () => {
@@ -55,7 +52,7 @@ test("Wing rank pauses the whole session on login or bounded upstream exhaustion
 
   assert.match(wingRank, /options\.forceRestart/);
   assert.match(wingRank, /producer:\s*"advertising\.wing_rank"/);
-  assert.match(wingRank, /runWingSalesRankBatch\(targets, productTotal, runId, startedAt\)/);
+  assert.match(wingRank, /runWingSalesRankBatch\(targets, productTotal, runId, startedAt, environmentId\)/);
   assert.match(wingCatalogSearch, /executeWingCatalogSearchWithRetry/);
   assert.match(wingCatalogSearch, /response\?\.status === 429/);
   assert.match(wingCatalogSearch, /response\?\.status >= 500/);

@@ -65,7 +65,7 @@ test('catalog login pauses its browser session and clears the alarm', () => {
   assert.match(runtime, /collectionSessions\.attachTab/);
   assert.match(runtime, /collectionSessions\.requireAttention/);
   assert.match(runtime, /status:\s*["']attention_required["']/);
-  assert.match(runtime, /await clearAlarm\(\)/);
+  assert.match(runtime, /await clearAlarm\(dependencies\)/);
   assert.match(runtime, /async function restart\(/);
   assert.doesNotMatch(runtime, /\bactivateTab\s*\(/);
   assert.doesNotMatch(runtime, /active:\s*true/);

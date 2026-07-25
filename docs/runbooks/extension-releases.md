@@ -2,23 +2,36 @@
 
 ## Purpose
 
-Package and publish KidItem Chrome extensions through manual GitHub Releases.
-This path intentionally has no GitHub Actions publishing workflow. GitHub
-Packages/GHCR remains for server container images and is not an extension
-distribution channel. Staging-targeted extension builds are published as
-GitHub prereleases so they never replace the repository's application-level
-Latest release.
+Package and publish each KidItem Chrome extension as one universal artifact
+that supports local and staging simultaneously. Publishing is a manual GitHub
+Release operation; there is no GitHub Actions extension-publishing workflow.
+GitHub Packages/GHCR remains for server images and is not an extension
+distribution channel.
 
 Each extension owns its independent Chrome manifest version:
 
-| Extension                      | Source of truth                                |
-| ------------------------------ | ---------------------------------------------- |
-| Product sourcing               | `extensions/product-scraper/manifest.json`     |
-| Coupang Wing and ads           | `extensions/coupang-ads-scraper/manifest.json` |
-| Order and inventory collection | `extensions/order-collector/manifest.json`     |
+| Extension | Source of truth |
+|---|---|
+| Product sourcing | `extensions/product-scraper/manifest.json` |
+| Coupang Wing and ads | `extensions/coupang-ads-scraper/manifest.json` |
+| Order and inventory collection | `extensions/order-collector/manifest.json` |
 
 Root `VERSION` remains the deployable application release train. Do not bump it
 only to publish an extension.
+
+## Universal Environment Contract
+
+- One installed copy supports local web/API at `http://localhost:3000` /
+  `http://localhost:4000` and staging web/API at
+  `https://staging.merchon.org`.
+- The verified external sender origin selects the environment profile. A caller
+  cannot choose another environment by sending an environment id.
+- Auth profiles, runs, status, tabs, alarms, caches, and callbacks remain bound
+  to their owning environment, so local and staging operations may run at the
+  same time.
+- The packager never rewrites origins or runtime code. It copies every loadable
+  source file byte-for-byte, omitting only agent documentation and hidden files.
+- Do not create or maintain local-only or staging-only source/package variants.
 
 ## Prerequisites
 
@@ -26,124 +39,96 @@ only to publish an extension.
   publishing.
 - Install and authenticate GitHub CLI with repository release permission.
 - Keep the `zip` CLI available on `PATH`.
-- Read `STAGING_URL` from the GitHub `staging` Environment. Never place tokens,
-  cookies, marketplace credentials, or browser session data in an artifact.
-- Complete the focused automated and manual browser checks for the changed
-  extension before increasing its version.
+- Never place tokens, cookies, marketplace credentials, or browser session data
+  in an artifact.
+- Complete focused automated and manual browser checks before increasing the
+  changed extension's version.
 
 ## Version Rules
 
-1. Increase the changed extension's `manifest.json` version whenever its
-   runtime JavaScript, manifest permissions, content scripts, or operator-visible
+1. Increase the changed extension's `manifest.json` version whenever runtime
+   JavaScript, manifest permissions, content scripts, or operator-visible
    behavior changes.
 2. Chrome versions are one to four dot-separated non-negative integers.
 3. Update tests that deliberately lock the exact manifest version.
 4. Merge the versioned source to `main` before publishing.
-5. A published tag and its assets are immutable. A correction always receives
-   a higher manifest version; never replace a prior Release asset.
+5. A published tag and its assets are immutable. A correction receives a
+   higher manifest version; never replace a prior Release asset.
 
 Release tags use this format:
 
 ```text
-extension-<directory>-v<manifest-version>-staging
-```
-
-Example:
-
-```text
-extension-coupang-ads-scraper-v1.2.66-staging
+extension-<directory>-v<manifest-version>
 ```
 
 ## Pack Without Publishing
 
-Resolve the exact service origin and create a local package:
+Create a universal local package:
 
 ```bash
-STAGING_URL="$(gh variable get STAGING_URL --env staging)"
-
 npm run extension:release -- pack \
-  --extension coupang-ads-scraper \
-  --target staging \
-  --web-origin "$STAGING_URL" \
-  --api-origin "$STAGING_URL"
+  --extension coupang-ads-scraper
 ```
 
-Supported extension names are:
+Supported extension names are `product-scraper`, `coupang-ads-scraper`, and
+`order-collector`. Use `--output-dir <path>` only when the default ignored
+output root is unsuitable.
+
+The default output layout is:
 
 ```text
-product-scraper
-coupang-ads-scraper
-order-collector
-```
-
-The ignored output directory is:
-
-```text
-output/extensions/<extension>/<version>/staging/
+output/extensions/<extension>/<version>/universal/
 ├── unpacked/
-├── kiditem-<extension>-v<version>-staging.zip
-├── kiditem-<extension>-v<version>-staging.zip.sha256
-└── kiditem-<extension>-v<version>-staging.release.json
+├── kiditem-<extension>-v<version>.zip
+├── kiditem-<extension>-v<version>.zip.sha256
+└── kiditem-<extension>-v<version>.release.json
 ```
 
-The packager removes committed agent documentation, rewrites KidItem web/API
-origins to the exact staging origin, puts `manifest.json` at the archive root,
-and binds the archive hash to the current Git SHA in release metadata. It
-preserves non-KidItem permissions declared by the source manifest, including
-the Coupang extension's local image bridge permission.
-
-Verify the local artifact before publishing:
+The metadata uses `kiditem.extension.release.v2`, records the universal target,
+the local/staging environment profiles, the current Git SHA, and the archive
+hash. Verify the local artifact before publishing:
 
 ```bash
-RELEASE_DIR="output/extensions/coupang-ads-scraper/1.2.66/staging"
+RELEASE_DIR="output/extensions/coupang-ads-scraper/<version>/universal"
+ASSET="kiditem-coupang-ads-scraper-v<version>"
 
-(cd "$RELEASE_DIR" && shasum -a 256 -c \
-  kiditem-coupang-ads-scraper-v1.2.66-staging.zip.sha256)
-
-unzip -l "$RELEASE_DIR/kiditem-coupang-ads-scraper-v1.2.66-staging.zip"
+(cd "$RELEASE_DIR" && shasum -a 256 -c "$ASSET.zip.sha256")
+unzip -l "$RELEASE_DIR/$ASSET.zip"
 ```
 
 ## Create A Draft GitHub Release
 
 Publishing defaults to a draft so the operator can inspect the tag, SHA,
-origin, archive, checksum, and metadata before making it visible:
+archive, checksum, and metadata before making it visible:
 
 ```bash
 git switch main
 git pull --ff-only origin main
 
-STAGING_URL="$(gh variable get STAGING_URL --env staging)"
-
 npm run extension:release -- publish \
-  --extension coupang-ads-scraper \
-  --target staging \
-  --web-origin "$STAGING_URL" \
-  --api-origin "$STAGING_URL"
+  --extension coupang-ads-scraper
 ```
 
 The publisher refuses to run unless the worktree is clean and `HEAD` exactly
-matches `origin/main`. It also refuses to replace an existing Release tag and
-marks extension Releases as prerelease and non-latest so they do not replace
-the repository's application-level Latest release.
+matches `origin/main`. It refuses to replace an existing Release tag and marks
+extension Releases as prerelease and non-latest so they do not replace the
+repository's application-level Latest release.
 
 Inspect and publish the draft:
 
 ```bash
-TAG="extension-coupang-ads-scraper-v1.2.66-staging"
+TAG="extension-coupang-ads-scraper-v<version>"
 
 gh release view "$TAG"
 gh release edit "$TAG" --draft=false --prerelease --latest=false
 ```
 
-An operator may publish immediately only after the same inspection has already
-been completed against a local package:
+An operator may publish immediately only after completing the same inspection
+against a local package:
 
 ```bash
 npm run extension:release -- publish \
   --extension coupang-ads-scraper \
-  --target staging \
-  --web-origin "$STAGING_URL" \
-  --api-origin "$STAGING_URL" \
   --release-state published
 ```
 
@@ -161,11 +146,11 @@ not install the ZIP directly.
 4. Open `chrome://extensions`, enable Developer mode, and choose **Load
    unpacked** for a first install.
 5. For an update, replace the directory contents and click **Reload** on the
-   existing extension card. Do not leave both old and new copies enabled.
-6. Reload the KidItem page. Confirm the web handshake reports the expected
-   extension version and required capabilities.
-7. Complete marketplace login, OTP, and account selection in the operator's
-   normal Chrome profile. Never package or copy those session values.
+   existing extension card. Do not leave old and new copies enabled together.
+6. Reload each open KidItem page. Confirm local and staging handshakes report
+   the expected extension version and environment-profile capability.
+7. Visit and authenticate both KidItem origins when both profiles are needed.
+   Marketplace login and OTP stay in the operator's normal Chrome profile.
 
 ## Verification
 
@@ -184,45 +169,11 @@ git diff --check
 Manual acceptance for the released extension:
 
 1. Load the package from its `unpacked/` directory.
-2. Open the staging KidItem page and confirm extension discovery succeeds.
-3. Confirm the installed version matches release metadata.
-4. Confirm required capabilities are reported by the extension `ping` reply.
-5. Execute one safe read-only collection for the extension's primary surface.
-6. Confirm no localhost KidItem web/API origin is requested by the staging
-   package. The Coupang local image bridge remains a separate declared
-   capability.
-
-## Rollback
-
-Download and load a previous immutable Release. A rollback is allowed only when
-the current KidItem web capability/version gate still accepts that extension.
-If it does not, fix forward with a higher extension version instead of lowering
-the web requirement or overwriting a Release.
-
-## Blockers
-
-Stop and report when:
-
-- `main` is dirty or differs from `origin/main`;
-- the Release tag already exists;
-- the package contains a localhost KidItem origin;
-- the checksum or metadata Git SHA does not match;
-- Chrome reports a manifest or permission error;
-- the KidItem page reports the extension missing, outdated, or missing a
-  required capability;
-- marketplace login, OTP, or account authorization needs human action.
-
-## Final Report Format
-
-```text
-Extension: <directory>
-Manifest version: <version>
-Target: staging
-Git SHA: <40-hex>
-Tag: <release tag>
-Release: <draft|published>; URL=<url>
-SHA256: <archive hash>
-Automated gates: <commands and result>
-Manual acceptance: <passed|blocked>
-Blockers: <none or exact blocker>
-```
+2. Open both the local and staging KidItem pages in the same Chrome profile.
+3. Confirm both pages discover the same installed extension/version.
+4. Authenticate both profiles and confirm each page reports its own connected
+   environment.
+5. Start safe read-only work from each environment and confirm status,
+   cancellation, and completion callbacks never cross environments.
+6. For extensions with a popup, verify no profile shows the empty state, one
+   profile auto-selects, and two profiles require an explicit selection.

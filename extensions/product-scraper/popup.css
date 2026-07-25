@@ -160,40 +160,39 @@ main {
   word-break: break-all;
 }
 
-.api-details {
+.environment-section {
   border-top: 1px solid #eee;
   padding-top: 8px;
 }
 
-.api-details summary {
+.environment-section label {
+  display: block;
   font-size: 11px;
-  color: #999;
-  cursor: pointer;
-  user-select: none;
+  color: #666;
+  font-weight: 600;
   margin-bottom: 6px;
 }
 
-.input-row {
-  display: flex;
-  gap: 6px;
-}
-
-.input-row input {
-  flex: 1;
-  min-width: 0;
-}
-
-input[type="text"] {
-  padding: 5px 8px;
+.environment-section select {
+  width: 100%;
+  padding: 7px 8px;
   border: 1px solid #d0d0d0;
-  border-radius: 4px;
-  font-size: 11px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #fff;
   outline: none;
 }
 
-input[type="text"]:focus {
+.environment-section select:focus {
   border-color: #007bff;
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.15);
+}
+
+#environmentHelp {
+  margin-top: 6px;
+  color: #888;
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .btn {
@@ -204,17 +203,6 @@ input[type="text"]:focus {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-}
-
-.btn-sm {
-  padding: 4px 10px;
-  font-size: 11px;
-  background: #e9ecef;
-  color: #333;
-}
-
-.btn-sm:hover {
-  background: #dee2e6;
 }
 
 footer {

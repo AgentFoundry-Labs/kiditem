@@ -120,6 +120,8 @@ test('posts collected broadcasts through the authenticated backend request', asy
 
   const result = await collector.collect(
     'https://live.douyin.com/123?token=must-not-persist#private',
+    undefined,
+    'local',
   );
 
   assert.equal(result.success, true);
@@ -213,7 +215,11 @@ test('keeps a login challenge inactive and publishes attention until the generic
     }),
   });
 
-  const result = await collector.collect('https://live.douyin.com/123');
+  const result = await collector.collect(
+    'https://live.douyin.com/123',
+    undefined,
+    'local',
+  );
 
   assert.equal(result.success, false);
   assert.equal(result.status, 'attention_required');
@@ -235,7 +241,11 @@ test('keeps a login challenge inactive and publishes attention until the generic
 
   sessions.requireAttention = async (runId) =>
     sessions.cancel(runId, { closeManagedTab: true });
-  const raced = await collector.collect('https://live.douyin.com/456');
+  const raced = await collector.collect(
+    'https://live.douyin.com/456',
+    undefined,
+    'local',
+  );
   assert.equal(raced.cancelled, true);
   assert.equal(raced.status, 'cancelled');
   assert.deepEqual(calls.remove, [11]);
@@ -298,10 +308,15 @@ test('restarts a login-blocked URL under the same run and closes the previous ta
     getBackendRequestConfig: async () => ({ ok: true, base: '', headers: {} }),
   });
 
-  const first = await collector.collect('https://live.douyin.com/123');
+  const first = await collector.collect(
+    'https://live.douyin.com/123',
+    undefined,
+    'local',
+  );
   const restarted = await collector.collect(
     'https://live.douyin.com/123',
     first.runId,
+    'local',
   );
 
   assert.equal(restarted.runId, first.runId);
@@ -369,10 +384,15 @@ test('same-run restart after a service-worker reload closes the stored managed a
     getBackendRequestConfig: async () => ({ ok: true, base: '', headers: {} }),
   });
 
-  const first = await createCollector().collect('https://live.douyin.com/123');
+  const first = await createCollector().collect(
+    'https://live.douyin.com/123',
+    undefined,
+    'local',
+  );
   const restarted = await createCollector().collect(
     'https://live.douyin.com/123',
     first.runId,
+    'local',
   );
 
   assert.equal(restarted.runId, first.runId);
@@ -431,7 +451,11 @@ test('cancel after a service-worker reload closes the stored managed attention t
     getBackendRequestConfig: async () => ({ ok: true, base: '', headers: {} }),
   });
 
-  const first = await createCollector().collect('https://live.douyin.com/123');
+  const first = await createCollector().collect(
+    'https://live.douyin.com/123',
+    undefined,
+    'local',
+  );
   const cancelled = await createCollector().cancel(first.runId);
 
   assert.equal(cancelled.status, 'cancelled');
@@ -510,7 +534,11 @@ test('cancel during the backend request cannot return false success', async () =
     }),
   });
 
-  const collection = collector.collect('https://live.douyin.com/123');
+  const collection = collector.collect(
+    'https://live.douyin.com/123',
+    undefined,
+    'local',
+  );
   await started;
   await collector.cancel(runId);
   resolveRequest({
@@ -584,7 +612,11 @@ test('cancel during extraction wins over a verification response', async () => {
     getBackendRequestConfig: async () => ({ ok: true, base: '', headers: {} }),
   });
 
-  const collection = collector.collect('https://live.douyin.com/123');
+  const collection = collector.collect(
+    'https://live.douyin.com/123',
+    undefined,
+    'local',
+  );
   await started;
   await collector.cancel(runId);
   extractionCallback({
@@ -642,9 +674,13 @@ test('same-run restart rejects a different owner or an already active live-comme
     getBackendRequestConfig: async () => ({ ok: true, base: '', headers: {} }),
   });
 
-  const first = await collector.collect('https://live.douyin.com/123');
+  const first = await collector.collect(
+    'https://live.douyin.com/123',
+    undefined,
+    'local',
+  );
   await assert.rejects(
-    collector.collect('https://live.douyin.com/456', first.runId),
+    collector.collect('https://live.douyin.com/456', first.runId, 'local'),
     /page owner/i,
   );
   await sessions.progress(first.runId, {
@@ -655,7 +691,7 @@ test('same-run restart rejects a different owner or an already active live-comme
     label: 'still running',
   });
   await assert.rejects(
-    collector.collect('https://live.douyin.com/123', first.runId),
+    collector.collect('https://live.douyin.com/123', first.runId, 'local'),
     /already active/i,
   );
   assert.equal(createCount, 1);

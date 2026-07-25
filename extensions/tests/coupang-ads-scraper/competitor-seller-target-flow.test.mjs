@@ -11,13 +11,15 @@ const source = await readFile(
 );
 
 test("collects seller catalogs only after the server selects own-product overlaps", () => {
-  const keywordSyncIndex = source.indexOf("postKeywordRankSync(capture)");
+  const keywordSyncIndex = source.indexOf(
+    "postKeywordRankSync(capture, environmentId)",
+  );
   const productTargetFetchIndex = source.indexOf(
     "fetchCoupangCompetitorProductTargets(",
     keywordSyncIndex,
   );
   const identitySyncIndex = source.indexOf(
-    "postCompetitorSellerIdentitySync(sellerIdentities)",
+    "postCompetitorSellerIdentitySync(sellerIdentities, environmentId)",
     productTargetFetchIndex,
   );
   const targetFetchIndex = source.indexOf(

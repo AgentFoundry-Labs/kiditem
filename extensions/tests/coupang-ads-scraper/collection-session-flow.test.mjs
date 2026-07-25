@@ -62,7 +62,7 @@ test('loads the canonical session manager and focus owners before collector runt
     worker,
     /const KIDITEM_WEB_URL_PATTERNS = \[[\s\S]*?["']http:\/\/localhost:3000\/\*["'][\s\S]*?["']https:\/\/staging\.merchon\.org\/\*["'][\s\S]*?\]/,
   );
-  assert.match(worker, /webUrlPatterns:\s*KIDITEM_WEB_URL_PATTERNS/);
+  assert.match(worker, /environmentContext,\s*\n\s*\}\);/);
 });
 
 test('handles generic collection controls before producer actions', () => {
@@ -84,7 +84,7 @@ test('handles generic collection controls before producer actions', () => {
   assert.match(collectionRunsSource, /options\.restartCatalog/);
   assert.match(
     worker,
-    /collectionRuns\s*\.\s*cancel\(msg\.runId\)[\s\S]*collectionSessions\.get\(msg\.runId\)/,
+    /collectionRuns\s*\.\s*cancel\(msg\.runId, environmentId\)[\s\S]*collectionSessions\.getOwned\(msg\.runId, environmentId\)/,
   );
 });
 
@@ -108,7 +108,7 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /unsupported collection producer/i);
-  assert.equal(manifest.version, '1.2.83');
+  assert.equal(manifest.version, '1.2.84');
 });
 
 test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {
@@ -124,7 +124,7 @@ test('keeps single Wing catalog analysis separate from batch sales-rank collecti
 });
 
 test('the scrape-target producer owns one serialized silent window lifecycle', () => {
-  assert.match(worker, /collectionWindow\.collectTargets/);
+  assert.match(worker, /collectionWindowFor\(environmentId\)[\s\S]*?\.collectTargets/);
   assert.match(collectionWindowSource, /runExclusive\(async \(\) =>/);
   assert.match(collectionWindowSource, /getOrCreate\(runId/);
   assert.match(collectionWindowSource, /navigate\(runId/);
@@ -154,7 +154,7 @@ test('automatic collectors contain no direct focus primitives', () => {
     assert.doesNotMatch(source, /\bactivateTab\s*\(/, `${name} uses legacy activateTab`);
   }
   assert.match(catalog, /requireAttention/);
-  assert.match(catalog, /clearAlarm\(\)/);
+  assert.match(catalog, /clearAlarm\(dependencies\)/);
   assert.match(catalog, /attention_required/);
 });
 
@@ -211,7 +211,7 @@ test('web restart handlers preserve the requested run id and use the shared begi
     'resumeInterruptedWingSalesRankCheck',
     'checkCoupangKeywordRank',
   );
-  assert.match(resume, /collectionRuns\.restart\(status\.runId\)/);
+  assert.match(resume, /collectionRuns\.restart\(status\.runId, environmentId\)/);
   assert.doesNotMatch(resume, /startWingSalesRankCheck\(/);
 });
 

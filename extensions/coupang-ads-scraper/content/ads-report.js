@@ -1743,36 +1743,30 @@
     return true;
   }
 
-  async function reportAction(apiUrl, action, type, payload) {
-    const token = await new Promise((resolve) => {
-      try {
-        chrome.storage.local.get(["kiditem_auth_token"], (r) => resolve(r.kiditem_auth_token || null));
-      } catch {
-        resolve(null);
-      }
+  async function kiditemApiRequest(path, init = {}) {
+    const result = await chrome.runtime.sendMessage({
+      action: "kiditemApiRequest",
+      path,
+      init,
     });
-    const headers = { "Content-Type": "application/json" };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    await fetch(apiUrl, {
+    if (!result?.success) throw new Error(result?.error || "KidItem API 요청 실패");
+    return result;
+  }
+
+  async function reportAction(action, type, payload) {
+    await kiditemApiRequest("/api/ads/actions", {
       method: "POST",
-      headers,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: type, id: action.id, ...payload }),
     });
   }
 
   async function fetchApprovedQueuedActions(limit = 20) {
-    const token = await new Promise((resolve) => {
-      try {
-        chrome.storage.local.get(["kiditem_auth_token"], (r) => resolve(r.kiditem_auth_token || null));
-      } catch {
-        resolve(null);
-      }
-    });
-    const headers = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(`${SERVER}/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=${limit}`, { headers });
+    const res = await kiditemApiRequest(
+      `/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=${limit}`,
+    );
     if (!res.ok) throw new Error(`승인 액션 조회 실패: ${res.status}`);
-    const json = await res.json();
+    const json = res.body || {};
     return Array.isArray(json.items) ? json.items : [];
   }
 
@@ -1977,9 +1971,9 @@
     };
   }
 
-  async function executeSingleAction(action, apiUrl) {
+  async function executeSingleAction(action) {
     if (action.actionType === "create_campaign") {
-      await reportAction(apiUrl, action, "markRunning", {
+      await reportAction(action, "markRunning", {
         beforeJson: { url: window.location.href, payload: action.payload || {} },
       });
       return executeCreateCampaign(action);
@@ -1990,7 +1984,7 @@
       return { success: false, errorMessage: `대상 행을 찾지 못했습니다: ${action.targetLabel}` };
     }
 
-    await reportAction(apiUrl, action, "markRunning", {
+    await reportAction(action, "markRunning", {
       beforeJson: { rowText: normalizeText(row.innerText), url: window.location.href },
     });
 
@@ -2007,7 +2001,7 @@
     return { success: false, errorMessage: `지원하지 않는 액션: ${action.actionType}` };
   }
 
-  async function executeApprovedActions(actions, apiUrl) {
+  async function executeApprovedActions(actions) {
     const pageType = guessPageType(parseCampaignTable().headers);
     const runnable = actions.filter((action) => {
       if (action.actionType === "create_campaign") return true;
@@ -2025,20 +2019,20 @@
     for (const action of runnable) {
       try {
         showBadge(`⚙️ ${action.targetLabel} 실행 중...`, "#60a5fa");
-        const result = await executeSingleAction(action, apiUrl);
+        const result = await executeSingleAction(action);
         if (result.success) {
           executed++;
-          await reportAction(apiUrl, action, "markDone", { afterJson: result.afterJson || {} });
+          await reportAction(action, "markDone", { afterJson: result.afterJson || {} });
         } else {
           skipped++;
-          await reportAction(apiUrl, action, "markFailed", {
+          await reportAction(action, "markFailed", {
             errorMessage: result.errorMessage || "실행 실패",
             afterJson: result.afterJson || {},
           });
         }
       } catch (error) {
         skipped++;
-        await reportAction(apiUrl, action, "markFailed", {
+        await reportAction(action, "markFailed", {
           errorMessage: error instanceof Error ? error.message : "실행 실패",
         });
       }
@@ -4099,7 +4093,7 @@
 
     if (msg.action === "executeApprovedAdActions") {
       const payload = msg.payload || {};
-      executeApprovedActions(payload.actions || [], payload.apiUrl || `${SERVER}/api/ads/actions`)
+      executeApprovedActions(payload.actions || [])
         .then(sendResponse)
         .catch((error) => sendResponse({ success: false, error: error.message || "실행 실패" }));
       return true;

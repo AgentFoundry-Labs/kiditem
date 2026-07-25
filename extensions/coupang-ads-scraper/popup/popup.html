@@ -134,6 +134,7 @@
       transition: border-color 0.15s;
     }
     .month-input:focus { border-color: #3b82f6; }
+    .environment-select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 10px; background: white; }
     .btn-compact {
       padding: 9px 14px;
       font-size: 13px;
@@ -192,6 +193,11 @@
       </div>
     </div>
     <span class="badge" id="connBadge">확인중...</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title">KidItem 환경</div>
+    <select id="environmentSelect" class="environment-select" aria-label="KidItem 환경 선택"></select>
   </div>
 
   <!-- Status -->
@@ -263,7 +269,7 @@
 
   <div class="footer">
     Wing 또는 광고센터 페이지에서 자동 수집됩니다<br>
-    서버: <a href="http://localhost:4000" id="footerLink">localhost:4000</a>
+    <a href="#" id="footerLink">선택한 KidItem 대시보드 열기</a>
   </div>
 
   <script src="popup.js"></script>
