@@ -33,6 +33,13 @@ export interface CoupangShipmentDownloadResult {
  * 반환한다. 확장이 이 코드로 알려주면 웹은 "쿠키 정리" 복구 흐름을 제안한다.
  */
 export const COUPANG_COOKIE_BLOAT_CODE = 'coupang_cookie_bloat';
+export const COUPANG_SHIPMENT_SESSION_REQUIRED_CODE = 'coupang_shipment_session_required';
+export const COUPANG_SHIPMENT_RESPONSE_INVALID_CODE = 'coupang_shipment_response_invalid';
+
+const ORDER_COLLECTOR_REQUIRED_MESSAGE =
+  '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드한 뒤 다시 시도해주세요.';
+const ORDER_COLLECTOR_RELOAD_MESSAGE =
+  '주문수집 확장프로그램이 이전 버전입니다. Chrome 확장 관리에서 extensions/order-collector를 새로고침한 뒤 다시 시도해주세요.';
 
 export class CoupangShipmentExtensionError extends Error {
   code?: string;
@@ -45,6 +52,11 @@ export class CoupangShipmentExtensionError extends Error {
 
 export function isCoupangCookieBloatError(error: unknown): boolean {
   return error instanceof CoupangShipmentExtensionError && error.code === COUPANG_COOKIE_BLOAT_CODE;
+}
+
+export function isCoupangShipmentSessionRequiredError(error: unknown): boolean {
+  return error instanceof CoupangShipmentExtensionError
+    && error.code === COUPANG_SHIPMENT_SESSION_REQUIRED_CODE;
 }
 
 /** 확장 응답의 errorCode 를 살펴 쿠키 과다면 타입드 에러, 아니면 일반 에러를 던진다. */
@@ -93,9 +105,31 @@ async function getOrderCollectorExtensionId(
 ): Promise<string> {
   const extensionId = await detectOrderCollectionExtensionId(1200, capability);
   if (!extensionId) {
-    throw new Error('주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드한 뒤 다시 시도해주세요.');
+    if (
+      window.location.hostname === 'localhost'
+      && window.location.port !== '3000'
+    ) {
+      throw new Error('주문수집 확장프로그램은 로컬 앱의 http://localhost:3000 에서 연결됩니다. 웹 앱을 3000 포트로 열어 다시 시도해주세요.');
+    }
+    throw new Error(ORDER_COLLECTOR_REQUIRED_MESSAGE);
   }
   return extensionId;
+}
+
+async function getValidatedDateSummaryExtensionId(): Promise<string> {
+  const extensionId = await detectOrderCollectionExtensionId(
+    1200,
+    'collectCoupangShipmentDateSummaryValidatedV1',
+  );
+  if (extensionId) return extensionId;
+
+  const legacyExtensionId = await detectOrderCollectionExtensionId(
+    1200,
+    'collectCoupangShipmentFiles',
+  );
+  if (legacyExtensionId) throw new Error(ORDER_COLLECTOR_RELOAD_MESSAGE);
+
+  return getOrderCollectorExtensionId('collectCoupangShipmentDateSummaryValidatedV1');
 }
 
 // ── 발송일 조회(달력용): 최근 쉽먼트를 발송일별 집계로 반환 ──
@@ -115,14 +149,54 @@ interface CoupangShipmentDateSummaryResult {
 }
 
 export async function collectCoupangShipmentDateSummaryViaExtension(): Promise<CoupangShipmentDateSummaryItem[]> {
-  const extensionId = await getOrderCollectorExtensionId('collectCoupangShipmentFiles');
+  const extensionId = await getValidatedDateSummaryExtensionId();
   const response = await sendToExtension<CoupangShipmentDateSummaryResult>(
     extensionId,
     { action: 'collectCoupangShipmentDateSummary' },
     90000,
   );
   if (!response?.success) throwExtensionError(response, '쿠팡 쉽먼트 발송일 조회에 실패했습니다.');
-  return response.dates ?? [];
+  return validateDateSummaryResponse(response);
+}
+
+function validateDateSummaryResponse(
+  response: CoupangShipmentDateSummaryResult,
+): CoupangShipmentDateSummaryItem[] {
+  const invalid = () => {
+    throw new CoupangShipmentExtensionError(
+      '쿠팡 쉽먼트 조회 결과가 불완전합니다. 주문수집 확장프로그램을 새로고침한 뒤 다시 조회해주세요.',
+      COUPANG_SHIPMENT_RESPONSE_INVALID_CODE,
+    );
+  };
+  if (
+    !Array.isArray(response.dates)
+    || !Number.isInteger(response.scannedPages)
+    || (response.scannedPages ?? 0) < 1
+    || !Number.isInteger(response.totalRows)
+    || (response.totalRows ?? -1) < 0
+  ) {
+    return invalid();
+  }
+
+  const seenDates = new Set<string>();
+  let countedRows = 0;
+  for (const item of response.dates) {
+    if (
+      !item
+      || !/^\d{4}-\d{2}-\d{2}$/.test(item.date)
+      || seenDates.has(item.date)
+      || !Number.isInteger(item.count)
+      || item.count < 1
+      || !Number.isInteger(item.boxes)
+      || item.boxes < 0
+    ) {
+      return invalid();
+    }
+    seenDates.add(item.date);
+    countedRows += item.count;
+  }
+  if (countedRows !== response.totalRows) return invalid();
+  return response.dates;
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   collectCoupangShipmentDateSummaryViaExtension,
   collectCoupangShipmentDraftsViaExtension,
   isCoupangCookieBloatError,
+  isCoupangShipmentSessionRequiredError,
   openCoupangShipmentPageViaExtension,
   type CoupangShipmentDateSummaryItem,
 } from './lib/coupang-shipment-extension';
@@ -35,6 +36,7 @@ import {
   type CoupangShipmentServerFile,
   type CoupangShipmentServerFileKind,
 } from './lib/coupang-shipment-api';
+import { persistAndVerifyCoupangShipmentDateSummary } from './lib/coupang-shipment-date-summary';
 import {
   deleteCoupangShipmentFile,
   loadCoupangShipmentFiles,
@@ -124,6 +126,19 @@ export default function CoupangShipmentsPage() {
           ...base,
           duration: 12000,
           action: { label: '쿠팡 쿠키 정리', onClick: () => void remediateCoupangCookies() },
+        });
+      } else if (isCoupangShipmentSessionRequiredError(error)) {
+        toast.error(message, {
+          ...base,
+          duration: 12000,
+          action: {
+            label: 'Supplier Hub 열기',
+            onClick: () => {
+              void openCoupangShipmentPageViaExtension().catch(() => {
+                window.open(COUPANG_SHIPMENT_PAGE_URL, '_blank', 'noopener,noreferrer');
+              });
+            },
+          },
         });
       } else {
         toast.error(message, base);
@@ -224,27 +239,20 @@ export default function CoupangShipmentsPage() {
       }
 
       const latest = [...dates].sort((a, b) => b.date.localeCompare(a.date))[0];
+
+      // 저장 직후 서버에서 다시 읽어 영속 여부를 확인한 값만 달력과 성공 상태에 반영한다.
+      const persisted = await persistAndVerifyCoupangShipmentDateSummary(dates, {
+        save: saveCoupangShipmentDateSummary,
+        load: loadCoupangShipmentDateSummary,
+      });
       setSelectedDate(latest.date);
+      applyDateSummary(persisted);
 
-      // 조회 결과를 DB에 저장(신규 추가·기존 갱신)하고, 병합된 전체 세트로 달력을 채운다.
-      let merged: CoupangShipmentDateSummaryItem[] = dates;
-      try {
-        const saved = await saveCoupangShipmentDateSummary(dates);
-        merged = saved.items.map((item) => ({
-          date: item.date,
-          count: item.count,
-          boxes: item.boxes,
-        }));
-      } catch {
-        notify('info', '조회는 됐지만 DB 저장에 실패했습니다. 값은 이번 세션에만 표시됩니다.');
-      }
-      applyDateSummary(merged);
-
-      const message = `발송일 ${formatNumber(merged.length)}일 · 최신 ${latest.date} (${formatNumber(latest.count)}건)`;
+      const message = `발송일 ${formatNumber(persisted.length)}일 · 최신 ${latest.date} (${formatNumber(latest.count)}건)`;
       toast.success(message);
       notify('succeeded', message);
     } catch (error) {
-      showExtensionErrorToast(error, '발송일 조회 실패');
+      showExtensionErrorToast(error, '발송일 조회·저장 실패');
     } finally {
       setSummaryLoading(false);
     }
