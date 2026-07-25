@@ -175,6 +175,12 @@ describe('previewRocketPurchases', () => {
     });
   });
 
+  it('treats the empty POST body for no active workbook as a normal null result', async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce({});
+
+    await expect(getActiveRocketWorkbook()).resolves.toBeNull();
+  });
+
   it('lists and loads server-saved Rocket evidence through account-scoped actions', async () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce([{
       sourceImportRunId: RUN_ID,

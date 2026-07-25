@@ -91,6 +91,7 @@ export function RocketConfirmPanel({
     abandoning,
     setTemplateFile,
     loading,
+    collecting,
     error,
     collectionWarning,
     canExport,
@@ -222,7 +223,7 @@ export function RocketConfirmPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
           <div className="flex items-center gap-2">
             <CalendarDays size={16} className="text-purple-600" />
-            <span className="text-sm font-semibold text-slate-900">거래확인요청 · 입고예정일 달력</span>
+            <span className="text-sm font-semibold text-slate-900">로켓 PO 보관 · 입고예정일 달력</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -236,7 +237,11 @@ export function RocketConfirmPanel({
               )}
             >
               {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-              {loading ? '수집·계산 중…' : '이 달 쿠팡에서 수집'}
+              {collecting
+                ? '쿠팡 수집·저장 중…'
+                : loading
+                  ? '저장본 계산 중…'
+                  : '이 달 쿠팡 PO 수집·보관'}
             </button>
           </div>
         </div>

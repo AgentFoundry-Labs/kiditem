@@ -124,6 +124,45 @@ describe('RocketPurchasePreviewService', () => {
     expect(result).not.toHaveProperty('submissionAttempt');
   });
 
+  it('publishes the full monthly archive but previews only confirmation-requested rows', async () => {
+    const deps = dependencies();
+    const completedLineId = '1002:P-2:8801234567891:1';
+    vi.mocked(deps.catalog.publishAndResolve).mockResolvedValue({
+      blockingReason: null,
+      catalog: { run: { id: 'run-1' }, duplicate: false, changes: {} },
+      identities: [
+        { poLineId, channelSkuId },
+        { poLineId: completedLineId, channelSkuId },
+      ],
+    });
+    const input = {
+      ...request(),
+      previewScope: 'confirmation_requested' as const,
+      collection: { ...request().collection, detailPoCount: 2 },
+      rows: [
+        { ...request().rows[0]!, poStatusCode: 'RP' },
+        {
+          ...request().rows[0]!,
+          poLineId: completedLineId,
+          poNumber: '1002',
+          productNo: 'P-2',
+          barcode: '8801234567891',
+          poStatusCode: 'CI',
+        },
+      ],
+    };
+    const service = previewService(deps);
+
+    const result = await service.preview({ organizationId, userId, request: input });
+
+    expect(deps.catalog.publishAndResolve).toHaveBeenCalledWith({
+      organizationId,
+      userId,
+      request: input,
+    });
+    expect(result.rows.map(({ poLineId: resultLineId }) => resultLineId)).toEqual([poLineId]);
+  });
+
   it.each(['collection_incomplete', 'vendor_mismatch'] as const)(
     'blocks %s before capacity or freshness reads',
     async (blockingReason) => {

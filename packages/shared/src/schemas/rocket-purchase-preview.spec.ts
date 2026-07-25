@@ -258,6 +258,17 @@ describe('Rocket purchase preview contract', () => {
     })).toMatchObject({ clampEditedQuantities: true });
   });
 
+  it('accepts only the explicit confirmation-requested preview scope', () => {
+    expect(RocketPurchasePreviewRequestSchema.parse({
+      ...request(),
+      previewScope: 'confirmation_requested',
+    })).toMatchObject({ previewScope: 'confirmation_requested' });
+    expect(() => RocketPurchasePreviewRequestSchema.parse({
+      ...request(),
+      previewScope: 'historical_only',
+    })).toThrow();
+  });
+
   it('parses preview-only row reasons without a submission or artifact payload', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
       collectionRunId: RUN_ID,

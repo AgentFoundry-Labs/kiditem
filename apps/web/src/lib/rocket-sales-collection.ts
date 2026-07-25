@@ -66,7 +66,9 @@ export async function collectRocketPoRowsForConfirmationFromExtension({
   collection: RocketPoCollectionEvidence;
 }> {
   return collectRocketPoRows(
-    { from, to, status: 'RP', dateType: 'WAREHOUSING_PLAN_DATE' },
+    // Preserve every monthly PO status for the calendar/history. The Supply
+    // preview narrows the workbook decision back to confirmation-requested rows.
+    { from, to, status: '', dateType: 'WAREHOUSING_PLAN_DATE' },
     'collectRocketPoRowsConfirmationV1',
   );
 }
