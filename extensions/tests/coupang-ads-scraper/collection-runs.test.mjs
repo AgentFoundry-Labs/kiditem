@@ -86,7 +86,15 @@ function createRuntime(initialSessions = []) {
     collectionWindow,
     sessions,
     now: () => 123,
-    cancelScrape: async (runId) => calls.push(['cancelScrape', runId]),
+    cancelScrape: async (runId) => {
+      calls.push(['cancelScrape', runId]);
+      return {
+        success: true,
+        cancelled: false,
+        runId,
+        staleRunId: 'newer-run',
+      };
+    },
     cancelWingRank: async (runId) => calls.push(['cancelWingRank', runId]),
     cancelCatalog: async (runId) => calls.push(['cancelCatalog', runId]),
     cancelKeywordRank: async (runId) => calls.push(['cancelKeywordRank', runId]),
@@ -359,8 +367,14 @@ test('cancel uses dedicated window ownership and ordinary tab owner cancellation
   const dashboard = createRuntime([
     session({ runId: 'dashboard', producer: 'dashboard.wing_sales' }),
   ]);
-  await dashboard.controller.cancel('dashboard');
+  const dashboardResult = await dashboard.controller.cancel('dashboard');
   assert.deepEqual(dashboard.calls, [['cancelScrape', 'dashboard']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(dashboardResult)), {
+    success: true,
+    cancelled: false,
+    runId: 'dashboard',
+    staleRunId: 'newer-run',
+  });
 
   const keyword = createRuntime([
     session({ runId: 'keyword', producer: 'advertising.keyword_rank' }),

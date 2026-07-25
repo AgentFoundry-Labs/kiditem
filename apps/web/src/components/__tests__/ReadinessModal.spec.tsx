@@ -7,6 +7,13 @@ import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
 const mockApiGet = vi.hoisted(() => vi.fn());
 const mockAdSyncRun = vi.hoisted(() => vi.fn());
+const mockAdCampaignSyncStatus = vi.hoisted(() => ({
+  data: {
+    status: 'missing' as 'fresh' | 'stale' | 'incomplete' | 'missing',
+    lastCompletedAt: null as string | null,
+    campaignCount: 0,
+  },
+}));
 const mockSearchParams = vi.hoisted(() => new URLSearchParams());
 const mockCollectionSession = vi.hoisted(() => vi.fn());
 const mockHandleCollect = vi.hoisted(() => vi.fn());
@@ -53,6 +60,10 @@ vi.mock('@/app/(advertising)/ad-ops/hooks/useAdSync', () => ({
     loading: false,
     run: mockAdSyncRun,
   }),
+}));
+
+vi.mock('@/components/readiness/useAdCampaignSyncStatus', () => ({
+  useAdCampaignSyncStatus: () => mockAdCampaignSyncStatus,
 }));
 
 vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({
@@ -138,6 +149,11 @@ describe('ReadinessModal', () => {
     mockApiGet.mockReset();
     mockApiGet.mockResolvedValue(makeReadinessResponse());
     mockAdSyncRun.mockReset();
+    mockAdCampaignSyncStatus.data = {
+      status: 'missing',
+      lastCompletedAt: null,
+      campaignCount: 0,
+    };
     mockCollectionSession.mockReset();
     mockCollectionSession.mockReturnValue({ data: null });
     mockHandleCollect.mockReset();
@@ -187,6 +203,68 @@ describe('ReadinessModal', () => {
 
     expect(await screen.findByRole('button', { name: '대시보드 열기' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '오늘 하루 보지 않기' })).not.toBeInTheDocument();
+  });
+
+  it('marks only server-confirmed dates green in the daily status strip', async () => {
+    const response = makeReadinessResponse();
+    mockApiGet.mockResolvedValue({
+      ...response,
+      checks: [
+        {
+          ...response.checks[0],
+          expectedDates: ['2026-05-20', '2026-05-21'],
+          missingDates: ['2026-05-21'],
+        },
+        response.checks[1],
+      ],
+    });
+
+    const view = render(<ReadinessModal open onClose={vi.fn()} />, {
+      wrapper: wrapper(),
+    });
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: '일별 매출 날짜별 현황 보기',
+      }),
+    );
+
+    expect(view.container.querySelector('[title="2026-05-20"]')).toHaveClass(
+      'bg-emerald-500',
+    );
+    expect(view.container.querySelector('[title="2026-05-21"]')).toHaveClass(
+      'bg-rose-500',
+    );
+  });
+
+  it('shows server-confirmed daily coverage for a completed ad check', async () => {
+    const response = makeReadinessResponse();
+    mockApiGet.mockResolvedValue({
+      ...response,
+      checks: [
+        response.checks[0],
+        {
+          ...response.checks[1],
+          expectedDates: ['2026-05-19', '2026-05-20'],
+          missingDates: [],
+        },
+      ],
+    });
+
+    const view = render(<ReadinessModal open onClose={vi.fn()} />, {
+      wrapper: wrapper(),
+    });
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: '광고 성과 날짜별 현황 보기',
+      }),
+    );
+
+    expect(view.container.querySelector('[title="2026-05-19"]')).toHaveClass(
+      'bg-emerald-500',
+    );
+    expect(view.container.querySelector('[title="2026-05-20"]')).toHaveClass(
+      'bg-emerald-500',
+    );
   });
 
   it('fetches fresh readiness when a controlled modal is reopened', async () => {
@@ -312,5 +390,29 @@ describe('ReadinessModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: '광고 동기화' }));
 
     expect(mockAdSyncRun).toHaveBeenCalledWith();
+  });
+
+  it('shows 최신 only for a server-confirmed complete daily ad sweep', async () => {
+    mockAdCampaignSyncStatus.data = {
+      status: 'fresh',
+      lastCompletedAt: new Date().toISOString(),
+      campaignCount: 9,
+    };
+
+    const view = render(<ReadinessModal open onClose={vi.fn()} />, {
+      wrapper: wrapper(),
+    });
+
+    expect(await screen.findByText('최신')).toBeInTheDocument();
+    expect(view.container).toHaveTextContent('마지막 완료');
+
+    mockAdCampaignSyncStatus.data = {
+      status: 'stale',
+      lastCompletedAt: null,
+      campaignCount: 9,
+    };
+    view.rerender(<ReadinessModal open onClose={vi.fn()} />);
+
+    expect(screen.queryByText('최신')).not.toBeInTheDocument();
   });
 });

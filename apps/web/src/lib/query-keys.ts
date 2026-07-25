@@ -114,9 +114,12 @@ export const queryKeys = {
     list: () => [...queryKeys.ads.all, 'list'] as const,
     products: (period?: string) => [...queryKeys.ads.all, 'products', period] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
+    campaignSyncStatus: () => [...queryKeys.ads.all, 'campaign-sync-status'] as const,
     campaignProducts: (channelAccountId: string, campaignIdentity: string, period?: string) =>
       [...queryKeys.ads.all, 'campaigns', channelAccountId, campaignIdentity, period] as const,
     trends: (period?: string | number) => [...queryKeys.ads.all, 'trends', period] as const,
+    trendsRange: (from: string, to: string) =>
+      [...queryKeys.ads.all, 'trends', 'range', from, to] as const,
     rules: (period?: string | number) => [...queryKeys.ads.all, 'rules', period] as const,
     plan: (period?: string | number) => [...queryKeys.ads.all, 'plan', period] as const,
     recommend: (period?: string | number) => [...queryKeys.ads.all, 'recommend', period] as const,
@@ -250,9 +253,11 @@ export const queryKeys = {
     trendPopularKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'popular-keywords', days] as const,
     trend1688Hot: (days: number) => [...queryKeys.sourcing.all, 'trend', '1688-hot', days] as const,
     trendShorts: (days: number) => [...queryKeys.sourcing.all, 'trend', 'shorts', days] as const,
+    trendTiktokCc: (days: number) => [...queryKeys.sourcing.all, 'trend', 'tiktok-cc', days] as const,
     liveCommerceStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'status'] as const,
     liveCommerceExtensionStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'extension-status'] as const,
     liveCommerceSnapshots: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'snapshots', days] as const,
+    liveCommerceKeywords: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'keywords', days] as const,
     competitors: (days: number) => [...queryKeys.sourcing.all, 'competitors', days] as const,
     competitorCollectionStatus: (runId: string | null) =>
       [...queryKeys.sourcing.all, 'competitors', 'collection-status', runId] as const,

@@ -5,6 +5,7 @@ import {
   type NaverPopularKeywordSnapshotRow,
   type Sourcing1688HotProductSnapshotRow,
   type ShortsSnapshotRow,
+  type TiktokCcSnapshotRow,
   type TrendCollectionRepositoryPort,
 } from '../port/out/repository/trend-collection.repository.port';
 import {
@@ -77,6 +78,26 @@ export interface ShortsTrendView {
   dailyViewGrowth: number | null;
   firstSeenAt: string;
   lastSeenAt: string;
+}
+
+export interface TiktokCcTrendItemView {
+  trendType: string;
+  entityKey: string;
+  rank: number | null;
+  label: string | null;
+  industry: string | null;
+  sourceKeyword: string | null;
+  postCount: number | null;
+  viewCount: number | null;
+  growthPct: number | null;
+  thumbnailUrl: string | null;
+  sourceUrl: string | null;
+  newlyRanked: boolean;
+}
+
+export interface TiktokCcRegionView {
+  region: string;
+  items: TiktokCcTrendItemView[];
 }
 
 interface ShortsPeriodAggregate {
@@ -274,6 +295,55 @@ export class TrendQueryService {
 
     return { days, businessDate: toDateStringFromMs(latestDate), capturedAt, items };
   }
+
+  async getTiktokCc(
+    organizationId: string,
+    days: number,
+  ): Promise<{ days: number; businessDate: string | null; capturedAt: string | null; regions: TiktokCcRegionView[] }> {
+    const rows = await this.repository.findTiktokCcHistory({ organizationId, days });
+    if (rows.length === 0) return { days, businessDate: null, capturedAt: null, regions: [] };
+
+    const latestDate = maxBusinessDateMs(rows);
+    const latestRows = rows.filter((row) => row.businessDate.getTime() === latestDate);
+    const capturedAt = latestCapturedAt(latestRows);
+    const priorKeys = new Set<string>();
+    for (const row of rows) {
+      if (row.businessDate.getTime() < latestDate) {
+        priorKeys.add(tiktokCcKey(row));
+      }
+    }
+
+    const regions: TiktokCcRegionView[] = [];
+    for (const [region, regionRows] of groupBy(latestRows, (row) => row.region)) {
+      const items = [...regionRows]
+        .sort((a, b) => {
+          if (a.trendType !== b.trendType) return a.trendType.localeCompare(b.trendType);
+          return (a.rank ?? Number.POSITIVE_INFINITY) - (b.rank ?? Number.POSITIVE_INFINITY);
+        })
+        .map((row) => ({
+          trendType: row.trendType,
+          entityKey: row.entityKey,
+          rank: row.rank,
+          label: row.label,
+          industry: row.industry,
+          sourceKeyword: row.sourceKeyword,
+          postCount: row.postCount,
+          viewCount: row.viewCount,
+          growthPct: row.growthPct,
+          thumbnailUrl: row.thumbnailUrl,
+          sourceUrl: row.sourceUrl,
+          newlyRanked: !priorKeys.has(tiktokCcKey(row)),
+        }));
+      regions.push({ region, items });
+    }
+    regions.sort((a, b) => a.region.localeCompare(b.region));
+
+    return { days, businessDate: toDateStringFromMs(latestDate), capturedAt, regions };
+  }
+}
+
+function tiktokCcKey(row: TiktokCcSnapshotRow): string {
+  return `${row.region}::${row.trendType}::${row.entityKey}`;
 }
 
 function aggregateShortsPeriod(rows: ShortsSnapshotRow[], days: number): ShortsPeriodAggregate {

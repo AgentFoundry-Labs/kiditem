@@ -33,6 +33,50 @@ export interface CampaignRollup {
   conversionsObserved: boolean;
 }
 
+export interface CampaignCurrentState {
+  channelAccountId: string;
+  campaignIdentity: string;
+  campaignId: string | null;
+  campaignName: string | null;
+  status: string | null;
+  onOff: string | null;
+}
+
+/**
+ * Latest server-observed browser sweep for one channel account.
+ *
+ * `rosterComplete` is true only when the producer emitted an explicit
+ * identity-complete terminal marker and the persisted distinct stable
+ * identities exactly match its campaign count. Callers must ignore
+ * `campaigns` when it is false.
+ */
+export interface CampaignCurrentSweep {
+  channelAccountId: string;
+  collectionRunId: string;
+  collectionAttempt: number;
+  completedAt: Date;
+  campaignDailyCollectionComplete: boolean;
+  campaignDailyWindowDays: number | null;
+  campaignDailyFrom: string | null;
+  campaignDailyTo: string | null;
+  rosterComplete: boolean;
+  campaigns: CampaignCurrentState[];
+}
+
+/**
+ * Completion evidence for the exact Coupang account selected by account-less
+ * browser ad ingest.
+ *
+ * `dailyFactsComplete` is repository-proven evidence: every campaign that
+ * emitted an authoritative detail report has one persisted fact for every day
+ * in the marker window, linked back to a successful scrape run from the same
+ * collection run + attempt. Explicit metadata-only campaigns are roster
+ * evidence and are intentionally excluded from the daily-fact requirement.
+ */
+export interface CampaignSyncSweepEvidence extends CampaignCurrentSweep {
+  dailyFactsComplete: boolean;
+}
+
 export interface ProductTargetRollup {
   targetKey: string;
   channelAccountId: string;
@@ -78,6 +122,23 @@ export interface AdCampaignRepositoryPort {
   ): Promise<CampaignRollup[]>;
 
   /**
+   * Account-scoped current campaign roster from the latest completed,
+   * identity-complete browser sweep. This is state evidence, not performance
+   * data, and therefore does not fabricate dated metrics for OFF campaigns.
+   */
+  findLatestCompleteCampaignSweeps(
+    organizationId: string,
+  ): Promise<CampaignCurrentSweep[]>;
+
+  /**
+   * Latest sweep for the deterministic account used when the extension omits
+   * `channelAccountId` (active primary first, then updatedAt/id fallback).
+   */
+  findAccountlessSyncCampaignSweep(
+    organizationId: string,
+  ): Promise<CampaignSyncSweepEvidence | null>;
+
+  /**
    * Product-grain rollup. `targetType='product'` with product identity.
    * The composite campaign selector narrows to one campaign's member products;
    * campaign rollup rows never leak in.
@@ -91,10 +152,10 @@ export interface AdCampaignRepositoryPort {
     },
   ): Promise<ProductTargetRollup[]>;
 
-  /** Raw per-(listing, businessDate) rows for trend folding. */
+  /** Raw per-(listing, businessDate) rows for an inclusive trend range. */
   findAdTrendDailyRows(
     organizationId: string,
-    days: number,
+    dateRange: { from: Date; to: Date },
   ): Promise<AdTrendDailyRow[]>;
 
   /**

@@ -28,4 +28,12 @@ describe('dashboard monthly sales card preservation', () => {
     expect(pageSource).toContain('<DashboardExpenseAmount amount={spAdCost} />');
     expect(pageSource).toContain('{profitRateAvailable ? (');
   });
+
+  it('routes each channel to the integrated sales analysis instead of expanding inline', () => {
+    expect(pageSource).toContain('/sales-analysis?tab=overview&period=');
+    expect(pageSource).toContain('`${salesAnalysisHref}&channel=others`');
+    expect(pageSource).toContain('`${salesAnalysisHref}&channel=rocket`');
+    expect(pageSource).not.toContain('showChannelDetail');
+    expect(pageSource).not.toContain('<DashboardChannelSales');
+  });
 });

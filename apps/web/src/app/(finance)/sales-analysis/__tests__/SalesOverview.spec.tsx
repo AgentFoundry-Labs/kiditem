@@ -1,13 +1,25 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import SalesOverview from '../components/SalesOverview';
 import { apiClient } from '@/lib/api-client';
+import SalesOverview from '../components/SalesOverview';
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => '/sales-analysis',
+}));
+
+vi.mock('@/hooks/useSellpiaChannelSales', () => ({
+  sellpiaMonthRange: () => ({ from: '2026-07-01', to: '2026-07-25' }),
+  useSellpiaChannelSales: () => ({
+    summary: undefined,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+    sync: vi.fn(),
+    syncing: false,
+  }),
 }));
 
 function renderWithProvider() {

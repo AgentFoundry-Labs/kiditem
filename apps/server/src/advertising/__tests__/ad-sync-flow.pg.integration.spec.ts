@@ -580,6 +580,7 @@ describe('AdSync flow (PG integration, H2)', () => {
         {
           type: 'ad_campaign',
           ...AUTHORITATIVE_CAMPAIGN_DAY,
+          campaignReportScope: 'single_campaign_metadata_raw',
           dashboardOnOff: 'OFF',
           campaignName: 'Campaign OFF preserve',
           normalizedRows: [{
@@ -611,7 +612,7 @@ describe('AdSync flow (PG integration, H2)', () => {
         orderBy: { createdAt: 'desc' },
       });
       expect(offRun.metaJson).toMatchObject({
-        campaignReportAuthorityReason: 'off_campaign_metadata',
+        campaignReportAuthorityReason: 'non_authoritative_scope',
         dailyProjectionSkipped: true,
       });
     });
@@ -933,6 +934,7 @@ describe('AdSync flow (PG integration, H2)', () => {
       await adSyncService.sync(
         {
           ...base,
+          campaignReportScope: 'single_campaign_metadata_raw',
           dashboardOnOff: 'OFF',
           normalizedRows: [
             {

@@ -4,14 +4,18 @@
 
 import { apiClient } from '@/lib/api-client';
 
+// 서버가 POST /collect 로 직접 수집하는 소스.
 export type TrendSource = 'naver' | '1688' | 'shorts';
+// 시드에 태깅 가능한 소스. tiktok-cc 는 봇/리전 차단으로 확장 스크랩 전용이라
+// 서버 collect 대상이 아니라 시드 태깅 + 확장 배치로만 수집한다.
+export type TrendSeedSource = TrendSource | 'tiktok-cc';
 
 export interface TrendSeed {
   id: string;
   keyword: string;
   /** 1688 中文 검색어. null 이면 keyword 를 그대로 사용. */
   keywordCn: string | null;
-  sources: TrendSource[];
+  sources: TrendSeedSource[];
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -20,13 +24,13 @@ export interface TrendSeed {
 export interface UpsertTrendSeedInput {
   keyword: string;
   keywordCn?: string;
-  sources?: TrendSource[];
+  sources?: TrendSeedSource[];
 }
 
 export interface UpdateTrendSeedInput {
   keyword?: string;
   keywordCn?: string;
-  sources?: TrendSource[];
+  sources?: TrendSeedSource[];
   enabled?: boolean;
 }
 
@@ -111,8 +115,39 @@ export interface ShortsTrendView {
   videoUrl: string | null;
 }
 
+export type TiktokCcTrendType = 'hashtag' | 'keyword' | 'product' | 'song';
+
+export interface TiktokCcTrendItemView {
+  trendType: TiktokCcTrendType;
+  entityKey: string;
+  rank: number | null;
+  label: string | null;
+  industry: string | null;
+  sourceKeyword: string | null;
+  postCount: number | null;
+  viewCount: number | null;
+  growthPct: number | null;
+  thumbnailUrl: string | null;
+  sourceUrl: string | null;
+  /** 이전 수집일에는 없던 신규 진입. */
+  newlyRanked: boolean;
+}
+
+export interface TiktokCcRegionView {
+  region: string;
+  items: TiktokCcTrendItemView[];
+}
+
 export function collectTrend(sources?: TrendSource[]): Promise<TrendCollectResult> {
   return apiClient.post<TrendCollectResult>('/api/sourcing/trend/collect', { sources });
+}
+
+export function fetchTiktokCcTrends(
+  days: number,
+): Promise<{ days: number; businessDate: string | null; capturedAt: string | null; regions: TiktokCcRegionView[] }> {
+  return apiClient.get<{ days: number; businessDate: string | null; capturedAt: string | null; regions: TiktokCcRegionView[] }>(
+    `/api/sourcing/trend/tiktok-cc?days=${days}`,
+  );
 }
 
 export async function fetch1688CollectionTargets(): Promise<Trend1688CollectionTarget[]> {
@@ -179,13 +214,18 @@ export function fetchShortsTrends(
   );
 }
 
-export const TREND_SOURCE_META: Record<TrendSource, { label: string; className: string }> = {
+export const TREND_SOURCE_META: Record<TrendSeedSource, { label: string; className: string }> = {
   naver: { label: '네이버', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
   '1688': { label: '1688', className: 'bg-orange-50 text-orange-700 ring-orange-200' },
   shorts: { label: '쇼츠', className: 'bg-rose-50 text-rose-700 ring-rose-200' },
+  'tiktok-cc': { label: '틱톡', className: 'bg-slate-900 text-white ring-slate-700' },
 };
 
+/** 서버 사이드 수집(collect) 버튼에 노출하는 소스 순서. tiktok-cc 제외. */
 export const TREND_SOURCE_ORDER: TrendSource[] = ['naver', '1688', 'shorts'];
+
+/** 시드 태깅에 노출하는 소스 순서(확장 스크랩 전용 tiktok-cc 포함). */
+export const TREND_SEED_SOURCE_ORDER: TrendSeedSource[] = ['naver', '1688', 'shorts', 'tiktok-cc'];
 
 /** 문구·완구 빠른 시드 제안. 클릭 시 입력값만 채우고 자동 생성하지 않는다. */
 export const KOREAN_SEED_SUGGESTIONS = [

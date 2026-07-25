@@ -102,6 +102,7 @@ describe("SourcingModule canonical owner wiring", () => {
     ).toEqual([
       "SourcingExtensionIngestController",
       "Sourcing1688TrendExtensionController",
+      "SourcingTiktokCcTrendExtensionController",
       "SourcingLiveCommerceExtensionController",
       "SourcingKeywordResearchController",
       "Sourcing1688ImageSearchController",
@@ -439,6 +440,7 @@ describe("SourcingModule canonical owner wiring", () => {
       ),
     ).toEqual([
       "sourcing",
+      "sourcing/extension/trend",
       "sourcing/extension/trend",
       "sourcing/extension/trend",
       "sourcing/keyword-research/naver",

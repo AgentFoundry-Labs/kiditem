@@ -24,3 +24,9 @@ export { UpdateStockTransferDto } from './update-stock-transfer.dto';
 
 // Picking
 export { UpdatePickingItemDto } from './update-picking-item.dto';
+
+// Coupang shipments
+export {
+  CoupangShipmentDateSummaryItemDto,
+  SaveCoupangShipmentDateSummaryDto,
+} from './coupang-shipment-date-summary.dto';

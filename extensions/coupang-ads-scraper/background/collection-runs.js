@@ -200,8 +200,13 @@
         session.producer === "advertising.ad_sync" ||
         session.producer === "advertising.scrape_targets"
       ) {
-        await options.cancelScrape(runId);
-        return { success: true, cancelled: true, runId };
+        return (
+          (await options.cancelScrape(runId)) || {
+            success: true,
+            cancelled: true,
+            runId,
+          }
+        );
       }
       if (session.producer === "channels.coupang_catalog") {
         await options.cancelCatalog(runId);

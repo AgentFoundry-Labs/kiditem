@@ -13,6 +13,10 @@ conversion.
 
 - Icecream Mall PO delivery inquiry grid capture.
 - Coupang supplier ASN visible-row Label/statement download triggers.
+- Coupang shipment cookie remediation: on a supplier.coupang.com `400 Bad
+  Request` (accumulated cookies overflow the request header), collectors
+  surface `errorCode: coupang_cookie_bloat`, and `clearCoupangCookies` removes
+  the cookies applying to supplier.coupang.com so the operator can re-login.
 - Supported marketplace order export capture, including Kakao Shopping Seller.
 - Coupang Rocket purchase-order list/detail collection for purchase quantity
   previews and confirmation-workbook evidence.
@@ -43,6 +47,14 @@ conversion.
 - Destructive marketplace actions such as tracking registration require an
   explicit confirmation in the KidItem web page before the allowlisted action
   is sent to the extension.
+- The `cookies` permission backs only `clearCoupangCookies`, the
+  supplier.coupang.com 400-recovery action. It is destructive — clearing the
+  shared `.coupang.com` cookies signs the operator out of every Coupang portal
+  (supplier/WING/Rocket), so it requires an explicit KidItem web-page
+  confirmation that states that blast radius. Use `chrome.cookies` only to
+  remove cookies by name/path; never read, return, forward, or store cookie
+  values. The permission spans all `host_permissions` origins, but only
+  supplier.coupang.com cookies may be touched.
 - Do not send `organizationId`; backend auth/session scope owns organization
   context.
 

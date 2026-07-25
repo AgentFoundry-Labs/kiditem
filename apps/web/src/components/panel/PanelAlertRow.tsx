@@ -8,6 +8,11 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { cancelOperation } from '@/lib/operation-cancellation';
+import {
+  browserCollectionRunIdFromOperationKey,
+  sendBrowserCollectionControl,
+  syncBrowserCollectionAlert,
+} from '@/lib/browser-collection-session';
 import { isApiError } from '@/lib/api-error';
 import { cn, timeAgo } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -85,6 +90,8 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   const href = item.href;
   const isActiveOperation =
     isOperation && (item.status === 'running' || item.status === 'pending');
+  const browserCollectionRunId =
+    browserCollectionRunIdFromOperationKey(item.operationKey);
   const showProgress =
     isOperation &&
     (item.status === 'running' || item.status === 'pending') &&
@@ -96,8 +103,7 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
     item.actionTaskId == null && !isActiveOperation;
   const canCancel =
     isActiveOperation &&
-    Boolean(item.operationKey) &&
-    item.sourceType !== 'browser_collection_session';
+    Boolean(item.operationKey);
   const canDismiss =
     !isOperation || (item.status !== 'running' && item.status !== 'pending');
 
@@ -128,6 +134,20 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
       finishedAt: new Date().toISOString(),
     });
     try {
+      if (browserCollectionRunId) {
+        const session = await sendBrowserCollectionControl(
+          browserCollectionRunId,
+          'cancelCollectionSession',
+        );
+        if (!session || session.status !== 'cancelled') {
+          throw new Error('브라우저 수집 중단 상태를 확인하지 못했습니다.');
+        }
+        await syncBrowserCollectionAlert(session).catch((error) => {
+          console.warn('[panel] browser collection alert sync failed', error);
+        });
+        return;
+      }
+
       const result = await cancelOperation({
         targetType: 'operation_key',
         operationKey: item.operationKey,

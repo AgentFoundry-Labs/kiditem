@@ -37,6 +37,7 @@ vi.mock('../extension-bridge', () => ({
 
 import {
   browserCollectionOperationKey,
+  browserCollectionRunIdFromOperationKey,
   findBrowserCollectionSession,
   listBrowserCollectionSessions,
   recordMissingBrowserCollection,
@@ -85,6 +86,12 @@ describe('browser collection alert synchronization', () => {
     expect(browserCollectionOperationKey(RUN_ID)).toBe(
       `browser-collection:${RUN_ID}`,
     );
+    expect(
+      browserCollectionRunIdFromOperationKey(`browser-collection:${RUN_ID}`),
+    ).toBe(RUN_ID);
+    expect(
+      browserCollectionRunIdFromOperationKey('browser-collection:not-a-run'),
+    ).toBeNull();
   });
 
   it('starts one canonical personal alert when a session is running', async () => {
@@ -446,6 +453,28 @@ describe('browser collection extension lookup and controls', () => {
 
     await expect(result).resolves.toEqual(cancelled);
     expect(reads).toBe(2);
+  });
+
+  it('rejects when the owner still reports a non-cancelled session after the confirmation window', async () => {
+    vi.useFakeTimers();
+    mockSend.mockImplementation(
+      async (extensionId: string, command: { action: string }) => {
+        if (extensionId !== 'coupang-extension') return null;
+        if (command.action === 'getCollectionSession') return session();
+        return null;
+      },
+    );
+
+    const result = sendBrowserCollectionControl(
+      RUN_ID,
+      'cancelCollectionSession',
+    );
+    const rejection = expect(result).rejects.toThrow(
+      /중단 상태를 확인하지 못했습니다/,
+    );
+    await vi.runAllTimersAsync();
+
+    await rejection;
   });
 
   it('surfaces an explicit extension control failure without reporting stale state', async () => {

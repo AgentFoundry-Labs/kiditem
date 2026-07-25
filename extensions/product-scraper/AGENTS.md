@@ -15,6 +15,7 @@ that contain `__tests__` or other `_`-prefixed committed paths.
 - Alibaba/1688 DOM and page-data extraction
 - Product-data sync to the sourcing extension ingest API
 - 1688/Douyin live broadcast and exposed-product snapshots from logged-in pages
+- TikTok Creative Center trend snapshots (hashtags, top products, keywords)
 - Popup API-base setting and manual collection UI
 
 ## API Contract
@@ -25,6 +26,8 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   `https://staging.merchon.org`.
 - Product data sync posts to `/product-data`.
 - Live-commerce snapshots post to `/trend/live-commerce-results`.
+- TikTok Creative Center reads targets from `/trend/tiktok-cc-targets` and posts
+  snapshots to `/trend/tiktok-cc-results`.
 - Authorization uses the current Supabase access token delivered by the
   logged-in KidItem web tab through `chrome.runtime.sendMessage` and stored in
   `chrome.storage.local` for extension API calls. Do not reintroduce a separate
@@ -52,9 +55,12 @@ that contain `__tests__` or other `_`-prefixed committed paths.
 ## Boundary Rules
 
 - Host permissions stay limited to Alibaba, 1688, Douyin, Jinritemai product
-  links, Tmall image CDN, local KidItem web app origins, and local backend
-  origins. Douyin is required for the operator-opened live room; Jinritemai is
-  required only for product links rendered inside that room.
+  links, `ads.tiktok.com` (TikTok Creative Center Trends), Tmall image CDN, local
+  KidItem web app origins, and local backend origins. Douyin is required for the
+  operator-opened live room; Jinritemai is required only for product links
+  rendered inside that room. `ads.tiktok.com` hosts the bot/region-gated Creative
+  Center, whose own `creative_radar_api` responses are captured by a MAIN-world
+  hook (`tiktok-cc-hook.js`) that never receives KidItem tokens or backend URLs.
 - Do not add broad `*://*/*` permissions.
 - Add new marketplace hosts only with a matching extractor and backend contract.
 - Backend payload changes require checking `background.js` and the sourcing

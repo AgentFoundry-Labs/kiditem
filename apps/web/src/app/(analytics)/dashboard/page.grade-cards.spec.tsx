@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
+import Dashboard from './page';
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
@@ -9,7 +9,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('next/dynamic', () => ({ default: () => () => null }));
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }));
-vi.mock('./hooks/useSellpiaChannelSales', () => ({
+vi.mock('@/hooks/useSellpiaChannelSales', () => ({
   sellpiaPeriodRange: () => ({ from: '2026-07-01', to: '2026-07-24' }),
   useSellpiaChannelSales: () => ({
     summary: undefined,
@@ -35,8 +35,6 @@ vi.mock('@/lib/api-client', async () => {
     },
   };
 });
-
-import Dashboard from './page';
 
 const sales = {
   today: { revenue: 0, orders: 0 },

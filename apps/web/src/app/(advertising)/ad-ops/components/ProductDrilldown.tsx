@@ -44,7 +44,7 @@ export function ProductDrilldown({ campaign, period }: Props) {
   });
   const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
 
-  const { data, isLoading } = useQuery({
+  const productsQuery = useQuery({
     queryKey: queryKeys.ads.campaignProducts(
       campaign.channelAccountId,
       campaign.campaignIdentity,
@@ -58,7 +58,7 @@ export function ProductDrilldown({ campaign, period }: Props) {
       ),
   });
 
-  const products = data ?? [];
+  const products = productsQuery.data ?? [];
   const totalPages = Math.ceil(products.length / pageSize);
   const paged = products.slice(page * pageSize, (page + 1) * pageSize);
 
@@ -98,9 +98,26 @@ export function ProductDrilldown({ campaign, period }: Props) {
         )}
       </div>
 
-      {isLoading ? (
+      {productsQuery.isLoading ? (
         <div className="text-center py-8 text-sm" style={{ color: 'var(--text-tertiary)' }}>
           상품별 데이터 로딩 중...
+        </div>
+      ) : productsQuery.isError ? (
+        <div className="flex flex-col items-center py-10 text-center">
+          <p className="text-sm font-medium" style={{ color: 'var(--danger)' }}>
+            이 캠페인의 광고상품 데이터를 불러오지 못했습니다.
+          </p>
+          <p className="mt-1.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+            상품 0건이 아니라 조회 요청이 실패한 상태입니다.
+          </p>
+          <button
+            type="button"
+            onClick={() => void productsQuery.refetch()}
+            className="mt-3 rounded-lg px-3 py-2 text-xs font-semibold text-white"
+            style={{ background: 'var(--primary)' }}
+          >
+            다시 시도
+          </button>
         </div>
       ) : products.length === 0 ? (
         <div className="text-center py-10 px-4">

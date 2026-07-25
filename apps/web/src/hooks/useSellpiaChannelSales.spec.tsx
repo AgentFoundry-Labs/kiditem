@@ -9,7 +9,10 @@ import {
   collectSellpiaSaleSummaryFromExtension,
   readSellpiaSalesCacheFromExtension,
 } from '@/lib/sellpia-sales-collection';
-import { useSellpiaChannelSales } from './useSellpiaChannelSales';
+import {
+  sellpiaMonthRange,
+  useSellpiaChannelSales,
+} from './useSellpiaChannelSales';
 
 vi.mock('@/lib/browser-storage', () => ({
   safeStorageGet: vi.fn(),
@@ -165,5 +168,21 @@ describe('useSellpiaChannelSales synchronization', () => {
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['readiness'] });
     expect(result.current.syncing).toBe(false);
+  });
+});
+
+describe('sellpiaMonthRange', () => {
+  it('uses today as the end of the current KST month', () => {
+    expect(sellpiaMonthRange('2026-07', '2026-07-25')).toEqual({
+      from: '2026-07-01',
+      to: '2026-07-25',
+    });
+  });
+
+  it('uses the calendar month end for a completed month', () => {
+    expect(sellpiaMonthRange('2024-02', '2026-07-25')).toEqual({
+      from: '2024-02-01',
+      to: '2024-02-29',
+    });
   });
 });

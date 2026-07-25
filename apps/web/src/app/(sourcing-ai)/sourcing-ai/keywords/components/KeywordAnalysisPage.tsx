@@ -685,7 +685,7 @@ export function KeywordAnalysisPage() {
 
   return (
     <main className="min-h-full bg-[var(--surface-sunken)] text-[var(--text-primary)]">
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-5 px-6 py-6">
+      <div className="flex w-full flex-col gap-5">
         <header className="px-4 py-8 text-center">
           <h1 className="inline-block bg-gradient-to-r from-[#7c3cff] via-[#376bff] to-[#00b7ff] bg-clip-text text-5xl font-black tracking-normal text-transparent md:text-6xl">
             키워드 분석

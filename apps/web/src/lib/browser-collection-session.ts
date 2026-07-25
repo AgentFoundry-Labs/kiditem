@@ -2,6 +2,7 @@
 
 import {
   BrowserCollectionCommandSchema,
+  BrowserCollectionRunIdSchema,
   BrowserCollectionSessionViewSchema,
   type BrowserCollectionCommand,
   type BrowserCollectionProducer,
@@ -31,6 +32,17 @@ const BROWSER_COLLECTION_SOURCE_TYPE = 'browser_collection_session';
 
 export const browserCollectionOperationKey = (runId: string) =>
   `browser-collection:${runId}`;
+
+export function browserCollectionRunIdFromOperationKey(
+  operationKey: string | null | undefined,
+): string | null {
+  const prefix = 'browser-collection:';
+  if (!operationKey?.startsWith(prefix)) return null;
+  const parsed = BrowserCollectionRunIdSchema.safeParse(
+    operationKey.slice(prefix.length),
+  );
+  return parsed.success ? parsed.data : null;
+}
 
 function progressRatio(
   progress: BrowserCollectionSessionView['progress'],
@@ -336,5 +348,7 @@ export async function sendBrowserCollectionControl(
     );
     if (current?.status === 'cancelled') return current;
   }
-  return current;
+  throw new Error(
+    '브라우저 수집 중단 상태를 확인하지 못했습니다. 확장프로그램을 새로고침한 뒤 다시 시도해주세요.',
+  );
 }

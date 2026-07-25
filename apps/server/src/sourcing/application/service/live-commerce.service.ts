@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { kstBusinessDate } from '../../../common/kst';
+import { matchStationeryToyTrend } from '../../domain/stationery-toy-trend';
 import {
   TAOBAO_LIVE_PORT,
   type TaobaoLivePort,
@@ -7,10 +8,26 @@ import {
 import {
   LIVE_COMMERCE_REPOSITORY_PORT,
   type LiveCommerceBroadcastSnapshotUpsert,
+  type LiveCommerceProductSnapshotRow,
   type LiveCommerceProductSnapshotUpsert,
   type LiveCommerceRepositoryPort,
   type LiveCommerceSource,
 } from '../port/out/repository/live-commerce.repository.port';
+
+const MAX_LIVE_KEYWORD_SAMPLE_TITLES = 3;
+
+export interface LiveTrendKeywordView {
+  keyword: string;
+  productCount: number;
+  broadcastCount: number;
+  sources: string[];
+  totalSales: number | null;
+  minPriceCny: number | null;
+  maxPriceCny: number | null;
+  sampleTitles: string[];
+  topImageUrl: string | null;
+  latestCapturedAt: string | null;
+}
 
 const EXTENSION_SOURCES = ['1688', 'douyin'] as const;
 type ExtensionLiveCommerceSource = (typeof EXTENSION_SOURCES)[number];
@@ -211,6 +228,99 @@ export class LiveCommerceService {
       capturedAt: row.capturedAt.toISOString(),
     }));
     return { days: input.days, broadcasts, products };
+  }
+
+  // 라이브 방송에 노출된 상품 제목에서 문구·완구 트렌드 키워드를 역추출한다.
+  // 도우인/1688 라이브 상품명은 중문이라 stationery-toy 도메인 분류(중문 포함)로 매칭한다.
+  // "SNS 라이브에서 뜬 → 검색·소싱할 키워드" 신호를 만든다.
+  async keywordDigest(
+    organizationId: string,
+    input: { days: number; source?: LiveCommerceSource },
+  ): Promise<{ days: number; keywords: LiveTrendKeywordView[] }> {
+    const productRows = await this.repository.findProductSnapshots({ organizationId, ...input });
+    const latest = latestRows(
+      productRows,
+      (row) => `${row.source} ${row.broadcastId} ${row.productId}`,
+    );
+
+    const groups = new Map<string, LiveKeywordAggregate>();
+    for (const row of latest) {
+      const label = matchStationeryToyTrend([row.title]);
+      if (!label) continue;
+      const aggregate = groups.get(label) ?? createLiveKeywordAggregate();
+      accumulateLiveKeyword(aggregate, row);
+      groups.set(label, aggregate);
+    }
+
+    const keywords: LiveTrendKeywordView[] = [...groups.entries()]
+      .map(([keyword, aggregate]) => ({
+        keyword,
+        productCount: aggregate.productCount,
+        broadcastCount: aggregate.broadcastIds.size,
+        sources: [...aggregate.sources].sort(),
+        totalSales: aggregate.hasSales ? aggregate.totalSales : null,
+        minPriceCny: aggregate.minPriceCny,
+        maxPriceCny: aggregate.maxPriceCny,
+        sampleTitles: aggregate.sampleTitles,
+        topImageUrl: aggregate.topImageUrl,
+        latestCapturedAt: aggregate.latestCapturedAt?.toISOString() ?? null,
+      }))
+      .sort((a, b) => {
+        if (b.productCount !== a.productCount) return b.productCount - a.productCount;
+        return (b.totalSales ?? 0) - (a.totalSales ?? 0);
+      });
+
+    return { days: input.days, keywords };
+  }
+}
+
+interface LiveKeywordAggregate {
+  productCount: number;
+  broadcastIds: Set<string>;
+  sources: Set<string>;
+  totalSales: number;
+  hasSales: boolean;
+  minPriceCny: number | null;
+  maxPriceCny: number | null;
+  sampleTitles: string[];
+  topImageUrl: string | null;
+  latestCapturedAt: Date | null;
+}
+
+function createLiveKeywordAggregate(): LiveKeywordAggregate {
+  return {
+    productCount: 0,
+    broadcastIds: new Set(),
+    sources: new Set(),
+    totalSales: 0,
+    hasSales: false,
+    minPriceCny: null,
+    maxPriceCny: null,
+    sampleTitles: [],
+    topImageUrl: null,
+    latestCapturedAt: null,
+  };
+}
+
+function accumulateLiveKeyword(aggregate: LiveKeywordAggregate, row: LiveCommerceProductSnapshotRow): void {
+  aggregate.productCount += 1;
+  aggregate.broadcastIds.add(`${row.source} ${row.broadcastId}`);
+  aggregate.sources.add(row.source);
+  if (row.salesCount != null) {
+    aggregate.totalSales += row.salesCount;
+    aggregate.hasSales = true;
+  }
+  if (row.priceCny != null) {
+    aggregate.minPriceCny = aggregate.minPriceCny == null ? row.priceCny : Math.min(aggregate.minPriceCny, row.priceCny);
+    aggregate.maxPriceCny = aggregate.maxPriceCny == null ? row.priceCny : Math.max(aggregate.maxPriceCny, row.priceCny);
+  }
+  const title = row.title?.trim();
+  if (title && aggregate.sampleTitles.length < MAX_LIVE_KEYWORD_SAMPLE_TITLES && !aggregate.sampleTitles.includes(title)) {
+    aggregate.sampleTitles.push(title);
+  }
+  if (!aggregate.topImageUrl && row.imageUrl) aggregate.topImageUrl = row.imageUrl;
+  if (!aggregate.latestCapturedAt || row.capturedAt > aggregate.latestCapturedAt) {
+    aggregate.latestCapturedAt = row.capturedAt;
   }
 }
 

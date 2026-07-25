@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdCampaignSnapshot } from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
@@ -29,7 +29,10 @@ function campaign(channelAccountId: string, campaignIdentity: string): AdCampaig
     campaignId: 'same-provider-id',
     campaignName: '동일 캠페인명',
     period: '7d',
+    metricsAvailable: true,
     conversionsAvailable: true,
+    status: 'ON',
+    onOff: 'ON',
     metrics,
   };
 }
@@ -64,6 +67,36 @@ describe('campaign account + identity selection', () => {
       campaignIdentity: second.campaignIdentity,
       campaignName: '동일 캠페인명',
     });
+  });
+
+  it('renders metadata-only OFF campaigns without fabricated zero metrics or drill-down', () => {
+    const metadataOnly = {
+      ...campaign('11111111-1111-4111-8111-111111111111', 'campaign:off'),
+      campaignName: '중단 캠페인',
+      metricsAvailable: false,
+      conversionsAvailable: false,
+      status: 'OFF',
+      onOff: 'OFF',
+    } satisfies AdCampaignSnapshot;
+    const onSelect = vi.fn<(selection: CampaignSelection | null) => void>();
+
+    render(wrapper(
+      <CampaignTable
+        campaigns={[metadataOnly]}
+        sortBy="revenue"
+        onSortChange={vi.fn()}
+        selectedCampaign={null}
+        onSelectCampaign={onSelect}
+      />,
+    ));
+
+    const row = screen.getByRole('row', { name: /중단 캠페인/ });
+    expect(within(row).getByText('OFF')).toBeInTheDocument();
+    expect(within(row).getByText('성과 미수집')).toBeInTheDocument();
+    expect(within(row).getAllByText('-')).toHaveLength(8);
+
+    fireEvent.click(row);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it('requests drill-down by account and stable identity without campaignName', async () => {

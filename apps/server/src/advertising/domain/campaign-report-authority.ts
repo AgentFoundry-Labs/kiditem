@@ -64,15 +64,6 @@ export function resolveCampaignReportAuthority(
   const rows = input.normalizedRows ?? [];
   const dashboardState = normalizedState(input.dashboardOnOff);
 
-  if (
-    dashboardState === 'OFF' ||
-    rows.some((row) =>
-      row._campaignOnly === true && normalizedState(row.onOff) === 'OFF',
-    )
-  ) {
-    return rawDecision(requestedScope, 'off_campaign_metadata');
-  }
-
   if (requestedScope === null) {
     return rawDecision(null, 'missing_scope');
   }
@@ -105,21 +96,29 @@ export function resolveCampaignReportAuthority(
 
   const descriptors = rows.filter((row) => row._campaignOnly === true);
   const details = rows.filter((row) => row._campaignOnly !== true);
-  const stateIsOn = (row: Record<string, unknown>) =>
-    normalizedState(row.onOff) ?? dashboardState;
-  const hasOnDetails =
+  // Detail-row onOff is the advertised product state, not the campaign state.
+  // A running campaign may legitimately contain paused/rejected products, so
+  // campaign authority comes from the separately observed dashboard state.
+  // `dashboardOnOff` is current campaign state. It cannot revoke historical
+  // authority for an exact provider detail day: a campaign that is OFF now
+  // may still have spend/revenue in the requested 31-day window.
+  const hasDetailsFromKnownCampaign =
     details.length > 0 &&
     descriptors.length === 0 &&
-    details.every((row) => stateIsOn(row) === 'ON');
-  const hasExplicitEmptyOn =
+    (dashboardState === 'ON' || dashboardState === 'OFF');
+  const explicitEmptyState =
+    descriptors.length === 1
+      ? (normalizedState(descriptors[0].onOff) ?? dashboardState)
+      : null;
+  const hasExplicitEmptyDescriptor =
     descriptors.length === 1 &&
     details.length === 0 &&
-    stateIsOn(descriptors[0]) === 'ON';
+    (explicitEmptyState === 'ON' || explicitEmptyState === 'OFF');
 
   shapeValid =
     shapeValid &&
     identities.size === 1 &&
-    (hasOnDetails || hasExplicitEmptyOn);
+    (hasDetailsFromKnownCampaign || hasExplicitEmptyDescriptor);
   if (!shapeValid) {
     if (missingStableIdentity) {
       return rawDecision(

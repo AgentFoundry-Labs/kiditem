@@ -4,6 +4,7 @@ import { PanelAlertRow } from '../PanelAlertRow';
 import { usePanelStore } from '../lib/panel-store';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
 
+const BROWSER_RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const mockApiPost = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
 const mockCancelOperation = vi.hoisted(() => vi.fn(async () => ({
   ok: true,
@@ -25,6 +26,8 @@ const mockCancelOperation = vi.hoisted(() => vi.fn(async () => ({
   warnings: [],
 })));
 const mockToastError = vi.hoisted(() => vi.fn());
+const mockSendBrowserCollectionControl = vi.hoisted(() => vi.fn());
+const mockSyncBrowserCollectionAlert = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -34,6 +37,14 @@ vi.mock('@/lib/api-client', () => ({
 
 vi.mock('@/lib/operation-cancellation', () => ({
   cancelOperation: mockCancelOperation,
+}));
+
+vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/lib/browser-collection-session')
+  >()),
+  sendBrowserCollectionControl: mockSendBrowserCollectionControl,
+  syncBrowserCollectionAlert: mockSyncBrowserCollectionAlert,
 }));
 
 vi.mock('sonner', () => ({
@@ -90,6 +101,9 @@ describe('PanelAlertRow', () => {
     mockApiPost.mockClear();
     mockCancelOperation.mockClear();
     mockToastError.mockClear();
+    mockSendBrowserCollectionControl.mockReset();
+    mockSyncBrowserCollectionAlert.mockReset();
+    mockSyncBrowserCollectionAlert.mockResolvedValue(undefined);
     usePanelStore.setState({ byId: {}, isOpen: true });
     vi.restoreAllMocks();
   });
@@ -332,22 +346,60 @@ describe('PanelAlertRow', () => {
       expect(screen.getByRole('button', { name: '작업 중단' })).toBeInTheDocument();
     });
 
-    it('hides server cancellation for extension-owned browser sessions', () => {
-      render(
-        <PanelAlertRow
-          item={makeAlert({
-            alertKind: 'operation',
-            status: 'pending',
-            operationKey: `browser-collection:eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee`,
-            sourceType: 'browser_collection_session',
-          })}
-        />,
-      );
+    it.each(['browser_collection_session', null])(
+      'routes browser collection cancellation to the extension owner (sourceType=%s)',
+      async (sourceType) => {
+        const cancelledSession = {
+          runId: BROWSER_RUN_ID,
+          producer: 'advertising.ad_sync',
+          classification: 'background_preferred',
+          status: 'cancelled',
+          attempt: 1,
+          restartStrategy: 'web',
+          progress: {
+            current: 0,
+            total: 1,
+            completed: 0,
+            failed: 0,
+            label: null,
+          },
+          inputIdentity: { trigger: 'ad_sync' },
+          attention: null,
+          startedAt: 1,
+          updatedAt: 2,
+          finishedAt: 2,
+        };
+        mockSendBrowserCollectionControl.mockResolvedValueOnce(
+          cancelledSession,
+        );
+        const item = makeAlert({
+          alertKind: 'operation',
+          status: 'pending',
+          operationKey: `browser-collection:${BROWSER_RUN_ID}`,
+          sourceType,
+        });
+        usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
 
-      expect(
-        screen.queryByRole('button', { name: '작업 중단' }),
-      ).not.toBeInTheDocument();
-    });
+        render(<PanelAlertRow item={item} />);
+        fireEvent.click(screen.getByRole('button', { name: '작업 중단' }));
+        fireEvent.click(screen.getByRole('button', { name: '중단' }));
+
+        await waitFor(() => {
+          expect(mockSendBrowserCollectionControl).toHaveBeenCalledWith(
+            BROWSER_RUN_ID,
+            'cancelCollectionSession',
+          );
+        });
+        expect(mockSyncBrowserCollectionAlert).toHaveBeenCalledWith(
+          cancelledSession,
+        );
+        expect(mockCancelOperation).not.toHaveBeenCalled();
+        expect(usePanelStore.getState().byId[item.id]).toMatchObject({
+          status: 'cancelled',
+          message: '중단 요청됨',
+        });
+      },
+    );
 
     it('cancels by operation key and marks the panel item cancelled optimistically', async () => {
       const item = makeAlert({

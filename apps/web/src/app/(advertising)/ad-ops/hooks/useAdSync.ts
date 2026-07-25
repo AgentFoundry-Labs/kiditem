@@ -31,6 +31,15 @@ interface UseAdSyncOptions {
   onComplete?: () => void;
 }
 
+export function adSyncSucceededNotice(
+  progressLabel: string | null | undefined,
+): { tone: 'success' | 'warning'; message: string } {
+  if (progressLabel?.includes('원본만 보존')) {
+    return { tone: 'warning', message: progressLabel };
+  }
+  return { tone: 'success', message: '광고 동기화가 완료되었습니다.' };
+}
+
 export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
   const [loading, setLoading] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
@@ -66,7 +75,9 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
       });
 
       if (session.status === 'succeeded') {
-        toast.success('광고 동기화가 완료되었습니다.');
+        const notice = adSyncSucceededNotice(session.progress.label);
+        if (notice.tone === 'warning') toast.warning(notice.message);
+        else toast.success(notice.message);
       } else if (session.status === 'attention_required') {
         toast.warning(session.attention?.message ?? '광고센터 확인이 필요합니다.');
       } else if (session.status === 'cancelled') {
