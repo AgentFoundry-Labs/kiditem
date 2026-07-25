@@ -74,4 +74,19 @@ describe('AiDirectJobEnvelopeSchema', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts deterministic detail-page raster jobs without an AI model plan', () => {
+    expect(AiDirectJobEnvelopeSchema.parse({
+      jobType: 'detail_page_rasterize',
+      models: {},
+      input: {
+        revisionId: '60620087-f5d8-4307-8591-221fd018eaa0',
+        artifactId: '71429ba3-af81-409e-a976-029c67d86bcb',
+        outputWidth: 780,
+      },
+    })).toMatchObject({
+      jobType: 'detail_page_rasterize',
+      models: {},
+    });
+  });
 });

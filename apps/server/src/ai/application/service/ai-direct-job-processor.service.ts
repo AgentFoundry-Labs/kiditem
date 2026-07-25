@@ -4,6 +4,7 @@ import {
   ImageEditDirectOutputSchema,
   ThumbnailGenerateDirectOutputSchema,
 } from '../../domain/direct-generation';
+import { DetailPageRasterJobOutputSchema } from '../../domain/direct-job/detail-page-raster-job';
 import type {
   AiDirectJobRecord,
 } from '../port/out/repository/ai-direct-job.repository.port';
@@ -31,6 +32,7 @@ import { readProductGenerationAlertLink } from './product-generation-alert-link'
 import { ProductGenerationAlertService } from './product-generation-alert.service';
 import { ThumbnailDirectGenerationExecutorService } from './thumbnail-direct-generation-executor.service';
 import { DetailPageDirectGenerationExecutorService } from './detail-page-direct-generation-executor.service';
+import { DetailPageRasterJobExecutorService } from './detail-page-raster-job-executor.service';
 import { ImageEditDirectGenerationExecutorService } from './image-edit-direct-generation-executor.service';
 import { ThumbnailGenerationJobService } from './thumbnail-generation-job.service';
 import { AiDirectJobPayloadHydratorService } from './ai-direct-job-payload-hydrator.service';
@@ -80,6 +82,7 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
     private readonly hydrator: AiDirectJobPayloadHydratorService,
     private readonly thumbnailExecutor: ThumbnailDirectGenerationExecutorService,
     private readonly detailPageExecutor: DetailPageDirectGenerationExecutorService,
+    private readonly detailPageRasterExecutor: DetailPageRasterJobExecutorService,
     private readonly imageEditExecutor: ImageEditDirectGenerationExecutorService,
     @Inject(forwardRef(() => ThumbnailGenerationJobService))
     private readonly thumbnailGenerationJobs: ThumbnailGenerationJobService,
@@ -142,6 +145,14 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         }
         return 'runnable';
       }
+      case 'detail_page_rasterize':
+        if (job.payload.jobType !== 'detail_page_rasterize') return 'invalid';
+        return (await this.detailPageRasterExecutor.preflight({
+          organizationId: job.organizationId,
+          input: job.payload.input,
+        }))
+          ? 'runnable'
+          : 'invalid';
       case 'image_edit': {
         const alert = await this.operationAlerts.findByOperationKey(
           job.organizationId,
@@ -179,6 +190,13 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
             image: job.payload.models.image,
             vision: job.payload.models.vision,
           },
+          signal,
+        });
+      case 'detail_page_rasterize':
+        if (job.payload.jobType !== 'detail_page_rasterize') return payloadMismatch();
+        return this.detailPageRasterExecutor.execute({
+          organizationId: job.organizationId,
+          input: job.payload.input,
           signal,
         });
       case 'image_edit':
@@ -226,6 +244,9 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
           output: DetailPageGenerateDirectOutputSchema.parse(result),
         });
         return;
+      case 'detail_page_rasterize':
+        DetailPageRasterJobOutputSchema.parse(result);
+        return;
       case 'image_edit': {
         const output = ImageEditDirectOutputSchema.parse(result);
         await this.operationAlerts.succeed(
@@ -270,6 +291,8 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
           errorCode: error.errorCode,
           errorMessage: error.errorMessage,
         });
+        return;
+      case 'detail_page_rasterize':
         return;
       case 'image_edit':
       case 'thumbnail_reedit':

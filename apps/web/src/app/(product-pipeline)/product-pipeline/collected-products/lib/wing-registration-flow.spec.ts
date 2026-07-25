@@ -169,7 +169,10 @@ describe('direct WING account selection', () => {
       { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
     ]);
 
-    const draft = await prepareWingRegistration('candidate-1');
+    const result = await prepareWingRegistration('candidate-1');
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error('expected ready result');
+    const draft = result.draft;
 
     expect(draft.channelAccountId).toBe('11111111-1111-4111-8111-111111111111');
   });
@@ -182,7 +185,10 @@ describe('direct WING account selection', () => {
       { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
     ]);
 
-    const draft = await prepareWingRegistration('candidate-1');
+    const result = await prepareWingRegistration('candidate-1');
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error('expected ready result');
+    const draft = result.draft;
 
     expect(draft.channelAccountId).toBe('');
     expect(draft.channelAccounts.map((account) => account.id)).toEqual([
@@ -253,7 +259,10 @@ describe('direct WING account selection', () => {
       { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
     ]);
 
-    const draft = await prepareWingRegistration(product.id);
+    const result = await prepareWingRegistration(product.id);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error('expected ready result');
+    const draft = result.draft;
 
     expect(saveRequest).toHaveBeenCalledWith(
       '/api/ai/detail-page/55555555-5555-4555-8555-555555555555/edited-html',
@@ -261,6 +270,24 @@ describe('direct WING account selection', () => {
     );
     expect(renderCandidateDetailImage).toHaveBeenCalledTimes(2);
     expect(draft.detailImageUrl).toBe(renderedDetail.imageUrl);
+  });
+
+  it('returns processing without loading channel accounts while the cached image is pending', async () => {
+    vi.mocked(productsApi.getDetail).mockResolvedValue(detail(basics()));
+    vi.mocked(renderCandidateDetailImage).mockResolvedValue({
+      status: 'processing',
+      revisionId: '60620087-f5d8-4307-8591-221fd018eaa0',
+      artifactId: '71429ba3-af81-409e-a976-029c67d86bcb',
+      message: '상세페이지 이미지를 준비하고 있습니다.',
+    });
+    const get = vi.spyOn(apiClient, 'get');
+
+    await expect(prepareWingRegistration('candidate-1')).resolves.toEqual({
+      status: 'processing',
+      candidateId: 'candidate-1',
+      message: '상세페이지 이미지를 준비하고 있습니다.',
+    });
+    expect(get).not.toHaveBeenCalled();
   });
 });
 

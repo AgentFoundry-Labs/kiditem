@@ -6,6 +6,10 @@ import {
 } from '../ai-direct-job.config';
 
 describe('ai direct job configuration', () => {
+  it('does not require an AI model for deterministic detail-page raster jobs', () => {
+    expect(resolveAiDirectJobModels('detail_page_rasterize', {})).toEqual({});
+  });
+
   it('requires the image model for every direct media job', () => {
     expect(() =>
       resolveAiDirectJobModels('image_edit', {}),
