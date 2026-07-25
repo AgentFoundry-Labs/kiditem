@@ -5,7 +5,6 @@ import Link from 'next/link';
 import {
   BarChart3,
   Calendar,
-  ChevronDown,
   Database,
   Megaphone,
   ShoppingCart,
@@ -35,9 +34,8 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
 import ReadinessModal from '@/components/ReadinessModal';
+import { useSellpiaChannelSales, sellpiaPeriodRange } from '@/hooks/useSellpiaChannelSales';
 import { DashboardChartPanel } from './components/DashboardChartPanel';
-import { DashboardChannelSales } from './components/DashboardChannelSales';
-import { useSellpiaChannelSales, sellpiaPeriodRange } from './hooks/useSellpiaChannelSales';
 import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricCard';
 import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
 import { DashboardSectionError } from './components/DashboardSectionError';
@@ -54,8 +52,6 @@ export default function Dashboard() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showReadiness, setShowReadiness] = useState(false);
-  // 몰별 매출 상세(월 매출 카드 클릭 시 하단 펼침) — 선택 기간(일/주/월)에 맞춰 조회
-  const [showChannelDetail, setShowChannelDetail] = useState(false);
   const channelSales = useSellpiaChannelSales(sellpiaPeriodRange(kpiRange, dateFrom, dateTo));
 
   // Baseline (month) — always fetched
@@ -327,6 +323,11 @@ export default function Dashboard() {
   const displayOthers = sellpiaHasData ? spOthers : wingRevenue;
   const displayRevAchieve = revenueGoal > 0 ? Math.min(Math.round((displayRevenue / revenueGoal) * 100), 999) : 0;
   const displayRevPct = revenueGoal > 0 ? Math.min((displayRevenue / revenueGoal) * 100, 100) : 0;
+  const salesAnalysisPeriod = sp?.range.from?.slice(0, 7)
+    ?? (effectivePeriod
+      ? `${effectivePeriod.year}-${String(effectivePeriod.month).padStart(2, '0')}`
+      : new Date().toISOString().slice(0, 7));
+  const salesAnalysisHref = `/sales-analysis?tab=overview&period=${encodeURIComponent(salesAnalysisPeriod)}`;
 
   return (
     <div className="space-y-4 w-full pb-12">
@@ -432,13 +433,8 @@ export default function Dashboard() {
 
       {/* KPI 카드 — 월 매출 + 월 순이익 + 이익률 + 광고비율 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ alignItems: 'stretch' }}>
-        {/* 월 매출 — 클릭 시 하단에 몰별 매출 상세가 펼쳐진다 */}
-        <div
-          className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-          onClick={() => setShowChannelDetail((v) => !v)}
-          role="button"
-          aria-expanded={showChannelDetail}
-        >
+        {/* 월 매출 — 채널 카드를 누르면 매출 분석의 동일 월·채널 상세로 이동한다. */}
+        <div className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Wallet size={18} className="text-blue-600" />
@@ -449,7 +445,12 @@ export default function Dashboard() {
                   <span>{revenueChange > 0 ? '+' : ''}{revenueChange.toFixed(1)}%</span>
                 </span>
               )}
-              <ChevronDown size={16} className={cn('ml-auto text-blue-400 transition-transform', showChannelDetail && 'rotate-180')} />
+              <Link
+                href={salesAnalysisHref}
+                className="ml-auto text-[11px] font-semibold text-blue-500 hover:text-blue-700"
+              >
+                매출 분석 →
+              </Link>
             </div>
             <div className="text-[10px] font-mono text-slate-400 mb-1.5">{sellpiaHasData ? '셀피아 판매현황' : revenueSourceLabel}</div>
             <div className="flex items-baseline gap-1.5 mb-1">
@@ -460,18 +461,16 @@ export default function Dashboard() {
             {(sellpiaHasData || wingRevenue > 0 || rocketRevenue > 0) && (
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <Link
-                  href="/sales-analysis?tab=wing-daily"
-                  onClick={(e) => {
-                    if (sellpiaHasData) { e.preventDefault(); e.stopPropagation(); setShowChannelDetail((v) => !v); }
-                  }}
+                  href={`${salesAnalysisHref}&channel=others`}
                   className="rounded-lg bg-blue-50/70 px-2.5 py-1.5 transition-colors hover:bg-blue-100"
                 >
-                  <div className="text-[11px] font-medium text-blue-500">{sellpiaHasData ? '쿠팡윙 · 기타몰' : '쿠팡 윙'}</div>
+                  <div className="text-[11px] font-medium text-blue-500">
+                    {sellpiaHasData ? '쿠팡윙 · 기타몰' : '쿠팡 윙'} <span className="text-[9px] text-blue-400">→ 분석</span>
+                  </div>
                   <div className="text-sm font-bold tabular-nums text-blue-700">{formatKRW(displayOthers)}원</div>
                 </Link>
                 <Link
-                  href="/sales-analysis?tab=rocket-daily"
-                  onClick={(e) => e.stopPropagation()}
+                  href={`${salesAnalysisHref}&channel=rocket`}
                   className="rounded-lg bg-purple-50 px-2.5 py-1.5 transition-colors hover:bg-purple-100"
                 >
                   <div className="text-[11px] font-medium text-purple-600">
@@ -732,18 +731,6 @@ export default function Dashboard() {
           goalLabel="목표 400%"
         />
       </div>
-
-      {/* 몰별 매출 상세 — 월 매출 카드 클릭 시 펼침 (셀피아 판매현황 소스) */}
-      {showChannelDetail && (
-        <DashboardChannelSales
-          summary={channelSales.summary}
-          isLoading={channelSales.isLoading}
-          isError={channelSales.isError}
-          onRetry={channelSales.refetch}
-          onSync={channelSales.sync}
-          syncing={channelSales.syncing}
-        />
-      )}
 
       {/* 차트 + 사이드패널 */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 620 }}>

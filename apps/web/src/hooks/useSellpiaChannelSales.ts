@@ -48,6 +48,31 @@ export function sellpiaPeriodRange(
   return { from: `${today.slice(0, 7)}-01`, to: today };
 }
 
+const YEAR_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+// 매출분석 월 선택(YYYY-MM)을 Sellpia 일별 조회 범위로 변환한다.
+// 현재 월은 오늘까지만, 지난 월은 달의 마지막 날까지 조회한다.
+export function sellpiaMonthRange(
+  period: string,
+  today = todayKst(),
+): { from: string; to: string } {
+  const normalizedPeriod = YEAR_MONTH_PATTERN.test(period)
+    ? period
+    : today.slice(0, 7);
+  if (normalizedPeriod === today.slice(0, 7)) {
+    return { from: `${normalizedPeriod}-01`, to: today };
+  }
+  const [year, month] = normalizedPeriod.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0))
+    .getUTCDate()
+    .toString()
+    .padStart(2, '0');
+  return {
+    from: `${normalizedPeriod}-01`,
+    to: `${normalizedPeriod}-${lastDay}`,
+  };
+}
+
 export interface SellpiaChannelSales {
   summary: SellpiaSalesSummary | undefined;
   isLoading: boolean;
@@ -58,7 +83,7 @@ export interface SellpiaChannelSales {
 }
 
 // Sellpia 판매현황(몰별 매출) 조회 + 마운트 자동 동기화 + 수동 수집.
-// 대시보드 월 매출/순이익 카드와 몰별 상세가 이 훅 하나를 공유한다(쿼리 dedupe).
+// 홈 월 매출 카드와 매출분석의 몰별 상세가 이 훅 하나를 공유한다(쿼리 dedupe).
 // 조회는 선택 기간(from~to)별로 하고, 수집(스크랩)은 넓은 윈도우로 일별 이력을 누적한다.
 export function useSellpiaChannelSales({
   from,

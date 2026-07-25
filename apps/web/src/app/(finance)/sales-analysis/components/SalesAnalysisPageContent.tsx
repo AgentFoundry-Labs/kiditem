@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   LineChart,
   Receipt,
@@ -28,24 +29,41 @@ interface SalesAnalysisPageContentProps {
 
 export default function SalesAnalysisPageContent({ initialTab }: SalesAnalysisPageContentProps) {
   const [activeTab, setActiveTab] = useState<SalesAnalysisTabId>(initialTab);
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const changeTab = (tab: SalesAnalysisTabId) => {
+    setActiveTab(tab);
+    const params = new URLSearchParams(searchParams);
+    params.set('tab', tab);
+    if (tab !== 'overview') params.delete('channel');
+    router.replace(`${pathname}?${params.toString()}`);
+  };
 
   return (
-    <TabLayout
-      title="매출 분석"
-      titleIcon={LineChart}
-      activeTab={activeTab}
-      onTabChange={(tab) => setActiveTab(tab as SalesAnalysisTabId)}
-      tabs={[
-        // Drive replay 데이터에서 의미 있는 화면을 좌측에 배치 — Wing 일매출이
-        // 첫 진입 화면이 되도록 defaultTab 도 wing-daily 로 잡는다.
-        { id: 'wing-daily', label: 'Wing 일매출', icon: TrendingUp, content: <WingDailySalesPage /> },
-        { id: 'rocket-daily', label: '쿠팡 로켓', icon: Rocket, content: <RocketDailySalesPage /> },
-        { id: 'overview', label: '매출 분석 (주문 기반)', icon: LineChart, content: <SalesOverviewPage /> },
-        { id: 'statistics', label: '통계', icon: BarChart3, content: <StatisticsPage /> },
-        { id: 'reports', label: '리포트', icon: FileSpreadsheet, content: <ReportsPage /> },
-        { id: 'plans', label: '사업계획', icon: Target, content: <SalesPlansPage /> },
-        { id: 'settlements', label: '정산 현황', icon: Receipt, content: <SettlementsPage /> },
-      ]}
-    />
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-50">
+          <LineChart size={22} className="text-purple-600" />
+        </div>
+        <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">매출 분석</h1>
+      </div>
+
+      <TabLayout
+        title="매출 분석"
+        showTitle={false}
+        activeTab={activeTab}
+        onTabChange={(tab) => changeTab(tab as SalesAnalysisTabId)}
+        tabs={[
+          { id: 'overview', label: '매출 분석', icon: LineChart, content: <SalesOverviewPage /> },
+          { id: 'wing-daily', label: 'Wing 일매출', icon: TrendingUp, content: <WingDailySalesPage /> },
+          { id: 'rocket-daily', label: '쿠팡 로켓', icon: Rocket, content: <RocketDailySalesPage /> },
+          { id: 'statistics', label: '통계', icon: BarChart3, content: <StatisticsPage /> },
+          { id: 'reports', label: '리포트', icon: FileSpreadsheet, content: <ReportsPage /> },
+          { id: 'plans', label: '사업계획', icon: Target, content: <SalesPlansPage /> },
+          { id: 'settlements', label: '정산 현황', icon: Receipt, content: <SettlementsPage /> },
+        ]}
+      />
+    </div>
   );
 }
