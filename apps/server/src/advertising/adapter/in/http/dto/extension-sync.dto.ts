@@ -1,11 +1,15 @@
 import {
   IsArray,
+  IsBoolean,
+  IsInt,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
   IsNotEmpty,
   IsUUID,
+  Max,
+  Min,
   MaxLength,
   Matches,
   ValidateIf,
@@ -21,6 +25,59 @@ export class ExtensionSyncDto {
   @IsOptional()
   @IsUUID()
   channelAccountId?: string;
+
+  /**
+   * Browser collection run shared by every campaign request in one sweep.
+   * This is intentionally stored in scrape-run metadata rather than
+   * `ChannelScrapeRun.clientRunKey`, whose uniqueness is one row per source.
+   */
+  @IsOptional()
+  @IsUUID()
+  collectionRunId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(2147483647)
+  collectionAttempt?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  campaignSweepComplete?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  campaignIdentityComplete?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(2147483647)
+  campaignCount?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(2147483647)
+  rawOnlyCampaignCount?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  campaignDailyCollectionComplete?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(90)
+  campaignDailyWindowDays?: number;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  campaignDailyFrom?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  campaignDailyTo?: string;
 
   @IsString()
   type: string;

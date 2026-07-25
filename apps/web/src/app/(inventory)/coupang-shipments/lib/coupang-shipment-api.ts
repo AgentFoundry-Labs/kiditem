@@ -33,6 +33,31 @@ export function loadCoupangShipmentServerFiles(): Promise<CoupangShipmentServerF
   return apiClient.get<CoupangShipmentServerFilesResponse>('/api/coupang-shipments');
 }
 
+export type CoupangShipmentDateSummaryEntry = {
+  date: string;
+  count: number;
+  boxes: number;
+  capturedAt: string;
+};
+
+export type CoupangShipmentDateSummaryResponse = {
+  items: CoupangShipmentDateSummaryEntry[];
+};
+
+/** DB에 저장된 발송일별 요약(건수·박스)을 불러온다. 새로고침해도 달력이 유지되도록. */
+export function loadCoupangShipmentDateSummary(): Promise<CoupangShipmentDateSummaryResponse> {
+  return apiClient.get<CoupangShipmentDateSummaryResponse>('/api/coupang-shipments/date-summary');
+}
+
+/** 조회한 발송일별 요약을 DB에 upsert(신규 추가·기존 갱신)하고 전체 세트를 돌려받는다. */
+export function saveCoupangShipmentDateSummary(
+  items: Array<{ date: string; count: number; boxes: number }>,
+): Promise<CoupangShipmentDateSummaryResponse> {
+  return apiClient.put<CoupangShipmentDateSummaryResponse>('/api/coupang-shipments/date-summary', {
+    items,
+  });
+}
+
 export async function downloadCoupangShipmentServerFile(file: CoupangShipmentServerFile): Promise<Blob> {
   const response = await apiClient.fetchRaw(file.downloadPath);
   if (!response.ok) {

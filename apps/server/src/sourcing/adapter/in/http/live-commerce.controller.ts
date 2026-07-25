@@ -30,4 +30,15 @@ export class LiveCommerceController {
       source: query.source,
     });
   }
+
+  @Get('keywords')
+  keywordDigest(
+    @Query() query: LiveCommerceQueryDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.liveCommerce.keywordDigest(organizationId, {
+      days: query.days ?? 7,
+      source: query.source,
+    });
+  }
 }

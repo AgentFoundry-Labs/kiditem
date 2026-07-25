@@ -13,7 +13,6 @@ import {
   Globe2,
   Loader2,
   PlaySquare,
-  RefreshCw,
   Search,
   ShoppingBag,
 } from 'lucide-react';
@@ -29,7 +28,6 @@ import {
   GLOBAL_SOURCING_STAGES,
   sourcesForStage,
   type GlobalSourcingSource,
-  type GlobalSourcingStageId,
 } from '../lib/global-sourcing-sources';
 import {
   fetch1688HotProducts,
@@ -39,14 +37,8 @@ import {
 } from '../lib/trend-collection-api';
 
 const SNAPSHOT_DAYS = 7;
-const pressable =
-  'transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none';
 
-interface GlobalSourcingOverviewProps {
-  onOpenCollection: () => void;
-}
-
-export function GlobalSourcingOverview({ onOpenCollection }: GlobalSourcingOverviewProps) {
+export function GlobalSourcingOverview() {
   const naverQuery = useQuery({
     queryKey: queryKeys.sourcing.liveNaverMarket(),
     queryFn: fetchLiveNaverMarket,
@@ -83,10 +75,6 @@ export function GlobalSourcingOverview({ onOpenCollection }: GlobalSourcingOverv
       }),
     [chinaOffers, globalVideos, koreaKeywords],
   );
-  const stageWithDataCount = [chinaOffers.length, globalVideos.length, koreaKeywords.length].filter(
-    (count) => count > 0,
-  ).length;
-
   const sourceContext: SourceContext = {
     chinaCount: chinaOffers.length,
     globalCount: globalVideos.length,
@@ -99,65 +87,6 @@ export function GlobalSourcingOverview({ onOpenCollection }: GlobalSourcingOverv
 
   return (
     <div className="space-y-5">
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 lg:p-6">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold tabular-nums text-slate-600">
-                현재 데이터 {stageWithDataCount}/3단계
-              </span>
-            </div>
-            <h2 className="mt-3 text-xl font-bold tracking-tight text-[var(--text-primary)]">
-              중국 공급 → 글로벌 반응 → 한국 수요 순으로 확인합니다
-            </h2>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-[var(--text-secondary)]">
-              플랫폼별 상품 ID를 동일 상품으로 묶지 않고 키워드·주제로 연결합니다. 확인된 수치만
-              표시하고 미연동 소스는 제외합니다.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onOpenCollection}
-            className={cn(
-              'inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 text-sm font-semibold text-white hover:bg-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2',
-              pressable,
-            )}
-          >
-            <RefreshCw size={15} />
-            수집 화면 열기
-          </button>
-        </div>
-
-        <div className="mt-5 grid gap-3 lg:grid-cols-3">
-          {GLOBAL_SOURCING_STAGES.map((stage, index) => (
-            <div key={stage.id} className="relative">
-              <article className="h-full rounded-xl border border-[var(--border)] bg-[var(--surface-sunken)] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-purple-600 px-2 text-xs font-bold text-white">
-                    {stage.step}
-                  </span>
-                  <StageCount stage={stage.id} context={sourceContext} />
-                </div>
-                <h3 className="mt-3 text-sm font-bold text-[var(--text-primary)]">{stage.label}</h3>
-                <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{stage.description}</p>
-                <p className="mt-3 border-t border-[var(--border-subtle)] pt-3 text-[11px] font-semibold text-purple-700">
-                  판단: {stage.decision}
-                </p>
-              </article>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-          <Clock3 size={15} className="mt-0.5 shrink-0" />
-          <p>
-            <strong className="font-semibold">네이버</strong>는 공식 API 실시간 조회(10분 갱신),{' '}
-            <strong className="font-semibold">YouTube·1688</strong>은 수집 버튼으로 저장한 스냅샷입니다.
-            1688 수집은 로그인·슬라이더 인증이 필요할 수 있습니다.
-          </p>
-        </div>
-      </section>
-
       <CrossMarketTable
         topics={topics}
         loading={naverQuery.isLoading || chinaQuery.isLoading || globalQuery.isLoading}
@@ -453,12 +382,6 @@ interface SourceContext {
   naverError: boolean;
   naverReady: boolean;
   naverWarning: boolean;
-}
-
-function StageCount({ stage, context }: { stage: GlobalSourcingStageId; context: SourceContext }) {
-  const count = stage === 'china' ? context.chinaCount : stage === 'global' ? context.globalCount : context.koreaCount;
-  const label = stage === 'china' ? '1688 오퍼' : stage === 'global' ? '관련 영상' : '키워드 후보';
-  return <span className="text-[11px] font-semibold tabular-nums text-[var(--text-tertiary)]">{formatNumber(count)}개 {label}</span>;
 }
 
 function sourceStatus(source: GlobalSourcingSource, context: SourceContext): { label: string; className: string } {

@@ -7,9 +7,9 @@
  * - X축은 `07/01(수)` 처럼 요일까지 붙인다.
  * - 각 포인트는 사각 마커.
  *
- * 데이터는 `/api/ads/campaigns/trends` 의 응답을 그대로 쓴다. listing 단위
- * 일별 팩트는 광고 귀속이 비어 0 인 날이 많아, 신호가 없으면 계정 일별
- * 시리즈로 폴백한다(StatusContent 와 같은 판정).
+ * 데이터는 `/api/ads/campaigns/trends` 의 응답을 그대로 쓴다. 실제 광고
+ * 성과 수집 원본인 계정 일별을 우선하고, 계정 데이터가 전혀 없는 기존
+ * 조직에서만 유효한 listing 일별 팩트를 보조로 사용한다.
  */
 
 import { useMemo, useState } from "react";
@@ -121,6 +121,29 @@ interface AdPerformanceTrendChartProps {
   period: string;
 }
 
+function selectPerformanceRows(trends: AdTrendsData | null) {
+  const accountDaily = trends?.accountDaily ?? [];
+  if (accountDaily.length > 0) {
+    return {
+      rows: accountDaily,
+      sourceLabel: "쿠팡 광고센터 계정 일별",
+    };
+  }
+
+  const listingDaily = trends?.daily ?? [];
+  const listingHasSignal = listingDaily.some(
+    (row) =>
+      row.metrics.spend > 0 ||
+      row.metrics.revenue > 0 ||
+      (row.metrics.roas ?? 0) > 0,
+  );
+  if (listingHasSignal) {
+    return { rows: listingDaily, sourceLabel: "listing daily fact" };
+  }
+
+  return { rows: [], sourceLabel: "광고비/전환매출 수집 필요" };
+}
+
 export default function AdPerformanceTrendChart({
   trends,
   period,
@@ -130,23 +153,10 @@ export default function AdPerformanceTrendChart({
   const [open, setOpen] = useState(true);
 
   const { points, sourceLabel } = useMemo(() => {
-    const listingDaily = trends?.daily ?? [];
-    const accountDaily = trends?.accountDaily ?? [];
-    const hasSignal = (rows: typeof listingDaily) =>
-      rows.some(
-        (row) =>
-          row.metrics.spend > 0 ||
-          row.metrics.revenue > 0 ||
-          (row.metrics.roas ?? 0) > 0,
-      );
-    const source = hasSignal(listingDaily)
-      ? { rows: listingDaily, label: "listing daily fact" }
-      : hasSignal(accountDaily)
-        ? { rows: accountDaily, label: "쿠팡 광고센터 계정 일별" }
-        : { rows: [], label: "광고비/전환매출 수집 필요" };
+    const source = selectPerformanceRows(trends);
 
     return {
-      sourceLabel: source.label,
+      sourceLabel: source.sourceLabel,
       points: source.rows.map<ChartPoint>((row) => ({
         label: toAxisLabel(row.date),
         businessDate: row.date,

@@ -10,7 +10,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { AdPeriod } from '../../../domain/ad-metrics';
-import { periodCutoff } from '../../../domain/ad-metrics';
+import { periodBounds } from '../../../domain/ad-metrics';
 import type {
   AdAccountKpiDayRow,
   AdAccountKpiRepositoryPort,
@@ -27,13 +27,14 @@ export class AdAccountKpiRepositoryAdapter
   async findCoupangAdsDaily(
     organizationId: string,
     period: AdPeriod,
+    dateRange?: { from: Date; to: Date },
   ): Promise<AdAccountKpiDayRow[]> {
     const channelAccountId = await this.findActiveCoupangAccountId(
       organizationId,
     );
     if (!channelAccountId) return [];
 
-    const cutoff = periodCutoff(period);
+    const bounds = dateRange ?? periodBounds(period);
     const rows = await this.prisma.$queryRaw<
       Array<{
         businessDate: Date;
@@ -58,7 +59,8 @@ export class AdAccountKpiRepositoryAdapter
         AND channel_account_id = ${channelAccountId}::uuid
         AND source = 'coupang_ads'
         AND kpi_type = 'coupang_ads_daily'
-        AND business_date >= ${cutoff}
+        AND business_date >= ${bounds.from}
+        AND business_date <= ${bounds.to}
       ORDER BY business_date ASC
     `);
     return rows.map((row) => ({

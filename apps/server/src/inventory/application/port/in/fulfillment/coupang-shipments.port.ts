@@ -41,10 +41,26 @@ export type CoupangShipmentResolvedFile = {
   sizeBytes: number;
 };
 
+export type CoupangShipmentDateSummaryEntry = {
+  date: string;
+  count: number;
+  boxes: number;
+  capturedAt: string;
+};
+
+export type CoupangShipmentDateSummaryResult = {
+  items: CoupangShipmentDateSummaryEntry[];
+};
+
 export interface CoupangShipmentsPort {
   listLocalFiles(organizationId: string): Promise<CoupangShipmentFilesResponse>;
   resolveLocalFile(
     organizationId: string,
     input: CoupangShipmentFileRequest,
   ): Promise<CoupangShipmentResolvedFile>;
+  listDateSummary(organizationId: string): Promise<CoupangShipmentDateSummaryResult>;
+  saveDateSummary(
+    organizationId: string,
+    items: Array<{ date: string; count: number; boxes: number }>,
+  ): Promise<CoupangShipmentDateSummaryResult>;
 }

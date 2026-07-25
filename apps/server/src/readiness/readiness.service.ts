@@ -29,8 +29,8 @@ export class ReadinessService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * 광고는 최근 N일, Sellpia 매출은 최근 N일과 이번 달 1일 중 더 이른
-   * 날부터 확인한다. 서로 다른 원천의 coverage 범위를 공유하지 않는다.
+   * 광고와 Sellpia 매출 모두 최소 최근 N일을 보장하고, 이번 달이 더 길면
+   * 월초부터 확인한다. 원천별 row 집계는 서로 공유하지 않는다.
    */
   private static readonly LOOKBACK_DAYS = 14;
 
@@ -88,20 +88,25 @@ export class ReadinessService {
     const todayKstStr = toKstDateStr(todayKstStart);
     const yesterdayKstStart = new Date(todayKstStart.getTime() - 86400000);
     const yesterdayKstStr = toKstDateStr(yesterdayKstStart);
-    // 광고: lookback N 일 전 ~ 어제까지의 기대 일자
+    // 최소 lookback N 일 전 ~ 어제까지의 기대 일자
     const lookbackStart = new Date(
       yesterdayKstStart.getTime() - (ReadinessService.LOOKBACK_DAYS - 1) * 86400000,
     );
-    const adsRangeStartKstStr = toKstDateStr(lookbackStart);
+    const lookbackStartKstStr = toKstDateStr(lookbackStart);
+    const monthStartKstStr = `${todayKstStr.slice(0, 8)}01`;
+    // 월초가 rolling lookback보다 이르면 이번 달 전체를 유지한다. 월초 직후
+    // 에는 lookback이 전월로 넘어가므로 최소 14일 보장도 그대로 남는다.
+    const coverageRangeStartKstStr =
+      lookbackStartKstStr < monthStartKstStr
+        ? lookbackStartKstStr
+        : monthStartKstStr;
+    const adsRangeStartKstStr = coverageRangeStartKstStr;
     const adsRangeStartDate = parseDbDate(adsRangeStartKstStr);
     const adsRangeEndDate = parseDbDate(yesterdayKstStr);
     const adsExpectedDates = enumerateDates(adsRangeStartKstStr, yesterdayKstStr);
 
     // Sellpia 월 누적: 최근 lookback과 이번 달 1일 중 더 이른 날부터 확인.
-    const monthStart = parseDbDate(`${todayKstStr.slice(0, 8)}01`);
-    const sellpiaRangeStartKstStr = toKstDateStr(
-      lookbackStart < monthStart ? lookbackStart : monthStart,
-    );
+    const sellpiaRangeStartKstStr = coverageRangeStartKstStr;
     const sellpiaRangeStartDate = parseDbDate(sellpiaRangeStartKstStr);
     // 월 1일의 홈 월간 조회는 today~today 단일 범위라 Sellpia summary가 당일
     // coverage를 요구한다. 이 날만 readiness도 오늘까지 확인해야 모달이 이미
@@ -135,8 +140,8 @@ export class ReadinessService {
     const [
       adsDailyKpiRows,
       activeWingVendorRows,
-      productCount,
-      lastProduct,
+      coupangProductCount,
+      latestCoupangCatalogRun,
       sellpiaDailyRows,
     ] = await Promise.all([
       // coupang_ads — 쿠팡 광고 일별 KPI
@@ -172,14 +177,28 @@ export class ReadinessService {
             distinct: ['externalOptionId'],
           })
         : Promise.resolve([]),
-      this.prisma.masterProduct.count({
-        where: { organizationId, isActive: true },
-      }),
-      this.prisma.masterProduct.findFirst({
-        where: { organizationId, isActive: true },
-        orderBy: { updatedAt: 'desc' },
-        select: { updatedAt: true },
-      }),
+      activeCoupangAccount
+        ? this.prisma.channelListing.count({
+            where: {
+              organizationId,
+              channelAccountId: activeCoupangAccount.id,
+              isActive: true,
+            },
+          })
+        : Promise.resolve(0),
+      activeCoupangAccount
+        ? this.prisma.sourceImportRun.findFirst({
+            where: {
+              organizationId,
+              channelAccountId: activeCoupangAccount.id,
+              sourceType: 'coupang_wing_catalog',
+              status: 'completed',
+              importedAt: { not: null },
+            },
+            orderBy: { importedAt: 'desc' },
+            select: { importedAt: true },
+          })
+        : Promise.resolve(null),
       // 일별 매출(wing_sales) readiness 원천 — 셀피아 판매현황 몰별 일별 스냅샷.
       // businessDate 별로 데이터가 있는 날을 집계(판매처 무관 distinct).
       this.prisma.sellpiaSalesDailySnapshot.findMany({
@@ -317,16 +336,21 @@ export class ReadinessService {
       {
         key: 'coupang_products',
         label: '쿠팡 상품 데이터 수집',
-        status: productCount > 0 ? 'ok' : 'missing',
+        status:
+          coupangProductCount > 0 && latestCoupangCatalogRun?.importedAt
+            ? 'ok'
+            : 'missing',
         detail:
-          productCount > 0 ? `상품 ${productCount}건 수집됨` : '상품 데이터 없음 — 최초 수집 필요',
-        lastSyncedAt: lastProduct?.updatedAt.toISOString() ?? null,
-        count: productCount,
+          coupangProductCount > 0 && latestCoupangCatalogRun?.importedAt
+            ? `쿠팡 상품 ${coupangProductCount}건 수집됨`
+            : '완료된 쿠팡 전체 상품 수집 없음 — 최초 수집 필요',
+        lastSyncedAt: latestCoupangCatalogRun?.importedAt?.toISOString() ?? null,
+        count: coupangProductCount,
         collector: 'extension',
         collectEndpoint: null,
-        scrapeUrls: [
-          `https://wing.coupang.com/vendor-inventory/list?salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1&start_date=${yesterdayKstStr}&end_date=${yesterdayKstStr}`,
-        ],
+        // 웹 훅이 공식 전체 카탈로그 import run을 만들고 전용 확장을 시작한다.
+        // generic scrapeTargets URL을 노출하면 일반 Wing 페이지 수집으로 잘못 라우팅된다.
+        scrapeUrls: null,
         referenceDate: yesterdayKstStr,
         expectedDates: null,
         missingDates: null,

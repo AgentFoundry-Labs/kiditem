@@ -82,10 +82,12 @@ function buildPorts() {
     replaceNaverPopularKeywordSnapshots: vi.fn(async (rows) => rows.length),
     upsert1688HotProductSnapshots: vi.fn(async (rows) => rows.length),
     upsertShortsSnapshots: vi.fn(async (rows) => rows.length),
+    upsertTiktokCcSnapshots: vi.fn(async (rows) => rows.length),
     findNaverKeywordHistory: vi.fn(async () => []),
     findPopularKeywordHistory: vi.fn(async () => []),
     find1688HotHistory: vi.fn(async () => []),
     findShortsHistory: vi.fn(async () => []),
+    findTiktokCcHistory: vi.fn(async () => []),
   };
 
   const service = new TrendCollectService(
@@ -202,6 +204,70 @@ describe('TrendCollectService', () => {
     }
   });
 
+  it('returns only enabled seeds tagged tiktok-cc as creative-center targets', async () => {
+    ports.repository.listSeeds = vi.fn(async () => [
+      seed({ keyword: '슬라임', keywordCn: '史莱姆', sources: ['tiktok-cc', 'shorts'] }),
+      seed({ keyword: '스퀴시', sources: ['naver'] }),
+      seed({ keyword: '비활성', sources: ['tiktok-cc'], enabled: false }),
+    ]);
+
+    const targets = await ports.service.listTiktokCcTargets(ORGANIZATION_ID);
+
+    expect(targets).toEqual([{ label: '슬라임', keyword: '슬라임' }]);
+  });
+
+  it('ingests one region-scoped tiktok-cc batch with shared capture time and type+entity dedupe', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-13T15:30:00.000Z'));
+    try {
+      const result = await ports.service.ingestTiktokCcResults(ORGANIZATION_ID, {
+        runId: 'run-ttcc-1',
+        region: 'us',
+        items: [
+          {
+            trendType: 'hashtag',
+            entityKey: ' #squishy ',
+            label: ' squishy ',
+            industry: 'Toys',
+            viewCount: 9_000_000_000,
+            growthPct: 42.5,
+            rank: 3,
+          },
+          { trendType: 'hashtag', entityKey: '#squishy', label: 'duplicate' },
+          { trendType: 'product', entityKey: 'prod-1', label: ' Mini squishy set ', sourceKeyword: '스퀴시' },
+        ],
+        errors: [{ target: ' KR/top-products ', message: ' region blocked ' }],
+      });
+
+      expect(result).toEqual({
+        businessDate: '2026-07-14',
+        collected: 2,
+        errors: [{ target: 'KR/top-products', message: 'region blocked' }],
+      });
+      const rows = (ports.repository.upsertTiktokCcSnapshots as any).mock.calls[0][0];
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toEqual(expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        businessDate: new Date('2026-07-14T00:00:00.000Z'),
+        region: 'US',
+        trendType: 'hashtag',
+        entityKey: '#squishy',
+        label: 'squishy',
+        rank: 3,
+        viewCount: 9_000_000_000,
+        growthPct: 42.5,
+      }));
+      expect(rows[1]).toEqual(expect.objectContaining({
+        trendType: 'product',
+        entityKey: 'prod-1',
+        sourceKeyword: '스퀴시',
+      }));
+      expect(rows[0].capturedAt).toBe(rows[1].capturedAt);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('maps SearchAd metrics per seed and merges DataLab trend ratio/delta', async () => {
     ports.repository.listSeeds = vi.fn(async () => [
       seed({ keyword: '슬라임', sources: ['naver'] }),
@@ -302,9 +368,13 @@ describe('TrendCollectService', () => {
 
     const result = await ports.service.collect(ORGANIZATION_ID, ['naver']);
 
-    expect(result.results).toEqual([{ source: 'naver', ok: true, collected: 2 }]);
+    // 인기보드 2행 저장 + 그 키워드(레고·블록)의 검색광고 볼륨 스냅샷 2행 = 4.
+    expect(result.results).toEqual([{ source: 'naver', ok: true, collected: 4 }]);
     const rows = (ports.repository.replaceNaverPopularKeywordSnapshots as any).mock.calls[0][0];
     expect(rows).toHaveLength(2);
+    // 인기보드 키워드도 검색광고 월검색량 조회 대상에 포함된다(신규 키워드 검색량 조인용).
+    const volumeRows = (ports.repository.upsertNaverKeywordSnapshots as any).mock.calls[0][0];
+    expect(volumeRows.map((row: any) => row.keyword)).toEqual(['레고', '블록']);
     expect(rows[0]).toEqual(
       expect.objectContaining({
         boardKey: 'toys_dolls',

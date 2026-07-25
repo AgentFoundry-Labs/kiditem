@@ -24,6 +24,7 @@ import {
   type NaverPopularKeywordSnapshotUpsert,
   type Sourcing1688HotProductSnapshotUpsert,
   type ShortsSnapshotUpsert,
+  type TiktokCcSnapshotUpsert,
   type TrendCollectionRepositoryPort,
   type TrendSeedRow,
   type UpdateTrendSeedInput,
@@ -45,9 +46,12 @@ const DEFAULT_POPULAR_BOARD_KEYS: NaverDatalabPopularKeywordBoardKey[] = [
 
 const NAVER_SEARCHAD_BATCH_SIZE = 5;
 const NAVER_DATALAB_BATCH_SIZE = 50;
+// 검색광고 월검색량을 조회할 키워드 상한(시드 + 인기보드 상위 키워드). 배치 5개 기준 콜 수 제어용.
+const NAVER_KEYWORD_VOLUME_LIMIT = 60;
 const ONE_1688_MAX_RESULTS_PER_SEED = 20;
 const MAX_1688_OFFERS_PER_RUN = 200;
 const MAX_EXTENSION_1688_TARGETS = 20;
+const MAX_TIKTOK_CC_TARGETS = 20;
 const SHORTS_LIMIT = 50;
 const SHORTS_COLLECTION_WINDOW_DAYS = 30;
 
@@ -90,6 +94,36 @@ export interface Extension1688TrendBatchResult {
 }
 
 export interface Extension1688TrendTarget {
+  label: string;
+  keyword: string;
+}
+
+export interface TiktokCcTrendBatchInput {
+  runId: string;
+  region: string;
+  items: Array<{
+    trendType: string;
+    entityKey: string;
+    label?: string;
+    industry?: string;
+    sourceKeyword?: string;
+    rank?: number;
+    postCount?: number;
+    viewCount?: number;
+    growthPct?: number;
+    thumbnailUrl?: string;
+    sourceUrl?: string;
+  }>;
+  errors?: Array<{ target: string; message: string }>;
+}
+
+export interface TiktokCcTrendBatchResult {
+  businessDate: string;
+  collected: number;
+  errors: Array<{ target: string; message: string }>;
+}
+
+export interface TiktokCcTrendTarget {
   label: string;
   keyword: string;
 }
@@ -185,6 +219,63 @@ export class TrendCollectService {
     };
   }
 
+  // 틱톡 크리에이티브 센터는 봇/리전 차단이라 서버 fetch 대신 확장 스크랩으로만 적재한다.
+  // 확장이 'tiktok-cc' 시드 키워드/카테고리 기준으로 스크랩할 대상 목록을 돌려준다.
+  async listTiktokCcTargets(organizationId: string): Promise<TiktokCcTrendTarget[]> {
+    const seeds = await this.repository.listSeeds(organizationId);
+    return seeds
+      .filter((seed) => seed.enabled && seed.sources.includes('tiktok-cc'))
+      .slice(0, MAX_TIKTOK_CC_TARGETS)
+      .map((seed) => ({ label: seed.keyword, keyword: seed.keyword }));
+  }
+
+  async ingestTiktokCcResults(
+    organizationId: string,
+    input: TiktokCcTrendBatchInput,
+  ): Promise<TiktokCcTrendBatchResult> {
+    const capturedAt = new Date();
+    const businessDate = kstBusinessDate(capturedAt);
+    const region = input.region.trim().toUpperCase();
+    const seen = new Set<string>();
+    const rows: TiktokCcSnapshotUpsert[] = [];
+
+    input.items.forEach((item, index) => {
+      const trendType = item.trendType.trim();
+      const entityKey = item.entityKey.trim();
+      if (!trendType || !entityKey) return;
+      const dedupeKey = `${trendType}::${entityKey}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      rows.push({
+        organizationId,
+        businessDate,
+        region,
+        trendType,
+        entityKey,
+        rank: item.rank ?? index + 1,
+        label: optionalText(item.label),
+        industry: optionalText(item.industry),
+        sourceKeyword: optionalText(item.sourceKeyword),
+        postCount: toInt(item.postCount),
+        viewCount: toInt(item.viewCount),
+        growthPct: item.growthPct == null ? null : item.growthPct,
+        thumbnailUrl: optionalText(item.thumbnailUrl),
+        sourceUrl: optionalText(item.sourceUrl),
+        capturedAt,
+      });
+    });
+
+    const collected = await this.repository.upsertTiktokCcSnapshots(rows);
+    return {
+      businessDate: toDateString(businessDate),
+      collected,
+      errors: (input.errors ?? []).map((error) => ({
+        target: error.target.trim(),
+        message: error.message.trim(),
+      })),
+    };
+  }
+
   async collect(organizationId: string, sources?: TrendCollectSource[]): Promise<TrendCollectResult> {
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
@@ -239,19 +330,32 @@ export class TrendCollectService {
     const errors: string[] = [];
     let collected = 0;
 
+    // 1) DataLab 인기보드(신규 키워드 원천)를 먼저 수집한다.
+    let popularRows: NaverPopularKeywordSnapshotUpsert[] = [];
     try {
-      const naverSeeds = enabledSeeds.filter((seed) => seed.sources.includes('naver'));
-      const rows = await this.buildNaverKeywordRows(organizationId, naverSeeds, businessDate, capturedAt);
-      collected += await this.repository.upsertNaverKeywordSnapshots(rows);
-    } catch (error) {
-      errors.push(`naver-keywords: ${errorMessage(error)}`);
-    }
-
-    try {
-      const popularRows = await this.buildPopularBoardRows(organizationId, businessDate, capturedAt);
+      popularRows = await this.buildPopularBoardRows(organizationId, businessDate, capturedAt);
       collected += await this.repository.replaceNaverPopularKeywordSnapshots(popularRows);
     } catch (error) {
       errors.push(`naver-popular: ${errorMessage(error)}`);
+    }
+
+    // 2) 검색광고 월검색량 — 설정 시드 + 인기보드 상위 키워드(신규 키워드 카테고리)를 함께
+    //    조회해 신규 키워드도 검색량순 정렬이 가능하도록 볼륨을 적재한다.
+    try {
+      const seedKeywords = enabledSeeds
+        .filter((seed) => seed.sources.includes('naver'))
+        .map((seed) => seed.keyword);
+      const popularKeywords = [...popularRows]
+        .sort((a, b) => a.rank - b.rank)
+        .map((row) => row.keyword);
+      const keywords = dedupeKeywords([...seedKeywords, ...popularKeywords]).slice(
+        0,
+        NAVER_KEYWORD_VOLUME_LIMIT,
+      );
+      const rows = await this.buildNaverKeywordRows(organizationId, keywords, businessDate, capturedAt);
+      collected += await this.repository.upsertNaverKeywordSnapshots(rows);
+    } catch (error) {
+      errors.push(`naver-keywords: ${errorMessage(error)}`);
     }
 
     return {
@@ -264,15 +368,15 @@ export class TrendCollectService {
 
   private async buildNaverKeywordRows(
     organizationId: string,
-    naverSeeds: TrendSeedRow[],
+    keywords: string[],
     businessDate: Date,
     capturedAt: Date,
   ): Promise<NaverKeywordSnapshotUpsert[]> {
-    if (naverSeeds.length === 0) return [];
+    if (keywords.length === 0) return [];
 
-    const rows: NaverKeywordSnapshotUpsert[] = naverSeeds.map((seed) => ({
+    const rows: NaverKeywordSnapshotUpsert[] = keywords.map((keyword) => ({
       organizationId,
-      keyword: seed.keyword,
+      keyword,
       businessDate,
       monthlyTotalSearchCount: null,
       monthlyPcSearchCount: null,
@@ -285,13 +389,13 @@ export class TrendCollectService {
     }));
 
     const byNormalizedKeyword = new Map<string, NaverKeywordSnapshotUpsert>();
-    naverSeeds.forEach((seed, index) => {
-      byNormalizedKeyword.set(normalizeMatch(seed.keyword), rows[index]);
+    keywords.forEach((keyword, index) => {
+      byNormalizedKeyword.set(normalizeMatch(keyword), rows[index]);
     });
 
-    for (const chunk of chunkArray(naverSeeds, NAVER_SEARCHAD_BATCH_SIZE)) {
+    for (const chunk of chunkArray(keywords, NAVER_SEARCHAD_BATCH_SIZE)) {
       const result = await this.keywordResearch.searchRelatedKeywords({
-        seedKeywords: chunk.map((seed) => seed.keyword),
+        seedKeywords: chunk,
         maxResults: 100,
       });
       for (const item of result.items ?? []) {
@@ -308,7 +412,7 @@ export class TrendCollectService {
     // 데이터랩 트렌드는 검색광고 월검색량을 보강(enrich)하는 best-effort 단계다.
     // 데이터랩이 실패해도 이미 채워진 SearchAd 데이터는 버리지 않고 저장한다.
     try {
-      for (const chunk of chunkArray(naverSeeds.map((seed) => seed.keyword), NAVER_DATALAB_BATCH_SIZE)) {
+      for (const chunk of chunkArray(keywords, NAVER_DATALAB_BATCH_SIZE)) {
         const result = await this.datalabTrend.compareSearchTrends({ keywords: chunk });
         for (const item of result.items ?? []) {
           const row = byNormalizedKeyword.get(normalizeMatch(item.keyword));
@@ -536,6 +640,20 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 
 function normalizeMatch(value: string): string {
   return value.replace(/\s+/g, '').toUpperCase();
+}
+
+function dedupeKeywords(keywords: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const keyword of keywords) {
+    const trimmed = keyword.trim();
+    if (!trimmed) continue;
+    const key = normalizeMatch(trimmed);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 function toInt(value: number | null | undefined): number | null {

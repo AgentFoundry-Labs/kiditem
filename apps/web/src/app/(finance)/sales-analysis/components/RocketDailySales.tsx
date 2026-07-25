@@ -1,23 +1,32 @@
 'use client';
 
 import { Fragment, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Loader2, Package, RefreshCw, Rocket } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import type { RocketDailyChartPoint } from './RocketDailySalesChart';
 
-interface RocketDay {
-  date: string;
-  revenue: number;
-  poCount: number;
-  itemQty: number;
-}
+const RocketDailySalesChart = dynamic(
+  () => import('./RocketDailySalesChart').then((module) => ({
+    default: module.RocketDailySalesChart,
+  })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[300px] items-center justify-center text-sm text-slate-300">
+        차트 로딩 중...
+      </div>
+    ),
+  },
+);
 
 interface RocketMonthly {
   year: number;
   month: number;
-  days: RocketDay[];
+  days: RocketDailyChartPoint[];
   total: { revenue: number; poCount: number; itemQty: number };
 }
 
@@ -168,7 +177,6 @@ export default function RocketDailySales() {
     refetchOnWindowFocus: true,
   });
   const showLoading = isLoading && !data;
-  const maxRevenue = Math.max(1, ...(data?.days.map((d) => d.revenue) ?? []));
   const avgRevenue =
     data && data.days.length > 0 ? Math.round(data.total.revenue / data.days.length) : 0;
 
@@ -248,7 +256,7 @@ export default function RocketDailySales() {
             </div>
           </div>
 
-          {/* 바 차트 */}
+          {/* 일별 발주금액·수량 차트 */}
           {data.days.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
               <Rocket size={32} className="mx-auto mb-3 opacity-20" />
@@ -259,38 +267,13 @@ export default function RocketDailySales() {
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-slate-200 p-6">
-              <div className="text-xs font-semibold text-slate-500 mb-4">
-                {year}년 {month}월 일별 발주금액 — 발주일 기준
+              <div className="mb-1 text-sm font-bold text-slate-800">
+                {year}년 {month}월 쿠팡 로켓 일별 추이
               </div>
-              <div className="flex items-end gap-1 h-48">
-                {data.days.map((d) => {
-                  const heightPct = (d.revenue / maxRevenue) * 100;
-                  const dayNum = parseInt(d.date.slice(8), 10);
-                  const active = expandedDate === d.date;
-                  return (
-                    <button
-                      key={d.date}
-                      type="button"
-                      onClick={() => setExpandedDate(active ? null : d.date)}
-                      className="flex-1 flex flex-col items-center gap-1 group relative"
-                    >
-                      <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-800 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap z-10 shadow-lg pointer-events-none">
-                        <div className="font-semibold">발주일 {d.date}</div>
-                        <div>{formatKRW(d.revenue)}원</div>
-                        <div className="text-slate-300">발주 {formatNumber(d.poCount)}건 · 수량 {formatNumber(d.itemQty)}개</div>
-                      </div>
-                      <div
-                        className={cn(
-                          'w-full rounded-t transition-colors',
-                          active ? 'bg-purple-700' : 'bg-purple-600 group-hover:bg-purple-500',
-                        )}
-                        style={{ height: `${Math.max(heightPct, 1.5)}%` }}
-                      />
-                      {data.days.length <= 31 && <span className="text-[9px] text-slate-400">{dayNum}</span>}
-                    </button>
-                  );
-                })}
+              <div className="mb-2 text-xs text-slate-400">
+                보라색은 발주금액, 파란색은 발주수량입니다. 상세 발주는 아래 날짜 행을 눌러 확인하세요.
               </div>
+              <RocketDailySalesChart data={data.days} />
             </div>
           )}
 

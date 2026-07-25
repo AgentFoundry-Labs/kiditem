@@ -13,6 +13,7 @@ import {
 import { TABS } from "./lib/types";
 import KpiDashboard from "./components/KpiDashboard";
 import StatusContent from "./components/StatusContent";
+import type { AdCollectionPeriod } from "./components/AdCollectionDailyChart";
 import StrategyContent from "./components/StrategyContent";
 import CampaignContent from "./components/CampaignContent";
 import AdProductsContent from "./components/AdProductsContent";
@@ -24,7 +25,7 @@ import type { CampaignSelection } from "./components/CampaignTable";
 
 export default function AdOpsPage() {
   const [tab, setTab] = useState<TabKey>("status");
-  const [period, setPeriod] = useState("14d");
+  const [period, setPeriod] = useState<AdCollectionPeriod>("14d");
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [gradeFilter, setGradeFilter] = useState<Record<string, "all" | "existing" | "new" | "recommended">>({ A: "all", B: "all", C: "all" });
   const [gradeSearch, setGradeSearch] = useState<Record<string, string>>({ A: "", B: "", C: "" });
@@ -127,7 +128,7 @@ export default function AdOpsPage() {
               </span>
             )}
             <div className="flex rounded-lg p-0.5" style={{ background: "var(--surface-sunken)" }}>
-              {[{ key: "7d", label: "7일" }, { key: "14d", label: "14일" }, { key: "month", label: "이번달" }].map((p) => (
+              {([{ key: "7d", label: "7일" }, { key: "14d", label: "14일" }, { key: "month", label: "이번달" }] as const).map((p) => (
                 <button
                   key={p.key}
                   onClick={() => setPeriod(p.key)}
@@ -182,13 +183,15 @@ export default function AdOpsPage() {
 
         <div style={{ minHeight: 600 }} aria-busy={isRefreshing}>
           {tab === "status" && (
-            <StatusContent
-              rules={rules}
-              strategy={strategy}
-              trends={trends}
+              <StatusContent
+                rules={rules}
+                strategy={strategy}
+                trends={trendsQuery.isPlaceholderData ? null : trends}
               wingKpis={wingKpis}
               campaigns={campaigns}
               onGoToCampaign={handleGoToCampaign}
+              period={period}
+              onPeriodChange={setPeriod}
               extensionStatus={wingStatusQuery.data ?? null}
             />
           )}
@@ -217,7 +220,7 @@ export default function AdOpsPage() {
           )}
 
           {tab === "campaign" && (
-            <CampaignContent initialCampaign={initialCampaign} />
+            <CampaignContent initialCampaign={initialCampaign} period={period} />
           )}
 
           {tab === "products" && (

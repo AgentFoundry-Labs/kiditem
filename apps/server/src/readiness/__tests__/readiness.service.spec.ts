@@ -224,9 +224,13 @@ describe('ReadinessService', () => {
           { externalOptionId: 'vendor-item-2' },
         ]),
       },
-      masterProduct: {
+      channelListing: {
         count: vi.fn(async () => 1752),
-        findFirst: vi.fn(async () => ({ updatedAt: new Date('2026-05-02T01:00:00.000Z') })),
+      },
+      sourceImportRun: {
+        findFirst: vi.fn(async () => ({
+          importedAt: new Date('2026-05-02T01:00:00.000Z'),
+        })),
       },
       // 일별 매출(wing_sales) readiness 는 셀피아 판매현황 기준. 전 일자 present → ok.
       sellpiaSalesDailySnapshot: {
@@ -250,27 +254,39 @@ describe('ReadinessService', () => {
     });
     expect(adsQuery.where.channelAccountId).toBe(ACTIVE_COUPANG_ACCOUNT_ID);
     expect(sellpiaQuery.where.sellerId).toBe('__kiditem_sellpia_sales_coverage__');
-    expect(prisma.masterProduct.count).toHaveBeenCalledWith({
+    expect(prisma.channelListing.count).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
+        channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
         isActive: true,
       },
     });
-    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+    expect(prisma.sourceImportRun.findFirst).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
-        isActive: true,
+        channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
+        sourceType: 'coupang_wing_catalog',
+        status: 'completed',
+        importedAt: { not: null },
       },
-      orderBy: { updatedAt: 'desc' },
-      select: { updatedAt: true },
+      orderBy: { importedAt: 'desc' },
+      select: { importedAt: true },
     });
 
     const wingSales = status.checks.find((check) => check.key === 'wing_sales');
     const coupangAds = status.checks.find((check) => check.key === 'coupang_ads');
+    const coupangProducts = status.checks.find(
+      (check) => check.key === 'coupang_products',
+    );
     const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
     expect(wingSales?.status).toBe('ok');
     expect(coupangAds?.status).toBe('stale');
     expect(coupangAds?.missingDates).toEqual(['2026-04-18']);
+    expect(coupangProducts).toMatchObject({
+      status: 'ok',
+      count: 1752,
+      lastSyncedAt: '2026-05-02T01:00:00.000Z',
+    });
     expect(wingRank).toMatchObject({
       label: 'Wing 판매순위',
       status: 'ok',
@@ -305,10 +321,10 @@ describe('ReadinessService', () => {
         count: vi.fn(async () => 0),
       },
       channelListingOption: { findMany: vi.fn(async () => []) },
-      masterProduct: {
+      channelListing: {
         count: vi.fn(async () => 0),
-        findFirst: vi.fn(async () => null),
       },
+      sourceImportRun: { findFirst: vi.fn(async () => null) },
       sellpiaSalesDailySnapshot: {
         // 전월 말까지는 모두 있지만 7월 1일 coverage는 아직 없다.
         findMany: vi.fn(async () => priorDates.map(row)),
@@ -358,10 +374,12 @@ describe('ReadinessService', () => {
           { externalOptionId: 'vendor-item-2' },
         ]),
       },
-      masterProduct: {
+      channelListing: {
         count: vi.fn(async () => 2),
+      },
+      sourceImportRun: {
         findFirst: vi.fn(async () => ({
-          updatedAt: new Date('2026-07-18T00:30:00.000Z'),
+          importedAt: new Date('2026-07-18T00:30:00.000Z'),
         })),
       },
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
@@ -417,10 +435,10 @@ describe('ReadinessService', () => {
         findMany: vi.fn(async () => [{ vendorItemId: 'inactive-vendor' }]),
         count: vi.fn(async () => 1),
       },
-      masterProduct: {
+      channelListing: {
         count: vi.fn(async () => 0),
-        findFirst: vi.fn(async () => null),
       },
+      sourceImportRun: { findFirst: vi.fn(async () => null) },
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
     };
 
@@ -430,6 +448,8 @@ describe('ReadinessService', () => {
 
     expect(prisma.channelAccountDailyKpiSnapshot.findMany).not.toHaveBeenCalled();
     expect(prisma.channelListingOption.findMany).not.toHaveBeenCalled();
+    expect(prisma.channelListing.count).not.toHaveBeenCalled();
+    expect(prisma.sourceImportRun.findFirst).not.toHaveBeenCalled();
     expect(
       prisma.coupangWingSalesRankDailySnapshot.findFirst,
     ).not.toHaveBeenCalled();
@@ -441,9 +461,16 @@ describe('ReadinessService', () => {
       status: 'missing',
       count: 0,
     });
+    expect(
+      status.checks.find((check) => check.key === 'coupang_products'),
+    ).toMatchObject({
+      status: 'missing',
+      count: 0,
+      lastSyncedAt: null,
+    });
   });
 
-  it('keeps the 14-day ads window separate from month-to-date Sellpia coverage', async () => {
+  it('keeps at least 14 ad days and expands coverage to the current month start', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-18T01:00:00.000Z'));
 
@@ -458,10 +485,10 @@ describe('ReadinessService', () => {
         count: vi.fn(async () => 0),
       },
       channelListingOption: { findMany: vi.fn(async () => []) },
-      masterProduct: {
+      channelListing: {
         count: vi.fn(async () => 0),
-        findFirst: vi.fn(async () => null),
       },
+      sourceImportRun: { findFirst: vi.fn(async () => null) },
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
     };
 
@@ -476,15 +503,15 @@ describe('ReadinessService', () => {
     const sales = status.checks.find((check) => check.key === 'wing_sales');
 
     expect(adsQuery.where.businessDate).toEqual({
-      gte: new Date('2026-07-04T00:00:00.000Z'),
+      gte: new Date('2026-07-01T00:00:00.000Z'),
       lte: new Date('2026-07-17T00:00:00.000Z'),
     });
     expect(sellpiaQuery.where.businessDate).toEqual({
       gte: new Date('2026-07-01T00:00:00.000Z'),
       lte: new Date('2026-07-17T00:00:00.000Z'),
     });
-    expect(ads?.expectedDates).toHaveLength(14);
-    expect(ads?.expectedDates?.[0]).toBe('2026-07-04');
+    expect(ads?.expectedDates).toHaveLength(17);
+    expect(ads?.expectedDates?.[0]).toBe('2026-07-01');
     expect(sales?.expectedDates?.[0]).toBe('2026-07-01');
   });
 });

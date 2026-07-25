@@ -10,6 +10,7 @@ import type { AdPeriod } from '../domain/ad-metrics';
 import { aggregateAdMetrics, buildAdMetrics } from '../domain/ad-metrics';
 import type { ScopedAdListingReadModel } from '../application/port/out/repository/ad-listing.repository.port';
 import type {
+  CampaignCurrentState,
   CampaignRollup,
   ProductTargetRollup,
 } from '../application/port/out/repository/ad-campaign.repository.port';
@@ -29,13 +30,17 @@ export function toAdCampaignSnapshot(
   rollup: CampaignRollup,
   listing: ScopedAdListingReadModel | null,
   period: AdPeriod,
+  currentState: CampaignCurrentState | null = null,
 ): AdCampaignSnapshot {
   return {
     listing: listing ? scopedListingToSummary(listing) : null,
     channelAccountId: rollup.channelAccountId,
     campaignIdentity: rollup.campaignIdentity,
-    campaignId: rollup.campaignId,
-    campaignName: rollup.campaignName,
+    campaignId: currentState?.campaignId ?? rollup.campaignId,
+    campaignName: currentState?.campaignName ?? rollup.campaignName,
+    metricsAvailable: true,
+    status: currentState?.status ?? null,
+    onOff: currentState?.onOff ?? null,
     period,
     // The Coupang campaign dashboard grid carries no conversion-count column,
     // so every campaign-grain row lands with `conversions = 0` whether or not
@@ -48,6 +53,38 @@ export function toAdCampaignSnapshot(
       impressions: rollup.impressions,
       clicks: rollup.clicks,
       conversions: campaignConversionCount(rollup),
+    }),
+  } satisfies AdCampaignSnapshot;
+}
+
+/**
+ * Current campaign descriptor without dated facts for the requested period.
+ *
+ * Shared `AdMetrics` remains structurally stable, while
+ * `metricsAvailable=false` makes every numeric placeholder explicitly
+ * unavailable to API consumers.
+ */
+export function toMetadataOnlyAdCampaignSnapshot(
+  state: CampaignCurrentState,
+  period: AdPeriod,
+): AdCampaignSnapshot {
+  return {
+    listing: null,
+    channelAccountId: state.channelAccountId,
+    campaignIdentity: state.campaignIdentity,
+    campaignId: state.campaignId,
+    campaignName: state.campaignName,
+    metricsAvailable: false,
+    status: state.status,
+    onOff: state.onOff,
+    period,
+    conversionsAvailable: false,
+    metrics: buildAdMetrics({
+      spend: 0,
+      revenue: 0,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
     }),
   } satisfies AdCampaignSnapshot;
 }

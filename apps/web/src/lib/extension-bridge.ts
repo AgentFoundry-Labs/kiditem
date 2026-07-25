@@ -25,7 +25,44 @@ export function isChromeExtensionRuntimeAvailable(): boolean {
   return typeof getChrome()?.runtime?.sendMessage === 'function';
 }
 
-export function sendToExtension<TResponse = unknown>(
+// MV3 서비스워커는 유휴 시 잠들며, 잠든 워커로의 첫 메시지는 크롬이
+// "Receiving end does not exist" / "Could not establish connection" 로 떨군다.
+// 이 경우에만 워커가 깨어날 시간을 주고 재시도한다(다른 오류는 즉시 전파).
+const EXTENSION_WAKE_RETRY_DELAYS_MS = [250, 600, 1200];
+
+function isExtensionWakeError(message: string | undefined): boolean {
+  if (!message) return false;
+  return /Receiving end does not exist|Could not establish connection/i.test(message);
+}
+
+const extensionWakeDelay = (ms: number): Promise<void> =>
+  new Promise((resolve) => window.setTimeout(resolve, ms));
+
+export async function sendToExtension<TResponse = unknown>(
+  id: string,
+  message: unknown,
+  timeoutMs = 15000,
+): Promise<TResponse> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= EXTENSION_WAKE_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await sendToExtensionOnce<TResponse>(id, message, timeoutMs);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (
+        isExtensionWakeError(lastError.message) &&
+        attempt < EXTENSION_WAKE_RETRY_DELAYS_MS.length
+      ) {
+        await extensionWakeDelay(EXTENSION_WAKE_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      throw lastError;
+    }
+  }
+  throw lastError ?? new Error('익스텐션 통신 실패');
+}
+
+function sendToExtensionOnce<TResponse = unknown>(
   id: string,
   message: unknown,
   timeoutMs = 15000,

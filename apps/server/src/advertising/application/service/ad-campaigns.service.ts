@@ -1,17 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type {
+  AdCampaignSyncStatus,
   AdCampaignSnapshot,
   AdProductSnapshot,
   AdTrendsData,
 } from '@kiditem/shared/advertising';
+import { kstBusinessDate } from '../../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { aggregateDailyAdRows } from '../../domain/ad-trend';
 import {
   toAdCampaignSnapshot,
+  toMetadataOnlyAdCampaignSnapshot,
   toAdProductSnapshot,
   toAdTrendsData,
 } from '../../mapper/ad-campaign.mapper';
-import { periodToDays, type AdPeriod } from '../../domain/ad-metrics';
+import { periodBounds, type AdPeriod } from '../../domain/ad-metrics';
 import {
   AD_CAMPAIGN_REPOSITORY_PORT,
   type AdCampaignRepositoryPort,
@@ -40,6 +43,74 @@ export class AdCampaignsService {
   }
 
   /**
+   * Durable completion/freshness for the browser campaign + product sweep.
+   *
+   * A local browser session saying "succeeded" is deliberately insufficient:
+   * the repository validates the latest persisted terminal marker against the
+   * exact stable campaign identities observed in the same run + attempt.
+   */
+  async getCampaignSyncStatus(
+    organizationId: string,
+  ): Promise<AdCampaignSyncStatus> {
+    const latest =
+      await this.campaignRepo.findAccountlessSyncCampaignSweep(organizationId);
+    if (!latest) {
+      return {
+        status: 'missing',
+        lastCompletedAt: null,
+        campaignCount: 0,
+      } satisfies AdCampaignSyncStatus;
+    }
+
+    if (!latest.rosterComplete) {
+      return {
+        status: 'incomplete',
+        lastCompletedAt: null,
+        campaignCount: 0,
+      } satisfies AdCampaignSyncStatus;
+    }
+
+    const latestCompleteBusinessDate = new Date(
+      kstBusinessDate(new Date()).getTime() - 86_400_000,
+    );
+    const expectedDailyTo = latestCompleteBusinessDate
+      .toISOString()
+      .slice(0, 10);
+    const expectedDailyFrom = new Date(
+      latestCompleteBusinessDate.getTime() - 30 * 86_400_000,
+    )
+      .toISOString()
+      .slice(0, 10);
+    const hasCompleteDailyWindowContract =
+      latest.campaignDailyCollectionComplete &&
+      latest.campaignDailyWindowDays === 31 &&
+      isExactThirtyOneDayWindow(
+        latest.campaignDailyFrom,
+        latest.campaignDailyTo,
+      );
+    if (hasCompleteDailyWindowContract && !latest.dailyFactsComplete) {
+      return {
+        status: 'incomplete',
+        lastCompletedAt: null,
+        campaignCount: latest.campaigns.length,
+      } satisfies AdCampaignSyncStatus;
+    }
+    const hasLatestCompleteDailyWindow =
+      hasCompleteDailyWindowContract &&
+      latest.dailyFactsComplete &&
+      latest.campaignDailyFrom === expectedDailyFrom &&
+      latest.campaignDailyTo === expectedDailyTo;
+    return {
+      status: hasLatestCompleteDailyWindow ? 'fresh' : 'stale',
+      lastCompletedAt:
+        hasCompleteDailyWindowContract && latest.dailyFactsComplete
+          ? latest.completedAt
+          : null,
+      campaignCount: latest.campaigns.length,
+    } satisfies AdCampaignSyncStatus;
+  }
+
+  /**
    * Campaign-grain rollup from `ChannelAdTargetDailySnapshot.targetType='campaign'`
    * over the requested period. Rollups without a `listingId` (campaigns that
    * span many products — the typical Coupang case) surface with `listing: null`
@@ -51,15 +122,46 @@ export class AdCampaignsService {
     period: AdPeriod,
     organizationId: string,
   ): Promise<AdCampaignSnapshot[]> {
-    const rollups = await this.campaignRepo.findCampaignRollups(
-      organizationId,
-      period,
+    const [rollups, currentSweeps] = await Promise.all([
+      this.campaignRepo.findCampaignRollups(organizationId, period),
+      this.campaignRepo.findLatestCompleteCampaignSweeps(organizationId),
+    ]);
+    const completeSweeps = new Map(
+      currentSweeps
+        .filter((sweep) => sweep.rosterComplete)
+        .map((sweep) => [sweep.channelAccountId, sweep]),
     );
-    if (rollups.length === 0) return [];
+    const currentStateByKey = new Map(
+      [...completeSweeps.values()].flatMap((sweep) =>
+        sweep.campaigns.map((campaign) => [
+          campaignProjectionKey(
+            campaign.channelAccountId,
+            campaign.campaignIdentity,
+          ),
+          campaign,
+        ] as const),
+      ),
+    );
+    // Once an account has an identity-complete terminal marker, its roster is
+    // authoritative current state. Period facts for campaigns absent from the
+    // roster are historical/deleted and must not masquerade as current rows.
+    const currentRollups = rollups.filter((rollup) => {
+      const currentSweep = completeSweeps.get(rollup.channelAccountId);
+      return (
+        !currentSweep ||
+        currentStateByKey.has(
+          campaignProjectionKey(
+            rollup.channelAccountId,
+            rollup.campaignIdentity,
+          ),
+        )
+      );
+    });
+    if (currentRollups.length === 0 && currentStateByKey.size === 0) return [];
 
     const listingIds = Array.from(
       new Set(
-        rollups
+        currentRollups
           .map((r) => r.listingId)
           .filter((id): id is string => id != null),
       ),
@@ -72,12 +174,33 @@ export class AdCampaignsService {
           )
         : new Map();
 
-    return rollups.map((rollup) => {
+    const result = currentRollups.map((rollup) => {
       const listing = rollup.listingId
         ? listingMap.get(rollup.listingId) ?? null
         : null;
-      return toAdCampaignSnapshot(rollup, listing, period);
+      const currentState =
+        currentStateByKey.get(
+          campaignProjectionKey(
+            rollup.channelAccountId,
+            rollup.campaignIdentity,
+          ),
+        ) ?? null;
+      return toAdCampaignSnapshot(rollup, listing, period, currentState);
     });
+    const factKeys = new Set(
+      currentRollups.map((rollup) =>
+        campaignProjectionKey(
+          rollup.channelAccountId,
+          rollup.campaignIdentity,
+        ),
+      ),
+    );
+    for (const [key, state] of currentStateByKey) {
+      if (!factKeys.has(key)) {
+        result.push(toMetadataOnlyAdCampaignSnapshot(state, period));
+      }
+    }
+    return result;
   }
 
   /**
@@ -142,11 +265,20 @@ export class AdCampaignsService {
     period: AdPeriod,
     days: number | undefined,
     organizationId: string,
+    dateRange?: { from: Date; to: Date },
   ): Promise<AdTrendsData> {
-    const dayCount = period ? periodToDays(period) : Math.min(days ?? 14, 90);
+    void days; // backwards-compatible query field; period/dateRange own the window
+    const resolvedDateRange = dateRange ?? periodBounds(period);
     const [rows, accountKpiRows] = await Promise.all([
-      this.campaignRepo.findAdTrendDailyRows(organizationId, dayCount),
-      this.accountKpiRepo.findCoupangAdsDaily(organizationId, period ?? '14d'),
+      this.campaignRepo.findAdTrendDailyRows(
+        organizationId,
+        resolvedDateRange,
+      ),
+      this.accountKpiRepo.findCoupangAdsDaily(
+        organizationId,
+        period,
+        resolvedDateRange,
+      ),
     ]);
     const dailyAggregates = aggregateDailyAdRows(rows);
     const gradeBudget = await this.campaignRepo.findGradeBudgetTotals(
@@ -155,4 +287,27 @@ export class AdCampaignsService {
     );
     return toAdTrendsData({ dailyAggregates, gradeBudget, accountKpiRows });
   }
+}
+
+function campaignProjectionKey(
+  channelAccountId: string,
+  campaignIdentity: string,
+): string {
+  return `${channelAccountId}\u001f${campaignIdentity}`;
+}
+
+function isExactThirtyOneDayWindow(
+  from: string | null,
+  to: string | null,
+): boolean {
+  if (!from || !to) return false;
+  const fromDate = new Date(`${from}T00:00:00.000Z`);
+  const toDate = new Date(`${to}T00:00:00.000Z`);
+  return (
+    Number.isFinite(fromDate.getTime()) &&
+    Number.isFinite(toDate.getTime()) &&
+    fromDate.toISOString().slice(0, 10) === from &&
+    toDate.toISOString().slice(0, 10) === to &&
+    (toDate.getTime() - fromDate.getTime()) / 86_400_000 + 1 === 31
+  );
 }

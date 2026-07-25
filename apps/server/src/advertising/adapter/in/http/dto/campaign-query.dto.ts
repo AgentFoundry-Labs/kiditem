@@ -1,4 +1,14 @@
-import { IsOptional, IsString, IsInt, Min, Max, IsIn, IsUUID, ValidateIf } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsInt,
+  Min,
+  Max,
+  IsIn,
+  IsUUID,
+  Matches,
+  ValidateIf,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CampaignQueryDto {
@@ -19,6 +29,14 @@ export class TrendsQueryDto {
   @IsOptional()
   @IsIn(['7d', '14d', 'month'])
   period?: '7d' | '14d' | 'month';
+
+  @ValidateIf((query: TrendsQueryDto) => query.from !== undefined || query.to !== undefined)
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  from?: string;
+
+  @ValidateIf((query: TrendsQueryDto) => query.from !== undefined || query.to !== undefined)
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  to?: string;
 }
 
 export class StrategyQueryDto {

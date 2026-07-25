@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Auto-Seller Product Scraper",
-  "version": "2.2.3",
-  "description": "이커머스 상품·중국 라이브 방송 데이터 추출 (Alibaba, 1688, Douyin)",
+  "version": "2.3.0",
+  "description": "이커머스 상품·중국 라이브 방송·TikTok Creative Center 트렌드 데이터 추출 (Alibaba, 1688, Douyin, TikTok Creative Center)",
   "permissions": [
     "activeTab",
     "scripting",
@@ -21,6 +21,7 @@
     "https://*.1688.com/*",
     "https://*.douyin.com/*",
     "https://*.jinritemai.com/*",
+    "https://ads.tiktok.com/*",
     "https://itemcdn.tmall.com/*",
     "http://localhost:3000/*",
     "https://staging.merchon.org/*",
@@ -74,6 +75,24 @@
         "live-commerce-content.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://ads.tiktok.com/*"
+      ],
+      "js": [
+        "tiktok-cc-extractor.js",
+        "tiktok-cc-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://ads.tiktok.com/*"
+      ],
+      "js": ["tiktok-cc-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     },
     {
       "matches": [
