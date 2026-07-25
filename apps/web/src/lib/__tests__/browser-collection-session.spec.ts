@@ -232,11 +232,10 @@ describe('browser collection alert synchronization', () => {
     );
   });
 
-  it('creates a canonical pending extension-missing alert without opening a tab', async () => {
+  it('does not persist extension-missing as an operation alert', async () => {
     const randomUuid = vi
       .spyOn(globalThis.crypto, 'randomUUID')
       .mockReturnValue(RUN_ID);
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_004_000);
 
     const result = await recordMissingBrowserCollection(
       'dashboard.wing_sales',
@@ -244,30 +243,10 @@ describe('browser collection alert synchronization', () => {
     );
 
     expect(result.runId).toBe(RUN_ID);
-    expect(mockStart).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operationKey: `browser-collection:${RUN_ID}`,
-        type: 'browser_collection',
-        sourceType: 'browser_collection_session',
-        sourceId: 'dashboard.wing_sales',
-      }),
-    );
-    expect(mockUpdate).toHaveBeenCalledWith(
-      `browser-collection:${RUN_ID}`,
-      expect.objectContaining({
-        status: 'pending',
-        severity: 'warning',
-        metadata: expect.objectContaining({
-          collectionAttempt: 1,
-          collectionUpdatedAt: 1_700_000_004_000,
-          attentionReason: 'extension_missing',
-          inputIdentity: { trigger: 'dashboard_traffic' },
-        }),
-      }),
-    );
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
     randomUuid.mockRestore();
-    now.mockRestore();
   });
 
   it('keeps a route-generated run id when recording a missing extension', async () => {
@@ -280,11 +259,8 @@ describe('browser collection alert synchronization', () => {
     );
 
     expect(result).toEqual({ runId });
-    expect(mockStart).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operationKey: `browser-collection:${runId}`,
-      }),
-    );
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it('rejects secret-bearing missing-extension identities before alert metadata leaves the browser', async () => {

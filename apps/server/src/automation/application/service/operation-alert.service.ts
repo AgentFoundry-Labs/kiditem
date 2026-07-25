@@ -214,6 +214,19 @@ export class OperationAlertService implements OperationAlertPort {
     return closed;
   }
 
+  async dismissExtensionMissingBrowserCollections(
+    organizationId: string,
+    actorUserId: string,
+  ): Promise<AlertRecord[]> {
+    const dismissed =
+      await this.repository.dismissExtensionMissingBrowserCollections(
+        organizationId,
+        actorUserId,
+      );
+    for (const row of dismissed) this.emitDismiss(row);
+    return dismissed;
+  }
+
   private emitUpsert(alert: AlertRecord): void {
     try {
       const item = alertPanelMapper.mapToItem(alert);
@@ -224,6 +237,19 @@ export class OperationAlertService implements OperationAlertPort {
     } catch (err) {
       this.logger.warn(
         `Panel emit failed for operation alert ${alert.id} (${alert.operationKey ?? 'no-key'}): ${err}`,
+      );
+    }
+  }
+
+  private emitDismiss(alert: AlertRecord): void {
+    try {
+      this.eventEmitter.emit(PANEL_EVENTS.DISMISS, {
+        itemId: alert.id,
+        organizationId: alert.organizationId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Panel dismiss emit failed for operation alert ${alert.id}: ${err}`,
       );
     }
   }

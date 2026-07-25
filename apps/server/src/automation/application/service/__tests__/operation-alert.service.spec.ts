@@ -746,3 +746,67 @@ describe('OperationAlertService.closeStaleOperations', () => {
     );
   });
 });
+
+describe('OperationAlertService.dismissExtensionMissingBrowserCollections', () => {
+  it('cancels and dismisses only the current actor legacy missing-extension rows', async () => {
+    const { service, prisma, eventEmitter } = makeService();
+    const legacy = existingAlert({
+      status: 'pending',
+      type: 'browser_collection',
+      sourceType: 'browser_collection_session',
+      operationKey: 'browser-collection:eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      metadata: {
+        browserCollection: true,
+        attentionReason: 'extension_missing',
+      },
+    });
+    const dismissed = {
+      ...legacy,
+      status: 'cancelled',
+      isRead: true,
+      readAt: new Date('2026-05-10T10:01:00Z'),
+      finishedAt: new Date('2026-05-10T10:01:00Z'),
+    };
+    prisma.alert.findMany.mockResolvedValueOnce([legacy]);
+    prisma.alert.updateMany.mockResolvedValueOnce({ count: 1 });
+    prisma.alert.findFirst.mockResolvedValueOnce(dismissed);
+
+    const result = await service.dismissExtensionMissingBrowserCollections(
+      ORGANIZATION_ID,
+      ACTOR_USER_ID,
+    );
+
+    expect(prisma.alert.findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        actorUserId: ACTOR_USER_ID,
+        kind: 'operation',
+        status: { in: ['pending', 'running'] },
+        type: 'browser_collection',
+        sourceType: 'browser_collection_session',
+        operationKey: { startsWith: 'browser-collection:' },
+        metadata: { path: ['attentionReason'], equals: 'extension_missing' },
+      },
+      orderBy: { updatedAt: 'asc' },
+    });
+    expect(prisma.alert.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: legacy.id,
+        organizationId: ORGANIZATION_ID,
+        actorUserId: ACTOR_USER_ID,
+        status: { in: ['pending', 'running'] },
+      },
+      data: {
+        status: 'cancelled',
+        finishedAt: expect.any(Date),
+        isRead: true,
+        readAt: expect.any(Date),
+      },
+    });
+    expect(result).toEqual([dismissed]);
+    expect(eventEmitter.emit).toHaveBeenCalledWith(PANEL_EVENTS.DISMISS, {
+      itemId: legacy.id,
+      organizationId: ORGANIZATION_ID,
+    });
+  });
+});

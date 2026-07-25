@@ -58,6 +58,7 @@ function makeService() {
     fail: vi.fn(),
     cancel: vi.fn(),
     closeStaleOperations: vi.fn(),
+    dismissExtensionMissingBrowserCollections: vi.fn(),
   };
 }
 
@@ -652,5 +653,31 @@ describe('OperationAlertLifecycleController.reconcileBrowserStale', () => {
       sourceType: 'browser_batch',
       operationKey: 'thumbnail-analysis:batch:stale',
     });
+  });
+});
+
+describe('OperationAlertLifecycleController.reconcileExtensionMissing', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('dismisses only the current actor legacy extension-missing alerts', async () => {
+    const { controller, service } = makeController();
+    service.dismissExtensionMissingBrowserCollections.mockResolvedValueOnce([
+      alertRow({
+        status: 'cancelled',
+        isRead: true,
+        finishedAt: new Date('2026-05-09T08:00:00Z'),
+        metadata: { attentionReason: 'extension_missing' },
+      }),
+    ]);
+
+    const result = await controller.reconcileExtensionMissing(
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+
+    expect(
+      service.dismissExtensionMissingBrowserCollections,
+    ).toHaveBeenCalledWith(ORGANIZATION_ID, USER_ID);
+    expect(result).toEqual({ dismissed: 1 });
   });
 });

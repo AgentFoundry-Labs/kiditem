@@ -490,4 +490,50 @@ export class OperationAlertRepositoryAdapter
     }
     return closed;
   }
+
+  async dismissExtensionMissingBrowserCollections(
+    organizationId: string,
+    actorUserId: string,
+  ): Promise<Alert[]> {
+    const legacyAlerts = await this.prisma.alert.findMany({
+      where: {
+        organizationId,
+        actorUserId,
+        kind: 'operation',
+        status: { in: ['pending', 'running'] },
+        type: 'browser_collection',
+        sourceType: 'browser_collection_session',
+        operationKey: { startsWith: 'browser-collection:' },
+        metadata: { path: ['attentionReason'], equals: 'extension_missing' },
+      },
+      orderBy: { updatedAt: 'asc' },
+    });
+
+    if (legacyAlerts.length === 0) return [];
+
+    const finishedAt = new Date();
+    const dismissed: Alert[] = [];
+    for (const alert of legacyAlerts) {
+      const { count } = await this.prisma.alert.updateMany({
+        where: {
+          id: alert.id,
+          organizationId,
+          actorUserId,
+          status: { in: ['pending', 'running'] },
+        },
+        data: {
+          status: 'cancelled',
+          finishedAt,
+          isRead: true,
+          readAt: finishedAt,
+        },
+      });
+      if (count === 0) continue;
+      const refreshed = await this.prisma.alert.findFirst({
+        where: { id: alert.id, organizationId },
+      });
+      if (refreshed) dismissed.push(refreshed);
+    }
+    return dismissed;
+  }
 }

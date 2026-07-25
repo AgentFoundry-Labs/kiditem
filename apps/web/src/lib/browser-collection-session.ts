@@ -192,8 +192,7 @@ export async function recordMissingBrowserCollection(
 ): Promise<{ runId: string }> {
   const runId = existingRunId ?? globalThis.crypto.randomUUID();
   const now = Date.now();
-  const message = '브라우저 수집 익스텐션을 찾을 수 없습니다.';
-  const validated = BrowserCollectionSessionViewSchema.parse({
+  BrowserCollectionSessionViewSchema.parse({
     runId,
     producer,
     classification: 'background_safe',
@@ -210,36 +209,12 @@ export async function recordMissingBrowserCollection(
     inputIdentity,
     attention: {
       reason: 'extension_missing',
-      message,
+      message: '브라우저 수집 익스텐션을 찾을 수 없습니다.',
       canOpenTab: false,
     },
     startedAt: now,
     updatedAt: now,
     finishedAt: null,
-  });
-  const operationKey = browserCollectionOperationKey(runId);
-  const metadata = {
-    browserCollection: true,
-    runId,
-    producer,
-    collectionAttempt: 1,
-    collectionUpdatedAt: now,
-    attentionReason: 'extension_missing',
-    inputIdentity: validated.inputIdentity,
-  };
-  await startOperationAlert({
-    operationKey,
-    type: BROWSER_COLLECTION_TYPE,
-    title: producer,
-    sourceType: BROWSER_COLLECTION_SOURCE_TYPE,
-    sourceId: producer,
-    href: '/',
-    metadata,
-  });
-  await requireAttentionOperationAlert(operationKey, {
-    message,
-    severity: 'warning',
-    metadata,
   });
   return { runId };
 }
