@@ -225,12 +225,39 @@ describe('channel product and variant matching contracts', () => {
         displayName: '키즈 식판',
         status: 'approved',
         masterProductId: productId,
+        channelImageUrl: 'https://cdn.example.com/channel.jpg',
         updatedAt: '2026-07-16T00:00:00.000Z',
       },
-      linkedProduct: { id: productId, code: 'KI-001', name: '키즈 식판' },
+      linkedProduct: {
+        id: productId,
+        code: 'KI-001',
+        name: '키즈 식판',
+        displayImageUrl: 'https://cdn.example.com/operator.jpg',
+      },
       optionCount: 1,
       linkedOptionCount: 0,
     }).listing.masterProductId).toBe(productId);
+
+    expect(ChannelProductMatchingQueueRowSchema.parse({
+      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
+      listing: {
+        id: listingId,
+        externalId: 'P-001',
+        displayName: '키즈 식판',
+        status: 'approved',
+        masterProductId: productId,
+        channelImageUrl: 'https://cdn.example.com/channel.jpg',
+        updatedAt: '2026-07-16T00:00:00.000Z',
+      },
+      linkedProduct: {
+        id: productId,
+        code: 'KI-001',
+        name: '키즈 식판',
+        displayImageUrl: 'https://cdn.example.com/channel.jpg',
+      },
+      optionCount: 1,
+      linkedOptionCount: 0,
+    }).linkedProduct?.displayImageUrl).toBe('https://cdn.example.com/channel.jpg');
 
     expect(ChannelOptionMatchingQueueRowSchema.parse({
       channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
@@ -265,15 +292,48 @@ describe('channel product and variant matching contracts', () => {
         displayName: '키즈 식판',
         status: 'approved',
         masterProductId: productId,
+        channelImageUrl: 'https://cdn.example.com/channel.jpg',
         updatedAt: '2026-07-16T00:00:00.000Z',
       },
       linkedProduct: {
         id: '00000000-0000-4000-8000-000000000099',
         code: 'KI-099',
         name: '다른 상품',
+        displayImageUrl: 'https://cdn.example.com/operator.jpg',
       },
       optionCount: 1,
       linkedOptionCount: 0,
+    })).toThrow();
+
+    const queueRow = {
+      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
+      listing: {
+        id: listingId,
+        externalId: 'P-001',
+        displayName: '키즈 식판',
+        status: 'approved',
+        masterProductId: productId,
+        channelImageUrl: 'https://cdn.example.com/channel.jpg',
+        updatedAt: '2026-07-16T00:00:00.000Z',
+      },
+      linkedProduct: {
+        id: productId,
+        code: 'KI-001',
+        name: '키즈 식판',
+        displayImageUrl: 'https://cdn.example.com/operator.jpg',
+      },
+      optionCount: 1,
+      linkedOptionCount: 0,
+    };
+    const { channelImageUrl: _channelImageUrl, ...listingWithoutImage } = queueRow.listing;
+    expect(() => ChannelProductMatchingQueueRowSchema.parse({
+      ...queueRow,
+      listing: listingWithoutImage,
+    })).toThrow();
+    const { displayImageUrl: _displayImageUrl, ...linkedProductWithoutImage } = queueRow.linkedProduct;
+    expect(() => ChannelProductMatchingQueueRowSchema.parse({
+      ...queueRow,
+      linkedProduct: linkedProductWithoutImage,
     })).toThrow();
 
     expect(() => ChannelOptionMatchingQueueRowSchema.parse({
