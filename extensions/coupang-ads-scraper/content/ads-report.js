@@ -622,6 +622,8 @@
     ".ant-table-placeholder",
     "[data-testid='empty-state']",
   ];
+  const REPORT_IMPLICIT_EMPTY_STABLE_MS = 1000;
+  const REPORT_IMPLICIT_EMPTY_MIN_SAMPLES = 3;
 
   function isElementVisible(element) {
     if (!element) return false;
@@ -669,15 +671,19 @@
         emptyText: normalizedEmptyText,
       };
     }
-    // 인식된 리포트 그리드(헤더 일치)가 렌더됐는데 로딩 인디케이터도 없고 행이 0이면,
-    // 명시적 "데이터 없음" 문구가 없어도 표시할 데이터가 없는 settled empty 다.
-    // 예: AI스마트광고(HUB) — 상세는 열리지만 상품 행이 없는 캠페인. 예전엔 이걸
-    // "unknown" 으로 두고 계속 기다리다 report_surface_unverified 로 실패했고, sweep
-    // 이 그 캠페인에서 멈췄다(예: 진행 31/279에서 "같은 위치에서 반복되어 중단").
-    // recognizedGrid 는 페이지 전역에 로딩 스피너가 없을 때만 true 이므로, 로딩 중
-    // 그리드를 빈 그리드로 오분류하지 않는다.
+    // 인식된 리포트 그리드(헤더 일치)가 렌더됐는데 로딩 인디케이터도 없고 행이 0이면
+    // 명시적 empty가 아니라 안정화가 필요한 implicit empty 후보로만 분류한다.
+    // React가 헤더를 먼저 그리고 행을 늦게 붙이는 동안 알려진 스피너가 없을 수 있으므로
+    // 이 신호 하나만으로 즉시 authoritative empty를 만들면 실제 일별 실적을 0으로 덮어쓴다.
+    // readSettledReportPage가 여러 번의 동일한 0행 관찰과 최소 지연을 확인한 뒤에만
+    // 이 후보를 완료 상태로 받아들인다.
     if (recognizedGrid) {
-      return { kind: "empty", explicitEmpty: true, emptyText: "" };
+      return {
+        kind: "empty",
+        explicitEmpty: false,
+        implicitEmpty: true,
+        emptyText: "",
+      };
     }
     return { kind: "unknown", explicitEmpty: false };
   }
@@ -727,15 +733,55 @@
     const now = options.now || (() => Date.now());
     const wait = options.wait || sleep;
     let latest = readSnapshot();
+    let implicitEmptySignature = "";
+    let implicitEmptyStartedAt = null;
+    let implicitEmptySamples = 0;
+
+    const recordImplicitEmptySample = (snapshot) => {
+      const signature = JSON.stringify([
+        snapshot?.parsed?.pageType || "",
+        ...(snapshot?.parsed?.headers || []).map(normalizeText),
+      ]);
+      const sampledAt = now();
+      if (signature !== implicitEmptySignature) {
+        implicitEmptySignature = signature;
+        implicitEmptyStartedAt = sampledAt;
+        implicitEmptySamples = 1;
+      } else {
+        implicitEmptySamples += 1;
+      }
+      return (
+        implicitEmptySamples >= REPORT_IMPLICIT_EMPTY_MIN_SAMPLES &&
+        sampledAt - implicitEmptyStartedAt >= REPORT_IMPLICIT_EMPTY_STABLE_MS
+      );
+    };
+
+    const resetImplicitEmptySamples = () => {
+      implicitEmptySignature = "";
+      implicitEmptyStartedAt = null;
+      implicitEmptySamples = 0;
+    };
+
+    if (latest.surface?.implicitEmpty === true) {
+      recordImplicitEmptySample(latest);
+    }
     // pollUntil: 벽시계 예산과 별개로 최소 시도 횟수를 보장해 백그라운드
     // 타이머 스로틀에서도 그리드 렌더를 놓치지 않는다.
     const settled = await pollUntil(
       () => {
         latest = readSnapshot();
+        const implicitEmptyStable = latest.surface?.implicitEmpty === true
+          ? recordImplicitEmptySample(latest)
+          : false;
+        if (latest.surface?.implicitEmpty !== true) resetImplicitEmptySamples();
         const paginationReady =
-          latest.surface.kind === "empty" || latest.pagination?.verified === true;
+          (latest.surface.kind === "empty" &&
+            (latest.surface.explicitEmpty === true || implicitEmptyStable)) ||
+          latest.pagination?.verified === true;
         return (
-          (latest.surface.kind === "rows" || latest.surface.kind === "empty") &&
+          (latest.surface.kind === "rows" ||
+            (latest.surface.kind === "empty" &&
+              (latest.surface.explicitEmpty === true || implicitEmptyStable))) &&
           paginationReady
         );
       },

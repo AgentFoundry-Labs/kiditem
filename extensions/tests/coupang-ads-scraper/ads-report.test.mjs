@@ -882,7 +882,7 @@ test("Korean abbreviated KPI numbers preserve their magnitude", () => {
   );
 });
 
-test("zero rows are complete only with an explicit visible empty-state", async () => {
+test("zero rows require explicit evidence or a stabilized recognized grid", async () => {
   const contract = loadContract();
   const visibleElement = {
     getAttribute() {
@@ -935,8 +935,8 @@ test("zero rows are complete only with an explicit visible empty-state", async (
     },
   );
 
-  // 인식된 그리드(헤더 일치)가 있고 로딩도 없는데 행이 0이면, 명시적 empty 문구가
-  // 없어도 settled empty 로 처리한다(AI스마트광고 HUB 처럼 상품 행 없는 캠페인).
+  // 인식된 그리드(헤더 일치)가 있고 로딩도 없는데 행이 0이면 안정화가 필요한
+  // implicit empty 후보로 분류한다(AI스마트광고 HUB 처럼 상품 행 없는 캠페인).
   assert.deepEqual(
     JSON.parse(JSON.stringify(contract.classifyReportSurfaceEvidence({
       rowCount: 0,
@@ -944,7 +944,12 @@ test("zero rows are complete only with an explicit visible empty-state", async (
       emptyText: "",
       recognizedGrid: true,
     }))),
-    { kind: "empty", explicitEmpty: true, emptyText: "" },
+    {
+      kind: "empty",
+      explicitEmpty: false,
+      implicitEmpty: true,
+      emptyText: "",
+    },
   );
   // recognizedGrid 신호가 없으면 기존대로 unknown(그리드 미인식/로딩 가능성 → 더 대기).
   assert.deepEqual(
@@ -1016,14 +1021,19 @@ test("empty/loading evidence is scoped to the selected report container", () => 
   };
 
   // 컨테이너 밖의 empty 문구는 scope 되어 무시된다. 다만 인식된 그리드가 렌더됐고
-  // 로딩도 없으므로(스피너 없음) settled empty 로 처리한다 — 명시적 문구는 없으니
-  // emptyText 는 비어 있다.
+  // 로딩도 없으므로 implicit empty 후보가 된다 — 명시적 문구는 없으니 emptyText 는
+  // 비어 있고 readSettledReportPage 에서 추가 안정화를 거친다.
   assert.deepEqual(
     JSON.parse(JSON.stringify(contract.readReportSurfaceState({
       rawRows: [],
       surfaceRoots: [unrelatedReportRoot],
     }))),
-    { kind: "empty", explicitEmpty: true, emptyText: "" },
+    {
+      kind: "empty",
+      explicitEmpty: false,
+      implicitEmpty: true,
+      emptyText: "",
+    },
   );
   // 컨테이너 안의 명시적 empty 문구는 그대로 emptyText 로 보존된다.
   assert.deepEqual(
@@ -1037,6 +1047,65 @@ test("empty/loading evidence is scoped to the selected report container", () => 
       emptyText: "데이터가 없습니다.",
     },
   );
+});
+
+test("header-first grid waits for late rows before accepting implicit empty", async () => {
+  const contract = loadContract();
+  const implicitEmpty = reportSnapshot(1, 1, [], "empty");
+  implicitEmpty.surface = {
+    kind: "empty",
+    explicitEmpty: false,
+    implicitEmpty: true,
+    emptyText: "",
+  };
+  const rows = reportSnapshot(1, 1, ["late-product"]);
+  let clock = 0;
+  let reads = 0;
+
+  const settled = await contract.readSettledReportPage(2_000, {
+    now: () => clock,
+    readSnapshot: () => (reads++ < 4 ? implicitEmpty : rows),
+    wait: async (milliseconds) => {
+      clock += milliseconds;
+    },
+  });
+
+  assert.equal(settled.ok, true);
+  assert.equal(settled.surface.kind, "rows");
+  assert.deepEqual(
+    [...settled.parsed.normalizedRows].map((row) => row.externalId),
+    ["late-product"],
+  );
+});
+
+test("recognized zero-row grid becomes empty only after stable sampling", async () => {
+  const contract = loadContract();
+  const implicitEmpty = reportSnapshot(1, 1, [], "empty");
+  implicitEmpty.surface = {
+    kind: "empty",
+    explicitEmpty: false,
+    implicitEmpty: true,
+    emptyText: "",
+  };
+  let clock = 0;
+  let reads = 0;
+
+  const settled = await contract.readSettledReportPage(2_000, {
+    now: () => clock,
+    readSnapshot: () => {
+      reads += 1;
+      return implicitEmpty;
+    },
+    wait: async (milliseconds) => {
+      clock += milliseconds;
+    },
+  });
+
+  assert.equal(settled.ok, true);
+  assert.equal(settled.surface.kind, "empty");
+  assert.equal(settled.surface.implicitEmpty, true);
+  assert.ok(reads >= 3);
+  assert.ok(clock >= 1_000);
 });
 
 test("explicit empty daily result rejects stale additive KPI and accepts clean zero", () => {
