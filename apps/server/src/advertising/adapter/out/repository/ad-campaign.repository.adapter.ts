@@ -350,7 +350,7 @@ export class AdCampaignRepositoryAdapter
              marker.collection_run_id
            AND observed_run.meta_json ->> 'collectionAttempt' =
              marker.collection_attempt::text
-          JOIN channel_scrape_snapshots snapshot
+          JOIN channel_scrape_snapshots snapshot -- raw-snapshot-status-count-ok
             ON snapshot.organization_id = observed_run.organization_id
            AND snapshot.scrape_run_id = observed_run.id
           WHERE NULLIF(

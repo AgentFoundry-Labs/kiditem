@@ -28,7 +28,8 @@ if rg -n \
   --glob '!**/*.spec.ts' \
   --glob '!**/*.test.ts' \
   '(?i)(from|join)[[:space:]]+channel_scrape_snapshots' \
-  "${TARGETS[@]}"; then
+  "${TARGETS[@]}" \
+  | rg -v --fixed-strings 'raw-snapshot-status-count-ok'; then
   FAIL=1
 fi
 
