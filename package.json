@@ -53,6 +53,7 @@
     "storage:cache-control": "tsx scripts/storage-cache-control.ts",
     "staging:db": "tsx scripts/staging-db-baseline.ts",
     "seed:agent-os": "tsx scripts/seed-agent-os.ts",
+    "seed:order-collection-malls": "tsx scripts/seed-order-collection-mall-accounts.ts",
     "agent-os:operator:openai": "npm run build --workspace=apps/server && node apps/server/dist/agent-os/adapter/in/cli/run-openai-operator.js",
     "agent-os:e2e:hermes-tool-loop": "npm run build --workspace=apps/server && node apps/server/dist/agent-os/adapter/in/cli/run-hermes-tool-loop-e2e.js",
     "test:integration": "npm run test:integration --workspace=apps/server --"

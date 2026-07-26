@@ -45,6 +45,7 @@ npm run test:scripts
 | `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/`, record `data_migration_runs` ledger rows, and export/restore the hash-bound ledger baseline for an authoritative reset | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
 | `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; guarded staging/production rebuild workflows keep their direct Prisma entrypoint | `npm run db:push` |
 | `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
+| `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/staging-deploy.md` |
 | `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
 | `scripts/storage-cache-control.ts` | Supabase/S3 Storage cache-control inspection and staging backfill helper for public immutable image assets | `npm run storage:cache-control`, `docs/runbooks/storage-cache-control.md` |
 | `scripts/sync-supabase-user.ts` | Supabase auth mirror helper | `docs/runbooks/auth-supabase.md` |
