@@ -945,7 +945,7 @@ test("zero rows require explicit evidence or a stabilized recognized grid", asyn
       recognizedGrid: true,
     }))),
     {
-      kind: "empty",
+      kind: "implicit-empty",
       explicitEmpty: false,
       implicitEmpty: true,
       emptyText: "",
@@ -1029,7 +1029,7 @@ test("empty/loading evidence is scoped to the selected report container", () => 
       surfaceRoots: [unrelatedReportRoot],
     }))),
     {
-      kind: "empty",
+      kind: "implicit-empty",
       explicitEmpty: false,
       implicitEmpty: true,
       emptyText: "",
@@ -1053,7 +1053,7 @@ test("header-first grid waits for late rows before accepting implicit empty", as
   const contract = loadContract();
   const implicitEmpty = reportSnapshot(1, 1, [], "empty");
   implicitEmpty.surface = {
-    kind: "empty",
+    kind: "implicit-empty",
     explicitEmpty: false,
     implicitEmpty: true,
     emptyText: "",
@@ -1082,7 +1082,7 @@ test("recognized zero-row grid becomes empty only after stable sampling", async 
   const contract = loadContract();
   const implicitEmpty = reportSnapshot(1, 1, [], "empty");
   implicitEmpty.surface = {
-    kind: "empty",
+    kind: "implicit-empty",
     explicitEmpty: false,
     implicitEmpty: true,
     emptyText: "",
@@ -1104,6 +1104,7 @@ test("recognized zero-row grid becomes empty only after stable sampling", async 
   assert.equal(settled.ok, true);
   assert.equal(settled.surface.kind, "empty");
   assert.equal(settled.surface.implicitEmpty, true);
+  assert.equal(settled.surface.stabilizedEmpty, true);
   assert.ok(reads >= 3);
   assert.ok(clock >= 1_000);
 });

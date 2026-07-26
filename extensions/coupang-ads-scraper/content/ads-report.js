@@ -679,7 +679,7 @@
     // 이 후보를 완료 상태로 받아들인다.
     if (recognizedGrid) {
       return {
-        kind: "empty",
+        kind: "implicit-empty",
         explicitEmpty: false,
         implicitEmpty: true,
         emptyText: "",
@@ -762,7 +762,7 @@
       implicitEmptySamples = 0;
     };
 
-    if (latest.surface?.implicitEmpty === true) {
+    if (latest.surface?.kind === "implicit-empty") {
       recordImplicitEmptySample(latest);
     }
     // pollUntil: 벽시계 예산과 별개로 최소 시도 횟수를 보장해 백그라운드
@@ -770,24 +770,37 @@
     const settled = await pollUntil(
       () => {
         latest = readSnapshot();
-        const implicitEmptyStable = latest.surface?.implicitEmpty === true
+        const implicitEmptyStable = latest.surface?.kind === "implicit-empty"
           ? recordImplicitEmptySample(latest)
           : false;
-        if (latest.surface?.implicitEmpty !== true) resetImplicitEmptySamples();
+        if (latest.surface?.kind !== "implicit-empty") resetImplicitEmptySamples();
         const paginationReady =
           (latest.surface.kind === "empty" &&
-            (latest.surface.explicitEmpty === true || implicitEmptyStable)) ||
+            latest.surface.explicitEmpty === true) ||
+          implicitEmptyStable ||
           latest.pagination?.verified === true;
         return (
           (latest.surface.kind === "rows" ||
-            (latest.surface.kind === "empty" &&
-              (latest.surface.explicitEmpty === true || implicitEmptyStable))) &&
+            (latest.surface.kind === "empty" && latest.surface.explicitEmpty === true) ||
+            implicitEmptyStable) &&
           paginationReady
         );
       },
       { timeoutMs, intervalMs: 250, now, wait },
     );
-    if (settled) return latest;
+    if (settled) {
+      if (latest.surface.kind === "implicit-empty") {
+        return {
+          ...latest,
+          surface: {
+            ...latest.surface,
+            kind: "empty",
+            stabilizedEmpty: true,
+          },
+        };
+      }
+      return latest;
+    }
     return {
       ...latest,
       ok: false,
