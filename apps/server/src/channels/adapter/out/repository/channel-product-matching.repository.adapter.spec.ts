@@ -86,7 +86,12 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           listing({ masterProductId: null, masterProduct: null, options: [unlinkedOption()] }),
           listing({
             masterProductId: 'product-1',
-            masterProduct: { id: 'product-1', code: 'KI-1', name: 'Linked product' },
+            masterProduct: {
+              id: 'product-1',
+              code: 'KI-1',
+              name: 'Linked product',
+              imageUrls: ['https://cdn.example.com/operator.jpg'],
+            },
             options: [
               linkedOption({ productVariant: variant([]) }),
               linkedOption({ productVariant: variant([component({ isActive: false })]) }),
@@ -97,7 +102,9 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
       },
     } as never);
 
-    await expect(repository.listQueue(organizationId, {})).resolves.toMatchObject({
+    const queue = await repository.listQueue(organizationId, {});
+
+    expect(queue).toMatchObject({
       counts: {
         products: { all: 2, linked: 1, unlinked: 1 },
         options: {
@@ -110,6 +117,10 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
         },
       },
     });
+    expect(queue.products[1]).toMatchObject({
+      listing: { channelImageUrl: null },
+      linkedProduct: { displayImageUrl: 'https://cdn.example.com/operator.jpg' },
+    });
   });
 });
 
@@ -119,7 +130,12 @@ function listing({
   options,
 }: {
   masterProductId: string | null;
-  masterProduct: { id: string; code: string; name: string } | null;
+  masterProduct: {
+    id: string;
+    code: string;
+    name: string;
+    imageUrls: string[];
+  } | null;
   options: OptionFixture[];
 }) {
   return {

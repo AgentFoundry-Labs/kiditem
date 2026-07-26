@@ -70,7 +70,8 @@ describe('Rocket purchase decision boundary', () => {
     expect(pageSource).not.toContain('redirect(');
     expect(pageSource).not.toMatch(/useQuery|useState|listRocketPosFromExtension/);
     expect(operationsSource).toContain('쿠팡 로켓 발주');
-    expect(operationsSource).toContain("const [status, setStatus] = useState('');");
+    expect(operationsSource).toContain('useRocketOrdersViewState');
+    expect(operationsSource).toContain('status,');
     // 데이터 소스는 저장된 발주(listSavedRocketPos) 기준으로 통일한다.
     expect(operationsSource).toContain('수집·저장된 발주 조회 · 입고예정일별 분류');
     expect(operationsSource).toContain('listSavedRocketPos');

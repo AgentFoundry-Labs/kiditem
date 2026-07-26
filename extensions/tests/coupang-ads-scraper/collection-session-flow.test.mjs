@@ -108,7 +108,17 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /unsupported collection producer/i);
-  assert.equal(manifest.version, '1.2.84');
+  assert.equal(manifest.version, '1.2.94');
+  assert.match(worker, /wingFormPortV1:\s*true/);
+  assert.match(worker, /kiditem-wing-form-v1/);
+  assert.match(
+    worker,
+    /function handleWingFormPort[\s\S]*registerToWingForm\(message\)[\s\S]*port\.postMessage/,
+  );
+  assert.match(
+    worker,
+    /onConnectExternal[\s\S]*port\.name === WING_FORM_PORT_NAME[\s\S]*handleWingFormPort\(port\)/,
+  );
 });
 
 test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {

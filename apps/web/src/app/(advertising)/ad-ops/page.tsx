@@ -5,7 +5,6 @@ import { RefreshCw, Brain, AlertTriangle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import PageSkeleton from "@/components/ui/PageSkeleton";
-import ScrapeCollector from "./components/ScrapeCollector";
 import {
   useAdOpsData,
   useRegisterCampaign,
@@ -121,7 +120,6 @@ export default function AdOpsPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <ScrapeCollector onComplete={handleRefresh} />
             {urgentCount > 0 && (
               <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold animate-pulse" style={{ background: "var(--danger-subtle)", color: "var(--danger)", border: "1px solid var(--danger)" }}>
                 <AlertTriangle size={13} /> 긴급 {urgentCount}건

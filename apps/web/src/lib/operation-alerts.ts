@@ -51,6 +51,19 @@ export interface UpdateOperationAlertInput {
   metadata?: Record<string, unknown>;
 }
 
+export async function dismissExtensionMissingBrowserCollectionAlerts(): Promise<{
+  dismissed: number;
+}> {
+  try {
+    return await apiClient.post<{ dismissed: number }>(
+      '/api/operation-alerts/reconcile-extension-missing',
+    );
+  } catch (err) {
+    console.warn('[operation-alerts] extension-missing reconciliation failed', err);
+    return { dismissed: 0 };
+  }
+}
+
 export async function startOperationAlert(
   input: StartOperationAlertInput,
 ): Promise<AlertItem | null> {

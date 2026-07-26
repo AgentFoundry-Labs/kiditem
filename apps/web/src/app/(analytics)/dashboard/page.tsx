@@ -30,6 +30,7 @@ import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
+import { useAuthSession } from '@/components/providers/AuthProvider';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
@@ -46,6 +47,7 @@ import { DashboardGradeCards } from './components/DashboardGradeCards';
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
+  const { session: authSession } = useAuthSession();
 
   const [showProfitDetail, setShowProfitDetail] = useState(false);
   const [kpiRange, setKpiRange] = useState<'month' | 'week' | 'day' | 'custom'>('month');
@@ -200,6 +202,7 @@ export default function Dashboard() {
         producer: 'dashboard.wing_sales',
         extensionId,
         runId: crypto.randomUUID(),
+        accessToken: authSession?.access_token,
       });
       if (session.status === 'succeeded') {
         toast.success('Wing 매출·트래픽 수집이 완료되었습니다.');
@@ -211,6 +214,7 @@ export default function Dashboard() {
       toast.error(error instanceof Error ? error.message : 'Wing 트래픽 수집 실패');
     });
   }, [
+    authSession?.access_token,
     queryClient,
     salesBaseline?.trafficKpi?.needsScrape,
     salesBaseline?.effectivePeriod?.revenueSource,
@@ -781,7 +785,7 @@ export default function Dashboard() {
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.highAdProducts}<span className="text-sm ml-0.5">개</span></div>
             <div className="text-xs mt-1 text-slate-400">광고비율 15% 초과</div>
           </Link>
-          <Link href="/stock-ops?tab=sellpia-zero" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+          <Link href="/inventory-hub?tab=status" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">셀피아 재고 0</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">
               <span data-warning-count="out-of-stock">{inventoryData.warnings.outOfStockSkus}</span>

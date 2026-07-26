@@ -127,6 +127,18 @@ conversion.
 - This capability collects evidence only. It must not confirm a Rocket PO,
   submit quantities, reserve stock, or mutate Sellpia inventory.
 
+## Sellpia Order-File Upload Contract
+
+- Advertise `sellpiaOrderFileUploadEvidenceV1` only when the worker waits for
+  Sellpia upload evidence after `#btn_om_upload` instead of treating the click
+  itself as success. The web app must ask the operator to reload an older
+  extension that lacks this capability.
+- Pre-click validation failures return `not_submitted`. Once the upload button
+  has been clicked, a missing response, Sellpia rejection dialog, timeout, or
+  tab loss returns `unknown` unless newly accepted pending rows are observed.
+- A successful response includes bounded non-secret accepted/pending row counts.
+  It never claims that `#save_b` registration or inventory matching completed.
+
 ## Verification
 
 ```bash

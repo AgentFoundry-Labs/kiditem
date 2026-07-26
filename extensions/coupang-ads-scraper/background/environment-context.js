@@ -260,7 +260,9 @@
         );
       }
       const headers = new Headers(init.headers || {});
-      headers.set('Authorization', `Bearer ${token}`);
+      if (typeof token === 'string' && token.trim()) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
       const { timeoutMs = requestTimeoutMs, ...requestInit } = init;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -280,13 +282,25 @@
       if (typeof fetchFn !== 'function' || !requiresAuth) {
         throw new Error('Authenticated fetch is unavailable');
       }
-      const token = await getAccessToken(environmentId);
+      let token = await getAccessToken(environmentId);
+      if (!token && environment.environmentId === 'local') {
+        // The local Nest runtime may intentionally own authentication through
+        // its fail-loud DEV_SKIP_AUTH guard. Probe only the fixed loopback API
+        // without inventing or persisting a credential; a 401 falls through to
+        // the normal environment-scoped web-token recovery below. Staging never
+        // takes this tokenless path.
+        const localResponse = await fetchOnce(environment, path, init, null);
+        if (localResponse.status !== 401) return localResponse;
+      }
       if (!token) {
-        throw createError(
-          'environment_auth_required',
-          'KidItem login is required for this environment',
-          environmentId,
-        );
+        token = await requestFreshAccessToken(environmentId, null);
+        if (!token) {
+          throw createError(
+            'environment_auth_required',
+            'KidItem login is required for this environment',
+            environmentId,
+          );
+        }
       }
       const response = await fetchOnce(environment, path, init, token);
       if (response.status !== 401) return response;

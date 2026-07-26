@@ -85,6 +85,10 @@ const InputIdentitySchema = z
 
 export const BrowserCollectionSessionViewSchema = z
   .object({
+    // Universal extensions expose their local/staging owner so one installed
+    // copy can isolate concurrent collection sessions. Keep this optional for
+    // web-created attention views and older extension sessions.
+    environmentId: z.enum(['local', 'staging']).optional(),
     runId: BrowserCollectionRunIdSchema,
     producer: BrowserCollectionProducerSchema,
     classification: BrowserCollectionClassificationSchema.exclude([

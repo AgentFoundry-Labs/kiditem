@@ -10,6 +10,14 @@ const workerSource = await readFile(
   new URL('../../coupang-ads-scraper/background/service-worker.js', import.meta.url), 'utf8',
 );
 
+test('routes category search text only from the sender Wing tab to trusted browser input', () => {
+  assert.match(workerSource, /msg\.action === "inputWingCategorySearch"/);
+  assert.match(
+    workerSource,
+    /wingFormRuntimeCompat\s*\.insertText\(\s*sender\?\.tab\?\.id/,
+  );
+});
+
 function formHarness(identity) {
   let listener = null;
   let queryCalls = 0;
@@ -79,6 +87,10 @@ test('worker response exposes verified fill evidence at the top level', async ()
     INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
     interactiveTabs: { createTab: async () => ({ id: 17 }) },
     waitForTabComplete: async () => true,
+    wingFormRuntimeCompat: {
+      prepareNavigation: async () => ({ ok: true, status: 'prepared' }),
+      ensure: async () => ({ ok: true, status: 'already-compatible' }),
+    },
     chrome: {
       tabs: {
         sendMessage: async (tabId, message) => {
@@ -113,6 +125,10 @@ test('manual form fill does not require an execution id before any provider subm
     INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
     interactiveTabs: { createTab: async () => ({ id: 18 }) },
     waitForTabComplete: async () => true,
+    wingFormRuntimeCompat: {
+      prepareNavigation: async () => ({ ok: true, status: 'prepared' }),
+      ensure: async () => ({ ok: true, status: 'already-compatible' }),
+    },
     chrome: {
       tabs: {
         sendMessage: async () => ({
@@ -134,4 +150,137 @@ test('manual form fill does not require an execution id before any provider subm
 
   assert.equal(result.ok, true);
   assert.equal(result.submission.attempted, false);
+});
+
+test('bootstraps the Wing runtime before navigation and form fill', async () => {
+  const start = workerSource.indexOf('async function registerToWingForm(message)');
+  const end = workerSource.indexOf('\n}\n\n/**', start) + 2;
+  const order = [];
+  const context = vm.createContext({
+    INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
+    interactiveTabs: {
+      createTab: async (input) => {
+        order.push(`create:${input.url}`);
+        return { id: 19 };
+      },
+    },
+    waitForTabComplete: async () => {
+      order.push('complete');
+      return true;
+    },
+    wingFormRuntimeCompat: {
+      prepareNavigation: async (tabId, url) => {
+        order.push(`bootstrap:${tabId}:${url}`);
+        return { ok: true, status: 'prepared' };
+      },
+      ensure: async () => {
+        order.push('compat');
+        return { ok: true, status: 'installed' };
+      },
+    },
+    chrome: {
+      tabs: {
+        sendMessage: async () => {
+          order.push('fill');
+          return {
+            ok: true,
+            submission: { attempted: false },
+            evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+          };
+        },
+      },
+    },
+    setTimeout(callback) { callback(); return 0; },
+  });
+  vm.runInContext(workerSource.slice(start, end), context, { filename: 'service-worker.registerToWingForm.js' });
+
+  const result = await context.registerToWingForm({
+    product: { productName: 'test' },
+    autoSubmit: false,
+    expectedVendorId: 'A00012345',
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(order, [
+    'create:about:blank',
+    'bootstrap:19:https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2',
+    'complete',
+    'compat',
+    'fill',
+  ]);
+});
+
+test('does not mutate the Wing DOM when main-world compatibility cannot be established', async () => {
+  const start = workerSource.indexOf('async function registerToWingForm(message)');
+  const end = workerSource.indexOf('\n}\n\n/**', start) + 2;
+  let fillCalls = 0;
+  const context = vm.createContext({
+    INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
+    interactiveTabs: { createTab: async () => ({ id: 20 }) },
+    waitForTabComplete: async () => true,
+    wingFormRuntimeCompat: {
+      prepareNavigation: async () => ({ ok: true, status: 'prepared' }),
+      ensure: async () => ({ ok: false, error: 'runtime incompatible' }),
+    },
+    chrome: {
+      tabs: {
+        sendMessage: async () => {
+          fillCalls += 1;
+          return { ok: true };
+        },
+      },
+    },
+    setTimeout(callback) { callback(); return 0; },
+  });
+  vm.runInContext(workerSource.slice(start, end), context, { filename: 'service-worker.registerToWingForm.js' });
+
+  const result = await context.registerToWingForm({
+    product: { productName: 'test' },
+    autoSubmit: false,
+    expectedVendorId: 'A00012345',
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /runtime incompatible/);
+  assert.equal(fillCalls, 0);
+});
+
+test('does not navigate or fill when the early Wing runtime bootstrap fails', async () => {
+  const start = workerSource.indexOf('async function registerToWingForm(message)');
+  const end = workerSource.indexOf('\n}\n\n/**', start) + 2;
+  let ensureCalls = 0;
+  let fillCalls = 0;
+  const context = vm.createContext({
+    INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
+    interactiveTabs: { createTab: async () => ({ id: 21 }) },
+    waitForTabComplete: async () => true,
+    wingFormRuntimeCompat: {
+      prepareNavigation: async () => ({ ok: false, error: 'bootstrap failed' }),
+      ensure: async () => {
+        ensureCalls += 1;
+        return { ok: true };
+      },
+    },
+    chrome: {
+      tabs: {
+        sendMessage: async () => {
+          fillCalls += 1;
+          return { ok: true };
+        },
+      },
+    },
+    setTimeout(callback) { callback(); return 0; },
+  });
+  vm.runInContext(workerSource.slice(start, end), context, { filename: 'service-worker.registerToWingForm.js' });
+
+  const result = await context.registerToWingForm({
+    product: { productName: 'test' },
+    autoSubmit: false,
+    expectedVendorId: 'A00012345',
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /bootstrap failed/);
+  assert.equal(ensureCalls, 0);
+  assert.equal(fillCalls, 0);
 });

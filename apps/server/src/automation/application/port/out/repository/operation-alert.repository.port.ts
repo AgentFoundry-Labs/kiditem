@@ -95,4 +95,13 @@ export interface OperationAlertRepositoryPort {
 
   /** Batch close stale operation rows matching the criteria. */
   closeStaleOperations(criteria: CloseStaleOperationsCriteria): Promise<AlertRecord[]>;
+
+  /**
+   * Retire legacy rows created when browser extension discovery failed before
+   * any collection session existed. Scoped to the authenticated actor.
+   */
+  dismissExtensionMissingBrowserCollections(
+    organizationId: string,
+    actorUserId: string,
+  ): Promise<AlertRecord[]>;
 }

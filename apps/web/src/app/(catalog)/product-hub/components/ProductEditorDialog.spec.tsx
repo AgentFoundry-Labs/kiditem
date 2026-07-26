@@ -63,6 +63,7 @@ describe('<ProductEditorDialog>', () => {
         brand: null,
         tags: [],
         imageUrls: [],
+        displayImageUrls: ['https://cdn.example.com/channel.jpg'],
         abcGrade: null,
         profitTag: null,
         adTier: null,
@@ -77,6 +78,7 @@ describe('<ProductEditorDialog>', () => {
     expect(screen.getByText('13712531060')).toBeInTheDocument();
     expect(screen.queryByLabelText('상품 코드')).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(/CP-/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('이미지 URL')).toHaveValue('');
   });
 });
 

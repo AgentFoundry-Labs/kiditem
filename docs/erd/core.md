@@ -336,6 +336,8 @@ erDiagram
 | Organization | organization | referenced by external | AI | ContentWorkspace |
 | Organization | organization | referenced by external | AI | ContentWorkspaceThumbnailSelection |
 | Organization | organization | referenced by external | AI | DetailPageArtifact |
+| Organization | organization | referenced by external | AI | DetailPageImageArtifact |
+| Organization | organization | referenced by external | AI | DetailPageImageRenderIntent |
 | Organization | organization | referenced by external | AI | DetailPageRevision |
 | Organization | organization | referenced by external | AI | ProductPreparation |
 | Organization | organization | referenced by external | AI | Thumbnail |
@@ -373,6 +375,7 @@ erDiagram
 | Organization | organization | referenced by external | Finance | ProcessingCost |
 | Organization | organization | referenced by external | Finance | ProfitLoss |
 | Organization | organization | referenced by external | Finance | SalesPlan |
+| Organization | organization | referenced by external | Inventory | CoupangShipmentDateSummary |
 | Organization | organization | referenced by external | Inventory | InventoryCommitment |
 | Organization | organization | referenced by external | Inventory | InventoryCommitmentAllocation |
 | Organization | organization | referenced by external | Inventory | PickingItem |
@@ -406,6 +409,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | Sourcing1688HotProductDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Sourcing | SourcingWorkspaceSnapshot |
+| Organization | organization | referenced by external | Sourcing | TiktokCreativeTrendDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | TrendSeedKeyword |
 | Organization | organization | referenced by external | Supply | PurchaseOrder |
 | Organization | organization | referenced by external | Supply | PurchaseOrderItem |
@@ -438,8 +442,10 @@ erDiagram
 | User | approvedByUser | referenced by external | AI | ProductPreparation |
 | User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
+| User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | createdBy | referenced by external | AgentOS | AgentConversation |
+| User | createdBy | referenced by external | AI | DetailPageImageArtifact |
 | User | createdByUser | referenced by external | AI | ContentAsset |
 | User | createdByUser | referenced by external | AI | ContentWorkspace |
 | User | createdByUser | referenced by external | AI | ContentWorkspaceThumbnailSelection |
@@ -458,6 +464,7 @@ erDiagram
 | User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
+| User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | requestedByUser | referenced by external | Channels | ChannelListingDeletionOperation |
 | User | requestedByUser | referenced by external | Sourcing | ProductRegistrationExecution |
 | User | settler | referenced by external | Inventory | InventoryCommitment |

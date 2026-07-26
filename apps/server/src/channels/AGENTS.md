@@ -81,6 +81,9 @@ channels/
   already atomically published by a running Wing collection. An incomplete
   workbook import stays excluded, and only a complete full snapshot may drive
   absence or deactivation reconciliation.
+- Catalog media remains attached to the channel listing's AI-owned content
+  workspace. Matching reads may return that media as a display fallback, but
+  collection and matching never write it into `MasterProduct.imageUrls`.
 - Candidate rows are live evidence and are never persisted or auto-confirmed.
   Catalog publication may reuse identity only from unique, non-conflicting typed
   seller-SKU or safely normalized physical-barcode evidence; names, raw aliases,
@@ -157,8 +160,7 @@ explicit deterministic command through that Products port.
   its tests when semantics change.
 - Per-listing sync transactions continue on individual failure and increment
   result errors.
-- Product and option link commands validate tenant ownership and parent-child
-  consistency atomically. They never create a recipe or write
+- Product/option link commands never create a recipe or write
   `SellpiaInventorySku.currentStock`; only the separate version-fenced recipe
   automation command may invoke Products' create-if-empty writer under the
   deterministic policy above.
@@ -168,19 +170,18 @@ explicit deterministic command through that Products port.
   and option links after tenant and parent validation. It preserves existing
   links and content selection and never creates or changes component recipes,
   physical stock, or inferred quantities.
-- Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and
-  `channel='rocket'`). Never infer the channel from an account display name.
+- Wing/Rocket use separate `ChannelAccount` rows (`coupang` / `rocket`); never
+  infer a channel from an account display name.
 - Wing and Rocket currently share one Coupang vendor identity even though their
   operational accounts remain separate rows. A Rocket publication checks both
   active primary Wing and selected Rocket `vendorId` values. Missing values may
   claim the single vendor identity from one complete authenticated Supplier Hub
-  PO evidence run inside the account-scoped publication lock; any non-empty
-  mismatch remains a conflict.
-- Rocket purchase-order collection may publish completed account-scoped
-  `ChannelProduct`/`ChannelSku` identities and calculate component-capacity
-  previews. It must not add reservation, confirmation, provider submission,
-  inventory mutation, physical-stock mutation, or special stock tables to this
-  module.
+  PO evidence run inside the account-scoped publication lock; any mismatch
+  conflicts.
+- Rocket purchase-order collection may publish complete account-scoped
+  `ChannelProduct`/`ChannelSku` identities and capacity previews; it never adds
+  reservation, confirmation, provider submission, inventory/physical-stock
+  mutation, or special stock tables.
 
 ## Transitional Exceptions
 

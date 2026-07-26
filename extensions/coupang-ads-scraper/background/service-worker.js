@@ -8,6 +8,8 @@ importScripts(
   "collection-runs.js",
   "interactive-tabs.js",
   "wing-image-fetch.js",
+  "wing-form-runtime-compat.js",
+  "detail-page-client-raster.js",
   "../utils/coupang-seller-detail.js",
   "../shared/coupang-catalog-collector.js?revision=2",
   "coupang-catalog-import.js",
@@ -151,12 +153,63 @@ const collectionRuns = KidItemCollectionRuns.create({
 });
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
 const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
+const wingFormRuntimeCompat = KidItemWingFormRuntimeCompat.create({ chrome });
 const wingImageFetch = KidItemWingImageFetch.create({
   runtimeId: chrome.runtime.id,
   fetchFn: fetch,
   FileReaderCtor: FileReader,
 });
 chrome.runtime.onMessage.addListener(wingImageFetch.handleMessage);
+const detailPageClientRaster = KidItemDetailPageClientRaster.create({
+  chrome,
+  authedFetch,
+  fetchFn: fetch,
+  resolveEnvironment: (environmentId) =>
+    environmentContext.requireEnvironment(environmentId),
+});
+const WING_FORM_PORT_NAME = "kiditem-wing-form-v1";
+
+function handleWingFormPort(port) {
+  let started = false;
+  port.onMessage.addListener((message) => {
+    if (started) return;
+    started = true;
+    if (message?.action !== "registerToWingForm") {
+      port.postMessage({ ok: false, error: "지원하지 않는 WING 폼 요청입니다." });
+      port.disconnect();
+      return;
+    }
+    registerToWingForm(message)
+      .then((result) => port.postMessage(result))
+      .catch((error) =>
+        port.postMessage({
+          ok: false,
+          error: error?.message || "WING 상품등록 페이지 열기 실패",
+        }),
+      )
+      .finally(() => port.disconnect());
+  });
+}
+
+chrome.runtime.onConnectExternal.addListener((port) => {
+  const senderEnvironment = environmentContext.resolveSender(port.sender);
+  if (!senderEnvironment) {
+    port.disconnect();
+    return;
+  }
+  if (port.name === KidItemDetailPageClientRaster.PORT_NAME) {
+    detailPageClientRaster.handlePort(
+      port,
+      senderEnvironment.environmentId,
+    );
+    return;
+  }
+  if (port.name === WING_FORM_PORT_NAME) {
+    handleWingFormPort(port);
+    return;
+  }
+  port.disconnect();
+});
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
@@ -222,6 +275,24 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
 // ═══ content script에서 메시지 수신 ═══
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === "inputWingCategorySearch") {
+    wingFormRuntimeCompat
+      .insertText(
+        sender?.tab?.id,
+        sender?.url || sender?.tab?.url,
+        msg.value,
+      )
+      .then(sendResponse)
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error:
+            error?.message || "WING 카테고리 검색 입력에 실패했습니다.",
+        }),
+      );
+    return true;
+  }
+
   if (msg.action === "bindKidItemEnvironment") {
     const tabId = sender?.tab?.id || msg.tabId;
     Promise.resolve()
@@ -578,6 +649,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         kiditemEnvironmentProfilesV1: true,
         wingFormRegister: true,
         wingFormRegisterSource: "wing-formV2-fill",
+        wingFormPortV1: true,
+        detailPageClientRasterV1: true,
       },
     });
     return;
@@ -903,10 +976,42 @@ async function registerToWingForm(message) {
   const url =
     "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
   const tab = await interactiveTabs.createTab({
-    url,
+    url: "about:blank",
     reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
   });
-  await waitForTabComplete(tab.id, 60000);
+  // 정적 document_start content script도 Wing 번들과 경합할 수 있다. 빈 탭에
+  // 새 문서 초기화 스크립트를 먼저 등록한 뒤 Wing으로 이동해 provider 코드보다
+  // 앞에서 전역 lodash 누락 기능을 보완한다. 이후 폼 채움 흐름은 기존과 동일하다.
+  const preparedNavigation = await wingFormRuntimeCompat.prepareNavigation(
+    tab.id,
+    url,
+  );
+  if (!preparedNavigation.ok) {
+    return {
+      ok: false,
+      tabId: tab.id,
+      error: `WING 상품등록 화면을 열지 못했습니다. ${preparedNavigation.error}`,
+    };
+  }
+  const loaded = await waitForTabComplete(tab.id, 60000);
+  if (!loaded) {
+    return {
+      ok: false,
+      tabId: tab.id,
+      error: "WING 상품등록 화면 로딩 시간이 초과되었습니다.",
+    };
+  }
+  // Wing formV2의 현재 배포 코드가 lodash import 없이 전역 `_.isEmpty`를
+  // 호출해 옵션 Vue 컴포넌트 렌더를 중단한다. 번들 버전이 아니라 필요한
+  // 런타임 capability만 MAIN world에서 확인·보완한다. Coupang이 고치면 no-op이다.
+  const runtimeCompatibility = await wingFormRuntimeCompat.ensure(tab.id);
+  if (!runtimeCompatibility.ok) {
+    return {
+      ok: false,
+      tabId: tab.id,
+      error: `WING 상품등록 화면을 준비하지 못했습니다. ${runtimeCompatibility.error}`,
+    };
+  }
   // React formV2 렌더 여유
   await new Promise((r) => setTimeout(r, 2500));
   try {

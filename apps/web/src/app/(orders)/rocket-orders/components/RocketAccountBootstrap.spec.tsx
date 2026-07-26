@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,9 +28,15 @@ describe('<RocketAccountBootstrap />', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('auto-propagates the only Rocket account without rendering a selector', async () => {
-    vi.mocked(useQuery).mockReturnValue({ data: [first] } as ReturnType<typeof useQuery>);
+    vi.mocked(useQuery).mockReturnValue({ data: [first], isSuccess: true } as ReturnType<typeof useQuery>);
     const onAccountChange = vi.fn();
-    render(<RocketAccountBootstrap onAccountChange={onAccountChange} />);
+    render(
+      <RocketAccountBootstrap
+        selectedAccountId=""
+        onSelectedAccountIdChange={vi.fn()}
+        onAccountChange={onAccountChange}
+      />,
+    );
 
     await waitFor(() => expect(onAccountChange).toHaveBeenCalledWith({
       id: first.id,
@@ -40,10 +47,20 @@ describe('<RocketAccountBootstrap />', () => {
   });
 
   it('requires an explicit choice when several Rocket accounts are active', async () => {
-    vi.mocked(useQuery).mockReturnValue({ data: [first, second] } as ReturnType<typeof useQuery>);
+    vi.mocked(useQuery).mockReturnValue({ data: [first, second], isSuccess: true } as ReturnType<typeof useQuery>);
     const onAccountChange = vi.fn();
     const user = userEvent.setup();
-    render(<RocketAccountBootstrap onAccountChange={onAccountChange} />);
+    function Harness() {
+      const [selectedAccountId, setSelectedAccountId] = useState('');
+      return (
+        <RocketAccountBootstrap
+          selectedAccountId={selectedAccountId}
+          onSelectedAccountIdChange={setSelectedAccountId}
+          onAccountChange={onAccountChange}
+        />
+      );
+    }
+    render(<Harness />);
 
     expect(onAccountChange).toHaveBeenLastCalledWith(null);
     const selector = screen.getByRole('combobox', { name: '로켓 채널 계정' });
@@ -58,20 +75,42 @@ describe('<RocketAccountBootstrap />', () => {
 
   it('clears a stale parent selection when account data changes to ambiguous, empty, or missing', async () => {
     const onAccountChange = vi.fn();
-    vi.mocked(useQuery).mockReturnValue({ data: [first] } as ReturnType<typeof useQuery>);
-    const { rerender } = render(<RocketAccountBootstrap onAccountChange={onAccountChange} />);
+    vi.mocked(useQuery).mockReturnValue({ data: [first], isSuccess: true } as ReturnType<typeof useQuery>);
+    const props = {
+      selectedAccountId: '',
+      onSelectedAccountIdChange: vi.fn(),
+      onAccountChange,
+    };
+    const { rerender } = render(<RocketAccountBootstrap {...props} />);
     await waitFor(() => expect(onAccountChange).toHaveBeenLastCalledWith({
       id: first.id,
       name: first.name,
       vendorId: first.vendorId,
     }));
 
-    vi.mocked(useQuery).mockReturnValue({ data: [first, second] } as ReturnType<typeof useQuery>);
-    rerender(<RocketAccountBootstrap onAccountChange={onAccountChange} />);
+    vi.mocked(useQuery).mockReturnValue({ data: [first, second], isSuccess: true } as ReturnType<typeof useQuery>);
+    rerender(<RocketAccountBootstrap {...props} />);
     await waitFor(() => expect(onAccountChange).toHaveBeenLastCalledWith(null));
 
-    vi.mocked(useQuery).mockReturnValue({ data: [] } as ReturnType<typeof useQuery>);
-    rerender(<RocketAccountBootstrap onAccountChange={onAccountChange} />);
+    vi.mocked(useQuery).mockReturnValue({ data: [], isSuccess: true } as ReturnType<typeof useQuery>);
+    rerender(<RocketAccountBootstrap {...props} />);
     await waitFor(() => expect(onAccountChange).toHaveBeenLastCalledWith(null));
+  });
+
+  it('keeps a persisted account selection untouched while account data is loading', () => {
+    vi.mocked(useQuery).mockReturnValue({ data: undefined, isSuccess: false } as ReturnType<typeof useQuery>);
+    const onSelectedAccountIdChange = vi.fn();
+    const onAccountChange = vi.fn();
+
+    render(
+      <RocketAccountBootstrap
+        selectedAccountId={second.id}
+        onSelectedAccountIdChange={onSelectedAccountIdChange}
+        onAccountChange={onAccountChange}
+      />,
+    );
+
+    expect(onSelectedAccountIdChange).not.toHaveBeenCalled();
+    expect(onAccountChange).not.toHaveBeenCalled();
   });
 });

@@ -47,7 +47,7 @@ const refetch = vi.fn();
 const response: ChannelProductMatchingQueueResponse = {
   products: [{
     channelAccount: { id: ACCOUNT_ID, channel: 'coupang', name: 'Wing' },
-    listing: { id: LISTING_ID, externalId: 'listing-1', displayName: '채널 우산', status: 'active', masterProductId: null, updatedAt: '2026-07-16T00:00:00.000Z' },
+    listing: { id: LISTING_ID, externalId: 'listing-1', displayName: '채널 우산', status: 'active', masterProductId: null, channelImageUrl: null, updatedAt: '2026-07-16T00:00:00.000Z' },
     linkedProduct: null,
     optionCount: 3,
     linkedOptionCount: 1,
@@ -79,7 +79,7 @@ const response: ChannelProductMatchingQueueResponse = {
 function optionRow(id: string, externalOptionId: string, masterProductId: string | null) {
   return {
     channelAccount: { id: ACCOUNT_ID, channel: 'coupang', name: 'Wing' },
-    listing: { id: LISTING_ID, externalId: 'listing-1', masterProductId },
+    listing: { id: LISTING_ID, externalId: 'listing-1', masterProductId, channelImageUrl: null },
     option: { id, externalOptionId, itemName: '분홍', sellerSku: null, barcode: null, productVariantId: null, updatedAt: '2026-07-16T00:00:00.000Z' },
     linkedVariant: null,
     recipeStatus: 'unmatched' as const,
@@ -256,7 +256,7 @@ describe('/product-hub/matching', () => {
         products: [{
           ...response.products[0]!,
           listing: { ...response.products[0]!.listing, masterProductId: PRODUCT_ID },
-          linkedProduct: { id: PRODUCT_ID, code: 'KI-1', name: '키즈 우산' },
+          linkedProduct: { id: PRODUCT_ID, code: 'KI-1', name: '키즈 우산', displayImageUrl: null },
         }],
       },
       isLoading: false,

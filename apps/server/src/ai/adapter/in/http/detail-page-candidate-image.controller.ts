@@ -1,38 +1,107 @@
-import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
+import { DetailPageClientRenderService } from '../../../application/service/detail-page-client-render.service';
 import {
-  DetailPageCandidateImageService,
-  type CandidateDetailImageResult,
-} from '../../../application/service/detail-page-candidate-image.service';
-import { RenderCandidateDetailImageBodyDto } from './dto';
+  FailDetailPageClientRenderDto,
+  FinalizeDetailPageClientRenderDto,
+} from './dto';
 
 /**
- * 수집상품(SourcingCandidate)의 저장된 상세페이지 이미지 캐시를 준비하거나 조회한다.
- * 실제 Puppeteer 렌더는 durable worker가 수행하며 이 HTTP 요청에서는 실행하지 않는다.
- *
- * 상세페이지가 없을 때 404 를 주지 않는다. 404 는 호출자가 "그럼 대표이미지로 대신하자"처럼
- * 조용히 폴백하기 쉬워서, 대신 200 + `{ status: 'missing', reason, message }` 로
- * "상세페이지가 없다"는 사실 자체를 명시적으로 돌려준다. 준비 중인 캐시는
- * 200 + `{ status: 'processing' }` 이므로 클라이언트가 짧게 폴링할 수 있다.
+ * 수집상품의 저장된 revision을 브라우저 렌더 intent와 확정 이미지 artifact로 연결한다.
+ * 서버는 revision/저장 key/검증 권한을 소유하지만 이 경로에서 Chromium을 실행하지 않는다.
  */
 @Controller('ai/detail-page-image')
 export class DetailPageCandidateImageController {
-  constructor(private readonly service: DetailPageCandidateImageService) {}
+  constructor(private readonly service: DetailPageClientRenderService) {}
 
-  @Post('candidate/:candidateId')
+  @Post('candidate/:candidateId/client-render')
   @HttpCode(200)
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  render(
+  prepare(
     @Param('candidateId', new ParseUUIDPipe()) candidateId: string,
     @CurrentOrganization() organizationId: string,
-    @Body() body: RenderCandidateDetailImageBodyDto,
-  ): Promise<CandidateDetailImageResult> {
-    return this.service.renderCandidateDetailImage({
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.prepare({
       organizationId,
+      userId: user.id,
       sourceCandidateId: candidateId,
-      outputWidth: body.outputWidth,
-      retryFailed: body.retryFailed,
+    });
+  }
+
+  @Post('render-intents/:intentId/claim')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  claim(
+    @Param('intentId', new ParseUUIDPipe()) intentId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.claim({ organizationId, userId: user.id, intentId });
+  }
+
+  @Get('render-intents/:intentId/document')
+  @Header('Cache-Control', 'no-store')
+  document(
+    @Param('intentId', new ParseUUIDPipe()) intentId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.document({ organizationId, userId: user.id, intentId });
+  }
+
+  @Get('render-intents/:intentId')
+  @Header('Cache-Control', 'no-store')
+  status(
+    @Param('intentId', new ParseUUIDPipe()) intentId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.service.status({ organizationId, intentId });
+  }
+
+  @Post('render-intents/:intentId/finalize')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  finalize(
+    @Param('intentId', new ParseUUIDPipe()) intentId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: FinalizeDetailPageClientRenderDto,
+  ) {
+    return this.service.finalize({
+      organizationId,
+      userId: user.id,
+      intentId,
+      body,
+    });
+  }
+
+  @Post('render-intents/:intentId/fail')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  fail(
+    @Param('intentId', new ParseUUIDPipe()) intentId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: FailDetailPageClientRenderDto,
+  ) {
+    return this.service.fail({
+      organizationId,
+      userId: user.id,
+      intentId,
+      body,
     });
   }
 }

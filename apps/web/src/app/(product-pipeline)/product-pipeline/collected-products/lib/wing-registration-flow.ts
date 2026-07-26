@@ -1,17 +1,25 @@
 import { apiClient } from '@/lib/api-client';
 import {
-  detectExtensionId,
+  detectDetailPageRendererExtensionId,
   isChromeExtensionRuntimeAvailable,
-  sendToExtension,
+  KIDITEM_WING_FORM_PORT_NAME,
+  renderDetailPageImageWithExtension,
+  sendToExtensionViaPort,
+  type DetailPageRasterProgressPhase,
 } from '@/lib/extension-bridge';
+import type {
+  DetailPageClientRenderPrepareResponse,
+  DetailPageClientRenderStatusResponse,
+} from '@kiditem/shared/ai';
 import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
 import { contentWorkspaceHistoryToGenerationHistory } from '../../_shared/lib/detail-generation-history';
 import { buildGenerationHistoryHtml } from '../../_shared/lib/generated-detail-html';
 import {
-  renderCandidateDetailImage,
-  type CandidateDetailImageResponse,
+  getDetailPageRenderStatus,
+  prepareCandidateDetailImage,
 } from './detail-page-image-api';
 import { candidatesApi, productsApi, type ProductDetailResponse } from './sourcing-api';
+import { resolveWingCategories } from './wing-category-resolution';
 import {
   getWingCategoryDefinition,
   matchWingCategoryAlias,
@@ -28,11 +36,11 @@ import {
 // 수집상품(SourcingCandidate) → 쿠팡 WING 일괄등록 엑셀 생성·다운로드 플로우.
 // 쿠팡 Open API 를 쓰지 않고, 확장이 WING 일괄등록 화면에 올릴 엑셀을 만든다.
 //
-// 카테고리는 수집상품에 저장된 key 또는 원본 category 의 정확한 별칭으로만 정한다.
-// 등록상품(ChannelListing)이나 런타임 카테고리 API는 이 흐름의 입력이 아니다.
+// 카테고리는 저장된 key → 원본 category 의 정확한 별칭 → 기존 쿠팡 리스팅 기반
+// 추천 순으로 정한다. 추천 신뢰도가 낮거나 허용 목록 밖이면 사용자 선택을 요구한다.
 //
-// 상세설명은 **렌더된 긴 이미지 1장**이다(`renderCandidateDetailImage`).
-// 확장이 이를 쿠팡 CDN 에 올리고, 최종 상세설명은 `HTML 작성` 탭의 중앙 정렬 <img> 로
+// 상세설명은 **확정된 긴 이미지 1장**이다. 회사 Chrome 확장이 저장 revision을 캡처해
+// object storage에 직접 올리고, 최종 상세설명은 `HTML 작성` 탭의 중앙 정렬 <img> 로
 // 저장한다. 섹션 이미지(role=detail) 낱장을 올리는 것이 아니다.
 //
 // TODO: 카테고리별 옵션(색상/수량) 실매핑.
@@ -65,24 +73,27 @@ export function requireSalePrice(salePrice: number, productName: string): number
 }
 
 export function requireRenderedDetailImage(
-  rendered: CandidateDetailImageResponse,
+  rendered: DetailPageClientRenderPrepareResponse,
 ): string {
-  if (rendered.status !== 'rendered') {
+  if (rendered.status !== 'ready') {
+    const message =
+      rendered.status === 'missing'
+        ? rendered.message
+        : '상세페이지 이미지 생성이 완료되지 않았습니다.';
     throw new Error(
-      `${rendered.message} 저장한 상세페이지가 준비된 상품만 WING 직접등록을 시작할 수 있습니다.`,
+      `${message} 저장한 상세페이지가 준비된 상품만 WING 직접등록을 시작할 수 있습니다.`,
     );
   }
   return rendered.imageUrl;
 }
 
-async function renderSavedCandidateDetailImage(
+async function prepareSavedCandidateDetailImage(
   candidateId: string,
   detail: ProductDetailResponse,
-  retryFailed: boolean,
-): Promise<CandidateDetailImageResponse> {
-  const firstRender = await renderCandidateDetailImage(candidateId, undefined, retryFailed);
+): Promise<DetailPageClientRenderPrepareResponse> {
+  const firstRender = await prepareCandidateDetailImage(candidateId);
   if (
-    firstRender.status === 'rendered'
+    firstRender.status === 'ready'
     || firstRender.status !== 'missing'
     || firstRender.reason !== 'no_saved_detail_page'
     || !detail.contentWorkspaceId
@@ -114,7 +125,7 @@ async function renderSavedCandidateDetailImage(
     `/api/ai/detail-page/${encodeURIComponent(generated.id)}/edited-html`,
     { html },
   );
-  return renderCandidateDetailImage(candidateId, undefined, retryFailed);
+  return prepareCandidateDetailImage(candidateId);
 }
 
 /** 노출상품명 상한(쿠팡 WING). */
@@ -299,10 +310,41 @@ export function resolveWingCategoryKey(detail: ProductDetailResponse): WingCateg
   return matchWingCategoryAlias(detail.basicInfo.category)?.key ?? '';
 }
 
-export function resolveWingCategorySelections(
+/** 저장/정확 별칭이 없을 때만 parkerynch 원본의 등록상품 기반 추론을 사용한다. */
+export async function resolveWingCategoryKeyForRegistration(
+  detail: ProductDetailResponse,
+): Promise<WingCategoryKey | ''> {
+  const deterministic = resolveWingCategoryKey(detail);
+  if (deterministic) return deterministic;
+
+  const name = (detail.basicInfo.name || detail.name).trim();
+  if (!name) return '';
+  const resolved = await resolveWingCategories([name]);
+  const categoryCell = resolved.get(name)?.categoryCell;
+  return categoryCell ? matchWingCategoryAlias(categoryCell)?.key ?? '' : '';
+}
+
+export async function resolveWingCategorySelections(
   details: readonly ProductDetailResponse[],
-): WingCategoryKey[] {
+): Promise<WingCategoryKey[]> {
   const categoryKeys = details.map(resolveWingCategoryKey);
+  const unresolvedIndexes = categoryKeys
+    .map((key, index) => (key ? -1 : index))
+    .filter((index) => index >= 0);
+
+  if (unresolvedIndexes.length > 0) {
+    const names = unresolvedIndexes.map((index) =>
+      (details[index]!.basicInfo.name || details[index]!.name).trim(),
+    );
+    const resolved = await resolveWingCategories(names);
+    for (const index of unresolvedIndexes) {
+      const name = (details[index]!.basicInfo.name || details[index]!.name).trim();
+      const categoryCell = resolved.get(name)?.categoryCell;
+      const matched = categoryCell ? matchWingCategoryAlias(categoryCell) : null;
+      if (matched) categoryKeys[index] = matched.key;
+    }
+  }
+
   const unresolvedNames = details
     .filter((_, index) => !categoryKeys[index])
     .map((detail) => detail.basicInfo.name || detail.name);
@@ -324,7 +366,7 @@ export async function generateWingExcelForCandidates(
   if (candidateIds.length === 0) throw new Error('선택한 상품이 없습니다.');
 
   const details = await Promise.all(candidateIds.map((id) => productsApi.getDetail(id)));
-  const categoryKeys = resolveWingCategorySelections(details);
+  const categoryKeys = await resolveWingCategorySelections(details);
 
   const templateResponse = await fetch(TEMPLATE_URL);
   if (!templateResponse.ok) {
@@ -443,7 +485,6 @@ export interface WingRegistrationDraft {
 
 export type WingRegistrationPreparationResult =
   | { status: 'ready'; draft: WingRegistrationDraft }
-  | { status: 'processing'; candidateId: string; message: string }
   | { status: 'failed'; candidateId: string; message: string };
 
 export interface WingChannelAccountOption {
@@ -578,33 +619,49 @@ export function applyWingRegistrationOverrides(
 export async function prepareWingRegistration(
   candidateId: string,
   defaults: WingProductDraftDefaults = WING_PRODUCT_DRAFT_DEFAULTS,
-  options: { retryFailed?: boolean } = {},
+  options: { onRenderProgress?: (phase: DetailPageRasterProgressPhase) => void } = {},
 ): Promise<WingRegistrationPreparationResult> {
   if (!isChromeExtensionRuntimeAvailable()) {
     throw new Error('쿠팡 WING 직접 등록은 Chrome 확장에서 실행됩니다. Chrome에서 이 페이지를 열고 다시 시도하세요.');
   }
-  const extensionId = await detectExtensionId();
+  const extensionId = await detectDetailPageRendererExtensionId();
   if (!extensionId) {
-    throw new Error('KidItem 확장을 찾지 못했습니다. 확장을 설치/리로드한 뒤 다시 시도하세요.');
+    throw new Error(
+      '상세페이지 이미지 생성 기능이 있는 최신 KidItem 확장을 찾지 못했습니다. 확장을 리로드한 뒤 다시 시도하세요.',
+    );
   }
   const detail = await productsApi.getDetail(candidateId);
-  const categoryKey = resolveWingCategoryKey(detail);
+  const categoryKey = await resolveWingCategoryKeyForRegistration(detail);
   const categoryCell = getWingCategoryDefinition(categoryKey)?.categoryCell ?? '';
 
   // 상세설명은 이 직접등록 경로의 필수값이다. 없으면 WING 탭을 열기 전에 중단한다.
   // 대표이미지·원본 수집 이미지로 대체하지 않는다 — 잘못된 상세페이지가 등록되는 것이
   // 등록을 멈추는 것보다 나쁘다.
-  const rendered = await renderSavedCandidateDetailImage(
-    candidateId,
-    detail,
-    options.retryFailed === true,
-  );
-  if (rendered.status === 'processing' || rendered.status === 'failed') {
-    return {
-      status: rendered.status,
-      candidateId,
-      message: rendered.message,
-    };
+  let rendered = await prepareSavedCandidateDetailImage(candidateId, detail);
+  if (rendered.status === 'render_required') {
+    const intentId = rendered.intentId;
+    try {
+      const extensionResult = await renderDetailPageImageWithExtension(
+        extensionId,
+        intentId,
+        { onProgress: options.onRenderProgress },
+      );
+      if (extensionResult.status === 'failed') {
+        return {
+          status: 'failed',
+          candidateId,
+          message: extensionResult.error.message,
+        };
+      }
+      rendered = statusToReady(await getDetailPageRenderStatus(intentId));
+    } catch (error) {
+      const recovered = await getDetailPageRenderStatus(intentId).catch(() => null);
+      if (recovered?.state === 'completed' && recovered.artifact) {
+        rendered = statusToReady(recovered);
+      } else {
+        throw error;
+      }
+    }
   }
   const detailImageUrl = requireRenderedDetailImage(rendered);
 
@@ -628,6 +685,25 @@ export async function prepareWingRegistration(
       detailImageUrl,
       registrationInput: { ...(detail.productPreparation?.registrationInput ?? {}) },
     },
+  };
+}
+
+function statusToReady(
+  status: DetailPageClientRenderStatusResponse,
+): Extract<DetailPageClientRenderPrepareResponse, { status: 'ready' }> {
+  if (status.state !== 'completed' || !status.artifact) {
+    throw new Error(
+      status.error?.message ?? '상세페이지 이미지 확정 상태를 확인하지 못했습니다.',
+    );
+  }
+  return {
+    status: 'ready',
+    artifactId: status.artifact.artifactId,
+    revisionId: status.artifact.revisionId,
+    imageUrl: status.artifact.imageUrl,
+    outputWidth: status.artifact.outputWidth,
+    contentType: status.artifact.contentType,
+    byteLength: status.artifact.byteLength,
   };
 }
 
@@ -726,18 +802,23 @@ export async function submitWingRegistration(
   }
   let res;
   try {
-    res = await sendToExtension<{
+    res = await sendToExtensionViaPort<{
     ok?: boolean;
     error?: string;
     submission?: WingSubmissionResult;
     evidence?: Record<string, unknown>;
-  }>(draft.extensionId, {
-    action: 'registerToWingForm',
-    product,
-    autoSubmit: autoSubmit === true,
-    executionId: execution.executionId,
-    expectedVendorId: execution.expectedVendorId,
-  }, WING_FORM_FILL_TIMEOUT_MS);
+  }>(
+      draft.extensionId,
+      KIDITEM_WING_FORM_PORT_NAME,
+      {
+        action: 'registerToWingForm',
+        product,
+        autoSubmit: autoSubmit === true,
+        executionId: execution.executionId,
+        expectedVendorId: execution.expectedVendorId,
+      },
+      WING_FORM_FILL_TIMEOUT_MS,
+    );
   } catch (error) {
     if (autoSubmit === true) {
       await candidatesApi.markExternalWingRegistrationUnresolved(

@@ -4,9 +4,9 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaService } from '../../prisma/prisma.service';
+import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
+import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -20,6 +20,8 @@ import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/pr
 import { ProductOperationsService } from '../application/service/product-operations.service';
 import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
 import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
@@ -37,6 +39,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       {
         findByMasterProductIds: async () => new Map(),
       },
+      new CatalogDisplayMediaService(
+        new CatalogDisplayMediaRepositoryAdapter(prismaService),
+      ),
     );
   });
 
@@ -176,6 +181,121 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         },
       }],
     });
+  });
+
+  it('derives display images from active matched channel media without persisting them', async () => {
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Primary Wing',
+        status: 'active',
+        isPrimary: true,
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        externalId: 'DISPLAY-P-1',
+        isActive: true,
+      },
+    });
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        originChannelListingId: listing.id,
+        code: 'DISPLAY-MP-1',
+        name: 'Channel image fallback',
+        imageUrls: [],
+        variants: {
+          create: {
+            code: 'DISPLAY-PV-1',
+            name: 'Default option',
+            isDefault: true,
+          },
+        },
+      },
+    });
+    await prisma.channelListing.update({
+      where: { id: listing.id },
+      data: { masterProductId: product.id },
+    });
+    const displayUrl = 'https://cdn.example.com/channel-primary.jpg';
+    await attachCatalogPrimaryImage(listing.id, 'coupang', displayUrl);
+
+    const foreignAccount = await prisma.channelAccount.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Foreign Wing',
+        status: 'active',
+        isPrimary: true,
+      },
+    });
+    const foreignProduct = await prisma.masterProduct.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'FOREIGN-DISPLAY-MP',
+        name: 'Foreign product',
+        imageUrls: [],
+      },
+    });
+    const foreignListing = await prisma.channelListing.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channelAccountId: foreignAccount.id,
+        masterProductId: foreignProduct.id,
+        externalId: 'DISPLAY-P-1',
+        isActive: true,
+      },
+    });
+    await attachCatalogPrimaryImage(
+      foreignListing.id,
+      'coupang',
+      'https://cdn.example.com/foreign-channel.jpg',
+      OTHER_ORGANIZATION_ID,
+    );
+
+    const directProduct = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      {
+        code: 'DIRECT-DISPLAY-MP',
+        name: 'Direct product image',
+        imageUrls: ['https://cdn.example.com/operator.jpg'],
+      },
+    );
+
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+    });
+    const byId = new Map(page.items.map((item) => [item.id, item]));
+    const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
+
+    expect(byId.get(product.id)).toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [displayUrl],
+    });
+    expect(detail).toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [displayUrl],
+    });
+    expect(byId.get(directProduct.id)).toMatchObject({
+      imageUrls: ['https://cdn.example.com/operator.jpg'],
+      displayImageUrls: ['https://cdn.example.com/operator.jpg'],
+    });
+    expect(page.items).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        displayImageUrls: ['https://cdn.example.com/foreign-channel.jpg'],
+      }),
+    ]));
+    expect(await prisma.masterProduct.findUniqueOrThrow({
+      where: { id: product.id },
+      select: { imageUrls: true },
+    })).toEqual({ imageUrls: [] });
   });
 
   it('summarizes ABC grades across the full result instead of the current page', async () => {
@@ -629,6 +749,43 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   ) {
     return prisma.sellpiaInventorySku.create({
       data: { organizationId, code, name: code, currentStock, isActive },
+    });
+  }
+
+  async function attachCatalogPrimaryImage(
+    listingId: string,
+    channel: string,
+    url: string,
+    organizationId = TEST_ORGANIZATION_ID,
+  ) {
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId,
+        ownerType: 'channel_listing',
+        channelListingId: listingId,
+        displayName: `Workspace ${listingId}`,
+        normalizedTitle: `workspace${listingId.replaceAll('-', '')}`,
+      },
+    });
+    const group = await prisma.contentGenerationGroup.create({
+      data: {
+        organizationId,
+        contentWorkspaceId: workspace.id,
+        groupType: 'workspace_assets',
+        title: 'Workspace managed assets',
+      },
+    });
+    await prisma.contentAsset.create({
+      data: {
+        organizationId,
+        originGenerationGroupId: group.id,
+        assetKey: `channel-provider:${channel}:${listingId}`,
+        url,
+        assetType: 'image',
+        role: 'primary',
+        sortOrder: 0,
+        metadata: { sourceType: 'channel_catalog', channel, active: true },
+      },
     });
   }
 

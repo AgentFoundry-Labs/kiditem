@@ -242,6 +242,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         orderCollectionIcecreamMall: true,
         coupangShipmentDownloads: true,
         collectCoupangShipmentFiles: true,
+        collectCoupangShipmentDateSummaryValidatedV1: true,
         clearCoupangCookies: true,
         art09Orders: true,
         boriboriOrders: true,
@@ -257,6 +258,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         collectSellpiaInventoryJsonV1: true,
         browserCollectionSessions: true,
         kiditemEnvironmentProfilesV1: true,
+        sellpiaOrderFileUploadEvidenceV1: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
         sellpiaPostTransfer: true,
@@ -891,6 +893,8 @@ async function collectCoupangShipmentDateSummary(options) {
 // [페이지 주입] 최근 쉽먼트를 페이지네이션하며 발송일별로 집계.
 async function scrapeCoupangShipmentDateSummary(maxPages) {
   const PAGE_FETCH_CONCURRENCY = 6;
+  const SESSION_REQUIRED = "COUPANG_SHIPMENT_SESSION_REQUIRED";
+  const RESPONSE_INVALID = "COUPANG_SHIPMENT_RESPONSE_INVALID";
 
   async function fetchPage(n) {
     const r = await fetch(
@@ -900,24 +904,43 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
     if (!r.ok) {
       // 쿠팡 접속이 많아 쿠키가 커지면 Tomcat 이 헤더 과다로 400(때때로 413/431)을 반환한다.
       if (r.status === 400 || r.status === 413 || r.status === 431) throw new Error("COUPANG_COOKIE_BLOAT");
+      if (r.status === 401 || r.status === 403) throw new Error(SESSION_REQUIRED);
       throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
     }
-    return await r.text();
+    const html = await r.text();
+    const responseUrl = String(r.url || "");
+    if (r.redirected || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(responseUrl)) {
+      throw new Error(SESSION_REQUIRED);
+    }
+    // 미로그인/세션 만료 응답은 HTTP 200 로그인 HTML일 수 있다. parcel-tab 계약이 없으면
+    // 정상적인 빈 결과가 아니므로 빈 배열로 축약하지 않는다.
+    if (!/<table\b[^>]*\bid=["']parcel-tab["']/i.test(html)) {
+      if (/(?:로그인|login|sign[ -]?in)/i.test(html)) throw new Error(SESSION_REQUIRED);
+      throw new Error(RESPONSE_INVALID);
+    }
+    return html;
   }
   function parseRows(html) {
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const table = doc.querySelector("table#parcel-tab") || doc.querySelector("table");
-    if (!table) return [];
+    const table = doc.querySelector("table#parcel-tab");
+    if (!table) throw new Error(RESPONSE_INVALID);
     const heads = Array.from(table.querySelectorAll("thead th")).map((h) => (h.textContent || "").trim());
     const idx = (name) => heads.findIndex((h) => h.includes(name));
     const iSeq = idx("쉽먼트 번호"), iOut = idx("발송일"), iBox = idx("박스수");
-    return Array.from(table.querySelectorAll("tbody tr"))
-      .map((tr) => {
-        const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
-        if (c.length < 6) return null;
-        return { seq: c[iSeq], outbound: c[iOut], boxes: c[iBox] };
-      })
-      .filter(Boolean);
+    if ([iSeq, iOut, iBox].some((index) => index < 0)) throw new Error(RESPONSE_INVALID);
+    const requiredCellCount = Math.max(iSeq, iOut, iBox) + 1;
+    const rows = [];
+    for (const tr of table.querySelectorAll("tbody tr")) {
+      const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
+      // 쿠팡의 정상적인 빈 결과 placeholder는 단일 colspan 셀이다.
+      if (c.length <= 1) continue;
+      if (c.length < requiredCellCount) throw new Error(RESPONSE_INVALID);
+      const seq = c[iSeq];
+      const outbound = c[iOut];
+      if (!seq || !/^\d{4}-\d{2}-\d{2}/.test(outbound)) throw new Error(RESPONSE_INVALID);
+      rows.push({ seq, outbound, boxes: c[iBox] });
+    }
+    return rows;
   }
   try {
     const seen = new Set();
@@ -955,8 +978,7 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
           if (seen.has(row.seq)) continue;
           seen.add(row.seq);
           totalRows += 1;
-          const date = (row.outbound || "").slice(0, 10);
-          if (!date) continue;
+          const date = row.outbound.slice(0, 10);
           const boxMatch = String(row.boxes || "").match(/(\d+)/);
           const current = byDate.get(date) || { count: 0, boxes: 0 };
           current.count += 1;
@@ -984,12 +1006,18 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
         error: '쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 조회하세요.',
       };
     }
-    // 세션 만료/미로그인 시 supplier 목록 fetch 가 브라우저 일반 오류("Failed to fetch")로
-    // 떨어진다. 조작 가능한 안내로 치환해 운영자가 원인을 바로 알게 한다.
-    if (msg === 'Failed to fetch') {
+    if (msg === SESSION_REQUIRED || msg === 'Failed to fetch') {
       return {
         success: false,
-        error: 'supplier.coupang.com 세션을 확인할 수 없습니다. 쿠팡 supplier에 로그인한 뒤 다시 조회해주세요.',
+        errorCode: 'coupang_shipment_session_required',
+        error: 'Supplier Hub 로그인 세션이 없거나 만료되었습니다. supplier.coupang.com에 로그인한 뒤 다시 조회해주세요.',
+      };
+    }
+    if (msg === RESPONSE_INVALID) {
+      return {
+        success: false,
+        errorCode: 'coupang_shipment_response_invalid',
+        error: '쿠팡 쉽먼트 목록 응답 형식이 예상과 다릅니다. 주문수집 확장프로그램을 새로고침한 뒤 다시 조회해주세요.',
       };
     }
     return { success: false, error: msg };
@@ -3459,6 +3487,91 @@ async function injectSellpiaOrderFile(payload) {
   const fileBase64 = payload.fileBase64;
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  function parsePendingRowCount(value) {
+    const match = String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .match(/(?:^|\s)전체\s*([\d,]+)\s*개(?:\s|$)/);
+    if (!match) return null;
+    const count = Number(match[1].replace(/,/g, ""));
+    return Number.isSafeInteger(count) && count >= 0 ? count : null;
+  }
+
+  function pendingRowCount() {
+    // 셀피아의 SlickGrid dataView는 페이지 전역에 노출되는 버전도 있고, 격리된
+    // 확장 프로그램 실행 컨텍스트에서는 보이지 않는 버전도 있다. 실제 주문접수
+    // 화면이 제공하는 #pager의 "전체 N 개"를 동일한 대기 주문 근거로 사용한다.
+    try {
+      if (window.dataView && typeof window.dataView.getLength === "function") {
+        const count = Number(window.dataView.getLength());
+        if (Number.isSafeInteger(count) && count >= 0) return count;
+      }
+    } catch {
+      // 페이지 전역 접근 실패 시 아래의 DOM pager 근거로 계속 확인한다.
+    }
+
+    if (typeof document.querySelector !== "function") return null;
+    const pagerStatus = document.querySelector("#pager .slick-pager-status");
+    return parsePendingRowCount(pagerStatus?.textContent);
+  }
+
+  function visibleDialogText() {
+    if (typeof document.querySelectorAll !== "function") return "";
+    const nodes = document.querySelectorAll(
+      ".jconfirm .jconfirm-content, .ui-dialog-content, .swal2-html-container, .swal2-title",
+    );
+    return Array.from(nodes)
+      .filter((node) => {
+        if (node.hidden) return false;
+        if (typeof window.getComputedStyle !== "function") return true;
+        const style = window.getComputedStyle(node);
+        return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+      })
+      .map((node) => String(node.textContent || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  async function waitForStablePendingRowCount() {
+    let previousCount = pendingRowCount();
+    let stableChecks = 0;
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const currentCount = pendingRowCount();
+      const activeRequests = Number(window.jQuery?.active || 0);
+      if (currentCount !== null && currentCount === previousCount && activeRequests === 0) {
+        stableChecks += 1;
+        if (stableChecks >= 2) return currentCount;
+      } else {
+        stableChecks = 0;
+      }
+      previousCount = currentCount;
+      await delay(200);
+    }
+    return pendingRowCount();
+  }
+
+  async function waitForUploadEvidence(beforeCount) {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      // 셀피아는 일부 주문을 정상 접수하면서 이미 수집된 중복 주문 경고를 같은
+      // 결과 팝업에 함께 표시한다. 새 대기 행이 실제로 늘었다면 그 증가분을
+      // 우선 성공 근거로 인정하고, 행 증가가 없을 때만 팝업을 전체 거절로 본다.
+      const afterCount = pendingRowCount();
+      if (afterCount !== null && afterCount > beforeCount) {
+        return {
+          kind: "accepted",
+          acceptedRows: afterCount - beforeCount,
+          pendingRows: afterCount,
+        };
+      }
+      const dialogText = visibleDialogText();
+      if (dialogText && /실패|오류|잘못|불가|업로드할 수 없|접수할 수 없/.test(dialogText)) {
+        return { kind: "rejected", message: dialogText.slice(0, 300) };
+      }
+      await delay(300);
+    }
+    return { kind: "unknown" };
+  }
+
   // 0) 화면/판매처 옵션 로딩 대기 — 새 탭은 옵션이 AJAX 로 늦게 채워진다.
   // 몰 표기명 ≠ 셀피아 판매처 등록명인 경우 별칭으로 치환 후 검색.
   // 키=shopName 공백제거, 값=셀피아 판매처명의 고유 부분문자열. 대부분은 부분일치로 잡히지만(키즈노트→
@@ -3568,6 +3681,19 @@ async function injectSellpiaOrderFile(payload) {
       error: "파일은 주입했지만 '주문접수' 버튼을 찾지 못했습니다.",
     };
   }
+  // 기존 대기 목록의 초기 AJAX 로딩을 업로드 성공으로 오인하지 않도록 기준 행 수가
+  // 안정화된 뒤 클릭한다. 이후 실제 행 수 증가만 접수 성공 근거로 인정한다.
+  const pendingRowsBefore = await waitForStablePendingRowCount();
+  if (pendingRowsBefore === null) {
+    return {
+      success: false,
+      outcome: "not_submitted",
+      shop: matched ? String(matched.textContent || "").trim() : null,
+      fileName,
+      error:
+        "셀피아 대기 주문 목록을 읽지 못해 주문접수를 실행하지 않았습니다. 화면을 새로고침한 뒤 다시 시도해주세요.",
+    };
+  }
   try {
     submitButton.click();
   } catch (error) {
@@ -3580,12 +3706,35 @@ async function injectSellpiaOrderFile(payload) {
     };
   }
 
+  const uploadEvidence = await waitForUploadEvidence(pendingRowsBefore);
+  if (uploadEvidence.kind === "rejected") {
+    return {
+      success: false,
+      outcome: "unknown",
+      shop: matched ? String(matched.textContent || "").trim() : null,
+      fileName,
+      error: `셀피아 주문접수 결과 확인 필요: ${uploadEvidence.message}`,
+    };
+  }
+  if (uploadEvidence.kind !== "accepted") {
+    return {
+      success: false,
+      outcome: "unknown",
+      shop: matched ? String(matched.textContent || "").trim() : null,
+      fileName,
+      error:
+        "주문접수 버튼은 실행됐지만 셀피아 접수 결과를 확인하지 못했습니다. 셀피아 대기 주문을 확인해주세요.",
+    };
+  }
+
   return {
     success: true,
     outcome: "submitted",
     shop: matched ? String(matched.textContent || "").trim() : null,
     excelFormat: excelSelect ? excelSelect.value : null,
     fileName,
+    acceptedRows: uploadEvidence.acceptedRows,
+    pendingRows: uploadEvidence.pendingRows,
   };
 
   function setSelectValue(element, value) {

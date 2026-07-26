@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { ProductInventoryMatchingTable } from '../ProductInventoryMatchingTable';
 import type {
   ChannelOptionMatchingQueueRow,
   ChannelProductMatchingQueueRow,
@@ -9,7 +10,6 @@ import type {
   ChannelRecipeAutomationItem,
   ChannelRecipeAutomationProductGroup,
 } from '@kiditem/shared/channel-recipe-automation';
-import { ProductInventoryMatchingTable } from '../ProductInventoryMatchingTable';
 
 const LISTING_ID = '11111111-1111-4111-8111-111111111111';
 const PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
@@ -39,6 +39,8 @@ describe('<ProductInventoryMatchingTable>', () => {
     );
 
     expect(screen.getByText('채널 우산')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '채널 우산 상품 이미지' })).toHaveAttribute('src', 'https://cdn.example.com/channel-umbrella.jpg');
+    expect(screen.getByRole('img', { name: '키즈 우산 상품 이미지' })).toHaveAttribute('src', 'https://cdn.example.com/kiditem-umbrella.jpg');
     expect(screen.getByText('옵션 2개')).toBeInTheDocument();
     expect(screen.getByText('운영자 검토')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '운영 상품 연결' })).not.toBeInTheDocument();
@@ -118,9 +120,15 @@ function product(): ChannelProductMatchingQueueRow {
       displayName: '채널 우산',
       status: 'active',
       masterProductId: PRODUCT_ID,
+      channelImageUrl: 'https://cdn.example.com/channel-umbrella.jpg',
       updatedAt: '2026-07-18T00:00:00.000Z',
     },
-    linkedProduct: { id: PRODUCT_ID, code: 'KI-1', name: '키즈 우산' },
+    linkedProduct: {
+      id: PRODUCT_ID,
+      code: 'KI-1',
+      name: '키즈 우산',
+      displayImageUrl: 'https://cdn.example.com/kiditem-umbrella.jpg',
+    },
     optionCount: 2,
     linkedOptionCount: 1,
   };

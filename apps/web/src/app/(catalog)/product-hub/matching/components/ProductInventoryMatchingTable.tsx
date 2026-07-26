@@ -2,9 +2,10 @@
 
 import { Fragment, useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
-import { operatorProductReference } from '../../lib/operator-product-reference';
-import { VariantRecipeSummary } from './VariantRecipeSummary';
 import { cn } from '@/lib/utils';
+import { operatorProductReference } from '../../lib/operator-product-reference';
+import { MasterProductImage } from '../../components/MasterProductImage';
+import { VariantRecipeSummary } from './VariantRecipeSummary';
 import type {
   ChannelOptionMatchingQueueRow,
   ChannelProductMatchingQueueRow,
@@ -109,24 +110,30 @@ export function ProductInventoryMatchingTable({
                 <Fragment key={product.listing.id}>
                   <tr className="align-top">
                     <td className="overflow-hidden px-4 py-4">
-                      <p className="truncate font-semibold text-slate-900" title={product.listing.displayName ?? undefined}>
-                        {product.listing.displayName ?? '상품명 없음'}
-                      </p>
-                      <p className="mt-1 truncate text-xs font-semibold text-slate-500" title={product.channelAccount.name}>
-                        {product.channelAccount.name} · {product.channelAccount.channel}
-                      </p>
-                      <p className="mt-1 break-all font-mono text-xs text-slate-400">
-                        {product.listing.externalId}
-                      </p>
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-slate-400">
+                          <MasterProductImage imageUrl={product.listing.channelImageUrl} productName={product.listing.displayName ?? product.listing.externalId} className="h-full w-full object-cover" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-900" title={product.listing.displayName ?? undefined}>{product.listing.displayName ?? '상품명 없음'}</p>
+                          <p className="mt-1 truncate text-xs font-semibold text-slate-500" title={product.channelAccount.name}>{product.channelAccount.name} · {product.channelAccount.channel}</p>
+                          <p className="mt-1 break-all font-mono text-xs text-slate-400">{product.listing.externalId}</p>
+                        </div>
+                      </div>
                     </td>
                     <td className="overflow-hidden px-4 py-4">
                       {product.linkedProduct ? (
-                        <>
-                          <p className="truncate font-bold text-slate-900" title={operatorProductReference(product.linkedProduct.code, product.linkedProduct.name)}>
-                            {operatorProductReference(product.linkedProduct.code, product.linkedProduct.name)}
-                          </p>
-                          <p className="mt-1 text-xs font-semibold text-emerald-700">상품 연결 완료</p>
-                        </>
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-slate-400">
+                            <MasterProductImage imageUrl={product.linkedProduct.displayImageUrl} productName={product.linkedProduct.name} className="h-full w-full object-cover" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate font-bold text-slate-900" title={operatorProductReference(product.linkedProduct.code, product.linkedProduct.name)}>
+                              {operatorProductReference(product.linkedProduct.code, product.linkedProduct.name)}
+                            </p>
+                            <p className="mt-1 text-xs font-semibold text-emerald-700">상품 연결 완료</p>
+                          </div>
+                        </div>
                       ) : (
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
                           운영 상품 미연결

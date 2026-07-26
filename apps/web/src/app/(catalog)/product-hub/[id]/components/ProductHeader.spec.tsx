@@ -1,13 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 import ProductHeader from './ProductHeader';
+import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
 describe('ProductHeader', () => {
-  it('uses the MasterProduct image on the detail header and handles a broken URL', () => {
+  it('uses the calculated channel fallback on the detail header when raw media is empty', () => {
     render(<ProductHeader product={product()} onEdit={() => undefined} />);
 
     const image = screen.getByRole('img', { name: '상세 테스트 상품 상품 이미지' });
-    expect(image).toHaveAttribute('src', 'https://cdn.example.com/detail-master.jpg');
+    expect(image).toHaveAttribute('src', 'https://cdn.example.com/detail-channel.jpg');
 
     fireEvent.error(image);
 
@@ -23,7 +23,8 @@ function product(): MasterProductOperationsDetail {
     name: '상세 테스트 상품',
     category: '완구',
     brand: 'KidItem',
-    imageUrls: ['https://cdn.example.com/detail-master.jpg'],
+    imageUrls: [],
+    displayImageUrls: ['https://cdn.example.com/detail-channel.jpg'],
     isActive: true,
   } as MasterProductOperationsDetail;
 }

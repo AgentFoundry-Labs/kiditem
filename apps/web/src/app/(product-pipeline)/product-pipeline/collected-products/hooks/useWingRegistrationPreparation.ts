@@ -6,6 +6,7 @@ import {
   prepareWingRegistration,
   type WingRegistrationDraft,
 } from '../lib/wing-registration-flow';
+import type { DetailPageRasterProgressPhase } from '@/lib/extension-bridge';
 
 interface WingRegistrationPreparationCallbacks {
   onReady: (draft: WingRegistrationDraft) => void;
@@ -21,8 +22,8 @@ export function useWingRegistrationPreparation(
   callbacks: WingRegistrationPreparationCallbacks,
 ) {
   const [attempt, setAttempt] = useState<PreparationAttempt | null>(null);
+  const [renderPhase, setRenderPhase] = useState<DetailPageRasterProgressPhase | null>(null);
   const sequence = useRef(0);
-  const retryFailedSequence = useRef<number | null>(null);
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
 
@@ -32,23 +33,19 @@ export function useWingRegistrationPreparation(
       attempt?.candidateId ?? null,
       attempt?.sequence ?? 0,
     ],
-    queryFn: () => {
-      const retryFailed = retryFailedSequence.current === attempt!.sequence;
-      retryFailedSequence.current = null;
-      return prepareWingRegistration(attempt!.candidateId, undefined, {
-        retryFailed,
-      });
-    },
+    queryFn: () => prepareWingRegistration(attempt!.candidateId, undefined, {
+      onRenderProgress: setRenderPhase,
+    }),
     enabled: attempt !== null,
     retry: false,
-    refetchInterval: (current) =>
-      current.state.data?.status === 'processing' ? 2_000 : false,
+    refetchInterval: false,
   });
 
   useEffect(() => {
     if (!attempt) return;
     if (query.data?.status === 'ready') {
       callbacksRef.current.onReady(query.data.draft);
+      setRenderPhase(null);
       setAttempt((current) =>
         current?.sequence === attempt.sequence ? null : current,
       );
@@ -56,6 +53,7 @@ export function useWingRegistrationPreparation(
     }
     if (query.data?.status === 'failed') {
       callbacksRef.current.onError(query.data.message);
+      setRenderPhase(null);
       setAttempt((current) =>
         current?.sequence === attempt.sequence ? null : current,
       );
@@ -67,6 +65,7 @@ export function useWingRegistrationPreparation(
           ? query.error.message
           : '쿠팡 WING 등록 준비에 실패했습니다.',
       );
+      setRenderPhase(null);
       setAttempt((current) =>
         current?.sequence === attempt.sequence ? null : current,
       );
@@ -75,21 +74,33 @@ export function useWingRegistrationPreparation(
 
   const start = useCallback((candidateId: string) => {
     sequence.current += 1;
-    retryFailedSequence.current = sequence.current;
+    setRenderPhase('loading');
     setAttempt({ candidateId, sequence: sequence.current });
   }, []);
 
-  const cancel = useCallback(() => setAttempt(null), []);
+  const cancel = useCallback(() => {
+    setAttempt(null);
+    setRenderPhase(null);
+  }, []);
 
   return {
     start,
     cancel,
     isPreparing: attempt !== null,
-    message:
-      query.data?.status === 'processing'
-        ? query.data.message
-        : attempt
-          ? '쿠팡 WING 등록을 준비하고 있습니다.'
-          : null,
+    message: attempt ? renderPhaseMessage(renderPhase) : null,
   };
+}
+
+function renderPhaseMessage(phase: DetailPageRasterProgressPhase | null): string {
+  switch (phase) {
+    case 'capturing':
+      return '상세페이지를 긴 이미지 한 장으로 캡처하고 있습니다.';
+    case 'uploading':
+      return '상세페이지 이미지를 저장하고 있습니다.';
+    case 'finalizing':
+      return '저장된 상세페이지 이미지를 확인하고 있습니다.';
+    case 'loading':
+    default:
+      return '쿠팡 WING 등록을 준비하고 있습니다.';
+  }
 }

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -21,20 +22,43 @@ import {
   CHANNEL_SKU_AVAILABILITY_PORT,
   type ChannelSkuAvailabilityPort,
 } from '../port/in/channel-sku-availability.port';
+import {
+  CATALOG_DISPLAY_MEDIA_PORT,
+  type CatalogDisplayMediaPort,
+} from '../../../ai/application/port/in/workspace/catalog-display-media.port';
 
 @Injectable()
 export class ChannelProductMatchingService {
+  private readonly logger = new Logger(ChannelProductMatchingService.name);
+
   constructor(
     @Inject(CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT)
     private readonly repository: ChannelProductMatchingRepositoryPort,
     @Inject(CHANNEL_SKU_AVAILABILITY_PORT)
     private readonly channelAvailability: ChannelSkuAvailabilityPort,
+    @Inject(CATALOG_DISPLAY_MEDIA_PORT)
+    private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
   ) {}
 
   async list(organizationId: string, query: ChannelProductMatchingQuery = {}) {
     const queue = await this.repository.listQueue(organizationId, {
       channelAccountId: query.channelAccountId,
       search: query.search?.trim() || undefined,
+    });
+    const channelImages = await this.loadChannelImages(
+      organizationId,
+      queue.products.map((row) => row.listing.id),
+    );
+    const products = queue.products.map((row) => {
+      const channelImageUrl = channelImages.get(row.listing.id)?.url ?? null;
+      return {
+        ...row,
+        listing: { ...row.listing, channelImageUrl },
+        linkedProduct: row.linkedProduct ? {
+          ...row.linkedProduct,
+          displayImageUrl: row.linkedProduct.displayImageUrl ?? channelImageUrl,
+        } : null,
+      };
     });
     const linkedOptionIds = queue.options
       .filter((row) => row.option.productVariantId !== null)
@@ -54,13 +78,13 @@ export class ChannelProductMatchingService {
       };
     });
     return {
-      products: queue.products,
+      products,
       options,
       counts: {
         products: {
-          all: queue.products.length,
-          linked: queue.products.filter((row) => row.listing.masterProductId !== null).length,
-          unlinked: queue.products.filter((row) => row.listing.masterProductId === null).length,
+          all: products.length,
+          linked: products.filter((row) => row.listing.masterProductId !== null).length,
+          unlinked: products.filter((row) => row.listing.masterProductId === null).length,
         },
         options: {
           all: options.length,
@@ -74,6 +98,25 @@ export class ChannelProductMatchingService {
         },
       },
     };
+  }
+
+  private async loadChannelImages(organizationId: string, listingIds: string[]) {
+    if (listingIds.length === 0) return new Map();
+    try {
+      return await this.catalogDisplayMedia.findDisplayMedia({
+        organizationId,
+        requests: listingIds.map((key) => ({
+          key,
+          candidates: [{ channelListingId: key, externalOptionId: null }],
+        })),
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Matching display media enrichment failed for organization ${organizationId}.`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return new Map();
+    }
   }
 
   async productCandidates(

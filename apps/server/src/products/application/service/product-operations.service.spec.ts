@@ -1,7 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import type { ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
 import { ProductOperationsService } from './product-operations.service';
+import type { ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const userId = '00000000-0000-4000-8000-000000000002';
@@ -53,6 +53,7 @@ describe('ProductOperationsService', () => {
       repository,
       inventory as never,
       depletion as never,
+      makeCatalogDisplayMedia() as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -110,6 +111,179 @@ describe('ProductOperationsService', () => {
         })],
       }),
     });
+  });
+
+  it('keeps direct product images ahead of channel display media', async () => {
+    const repository = makeRepository();
+    repository.getProduct.mockResolvedValue({
+      ...rawProduct(),
+      imageUrls: ['https://cdn.example.com/operator.jpg'],
+    });
+    const media = makeCatalogDisplayMedia();
+    const service = makeService(repository, media);
+
+    const result = await service.getProduct(organizationId, productId);
+    expect(result).toMatchObject({
+      imageUrls: ['https://cdn.example.com/operator.jpg'],
+      displayImageUrls: ['https://cdn.example.com/operator.jpg'],
+    });
+    expect(result.displayImageUrls).not.toBe(result.imageUrls);
+    expect(repository.listDisplayMediaTargets).not.toHaveBeenCalled();
+    expect(media.findDisplayMedia).not.toHaveBeenCalled();
+  });
+
+  it('uses matched channel media without mutating empty product images', async () => {
+    const repository = makeRepository();
+    repository.listDisplayMediaTargets.mockResolvedValue([{
+      masterProductId: productId,
+      channelListingId: '00000000-0000-4000-8000-000000000006',
+      isOrigin: true,
+      isPrimaryAccount: true,
+      listingExternalId: 'P-1',
+    }]);
+    const media = makeCatalogDisplayMedia();
+    media.findDisplayMedia.mockResolvedValue(new Map([[productId, {
+      url: 'https://cdn.example.com/channel.jpg',
+      source: 'channel_catalog',
+      channel: 'coupang',
+      channelListingId: '00000000-0000-4000-8000-000000000006',
+      externalOptionId: null,
+    }]]));
+    const service = makeService(repository, media);
+
+    await expect(service.getProduct(organizationId, productId)).resolves.toMatchObject({
+      imageUrls: [],
+      displayImageUrls: ['https://cdn.example.com/channel.jpg'],
+    });
+  });
+
+  it('keeps an empty display image list when no channel target exists', async () => {
+    const repository = makeRepository();
+    const media = makeCatalogDisplayMedia();
+    const service = makeService(repository, media);
+
+    await expect(service.getProduct(organizationId, productId)).resolves.toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [],
+    });
+    expect(media.findDisplayMedia).toHaveBeenCalledWith({
+      organizationId,
+      requests: [],
+    });
+  });
+
+  it('keeps product reads available when channel media lookup fails', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const repository = makeRepository();
+    repository.listDisplayMediaTargets.mockResolvedValue([{
+      masterProductId: productId,
+      channelListingId: '00000000-0000-4000-8000-000000000006',
+      isOrigin: true,
+      isPrimaryAccount: true,
+      listingExternalId: 'P-1',
+    }]);
+    const media = makeCatalogDisplayMedia();
+    media.findDisplayMedia.mockRejectedValue(new Error('media unavailable'));
+    const service = makeService(repository, media);
+
+    await expect(service.getProduct(organizationId, productId)).resolves.toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [],
+    });
+    expect(warn).toHaveBeenCalledWith(
+      `Product display media enrichment failed for organization ${organizationId}.`,
+      expect.stringContaining('Error: media unavailable'),
+    );
+    warn.mockRestore();
+  });
+
+  it('keeps product detail reads available when display target lookup fails', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const repository = makeRepository();
+    repository.listDisplayMediaTargets.mockRejectedValue(
+      new Error('display targets unavailable'),
+    );
+    const service = makeService(repository);
+
+    await expect(service.getProduct(organizationId, productId)).resolves.toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [],
+    });
+    expect(warn).toHaveBeenCalledWith(
+      `Product display media enrichment failed for organization ${organizationId}.`,
+      expect.stringContaining('Error: display targets unavailable'),
+    );
+    warn.mockRestore();
+  });
+
+  it('keeps product list reads available when display target lookup fails', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const repository = makeRepository();
+    repository.listProducts.mockResolvedValue({
+      items: [rawListProduct(productId)],
+      page: 1,
+      limit: 50,
+    });
+    repository.listDisplayMediaTargets.mockRejectedValue(
+      new Error('display targets unavailable'),
+    );
+    const service = makeService(repository);
+
+    await expect(service.listProducts(organizationId, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      activeStatus: 'all',
+      adStatus: 'all',
+    })).resolves.toMatchObject({
+      items: [{ imageUrls: [], displayImageUrls: [] }],
+    });
+    expect(warn).toHaveBeenCalledWith(
+      `Product display media enrichment failed for organization ${organizationId}.`,
+      expect.stringContaining('Error: display targets unavailable'),
+    );
+    warn.mockRestore();
+  });
+
+  it('keeps a committed product creation available when display target lookup fails', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const repository = makeRepository();
+    repository.listDisplayMediaTargets.mockRejectedValue(
+      new Error('display targets unavailable'),
+    );
+    const service = makeService(repository);
+
+    await expect(service.createProduct(organizationId, userId, {
+      code: 'KI-001',
+      name: 'Product',
+    })).resolves.toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [],
+    });
+    expect(repository.createProduct).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  it('keeps a committed product update available when display target lookup fails', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const repository = makeRepository();
+    repository.listDisplayMediaTargets.mockRejectedValue(
+      new Error('display targets unavailable'),
+    );
+    const service = makeService(repository);
+
+    await expect(service.updateProduct(
+      organizationId,
+      productId,
+      { name: 'Renamed' },
+    )).resolves.toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [],
+    });
+    expect(repository.updateProduct).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 
   it('accepts a one-release legacy abcGrade but never forwards it to persistence', async () => {
@@ -258,6 +432,7 @@ function makeRepository() {
       page: 1,
       limit: 50,
     }),
+    listDisplayMediaTargets: vi.fn().mockResolvedValue([]),
     getProduct: vi.fn().mockResolvedValue(product),
     createProduct: vi.fn().mockResolvedValue(product),
     updateProduct: vi.fn().mockResolvedValue(product),
@@ -277,7 +452,14 @@ function makeRepository() {
   };
 }
 
-function makeService(repository: ReturnType<typeof makeRepository>) {
+function makeCatalogDisplayMedia() {
+  return { findDisplayMedia: vi.fn().mockResolvedValue(new Map()) };
+}
+
+function makeService(
+  repository: ReturnType<typeof makeRepository>,
+  media = makeCatalogDisplayMedia(),
+) {
   return new ProductOperationsService(
     repository,
     {
@@ -289,6 +471,7 @@ function makeService(repository: ReturnType<typeof makeRepository>) {
     {
       findByMasterProductIds: vi.fn().mockResolvedValue(new Map()),
     } as never,
+    media as never,
   );
 }
 

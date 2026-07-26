@@ -9,9 +9,9 @@ import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
 import { apiClient } from '@/lib/api-client';
 import { friendlyError } from '@/lib/api-error';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
-import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
+import { useStore } from '@/store/useStore';
 import { FilePreviewSection } from './FilePreviewSection';
 import {
   GeneratedFilesSection,
@@ -42,6 +42,7 @@ import {
   draftFromMallAccount,
   isAuthRequiredMessage,
   isBrowserCollectableMall,
+  hasSellpiaTransmissionRequest,
   isLoginRequiredMessage,
   isNoNewOrdersMessage,
   todayYmd,
@@ -73,6 +74,7 @@ const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
+  const showConfirm = useStore((store) => store.showConfirm);
   const historyRef = useRef<ConversionHistoryItem[]>([]);
   const sellpiaSendLockRef = useRef(false);
   const [generatedFileActionLock] = useState(createGeneratedFileActionLock);
@@ -491,8 +493,29 @@ export function OrderCollectionWorkspace() {
 
   const handleSendToSellpia = async (
     item: ConversionHistoryItem,
-    options: { allowBulk?: boolean; showSuccessToast?: boolean } = {},
+    options: {
+      allowBulk?: boolean;
+      showSuccessToast?: boolean;
+      retryConfirmed?: boolean;
+    } = {},
   ): Promise<boolean> => {
+    if (
+      hasSellpiaTransmissionRequest(item)
+      && !options.retryConfirmed
+      && !options.allowBulk
+    ) {
+      showConfirm({
+        title: '셀피아에 다시 전송할까요?',
+        message:
+          '셀피아 주문서수집 화면과 주문 내역에서 이 파일이 실제로 접수되지 않은 것을 확인한 경우에만 진행하세요. 이미 접수된 파일을 다시 보내면 주문이 중복될 수 있습니다.',
+        confirmText: '미접수 확인 후 재전송',
+        cancelText: '취소',
+        onConfirm: () => {
+          void handleSendToSellpia(item, { retryConfirmed: true });
+        },
+      });
+      return false;
+    }
     const releaseAction = options.allowBulk ? null : generatedFileActionLock.acquire();
     if (
       sellpiaSendLockRef.current ||
@@ -505,6 +528,7 @@ export function OrderCollectionWorkspace() {
     try {
       return await sellpiaTransmission.transmit(item, {
         showSuccessToast: options.showSuccessToast,
+        retryConfirmed: options.retryConfirmed,
       });
     } finally {
       sellpiaSendLockRef.current = false;
@@ -649,7 +673,6 @@ export function OrderCollectionWorkspace() {
           ) : (
             <span className="text-xs font-semibold text-amber-700">로켓 채널 계정 없음</span>
           )}
-          <SellpiaWorkspaceFreshnessStatus />
           <button
             type="button"
             onClick={() => setUploadModalOpen(true)}

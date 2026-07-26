@@ -138,6 +138,9 @@ change stock.
   `submitted: true` finalization advances to a generation strictly newer than
   every generation visible at finalization; retries return the same finalized
   generation. Explicit non-submission may abort and reopen the same intent key.
+  An owner/admin may also correct a false finalized result to `not_submitted`;
+  that transition is append-only audited and is the only path that permits a
+  confirmed missing file to reuse the stable intent key for one safe retry.
 - Every public view serializes generations as decimal strings and derives
   `activeSync.canControl` from the authenticated user without exposing the
   owner ID.

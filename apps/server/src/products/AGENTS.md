@@ -42,6 +42,11 @@ compatibility CRUD. It never owns physical stock.
 
 - Do not add physical stock, source price/barcode/raw import fields, or direct
   Inventory writers to `MasterProduct`.
+- `MasterProduct.imageUrls` is operator-managed product metadata. Channel
+  collection and matching do not copy listing media into it. Product read
+  responses may expose calculated `displayImageUrls`, preferring non-empty
+  `imageUrls` and otherwise using active matched channel catalog media through
+  AI's read-only display-media port.
 - Manual recipe writes replace the complete `ProductVariantComponent` set and
   validate positive quantities and tenant ownership. An explicitly reviewed
   manual batch may plan or create exact recipes only for empty variants;

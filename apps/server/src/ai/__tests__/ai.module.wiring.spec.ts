@@ -23,6 +23,7 @@ import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
+import { DetailPageImageRepositoryAdapter } from '../adapter/out/repository/detail-page-image.repository.adapter';
 import { ProductGenerationChildLedgerRepositoryAdapter } from '../adapter/out/repository/product-generation-child-ledger.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from '../adapter/out/repository/product-generation-context.repository.adapter';
 import { SourcingWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sourcing-workspace-archive.repository.adapter';
@@ -60,6 +61,7 @@ import {
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
   CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT,
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
+  DETAIL_PAGE_IMAGE_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
   PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
@@ -79,8 +81,7 @@ import {
   DETAIL_PAGE_TEMPLATE_STYLES_PORT,
 } from '../application/port/out/runtime';
 import { AiDirectJobWorkerService } from '../application/service/ai-direct-job-worker.service';
-import { DetailPageRasterJobExecutorService } from '../application/service/detail-page-raster-job-executor.service';
-import { DetailPageRasterJobService } from '../application/service/detail-page-raster-job.service';
+import { DetailPageClientRenderService } from '../application/service/detail-page-client-render.service';
 import { CatalogDisplayMediaService } from '../application/service/catalog-display-media.service';
 import { CatalogDisplayMediaRepositoryAdapter } from '../adapter/out/repository/catalog-display-media.repository.adapter';
 import {
@@ -128,6 +129,7 @@ describe('AiModule hexagonal wiring contract', () => {
       [CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT, ContentWorkspaceLifecycleRepositoryAdapter],
       [CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT, ContentWorkspaceThumbnailSelectionRepositoryAdapter],
       [DETAIL_PAGE_GENERATION_REPOSITORY_PORT, DetailPageGenerationRepositoryAdapter],
+      [DETAIL_PAGE_IMAGE_REPOSITORY_PORT, DetailPageImageRepositoryAdapter],
       [DETAIL_PAGE_QUERY_REPOSITORY_PORT, DetailPageQueryRepositoryAdapter],
       [DETAIL_PAGE_TEMPLATE_STYLES_PORT, DetailPageTemplateStylesAdapter],
       [PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT, ProductGenerationChildLedgerRepositoryAdapter],
@@ -147,8 +149,7 @@ describe('AiModule hexagonal wiring contract', () => {
       expectExistingBinding(providers, token as symbol, adapter);
     });
     expect(providers).toContain(ContentWorkspaceThumbnailSelectionService);
-    expect(providers).toContain(DetailPageRasterJobExecutorService);
-    expect(providers).toContain(DetailPageRasterJobService);
+    expect(providers).toContain(DetailPageClientRenderService);
   });
 
   it('exports AI owner-side incoming ports through application services', () => {

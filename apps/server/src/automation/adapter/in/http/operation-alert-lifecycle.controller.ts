@@ -193,6 +193,20 @@ export class OperationAlertLifecycleController {
     return alerts.map(mapAlertRowToItem);
   }
 
+  @Post('reconcile-extension-missing')
+  @HttpCode(200)
+  async reconcileExtensionMissing(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<{ dismissed: number }> {
+    const alerts =
+      await this.operationAlerts.dismissExtensionMissingBrowserCollections(
+        organizationId,
+        user.id,
+      );
+    return { dismissed: alerts.length };
+  }
+
   private async dispatch(
     organizationId: string,
     operationKey: string,

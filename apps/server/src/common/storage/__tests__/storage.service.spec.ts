@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // ── @aws-sdk/client-s3 mock ─────────────────────────────────────────────────
 // vi.mock is hoisted — must be declared before importing the module under test.
 
-const mockSend = vi.fn();
+const mockSend = vi.hoisted(() => vi.fn());
+const mockGetSignedUrl = vi.hoisted(() => vi.fn());
+const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 vi.mock('@aws-sdk/client-s3', () => ({
   S3Client: class MockS3Client {
@@ -34,8 +36,25 @@ vi.mock('@aws-sdk/client-s3', () => ({
       Object.assign(this, args);
     }
   },
+  HeadObjectCommand: class MockHeadObjectCommand {
+    __type = 'HeadObject';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
+  GetObjectCommand: class MockGetObjectCommand {
+    __type = 'GetObject';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
 }));
 
+vi.mock('@aws-sdk/s3-request-presigner', () => ({
+  getSignedUrl: mockGetSignedUrl,
+}));
+
+import sharp from 'sharp';
 import { StorageService } from '../storage.service';
 
 // ── Env snapshot helpers ────────────────────────────────────────────────────
@@ -77,6 +96,7 @@ describe('StorageService', () => {
 
   beforeEach(() => {
     mockSend.mockReset();
+    mockGetSignedUrl.mockReset();
     envSnap = snapshotEnv();
     // dev env 기본값 사용 (S3_* unset)
     process.env.NODE_ENV = 'development';
@@ -136,6 +156,130 @@ describe('StorageService', () => {
       expect(cmd.__type).toBe('DeleteObject');
       expect(cmd.Bucket).toBe('kiditem');
       expect(cmd.Key).toBe('images/a.png');
+    });
+  });
+
+  describe('createPresignedPut', () => {
+    it('서버가 고정한 JPEG 헤더와 metadata를 서명하고 public URL을 반환한다', async () => {
+      mockGetSignedUrl.mockResolvedValueOnce('https://upload.example.com/signed');
+      const service = new StorageService();
+
+      const result = await service.createPresignedPut({
+        key: 'detail-page-images/org/revision.jpg',
+        contentType: 'image/jpeg',
+        expiresInSeconds: 300,
+        metadata: {
+          'intent-id': 'intent-1',
+          'revision-id': 'revision-1',
+        },
+      });
+
+      expect(mockGetSignedUrl).toHaveBeenCalledTimes(1);
+      const [, command, options] = mockGetSignedUrl.mock.calls[0];
+      expect(command.__type).toBe('PutObject');
+      expect(command.Bucket).toBe('kiditem');
+      expect(command.Key).toBe('detail-page-images/org/revision.jpg');
+      expect(command.ContentType).toBe('image/jpeg');
+      expect(command.CacheControl).toBe(IMMUTABLE_ASSET_CACHE_CONTROL);
+      expect(command.Metadata).toEqual({
+        'intent-id': 'intent-1',
+        'revision-id': 'revision-1',
+      });
+      expect(options).toEqual({
+        expiresIn: 300,
+        signableHeaders: new Set(['cache-control', 'content-type']),
+      });
+      expect(result).toMatchObject({
+        uploadUrl: 'https://upload.example.com/signed',
+        imageUrl:
+          'http://localhost:9000/kiditem/detail-page-images/org/revision.jpg',
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Cache-Control': IMMUTABLE_ASSET_CACHE_CONTROL,
+        },
+      });
+      expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
+    });
+  });
+
+  describe('inspectJpeg', () => {
+    it('저장 객체의 크기, 실제 JPEG 치수, sha256, metadata를 검증한다', async () => {
+      const jpeg = await sharp({
+        create: {
+          width: 780,
+          height: 40,
+          channels: 3,
+          background: '#ffffff',
+        },
+      })
+        .jpeg()
+        .toBuffer();
+      mockSend
+        .mockResolvedValueOnce({
+          ContentType: 'image/jpeg',
+          ContentLength: jpeg.byteLength,
+          Metadata: { 'intent-id': 'intent-1' },
+        })
+        .mockResolvedValueOnce({
+          Body: {
+            transformToByteArray: async () => jpeg,
+          },
+        });
+      const service = new StorageService();
+
+      const result = await service.inspectJpeg({
+        key: 'detail-page-images/org/revision.jpg',
+        maxByteLength: 10 * 1024 * 1024,
+      });
+
+      expect(mockSend.mock.calls[0][0]).toMatchObject({
+        __type: 'HeadObject',
+        Bucket: 'kiditem',
+        Key: 'detail-page-images/org/revision.jpg',
+      });
+      expect(mockSend.mock.calls[1][0]).toMatchObject({
+        __type: 'GetObject',
+        Bucket: 'kiditem',
+        Key: 'detail-page-images/org/revision.jpg',
+      });
+      expect(result).toEqual({
+        contentType: 'image/jpeg',
+        byteLength: jpeg.byteLength,
+        pixelWidth: 780,
+        pixelHeight: 40,
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        metadata: { 'intent-id': 'intent-1' },
+      });
+    });
+
+    it('크기 제한을 넘은 객체는 body를 다운로드하지 않고 거부한다', async () => {
+      mockSend.mockResolvedValueOnce({
+        ContentType: 'image/jpeg',
+        ContentLength: 11,
+      });
+      const service = new StorageService();
+
+      await expect(
+        service.inspectJpeg({ key: 'too-large.jpg', maxByteLength: 10 }),
+      ).rejects.toThrow(/크기 제한/);
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it('JPEG가 아닌 body는 거부한다', async () => {
+      const body = Buffer.from('not-a-jpeg');
+      mockSend
+        .mockResolvedValueOnce({
+          ContentType: 'image/jpeg',
+          ContentLength: body.byteLength,
+        })
+        .mockResolvedValueOnce({
+          Body: { transformToByteArray: async () => body },
+        });
+      const service = new StorageService();
+
+      await expect(
+        service.inspectJpeg({ key: 'invalid.jpg', maxByteLength: 100 }),
+      ).rejects.toThrow(/JPEG/);
     });
   });
 

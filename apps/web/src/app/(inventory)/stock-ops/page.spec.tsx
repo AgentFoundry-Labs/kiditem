@@ -29,8 +29,8 @@ describe('StockOpsPage', () => {
   });
 
   it.each([
-    ['sellpia-zero', '/inventory-hub?tab=checks'],
-    ['mapping-attention', '/inventory-hub?tab=checks'],
+    ['sellpia-zero', '/inventory-hub?tab=status'],
+    ['mapping-attention', '/inventory-hub?tab=status'],
     ['inventory-value', '/inventory-hub?tab=status'],
     ['freshness', '/inventory-hub?tab=sellpia-sync'],
     ['transfer', '/inventory-hub?tab=status'],

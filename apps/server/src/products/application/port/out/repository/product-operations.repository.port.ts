@@ -34,14 +34,18 @@ export type ProductOperationsRepositoryVariant = Omit<
 
 export type ProductOperationsRepositoryDetail = Omit<
   MasterProductOperationsDetail,
-  'inventoryStatus' | 'inventoryUnits' | 'variants'
+  'displayImageUrls' | 'inventoryStatus' | 'inventoryUnits' | 'variants'
 > & {
   variants: ProductOperationsRepositoryVariant[];
 };
 
 export type ProductOperationsRepositoryListItem = Omit<
   MasterProductOperationsListItem,
-  'depletion' | 'variantSummary' | 'inventoryUnits' | 'inventoryStatus'
+  | 'depletion'
+  | 'displayImageUrls'
+  | 'variantSummary'
+  | 'inventoryUnits'
+  | 'inventoryStatus'
 > & {
   variants: ProductOperationsRepositoryVariant[];
 };
@@ -51,6 +55,14 @@ export type ProductOperationsRepositoryListResult = {
   page: number;
   limit: number;
 };
+
+export type ProductOperationsDisplayMediaTarget = Readonly<{
+  masterProductId: string;
+  channelListingId: string;
+  isOrigin: boolean;
+  isPrimaryAccount: boolean;
+  listingExternalId: string;
+}>;
 
 export type NormalizedCreateProductVariant = Omit<
   CreateProductVariantInput,
@@ -74,6 +86,10 @@ export const PRODUCT_OPERATIONS_REPOSITORY_PORT = Symbol(
 );
 
 export interface ProductOperationsRepositoryPort {
+  listDisplayMediaTargets(
+    organizationId: string,
+    masterProductIds: string[],
+  ): Promise<ProductOperationsDisplayMediaTarget[]>;
   planManualRecipesIfEmpty(input: {
     organizationId: string;
     recipes: CreateProductVariantRecipesIfEmptyInput['recipes'];

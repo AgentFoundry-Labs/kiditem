@@ -40,6 +40,7 @@ const product = {
   brand: 'KidItem',
   tags: ['핵심'],
   imageUrls: [],
+  displayImageUrls: [],
   abcGrade: 'A',
   profitTag: null,
   adTier: null,

@@ -4,6 +4,7 @@ import {
   SellpiaOrderTransmissionIntentAbortResponseSchema,
   SellpiaOrderTransmissionIntentFinalizeResponseSchema,
   SellpiaOrderTransmissionIntentPrepareResponseSchema,
+  SellpiaOrderTransmissionIntentReconcileResponseSchema,
   type SellpiaInventoryCollectionFailureCode,
   type SellpiaInventoryFreshnessView,
   type SellpiaInventoryRefreshReason,
@@ -111,6 +112,18 @@ export const sellpiaInventoryFreshnessApi = {
       { intentKey },
     );
     return SellpiaOrderTransmissionIntentAbortResponseSchema.parse(response);
+  },
+
+  async reconcileOrderTransmissionIntent(input: {
+    intentKey: string;
+    outcome: 'submitted' | 'not_submitted';
+    note: string;
+  }) {
+    const response = await apiClient.post<unknown>(
+      `${ORDER_TRANSMISSION_INTENT_PATH}/reconcile`,
+      input,
+    );
+    return SellpiaOrderTransmissionIntentReconcileResponseSchema.parse(response);
   },
 
   confirmSourceBinding: () =>

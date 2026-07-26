@@ -7,7 +7,9 @@ import type { CoupangShipmentDateSummaryItem } from '../lib/coupang-shipment-ext
 
 interface ShipmentDateCalendarProps {
   summary: CoupangShipmentDateSummaryItem[];
+  viewMonth: string;
   selectedDate: string;
+  onViewMonthChange: (month: string) => void;
   onSelect: (date: string) => void;
   loading: boolean;
   loaded: boolean;
@@ -41,7 +43,9 @@ function shiftMonthKey(key: string, delta: number): string {
 
 export function ShipmentDateCalendar({
   summary,
+  viewMonth,
   selectedDate,
+  onViewMonthChange,
   onSelect,
   loading,
   loaded,
@@ -64,13 +68,14 @@ export function ShipmentDateCalendar({
 
   // 기본적으로 이번 달 달력을 항상 그린다(데이터 유무와 무관).
   const [thisMonth] = useState(currentMonthKey);
-  const [viewMonth, setViewMonth] = useState(thisMonth);
 
   // 요약이 로드되면 가장 최근 데이터가 있는 달로 이동(사용자가 아직 이동 전이거나 범위 밖이면).
   useEffect(() => {
     if (!maxMonth) return;
-    setViewMonth((current) => (current && current >= (minMonth ?? '') && current <= maxMonth ? current : maxMonth));
-  }, [minMonth, maxMonth]);
+    if (!viewMonth || viewMonth < (minMonth ?? '') || viewMonth > maxMonth) {
+      onViewMonthChange(maxMonth);
+    }
+  }, [maxMonth, minMonth, onViewMonthChange, viewMonth]);
 
   const totalCount = summary.reduce((sum, item) => sum + item.count, 0);
   const totalBoxes = summary.reduce((sum, item) => sum + item.boxes, 0);
@@ -103,7 +108,7 @@ export function ShipmentDateCalendar({
   const canNext = Boolean(viewMonth && viewMonth < upperBound);
 
   const shiftMonth = (delta: number) => {
-    setViewMonth((current) => (current ? shiftMonthKey(current, delta) : currentMonthKey()));
+    onViewMonthChange(viewMonth ? shiftMonthKey(viewMonth, delta) : currentMonthKey());
   };
 
   const monthLabel = viewMonth

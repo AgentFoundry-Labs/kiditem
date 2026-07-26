@@ -3,6 +3,7 @@ import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
 export interface SellpiaOrderTransmissionInput {
   file: StoredOrderCollectionFile;
+  retryConfirmed?: boolean;
   extension: {
     sendSellpiaOrders: (input: {
       shopName: string;
@@ -22,6 +23,11 @@ export interface SellpiaOrderTransmissionInput {
     }>;
     finalizeOrderTransmissionIntent: (intentKey: string) => Promise<unknown>;
     abortOrderTransmissionIntent: (intentKey: string) => Promise<unknown>;
+    reconcileOrderTransmissionIntent: (input: {
+      intentKey: string;
+      outcome: 'not_submitted';
+      note: string;
+    }) => Promise<unknown>;
   };
   invalidateFreshnessHistory: () => Promise<void>;
   now?: () => number;
@@ -50,6 +56,24 @@ export async function transmitSellpiaOrder(
     preparation = await input.freshness.prepareOrderTransmissionIntent(intentKey);
   } catch {
     throw new Error('전송 준비 상태 저장에 실패해 셀피아 전송을 시작하지 않았습니다.');
+  }
+
+  if (input.retryConfirmed && preparation.disposition !== 'prepared') {
+    try {
+      await input.freshness.reconcileOrderTransmissionIntent({
+        intentKey,
+        outcome: 'not_submitted',
+        note: '운영자가 셀피아 미접수를 확인하고 재전송을 요청함',
+      });
+      preparation = await input.freshness.prepareOrderTransmissionIntent(intentKey);
+    } catch {
+      throw new Error(
+        '셀피아 재전송 상태 복구에 실패했습니다. 관리자 권한과 기존 접수 상태를 확인해주세요.',
+      );
+    }
+    if (preparation.disposition !== 'prepared') {
+      throw new Error('셀피아 재전송 상태를 안전하게 준비하지 못했습니다.');
+    }
   }
 
   const hasLocalSubmissionMarker = input.file.transmissionRequestedAt !== undefined;
@@ -92,8 +116,9 @@ export async function transmitSellpiaOrder(
     finalizationWarning = !await finalizeWithRetry(input, intentKey);
   }
 
-  const transmissionRequestedAt = input.file.transmissionRequestedAt
-    ?? (input.now ?? Date.now)();
+  const transmissionRequestedAt = input.retryConfirmed
+    ? (input.now ?? Date.now)()
+    : input.file.transmissionRequestedAt ?? (input.now ?? Date.now)();
   let file: StoredOrderCollectionFile = { ...input.file, transmissionRequestedAt };
   let persistenceWarning = false;
   try {

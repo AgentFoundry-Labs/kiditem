@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Plus, Trash2, ExternalLink, Loader2, X } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { useAuthSession } from '@/components/providers/AuthProvider';
 import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
@@ -35,6 +36,7 @@ const AD_SYNC_URL = 'https://advertising.coupang.com/marketing/dashboard/sales#k
 
 export default function ScrapeCollector({ onComplete }: { onComplete?: () => void }) {
   const queryClient = useQueryClient();
+  const { session: authSession } = useAuthSession();
   const searchParams = useSearchParams();
   const queryRunResult = BrowserCollectionRunIdSchema.safeParse(
     searchParams.get('collectionRun'),
@@ -146,6 +148,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
         producer,
         extensionId: eid,
         runId: nextRunId,
+        accessToken: authSession?.access_token,
       });
       setResults(
         selectedTargets.map((target, index) => ({

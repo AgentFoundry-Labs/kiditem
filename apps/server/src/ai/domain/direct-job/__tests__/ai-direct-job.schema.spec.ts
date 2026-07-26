@@ -75,8 +75,8 @@ describe('AiDirectJobEnvelopeSchema', () => {
     ).toThrow();
   });
 
-  it('accepts deterministic detail-page raster jobs without an AI model plan', () => {
-    expect(AiDirectJobEnvelopeSchema.parse({
+  it('rejects the removed server detail-page raster job type', () => {
+    expect(AiDirectJobEnvelopeSchema.safeParse({
       jobType: 'detail_page_rasterize',
       models: {},
       input: {
@@ -84,9 +84,6 @@ describe('AiDirectJobEnvelopeSchema', () => {
         artifactId: '71429ba3-af81-409e-a976-029c67d86bcb',
         outputWidth: 780,
       },
-    })).toMatchObject({
-      jobType: 'detail_page_rasterize',
-      models: {},
-    });
+    }).success).toBe(false);
   });
 });

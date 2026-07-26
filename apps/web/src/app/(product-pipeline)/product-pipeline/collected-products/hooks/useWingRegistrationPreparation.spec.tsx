@@ -21,26 +21,34 @@ function wrapper(client: QueryClient) {
 describe('useWingRegistrationPreparation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPrepareWingRegistration.mockResolvedValue({
-      status: 'processing',
-      candidateId: CANDIDATE,
-      message: '상세페이지 이미지 준비 중',
-    });
   });
 
-  it('polls only while processing and completes the attempt once when ready', async () => {
+  it('shows extension phases without polling and completes the attempt once', async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     const onReady = vi.fn();
     const onError = vi.fn();
+    let finishPreparation!: (value: unknown) => void;
+    mockPrepareWingRegistration.mockImplementation(
+      async (_candidateId, _defaults, options) => {
+        options.onRenderProgress('capturing');
+        return new Promise((resolve) => {
+          finishPreparation = resolve;
+        });
+      },
+    );
     const hook = renderHook(
       () => useWingRegistrationPreparation({ onReady, onError }),
       { wrapper: wrapper(client) },
     );
 
     act(() => hook.result.current.start(CANDIDATE));
-    await waitFor(() => expect(hook.result.current.message).toBe('상세페이지 이미지 준비 중'));
+    await waitFor(() =>
+      expect(hook.result.current.message).toBe(
+        '상세페이지를 긴 이미지 한 장으로 캡처하고 있습니다.',
+      ),
+    );
 
     const query = client.getQueryCache().getAll().find(
       (item) =>
@@ -48,31 +56,22 @@ describe('useWingRegistrationPreparation', () => {
         && item.queryKey[1] === CANDIDATE,
     );
     expect(query).toBeDefined();
-    const interval = query!.options.refetchInterval;
-    expect(typeof interval === 'function' ? interval(query!) : interval).toBe(2_000);
-    expect(mockPrepareWingRegistration).toHaveBeenLastCalledWith(
+    expect(query!.options.refetchInterval).toBe(false);
+    expect(mockPrepareWingRegistration).toHaveBeenCalledOnce();
+    expect(mockPrepareWingRegistration).toHaveBeenCalledWith(
       CANDIDATE,
       undefined,
-      { retryFailed: true },
-    );
-
-    await act(async () => {
-      await client.refetchQueries({ queryKey: query!.queryKey });
-    });
-    expect(mockPrepareWingRegistration).toHaveBeenLastCalledWith(
-      CANDIDATE,
-      undefined,
-      { retryFailed: false },
+      { onRenderProgress: expect.any(Function) },
     );
 
     const draft = { candidateId: CANDIDATE };
-    act(() => {
-      client.setQueryData(query!.queryKey, { status: 'ready', draft });
+    await act(async () => {
+      finishPreparation({ status: 'ready', draft });
     });
     await waitFor(() => expect(onReady).toHaveBeenCalledWith(draft));
     expect(onReady).toHaveBeenCalledOnce();
     expect(onError).not.toHaveBeenCalled();
     expect(hook.result.current.isPreparing).toBe(false);
-    expect(typeof interval === 'function' ? interval(query!) : interval).toBe(false);
+    expect(hook.result.current.message).toBeNull();
   });
 });

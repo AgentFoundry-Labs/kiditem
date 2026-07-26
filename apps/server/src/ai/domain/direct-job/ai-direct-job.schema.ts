@@ -7,16 +7,11 @@ import {
   ThumbnailGenerateDirectInputSchema,
   ThumbnailGenerateDirectOutputSchema,
 } from '../direct-generation';
-import {
-  DetailPageRasterJobInputSchema,
-  DetailPageRasterJobOutputSchema,
-} from './detail-page-raster-job';
 
 export const AiDirectJobTypeSchema = z.enum([
   'thumbnail_generate',
   'thumbnail_reedit',
   'detail_page_generate',
-  'detail_page_rasterize',
   'image_edit',
 ]);
 
@@ -91,13 +86,6 @@ export const AiDirectJobEnvelopeSchema = z.discriminatedUnion('jobType', [
     .strict(),
   z
     .object({
-      jobType: z.literal('detail_page_rasterize'),
-      models: z.object({}).strict(),
-      input: DetailPageRasterJobInputSchema,
-    })
-    .strict(),
-  z
-    .object({
       jobType: z.literal('image_edit'),
       models: ImageModelPlanSchema,
       input: ImageEditDirectInputSchema,
@@ -117,10 +105,6 @@ export const AiDirectJobCheckpointSchema = z.discriminatedUnion('jobType', [
   z.object({
     jobType: z.literal('detail_page_generate'),
     result: DetailPageGenerateDirectOutputSchema,
-  }),
-  z.object({
-    jobType: z.literal('detail_page_rasterize'),
-    result: DetailPageRasterJobOutputSchema,
   }),
   z.object({
     jobType: z.literal('image_edit'),

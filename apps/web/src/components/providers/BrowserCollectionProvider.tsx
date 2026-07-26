@@ -12,6 +12,7 @@ import {
   syncBrowserCollectionAlert,
   updateBrowserCollectionSessionCache,
 } from '@/lib/browser-collection-session';
+import { dismissExtensionMissingBrowserCollectionAlerts } from '@/lib/operation-alerts';
 
 export const BROWSER_COLLECTION_SESSION_EVENT =
   'kiditem:browser-collection-session';
@@ -157,6 +158,7 @@ export function BrowserCollectionProvider({
     window.addEventListener('online', handleRecovery);
     window.addEventListener('focus', handleRecovery);
     document.addEventListener('visibilitychange', handleVisibilityRecovery);
+    void dismissExtensionMissingBrowserCollectionAlerts();
     void reconcile();
 
     return () => {
