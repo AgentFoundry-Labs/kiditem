@@ -50,6 +50,17 @@ const query = vi.hoisted(() => ({
   isLoading: false,
 }));
 const queryMock = vi.hoisted(() => vi.fn());
+const replaceMock = vi.hoisted(() => vi.fn());
+const navigation = vi.hoisted(() => ({
+  pathname: '/rocket-orders',
+  params: new URLSearchParams(),
+}));
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => navigation.pathname,
+  useRouter: () => ({ replace: replaceMock }),
+  useSearchParams: () => navigation.params,
+}));
 
 vi.mock('@tanstack/react-query', () => ({ useQuery: queryMock }));
 
@@ -131,6 +142,9 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 18, 9, 0, 0));
+    sessionStorage.clear();
+    navigation.params = new URLSearchParams();
+    replaceMock.mockReset();
     query.refetch.mockReset();
     query.isLoading = false;
     queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
@@ -207,12 +221,52 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).toBeInTheDocument();
   });
+
+  it('restores the calendar range, selected date, status, and view from the URL', () => {
+    navigation.params = new URLSearchParams({
+      from: '2026-06-01',
+      to: '2026-06-30',
+      status: '거래처확인요청',
+      date: '2026-06-20',
+      view: 'chart',
+    });
+
+    renderWorkspace();
+
+    expect(screen.getByLabelText('입고예정일 시작')).toHaveValue('2026-06-01');
+    expect(screen.getByLabelText('입고예정일 종료')).toHaveValue('2026-06-30');
+    expect(screen.getByLabelText('발주 상태')).toHaveValue('거래처확인요청');
+    expect(screen.getByText('06/20 선택')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '차트' })).toHaveClass('bg-purple-50');
+  });
+
+  it('restores the last route state from session storage when returning through the bare URL', () => {
+    sessionStorage.setItem('kiditem:route-state:rocket-orders:v1', JSON.stringify({
+      from: '2026-06-01',
+      to: '2026-06-30',
+      status: '거래처확인요청',
+      date: '2026-06-20',
+      view: 'chart',
+    }));
+
+    renderWorkspace();
+
+    expect(replaceMock.mock.calls.some(([href]) =>
+      typeof href === 'string'
+      && href.startsWith('/rocket-orders?')
+      && href.includes('from=2026-06-01')
+      && href.includes('to=2026-06-30')
+      && href.includes('view=chart'))).toBe(true);
+  });
 });
 
 describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 18, 12, 0, 0));
+    sessionStorage.clear();
+    navigation.params = new URLSearchParams();
+    replaceMock.mockReset();
     query.refetch.mockReset();
     query.isLoading = false;
     queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({

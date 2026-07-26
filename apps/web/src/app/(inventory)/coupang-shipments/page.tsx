@@ -42,6 +42,7 @@ import {
   loadCoupangShipmentFiles,
   saveCoupangShipmentFiles,
 } from './lib/coupang-shipment-store';
+import { useCoupangShipmentViewState } from './hooks/useCoupangShipmentViewState';
 
 type ResultKind = CoupangShipmentFileKind | CoupangShipmentServerFileKind;
 
@@ -73,11 +74,12 @@ type ResultFile =
     };
 
 export default function CoupangShipmentsPage() {
+  const [calendarView, setCalendarView] = useCoupangShipmentViewState();
+  const selectedDate = calendarView.date;
   const [history, setHistory] = useState<CoupangShipmentMergedFile[]>([]);
   const [serverHistory, setServerHistory] = useState<CoupangShipmentServerDay[]>([]);
   const [serverHistoryLoading, setServerHistoryLoading] = useState(false);
   const [extensionBusy, setExtensionBusy] = useState(false);
-  const [selectedDate, setSelectedDate] = useState('');
   const [dateSummary, setDateSummary] = useState<CoupangShipmentDateSummaryItem[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryLoaded, setSummaryLoaded] = useState(false);
@@ -156,10 +158,12 @@ export default function CoupangShipmentsPage() {
       setSummaryLoaded(true);
       if (options?.autoSelect && items.length > 0) {
         const latest = [...items].sort((a, b) => b.date.localeCompare(a.date))[0];
-        setSelectedDate((current) => current || latest.date);
+        setCalendarView((current) => current.date
+          ? current
+          : { month: latest.date.slice(0, 7), date: latest.date });
       }
     },
-    [],
+    [setCalendarView],
   );
 
   const refreshServerHistory = useCallback(async () => {
@@ -245,7 +249,7 @@ export default function CoupangShipmentsPage() {
         save: saveCoupangShipmentDateSummary,
         load: loadCoupangShipmentDateSummary,
       });
-      setSelectedDate(latest.date);
+      setCalendarView({ month: latest.date.slice(0, 7), date: latest.date });
       applyDateSummary(persisted);
 
       const message = `발송일 ${formatNumber(persisted.length)}일 · 최신 ${latest.date} (${formatNumber(latest.count)}건)`;
@@ -353,8 +357,14 @@ export default function CoupangShipmentsPage() {
       <div className="min-w-0 xl:col-span-3">
       <ShipmentDateCalendar
         summary={dateSummary}
+        viewMonth={calendarView.month}
         selectedDate={selectedDate}
-        onSelect={setSelectedDate}
+        onViewMonthChange={(month) => {
+          setCalendarView((current) => ({ ...current, month }));
+        }}
+        onSelect={(date) => {
+          setCalendarView((current) => ({ ...current, date }));
+        }}
         loading={summaryLoading}
         loaded={summaryLoaded}
         onQuery={queryDateSummary}

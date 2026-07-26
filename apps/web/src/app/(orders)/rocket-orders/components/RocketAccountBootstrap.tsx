@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
@@ -14,15 +14,18 @@ const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
  * 여러 계정 중 첫 번째를 암묵적으로 고르지 않는다.
  */
 export function RocketAccountBootstrap({
+  selectedAccountId,
+  onSelectedAccountIdChange,
   onAccountChange,
 }: {
+  selectedAccountId: string;
+  onSelectedAccountIdChange: (accountId: string) => void;
   onAccountChange: (account: {
     id: string;
     name: string;
     vendorId: string | null;
   } | null) => void;
 }) {
-  const [selectedAccountId, setSelectedAccountId] = useState('');
   const accountsQuery = useQuery({
     queryKey: queryKeys.channelAccounts.active(),
     queryFn: () => apiClient.getParsed('/api/channels/accounts', ChannelAccountListSchema),
@@ -33,22 +36,24 @@ export function RocketAccountBootstrap({
     : rocketAccounts.find(({ id }) => id === selectedAccountId) ?? null;
 
   useEffect(() => {
+    if (!accountsQuery.isSuccess) return;
     onAccountChange(selectedAccount ? {
       id: selectedAccount.id,
       name: selectedAccount.name,
       vendorId: selectedAccount.vendorId ?? null,
     } : null);
-  }, [onAccountChange, selectedAccount]);
+  }, [accountsQuery.isSuccess, onAccountChange, selectedAccount]);
 
   useEffect(() => {
+    if (!accountsQuery.isSuccess) return;
     if (
       selectedAccountId
       && rocketAccounts.length !== 1
       && !rocketAccounts.some(({ id }) => id === selectedAccountId)
     ) {
-      setSelectedAccountId('');
+      onSelectedAccountIdChange('');
     }
-  }, [rocketAccounts, selectedAccountId]);
+  }, [accountsQuery.isSuccess, onSelectedAccountIdChange, rocketAccounts, selectedAccountId]);
 
   if (rocketAccounts.length <= 1) return null;
 
@@ -58,7 +63,7 @@ export function RocketAccountBootstrap({
       <select
         aria-label="로켓 채널 계정"
         value={selectedAccount?.id ?? ''}
-        onChange={(event) => setSelectedAccountId(event.target.value)}
+        onChange={(event) => onSelectedAccountIdChange(event.target.value)}
         className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
       >
         <option value="">계정 선택</option>
