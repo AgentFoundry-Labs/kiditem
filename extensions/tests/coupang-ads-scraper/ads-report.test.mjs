@@ -52,6 +52,8 @@ function loadContract(options = {}) {
     },
     setTimeout: options.setTimeout || (() => 0),
     clearTimeout() {},
+    setInterval: options.setInterval || (() => 0),
+    clearInterval() {},
     showBadge() {},
     URL,
     URLSearchParams,
@@ -307,7 +309,15 @@ test("a new collection run clears stale sweep state while same-run navigation re
       "kiditem_ad_sweep_completed_navigation_keys_v1",
       JSON.stringify(["dashboard-campaign\u001f1\u001f0\u001fold"]),
     ],
+    [
+      "kiditem_ad_sweep_pending_campaign_navigation_v1",
+      JSON.stringify({
+        name: "old",
+        navigationKey: "dashboard-campaign\u001f1\u001f0\u001fold",
+      }),
+    ],
     ["kiditem_ad_sweep_progress_v2", JSON.stringify({ synced: 1 })],
+    ["kiditem_ad_login_autosubmit_attempts_v1", "2"],
   ]);
   const sessionStorage = {
     getItem(key) {
@@ -331,8 +341,16 @@ test("a new collection run clears stale sweep state while same-run navigation re
     values.has("kiditem_ad_sweep_completed_navigation_keys_v1"),
     false,
   );
+  assert.equal(
+    values.has("kiditem_ad_sweep_pending_campaign_navigation_v1"),
+    false,
+  );
   assert.equal(values.has("kiditem_ad_sweep_progress_v2"), false);
   assert.equal(values.has("kiditem_ad_sweep_run_v1"), false);
+  assert.equal(
+    values.has("kiditem_ad_login_autosubmit_attempts_v1"),
+    false,
+  );
   assert.equal(
     values.get("kiditem_ad_sweep_run_v2"),
     "new-run:2:daily31-v1",
@@ -351,6 +369,7 @@ test("a new collection run clears stale sweep state while same-run navigation re
       savedRawOnlyKeys: ["raw-page-1-row-2"],
     }),
   );
+  values.set("kiditem_ad_login_autosubmit_attempts_v1", "1");
   assert.deepEqual(
     { ...contract.prepareSweepRun("new-run", 2) },
     { fresh: false, runId: "new-run", attempt: 2 },
@@ -361,6 +380,7 @@ test("a new collection run clears stale sweep state while same-run navigation re
     true,
   );
   assert.equal(values.has("kiditem_ad_sweep_progress_v2"), true);
+  assert.equal(values.get("kiditem_ad_login_autosubmit_attempts_v1"), "1");
   assert.deepEqual(
     JSON.parse(JSON.stringify(contract.loadProgress())),
     {
@@ -376,6 +396,10 @@ test("a new collection run clears stale sweep state while same-run navigation re
   );
   assert.equal(values.has("kiditem_ad_sweep_seen_v2"), false);
   assert.equal(values.has("kiditem_ad_sweep_progress_v2"), false);
+  assert.equal(
+    values.has("kiditem_ad_login_autosubmit_attempts_v1"),
+    false,
+  );
   assert.equal(
     values.get("kiditem_ad_sweep_run_v2"),
     "new-run:3:daily31-v1",
@@ -459,6 +483,260 @@ test("manual sync shares only the same active run and rejects a new attempt befo
   assert.ok(listenerIndex >= 0);
   assert.ok(admissionIndex > listenerIndex);
   assert.ok(rejectionIndex > admissionIndex && rejectionIndex < prepareIndex);
+});
+
+test("manual sync adopts an unowned auto-triggered run instead of ad_sync_already_running", () => {
+  const contract = loadContract();
+  // 자동 트리거(#targetDate)는 runId 없이(activeRunId=null) currentSync 를 먼저
+  // 점유한다. 배경 드라이버가 실제 runId 로 보낸 요청은 거절되지 않고 이어받아야
+  // ad_sync_already_running 으로 헛돌지 않는다.
+  const adopted = contract.manualSyncAdmission({
+    syncRunning: true,
+    activeRunId: null,
+    activeAttempt: 1,
+    requestedRunId: "run-web",
+    requestedAttempt: 1,
+  });
+  assert.equal(adopted.accepted, true);
+  assert.equal(adopted.shareCurrent, true);
+  assert.equal(adopted.error, null);
+  assert.equal(adopted.runId, "run-web");
+
+  // 주인이 있는(runId 다른) 진행 중 수집은 여전히 보호된다.
+  const stillRejected = contract.manualSyncAdmission({
+    syncRunning: true,
+    activeRunId: "run-a",
+    activeAttempt: 1,
+    requestedRunId: "run-b",
+    requestedAttempt: 1,
+  });
+  assert.equal(stillRejected.accepted, false);
+  assert.equal(stillRejected.error, "ad_sync_already_running");
+});
+
+function fakeLoginDocument({ usernameValue, passwordValue, submit }) {
+  const password = { value: passwordValue, form: null };
+  const username = { value: usernameValue };
+  const form = {
+    querySelector(selector) {
+      if (/password/.test(selector)) return password;
+      if (/submit/.test(selector)) return submit;
+      return username;
+    },
+    querySelectorAll() {
+      return [submit];
+    },
+  };
+  password.form = form;
+  return {
+    title: "coupang wing 판매자 로그인",
+    querySelector(selector) {
+      return /password/.test(selector) ? password : null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+}
+
+const LOGIN_LOCATION = {
+  href: "https://advertising.coupang.com/user/login",
+  pathname: "/user/login",
+  search: "",
+  hash: "",
+};
+
+test("advertising login auto-submit clicks the login button only when both fields are prefilled", () => {
+  let clicks = 0;
+  const submit = {
+    textContent: "로그인",
+    disabled: false,
+    click() {
+      clicks += 1;
+    },
+  };
+  const contract = loadContract({
+    location: LOGIN_LOCATION,
+    document: fakeLoginDocument({
+      usernameValue: "kiditem01",
+      passwordValue: "hunter2hunter2",
+      submit,
+    }),
+  });
+
+  assert.equal(contract.advertisingLoginFieldsPrefilled(), true);
+  assert.equal(contract.attemptAdvertisingLoginAutoSubmit(), true);
+  assert.equal(clicks, 1);
+  // 한 번 누른 뒤에는 같은 페이지에서 다시 누르지 않는다(로그인 루프 방지).
+  assert.equal(contract.attemptAdvertisingLoginAutoSubmit(), false);
+  assert.equal(clicks, 1);
+});
+
+test("automatic advertising login returns an explicit navigation handoff", () => {
+  let clicks = 0;
+  const submit = {
+    textContent: "로그인",
+    disabled: false,
+    click() {
+      clicks += 1;
+    },
+  };
+  const contract = loadContract({
+    location: LOGIN_LOCATION,
+    document: fakeLoginDocument({
+      usernameValue: "kiditem01",
+      passwordValue: "hunter2hunter2",
+      submit,
+    }),
+  });
+
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify(contract.advertisingLoginHandoffResponse()),
+    ),
+    {
+      success: false,
+      resumeRequired: true,
+      loginHandoff: true,
+      error: "쿠팡 광고센터 자동 로그인 중",
+      url: LOGIN_LOCATION.href,
+    },
+  );
+  assert.equal(clicks, 1);
+});
+
+test("advertising login auto-submit never clicks when credentials are not prefilled", () => {
+  let clicks = 0;
+  const submit = {
+    textContent: "로그인",
+    disabled: false,
+    click() {
+      clicks += 1;
+    },
+  };
+  const contract = loadContract({
+    location: LOGIN_LOCATION,
+    document: fakeLoginDocument({
+      usernameValue: "kiditem01",
+      passwordValue: "",
+      submit,
+    }),
+  });
+
+  assert.equal(contract.advertisingLoginFieldsPrefilled(), false);
+  assert.equal(contract.attemptAdvertisingLoginAutoSubmit(), false);
+  assert.equal(clicks, 0);
+});
+
+test("advertising login auto-submit stops after the per-session attempt budget", () => {
+  let clicks = 0;
+  const submit = {
+    textContent: "로그인",
+    disabled: false,
+    click() {
+      clicks += 1;
+    },
+  };
+  const contract = loadContract({
+    location: LOGIN_LOCATION,
+    document: fakeLoginDocument({
+      usernameValue: "kiditem01",
+      passwordValue: "hunter2hunter2",
+      submit,
+    }),
+    // 저장된 비번 오류로 로그인 페이지가 여러 번 재렌더돼 이미 2회 시도한 상태.
+    sessionStorage: {
+      getItem(key) {
+        return key === "kiditem_ad_login_autosubmit_attempts_v1" ? "2" : null;
+      },
+      setItem() {},
+      removeItem() {},
+    },
+  });
+
+  // 예산을 초과하면 더 누르지 않아 캡차/계정잠금을 막는다.
+  assert.equal(contract.attemptAdvertisingLoginAutoSubmit(), false);
+  assert.equal(clicks, 0);
+});
+
+test("advertising login auto-submit never clicks a social login button", () => {
+  let clicks = 0;
+  const social = {
+    textContent: "카카오로 로그인",
+    disabled: false,
+    click() {
+      clicks += 1;
+    },
+  };
+  const contract = loadContract({
+    location: LOGIN_LOCATION,
+    document: fakeLoginDocument({
+      usernameValue: "kiditem01",
+      passwordValue: "hunter2hunter2",
+      submit: social,
+    }),
+  });
+
+  // 자격증명이 채워졌어도 소셜 로그인/OAuth 버튼은 절대 누르지 않는다.
+  assert.equal(contract.advertisingLoginFieldsPrefilled(), true);
+  assert.equal(contract.attemptAdvertisingLoginAutoSubmit(), false);
+  assert.equal(clicks, 0);
+});
+
+function fakeAccountPickerDocument(handlers) {
+  const makeButton = (cardText, onClick) => {
+    const button = {
+      textContent: "로그인하기",
+      disabled: false,
+      click: onClick,
+      parentElement: null,
+    };
+    button.parentElement = { textContent: cardText, parentElement: null };
+    return button;
+  };
+  const buttons = [
+    makeButton(
+      "coupang wing 쿠팡 마켓플레이스 & 로켓그로스 판매자 광고운영, 결제, 분석 로그인하기",
+      handlers.wing,
+    ),
+    makeButton(
+      "coupang SUPPLIER HUB 쿠팡 로켓배송 판매자 광고운영, 결제, 분석 로그인하기",
+      handlers.supplier,
+    ),
+    makeButton(
+      "coupang ads 광고 대행사 또는 분석가 로그인하기",
+      handlers.ads,
+    ),
+  ];
+  return {
+    title: "쿠팡 광고센터 로그인",
+    querySelector(selector) {
+      // 계정 유형 선택 화면에는 비밀번호 입력이 없다.
+      return /password/.test(selector) ? null : null;
+    },
+    querySelectorAll(selector) {
+      return /button|role="button"/.test(selector) ? buttons : [];
+    },
+  };
+}
+
+test("advertising account picker clicks the leftmost coupang wing 로그인하기", () => {
+  const clicked = [];
+  const contract = loadContract({
+    location: LOGIN_LOCATION,
+    document: fakeAccountPickerDocument({
+      wing: () => clicked.push("wing"),
+      supplier: () => clicked.push("supplier"),
+      ads: () => clicked.push("ads"),
+    }),
+  });
+
+  const chosen = contract.findAdvertisingAccountLoginButton();
+  assert.equal(chosen.parentElement.textContent.includes("마켓플레이스"), true);
+
+  assert.equal(contract.attemptAdvertisingLoginAutoSubmit(), true);
+  // 오직 맨 왼쪽 쿠팡 wing 카드만 눌린다 — 로켓배송/광고 대행사 카드는 안 누른다.
+  assert.deepEqual(clicked, ["wing"]);
 });
 
 test("conversion-count fixture never selects advertising conversion revenue", () => {
@@ -604,7 +882,7 @@ test("Korean abbreviated KPI numbers preserve their magnitude", () => {
   );
 });
 
-test("zero rows are complete only with an explicit visible empty-state", async () => {
+test("zero rows require explicit evidence or a stabilized recognized grid", async () => {
   const contract = loadContract();
   const visibleElement = {
     getAttribute() {
@@ -655,6 +933,33 @@ test("zero rows are complete only with an explicit visible empty-state", async (
       explicitEmpty: true,
       emptyText: "조회된 데이터가 없습니다.",
     },
+  );
+
+  // 인식된 그리드(헤더 일치)가 있고 로딩도 없는데 행이 0이면 안정화가 필요한
+  // implicit empty 후보로 분류한다(AI스마트광고 HUB 처럼 상품 행 없는 캠페인).
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contract.classifyReportSurfaceEvidence({
+      rowCount: 0,
+      loadingVisible: false,
+      emptyText: "",
+      recognizedGrid: true,
+    }))),
+    {
+      kind: "implicit-empty",
+      explicitEmpty: false,
+      implicitEmpty: true,
+      emptyText: "",
+    },
+  );
+  // recognizedGrid 신호가 없으면 기존대로 unknown(그리드 미인식/로딩 가능성 → 더 대기).
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contract.classifyReportSurfaceEvidence({
+      rowCount: 0,
+      loadingVisible: false,
+      emptyText: "",
+      recognizedGrid: false,
+    }))),
+    { kind: "unknown", explicitEmpty: false },
   );
 
   const unknown = await contract.collectPaginatedReport({
@@ -715,13 +1020,22 @@ test("empty/loading evidence is scoped to the selected report container", () => 
     },
   };
 
+  // 컨테이너 밖의 empty 문구는 scope 되어 무시된다. 다만 인식된 그리드가 렌더됐고
+  // 로딩도 없으므로 implicit empty 후보가 된다 — 명시적 문구는 없으니 emptyText 는
+  // 비어 있고 readSettledReportPage 에서 추가 안정화를 거친다.
   assert.deepEqual(
     JSON.parse(JSON.stringify(contract.readReportSurfaceState({
       rawRows: [],
       surfaceRoots: [unrelatedReportRoot],
     }))),
-    { kind: "unknown", explicitEmpty: false },
+    {
+      kind: "implicit-empty",
+      explicitEmpty: false,
+      implicitEmpty: true,
+      emptyText: "",
+    },
   );
+  // 컨테이너 안의 명시적 empty 문구는 그대로 emptyText 로 보존된다.
   assert.deepEqual(
     JSON.parse(JSON.stringify(contract.readReportSurfaceState({
       rawRows: [],
@@ -733,6 +1047,66 @@ test("empty/loading evidence is scoped to the selected report container", () => 
       emptyText: "데이터가 없습니다.",
     },
   );
+});
+
+test("header-first grid waits for late rows before accepting implicit empty", async () => {
+  const contract = loadContract();
+  const implicitEmpty = reportSnapshot(1, 1, [], "empty");
+  implicitEmpty.surface = {
+    kind: "implicit-empty",
+    explicitEmpty: false,
+    implicitEmpty: true,
+    emptyText: "",
+  };
+  const rows = reportSnapshot(1, 1, ["late-product"]);
+  let clock = 0;
+  let reads = 0;
+
+  const settled = await contract.readSettledReportPage(2_000, {
+    now: () => clock,
+    readSnapshot: () => (reads++ < 4 ? implicitEmpty : rows),
+    wait: async (milliseconds) => {
+      clock += milliseconds;
+    },
+  });
+
+  assert.equal(settled.ok, true);
+  assert.equal(settled.surface.kind, "rows");
+  assert.deepEqual(
+    [...settled.parsed.normalizedRows].map((row) => row.externalId),
+    ["late-product"],
+  );
+});
+
+test("recognized zero-row grid becomes empty only after stable sampling", async () => {
+  const contract = loadContract();
+  const implicitEmpty = reportSnapshot(1, 1, [], "empty");
+  implicitEmpty.surface = {
+    kind: "implicit-empty",
+    explicitEmpty: false,
+    implicitEmpty: true,
+    emptyText: "",
+  };
+  let clock = 0;
+  let reads = 0;
+
+  const settled = await contract.readSettledReportPage(2_000, {
+    now: () => clock,
+    readSnapshot: () => {
+      reads += 1;
+      return implicitEmpty;
+    },
+    wait: async (milliseconds) => {
+      clock += milliseconds;
+    },
+  });
+
+  assert.equal(settled.ok, true);
+  assert.equal(settled.surface.kind, "empty");
+  assert.equal(settled.surface.implicitEmpty, true);
+  assert.equal(settled.surface.stabilizedEmpty, true);
+  assert.ok(reads >= 3);
+  assert.ok(clock >= 1_000);
 });
 
 test("explicit empty daily result rejects stale additive KPI and accepts clean zero", () => {
@@ -1140,6 +1514,35 @@ test("current dashboard linkless campaign anchor is clicked before provider iden
   );
 });
 
+test("AI스마트광고(HUB) automated campaigns skip detail collection and are handled roster-only", () => {
+  const contract = loadContract();
+  // 자동화 광고(AI스마트광고/HUB)는 상세에 상품별 일별 실적이 없어 상세 진입 시
+  // sweep 이 "진행 31/279 같은 위치에서 반복되어 중단"으로 막혔다. 이름으로 감지해
+  // 상세 없이 roster 만 저장(metadata-only)하고 넘어간다.
+  assert.equal(
+    contract.campaignUsesDetailReport({ name: "AI스마트광고(HUB)", hasDetailHref: true }),
+    false,
+  );
+  assert.equal(
+    contract.campaignUsesDetailReport({ name: "AI 스마트 광고", hasDetailHref: true }),
+    false,
+  );
+  // 일반 캠페인은 그대로 상세 수집.
+  assert.equal(
+    contract.campaignUsesDetailReport({ name: "쿠팡윙 집중광고", hasDetailHref: true }),
+    true,
+  );
+  assert.equal(
+    contract.campaignUsesDetailReport({ name: "매출 TOP 제품", hasDetailHref: true }),
+    true,
+  );
+  // 상세 URL 자체가 없는 캠페인은 여전히 metadata-only.
+  assert.equal(
+    contract.campaignUsesDetailReport({ name: "상세없음", hasDetailHref: false }),
+    false,
+  );
+});
+
 test("a linkless probe failure is reconciled by its navigation key after provider identity resolves", () => {
   const contract = loadContract();
   const pending = {
@@ -1166,6 +1569,96 @@ test("a linkless probe failure is reconciled by its navigation key after provide
       contract.reconcileCampaignFailureState(failed.errors, resolved),
     )),
     { errors: [], failed: 0 },
+  );
+});
+
+test("a linkless campaign resumes from its full-document detail URL", () => {
+  const values = new Map();
+  const sessionStorage = {
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+  };
+  const contract = loadContract({ sessionStorage });
+  const pending = {
+    identity: null,
+    campaignId: null,
+    href: "",
+    hasDetailHref: null,
+    requiresIdentityProbe: true,
+    navigationKey: "dashboard-campaign\u001f1\u001f2\u001f쿠팡윙 집중광고",
+    pageNumber: 1,
+    rowIndex: 2,
+    name: "쿠팡윙 집중광고",
+    onOff: "ON",
+    status: "운영 중",
+  };
+  const detailUrl =
+    "https://advertising.coupang.com/marketing/dashboard/sales/" +
+    "campaign/102284299/group/202471278/product?internalChannel=click_campaign_name";
+
+  assert.equal(contract.savePendingCampaignNavigation(pending), true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contract.campaignResumedFromDetailHref(detailUrl))),
+    {
+      ...pending,
+      campaignId: "102284299",
+      href: detailUrl,
+      identity: "campaign:102284299",
+      hasDetailHref: true,
+      discoveredByNavigation: true,
+      requiresIdentityProbe: false,
+    },
+  );
+
+  contract.clearPendingCampaignNavigation();
+  assert.equal(contract.loadPendingCampaignNavigation(), null);
+  assert.equal(contract.campaignResumedFromDetailHref(detailUrl), null);
+});
+
+test("linkless campaign identity probes expose a row-unique progress label before full-document navigation", () => {
+  const contract = loadContract();
+  const first = {
+    name: "동일 캠페인명",
+    pageNumber: 1,
+    rowIndex: 0,
+  };
+  const second = {
+    name: "동일 캠페인명",
+    pageNumber: 1,
+    rowIndex: 1,
+  };
+
+  assert.equal(
+    contract.campaignIdentityProbeProgressLabel(first),
+    "동일 캠페인명 · 상세 식별 이동 (1페이지 1행)",
+  );
+  assert.equal(
+    contract.campaignIdentityProbeProgressLabel(second),
+    "동일 캠페인명 · 상세 식별 이동 (1페이지 2행)",
+  );
+  assert.notEqual(
+    contract.campaignIdentityProbeProgressLabel(first),
+    contract.campaignIdentityProbeProgressLabel(second),
+  );
+
+  const reportIndex = source.indexOf(
+    "label: campaignIdentityProbeProgressLabel(camp)",
+  );
+  const probeIndex = source.indexOf(
+    "await probeCampaignIdentityByNavigation(camp, 20000)",
+  );
+  assert.ok(reportIndex >= 0, "identity-probe progress must be reported");
+  assert.ok(probeIndex >= 0, "identity navigation call must exist");
+  assert.ok(
+    reportIndex < probeIndex,
+    "identity-probe progress must be persisted before navigation can unload the document",
   );
 });
 
@@ -1525,7 +2018,20 @@ test("campaign is completed only after save and failed in-flight work retries af
 });
 
 test("a persisted linkless campaign navigation key is skipped after dashboard reload", () => {
-  const contract = loadContract();
+  const values = new Map();
+  const contract = loadContract({
+    sessionStorage: {
+      getItem(key) {
+        return values.get(key) ?? null;
+      },
+      removeItem(key) {
+        values.delete(key);
+      },
+      setItem(key, value) {
+        values.set(key, String(value));
+      },
+    },
+  });
   const navigationKey =
     "dashboard-campaign\u001f1\u001f0\u001f링크 없는 캠페인";
   const campaign = {
@@ -1545,29 +2051,191 @@ test("a persisted linkless campaign navigation key is skipped after dashboard re
     [campaign],
     "provider identity alone cannot match a linkless row after reload",
   );
+  const terminalKeys = new Set();
+  assert.equal(
+    contract.persistTerminalLinklessNavigation(campaign, terminalKeys),
+    navigationKey,
+  );
   assert.deepEqual(
     contract.filterPendingCampaigns(
       [campaign],
       new Set(["campaign:100"]),
       new Set(),
-      new Set([navigationKey]),
+      terminalKeys,
     ),
     [],
-    "the successfully persisted linkless row stays completed across reload",
+    "the terminal linkless row stays completed across reload",
+  );
+  assert.deepEqual(
+    JSON.parse(
+      values.get("kiditem_ad_sweep_completed_navigation_keys_v1"),
+    ),
+    [navigationKey],
+  );
+});
+
+test("a pending linkless campaign returned to the dashboard becomes terminal and the next row remains collectible", () => {
+  const values = new Map();
+  const sessionStorage = {
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+  };
+  const contract = loadContract({
+    location: {
+      href:
+        "https://advertising.coupang.com/marketing/dashboard/sales" +
+        "#kiditemAdSync=1",
+      pathname: "/marketing/dashboard/sales",
+      search: "",
+      hash: "#kiditemAdSync=1",
+    },
+    sessionStorage,
+  });
+  const firstKey =
+    "dashboard-campaign\u001f1\u001f0\u001f첫 캠페인";
+  const secondKey =
+    "dashboard-campaign\u001f1\u001f1\u001f두 번째 캠페인";
+  const thirdKey =
+    "dashboard-campaign\u001f1\u001f2\u001f세 번째 캠페인";
+  const first = {
+    identity: "campaign:100",
+    name: "첫 캠페인",
+    navigationKey: firstKey,
+    discoveredByNavigation: true,
+    requiresIdentityProbe: false,
+  };
+  const second = {
+    identity: null,
+    name: "두 번째 캠페인",
+    navigationKey: secondKey,
+    pageNumber: 1,
+    rowIndex: 1,
+    discoveredByNavigation: true,
+    requiresIdentityProbe: true,
+  };
+  const third = {
+    identity: null,
+    name: "세 번째 캠페인",
+    navigationKey: thirdKey,
+    pageNumber: 1,
+    rowIndex: 2,
+    requiresIdentityProbe: true,
+  };
+  const completedNavigationKeys = new Set([firstKey]);
+
+  assert.equal(contract.savePendingCampaignNavigation(second), true);
+  const handoff = contract.campaignNavigationHandoff(
+    "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1",
+  );
+  assert.equal(handoff.state, "returned_to_dashboard");
+  assert.equal(handoff.campaign.navigationKey, secondKey);
+
+  assert.equal(
+    contract.persistTerminalLinklessNavigation(
+      handoff.campaign,
+      completedNavigationKeys,
+    ),
+    secondKey,
+  );
+  contract.clearPendingCampaignNavigation();
+  const failure = contract.reconcileCampaignFailureState(
+    [],
+    handoff.campaign,
+    "campaign_identity_navigation_returned_to_dashboard",
+  );
+  const failedWorkKeys = contract.unresolvedCampaignWorkKeys(failure.errors);
+
+  assert.deepEqual(
+    JSON.parse(
+      values.get("kiditem_ad_sweep_completed_navigation_keys_v1"),
+    ),
+    [firstKey, secondKey],
+  );
+  assert.equal(contract.loadPendingCampaignNavigation(), null);
+  assert.deepEqual(
+    contract.filterPendingCampaigns(
+      [second, third],
+      new Set([first.identity]),
+      new Set(),
+      completedNavigationKeys,
+    ),
+    [third],
+    "dashboard reload must skip the terminal second row and continue with the third",
+  );
+  assert.equal(
+    contract.campaignDateWorkUnits({
+      completedCampaignDateKeys: new Set(),
+      completedCampaignIdentities: new Set([first.identity]),
+      failedCampaignKeys: failedWorkKeys,
+      rawOnlyCampaignCount: 0,
+    }),
+    62,
+    "one completed and one terminally failed campaign advances 31-day work from 31 to 62",
+  );
+});
+
+test("a linkless detail handoff can be terminalized after detail readiness fails", () => {
+  const values = new Map();
+  const sessionStorage = {
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+  };
+  const contract = loadContract({ sessionStorage });
+  const pending = {
+    identity: null,
+    name: "상세 실패 캠페인",
+    navigationKey:
+      "dashboard-campaign\u001f1\u001f1\u001f상세 실패 캠페인",
+    pageNumber: 1,
+    rowIndex: 1,
+    requiresIdentityProbe: true,
+  };
+  const detailUrl =
+    "https://advertising.coupang.com/marketing/dashboard/sales/" +
+    "campaign/200/group/300/product";
+  const terminalKeys = new Set();
+
+  contract.savePendingCampaignNavigation(pending);
+  const handoff = contract.campaignNavigationHandoff(detailUrl);
+  assert.equal(handoff.state, "detail");
+  assert.equal(handoff.campaign.identity, "campaign:200");
+  assert.equal(
+    contract.persistTerminalLinklessNavigation(
+      handoff.campaign,
+      terminalKeys,
+    ),
+    pending.navigationKey,
+  );
+  const failure = contract.reconcileCampaignFailureState(
+    [],
+    handoff.campaign,
+    "campaign_detail_identity_or_surface_timeout",
   );
 
-  const saveIndex = source.lastIndexOf("if (json?.success)");
-  assert.ok(
-    source.indexOf(
-      "completedNavigationKeys.add(linklessNavigationKey)",
-      saveIndex,
-    ) > saveIndex,
-  );
-  assert.ok(
-    source.indexOf(
-      "saveCompletedNavigationKeys(completedNavigationKeys)",
-      saveIndex,
-    ) > saveIndex,
+  assert.equal(terminalKeys.has(pending.navigationKey), true);
+  assert.equal(failure.failed, 1);
+  assert.equal(
+    contract.campaignDateWorkUnits({
+      completedCampaignDateKeys: new Set(),
+      completedCampaignIdentities: new Set(),
+      failedCampaignKeys: contract.unresolvedCampaignWorkKeys(failure.errors),
+      rawOnlyCampaignCount: 0,
+    }),
+    31,
   );
 });
 
@@ -2057,6 +2725,29 @@ test("31-day sweep uses bounded resumable date slices and finalizes only after p
   assert.ok(markerIndex >= 0);
   assert.ok(finalizationIndex > markerIndex);
   assert.ok(clearIndex > finalizationIndex);
+
+  const dashboardReturnBlock = source.indexOf(
+    "// 2e) 대시보드로 복귀",
+  );
+  const budgetClearIndex = source.indexOf(
+    "if (resumeAfterDateBudget) {",
+    dashboardReturnBlock,
+  );
+  const pendingClearIndex = source.indexOf(
+    "clearPendingCampaignNavigation();",
+    budgetClearIndex,
+  );
+  const returnToDashboardIndex = source.indexOf(
+    "returnToDashboard(20000)",
+    dashboardReturnBlock,
+  );
+  assert.ok(dashboardReturnBlock > 0);
+  assert.ok(
+    budgetClearIndex > dashboardReturnBlock &&
+      pendingClearIndex > budgetClearIndex &&
+      pendingClearIndex < returnToDashboardIndex,
+    "an intentional date-slice return clears pending before dashboard navigation",
+  );
 });
 
 // Regression: 상세 페이지가 없는 캠페인(AI스마트광고 등)의 anchor 는 대시보드

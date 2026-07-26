@@ -173,6 +173,7 @@ export function useReadinessCollection({
       producer,
       extensionId,
       runId,
+      accessToken: authSession?.access_token,
       onSession: setActiveSession,
     });
     announceSession(session);

@@ -13,7 +13,7 @@ export const READINESS_COLLECTION_PRODUCERS = {
   coupang_products: 'channels.coupang_catalog',
   wing_kpi: 'advertising.wing_rank',
 } as const satisfies Record<string, BrowserCollectionProducer>;
-export const COUPANG_COLLECTION_EXTENSION_MIN_VERSION = '1.2.83';
+export const COUPANG_COLLECTION_EXTENSION_MIN_VERSION = '1.2.90';
 
 const POLL_INTERVAL_MS = 2_000;
 // The extension content-script watchdog is 30 minutes. Keep the web poller
@@ -43,11 +43,17 @@ type PingResponse = {
   capabilities?: { browserCollectionSessions?: boolean };
 };
 
+type AuthResponse = {
+  success?: boolean;
+  error?: string;
+};
+
 export type ReadinessExtensionCollectionInput = {
   check: ReadinessCheck;
   producer: BrowserCollectionProducer;
   extensionId: string;
   runId: string;
+  accessToken: string | null | undefined;
   onStarted?: () => void;
   onSession?: (session: BrowserCollectionSessionView) => void;
 };
@@ -84,6 +90,7 @@ export async function runReadinessExtensionCollection({
   producer,
   extensionId,
   runId,
+  accessToken,
   onStarted,
   onSession,
 }: ReadinessExtensionCollectionInput): Promise<BrowserCollectionSessionView> {
@@ -91,6 +98,18 @@ export async function runReadinessExtensionCollection({
   if (urls.length === 0) throw new Error('수집 URL 없음');
 
   await assertCompatibleCoupangCollectionExtension(extensionId);
+
+  if (accessToken) {
+    const auth = await sendToExtension<AuthResponse>(extensionId, {
+      action: 'setAuthToken',
+      token: accessToken,
+    });
+    if (auth?.success === false) {
+      throw new Error(
+        auth.error ?? '확장프로그램에 KidItem 로그인을 연결하지 못했습니다.',
+      );
+    }
+  }
 
   const started = await sendToExtension<StartResponse>(extensionId, {
     action: 'scrapeTargets',

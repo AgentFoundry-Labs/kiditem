@@ -28,6 +28,8 @@ function createFakeChrome(initialStorage = {}, messageResponses = []) {
   ]);
   const tabs = new Map([[10, userTab]]);
   const calls = {
+    events: [],
+    tabsCreate: [],
     tabsDuplicate: [],
     tabsRemove: [],
     tabMessages: [],
@@ -36,6 +38,12 @@ function createFakeChrome(initialStorage = {}, messageResponses = []) {
     windowsRemove: [],
     windowsUpdate: [],
   };
+  function currentWindowId() {
+    for (const [id, win] of windows) {
+      if (win.type === 'normal' && win.focused) return id;
+    }
+    return [...windows.keys()][0];
+  }
   let nextWindowId = 20;
   let nextTabId = 200;
   const tabUpdatedListeners = new Set();
@@ -141,6 +149,27 @@ function createFakeChrome(initialStorage = {}, messageResponses = []) {
       get(tabId, callback) {
         callbackResult(structuredClone(tabs.get(tabId)), callback);
       },
+      create(properties, callback) {
+        calls.tabsCreate.push(structuredClone(properties));
+        const windowId = Number.isInteger(properties.windowId)
+          ? properties.windowId
+          : currentWindowId();
+        const win = windows.get(windowId);
+        const active = properties.active !== false;
+        if (active && win) {
+          for (const candidate of win.tabs) candidate.active = false;
+        }
+        const tab = {
+          id: nextTabId++,
+          windowId,
+          active,
+          status: 'complete',
+          url: properties.url,
+        };
+        tabs.set(tab.id, tab);
+        win?.tabs.push(tab);
+        callbackResult(structuredClone(tab), callback);
+      },
       duplicate(tabId, callback) {
         calls.tabsDuplicate.push(tabId);
         const source = tabs.get(tabId);
@@ -200,13 +229,30 @@ function createFakeChrome(initialStorage = {}, messageResponses = []) {
       },
       update(tabId, properties, callback) {
         calls.tabsUpdate.push({ tabId, properties: structuredClone(properties) });
+        calls.events.push({
+          type: 'tabs.update',
+          tabId,
+          url: properties.url || null,
+        });
         const current = tabs.get(tabId);
         if (current) Object.assign(current, properties);
         callbackResult(structuredClone(current), callback);
       },
       sendMessage(tabId, message, callback) {
         calls.tabMessages.push({ tabId, message: structuredClone(message) });
+        calls.events.push({
+          type: 'tabs.sendMessage',
+          tabId,
+          url: tabs.get(tabId)?.url || null,
+        });
         const response = queuedMessageResponses.shift();
+        if (typeof response?.navigatedUrl === 'string') {
+          const current = tabs.get(tabId);
+          if (current) {
+            current.url = response.navigatedUrl;
+            current.status = 'complete';
+          }
+        }
         if (response?.stall === true) return;
         if (response?.runtimeError) {
           queueMicrotask(() => {
@@ -217,6 +263,32 @@ function createFakeChrome(initialStorage = {}, messageResponses = []) {
           return;
         }
         callbackResult(structuredClone(response), callback);
+        if (typeof response?.handoffNavigatedUrl === 'string') {
+          // Resolve the content-script response first, then emulate Coupang's
+          // account-selector redirect completing in the same owned tab. The
+          // double microtask makes the driver install its onUpdated listener
+          // before this transition fires.
+          queueMicrotask(() => {
+            queueMicrotask(() => {
+              const current = tabs.get(tabId);
+              if (!current) return;
+              current.url = response.handoffNavigatedUrl;
+              current.status = 'complete';
+              calls.events.push({
+                type: 'login.handoff.complete',
+                tabId,
+                url: current.url,
+              });
+              for (const listener of tabUpdatedListeners) {
+                listener(
+                  tabId,
+                  { status: 'complete', url: current.url },
+                  structuredClone(current),
+                );
+              }
+            });
+          });
+        }
       },
     },
   };
@@ -224,7 +296,7 @@ function createFakeChrome(initialStorage = {}, messageResponses = []) {
   return { calls, chrome, storage, tabs, windows };
 }
 
-function loadHelper(fake, options = {}) {
+function loadContract(fake) {
   const context = vm.createContext({
     URL,
     chrome: fake.chrome,
@@ -237,14 +309,18 @@ function loadHelper(fake, options = {}) {
   vm.runInContext(fs.readFileSync(helperPath, 'utf8'), context, {
     filename: helperPath,
   });
-  return context.KidItemCollectionWindow.create({
+  return context.KidItemCollectionWindow;
+}
+
+function loadHelper(fake, options = {}) {
+  return loadContract(fake).create({
     chrome: fake.chrome,
     storageKey: 'owned-window',
     ...options,
   });
 }
 
-test('creates one unfocused extension-owned window and navigates its active tab sequentially', async () => {
+test('creates one unfocused collection window and navigates its tab sequentially', async () => {
   const fake = createFakeChrome();
   const helper = loadHelper(fake);
 
@@ -252,13 +328,14 @@ test('creates one unfocused extension-owned window and navigates its active tab 
   await helper.navigate('run-a', 'https://example.com/second');
   await helper.navigate('run-a', 'https://example.com/third');
 
+  // 사용자 창을 건드리지 않는 별도 focused:false 창에서 수집한다(백그라운드에서도
+  // visible 로 렌더돼 그리드가 스로틀되지 않는다).
   assert.deepEqual(fake.calls.windowsCreate, [
-    {
-      url: 'https://example.com/first',
-      focused: false,
-      type: 'normal',
-    },
+    { url: 'https://example.com/first', focused: false, type: 'normal' },
   ]);
+  assert.equal(fake.calls.windowsCreate.length, 1);
+  assert.notEqual(owned.windowId, 1);
+  assert.equal(fake.tabs.get(owned.tabId).windowId, owned.windowId);
   assert.deepEqual(
     fake.calls.tabsUpdate.map(({ tabId, properties }) => ({ tabId, properties })),
     [
@@ -273,7 +350,7 @@ test('creates one unfocused extension-owned window and navigates its active tab 
     ],
   );
   assert.equal(fake.calls.windowsUpdate.length, 0);
-  assert.equal(fake.calls.windowsCreate.length, 1);
+  // 사용자가 보던 탭(10)/창(1)은 그대로 — 포커스를 뺏지 않는다.
   assert.equal(fake.tabs.get(10).active, true);
   assert.equal(
     fake.tabs.get(10).url,
@@ -281,62 +358,60 @@ test('creates one unfocused extension-owned window and navigates its active tab 
   );
 });
 
-test('ad sync clones an authenticated advertising tab into the owned window without changing the original', async () => {
-  const fake = createFakeChrome();
-  const authenticatedTab = {
-    id: 11,
-    windowId: 1,
-    active: true,
-    status: 'complete',
-    url: 'https://advertising.coupang.com/marketing/dashboard/sales',
-  };
-  fake.tabs.get(10).active = false;
-  fake.tabs.set(authenticatedTab.id, authenticatedTab);
-  fake.windows.get(1).tabs.push(authenticatedTab);
-  const helper = loadHelper(fake);
+test('advertising collection opens a separate unfocused window without cloning', async () => {
+  // 광고 동기화/광고 성과는 별도 focused:false 창에서 수집한다. 인증 탭을 복제하거나
+  // 사용자 창/탭을 건드리지 않으며, 로그인은 content script 가 자동 통과한다.
+  for (const [runId, url, producer] of [
+    [
+      'run-ad-sync',
+      'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+      'advertising.ad_sync',
+    ],
+    [
+      'run-coupang-ads',
+      'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-07-25',
+      'dashboard.coupang_ads',
+    ],
+  ]) {
+    const fake = createFakeChrome();
+    const authenticatedTab = {
+      id: 11,
+      windowId: 1,
+      active: true,
+      status: 'complete',
+      url: 'https://advertising.coupang.com/marketing/dashboard/sales',
+    };
+    fake.tabs.get(10).active = false;
+    fake.tabs.set(authenticatedTab.id, authenticatedTab);
+    fake.windows.get(1).tabs.push(authenticatedTab);
+    const helper = loadHelper(fake);
 
-  const owned = await helper.getOrCreate(
-    'run-ad-sync',
-    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
-    'advertising.ad_sync',
-  );
+    const owned = await helper.getOrCreate(runId, url, producer);
 
-  assert.deepEqual(fake.calls.tabsDuplicate, [authenticatedTab.id]);
-  assert.notEqual(owned.tabId, authenticatedTab.id);
-  assert.deepEqual(fake.calls.windowsCreate, [
-    {
-      tabId: owned.tabId,
-      focused: false,
-      type: 'normal',
-    },
-  ]);
-  assert.equal(fake.tabs.get(authenticatedTab.id).windowId, 1);
-  assert.equal(fake.tabs.get(authenticatedTab.id).active, true);
-  assert.equal(
-    fake.tabs.get(authenticatedTab.id).url,
-    'https://advertising.coupang.com/marketing/dashboard/sales',
-  );
-  assert.equal(fake.tabs.get(owned.tabId).windowId, owned.windowId);
+    assert.deepEqual(fake.calls.tabsDuplicate, []);
+    assert.deepEqual(fake.calls.windowsCreate, [
+      { url, focused: false, type: 'normal' },
+    ]);
+    assert.notEqual(owned.windowId, 1);
+    assert.notEqual(owned.tabId, authenticatedTab.id);
+    // 기존 인증 탭/사용자 창은 그대로 유지된다.
+    assert.equal(fake.tabs.get(authenticatedTab.id).windowId, 1);
+    assert.equal(
+      fake.tabs.get(authenticatedTab.id).url,
+      'https://advertising.coupang.com/marketing/dashboard/sales',
+    );
 
-  assert.equal(await helper.close('run-ad-sync'), true);
-  assert.deepEqual(fake.calls.windowsRemove, [owned.windowId]);
-  assert.equal(fake.tabs.has(owned.tabId), false);
-  assert.equal(fake.tabs.has(authenticatedTab.id), true);
-  assert.equal(fake.windows.has(1), true);
+    assert.equal(await helper.close(runId), true);
+    // 수집 전용 창만 닫고 사용자 창(1)은 유지한다.
+    assert.deepEqual(fake.calls.windowsRemove, [owned.windowId]);
+    assert.equal(fake.tabs.has(owned.tabId), false);
+    assert.equal(fake.tabs.has(authenticatedTab.id), true);
+    assert.equal(fake.windows.has(1), true);
+  }
 });
 
-test('ad sync cancellation closes only the managed clone and preserves the authenticated user tab', async () => {
+test('cancellation closes the collection window and preserves the user window', async () => {
   const fake = createFakeChrome();
-  const authenticatedTab = {
-    id: 11,
-    windowId: 1,
-    active: true,
-    status: 'complete',
-    url: 'https://advertising.coupang.com/marketing/dashboard/sales',
-  };
-  fake.tabs.get(10).active = false;
-  fake.tabs.set(authenticatedTab.id, authenticatedTab);
-  fake.windows.get(1).tabs.push(authenticatedTab);
   const sessionCalls = [];
   const helper = loadHelper(fake, {
     cancelKey: 'collection-cancel',
@@ -363,58 +438,146 @@ test('ad sync cancellation closes only the managed clone and preserves the authe
   assert.deepEqual(sessionCalls, [['cancel', 'run-ad-sync']]);
   assert.deepEqual(fake.calls.windowsRemove, [owned.windowId]);
   assert.equal(fake.tabs.has(owned.tabId), false);
-  assert.equal(fake.tabs.has(authenticatedTab.id), true);
-  assert.equal(fake.tabs.get(authenticatedTab.id).windowId, 1);
+  // 사용자가 보던 탭(10)/창(1)은 유지된다.
+  assert.equal(fake.tabs.has(10), true);
   assert.equal(fake.windows.has(1), true);
 });
 
-test('ad sync falls back to a fresh owned URL window when no authenticated advertising tab exists', async () => {
+test('close removes only the owned tab when a user tab was added to the collection window', async () => {
   const fake = createFakeChrome();
-  const loginTab = {
-    id: 11,
-    windowId: 1,
-    active: true,
-    status: 'complete',
-    url:
-      'https://advertising.coupang.com/user/login?callback_url=' +
-      encodeURIComponent(
-        'https://advertising.coupang.com/marketing/dashboard/sales',
-      ),
-  };
-  fake.tabs.set(loginTab.id, loginTab);
-  fake.windows.get(1).tabs.push(loginTab);
   const helper = loadHelper(fake);
-
   const owned = await helper.getOrCreate(
-    'run-ad-sync',
+    'run-with-user-tab',
     'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
     'advertising.ad_sync',
   );
+  const userTab = await new Promise((resolve) => {
+    fake.chrome.tabs.create(
+      {
+        windowId: owned.windowId,
+        url: 'https://example.com/user-tab',
+        active: true,
+      },
+      resolve,
+    );
+  });
 
-  assert.deepEqual(fake.calls.tabsDuplicate, []);
-  assert.deepEqual(fake.calls.windowsCreate, [
-    {
-      url: 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
-      focused: false,
-      type: 'normal',
-    },
-  ]);
-  assert.notEqual(owned.tabId, loginTab.id);
-  assert.equal(fake.tabs.has(loginTab.id), true);
+  assert.equal(await helper.close('run-with-user-tab'), true);
+  assert.deepEqual(fake.calls.windowsRemove, []);
+  assert.deepEqual(fake.calls.tabsRemove, [owned.tabId]);
+  assert.equal(fake.tabs.has(owned.tabId), false);
+  assert.equal(fake.tabs.has(userTab.id), true);
+  assert.equal(fake.windows.has(owned.windowId), true);
+  assert.equal(fake.storage['owned-window'], undefined);
 });
 
-test('a fresh ad-sync retry replaces its old login attention window with an authenticated clone', async () => {
+test('close follows the owned tab by id after it moves and never closes the recorded user window', async () => {
   const fake = createFakeChrome();
-  const authenticatedTab = {
-    id: 11,
-    windowId: 1,
-    active: true,
-    status: 'complete',
-    url: 'https://advertising.coupang.com/marketing/campaign/104640375/product',
+  const helper = loadHelper(fake);
+  const owned = await helper.getOrCreate(
+    'run-moved-tab',
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+    'advertising.ad_sync',
+  );
+  const userTab = await new Promise((resolve) => {
+    fake.chrome.tabs.create(
+      {
+        windowId: owned.windowId,
+        url: 'https://example.com/user-tab',
+        active: true,
+      },
+      resolve,
+    );
+  });
+  await new Promise((resolve) => {
+    fake.chrome.windows.create(
+      { tabId: owned.tabId, focused: false, type: 'normal' },
+      resolve,
+    );
+  });
+
+  assert.equal(await helper.close('run-moved-tab'), true);
+  assert.deepEqual(fake.calls.windowsRemove, []);
+  assert.deepEqual(fake.calls.tabsRemove, [owned.tabId]);
+  assert.equal(fake.tabs.has(owned.tabId), false);
+  assert.equal(fake.tabs.has(userTab.id), true);
+  assert.equal(fake.windows.has(owned.windowId), true);
+  assert.equal(fake.storage['owned-window'], undefined);
+});
+
+test('failed owned-tab removal keeps the record when the collection window has a user tab', async () => {
+  const fake = createFakeChrome();
+  const helper = loadHelper(fake);
+  const owned = await helper.getOrCreate(
+    'run-tab-cleanup-failure',
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+    'advertising.ad_sync',
+  );
+  const userTab = await new Promise((resolve) => {
+    fake.chrome.tabs.create(
+      {
+        windowId: owned.windowId,
+        url: 'https://example.com/user-tab',
+        active: true,
+      },
+      resolve,
+    );
+  });
+  fake.chrome.tabs.remove = (_tabId, callback) => {
+    queueMicrotask(() => {
+      fake.chrome.runtime.lastError = { message: 'tab removal denied' };
+      callback();
+      fake.chrome.runtime.lastError = null;
+    });
   };
-  fake.tabs.get(10).active = false;
-  fake.tabs.set(authenticatedTab.id, authenticatedTab);
-  fake.windows.get(1).tabs.push(authenticatedTab);
+
+  assert.equal(await helper.close('run-tab-cleanup-failure'), false);
+  assert.equal(fake.tabs.has(owned.tabId), true);
+  assert.equal(fake.tabs.has(userTab.id), true);
+  assert.equal(fake.storage['owned-window'].runId, 'run-tab-cleanup-failure');
+});
+
+test('failed owned-window removal keeps ownership and makes cancellation report failure', async () => {
+  const fake = createFakeChrome();
+  const sessions = {
+    async cancel() {},
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    sessions,
+    statusKey: 'collection-status',
+  });
+  const owned = await helper.getOrCreate(
+    'run-cleanup-failure',
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+    'advertising.ad_sync',
+  );
+  fake.storage['collection-status'] = {
+    runId: 'run-cleanup-failure',
+    status: 'running',
+  };
+  fake.chrome.windows.remove = (_windowId, callback) => {
+    queueMicrotask(() => {
+      fake.chrome.runtime.lastError = { message: 'window removal denied' };
+      callback();
+      fake.chrome.runtime.lastError = null;
+    });
+  };
+
+  const result = await helper.cancelRun('run-cleanup-failure');
+
+  assert.equal(result.success, false);
+  assert.equal(result.cancelled, true);
+  assert.equal(result.error, 'Collection tab cleanup failed');
+  assert.equal(fake.windows.has(owned.windowId), true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(fake.storage['owned-window'])),
+    JSON.parse(JSON.stringify(owned)),
+  );
+});
+
+test('a fresh ad-sync retry replaces its old login attention window with a new collection window', async () => {
+  const fake = createFakeChrome();
   const sessionCalls = [];
   const sessions = {
     async cancel(runId) {
@@ -443,6 +606,7 @@ test('a fresh ad-sync retry replaces its old login attention window with an auth
   const loginOwned = await helper.getOrCreate(
     'run-attention',
     'https://advertising.coupang.com/user/login',
+    'advertising.ad_sync',
   );
 
   const retryOwned = await helper.getOrCreate(
@@ -451,12 +615,12 @@ test('a fresh ad-sync retry replaces its old login attention window with an auth
     'advertising.ad_sync',
   );
 
+  // 로그인 화면에서 멈춘 이전 수집 창은 닫고 새 수집 창을 연다.
   assert.notEqual(retryOwned.windowId, loginOwned.windowId);
   assert.deepEqual(fake.calls.windowsRemove, [loginOwned.windowId]);
-  assert.deepEqual(fake.calls.tabsDuplicate, [authenticatedTab.id]);
-  assert.equal(fake.tabs.has(authenticatedTab.id), true);
-  assert.equal(fake.tabs.get(authenticatedTab.id).windowId, 1);
+  assert.deepEqual(fake.calls.tabsDuplicate, []);
   assert.equal(fake.tabs.get(loginOwned.tabId), undefined);
+  assert.equal(fake.tabs.has(retryOwned.tabId), true);
   assert.equal(fake.storage['owned-window'].runId, 'run-retry');
   assert.deepEqual(JSON.parse(JSON.stringify(sessionCalls)), [
     [
@@ -893,6 +1057,142 @@ test('late login response cannot restore attention after cancellation', async ()
   assert.equal(fake.storage['collection-status'].cancelled, true);
 });
 
+for (const scenario of [
+  {
+    producer: 'advertising.ad_sync',
+    runId: 'run-ad-sync-login-handoff',
+    label: '광고 동기화',
+    targetUrl:
+      'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+    handoffUrl:
+      'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+    expectedTabUpdates: 1,
+    resultType: 'ad_sync',
+  },
+  {
+    producer: 'dashboard.coupang_ads',
+    runId: 'run-ads-daily-login-handoff',
+    label: '광고 성과',
+    targetUrl:
+      'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-07-25',
+    // Some Coupang login callbacks drop the fragment. The driver may restore
+    // targetDate only after this authenticated dashboard transition completes.
+    handoffUrl: 'https://advertising.coupang.com/marketing/dashboard/sales',
+    expectedTabUpdates: 2,
+    resultType: 'coupang_ads_daily',
+  },
+]) {
+  test(`${scenario.producer} waits for the account-selector login handoff before resuming`, async () => {
+    const loginUrl =
+      'https://advertising.coupang.com/user/login?callback_url=' +
+      encodeURIComponent(scenario.targetUrl);
+    const fake = createFakeChrome({}, [
+      {
+        success: false,
+        resumeRequired: true,
+        loginHandoff: true,
+        error: '쿠팡 광고센터 자동 로그인 중',
+        navigatedUrl: loginUrl,
+        handoffNavigatedUrl: scenario.handoffUrl,
+      },
+      {
+        success: true,
+        type: scenario.resultType,
+        count: 1,
+        progress: {
+          current: 1,
+          total: 1,
+          completed: 1,
+          failed: 0,
+          label: `${scenario.label} 완료`,
+        },
+      },
+    ]);
+    const sessionCalls = [];
+    const sessions = {
+      async attachTab() {},
+      async cancel(runId) {
+        sessionCalls.push(['cancel', runId]);
+      },
+      async fail(runId) {
+        sessionCalls.push(['fail', runId]);
+      },
+      async get() {
+        return { status: 'running', attempt: 1 };
+      },
+      async progress(runId, progress) {
+        sessionCalls.push(['progress', runId, progress]);
+      },
+      async requireAttention(runId, attention) {
+        sessionCalls.push(['requireAttention', runId, attention]);
+      },
+      async succeed(runId) {
+        sessionCalls.push(['succeed', runId]);
+      },
+    };
+    const helper = loadHelper(fake, {
+      cancelKey: 'collection-cancel',
+      delay: async () => {},
+      sessions,
+      statusKey: 'collection-status',
+    });
+
+    const result = await helper.collectTargets({
+      environmentId: 'local',
+      producer: scenario.producer,
+      runId: scenario.runId,
+      startedAt: 1,
+      targets: [
+        {
+          id: scenario.producer,
+          label: scenario.label,
+          url: scenario.targetUrl,
+        },
+      ],
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.completed, 1);
+    assert.equal(result.failed, 0);
+    assert.equal(fake.calls.tabMessages.length, 2);
+    assert.equal(fake.calls.tabsUpdate.length, scenario.expectedTabUpdates);
+
+    const handoffIndex = fake.calls.events.findIndex(
+      (event) => event.type === 'login.handoff.complete',
+    );
+    const messageIndexes = fake.calls.events
+      .map((event, index) => ({ event, index }))
+      .filter(({ event }) => event.type === 'tabs.sendMessage')
+      .map(({ index }) => index);
+    const updateIndexes = fake.calls.events
+      .map((event, index) => ({ event, index }))
+      .filter(({ event }) => event.type === 'tabs.update')
+      .map(({ index }) => index);
+    assert.equal(messageIndexes.length, 2);
+    assert.ok(handoffIndex > messageIndexes[0]);
+    assert.ok(
+      updateIndexes.every(
+        (index) => index < messageIndexes[0] || index > handoffIndex,
+      ),
+      'the driver must not overwrite the in-flight login redirect',
+    );
+    assert.ok(
+      handoffIndex < messageIndexes[1],
+      'manualSync must resume only after the allowlisted dashboard is complete',
+    );
+    assert.equal(fake.calls.events[messageIndexes[1]].url, scenario.targetUrl);
+    assert.equal(fake.calls.windowsUpdate.length, 0);
+    assert.equal(fake.tabs.get(10).active, true);
+    assert.ok(
+      sessionCalls.some(
+        ([name, runId]) => name === 'succeed' && runId === scenario.runId,
+      ),
+    );
+    assert.ok(!sessionCalls.some(([name]) => name === 'requireAttention'));
+    assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+  });
+}
+
 test('retries manual sync across receiver startup and campaign-page navigation', async () => {
   const missingReceiver =
     'Could not establish connection. Receiving end does not exist.';
@@ -1249,6 +1549,452 @@ test('resumes an interrupted campaign sweep in the same owned tab', async () => 
   );
 });
 
+test('rejects an advertising resume URL outside the dashboard and campaign-detail allowlist before navigation', async (t) => {
+  const targetUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+  for (const [name, unsafeResumeUrl] of [
+    ['different origin', 'https://example.com/collect'],
+    ['same-host login page', 'https://advertising.coupang.com/user/login'],
+    [
+      'same-host unrelated marketing page',
+      'https://advertising.coupang.com/marketing/campaign/registration',
+    ],
+  ]) {
+    await t.test(name, async () => {
+      const fake = createFakeChrome({}, [
+        {
+          success: false,
+          resumeRequired: true,
+          resumeUrl: unsafeResumeUrl,
+          progress: {
+            current: 31,
+            total: 279,
+            completed: 1,
+            failed: 0,
+            label: 'resume requested',
+          },
+        },
+      ]);
+      const sessions = {
+        async attachTab() {},
+        async cancel() {},
+        async fail() {},
+        async get() {
+          return { status: 'running', attempt: 1 };
+        },
+        async progress() {},
+        async requireAttention() {},
+        async succeed() {},
+      };
+      const helper = loadHelper(fake, {
+        cancelKey: 'collection-cancel',
+        delay: async () => {},
+        sessions,
+        statusKey: 'collection-status',
+      });
+
+      const result = await helper.collectTargets({
+        producer: 'advertising.ad_sync',
+        runId: `run-rejected-resume-${name}`,
+        startedAt: 1,
+        targets: [{ id: 'ads', label: '광고 동기화', url: targetUrl }],
+      });
+
+      assert.equal(result.success, false);
+      assert.equal(
+        result.error,
+        'Collection resume URL is outside the allowed target family',
+      );
+      assert.deepEqual(
+        fake.calls.tabsUpdate.map(({ properties }) => properties.url),
+        [targetUrl],
+      );
+      assert.ok(
+        fake.calls.tabsUpdate.every(
+          ({ properties }) => properties.url !== unsafeResumeUrl,
+        ),
+      );
+    });
+  }
+});
+
+test('non-advertising resumes stay within the original HTTPS target path family', () => {
+  const fake = createFakeChrome();
+  const contract = loadContract(fake);
+  const targetUrl =
+    'https://wing.coupang.com/tenants/seller-web/vendor-inventory/stock';
+
+  assert.equal(
+    contract.resolveCollectionResumeUrl(
+      `${targetUrl}/page/2?cursor=next`,
+      targetUrl,
+      'dashboard.wing_sales',
+    ),
+    `${targetUrl}/page/2?cursor=next`,
+  );
+  assert.throws(
+    () =>
+      contract.resolveCollectionResumeUrl(
+        'https://wing.coupang.com/tenants/seller-web/orders',
+        targetUrl,
+        'dashboard.wing_sales',
+      ),
+    /outside the allowed target family/,
+  );
+  assert.throws(
+    () =>
+      contract.resolveCollectionResumeUrl(
+        'http://wing.coupang.com/tenants/seller-web/vendor-inventory/stock',
+        targetUrl,
+        'dashboard.wing_sales',
+      ),
+    /outside the allowed target family/,
+  );
+});
+
+test('resumes a linkless campaign from the full-document detail URL', async () => {
+  const dashboardUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+  const detailUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales/' +
+    'campaign/102284299/group/202471278/product?internalChannel=click_campaign_name';
+  const fake = createFakeChrome({}, [
+    {
+      runtimeError:
+        'The message port closed before a response was received.',
+      navigatedUrl: detailUrl,
+    },
+    {
+      success: true,
+      type: 'ad_sync',
+      count: 31,
+      progress: {
+        current: 31,
+        total: 279,
+        completed: 1,
+        failed: 0,
+        label: '첫 캠페인 31일 완료',
+      },
+    },
+  ]);
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab() {},
+    async cancel() {},
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return { status: 'running', progress: null };
+    },
+    async progress(runId, progress) {
+      sessionCalls.push(['progress', runId, progress]);
+    },
+    async requireAttention() {},
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    producer: 'advertising.ad_sync',
+    runId: 'run-full-document-detail',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'ads',
+        label: '광고 동기화',
+        url: dashboardUrl,
+      },
+    ],
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(
+    fake.calls.tabsUpdate.map(({ properties }) => properties.url),
+    [dashboardUrl, detailUrl],
+  );
+  assert.equal(fake.calls.tabMessages.length, 2);
+  assert.ok(
+    sessionCalls.some(
+      ([name, runId]) =>
+        name === 'succeed' && runId === 'run-full-document-detail',
+    ),
+  );
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+});
+
+test('does not collapse shared dashboard returns from four distinct campaign details into one stalled position', async () => {
+  const dashboardUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+  const campaignUrls = [
+    ['102284299', '202471278'],
+    ['102284300', '202471279'],
+    ['102284301', '202471280'],
+    ['102284302', '202471281'],
+  ].map(
+    ([campaignId, groupId]) =>
+      'https://advertising.coupang.com/marketing/dashboard/sales/' +
+      `campaign/${campaignId}/group/${groupId}/product` +
+      '?internalChannel=click_campaign_name',
+  );
+  const navigationClosedChannel =
+    'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received';
+  const fake = createFakeChrome({}, [
+    { runtimeError: navigationClosedChannel, navigatedUrl: dashboardUrl },
+    ...campaignUrls.flatMap((campaignUrl) => [
+      { runtimeError: navigationClosedChannel, navigatedUrl: campaignUrl },
+      { runtimeError: navigationClosedChannel, navigatedUrl: dashboardUrl },
+    ]),
+    {
+      success: true,
+      type: 'ad_sync',
+      count: 43,
+      progress: {
+        current: 43,
+        total: 279,
+        completed: 2,
+        failed: 0,
+        label: '두 번째 캠페인 12일 저장',
+      },
+    },
+  ]);
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab() {},
+    async cancel() {},
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return {
+        status: 'running',
+        attempt: 1,
+        progress: {
+          current: 31,
+          total: 279,
+          completed: 1,
+          failed: 0,
+          label: '첫 캠페인 31일 완료',
+        },
+      };
+    },
+    async progress(runId, progress) {
+      sessionCalls.push(['progress', runId, progress]);
+    },
+    async requireAttention() {},
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    producer: 'advertising.ad_sync',
+    runId: 'run-distinct-navigation-positions',
+    startedAt: 1,
+    targets: [{ id: 'ads', label: '광고 동기화', url: dashboardUrl }],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(fake.calls.tabMessages.length, 10);
+  assert.deepEqual(
+    fake.calls.tabsUpdate.map(({ properties }) => properties.url),
+    [
+      dashboardUrl,
+      dashboardUrl,
+      ...campaignUrls.flatMap((campaignUrl) => [
+        campaignUrl,
+        dashboardUrl,
+      ]),
+    ],
+  );
+  assert.ok(
+    sessionCalls.some(
+      ([name, runId]) =>
+        name === 'succeed' && runId === 'run-distinct-navigation-positions',
+    ),
+  );
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+});
+
+test('does not stop linkless campaign probes that share the dashboard URL when each row reports a new label', async () => {
+  const dashboardUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+  const navigationClosedChannel =
+    'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received';
+  const fake = createFakeChrome({}, [
+    ...Array.from({ length: 5 }, () => ({
+      runtimeError: navigationClosedChannel,
+      navigatedUrl: dashboardUrl,
+    })),
+    {
+      success: true,
+      type: 'ad_sync',
+      count: 43,
+      progress: {
+        current: 43,
+        total: 279,
+        completed: 2,
+        failed: 0,
+        label: '두 번째 캠페인 일별 수집 진행',
+      },
+    },
+  ]);
+  const sessionCalls = [];
+  let getCalls = 0;
+  const sessions = {
+    async attachTab() {},
+    async cancel() {},
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      const rowNumber = Math.floor(getCalls / 2) + 1;
+      getCalls += 1;
+      return {
+        status: 'running',
+        attempt: 1,
+        progress: {
+          current: 31,
+          total: 279,
+          completed: 1,
+          failed: 0,
+          label:
+            `동일 캠페인명 · 상세 식별 이동 ` +
+            `(1페이지 ${rowNumber}행)`,
+        },
+      };
+    },
+    async progress(runId, progress) {
+      sessionCalls.push(['progress', runId, progress]);
+    },
+    async requireAttention() {},
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    producer: 'advertising.ad_sync',
+    runId: 'run-linkless-dashboard-labels',
+    startedAt: 1,
+    targets: [{ id: 'ads', label: '광고 동기화', url: dashboardUrl }],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(fake.calls.tabMessages.length, 6);
+  assert.equal(
+    fake.calls.tabsUpdate.filter(
+      ({ properties }) => properties.url === dashboardUrl,
+    ).length,
+    6,
+  );
+  assert.ok(
+    sessionCalls.some(
+      ([name, runId]) =>
+        name === 'succeed' && runId === 'run-linkless-dashboard-labels',
+    ),
+  );
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+});
+
+test('allows three same-campaign detail visits for the 12 + 12 + 7 day slices', async () => {
+  const dashboardUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+  const campaignUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales/' +
+    'campaign/102284299/group/202471278/product?internalChannel=click_campaign_name';
+  const navigationClosedChannel =
+    'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received';
+  const fake = createFakeChrome({}, [
+    { runtimeError: navigationClosedChannel, navigatedUrl: dashboardUrl },
+    { runtimeError: navigationClosedChannel, navigatedUrl: campaignUrl },
+    { runtimeError: navigationClosedChannel, navigatedUrl: dashboardUrl },
+    { runtimeError: navigationClosedChannel, navigatedUrl: campaignUrl },
+    { runtimeError: navigationClosedChannel, navigatedUrl: dashboardUrl },
+    { runtimeError: navigationClosedChannel, navigatedUrl: campaignUrl },
+    {
+      success: true,
+      type: 'ad_sync',
+      count: 43,
+      progress: {
+        current: 43,
+        total: 279,
+        completed: 1,
+        failed: 0,
+        label: '첫 캠페인 31일 완료',
+      },
+    },
+  ]);
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab() {},
+    async cancel() {},
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return {
+        status: 'running',
+        attempt: 1,
+        progress: {
+          current: 31,
+          total: 279,
+          completed: 0,
+          failed: 0,
+          label: '첫 캠페인 남은 날짜 수집 준비',
+        },
+      };
+    },
+    async progress() {},
+    async requireAttention() {},
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    producer: 'advertising.ad_sync',
+    runId: 'run-three-daily-slices',
+    startedAt: 1,
+    targets: [{ id: 'ads', label: '광고 동기화', url: dashboardUrl }],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(fake.calls.tabMessages.length, 7);
+  assert.ok(
+    sessionCalls.some(
+      ([name, runId]) =>
+        name === 'succeed' && runId === 'run-three-daily-slices',
+    ),
+  );
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+});
+
 test('keeps resuming beyond three returns while campaign progress advances', async () => {
   const resumeUrl =
     'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
@@ -1331,6 +2077,85 @@ test('keeps resuming beyond three returns while campaign progress advances', asy
   );
 });
 
+test('keeps a progressing large-account sweep alive beyond the former 500-handoff cutoff', async () => {
+  const resumeUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+  const fake = createFakeChrome({}, [
+    ...Array.from({ length: 501 }, (_, index) => ({
+      success: false,
+      resumeRequired: true,
+      resumeUrl,
+      synced: index + 1,
+      failed: 0,
+      totalRows: (index + 1) * 10,
+      progress: {
+        current: index + 1,
+        total: 15_500,
+        completed: index + 1,
+        failed: 0,
+        label: `대형 계정 캠페인 ${index + 1}`,
+      },
+    })),
+    {
+      success: true,
+      type: 'ad_sync',
+      count: 5_010,
+      progress: {
+        current: 502,
+        total: 15_500,
+        completed: 502,
+        failed: 0,
+        label: '대형 계정 다음 구간 저장',
+      },
+    },
+  ]);
+  const sessions = {
+    async attachTab() {},
+    async cancel() {},
+    async fail() {},
+    async get() {
+      return { status: 'running', attempt: 1 };
+    },
+    async progress() {},
+    async requireAttention() {},
+    async succeed() {},
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    producer: 'advertising.ad_sync',
+    runId: 'run-large-account-resume',
+    startedAt: 1,
+    targets: [{ id: 'ads', label: '광고 동기화', url: resumeUrl }],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(fake.calls.tabMessages.length, 502);
+  assert.equal(fake.calls.tabsUpdate.length, 502);
+});
+
+test('large-account resume lease scales from work total and remains absolutely bounded', () => {
+  const contract = loadContract(createFakeChrome());
+
+  assert.equal(
+    contract.campaignSweepResumeAttemptLimit({ dateWorkTotal: 0 }),
+    2_000,
+  );
+  assert.equal(
+    contract.campaignSweepResumeAttemptLimit({ dateWorkTotal: 15_500 }),
+    31_000,
+  );
+  assert.equal(
+    contract.campaignSweepResumeAttemptLimit({ dateWorkTotal: 1_000_000 }),
+    50_000,
+  );
+});
+
 test('date-work progress keeps a bounded 31-day sweep resumable before a campaign completes', async () => {
   const resumeUrl =
     'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
@@ -1405,34 +2230,38 @@ test('date-work progress keeps a bounded 31-day sweep resumable before a campaig
   assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
 });
 
-test('stops a repeated resume after three attempts without campaign progress', async () => {
-  const resumeUrl =
+test('stops a fourth traversal of the same detail and dashboard cycle without campaign progress', async () => {
+  const dashboardUrl =
     'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
-  const stuckResponse = {
-    success: false,
-    resumeRequired: true,
-    resumeUrl,
-    synced: 0,
-    failed: 1,
-    totalRows: 0,
-    progress: {
-      current: 1,
-      total: 9,
-      completed: 0,
-      failed: 1,
-      label: '같은 캠페인 실패',
-    },
-  };
-  const fake = createFakeChrome({}, Array.from(
-    { length: 4 },
-    () => structuredClone(stuckResponse),
-  ));
+  const campaignUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales/' +
+    'campaign/102284299/group/202471278/product?internalChannel=click_campaign_name';
+  const navigationClosedChannel =
+    'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received';
+  const fake = createFakeChrome({}, [
+    { runtimeError: navigationClosedChannel, navigatedUrl: dashboardUrl },
+    ...Array.from({ length: 3 }, () => [
+      { runtimeError: navigationClosedChannel, navigatedUrl: campaignUrl },
+      { runtimeError: navigationClosedChannel, navigatedUrl: dashboardUrl },
+    ]).flat(),
+    { runtimeError: navigationClosedChannel, navigatedUrl: campaignUrl },
+  ]);
   const sessions = {
     async attachTab() {},
     async cancel() {},
     async fail() {},
     async get() {
-      return { status: 'running' };
+      return {
+        status: 'running',
+        attempt: 1,
+        progress: {
+          current: 31,
+          total: 279,
+          completed: 1,
+          failed: 0,
+          label: '같은 캠페인에서 반복',
+        },
+      };
     },
     async progress() {},
     async requireAttention() {},
@@ -1453,15 +2282,15 @@ test('stops a repeated resume after three attempts without campaign progress', a
       {
         id: 'ads',
         label: '광고 동기화',
-        url: resumeUrl,
+        url: dashboardUrl,
       },
     ],
   });
 
   assert.equal(result.success, false);
   assert.equal(result.failed, 1);
-  assert.equal(fake.calls.tabMessages.length, 4);
-  assert.equal(fake.calls.tabsUpdate.length, 4);
+  assert.equal(fake.calls.tabMessages.length, 8);
+  assert.equal(fake.calls.tabsUpdate.length, 8);
   assert.equal(
     result.error,
     '광고 캠페인 수집이 같은 위치에서 반복되어 중단했습니다.',
@@ -1480,7 +2309,15 @@ test('content-script timeout matches the 30 minute web collection budget', () =>
   assert.match(helperSource, /let tab\s*=\s*await navigate/);
   assert.match(
     helperSource,
-    /MAX_PROGRESSING_RESUME_ATTEMPTS\s*=\s*500/,
+    /MIN_PROGRESSING_RESUME_ATTEMPTS\s*=\s*2_000/,
+  );
+  assert.match(
+    helperSource,
+    /MAX_PROGRESSING_RESUME_ATTEMPTS\s*=\s*50_000/,
+  );
+  assert.match(
+    helperSource,
+    /campaignSweepResumeAttemptLimit\(resumeProgress\)/,
   );
 });
 

@@ -97,6 +97,21 @@ describe('BrowserCollectionSessionViewSchema', () => {
     }
   });
 
+  it('accepts the universal extension environment owner', () => {
+    expect(BrowserCollectionSessionViewSchema.parse({
+      ...createSession(),
+      environmentId: 'local',
+    }).environmentId).toBe('local');
+    expect(BrowserCollectionSessionViewSchema.parse({
+      ...createSession(),
+      environmentId: 'staging',
+    }).environmentId).toBe('staging');
+    expect(() => BrowserCollectionSessionViewSchema.parse({
+      ...createSession(),
+      environmentId: 'production',
+    })).toThrow();
+  });
+
   it('accepts every approved state with its required related fields', () => {
     for (const status of STATES) {
       const terminal = ['succeeded', 'failed', 'cancelled'].includes(status);

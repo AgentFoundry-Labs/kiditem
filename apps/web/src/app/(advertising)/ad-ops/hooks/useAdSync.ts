@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useAuthSession } from '@/components/providers/AuthProvider';
 import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
@@ -44,6 +45,7 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
   const [loading, setLoading] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const { session: authSession } = useAuthSession();
   const collectionSession = useBrowserCollectionSession(runId);
 
   const run = async (requestedRunId?: string) => {
@@ -69,6 +71,7 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         producer: 'advertising.ad_sync',
         extensionId,
         runId: nextRunId,
+        accessToken: authSession?.access_token,
         onStarted: () => {
           toast.info('광고 동기화를 백그라운드에서 시작합니다.');
         },
