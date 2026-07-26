@@ -122,10 +122,12 @@ describe('ProductOperationsService', () => {
     const media = makeCatalogDisplayMedia();
     const service = makeService(repository, media);
 
-    await expect(service.getProduct(organizationId, productId)).resolves.toMatchObject({
+    const result = await service.getProduct(organizationId, productId);
+    expect(result).toMatchObject({
       imageUrls: ['https://cdn.example.com/operator.jpg'],
       displayImageUrls: ['https://cdn.example.com/operator.jpg'],
     });
+    expect(result.displayImageUrls).not.toBe(result.imageUrls);
     expect(repository.listDisplayMediaTargets).not.toHaveBeenCalled();
     expect(media.findDisplayMedia).not.toHaveBeenCalled();
   });
@@ -192,6 +194,95 @@ describe('ProductOperationsService', () => {
       `Product display media enrichment failed for organization ${organizationId}.`,
       expect.stringContaining('Error: media unavailable'),
     );
+    warn.mockRestore();
+  });
+
+  it('keeps product detail reads available when display target lookup fails', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const repository = makeRepository();
+    repository.listDisplayMediaTargets.mockRejectedValue(
+      new Error('display targets unavailable'),
+    );
+    const service = makeService(repository);
+
+    await expect(service.getProduct(organizationId, productId)).resolves.toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [],
+    });
+    expect(warn).toHaveBeenCalledWith(
+      `Product display media enrichment failed for organization ${organizationId}.`,
+      expect.stringContaining('Error: display targets unavailable'),
+    );
+    warn.mockRestore();
+  });
+
+  it('keeps product list reads available when display target lookup fails', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const repository = makeRepository();
+    repository.listProducts.mockResolvedValue({
+      items: [rawListProduct(productId)],
+      page: 1,
+      limit: 50,
+    });
+    repository.listDisplayMediaTargets.mockRejectedValue(
+      new Error('display targets unavailable'),
+    );
+    const service = makeService(repository);
+
+    await expect(service.listProducts(organizationId, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      activeStatus: 'all',
+      adStatus: 'all',
+    })).resolves.toMatchObject({
+      items: [{ imageUrls: [], displayImageUrls: [] }],
+    });
+    expect(warn).toHaveBeenCalledWith(
+      `Product display media enrichment failed for organization ${organizationId}.`,
+      expect.stringContaining('Error: display targets unavailable'),
+    );
+    warn.mockRestore();
+  });
+
+  it('keeps a committed product creation available when display target lookup fails', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const repository = makeRepository();
+    repository.listDisplayMediaTargets.mockRejectedValue(
+      new Error('display targets unavailable'),
+    );
+    const service = makeService(repository);
+
+    await expect(service.createProduct(organizationId, userId, {
+      code: 'KI-001',
+      name: 'Product',
+    })).resolves.toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [],
+    });
+    expect(repository.createProduct).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  it('keeps a committed product update available when display target lookup fails', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const repository = makeRepository();
+    repository.listDisplayMediaTargets.mockRejectedValue(
+      new Error('display targets unavailable'),
+    );
+    const service = makeService(repository);
+
+    await expect(service.updateProduct(
+      organizationId,
+      productId,
+      { name: 'Renamed' },
+    )).resolves.toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [],
+    });
+    expect(repository.updateProduct).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
   });
 

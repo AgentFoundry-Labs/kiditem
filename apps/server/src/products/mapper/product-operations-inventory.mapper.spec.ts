@@ -35,7 +35,7 @@ describe('product operations inventory mapper', () => {
   });
 
   it('initially mirrors direct product images into display images', () => {
-    expect(mapProductOperationsListItem(
+    const result = mapProductOperationsListItem(
       { ...rawListItem(), imageUrls: ['https://cdn.example.com/operator.jpg'] },
       new Map(),
       {
@@ -44,10 +44,13 @@ describe('product operations inventory mapper', () => {
         reorderSkuCount: 0,
         minMonthsOfAvailableStockLeft: null,
       },
-    )).toMatchObject({
+    );
+
+    expect(result).toMatchObject({
       imageUrls: ['https://cdn.example.com/operator.jpg'],
       displayImageUrls: ['https://cdn.example.com/operator.jpg'],
     });
+    expect(result.displayImageUrls).not.toBe(result.imageUrls);
   });
 });
 

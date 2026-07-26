@@ -56,7 +56,7 @@ export function mapProductOperationsDetail(
   const inventory = projectProductInventory(variants.map(toInventoryVariant));
   return {
     ...product,
-    displayImageUrls: product.imageUrls,
+    displayImageUrls: [...product.imageUrls],
     variants,
     inventoryUnits: inventory.inventoryUnits,
     inventoryStatus: inventory.inventoryStatus,
@@ -75,7 +75,7 @@ export function mapProductOperationsListItem(
   const inventory = projectProductInventory(variants.map(toInventoryVariant));
   return {
     ...metadata,
-    displayImageUrls: product.imageUrls,
+    displayImageUrls: [...product.imageUrls],
     depletion,
     variantSummary: {
       total: variants.length,

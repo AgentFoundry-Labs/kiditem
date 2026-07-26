@@ -278,18 +278,18 @@ export class ProductOperationsService implements ProductOperationsPort {
       .map((product) => product.id);
     if (fallbackIds.length === 0) return products;
 
-    const targets = await this.repository.listDisplayMediaTargets(
-      organizationId,
-      fallbackIds,
-    );
-    const byProductId = new Map<string, typeof targets>();
-    for (const target of targets) {
-      const existing = byProductId.get(target.masterProductId) ?? [];
-      existing.push(target);
-      byProductId.set(target.masterProductId, existing);
-    }
-
     try {
+      const targets = await this.repository.listDisplayMediaTargets(
+        organizationId,
+        fallbackIds,
+      );
+      const byProductId = new Map<string, typeof targets>();
+      for (const target of targets) {
+        const existing = byProductId.get(target.masterProductId) ?? [];
+        existing.push(target);
+        byProductId.set(target.masterProductId, existing);
+      }
+
       const media = await this.catalogDisplayMedia.findDisplayMedia({
         organizationId,
         requests: fallbackIds.flatMap((key) => {
