@@ -67,6 +67,9 @@
 - List, detail, and channel-origin edit surfaces render product and variant
   `displayReference` values. Never expose deterministic internal `CP-*` or
   `CP-SKU-*` codes as operator-facing product or option identifiers.
+- Product list/detail display surfaces render calculated `displayImageUrls`.
+  Product create/edit forms read and submit only operator-managed `imageUrls`;
+  they never promote a channel fallback into direct product metadata.
 
 ## Boundary Rules
 

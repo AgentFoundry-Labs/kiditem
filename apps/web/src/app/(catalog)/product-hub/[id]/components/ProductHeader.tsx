@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ArrowLeft, Pencil } from 'lucide-react';
-import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 import { MasterProductImage } from '../../components/MasterProductImage';
+import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
 export default function ProductHeader({
   product,
@@ -22,7 +22,7 @@ export default function ProductHeader({
         <div className="flex min-w-0 items-center gap-4">
           <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--primary-soft)] text-[var(--primary)]">
             <MasterProductImage
-              imageUrl={product.imageUrls[0]}
+              imageUrl={product.displayImageUrls[0]}
               productName={product.name}
               className="h-full w-full object-cover"
               loading="eager"

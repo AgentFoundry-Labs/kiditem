@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
-import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
 import { MasterProductImage } from './MasterProductImage';
+import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
 
 const INVENTORY_LABELS = {
   sellable: '판매 가능',
@@ -40,7 +40,7 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
           </div>
           <div className="flex h-[88px] w-[88px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-muted)]">
             <MasterProductImage
-              imageUrl={product.imageUrls[0]}
+              imageUrl={product.displayImageUrls[0]}
               productName={product.name}
               className="h-full w-full object-cover"
             />

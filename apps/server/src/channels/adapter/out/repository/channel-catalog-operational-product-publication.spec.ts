@@ -7,7 +7,7 @@ import {
 } from './channel-catalog-operational-product-publication';
 
 describe('buildCatalogProductProvisioningListings', () => {
-  it('maps persisted identities and typed exact evidence without raw aliases', () => {
+  it('maps persisted identities and typed exact evidence without catalog media', () => {
     const products = [{
       externalProductId: 'P-1',
       registeredName: '등록상품명',
@@ -57,10 +57,6 @@ describe('buildCatalogProductProvisioningListings', () => {
       name: '등록상품명',
       category: '완구',
       brand: '브랜드',
-      imageUrls: [
-        'https://cdn.example.com/primary.jpg',
-        'https://cdn.example.com/option.jpg',
-      ],
       options: [{
         channelListingOptionId: 'option-1',
         currentProductVariantId: null,
@@ -175,6 +171,7 @@ describe('publishCatalogOperationalProducts', () => {
       transaction,
       organizationId: 'organization-1',
       userId: 'user-1',
+      listings: [expect.not.objectContaining({ imageUrls: expect.anything() })],
     }));
     expect(transaction.$queryRaw).toHaveBeenCalledTimes(3);
   });

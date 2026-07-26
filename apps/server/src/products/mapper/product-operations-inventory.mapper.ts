@@ -1,3 +1,7 @@
+import {
+  projectProductInventory,
+  projectVariantCapacity,
+} from '../domain/product-variant-capacity';
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-commitment';
 import type {
   MasterProductOperationsDetail,
@@ -10,10 +14,6 @@ import type {
   ProductOperationsRepositoryListItem,
   ProductOperationsRepositoryVariant,
 } from '../application/port/out/repository/product-operations.repository.port';
-import {
-  projectProductInventory,
-  projectVariantCapacity,
-} from '../domain/product-variant-capacity';
 
 type AvailabilityBySkuId = ReadonlyMap<string, InventorySkuAvailability>;
 
@@ -56,6 +56,7 @@ export function mapProductOperationsDetail(
   const inventory = projectProductInventory(variants.map(toInventoryVariant));
   return {
     ...product,
+    displayImageUrls: [...product.imageUrls],
     variants,
     inventoryUnits: inventory.inventoryUnits,
     inventoryStatus: inventory.inventoryStatus,
@@ -74,6 +75,7 @@ export function mapProductOperationsListItem(
   const inventory = projectProductInventory(variants.map(toInventoryVariant));
   return {
     ...metadata,
+    displayImageUrls: [...product.imageUrls],
     depletion,
     variantSummary: {
       total: variants.length,

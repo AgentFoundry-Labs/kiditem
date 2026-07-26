@@ -100,6 +100,8 @@ export const ChannelMatchingAccountSchema = z.object({
 }).strict();
 export type ChannelMatchingAccount = z.infer<typeof ChannelMatchingAccountSchema>;
 
+const DisplayImageUrlSchema = z.string().trim().min(1).max(2_000).nullable();
+
 export const ChannelProductMatchingQueueRowSchema = z.object({
   channelAccount: ChannelMatchingAccountSchema,
   listing: z.object({
@@ -108,12 +110,14 @@ export const ChannelProductMatchingQueueRowSchema = z.object({
     displayName: z.string().nullable(),
     status: z.string().nullable(),
     masterProductId: z.string().uuid().nullable(),
+    channelImageUrl: DisplayImageUrlSchema,
     updatedAt: zIsoDate,
   }).strict(),
   linkedProduct: z.object({
     id: z.string().uuid(),
     code: z.string().min(1),
     name: z.string().min(1),
+    displayImageUrl: DisplayImageUrlSchema,
   }).strict().nullable(),
   optionCount: z.number().int().nonnegative(),
   linkedOptionCount: z.number().int().nonnegative(),

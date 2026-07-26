@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { InventoryModule } from '../inventory/inventory.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
+import { AiModule } from '../ai/ai.module';
 import { ProductOperationsController } from './adapter/in/http/product-operations.controller';
 import { ChannelCatalogProductProvisioningRepositoryAdapter } from './adapter/out/repository/channel-catalog-product-provisioning.repository.adapter';
 import { ProductOperationsRepositoryAdapter } from './adapter/out/repository/product-operations.repository.adapter';
@@ -22,7 +23,7 @@ import { ProductVariantAbcGradeReadAdapter } from './adapter/out/repository/prod
 import { PRODUCT_VARIANT_ABC_GRADE_READ_PORT } from './application/port/in/product-variant-abc-grade-read.port';
 
 @Module({
-  imports: [CategoriesModule, InventoryModule, AnalyticsModule],
+  imports: [CategoriesModule, InventoryModule, AnalyticsModule, AiModule],
   controllers: [ProductOperationsController],
   providers: [
     ProductOperationsService,
