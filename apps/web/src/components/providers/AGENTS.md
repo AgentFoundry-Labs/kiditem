@@ -28,9 +28,9 @@ here affect every route.
   toast with `meta: { suppressGlobalErrorToast: true }`.
 - `installQueryClientErrorHandler()` exists so HMR-created QueryClient
   instances receive the current global handler.
-- `SellpiaInventorySyncProvider` keeps the floating freshness entry visible on
-  established operations screens. Suppress it only where the same shared
-  drawer has an intentional inline status, currently `/product-hub/matching`.
+- `SellpiaInventorySyncProvider` is a background coordinator only. It renders
+  no freshness drawer, status entry, or manual-import UI; explicit refresh
+  buttons call the shared freshness hook and the coordinator claims the work.
 
 ## Boundary Rules
 

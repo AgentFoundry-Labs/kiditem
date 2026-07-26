@@ -45,9 +45,9 @@ describe('InventoryTable', () => {
       '현재고',
       '매입가',
       '판매가',
-      '재고자산',
       '최종 가져오기',
     ]);
+    expect(screen.queryByRole('columnheader', { name: '재고자산' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '액션' })).not.toBeInTheDocument();
   });
 
@@ -55,7 +55,7 @@ describe('InventoryTable', () => {
     renderInventoryTable();
 
     expect(screen.getByText('SP-1')).toBeInTheDocument();
-    expect(screen.getAllByText('가격 미등록')).toHaveLength(2);
+    expect(screen.getAllByText('가격 미등록')).toHaveLength(1);
     expect(screen.getByText('가져오기 기록 없음')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /입고|출고|조정|설정/ })).not.toBeInTheDocument();
   });

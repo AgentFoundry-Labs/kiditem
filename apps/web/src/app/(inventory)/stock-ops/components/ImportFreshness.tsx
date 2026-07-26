@@ -5,7 +5,7 @@ import { Clock3 } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 import { listSellpiaImportRuns, sellpiaImportRunKeyParams } from '../../_shared/inventory-api';
-import { ErrorState, LoadingState, ProjectionCard, SimpleTable } from './ZeroItems';
+import { ErrorState, LoadingState, ProjectionCard, SimpleTable } from './StockProjectionUi';
 
 export default function ImportFreshness() {
   const params = { page: 1, limit: 20 };

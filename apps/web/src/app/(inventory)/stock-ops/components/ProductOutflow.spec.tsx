@@ -176,6 +176,20 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     await waitFor(() => expect(stockRefresh).toBeEnabled());
   });
 
+  it('retries the failed Sellpia generation from the direct stock refresh action', async () => {
+    freshness.state = {
+      status: 'failed',
+      lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+    };
+    renderProductOutflow();
+
+    fireEvent.click(screen.getByRole('button', { name: /재고 동기화/ }));
+
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('retry'));
+    expect(productProfitCollection).not.toHaveBeenCalled();
+    expect(productSalesApi.ingest).not.toHaveBeenCalled();
+  });
+
   it('renders shared syncing freshness as a disabled stock refresh action', () => {
     freshness.state = {
       status: 'syncing',
@@ -312,6 +326,9 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     renderProductOutflow();
 
     expect(await screen.findByText('발주 대상 상품')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '현재고' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '약정' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '가용재고' })).not.toBeInTheDocument();
     expect(screen.getByText('이상치 재고 상품')).toBeInTheDocument();
     expect(screen.getByText('여름')).toBeInTheDocument();
     expect(screen.getByLabelText('보합')).toBeInTheDocument();

@@ -14,14 +14,14 @@ const summary: InventorySkuSnapshotSummary = {
 };
 
 describe('InventorySummaryCards', () => {
-  it('renders four develop-style inventory summary cards with current snapshot semantics', () => {
+  it('renders inventory counts without stock-asset valuation', () => {
     render(<InventorySummaryCards summary={summary} />);
 
-    expect(screen.getAllByTestId('inventory-summary-card')).toHaveLength(4);
+    expect(screen.getAllByTestId('inventory-summary-card')).toHaveLength(3);
     expect(screen.getByText('전체 상품')).toBeInTheDocument();
     expect(screen.getByText('재고 있음')).toBeInTheDocument();
     expect(screen.getByText('재고 없음')).toBeInTheDocument();
-    expect(screen.getByText('평가 재고자산')).toBeInTheDocument();
+    expect(screen.queryByText('평가 재고자산')).not.toBeInTheDocument();
   });
 
   it('uses theme-aware semantic colors for the slate summary card', () => {

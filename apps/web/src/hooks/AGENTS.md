@@ -11,9 +11,9 @@ needs them.
 - `useAuth()` reads `/api/auth/me` through React Query.
 - Period selector state shared by operational screens.
 - Legacy/shared product-image hooks that are genuinely cross-route.
-- Sellpia freshness/history server state, including authenticated
-  `refetchInterval` polling, the authoritative latest completed inventory
-  basis, and full derived-projection invalidation after manual import.
+- Sellpia freshness state and refresh requests, including authenticated
+  `refetchInterval` polling. Import history and current-basis reads stay with
+  their owning inventory screens instead of being prefetched globally.
 - `useUrlControlledTab()` for allow-listed canonical workspace selection while
   preserving query parameters owned by nested views and filters.
 

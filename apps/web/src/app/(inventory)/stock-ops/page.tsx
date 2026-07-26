@@ -13,8 +13,8 @@ const TAB_IDS = ['product-outflow', 'channel-zero'] as const;
 // 재고관리(/inventory-hub)로 옮겨간 예전 분석 탭들. 대시보드·운영 알림에 남아 있는 딥링크가
 // 빈 화면으로 떨어지지 않도록 새 위치로 그대로 보낸다.
 const MOVED_TABS: Readonly<Record<string, string>> = {
-  'sellpia-zero': '/inventory-hub?tab=checks',
-  'mapping-attention': '/inventory-hub?tab=checks',
+  'sellpia-zero': '/inventory-hub?tab=status',
+  'mapping-attention': '/inventory-hub?tab=status',
   'inventory-value': '/inventory-hub?tab=status',
   freshness: '/inventory-hub?tab=sellpia-sync',
   transfer: '/inventory-hub?tab=status',

@@ -1,8 +1,8 @@
-import { CircleDollarSign, Package, PackageCheck, PackageX, type LucideIcon } from 'lucide-react';
+import { Package, PackageCheck, PackageX, type LucideIcon } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import type { InventorySkuSnapshotSummary } from '@kiditem/shared/inventory';
 
-type CardTone = 'slate' | 'green' | 'orange' | 'purple';
+type CardTone = 'slate' | 'green' | 'orange';
 
 const toneClasses: Record<CardTone, { card: string; label: string; value: string }> = {
   slate: {
@@ -20,11 +20,6 @@ const toneClasses: Record<CardTone, { card: string; label: string; value: string
     label: 'text-orange-600',
     value: 'text-orange-700',
   },
-  purple: {
-    card: 'border-purple-200 bg-purple-50',
-    label: 'text-purple-600',
-    value: 'text-purple-700',
-  },
 };
 
 export function InventorySummaryCards({ summary }: { summary: InventorySkuSnapshotSummary }) {
@@ -38,17 +33,10 @@ export function InventorySummaryCards({ summary }: { summary: InventorySkuSnapsh
     { label: '전체 상품', value: summary.totalSkus, tone: 'slate', icon: Package },
     { label: '재고 있음', value: summary.inStockSkus, tone: 'green', icon: PackageCheck },
     { label: '재고 없음', value: summary.outOfStockSkus, tone: 'orange', icon: PackageX },
-    {
-      label: '평가 재고자산',
-      value: summary.pricedAssetValue,
-      tone: 'purple',
-      icon: CircleDollarSign,
-      unit: '원',
-    },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-3">
       {cards.map(({ label, value, tone, icon: Icon, unit }) => (
         <div
           key={label}

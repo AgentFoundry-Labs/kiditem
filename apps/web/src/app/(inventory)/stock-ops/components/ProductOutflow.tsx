@@ -33,8 +33,8 @@ const STOCK_FRESHNESS_META: Record<string, { label: string; className: string }>
   failed: { label: '실패', className: 'bg-red-100 text-red-700' },
 };
 
-// 정렬 키: 고정 지표('avg2m'|'currentStock'|'availableStock') 또는 특정 연월("YYYY-MM").
-type SortKey = 'avg2m' | 'currentStock' | 'availableStock' | string;
+// 정렬 키: 고정 지표('avg2m'|'currentStock') 또는 특정 연월("YYYY-MM").
+type SortKey = 'avg2m' | 'currentStock' | string;
 type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C' | 'unclassified';
 
 function todayKst(): string {
@@ -82,12 +82,12 @@ export default function ProductOutflow() {
   // 현재고 갱신 요청(비필수) — 실제 JSON 스냅샷 수집/적재는 공용 조정자가 수행한다.
   const syncStock = useCallback(async (): Promise<boolean> => {
     try {
-      await requestRefresh('manual_request');
+      await requestRefresh(freshnessState?.status === 'failed' ? 'retry' : 'manual_request');
       return true;
     } catch {
       return false; // 갱신 요청 실패여도 판매 데이터 수집은 유지
     }
-  }, [requestRefresh]);
+  }, [freshnessState?.status, requestRefresh]);
 
   const runSync = useCallback(async () => {
     setSyncing(true);
@@ -323,9 +323,6 @@ function ProductOutflowTable({
       if (sortKey === 'currentStock') return vm.row.inventoryResolution.status === 'matched'
         ? vm.row.inventoryResolution.currentStock
         : -1;
-      if (sortKey === 'availableStock') return vm.row.inventoryResolution.status === 'matched'
-        ? vm.row.inventoryResolution.availableStock
-        : -1;
       return vm.monthMap.get(sortKey) ?? 0; // 특정 연월
     };
     return vms.sort((a, b) => valOf(b) - valOf(a) || b.row.totalQty - a.row.totalQty);
@@ -393,12 +390,6 @@ function ProductOutflowTable({
               {hasStock && (
                 <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
                   <HeaderSort k="currentStock">현재고</HeaderSort>
-                </th>
-              )}
-              {hasStock && <th className="bg-slate-50 px-3 py-2 text-right font-semibold border-b border-slate-200 whitespace-nowrap">약정</th>}
-              {hasStock && (
-                <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
-                  <HeaderSort k="availableStock">가용재고</HeaderSort>
                 </th>
               )}
               <th className="min-w-[220px] bg-slate-50 px-3 py-2 text-left font-semibold border-b border-slate-200 whitespace-nowrap">운영 상품</th>
@@ -476,16 +467,6 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
       {hasStock && (
         <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-800 border-b border-slate-50">
           {resolution.status === 'matched' ? formatNumber(resolution.currentStock) : '—'}
-        </td>
-      )}
-      {hasStock && (
-        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-600 border-b border-slate-50">
-          {resolution.status === 'matched' ? formatNumber(resolution.activeCommitmentQuantity) : '—'}
-        </td>
-      )}
-      {hasStock && (
-        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold text-slate-900 border-b border-slate-50">
-          {resolution.status === 'matched' ? formatNumber(resolution.availableStock) : '—'}
         </td>
       )}
       <td className="max-w-[280px] px-3 py-2 border-b border-slate-50">

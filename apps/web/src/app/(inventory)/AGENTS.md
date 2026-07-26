@@ -11,8 +11,8 @@ physical `SellpiaInventorySku` rows.
 
 ## Owned Surfaces
 
-- Sellpia snapshot list, import history, freshness, and asset reporting
-- Channel availability, zero-stock, bottleneck, and mapping-attention views
+- Sellpia snapshot list, import history, freshness, and inventory reporting
+- Channel availability and bottleneck views
 - Warehouse reference reads for `StockTransfers` and record-only transfer and
   return views
 - Coupang shipment file helpers and browser print support
@@ -39,17 +39,20 @@ React Query + inventory API helpers
 - Barcode printing may use browser print APIs only in the existing inventory
   print helper.
 - Keep projection helpers pure and covered by focused tests.
-- Sellpia automatic and manual attempts share the global freshness drawer and
-  one import-run history. Manual upload requires explicit fresh-export
-  attestation bound to the currently selected file, and pre-download failures
-  render without file provenance.
-- `/inventory-hub` owns exactly four tabs — `status`, `sellpia-sync`,
-  `rocket-events`, `checks` — and has **no nested tab strip**. Related views
-  stack as sections inside one tab (purchase orders, io and assets all live on
-  `status`). Do not reintroduce sub-tabs to make room for a new view; add a
-  section or argue for a fifth tab. Every tab id retired by that collapse
-  keeps an entry in the page's `LEGACY_TAB_TARGETS` so old deep links still
-  land.
+- Sellpia refresh requests are made through explicit action buttons and claimed
+  by the authenticated background coordinator. There is no global freshness
+  drawer, status entry, or manual-import UI. Completed automatic attempts share
+  one import-run history.
+- `/inventory-hub` owns exactly three tabs — `status`, `sellpia-sync`, and
+  `rocket-events` — and has **no nested tab strip**. Related views
+  stack as sections inside one tab (`status` contains the inventory snapshot
+  and transfer/return records, but not purchase orders or stock assets). Do not
+  reintroduce sub-tabs to make room for a new view; add a section or argue for
+  a fourth tab. The retired `checks`, `sellpia-zero`, and `mapping-attention`
+  deep links land on `status`. Every tab id retired by that collapse keeps an
+  entry in the page's `LEGACY_TAB_TARGETS` so old deep links still land.
+  The former checks-only `ZeroItems`, `MappingAttention`, and internal legacy
+  workspace are deleted; do not restore a hidden rendering path for them.
 - `/stock-ops` keeps only the two analysis views that are not inventory
   operations: `product-outflow` and `channel-zero`. The tabs it handed to
   `/inventory-hub` stay reachable through the page's `MOVED_TABS` redirect
@@ -57,8 +60,9 @@ React Query + inventory API helpers
 - Tab moves are additive-compatible, never silent: a tab that changes route
   gets a `MOVED_TABS` entry, a tab that changes id gets a `LEGACY_TAB_TARGETS`
   entry, and both are covered by the page spec.
-  `/stock-ops?tab=sellpia-zero` and `?tab=freshness` are load-bearing for
-  dashboard and server automation alerts.
+  `/stock-ops?tab=sellpia-zero` and `?tab=freshness` remain load-bearing for
+  saved dashboard and server automation alerts even though new links use the
+  canonical inventory-hub tabs.
 - Both redirect tables are looked up with `Object.hasOwn`. Indexing a plain
   object literal with the raw `?tab=` value lets `constructor`/`toString`
   resolve to inherited members and hands `router.replace` a non-string.
@@ -67,8 +71,9 @@ React Query + inventory API helpers
   now one io section. Do not re-add a read-only twin of it.
 - `/inventory` keeps its own operator-facing composition. Shared projections
   may reuse components, but that route does not become a redirect.
-- Compact freshness status opens the shared drawer; automatic and manual
-  attempts remain one import history regardless of which screen opened it.
+- Do not add a shared freshness drawer or app-wide/inline status entry. Direct
+  refresh actions schedule work through the shared hook, while the background
+  coordinator owns claim, collection, upload, and finalization.
 - Sellpia import-run history has exactly one screen (`?tab=sellpia-sync`). Do
   not reintroduce a separate audit or freshness tab rendering the same
   `ImportFreshness` projection.
