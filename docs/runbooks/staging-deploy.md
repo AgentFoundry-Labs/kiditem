@@ -189,6 +189,7 @@ STAGING_TAOBAO_TOP_TIMEOUT_MS=15000
 STAGING_SOURCING_LINKFOX_SHADOW_ENABLED=0
 STAGING_SOURCING_LINKFOX_ECHOTIK_REGION=US
 STAGING_SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS=<comma-separated-organization-uuids>
+STAGING_ORDER_COLLECTION_MALL_ORGANIZATION_ID=<target-organization-uuid>
 STAGING_DB_BASELINE_BUCKET=kiditem-staging-db-baselines
 STAGING_DB_BASELINE_S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
 STAGING_DB_BASELINE_S3_REGION=ap-northeast-2
@@ -218,6 +219,7 @@ STAGING_TMAPI_TOKEN=<tmapi-token>
 STAGING_TAOBAO_TOP_APP_KEY=<taobao-top-app-key>
 STAGING_TAOBAO_TOP_APP_SECRET=<taobao-top-app-secret>
 STAGING_LINKFOX_AGENT_API_KEY=<server-only-linkfox-key>
+STAGING_ORDER_COLLECTION_MALL_ACCOUNTS=<multiline-dotenv-payload-with-complete-mall-ID-PW-URL-triples>
 STAGING_DB_BASELINE_S3_ACCESS_KEY=<private-db-baseline-s3-access-key-id>
 STAGING_DB_BASELINE_S3_SECRET_KEY=<private-db-baseline-s3-secret-access-key>
 ```
@@ -260,6 +262,7 @@ gh variable set STAGING_TAOBAO_TOP_TIMEOUT_MS --env staging --body "15000"
 gh variable set STAGING_SOURCING_LINKFOX_SHADOW_ENABLED --env staging --body "0"
 gh variable set STAGING_SOURCING_LINKFOX_ECHOTIK_REGION --env staging --body "US"
 gh variable set STAGING_SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS --env staging --body "<comma-separated-organization-uuids>"
+gh variable set STAGING_ORDER_COLLECTION_MALL_ORGANIZATION_ID --env staging --body "<target-organization-uuid>"
 gh variable set STAGING_DB_BASELINE_BUCKET --env staging --body "kiditem-staging-db-baselines"
 gh variable set STAGING_DB_BASELINE_S3_ENDPOINT --env staging --body "https://<project-ref>.storage.supabase.co/storage/v1/s3"
 gh variable set STAGING_DB_BASELINE_S3_REGION --env staging --body "ap-northeast-2"
@@ -282,6 +285,7 @@ printf '%s' '<tmapi-token>' | gh secret set STAGING_TMAPI_TOKEN --env staging
 printf '%s' '<taobao-top-app-key>' | gh secret set STAGING_TAOBAO_TOP_APP_KEY --env staging
 printf '%s' '<taobao-top-app-secret>' | gh secret set STAGING_TAOBAO_TOP_APP_SECRET --env staging
 printf '%s' '<server-only-linkfox-key>' | gh secret set STAGING_LINKFOX_AGENT_API_KEY --env staging
+gh secret set STAGING_ORDER_COLLECTION_MALL_ACCOUNTS --env staging < .secrets/staging/order-collection-malls.env
 printf '%s' '<private-db-baseline-s3-access-key-id>' | gh secret set STAGING_DB_BASELINE_S3_ACCESS_KEY --env staging
 printf '%s' '<private-db-baseline-s3-secret-access-key>' | gh secret set STAGING_DB_BASELINE_S3_SECRET_KEY --env staging
 ```
@@ -292,6 +296,13 @@ host key prevents a deploy from trusting an unexpected SSH host.
 The workflow uses the short-lived `GITHUB_TOKEN` to push and pull GHCR images.
 Do not create a long-lived GHCR PAT for staging unless the `GITHUB_TOKEN` path
 is blocked by organization policy.
+
+`STAGING_ORDER_COLLECTION_MALL_ACCOUNTS` is a deploy-time secret, not an EC2
+runtime env file. Its dotenv payload must contain only complete mall
+`ID/PW/URL` triples from `apps/server/.env.example`. The normal deploy validates
+the target organization and reports only updated/unchanged counts. To roll back
+a credential change, restore the prior protected payload and rerun the confirmed
+seed. Omitted malls are not deleted.
 
 The staging API image includes Chromium for server-side render-image jobs. The
 remote deploy script prunes stopped containers, unused images, and Docker
@@ -390,9 +401,11 @@ deploy/staging/remote-deploy.sh
 ```
 
 Normal deploys keep the ordered pre-schema migration, non-destructive
-`prisma db push`, and post-schema migration path. Finish and merge every PR in
-the release train first, then perform one combined staging deploy; do not deploy
-or reset between those PRs. Staging exposes one explicit fresh-reset path:
+`prisma db push`, post-schema migration, and organization-scoped
+order-collection credential seed path. The credential payload stays on the
+GitHub runner and is never added to `.env.staging.api`. Finish and merge every
+PR in the release train first, then perform one combined staging deploy; do not
+deploy or reset between those PRs. Staging exposes one explicit fresh-reset path:
 
 ```text
 operation: deploy
@@ -416,7 +429,9 @@ credential/config, scrape payload, product, order, inventory, Sellpia, or WING
 data. It is bound to the staging target, originating workflow run, full Git SHA,
 and a SHA-256 of its contents. Restore requires empty account and channel tables
 and verifies that ChannelAccount remains empty. Actual Coupang accounts are
-configured after deploy through the normal application path.
+configured after deploy through the normal application path. The automated
+order-collection seed is also skipped during destructive reset; use a later
+normal deploy or an explicitly confirmed manual seed to restore those accounts.
 
 The migration-ledger artifact is bookkeeping, not recovered legacy business
 data. It records which migration bodies are already subsumed by the fresh final
