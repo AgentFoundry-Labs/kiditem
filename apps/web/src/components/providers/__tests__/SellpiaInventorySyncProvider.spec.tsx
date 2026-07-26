@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -31,9 +31,6 @@ const alerts = vi.hoisted(() => ({
   requireAttentionOperationAlert: vi.fn(),
 }));
 const invalidateSellpiaInventory = vi.hoisted(() => vi.fn());
-const sellpiaDrawerPropsMock = vi.hoisted(() => vi.fn());
-const sellpiaStatusMock = vi.hoisted(() => vi.fn());
-const navigation = vi.hoisted(() => ({ pathname: '/inventory-hub' }));
 
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({ sellpiaInventoryFreshnessApi: api }));
 vi.mock('@/lib/sellpia-inventory-extension', () => extension);
@@ -41,19 +38,6 @@ vi.mock('@/hooks/useAuth', () => auth);
 vi.mock('@/lib/operation-alerts', () => alerts);
 vi.mock('@/app/(inventory)/_shared/invalidate-sellpia-inventory', () => ({
   invalidateSellpiaInventory,
-}));
-vi.mock('next/navigation', () => ({
-  usePathname: () => navigation.pathname,
-}));
-vi.mock('@/components/sellpia-inventory', () => ({
-  SellpiaFreshnessStatus: (props: unknown) => {
-    sellpiaStatusMock(props);
-    return null;
-  },
-  SellpiaFreshnessDrawer: (props: unknown) => {
-    sellpiaDrawerPropsMock(props);
-    return null;
-  },
 }));
 
 import * as providerModule from '../SellpiaInventorySyncProvider';
@@ -159,7 +143,6 @@ function expectNoStaleClaimSideEffects() {
 describe('SellpiaInventorySyncProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    navigation.pathname = '/inventory-hub';
     auth.useAuth.mockReturnValue({ status: 'ready', user: { organizationId: 'org-1', role: 'owner' } });
     api.getState.mockResolvedValue(dueState);
     api.getCurrentBasis.mockResolvedValue(null);
@@ -180,29 +163,13 @@ describe('SellpiaInventorySyncProvider', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  it.each([
-    '/inventory-hub',
-    '/orders',
-    '/purchase-orders',
-  ])('keeps a floating Sellpia status entry on restored screen %s', async (pathname) => {
-    navigation.pathname = pathname;
-    renderProvider();
+  it('coordinates in the background while rendering its children', async () => {
+    renderProvider(<div>provider child</div>);
 
-    await waitFor(() => expect(sellpiaStatusMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: dueState.status,
-        lastVerifiedAt: dueState.lastVerifiedAt,
-        onOpen: expect.any(Function),
-      }),
-    ));
-  });
-
-  it('suppresses only the floating copy when matching renders the shared status inline', async () => {
-    navigation.pathname = '/product-hub/matching';
-    renderProvider();
-
-    await waitFor(() => expect(sellpiaDrawerPropsMock).toHaveBeenCalled());
-    expect(sellpiaStatusMock).not.toHaveBeenCalled();
+    expect(screen.getByText('provider child')).toBeInTheDocument();
+    await waitFor(() => expect(api.getState).toHaveBeenCalled());
+    expect(api.getCurrentBasis).not.toHaveBeenCalled();
+    expect(api.listHistory).not.toHaveBeenCalled();
   });
 
   it('does not claim before auth is ready or before syncNotBefore', async () => {
@@ -335,19 +302,7 @@ describe('SellpiaInventorySyncProvider', () => {
       file: new File(['old-workbook'], 'old-inventory.xls'),
       extensionId: 'old-organization-extension',
     }));
-    await waitFor(() => expect(sellpiaDrawerPropsMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ ownerClaimToken: NEW_ORGANIZATION_RUN_ID }),
-    ));
-    const props = sellpiaDrawerPropsMock.mock.lastCall?.[0] as {
-      onCancel: (claimToken: string) => void;
-    };
-
-    await act(async () => props.onCancel(NEW_ORGANIZATION_RUN_ID));
-
-    await waitFor(() => expect(extension.cancelSellpiaInventorySession).toHaveBeenCalledWith({
-      extensionId: 'new-organization-extension',
-      runId: NEW_ORGANIZATION_RUN_ID,
-    }));
+    expect(api.importBrowser).toHaveBeenCalledTimes(1);
   });
 
   it('claims once across two mounted coordinators and uses claimToken as the extension runId', async () => {
@@ -541,32 +496,6 @@ describe('SellpiaInventorySyncProvider', () => {
     });
 
     await waitFor(() => expect(api.claimDue).toHaveBeenCalledTimes(2));
-  });
-
-  it('lets only the claiming provider explicitly cancel both the extension and server lease', async () => {
-    extension.collectSellpiaInventory.mockReturnValue(new Promise(() => undefined));
-    renderProvider();
-    await waitFor(() => expect(sellpiaDrawerPropsMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ ownerClaimToken: RUN_ID }),
-    ));
-    const props = sellpiaDrawerPropsMock.mock.lastCall?.[0] as {
-      onCancel: (claimToken: string) => void;
-    };
-
-    await act(async () => props.onCancel(RUN_ID));
-
-    await waitFor(() => expect(api.cancel).toHaveBeenCalledWith(RUN_ID));
-    expect(extension.cancelSellpiaInventorySession).toHaveBeenCalledWith({ runId: RUN_ID });
-    expect(alerts.cancelOperationAlert).toHaveBeenCalledWith(
-      `browser-collection:${RUN_ID}`,
-      expect.objectContaining({
-        metadata: expect.objectContaining({
-          browserCollection: true,
-          collectionAttempt: 1,
-          collectionUpdatedAt: expect.any(Number),
-        }),
-      }),
-    );
   });
 
   it('uploads, finalizes, invalidates projections, and deduplicates quality alerts by hash and warning code', async () => {

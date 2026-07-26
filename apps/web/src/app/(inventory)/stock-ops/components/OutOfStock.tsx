@@ -6,7 +6,7 @@ import { Ban } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { channelSkuAvailabilityKeyParams, listChannelSkuAvailability } from '../../_shared/inventory-api';
-import { ErrorState, LoadingState, ProjectionCard, SimpleTable } from './ZeroItems';
+import { ErrorState, LoadingState, ProjectionCard, SimpleTable } from './StockProjectionUi';
 
 export default function OutOfStock() {
   const [page, setPage] = useState(1);

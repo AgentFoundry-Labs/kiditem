@@ -9,7 +9,6 @@ import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
 import { apiClient } from '@/lib/api-client';
 import { friendlyError } from '@/lib/api-error';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
-import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
@@ -674,7 +673,6 @@ export function OrderCollectionWorkspace() {
           ) : (
             <span className="text-xs font-semibold text-amber-700">로켓 채널 계정 없음</span>
           )}
-          <SellpiaWorkspaceFreshnessStatus />
           <button
             type="button"
             onClick={() => setUploadModalOpen(true)}

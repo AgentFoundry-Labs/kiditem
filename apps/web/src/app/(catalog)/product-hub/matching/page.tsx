@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
-import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { friendlyError } from '@/lib/api-error';
 import {
   ProductInventoryMatchingTable,
@@ -157,7 +156,6 @@ export default function MatchingPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <SellpiaWorkspaceFreshnessStatus />
           <button type="button" onClick={() => void refresh()} disabled={!selectedAccount || mappingsQuery.isFetching} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">
             <RefreshCw size={14} className={mappingsQuery.isFetching ? 'animate-spin' : ''} /> 새로고침
           </button>

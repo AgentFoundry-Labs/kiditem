@@ -1,8 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { usePathname } from 'next/navigation';
 import type {
   SellpiaInventoryCollectionFailureCode,
   SellpiaInventoryFreshnessView,
@@ -11,12 +10,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import {
-  cancelSellpiaInventorySession,
   collectSellpiaInventory,
   finalizeSellpiaInventorySession,
 } from '@/lib/sellpia-inventory-extension';
 import {
-  cancelOperationAlert,
   failOperationAlert,
   progressOperationAlert,
   requireAttentionOperationAlert,
@@ -25,11 +22,6 @@ import {
 } from '@/lib/operation-alerts';
 import { queryKeys } from '@/lib/query-keys';
 import { invalidateSellpiaInventory } from '@/app/(inventory)/_shared/invalidate-sellpia-inventory';
-import {
-  SellpiaFreshnessDrawer,
-  SellpiaFreshnessStatus,
-} from '@/components/sellpia-inventory';
-import { SellpiaInventorySyncContext } from '@/components/sellpia-inventory/SellpiaInventorySyncContext';
 
 export const SELLPIA_HEARTBEAT_INTERVAL_MS = 20_000;
 export const SELLPIA_LEASE_MS = 90_000;
@@ -115,16 +107,11 @@ export function SellpiaInventorySyncProvider({
   children?: React.ReactNode;
 }) {
   const queryClient = useQueryClient();
-  const pathname = usePathname();
   const { status: authStatus, user } = useAuth();
   const enabled = authStatus === 'ready' && Boolean(user?.organizationId);
   const freshness = useSellpiaInventoryFreshness({ enabled });
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [ownerClaimToken, setOwnerClaimToken] = useState<string | null>(null);
   const ownerClaimTokenRef = useRef<string | null>(null);
-  const extensionIdRef = useRef<string | null>(null);
   const stopHeartbeatRef = useRef<(() => void) | null>(null);
-  const cancelledClaims = useRef(new Set<string>());
   const abandonedClaims = useRef(new Set<string>());
   const alertUpdatedAtByClaim = useRef(new Map<string, number>());
   const mounted = useRef(false);
@@ -170,7 +157,6 @@ export function SellpiaInventorySyncProvider({
 
   const shouldStopClaim = useCallback((claimToken: string) =>
     !mounted.current
-    || cancelledClaims.current.has(claimToken)
     || abandonedClaims.current.has(claimToken), []);
 
   useEffect(() => {
@@ -200,31 +186,7 @@ export function SellpiaInventorySyncProvider({
       activeLockNameRef.current = null;
     }
     ownerClaimTokenRef.current = null;
-    extensionIdRef.current = null;
-    setOwnerClaimToken(null);
   }, [authEpoch]);
-
-  const cancelOwnedSync = useCallback(async (claimToken: string) => {
-    if (ownerClaimTokenRef.current !== claimToken) return;
-    cancelledClaims.current.add(claimToken);
-    stopHeartbeatRef.current?.();
-    const extensionRun = extensionIdRef.current
-      ? { extensionId: extensionIdRef.current, runId: claimToken }
-      : { runId: claimToken };
-    await Promise.allSettled([
-      cancelSellpiaInventorySession(extensionRun),
-      sellpiaInventoryFreshnessApi.cancel(claimToken),
-      cancelOperationAlert(`browser-collection:${claimToken}`, {
-        message: '사용자가 Sellpia 재고 갱신을 취소했습니다.',
-        metadata: nextAlertMetadata(claimToken),
-      }),
-    ]);
-    await invalidateSellpiaInventory(queryClient);
-    ownerClaimTokenRef.current = null;
-    extensionIdRef.current = null;
-    alertUpdatedAtByClaim.current.delete(claimToken);
-    if (mounted.current) setOwnerClaimToken(null);
-  }, [nextAlertMetadata, queryClient]);
 
   const coordinate = useCallback(async () => {
     const organizationId = user?.organizationId;
@@ -268,7 +230,6 @@ export function SellpiaInventorySyncProvider({
     }
 
     ownerClaimTokenRef.current = claimToken;
-    if (mounted.current) setOwnerClaimToken(claimToken);
     cacheFreshnessIfChanged(queryClient, claim.state);
 
     let leaseExpiresAt = Date.parse(claim.leaseExpiresAt);
@@ -308,7 +269,6 @@ export function SellpiaInventorySyncProvider({
 
       const collected = await collectSellpiaInventory({ runId: claimToken });
       if (claimIsStopped()) return;
-      extensionIdRef.current = collected.extensionId;
       await bestEffortAlert(() => progressOperationAlert(
         `browser-collection:${claimToken}`,
         {
@@ -442,8 +402,6 @@ export function SellpiaInventorySyncProvider({
       await invalidateSellpiaInventory(queryClient);
       if (ownerClaimTokenRef.current === claimToken) {
         ownerClaimTokenRef.current = null;
-        extensionIdRef.current = null;
-        if (mounted.current) setOwnerClaimToken(null);
       }
       alertUpdatedAtByClaim.current.delete(claimToken);
     }
@@ -473,37 +431,5 @@ export function SellpiaInventorySyncProvider({
     user?.organizationId,
   ]);
 
-  const contextValue = enabled && freshness.state
-    ? { state: freshness.state, openDrawer: () => setDrawerOpen(true) }
-    : null;
-  const usesInlineStatus = pathname === '/product-hub/matching';
-
-  return (
-    <SellpiaInventorySyncContext.Provider value={contextValue}>
-      {children}
-      {enabled && freshness.state ? (
-        <>
-          {usesInlineStatus ? null : <SellpiaFreshnessStatus
-            status={freshness.state.status}
-            lastVerifiedAt={freshness.state.lastVerifiedAt}
-            onOpen={() => setDrawerOpen(true)}
-          />}
-          <SellpiaFreshnessDrawer
-            open={drawerOpen}
-            onOpenChange={setDrawerOpen}
-            state={freshness.state}
-            currentBasis={freshness.currentBasis}
-            history={freshness.history}
-            isHistoryLoading={freshness.isHistoryLoading}
-            userRole={user?.role ?? ''}
-            ownerClaimToken={ownerClaimToken}
-            onCancel={(claimToken) => void cancelOwnedSync(claimToken)}
-            onConfirmBinding={() => void freshness.confirmSourceBinding()}
-            onRequestRefresh={() => void freshness.requestRefresh('retry')}
-            onManualImport={freshness.importManual}
-          />
-        </>
-      ) : null}
-    </SellpiaInventorySyncContext.Provider>
-  );
+  return <>{children}</>;
 }

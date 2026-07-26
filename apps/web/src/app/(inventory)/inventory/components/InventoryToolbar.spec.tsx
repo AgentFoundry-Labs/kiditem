@@ -16,7 +16,8 @@ describe('InventoryToolbar', () => {
       />,
     );
 
-    expect(screen.getByRole('heading', { name: '재고/발주 관리' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '재고 현황' })).toBeInTheDocument();
+    expect(screen.queryByText('재고/발주 관리')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '바코드 출력' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '엑셀' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /입고|출고|조정/ })).not.toBeInTheDocument();

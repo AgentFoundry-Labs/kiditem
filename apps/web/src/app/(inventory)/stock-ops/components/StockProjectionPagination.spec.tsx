@@ -1,56 +1,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import MappingAttention from './MappingAttention';
 import OutOfStock from './OutOfStock';
-import ZeroItems from './ZeroItems';
 
-const listSellpiaInventorySkus = vi.hoisted(() => vi.fn());
 const listChannelSkuAvailability = vi.hoisted(() => vi.fn());
 
 vi.mock('../../_shared/inventory-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../_shared/inventory-api')>();
   return {
     ...actual,
-    listSellpiaInventorySkus,
     listChannelSkuAvailability,
   };
 });
-
-const summary = {
-  totalSkus: 101,
-  inStockSkus: 0,
-  outOfStockSkus: 101,
-  totalUnits: 0,
-  pricedAssetValue: 0,
-  unpricedSkuCount: 0,
-};
-
-function inventoryResponse(page: number, name: string) {
-  return {
-    items: [{
-      masterProductId: page === 1
-        ? '00000000-0000-4000-8000-000000000001'
-        : '00000000-0000-4000-8000-000000000002',
-      code: page === 1 ? 'SP-PAGE-1' : 'SP-PAGE-2',
-      name,
-      optionName: null,
-      barcode: null,
-      currentStock: 0,
-      purchasePrice: 100,
-      salePrice: 1000,
-      isActive: true,
-      stockValue: 0,
-      lastImportRunId: null,
-      lastImportedAt: null,
-    }],
-    total: 101,
-    page,
-    limit: 100,
-    summary,
-    latestImport: null,
-  };
-}
 
 function channelItem(
   page: number,
@@ -132,29 +93,7 @@ function renderWithQueryClient(component: React.ReactNode) {
 }
 
 beforeEach(() => {
-  listSellpiaInventorySkus.mockReset();
   listChannelSkuAvailability.mockReset();
-});
-
-describe('Sellpia zero stock pagination', () => {
-  const Component = ZeroItems;
-
-  it('uses the response total and requests the selected page', async () => {
-    listSellpiaInventorySkus.mockImplementation(async ({ page }) =>
-      inventoryResponse(page, page === 1 ? 'Sellpia 첫 페이지' : 'Sellpia 둘째 페이지'));
-    renderWithQueryClient(<Component />);
-
-    expect(await screen.findByText('Sellpia 첫 페이지')).toBeInTheDocument();
-    expect(screen.getByText('101건 중 1-100')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '2' }));
-
-    expect(await screen.findByText('Sellpia 둘째 페이지')).toBeInTheDocument();
-    await waitFor(() => expect(listSellpiaInventorySkus).toHaveBeenLastCalledWith(
-      expect.objectContaining({ page: 2, limit: 100 }),
-    ));
-    expect(screen.getByText('101건 중 101-101')).toBeInTheDocument();
-  });
 });
 
 describe('channel zero-stock pagination', () => {
@@ -175,32 +114,5 @@ describe('channel zero-stock pagination', () => {
       limit: 100,
     }));
     expect(screen.getByText('101건 중 101-101')).toBeInTheDocument();
-  });
-});
-
-describe('mapping-attention pagination', () => {
-  it('pages unmatched and needs-review queues independently without a combined false empty state', async () => {
-    listChannelSkuAvailability.mockImplementation(async ({ status, page }) =>
-      status === 'unmatched'
-        ? channelResponse(page, 'unmatched')
-        : channelResponse(page, 'needs_review', 1));
-    renderWithQueryClient(<MappingAttention />);
-
-    const unmatched = await screen.findByRole('region', { name: '미매칭 SKU' });
-    const needsReview = screen.getByRole('region', { name: '검토 필요 SKU' });
-    expect(await within(unmatched).findByText('채널 상품 1')).toBeInTheDocument();
-    expect(within(unmatched).getByText('101건 중 1-100')).toBeInTheDocument();
-    expect(within(needsReview).getByText('채널 상품 1')).toBeInTheDocument();
-
-    fireEvent.click(within(unmatched).getByRole('button', { name: '2' }));
-
-    expect(await within(unmatched).findByText('채널 상품 2')).toBeInTheDocument();
-    await waitFor(() => expect(listChannelSkuAvailability).toHaveBeenCalledWith({
-      status: 'unmatched',
-      page: 2,
-      limit: 100,
-    }));
-    expect(within(unmatched).getByText('101건 중 101-101')).toBeInTheDocument();
-    expect(within(needsReview).getByText('채널 상품 1')).toBeInTheDocument();
   });
 });

@@ -45,8 +45,8 @@ manage local generated-file history.
   extension-session malls remain collectable without stored credentials; only
   disabled or genuinely unsupported accounts require setup.
 - Sellpia transmission-request state and actions render inside the existing
-  generated-file flow. Inventory freshness may appear as a compact shared
-  header status; do not replace or reorder the baseline collection layout.
+  generated-file flow. Do not add a shared inventory freshness drawer or header
+  status, and do not replace or reorder the baseline collection layout.
 
 ## Boundary Rules
 

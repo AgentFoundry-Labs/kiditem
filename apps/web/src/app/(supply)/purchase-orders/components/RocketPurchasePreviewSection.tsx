@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
-import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
@@ -48,14 +47,11 @@ export function RocketPurchasePreviewSection({
 
   return (
     <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-bold text-slate-900">쿠팡 로켓 발주 미리보기</h2>
-          <p className="text-sm text-slate-500">
-            활성 로켓 계정을 선택하고 Sellpia 최신 재고 기준 검토수량을 계산합니다.
-          </p>
-        </div>
-        <SellpiaWorkspaceFreshnessStatus />
+      <div>
+        <h2 className="font-bold text-slate-900">쿠팡 로켓 발주 미리보기</h2>
+        <p className="text-sm text-slate-500">
+          활성 로켓 계정을 선택하고 Sellpia 최신 재고 기준 검토수량을 계산합니다.
+        </p>
       </div>
       {selectedAccount ? (
         <>

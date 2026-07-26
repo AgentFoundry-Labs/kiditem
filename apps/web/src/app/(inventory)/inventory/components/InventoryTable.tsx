@@ -34,7 +34,7 @@ export function InventoryTable({
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1120px] table-fixed">
+        <table className="w-full min-w-[1020px] table-fixed">
           <thead>
             <tr>
               <th className="w-[240px] min-w-[180px]">상품명</th>
@@ -44,7 +44,6 @@ export function InventoryTable({
               <th className="text-right">현재고</th>
               <th className="text-right">매입가</th>
               <th className="text-right">판매가</th>
-              <th className="text-right">재고자산</th>
               <th>최종 가져오기</th>
             </tr>
           </thead>
@@ -70,9 +69,6 @@ export function InventoryTable({
                 </td>
                 <td className={cn('text-right text-sm', item.salePrice === null && 'text-amber-700')}>
                   {price(item.salePrice)}
-                </td>
-                <td className={cn('text-right font-medium', item.stockValue === null && 'text-amber-700')}>
-                  {item.stockValue === null ? '가격 미등록' : `${formatNumber(item.stockValue)}원`}
                 </td>
                 <td className="text-xs text-[var(--text-secondary)]">
                   {item.lastImportedAt ? formatDateTime(item.lastImportedAt) : '가져오기 기록 없음'}

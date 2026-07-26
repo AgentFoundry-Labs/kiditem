@@ -11,10 +11,11 @@ not what an operator does to it. Inventory operations live in
 - This route owns `product-outflow` and `channel-zero`. Anything that is an
   operator action, a record, or an import concern belongs in `/inventory-hub`.
 - `MOVED_TABS` in `page.tsx` is the compatibility contract for the tabs that
-  moved to `/inventory-hub`. Dashboard cards, `DashboardSidePanel`, and server
-  automation seeds still link to `?tab=sellpia-zero` and `?tab=freshness`;
-  removing an entry breaks those alerts silently. Add an entry, never delete
-  one, and keep the page spec's redirect table in sync.
+  moved to `/inventory-hub`. Live dashboard and automation links use the
+  canonical inventory-hub tabs, but saved tasks and bookmarks may still carry
+  `?tab=sellpia-zero` or `?tab=freshness`; removing an entry breaks those links
+  silently. Add an entry, never delete one, and keep the page spec's redirect
+  table in sync.
 - `bottlenecks` is retired. Its aliased landing is `channel-zero`, which shows
   the same backend bottleneck flags.
 - Keep inactive workspaces from running unnecessary timers, requests, or
@@ -22,9 +23,9 @@ not what an operator does to it. Inventory operations live in
 - Mapping recipe edits link to
   `/product-hub/matching`; the analysis page does not save recipes itself.
 - `product-outflow` reads the Analytics-owned direct Sellpia SKU depletion
-  projection. Matched rows show physical current stock, active common
-  commitment, and available stock separately; reorder and months-left use
-  available stock.
+  projection. Matched rows expose physical current stock without separate
+  commitment or available-stock columns. Reorder and months-left remain
+  backend-owned signals.
 - Every matched destination renders its nullable stored
   `MasterProduct.abcGrade`; shared SKUs may therefore show multiple destination
   grades. Filters and summaries use those same values and keep unclassified
