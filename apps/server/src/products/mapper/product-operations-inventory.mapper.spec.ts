@@ -24,12 +24,30 @@ describe('product operations inventory mapper', () => {
     );
 
     expect(result).toMatchObject({
+      imageUrls: [],
+      displayImageUrls: [],
       inventoryUnits: 20,
       inventoryStatus: 'sellable',
       depletion: { needsReorder: true },
       variantSummary: { total: 1, active: 1, configured: 1, warning: 0 },
     });
     expect(result).not.toHaveProperty('variants');
+  });
+
+  it('initially mirrors direct product images into display images', () => {
+    expect(mapProductOperationsListItem(
+      { ...rawListItem(), imageUrls: ['https://cdn.example.com/operator.jpg'] },
+      new Map(),
+      {
+        coverage: 'no_direct_sales',
+        needsReorder: false,
+        reorderSkuCount: 0,
+        minMonthsOfAvailableStockLeft: null,
+      },
+    )).toMatchObject({
+      imageUrls: ['https://cdn.example.com/operator.jpg'],
+      displayImageUrls: ['https://cdn.example.com/operator.jpg'],
+    });
   });
 });
 

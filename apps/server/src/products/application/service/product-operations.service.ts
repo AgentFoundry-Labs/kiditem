@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import {
   CreateMasterProductInputSchema,
   CreateProductVariantRecipesIfEmptyInputSchema,
@@ -32,10 +32,16 @@ import {
   mapProductOperationsListItem,
   mapProductOperationsVariant,
 } from '../../mapper/product-operations-inventory.mapper';
+import {
+  CATALOG_DISPLAY_MEDIA_PORT,
+  type CatalogDisplayMediaPort,
+} from '../../../ai/application/port/in/workspace/catalog-display-media.port';
 import type { ProductOperationsPort } from '../port/in/product-operations.port';
 
 @Injectable()
 export class ProductOperationsService implements ProductOperationsPort {
+  private readonly logger = new Logger(ProductOperationsService.name);
+
   constructor(
     @Inject(PRODUCT_OPERATIONS_REPOSITORY_PORT)
     private readonly repository: ProductOperationsRepositoryPort,
@@ -43,6 +49,8 @@ export class ProductOperationsService implements ProductOperationsPort {
     private readonly inventory: InventoryAvailabilityPort,
     @Inject(SELLPIA_PRODUCT_DEPLETION_READ_PORT)
     private readonly depletion: SellpiaProductDepletionReadPort,
+    @Inject(CATALOG_DISPLAY_MEDIA_PORT)
+    private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
   ) {}
 
   async listProducts(organizationId: string, rawQuery: unknown) {
@@ -73,8 +81,9 @@ export class ProductOperationsService implements ProductOperationsPort {
       depletion: depletionByMasterProductId.get(item.id) ?? placeholder,
     }));
     const offset = (query.page - 1) * query.limit;
+    const pageItems = items.slice(offset, offset + query.limit);
     return {
-      items: items.slice(offset, offset + query.limit),
+      items: await this.applyDisplayImages(organizationId, pageItems),
       total: items.length,
       page: query.page,
       limit: query.limit,
@@ -84,10 +93,11 @@ export class ProductOperationsService implements ProductOperationsPort {
 
   async getProduct(organizationId: string, masterProductId: string) {
     const product = await this.repository.getProduct(organizationId, masterProductId);
-    return mapProductOperationsDetail(
+    const mapped = mapProductOperationsDetail(
       product,
       await this.loadInventory(organizationId, product.variants),
     );
+    return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
 
   async createProduct(
@@ -113,10 +123,11 @@ export class ProductOperationsService implements ProductOperationsPort {
       userId,
       product: { ...input, variants },
     });
-    return mapProductOperationsDetail(
+    const mapped = mapProductOperationsDetail(
       product,
       await this.loadInventory(organizationId, product.variants),
     );
+    return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
 
   async updateProduct(
@@ -134,10 +145,11 @@ export class ProductOperationsService implements ProductOperationsPort {
       masterProductId,
       input,
     );
-    return mapProductOperationsDetail(
+    const mapped = mapProductOperationsDetail(
       product,
       await this.loadInventory(organizationId, product.variants),
     );
+    return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
 
   async createVariant(
@@ -256,6 +268,53 @@ export class ProductOperationsService implements ProductOperationsPort {
       item.sellpiaInventorySkuId,
       item,
     ]));
+  }
+
+  private async applyDisplayImages<
+    T extends { id: string; imageUrls: string[]; displayImageUrls: string[] },
+  >(organizationId: string, products: T[]): Promise<T[]> {
+    const fallbackIds = products
+      .filter((product) => product.imageUrls.length === 0)
+      .map((product) => product.id);
+    if (fallbackIds.length === 0) return products;
+
+    const targets = await this.repository.listDisplayMediaTargets(
+      organizationId,
+      fallbackIds,
+    );
+    const byProductId = new Map<string, typeof targets>();
+    for (const target of targets) {
+      const existing = byProductId.get(target.masterProductId) ?? [];
+      existing.push(target);
+      byProductId.set(target.masterProductId, existing);
+    }
+
+    try {
+      const media = await this.catalogDisplayMedia.findDisplayMedia({
+        organizationId,
+        requests: fallbackIds.flatMap((key) => {
+          const candidates = byProductId.get(key) ?? [];
+          return candidates.length === 0 ? [] : [{
+            key,
+            candidates: candidates.map(({ channelListingId }) => ({
+              channelListingId,
+              externalOptionId: null,
+            })),
+          }];
+        }),
+      });
+      return products.map((product) => {
+        if (product.imageUrls.length > 0) return product;
+        const url = media.get(product.id)?.url;
+        return { ...product, displayImageUrls: url ? [url] : [] };
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Product display media enrichment failed for organization ${organizationId}.`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return products;
+    }
   }
 }
 

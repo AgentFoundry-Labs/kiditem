@@ -14,6 +14,7 @@ import type {
   NormalizedCreateMasterProduct,
   NormalizedCreateProductVariant,
   ProductOperationsRepositoryDetail,
+  ProductOperationsDisplayMediaTarget,
   ProductOperationsRepositoryListItem,
   ProductOperationsRepositoryPort,
   ProductOperationsRepositoryVariant,
@@ -102,6 +103,38 @@ type ProductRow = Prisma.MasterProductGetPayload<{
 export class ProductOperationsRepositoryAdapter
 implements ProductOperationsRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
+
+  async listDisplayMediaTargets(
+    organizationId: string,
+    masterProductIds: string[],
+  ): Promise<ProductOperationsDisplayMediaTarget[]> {
+    const ids = [...new Set(masterProductIds)];
+    if (ids.length === 0) return [];
+    const rows = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId,
+        masterProductId: { in: ids },
+        isActive: true,
+        channelAccount: { is: { organizationId, status: 'active' } },
+      },
+      select: {
+        id: true,
+        externalId: true,
+        masterProductId: true,
+        channelAccount: { select: { isPrimary: true } },
+        masterProduct: { select: { originChannelListingId: true } },
+      },
+    });
+    return rows.flatMap((row) => row.masterProductId && row.masterProduct
+      ? [{
+        masterProductId: row.masterProductId,
+        channelListingId: row.id,
+        isOrigin: row.masterProduct.originChannelListingId === row.id,
+        isPrimaryAccount: row.channelAccount.isPrimary,
+        listingExternalId: row.externalId,
+      }]
+      : []).sort(compareDisplayMediaTargets);
+  }
 
   async listProducts(
     organizationId: string,
@@ -444,6 +477,17 @@ implements ProductOperationsRepositoryPort {
     if (!row) throw new NotFoundException('ProductVariant was not found');
     return toVariantDetail(row, row.masterProduct.originChannelListingId);
   }
+}
+
+function compareDisplayMediaTargets(
+  left: ProductOperationsDisplayMediaTarget,
+  right: ProductOperationsDisplayMediaTarget,
+): number {
+  return left.masterProductId.localeCompare(right.masterProductId)
+    || Number(right.isOrigin) - Number(left.isOrigin)
+    || Number(right.isPrimaryAccount) - Number(left.isPrimaryAccount)
+    || left.listingExternalId.localeCompare(right.listingExternalId)
+    || left.channelListingId.localeCompare(right.channelListingId);
 }
 
 async function evaluateManualRecipesIfEmpty(
