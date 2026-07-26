@@ -18,6 +18,8 @@
 | ContentWorkspace | `content_workspaces` | Product content workspace owned by a sourcing candidate, channel listing, or direct detail page. |
 | ContentWorkspaceThumbnailSelection | `content_workspace_thumbnail_selections` | Stable workspace-owned thumbnail adoption with optional generation provenance. |
 | DetailPageArtifact | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
+| DetailPageImageArtifact | `detail_page_image_artifacts` | Durable single-JPEG marketplace rendition for one immutable detail-page revision and renderer variant. |
+| DetailPageImageRenderIntent | `detail_page_image_render_intents` | Short-lived organization-scoped claim that binds a browser renderer to one exact detail-page revision and object key. |
 | DetailPageRevision | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
 | ProductPreparation | `product_preparations` | Product pipeline preparation state. Stores operator-confirmed registration inputs and selected generated assets before marketplace listing. |
 | Thumbnail | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
@@ -177,6 +179,48 @@ erDiagram
     String createdByUserId FK
     Boolean isDeleted
     DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  DetailPageImageArtifact {
+    String id PK
+    String organizationId FK
+    String revisionId FK
+    String variant
+    Int outputWidth
+    String objectKey
+    String imageUrl
+    String contentType
+    Int byteLength
+    Int pixelWidth
+    Int pixelHeight
+    String sha256
+    String rendererKind
+    String createdByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  DetailPageImageRenderIntent {
+    String id PK
+    String organizationId FK
+    String sourceCandidateId FK
+    String detailPageArtifactId FK
+    String revisionId FK
+    String variant
+    Int outputWidth
+    String objectKey
+    String state
+    Int attempt
+    DateTime expiresAt
+    String requestedByUserId FK
+    String claimedByUserId FK
+    DateTime claimedAt
+    DateTime uploadedAt
+    DateTime completedAt
+    DateTime failedAt
+    String failureCode
+    String failureMessage
+    String completedArtifactId FK
     DateTime createdAt
     DateTime updatedAt
   }
@@ -405,10 +449,14 @@ erDiagram
   ContentWorkspaceThumbnailSelection o|--o| ContentWorkspace : "currentThumbnailSelection"
   DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
   DetailPageArtifact o|--o{ ContentWorkspace : "currentDetailPageArtifact"
+  DetailPageArtifact ||--o{ DetailPageImageRenderIntent : "detailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
   DetailPageArtifact o|--o{ ProductPreparation : "selectedDetailPageArtifact"
+  DetailPageImageArtifact o|--o{ DetailPageImageRenderIntent : "completedArtifact"
   DetailPageRevision o|--o{ ContentWorkspace : "currentDetailPageRevision"
   DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
+  DetailPageRevision ||--o{ DetailPageImageArtifact : "revision"
+  DetailPageRevision ||--o{ DetailPageImageRenderIntent : "revision"
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   ThumbnailGeneration o|--o{ ContentWorkspaceThumbnailSelection : "sourceGeneration"
   ThumbnailGeneration o|--o{ ProductPreparation : "selectedThumbnailGeneration"
@@ -445,6 +493,12 @@ erDiagram
 | ContentWorkspaceThumbnailSelection | organization | references external | Core | Organization |
 | DetailPageArtifact | createdByUser | references external | Core | User |
 | DetailPageArtifact | organization | references external | Core | Organization |
+| DetailPageImageArtifact | createdBy | references external | Core | User |
+| DetailPageImageArtifact | organization | references external | Core | Organization |
+| DetailPageImageRenderIntent | claimedBy | references external | Core | User |
+| DetailPageImageRenderIntent | organization | references external | Core | Organization |
+| DetailPageImageRenderIntent | requestedBy | references external | Core | User |
+| DetailPageImageRenderIntent | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | DetailPageRevision | createdByUser | references external | Core | User |
 | DetailPageRevision | organization | references external | Core | Organization |
 | ProductPreparation | approvedByUser | references external | Core | User |

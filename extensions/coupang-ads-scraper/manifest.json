@@ -2,14 +2,15 @@
   "manifest_version": 3,
   "name": "KIDITEM OS - 쿠팡 셀러 도우미",
   "description": "쿠팡 Wing/광고센터 데이터를 자동 수집하여 KIDITEM OS 대시보드에 연동합니다.",
-  "version": "1.2.84",
+  "version": "1.2.89",
   "permissions": [
     "activeTab",
     "storage",
     "tabs",
     "scripting",
     "sidePanel",
-    "alarms"
+    "alarms",
+    "debugger"
   ],
   "externally_connectable": {
     "matches": [
@@ -25,9 +26,21 @@
     "http://localhost:3000/*",
     "http://localhost:4000/*",
     "https://staging.merchon.org/*",
-    "http://localhost:9000/*"
+    "http://localhost:9000/*",
+    "https://gheoobctiarluauprvro.storage.supabase.co/*"
   ],
   "content_scripts": [
+    {
+      "matches": [
+        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2*"
+      ],
+      "js": [
+        "background/wing-form-runtime-compat.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
     {
       "matches": [
         "https://wing.coupang.com/*"

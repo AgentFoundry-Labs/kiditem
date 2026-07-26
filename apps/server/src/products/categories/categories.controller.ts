@@ -1,11 +1,28 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
+import {
+  CoupangCategorySuggestionRequestSchema,
+  type CoupangCategorySuggestionResponse,
+} from '@kiditem/shared/coupang-category';
 import { CategoriesService } from './categories.service';
+import { CoupangCategorySuggestionService } from './coupang-category-suggestion.service';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 
 @Controller('categories')
 export class CategoriesController {
-  constructor(private readonly categoriesService: CategoriesService) {}
+  constructor(
+    private readonly categoriesService: CategoriesService,
+    private readonly coupangSuggestions: CoupangCategorySuggestionService,
+  ) {}
+
+  @Post('coupang-suggestions')
+  suggestCoupangCategories(
+    @Body() body: unknown,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<CoupangCategorySuggestionResponse> {
+    const { names } = CoupangCategorySuggestionRequestSchema.parse(body);
+    return this.coupangSuggestions.suggest(organizationId, names);
+  }
 
   @Get()
   async findAll(@CurrentOrganization() organizationId: string) {

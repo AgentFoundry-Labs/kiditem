@@ -19,6 +19,46 @@
   'use strict';
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const IMAGE_FETCH_TIMEOUT_MS = 8000;
+  const DETAIL_UPLOAD_TIMEOUT_MS = 20000;
+
+  function fetchWithTimeout(url, init, timeoutMs) {
+    const controller =
+      typeof globalThis.AbortController === 'function'
+        ? new globalThis.AbortController()
+        : null;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timer = null;
+      const finish = (operation, value) => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) clearTimeout(timer);
+        operation(value);
+      };
+
+      try {
+        Promise.resolve(
+          fetch(
+            url,
+            controller ? { ...(init || {}), signal: controller.signal } : init,
+          ),
+        ).then(
+          (response) => finish(resolve, response),
+          (error) => finish(reject, error),
+        );
+      } catch (error) {
+        finish(reject, error);
+      }
+
+      if (!settled) {
+        timer = setTimeout(() => {
+          controller?.abort();
+          finish(reject, new Error(`요청 제한시간 초과 (${timeoutMs}ms)`));
+        }, timeoutMs);
+      }
+    });
+  }
 
   async function waitFor(getter, { timeout = 15000, interval = 300 } = {}) {
     const start = Date.now();
@@ -39,6 +79,48 @@
     setter.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  /**
+   * WING 카테고리 자동완성은 합성 input/change 이벤트만으로 검색을 시작하지 않는다.
+   * 실제 formV2에서 같은 값으로 검증한 결과, 브라우저 편집 명령으로 입력해야 제안
+   * 목록이 렌더된다. 다른 제어 인풋은 기존 React setter를 유지하고 검색칸만 좁게 쓴다.
+   */
+  function requestTrustedCategoryInput(value) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { action: 'inputWingCategorySearch', value },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              resolve({ ok: false, error: chrome.runtime.lastError.message });
+              return;
+            }
+            resolve(response || { ok: false });
+          },
+        );
+      } catch (error) {
+        resolve({ ok: false, error: error?.message });
+      }
+    });
+  }
+
+  async function setWingSearchValue(el, value) {
+    el.focus();
+    el.select?.();
+    const trustedInput = await requestTrustedCategoryInput(value);
+    if (trustedInput?.ok && el.value === value) return true;
+    try {
+      if (
+        typeof document.execCommand === 'function' &&
+        document.execCommand('insertText', false, value) &&
+        el.value === value
+      ) {
+        return true;
+      }
+    } catch (_) {}
+    setReactValue(el, value);
+    return el.value === value;
   }
 
   const byPlaceholder = (ph) => document.querySelector(`input[placeholder="${ph}"], textarea[placeholder="${ph}"]`);
@@ -77,6 +159,8 @@
     '.option-pane-table-head span.sc-common-check > input[type="checkbox"]';
   const OPTION_ROW_CHECK_SELECTOR =
     '.option-pane-table-content .option-pane-table-cell.checkbox span.sc-common-check > input[type="checkbox"]';
+  const OPTION_CREATION_SELECTOR = '.option-creation';
+  const OPTION_GENERATE_SELECTOR = '#generateItems';
 
   function optionRowChecks() {
     const root = document.querySelector(OPTION_ROOT_SELECTOR);
@@ -184,24 +268,36 @@
    */
   async function fetchImageFile(url) {
     try {
-      const res = await fetch(url);
+      const res = await fetchWithTimeout(url, undefined, IMAGE_FETCH_TIMEOUT_MS);
       if (res.ok) return blobToFile(await res.blob(), url);
     } catch (_) {
       /* 아래 background 중계로 폴백 */
     }
 
     return new Promise((resolve) => {
+      let settled = false;
+      let timeout = null;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        if (timeout !== null) clearTimeout(timeout);
+        resolve(value);
+      };
+      timeout = setTimeout(
+        () => finish(null),
+        IMAGE_FETCH_TIMEOUT_MS,
+      );
       chrome.runtime.sendMessage({ action: 'fetchImageAsDataUrl', url }, (res) => {
-        if (chrome.runtime.lastError || !res?.ok || !res.dataUrl) return resolve(null);
+        if (chrome.runtime.lastError || !res?.ok || !res.dataUrl) return finish(null);
         try {
           const [head, b64] = String(res.dataUrl).split(',');
           const mime = (head.match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
           const bin = atob(b64);
           const bytes = new Uint8Array(bin.length);
           for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-          resolve(blobToFile(new Blob([bytes], { type: mime }), url));
+          finish(blobToFile(new Blob([bytes], { type: mime }), url));
         } catch {
-          resolve(null);
+          finish(null);
         }
       });
     });
@@ -440,11 +536,15 @@
     form.append('multipartFile', file, file.name);
     let response;
     try {
-      response = await fetch('/tenants/seller-web/file/resize/uploadV2', {
-        method: 'POST',
-        credentials: 'same-origin',
-        body: form,
-      });
+      response = await fetchWithTimeout(
+        '/tenants/seller-web/file/resize/uploadV2',
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: form,
+        },
+        DETAIL_UPLOAD_TIMEOUT_MS,
+      );
     } catch (_) {
       log('detailCdnUploadNetworkFailed');
       return null;
@@ -513,9 +613,8 @@
     }
 
     const section = findDetailDescriptionSection();
-    const htmlTab = section?.querySelector('#tab-content-2');
     const htmlTabLabel = section?.querySelector('#tab-content-2 + label');
-    if (!section || !htmlTab || !htmlTabLabel) {
+    if (!section || !htmlTabLabel) {
       log('detailHtmlNoPanel');
       return false;
     }
@@ -556,21 +655,22 @@
     }
     enabledSave.click();
 
-    // 라이브 WING 은 저장 중 applyHtml 을 활성화하고 revision 반영이 끝나면 다시 disabled 로
-    // 되돌린다. 그 복귀 신호와 textarea 안의 CDN URL 을 함께 검증한다.
-    //
-    // ⚠️ `textarea.value === html` 로 **정확히 일치**를 요구하면 안 된다. 저장 직후 WING 이
-    // HTML 을 자기 형식으로 다시 찍어내며 개행을 넣는다(라이브 실측):
-    //   보낸 값 `<center> <img src="..."> </center>`
-    //   저장 후 `<center> \n <img src="..."> \n</center>`
-    // 그래서 정확 일치는 영원히 거짓이고, 실제로 저장이 됐는데도 실패로 보고했다.
-    // 우리가 보장해야 하는 것은 "그 CDN 이미지가 상세설명에 들어갔다"이므로 URL 포함으로 본다.
-    const applied = await waitFor(
-      () => textarea.value.includes(normalized) && isControlDisabled(save),
-      { timeout: 10000 },
+    // 최신 WING 은 저장 후 HTML 을 개행 포함 형식으로 다시 찍어내지만 applyHtml 버튼을
+    // disabled 로 되돌리지 않고, 이미지 탭 전환도 받아들이지 않는 경우가 있다. 버튼 상태나
+    // 탭 왕복 대신 WING 이 입력 원문을 정규화해 textarea 에 다시 반영한 것을 저장 증거로 쓴다.
+    const persisted = await waitFor(
+      () => {
+        const current = section.querySelector('.html-area-content textarea');
+        return current
+          && current.value.includes(normalized)
+          && (current.value !== html || isControlDisabled(save))
+          ? current
+          : null;
+      },
+      { timeout: 5000 },
     );
-    if (!applied) {
-      log('detailHtmlNotApplied');
+    if (!persisted) {
+      log('detailHtmlNotPersisted');
       return false;
     }
     log('detailHtml:1');
@@ -777,15 +877,73 @@
     return true;
   }
 
+  function optionCreationRows() {
+    const root = document.querySelector(OPTION_CREATION_SELECTOR);
+    return root?.querySelectorAll
+      ? [...root.querySelectorAll('.option-creation-input-group')]
+      : [];
+  }
+
+  function optionCreationRow(optionType, placeholder) {
+    const type = normText(optionType);
+    const rows = optionCreationRows();
+    return (
+      rows.find((row) =>
+        [...row.querySelectorAll('input')].some(
+          (input) => normText(input.value) === type,
+        ),
+      ) ||
+      rows.find((row) => row.querySelector(`[placeholder="${placeholder}"]`)) ||
+      rows[0] ||
+      null
+    );
+  }
+
+  function dispatchEnter(el) {
+    for (const type of ['keydown', 'keyup']) {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      for (const [key, value] of Object.entries({ key: 'Enter', code: 'Enter', keyCode: 13, which: 13 })) {
+        try {
+          Object.defineProperty(event, key, { value });
+        } catch (_) {}
+      }
+      el.dispatchEvent(event);
+    }
+  }
+
   /**
-   * 옵션 값 한 개를 해당 입력칸에 넣고 그 행의 '추가' 버튼을 누른다.
-   * 색상/수량이 각자 다른 행이므로 입력칸 기준으로 같은 행의 버튼을 찾아야 한다.
+   * 옵션 값 한 개를 해당 카테고리 속성 행에 넣는다.
+   *
+   * 구형 Wing 은 텍스트 입력 옆 `추가` 버튼을 썼고, 현재 formV2 는 일반 입력 또는
+   * vue-tags-input(Enter 로 태그 확정), 고정 선택형 `.tag-input-box`를 카테고리에 따라 쓴다.
+   * 옵션명과 같은 행으로 범위를 좁혀 다른 속성에 값을 넣지 않는다.
    */
-  async function addOptionValue(placeholder, value) {
-    const input = byPlaceholder(placeholder);
-    if (!input) return false;
+  async function addOptionValue(optionType, placeholder, value) {
+    const row = optionCreationRow(optionType, placeholder);
+    const input =
+      row?.querySelector?.(`[placeholder="${placeholder}"]`) ||
+      byPlaceholder(placeholder);
+    if (!input) {
+      const tagBox = row?.querySelector?.('.tag-input-box');
+      if (!tagBox) return false;
+      tagBox.click();
+      const suggestion = await waitFor(
+        () =>
+          [...row.querySelectorAll('.option-creation-dropdown-body-select-option, button')].find(
+            (candidate) => normText(candidate.textContent) === normText(value),
+          ) || null,
+        { timeout: 3000, interval: 150 },
+      );
+      if (!suggestion) return false;
+      suggestion.click();
+      await sleep(500);
+      return normText(row.textContent).includes(normText(value));
+    }
+
     setReactValue(input, value);
-    await sleep(300);
+    dispatchEnter(input);
+    input.blur?.();
+    await sleep(400);
 
     let el = input.closest('div');
     let addBtn = null;
@@ -793,9 +951,46 @@
       addBtn = btnByText('추가', el);
       el = el.parentElement;
     }
-    if (!addBtn) return false;
-    addBtn.click();
-    await sleep(800);
+    if (addBtn) {
+      addBtn.click();
+      await sleep(400);
+    }
+
+    return Boolean(
+      await waitFor(
+        () =>
+          input.value === '' ||
+          normText(input.value) === normText(value) ||
+          (row && normText(row.textContent).includes(normText(value))),
+        { timeout: 2500, interval: 150 },
+      ),
+    );
+  }
+
+  async function generateOptionRows(log) {
+    const button = await waitFor(
+      () => document.querySelector(OPTION_GENERATE_SELECTOR),
+      { timeout: 5000, interval: 200 },
+    );
+    if (!button) {
+      log('optionGenerate:noButton');
+      return false;
+    }
+    if (button.disabled || button.hasAttribute?.('disabled')) {
+      log('optionGenerate:disabled');
+      return false;
+    }
+
+    button.click();
+    const rows = await waitFor(
+      () => optionRowChecks().length || null,
+      { timeout: 8000, interval: 200 },
+    );
+    if (!rows) {
+      log('optionGenerate:noRows');
+      return false;
+    }
+    log(`optionRows:${rows}`);
     return true;
   }
 
@@ -1039,6 +1234,7 @@
     const steps = [];
     const log = (s) => steps.push(s);
     let detailUploadError = null;
+    let registrationError = null;
     const accountIdentity = globalThis.KidItemWingAccountIdentity
       ?.verifyExpectedVendorId(expectedVendorId);
     if (!accountIdentity?.ok) {
@@ -1098,17 +1294,18 @@
     const leaf = (pathText.split('>').pop() || '').trim();
     const catInput = byPlaceholder('카테고리명 입력');
     if (catInput && leaf) {
-      catInput.focus();
-      setReactValue(catInput, leaf);
+      await setWingSearchValue(catInput, leaf);
       const opt = await waitFor(() => elByExactText(pathText), { timeout: 8000 });
       if (opt) {
         opt.click();
         log('category:' + pathText);
       } else {
         log('categoryNoSuggestion');
+        registrationError =
+          '쿠팡 WING에서 자동 매핑된 카테고리의 정확한 경로를 찾지 못했습니다.';
       }
-      // 카테고리 선택 → 옵션/이미지 섹션 언락 대기
-      await waitFor(() => byPlaceholder('옵션값 입력'), { timeout: 8000 });
+      // 카테고리 선택 뒤 속성 메타데이터가 비동기로 로드된다. 옵션 입력 영역은
+      // 아래 옵션 단계에서 현재/구형 formV2 공통 루트(`.option-creation`)로 확인한다.
       await sleep(800);
     }
 
@@ -1131,18 +1328,38 @@
     //    수량 = placeholder '숫자만 입력' (숫자 + '개' 단위 셀렉트)
     //    예전에는 둘 다 '옵션값 입력' 에 넣어 수량이 색상칸으로 들어갔다.
     const variant = (product.variants || [])[0];
-    if (variant && Array.isArray(variant.purchaseOptions)) {
-      for (const opt of variant.purchaseOptions) {
-        const isQuantity = String(opt.type || '').includes('수량');
-        const placeholder = isQuantity ? '숫자만 입력' : '옵션값 입력';
-        // 수량은 숫자만 받는다. '1개' 같은 값이 와도 숫자만 남긴다.
-        const value = isQuantity
-          ? String(opt.value || '').replace(/[^\d]/g, '') || '1'
-          : String(opt.value || '');
-        if (await addOptionValue(placeholder, value)) {
-          log('option:' + opt.type + '=' + value);
-        } else {
-          log('optionFailed:' + opt.type);
+    const purchaseOptions = Array.isArray(variant?.purchaseOptions)
+      ? variant.purchaseOptions
+      : [];
+    if (!registrationError && purchaseOptions.length > 0) {
+      const creation = await waitFor(
+        () => document.querySelector(OPTION_CREATION_SELECTOR),
+        { timeout: 12000, interval: 250 },
+      );
+      if (!creation) {
+        log('optionCreationUnavailable');
+        registrationError =
+          '쿠팡 WING이 선택한 카테고리 속성을 불러오지 못해 옵션 입력 영역이 열리지 않았습니다. WING 화면을 새로고침한 뒤 다시 시도해 주세요.';
+      } else {
+        let optionsApplied = true;
+        for (const opt of purchaseOptions) {
+          const isQuantity = String(opt.type || '').includes('수량');
+          const placeholder = isQuantity ? '숫자만 입력' : '옵션값 입력';
+          // 수량은 숫자만 받는다. '1개' 같은 값이 와도 숫자만 남긴다.
+          const value = isQuantity
+            ? String(opt.value || '').replace(/[^\d]/g, '') || '1'
+            : String(opt.value || '');
+          if (await addOptionValue(opt.type, placeholder, value)) {
+            log('option:' + opt.type + '=' + value);
+          } else {
+            optionsApplied = false;
+            log('optionFailed:' + opt.type);
+          }
+        }
+
+        if (!optionsApplied || !(await generateOptionRows(log))) {
+          registrationError =
+            '쿠팡 WING 옵션값을 옵션 목록으로 생성하지 못했습니다. 카테고리 속성과 옵션값을 확인해 주세요.';
         }
       }
     }
@@ -1152,20 +1369,42 @@
     //
     //      순서는 **선택 → 일괄입력 → 저장** 이다. 행 선택을 빼먹으면 일괄입력이 조용히
     //      무시되어 옵션표가 빈 채로 남는다(selectAllOptionRows 주석의 라이브 실증 참조).
-    if (variant) {
+    if (variant && !registrationError) {
       const selected = await selectAllOptionRows(log);
       if (!selected) {
         log('bulkFillSkipped:noSelection');
+        if (purchaseOptions.length > 0) {
+          registrationError =
+            '쿠팡 WING 옵션 목록이 생성되지 않아 판매가와 재고수량을 입력하지 못했습니다.';
+        }
       } else {
-        if (Number(variant.salePrice) > 0 && (await bulkFillByButton('판매가 일괄입력', variant.salePrice))) {
-          log('salePrice:' + variant.salePrice);
+        if (Number(variant.salePrice) > 0) {
+          if (await bulkFillByButton('판매가 일괄입력', variant.salePrice)) {
+            log('salePrice:' + variant.salePrice);
+          } else {
+            log('salePriceFailed');
+            registrationError =
+              '쿠팡 WING 옵션 판매가 일괄입력을 완료하지 못했습니다.';
+          }
         }
         // 판매가 저장 뒤 표가 다시 그려지면서 선택이 풀릴 수 있어 재고 전에 다시 확인한다.
-        await selectAllOptionRows(log);
-        if (Number(variant.stock) > 0 && (await bulkFillByButton('재고수량 일괄입력', variant.stock))) {
-          log('stock:' + variant.stock);
+        if (!registrationError) await selectAllOptionRows(log);
+        if (!registrationError && Number(variant.stock) > 0) {
+          if (await bulkFillByButton('재고수량 일괄입력', variant.stock)) {
+            log('stock:' + variant.stock);
+          } else {
+            log('stockFailed');
+            registrationError =
+              '쿠팡 WING 옵션 재고수량 일괄입력을 완료하지 못했습니다.';
+          }
         }
       }
+    }
+
+    // Wing 카테고리 메타데이터/옵션 생성이 실패한 상태에서 이미지 업로드까지 진행하면
+    // 서버와 브라우저 자원만 쓰고도 등록 가능한 폼이 되지 않는다. 이 지점에서 실패를 확정한다.
+    if (registrationError) {
+      return { ok: false, error: registrationError, steps, evidence };
     }
 
     // 6) 이미지: 파일로 직접 업로드한다.
@@ -1217,7 +1456,16 @@
     //    카테고리 고정 이유는 NOTICE_DEFAULT_CATEGORY 주석 참조.
     //    배송/반품은 계정 기본값이 이미 채워져 있어 손대지 않는다.
     //    ⚠️ 상품등록/임시저장 버튼은 누르지 않는다.
-    await fillProductNotice(log);
+    const noticeFilled = await fillProductNotice(log);
+    if (pathText && !noticeFilled) {
+      return {
+        ok: false,
+        error:
+          '쿠팡 WING 상품정보제공고시를 적용하지 못했습니다. 현재 WING 카테고리 메타데이터 상태를 확인해 주세요.',
+        steps,
+        evidence,
+      };
+    }
 
     // 상세페이지가 요청됐는데 최종 HTML 타입으로 적용되지 않았다면 전체 성공으로 보고하지 않는다.
     // 폼은 열린 채로 남겨 사용자가 보정할 수 있고, 웹에는 실패 이유와 steps 가 전달된다.

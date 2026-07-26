@@ -13,6 +13,17 @@ const source = await readFile(
 
 function createHarness() {
   let listener = null;
+  let now = 0;
+  class FakeDate extends Date {
+    static now() {
+      now += 1000;
+      return now;
+    }
+  }
+  const immediateTimer = (callback) => {
+    queueMicrotask(callback);
+    return 1;
+  };
   const categoryInput = {};
   const document = {
     body: { innerText: '' },
@@ -26,6 +37,7 @@ function createHarness() {
   };
   const context = vm.createContext({
     Blob,
+    Date: FakeDate,
     chrome: {
       runtime: {
         lastError: null,
@@ -39,13 +51,13 @@ function createHarness() {
         },
       },
     },
-    clearInterval,
-    clearTimeout,
+    clearInterval() {},
+    clearTimeout() {},
     console,
     document,
     fetch: async () => ({ ok: false, status: 404 }),
-    setInterval,
-    setTimeout,
+    setInterval: immediateTimer,
+    setTimeout: immediateTimer,
   });
   context.window = context;
   context.KidItemWingAccountIdentity = { verifyExpectedVendorId: () => ({ ok: true, vendorId: 'A00012345', source: 'dom:data-vendor-id' }) };
@@ -61,6 +73,126 @@ function createHarness() {
   };
 }
 
+function createCategorySearchHarness() {
+  let listener = null;
+  let now = 0;
+  let suggestionVisible = false;
+  let suggestionClicked = false;
+  const editCommands = [];
+  const trustedInputRequests = [];
+  class FakeDate extends Date {
+    static now() {
+      now += 1000;
+      return now;
+    }
+  }
+  class FakeInput {
+    focus() {}
+    select() {}
+    dispatchEvent() {}
+  }
+  Object.defineProperty(FakeInput.prototype, 'value', {
+    configurable: true,
+    get() {
+      return this._value ?? '';
+    },
+    set(next) {
+      this._value = String(next);
+    },
+  });
+  const categoryInput = Object.assign(Object.create(FakeInput.prototype), {
+    tagName: 'INPUT',
+  });
+  const suggestion = {
+    offsetParent: {},
+    textContent: '생활용품>생활소품>열쇠고리/키홀더',
+    click() {
+      suggestionClicked = true;
+    },
+  };
+  const document = {
+    body: { innerText: '' },
+    execCommand(command, _showUi, value) {
+      editCommands.push({ command, value });
+      if (command !== 'insertText') return false;
+      categoryInput.value = value;
+      suggestionVisible = true;
+      return true;
+    },
+    querySelector(selector) {
+      if (selector.includes('placeholder="카테고리명 입력"')) return categoryInput;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === 'li,div,span,button,a' && suggestionVisible) {
+        return [suggestion];
+      }
+      return [];
+    },
+  };
+  const immediateTimer = (callback) => {
+    queueMicrotask(callback);
+    return 1;
+  };
+  const context = vm.createContext({
+    Blob,
+    Date: FakeDate,
+    Event,
+    HTMLInputElement: FakeInput,
+    chrome: {
+      runtime: {
+        lastError: null,
+        onMessage: { addListener(next) { listener = next; } },
+        sendMessage(message, callback) {
+          if (message?.action === 'inputWingCategorySearch') {
+            trustedInputRequests.push(message);
+            categoryInput.value = message.value;
+            suggestionVisible = true;
+            callback?.({ ok: true });
+            return;
+          }
+          callback?.({ ok: false });
+        },
+      },
+    },
+    clearInterval() {},
+    clearTimeout() {},
+    console,
+    document,
+    fetch: async () => ({ ok: false, status: 404 }),
+    setInterval: immediateTimer,
+    setTimeout: immediateTimer,
+  });
+  context.window = context;
+  context.KidItemWingAccountIdentity = {
+    verifyExpectedVendorId: () => ({
+      ok: true,
+      vendorId: 'A00012345',
+      source: 'dom:data-vendor-id',
+    }),
+  };
+  vm.runInContext(source, context, { filename: 'wing-registration-fill.js' });
+
+  return {
+    async fill() {
+      return new Promise((resolve) => {
+        listener?.({
+          action: 'fillWingForm',
+          expectedVendorId: 'A00012345',
+          product: {
+            categoryCell: '[64687] 생활용품>생활소품>열쇠고리/키홀더',
+            detailImageUrls: [],
+            variants: [],
+          },
+        }, {}, resolve);
+      });
+    },
+    editCommands,
+    trustedInputRequests,
+    wasSuggestionClicked: () => suggestionClicked,
+  };
+}
+
 function createDirectUploadHarness({
   uploadPayload = {
     success: true,
@@ -68,13 +200,18 @@ function createDirectUploadHarness({
   },
   uploadStatus = 200,
   uploadThrows = false,
-  htmlSaveCompletes = true,
+  htmlSavePersists = true,
+  imageTabCanSwitch = true,
+  sourceFetchNeverSettles = false,
 } = {}) {
   let listener = null;
   let htmlSaveClicks = 0;
+  let imageTabClicks = 0;
   let productSaveClicks = 0;
   let appliedHtml = null;
+  let persistedHtml = null;
   let htmlSave = null;
+  let activeDetailTab = 'image';
   const fetchCalls = [];
   const categoryInput = {};
   let now = 0;
@@ -146,9 +283,17 @@ function createDirectUploadHarness({
   const htmlTab = {
     checked: false,
   };
+  const imageTabLabel = {
+    click() {
+      imageTabClicks += 1;
+      if (imageTabCanSwitch) activeDetailTab = 'image';
+    },
+  };
   const htmlTabLabel = {
     click() {
+      activeDetailTab = 'html';
       htmlTab.checked = true;
+      textarea.value = persistedHtml ?? '';
     },
   };
   htmlSave = {
@@ -167,14 +312,20 @@ function createDirectUploadHarness({
     click() {
       htmlSaveClicks += 1;
       appliedHtml = textarea.value;
-      if (htmlSaveCompletes) this.setDisabled(true);
+      if (htmlSavePersists) {
+        persistedHtml = textarea.value.replace('<center> <img', '<center>\n<img');
+        textarea.value = persistedHtml;
+      }
     },
   };
   const section = {
     querySelector(selector) {
+      if (selector === '#tab-content-0 + label') return imageTabLabel;
       if (selector === '#tab-content-2') return htmlTab;
       if (selector === '#tab-content-2 + label') return htmlTabLabel;
-      if (selector === '.html-area-content textarea') return textarea;
+      if (selector === '.html-area-content textarea') {
+        return activeDetailTab === 'html' ? textarea : null;
+      }
       if (selector === 'a.applyHtml') return htmlSave;
       return null;
     },
@@ -200,6 +351,10 @@ function createDirectUploadHarness({
   const immediateTimer = (callback) => {
     queueMicrotask(callback);
     return 1;
+  };
+  const harnessTimer = (callback, delay) => {
+    if (!sourceFetchNeverSettles && delay >= 8000) return 1;
+    return immediateTimer(callback);
   };
   const context = vm.createContext({
     Blob,
@@ -227,6 +382,7 @@ function createDirectUploadHarness({
     fetch: async (url, init) => {
       fetchCalls.push({ url, init });
       if (url === 'http://localhost:9000/kiditem/detail.jpg') {
+        if (sourceFetchNeverSettles) return new Promise(() => {});
         return {
           ok: true,
           status: 200,
@@ -244,7 +400,7 @@ function createDirectUploadHarness({
       throw new Error(`unexpected fetch: ${url}`);
     },
     setInterval: immediateTimer,
-    setTimeout: immediateTimer,
+    setTimeout: harnessTimer,
   });
   context.window = context;
   context.KidItemWingAccountIdentity = { verifyExpectedVendorId: () => ({ ok: true, vendorId: 'A00012345', source: 'dom:data-vendor-id' }) };
@@ -271,6 +427,9 @@ function createDirectUploadHarness({
     },
     getHtmlSaveClicks() {
       return htmlSaveClicks;
+    },
+    getImageTabClicks() {
+      return imageTabClicks;
     },
     getAppliedHtml() {
       return appliedHtml;
@@ -301,15 +460,29 @@ test('does not require a detail upload when no saved detail page was supplied', 
     detailImageUrls: [],
   });
 
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.steps.join(','));
   assert.equal(result.error, undefined);
+});
+
+test('requests trusted browser input so Wing renders the exact category suggestion', async () => {
+  const harness = createCategorySearchHarness();
+
+  const result = await harness.fill();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(harness.trustedInputRequests)), [
+    { action: 'inputWingCategorySearch', value: '열쇠고리/키홀더' },
+  ]);
+  assert.deepEqual(harness.editCommands, []);
+  assert.equal(harness.wasSuggestionClicked(), true);
+  assert.ok(result.steps.includes('category:생활용품>생활소품>열쇠고리/키홀더'));
+  assert.ok(!result.steps.includes('categoryNoSuggestion'));
 });
 
 test('uploads once through uploadV2, then saves exact centered HTML with the CDN URL', async () => {
   const harness = createDirectUploadHarness();
   const result = await harness.fill();
 
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.steps.join(','));
   assert.equal(harness.getHtmlSaveClicks(), 1);
   assert.equal(
     harness.getAppliedHtml(),
@@ -351,14 +524,48 @@ test('fails closed when uploadV2 returns a non-success response', async () => {
   }
 });
 
-test('fails when HTML Save never returns to disabled after the revision attempt', async () => {
-  const harness = createDirectUploadHarness({ htmlSaveCompletes: false });
+test('fails closed instead of hanging when the source image request never settles', async () => {
+  const harness = createDirectUploadHarness({ sourceFetchNeverSettles: true });
+  const result = await Promise.race([
+    harness.fill(),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('source image timeout was not enforced')), 100),
+    ),
+  ]);
+
+  assert.equal(result.ok, false);
+  assert.equal(harness.getHtmlSaveClicks(), 0);
+  assert.equal(harness.getProductSaveClicks(), 0);
+  assert.ok(result.steps.includes('detailFetchFailed'));
+});
+
+test('accepts persisted HTML even when the WING Save control remains enabled', async () => {
+  const harness = createDirectUploadHarness();
+  const result = await harness.fill();
+
+  assert.equal(result.ok, true, result.steps.join(','));
+  assert.equal(harness.getHtmlSaveClicks(), 1);
+  assert.ok(result.steps.includes('detailHtml:1'));
+});
+
+test('accepts normalized saved HTML without requiring the WING image tab to switch', async () => {
+  const harness = createDirectUploadHarness({ imageTabCanSwitch: false });
+  const result = await harness.fill();
+
+  assert.equal(result.ok, true, result.steps.join(','));
+  assert.equal(harness.getHtmlSaveClicks(), 1);
+  assert.equal(harness.getImageTabClicks(), 0);
+  assert.ok(result.steps.includes('detailHtml:1'));
+});
+
+test('fails when the WING editor does not acknowledge the saved HTML', async () => {
+  const harness = createDirectUploadHarness({ htmlSavePersists: false });
   const result = await harness.fill();
 
   assert.equal(result.ok, false);
   assert.equal(harness.getHtmlSaveClicks(), 1);
   assert.equal(harness.getProductSaveClicks(), 0);
-  assert.ok(result.steps.includes('detailHtmlNotApplied'));
+  assert.ok(result.steps.includes('detailHtmlNotPersisted'));
 });
 
 test('rejects URL, traversal, query, and multiple-path upload messages', async () => {
@@ -402,7 +609,12 @@ test('rejects multiple source images before any upload call', async () => {
  * 라이브 실증: 옵션 행을 **선택하지 않으면** 일괄입력이 조용히 무시되어 판매가/재고가
  * 빈 채로 남는다. 그래서 `선택 → 일괄입력 → 저장` 순서가 계약이다.
  */
-function createOptionAndNoticeHarness({ rowCount = 1, cascade = true } = {}) {
+function createOptionAndNoticeHarness({
+  rowCount = 1,
+  cascade = true,
+  optionCreationAvailable = true,
+  generatedRowCount = 0,
+} = {}) {
   let listener = null;
   const events = [];
 
@@ -488,6 +700,17 @@ function createOptionAndNoticeHarness({ rowCount = 1, cascade = true } = {}) {
     },
   };
 
+  const optionCreation = { offsetParent: {} };
+  const generateItems = {
+    id: 'generateItems',
+    disabled: false,
+    hasAttribute: () => false,
+    click() {
+      events.push('generateItems');
+      while (rows.length < generatedRowCount) rows.push(checkbox('row'));
+    },
+  };
+
   const numberInputs = [];
   const dialogSave = {
     textContent: '저장',
@@ -557,6 +780,32 @@ function createOptionAndNoticeHarness({ rowCount = 1, cascade = true } = {}) {
       this._value = String(next);
     },
   });
+  const optionValueInput = Object.create(FakeInput.prototype);
+  Object.assign(optionValueInput, {
+    tagName: 'INPUT',
+    placeholder: '옵션값 입력',
+    offsetParent: {},
+    dispatchEvent(event) {
+      events.push(`optionInput:${event.type}`);
+    },
+    focus() {},
+    blur() {},
+    closest() {
+      return null;
+    },
+  });
+
+  const originalQuerySelector = document.querySelector.bind(document);
+  document.querySelector = (selector) => {
+    if (selector === '.option-creation') {
+      return optionCreationAvailable ? optionCreation : null;
+    }
+    if (selector === '#generateItems') {
+      return optionCreationAvailable ? generateItems : null;
+    }
+    if (selector.includes('placeholder="옵션값 입력"')) return optionValueInput;
+    return originalQuerySelector(selector);
+  };
   const context = vm.createContext({
     Blob,
     Date: FakeDate,
@@ -649,6 +898,38 @@ test('skips both bulk fills when there is no option row to select', async () => 
   assert.equal(harness.events.filter((e) => e.startsWith('open:')).length, 0);
 });
 
+test('fails closed when Wing does not render the category option creation panel', async () => {
+  const harness = createOptionAndNoticeHarness({
+    rowCount: 0,
+    optionCreationAvailable: false,
+  });
+  const result = await harness.fill({
+    purchaseOptions: [{ type: '색상', value: '빨강' }],
+    salePrice: 4000,
+    stock: 999,
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /카테고리 속성.*옵션 입력 영역/);
+  assert.ok(result.steps.includes('optionCreationUnavailable'));
+  assert.equal(harness.events.includes('generateItems'), false);
+});
+
+test('generates option rows before selecting rows and filling price and stock', async () => {
+  const harness = createOptionAndNoticeHarness({ rowCount: 0, generatedRowCount: 1 });
+  const result = await harness.fill({
+    purchaseOptions: [{ type: '색상', value: '빨강' }],
+    salePrice: 4000,
+    stock: 999,
+  });
+
+  assert.equal(result.ok, true, result.steps.join(','));
+  assert.ok(result.steps.includes('optionRows:1'));
+  assert.ok(result.steps.includes('salePrice:4000'));
+  assert.ok(result.steps.includes('stock:999'));
+  assert.ok(harness.events.indexOf('generateItems') < harness.events.indexOf('selectAll:true'));
+});
+
 test('pins the notice category to 기타 재화 and checks 전체 상품 상세페이지 참조', async () => {
   // 프리셋의 `어린이제품` 을 그대로 쓰지 않는다 — 카테고리별 고시 스키마 매핑이 없어서
   // 어느 상품에나 유효한 `기타 재화` + 전체 상세페이지 참조로 고정한다.
@@ -695,6 +976,14 @@ function createSubmitHarness({
   const clicks = [];
   let bodyText = '';
   let modalOpen = false;
+  let now = 0;
+
+  class FakeDate extends Date {
+    static now() {
+      now += 1000;
+      return now;
+    }
+  }
 
   const succeed = () => {
     bodyText =
@@ -810,6 +1099,7 @@ function createSubmitHarness({
   };
   const context = vm.createContext({
     Blob,
+    Date: FakeDate,
     chrome: {
       runtime: {
         lastError: null,

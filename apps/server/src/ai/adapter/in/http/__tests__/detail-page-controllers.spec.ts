@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common/constants';
 import { describe, expect, it } from 'vitest';
 import { AiModule } from '../../../../ai.module';
+import { DetailPageCandidateImageController } from '../detail-page-candidate-image.controller';
 import { DetailPageEditorController } from '../detail-page-editor.controller';
 import { DetailPageGenerationController } from '../detail-page-generation.controller';
 
@@ -16,6 +17,7 @@ describe('detail-page route-family controllers', () => {
 
     expect(controllers).toContain(DetailPageGenerationController);
     expect(controllers).toContain(DetailPageEditorController);
+    expect(controllers).toContain(DetailPageCandidateImageController);
   });
 
   it('preserves the existing route URLs by route family', () => {
@@ -57,6 +59,34 @@ describe('detail-page route-family controllers', () => {
     expect(route(DetailPageEditorController, 'remove')).toEqual({
       method: RequestMethod.DELETE,
       path: ':id',
+    });
+
+    expect(controllerPath(DetailPageCandidateImageController)).toBe(
+      'ai/detail-page-image',
+    );
+    expect(route(DetailPageCandidateImageController, 'prepare')).toEqual({
+      method: RequestMethod.POST,
+      path: 'candidate/:candidateId/client-render',
+    });
+    expect(route(DetailPageCandidateImageController, 'claim')).toEqual({
+      method: RequestMethod.POST,
+      path: 'render-intents/:intentId/claim',
+    });
+    expect(route(DetailPageCandidateImageController, 'document')).toEqual({
+      method: RequestMethod.GET,
+      path: 'render-intents/:intentId/document',
+    });
+    expect(route(DetailPageCandidateImageController, 'status')).toEqual({
+      method: RequestMethod.GET,
+      path: 'render-intents/:intentId',
+    });
+    expect(route(DetailPageCandidateImageController, 'finalize')).toEqual({
+      method: RequestMethod.POST,
+      path: 'render-intents/:intentId/finalize',
+    });
+    expect(route(DetailPageCandidateImageController, 'fail')).toEqual({
+      method: RequestMethod.POST,
+      path: 'render-intents/:intentId/fail',
     });
 
   });

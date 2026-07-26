@@ -405,15 +405,16 @@ model DetailPageArtifact {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contentWorkspace               ContentWorkspace     @relation("DetailPageArtifactContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sourceContentGeneration        ContentGeneration?   @relation("DetailPageArtifactSourceGeneration", fields: [sourceContentGenerationId], references: [id], onDelete: SetNull)
-  currentRevision                DetailPageRevision?  @relation("DetailPageArtifactCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
-  createdByUser                  User?                @relation("DetailPageArtifactCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  revisions                      DetailPageRevision[] @relation("DetailPageArtifactRevisions")
-  contentGenerations             ContentGeneration[]  @relation("ContentGenerationDetailPageArtifact")
-  currentForContentWorkspaces    ContentWorkspace[]   @relation("ContentWorkspaceCurrentArtifact")
-  selectedForProductPreparations ProductPreparation[] @relation("ProductPreparationSelectedDetailPageArtifact")
+  organization                   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contentWorkspace               ContentWorkspace              @relation("DetailPageArtifactContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sourceContentGeneration        ContentGeneration?            @relation("DetailPageArtifactSourceGeneration", fields: [sourceContentGenerationId], references: [id], onDelete: SetNull)
+  currentRevision                DetailPageRevision?           @relation("DetailPageArtifactCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
+  createdByUser                  User?                         @relation("DetailPageArtifactCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  revisions                      DetailPageRevision[]          @relation("DetailPageArtifactRevisions")
+  contentGenerations             ContentGeneration[]           @relation("ContentGenerationDetailPageArtifact")
+  currentForContentWorkspaces    ContentWorkspace[]            @relation("ContentWorkspaceCurrentArtifact")
+  selectedForProductPreparations ProductPreparation[]          @relation("ProductPreparationSelectedDetailPageArtifact")
+  imageRenderIntents             DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentDetailPageArtifact")
 
   @@unique([id, organizationId], map: "detail_page_artifacts_id_org_key")
   @@index([organizationId])
@@ -635,13 +636,15 @@ model DetailPageRevision {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization                   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  artifact                       DetailPageArtifact   @relation("DetailPageArtifactRevisions", fields: [artifactId], references: [id], onDelete: Cascade)
-  contentGeneration              ContentGeneration?   @relation("DetailPageRevisionContentGeneration", fields: [contentGenerationId], references: [id], onDelete: SetNull)
-  createdByUser                  User?                @relation("DetailPageRevisionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  currentForArtifacts            DetailPageArtifact[] @relation("DetailPageArtifactCurrentRevision")
-  currentForContentWorkspaces    ContentWorkspace[]   @relation("ContentWorkspaceCurrentRevision")
-  selectedForProductPreparations ProductPreparation[] @relation("ProductPreparationSelectedDetailPageRevision")
+  organization                   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  artifact                       DetailPageArtifact            @relation("DetailPageArtifactRevisions", fields: [artifactId], references: [id], onDelete: Cascade)
+  contentGeneration              ContentGeneration?            @relation("DetailPageRevisionContentGeneration", fields: [contentGenerationId], references: [id], onDelete: SetNull)
+  createdByUser                  User?                         @relation("DetailPageRevisionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  currentForArtifacts            DetailPageArtifact[]          @relation("DetailPageArtifactCurrentRevision")
+  currentForContentWorkspaces    ContentWorkspace[]            @relation("ContentWorkspaceCurrentRevision")
+  selectedForProductPreparations ProductPreparation[]          @relation("ProductPreparationSelectedDetailPageRevision")
+  imageArtifacts                 DetailPageImageArtifact[]     @relation("DetailPageImageArtifactRevision")
+  imageRenderIntents             DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentRevision")
 
   @@unique([id, organizationId], map: "detail_page_revisions_id_org_key")
   @@index([organizationId])
@@ -651,6 +654,87 @@ model DetailPageRevision {
   @@index([organizationId, artifactId])
   @@index([artifactId, createdAt])
   @@map("detail_page_revisions")
+}
+
+/// @namespace AI
+/// @describe Durable single-JPEG marketplace rendition for one immutable detail-page revision and renderer variant.
+model DetailPageImageArtifact {
+  id              String  @id @default(uuid()) @db.Uuid
+  organizationId  String  @map("organization_id") @db.Uuid
+  revisionId      String  @map("revision_id") @db.Uuid
+  variant         String
+  outputWidth     Int     @map("output_width")
+  objectKey       String  @map("object_key")
+  imageUrl        String  @map("image_url")
+  contentType     String  @map("content_type")
+  byteLength      Int     @map("byte_length")
+  pixelWidth      Int     @map("pixel_width")
+  pixelHeight     Int     @map("pixel_height")
+  sha256          String
+  rendererKind    String  @map("renderer_kind")
+  createdByUserId String? @map("created_by_user_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization           Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  revision               DetailPageRevision            @relation("DetailPageImageArtifactRevision", fields: [revisionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  createdBy              User?                         @relation("DetailPageImageArtifactCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  completedRenderIntents DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentCompletedArtifact")
+
+  @@unique([organizationId, revisionId, variant, outputWidth], map: "detail_page_image_artifacts_variant_key")
+  @@unique([organizationId, objectKey], map: "detail_page_image_artifacts_object_key")
+  @@index([revisionId])
+  @@index([createdByUserId])
+  @@index([organizationId, revisionId])
+  @@map("detail_page_image_artifacts")
+}
+
+/// @namespace AI
+/// @describe Short-lived organization-scoped claim that binds a browser renderer to one exact detail-page revision and object key.
+model DetailPageImageRenderIntent {
+  id                   String    @id @default(uuid()) @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
+  sourceCandidateId    String    @map("source_candidate_id") @db.Uuid
+  detailPageArtifactId String    @map("detail_page_artifact_id") @db.Uuid
+  revisionId           String    @map("revision_id") @db.Uuid
+  variant              String
+  outputWidth          Int       @map("output_width")
+  objectKey            String    @map("object_key")
+  state                String    @default("issued")
+  attempt              Int       @default(1)
+  expiresAt            DateTime  @map("expires_at") @db.Timestamptz
+  requestedByUserId    String?   @map("requested_by_user_id") @db.Uuid
+  claimedByUserId      String?   @map("claimed_by_user_id") @db.Uuid
+  claimedAt            DateTime? @map("claimed_at") @db.Timestamptz
+  uploadedAt           DateTime? @map("uploaded_at") @db.Timestamptz
+  completedAt          DateTime? @map("completed_at") @db.Timestamptz
+  failedAt             DateTime? @map("failed_at") @db.Timestamptz
+  failureCode          String?   @map("failure_code")
+  failureMessage       String?   @map("failure_message")
+  completedArtifactId  String?   @map("completed_artifact_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization       Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceCandidate    SourcingCandidate        @relation("DetailPageImageRenderIntentCandidate", fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  detailPageArtifact DetailPageArtifact       @relation("DetailPageImageRenderIntentDetailPageArtifact", fields: [detailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  revision           DetailPageRevision       @relation("DetailPageImageRenderIntentRevision", fields: [revisionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  requestedBy        User?                    @relation("DetailPageImageRenderIntentRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  claimedBy          User?                    @relation("DetailPageImageRenderIntentClaimedBy", fields: [claimedByUserId], references: [id], onDelete: SetNull)
+  completedArtifact  DetailPageImageArtifact? @relation("DetailPageImageRenderIntentCompletedArtifact", fields: [completedArtifactId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([sourceCandidateId])
+  @@index([detailPageArtifactId])
+  @@index([revisionId])
+  @@index([requestedByUserId])
+  @@index([claimedByUserId])
+  @@index([completedArtifactId])
+  @@index([organizationId, state, expiresAt])
+  @@index([organizationId, revisionId, variant, outputWidth])
+  @@map("detail_page_image_render_intents")
 }
 
 /// @namespace AI

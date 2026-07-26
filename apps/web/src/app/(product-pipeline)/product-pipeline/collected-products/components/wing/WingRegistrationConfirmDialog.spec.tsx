@@ -122,22 +122,35 @@ describe('WingRegistrationConfirmDialog', () => {
     expect(stockInputWrapper).toHaveClass('mt-auto');
   });
 
-  it('lets the user finish a manual or uncertain WING registration with the issued product id', () => {
-    const onConfirmExternal = vi.fn();
+  it('keeps the original pre-fill confirmation as the only dialog step', () => {
     render(
       <WingRegistrationConfirmDialog
         draft={draft}
         isSubmitting={false}
-        completion={{ suggestedExternalListingId: '427011919' }}
         onCancel={() => {}}
         onConfirm={() => {}}
-        onConfirmExternal={onConfirmExternal}
       />,
     );
 
-    const input = screen.getByLabelText('쿠팡 등록상품ID');
-    expect(input).toHaveValue('427011919');
-    fireEvent.click(screen.getByRole('button', { name: '등록 완료 확인' }));
-    expect(onConfirmExternal).toHaveBeenCalledWith('427011919');
+    expect(screen.getByRole('dialog', { name: '쿠팡 WING 등록 확인' })).toBeInTheDocument();
+    expect(screen.queryByText('쿠팡 등록 완료 확인')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('쿠팡 등록상품ID')).not.toBeInTheDocument();
+  });
+
+  it('keeps a WING form-fill failure visible in the confirmation dialog', () => {
+    render(
+      <WingRegistrationConfirmDialog
+        draft={draft}
+        isSubmitting={false}
+        submissionError="쿠팡 WING이 선택한 카테고리 속성을 불러오지 못했습니다."
+        onCancel={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '쿠팡 WING이 선택한 카테고리 속성을 불러오지 못했습니다.',
+    );
+    expect(screen.getByRole('button', { name: '확인하고 WING 등록 시작' })).toBeEnabled();
   });
 });

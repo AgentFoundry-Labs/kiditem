@@ -1,0 +1,354 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  GoneException,
+} from '@nestjs/common';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
+  DETAIL_PAGE_CLIENT_RENDER_VARIANT,
+} from '@kiditem/shared/ai';
+import { DetailPageClientRenderService } from './detail-page-client-render.service';
+
+const ORG_ID = '11111111-1111-4111-8111-111111111111';
+const USER_ID = '22222222-2222-4222-8222-222222222222';
+const OTHER_USER_ID = '33333333-3333-4333-8333-333333333333';
+const CANDIDATE_ID = '44444444-4444-4444-8444-444444444444';
+const REVISION_ID = '55555555-5555-4555-8555-555555555555';
+const DETAIL_ARTIFACT_ID = '66666666-6666-4666-8666-666666666666';
+const INTENT_ID = '77777777-7777-4777-8777-777777777777';
+const IMAGE_ARTIFACT_ID = '88888888-8888-4888-8888-888888888888';
+const OBJECT_KEY =
+  `detail-page-images/${ORG_ID}/${REVISION_ID}/wing-client-jpeg-v1-780.jpg`;
+const NOW = new Date('2026-07-26T00:00:00.000Z');
+
+function savedDetailPage(html = '<main><img src="/hero.jpg"></main>') {
+  return {
+    revisionId: REVISION_ID,
+    artifactId: DETAIL_ARTIFACT_ID,
+    html,
+    createdAt: new Date('2026-07-25T00:00:00.000Z'),
+  };
+}
+
+function intent(overrides: Record<string, unknown> = {}) {
+  return {
+    id: INTENT_ID,
+    organizationId: ORG_ID,
+    sourceCandidateId: CANDIDATE_ID,
+    detailPageArtifactId: DETAIL_ARTIFACT_ID,
+    revisionId: REVISION_ID,
+    variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
+    outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
+    objectKey: OBJECT_KEY,
+    state: 'issued',
+    attempt: 1,
+    expiresAt: new Date(NOW.getTime() + 15 * 60_000),
+    requestedByUserId: USER_ID,
+    claimedByUserId: null,
+    claimedAt: null,
+    uploadedAt: null,
+    completedAt: null,
+    failedAt: null,
+    failureCode: null,
+    failureMessage: null,
+    completedArtifactId: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...overrides,
+  };
+}
+
+function imageArtifact() {
+  return {
+    id: IMAGE_ARTIFACT_ID,
+    organizationId: ORG_ID,
+    revisionId: REVISION_ID,
+    variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
+    outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
+    objectKey: OBJECT_KEY,
+    imageUrl: `https://cdn.example.com/${OBJECT_KEY}`,
+    contentType: 'image/jpeg',
+    byteLength: 2048,
+    pixelWidth: 780,
+    pixelHeight: 7846,
+    sha256: 'a'.repeat(64),
+    rendererKind: 'chrome-extension-cdp',
+    createdByUserId: USER_ID,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+}
+
+describe('DetailPageClientRenderService', () => {
+  const detailPages = {
+    findCandidateCurrentDetailPageHtml: vi.fn(),
+    findDetailPageRevisionHtml: vi.fn(),
+  };
+  const images = {
+    findArtifact: vi.fn(),
+    findActiveIntent: vi.fn(),
+    createIntent: vi.fn(),
+    findIntent: vi.fn(),
+    claimIntent: vi.fn(),
+    completeIntent: vi.fn(),
+    failIntent: vi.fn(),
+    expireIntent: vi.fn(),
+  };
+  const storage = {
+    createPresignedPut: vi.fn(),
+    inspectJpeg: vi.fn(),
+    getUrl: vi.fn((key: string) => `https://cdn.example.com/${key}`),
+  };
+  const templateStyles = { getCompiledCss: vi.fn(() => '.detail { display: block; }') };
+  let service: DetailPageClientRenderService;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.CORS_ORIGINS = 'https://staging.kiditem.example';
+    service = new DetailPageClientRenderService(
+      detailPages as never,
+      images as never,
+      storage as never,
+      templateStyles,
+      () => NOW,
+    );
+  });
+
+  it('저장 HTML이 없거나 비어 있으면 명시적인 missing을 반환한다', async () => {
+    detailPages.findCandidateCurrentDetailPageHtml
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(savedDetailPage('   '));
+
+    await expect(service.prepare({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      sourceCandidateId: CANDIDATE_ID,
+    })).resolves.toMatchObject({ status: 'missing', reason: 'no_saved_detail_page' });
+    await expect(service.prepare({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      sourceCandidateId: CANDIDATE_ID,
+    })).resolves.toMatchObject({ status: 'missing', reason: 'empty_html' });
+  });
+
+  it('현재 revision의 확정 artifact가 있으면 새 intent 없이 ready를 반환한다', async () => {
+    detailPages.findCandidateCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
+    images.findArtifact.mockResolvedValue(imageArtifact());
+
+    const result = await service.prepare({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      sourceCandidateId: CANDIDATE_ID,
+    });
+
+    expect(result).toMatchObject({
+      status: 'ready',
+      artifactId: IMAGE_ARTIFACT_ID,
+      revisionId: REVISION_ID,
+      outputWidth: 780,
+    });
+    expect(images.createIntent).not.toHaveBeenCalled();
+  });
+
+  it('같은 revision의 활성 intent를 재사용하고, 없으면 서버 고정 key로 생성한다', async () => {
+    detailPages.findCandidateCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
+    images.findArtifact.mockResolvedValue(null);
+    images.findActiveIntent
+      .mockResolvedValueOnce(intent())
+      .mockResolvedValueOnce(null);
+    images.createIntent.mockImplementation(async (value) => intent(value));
+
+    const reused = await service.prepare({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      sourceCandidateId: CANDIDATE_ID,
+    });
+    const created = await service.prepare({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      sourceCandidateId: CANDIDATE_ID,
+    });
+
+    expect(reused).toMatchObject({ status: 'render_required', intentId: INTENT_ID });
+    expect(created).toMatchObject({ status: 'render_required', revisionId: REVISION_ID });
+    expect(images.createIntent).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID,
+      sourceCandidateId: CANDIDATE_ID,
+      revisionId: REVISION_ID,
+      objectKey: OBJECT_KEY,
+      variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
+      outputWidth: 780,
+    }));
+  });
+
+  it('claim은 다른 claimant를 거부하고 소유자에게만 고정 업로드 정보를 준다', async () => {
+    images.findIntent.mockResolvedValue(intent());
+    images.claimIntent
+      .mockResolvedValueOnce({ status: 'conflict', intent: intent({
+        state: 'claimed',
+        claimedByUserId: OTHER_USER_ID,
+      }) })
+      .mockResolvedValueOnce({ status: 'claimed', intent: intent({
+        state: 'claimed',
+        claimedByUserId: USER_ID,
+      }) });
+    storage.createPresignedPut.mockResolvedValue({
+      uploadUrl: 'https://upload.example.com/signed',
+      headers: { 'Content-Type': 'image/jpeg' },
+      expiresAt: new Date(NOW.getTime() + 5 * 60_000),
+      imageUrl: `https://cdn.example.com/${OBJECT_KEY}`,
+    });
+
+    await expect(service.claim({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const result = await service.claim({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+    });
+    expect(result).toMatchObject({
+      intentId: INTENT_ID,
+      revisionId: REVISION_ID,
+      outputWidth: 780,
+      renderDocumentUrl:
+        `https://staging.kiditem.example/detail-page-client-render?intentId=${INTENT_ID}`,
+      upload: { url: 'https://upload.example.com/signed' },
+    });
+    expect(storage.createPresignedPut).toHaveBeenCalledWith(expect.objectContaining({
+      key: OBJECT_KEY,
+      contentType: 'image/jpeg',
+      metadata: expect.objectContaining({
+        'intent-id': INTENT_ID,
+        'revision-id': REVISION_ID,
+      }),
+    }));
+  });
+
+  it('만료 intent는 claim 전에 상태를 만료시키고 거부한다', async () => {
+    images.findIntent.mockResolvedValue(intent({ expiresAt: new Date(NOW.getTime() - 1) }));
+
+    await expect(service.claim({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+    })).rejects.toBeInstanceOf(GoneException);
+    expect(images.expireIntent).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      intentId: INTENT_ID,
+      expiredAt: NOW,
+    });
+  });
+
+  it('document는 claimant에게 bound revision의 렌더 문서만 반환한다', async () => {
+    images.findIntent.mockResolvedValue(intent({
+      state: 'claimed',
+      claimedByUserId: USER_ID,
+    }));
+    detailPages.findDetailPageRevisionHtml.mockResolvedValue(savedDetailPage());
+
+    const result = await service.document({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+    });
+
+    expect(detailPages.findDetailPageRevisionHtml).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      revisionId: REVISION_ID,
+      artifactId: DETAIL_ARTIFACT_ID,
+    });
+    expect(result).toMatchObject({
+      intentId: INTENT_ID,
+      revisionId: REVISION_ID,
+      layoutWidth: 720,
+      outputWidth: 780,
+      requiredAssetPolicy: 'all',
+    });
+    expect(result.html).toContain('<base href="https://staging.kiditem.example/"');
+    expect(result.html).toContain('.detail { display: block; }');
+
+    images.findIntent.mockResolvedValue(intent({
+      state: 'claimed',
+      claimedByUserId: OTHER_USER_ID,
+    }));
+    await expect(service.document({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+    })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('fail은 claim한 사용자만 수행할 수 있다', async () => {
+    images.findIntent.mockResolvedValue(intent({
+      state: 'claimed',
+      claimedByUserId: OTHER_USER_ID,
+    }));
+
+    await expect(service.fail({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+      body: { code: 'capture_failed', message: 'capture failed' },
+    })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(images.failIntent).not.toHaveBeenCalled();
+  });
+
+  it('finalize는 저장된 JPEG와 관측값/metadata가 모두 일치할 때만 idempotent 완료한다', async () => {
+    const claimed = intent({ state: 'claimed', claimedByUserId: USER_ID });
+    images.findIntent.mockResolvedValue(claimed);
+    storage.inspectJpeg.mockResolvedValue({
+      contentType: 'image/jpeg',
+      byteLength: 2048,
+      pixelWidth: 780,
+      pixelHeight: 7846,
+      sha256: 'a'.repeat(64),
+      metadata: {
+        'intent-id': INTENT_ID,
+        'revision-id': REVISION_ID,
+        variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
+        'output-width': '780',
+      },
+    });
+    images.completeIntent.mockResolvedValue(imageArtifact());
+    const body = {
+      byteLength: 2048,
+      pixelWidth: 780 as const,
+      pixelHeight: 7846,
+      sha256: 'a'.repeat(64),
+    };
+
+    const first = await service.finalize({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+      body,
+    });
+    expect(first).toMatchObject({ state: 'completed', artifact: {
+      artifactId: IMAGE_ARTIFACT_ID,
+      imageUrl: `https://cdn.example.com/${OBJECT_KEY}`,
+    } });
+    expect(images.completeIntent).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID,
+      intentId: INTENT_ID,
+      rendererKind: 'chrome-extension-cdp',
+      createdByUserId: USER_ID,
+    }));
+
+    storage.inspectJpeg.mockResolvedValueOnce({
+      ...(await storage.inspectJpeg.mock.results[0].value),
+      pixelWidth: 779,
+    });
+    await expect(service.finalize({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+      body,
+    })).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
