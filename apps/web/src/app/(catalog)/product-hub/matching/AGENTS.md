@@ -20,28 +20,28 @@ React Query + apiClient
 ## State Rules
 
 - React Query owns accounts, queue rows, candidates, import, and confirmations.
-- Candidate queries are read-only suggestions with evidence. Opening, ranking,
-  or searching candidates never changes confirmed identity.
+- Candidate queries are read-only evidence; opening, ranking, or searching
+  never changes confirmed identity.
 - A product must be explicitly confirmed before any of its channel options can
   be linked; both actions live inside the expanded product row.
 - Variant candidates are limited to the listing's confirmed `MasterProduct`.
 - Link and unlink mutations are separate explicit operator actions and
   invalidate product-mapping and channel-availability query families.
-- Recipe status and capacity are inherited summaries. Manual complete recipe
-  replacement links to `/product-hub/[masterProductId]#variants`; one explicit
-  `상품·재고 자동 매칭` account command may apply the current version-fenced
-  deterministic proposal to empty recipes without a second confirmation dialog.
-- Coupang and Rocket catalog rows share the matching queue. Only Coupang
-  accounts receive a Wing workbook, and the initial account selection prefers
-  Coupang Wing before Rocket so a populated Wing queue is not hidden by an empty
-  Rocket account.
+- Recipe status/capacity are inherited summaries. Manual replacement links to
+  `/product-hub/[masterProductId]#variants`; the explicit version-fenced
+  `상품·재고 자동 매칭` command may fill empty recipes without a second dialog.
+- Coupang and Rocket share the queue; only Coupang gets a Wing workbook, and
+  initial selection prefers populated Wing over an empty Rocket queue.
 - Browser catalog publication may arrive already linked through Products-owned
   channel-origin provisioning or unique typed seller-SKU/safe-barcode reuse.
   Matching remains the operator correction and recipe-attention workspace for
   `재고 연결 필요` rows.
-- Product-detail chunks already published by a running browser collection appear
-  immediately; full-snapshot completion is required only for absence and
-  deactivation reconciliation.
+- Published product-detail chunks appear immediately; full snapshots are only
+  required for absence/deactivation reconciliation.
+- Product rows show `listing.channelImageUrl` beside the channel identity and
+  `linkedProduct.displayImageUrl` beside the confirmed KidItem identity. These
+  are read-time values; opening or confirming a match does not copy media into
+  `MasterProduct.imageUrls`.
 
 ## Boundary Rules
 
@@ -51,19 +51,15 @@ React Query + apiClient
   The only recipe mutation here is the explicit version-fenced command that
   creates an empty central recipe as one active Sellpia SKU with a backend-
   verified positive integer quantity.
-- The automatic command applies each safe child variant independently. A
-  product with unresolved children remains review/blocked while safe siblings
-  are applied. Existing confirmed links and recipes remain untouched.
-- Automatic recipe evidence must uniquely and non-conflictingly select the same
-  SKU by a name-cross-checked exact code/barcode, exact normalized identity, or
-  high-confidence name score with sufficient runner-up margin. Quantities above
-  one require an explicit integer pack ratio. Unverifiable pack/BOM,
-  duplicates, conflicts, close-ranked names, raw aliases, and AI stay under
-  operator review.
-- Matching candidates never auto-confirm identity from rank, normalized name,
-  or AI evidence. The only automatic identity decision is the backend catalog
-  publication boundary's unique, non-conflicting typed seller SKU or safely
-  normalized barcode policy; raw aliases and names are never confirming.
+- The automatic command independently applies safe children while unresolved
+  siblings remain review/blocked; confirmed links and recipes stay untouched.
+- Recipe evidence must uniquely, non-conflictingly select one SKU via
+  name-cross-checked exact code/barcode, exact normalized identity, or a
+  high-confidence name with runner-up margin; quantities above one need an
+  explicit integer pack ratio. Unverifiable pack/BOM, duplicates, conflicts,
+  close names, raw aliases, and AI require review. Matching never auto-confirms
+  identity from rank/name/AI: only catalog publication may use unique typed
+  seller SKU or safely normalized barcode evidence.
 - Do not send `organizationId`; backend session scope owns it.
 - Wing and Rocket collection must preserve already confirmed links.
 - Rocket order collection, purchase preview, and order handling remain outside

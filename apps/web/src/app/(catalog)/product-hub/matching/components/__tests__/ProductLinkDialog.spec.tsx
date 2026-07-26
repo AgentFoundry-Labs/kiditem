@@ -35,7 +35,7 @@ describe('<ProductLinkDialog>', () => {
 function productRow() {
   return {
     channelAccount: { id: '55555555-5555-4555-8555-555555555555', channel: 'coupang', name: 'Wing' },
-    listing: { id: '11111111-1111-4111-8111-111111111111', externalId: 'listing-1', displayName: '채널 우산', status: 'active', masterProductId: null, updatedAt: '2026-07-16T00:00:00.000Z' },
+    listing: { id: '11111111-1111-4111-8111-111111111111', externalId: 'listing-1', displayName: '채널 우산', status: 'active', masterProductId: null, channelImageUrl: null, updatedAt: '2026-07-16T00:00:00.000Z' },
     linkedProduct: null,
     optionCount: 1,
     linkedOptionCount: 0,
