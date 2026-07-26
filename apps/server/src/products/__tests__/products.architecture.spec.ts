@@ -1,6 +1,4 @@
 import 'reflect-metadata';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { ProductOperationsController } from '../adapter/in/http/product-operations.controller';
@@ -10,6 +8,8 @@ import { CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT } from '../application/port/i
 import { CHANNEL_CATALOG_PRODUCT_PROVISIONING_REPOSITORY_PORT } from '../application/port/out/repository/channel-catalog-product-provisioning.repository.port';
 import { ChannelCatalogProductProvisioningService } from '../application/service/channel-catalog-product-provisioning.service';
 import { CategoriesModule } from '../categories/categories.module';
+import { CategoriesController } from '../categories/categories.controller';
+import { CoupangCategorySuggestionService } from '../categories/coupang-category-suggestion.service';
 import { ProductsModule } from '../products.module';
 import { InventoryModule } from '../../inventory/inventory.module';
 import { AnalyticsModule } from '../../analytics/analytics.module';
@@ -18,27 +18,13 @@ import { PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT } from '../application/port/in/p
 import { ProductVariantRecipeAutomationService } from '../application/service/product-variant-recipe-automation.service';
 
 describe('Products architecture', () => {
-  it('does not depend on registered listings to choose WING categories', () => {
-    const sourceFiles = (directory: string): string[] => readdirSync(directory, {
-      withFileTypes: true,
-    }).flatMap((entry) => {
-      if (entry.name === '__tests__' || entry.name.endsWith('.spec.ts')) return [];
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) return sourceFiles(path);
-      return entry.name.endsWith('.ts') ? [path] : [];
-    });
-    const productsRoot = join(import.meta.dirname, '..');
-    const inferencePath = join(productsRoot, 'domain/coupang-category-inference.ts');
-    const source = [
-      ...sourceFiles(join(productsRoot, 'categories')),
-      ...(existsSync(inferencePath) ? [inferencePath] : []),
-    ]
-      .map((path) => readFileSync(path, 'utf8'))
-      .join('\n');
+  it('publishes the organization-scoped WING category suggestion route', () => {
+    const handler = CategoriesController.prototype.suggestCoupangCategories;
+    expect(Reflect.getMetadata('path', handler)).toBe('coupang-suggestions');
+    expect(Reflect.getMetadata('method', handler)).toBe(RequestMethod.POST);
 
-    expect(source).not.toMatch(
-      /CoupangCategorySuggestionService|channelListing|inferCoupangCategory|coupang-suggestions/,
-    );
+    const providers = Reflect.getMetadata('providers', CategoriesModule) ?? [];
+    expect(providers).toContain(CoupangCategorySuggestionService);
   });
 
   it('publishes the ten product-operation routes', () => {

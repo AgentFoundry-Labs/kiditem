@@ -9,7 +9,8 @@
     "tabs",
     "scripting",
     "sidePanel",
-    "alarms"
+    "alarms",
+    "debugger"
   ],
   "externally_connectable": {
     "matches": [
@@ -25,9 +26,21 @@
     "http://localhost:3000/*",
     "http://localhost:4000/*",
     "https://staging.merchon.org/*",
-    "http://localhost:9000/*"
+    "http://localhost:9000/*",
+    "https://gheoobctiarluauprvro.storage.supabase.co/*"
   ],
   "content_scripts": [
+    {
+      "matches": [
+        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2*"
+      ],
+      "js": [
+        "background/wing-form-runtime-compat.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
     {
       "matches": [
         "https://wing.coupang.com/*"

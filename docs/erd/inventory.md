@@ -9,6 +9,7 @@
 
 | Model | Table | Description |
 |---|---|---|
+| CoupangShipmentDateSummary | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
 | InventoryCommitment | `inventory_commitments` | Physical-stock-independent commitment that reduces common available Sellpia capacity. |
 | InventoryCommitmentAllocation | `inventory_commitment_allocations` | Component-level Sellpia SKU quantity held by one inventory commitment. |
 | PickingItem | `picking_items` | - |
@@ -27,6 +28,16 @@
 
 ```mermaid
 erDiagram
+  CoupangShipmentDateSummary {
+    String id PK
+    String organizationId FK
+    String shipmentDate
+    Int count
+    Int boxes
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   InventoryCommitment {
     String id PK
     String organizationId FK
@@ -239,6 +250,7 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
+| CoupangShipmentDateSummary | organization | references external | Core | Organization |
 | InventoryCommitment | creator | references external | Core | User |
 | InventoryCommitment | organization | references external | Core | Organization |
 | InventoryCommitment | releaser | references external | Core | User |

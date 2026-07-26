@@ -63,9 +63,6 @@ export interface AiDirectJobRepositoryPort {
     input: CreateAiDirectJobInput,
   ): Promise<AiDirectJobRecord>;
   restartHeldReedit(input: CreateAiDirectJobInput & { jobType: 'thumbnail_reedit' }): Promise<AiDirectJobRecord>;
-  restartHeldRasterization(
-    input: CreateAiDirectJobInput & { jobType: 'detail_page_rasterize' },
-  ): Promise<AiDirectJobRecord>;
   release(input: { organizationId: string; jobId: string }): Promise<boolean>;
   claimNext(input: {
     workerId: string;

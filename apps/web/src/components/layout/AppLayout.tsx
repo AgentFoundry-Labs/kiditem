@@ -44,9 +44,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // 풀스크린 surface — sidebar/panel/copilot 없이 children 만 렌더.
   // - `/` (launcher) 와 `/agent-os` 는 자체 레이아웃 (main).
-  // - `/login` 은 인증 진입점 (이 PR).
+  // - `/login` 은 인증 진입점.
+  // - `/detail-page-client-render` 는 Chrome 확장 프로그램이 캡처하는 격리 렌더 surface.
   const isFullscreenSurface =
-    pathname === '/' || pathname.startsWith('/agent-os') || pathname.startsWith('/login');
+    pathname === '/' ||
+    pathname.startsWith('/agent-os') ||
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/detail-page-client-render');
 
   useEffect(() => {
     if (isFullscreenSurface) return;

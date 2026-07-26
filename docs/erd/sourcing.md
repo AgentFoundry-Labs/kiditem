@@ -19,6 +19,7 @@
 | Sourcing1688HotProductDailySnapshot | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
 | SourcingCandidate | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
 | SourcingWorkspaceSnapshot | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
+| TiktokCreativeTrendDailySnapshot | `tiktok_creative_trend_daily_snapshots` | 틱톡 크리에이티브 센터(Creative Center)에서 확장이 스크랩한 인기 트렌드 일별 스냅샷. trendType(hashtag\|keyword\|product\|song)으로 종류를, region(국가코드)으로 시장을 구분하고 (region,trendType,entityKey)가 외부 식별자를 이룬다. viewCount 는 int4 를 초과할 수 있어 BigInt. ⚠️ 라이브 틱톡 원본은 봇/리전 차단이라 무료로는 확장 스크랩 경로로만 적재한다([[reference_market_trend_research_tools]]). |
 | TrendSeedKeyword | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
 
 ## Mermaid ER Diagram
@@ -212,6 +213,27 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  TiktokCreativeTrendDailySnapshot {
+    String id PK
+    String organizationId FK
+    DateTime businessDate
+    String region
+    String trendType
+    String entityKey
+    Int rank
+    String label
+    String industry
+    String sourceKeyword
+    Int postCount
+    BigInt viewCount
+    Decimal growthPct
+    String thumbnailUrl
+    String sourceUrl
+    String source
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   TrendSeedKeyword {
     String id PK
     String organizationId FK
@@ -248,9 +270,11 @@ erDiagram
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentWorkspace |
+| SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageImageRenderIntent |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ProductPreparation |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | Core | ChannelListing |
 | SourcingCandidate | triggeredByUser | references external | Core | User |
 | SourcingWorkspaceSnapshot | organization | references external | Core | Organization |
+| TiktokCreativeTrendDailySnapshot | organization | references external | Core | Organization |
 | TrendSeedKeyword | organization | references external | Core | Organization |

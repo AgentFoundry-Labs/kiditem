@@ -26,13 +26,13 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
-| [AI](erd/ai.md) | 20 |
+| [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 21 |
 | [Core](erd/core.md) | 14 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 13 |
+| [Inventory](erd/inventory.md) | 14 |
 | [Orders](erd/orders.md) | 10 |
-| [Sourcing](erd/sourcing.md) | 11 |
+| [Sourcing](erd/sourcing.md) | 12 |
 | [Supply](erd/supply.md) | 10 |
 | [System](erd/system.md) | 9 |
 
@@ -71,6 +71,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ContentWorkspace | AI | `content_workspaces` | Product content workspace owned by a sourcing candidate, channel listing, or direct detail page. |
 | ContentWorkspaceThumbnailSelection | AI | `content_workspace_thumbnail_selections` | Stable workspace-owned thumbnail adoption with optional generation provenance. |
 | DetailPageArtifact | AI | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
+| DetailPageImageArtifact | AI | `detail_page_image_artifacts` | Durable single-JPEG marketplace rendition for one immutable detail-page revision and renderer variant. |
+| DetailPageImageRenderIntent | AI | `detail_page_image_render_intents` | Short-lived organization-scoped claim that binds a browser renderer to one exact detail-page revision and object key. |
 | DetailPageRevision | AI | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
 | ProductPreparation | AI | `product_preparations` | Product pipeline preparation state. Stores operator-confirmed registration inputs and selected generated assets before marketplace listing. |
 | Thumbnail | AI | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
@@ -122,6 +124,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ProcessingCost | Finance | `processing_costs` | - |
 | ProfitLoss | Finance | `profit_loss` | 월간 손익. organizationId+listingId+year+month unique. |
 | SalesPlan | Finance | `sales_plans` | - |
+| CoupangShipmentDateSummary | Inventory | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
 | InventoryCommitment | Inventory | `inventory_commitments` | Physical-stock-independent commitment that reduces common available Sellpia capacity. |
 | InventoryCommitmentAllocation | Inventory | `inventory_commitment_allocations` | Component-level Sellpia SKU quantity held by one inventory commitment. |
 | PickingItem | Inventory | `picking_items` | - |
@@ -155,6 +158,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Sourcing1688HotProductDailySnapshot | Sourcing | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
 | SourcingWorkspaceSnapshot | Sourcing | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
+| TiktokCreativeTrendDailySnapshot | Sourcing | `tiktok_creative_trend_daily_snapshots` | 틱톡 크리에이티브 센터(Creative Center)에서 확장이 스크랩한 인기 트렌드 일별 스냅샷. trendType(hashtag\|keyword\|product\|song)으로 종류를, region(국가코드)으로 시장을 구분하고 (region,trendType,entityKey)가 외부 식별자를 이룬다. viewCount 는 int4 를 초과할 수 있어 BigInt. ⚠️ 라이브 틱톡 원본은 봇/리전 차단이라 무료로는 확장 스크랩 경로로만 적재한다([[reference_market_trend_research_tools]]). |
 | TrendSeedKeyword | Sourcing | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
@@ -1079,6 +1083,16 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  CoupangShipmentDateSummary {
+    String id PK
+    String organizationId FK
+    String shipmentDate
+    Int count
+    Int boxes
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   CoupangWingSalesRankDailySnapshot {
     String id PK
     String organizationId FK
@@ -1181,6 +1195,48 @@ erDiagram
     String createdByUserId FK
     Boolean isDeleted
     DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  DetailPageImageArtifact {
+    String id PK
+    String organizationId FK
+    String revisionId FK
+    String variant
+    Int outputWidth
+    String objectKey
+    String imageUrl
+    String contentType
+    Int byteLength
+    Int pixelWidth
+    Int pixelHeight
+    String sha256
+    String rendererKind
+    String createdByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  DetailPageImageRenderIntent {
+    String id PK
+    String organizationId FK
+    String sourceCandidateId FK
+    String detailPageArtifactId FK
+    String revisionId FK
+    String variant
+    Int outputWidth
+    String objectKey
+    String state
+    Int attempt
+    DateTime expiresAt
+    String requestedByUserId FK
+    String claimedByUserId FK
+    DateTime claimedAt
+    DateTime uploadedAt
+    DateTime completedAt
+    DateTime failedAt
+    String failureCode
+    String failureMessage
+    String completedArtifactId FK
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2428,6 +2484,27 @@ erDiagram
     String errorMessage
     DateTime createdAt
   }
+  TiktokCreativeTrendDailySnapshot {
+    String id PK
+    String organizationId FK
+    DateTime businessDate
+    String region
+    String trendType
+    String entityKey
+    Int rank
+    String label
+    String industry
+    String sourceKeyword
+    Int postCount
+    BigInt viewCount
+    Decimal growthPct
+    String thumbnailUrl
+    String sourceUrl
+    String source
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   TrendSeedKeyword {
     String id PK
     String organizationId FK
@@ -2629,10 +2706,14 @@ erDiagram
   CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
   DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
   DetailPageArtifact o|--o{ ContentWorkspace : "currentDetailPageArtifact"
+  DetailPageArtifact ||--o{ DetailPageImageRenderIntent : "detailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
   DetailPageArtifact o|--o{ ProductPreparation : "selectedDetailPageArtifact"
+  DetailPageImageArtifact o|--o{ DetailPageImageRenderIntent : "completedArtifact"
   DetailPageRevision o|--o{ ContentWorkspace : "currentDetailPageRevision"
   DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
+  DetailPageRevision ||--o{ DetailPageImageArtifact : "revision"
+  DetailPageRevision ||--o{ DetailPageImageRenderIntent : "revision"
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
@@ -2697,11 +2778,14 @@ erDiagram
   Organization ||--o{ CoupangKeywordSerpDailySnapshot : "organization"
   Organization ||--o{ CoupangKeywordTracker : "organization"
   Organization ||--o{ CoupangRepresentativeKeywordOverride : "organization"
+  Organization ||--o{ CoupangShipmentDateSummary : "organization"
   Organization ||--o{ CoupangWingSalesRankDailySnapshot : "organization"
   Organization ||--o{ CoupangWingTrackedProduct : "organization"
   Organization ||--o{ CoupangWingTrackedProductDailySnapshot : "organization"
   Organization ||--o{ CSRecord : "organization"
   Organization ||--o{ DetailPageArtifact : "organization"
+  Organization ||--o{ DetailPageImageArtifact : "organization"
+  Organization ||--o{ DetailPageImageRenderIntent : "organization"
   Organization ||--o{ DetailPageRevision : "organization"
   Organization ||--o{ ExecutionWorker : "organization"
   Organization ||--o{ GradeHistory : "organization"
@@ -2774,6 +2858,7 @@ erDiagram
   Organization ||--o{ ThumbnailRegistrationAttempt : "organization"
   Organization ||--o{ ThumbnailTracking : "organization"
   Organization ||--o{ ThumbnailTrackingDailySnapshot : "organization"
+  Organization ||--o{ TiktokCreativeTrendDailySnapshot : "organization"
   Organization ||--o{ TrendSeedKeyword : "organization"
   Organization ||--o{ UnshippedItem : "organization"
   Organization ||--o{ Warehouse : "organization"
@@ -2814,6 +2899,7 @@ erDiagram
   SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"
   SourcingCandidate o|--o{ ContentWorkspace : "sourceCandidate"
+  SourcingCandidate ||--o{ DetailPageImageRenderIntent : "sourceCandidate"
   SourcingCandidate ||--o{ ProductPreparation : "sourceCandidate"
   SourcingCandidate o|--o{ ThumbnailGeneration : "sourceCandidate"
   Supplier o|--o{ PurchaseOrder : "supplier"
@@ -2845,6 +2931,9 @@ erDiagram
   User o|--o{ ContentWorkspace : "createdByUser"
   User o|--o{ ContentWorkspaceThumbnailSelection : "createdByUser"
   User o|--o{ DetailPageArtifact : "createdByUser"
+  User o|--o{ DetailPageImageArtifact : "createdBy"
+  User o|--o{ DetailPageImageRenderIntent : "claimedBy"
+  User o|--o{ DetailPageImageRenderIntent : "requestedBy"
   User o|--o{ DetailPageRevision : "createdByUser"
   User ||--o{ InventoryCommitment : "creator"
   User o|--o{ InventoryCommitment : "releaser"

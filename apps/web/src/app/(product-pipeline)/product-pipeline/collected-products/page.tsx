@@ -65,14 +65,13 @@ export default function SourcingPage() {
   // 등록 확인 모달의 초안. `null` 이면 모달이 닫혀 있다. 초안이 있다는 것은
   // 카테고리 추론과 상세설명 렌더가 이미 성공했다는 뜻이다.
   const [wingDraft, setWingDraft] = useState<WingRegistrationDraft | null>(null);
-  const [wingCompletion, setWingCompletion] = useState<{
-    executionId: string;
-    evidence?: Record<string, unknown>;
-    suggestedExternalListingId?: string | null;
-  } | null>(null);
   const [wingSubmitting, setWingSubmitting] = useState(false);
+  const [wingSubmissionError, setWingSubmissionError] = useState<string | null>(null);
   const wingPreparation = useWingRegistrationPreparation({
-    onReady: (draft) => setWingDraft(draft),
+    onReady: (draft) => {
+      setWingSubmissionError(null);
+      setWingDraft(draft);
+    },
     onError: (message) => toast.error(message),
   });
 
@@ -226,6 +225,7 @@ export default function SourcingPage() {
   const handleModalWingRegister = () => {
     const ids = [...quickProcessTargetIds];
     if (ids.length === 0 || wingGenerating || wingPreparation.isPreparing) return;
+    setWingSubmissionError(null);
     wingPreparation.start(ids[0]);
   };
 
@@ -238,6 +238,7 @@ export default function SourcingPage() {
   ) => {
     if (!wingDraft || wingSubmitting) return;
     const candidateId = wingDraft.candidateId;
+    setWingSubmissionError(null);
     setWingSubmitting(true);
     try {
       const result = await submitWingRegistration(
@@ -266,41 +267,32 @@ export default function SourcingPage() {
             executionId,
             { reason: 'completion_failed', message: wingErrorMessage(err, '알 수 없는 오류') },
           ).catch(() => undefined);
-          setWingCompletion({
-            executionId,
-            evidence: result.submission.evidence,
-            suggestedExternalListingId: externalListingId,
-          });
           toast.warning('쿠팡 등록은 됐지만 등록상품 목록 반영에 실패했어요', {
-            description: `아래 등록상품ID를 확인하고 다시 완료 처리해 주세요. (${wingErrorMessage(err, '알 수 없는 오류')})`,
+            description: `등록상품ID ${externalListingId} — 쿠팡 WING에서 등록 상태를 확인해 주세요. (${wingErrorMessage(err, '알 수 없는 오류')})`,
           });
         }
       } else if (result.submission.attempted) {
-        setWingCompletion({
-          executionId,
-          evidence: result.submission.evidence,
-          suggestedExternalListingId: result.submission.externalListingId,
-        });
         toast.warning('상품등록 결과를 확인하지 못했어요', {
           description:
             result.submission.error
-            ?? '열린 WING 탭에서 등록 여부를 확인하고, 등록됐다면 아래에 등록상품ID를 입력해 주세요.',
+            ?? '열린 WING 탭에서 등록 여부를 직접 확인해 주세요.',
         });
       } else {
-        setWingCompletion({
-          executionId,
-          evidence: result.submission.evidence,
-          suggestedExternalListingId: null,
-        });
         toast.success('쿠팡 WING 상품등록 페이지를 열고 자동 입력을 시작했어요', {
           description:
             quickProcessTargetIds.length > 1
-              ? '첫 상품을 WING에서 등록한 뒤 이 화면에 등록상품ID를 입력해 주세요.'
-              : 'WING에서 최종 확인 후 등록하고, 이 화면에 발급된 등록상품ID를 입력해 주세요.',
+              ? '단일 직접 등록은 1개씩 진행됩니다 (첫 상품). 열린 WING 탭에서 확인 후 등록하세요.'
+              : '확인한 값으로 자동 입력됩니다. 열린 WING 탭에서 최종 확인 후 등록하세요.',
         });
       }
+      setWingDraft(null);
+      setWingSubmissionError(null);
+      setQuickProcessModalOpen(false);
+      setQuickProcessTargetIds([]);
     } catch (err) {
-      toast.error(wingErrorMessage(err, '쿠팡 WING 직접 등록에 실패했습니다.'));
+      const message = wingErrorMessage(err, '쿠팡 WING 직접 등록에 실패했습니다.');
+      setWingSubmissionError(message);
+      toast.error(message);
     } finally {
       setWingSubmitting(false);
     }
@@ -334,32 +326,9 @@ export default function SourcingPage() {
         description: `등록상품ID ${externalListingId} — 등록상품 화면에서 새로고침해 주세요.`,
       });
     }
-    setWingCompletion(null);
     setWingDraft(null);
     setQuickProcessModalOpen(false);
     setQuickProcessTargetIds([]);
-  };
-
-  const handleWingExternalConfirm = async (externalListingId: string) => {
-    if (!wingDraft || !wingCompletion || wingSubmitting) return;
-    setWingSubmitting(true);
-    try {
-      await completeExternalWingRegistration({
-        candidateId: wingDraft.candidateId,
-        executionId: wingCompletion.executionId,
-        externalListingId,
-        evidence: wingCompletion.evidence,
-      });
-    } catch (err) {
-      await candidatesApi.markExternalWingRegistrationUnresolved(
-        wingDraft.candidateId,
-        wingCompletion.executionId,
-        { reason: 'manual_completion_failed', message: wingErrorMessage(err, '알 수 없는 오류') },
-      ).catch(() => undefined);
-      toast.error(wingErrorMessage(err, '등록상품ID를 쿠팡에서 확인하지 못했습니다.'));
-    } finally {
-      setWingSubmitting(false);
-    }
   };
 
   const setItemSelected = (id: string, selected: boolean) => {
@@ -512,20 +481,13 @@ export default function SourcingPage() {
       <WingRegistrationConfirmDialog
         draft={wingDraft}
         isSubmitting={wingSubmitting}
-        completion={wingCompletion}
+        submissionError={wingSubmissionError}
         onCancel={() => {
           if (wingSubmitting) return;
-          if (wingCompletion) {
-            setWingCompletion(null);
-            setWingDraft(null);
-            setQuickProcessModalOpen(false);
-            setQuickProcessTargetIds([]);
-          } else {
-            setWingDraft(null);
-          }
+          setWingDraft(null);
+          setWingSubmissionError(null);
         }}
         onConfirm={handleWingConfirm}
-        onConfirmExternal={handleWingExternalConfirm}
       />
     </div>
   );

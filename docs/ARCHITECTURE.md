@@ -18,6 +18,11 @@ apps/server
   -> Claude CLI Agent OS runtime
   -> TS Playwright sourcing browser runtime
   -> Python worker/tools for analysis-heavy sourcing helpers
+
+Company Chrome extension
+  -> authenticated detail-page render route
+  -> direct presigned upload to S3-compatible object storage
+  -> apps/server finalize/verification API
 ```
 
 Frontend code never talks to the database directly. All app data flows through
@@ -339,7 +344,7 @@ Kinds:
 | `apps/web/src/app/(inventory)` | Route Group | Active `/inventory-hub`, `/inventory`, `/stock-ops`, and `/coupang-shipments` surfaces; Warehouse reads remain reference data for `StockTransfers`, with no standalone warehouse-management route. |
 | `apps/web/src/app/(orders)` | Route Group | Active `/order-collection`, `/orders`, `/rocket-orders`, and `/reviews` surfaces; order collection and processing own their route-local workspaces, while the Rocket capacity placeholder consumes the shared preview contract. |
 | `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
-| `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
+| `apps/web/src/app/(product-pipeline)` | Route Group | `detail-page-client-render` (fullscreen extension capture surface), `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `/purchase-orders` is the general purchasing surface only; Supply owns the Rocket preview and confirmation contracts consumed by `/rocket-orders`. |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surfaces `/agent-os` and `/agent-os/network`, separate from `/agents`. |
 | `apps/web/src/app/auth` | App Internal | Auth callback subtree. |
@@ -477,6 +482,32 @@ does not call the model again. Cancellation updates the direct-job queue before
 the domain ledger or alert, and the lease heartbeat aborts in-flight provider
 and image-download work. Gemini adapters receive the model captured at enqueue
 time and never select an environment fallback during execution.
+
+## Wing Detail-Page Client Rasterization
+
+Wing direct registration requires one finalized 780px JPEG derived from the
+candidate's current immutable `DetailPageRevision`. It is intentionally not an
+`AiDirectJob` and never launches Chromium on the server.
+
+```text
+Wing preparation
+  -> server selects current DetailPageRevision
+  -> reuse DetailPageImageArtifact, or issue DetailPageImageRenderIntent
+  -> verified company extension claims the intent
+  -> dedicated fullscreen web route renders scriptless HTML at 720 CSS px
+  -> extension uses one CDP Page.captureScreenshot at 780 output px
+  -> extension PUTs JPEG directly to the server-derived presigned object key
+  -> server bounded-reads and verifies metadata, JPEG dimensions, bytes, SHA-256
+  -> server finalizes DetailPageImageArtifact
+  -> Wing form handoff receives exactly that one public object-storage URL
+```
+
+The browser never chooses organization, revision, variant, output width,
+object key, or storage origin. IndexedDB is a bounded retry cache only; it is
+not artifact authority. Capture failure does not fall back to server
+Puppeteer, image splitting/stitching, a blob URL, or unrelated candidate
+images. `DetailPageRevision` remains the source of truth even though the Wing
+raster executor was removed.
 
 ## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.25`)
 

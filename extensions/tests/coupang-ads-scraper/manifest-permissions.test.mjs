@@ -17,6 +17,22 @@ test("seller catalog collection can inspect Coupang seller shops", async () => {
   );
 });
 
+test('client detail renderer has debugger access and only the committed upload hosts', async () => {
+  const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'));
+
+  assert.ok(manifest.permissions.includes('debugger'));
+  assert.ok(manifest.host_permissions.includes('http://localhost:9000/*'));
+  assert.ok(
+    manifest.host_permissions.includes(
+      'https://gheoobctiarluauprvro.storage.supabase.co/*',
+    ),
+  );
+  assert.equal(
+    manifest.host_permissions.some((pattern) => pattern === 'https://*.supabase.co/*'),
+    false,
+  );
+});
+
 test("web bridge reaches both localhost and the staging KidItem origin", async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
 

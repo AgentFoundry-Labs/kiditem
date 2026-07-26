@@ -7,38 +7,12 @@ pipeline. It contains HTTP entrypoints, AI provider adapters, direct job
 schedulers/executors, output projection sinks, and generated-content read/write
 services.
 
-## Folder Map
+## Layering
 
-```text
-ai/
-├── ai.module.ts
-├── adapter/in/http/          # controllers and HTTP DTOs
-├── adapter/out/
-│   ├── direct-output/        # direct generation output projection sinks
-│   ├── automation/           # operation-alert adapter
-│   ├── channels/             # channel image/listing lookup adapters
-│   ├── coupang/              # Coupang/Wing integration adapters
-│   ├── gemini/               # Gemini text/media/vision adapters
-│   ├── image-fetch/          # guarded remote image fetch adapter
-│   ├── products/             # product/content lookup adapters
-│   ├── repository/           # reconstructed Prisma repository/query adapters
-│   └── wing/                 # Wing automation adapter
-├── application/
-│   ├── port/in/
-│   │   ├── generation/       # generation trigger/cancellation owner ports
-│   │   └── workspace/        # workspace/archive owner ports
-│   ├── port/out/
-│   │   ├── cross-domain/     # ports to automation/products/channels owners
-│   │   ├── event/            # generation lifecycle event ports
-│   │   ├── provider/         # Gemini/Coupang/fetch provider ports
-│   │   ├── repository/       # AI-owned Prisma repository ports
-│   │   ├── runtime/          # browser/automation runtime ports
-│   │   ├── sink/             # direct generation output sink ports
-│   │   └── storage/          # image/media storage ports
-│   └── service/              # use-case orchestration
-├── domain/                   # pure schemas, prompts, policy helpers
-└── mapper/                   # row/DTO/domain mapping
-```
+HTTP entrypoints live in `adapter/in`; providers, repositories, sinks, and
+cross-domain integrations live in `adapter/out`. Application orchestration and
+ports live under `application`, pure policy under `domain`, and row/DTO/domain
+conversion under `mapper`.
 
 ## Owned Surfaces
 
@@ -46,9 +20,13 @@ ai/
 - Text transform: `POST /api/text-ai/transform`
 - Detail-page generation and editor APIs: `/api/ai/detail-page/*`
 - Saved detail page → marketplace description image:
-  `POST /api/ai/detail-page-image/candidate/:candidateId`. Returns
-  `{ status: 'missing' }` rather than 404 when no detail page is saved, so
-  callers cannot silently substitute another image.
+  `POST /api/ai/detail-page-image/candidate/:candidateId/client-render` plus the
+  `/api/ai/detail-page-image/render-intents/:intentId/*` claim, document,
+  status, finalize, and fail routes. Missing saved HTML returns
+  `{ status: 'missing' }` rather than 404 so callers cannot silently substitute
+  another image. The company Chrome extension owns rasterization; the server
+  owns revision binding, upload targets, stored-JPEG verification, and the
+  durable artifact.
 - Generated content archive: `/api/ai/content-archive/*`
 - Content asset library: `/api/ai/content-assets`
 - Content workspace thumbnail selection:
@@ -70,6 +48,10 @@ ai/
   assets, or other generations.
 - `DetailPageArtifact` is the editable detail-page identity.
 - `DetailPageRevision` is the append-only edited HTML/version record.
+- `DetailPageImageRenderIntent` binds one candidate, artifact, revision,
+  output variant, and server-derived object key for client rasterization.
+- `DetailPageImageArtifact` is the verified immutable JPEG authority used by
+  Wing registration.
 - `ContentAsset` stores reusable media in a workspace group.
 - `ContentThumbnailSelection` is the listing/workspace-owned current-thumbnail
   pointer to a managed asset, generated candidate, or adopted external image.
@@ -134,6 +116,13 @@ definitions.
 - Initial generated output lives in `ContentGeneration.generationResult`.
 - Editor saves append `DetailPageRevision` rows and update
   `DetailPageArtifact.currentRevisionId`.
+- Editor saves never schedule marketplace raster jobs. Wing preparation reads
+  the current immutable revision, reuses a matching verified image artifact,
+  or issues a client-render intent.
+- Wing detail rendering must remain one 780px JPEG (`wing-client-jpeg-v1`). The
+  extension uploads directly through a short-lived presigned URL; finalization
+  verifies bounded bytes, JPEG dimensions, metadata, and SHA-256. Do not add a
+  server Puppeteer fallback or split/stitch path.
 - Registration branches selected artifact/revision metadata and HTML from a
   candidate workspace into a listing-owned workspace. It reuses storage URLs
   and the managed thumbnail asset, but never clones generation jobs or
@@ -194,7 +183,8 @@ compacting the exception.
   repository adapters. Do not reintroduce `adapter/out/prisma` as a legacy
   staging area.
 - `render-image.controller.ts` still owns inline Puppeteer/filesystem
-  rendering.
+  rendering for its separate manual endpoint. It is not a Wing detail-image
+  fallback.
 - Authenticated Wing catalog collection belongs to Channels plus the browser
   extension. AI consumes listing workspace media and must not restore a
   separate image-sync job map or server-side Wing scrape fallback.

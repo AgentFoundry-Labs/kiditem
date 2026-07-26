@@ -51,7 +51,6 @@ function makeService(
       repository,
       refiner as never,
       imageStorage as never,
-      rasterJobs as never,
     ),
     imageStorage,
     rasterJobs,
@@ -143,12 +142,7 @@ describe('DetailPageQueryService edited HTML', () => {
         imageUrls: [durableUrl],
         savedAt: new Date('2026-05-13T10:30:00.000Z'),
       });
-      expect(rasterJobs.ensureScheduled).toHaveBeenCalledWith({
-        organizationId: ORG,
-        revisionId: REVISION_ID,
-        artifactId: ARTIFACT_ID,
-        outputWidth: 780,
-      });
+      expect(rasterJobs.ensureScheduled).not.toHaveBeenCalled();
       expect(imageStorage.delete).toHaveBeenCalledWith('tmp/image-edits/org-1/custom.png');
     } finally {
       vi.useRealTimers();

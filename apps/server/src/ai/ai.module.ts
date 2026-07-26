@@ -52,6 +52,7 @@ import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from './adapter/o
 import { RegistrationContentWorkspaceRepositoryAdapter } from './adapter/out/repository/registration-content-workspace.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from './adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from './adapter/out/repository/detail-page-query.repository.adapter';
+import { DetailPageImageRepositoryAdapter } from './adapter/out/repository/detail-page-image.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from './adapter/out/repository/product-generation-context.repository.adapter';
 import { ProductGenerationChildLedgerRepositoryAdapter } from './adapter/out/repository/product-generation-child-ledger.repository.adapter';
 import { SourcingWorkspaceArchiveRepositoryAdapter } from './adapter/out/repository/sourcing-workspace-archive.repository.adapter';
@@ -78,10 +79,8 @@ import { DetailPageDirectGenerationJobService } from './application/service/deta
 import { ContentAssetService } from './application/service/content-asset.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
 import { DetailPageGenerationService } from './application/service/detail-page-generation.service';
-import { DetailPageCandidateImageService } from './application/service/detail-page-candidate-image.service';
+import { DetailPageClientRenderService } from './application/service/detail-page-client-render.service';
 import { DetailPageRasterizationService } from './application/service/detail-page-rasterization.service';
-import { DetailPageRasterJobExecutorService } from './application/service/detail-page-raster-job-executor.service';
-import { DetailPageRasterJobService } from './application/service/detail-page-raster-job.service';
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from './application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
@@ -154,6 +153,7 @@ import {
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
   CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT,
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
+  DETAIL_PAGE_IMAGE_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
   PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
@@ -210,10 +210,8 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     AiGenerationCancellationService,
     ImageAssetOperationService,
     DetailPageAiService,
-    DetailPageCandidateImageService,
+    DetailPageClientRenderService,
     DetailPageGenerationService,
-    DetailPageRasterJobExecutorService,
-    DetailPageRasterJobService,
     DetailPageRasterizationService,
     ContentArchiveService,
     ContentAssetService,
@@ -271,6 +269,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     RegistrationContentWorkspaceRepositoryAdapter,
     DetailPageGenerationRepositoryAdapter,
     DetailPageQueryRepositoryAdapter,
+    DetailPageImageRepositoryAdapter,
     ProductGenerationContextRepositoryAdapter,
     ProductGenerationChildLedgerRepositoryAdapter,
     SourcingWorkspaceArchiveRepositoryAdapter,
@@ -357,6 +356,10 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     {
       provide: DETAIL_PAGE_QUERY_REPOSITORY_PORT,
       useExisting: DetailPageQueryRepositoryAdapter,
+    },
+    {
+      provide: DETAIL_PAGE_IMAGE_REPOSITORY_PORT,
+      useExisting: DetailPageImageRepositoryAdapter,
     },
     {
       provide: REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,

@@ -5,7 +5,15 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
+  GetObjectCommand,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createHash } from 'node:crypto';
+// Nest dev/runtime compiles this service as CommonJS; sharp exports the callable
+// module itself, not a callable `.default` value in that execution path.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const sharp: typeof import('sharp') = require('sharp');
 
 const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
@@ -94,6 +102,107 @@ export class StorageService implements OnModuleInit {
   /** key 삭제 */
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  /** 브라우저가 서버를 경유하지 않고 고정 key에 JPEG를 업로드할 수 있는 서명 URL 발급 */
+  async createPresignedPut(input: {
+    key: string;
+    contentType: 'image/jpeg';
+    expiresInSeconds: number;
+    metadata: Record<string, string>;
+  }): Promise<{
+    uploadUrl: string;
+    headers: Record<string, string>;
+    expiresAt: Date;
+    imageUrl: string;
+  }> {
+    const metadata = Object.fromEntries(
+      Object.entries(input.metadata).map(([key, value]) => [key.toLowerCase(), value]),
+    );
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: input.key,
+      ContentType: input.contentType,
+      CacheControl: IMMUTABLE_ASSET_CACHE_CONTROL,
+      Metadata: metadata,
+    });
+    const uploadUrl = await getSignedUrl(this.client, command, {
+      expiresIn: input.expiresInSeconds,
+      signableHeaders: new Set(['cache-control', 'content-type']),
+    });
+
+    return {
+      uploadUrl,
+      headers: {
+        'Content-Type': input.contentType,
+        'Cache-Control': IMMUTABLE_ASSET_CACHE_CONTROL,
+      },
+      expiresAt: new Date(Date.now() + input.expiresInSeconds * 1000),
+      imageUrl: this.getUrl(input.key),
+    };
+  }
+
+  /** 업로드된 객체를 bounded read하여 실제 JPEG 속성과 checksum을 검증 */
+  async inspectJpeg(input: { key: string; maxByteLength: number }): Promise<{
+    contentType: string;
+    byteLength: number;
+    pixelWidth: number;
+    pixelHeight: number;
+    sha256: string;
+    metadata: Record<string, string>;
+  }> {
+    const head = await this.client.send(
+      new HeadObjectCommand({ Bucket: this.bucket, Key: input.key }),
+    );
+    const contentType = head.ContentType ?? '';
+    const byteLength = head.ContentLength ?? 0;
+
+    if (contentType !== 'image/jpeg') {
+      throw new Error(`StorageService: JPEG content type이 아닙니다 (${contentType || 'missing'})`);
+    }
+    if (byteLength <= 0 || byteLength > input.maxByteLength) {
+      throw new Error(
+        `StorageService: JPEG 크기 제한을 벗어났습니다 (${byteLength}/${input.maxByteLength})`,
+      );
+    }
+
+    const object = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: input.key }),
+    );
+    const body = object.Body;
+    if (!body || typeof body.transformToByteArray !== 'function') {
+      throw new Error('StorageService: JPEG body를 읽을 수 없습니다');
+    }
+
+    const bytes = Buffer.from(await body.transformToByteArray());
+    if (bytes.byteLength !== byteLength) {
+      throw new Error(
+        `StorageService: JPEG 객체 크기가 HEAD와 다릅니다 (${bytes.byteLength}/${byteLength})`,
+      );
+    }
+    if (
+      bytes.byteLength < 4 ||
+      bytes[0] !== 0xff ||
+      bytes[1] !== 0xd8 ||
+      bytes[bytes.byteLength - 2] !== 0xff ||
+      bytes[bytes.byteLength - 1] !== 0xd9
+    ) {
+      throw new Error('StorageService: 유효한 JPEG body가 아닙니다');
+    }
+
+    const image = await sharp(bytes).metadata();
+    if (image.format !== 'jpeg' || !image.width || !image.height) {
+      throw new Error('StorageService: JPEG dimensions를 확인할 수 없습니다');
+    }
+
+    return {
+      contentType,
+      byteLength,
+      pixelWidth: image.width,
+      pixelHeight: image.height,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      metadata: head.Metadata ?? {},
+    };
   }
 
   /** key → public URL */

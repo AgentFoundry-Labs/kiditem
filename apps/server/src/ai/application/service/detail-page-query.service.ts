@@ -16,8 +16,6 @@ import {
   type DetailPageGenerationSnapshot,
   type DetailPageQueryRepositoryPort,
 } from '../port/out/repository/detail-page-query.repository.port';
-import { COUPANG_DETAIL_IMAGE_WIDTH } from './detail-page-render-document';
-import { DetailPageRasterJobService } from './detail-page-raster-job.service';
 
 export interface DetailPageListQuery {
   sourceCandidateId?: string | null;
@@ -35,7 +33,6 @@ export class DetailPageQueryService {
     private readonly resultRefiner: DetailPageResultRefinerService,
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage: ImageStoragePort,
-    private readonly rasterJobs: DetailPageRasterJobService,
   ) {}
 
   async list(
@@ -125,22 +122,6 @@ export class DetailPageQueryService {
       imageUrls,
       savedAt,
     });
-
-    try {
-      await this.rasterJobs.ensureScheduled({
-        organizationId,
-        revisionId: revision.revisionId,
-        artifactId: revision.artifactId,
-        outputWidth: COUPANG_DETAIL_IMAGE_WIDTH,
-      });
-    } catch (error) {
-      // The immutable revision is already committed. The candidate endpoint
-      // repairs a missing job lazily, so an enqueue outage must not make the
-      // editor report that the save itself failed.
-      this.logger.error(
-        `Failed to enqueue detail-page raster job for revision ${revision.revisionId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
 
     void this.deleteTmpImagesBestEffort(promoted.tmpKeysToDelete);
     return {

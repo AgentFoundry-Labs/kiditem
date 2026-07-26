@@ -121,67 +121,6 @@ export class AiDirectJobRepositoryAdapter
     return mapRecord(row as AiDirectJobRow);
   }
 
-  async restartHeldRasterization(
-    input: CreateAiDirectJobInput & { jobType: 'detail_page_rasterize' },
-  ): Promise<AiDirectJobRecord> {
-    const payload = AiDirectJobEnvelopeSchema.parse(input.payload);
-    if (payload.jobType !== 'detail_page_rasterize') {
-      throw new Error('Detail-page raster payload type does not match jobType.');
-    }
-    const unique = {
-      organizationId: input.organizationId,
-      jobType: input.jobType,
-      sourceResourceId: input.sourceResourceId,
-    };
-    const existing = await this.prisma.aiDirectJob.findUnique({
-      where: { organizationId_jobType_sourceResourceId: unique },
-    });
-    if (existing && !TERMINAL_STATUSES.has(existing.status)) {
-      return mapRecord(existing as AiDirectJobRow);
-    }
-    if (existing?.status === 'succeeded') {
-      return mapRecord(existing as AiDirectJobRow);
-    }
-    if (existing) {
-      await this.prisma.aiDirectJob.updateMany({
-        where: {
-          id: existing.id,
-          organizationId: input.organizationId,
-          status: { in: ['failed', 'cancelled'] },
-        },
-        data: {
-          status: 'held',
-          payload: payload as Prisma.InputJsonValue,
-          result: Prisma.DbNull,
-          attempts: 0,
-          maxAttempts: input.maxAttempts ?? 3,
-          scheduledFor: input.scheduledFor,
-          claimedAt: null,
-          claimedBy: null,
-          leaseExpiresAt: null,
-          finishedAt: null,
-          lastErrorCode: null,
-          lastErrorMessage: null,
-        },
-      });
-      const restarted = await this.prisma.aiDirectJob.findUnique({
-        where: { organizationId_jobType_sourceResourceId: unique },
-      });
-      if (!restarted) throw new Error('Detail-page raster job disappeared during restart.');
-      return mapRecord(restarted as AiDirectJobRow);
-    }
-    try {
-      return await this.create(input);
-    } catch (error) {
-      if (!isPrismaUniqueConflict(error)) throw error;
-      const winner = await this.prisma.aiDirectJob.findUnique({
-        where: { organizationId_jobType_sourceResourceId: unique },
-      });
-      if (!winner) throw error;
-      return mapRecord(winner as AiDirectJobRow);
-    }
-  }
-
   async release(input: {
     organizationId: string;
     jobId: string;
