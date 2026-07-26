@@ -143,9 +143,9 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest publishes verified Sellpia upload and Coupang summary evidence at version 0.1.84', () => {
+test('order collector manifest publishes verified Sellpia upload and Coupang summary evidence at version 0.1.85', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.84');
+  assert.equal(manifest.version, '0.1.85');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
   const worker = readFileSync(workerPath, 'utf8');

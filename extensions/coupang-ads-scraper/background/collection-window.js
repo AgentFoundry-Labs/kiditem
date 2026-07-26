@@ -6,20 +6,163 @@
   const CONTENT_SCRIPT_READY_RETRY_MS = 500;
   const AD_SYNC_BUSY_MAX_ATTEMPTS = 20;
   const AD_SYNC_BUSY_RETRY_MS = 500;
+  const ADVERTISING_LOGIN_HANDOFF_TIMEOUT_MS = 60 * 1000;
+  const MAX_ADVERTISING_LOGIN_HANDOFF_ATTEMPTS = 3;
   // The ad sweep deliberately returns after bounded 12-date slices so one
-  // content-script message never owns the full 31-day roster. Large accounts
-  // can require more than 100 healthy handoffs (campaigns × 31 / 12).
-  const MAX_PROGRESSING_RESUME_ATTEMPTS = 500;
-  const MAX_STALLED_RESUME_ATTEMPTS = 3;
+  // content-script message never owns the full 31-day roster. Size the lease
+  // from the advertised exact-day work total instead of cutting every account
+  // off at 500 handoffs, while retaining an absolute infrastructure bound.
+  const MIN_PROGRESSING_RESUME_ATTEMPTS = 2_000;
+  const MAX_PROGRESSING_RESUME_ATTEMPTS = 50_000;
+  const RESUME_ATTEMPTS_PER_WORK_UNIT = 2;
+  // One campaign's exact-day collection intentionally revisits the same
+  // dashboard/detail edge for its 12 + 12 + 7 day slices. The fourth
+  // recurrence without any persisted numeric progress is the first one that
+  // cannot be part of that healthy three-slice sequence.
+  const MAX_STALLED_RESUME_TRANSITION_VISITS = 4;
   const AD_SYNC_PRODUCER = "advertising.ad_sync";
-  const ADVERTISING_SESSION_TAB_PATTERNS = [
-    "https://advertising.coupang.com/marketing/*",
-    "https://advertising.coupang.com/dashboard*",
-  ];
+  const COUPANG_ADS_DAILY_PRODUCER = "dashboard.coupang_ads";
+  // 광고 성과(dashboard.coupang_ads)와 광고 동기화(advertising.ad_sync)는 둘 다
+  // 같은 광고센터 대시보드를 별도의 포커스 없는 수집 창에서 처리한다. 로그인
+  // 화면이 뜨면 content script가 이미 채워진 자격증명으로 로그인 버튼을 눌러
+  // 진행한다. 아래 producer 판정은 로그인 handoff와 resume URL 경계를 함께
+  // 결정한다.
+  const ADVERTISING_SESSION_PRODUCERS = new Set([
+    AD_SYNC_PRODUCER,
+    COUPANG_ADS_DAILY_PRODUCER,
+  ]);
+  function isAdvertisingSessionProducer(producer) {
+    return ADVERTISING_SESSION_PRODUCERS.has(producer);
+  }
   const COLLECTION_OWNER_CONFLICT_MESSAGE =
     "다른 데이터 수집 작업이 확인 대기 중입니다. 기존 작업을 완료하거나 중단한 뒤 다시 시도해주세요.";
   const INACTIVE_COLLECTION_RUN_MESSAGE =
     "이미 중단되거나 종료된 데이터 수집 작업입니다.";
+
+  function advertisingNavigationResumeUrl(currentUrl, dashboardResumeUrl) {
+    try {
+      const current = new URL(String(currentUrl || ""));
+      if (
+        current.protocol === "https:" &&
+        current.hostname.toLowerCase() === "advertising.coupang.com" &&
+        !current.username &&
+        !current.password &&
+        !current.port &&
+        /^\/marketing\/(?:dashboard\/sales\/)?campaign\/[^/]+(?:\/|$)/i.test(
+          current.pathname,
+        )
+      ) {
+        return current.href;
+      }
+    } catch {
+      // Fall back to the fixed dashboard target below.
+    }
+    return dashboardResumeUrl;
+  }
+
+  function parseSafeHttpsUrl(value) {
+    try {
+      const url = new URL(String(value || ""));
+      return (
+        url.protocol === "https:" &&
+        !url.username &&
+        !url.password &&
+        !url.port
+      )
+        ? url
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function isAllowlistedAdvertisingDetailUrl(value) {
+    const url = parseSafeHttpsUrl(value);
+    if (
+      !url ||
+      url.hostname.toLowerCase() !== "advertising.coupang.com"
+    ) {
+      return false;
+    }
+    const segments = url.pathname.split("/").filter(Boolean);
+    let campaignId = "";
+    if (
+      segments[0]?.toLowerCase() === "marketing" &&
+      segments[1]?.toLowerCase() === "campaign"
+    ) {
+      campaignId = segments[2] || "";
+    } else if (
+      segments[0]?.toLowerCase() === "marketing" &&
+      segments[1]?.toLowerCase() === "dashboard" &&
+      segments[2]?.toLowerCase() === "sales" &&
+      segments[3]?.toLowerCase() === "campaign"
+    ) {
+      campaignId = segments[4] || "";
+    }
+    return (
+      !!campaignId &&
+      !/^(?:type|registration|create|new|product|detail|dashboard|sales)$/i.test(
+        campaignId,
+      )
+    );
+  }
+
+  function isAllowlistedAdvertisingDashboardUrl(value) {
+    const url = parseSafeHttpsUrl(value);
+    if (
+      !url ||
+      url.hostname.toLowerCase() !== "advertising.coupang.com"
+    ) {
+      return false;
+    }
+    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return (
+      pathname.toLowerCase() === "/marketing/dashboard/sales" ||
+      pathname.toLowerCase() === "/dashboard"
+    );
+  }
+
+  function isAllowlistedAdvertisingResumeUrl(value) {
+    return (
+      isAllowlistedAdvertisingDashboardUrl(value) ||
+      isAllowlistedAdvertisingDetailUrl(value)
+    );
+  }
+
+  function isSameTargetUrlFamily(value, targetValue) {
+    const candidate = parseSafeHttpsUrl(value);
+    const target = parseSafeHttpsUrl(targetValue);
+    if (!candidate || !target || candidate.origin !== target.origin) {
+      return false;
+    }
+    const targetPath = target.pathname.replace(/\/+$/, "") || "/";
+    if (targetPath === "/") return true;
+    return (
+      candidate.pathname === targetPath ||
+      candidate.pathname.startsWith(`${targetPath}/`)
+    );
+  }
+
+  function resolveCollectionResumeUrl(resumeUrl, targetUrl, producer) {
+    const hasExplicitResumeUrl =
+      typeof resumeUrl === "string" && resumeUrl.trim().length > 0;
+    const requestedUrl = hasExplicitResumeUrl ? resumeUrl : targetUrl;
+    const allowed = isAdvertisingSessionProducer(producer)
+      ? isAllowlistedAdvertisingResumeUrl(requestedUrl)
+      : isSameTargetUrlFamily(requestedUrl, targetUrl);
+    if (!allowed) {
+      throw new Error("Collection resume URL is outside the allowed target family");
+    }
+    return new URL(requestedUrl).href;
+  }
+
+  function sameAbsoluteUrl(left, right) {
+    try {
+      return new URL(String(left || "")).href === new URL(String(right || "")).href;
+    } catch {
+      return false;
+    }
+  }
 
   function toProgressInteger(value) {
     const number = Number(value);
@@ -74,7 +217,55 @@
       processed: synced + failed,
       totalRows: toProgressInteger(response?.totalRows),
       dateWorkUnits: toProgressInteger(response?.progress?.current),
+      dateWorkTotal: toProgressInteger(response?.progress?.total),
+      position: campaignSweepResumePosition(response),
     };
+  }
+
+  function campaignSweepResumePosition(response) {
+    let resumeUrl = "";
+    try {
+      const parsed = new URL(String(response?.resumeUrl || ""));
+      if (
+        parsed.protocol === "https:" &&
+        parsed.hostname.toLowerCase() === "advertising.coupang.com" &&
+        !parsed.username &&
+        !parsed.password &&
+        !parsed.port
+      ) {
+        resumeUrl = parsed.href.slice(0, 1000);
+      }
+    } catch {
+      resumeUrl = "";
+    }
+    const label =
+      typeof response?.progress?.label === "string"
+        ? response.progress.label.trim().slice(0, 500)
+        : "";
+    const phase =
+      typeof response?.error === "string"
+        ? response.error.trim().slice(0, 200)
+        : "";
+    const key = [resumeUrl, label, phase].join("\u001f");
+    return key.replace(/\u001f+$/g, "") || "unknown";
+  }
+
+  function campaignSweepResumeTransition(previousPosition, nextPosition) {
+    return [
+      String(previousPosition || "unknown"),
+      String(nextPosition || "unknown"),
+    ].join("\u001e");
+  }
+
+  function campaignSweepResumeAttemptLimit(progress) {
+    const workTotal = toProgressInteger(progress?.dateWorkTotal);
+    return Math.min(
+      MAX_PROGRESSING_RESUME_ATTEMPTS,
+      Math.max(
+        MIN_PROGRESSING_RESUME_ATTEMPTS,
+        workTotal * RESUME_ATTEMPTS_PER_WORK_UNIT,
+      ),
+    );
   }
 
   function hasCampaignSweepProgressed(previous, next) {
@@ -92,6 +283,11 @@
       processed: Math.max(previous.processed, next.processed),
       totalRows: Math.max(previous.totalRows, next.totalRows),
       dateWorkUnits: Math.max(previous.dateWorkUnits, next.dateWorkUnits),
+      dateWorkTotal: Math.max(
+        toProgressInteger(previous.dateWorkTotal),
+        toProgressInteger(next.dateWorkTotal),
+      ),
+      position: next.position || previous.position || "unknown",
     };
   }
 
@@ -184,11 +380,16 @@
     }
 
     function createOwnedWindow(url) {
+      // 수집은 별도 창(focused:false)에서 돈다. 이 창의 활성 탭은 사용자가 다른
+      // 창을 봐도 visible 로 유지돼 Coupang React 그리드가 스로틀 없이 렌더된다.
+      // (현재 창 새 탭 방식은 사용자가 다른 탭을 보면 백그라운드로 밀려 그리드가
+      // 렌더되지 않아 report_surface_unverified 로 실패했다.) 사용자 포커스는
+      // 뺏지 않고, 로그인 화면은 content script 가 자동 통과한다.
       return new Promise((resolve, reject) => {
         chromeApi.windows.create(
           { url, focused: false, type: "normal" },
-          (window) => {
-            if (chromeApi.runtime.lastError || !window?.id) {
+          (win) => {
+            if (chromeApi.runtime.lastError || !win?.id) {
               reject(
                 new Error(
                   chromeApi.runtime.lastError?.message ||
@@ -197,10 +398,74 @@
               );
               return;
             }
-            resolve(window);
+            resolve(win);
           },
         );
       });
+    }
+
+    function ownedWindowTab(win) {
+      return Array.isArray(win?.tabs)
+        ? win.tabs.find((tab) => tab?.id)
+        : null;
+    }
+
+    function removeWindow(windowId) {
+      return new Promise((resolve) => {
+        try {
+          chromeApi.windows.remove(windowId, () => {
+            resolve(!chromeApi.runtime.lastError);
+          });
+        } catch {
+          resolve(false);
+        }
+      });
+    }
+
+    function removeTab(tabId) {
+      return new Promise((resolve) => {
+        try {
+          chromeApi.tabs.remove(tabId, () => {
+            resolve(!chromeApi.runtime.lastError);
+          });
+        } catch {
+          resolve(false);
+        }
+      });
+    }
+
+    async function closeOwnedRecord(record) {
+      if (
+        !record ||
+        !Number.isInteger(record.windowId) ||
+        !Number.isInteger(record.tabId)
+      ) {
+        return false;
+      }
+
+      // Re-read both objects at teardown. The user may have moved the managed
+      // tab to another window or added a personal tab to the collection window
+      // since the record was written. In either case remove only the managed
+      // tab; never close a window that now contains unrelated user state.
+      const tab = await getTab(record.tabId);
+      if (!tab?.id) return true;
+      const win =
+        tab.windowId === record.windowId
+          ? await getWindow(record.windowId)
+          : null;
+      const windowTabs = Array.isArray(win?.tabs) ? win.tabs : [];
+      const isStillSoleOwnedTab =
+        tab.windowId === record.windowId &&
+        windowTabs.length === 1 &&
+        windowTabs[0]?.id === record.tabId;
+
+      if (isStillSoleOwnedTab) {
+        await removeWindow(record.windowId);
+        return (await getWindow(record.windowId)) === null;
+      } else {
+        await removeTab(record.tabId);
+        return (await getTab(record.tabId)) === null;
+      }
     }
 
     function isAdvertisingSessionUrl(value) {
@@ -216,119 +481,6 @@
       } catch {
         return false;
       }
-    }
-
-    function queryTabs(query) {
-      return new Promise((resolve) => {
-        try {
-          chromeApi.tabs.query(query, (tabs) => {
-            if (chromeApi.runtime.lastError) {
-              resolve([]);
-              return;
-            }
-            resolve(Array.isArray(tabs) ? tabs : []);
-          });
-        } catch {
-          resolve([]);
-        }
-      });
-    }
-
-    function duplicateTab(tabId) {
-      return new Promise((resolve, reject) => {
-        chromeApi.tabs.duplicate(tabId, (tab) => {
-          if (chromeApi.runtime.lastError || !tab?.id) {
-            reject(
-              new Error(
-                chromeApi.runtime.lastError?.message ||
-                  "Advertising session tab duplication failed",
-              ),
-            );
-            return;
-          }
-          resolve(tab);
-        });
-      });
-    }
-
-    function removeTab(tabId) {
-      return new Promise((resolve) => {
-        try {
-          chromeApi.tabs.remove(tabId, () => resolve());
-        } catch {
-          resolve();
-        }
-      });
-    }
-
-    function createOwnedWindowFromTab(tabId) {
-      return new Promise((resolve, reject) => {
-        chromeApi.windows.create(
-          { tabId, focused: false, type: "normal" },
-          (window) => {
-            if (chromeApi.runtime.lastError || !window?.id) {
-              reject(
-                new Error(
-                  chromeApi.runtime.lastError?.message ||
-                    "Collection window creation from advertising session failed",
-                ),
-              );
-              return;
-            }
-            resolve(window);
-          },
-        );
-      });
-    }
-
-    async function createAdvertisingSessionWindow(url, producer) {
-      if (
-        producer !== AD_SYNC_PRODUCER ||
-        !isAdvertisingSessionUrl(url) ||
-        typeof chromeApi.tabs.duplicate !== "function"
-      ) {
-        return null;
-      }
-
-      const sessionTabs = await queryTabs({
-        url: ADVERTISING_SESSION_TAB_PATTERNS,
-      });
-      const source = sessionTabs.find(
-        (tab) =>
-          Number.isInteger(tab?.id) &&
-          tab.discarded !== true &&
-          isAdvertisingSessionUrl(tab.url) &&
-          (!tab.pendingUrl || isAdvertisingSessionUrl(tab.pendingUrl)),
-      );
-      if (!source?.id) return null;
-
-      let duplicate = null;
-      let window = null;
-      try {
-        // 광고센터는 인증 컨텍스트 일부를 tab-scoped sessionStorage에 둔다.
-        // 새 URL 창은 동일 쿠키를 공유해도 로그인으로 되돌아갈 수 있으므로,
-        // 인증된 탭 자체는 건드리지 않고 복제본만 수집 전용 창으로 옮긴다.
-        duplicate = await duplicateTab(source.id);
-        window = await createOwnedWindowFromTab(duplicate.id);
-        const ownedTab =
-          (Array.isArray(window.tabs)
-            ? window.tabs.find((candidate) => candidate?.id === duplicate.id)
-            : null) || (await getTab(duplicate.id));
-        if (!ownedTab?.id || ownedTab.windowId !== window.id) {
-          throw new Error("Duplicated advertising tab left its owned window");
-        }
-        return window;
-      } catch {
-        if (window?.id) await removeWindow(window.id);
-        else if (duplicate?.id) await removeTab(duplicate.id);
-        return null;
-      }
-    }
-
-    function queryWindowTabs(windowId) {
-      return new Promise((resolve) => {
-        chromeApi.tabs.query({ windowId }, (tabs) => resolve(tabs || []));
-      });
     }
 
     async function getOrCreate(runId, url, producer = null) {
@@ -361,16 +513,17 @@
               throw new Error(INACTIVE_COLLECTION_RUN_MESSAGE);
             }
           }
-          const previousOwnedTab =
-            producer === AD_SYNC_PRODUCER ? await getTab(live.tabId) : null;
-          const replaceLoginAttentionWindow =
-            producer === AD_SYNC_PRODUCER &&
+          const previousOwnedTab = isAdvertisingSessionProducer(producer)
+            ? await getTab(live.tabId)
+            : null;
+          const replaceLoginAttentionTab =
+            isAdvertisingSessionProducer(producer) &&
             !isAdvertisingSessionUrl(previousOwnedTab?.url);
 
           // A fresh explicit retry of the same workflow supersedes its old
-          // login/captcha attention session. Keep the authenticated owned tab,
-          // but transfer its lifecycle ownership to the new run. Active runs
-          // and attention sessions from other producers remain protected.
+          // login/captcha attention session. Detach the old tab's lifecycle
+          // ownership to the new run. Active runs and attention sessions from
+          // other producers remain protected.
           if (
             previousSession &&
             typeof sessions.detachTab === "function"
@@ -385,12 +538,13 @@
           if (sameProducerNeedsAttention) {
             await sessions.cancel(live.runId);
           }
-          if (!replaceLoginAttentionWindow) return adopted;
+          if (!replaceLoginAttentionTab) return adopted;
 
-          // A prior login attention window has no tab-scoped advertising
-          // session to preserve. Retire only that extension-owned window, then
-          // bootstrap the new run from an authenticated user-tab clone below.
-          await removeWindow(live.windowId);
+          // 이전 세션이 로그인 화면에서 멈춘 창이면 재사용하지 않고 닫은 뒤,
+          // 아래에서 새 수집 창을 연다.
+          if (!(await closeOwnedRecord(live))) {
+            throw new Error("Collection tab cleanup failed");
+          }
           await clearRecord();
         } else {
           return live;
@@ -398,18 +552,13 @@
       }
       if (stored) await clearRecord();
 
-      const window =
-        (await createAdvertisingSessionWindow(url, producer)) ||
-        (await createOwnedWindow(url));
-      const tab =
-        (Array.isArray(window.tabs)
-          ? window.tabs.find((candidate) => candidate?.id)
-          : null) || (await queryWindowTabs(window.id))[0];
-      if (!tab?.id || tab.windowId !== window.id) {
-        await removeWindow(window.id);
+      const win = await createOwnedWindow(url);
+      const tab = ownedWindowTab(win);
+      if (!tab?.id || tab.windowId !== win.id) {
+        await removeWindow(win.id);
         throw new Error("Collection window has no owned tab");
       }
-      const record = { runId, windowId: window.id, tabId: tab.id };
+      const record = { runId, windowId: win.id, tabId: tab.id };
       await chromeApi.storage.local.set({ [storageKey]: record });
       return record;
     }
@@ -486,6 +635,72 @@
           if (!chromeApi.runtime.lastError && tab?.status === "complete") {
             finish(tab);
           }
+        });
+      });
+    }
+
+    function waitForAdvertisingLoginHandoff(
+      tabId,
+      timeoutMs = ADVERTISING_LOGIN_HANDOFF_TIMEOUT_MS,
+    ) {
+      return new Promise((resolve, reject) => {
+        let done = false;
+        const cleanup = () => {
+          chromeApi.tabs.onUpdated.removeListener(onUpdated);
+          chromeApi.tabs.onRemoved.removeListener(onRemoved);
+          clearTimeout(timeout);
+        };
+        const finish = (value, error) => {
+          if (done) return;
+          done = true;
+          cleanup();
+          if (error) reject(error);
+          else resolve(value);
+        };
+        const acceptDashboard = (tab) => {
+          if (
+            tab?.id === tabId &&
+            tab.status === "complete" &&
+            isAllowlistedAdvertisingDashboardUrl(tab.url)
+          ) {
+            finish(tab);
+            return true;
+          }
+          return false;
+        };
+        const onUpdated = (updatedTabId, changeInfo, tab) => {
+          if (updatedTabId !== tabId) return;
+          const nextTab = {
+            ...(tab || {}),
+            id: updatedTabId,
+            status: changeInfo.status || tab?.status,
+            url: changeInfo.url || tab?.url,
+          };
+          acceptDashboard(nextTab);
+        };
+        const onRemoved = (removedTabId) => {
+          if (removedTabId === tabId) {
+            finish(null, new Error("Collection tab was closed during advertising login"));
+          }
+        };
+        const timeout = setTimeout(
+          () =>
+            finish(
+              null,
+              new Error(
+                "쿠팡 광고센터 자동 로그인 후 대시보드 전환을 확인하지 못했습니다.",
+              ),
+            ),
+          timeoutMs,
+        );
+        chromeApi.tabs.onUpdated.addListener(onUpdated);
+        chromeApi.tabs.onRemoved.addListener(onRemoved);
+        chromeApi.tabs.get(tabId, (tab) => {
+          if (chromeApi.runtime.lastError || !tab?.id) {
+            finish(null, new Error("Collection tab was closed during advertising login"));
+            return;
+          }
+          acceptDashboard(tab);
         });
       });
     }
@@ -604,8 +819,8 @@
           // 광고센터의 캠페인 상세/대시보드 전환은 document 자체를 다시
           // 로드할 수 있다. 이때 이전 content script의 응답 port가 닫히는
           // 것은 수집 실패가 아니라 sessionStorage 기반 sweep의 재개 신호다.
-          // 상세 URL에는 ad-sync hash가 없으므로 그 자리에서 재전송하지 않고
-          // 소유 탭을 명시적인 대시보드 URL로 돌린 뒤 이어서 실행한다.
+          // 실제 이동이 허용된 캠페인 상세면 그 문서에서 pending campaign을
+          // 이어가고, 그 외에는 원래 대시보드 target에서 재개한다.
           let progress = null;
           try {
             progress =
@@ -616,10 +831,24 @@
             // The navigation handoff remains recoverable even if the optional
             // progress projection cannot be read.
           }
+          let navigationResumeUrl = resumeUrl;
+          try {
+            // href 없는 캠페인명 클릭은 실제로 상세 document를 새로 로드한다.
+            // 그 상세 URL을 버리고 곧바로 dashboard로 돌리면 같은 row를 다시
+            // 클릭하는 루프가 된다. 새 content script가 sessionStorage의
+            // pending campaign을 이어받도록 정확한 광고센터 상세 URL에서 재개한다.
+            const navigatedTab = await waitForTabComplete(tabId);
+            navigationResumeUrl = advertisingNavigationResumeUrl(
+              navigatedTab?.url || (await getTab(tabId))?.url,
+              resumeUrl,
+            );
+          } catch {
+            navigationResumeUrl = resumeUrl;
+          }
           return {
             success: false,
             resumeRequired: true,
-            resumeUrl,
+            resumeUrl: navigationResumeUrl,
             error: errorMessage(error),
             progress,
           };
@@ -628,7 +857,7 @@
       }
     }
 
-    async function collectTarget(runId, target, environmentId) {
+    async function collectTarget(runId, target, environmentId, producer) {
       let tab = await navigate(runId, target.url);
       await bindTab(tab.tabId, environmentId);
       await waitForTabComplete(tab.tabId);
@@ -638,18 +867,99 @@
       // 광고 캠페인 sweep가 SPA 상세 화면에서 대시보드 복귀에 실패하면 content
       // script가 unload되기 전에 명시적으로 응답한다. 캠페인 수가 4개보다 많아도
       // 실제 저장/처리 진척이 있는 동안에는 같은 소유 탭과 sessionStorage 상태로
-      // 이어간다. 동일 캠페인만 반복하는 DOM/API 오류는 3회 무진척 후 중단한다.
+      // 이어간다. 동일 캠페인만 반복하는 DOM/API 오류는 정상적인 12 + 12 + 7
+      // 세 번의 detail 방문을 허용한 뒤 네 번째 같은 전이에서 중단한다.
       let resumeProgress = campaignSweepProgress(response);
-      let stalledResumeAttempts = 0;
-      for (
-        let resumeAttempt = 1;
+      let stalledResumeTransitionVisits = 0;
+      const stalledResumeTransitions = new Map();
+      let loginHandoffAttempts = 0;
+      let resumeAttempts = 0;
+      let resumeAttemptLimit =
+        campaignSweepResumeAttemptLimit(resumeProgress);
+      while (
         response?.resumeRequired &&
-        resumeAttempt <= MAX_PROGRESSING_RESUME_ATTEMPTS &&
-        stalledResumeAttempts < MAX_STALLED_RESUME_ATTEMPTS;
-        resumeAttempt += 1
+        resumeAttempts < resumeAttemptLimit &&
+        stalledResumeTransitionVisits <
+          MAX_STALLED_RESUME_TRANSITION_VISITS
       ) {
+        resumeAttempts += 1;
         if (await isCancelled(runId)) break;
-        const resumeUrl = response.resumeUrl || target.url;
+
+        if (response.loginHandoff === true) {
+          loginHandoffAttempts += 1;
+          if (
+            loginHandoffAttempts > MAX_ADVERTISING_LOGIN_HANDOFF_ATTEMPTS
+          ) {
+            response = {
+              success: false,
+              pendingLogin: true,
+              error:
+                "쿠팡 광고센터 자동 로그인 전환이 반복되었습니다. 확인 탭에서 로그인 상태를 확인해주세요.",
+            };
+            break;
+          }
+
+          try {
+            // 계정 유형 선택 버튼을 누른 직후 target URL로 덮어쓰면 쿠팡의
+            // 로그인 redirect가 취소된다. 현재 탭이 allowlist된 광고 대시보드로
+            // 완전히 돌아온 뒤에만 동일 run의 manualSync를 다시 보낸다.
+            const authenticatedTab = await waitForAdvertisingLoginHandoff(
+              tab.tabId,
+            );
+            tab = { ...tab, url: authenticatedTab.url };
+
+            // 쿠팡이 callback hash를 보존하지 않은 경우에는 인증 전환이 끝난
+            // 뒤에만 원래 target을 복원한다. 일별 광고 성과의 targetDate와 광고
+            // 동기화의 kiditemAdSync 모드가 일반 7일 수집으로 바뀌지 않게 한다.
+            if (!sameAbsoluteUrl(tab.url, target.url)) {
+              tab = await navigate(runId, target.url);
+              await waitForTabComplete(tab.tabId);
+            }
+            await bindTab(tab.tabId, environmentId);
+            await wait(2500);
+            response = await runManualSync(
+              tab.tabId,
+              runId,
+              target.url,
+              environmentId,
+            );
+            const nextProgress = campaignSweepProgress(response);
+            resumeProgress = mergeCampaignSweepProgress(
+              resumeProgress,
+              nextProgress,
+            );
+            resumeAttemptLimit = Math.max(
+              resumeAttemptLimit,
+              campaignSweepResumeAttemptLimit(resumeProgress),
+            );
+            continue;
+          } catch (error) {
+            response = {
+              success: false,
+              pendingLogin: true,
+              error:
+                errorMessage(error) ||
+                "쿠팡 광고센터 로그인을 완료하지 못했습니다.",
+            };
+            break;
+          }
+        }
+
+        let resumeUrl;
+        try {
+          resumeUrl = resolveCollectionResumeUrl(
+            response.resumeUrl,
+            target.url,
+            producer,
+          );
+        } catch (error) {
+          response = {
+            success: false,
+            error: errorMessage(error),
+            progress: response.progress || null,
+          };
+          break;
+        }
         tab = await navigate(runId, resumeUrl);
         await bindTab(tab.tabId, environmentId);
         await waitForTabComplete(tab.tabId);
@@ -657,13 +967,29 @@
         response = await runManualSync(tab.tabId, runId, target.url, environmentId);
         const nextProgress = campaignSweepProgress(response);
         if (hasCampaignSweepProgressed(resumeProgress, nextProgress)) {
-          stalledResumeAttempts = 0;
+          stalledResumeTransitions.clear();
+          stalledResumeTransitionVisits = 0;
         } else {
-          stalledResumeAttempts += 1;
+          const transition = campaignSweepResumeTransition(
+            resumeProgress.position,
+            nextProgress.position,
+          );
+          const visits = (stalledResumeTransitions.get(transition) || 0) + 1;
+          stalledResumeTransitions.set(transition, visits);
+          // Every campaign shares the same dashboard return position. Counting
+          // that destination alone makes the third distinct campaign look
+          // stuck. A dashboard → detail-B edge is different from dashboard →
+          // detail-A, while a real detail-A ↔ dashboard loop repeats the same
+          // two edges and remains bounded.
+          stalledResumeTransitionVisits = visits;
         }
         resumeProgress = mergeCampaignSweepProgress(
           resumeProgress,
           nextProgress,
+        );
+        resumeAttemptLimit = Math.max(
+          resumeAttemptLimit,
+          campaignSweepResumeAttemptLimit(resumeProgress),
         );
       }
 
@@ -671,7 +997,8 @@
         response = {
           success: false,
           error:
-            stalledResumeAttempts >= MAX_STALLED_RESUME_ATTEMPTS
+            stalledResumeTransitionVisits >=
+            MAX_STALLED_RESUME_TRANSITION_VISITS
               ? "광고 캠페인 수집이 같은 위치에서 반복되어 중단했습니다."
               : response.error ||
                 "광고 대시보드 복귀 재시도 한도를 초과했습니다.",
@@ -782,7 +1109,12 @@
               status: "running",
               startedAt,
             });
-            const result = await collectTarget(runId, target, environmentId);
+            const result = await collectTarget(
+              runId,
+              target,
+              environmentId,
+              producer,
+            );
             if (await isCancelled(runId)) {
               cancelled = true;
               break;
@@ -1025,12 +1357,14 @@
         });
       }
 
-      // The requested generic session and the extension-owned window are the
-      // cancellation authority. A newer run may already have replaced the
-      // single batch-status projection; that must not make an older attention
-      // session impossible to stop.
+      // The requested generic session and the extension-owned collection tab
+      // are the cancellation authority. A newer run may already have replaced
+      // the single batch-status projection; that must not make an older
+      // attention session impossible to stop.
       await sessions.cancel(requestedRunId);
-      await close(requestedRunId);
+      const ownedRecord = await readRecord();
+      const ownsCollectionTab = ownedRecord?.runId === requestedRunId;
+      const collectionTabClosed = await close(requestedRunId);
       if (ownsBatchStatus) {
         await writeStatus({
           ...status,
@@ -1041,24 +1375,29 @@
         });
       }
       notify();
+      if (ownsCollectionTab && !collectionTabClosed) {
+        return {
+          success: false,
+          cancelled: true,
+          runId: requestedRunId,
+          error: "Collection tab cleanup failed",
+        };
+      }
       return { success: true, cancelled: true, runId: requestedRunId };
-    }
-
-    function removeWindow(windowId) {
-      return new Promise((resolve) => {
-        try {
-          chromeApi.windows.remove(windowId, () => resolve());
-        } catch {
-          resolve();
-        }
-      });
     }
 
     async function close(runId) {
       const stored = await readRecord();
       if (!stored || stored.runId !== runId) return false;
-      await removeWindow(stored.windowId);
-      await clearRecord();
+      if (!(await closeOwnedRecord(stored))) return false;
+      const current = await readRecord();
+      if (
+        current?.runId === stored.runId &&
+        current?.windowId === stored.windowId &&
+        current?.tabId === stored.tabId
+      ) {
+        await clearRecord();
+      }
       return true;
     }
 
@@ -1074,5 +1413,18 @@
     });
   }
 
-  root.KidItemCollectionWindow = Object.freeze({ create, normalizeProgress });
+  root.KidItemCollectionWindow = Object.freeze({
+    advertisingNavigationResumeUrl,
+    campaignSweepProgress,
+    campaignSweepResumeAttemptLimit,
+    campaignSweepResumePosition,
+    campaignSweepResumeTransition,
+    create,
+    hasCampaignSweepProgressed,
+    isAllowlistedAdvertisingResumeUrl,
+    isSameTargetUrlFamily,
+    mergeCampaignSweepProgress,
+    normalizeProgress,
+    resolveCollectionResumeUrl,
+  });
 })(globalThis);
