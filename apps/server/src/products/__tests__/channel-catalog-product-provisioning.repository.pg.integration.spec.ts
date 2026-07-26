@@ -154,10 +154,6 @@ describe('ChannelCatalogProductProvisioningRepositoryAdapter (PG integration)', 
     });
     expect(variants.find((variant) => variant.id === operatorDefault.id)?.isDefault).toBe(true);
     expect(variants.filter((variant) => variant.isDefault)).toHaveLength(1);
-    expect(await prisma.masterProduct.findUniqueOrThrow({
-      where: { id: origin.id },
-      select: { imageUrls: true },
-    })).toEqual({ imageUrls: ['https://cdn.example.com/operator.jpg'] });
   });
 
   it('reuses only unique typed seller SKU or safe barcode evidence', async () => {

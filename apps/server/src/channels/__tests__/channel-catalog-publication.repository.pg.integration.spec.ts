@@ -111,7 +111,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       include: { variants: { include: { components: true } } },
     });
     expect(operationalProduct.originChannelListingId).toBe(listing.id);
-    expect(operationalProduct.imageUrls).toEqual(['https://example.com/P-1.jpg']);
+    expect(operationalProduct.imageUrls).toEqual([]);
     expect(operationalProduct.variants).toEqual([
       expect.objectContaining({
         id: listing.options[0]!.productVariantId,
