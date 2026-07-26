@@ -48,6 +48,10 @@ this Wing path.
   digest refs remain the exact build and runtime identities.
 - Staging deploy pushes `:staging` as a convenience tag but deploys the digest
   reference emitted by the build job.
+- A normal staging deploy seeds the explicitly selected organization's
+  order-collection mall credentials after post-schema migrations. The
+  protected dotenv payload exists only on the GitHub runner; EC2 runtime env
+  files receive only the channel encryption key, never mall plaintext.
 - Production deploy pushes `:production-candidate` as a convenience tag but
   also deploys the digest reference emitted by the build job.
 - Terraform owns host bootstrap, security group shape, Docker/nginx package
@@ -94,7 +98,10 @@ finalization rules remain defined by the production deploy runbook.
 
 The artifact expires after one day. Staging uses it only within the same deploy
 job, before application startup; post-deploy channel/source setup is independent
-of that artifact.
+of that artifact. The automatic order-collection credential seed is restricted
+to normal non-destructive deploys. The guarded destructive path still finishes
+with zero ChannelAccount rows until a later normal deploy or explicitly
+confirmed manual seed.
 
 Failure recovery is split by the destructive boundary. If a step fails before
 the reset boundary, the workflow cleanup step may resume the previous runtime

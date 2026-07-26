@@ -17,7 +17,11 @@ function extractEnvKeys(path) {
 }
 
 function redactEnvValues(path) {
-  return readModelFile(path)
+  return redactEnvText(readModelFile(path));
+}
+
+function redactEnvText(text) {
+  return text
     .trimEnd()
     .split(/\r?\n/)
     .map((line) => line.replace(/^([A-Za-z_][A-Za-z0-9_]*)=.*/, '$1='))
@@ -121,11 +125,19 @@ describe('product pipeline DB model contract', () => {
 
   it('keeps the local server API env example aligned with the staging API runtime env', () => {
     const stagingApiKeys = extractEnvKeys('deploy/staging/env/api.env.example');
-    const serverExampleKeys = extractEnvKeys('apps/server/.env.example');
+    const serverExample = readModelFile('apps/server/.env.example');
+    const runtimeOnlyExample = serverExample.replace(
+      /# BEGIN ORDER_COLLECTION_MALL_SEED[\s\S]*?# END ORDER_COLLECTION_MALL_SEED\n+/,
+      '',
+    );
+    const serverRuntimeKeys = runtimeOnlyExample
+      .split(/\r?\n/)
+      .map((line) => line.match(/^([A-Za-z_][A-Za-z0-9_]*)=/)?.[1])
+      .filter(Boolean);
 
-    assert.deepEqual(serverExampleKeys, stagingApiKeys);
+    assert.deepEqual(serverRuntimeKeys, stagingApiKeys);
     assert.equal(
-      redactEnvValues('apps/server/.env.example'),
+      redactEnvText(runtimeOnlyExample),
       redactEnvValues('deploy/staging/env/api.env.example'),
     );
   });

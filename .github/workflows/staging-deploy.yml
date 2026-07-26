@@ -360,6 +360,22 @@ jobs:
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npm run data:migrate -- up --phase post-schema
 
+      - name: Seed organization-scoped order collection mall accounts
+        if: inputs.destructive_reset == ''
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY }}
+          ORDER_COLLECTION_MALL_ORGANIZATION_ID: ${{ vars.STAGING_ORDER_COLLECTION_MALL_ORGANIZATION_ID }}
+          ORDER_COLLECTION_MALL_ACCOUNTS_ENV: ${{ secrets.STAGING_ORDER_COLLECTION_MALL_ACCOUNTS }}
+          ORDER_COLLECTION_MALL_SEED_CONFIRM: APPLY_ORDER_COLLECTION_MALL_ACCOUNTS
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
+          : "${CHANNEL_CREDENTIALS_ENCRYPTION_KEY:?Set staging secret STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY}"
+          : "${ORDER_COLLECTION_MALL_ORGANIZATION_ID:?Set staging variable STAGING_ORDER_COLLECTION_MALL_ORGANIZATION_ID}"
+          : "${ORDER_COLLECTION_MALL_ACCOUNTS_ENV:?Set staging secret STAGING_ORDER_COLLECTION_MALL_ACCOUNTS}"
+          npm run seed:order-collection-malls
+
       - name: Render staging runtime env files
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}

@@ -29,6 +29,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'run-data-migrations.ts',
   'safe-prisma-db-push.mjs',
   'seed-agent-os.ts',
+  'seed-order-collection-mall-accounts.ts',
   'staging-db-baseline.ts',
   'storage-cache-control.ts',
   'sync-supabase-user.ts',

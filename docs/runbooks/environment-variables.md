@@ -39,6 +39,8 @@ GitHub Environment `staging` variables
 GitHub Environment `staging` secrets
   -> SSH key and known_hosts for deployment only
   -> staging DB URL for deploy-time Prisma schema/data migrations
+  -> organization-scoped order-collection mall dotenv payload for the normal
+     deploy seed only; it is never rendered into the API runtime env
   -> private DB baseline S3 credentials for manual staging DB baseline workflow
      only
 
@@ -68,10 +70,11 @@ Local development:
 - App runtime env is app-local: NestJS reads `apps/server/.env` first, Python
   agents read `agents/.env` first, and root `.env` is only a fallback for
   shared local tooling values.
-- `apps/server/.env` and `apps/server/.env.example` intentionally mirror
-  `deploy/staging/env/api.env.example` by section order, comments, blank lines,
-  and key set. Values may differ locally, but optional local-only overrides
-  stay out unless the staging API runtime contract also gains that variable.
+- The API runtime sections of `apps/server/.env` and
+  `apps/server/.env.example` intentionally mirror
+  `deploy/staging/env/api.env.example`. The marked order-collection credential
+  seed block is the only deploy-input exception and is never rendered into the
+  API runtime env.
 - Root `.env` should stay narrow: Prisma CLI, Supabase bootstrap/admin sync,
   shared dev-data paths, and the Agent OS seed model used by
   `npm run seed:agent-os`.
@@ -232,6 +235,28 @@ Production uses parallel protected values `PRODUCTION_DATABASE_URL_SHA256` and
 dispatch inputs `expected_git_sha` (full 40-hex SHA) and
 `dispatch_correlation_id` (UUID); these are inputs rather than stored runtime
 configuration.
+
+## Order-Collection Mall Credential Seed
+
+Mall logins are deployment inputs, not global API runtime configuration. The
+supported `*_ID`, `*_PW`, and `*_URL` triples are listed in
+`apps/server/.env.example`. The confirmation-gated seed encrypts each password
+into a `ChannelAccount` owned by one explicit organization. A complete triple
+is required for each included mall; missing triples are ignored and existing
+accounts for omitted malls are not deleted.
+
+| Variable | Owner | Required when | Notes |
+|---|---|---|---|
+| `ORDER_COLLECTION_MALL_ORGANIZATION_ID` | Seed operator | Every seed | Exact active organization UUID. Local execution may use root `KIDITEM_DEV_ORGANIZATION_ID`. |
+| `ORDER_COLLECTION_MALL_SEED_CONFIRM` | Seed guard | Every seed | Must be exactly `APPLY_ORDER_COLLECTION_MALL_ACCOUNTS`. |
+| `ORDER_COLLECTION_MALL_ACCOUNTS_ENV` | Seed workflow | Staging seed | Multiline dotenv payload containing only supported mall credential triples. |
+| `STAGING_ORDER_COLLECTION_MALL_ORGANIZATION_ID` | GitHub Environment variable | Normal staging deploy | Maps to the explicit target organization. |
+| `STAGING_ORDER_COLLECTION_MALL_ACCOUNTS` | GitHub Environment secret | Normal staging deploy | Consumed on the GitHub runner and never copied to EC2. |
+
+The seed runs after normal post-schema migrations and leaves matching accounts
+unchanged. It is skipped for `destructive_reset`, preserving the rebuild
+contract that `ChannelAccount` remains empty. Restore the accounts with a later
+normal deploy or an explicitly confirmed manual seed.
 
 ## Server AI And Models
 
