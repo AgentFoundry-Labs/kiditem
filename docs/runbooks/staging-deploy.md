@@ -326,7 +326,9 @@ Triggers:
 - Manual `workflow_dispatch` with `operation=deploy` builds and deploys the
   selected immutable SHA. Resolve `main` to a full SHA before dispatch.
 - Manual `workflow_dispatch` with `operation=status` prints the EC2 deployment
-  manifest and smoke endpoint status.
+  manifest, root filesystem and inode capacity, Docker disk usage, `/var` and
+  `/opt` directory usage, and smoke endpoint status. Use this evidence to
+  distinguish image cleanup from an EC2 root-volume resize after `ENOSPC`.
 - Manual `workflow_dispatch` with `operation=rollback` deploys an existing GHCR
   git-SHA tag. Do not pass `staging` as a rollback tag.
 

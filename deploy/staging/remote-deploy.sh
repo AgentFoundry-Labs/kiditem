@@ -754,6 +754,24 @@ status() {
   echo
   echo "Active color: $(current_color)"
 
+  echo
+  echo "Filesystem capacity:"
+  df -hT /
+  df -i /
+
+  echo
+  echo "Docker disk usage:"
+  docker info --format 'Docker root dir: {{.DockerRootDir}}' || true
+  docker system df || true
+
+  echo
+  echo "Staging host disk usage by directory:"
+  if sudo -n true >/dev/null 2>&1; then
+    sudo -n du -x -h --max-depth=1 /var /opt 2>/dev/null | sort -h || true
+  else
+    du -x -h --max-depth=1 /var /opt 2>/dev/null | sort -h || true
+  fi
+
   if [[ -f "$DEPLOY_ENV_FILE" ]]; then
     load_deploy_env_if_exists
     normalize_slot_deploy_env

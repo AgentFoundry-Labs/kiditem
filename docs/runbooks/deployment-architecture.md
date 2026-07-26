@@ -134,6 +134,9 @@ fails without switching traffic unless downtime was explicitly approved. With
 `allow_downtime_for_space=true`, the remote script may stop the current stack,
 prune/pull again, and retry the candidate once. This recovers small-host disk or
 memory pressure while staying inside the GitHub Actions release entrypoint.
+The workflow's `status` operation reports root filesystem and inode capacity,
+Docker disk usage, and top-level `/var` and `/opt` usage so persistent ENOSPC
+failures can be separated from reclaimable image pressure before another deploy.
 
 ## Rollback Boundary
 
