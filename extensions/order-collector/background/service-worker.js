@@ -3487,10 +3487,32 @@ async function injectSellpiaOrderFile(payload) {
   const fileBase64 = payload.fileBase64;
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  function parsePendingRowCount(value) {
+    const match = String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .match(/(?:^|\s)전체\s*([\d,]+)\s*개(?:\s|$)/);
+    if (!match) return null;
+    const count = Number(match[1].replace(/,/g, ""));
+    return Number.isSafeInteger(count) && count >= 0 ? count : null;
+  }
+
   function pendingRowCount() {
-    if (!window.dataView || typeof window.dataView.getLength !== "function") return null;
-    const count = Number(window.dataView.getLength());
-    return Number.isFinite(count) && count >= 0 ? count : null;
+    // 셀피아의 SlickGrid dataView는 페이지 전역에 노출되는 버전도 있고, 격리된
+    // 확장 프로그램 실행 컨텍스트에서는 보이지 않는 버전도 있다. 실제 주문접수
+    // 화면이 제공하는 #pager의 "전체 N 개"를 동일한 대기 주문 근거로 사용한다.
+    try {
+      if (window.dataView && typeof window.dataView.getLength === "function") {
+        const count = Number(window.dataView.getLength());
+        if (Number.isSafeInteger(count) && count >= 0) return count;
+      }
+    } catch {
+      // 페이지 전역 접근 실패 시 아래의 DOM pager 근거로 계속 확인한다.
+    }
+
+    if (typeof document.querySelector !== "function") return null;
+    const pagerStatus = document.querySelector("#pager .slick-pager-status");
+    return parsePendingRowCount(pagerStatus?.textContent);
   }
 
   function visibleDialogText() {
@@ -3530,10 +3552,9 @@ async function injectSellpiaOrderFile(payload) {
 
   async function waitForUploadEvidence(beforeCount) {
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      const dialogText = visibleDialogText();
-      if (dialogText && /실패|오류|잘못|불가|업로드할 수 없|접수할 수 없/.test(dialogText)) {
-        return { kind: "rejected", message: dialogText.slice(0, 300) };
-      }
+      // 셀피아는 일부 주문을 정상 접수하면서 이미 수집된 중복 주문 경고를 같은
+      // 결과 팝업에 함께 표시한다. 새 대기 행이 실제로 늘었다면 그 증가분을
+      // 우선 성공 근거로 인정하고, 행 증가가 없을 때만 팝업을 전체 거절로 본다.
       const afterCount = pendingRowCount();
       if (afterCount !== null && afterCount > beforeCount) {
         return {
@@ -3541,6 +3562,10 @@ async function injectSellpiaOrderFile(payload) {
           acceptedRows: afterCount - beforeCount,
           pendingRows: afterCount,
         };
+      }
+      const dialogText = visibleDialogText();
+      if (dialogText && /실패|오류|잘못|불가|업로드할 수 없|접수할 수 없/.test(dialogText)) {
+        return { kind: "rejected", message: dialogText.slice(0, 300) };
       }
       await delay(300);
     }

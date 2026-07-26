@@ -6,13 +6,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { projectVariantCapacity } from '../../../../products/domain/product-variant-capacity';
+import { lockChannelListingRow } from './channel-listing-row-lock';
 import type {
   ChannelOptionMatchingQueueRow,
   ChannelProductMatchingQueueRow,
   ChannelProductMatchingRepositoryPort,
   ChannelAvailabilityRepositoryRow,
 } from '../../../application/port/out/repository/channel-product-matching.repository.port';
-import { lockChannelListingRow } from './channel-listing-row-lock';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const COMPLETED_CATALOG_SOURCE_TYPES = [
@@ -27,7 +27,7 @@ function listingInclude(organizationId: string) {
       select: { id: true, channel: true, name: true },
     },
     masterProduct: {
-      select: { id: true, code: true, name: true },
+      select: { id: true, code: true, name: true, imageUrls: true },
     },
     options: {
       where: { organizationId, isActive: true },
@@ -530,9 +530,15 @@ function toProductQueueRow(listing: ListingRow): ChannelProductMatchingQueueRow 
       displayName: listing.displayName,
       status: listing.status,
       masterProductId: listing.masterProductId,
+      channelImageUrl: null,
       updatedAt: listing.updatedAt,
     },
-    linkedProduct: listing.masterProduct,
+    linkedProduct: listing.masterProduct ? {
+      id: listing.masterProduct.id,
+      code: listing.masterProduct.code,
+      name: listing.masterProduct.name,
+      displayImageUrl: listing.masterProduct.imageUrls[0] ?? null,
+    } : null,
     optionCount: listing.options.length,
     linkedOptionCount: listing.options.filter(
       (option) => option.productVariantId !== null,

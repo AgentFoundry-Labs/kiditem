@@ -13,6 +13,7 @@ import { CoupangCategorySuggestionService } from '../categories/coupang-category
 import { ProductsModule } from '../products.module';
 import { InventoryModule } from '../../inventory/inventory.module';
 import { AnalyticsModule } from '../../analytics/analytics.module';
+import { AiModule } from '../../ai/ai.module';
 import { PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT } from '../application/port/in/product-variant-recipe-automation.port';
 import { ProductVariantRecipeAutomationService } from '../application/service/product-variant-recipe-automation.service';
 
@@ -53,6 +54,7 @@ describe('Products architecture', () => {
     expect(imports).toContain(CategoriesModule);
     expect(imports).toContain(InventoryModule);
     expect(imports).toContain(AnalyticsModule);
+    expect(imports).toContain(AiModule);
     const providers = Reflect.getMetadata('providers', ProductsModule) ?? [];
     expect(providers).toContain(ProductRecipeComponentCandidateService);
   });

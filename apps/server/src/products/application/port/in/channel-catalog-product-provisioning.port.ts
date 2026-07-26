@@ -12,7 +12,6 @@ export type ChannelCatalogProvisioningListing = Readonly<{
   name: string;
   category: string | null;
   brand: string | null;
-  imageUrls: readonly string[];
   options: readonly ChannelCatalogProvisioningOption[];
 }>;
 

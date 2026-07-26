@@ -144,6 +144,7 @@ export const MasterProductOperationsMetadataSchema = z.object({
   brand: z.string().nullable(),
   tags: z.array(z.string().min(1)),
   imageUrls: z.array(z.string().min(1)),
+  displayImageUrls: z.array(z.string().min(1)),
   abcGrade: ProductAbcGradeSchema.nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),

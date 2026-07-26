@@ -3,6 +3,7 @@ import {
   CreateMasterProductInputSchema,
   CreateProductVariantRecipesIfEmptyInputSchema,
   CreateProductVariantInputSchema,
+  MasterProductOperationsMetadataSchema,
   MasterProductOperationsDetailSchema,
   MasterProductOperationsListItemSchema,
   MasterProductOperationsListQuerySchema,
@@ -20,7 +21,57 @@ const productId = '00000000-0000-4000-8000-000000000001';
 const variantId = '00000000-0000-4000-8000-000000000002';
 const skuId = '00000000-0000-4000-8000-000000000003';
 
+const metadataFixture = {
+  id: productId,
+  code: 'KI-001',
+  displayReference: {
+    type: 'product_code' as const,
+    label: '상품 코드',
+    value: 'KI-001',
+  },
+  name: '키즈 식판',
+  description: null,
+  category: '주방',
+  brand: null,
+  tags: ['식판'],
+  abcGrade: null,
+  profitTag: null,
+  adTier: null,
+  adBudgetLimit: null,
+  healthScore: null,
+  healthUpdatedAt: null,
+  isActive: true,
+};
+
 describe('product operations contracts', () => {
+  it('requires raw and calculated display image URLs separately', () => {
+    const directImageMetadata = {
+      ...metadataFixture,
+      imageUrls: ['https://cdn.example.com/operator.jpg'],
+      displayImageUrls: ['https://cdn.example.com/operator.jpg'],
+    };
+    const channelFallbackMetadata = {
+      ...metadataFixture,
+      imageUrls: [],
+      displayImageUrls: ['https://cdn.example.com/channel.jpg'],
+    };
+    const noImageMetadata = {
+      ...metadataFixture,
+      imageUrls: [],
+      displayImageUrls: [],
+    };
+
+    expect(MasterProductOperationsMetadataSchema.parse(directImageMetadata))
+      .toMatchObject(directImageMetadata);
+    expect(MasterProductOperationsMetadataSchema.parse(channelFallbackMetadata))
+      .toMatchObject(channelFallbackMetadata);
+    expect(MasterProductOperationsMetadataSchema.parse(noImageMetadata))
+      .toMatchObject(noImageMetadata);
+
+    const { displayImageUrls: _displayImageUrls, ...missingDisplay } = channelFallbackMetadata;
+    expect(() => MasterProductOperationsMetadataSchema.parse(missingDisplay)).toThrow();
+  });
+
   it('strictly parses the supported product list filters', () => {
     expect(MasterProductOperationsListQuerySchema.parse({
       page: 2,
@@ -104,6 +155,7 @@ describe('product operations contracts', () => {
       brand: null,
       tags: ['식판'],
       imageUrls: [],
+      displayImageUrls: [],
       abcGrade: 'A',
       profitTag: null,
       adTier: null,
@@ -190,6 +242,7 @@ describe('product operations contracts', () => {
       brand: null,
       tags: [],
       imageUrls: [],
+      displayImageUrls: [],
       abcGrade: null,
       profitTag: null,
       adTier: null,
@@ -259,6 +312,7 @@ describe('product operations contracts', () => {
       brand: null,
       tags: [],
       imageUrls: [],
+      displayImageUrls: [],
       abcGrade: null,
       profitTag: null,
       adTier: null,

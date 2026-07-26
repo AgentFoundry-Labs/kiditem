@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaService } from '../../prisma/prisma.service';
+import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
+import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
+import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
+import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -16,8 +18,8 @@ import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/reposito
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
-import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
-import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -40,7 +42,13 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         new InventoryCommitmentRepositoryAdapter(prismaService),
       ),
     );
-    service = new ChannelProductMatchingService(repository, availabilityService);
+    service = new ChannelProductMatchingService(
+      repository,
+      availabilityService,
+      new CatalogDisplayMediaService(
+        new CatalogDisplayMediaRepositoryAdapter(prismaService),
+      ),
+    );
   });
 
   afterAll(async () => {
@@ -407,6 +415,45 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       .toMatchObject({ productVariantId: product.variants[0]!.id, itemName: 'Recollected option' });
   });
 
+  it('reads existing channel media as matching display fallback without changing product images', async () => {
+    const product = await createProduct('KI-CHANNEL-FALLBACK', 'Channel fallback');
+    const listing = await createListing({ masterProductId: product.id });
+    const channelImageUrl = 'https://cdn.example.com/channel-fallback.jpg';
+    await attachCatalogPrimaryImage(listing.id, channelImageUrl);
+
+    const queue = await service.list(TEST_ORGANIZATION_ID);
+
+    expect(queue.products.find((row) => row.listing.id === listing.id)).toMatchObject({
+      listing: { channelImageUrl },
+      linkedProduct: { displayImageUrl: channelImageUrl },
+    });
+    expect(await prisma.masterProduct.findUniqueOrThrow({ where: { id: product.id } }))
+      .toMatchObject({ imageUrls: [] });
+  });
+
+  it('keeps direct product media ahead of channel media in matching display', async () => {
+    const operatorImageUrl = 'https://cdn.example.com/operator.jpg';
+    const channelImageUrl = 'https://cdn.example.com/channel.jpg';
+    const product = await createProduct(
+      'KI-DIRECT-IMAGE',
+      'Direct image',
+      undefined,
+      1,
+      [operatorImageUrl],
+    );
+    const listing = await createListing({ masterProductId: product.id });
+    await attachCatalogPrimaryImage(listing.id, channelImageUrl);
+
+    const queue = await service.list(TEST_ORGANIZATION_ID);
+
+    expect(queue.products.find((row) => row.listing.id === listing.id)).toMatchObject({
+      listing: { channelImageUrl },
+      linkedProduct: { displayImageUrl: operatorImageUrl },
+    });
+    expect(await prisma.masterProduct.findUniqueOrThrow({ where: { id: product.id } }))
+      .toMatchObject({ imageUrls: [operatorImageUrl] });
+  });
+
   it('limits matching and imported availability to active completed catalog rows', async () => {
     const completed = await createListing({ externalId: 'P-COMPLETED' });
     await createOption(completed.id, { externalOptionId: 'O-COMPLETED' });
@@ -664,12 +711,14 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     name: string,
     sellpiaInventorySkuId?: string,
     quantity = 1,
+    imageUrls: string[] = [],
   ) {
     return prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code,
         name,
+        imageUrls,
         variants: {
           create: {
             code: `${code}-DEFAULT`,
@@ -688,6 +737,38 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         },
       },
       include: { variants: true },
+    });
+  }
+
+  async function attachCatalogPrimaryImage(listingId: string, url: string) {
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'channel_listing',
+        channelListingId: listingId,
+        displayName: `Workspace ${listingId}`,
+        normalizedTitle: `workspace${listingId.replaceAll('-', '')}`,
+      },
+    });
+    const group = await prisma.contentGenerationGroup.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        contentWorkspaceId: workspace.id,
+        groupType: 'workspace_assets',
+        title: 'Workspace managed assets',
+      },
+    });
+    await prisma.contentAsset.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        originGenerationGroupId: group.id,
+        assetKey: `channel-provider:coupang:${listingId}`,
+        url,
+        assetType: 'image',
+        role: 'primary',
+        sortOrder: 0,
+        metadata: { sourceType: 'channel_catalog', channel: 'coupang', active: true },
+      },
     });
   }
 

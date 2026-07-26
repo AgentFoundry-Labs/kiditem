@@ -127,6 +127,61 @@ test('Sellpia page injection requires accepted rows after the upload click', asy
   assert.equal(unknown.outcome, 'unknown');
 });
 
+test('Sellpia page injection uses the visible SlickGrid pager when dataView is unavailable', async () => {
+  const context = injectedContext();
+  let pendingCount = 0;
+  context.window.dataView = null;
+  context.document.querySelector = (selector) => (
+    selector === '#pager .slick-pager-status'
+      ? { get textContent() { return `전체 ${pendingCount.toLocaleString('en-US')} 개`; } }
+      : null
+  );
+  context.elements.btn_om_upload.click = () => {
+    pendingCount = 1_234;
+  };
+  const inject = vm.runInNewContext(
+    `(${extractAsyncFunction('injectSellpiaOrderFile')})`,
+    context,
+  );
+
+  const result = await inject({
+    shopName: null,
+    fileName: 'orders.xlsx',
+    fileBase64: Buffer.from('orders').toString('base64'),
+  });
+
+  assert.equal(result.outcome, 'submitted');
+  assert.equal(result.acceptedRows, 1_234);
+  assert.equal(result.pendingRows, 1_234);
+});
+
+test('Sellpia page injection accepts newly queued rows when the result dialog also lists duplicates', async () => {
+  const context = injectedContext();
+  context.window.getComputedStyle = () => ({
+    display: 'block',
+    visibility: 'visible',
+    opacity: '1',
+  });
+  context.document.querySelectorAll = () => [{
+    hidden: false,
+    textContent: '일부 주문접수에 실패했습니다. 이미 수집된 주문',
+  }];
+  const inject = vm.runInNewContext(
+    `(${extractAsyncFunction('injectSellpiaOrderFile')})`,
+    context,
+  );
+
+  const result = await inject({
+    shopName: null,
+    fileName: 'orders.xlsx',
+    fileBase64: Buffer.from('orders').toString('base64'),
+  });
+
+  assert.equal(result.outcome, 'submitted');
+  assert.equal(result.acceptedRows, 2);
+  assert.equal(result.pendingRows, 2);
+});
+
 test('Sellpia page injection stays unknown when the click produces no acceptance evidence', async () => {
   const context = injectedContext();
   context.elements.btn_om_upload.click = () => {};
