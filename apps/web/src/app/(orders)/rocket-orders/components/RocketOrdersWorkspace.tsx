@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
@@ -20,6 +20,7 @@ import { RocketConfirmFileList } from './RocketConfirmFileList';
 import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
 import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
 import { useRocketOrderActivity } from '../hooks/useRocketOrderActivity';
+import { useRocketOrdersViewState } from '../hooks/useRocketOrdersViewState';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import type { RocketChartPoint } from './RocketOrdersChart';
 
@@ -104,17 +105,19 @@ export function RocketOrdersWorkspace({
 }: {
   decisionWorkspace: (workspace: RocketDecisionWorkspaceContext) => ReactNode;
 }) {
-  // 입고예정일 기준 (기본: 이번 달 전체) — 월 달력과 차트가 같은 범위를 사용한다.
-  const [from, setFrom] = useState(() => monthBounds(todayYmd()).start);
-  const [to, setTo] = useState(() => monthBounds(todayYmd()).end);
-  const [status, setStatus] = useState('');
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [view, setView] = useState<'month' | 'chart'>('month');
+  const [viewState, setViewState, viewStateReady] = useRocketOrdersViewState();
+  const {
+    account: selectedRocketAccountId,
+    from,
+    to,
+    status,
+    view,
+  } = viewState;
+  const selectedDay = viewState.date || null;
   // 발주 행 키는 `${sourceImportRunId}:${poNumber}` 문자열이다.
   const [openPo, setOpenPo] = useState<string | null>(null);
   // 로켓 채널 계정: '발주 미리보기' 카드는 제거했지만, 달력·발주목록·차트가 쓰는 계정 선택은
   // RocketAccountBootstrap 이 활성 로켓 계정으로 백그라운드에서 유지한다.
-  const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
   const [selectedRocketAccountName, setSelectedRocketAccountName] = useState('');
   const [hasConfiguredVendorId, setHasConfiguredVendorId] = useState(false);
   const [selectedSourceImportRunId, setSelectedSourceImportRunId] = useState<string | null>(null);
@@ -125,13 +128,27 @@ export function RocketOrdersWorkspace({
     name: string;
     vendorId: string | null;
   } | null) => {
-    setSelectedRocketAccountId(account?.id ?? '');
+    const nextAccountId = account?.id ?? '';
+    setViewState((current) => current.account === nextAccountId
+      ? current
+      : {
+          ...current,
+          account: nextAccountId,
+          date: current.account ? '' : current.date,
+        });
     setSelectedRocketAccountName(account?.name ?? '');
     setHasConfiguredVendorId(Boolean(account?.vendorId?.trim()));
     setSelectedSourceImportRunId(null);
-    setSelectedDay(null);
     setOpenPo(null);
-  }, []);
+  }, [setViewState]);
+
+  const handleRocketAccountSelection = useCallback((accountId: string) => {
+    setViewState((current) => current.account === accountId
+      ? current
+      : { ...current, account: accountId, date: current.account ? '' : current.date });
+    setSelectedSourceImportRunId(null);
+    setOpenPo(null);
+  }, [setViewState]);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: queryKeys.orders.rocketSavedPoList({
@@ -146,7 +163,7 @@ export function RocketOrdersWorkspace({
       to,
       status: status || undefined,
     }),
-    enabled: selectedRocketAccountId.length > 0,
+    enabled: viewStateReady && selectedRocketAccountId.length > 0,
     meta: { suppressGlobalErrorToast: true },
     staleTime: 0,
     retry: false,
@@ -188,11 +205,23 @@ export function RocketOrdersWorkspace({
     }
     return record;
   }, [byDate]);
+
+  useEffect(() => {
+    if (!selectedDay) {
+      setSelectedSourceImportRunId(null);
+      return;
+    }
+    const sourceRuns = new Set(
+      (byDate.get(selectedDay) ?? []).map(({ sourceImportRunId }) => sourceImportRunId),
+    );
+    setSelectedSourceImportRunId(sourceRuns.size === 1 ? [...sourceRuns][0]! : null);
+  }, [byDate, selectedDay]);
+
   function selectOrderDay(
     date: string | null,
     onSelectDate: (date: string | null, sourceRunCount: number) => void,
   ) {
-    setSelectedDay(date);
+    setViewState((current) => ({ ...current, date: date ?? '' }));
     setOpenPo(null);
     const sourceRuns = new Set(
       date ? (byDate.get(date) ?? []).map(({ sourceImportRunId }) => sourceImportRunId) : [],
@@ -207,19 +236,26 @@ export function RocketOrdersWorkspace({
 
   function resetToCurrentMonth(onSelectDate: (date: string | null, sourceRunCount: number) => void) {
     const b = monthBounds(todayYmd());
-    setFrom(b.start);
-    setTo(b.end);
-    selectOrderDay(null, onSelectDate);
-    setView('month');
+    setViewState((current) => ({
+      ...current,
+      from: b.start,
+      to: b.end,
+      date: '',
+      view: 'month',
+    }));
+    setSelectedSourceImportRunId(null);
+    setOpenPo(null);
+    onSelectDate(null, 0);
   }
   function onShiftMonth(
     delta: number,
     onSelectDate: (date: string | null, sourceRunCount: number) => void,
   ) {
     const b = shiftMonthBounds(from, delta);
-    setFrom(b.start);
-    setTo(b.end);
-    selectOrderDay(null, onSelectDate);
+    setViewState((current) => ({ ...current, from: b.start, to: b.end, date: '' }));
+    setSelectedSourceImportRunId(null);
+    setOpenPo(null);
+    onSelectDate(null, 0);
   }
 
   function renderOrderExplorer({
@@ -257,8 +293,10 @@ export function RocketOrdersWorkspace({
             aria-label="입고예정일 시작"
             value={from}
             onChange={(e) => {
-              setFrom(e.target.value);
-              selectDate(null);
+              setViewState((current) => ({ ...current, from: e.target.value, date: '' }));
+              setSelectedSourceImportRunId(null);
+              setOpenPo(null);
+              onSelectDate(null, 0);
             }}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
           />
@@ -268,8 +306,10 @@ export function RocketOrdersWorkspace({
             aria-label="입고예정일 종료"
             value={to}
             onChange={(e) => {
-              setTo(e.target.value);
-              selectDate(null);
+              setViewState((current) => ({ ...current, to: e.target.value, date: '' }));
+              setSelectedSourceImportRunId(null);
+              setOpenPo(null);
+              onSelectDate(null, 0);
             }}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
           />
@@ -284,8 +324,10 @@ export function RocketOrdersWorkspace({
             aria-label="발주 상태"
             value={status}
             onChange={(e) => {
-              setStatus(e.target.value);
-              selectDate(null);
+              setViewState((current) => ({ ...current, status: e.target.value, date: '' }));
+              setSelectedSourceImportRunId(null);
+              setOpenPo(null);
+              onSelectDate(null, 0);
             }}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
           >
@@ -304,8 +346,7 @@ export function RocketOrdersWorkspace({
               key={nextView}
               type="button"
               onClick={() => {
-                if (nextView === 'month') setView('month');
-                else setView('chart');
+                setViewState((current) => ({ ...current, view: nextView }));
               }}
               className={cn(
                 'rounded-lg border px-3 py-1.5 text-sm font-medium',
@@ -519,7 +560,11 @@ export function RocketOrdersWorkspace({
       </div>
 
       {/* 활성 로켓 계정 백그라운드 선택 (계정은 달력·발주목록·차트의 데이터 기준) */}
-      <RocketAccountBootstrap onAccountChange={handleRocketAccountChange} />
+      <RocketAccountBootstrap
+        selectedAccountId={selectedRocketAccountId}
+        onSelectedAccountIdChange={handleRocketAccountSelection}
+        onAccountChange={handleRocketAccountChange}
+      />
 
       {decisionWorkspace({
         activeMonth: (from || todayYmd()).slice(0, 7),
