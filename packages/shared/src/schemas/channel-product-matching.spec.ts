@@ -283,6 +283,32 @@ describe('channel product and variant matching contracts', () => {
     }).option.productVariantId).toBe(variantId);
   });
 
+  it('accepts existing relative image paths in matching display fields', () => {
+    const parsed = ChannelProductMatchingQueueRowSchema.parse({
+      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
+      listing: {
+        id: listingId,
+        externalId: 'P-001',
+        displayName: '키즈 식판',
+        status: 'approved',
+        masterProductId: productId,
+        channelImageUrl: '/uploads/channel.jpg',
+        updatedAt: '2026-07-16T00:00:00.000Z',
+      },
+      linkedProduct: {
+        id: productId,
+        code: 'KI-001',
+        name: '키즈 식판',
+        displayImageUrl: '/uploads/operator.jpg',
+      },
+      optionCount: 1,
+      linkedOptionCount: 0,
+    });
+
+    expect(parsed.listing.channelImageUrl).toBe('/uploads/channel.jpg');
+    expect(parsed.linkedProduct?.displayImageUrl).toBe('/uploads/operator.jpg');
+  });
+
   it('rejects queue rows whose linked identities disagree with persisted links', () => {
     expect(() => ChannelProductMatchingQueueRowSchema.parse({
       channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
