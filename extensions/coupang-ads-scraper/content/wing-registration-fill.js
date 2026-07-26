@@ -159,7 +159,14 @@
     '.option-pane-table-head span.sc-common-check > input[type="checkbox"]';
   const OPTION_ROW_CHECK_SELECTOR =
     '.option-pane-table-content .option-pane-table-cell.checkbox span.sc-common-check > input[type="checkbox"]';
-  const OPTION_CREATION_SELECTOR = '.option-creation';
+  // formV2 옵션 입력 UI는 판매자/카테고리 feature group에 따라 둘 중 하나다.
+  // - 현재 low-code DynamicOption: `.dynamic-option-form-pane` + `.attribute`
+  // - 레거시 MultiOptionPaneCreation: `.option-creation` + `.option-creation-input-group`
+  // DynamicOption은 값을 추가할 때 옵션 행을 자동 생성하며 `#generateItems`가 없다.
+  const OPTION_CREATION_SELECTORS = [
+    '.dynamic-option-form-pane',
+    '.option-creation',
+  ];
   const OPTION_GENERATE_SELECTOR = '#generateItems';
 
   function optionRowChecks() {
@@ -877,17 +884,30 @@
     return true;
   }
 
+  function optionCreationRoot() {
+    for (const selector of OPTION_CREATION_SELECTORS) {
+      const root = document.querySelector(selector);
+      if (root) return root;
+    }
+    return null;
+  }
+
   function optionCreationRows() {
-    const root = document.querySelector(OPTION_CREATION_SELECTOR);
-    return root?.querySelectorAll
-      ? [...root.querySelectorAll('.option-creation-input-group')]
-      : [];
+    const root = optionCreationRoot();
+    if (!root?.querySelectorAll) return [];
+    const dynamicRows = [...root.querySelectorAll('.attribute')];
+    return dynamicRows.length > 0
+      ? dynamicRows
+      : [...root.querySelectorAll('.option-creation-input-group')];
   }
 
   function optionCreationRow(optionType, placeholder) {
     const type = normText(optionType);
     const rows = optionCreationRows();
     return (
+      rows.find((row) =>
+        normText(row.querySelector?.('.attribute-type')?.textContent) === type,
+      ) ||
       rows.find((row) =>
         [...row.querySelectorAll('input')].some(
           (input) => normText(input.value) === type,
@@ -968,14 +988,25 @@
   }
 
   async function generateOptionRows(log) {
-    const button = await waitFor(
-      () => document.querySelector(OPTION_GENERATE_SELECTOR),
-      { timeout: 5000, interval: 200 },
+    const available = await waitFor(
+      () => {
+        const rows = optionRowChecks().length;
+        if (rows > 0) return { rows };
+        const button = document.querySelector(OPTION_GENERATE_SELECTOR);
+        return button ? { button } : null;
+      },
+      { timeout: 8000, interval: 200 },
     );
-    if (!button) {
+    if (!available) {
       log('optionGenerate:noButton');
       return false;
     }
+    if (available.rows) {
+      log(`optionRows:${available.rows}`);
+      return true;
+    }
+
+    const button = available.button;
     if (button.disabled || button.hasAttribute?.('disabled')) {
       log('optionGenerate:disabled');
       return false;
@@ -1305,7 +1336,7 @@
           '쿠팡 WING에서 자동 매핑된 카테고리의 정확한 경로를 찾지 못했습니다.';
       }
       // 카테고리 선택 뒤 속성 메타데이터가 비동기로 로드된다. 옵션 입력 영역은
-      // 아래 옵션 단계에서 현재/구형 formV2 공통 루트(`.option-creation`)로 확인한다.
+      // 아래 옵션 단계에서 DynamicOption/레거시 MultiOption 루트로 확인한다.
       await sleep(800);
     }
 
@@ -1333,13 +1364,13 @@
       : [];
     if (!registrationError && purchaseOptions.length > 0) {
       const creation = await waitFor(
-        () => document.querySelector(OPTION_CREATION_SELECTOR),
+        () => optionCreationRoot(),
         { timeout: 12000, interval: 250 },
       );
       if (!creation) {
         log('optionCreationUnavailable');
         registrationError =
-          '쿠팡 WING이 선택한 카테고리 속성을 불러오지 못해 옵션 입력 영역이 열리지 않았습니다. WING 화면을 새로고침한 뒤 다시 시도해 주세요.';
+          '쿠팡 WING에서 선택한 카테고리 속성의 옵션 입력 영역을 찾지 못했습니다. WING 화면 구조가 변경되었거나 아직 로딩 중일 수 있으니 새로고침한 뒤 다시 시도해 주세요.';
       } else {
         let optionsApplied = true;
         for (const opt of purchaseOptions) {

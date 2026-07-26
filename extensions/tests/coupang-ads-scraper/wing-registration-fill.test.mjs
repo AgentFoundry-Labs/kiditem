@@ -613,6 +613,7 @@ function createOptionAndNoticeHarness({
   rowCount = 1,
   cascade = true,
   optionCreationAvailable = true,
+  optionCreationMode = 'legacy',
   generatedRowCount = 0,
 } = {}) {
   let listener = null;
@@ -780,30 +781,84 @@ function createOptionAndNoticeHarness({
       this._value = String(next);
     },
   });
-  const optionValueInput = Object.create(FakeInput.prototype);
-  Object.assign(optionValueInput, {
-    tagName: 'INPUT',
-    placeholder: '옵션값 입력',
+  const dynamicAppliedOptions = new Map();
+  const makeOptionInput = (optionType, placeholder) => {
+    const input = Object.create(FakeInput.prototype);
+    let container = null;
+    Object.assign(input, {
+      tagName: 'INPUT',
+      placeholder,
+      offsetParent: {},
+      dispatchEvent(event) {
+        events.push(`optionInput:${optionType}:${event.type}`);
+      },
+      focus() {},
+      blur() {},
+      closest() {
+        return optionCreationMode === 'dynamic' ? container : null;
+      },
+    });
+    const row = {
+      get textContent() {
+        const value = dynamicAppliedOptions.get(optionType);
+        return value ? `${optionType} ${value}` : optionType;
+      },
+      querySelector(selector) {
+        if (selector === '.attribute-type') return { textContent: optionType };
+        if (selector.includes(`placeholder="${placeholder}"`)) return input;
+        return null;
+      },
+      querySelectorAll(selector) {
+        return selector === 'input' ? [input] : [];
+      },
+    };
+    const addButton = {
+      textContent: '추가',
+      click() {
+        dynamicAppliedOptions.set(optionType, input.value);
+        events.push(`optionAdd:${optionType}`);
+        input.value = '';
+        if (dynamicAppliedOptions.size === 2) {
+          while (rows.length < generatedRowCount) rows.push(checkbox('row'));
+        }
+      },
+    };
+    container = {
+      parentElement: null,
+      querySelectorAll(selector) {
+        return selector === 'button' ? [addButton] : [];
+      },
+    };
+    return { input, row };
+  };
+  const colorOption = makeOptionInput('색상', '옵션값 입력');
+  const quantityOption = makeOptionInput('수량', '숫자만 입력');
+  const dynamicOptionCreation = {
     offsetParent: {},
-    dispatchEvent(event) {
-      events.push(`optionInput:${event.type}`);
+    querySelectorAll(selector) {
+      return selector.includes('.attribute') ? [colorOption.row, quantityOption.row] : [];
     },
-    focus() {},
-    blur() {},
-    closest() {
-      return null;
-    },
-  });
+  };
 
   const originalQuerySelector = document.querySelector.bind(document);
   document.querySelector = (selector) => {
+    if (selector === '.dynamic-option-form-pane') {
+      return optionCreationAvailable && optionCreationMode === 'dynamic'
+        ? dynamicOptionCreation
+        : null;
+    }
     if (selector === '.option-creation') {
-      return optionCreationAvailable ? optionCreation : null;
+      return optionCreationAvailable && optionCreationMode === 'legacy'
+        ? optionCreation
+        : null;
     }
     if (selector === '#generateItems') {
-      return optionCreationAvailable ? generateItems : null;
+      return optionCreationAvailable && optionCreationMode === 'legacy'
+        ? generateItems
+        : null;
     }
-    if (selector.includes('placeholder="옵션값 입력"')) return optionValueInput;
+    if (selector.includes('placeholder="옵션값 입력"')) return colorOption.input;
+    if (selector.includes('placeholder="숫자만 입력"')) return quantityOption.input;
     return originalQuerySelector(selector);
   };
   const context = vm.createContext({
@@ -928,6 +983,30 @@ test('generates option rows before selecting rows and filling price and stock', 
   assert.ok(result.steps.includes('salePrice:4000'));
   assert.ok(result.steps.includes('stock:999'));
   assert.ok(harness.events.indexOf('generateItems') < harness.events.indexOf('selectAll:true'));
+});
+
+test('supports current DynamicOption rows that auto-generate without #generateItems', async () => {
+  const harness = createOptionAndNoticeHarness({
+    rowCount: 0,
+    generatedRowCount: 1,
+    optionCreationMode: 'dynamic',
+  });
+  const result = await harness.fill({
+    purchaseOptions: [
+      { type: '색상', value: '테스트 블루' },
+      { type: '수량', value: '1개' },
+    ],
+    salePrice: 12900,
+    stock: 999,
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.ok(result.steps.includes('option:색상=테스트 블루'));
+  assert.ok(result.steps.includes('option:수량=1'));
+  assert.ok(result.steps.includes('optionRows:1'));
+  assert.equal(harness.events.includes('generateItems'), false);
+  assert.ok(harness.events.indexOf('optionAdd:수량') < harness.events.indexOf('selectAll:true'));
+  assert.deepEqual(harness.getBulkValues(), ['12900', '999']);
 });
 
 test('pins the notice category to 기타 재화 and checks 전체 상품 상세페이지 참조', async () => {
