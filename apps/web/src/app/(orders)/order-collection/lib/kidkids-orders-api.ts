@@ -28,6 +28,7 @@ interface KidkidsCollectResponse {
   orders?: KidkidsOrder[];
   count?: number;
   error?: string;
+  pendingLogin?: boolean;
 }
 
 /**
@@ -51,7 +52,9 @@ export async function collectKidkidsOrdersFromExtension(date?: string, run?: Ord
     190000,
   );
   if (!res?.success || !Array.isArray(res.orders)) {
-    throw new Error(res?.error ?? '키드키즈 주문 수집에 실패했습니다.');
+    throw Object.assign(new Error(res?.error ?? '키드키즈 주문 수집에 실패했습니다.'), {
+      pendingLogin: res?.pendingLogin === true,
+    });
   }
   return res.orders;
 }

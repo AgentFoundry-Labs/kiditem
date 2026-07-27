@@ -1,6 +1,7 @@
 import {
   getOrderCount,
   hasSellpiaTransmissionRequest,
+  isSellpiaOrderFile,
   type ConversionHistoryItem,
 } from './order-collection-page-model';
 import {
@@ -43,8 +44,8 @@ export function filterAndSortGeneratedFiles(
 
   items.forEach((item, index) => {
     if (filters.mallKey && resolveOrderCollectionMallKey(item) !== filters.mallKey) return;
-    if (sendFilter === 'requested' && !hasSellpiaTransmissionRequest(item)) return;
-    if (sendFilter === 'waiting' && hasSellpiaTransmissionRequest(item)) return;
+    if (sendFilter === 'requested' && (!isSellpiaOrderFile(item) || !hasSellpiaTransmissionRequest(item))) return;
+    if (sendFilter === 'waiting' && (!isSellpiaOrderFile(item) || hasSellpiaTransmissionRequest(item))) return;
 
     if (searchTokens.length > 0) {
       const searchable = generatedFileSearchText(item);

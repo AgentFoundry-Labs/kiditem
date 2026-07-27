@@ -18,6 +18,7 @@ export interface IcecreamMallExtensionRows {
 
 export interface IcecreamMallExtensionCredentials {
   loginId: string;
+  supplierLoginId?: string;
   password: string;
 }
 

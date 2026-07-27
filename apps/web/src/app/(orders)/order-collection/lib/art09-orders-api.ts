@@ -77,6 +77,7 @@ export async function collectArt09OrdersFromExtension(run?: OrderCollectionExten
       action: 'collectArt09Orders',
       date: run?.date,
       runId: run?.runId ?? globalThis.crypto.randomUUID(),
+      deferTerminal: Boolean(run?.runId),
     },
     190000,
   );
@@ -85,7 +86,7 @@ export async function collectArt09OrdersFromExtension(run?: OrderCollectionExten
     throw new Error(res?.error ?? '아트공구 주문 수집에 실패했습니다.');
   }
 
-  return res.rows;
+  return res.rows.filter(isValidArt09OrderRow);
 }
 
 export async function collectArt09CsvFromExtension(
@@ -135,6 +136,17 @@ function rowToCsv(row: Art09OrderRow): string[] {
     row.orderedAt ?? '',
     row.country ?? '',
   ];
+}
+
+function isValidArt09OrderRow(row: Art09OrderRow): boolean {
+  const orderId = row.orderId?.trim() ?? '';
+  const orderItemId = row.orderItemId?.trim() ?? '';
+  const quantity = Number(row.qty);
+  return /^\d{8}-\d{7}$/.test(orderId)
+    && (!orderItemId || new RegExp(`^${orderId}-\\d{2,}$`).test(orderItemId))
+    && Boolean(row.productName?.trim())
+    && Number.isFinite(quantity)
+    && quantity > 0;
 }
 
 function csvLine(row: readonly string[]): string {
