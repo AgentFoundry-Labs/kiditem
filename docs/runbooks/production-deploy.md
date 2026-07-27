@@ -55,6 +55,12 @@ PRODUCTION_REBUILD_EXPECTED_LISTINGS
 PRODUCTION_REBUILD_EXPECTED_CHANNEL_SKUS
 ```
 
+The workflow renders `PRODUCTION_URL` into the API container as the canonical
+`WEB_ORIGIN`. `PRODUCTION_CORS_ORIGINS` remains an independent allowlist; its
+ordering must not affect detail-page render URLs. The API refuses to boot
+without `WEB_ORIGIN`, and the remote deploy rejects the candidate before
+startup when its normalized `WEB_ORIGIN` differs from `PRODUCTION_URL`.
+
 Required secrets:
 
 ```text

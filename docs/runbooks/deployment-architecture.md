@@ -29,7 +29,11 @@ a second image build. The shared API image also bundles the compiled
 `@kiditem/templates` stylesheet used to hydrate saved revisions before the
 company Chrome extension captures Wing detail images; the image build fails if
 that runtime asset cannot be resolved. The API does not launch Chromium for
-this Wing path.
+this Wing path. The API requires one canonical `WEB_ORIGIN` at bootstrap and
+uses it for extension render-document URLs; `CORS_ORIGINS` remains a separate
+allowlist. GitHub Actions renders the environment public URL into
+`WEB_ORIGIN`, and the remote deploy normalizes and compares both values before
+starting a candidate slot.
 
 ## CI/CD Gates
 
@@ -122,16 +126,18 @@ approved database recovery before starting a new reset run.
 3. Require both images' `org.opencontainers.image.revision` labels to equal the
    guarded full Git SHA; record `apiImageRevision` and `webImageRevision`.
 4. Write candidate slot image refs into `.env.<env>.deploy`.
-5. Start only the inactive `api-*`, `web-*`, and `worker-*` services.
-6. Wait for API/web health, worker running state, and API render-image browser
+5. Require the API `WEB_ORIGIN` to equal the workflow-provided public
+   deployment origin after canonical URL normalization.
+6. Start only the inactive `api-*`, `web-*`, and `worker-*` services.
+7. Wait for API/web health, worker running state, and API render-image browser
    runtime readiness.
-7. Render `deployments/nginx.conf` from the environment-specific nginx
+8. Render `deployments/nginx.conf` from the environment-specific nginx
    template and reload compose nginx. The generated file is mounted into the
    nginx container as a file bind mount, so the deploy script updates an
    existing file in place and recreates nginx when the container still sees an
    older mounted config.
-8. Smoke `/login` and `/api/auth/me` through the local public route.
-9. Write `deployments/current.json` and stop the previous slot.
+9. Smoke `/login` and `/api/auth/me` through the local public route.
+10. Write `deployments/current.json` and stop the previous slot.
 
 The switch does not roll database migrations back. Production schema changes
 must be backward-compatible across the old and new app versions before deploy.

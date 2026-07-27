@@ -135,6 +135,60 @@ validate_agent_os_runtime_env() {
   [[ -n "${AI_IMAGE_ANALYSIS_MODEL:-}" ]] || fail "missing required API env: set AI_IMAGE_ANALYSIS_MODEL in $API_ENV_FILE for direct detail page vision inference"
 }
 
+normalize_http_origin() {
+  local label="$1"
+  local value="$2"
+
+  ORIGIN_LABEL="$label" ORIGIN_VALUE="$value" python3 - <<'PY'
+import os
+from urllib.parse import urlsplit
+
+label = os.environ["ORIGIN_LABEL"]
+value = os.environ["ORIGIN_VALUE"].strip()
+parsed = urlsplit(value)
+
+if (
+    parsed.scheme not in {"http", "https"}
+    or not parsed.hostname
+    or parsed.username is not None
+    or parsed.password is not None
+    or parsed.path not in {"", "/"}
+    or parsed.query
+    or parsed.fragment
+):
+    raise SystemExit(f"{label} must be a canonical http(s) origin")
+
+host = parsed.hostname
+if ":" in host and not host.startswith("["):
+    host = f"[{host}]"
+
+port = parsed.port
+if port is None or (parsed.scheme == "http" and port == 80) or (parsed.scheme == "https" and port == 443):
+    port_suffix = ""
+else:
+    port_suffix = f":{port}"
+
+print(f"{parsed.scheme}://{host}{port_suffix}")
+PY
+}
+
+validate_web_origin_runtime_env() {
+  load_api_env
+
+  local expected_public_url actual_web_origin expected_web_origin
+  expected_public_url="${PUBLIC_URL:-${STAGING_URL:-}}"
+  [[ -n "$expected_public_url" ]] || fail "missing public deployment URL for WEB_ORIGIN validation"
+  [[ -n "${WEB_ORIGIN:-}" ]] || fail "missing required API env: WEB_ORIGIN"
+
+  actual_web_origin="$(normalize_http_origin WEB_ORIGIN "$WEB_ORIGIN")" ||
+    fail "invalid WEB_ORIGIN in $API_ENV_FILE"
+  expected_web_origin="$(normalize_http_origin public_deployment_url "$expected_public_url")" ||
+    fail "invalid public deployment URL"
+
+  [[ "$actual_web_origin" == "$expected_web_origin" ]] ||
+    fail "WEB_ORIGIN ($actual_web_origin) must match the public deployment origin ($expected_web_origin)"
+}
+
 compose() (
   require_file "$DEPLOY_ENV_FILE"
   set -a
@@ -665,6 +719,7 @@ deploy() {
   write_slot_deploy_env "$target_color" "$active_color"
 
   validate_agent_os_runtime_env
+  validate_web_origin_runtime_env
   compose config >/dev/null
   render_nginx_for_color "$active_color"
   seed_agent_os "$target_color"
@@ -687,6 +742,7 @@ deploy() {
     target_color="green"
     write_slot_deploy_env "$target_color" "$active_color"
     validate_agent_os_runtime_env
+    validate_web_origin_runtime_env
     compose config >/dev/null
     render_nginx_for_color "$active_color"
     seed_agent_os "$target_color"
