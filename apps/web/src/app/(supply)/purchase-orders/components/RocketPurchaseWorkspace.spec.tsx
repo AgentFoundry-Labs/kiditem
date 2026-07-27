@@ -96,6 +96,7 @@ describe('RocketPurchaseWorkspace', () => {
       channelAccountId: ACCOUNT_ID,
       collection: collectionEvidence(),
       rows: [row],
+      exportedPoLineIds: [],
     });
     vi.mocked(previewRocketPurchases).mockResolvedValue(
       preview([row], [previewRow(null, 3)]),

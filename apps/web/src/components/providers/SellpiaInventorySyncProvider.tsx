@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type {
-  SellpiaInventoryCollectionFailureCode,
-  SellpiaInventoryFreshnessView,
-} from '@kiditem/shared/sellpia-inventory-freshness';
 import { useAuth } from '@/hooks/useAuth';
 import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
-import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
+import {
+  sellpiaInventoryFreshnessApi,
+  type SellpiaInventoryFreshnessWithBlockers,
+} from '@/lib/sellpia-inventory-freshness-api';
 import {
   collectSellpiaInventory,
   finalizeSellpiaInventorySession,
@@ -22,6 +21,10 @@ import {
 } from '@/lib/operation-alerts';
 import { queryKeys } from '@/lib/query-keys';
 import { invalidateSellpiaInventory } from '@/app/(inventory)/_shared/invalidate-sellpia-inventory';
+import type {
+  SellpiaInventoryCollectionFailureCode,
+  SellpiaInventoryFreshnessView,
+} from '@kiditem/shared/sellpia-inventory-freshness';
 
 export const SELLPIA_HEARTBEAT_INTERVAL_MS = 20_000;
 export const SELLPIA_LEASE_MS = 90_000;
@@ -43,9 +46,16 @@ function cacheFreshnessIfChanged(
   state: SellpiaInventoryFreshnessView,
 ): void {
   const queryKey = queryKeys.inventory.freshness();
-  const current = queryClient.getQueryData<SellpiaInventoryFreshnessView>(queryKey);
-  if (current && JSON.stringify(current) === JSON.stringify(state)) return;
-  queryClient.setQueryData(queryKey, state);
+  const current = queryClient.getQueryData<SellpiaInventoryFreshnessWithBlockers>(queryKey);
+  const next: SellpiaInventoryFreshnessWithBlockers = {
+    ...state,
+    unresolvedOrderTransmissionIntents:
+      current?.unresolvedOrderTransmissionIntents ?? [],
+    hasMoreUnresolvedOrderTransmissionIntents:
+      current?.hasMoreUnresolvedOrderTransmissionIntents ?? false,
+  };
+  if (current && JSON.stringify(current) === JSON.stringify(next)) return;
+  queryClient.setQueryData(queryKey, next);
 }
 
 async function serializeClaim(
@@ -239,7 +249,7 @@ export function SellpiaInventorySyncProvider({
       void sellpiaInventoryFreshnessApi.heartbeat(claimToken).then((state) => {
         if (!claimIsStopped() && state.activeSync?.runId === claimToken) {
           leaseExpiresAt = Date.parse(state.activeSync.leaseExpiresAt);
-          queryClient.setQueryData(queryKeys.inventory.freshness(), state);
+          cacheFreshnessIfChanged(queryClient, state);
         }
       }).catch(() => undefined);
     }, SELLPIA_HEARTBEAT_INTERVAL_MS);

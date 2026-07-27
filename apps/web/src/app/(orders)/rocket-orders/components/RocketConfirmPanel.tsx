@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays,
   Download,
@@ -67,19 +67,29 @@ export function RocketConfirmPanel({
   from,
   to,
   selectedSourceImportRunId,
+  selectedDate: selectedDateProp,
+  selectedDateSourceRunCount,
+  selectedDateSourceRuns,
+  onSelectSourceImportRun,
   onActivity,
   onOrdersChanged,
   renderOrderExplorer,
 }: { onSaved: () => void } & RocketDecisionWorkspaceContext) {
-  const [selectedDate, setSelectedDate] = useState('');
-  const [selectedDateSourceRunCount, setSelectedDateSourceRunCount] = useState(0);
+  // 날짜 상태는 워크스페이스가 소유한다(URL 복원 포함). 패널은 읽기만 한다.
+  const selectedDate = selectedDateProp ?? '';
   const [matchModalOpen, setMatchModalOpen] = useState(false);
   const [bulkShortageReason, setBulkShortageReason] = useState<RocketShortageReason | ''>('');
+  const [showAllRows, setShowAllRows] = useState(false);
+
+  useEffect(() => {
+    setShowAllRows(false);
+  }, [channelAccountId, selectedSourceImportRunId]);
   const {
     editedQuantities,
     setReviewedQuantity,
     preview,
     sourceRows,
+    exportedPoLineIds,
     previewDirty,
     setPreviewDirty,
     shortageReasons,
@@ -116,7 +126,20 @@ export function RocketConfirmPanel({
     () => new Map(sourceRows.map((row) => [row.poLineId, row])),
     [sourceRows],
   );
-  const rows = preview?.rows ?? [];
+  const allRows = preview?.rows ?? [];
+  // 수집은 매번 전량 스냅샷이라 이미 제출한 라인이 이후 수집본에도 계속 나온다. 기본값은
+  // "이번에 새로 들어온 것만"이고, 제출 이력이 있을 때만 걸러 근거 없이 숨기지 않는다.
+  const exportedLineIds = useMemo(
+    () => new Set(exportedPoLineIds),
+    [exportedPoLineIds],
+  );
+  const newRows = useMemo(
+    () => allRows.filter((row) => !exportedLineIds.has(row.poLineId)),
+    [allRows, exportedLineIds],
+  );
+  const alreadyExportedCount = allRows.length - newRows.length;
+  const canFilterNewRows = alreadyExportedCount > 0;
+  const rows = canFilterNewRows && !showAllRows ? newRows : allRows;
   const poCount = new Set(rows.map((row) => row.poNumber)).size;
   const previewDates = [...new Set(rows.map((row) => row.plannedDeliveryDate))].sort();
   const previewRangeLabel = previewDates.length === 0
@@ -153,9 +176,8 @@ export function RocketConfirmPanel({
   const hasBlockingRows = rows.some((row) => isRocketWorkbookBlockingReason(row.reason));
   const busy = loading || exporting || abandoning;
 
-  function handleExplorerDateSelection(date: string | null, sourceRunCount: number) {
-    setSelectedDate(date ?? '');
-    setSelectedDateSourceRunCount(sourceRunCount);
+  function handleExplorerDateSelection(_date: string | null, _sourceRunCount: number) {
+    // 날짜/수집본 수는 워크스페이스가 내려준다. 패널은 날짜가 바뀌면 매칭 모달만 닫는다.
     setMatchModalOpen(false);
   }
 
@@ -285,10 +307,34 @@ export function RocketConfirmPanel({
         </div>
       ) : null}
 
+      {/* 수집본이 여럿이면 자동 선택이 금지된다(서로 다른 수집본의 행을 섞을 수 없음).
+          그래도 선택은 여기서 바로 할 수 있어야 한다 — 예전에는 발주 목록을 펼쳐
+          행마다 숨은 버튼을 찾아야 해서 사실상 막힌 것처럼 보였다. */}
       {selectedDate && selectedDateSourceRunCount > 1 && !selectedSourceImportRunId && !loading ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
-          선택한 날짜에 사용할 수집본이 자동으로 정해지지 않았습니다. 아래 발주 목록을 펼쳐
-          <b> 이 수집본으로 납품 판단</b>을 선택해 주세요.
+        <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
+          <p>
+            이 날짜에는 수집본이 <b>{selectedDateSourceRunCount}개</b> 있어 자동으로 정해지지 않습니다.
+            서로 다른 수집본의 행은 섞을 수 없으니 사용할 수집본을 하나 고르세요.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {selectedDateSourceRuns.map((run, index) => (
+              <button
+                key={run.sourceImportRunId}
+                type="button"
+                onClick={() => onSelectSourceImportRun(run.sourceImportRunId)}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-left text-xs text-slate-700 hover:border-purple-300 hover:bg-purple-50"
+              >
+                <span className="block font-semibold text-slate-800">
+                  수집 {run.collectedAt.slice(0, 16).replace('T', ' ')}
+                  {index === 0 ? <span className="ml-1.5 text-purple-600">최신</span> : null}
+                </span>
+                <span className="block text-slate-500">
+                  {formatNumber(run.poCount)}건 · {formatNumber(run.quantity)}개 ·{' '}
+                  {formatKRW(run.amount)}원
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -396,6 +442,18 @@ export function RocketConfirmPanel({
                 <b className="tabular-nums text-amber-600">{confirmTotals.short}</b>행 · 금액{' '}
                 <b className="tabular-nums text-purple-700">{formatKRW(confirmTotals.amount)}</b>원
               </span>
+              {canFilterNewRows ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllRows((current) => !current)}
+                  title="엑셀은 수집본 전체 기준으로 만들어집니다. 이 토글은 목록 표시만 바꿉니다."
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-800 hover:bg-purple-100"
+                >
+                  {showAllRows
+                    ? `신규 ${formatNumber(newRows.length)}행만 보기`
+                    : `이미 제출 ${formatNumber(alreadyExportedCount)}행 포함해 전체 보기`}
+                </button>
+              ) : null}
               {previewDirty ? (
                 <button
                   type="button"
@@ -480,6 +538,11 @@ export function RocketConfirmPanel({
                           )}>
                             {matchStateLabel}
                           </span>
+                          {exportedLineIds.has(row.poLineId) ? (
+                            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                              이미 제출
+                            </span>
+                          ) : null}
                           {matchingBlocked ? (
                             <a
                               href={rocketProductMatchingHref({
@@ -559,6 +622,32 @@ export function RocketConfirmPanel({
       {preview && rows.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-400">
           검토할 로켓 발주가 없습니다.
+        </div>
+      ) : null}
+
+      {/*
+        미리보기가 없을 때의 안내. 예전에는 아래 표들이 모두 `preview` 에 걸려 있고 빈 상태 문구까지
+        `preview &&` 로 막혀 있어, 실패하거나 수집본을 못 고른 경우 하단이 통째로 사라졌다.
+        재고 수치는 여기서 보여주지 않는다 — stale 재고로 납품 수량을 노출하지 않는다는 경계는 유지한다.
+      */}
+      {!preview && !loading ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center">
+          <p className="text-sm font-medium text-slate-600">
+            {error
+              ? '납품 판단 영역을 불러오지 못했습니다.'
+              : selectedDate && selectedDateSourceRunCount > 1 && !selectedSourceImportRunId
+                ? '사용할 수집본을 아직 고르지 않았습니다.'
+                : selectedDate && selectedDateSourceRunCount === 0
+                  ? '선택한 날짜에 저장된 발주가 없습니다.'
+                  : '납품 판단을 시작할 수집본이 없습니다.'}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            {error
+              ? '위 안내를 해결한 뒤 다시 시도해 주세요.'
+              : selectedDate && selectedDateSourceRunCount > 1 && !selectedSourceImportRunId
+                ? '위 안내에서 사용할 수집본을 눌러 주세요.'
+                : '달력에서 발주가 있는 날짜를 고르거나, 쿠팡에서 새로 수집해 주세요.'}
+          </p>
         </div>
       ) : null}
 

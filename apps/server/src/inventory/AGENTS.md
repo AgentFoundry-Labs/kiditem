@@ -141,6 +141,11 @@ change stock.
   An owner/admin may also correct a false finalized result to `not_submitted`;
   that transition is append-only audited and is the only path that permits a
   confirmed missing file to reuse the stable intent key for one safe retry.
+- The additive unresolved-intent endpoint lists the transmission intents that
+  block collection, capped at `SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT` with a
+  continuation signal. Keep the legacy strict freshness response stable for
+  already-open browser bundles. The same repository rows that make `planClaim`
+  return `joined` must be nameable by the endpoint; do not reduce them to a count.
 - Every public view serializes generations as decimal strings and derives
   `activeSync.canControl` from the authenticated user without exposing the
   owner ID.

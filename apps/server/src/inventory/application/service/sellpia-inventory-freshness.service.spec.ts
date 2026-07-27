@@ -951,6 +951,7 @@ implements SellpiaInventoryFreshnessRepositoryPort {
       status: 'prepared' | 'finalized' | 'aborted';
       finalizedGeneration: bigint | null;
       createdBy: string;
+      preparedAt: Date;
     }>
   >();
   initializeCount = 0;
@@ -976,8 +977,8 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     return state
       ? {
           ...state,
-          unresolvedOrderTransmissionIntentCount:
-            this.unresolvedIntentCount(organizationId),
+          unresolvedOrderTransmissionIntents:
+            this.unresolvedIntents(organizationId),
         }
       : null;
   }
@@ -1042,14 +1043,24 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     if (!state) throw new Error('state not seeded');
     return {
       ...state,
-      unresolvedOrderTransmissionIntentCount:
-        this.unresolvedIntentCount(organizationId),
+      unresolvedOrderTransmissionIntents:
+        this.unresolvedIntents(organizationId),
     };
   }
 
   unresolvedIntentCount(organizationId: string): number {
-    return [...(this.intents.get(organizationId)?.values() ?? [])]
-      .filter((intent) => intent.status === 'prepared').length;
+    return this.unresolvedIntents(organizationId).length;
+  }
+
+  unresolvedIntents(
+    organizationId: string,
+  ): Array<{ intentKey: string; preparedAt: Date }> {
+    return [...(this.intents.get(organizationId)?.entries() ?? [])]
+      .filter(([, intent]) => intent.status === 'prepared')
+      .map(([intentKey, intent]) => ({
+        intentKey,
+        preparedAt: intent.preparedAt,
+      }));
   }
 
   prepareIntent(organizationId: string, intentKey: string, userId: string) {
@@ -1062,6 +1073,7 @@ implements SellpiaInventoryFreshnessRepositoryPort {
       status: 'prepared',
       finalizedGeneration: null,
       createdBy: userId,
+      preparedAt: existing?.preparedAt ?? new Date('2026-07-15T00:00:00.000Z'),
     });
     this.intents.set(organizationId, byOrganization);
     return 'prepared' as const;
@@ -1327,7 +1339,7 @@ function makeState(
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: '00000000-0000-4000-8000-000000000099',
-    unresolvedOrderTransmissionIntentCount: 0,
+    unresolvedOrderTransmissionIntents: [],
     ...overrides,
   };
 }

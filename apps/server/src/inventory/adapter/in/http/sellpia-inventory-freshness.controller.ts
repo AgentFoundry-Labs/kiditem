@@ -41,6 +41,17 @@ export class SellpiaInventoryFreshnessController {
     return this.freshness.getState({ organizationId, userId: user.id });
   }
 
+  @Get('order-transmission-intents/unresolved')
+  listUnresolvedOrderTransmissionIntents(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.freshness.listUnresolvedOrderTransmissionIntents({
+      organizationId,
+      userId: user.id,
+    });
+  }
+
   @Post('source-binding')
   @Roles('owner', 'admin')
   confirmSourceBinding(

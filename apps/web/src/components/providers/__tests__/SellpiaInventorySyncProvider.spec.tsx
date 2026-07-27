@@ -144,7 +144,11 @@ describe('SellpiaInventorySyncProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     auth.useAuth.mockReturnValue({ status: 'ready', user: { organizationId: 'org-1', role: 'owner' } });
-    api.getState.mockResolvedValue(dueState);
+    api.getState.mockResolvedValue({
+      ...dueState,
+      unresolvedOrderTransmissionIntents: [],
+      hasMoreUnresolvedOrderTransmissionIntents: false,
+    });
     api.getCurrentBasis.mockResolvedValue(null);
     api.listHistory.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     api.claimDue.mockResolvedValue(claimed);

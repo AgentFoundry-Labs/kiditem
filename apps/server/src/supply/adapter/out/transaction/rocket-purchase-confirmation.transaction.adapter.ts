@@ -284,6 +284,28 @@ implements RocketWorkbookExportTransactionPort {
     }, TRANSACTION_OPTIONS);
   }
 
+  // 이미 확정 엑셀로 나간 PO 라인만 되돌려준다. 취소(released)된 워크북은 제출로 보지
+  // 않으므로 제외한다 — 그 라인은 다시 내보낼 수 있어야 한다.
+  async listExportedPoLineIds(
+    input: Parameters<RocketWorkbookExportTransactionPort['listExportedPoLineIds']>[0],
+  ): Promise<string[]> {
+    if (input.poLineIds.length === 0) return [];
+    const lines = await this.prisma.rocketPurchaseConfirmationLine.findMany({
+      where: {
+        organizationId: input.organizationId,
+        poLineId: { in: input.poLineIds },
+        confirmation: {
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          releasedAt: null,
+        },
+      },
+      select: { poLineId: true },
+      distinct: ['poLineId'],
+    });
+    return lines.map(({ poLineId }) => poLineId);
+  }
+
   private async refreshWorkflow(
     tx: Prisma.TransactionClient,
     organizationId: string,

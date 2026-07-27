@@ -5,8 +5,10 @@ import {
   RocketWorkbookExportRequestSchema,
   RocketWorkbookExportResponseSchema,
   RocketSavedPoCollectionSchema,
+  RocketSavedPoSnapshotSchema,
   RocketSavedPoListRequestSchema,
   RocketSavedPoSummarySchema,
+  ROCKET_SAVED_PO_RESPONSE_PROFILE,
   type RocketPurchasePreviewRequest,
   type RocketPurchasePreviewResponse,
   type RocketSavedPoCollection,
@@ -16,13 +18,32 @@ import {
   type RocketWorkbookExportRequest,
   type RocketWorkbookExportResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
-import { apiClient } from '@/lib/api-client';
 import { z, type ZodType } from 'zod';
+import { apiClient } from '@/lib/api-client';
+import { friendlyError, isApiError } from '@/lib/api-error';
 
 const LoadSavedRocketCollectionRequestSchema = z.object({
   channelAccountId: z.string().uuid(),
   sourceImportRunId: z.string().uuid(),
 }).strict();
+
+const ROCKET_SAVED_PO_PROFILE_HEADERS = {
+  'X-KidItem-Response-Profile': ROCKET_SAVED_PO_RESPONSE_PROFILE,
+} as const;
+
+/**
+ * 로켓 미리보기 실패 문구. 서버는 `SELLPIA_SYNC_REQUIRED` 를 영문 "…before purchase." 로 던지는데,
+ * 미리보기는 구매가 아니라 읽기이므로 운영자에게는 원인과 다음 조치를 한국어로 알려준다.
+ * 미리보기 수량은 그대로 워크북 발주 수량이 되므로 stale 재고로 계산해 보여줄 수는 없다(게이트 유지).
+ */
+export function rocketPreviewErrorMessage(cause: unknown, fallback: string): string {
+  if (isApiError(cause) && cause.code === 'SELLPIA_SYNC_REQUIRED') {
+    return '셀피아 재고 스냅샷이 최신이 아니어서 납품 수량을 계산할 수 없습니다.'
+      + ' 주문수집 화면에서 확정되지 않은 셀피아 전송 건이 있으면 먼저 처리한 뒤,'
+      + ' 재고 동기화가 끝나면 자동으로 다시 계산됩니다.';
+  }
+  return friendlyError(cause) ?? fallback;
+}
 
 export async function previewRocketPurchases(
   input: RocketPurchasePreviewRequest,
@@ -120,7 +141,7 @@ export async function listSavedRocketPos(
     from: request.from,
     to: request.to,
     ...(request.status && { rocketStatus: request.status }),
-  });
+  }, { headers: ROCKET_SAVED_PO_PROFILE_HEADERS });
   return parseRocketResponse(
     'listSavedRocketPos',
     z.array(RocketSavedPoSummarySchema),
@@ -136,12 +157,15 @@ export async function loadSavedRocketCollection(input: {
   const response = await apiClient.post('/api/purchase-orders', {
     action: 'loadSavedRocketCollection',
     ...request,
-  });
-  return parseRocketResponse(
+  }, { headers: ROCKET_SAVED_PO_PROFILE_HEADERS });
+  const parsed = parseRocketResponse(
     'loadSavedRocketCollection',
-    RocketSavedPoCollectionSchema,
+    z.union([RocketSavedPoCollectionSchema, RocketSavedPoSnapshotSchema]),
     response,
   );
+  return 'exportedPoLineIds' in parsed
+    ? parsed
+    : { ...parsed, exportedPoLineIds: [] };
 }
 
 function isEmptyResponse(response: unknown): boolean {

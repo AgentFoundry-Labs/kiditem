@@ -1,16 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { PrismaClient } from '@prisma/client';
 import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
 import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/repository/rocket-workbook-progress.repository.adapter';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 const CHANNEL_ACCOUNT_ID = '21000000-0000-4000-8000-000000000001';
 const SOURCE_IMPORT_RUN_ID = '21000000-0000-4000-8000-000000000002';
@@ -253,6 +254,65 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       confirmationInput('21000000-0000-4000-8000-000000000018', 2),
     )).resolves.toMatchObject({ status: 'awaiting_coupang_confirmation' });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(2);
+  });
+
+  // 수집은 매번 전량 스냅샷이라 제출한 라인이 이후 수집본에도 계속 나온다.
+  // "이번에 새로 들어온 것만" 을 가려내는 유일한 서버 근거다.
+  it('reports which PO lines this account already sent in a workbook', async () => {
+    expect(await adapter.listExportedPoLineIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      poLineIds: [PO_LINE_ID, 'never-exported'],
+    })).toEqual([]);
+
+    const created = await adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000031', 2),
+    );
+
+    expect(await adapter.listExportedPoLineIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      poLineIds: [PO_LINE_ID, 'never-exported'],
+    })).toEqual([PO_LINE_ID]);
+    // 조직·계정 경계를 넘어 새지 않는다.
+    expect(await adapter.listExportedPoLineIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: '20000000-0000-4000-8000-0000000000ff',
+      poLineIds: [PO_LINE_ID],
+    })).toEqual([]);
+    expect(await adapter.listExportedPoLineIds({
+      organizationId: OTHER_ORGANIZATION_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      poLineIds: [PO_LINE_ID],
+    })).toEqual([]);
+
+    // 실제 사용 안 함 전이는 status=completed + releasedAt 을 기록한다. 그 워크북은
+    // 제출로 보지 않으므로 같은 라인을 다시 내보낼 수 있어야 한다.
+    const confirmation = await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: created.exportId },
+      select: { confirmedAt: true },
+    });
+    await prisma.rocketPurchaseConfirmationTransmission.createMany({
+      data: ['SHIPMENT', 'MILKRUN'].map((transport) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: created.exportId,
+        sourceImportRunId: SOURCE_IMPORT_RUN_ID,
+        transport,
+        matchedLineCount: 0,
+        observedAt: confirmation.confirmedAt,
+      })),
+    });
+    await adapter.abandonWorkbook({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      exportId: created.exportId,
+      reason: '쿠팡에 제출하지 않음',
+    });
+    expect(await adapter.listExportedPoLineIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      poLineIds: [PO_LINE_ID],
+    })).toEqual([]);
   });
 
   it('completes only after finalized transmission and a newer verified generation', async () => {

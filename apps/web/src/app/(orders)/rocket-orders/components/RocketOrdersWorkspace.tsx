@@ -52,6 +52,15 @@ export interface RocketOrderExplorerRenderOptions {
   onSelectDate: (date: string | null, sourceRunCount: number) => void;
 }
 
+/** One 수집본 candidate for the selected date, summarized over that date's rows. */
+export interface RocketDateSourceRun {
+  sourceImportRunId: string;
+  collectedAt: string;
+  poCount: number;
+  quantity: number;
+  amount: number;
+}
+
 export interface RocketDecisionWorkspaceContext {
   activeMonth: string;
   channelAccountId: string;
@@ -60,6 +69,14 @@ export interface RocketDecisionWorkspaceContext {
   from: string;
   to: string;
   selectedSourceImportRunId: string | null;
+  // 선택 날짜와 그 날짜의 수집본 수는 워크스페이스가 소유한다. 패널이 클릭 콜백으로만 알던 시절에는
+  // URL 복원(새로고침·링크 공유)에서 값이 비어 안내 배너가 통째로 사라졌다.
+  selectedDate: string | null;
+  selectedDateSourceRunCount: number;
+  // 한 날짜에 수집본이 여럿이면 자동 선택이 금지된다(서로 다른 수집본의 행을 섞을 수 없음).
+  // 후보를 최신순으로 넘겨 패널이 그 자리에서 명시적 선택을 받을 수 있게 한다.
+  selectedDateSourceRuns: RocketDateSourceRun[];
+  onSelectSourceImportRun: (sourceImportRunId: string) => void;
   onActivity: (activity: RocketOrderActivityInput) => void;
   onOrdersChanged: () => void;
   renderOrderExplorer: (options: RocketOrderExplorerRenderOptions) => ReactNode;
@@ -172,17 +189,31 @@ export function RocketOrdersWorkspace({
 
   const orders = data ?? EMPTY_ROCKET_POS;
 
+  // The v2 response includes every saved snapshot so the source picker can
+  // enumerate exact runs. Calendar/list stay on the latest observation of each
+  // PO, preserving the pre-v2 operator view and avoiding full-snapshot duplicates.
+  const latestOrders = useMemo(() => {
+    const byPoNumber = new Map<string, RocketSavedPoSummary>();
+    for (const order of orders) {
+      const existing = byPoNumber.get(order.poNumber);
+      if (!existing || order.collectedAt > existing.collectedAt) {
+        byPoNumber.set(order.poNumber, order);
+      }
+    }
+    return [...byPoNumber.values()];
+  }, [orders]);
+
   // 입고예정일별 그룹
   const byDate = useMemo(() => {
     const next = new Map<string, RocketSavedPoSummary[]>();
-    for (const order of orders) {
+    for (const order of latestOrders) {
       const key = order.plannedDeliveryDate || '미정';
       const arr = next.get(key);
       if (arr) arr.push(order);
       else next.set(key, [order]);
     }
     return next;
-  }, [orders]);
+  }, [latestOrders]);
   const calDays: RocketCalDay[] = useMemo(() => datesInRange(from, to).map((date) => {
     const pos = byDate.get(date) ?? [];
     return {
@@ -206,16 +237,51 @@ export function RocketOrdersWorkspace({
     return record;
   }, [byDate]);
 
+  // 선택 날짜의 수집본 수. 클릭·URL 복원 어느 경로로 날짜가 정해졌든 동일하게 파생되므로,
+  // 새로고침 후에도 "발주 없음 / 수집본 선택 필요" 안내가 유지된다.
+  const selectedDaySourceRuns = useMemo<RocketDateSourceRun[]>(() => {
+    if (!selectedDay) return [];
+    const byRun = new Map<string, RocketDateSourceRun>();
+    for (const po of orders.filter(
+      ({ plannedDeliveryDate }) => plannedDeliveryDate === selectedDay,
+    )) {
+      const existing = byRun.get(po.sourceImportRunId);
+      if (existing) {
+        existing.poCount += 1;
+        existing.quantity += po.orderQuantity;
+        existing.amount += po.orderAmount;
+        // 한 수집본 안에서도 행마다 collectedAt 이 다를 수 있어 가장 늦은 값을 대표로 쓴다.
+        if (po.collectedAt > existing.collectedAt) existing.collectedAt = po.collectedAt;
+        continue;
+      }
+      byRun.set(po.sourceImportRunId, {
+        sourceImportRunId: po.sourceImportRunId,
+        collectedAt: po.collectedAt,
+        poCount: 1,
+        quantity: po.orderQuantity,
+        amount: po.orderAmount,
+      });
+    }
+    return [...byRun.values()].sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
+  }, [orders, selectedDay]);
+  const selectedDaySourceRunCount = selectedDaySourceRuns.length;
+
   useEffect(() => {
     if (!selectedDay) {
       setSelectedSourceImportRunId(null);
       return;
     }
     const sourceRuns = new Set(
-      (byDate.get(selectedDay) ?? []).map(({ sourceImportRunId }) => sourceImportRunId),
+      orders
+        .filter(({ plannedDeliveryDate }) => plannedDeliveryDate === selectedDay)
+        .map(({ sourceImportRunId }) => sourceImportRunId),
     );
-    setSelectedSourceImportRunId(sourceRuns.size === 1 ? [...sourceRuns][0]! : null);
-  }, [byDate, selectedDay]);
+    // 운영자가 이미 그 날짜의 수집본을 고른 상태라면 유지한다(재조회로 byDate 가 바뀌어도 선택이 풀리지 않게).
+    setSelectedSourceImportRunId((current) => {
+      if (current && sourceRuns.has(current)) return current;
+      return sourceRuns.size === 1 ? [...sourceRuns][0]! : null;
+    });
+  }, [orders, selectedDay]);
 
   function selectOrderDay(
     date: string | null,
@@ -224,7 +290,11 @@ export function RocketOrdersWorkspace({
     setViewState((current) => ({ ...current, date: date ?? '' }));
     setOpenPo(null);
     const sourceRuns = new Set(
-      date ? (byDate.get(date) ?? []).map(({ sourceImportRunId }) => sourceImportRunId) : [],
+      date
+        ? orders
+            .filter(({ plannedDeliveryDate }) => plannedDeliveryDate === date)
+            .map(({ sourceImportRunId }) => sourceImportRunId)
+        : [],
     );
     if (!date) {
       setSelectedSourceImportRunId(null);
@@ -574,6 +644,10 @@ export function RocketOrdersWorkspace({
         from,
         to,
         selectedSourceImportRunId,
+        selectedDate: selectedDay || null,
+        selectedDateSourceRunCount: selectedDaySourceRunCount,
+        selectedDateSourceRuns: selectedDaySourceRuns,
+        onSelectSourceImportRun: setSelectedSourceImportRunId,
         onActivity: recordActivity,
         onOrdersChanged: () => void refetch(),
         renderOrderExplorer,

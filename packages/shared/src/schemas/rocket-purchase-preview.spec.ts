@@ -145,10 +145,19 @@ describe('Rocket purchase preview contract', () => {
       channelAccountId: ACCOUNT_ID,
       collection: request().collection,
       rows: request().rows,
+      exportedPoLineIds: [request().rows[0]!.poLineId],
     });
 
     expect(summary.poNumber).toBe('10000001');
     expect(collection.rows).toEqual(request().rows);
+    // 제출 이력은 필수다. 없으면 클라이언트가 "이번에 새로 들어온 것"을 구분할 수 없다.
+    expect(collection.exportedPoLineIds).toEqual([request().rows[0]!.poLineId]);
+    expect(() => RocketSavedPoCollectionSchema.parse({
+      sourceImportRunId: RUN_ID,
+      channelAccountId: ACCOUNT_ID,
+      collection: request().collection,
+      rows: request().rows,
+    })).toThrow();
   });
 
   it('rejects malformed or reversed saved PO list ranges', () => {
