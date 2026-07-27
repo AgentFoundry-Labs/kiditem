@@ -100,6 +100,7 @@ export async function listSavedRocketPos(
     from: string;
     to: string;
     status?: string;
+    includeRepeatedSnapshots?: boolean;
   },
 ): Promise<RocketSavedPoSummary[]> {
   const snapshots = await prisma.rocketPoCatalogSnapshot.findMany({
@@ -150,9 +151,9 @@ export async function listSavedRocketPos(
       byPoNumber.set(line.poNumber, lines);
     }
     for (const [poNumber, lines] of byPoNumber) {
-      if (seenPoNumbers.has(poNumber)) continue;
+      if (!input.includeRepeatedSnapshots && seenPoNumbers.has(poNumber)) continue;
       const first = lines[0]!;
-      seenPoNumbers.add(poNumber);
+      if (!input.includeRepeatedSnapshots) seenPoNumbers.add(poNumber);
       summaries.push({
         sourceImportRunId: snapshot.sourceImportRunId,
         poNumber,

@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Inject,
   NotFoundException,
   Post,
@@ -13,8 +14,10 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
-import type { RocketSavedPoCollection } from '@kiditem/shared/rocket-purchase-preview';
+import {
+  ROCKET_SAVED_PO_RESPONSE_PROFILE,
+  type RocketSavedPoCollection,
+} from '@kiditem/shared/rocket-purchase-preview';
 import { ProcurementService } from '../../../application/service/procurement.service';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
@@ -35,6 +38,7 @@ import {
   type RocketPoCatalogPort,
 } from '../../../../channels/application/port/in/rocket-po-catalog.port';
 import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
+import type { Response } from 'express';
 import type { AuthUser } from '../../../../auth/auth.types';
 import type { MulterFile } from '../../../../common/types';
 
@@ -72,6 +76,7 @@ export class ProcurementController {
     @Body() body: PurchaseOrderActionBodyDto,
     @UploadedFile() workbook?: MulterFile,
     @Res({ passthrough: true }) response?: Response,
+    @Headers('x-kiditem-response-profile') responseProfile?: string,
   ) {
     if (body.action === 'create') {
       return this.procurementService.create(organizationId, {
@@ -178,6 +183,9 @@ export class ProcurementController {
         from: body.from!,
         to: body.to!,
         ...(body.rocketStatus && { status: body.rocketStatus }),
+        ...(responseProfile === ROCKET_SAVED_PO_RESPONSE_PROFILE && {
+          includeRepeatedSnapshots: true,
+        }),
       });
     }
     if (body.action === 'loadSavedRocketCollection') {
@@ -188,6 +196,7 @@ export class ProcurementController {
         sourceImportRunId: body.sourceImportRunId!,
       });
       if (!snapshot) throw new NotFoundException('Saved Rocket PO collection not found');
+      if (responseProfile !== ROCKET_SAVED_PO_RESPONSE_PROFILE) return snapshot;
       // Channels owns the snapshot, Supply owns workbook evidence. Compose here so the
       // operator can separate lines that are new since their last Excel.
       const exportedPoLineIds = await this.rocketWorkbooks.listExportedPoLineIds({

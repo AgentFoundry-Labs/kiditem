@@ -1,6 +1,7 @@
 import { AppException } from '@kiditem/shared/server-errors';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -266,6 +267,61 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     expect(await prisma.sellpiaOrderTransmissionIntent.count({
       where: { intentKey: INTENT_KEY },
     })).toBe(2);
+  });
+
+  it('lists only the organization oldest unresolved intents with a bounded continuation signal', async () => {
+    await prisma.sellpiaInventoryState.createMany({
+      data: [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID].map((organizationId) => ({
+        organizationId,
+        sourceAccountKey: 'kiditem',
+        lastVerifiedAt: new Date(),
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+        refreshReason: 'legacy_manual_import',
+      })),
+    });
+    const startedAt = new Date('2026-07-26T14:00:00.000Z').getTime();
+    await prisma.sellpiaOrderTransmissionIntent.createMany({
+      data: Array.from(
+        { length: SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT + 2 },
+        (_, index) => ({
+          organizationId: TEST_ORGANIZATION_ID,
+          intentKey: `test-intent-${String(index).padStart(2, '0')}`,
+          status: 'prepared',
+          createdBy: TEST_USER_ID,
+          preparedAt: new Date(startedAt + index * 1_000),
+        }),
+      ),
+    });
+    await prisma.sellpiaOrderTransmissionIntent.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        intentKey: 'other-intent',
+        status: 'prepared',
+        createdBy: OTHER_USER_ID,
+        preparedAt: new Date(startedAt - 1_000),
+      },
+    });
+
+    const testOrganization = await service.listUnresolvedOrderTransmissionIntents({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    expect(testOrganization.items).toHaveLength(SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT);
+    expect(testOrganization.items.map(({ intentKey }) => intentKey)).toEqual(
+      Array.from(
+        { length: SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT },
+        (_, index) => `test-intent-${String(index).padStart(2, '0')}`,
+      ),
+    );
+    expect(testOrganization.hasMore).toBe(true);
+    await expect(service.listUnresolvedOrderTransmissionIntents({
+      organizationId: OTHER_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+    })).resolves.toEqual({
+      items: [expect.objectContaining({ intentKey: 'other-intent' })],
+      hasMore: false,
+    });
   });
 
   it('fences normal intent idempotency and resolution to its creator', async () => {

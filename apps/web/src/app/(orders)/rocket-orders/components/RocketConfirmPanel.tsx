@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays,
   Download,
@@ -80,6 +80,10 @@ export function RocketConfirmPanel({
   const [matchModalOpen, setMatchModalOpen] = useState(false);
   const [bulkShortageReason, setBulkShortageReason] = useState<RocketShortageReason | ''>('');
   const [showAllRows, setShowAllRows] = useState(false);
+
+  useEffect(() => {
+    setShowAllRows(false);
+  }, [channelAccountId, selectedSourceImportRunId]);
   const {
     editedQuantities,
     setReviewedQuantity,

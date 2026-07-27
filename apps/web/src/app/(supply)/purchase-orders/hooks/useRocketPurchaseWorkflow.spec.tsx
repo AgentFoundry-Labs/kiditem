@@ -33,6 +33,7 @@ vi.mock('../lib/rocket-purchase-preview-api', () => ({
   getActiveRocketWorkbook: vi.fn(),
   loadSavedRocketCollection: vi.fn(),
   previewRocketPurchases: vi.fn(),
+  rocketPreviewErrorMessage: (_cause: unknown, fallback: string) => fallback,
 }));
 vi.mock('../lib/rocket-confirmation-workbook', () => ({
   buildRocketConfirmationWorkbook: vi.fn(),
@@ -67,6 +68,7 @@ describe('useRocketPurchaseWorkflow', () => {
 
   it('revalidates the same saved collection without sending an untouched mapping zero', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    source.exportedPoLineIds = ['LINE-A'];
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
     vi.mocked(previewRocketPurchases)
       .mockResolvedValueOnce(preview(source, [previewRow('LINE-A', 'mapping_required', 0)]))
@@ -77,6 +79,7 @@ describe('useRocketPurchaseWorkflow', () => {
     });
     await waitFor(() => expect(hook.result.current.preview?.rows[0]?.reason)
       .toBe('mapping_required'));
+    expect(hook.result.current.exportedPoLineIds).toEqual(['LINE-A']);
     expect(hook.result.current.editedQuantities['LINE-A']).toBe(0);
 
     await act(async () => hook.result.current.revalidateEditedQuantities());

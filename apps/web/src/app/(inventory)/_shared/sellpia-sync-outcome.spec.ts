@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
+import type { SellpiaInventoryFreshnessWithBlockers } from '@/lib/sellpia-inventory-freshness-api';
 import {
   classifySellpiaStockSync,
   describeSellpiaStockSync,
@@ -8,8 +8,8 @@ import {
 const NOW = Date.parse('2026-07-27T02:47:00.000Z');
 
 function view(
-  overrides: Partial<SellpiaInventoryFreshnessView> = {},
-): SellpiaInventoryFreshnessView {
+  overrides: Partial<SellpiaInventoryFreshnessWithBlockers> = {},
+): SellpiaInventoryFreshnessWithBlockers {
   return {
     status: 'refresh_required',
     sourceBinding: {
@@ -27,6 +27,7 @@ function view(
     activeSync: null,
     lastAttempt: null,
     unresolvedOrderTransmissionIntents: [],
+    hasMoreUnresolvedOrderTransmissionIntents: false,
     ...overrides,
   };
 }

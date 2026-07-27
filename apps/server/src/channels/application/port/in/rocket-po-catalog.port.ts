@@ -33,6 +33,7 @@ export interface RocketPoCatalogPort {
     from: string;
     to: string;
     status?: string;
+    includeRepeatedSnapshots?: boolean;
   }): Promise<RocketSavedPoSummary[]>;
 
   loadSavedCollection(input: {

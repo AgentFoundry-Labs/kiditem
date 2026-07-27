@@ -334,4 +334,49 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     expect(latestContext?.channelAccountId).toBe('');
     expect(latestContext?.selectedSourceImportRunId).toBeNull();
   });
+
+  it('keeps every repeated full-snapshot run as an explicit candidate while deduping the calendar PO', () => {
+    const repeatedRuns: RocketSavedPoSummary[] = [
+      {
+        ...savedOrders[0]!,
+        sourceImportRunId: secondSourceImportRunId,
+        collectedAt: '2026-07-18T04:00:00.000Z',
+      },
+      {
+        ...savedOrders[0]!,
+        sourceImportRunId,
+        collectedAt: '2026-07-18T03:00:00.000Z',
+      },
+    ];
+    navigation.params = new URLSearchParams({ date: '2026-07-18' });
+    queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
+      data: enabled ? repeatedRuns : [],
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: query.refetch,
+    }));
+    let latestContext: RocketDecisionWorkspaceContext | null = null;
+
+    renderWorkspace({ onContext: (context) => { latestContext = context; } });
+
+    expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' }))
+      .toBeInTheDocument();
+    expect(latestContext?.selectedSourceImportRunId).toBeNull();
+    expect(latestContext?.selectedDateSourceRuns).toEqual([
+      expect.objectContaining({
+        sourceImportRunId: secondSourceImportRunId,
+        poCount: 1,
+        quantity: 3,
+        amount: 12_000,
+      }),
+      expect.objectContaining({
+        sourceImportRunId,
+        poCount: 1,
+        quantity: 3,
+        amount: 12_000,
+      }),
+    ]);
+  });
 });

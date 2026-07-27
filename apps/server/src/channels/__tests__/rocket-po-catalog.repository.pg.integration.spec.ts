@@ -266,6 +266,32 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
     ]);
   });
 
+  it('opts into every snapshot run without changing the legacy latest-PO list', async () => {
+    const older = await repository.publish(
+      publishInput('4'.repeat(64), row('P-REPEATED-OLDER')),
+    );
+    const current = await repository.publish(
+      publishInput('5'.repeat(64), row('P-REPEATED-CURRENT')),
+    );
+    const scope = {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: ACCOUNT_ID,
+      from: '2026-07-01',
+      to: '2026-07-31',
+    };
+
+    await expect(repository.listSavedPos(scope)).resolves.toEqual([
+      expect.objectContaining({ sourceImportRunId: current.run.id, poNumber: '1001' }),
+    ]);
+    await expect(repository.listSavedPos({
+      ...scope,
+      includeRepeatedSnapshots: true,
+    })).resolves.toEqual([
+      expect.objectContaining({ sourceImportRunId: current.run.id, poNumber: '1001' }),
+      expect.objectContaining({ sourceImportRunId: older.run.id, poNumber: '1001' }),
+    ]);
+  });
+
   it('provisions exact barcode identities and channel-origin fallbacks during Rocket publication', async () => {
     const inventorySku = await prisma.sellpiaInventorySku.create({
       data: {

@@ -16,6 +16,10 @@ list, chart, workbook-panel position, and local file-history composition.
   orphan the controls for an already active workbook workflow.
 - Calendar and PO summaries come from `listSavedRocketPos`. Reopen evidence by
   its exact `sourceImportRunId`; never merge rows from separate source runs.
+- Request the saved-PO v2 response profile so the picker receives every snapshot
+  run and export evidence. Keep the unprofiled response backward compatible for
+  already-open browser bundles; calendar/list still deduplicate to the latest
+  observation of each PO.
 - If a date contains several source runs, the existing PO/list surface must
   require an explicit source choice before loading a saved preview. Multiple
   runs per date is the normal case, not the exception, so the decision panel

@@ -297,7 +297,7 @@ implements RocketWorkbookExportTransactionPort {
         confirmation: {
           organizationId: input.organizationId,
           channelAccountId: input.channelAccountId,
-          status: { not: 'released' },
+          releasedAt: null,
         },
       },
       select: { poLineId: true },

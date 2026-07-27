@@ -93,11 +93,19 @@ export const RocketSavedPoSummarySchema = z.object({
 }).strict();
 export type RocketSavedPoSummary = z.infer<typeof RocketSavedPoSummarySchema>;
 
-export const RocketSavedPoCollectionSchema = z.object({
+export const RocketSavedPoSnapshotSchema = z.object({
   sourceImportRunId: z.string().uuid(),
   channelAccountId: z.string().uuid(),
   collection: RocketPoCollectionEvidenceSchema,
   rows: z.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT),
+}).strict();
+export type RocketSavedPoSnapshot = z.infer<
+  typeof RocketSavedPoSnapshotSchema
+>;
+
+export const ROCKET_SAVED_PO_RESPONSE_PROFILE = 'rocket-saved-po-v2';
+
+export const RocketSavedPoCollectionSchema = RocketSavedPoSnapshotSchema.extend({
   // 이 계정에서 이미 확정 엑셀로 나간 PO 라인. 수집은 매번 전량 스냅샷이라 같은 라인이
   // 여러 수집본에 반복 등장한다(`poLineId` 는 수집본 간에 안정적). 운영자가 "이번에
   // 새로 들어온 것만" 보려면 이 집합을 빼야 한다. 행 스키마는 요청 본문으로도 쓰이므로
@@ -106,20 +114,6 @@ export const RocketSavedPoCollectionSchema = z.object({
 }).strict();
 export type RocketSavedPoCollection = z.infer<
   typeof RocketSavedPoCollectionSchema
->;
-
-/**
- * The Channels-owned half of a saved collection.
- *
- * Channels owns the catalog snapshot; Supply owns confirmation-workbook
- * evidence. Channels therefore cannot compute `exportedPoLineIds`, and Supply
- * composes the full collection from this snapshot plus its own export lines.
- */
-export const RocketSavedPoSnapshotSchema = RocketSavedPoCollectionSchema.omit({
-  exportedPoLineIds: true,
-});
-export type RocketSavedPoSnapshot = z.infer<
-  typeof RocketSavedPoSnapshotSchema
 >;
 
 const RocketPurchaseRequestBaseSchema = z.object({

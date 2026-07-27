@@ -5,6 +5,7 @@ import {
   type SellpiaInventoryFreshnessStatus,
   type SellpiaInventoryFreshnessView,
   type SellpiaInventoryRefreshReason,
+  type SellpiaUnresolvedOrderTransmissionIntentListResponse,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export const SELLPIA_SOURCE_ORIGIN = 'https://kiditem.sellpia.com' as const;
@@ -158,12 +159,22 @@ export function toFreshnessView(
     syncNotBefore: state.syncNotBefore?.toISOString() ?? null,
     activeSync,
     lastAttempt,
-    unresolvedOrderTransmissionIntents: state.unresolvedOrderTransmissionIntents
+  };
+}
+
+export function toUnresolvedOrderTransmissionIntentList(
+  state: SellpiaInventoryFreshnessState,
+): SellpiaUnresolvedOrderTransmissionIntentListResponse {
+  return {
+    items: state.unresolvedOrderTransmissionIntents
       .slice(0, SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT)
       .map((intent) => ({
         intentKey: intent.intentKey,
         preparedAt: intent.preparedAt.toISOString(),
       })),
+    hasMore:
+      state.unresolvedOrderTransmissionIntents.length
+      > SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
   };
 }
 

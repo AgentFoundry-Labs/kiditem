@@ -1,4 +1,4 @@
-import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
+import type { SellpiaInventoryFreshnessWithBlockers } from '@/lib/sellpia-inventory-freshness-api';
 
 /**
  * What a refresh request actually achieved.
@@ -17,7 +17,7 @@ export type SellpiaStockSyncOutcome =
   | { kind: 'request_failed' };
 
 export function classifySellpiaStockSync(
-  state: SellpiaInventoryFreshnessView | null,
+  state: SellpiaInventoryFreshnessWithBlockers | null,
   now: number = Date.now(),
 ): SellpiaStockSyncOutcome {
   if (!state) return { kind: 'request_failed' };

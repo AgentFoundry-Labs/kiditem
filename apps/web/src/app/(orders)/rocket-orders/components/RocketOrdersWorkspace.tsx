@@ -189,17 +189,31 @@ export function RocketOrdersWorkspace({
 
   const orders = data ?? EMPTY_ROCKET_POS;
 
+  // The v2 response includes every saved snapshot so the source picker can
+  // enumerate exact runs. Calendar/list stay on the latest observation of each
+  // PO, preserving the pre-v2 operator view and avoiding full-snapshot duplicates.
+  const latestOrders = useMemo(() => {
+    const byPoNumber = new Map<string, RocketSavedPoSummary>();
+    for (const order of orders) {
+      const existing = byPoNumber.get(order.poNumber);
+      if (!existing || order.collectedAt > existing.collectedAt) {
+        byPoNumber.set(order.poNumber, order);
+      }
+    }
+    return [...byPoNumber.values()];
+  }, [orders]);
+
   // 입고예정일별 그룹
   const byDate = useMemo(() => {
     const next = new Map<string, RocketSavedPoSummary[]>();
-    for (const order of orders) {
+    for (const order of latestOrders) {
       const key = order.plannedDeliveryDate || '미정';
       const arr = next.get(key);
       if (arr) arr.push(order);
       else next.set(key, [order]);
     }
     return next;
-  }, [orders]);
+  }, [latestOrders]);
   const calDays: RocketCalDay[] = useMemo(() => datesInRange(from, to).map((date) => {
     const pos = byDate.get(date) ?? [];
     return {
@@ -228,7 +242,9 @@ export function RocketOrdersWorkspace({
   const selectedDaySourceRuns = useMemo<RocketDateSourceRun[]>(() => {
     if (!selectedDay) return [];
     const byRun = new Map<string, RocketDateSourceRun>();
-    for (const po of byDate.get(selectedDay) ?? []) {
+    for (const po of orders.filter(
+      ({ plannedDeliveryDate }) => plannedDeliveryDate === selectedDay,
+    )) {
       const existing = byRun.get(po.sourceImportRunId);
       if (existing) {
         existing.poCount += 1;
@@ -247,7 +263,7 @@ export function RocketOrdersWorkspace({
       });
     }
     return [...byRun.values()].sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
-  }, [byDate, selectedDay]);
+  }, [orders, selectedDay]);
   const selectedDaySourceRunCount = selectedDaySourceRuns.length;
 
   useEffect(() => {
@@ -256,14 +272,16 @@ export function RocketOrdersWorkspace({
       return;
     }
     const sourceRuns = new Set(
-      (byDate.get(selectedDay) ?? []).map(({ sourceImportRunId }) => sourceImportRunId),
+      orders
+        .filter(({ plannedDeliveryDate }) => plannedDeliveryDate === selectedDay)
+        .map(({ sourceImportRunId }) => sourceImportRunId),
     );
     // 운영자가 이미 그 날짜의 수집본을 고른 상태라면 유지한다(재조회로 byDate 가 바뀌어도 선택이 풀리지 않게).
     setSelectedSourceImportRunId((current) => {
       if (current && sourceRuns.has(current)) return current;
       return sourceRuns.size === 1 ? [...sourceRuns][0]! : null;
     });
-  }, [byDate, selectedDay]);
+  }, [orders, selectedDay]);
 
   function selectOrderDay(
     date: string | null,
@@ -272,7 +290,11 @@ export function RocketOrdersWorkspace({
     setViewState((current) => ({ ...current, date: date ?? '' }));
     setOpenPo(null);
     const sourceRuns = new Set(
-      date ? (byDate.get(date) ?? []).map(({ sourceImportRunId }) => sourceImportRunId) : [],
+      date
+        ? orders
+            .filter(({ plannedDeliveryDate }) => plannedDeliveryDate === date)
+            .map(({ sourceImportRunId }) => sourceImportRunId)
+        : [],
     );
     if (!date) {
       setSelectedSourceImportRunId(null);

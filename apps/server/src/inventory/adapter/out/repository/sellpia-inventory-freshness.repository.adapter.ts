@@ -522,8 +522,8 @@ function findUnresolvedOrderTransmissionIntents(
   return tx.sellpiaOrderTransmissionIntent.findMany({
     where: { organizationId, status: 'prepared' },
     select: { intentKey: true, preparedAt: true },
-    orderBy: { preparedAt: 'asc' },
-    take: SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
+    orderBy: [{ preparedAt: 'asc' }, { intentKey: 'asc' }],
+    take: SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT + 1,
   });
 }
 

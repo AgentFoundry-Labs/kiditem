@@ -29,6 +29,7 @@ import {
   SELLPIA_SOURCE_ACCOUNT_KEY,
   SELLPIA_SOURCE_ORIGIN,
   toFreshnessView,
+  toUnresolvedOrderTransmissionIntentList,
   type SellpiaInventoryFreshnessState,
 } from '../../domain/policy/sellpia-inventory-freshness.policy';
 import { calculateAvailableStock } from '../../domain/policy/inventory-commitment-state';
@@ -42,6 +43,7 @@ import type {
   SellpiaOrderTransmissionIntentPrepareResponse,
   SellpiaOrderTransmissionIntentReconcileRequest,
   SellpiaOrderTransmissionIntentReconcileResponse,
+  SellpiaUnresolvedOrderTransmissionIntentListResponse,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import type { SellpiaInventoryFreshnessGatePort } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
 import type { SellpiaInventoryFreshnessPort } from '../port/in/stock/sellpia-inventory-freshness.port';
@@ -77,6 +79,15 @@ implements
       const now = new Date();
       return toFreshnessView(initializedState, now, input.userId);
     });
+  }
+
+  async listUnresolvedOrderTransmissionIntents(
+    input: ActorScope,
+  ): Promise<SellpiaUnresolvedOrderTransmissionIntentListResponse> {
+    const state = await this.repository.readState(input.organizationId);
+    if (state) return toUnresolvedOrderTransmissionIntentList(state);
+    return this.withLockedState(input.organizationId, async (transaction) =>
+      toUnresolvedOrderTransmissionIntentList(await transaction.getState()));
   }
 
   async confirmSourceBinding(input: ActorScope & {

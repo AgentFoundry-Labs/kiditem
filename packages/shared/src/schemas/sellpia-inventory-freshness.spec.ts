@@ -11,6 +11,7 @@ import {
   SellpiaInventoryClaimResponseSchema,
   SellpiaInventoryFailRequestSchema,
   SellpiaInventoryFreshnessViewSchema,
+  SellpiaUnresolvedOrderTransmissionIntentListResponseSchema,
   SellpiaInventoryHeartbeatRequestSchema,
   SellpiaOrderTransmissionIntentAbortResponseSchema,
   SellpiaOrderTransmissionIntentFinalizeResponseSchema,
@@ -40,7 +41,6 @@ const createFreshnessView = () => ({
   syncNotBefore: null,
   activeSync: null,
   lastAttempt: null,
-  unresolvedOrderTransmissionIntents: [],
 });
 
 describe('Sellpia inventory freshness vocabulary', () => {
@@ -172,28 +172,22 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
     })).toThrow();
   });
 
-  // Blocked and ordinary-stale states share the `refresh_required` status, so the
-  // blocker list is the only way a client can explain or clear the block.
-  it('requires the unresolved order transmissions that block collection', () => {
-    const parsed = SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      status: 'refresh_required',
-      unresolvedOrderTransmissionIntents: [
+  // 기존 freshness 응답은 오래 열린 브라우저 탭과 호환되어야 한다. 차단 목록은
+  // 별도 응답으로 버전 독립적으로 읽는다.
+  it('parses the separately versioned unresolved transmission list', () => {
+    const parsed = SellpiaUnresolvedOrderTransmissionIntentListResponseSchema.parse({
+      items: [
         {
           intentKey: '1785076954061-kidsnote-browser',
           preparedAt: '2026-07-26T14:42:38.482Z',
         },
       ],
+      hasMore: false,
     });
-    expect(parsed.unresolvedOrderTransmissionIntents).toHaveLength(1);
-
-    const { unresolvedOrderTransmissionIntents: _omitted, ...withoutBlockers } =
-      createFreshnessView();
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse(withoutBlockers))
-      .toThrow();
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      unresolvedOrderTransmissionIntents: [{ intentKey: '', preparedAt: 'nope' }],
+    expect(parsed.items).toHaveLength(1);
+    expect(() => SellpiaUnresolvedOrderTransmissionIntentListResponseSchema.parse({
+      items: [{ intentKey: '', preparedAt: 'nope' }],
+      hasMore: false,
     })).toThrow();
   });
 

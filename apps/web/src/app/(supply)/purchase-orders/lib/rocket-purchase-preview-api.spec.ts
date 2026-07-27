@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ROCKET_SAVED_PO_RESPONSE_PROFILE } from '@kiditem/shared/rocket-purchase-preview';
 import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 import {
   abandonRocketWorkbook,
   downloadRocketWorkbook,
@@ -8,6 +10,7 @@ import {
   listSavedRocketPos,
   loadSavedRocketCollection,
   previewRocketPurchases,
+  rocketPreviewErrorMessage,
 } from './rocket-purchase-preview-api';
 
 vi.mock('@/lib/api-client', () => ({
@@ -79,6 +82,18 @@ describe('previewRocketPurchases', () => {
     const body = vi.mocked(apiClient.post).mock.calls[0]?.[1];
     expect(body).not.toHaveProperty('organizationId');
     expect(body).not.toHaveProperty('userId');
+  });
+
+  it('translates the stale inventory gate and preserves ordinary API messages', () => {
+    expect(rocketPreviewErrorMessage(
+      new ApiError(409, 'SELLPIA_SYNC_REQUIRED', 'stale'),
+      'fallback',
+    )).toContain('셀피아 재고 스냅샷이 최신이 아니어서');
+    expect(rocketPreviewErrorMessage(
+      new ApiError(409, 'OTHER', '서버 메시지'),
+      'fallback',
+    )).toBe('서버 메시지');
+    expect(rocketPreviewErrorMessage({}, 'fallback')).toBe('조회 실패');
   });
 
   it('uses explicit Supply actions for exact workbook export, lookup, download, and abandon', async () => {
@@ -209,6 +224,8 @@ describe('previewRocketPurchases', () => {
       from: '2026-07-01',
       to: '2026-07-31',
       rocketStatus: '거래처확인요청',
+    }, {
+      headers: { 'X-KidItem-Response-Profile': ROCKET_SAVED_PO_RESPONSE_PROFILE },
     });
 
     vi.mocked(apiClient.post).mockResolvedValueOnce({
@@ -226,6 +243,19 @@ describe('previewRocketPurchases', () => {
       action: 'loadSavedRocketCollection',
       channelAccountId: ACCOUNT_ID,
       sourceImportRunId: RUN_ID,
+    }, {
+      headers: { 'X-KidItem-Response-Profile': ROCKET_SAVED_PO_RESPONSE_PROFILE },
     });
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({
+      sourceImportRunId: RUN_ID,
+      channelAccountId: ACCOUNT_ID,
+      collection: input().collection,
+      rows: input().rows,
+    });
+    await expect(loadSavedRocketCollection({
+      channelAccountId: ACCOUNT_ID,
+      sourceImportRunId: RUN_ID,
+    })).resolves.toMatchObject({ exportedPoLineIds: [] });
   });
 });

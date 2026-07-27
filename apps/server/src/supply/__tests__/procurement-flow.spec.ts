@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
+import { ROCKET_SAVED_PO_RESPONSE_PROFILE } from '@kiditem/shared/rocket-purchase-preview';
 import { ProcurementService } from '../application/service/procurement.service';
 import { ProcurementController } from '../adapter/in/http/procurement.controller';
 import type { ProcurementRepositoryPort } from '../application/port/out/repository/procurement.repository.port';
@@ -237,9 +238,10 @@ describe('ProcurementService — PO status lifecycle', () => {
 
 describe('ProcurementController purchase submission boundary', () => {
   it('routes saved Rocket PO list and collection reads through the account-scoped catalog port', async () => {
+    const snapshot = { rows: [] };
     const catalog = {
       listSavedPos: vi.fn().mockResolvedValue([]),
-      loadSavedCollection: vi.fn().mockResolvedValue({ rows: [] }),
+      loadSavedCollection: vi.fn().mockResolvedValue(snapshot),
     };
     const Controller = ProcurementController as unknown as new (
       procurement: Record<string, unknown>,
@@ -264,6 +266,9 @@ describe('ProcurementController purchase submission boundary', () => {
         to: '2026-07-31',
         rocketStatus: '거래처확인요청',
       } as never,
+      undefined,
+      undefined,
+      ROCKET_SAVED_PO_RESPONSE_PROFILE,
     );
     await controller.handleAction(
       'organization-1',
@@ -273,6 +278,9 @@ describe('ProcurementController purchase submission boundary', () => {
         channelAccountId,
         sourceImportRunId,
       } as never,
+      undefined,
+      undefined,
+      ROCKET_SAVED_PO_RESPONSE_PROFILE,
     );
 
     expect(catalog.listSavedPos).toHaveBeenCalledWith({
@@ -281,6 +289,7 @@ describe('ProcurementController purchase submission boundary', () => {
       from: '2026-07-01',
       to: '2026-07-31',
       status: '거래처확인요청',
+      includeRepeatedSnapshots: true,
     });
     expect(catalog.loadSavedCollection).toHaveBeenCalledWith({
       organizationId: 'organization-1',
@@ -292,6 +301,17 @@ describe('ProcurementController purchase submission boundary', () => {
       channelAccountId,
       poLineIds: [],
     });
+
+    await expect(controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'loadSavedRocketCollection',
+        channelAccountId,
+        sourceImportRunId,
+      } as never,
+    )).resolves.toBe(snapshot);
+    expect(workbookExports.listExportedPoLineIds).toHaveBeenCalledTimes(1);
   });
 
   it('routes Rocket workbook export and evidence-gated abandonment through the Supply action endpoint', async () => {

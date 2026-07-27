@@ -5,6 +5,7 @@ import {
   planOrderTransmissionFinalization,
   planRefreshRequest,
   toFreshnessView,
+  toUnresolvedOrderTransmissionIntentList,
   type SellpiaInventoryFreshnessState,
 } from './sellpia-inventory-freshness.policy';
 
@@ -57,8 +58,8 @@ describe('Sellpia inventory freshness policy', () => {
     expect(deriveFreshnessStatus(state, NOW)).toBe('refresh_required');
   });
 
-  // A blocked state is status-identical to an ordinary stale one, so the view has
-  // to name the blocker or no screen can explain or clear the block.
+  // A blocked state is status-identical to an ordinary stale one, so the
+  // separately versioned blocker response must name the same rows that gate claims.
   it('names the unresolved transmissions that pin the state at refresh_required', () => {
     const blocked = makeState({
       sourceAccountKey: 'kiditem',
@@ -69,14 +70,18 @@ describe('Sellpia inventory freshness policy', () => {
     });
 
     const view = toFreshnessView(blocked, NOW, null);
+    const blockers = toUnresolvedOrderTransmissionIntentList(blocked);
 
     expect(view.status).toBe('refresh_required');
-    expect(view.unresolvedOrderTransmissionIntents).toEqual([
+    expect(blockers).toEqual({
+      items: [
       {
         intentKey: UNRESOLVED_INTENT.intentKey,
         preparedAt: '2026-07-14T23:59:30.000Z',
       },
-    ]);
+      ],
+      hasMore: false,
+    });
     // The same rows refuse the claim, so the view and the gate cannot disagree.
     expect(planClaim(blocked, {
       now: NOW,
@@ -87,14 +92,18 @@ describe('Sellpia inventory freshness policy', () => {
   });
 
   it('reports an empty blocker list once every transmission is resolved', () => {
-    const view = toFreshnessView(makeState({
+    const state = makeState({
       lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
       requestedGeneration: 4n,
       verifiedGeneration: 4n,
-    }), NOW, null);
+    });
+    const view = toFreshnessView(state, NOW, null);
 
     expect(view.status).toBe('fresh');
-    expect(view.unresolvedOrderTransmissionIntents).toEqual([]);
+    expect(toUnresolvedOrderTransmissionIntentList(state)).toEqual({
+      items: [],
+      hasMore: false,
+    });
   });
 
   it('finalizes into a generation strictly after every generation visible at submit time', () => {

@@ -112,6 +112,15 @@ export const SellpiaUnresolvedOrderTransmissionIntentViewSchema = z
 
 export const SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT = 20;
 
+export const SellpiaUnresolvedOrderTransmissionIntentListResponseSchema = z
+  .object({
+    items: z
+      .array(SellpiaUnresolvedOrderTransmissionIntentViewSchema)
+      .max(SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT),
+    hasMore: z.boolean(),
+  })
+  .strict();
+
 export const SellpiaInventoryFreshnessViewSchema = z
   .object({
     status: SellpiaInventoryFreshnessStatusSchema,
@@ -125,9 +134,6 @@ export const SellpiaInventoryFreshnessViewSchema = z
     syncNotBefore: IsoDateTimeStringSchema.nullable(),
     activeSync: SellpiaInventoryActiveSyncViewSchema.nullable(),
     lastAttempt: SellpiaInventoryLastAttemptViewSchema.nullable(),
-    unresolvedOrderTransmissionIntents: z
-      .array(SellpiaUnresolvedOrderTransmissionIntentViewSchema)
-      .max(SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT),
   })
   .strict();
 
@@ -274,6 +280,9 @@ export type SellpiaInventoryFreshnessView = z.infer<
 >;
 export type SellpiaUnresolvedOrderTransmissionIntentView = z.infer<
   typeof SellpiaUnresolvedOrderTransmissionIntentViewSchema
+>;
+export type SellpiaUnresolvedOrderTransmissionIntentListResponse = z.infer<
+  typeof SellpiaUnresolvedOrderTransmissionIntentListResponseSchema
 >;
 export type SellpiaInventoryRefreshRequest = z.infer<
   typeof SellpiaInventoryRefreshRequestSchema

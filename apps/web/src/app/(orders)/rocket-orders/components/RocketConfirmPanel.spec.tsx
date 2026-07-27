@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRocketPurchaseWorkflow } from '@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow';
 import type {
@@ -364,6 +365,54 @@ describe('<RocketConfirmPanel />', () => {
     expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeInTheDocument();
     expect(screen.getByText('이미 제출')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /신규 1행만 보기/ })).toBeInTheDocument();
+  });
+
+  it('restores the new-lines-only default when the selected collection changes', async () => {
+    const secondRow = {
+      ...basePreview.rows[0]!,
+      poLineId: 'PO-2:PRODUCT-2:1',
+      poNumber: 'PO-2',
+    };
+    vi.mocked(useRocketPurchaseWorkflow).mockReturnValue({
+      ...baseWorkflow,
+      preview: { ...basePreview, rows: [basePreview.rows[0]!, secondRow] },
+      exportedPoLineIds: ['PO-1:PRODUCT-1:1'],
+    } as ReturnType<typeof useRocketPurchaseWorkflow>);
+
+    function Harness() {
+      const [sourceRunId, setSourceRunId] = useState('run-1');
+      return (
+        <>
+          <button type="button" onClick={() => setSourceRunId('run-2')}>수집본 변경</button>
+          <RocketConfirmPanel
+            onSaved={vi.fn()}
+            activeMonth="2026-07"
+            channelAccountId="11111111-1111-4111-8111-111111111111"
+            channelAccountName="로켓 1호점"
+            hasConfiguredVendorId
+            from="2026-07-01"
+            to="2026-07-31"
+            selectedSourceImportRunId={sourceRunId}
+            selectedDate={null}
+            selectedDateSourceRunCount={0}
+            selectedDateSourceRuns={[]}
+            onSelectSourceImportRun={vi.fn()}
+            onActivity={vi.fn()}
+            onOrdersChanged={vi.fn()}
+            renderOrderExplorer={() => null}
+          />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: /이미 제출 1행 포함해 전체 보기/ }));
+    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' }))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '수집본 변경' }));
+    await waitFor(() => expect(
+      screen.queryByRole('spinbutton', { name: 'PO-1 엑셀 수량' }),
+    ).toBeNull());
   });
 
   it('never hides a row when there is no workbook evidence yet', () => {

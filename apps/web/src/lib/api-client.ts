@@ -261,13 +261,20 @@ export const apiClient = {
       throw err;
     }
   },
-  post: <T>(path: string, body?: unknown, options?: { signal?: AbortSignal }) =>
-    request<T>(path, {
+  post: <T>(
+    path: string,
+    body?: unknown,
+    options?: { signal?: AbortSignal; headers?: HeadersInit },
+  ) => {
+    const headers = new Headers(options?.headers);
+    headers.set('Content-Type', 'application/json');
+    return request<T>(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: options?.signal,
-    }),
+    });
+  },
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, {
       method: 'PATCH',
