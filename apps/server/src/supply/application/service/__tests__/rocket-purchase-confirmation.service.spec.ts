@@ -57,6 +57,7 @@ function request() {
 
 function previewResult() {
   return {
+    status: 'ready' as const,
     collectionRunId,
     catalog: {
       run: { id: sourceImportRunId },
@@ -128,6 +129,28 @@ function dependencies() {
 }
 
 describe('RocketWorkbookExportService', () => {
+  it('does not persist a workbook while the collected preview waits for freshness', async () => {
+    const deps = dependencies();
+    deps.preview.preview.mockResolvedValue({
+      status: 'freshness_pending',
+      requestedGeneration: '13',
+      collectionRunId,
+      catalog: previewResult().catalog,
+    });
+    const service = new RocketWorkbookExportService(
+      deps.preview as never,
+      deps.transactions as never,
+    );
+
+    await expect(service.exportWorkbook({
+      organizationId,
+      userId,
+      request: request(),
+      artifactBytes,
+    })).rejects.toThrow('generation 13');
+    expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
+  });
+
   it('recomputes the canonical preview and delegates the normalized decision', async () => {
     const deps = dependencies();
     const service = new RocketWorkbookExportService(

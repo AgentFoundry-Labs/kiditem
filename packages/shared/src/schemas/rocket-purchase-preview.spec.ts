@@ -62,6 +62,49 @@ function request() {
   };
 }
 
+function publication() {
+  return RocketPoCatalogPublicationSchema.parse({
+    run: {
+      id: RUN_ID,
+      sourceType: 'coupang_rocket_po_catalog',
+      channelAccountId: ACCOUNT_ID,
+      fileName: 'rocket-po-catalog.json',
+      fileHash: 'a'.repeat(64),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: '2026-07-19T00:00:00.000Z',
+      lastVerifiedAt: null,
+      verificationCount: 0,
+      lastTrigger: null,
+      freshnessGeneration: null,
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: null,
+      errorCode: null,
+      errorMessage: null,
+      createdAt: '2026-07-19T00:00:00.000Z',
+      updatedAt: '2026-07-19T00:00:00.000Z',
+    },
+    duplicate: false,
+    changes: {
+      createdProductCount: 1,
+      updatedProductCount: 0,
+      createdSkuCount: 1,
+      updatedSkuCount: 0,
+    },
+    recipeAutomation: {
+      evaluatedProducts: 1,
+      appliedProducts: 1,
+      appliedVariants: 1,
+      affectedOptions: 1,
+      operatorReviewProducts: 0,
+      blockedProducts: 0,
+      alreadyConfiguredProducts: 0,
+      skippedExistingVariants: 0,
+    },
+  });
+}
+
 describe('Rocket purchase preview contract', () => {
   it('defines the exact reasons that block workbook export', () => {
     expect(ROCKET_WORKBOOK_BLOCKING_REASONS).toEqual([
@@ -77,48 +120,9 @@ describe('Rocket purchase preview contract', () => {
   });
 
   it('publishes the scoped deterministic recipe automation result with the Rocket catalog', () => {
-    const publication = RocketPoCatalogPublicationSchema.parse({
-      run: {
-        id: RUN_ID,
-        sourceType: 'coupang_rocket_po_catalog',
-        channelAccountId: ACCOUNT_ID,
-        fileName: 'rocket-po-catalog.json',
-        fileHash: 'a'.repeat(64),
-        status: 'completed',
-        rowCount: 1,
-        importedAt: '2026-07-19T00:00:00.000Z',
-        lastVerifiedAt: null,
-        verificationCount: 0,
-        lastTrigger: null,
-        freshnessGeneration: null,
-        manualFreshExportConfirmedAt: null,
-        manualFreshExportConfirmedBy: null,
-        qualityReport: null,
-        errorCode: null,
-        errorMessage: null,
-        createdAt: '2026-07-19T00:00:00.000Z',
-        updatedAt: '2026-07-19T00:00:00.000Z',
-      },
-      duplicate: false,
-      changes: {
-        createdProductCount: 1,
-        updatedProductCount: 0,
-        createdSkuCount: 1,
-        updatedSkuCount: 0,
-      },
-      recipeAutomation: {
-        evaluatedProducts: 1,
-        appliedProducts: 1,
-        appliedVariants: 1,
-        affectedOptions: 1,
-        operatorReviewProducts: 0,
-        blockedProducts: 0,
-        alreadyConfiguredProducts: 0,
-        skippedExistingVariants: 0,
-      },
-    });
+    const published = publication();
 
-    expect(publication.recipeAutomation).toMatchObject({
+    expect(published.recipeAutomation).toMatchObject({
       appliedProducts: 1,
       appliedVariants: 1,
     });
@@ -280,6 +284,7 @@ describe('Rocket purchase preview contract', () => {
 
   it('parses preview-only row reasons without a submission or artifact payload', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
+      status: 'ready',
       collectionRunId: RUN_ID,
       catalog: null,
       inventoryGeneration: null,
@@ -301,6 +306,8 @@ describe('Rocket purchase preview contract', () => {
       }],
     });
 
+    expect(response.status).toBe('ready');
+    if (response.status !== 'ready') throw new Error('Expected ready preview');
     expect(response.rows[0]?.reason).toBe('collection_incomplete');
     expect(response).not.toHaveProperty('confirmationFile');
     expect(response).not.toHaveProperty('submissionAttempt');
@@ -308,6 +315,7 @@ describe('Rocket purchase preview contract', () => {
 
   it('keeps product, variant, and physical Sellpia identities distinct', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
+      status: 'ready',
       collectionRunId: RUN_ID,
       catalog: null,
       inventoryGeneration: '12',
@@ -334,6 +342,7 @@ describe('Rocket purchase preview contract', () => {
       }],
     });
 
+    if (response.status !== 'ready') throw new Error('Expected ready preview');
     expect(response.rows[0]).toMatchObject({
       masterProductId: MASTER_PRODUCT_ID,
       productVariantId: PRODUCT_VARIANT_ID,
@@ -346,6 +355,7 @@ describe('Rocket purchase preview contract', () => {
     'accepts the central recipe warning reason %s',
     (reason) => {
       const parsed = RocketPurchasePreviewResponseSchema.parse({
+        status: 'ready',
         collectionRunId: RUN_ID,
         catalog: null,
         inventoryGeneration: null,
@@ -367,12 +377,14 @@ describe('Rocket purchase preview contract', () => {
         }],
       });
 
+      if (parsed.status !== 'ready') throw new Error('Expected ready preview');
       expect(parsed.rows[0]?.reason).toBe(reason);
     },
   );
 
   it('requires the planned delivery date in preview responses', () => {
     expect(() => RocketPurchasePreviewResponseSchema.parse({
+      status: 'ready',
       collectionRunId: RUN_ID,
       catalog: null,
       inventoryGeneration: null,
@@ -392,6 +404,28 @@ describe('Rocket purchase preview contract', () => {
         components: [],
       }],
     })).toThrow(/plannedDeliveryDate/i);
+  });
+
+  it('parses a durable freshness-pending checkpoint without stale quantity rows', () => {
+    const response = RocketPurchasePreviewResponseSchema.parse({
+      status: 'freshness_pending',
+      collectionRunId: RUN_ID,
+      catalog: publication(),
+      requestedGeneration: '8',
+    });
+
+    expect(response).toMatchObject({
+      status: 'freshness_pending',
+      collectionRunId: RUN_ID,
+      requestedGeneration: '8',
+    });
+    expect(response).not.toHaveProperty('rows');
+    expect(response).not.toHaveProperty('inventoryGeneration');
+    expect(() => RocketPurchasePreviewResponseSchema.parse({
+      ...response,
+      rows: [],
+      inventoryGeneration: '7',
+    })).toThrow();
   });
 
   it('accepts current stock as the only Rocket stock quantity', () => {

@@ -39,6 +39,15 @@
   const INACTIVE_COLLECTION_RUN_MESSAGE =
     "이미 중단되거나 종료된 데이터 수집 작업입니다.";
 
+  function collectionWindowError(code, message, details = {}) {
+    const error = new Error(message);
+    error.code = code;
+    error.retryable = details.retryable === true;
+    if (typeof details.runId === "string") error.runId = details.runId;
+    if (typeof details.stage === "string") error.stage = details.stage;
+    return error;
+  }
+
   function advertisingNavigationResumeUrl(currentUrl, dashboardResumeUrl) {
     try {
       const current = new URL(String(currentUrl || ""));
@@ -590,12 +599,100 @@
       });
     }
 
+    function reloadTab(tabId) {
+      return new Promise((resolve, reject) => {
+        chromeApi.tabs.reload(tabId, {}, () => {
+          if (chromeApi.runtime.lastError) {
+            reject(
+              new Error(
+                chromeApi.runtime.lastError.message ||
+                  "Collection tab reload failed",
+              ),
+            );
+            return;
+          }
+          resolve();
+        });
+      });
+    }
+
+    async function recoverOwnedWindow(runId, url) {
+      const stored = await readRecord();
+      const live = await validate(stored);
+      if (live) {
+        if (live.runId !== runId) {
+          throw collectionWindowError(
+            "collection_window_owner_conflict",
+            COLLECTION_OWNER_CONFLICT_MESSAGE,
+            { runId, stage: "validate_owner" },
+          );
+        }
+        return live;
+      }
+      if (stored) await clearRecord();
+
+      const session = sessions && typeof sessions.get === "function"
+        ? await sessions.get(runId)
+        : null;
+      if (session?.status !== "running") {
+        throw collectionWindowError(
+          "collection_window_inactive_run",
+          INACTIVE_COLLECTION_RUN_MESSAGE,
+          { runId, stage: "validate_session" },
+        );
+      }
+
+      let win;
+      try {
+        win = await createOwnedWindow(url);
+      } catch (cause) {
+        throw collectionWindowError(
+          "collection_window_recovery_failed",
+          errorMessage(cause),
+          { runId, stage: "create_replacement", retryable: true },
+        );
+      }
+      const tab = ownedWindowTab(win);
+      if (!tab?.id || tab.windowId !== win.id) {
+        await removeWindow(win.id);
+        throw collectionWindowError(
+          "collection_window_recovery_failed",
+          "Collection replacement window has no owned tab",
+          { runId, stage: "validate_replacement", retryable: true },
+        );
+      }
+      const record = { runId, windowId: win.id, tabId: tab.id };
+      await chromeApi.storage.local.set({ [storageKey]: record });
+      return record;
+    }
+
     async function navigate(runId, url) {
-      const live = await reattach(runId);
-      if (!live) throw new Error("Collection window ownership was lost");
-      const tab = await updateTab(live.tabId, { url, active: true });
+      let live = await reattach(runId);
+      const recovered = !live;
+      if (!live) live = await recoverOwnedWindow(runId, url);
+      let tab;
+      try {
+        tab = await updateTab(live.tabId, { url, active: true });
+      } catch (cause) {
+        if (!recovered) throw cause;
+        throw collectionWindowError(
+          "collection_window_recovery_failed",
+          errorMessage(cause),
+          { runId, stage: "navigate_replacement", retryable: true },
+        );
+      }
       if (tab.windowId !== live.windowId) {
-        throw new Error("Collection tab left its owned window");
+        throw collectionWindowError(
+          recovered
+            ? "collection_window_recovery_failed"
+            : "collection_window_ownership_lost",
+          "Collection tab left its owned window",
+          {
+            runId,
+            stage: recovered ? "navigate_replacement" : "validate_navigation",
+            retryable: recovered,
+          },
+        );
       }
       return { ...live, url: tab.url || url };
     }
@@ -857,12 +954,48 @@
       }
     }
 
+    async function runManualSyncWithReceiverRecovery(
+      tabId,
+      runId,
+      resumeUrl,
+      environmentId,
+    ) {
+      let response = await runManualSync(
+        tabId,
+        runId,
+        resumeUrl,
+        environmentId,
+      );
+      if (!isMissingMessageReceiver(response?.error)) return response;
+
+      // Reloading an unpacked MV3 extension invalidates content scripts that
+      // were already attached to the managed collection tab. Updating that
+      // tab to the same URL is a no-op in Chrome, so receiver retries alone
+      // can never recover. Reload only this extension-owned tab once, wait for
+      // the fresh manifest content script, then retry the exact run command.
+      await reloadTab(tabId);
+      await waitForTabComplete(tabId);
+      await wait(2500);
+      response = await runManualSync(
+        tabId,
+        runId,
+        resumeUrl,
+        environmentId,
+      );
+      return response;
+    }
+
     async function collectTarget(runId, target, environmentId, producer) {
       let tab = await navigate(runId, target.url);
       await bindTab(tab.tabId, environmentId);
       await waitForTabComplete(tab.tabId);
       await wait(4000);
-      let response = await runManualSync(tab.tabId, runId, target.url, environmentId);
+      let response = await runManualSyncWithReceiverRecovery(
+        tab.tabId,
+        runId,
+        target.url,
+        environmentId,
+      );
 
       // 광고 캠페인 sweep가 SPA 상세 화면에서 대시보드 복귀에 실패하면 content
       // script가 unload되기 전에 명시적으로 응답한다. 캠페인 수가 4개보다 많아도
@@ -917,7 +1050,7 @@
             }
             await bindTab(tab.tabId, environmentId);
             await wait(2500);
-            response = await runManualSync(
+            response = await runManualSyncWithReceiverRecovery(
               tab.tabId,
               runId,
               target.url,
@@ -964,7 +1097,12 @@
         await bindTab(tab.tabId, environmentId);
         await waitForTabComplete(tab.tabId);
         await wait(2500);
-        response = await runManualSync(tab.tabId, runId, target.url, environmentId);
+        response = await runManualSyncWithReceiverRecovery(
+          tab.tabId,
+          runId,
+          target.url,
+          environmentId,
+        );
         const nextProgress = campaignSweepProgress(response);
         if (hasCampaignSweepProgressed(resumeProgress, nextProgress)) {
           stalledResumeTransitions.clear();

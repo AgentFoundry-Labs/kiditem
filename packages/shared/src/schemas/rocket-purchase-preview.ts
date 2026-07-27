@@ -361,12 +361,34 @@ export type RocketPurchasePreviewRow = z.infer<
   typeof RocketPurchasePreviewRowSchema
 >;
 
-export const RocketPurchasePreviewResponseSchema = z.object({
+export const RocketPurchasePreviewReadyResponseSchema = z.object({
+  status: z.literal('ready'),
   collectionRunId: z.string().uuid(),
   catalog: RocketPoCatalogPublicationSchema.nullable(),
   inventoryGeneration: z.string().regex(/^\d+$/).nullable(),
   rows: z.array(RocketPurchasePreviewRowSchema).max(ROCKET_PO_ROW_LIMIT),
 }).strict();
+export type RocketPurchasePreviewReadyResponse = z.infer<
+  typeof RocketPurchasePreviewReadyResponseSchema
+>;
+
+export const RocketPurchasePreviewFreshnessPendingResponseSchema = z.object({
+  status: z.literal('freshness_pending'),
+  collectionRunId: z.string().uuid(),
+  catalog: RocketPoCatalogPublicationSchema,
+  requestedGeneration: z.string().regex(/^\d+$/),
+}).strict();
+export type RocketPurchasePreviewFreshnessPendingResponse = z.infer<
+  typeof RocketPurchasePreviewFreshnessPendingResponseSchema
+>;
+
+export const RocketPurchasePreviewResponseSchema = z.discriminatedUnion(
+  'status',
+  [
+    RocketPurchasePreviewReadyResponseSchema,
+    RocketPurchasePreviewFreshnessPendingResponseSchema,
+  ],
+);
 export type RocketPurchasePreviewResponse = z.infer<
   typeof RocketPurchasePreviewResponseSchema
 >;

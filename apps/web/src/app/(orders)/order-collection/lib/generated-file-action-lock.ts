@@ -1,26 +1,33 @@
 export interface GeneratedFileActionLock {
-  acquire: () => (() => void) | null;
-  isLocked: () => boolean;
+  acquire: (fileIds: readonly string[]) => (() => void) | null;
+  isLocked: (fileId: string) => boolean;
+  lockedFileIds: () => string[];
 }
 
 /**
- * 생성 파일의 전송·다운로드·삭제를 한 번에 하나만 실행한다.
- * acquire가 돌려준 release는 멱등이라 오래된 finally가 새 작업의 잠금을 풀 수 없다.
+ * 같은 생성 파일의 전송·다운로드·삭제만 충돌시킨다. 서로 다른 파일은 독립적으로
+ * 작업할 수 있고, acquire가 돌려준 release는 오래된 finally가 새 소유자를 풀지 못한다.
  */
 export function createGeneratedFileActionLock(): GeneratedFileActionLock {
-  let owner: symbol | null = null;
+  const owners = new Map<string, symbol>();
 
   return {
-    acquire() {
-      if (owner !== null) return null;
+    acquire(fileIds) {
+      const ids = [...new Set(fileIds.filter((fileId) => fileId.length > 0))];
+      if (ids.length === 0 || ids.some((fileId) => owners.has(fileId))) return null;
       const token = Symbol('generated-file-action');
-      owner = token;
+      for (const fileId of ids) owners.set(fileId, token);
       return () => {
-        if (owner === token) owner = null;
+        for (const fileId of ids) {
+          if (owners.get(fileId) === token) owners.delete(fileId);
+        }
       };
     },
-    isLocked() {
-      return owner !== null;
+    isLocked(fileId) {
+      return owners.has(fileId);
+    },
+    lockedFileIds() {
+      return [...owners.keys()];
     },
   };
 }

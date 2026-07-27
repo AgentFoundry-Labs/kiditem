@@ -419,6 +419,7 @@ function confirmationInput(
     sourceImportRunId: SOURCE_IMPORT_RUN_ID,
     request,
     preview: {
+      status: 'ready',
       collectionRunId: COLLECTION_RUN_ID,
       catalog: {
         run: { id: SOURCE_IMPORT_RUN_ID },

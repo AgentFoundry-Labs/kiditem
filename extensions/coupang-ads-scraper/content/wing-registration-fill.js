@@ -1514,9 +1514,45 @@
     return { ok: true, steps, submission: { attempted: false }, evidence };
   }
 
+  const completedFillSessions = new Map();
+  const MAX_FILL_SESSION_CACHE = 20;
+
+  function fillWingFormOnce(msg) {
+    const formSessionId = typeof msg?.formSessionId === 'string'
+      ? msg.formSessionId.trim()
+      : '';
+    if (!formSessionId) {
+      return fillWingForm(
+        msg.product || {},
+        msg.autoSubmit === true,
+        msg.expectedVendorId,
+      );
+    }
+    const existing = completedFillSessions.get(formSessionId);
+    if (existing) return existing;
+    const operation = fillWingForm(
+      msg.product || {},
+      msg.autoSubmit === true,
+      msg.expectedVendorId,
+    );
+    completedFillSessions.set(formSessionId, operation);
+    while (completedFillSessions.size > MAX_FILL_SESSION_CACHE) {
+      completedFillSessions.delete(completedFillSessions.keys().next().value);
+    }
+    return operation;
+  }
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg && msg.action === 'wingFormReady') {
+      sendResponse({
+        ready: true,
+        contractVersion: 2,
+        url: globalThis.location?.href || '',
+      });
+      return false;
+    }
     if (msg && msg.action === 'fillWingForm') {
-      fillWingForm(msg.product || {}, msg.autoSubmit === true, msg.expectedVendorId)
+      fillWingFormOnce(msg)
         .then((r) => sendResponse(r))
         .catch((e) => sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }));
       return true; // async response

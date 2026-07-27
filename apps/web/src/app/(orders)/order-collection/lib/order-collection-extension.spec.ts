@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const bridge = vi.hoisted(() => ({
   detectOrderCollectionExtensionId: vi.fn(),
+  detectOrderCollectionExtensionRuntime: vi.fn(),
   sendToExtension: vi.fn(),
 }));
 
@@ -10,6 +11,7 @@ vi.mock('@/lib/extension-bridge', () => bridge);
 import {
   collectIcecreamMallRowsFromExtension,
   detectOrderCollectionSessionExtension,
+  detectOrderCollectionSessionExtensionStatus,
   ensureMallLoggedInViaExtension,
   finalizeOrderCollectionSession,
   sendOrderFileToSellpiaViaExtension,
@@ -21,6 +23,11 @@ describe('order collection extension session bridge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     bridge.detectOrderCollectionExtensionId.mockResolvedValue('order-extension');
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({
+      status: 'ready',
+      extensionId: 'order-extension',
+      version: '0.1.86',
+    });
   });
 
   afterEach(() => vi.unstubAllGlobals());
@@ -29,10 +36,33 @@ describe('order collection extension session bridge', () => {
     await expect(detectOrderCollectionSessionExtension()).resolves.toBe(
       'order-extension',
     );
-    expect(bridge.detectOrderCollectionExtensionId).toHaveBeenCalledWith(
+    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(
       1200,
-      'browserCollectionSessions',
+      ['browserCollectionSessions', 'orderCollectionFailureEvidenceV1'],
     );
+  });
+
+  it('preserves the loaded extension version and missing capability diagnosis', async () => {
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({
+      status: 'incompatible',
+      extensionId: 'order-extension',
+      version: '0.1.85',
+      missingCapabilities: ['orderCollectionFailureEvidenceV1'],
+    });
+
+    await expect(detectOrderCollectionSessionExtensionStatus()).resolves.toEqual({
+      status: 'incompatible',
+      extensionId: 'order-extension',
+      version: '0.1.85',
+      missingCapabilities: ['orderCollectionFailureEvidenceV1'],
+    });
+    await expect(
+      collectIcecreamMallRowsFromExtension('2026-07-15'),
+    ).rejects.toThrow('0.1.85');
+    await expect(
+      collectIcecreamMallRowsFromExtension('2026-07-15'),
+    ).rejects.toThrow('orderCollectionFailureEvidenceV1');
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
   });
 
   it('passes the page-owned runId into the automatic collection message', async () => {

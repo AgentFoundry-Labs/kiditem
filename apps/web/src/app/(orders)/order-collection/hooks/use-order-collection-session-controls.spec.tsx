@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  detectExtension: vi.fn(),
+  detectExtensionStatus: vi.fn(),
   finalizeSession: vi.fn(),
   recordMissing: vi.fn(),
   sendControl: vi.fn(),
@@ -24,7 +24,11 @@ vi.mock('@/lib/browser-collection-session', () => ({
   updateBrowserCollectionSessionCache: mocks.updateCache,
 }));
 vi.mock('../lib/order-collection-extension', () => ({
-  detectOrderCollectionSessionExtension: mocks.detectExtension,
+  detectOrderCollectionSessionExtensionStatus: mocks.detectExtensionStatus,
+  orderCollectionExtensionUnavailableMessage: (status: { status: string; version?: string }) =>
+    status.status === 'incompatible'
+      ? `주문수집 확장프로그램 ${status.version}이 호환되지 않습니다.`
+      : '주문수집 확장프로그램을 찾지 못했습니다.',
   finalizeOrderCollectionSession: mocks.finalizeSession,
 }));
 
@@ -88,7 +92,7 @@ describe('useOrderCollectionSessionControls', () => {
   });
 
   it('keeps the page run id when the extension is missing', async () => {
-    mocks.detectExtension.mockResolvedValue(null);
+    mocks.detectExtensionStatus.mockResolvedValue({ status: 'not_found' });
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
       { wrapper },
@@ -109,7 +113,9 @@ describe('useOrderCollectionSessionControls', () => {
   });
 
   it('returns a session-capable extension bound to the requested run', async () => {
-    mocks.detectExtension.mockResolvedValue('order-extension');
+    mocks.detectExtensionStatus.mockResolvedValue({
+      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
+    });
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
       { wrapper },
@@ -128,8 +134,28 @@ describe('useOrderCollectionSessionControls', () => {
     expect(mocks.recordMissing).not.toHaveBeenCalled();
   });
 
+  it('rejects an installed stale extension without recording it as missing', async () => {
+    mocks.detectExtensionStatus.mockResolvedValue({
+      status: 'incompatible',
+      extensionId: 'order-extension',
+      version: '0.1.85',
+      missingCapabilities: ['orderCollectionFailureEvidenceV1'],
+    });
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    await expect(act(async () => {
+      await result.current.prepareRun(account, RUN_ID);
+    })).rejects.toThrow('0.1.85');
+    expect(mocks.recordMissing).not.toHaveBeenCalled();
+  });
+
   it('preserves the original collection date on a same-run restart', async () => {
-    mocks.detectExtension.mockResolvedValue('order-extension');
+    mocks.detectExtensionStatus.mockResolvedValue({
+      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
+    });
     mocks.useSession.mockReturnValue({
       data: attentionSession('kidsnote', '2026-07-14'),
     });
@@ -158,7 +184,9 @@ describe('useOrderCollectionSessionControls', () => {
       attention: null,
       finishedAt: 3,
     };
-    mocks.detectExtension.mockResolvedValue('order-extension');
+    mocks.detectExtensionStatus.mockResolvedValue({
+      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
+    });
     mocks.sendControl.mockResolvedValue(cancelled);
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
@@ -199,7 +227,9 @@ describe('useOrderCollectionSessionControls', () => {
       },
       finishedAt: 3,
     };
-    mocks.detectExtension.mockResolvedValue('order-extension');
+    mocks.detectExtensionStatus.mockResolvedValue({
+      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
+    });
     mocks.finalizeSession.mockResolvedValue(failed);
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
@@ -234,7 +264,9 @@ describe('useOrderCollectionSessionControls', () => {
       attention: null,
       finishedAt: 3,
     };
-    mocks.detectExtension.mockResolvedValue('order-extension');
+    mocks.detectExtensionStatus.mockResolvedValue({
+      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
+    });
     mocks.sendControl.mockResolvedValue(cancelled);
     mocks.syncAlert.mockRejectedValue(new Error('alerts unavailable'));
     const { result } = renderHook(

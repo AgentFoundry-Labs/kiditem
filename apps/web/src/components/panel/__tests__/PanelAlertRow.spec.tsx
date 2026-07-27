@@ -200,6 +200,15 @@ describe('PanelAlertRow', () => {
     });
   });
 
+  it('places the cleanup action in the title row', () => {
+    render(<PanelAlertRow item={makeAlert()} />);
+
+    const titleRow = screen.getByText('테스트 알림').parentElement;
+    const cleanup = screen.getByRole('button', { name: '알림 정리' });
+
+    expect(titleRow).toContainElement(cleanup);
+  });
+
   describe('operation alerts (alertKind = "operation")', () => {
     it.each([
       ['running', '진행 중'],
@@ -339,11 +348,37 @@ describe('PanelAlertRow', () => {
             alertKind: 'operation',
             status: 'running',
             operationKey: 'operation-key-1',
+            sourceType: 'thumbnail_generation',
           })}
         />,
       );
 
       expect(screen.getByRole('button', { name: '작업 중단' })).toBeInTheDocument();
+    });
+
+    it('offers cleanup instead of cancellation for Sellpia quality attention alerts', async () => {
+      const item = makeAlert({
+        alertKind: 'operation',
+        status: 'pending',
+        type: 'sellpia_inventory_quality',
+        sourceType: 'sellpia_inventory_import',
+        operationKey:
+          'sellpia-inventory-quality:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:missing_barcode',
+      });
+      usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+
+      render(<PanelAlertRow item={item} />);
+
+      expect(screen.queryByRole('button', { name: '작업 중단' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '알림 정리' }));
+
+      expect(mockCancelOperation).not.toHaveBeenCalled();
+      expect(mockApiPost).toHaveBeenCalledWith(
+        `/api/alerts/${encodeURIComponent(item.id)}/dismiss`,
+      );
+      await waitFor(() => {
+        expect(usePanelStore.getState().byId[item.id]).toBeUndefined();
+      });
     });
 
     it.each(['browser_collection_session', null])(
@@ -407,6 +442,7 @@ describe('PanelAlertRow', () => {
         alertKind: 'operation',
         status: 'running',
         operationKey: 'operation-key-1',
+        sourceType: 'thumbnail_generation',
       });
       usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
 
@@ -427,45 +463,21 @@ describe('PanelAlertRow', () => {
       });
     });
 
-    it('rolls back optimistic cancellation when the backend returns not_cancellable', async () => {
-      mockCancelOperation.mockResolvedValueOnce({
-        ok: true,
-        status: 'not_cancellable',
-        message: '이 작업은 서버에서 중단 가능한 실행 대상을 찾지 못했습니다.',
-        operationKey: 'operation-key-1',
-        affected: {
-          workflowRunIds: [],
-          agentRunRequestIds: [],
-          agentRunIds: [],
-          contentGenerationIds: [],
-          thumbnailGenerationIds: [],
-          directAiJobIds: [],
-        },
-        preserved: {
-          contentGenerationIds: [],
-          thumbnailGenerationIds: [],
-        },
-        warnings: [],
-      });
+    it('does not offer cancellation when the operation has no cancellable owner', () => {
       const item = makeAlert({
         id: 'operation-alert-1',
         alertKind: 'operation',
         status: 'running',
         message: '진행 중',
         operationKey: 'operation-key-1',
+        sourceType: 'sellpia_inventory_import',
       });
       usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
 
       render(<PanelAlertRow item={item} />);
-      fireEvent.click(screen.getByRole('button', { name: '작업 중단' }));
-      fireEvent.click(screen.getByRole('button', { name: '중단' }));
 
-      await waitFor(() => {
-        expect(usePanelStore.getState().byId['operation-alert-1']).toMatchObject({
-          status: 'running',
-          message: '진행 중',
-        });
-      });
+      expect(screen.queryByRole('button', { name: '작업 중단' })).not.toBeInTheDocument();
+      expect(mockCancelOperation).not.toHaveBeenCalled();
     });
 
     it('does not cancel when the user rejects the stop confirmation', () => {
@@ -475,6 +487,7 @@ describe('PanelAlertRow', () => {
             alertKind: 'operation',
             status: 'running',
             operationKey: 'operation-key-1',
+            sourceType: 'thumbnail_generation',
           })}
         />,
       );
