@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import type { RocketSavedPoCollection } from '@kiditem/shared/rocket-purchase-preview';
 import { ProcurementService } from '../../../application/service/procurement.service';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
@@ -180,13 +181,21 @@ export class ProcurementController {
       });
     }
     if (body.action === 'loadSavedRocketCollection') {
-      const collection = await this.rocketCatalog.loadSavedCollection({
+      const channelAccountId = body.channelAccountId!;
+      const snapshot = await this.rocketCatalog.loadSavedCollection({
         organizationId,
-        channelAccountId: body.channelAccountId!,
+        channelAccountId,
         sourceImportRunId: body.sourceImportRunId!,
       });
-      if (!collection) throw new NotFoundException('Saved Rocket PO collection not found');
-      return collection;
+      if (!snapshot) throw new NotFoundException('Saved Rocket PO collection not found');
+      // Channels owns the snapshot, Supply owns workbook evidence. Compose here so the
+      // operator can separate lines that are new since their last Excel.
+      const exportedPoLineIds = await this.rocketWorkbooks.listExportedPoLineIds({
+        organizationId,
+        channelAccountId,
+        poLineIds: snapshot.rows.map(({ poLineId }) => poLineId),
+      });
+      return { ...snapshot, exportedPoLineIds } satisfies RocketSavedPoCollection;
     }
     throw new BadRequestException(`Unknown action: ${body.action}`);
   }

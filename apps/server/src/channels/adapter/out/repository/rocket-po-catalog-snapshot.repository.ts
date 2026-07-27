@@ -2,7 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   RocketPoCatalogRow,
-  RocketSavedPoCollection,
+  RocketSavedPoSnapshot,
   RocketSavedPoSummary,
 } from '@kiditem/shared/rocket-purchase-preview';
 import type { PrismaService } from '../../../../prisma/prisma.service';
@@ -182,7 +182,7 @@ export async function loadSavedRocketCollection(
     channelAccountId: string;
     sourceImportRunId: string;
   },
-): Promise<RocketSavedPoCollection | null> {
+): Promise<RocketSavedPoSnapshot | null> {
   const snapshot = await prisma.rocketPoCatalogSnapshot.findFirst({
     where: {
       organizationId: input.organizationId,

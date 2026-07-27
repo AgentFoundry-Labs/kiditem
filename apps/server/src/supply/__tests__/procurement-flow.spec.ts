@@ -248,7 +248,9 @@ describe('ProcurementController purchase submission boundary', () => {
       workbookExports: Record<string, unknown>,
       catalog: typeof catalog,
     ) => ProcurementController;
-    const controller = new Controller({}, {}, {}, {}, catalog);
+    // Supply 가 자기 소유 제출 증거를 붙여 완성한다(Channels 는 스냅샷만 소유).
+    const workbookExports = { listExportedPoLineIds: vi.fn().mockResolvedValue([]) };
+    const controller = new Controller({}, {}, {}, workbookExports, catalog);
     const channelAccountId = '11111111-1111-4111-8111-111111111111';
     const sourceImportRunId = '22222222-2222-4222-8222-222222222222';
 
@@ -284,6 +286,11 @@ describe('ProcurementController purchase submission boundary', () => {
       organizationId: 'organization-1',
       channelAccountId,
       sourceImportRunId,
+    });
+    expect(workbookExports.listExportedPoLineIds).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      channelAccountId,
+      poLineIds: [],
     });
   });
 

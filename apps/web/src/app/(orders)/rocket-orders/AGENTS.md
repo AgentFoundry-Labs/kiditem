@@ -17,7 +17,18 @@ list, chart, workbook-panel position, and local file-history composition.
 - Calendar and PO summaries come from `listSavedRocketPos`. Reopen evidence by
   its exact `sourceImportRunId`; never merge rows from separate source runs.
 - If a date contains several source runs, the existing PO/list surface must
-  require an explicit source choice before loading a saved preview.
+  require an explicit source choice before loading a saved preview. Multiple
+  runs per date is the normal case, not the exception, so the decision panel
+  offers every candidate inline (newest first, marked `최신`) with its collection
+  time and that date's totals. Never auto-pick one; never merge runs.
+- Collection stores a full snapshot every run, so a line already sent in a
+  workbook reappears in every later snapshot. The preview defaults to lines that
+  are new since the last workbook and offers an opt-in toggle for the rest, using
+  the server's `exportedPoLineIds`. With no export evidence nothing is hidden.
+  This is a display filter only: `previewRocket`/`exportRocketWorkbook` always
+  send the full row set because `isCompleteCollection` requires
+  `detailPoCount === rowPoNumbers.size` and the snapshot hash covers all rows.
+  Filtering the request would report `collection_incomplete` and block export.
 - A quantity or shortage-reason edit makes the preview dirty and disables
   workbook export until one whole-preview server revalidation succeeds.
 - Mapping, configuration, and recipe-review blockers link to the existing

@@ -255,6 +255,43 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(2);
   });
 
+  // 수집은 매번 전량 스냅샷이라 제출한 라인이 이후 수집본에도 계속 나온다.
+  // "이번에 새로 들어온 것만" 을 가려내는 유일한 서버 근거다.
+  it('reports which PO lines this account already sent in a workbook', async () => {
+    expect(await adapter.listExportedPoLineIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      poLineIds: [PO_LINE_ID, 'never-exported'],
+    })).toEqual([]);
+
+    const created = await adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000031', 2),
+    );
+
+    expect(await adapter.listExportedPoLineIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      poLineIds: [PO_LINE_ID, 'never-exported'],
+    })).toEqual([PO_LINE_ID]);
+    // 조직·계정 경계를 넘어 새지 않는다.
+    expect(await adapter.listExportedPoLineIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: '20000000-0000-4000-8000-0000000000ff',
+      poLineIds: [PO_LINE_ID],
+    })).toEqual([]);
+
+    // 취소(released)된 워크북은 제출로 보지 않는다 — 그 라인은 다시 내보낼 수 있어야 한다.
+    await prisma.rocketPurchaseConfirmation.update({
+      where: { id: created.exportId },
+      data: { status: 'released', releasedAt: new Date() },
+    });
+    expect(await adapter.listExportedPoLineIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      poLineIds: [PO_LINE_ID],
+    })).toEqual([]);
+  });
+
   it('completes only after finalized transmission and a newer verified generation', async () => {
     const created = await adapter.exportWorkbook(
       confirmationInput('21000000-0000-4000-8000-000000000019', 2),

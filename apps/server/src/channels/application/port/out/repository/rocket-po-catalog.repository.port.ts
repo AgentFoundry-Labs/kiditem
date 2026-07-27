@@ -2,7 +2,7 @@ import type {
   RocketPoCatalogPublication,
   RocketPoCatalogRow,
   RocketPoCollectionEvidence,
-  RocketSavedPoCollection,
+  RocketSavedPoSnapshot,
   RocketSavedPoSummary,
 } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketPoCatalogIdentity } from '../../in/rocket-po-catalog.port';
@@ -41,7 +41,7 @@ export interface RocketPoCatalogRepositoryPort {
     organizationId: string;
     channelAccountId: string;
     sourceImportRunId: string;
-  }): Promise<RocketSavedPoCollection | null>;
+  }): Promise<RocketSavedPoSnapshot | null>;
 }
 
 export const ROCKET_PO_CATALOG_REPOSITORY_PORT = Symbol(

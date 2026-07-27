@@ -62,6 +62,7 @@ const baseWorkflow = {
     orderQty: 3,
     plannedDeliveryDate: '2026-07-20',
   }],
+  exportedPoLineIds: [] as string[],
   previewDirty: false,
   setPreviewDirty,
   shortageReasons: {},
@@ -74,7 +75,7 @@ const baseWorkflow = {
   setTemplateFile: vi.fn(),
   loading: false,
   collecting: false,
-  error: null,
+  error: null as string | null,
   collectionWarning: null,
   canExport: false,
   canRedownload: false,
@@ -89,11 +90,27 @@ const baseWorkflow = {
 function renderPanel(options?: {
   preview?: RocketPurchasePreviewResponse | null;
   workflow?: Partial<typeof baseWorkflow>;
+  exportedPoLineIds?: string[];
+  // 날짜 상태는 워크스페이스가 소유하므로 props 로 주입한다(클릭 없이 복원되는 경로까지 포함).
+  selectedDate?: string | null;
+  selectedDateSourceRunCount?: number;
+  selectedSourceImportRunId?: string | null;
+  onSelectSourceImportRun?: (sourceImportRunId: string) => void;
 }) {
+  // 후보 목록은 워크스페이스가 파생한다. 스펙에서는 개수만 주면 되도록 여기서 만들어 준다.
+  const sourceRunCount = options?.selectedDateSourceRunCount ?? 0;
+  const selectedDateSourceRuns = Array.from({ length: sourceRunCount }, (_, index) => ({
+    sourceImportRunId: `run-${index + 1}`,
+    collectedAt: `2026-07-2${index + 1}T09:00:00.000Z`,
+    poCount: index + 1,
+    quantity: (index + 1) * 100,
+    amount: (index + 1) * 10_000,
+  })).sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
   vi.mocked(useRocketPurchaseWorkflow).mockReturnValue({
     ...baseWorkflow,
     ...options?.workflow,
     preview: options?.preview === undefined ? basePreview : options.preview,
+    exportedPoLineIds: options?.exportedPoLineIds ?? [],
   } as ReturnType<typeof useRocketPurchaseWorkflow>);
   return render(
     <RocketConfirmPanel
@@ -104,7 +121,11 @@ function renderPanel(options?: {
       hasConfiguredVendorId
       from="2026-07-01"
       to="2026-07-31"
-      selectedSourceImportRunId={null}
+      selectedSourceImportRunId={options?.selectedSourceImportRunId ?? null}
+      selectedDate={options?.selectedDate ?? null}
+      selectedDateSourceRunCount={sourceRunCount}
+      selectedDateSourceRuns={selectedDateSourceRuns}
+      onSelectSourceImportRun={options?.onSelectSourceImportRun ?? vi.fn()}
       onActivity={vi.fn()}
       onOrdersChanged={vi.fn()}
       renderOrderExplorer={({ onSelectDate }) => (
@@ -257,14 +278,112 @@ describe('<RocketConfirmPanel />', () => {
   });
 
   it('distinguishes an empty selected day from a day requiring source choice', () => {
-    renderPanel({ preview: null });
-    fireEvent.click(screen.getByRole('button', { name: '빈 날짜' }));
+    // 클릭 없이 props 만으로 렌더한다 = URL 로 직접 들어오거나 새로고침한 경로.
+    const empty = renderPanel({
+      preview: null,
+      selectedDate: '2026-07-21',
+      selectedDateSourceRunCount: 0,
+    });
     expect(screen.getByText('선택한 날짜에 저장된 발주가 없습니다. 쿠팡에서 새로 수집해 주세요.'))
       .toBeInTheDocument();
-    expect(screen.queryByText(/이 수집본으로 납품 판단/)).toBeNull();
+    expect(screen.queryByText(/자동으로 정해지지 않습니다/)).toBeNull();
+    empty.unmount();
 
-    fireEvent.click(screen.getByRole('button', { name: '여러 수집본 날짜' }));
-    expect(screen.getByText(/이 수집본으로 납품 판단/)).toBeInTheDocument();
+    renderPanel({
+      preview: null,
+      selectedDate: '2026-07-22',
+      selectedDateSourceRunCount: 2,
+    });
+    expect(screen.getByText(/자동으로 정해지지 않습니다/)).toBeInTheDocument();
+  });
+
+  it('explains the empty decision area instead of rendering nothing when the preview failed', () => {
+    renderPanel({
+      preview: null,
+      selectedDate: '2026-07-28',
+      selectedDateSourceRunCount: 1,
+      workflow: { error: '셀피아 재고 스냅샷이 최신이 아니어서 납품 수량을 계산할 수 없습니다.' },
+    });
+    expect(screen.getByText('납품 판단 영역을 불러오지 못했습니다.')).toBeInTheDocument();
+    expect(screen.getByText(/셀피아 재고 스냅샷이 최신이 아니어서/)).toBeInTheDocument();
+  });
+
+  it('guides the operator to pick a collection when a day has several source runs', () => {
+    renderPanel({
+      preview: null,
+      selectedDate: '2026-07-28',
+      selectedDateSourceRunCount: 2,
+      selectedSourceImportRunId: null,
+    });
+    expect(screen.getByText('사용할 수집본을 아직 고르지 않았습니다.')).toBeInTheDocument();
+  });
+
+  // 재현: 7/28 처럼 수집본이 여러 개인 날짜는 자동 선택이 금지되는데, 후보가 발주 목록 행을
+  // 펼쳐야 나오는 숨은 버튼뿐이라 "28일자가 안 나온다"로 보였다. 선택은 여기서 끝나야 한다.
+  it('offers every candidate collection inline, newest first, without auto-picking one', () => {
+    const onSelectSourceImportRun = vi.fn();
+    renderPanel({
+      preview: null,
+      selectedDate: '2026-07-28',
+      selectedDateSourceRunCount: 3,
+      selectedSourceImportRunId: null,
+      onSelectSourceImportRun,
+    });
+
+    expect(screen.getByText(/수집본이/)).toBeInTheDocument();
+    const candidates = screen.getAllByRole('button', { name: /^수집 2026-07-2/ });
+    expect(candidates).toHaveLength(3);
+    // 최신순 정렬 + 최신 표시. 자동 선택은 하지 않는다(운영자 클릭이 있어야 한다).
+    expect(candidates[0]).toHaveTextContent('최신');
+    expect(candidates[1]).not.toHaveTextContent('최신');
+    expect(onSelectSourceImportRun).not.toHaveBeenCalled();
+
+    fireEvent.click(candidates[0]!);
+    expect(onSelectSourceImportRun).toHaveBeenCalledWith('run-3');
+  });
+
+  // 수집은 매번 전량 스냅샷이라 이미 제출한 라인이 이후 수집본에 계속 나온다.
+  // 기본값은 "이번에 새로 들어온 것만"이어야 한다.
+  it('shows only lines that are new since the last workbook, with an opt-in for the rest', () => {
+    const twoRows: RocketPurchasePreviewResponse = {
+      ...basePreview,
+      rows: [
+        basePreview.rows[0]!,
+        { ...basePreview.rows[0]!, poLineId: 'PO-2:PRODUCT-2:1', poNumber: 'PO-2' },
+      ],
+    };
+    renderPanel({ preview: twoRows, exportedPoLineIds: ['PO-1:PRODUCT-1:1'] });
+
+    // 이미 제출한 PO-1 은 숨고 신규 PO-2 만 남는다.
+    expect(screen.queryByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeNull();
+    expect(screen.getByRole('spinbutton', { name: 'PO-2 엑셀 수량' })).toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', { name: /이미 제출 1행 포함해 전체 보기/ });
+    fireEvent.click(toggle);
+
+    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeInTheDocument();
+    expect(screen.getByText('이미 제출')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /신규 1행만 보기/ })).toBeInTheDocument();
+  });
+
+  it('never hides a row when there is no workbook evidence yet', () => {
+    renderPanel({ exportedPoLineIds: [] });
+
+    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /전체 보기/ })).toBeNull();
+    expect(screen.queryByText('이미 제출')).toBeNull();
+  });
+
+  it('hides the candidate picker once a collection is chosen', () => {
+    renderPanel({
+      preview: null,
+      selectedDate: '2026-07-28',
+      selectedDateSourceRunCount: 3,
+      selectedSourceImportRunId: 'run-3',
+    });
+
+    expect(screen.queryByText(/자동으로 정해지지 않습니다/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^수집 2026-07-2/ })).toBeNull();
   });
 
   it('keeps exact re-download available while no-match abandonment remains evidence-gated', () => {

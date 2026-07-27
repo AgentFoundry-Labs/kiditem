@@ -216,6 +216,7 @@ describe('previewRocketPurchases', () => {
       channelAccountId: ACCOUNT_ID,
       collection: input().collection,
       rows: input().rows,
+      exportedPoLineIds: [],
     });
     await loadSavedRocketCollection({
       channelAccountId: ACCOUNT_ID,

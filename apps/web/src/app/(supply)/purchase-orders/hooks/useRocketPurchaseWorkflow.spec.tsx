@@ -441,6 +441,7 @@ function savedCollection(
       failedPoNumbers: [],
     },
     rows,
+    exportedPoLineIds: [],
   };
 }
 
