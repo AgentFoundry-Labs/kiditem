@@ -4,6 +4,7 @@ import {
   collectRocketPoRowsFromExtension,
   collectRocketPoRowsForConfirmationFromExtension,
   detectRocketOrderExtensionId,
+  finalizeRocketPoCollectionSession,
 } from './rocket-sales-collection';
 
 vi.mock('@/lib/extension-bridge', () => ({
@@ -75,6 +76,7 @@ describe('collectRocketPoRowsFromExtension', () => {
       'extension-id',
       expect.objectContaining({
         action: 'collectRocketPoRows',
+        deferTerminal: true,
         runId: RUN_ID,
       }),
       190000,
@@ -169,5 +171,26 @@ describe('collectRocketPoRowsFromExtension', () => {
       from: '2026-07-01',
       to: '2026-07-07',
     })).rejects.toThrow(/run/i);
+  });
+
+  it('finalizes the deferred extension session after the server save', async () => {
+    vi.mocked(sendToExtension).mockResolvedValueOnce({
+      success: true,
+      status: 'succeeded',
+    });
+
+    await finalizeRocketPoCollectionSession({
+      extensionId: 'extension-id',
+      runId: RUN_ID,
+      status: 'succeeded',
+      message: '로켓 PO 수집본 저장을 완료했습니다.',
+    });
+
+    expect(sendToExtension).toHaveBeenCalledWith('extension-id', {
+      action: 'finalizeCollectionSession',
+      runId: RUN_ID,
+      status: 'succeeded',
+      message: '로켓 PO 수집본 저장을 완료했습니다.',
+    });
   });
 });

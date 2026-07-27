@@ -19,6 +19,7 @@ import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-
 
 vi.mock('@/lib/rocket-sales-collection', () => ({
   collectRocketPoRowsForConfirmationFromExtension: vi.fn(),
+  finalizeRocketPoCollectionSession: vi.fn(async () => undefined),
 }));
 vi.mock('../lib/rocket-purchase-preview-api', () => ({
   abandonRocketWorkbook: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('../lib/rocket-purchase-preview-api', () => ({
   getActiveRocketWorkbook: vi.fn(),
   loadSavedRocketCollection: vi.fn(),
   previewRocketPurchases: vi.fn(),
+  rocketPreviewErrorMessage: (_cause: unknown, fallback: string) => fallback,
 }));
 vi.mock('./RocketDeterministicMatchingPanel', () => ({
   RocketDeterministicMatchingPanel: () => <div>결정적 매칭 패널</div>,

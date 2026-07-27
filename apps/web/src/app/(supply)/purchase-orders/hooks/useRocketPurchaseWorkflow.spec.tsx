@@ -10,7 +10,10 @@ import type {
   RocketPurchasePreviewResponse,
   RocketSavedPoCollection,
 } from '@kiditem/shared/rocket-purchase-preview';
-import { collectRocketPoRowsForConfirmationFromExtension } from '@/lib/rocket-sales-collection';
+import {
+  collectRocketPoRowsForConfirmationFromExtension,
+  finalizeRocketPoCollectionSession,
+} from '@/lib/rocket-sales-collection';
 import {
   abandonRocketWorkbook,
   downloadRocketWorkbook,
@@ -29,6 +32,7 @@ import { useRocketPurchaseWorkflow } from './useRocketPurchaseWorkflow';
 
 vi.mock('@/lib/rocket-sales-collection', () => ({
   collectRocketPoRowsForConfirmationFromExtension: vi.fn(),
+  finalizeRocketPoCollectionSession: vi.fn(),
 }));
 vi.mock('../lib/rocket-purchase-preview-api', () => ({
   abandonRocketWorkbook: vi.fn(),
@@ -70,6 +74,7 @@ describe('useRocketPurchaseWorkflow', () => {
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockRejectedValue(
       new Error('unexpected collection'),
     );
+    vi.mocked(finalizeRocketPoCollectionSession).mockResolvedValue(undefined);
     vi.mocked(getActiveRocketWorkbook).mockResolvedValue(null);
     vi.mocked(exportRocketWorkbook).mockRejectedValue(new Error('unexpected export'));
     vi.mocked(downloadRocketWorkbook).mockRejectedValue(new Error('unexpected download'));
@@ -130,8 +135,52 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(previewRocketPurchases).toHaveBeenNthCalledWith(2,
       expect.objectContaining({ rows: source.rows, collection: source.collection }));
     expect(onCatalogSaved).toHaveBeenCalledTimes(1);
+    expect(finalizeRocketPoCollectionSession).toHaveBeenCalledWith({
+      runId: source.collection.collectionRunId,
+      status: 'succeeded',
+      message: '로켓 PO 수집본 저장을 완료했습니다.',
+    });
     expect(hook.result.current.sourceRows).toEqual(source.rows);
     expect(hook.result.current.stage).toBe('ready');
+  });
+
+  it('persists and finalizes a collection after the route unmounts', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    const collection = deferred<Awaited<ReturnType<
+      typeof collectRocketPoRowsForConfirmationFromExtension
+    >>>();
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension)
+      .mockReturnValue(collection.promise);
+    vi.mocked(previewRocketPurchases).mockResolvedValue(
+      preview(source, [previewRow('LINE-A', null, 3)]),
+    );
+    const hook = renderWorkflow({
+      channelAccountId: ACCOUNT_A,
+      savedSourceImportRunId: null,
+    });
+
+    let collecting!: Promise<void>;
+    act(() => {
+      collecting = hook.result.current.recalculate();
+    });
+    hook.unmount();
+    collection.resolve({
+      collection: source.collection,
+      rows: source.rows,
+      poCount: 1,
+    });
+    await collecting;
+
+    expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
+      channelAccountId: ACCOUNT_A,
+      collection: source.collection,
+      rows: source.rows,
+    }));
+    expect(finalizeRocketPoCollectionSession).toHaveBeenCalledWith({
+      runId: source.collection.collectionRunId,
+      status: 'succeeded',
+      message: '로켓 PO 수집본 저장을 완료했습니다.',
+    });
   });
 
   it('keeps collected rows when freshness needs operator attention', async () => {
