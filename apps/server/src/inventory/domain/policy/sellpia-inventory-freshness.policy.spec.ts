@@ -4,10 +4,15 @@ import {
   planClaim,
   planOrderTransmissionFinalization,
   planRefreshRequest,
+  toFreshnessView,
   type SellpiaInventoryFreshnessState,
 } from './sellpia-inventory-freshness.policy';
 
 const NOW = new Date('2026-07-15T00:00:00.000Z');
+const UNRESOLVED_INTENT = {
+  intentKey: '1721000000000-kidsnote-browser',
+  preparedAt: new Date('2026-07-14T23:59:30.000Z'),
+};
 
 describe('Sellpia inventory freshness policy', () => {
   it('prioritizes a live lease over a failed requested generation', () => {
@@ -46,10 +51,50 @@ describe('Sellpia inventory freshness policy', () => {
     const state = makeState({
       requestedGeneration: 4n,
       verifiedGeneration: 4n,
-      unresolvedOrderTransmissionIntentCount: 1,
+      unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
     });
 
     expect(deriveFreshnessStatus(state, NOW)).toBe('refresh_required');
+  });
+
+  // A blocked state is status-identical to an ordinary stale one, so the view has
+  // to name the blocker or no screen can explain or clear the block.
+  it('names the unresolved transmissions that pin the state at refresh_required', () => {
+    const blocked = makeState({
+      sourceAccountKey: 'kiditem',
+      requestedGeneration: 4n,
+      verifiedGeneration: 4n,
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+      unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
+    });
+
+    const view = toFreshnessView(blocked, NOW, null);
+
+    expect(view.status).toBe('refresh_required');
+    expect(view.unresolvedOrderTransmissionIntents).toEqual([
+      {
+        intentKey: UNRESOLVED_INTENT.intentKey,
+        preparedAt: '2026-07-14T23:59:30.000Z',
+      },
+    ]);
+    // The same rows refuse the claim, so the view and the gate cannot disagree.
+    expect(planClaim(blocked, {
+      now: NOW,
+      userId: '00000000-0000-4000-8000-000000000012',
+      claimToken: '00000000-0000-4000-8000-000000000013',
+      freshnessFence: '00000000-0000-4000-8000-000000000014',
+    })).toEqual({ kind: 'joined' });
+  });
+
+  it('reports an empty blocker list once every transmission is resolved', () => {
+    const view = toFreshnessView(makeState({
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+      requestedGeneration: 4n,
+      verifiedGeneration: 4n,
+    }), NOW, null);
+
+    expect(view.status).toBe('fresh');
+    expect(view.unresolvedOrderTransmissionIntents).toEqual([]);
   });
 
   it('finalizes into a generation strictly after every generation visible at submit time', () => {
@@ -57,7 +102,7 @@ describe('Sellpia inventory freshness policy', () => {
       requestedGeneration: 4n,
       verifiedGeneration: 4n,
       activeGeneration: null,
-      unresolvedOrderTransmissionIntentCount: 1,
+      unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
     });
     const patch = planOrderTransmissionFinalization(
       completedWhileTabWasOpen,
@@ -81,7 +126,7 @@ describe('Sellpia inventory freshness policy', () => {
         refreshReason: 'order_transmission_requested',
         refreshRequestedAt: new Date('2026-07-14T23:50:00.000Z'),
         syncNotBefore: new Date('2026-07-14T23:55:00.000Z'),
-        unresolvedOrderTransmissionIntentCount: 1,
+        unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
       }),
       new Date('2026-07-15T00:03:00.000Z'),
       '00000000-0000-4000-8000-000000000020',
@@ -102,7 +147,7 @@ describe('Sellpia inventory freshness policy', () => {
         refreshReason: 'order_transmission_requested',
         refreshRequestedAt: NOW,
         syncNotBefore: new Date('2026-07-15T00:04:30.000Z'),
-        unresolvedOrderTransmissionIntentCount: 1,
+        unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
       }),
       new Date('2026-07-15T00:04:00.000Z'),
       '00000000-0000-4000-8000-000000000021',
@@ -124,7 +169,7 @@ describe('Sellpia inventory freshness policy', () => {
         refreshReason: 'order_transmission_requested',
         refreshRequestedAt: new Date('2026-07-14T23:50:00.000Z'),
         syncNotBefore: new Date('2026-07-14T23:55:00.000Z'),
-        unresolvedOrderTransmissionIntentCount: 1,
+        unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
       }),
       new Date('2026-07-15T00:03:00.000Z'),
       '00000000-0000-4000-8000-000000000022',
@@ -151,7 +196,7 @@ describe('Sellpia inventory freshness policy', () => {
         refreshReason: 'order_transmission_requested',
         refreshRequestedAt: NOW,
         syncNotBefore: capBoundary,
-        unresolvedOrderTransmissionIntentCount: 1,
+        unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
       }),
       capBoundary,
       '00000000-0000-4000-8000-000000000027',
@@ -312,7 +357,7 @@ describe('Sellpia inventory freshness policy', () => {
       requestedGeneration: 2n,
       verifiedGeneration: 1n,
       syncNotBefore: NOW,
-      unresolvedOrderTransmissionIntentCount: 1,
+      unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
     });
 
     expect(planClaim(state, {
@@ -377,7 +422,7 @@ function makeState(
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: '00000000-0000-4000-8000-000000000002',
-    unresolvedOrderTransmissionIntentCount: 0,
+    unresolvedOrderTransmissionIntents: [],
     ...overrides,
   };
 }

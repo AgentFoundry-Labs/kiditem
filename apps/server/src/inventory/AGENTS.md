@@ -141,6 +141,11 @@ change stock.
   An owner/admin may also correct a false finalized result to `not_submitted`;
   that transition is append-only audited and is the only path that permits a
   confirmed missing file to reuse the stable intent key for one safe retry.
+- Every public freshness view lists the unresolved transmission intents that
+  block collection, capped at `SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT`. A blocked
+  state is status-identical to an ordinary stale one, so the same rows that make
+  `planClaim` return `joined` must be nameable by a client; do not reduce this
+  back to a count or drop it from the view.
 - Every public view serializes generations as decimal strings and derives
   `activeSync.canControl` from the authenticated user without exposing the
   owner ID.

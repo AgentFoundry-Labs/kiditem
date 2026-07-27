@@ -1,5 +1,6 @@
 import {
   deriveSellpiaInventoryFreshness,
+  SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
   type SellpiaInventoryCollectionFailureCode,
   type SellpiaInventoryFreshnessStatus,
   type SellpiaInventoryFreshnessView,
@@ -12,6 +13,11 @@ export const SELLPIA_FRESHNESS_TTL_MS = 10 * 60_000;
 export const SELLPIA_CLAIM_LEASE_MS = 90_000;
 export const SELLPIA_ORDER_SETTLE_MS = 2 * 60_000;
 export const SELLPIA_ORDER_SETTLE_CAP_MS = 5 * 60_000;
+
+export type SellpiaUnresolvedOrderTransmissionIntent = {
+  intentKey: string;
+  preparedAt: Date;
+};
 
 export type SellpiaInventoryFreshnessState = {
   organizationId: string;
@@ -35,7 +41,9 @@ export type SellpiaInventoryFreshnessState = {
   lastErrorCode: SellpiaInventoryCollectionFailureCode | null;
   lastErrorMessage: string | null;
   freshnessFence: string;
-  unresolvedOrderTransmissionIntentCount: number;
+  // Identified rather than counted: the same rows both gate claims and tell an
+  // operator which transmission to reconcile.
+  unresolvedOrderTransmissionIntents: readonly SellpiaUnresolvedOrderTransmissionIntent[];
 };
 
 export type SellpiaInventoryFreshnessStatePatch = Partial<
@@ -78,7 +86,7 @@ export function createInitialFreshnessState(input: {
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: input.freshnessFence,
-    unresolvedOrderTransmissionIntentCount: 0,
+    unresolvedOrderTransmissionIntents: [],
   };
 }
 
@@ -94,7 +102,7 @@ export function deriveFreshnessStatus(
     failedGeneration: state.failedGeneration,
     activeSyncLeaseExpiresAt: state.activeSyncLeaseExpiresAt,
     hasUnresolvedOrderTransmissionIntent:
-      state.unresolvedOrderTransmissionIntentCount > 0,
+      state.unresolvedOrderTransmissionIntents.length > 0,
   });
 }
 
@@ -150,6 +158,12 @@ export function toFreshnessView(
     syncNotBefore: state.syncNotBefore?.toISOString() ?? null,
     activeSync,
     lastAttempt,
+    unresolvedOrderTransmissionIntents: state.unresolvedOrderTransmissionIntents
+      .slice(0, SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT)
+      .map((intent) => ({
+        intentKey: intent.intentKey,
+        preparedAt: intent.preparedAt.toISOString(),
+      })),
   };
 }
 
@@ -291,7 +305,7 @@ export function planClaim(
   },
 ): SellpiaClaimDecision {
   if (
-    state.unresolvedOrderTransmissionIntentCount > 0
+    state.unresolvedOrderTransmissionIntents.length > 0
     || hasLiveLease(state, input.now)
     || !isSourceBindingConfirmed(state)
   ) {

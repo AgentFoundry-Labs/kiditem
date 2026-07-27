@@ -29,6 +29,7 @@ describe('sellpiaInventoryFreshnessApi', () => {
       syncNotBefore: null,
       activeSync: null,
       lastAttempt: null,
+      unresolvedOrderTransmissionIntents: [],
     };
     apiClient.post
       .mockResolvedValueOnce({ claimed: false, state })
@@ -73,6 +74,7 @@ describe('sellpiaInventoryFreshnessApi', () => {
       syncNotBefore: '2026-07-16T00:03:00.000Z',
       activeSync: null,
       lastAttempt: null,
+      unresolvedOrderTransmissionIntents: [],
     };
     apiClient.post
       .mockResolvedValueOnce({ intentKey: 'orders-1', disposition: 'prepared', state })

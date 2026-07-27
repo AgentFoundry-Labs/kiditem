@@ -40,6 +40,7 @@ const createFreshnessView = () => ({
   syncNotBefore: null,
   activeSync: null,
   lastAttempt: null,
+  unresolvedOrderTransmissionIntents: [],
 });
 
 describe('Sellpia inventory freshness vocabulary', () => {
@@ -168,6 +169,31 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
         accountKey: 'kiditem',
         confirmed: true,
       },
+    })).toThrow();
+  });
+
+  // Blocked and ordinary-stale states share the `refresh_required` status, so the
+  // blocker list is the only way a client can explain or clear the block.
+  it('requires the unresolved order transmissions that block collection', () => {
+    const parsed = SellpiaInventoryFreshnessViewSchema.parse({
+      ...createFreshnessView(),
+      status: 'refresh_required',
+      unresolvedOrderTransmissionIntents: [
+        {
+          intentKey: '1785076954061-kidsnote-browser',
+          preparedAt: '2026-07-26T14:42:38.482Z',
+        },
+      ],
+    });
+    expect(parsed.unresolvedOrderTransmissionIntents).toHaveLength(1);
+
+    const { unresolvedOrderTransmissionIntents: _omitted, ...withoutBlockers } =
+      createFreshnessView();
+    expect(() => SellpiaInventoryFreshnessViewSchema.parse(withoutBlockers))
+      .toThrow();
+    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
+      ...createFreshnessView(),
+      unresolvedOrderTransmissionIntents: [{ intentKey: '', preparedAt: 'nope' }],
     })).toThrow();
   });
 

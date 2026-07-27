@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma, type SellpiaInventoryState } from '@prisma/client';
 import {
+  SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
   SellpiaInventoryCollectionFailureCodeSchema,
   SellpiaInventoryRefreshReasonSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
@@ -13,7 +14,10 @@ import type {
   SellpiaInventoryStateExpectation,
   SellpiaInventoryStatePatch,
 } from '../../../application/port/out/repository/sellpia-inventory-freshness.repository.port';
-import type { SellpiaInventoryFreshnessState } from '../../../domain/policy/sellpia-inventory-freshness.policy';
+import type {
+  SellpiaInventoryFreshnessState,
+  SellpiaUnresolvedOrderTransmissionIntent,
+} from '../../../domain/policy/sellpia-inventory-freshness.policy';
 import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
 const SOURCE_TYPE = 'sellpia_inventory';
@@ -32,14 +36,9 @@ implements SellpiaInventoryFreshnessRepositoryPort {
         where: { organizationId },
       });
       if (!state) return null;
-      const unresolvedOrderTransmissionIntentCount =
-        await tx.sellpiaOrderTransmissionIntent.count({
-          where: {
-            organizationId,
-            status: 'prepared',
-          },
-        });
-      return mapState(state, unresolvedOrderTransmissionIntentCount);
+      const unresolvedOrderTransmissionIntents =
+        await findUnresolvedOrderTransmissionIntents(tx, organizationId);
+      return mapState(state, unresolvedOrderTransmissionIntents);
     }, {
       ...TRANSACTION_OPTIONS,
       isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
@@ -82,18 +81,13 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
   ) {}
 
   async getState(): Promise<SellpiaInventoryFreshnessState> {
-    const [state, unresolvedOrderTransmissionIntentCount] = await Promise.all([
+    const [state, unresolvedOrderTransmissionIntents] = await Promise.all([
       this.tx.sellpiaInventoryState.findUniqueOrThrow({
         where: { organizationId: this.organizationId },
       }),
-      this.tx.sellpiaOrderTransmissionIntent.count({
-        where: {
-          organizationId: this.organizationId,
-          status: 'prepared',
-        },
-      }),
+      findUnresolvedOrderTransmissionIntents(this.tx, this.organizationId),
     ]);
-    return mapState(state, unresolvedOrderTransmissionIntentCount);
+    return mapState(state, unresolvedOrderTransmissionIntents);
   }
 
   async compareAndSetState(input: {
@@ -514,14 +508,28 @@ function isReconciliationOutcome(
 function toCreateData(
   state: SellpiaInventoryFreshnessState,
 ): Prisma.SellpiaInventoryStateUncheckedCreateInput {
-  const { unresolvedOrderTransmissionIntentCount, ...persisted } = state;
-  void unresolvedOrderTransmissionIntentCount;
+  const { unresolvedOrderTransmissionIntents, ...persisted } = state;
+  void unresolvedOrderTransmissionIntents;
   return persisted;
+}
+
+// Capped at the public view limit: this is read on every freshness poll, and a
+// runaway backlog must not turn the state read into an unbounded scan.
+function findUnresolvedOrderTransmissionIntents(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<SellpiaUnresolvedOrderTransmissionIntent[]> {
+  return tx.sellpiaOrderTransmissionIntent.findMany({
+    where: { organizationId, status: 'prepared' },
+    select: { intentKey: true, preparedAt: true },
+    orderBy: { preparedAt: 'asc' },
+    take: SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
+  });
 }
 
 function mapState(
   row: SellpiaInventoryState,
-  unresolvedOrderTransmissionIntentCount: number,
+  unresolvedOrderTransmissionIntents: SellpiaUnresolvedOrderTransmissionIntent[],
 ): SellpiaInventoryFreshnessState {
   return {
     organizationId: row.organizationId,
@@ -549,7 +557,7 @@ function mapState(
       : SellpiaInventoryCollectionFailureCodeSchema.parse(row.lastErrorCode),
     lastErrorMessage: row.lastErrorMessage,
     freshnessFence: row.freshnessFence,
-    unresolvedOrderTransmissionIntentCount,
+    unresolvedOrderTransmissionIntents,
   };
 }
 
