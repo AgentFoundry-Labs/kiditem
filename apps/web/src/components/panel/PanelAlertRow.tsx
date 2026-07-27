@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { cancelOperation } from '@/lib/operation-cancellation';
+import { isOperationAlertCancellable } from '@/lib/operation-alert-actions';
 import {
   browserCollectionRunIdFromOperationKey,
   sendBrowserCollectionControl,
@@ -101,11 +102,16 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   // orphaned task whose context (success/fail/cancel) is not yet known.
   const canPromote =
     item.actionTaskId == null && !isActiveOperation;
-  const canCancel =
-    isActiveOperation &&
-    Boolean(item.operationKey);
+  const canCancel = isOperationAlertCancellable({
+    status: item.status,
+    operationKey: item.operationKey,
+    sourceType: item.sourceType,
+    metadata: item.metadata,
+  });
   const canDismiss =
-    !isOperation || (item.status !== 'running' && item.status !== 'pending');
+    !isOperation ||
+    !isActiveOperation ||
+    (item.status === 'pending' && !canCancel);
 
   const dismiss = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -180,9 +186,25 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <span className="text-sm font-medium text-slate-900 truncate">{item.title}</span>
-            {!item.isRead && (
-              <span className="w-2 h-2 bg-blue-500 rounded-full shrink-0 mt-1" aria-label="읽지 않음" />
-            )}
+            <div className="flex shrink-0 items-center gap-1.5">
+              {!item.isRead && (
+                <span className="w-2 h-2 bg-blue-500 rounded-full shrink-0" aria-label="읽지 않음" />
+              )}
+              {canDismiss && (
+                <button
+                  type="button"
+                  onClick={dismiss}
+                  aria-label="알림 정리"
+                  title="알림 정리"
+                  className={cn(
+                    'opacity-0 group-hover:opacity-100 focus:opacity-100 transition',
+                    'p-1 rounded border border-gray-300 text-slate-400 hover:bg-gray-50 hover:text-slate-600',
+                  )}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
           {badge && (
             <div className="mt-1 flex items-center gap-1.5">
@@ -278,20 +300,6 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
                   ← 할 일 목록에 있음
                 </span>
               ) : null}
-              {canDismiss && (
-                <button
-                  type="button"
-                  onClick={dismiss}
-                  aria-label="알림 정리"
-                  title="알림 정리"
-                  className={cn(
-                    'opacity-0 group-hover:opacity-100 focus:opacity-100 transition',
-                    'p-1 rounded border border-gray-300 text-slate-400 hover:bg-gray-50 hover:text-slate-600',
-                  )}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
             </div>
           </div>
         </div>

@@ -122,14 +122,15 @@ test('every automatic collector explicitly attaches its inactive tab to its own 
   }
 });
 
-test('order worker imports session lifecycle and focused Sellpia inventory producer before dispatch', () => {
+test('order worker imports failure evidence, session lifecycle, and focused Sellpia inventory producer before dispatch', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*order-collection-lifecycle\.js[\s\S]*sellpia-inventory\.js/);
+  assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*collection-failure\.js[\s\S]*order-collection-lifecycle\.js[\s\S]*sellpia-inventory\.js/);
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /collectSellpiaInventoryJsonV1:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
   assert.match(worker, /collectSellpiaProductProfit:\s*true/);
+  assert.match(worker, /orderCollectionFailureEvidenceV1:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaProductStock/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
   for (const action of [
@@ -143,9 +144,9 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest publishes verified Sellpia upload and Coupang summary evidence at version 0.1.85', () => {
+test('order collector manifest publishes normalized failure evidence at version 0.1.86', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.85');
+  assert.equal(manifest.version, '0.1.86');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
   const worker = readFileSync(workerPath, 'utf8');

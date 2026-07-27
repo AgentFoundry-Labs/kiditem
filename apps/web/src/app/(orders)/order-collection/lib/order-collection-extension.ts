@@ -1,6 +1,8 @@
 import {
   detectOrderCollectionExtensionId,
+  detectOrderCollectionExtensionRuntime,
   sendToExtension,
+  type ExtensionRuntimeStatus,
 } from '@/lib/extension-bridge';
 
 export interface IcecreamMallExtensionRows {
@@ -55,7 +57,31 @@ export async function finalizeOrderCollectionSession(
 }
 
 export async function detectOrderCollectionSessionExtension(): Promise<string | null> {
-  return detectOrderCollectionExtensionId(1200, 'browserCollectionSessions');
+  const status = await detectOrderCollectionSessionExtensionStatus();
+  return status.status === 'ready' ? status.extensionId : null;
+}
+
+export async function detectOrderCollectionSessionExtensionStatus(): Promise<ExtensionRuntimeStatus> {
+  return detectOrderCollectionExtensionRuntime(1200, [
+    'browserCollectionSessions',
+    'orderCollectionFailureEvidenceV1',
+  ]);
+}
+
+export function orderCollectionExtensionUnavailableMessage(
+  status: Exclude<ExtensionRuntimeStatus, { status: 'ready' }>,
+): string {
+  if (status.status === 'incompatible') {
+    return `주문수집 확장프로그램 ${status.version}이 로드되어 있지만 현재 웹과 호환되지 않습니다. ` +
+      `누락 기능: ${status.missingCapabilities.join(', ')}. extensions/order-collector를 다시 로드해주세요.`;
+  }
+  return '주문수집 확장프로그램을 찾지 못했습니다. extensions/order-collector를 Chrome에서 로드해주세요.';
+}
+
+async function requireOrderCollectionSessionExtension(): Promise<string> {
+  const status = await detectOrderCollectionSessionExtensionStatus();
+  if (status.status === 'ready') return status.extensionId;
+  throw new Error(orderCollectionExtensionUnavailableMessage(status));
 }
 
 export async function collectIcecreamMallRowsFromExtension(
@@ -63,12 +89,7 @@ export async function collectIcecreamMallRowsFromExtension(
   credentials?: IcecreamMallExtensionCredentials,
   run?: OrderCollectionExtensionRun,
 ): Promise<IcecreamMallExtensionRows> {
-  const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
-  if (!extensionId) {
-    throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드한 뒤 다시 시도해주세요.',
-    );
-  }
+  const extensionId = run?.extensionId ?? await requireOrderCollectionSessionExtension();
 
   const response = await sendToExtension<IcecreamMallExtensionResponse>(extensionId, {
     action: 'collectIcecreamMallOrders',
@@ -107,7 +128,18 @@ export async function ensureMallLoggedInViaExtension(
   credentials: IcecreamMallExtensionCredentials,
   run?: OrderCollectionExtensionRun,
 ): Promise<MallLoginEnsureResult> {
-  const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
+  let extensionId = run?.extensionId;
+  if (!extensionId) {
+    const status = await detectOrderCollectionSessionExtensionStatus();
+    if (status.status === 'ready') extensionId = status.extensionId;
+    else if (status.status === 'incompatible') {
+      return {
+        success: false,
+        pendingLogin: false,
+        error: orderCollectionExtensionUnavailableMessage(status),
+      };
+    }
+  }
   if (!extensionId) {
     return {
       success: false,

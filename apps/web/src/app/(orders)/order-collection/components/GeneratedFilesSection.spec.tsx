@@ -43,6 +43,7 @@ function renderSection(items: StoredOrderCollectionFile[]) {
     <GeneratedFilesSection
       items={items}
       bulkAction={null}
+      lockedFileIds={new Set()}
       sellpiaSendingId={null}
       sellpiaPostProcessing={false}
       {...callbacks}
@@ -114,13 +115,14 @@ describe('GeneratedFilesSection', () => {
     expect(screen.getAllByRole('checkbox', { name: /\.xlsx 선택$/ })).toHaveLength(1);
   });
 
-  it('disables every send trigger while another send is active', () => {
-    const item = generatedFile('busy');
+  it('locks only queued files and keeps a disjoint row actionable', () => {
+    const items = [generatedFile('active'), generatedFile('queued'), generatedFile('free')];
     render(
       <GeneratedFilesSection
-        items={[item]}
-        bulkAction={null}
-        sellpiaSendingId={item.id}
+        items={items}
+        bulkAction="send"
+        lockedFileIds={new Set(['active', 'queued'])}
+        sellpiaSendingId="active"
         sellpiaPostProcessing={false}
         onDelete={vi.fn()}
         onDeleteSelected={vi.fn()}
@@ -134,6 +136,11 @@ describe('GeneratedFilesSection', () => {
     );
 
     expect(screen.getByRole('button', { name: '전송 중' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'busy.xlsx 삭제' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '전송 대기' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'active.xlsx 삭제' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'queued.xlsx 삭제' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'free.xlsx 삭제' })).toBeEnabled();
+    expect(screen.getAllByRole('button', { name: '셀피아 전송 요청' }))
+      .toHaveLength(1);
   });
 });

@@ -22,7 +22,6 @@ import {
   DashboardInventorySummarySchema,
   DashboardTrendItemSchema,
 } from '@kiditem/shared/dashboard';
-import { ActionTaskListSchema } from '@kiditem/shared/action-task';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
@@ -152,14 +151,6 @@ export default function Dashboard() {
   // For "displayed KPIs" — prefer range, fall back to baseline
   const effectiveSales = (kpiRange === 'month' && !dateFrom && !dateTo) ? salesBaseline : (salesRange ?? salesBaseline);
   const effectiveAd = (kpiRange === 'month' && !dateFrom && !dateTo) ? adBaseline : (adRange ?? adBaseline);
-
-  const { data: actionTasks = [] } = useQuery({
-    queryKey: queryKeys.actionTasks.list(),
-    queryFn: () => apiClient.getParsed('/api/action-tasks', ActionTaskListSchema),
-    refetchInterval: 60_000,
-  });
-
-  const aiActions = actionTasks.filter(t => t.type === 'ai');
 
   // 트래픽 데이터가 없으면 Wing 매출분석 수집을 백그라운드로 요청한다.
   // Drive replay 또는 Wing 동기화 데이터가 이미 있으면 트리거하지 않는다.
@@ -744,7 +735,6 @@ export default function Dashboard() {
           ) : (
             <DashboardChartPanel
               dailyTrend={dailyTrend}
-              aiActions={aiActions}
               industryBenchmark={adBaseline.industryBenchmark}
             />
           )}

@@ -61,6 +61,9 @@
     const forceDeferredTerminal = options.forceDeferredTerminal === true;
     const createRunId = options.createRunId || (() => root.crypto.randomUUID());
     const classifyFailure = options.classifyFailure || (() => null);
+    const normalizeFailure = typeof options.normalizeFailure === "function"
+      ? options.normalizeFailure
+      : null;
     const deferredLabel = options.deferredLabel || "브라우저 수집 완료 · 파일 생성 중";
     const failedLabel = options.failedLabel || "주문 파일 생성 실패";
     const succeededLabel = options.succeededLabel || "주문 파일 생성 완료";
@@ -74,6 +77,12 @@
         return classified;
       }
       return null;
+    }
+
+    function withFailureEvidence(result, inputIdentity, value = result) {
+      if (!normalizeFailure) return result;
+      const failure = normalizeFailure(inputIdentity?.mallKey || producer, value);
+      return failure ? { ...result, failure } : result;
     }
 
     async function begin(message, inputIdentity) {
@@ -113,7 +122,11 @@
       try {
         runId = await begin(message, inputIdentity);
       } catch (error) {
-        return { success: false, error: errorMessage(error), runId: message?.runId };
+        return withFailureEvidence(
+          { success: false, error: errorMessage(error), runId: message?.runId },
+          inputIdentity,
+          error,
+        );
       }
 
       const collection = Object.freeze({
@@ -155,7 +168,11 @@
             reason: resultAttention,
             message: result.error || "마켓 로그인이 필요합니다.",
           });
-          return { ...result, runId, collectionSession };
+          return withFailureEvidence(
+            { ...result, runId, collectionSession },
+            inputIdentity,
+            result,
+          );
         }
         if (
           (forceDeferredTerminal || message?.deferTerminal === true)
@@ -173,7 +190,10 @@
         const collectionSession = result.success === false
           ? await sessions.fail(runId)
           : await sessions.succeed(runId);
-        return { ...result, runId, collectionSession };
+        const response = { ...result, runId, collectionSession };
+        return result.success === false
+          ? withFailureEvidence(response, inputIdentity, result)
+          : response;
       } catch (error) {
         const current = await sessions.get(runId);
         if (current?.status === "cancelled") {
@@ -186,21 +206,21 @@
             reason: errorAttention,
             message,
           });
-          return {
+          return withFailureEvidence({
             success: false,
             pendingLogin: true,
             error: message,
             runId,
             collectionSession,
-          };
+          }, inputIdentity, error);
         }
         const collectionSession = await sessions.fail(runId);
-        return {
+        return withFailureEvidence({
           success: false,
           error: errorMessage(error),
           runId,
           collectionSession,
-        };
+        }, inputIdentity, error);
       }
     }
 

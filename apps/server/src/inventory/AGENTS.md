@@ -58,6 +58,8 @@ inventory/
 - Record-only stock transfers: `/api/stock-transfers/*`
 - Record-only picking: `/api/picking/*`
 - Coupang shipment files: `/api/coupang-shipments/*`
+- Shipment summaries use one tenant-bound bulk upsert with identity
+  deduplication and last-write-wins; no row loops.
 
 Route shape is frozen.
 
@@ -117,6 +119,10 @@ change stock.
   `currentStock` and active state from the same Inventory-owned freshness lock,
   fence, and verified generation. Rocket preview consumers must allocate from
   this gated snapshot rather than a stock value read before the gate.
+- `readFreshCapacityOrRequest` returns same-generation capacity when fresh;
+  otherwise it atomically schedules or joins `purchase_preflight` and returns
+  only its target generation. Concurrent finalization advances one high-water
+  target, and an active generation permits one follow-up.
 - `ROCKET_WORKBOOK_PROGRESS_PORT` projects a Rocket workflow from its linked
   transmission intents and the latest verified Sellpia generation. It is
   read-only and never adjusts stock.

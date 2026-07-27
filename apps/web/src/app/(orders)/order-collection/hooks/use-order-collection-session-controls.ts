@@ -14,8 +14,9 @@ import {
   updateBrowserCollectionSessionCache,
 } from '@/lib/browser-collection-session';
 import {
-  detectOrderCollectionSessionExtension,
+  detectOrderCollectionSessionExtensionStatus,
   finalizeOrderCollectionSession,
+  orderCollectionExtensionUnavailableMessage,
   type OrderCollectionExtensionRun,
 } from '../lib/order-collection-extension';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
@@ -53,8 +54,8 @@ export function useOrderCollectionSessionControls(
   ): Promise<OrderCollectionExtensionRun | null> => {
     const nextRunId = existingRunId ?? globalThis.crypto.randomUUID();
     setRunId(nextRunId);
-    const extensionId = await detectOrderCollectionSessionExtension();
-    if (extensionId) {
+    const extensionStatus = await detectOrderCollectionSessionExtensionStatus();
+    if (extensionStatus.status === 'ready') {
       const abortController = new AbortController();
       const sessionDate = session && existingRunId === session.runId &&
         (typeof session.inputIdentity.date === 'string' || session.inputIdentity.date === null)
@@ -62,12 +63,16 @@ export function useOrderCollectionSessionControls(
         : undefined;
       const run: OrderCollectionExtensionRun = {
         runId: nextRunId,
-        extensionId,
+        extensionId: extensionStatus.extensionId,
         signal: abortController.signal,
         ...(sessionDate !== undefined ? { date: sessionDate } : {}),
       };
       activeRunsRef.current.set(account.key, { run, abortController });
       return run;
+    }
+
+    if (extensionStatus.status === 'incompatible') {
+      throw new Error(orderCollectionExtensionUnavailableMessage(extensionStatus));
     }
 
     const missing = await recordMissingBrowserCollection(

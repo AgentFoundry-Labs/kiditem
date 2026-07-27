@@ -67,7 +67,11 @@ Route shape is frozen.
   checks; application services depend on `application/port/out/*` contracts
   only.
 - `previewRocket` publishes complete Rocket PO catalog evidence through the
-  Channels-owned port. That publication applies only freshly evaluated safe
+  Channels-owned port before checking Sellpia freshness, so a stale snapshot
+  never discards a completed marketplace collection. The freshness gate may
+  return a `freshness_pending` checkpoint with the collected source identity;
+  the caller waits for that exact generation and retries the same collection
+  without scraping Rocket again. Publication applies only freshly evaluated safe
   deterministic recipes for the published Rocket options, then Supply resolves
   confirmed component recipes through
   `CHANNEL_SKU_AVAILABILITY_PORT`, and applies the Inventory freshness gate

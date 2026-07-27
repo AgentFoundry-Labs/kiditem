@@ -6,6 +6,7 @@ import {
   detectExtensionId,
   detectDetailPageRendererExtensionId,
   detectOrderCollectionExtensionId,
+  detectOrderCollectionExtensionRuntime,
   detectSourcingExtensionId,
   renderDetailPageImageWithExtension,
   sendToExtensionViaPort,
@@ -13,6 +14,7 @@ import {
 
 type PingResponse = {
   success: boolean;
+  version?: string;
   capabilities?: Record<string, unknown>;
 };
 
@@ -126,6 +128,56 @@ describe('universal extension discovery', () => {
     await expect(detectOrderCollectionExtensionId(5)).resolves.toBe(
       'order-extension',
     );
+  });
+
+  it('distinguishes an installed but incompatible order extension from a missing one', async () => {
+    window.localStorage.setItem(
+      KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
+      'order-extension',
+    );
+    installChrome({
+      success: true,
+      version: '0.1.85',
+      capabilities: {
+        kiditemEnvironmentProfilesV1: true,
+        browserCollectionSessions: true,
+      },
+    });
+
+    await expect(detectOrderCollectionExtensionRuntime(5, [
+      'browserCollectionSessions',
+      'orderCollectionFailureEvidenceV1',
+    ])).resolves.toEqual({
+      status: 'incompatible',
+      extensionId: 'order-extension',
+      version: '0.1.85',
+      missingCapabilities: ['orderCollectionFailureEvidenceV1'],
+    });
+  });
+
+  it('reports a compatible order extension with its loaded version', async () => {
+    window.localStorage.setItem(
+      KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
+      'order-extension',
+    );
+    installChrome({
+      success: true,
+      version: '0.1.86',
+      capabilities: {
+        kiditemEnvironmentProfilesV1: true,
+        browserCollectionSessions: true,
+        orderCollectionFailureEvidenceV1: true,
+      },
+    });
+
+    await expect(detectOrderCollectionExtensionRuntime(5, [
+      'browserCollectionSessions',
+      'orderCollectionFailureEvidenceV1',
+    ])).resolves.toEqual({
+      status: 'ready',
+      extensionId: 'order-extension',
+      version: '0.1.86',
+    });
   });
 });
 

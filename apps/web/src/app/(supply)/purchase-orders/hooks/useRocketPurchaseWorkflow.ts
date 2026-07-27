@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   isRocketWorkbookBlockingReason,
 } from '@kiditem/shared/rocket-purchase-preview';
@@ -9,6 +10,8 @@ import { downloadBlob } from '@/lib/browser-download';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
 import { collectRocketPoRowsForConfirmationFromExtension } from '@/lib/rocket-sales-collection';
+import { queryKeys } from '@/lib/query-keys';
+import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import {
   abandonRocketWorkbook,
   downloadRocketWorkbook,
@@ -22,10 +25,16 @@ import {
   buildRocketConfirmationWorkbook,
   fillRocketConfirmationWorkbook,
 } from '../lib/rocket-confirmation-workbook';
+import {
+  recoverRocketPreviewFreshness,
+  RocketPreviewFreshnessRecoveryError,
+} from '../lib/rocket-preview-freshness-recovery';
 import type {
   RocketPoCatalogRow,
   RocketPoCollectionEvidence,
-  RocketPurchasePreviewResponse,
+  RocketPurchasePreviewFreshnessPendingResponse,
+  RocketPurchasePreviewReadyResponse,
+  RocketPurchasePreviewRequest,
   RocketShortageReason,
   RocketWorkbookExportResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
@@ -38,13 +47,23 @@ interface CollectionRunSummary {
   rowsMatchEvidenceVendor: boolean;
 }
 
+export type RocketWorkflowStage =
+  | 'idle'
+  | 'collecting'
+  | 'persisting_collection'
+  | 'refreshing_inventory'
+  | 'calculating'
+  | 'review_required'
+  | 'ready'
+  | 'attention_required';
+
 function editFingerprint(quantities: Record<string, number>): string {
   return JSON.stringify(Object.entries(quantities).sort(([left], [right]) =>
     left.localeCompare(right)));
 }
 
 function visibleReviewQuantities(
-  preview: RocketPurchasePreviewResponse,
+  preview: RocketPurchasePreviewReadyResponse,
 ): Record<string, number> {
   return Object.fromEntries(preview.rows.map((row) => [
     row.poLineId,
@@ -76,7 +95,7 @@ function confirmationRequestedRows(
 
 function pruneShortageReasons(
   current: Record<string, RocketShortageReason>,
-  preview: RocketPurchasePreviewResponse,
+  preview: RocketPurchasePreviewReadyResponse,
   reviewedQuantities: Record<string, number>,
 ): Record<string, RocketShortageReason> {
   const rowsByLineId = new Map(preview.rows.map((row) => [row.poLineId, row]));
@@ -100,7 +119,7 @@ function collectionIsIncomplete(summary: CollectionRunSummary): boolean {
 
 function aggregateCollectionWarning(
   summary: CollectionRunSummary | null,
-  preview: RocketPurchasePreviewResponse | null,
+  preview: RocketPurchasePreviewReadyResponse | null,
   hasConfiguredVendorId: boolean,
 ): string | null {
   if (!summary) return null;
@@ -134,14 +153,20 @@ export function useRocketPurchaseWorkflow({
   onCatalogSaved?: () => void;
   onActivity?: (activity: RocketOrderActivityInput) => void;
 }) {
+  const queryClient = useQueryClient();
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [operatorEditedLineIds, setOperatorEditedLineIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [preview, setPreview] = useState<RocketPurchasePreviewResponse | null>(null);
+  const [preview, setPreview] = useState<RocketPurchasePreviewReadyResponse | null>(null);
+  const [pendingCheckpoint, setPendingCheckpoint] = useState<
+    RocketPurchasePreviewFreshnessPendingResponse | null
+  >(null);
+  const [stage, setStage] = useState<RocketWorkflowStage>('idle');
   const [previewDirty, setPreviewDirty] = useState(false);
   const [validatedEditFingerprint, setValidatedEditFingerprint] = useState('');
   const [sourceRows, setSourceRows] = useState<RocketPoCatalogRow[]>([]);
+  const [collectionRows, setCollectionRows] = useState<RocketPoCatalogRow[]>([]);
   // 이 계정에서 이미 확정 엑셀로 나간 PO 라인. 수집은 매번 전량 스냅샷이라 제출한 라인이
   // 이후 수집본에도 계속 나온다. 목록에서 "이번에 새로 들어온 것"을 가려내는 기준이다.
   const [exportedPoLineIds, setExportedPoLineIds] = useState<string[]>([]);
@@ -157,15 +182,22 @@ export function useRocketPurchaseWorkflow({
   const [collecting, setCollecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestGenerationRef = useRef(0);
+  const activeWaiterRef = useRef<AbortController | null>(null);
+  const collectionPromiseRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     requestGenerationRef.current += 1;
+    activeWaiterRef.current?.abort();
+    activeWaiterRef.current = null;
     setEditedQuantities({});
     setOperatorEditedLineIds(new Set());
     setPreview(null);
+    setPendingCheckpoint(null);
+    setStage('idle');
     setPreviewDirty(false);
     setValidatedEditFingerprint('');
     setSourceRows([]);
+    setCollectionRows([]);
     setExportedPoLineIds([]);
     setCollectionRun(null);
     setShortageReasons({});
@@ -174,7 +206,71 @@ export function useRocketPurchaseWorkflow({
     setLoading(false);
     setCollecting(false);
     setError(null);
-  }, [channelAccountId, savedSourceImportRunId]);
+  }, [channelAccountId, from, savedSourceImportRunId, to]);
+
+  useEffect(() => () => {
+    activeWaiterRef.current?.abort();
+  }, []);
+
+  const previewWithFreshnessRecovery = async (input: {
+    request: RocketPurchasePreviewRequest;
+    generation: number;
+    controller: AbortController;
+    notifyCatalogSaved: boolean;
+  }): Promise<RocketPurchasePreviewReadyResponse> => {
+    const isCurrent = () => (
+      input.generation === requestGenerationRef.current
+      && !input.controller.signal.aborted
+    );
+    const initial = await previewRocketPurchases(input.request);
+    if (!isCurrent()) {
+      throw new Error('Stale Rocket preview response');
+    }
+    if (input.notifyCatalogSaved && initial.catalog) onCatalogSaved?.();
+
+    return recoverRocketPreviewFreshness(initial, {
+      retryPreview: async () => {
+        if (isCurrent()) setStage('calculating');
+        return previewRocketPurchases(input.request);
+      },
+      getFreshnessState: sellpiaInventoryFreshnessApi.getState,
+      requestRetry: () => sellpiaInventoryFreshnessApi.requestRefresh('retry'),
+      publishPending: (checkpoint) => {
+        if (!isCurrent()) return;
+        setPendingCheckpoint(checkpoint);
+        setStage('refreshing_inventory');
+      },
+      publishFreshnessState: async () => {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.inventory.freshness(),
+        });
+      },
+    }, input.controller.signal);
+  };
+
+  const beginWaiter = (): AbortController => {
+    activeWaiterRef.current?.abort();
+    const controller = new AbortController();
+    activeWaiterRef.current = controller;
+    return controller;
+  };
+
+  const finishWaiter = (controller: AbortController): void => {
+    if (activeWaiterRef.current === controller) activeWaiterRef.current = null;
+  };
+
+  const stageForRecoveryFailure = (cause: unknown): RocketWorkflowStage => (
+    cause instanceof RocketPreviewFreshnessRecoveryError
+    && cause.code === 'attention_required'
+      ? 'attention_required'
+      : 'review_required'
+  );
+
+  const recoveryErrorMessage = (cause: unknown, fallback: string): string => (
+    cause instanceof RocketPreviewFreshnessRecoveryError
+      ? cause.message
+      : rocketPreviewErrorMessage(cause, fallback)
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -195,29 +291,23 @@ export function useRocketPurchaseWorkflow({
   useEffect(() => {
     if (!savedSourceImportRunId) return;
     const generation = requestGenerationRef.current;
+    const controller = beginWaiter();
     let cancelled = false;
     const load = async () => {
       setLoading(true);
       setError(null);
       setPreview(null);
+      setPendingCheckpoint(null);
+      setStage('calculating');
       onActivity?.({ status: 'started', message: '저장된 로켓 PO 수집본을 불러오는 중입니다.' });
       try {
         const saved = await loadSavedRocketCollection({
           channelAccountId,
           sourceImportRunId: savedSourceImportRunId,
         });
+        if (cancelled || generation !== requestGenerationRef.current) return;
         const reviewRows = confirmationRequestedRows(saved.rows);
         const poCount = new Set(saved.rows.map(({ poNumber }) => poNumber)).size;
-        const result = await previewRocketPurchases({
-          channelAccountId,
-          collection: saved.collection,
-          rows: saved.rows,
-          editedQuantities: {},
-          clampEditedQuantities: true,
-          previewScope: 'confirmation_requested',
-        });
-        if (cancelled || generation !== requestGenerationRef.current) return;
-        const effectiveEdits = visibleReviewQuantities(result);
         setCollectionRun({
           collection: saved.collection,
           poCount,
@@ -228,7 +318,23 @@ export function useRocketPurchaseWorkflow({
           ),
         });
         setSourceRows(reviewRows);
+        setCollectionRows(saved.rows);
         setExportedPoLineIds(saved.exportedPoLineIds);
+        const result = await previewWithFreshnessRecovery({
+          request: {
+          channelAccountId,
+          collection: saved.collection,
+          rows: saved.rows,
+          editedQuantities: {},
+          clampEditedQuantities: true,
+          previewScope: 'confirmation_requested',
+          },
+          generation,
+          controller,
+          notifyCatalogSaved: false,
+        });
+        if (cancelled || generation !== requestGenerationRef.current) return;
+        const effectiveEdits = visibleReviewQuantities(result);
         setEditedQuantities(effectiveEdits);
         setOperatorEditedLineIds(new Set());
         setValidatedEditFingerprint(editFingerprint(effectiveEdits));
@@ -237,13 +343,17 @@ export function useRocketPurchaseWorkflow({
         setShortageReasons({});
         setAbandonReason('');
         setPreview(result);
+        setPendingCheckpoint(null);
+        setStage('ready');
         onActivity?.({ status: 'succeeded', message: '저장된 로켓 PO를 최신 재고 기준으로 다시 계산했습니다.' });
       } catch (cause) {
         if (cancelled || generation !== requestGenerationRef.current) return;
-        const message = rocketPreviewErrorMessage(cause, '저장된 로켓 PO를 불러오지 못했습니다.');
+        setStage(stageForRecoveryFailure(cause));
+        const message = recoveryErrorMessage(cause, '저장된 로켓 PO를 불러오지 못했습니다.');
         setError(message);
         onActivity?.({ status: 'failed', message });
       } finally {
+        finishWaiter(controller);
         if (!cancelled && generation === requestGenerationRef.current) {
           setLoading(false);
         }
@@ -252,13 +362,16 @@ export function useRocketPurchaseWorkflow({
     void load();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [channelAccountId, onActivity, savedSourceImportRunId]);
+  }, [channelAccountId, from, onActivity, savedSourceImportRunId, to]);
 
-  const recalculate = async () => {
+  const performRecalculation = async () => {
     const generation = requestGenerationRef.current;
+    const controller = beginWaiter();
     setLoading(true);
     setCollecting(true);
+    setStage('collecting');
     setError(null);
     onActivity?.({ status: 'started', message: '쿠팡에서 로켓 PO를 새로 수집하고 있습니다.' });
     try {
@@ -270,26 +383,6 @@ export function useRocketPurchaseWorkflow({
         editedQuantities,
         reviewRows,
       );
-      const result = await previewRocketPurchases({
-        channelAccountId,
-        collection: collected.collection,
-        rows: collected.rows,
-        editedQuantities: retainedEdits,
-        clampEditedQuantities: true,
-        previewScope: 'confirmation_requested',
-      });
-      if (generation !== requestGenerationRef.current) return;
-      if (collected.poCount > 0 && result.catalog === null) {
-        const incomplete = result.rows.some(({ reason }) => reason === 'collection_incomplete');
-        const message = incomplete
-          ? `로켓 PO ${collected.poCount}건 중 ${collected.collection.detailPoCount}건만 수집되어 저장하지 않았습니다.`
-          : `로켓 PO ${collected.poCount}건을 수집했지만 검증을 통과하지 못해 저장하지 않았습니다.`;
-        setError(message);
-        onActivity?.({ status: 'failed', message });
-        return;
-      }
-      const effectiveEdits = visibleReviewQuantities(result);
-      const currentLineIds = new Set(result.rows.map(({ poLineId }) => poLineId));
       setCollectionRun({
         collection: collected.collection,
         poCount: collected.poCount,
@@ -299,15 +392,44 @@ export function useRocketPurchaseWorkflow({
           ({ vendorId }) => vendorId === collected.collection.vendorId,
         ),
       });
+      setSourceRows(reviewRows);
+      setCollectionRows(collected.rows);
+      setExportedPoLineIds([]);
+      setPendingCheckpoint(null);
+      setStage('persisting_collection');
+      const result = await previewWithFreshnessRecovery({
+        request: {
+          channelAccountId,
+          collection: collected.collection,
+          rows: collected.rows,
+          editedQuantities: retainedEdits,
+          clampEditedQuantities: true,
+          previewScope: 'confirmation_requested',
+        },
+        generation,
+        controller,
+        notifyCatalogSaved: true,
+      });
+      if (generation !== requestGenerationRef.current) return;
+      if (collected.poCount > 0 && result.catalog === null) {
+        const incomplete = result.rows.some(({ reason }) => reason === 'collection_incomplete');
+        const message = incomplete
+          ? `로켓 PO ${collected.poCount}건 중 ${collected.collection.detailPoCount}건만 수집되어 저장하지 않았습니다.`
+          : `로켓 PO ${collected.poCount}건을 수집했지만 검증을 통과하지 못해 저장하지 않았습니다.`;
+        setError(message);
+        setStage('review_required');
+        onActivity?.({ status: 'failed', message });
+        return;
+      }
+      const effectiveEdits = visibleReviewQuantities(result);
+      const currentLineIds = new Set(result.rows.map(({ poLineId }) => poLineId));
       setEditedQuantities(effectiveEdits);
       setOperatorEditedLineIds((current) => new Set(
         [...current].filter((poLineId) => currentLineIds.has(poLineId)),
       ));
       setValidatedEditFingerprint(editFingerprint(effectiveEdits));
       setPreviewDirty(false);
-      setSourceRows(reviewRows);
       // 새로 수집한 결과에는 제출 이력을 조회하지 않았다. 근거 없이 행을 숨기지 않도록 비운다.
-      setExportedPoLineIds([]);
       setExportKey(globalThis.crypto.randomUUID());
       setShortageReasons((current) => pruneShortageReasons(
         current,
@@ -315,18 +437,21 @@ export function useRocketPurchaseWorkflow({
         effectiveEdits,
       ));
       setPreview(result);
+      setPendingCheckpoint(null);
+      setStage('ready');
       setAbandonReason('');
-      if (result.catalog) onCatalogSaved?.();
       onActivity?.({
         status: 'succeeded',
         message: `로켓 PO ${collected.collection.detailPoCount}/${collected.poCount}건을 수집·저장하고 거래확인요청 ${new Set(result.rows.map(({ poNumber }) => poNumber)).size}건의 재고 미리보기를 계산했습니다.`,
       });
     } catch (cause) {
       if (generation !== requestGenerationRef.current) return;
-      const message = rocketPreviewErrorMessage(cause, '로켓 발주 미리보기를 계산하지 못했습니다.');
+      setStage(stageForRecoveryFailure(cause));
+      const message = recoveryErrorMessage(cause, '로켓 발주 미리보기를 계산하지 못했습니다.');
       setError(message);
       onActivity?.({ status: 'failed', message });
     } finally {
+      finishWaiter(controller);
       if (generation === requestGenerationRef.current) {
         setLoading(false);
         setCollecting(false);
@@ -334,23 +459,42 @@ export function useRocketPurchaseWorkflow({
     }
   };
 
+  const recalculate = (): Promise<void> => {
+    if (collectionPromiseRef.current) return collectionPromiseRef.current;
+    const promise = performRecalculation().finally(() => {
+      if (collectionPromiseRef.current === promise) {
+        collectionPromiseRef.current = null;
+      }
+    });
+    collectionPromiseRef.current = promise;
+    return promise;
+  };
+
   const revalidateEditedQuantities = async () => {
-    if (!collectionRun || sourceRows.length === 0) return;
+    if (!collectionRun || sourceRows.length === 0 || collectionRows.length === 0) return;
     const generation = requestGenerationRef.current;
+    const controller = beginWaiter();
     setLoading(true);
+    setStage('calculating');
     setError(null);
     onActivity?.({ status: 'started', message: '검토수량을 현재 재고 기준으로 다시 검증하고 있습니다.' });
     try {
-      const result = await previewRocketPurchases({
-        channelAccountId,
-        collection: collectionRun.collection,
-        rows: sourceRows,
-        editedQuantities: operatorEditsForRows(
-          operatorEditedLineIds,
-          editedQuantities,
-          sourceRows,
-        ),
-        clampEditedQuantities: true,
+      const result = await previewWithFreshnessRecovery({
+        request: {
+          channelAccountId,
+          collection: collectionRun.collection,
+          rows: collectionRows,
+          editedQuantities: operatorEditsForRows(
+            operatorEditedLineIds,
+            editedQuantities,
+            sourceRows,
+          ),
+          clampEditedQuantities: true,
+          previewScope: 'confirmation_requested',
+        },
+        generation,
+        controller,
+        notifyCatalogSaved: false,
       });
       if (generation !== requestGenerationRef.current) return;
       const effectiveEdits = visibleReviewQuantities(result);
@@ -362,6 +506,8 @@ export function useRocketPurchaseWorkflow({
       ));
       setValidatedEditFingerprint(editFingerprint(effectiveEdits));
       setPreviewDirty(false);
+      setPendingCheckpoint(null);
+      setStage('ready');
       setShortageReasons((current) => pruneShortageReasons(
         current,
         result,
@@ -371,10 +517,12 @@ export function useRocketPurchaseWorkflow({
     } catch (cause) {
       if (generation !== requestGenerationRef.current) return;
       setPreviewDirty(true);
-      const message = rocketPreviewErrorMessage(cause, '수량을 다시 검증하지 못했습니다.');
+      setStage(stageForRecoveryFailure(cause));
+      const message = recoveryErrorMessage(cause, '수량을 다시 검증하지 못했습니다.');
       setError(message);
       onActivity?.({ status: 'failed', message });
     } finally {
+      finishWaiter(controller);
       if (generation === requestGenerationRef.current) setLoading(false);
     }
   };
@@ -562,6 +710,8 @@ export function useRocketPurchaseWorkflow({
     editedQuantities,
     setReviewedQuantity,
     preview,
+    pendingCheckpoint,
+    stage,
     sourceRows,
     exportedPoLineIds,
     previewDirty,
@@ -583,6 +733,7 @@ export function useRocketPurchaseWorkflow({
     canExport,
     canRedownload,
     recalculate,
+    retryInventoryAndPreview: revalidateEditedQuantities,
     revalidateEditedQuantities,
     exportAndDownload,
     downloadActiveWorkbook,

@@ -1,9 +1,12 @@
+import { createElement, type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   RocketPoCatalogPublication,
   RocketPoCatalogRow,
   RocketPurchasePreviewReason,
+  RocketPurchasePreviewReadyResponse,
   RocketPurchasePreviewResponse,
   RocketSavedPoCollection,
 } from '@kiditem/shared/rocket-purchase-preview';
@@ -21,6 +24,7 @@ import {
 } from '../lib/rocket-confirmation-workbook';
 import { downloadBlob } from '@/lib/browser-download';
 import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
+import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import { useRocketPurchaseWorkflow } from './useRocketPurchaseWorkflow';
 
 vi.mock('@/lib/rocket-sales-collection', () => ({
@@ -41,6 +45,12 @@ vi.mock('../lib/rocket-confirmation-workbook', () => ({
 }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
 vi.mock('@/lib/rocket-confirm-file-store', () => ({ saveRocketConfirmFile: vi.fn() }));
+vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({
+  sellpiaInventoryFreshnessApi: {
+    getState: vi.fn(),
+    requestRefresh: vi.fn(),
+  },
+}));
 
 const ACCOUNT_A = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_B = '22222222-2222-4222-8222-222222222222';
@@ -64,6 +74,104 @@ describe('useRocketPurchaseWorkflow', () => {
     vi.mocked(exportRocketWorkbook).mockRejectedValue(new Error('unexpected export'));
     vi.mocked(downloadRocketWorkbook).mockRejectedValue(new Error('unexpected download'));
     vi.mocked(abandonRocketWorkbook).mockRejectedValue(new Error('unexpected abandon'));
+    vi.mocked(sellpiaInventoryFreshnessApi.getState).mockResolvedValue(
+      freshnessState({ status: 'fresh', verifiedGeneration: '12' }),
+    );
+    vi.mocked(sellpiaInventoryFreshnessApi.requestRefresh).mockResolvedValue(
+      freshnessState({ status: 'refresh_required', requestedGeneration: '13' }),
+    );
+  });
+
+  it('collects once, preserves the catalog checkpoint, waits, and retries from the same rows', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    const events: string[] = [];
+    const onCatalogSaved = vi.fn();
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension)
+      .mockImplementation(async () => {
+        events.push('extension.collect');
+        return { collection: source.collection, rows: source.rows, poCount: 1 };
+      });
+    vi.mocked(previewRocketPurchases)
+      .mockImplementationOnce(async () => {
+        events.push('server.preview.pending-and-persisted');
+        return {
+          status: 'freshness_pending',
+          collectionRunId: source.collection.collectionRunId,
+          catalog: catalogPublication(ACCOUNT_A, SOURCE_A, 1),
+          requestedGeneration: '12',
+        };
+      })
+      .mockImplementationOnce(async () => {
+        events.push('server.preview.ready');
+        return preview(source, [previewRow('LINE-A', null, 3)]);
+      });
+    vi.mocked(sellpiaInventoryFreshnessApi.getState).mockImplementation(async () => {
+      events.push('freshness.wait');
+      return freshnessState({ status: 'fresh', verifiedGeneration: '12' });
+    });
+    const hook = renderHook(() => useRocketPurchaseWorkflow({
+      channelAccountId: ACCOUNT_A,
+      hasConfiguredVendorId: true,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      savedSourceImportRunId: null,
+      onCatalogSaved,
+    }), { wrapper: queryWrapper() });
+
+    await act(async () => hook.result.current.recalculate());
+
+    expect(events).toEqual([
+      'extension.collect',
+      'server.preview.pending-and-persisted',
+      'freshness.wait',
+      'server.preview.ready',
+    ]);
+    expect(collectRocketPoRowsForConfirmationFromExtension).toHaveBeenCalledTimes(1);
+    expect(previewRocketPurchases).toHaveBeenNthCalledWith(2,
+      expect.objectContaining({ rows: source.rows, collection: source.collection }));
+    expect(onCatalogSaved).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.sourceRows).toEqual(source.rows);
+    expect(hook.result.current.stage).toBe('ready');
+  });
+
+  it('keeps collected rows when freshness needs operator attention', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    const onCatalogSaved = vi.fn();
+    vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
+      collection: source.collection,
+      rows: source.rows,
+      poCount: 1,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      status: 'freshness_pending',
+      collectionRunId: source.collection.collectionRunId,
+      catalog: catalogPublication(ACCOUNT_A, SOURCE_A, 1),
+      requestedGeneration: '12',
+    });
+    vi.mocked(sellpiaInventoryFreshnessApi.getState).mockResolvedValue(
+      freshnessState({
+        sourceBinding: {
+          origin: 'https://kiditem.sellpia.com',
+          accountKey: null,
+          confirmed: false,
+        },
+      }),
+    );
+    const hook = renderHook(() => useRocketPurchaseWorkflow({
+      channelAccountId: ACCOUNT_A,
+      hasConfiguredVendorId: true,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      savedSourceImportRunId: null,
+      onCatalogSaved,
+    }), { wrapper: queryWrapper() });
+
+    await act(async () => hook.result.current.recalculate());
+
+    expect(hook.result.current.stage).toBe('attention_required');
+    expect(hook.result.current.sourceRows).toEqual(source.rows);
+    expect(hook.result.current.collectionRun?.collection).toEqual(source.collection);
+    expect(onCatalogSaved).toHaveBeenCalledTimes(1);
   });
 
   it('revalidates the same saved collection without sending an untouched mapping zero', async () => {
@@ -150,7 +258,7 @@ describe('useRocketPurchaseWorkflow', () => {
       savedSourceImportRunId: null,
       onCatalogSaved,
       onActivity,
-    }));
+    }), { wrapper: queryWrapper() });
 
     await act(async () => hook.result.current.recalculate());
 
@@ -183,7 +291,7 @@ describe('useRocketPurchaseWorkflow', () => {
       savedSourceImportRunId: null,
       onCatalogSaved,
       onActivity,
-    }));
+    }), { wrapper: queryWrapper() });
 
     await act(async () => hook.result.current.recalculate());
 
@@ -277,6 +385,7 @@ describe('useRocketPurchaseWorkflow', () => {
           channelAccountId: ACCOUNT_A,
           savedSourceImportRunId: SOURCE_A,
         },
+        wrapper: queryWrapper(),
       },
     );
     await waitFor(() => expect(hook.result.current.preview?.rows[0]?.poLineId)
@@ -395,7 +504,7 @@ function renderWorkflow(input: {
     hasConfiguredVendorId: true,
     from: '2026-07-01',
     to: '2026-07-31',
-  }));
+  }), { wrapper: queryWrapper() });
 }
 
 function sourceRow(poLineId: string): RocketPoCatalogRow {
@@ -450,9 +559,10 @@ function savedCollection(
 
 function preview(
   saved: RocketSavedPoCollection,
-  rows: RocketPurchasePreviewResponse['rows'],
-): RocketPurchasePreviewResponse {
+  rows: RocketPurchasePreviewReadyResponse['rows'],
+): RocketPurchasePreviewReadyResponse {
   return {
+    status: 'ready',
     collectionRunId: saved.collection.collectionRunId,
     catalog: catalogPublication(saved.channelAccountId, saved.sourceImportRunId, rows.length),
     inventoryGeneration: '12',
@@ -464,7 +574,7 @@ function previewRow(
   poLineId: string,
   reason: RocketPurchasePreviewReason | null,
   recommendedQuantity: number,
-): RocketPurchasePreviewResponse['rows'][number] {
+): RocketPurchasePreviewReadyResponse['rows'][number] {
   const blocked = reason === 'mapping_required'
     || reason === 'configuration_required'
     || reason === 'review_required';
@@ -488,6 +598,38 @@ function previewRow(
       currentStock: 4,
       isActive: true,
     }],
+  };
+}
+
+function queryWrapper() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client }, children);
+  };
+}
+
+function freshnessState(overrides: Record<string, unknown> = {}) {
+  return {
+    status: 'syncing' as const,
+    sourceBinding: {
+      origin: 'https://kiditem.sellpia.com' as const,
+      accountKey: 'kiditem' as const,
+      confirmed: true as const,
+    },
+    lastVerifiedAt: null,
+    expiresAt: null,
+    requestedGeneration: '12',
+    verifiedGeneration: '11',
+    refreshRequestedAt: null,
+    refreshReason: 'purchase_preflight' as const,
+    syncNotBefore: null,
+    activeSync: null,
+    lastAttempt: null,
+    unresolvedOrderTransmissionIntents: [],
+    hasMoreUnresolvedOrderTransmissionIntents: false,
+    ...overrides,
   };
 }
 

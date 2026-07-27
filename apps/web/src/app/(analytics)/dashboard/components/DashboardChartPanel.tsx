@@ -6,7 +6,6 @@ import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Loader2, Play, Zap } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ActionTask } from '@kiditem/shared/action-task';
 import AgentFace from '@/components/AgentFace';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
@@ -103,8 +102,6 @@ export function DashboardChartPanel({
   industryBenchmark,
 }: {
   dailyTrend: DailyTrendPoint[];
-  // 기존 액션태스크 보드에서 넘겨받던 prop. 부서 버튼 보드로 바뀌며 더 이상 사용하지 않는다.
-  aiActions?: ActionTask[];
   industryBenchmark?: IndustryBenchmark;
 }) {
   const [chartTab, setChartTab] = useState<'agents' | 'revenue' | 'ad' | 'benchmark'>('agents');

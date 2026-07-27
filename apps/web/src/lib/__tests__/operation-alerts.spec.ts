@@ -13,6 +13,7 @@ describe('updateOperationAlert', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns null only for a verified HTTP 404', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockPatch.mockRejectedValueOnce(
       new ApiError(404, 'Not Found', 'operation alert not found'),
     );
@@ -22,6 +23,7 @@ describe('updateOperationAlert', () => {
         status: 'succeeded',
       }),
     ).resolves.toBeNull();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it.each([409, 500])('rethrows HTTP %s instead of triggering missing-alert recovery', async (status) => {

@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Square,
   Truck,
+  X,
 } from 'lucide-react';
 import { type DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
@@ -21,6 +22,7 @@ import {
   syncBrowserCollectionAlert,
 } from '@/lib/browser-collection-session';
 import { cancelOperation } from '@/lib/operation-cancellation';
+import { isOperationAlertCancellable } from '@/lib/operation-alert-actions';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -92,12 +94,19 @@ function DashboardAlertRow({
 }) {
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const dismissPanelItem = usePanelStore((state) => state.dismissItem);
   const href = alert.href ?? (alert.type === 'strategy_change' ? '/ad-ops' : alert.type === 'stock_low' ? '/inventory-hub?tab=status' : alert.type === 'minus_product' ? '/product-hub?tab=cleanup' : alert.type === 'ad_high' ? '/ad-ops' : undefined);
   const statusLabel = alert.kind === 'operation' ? alertStatusLabel(alert.status) : null;
   const operationKey = operationKeyOf(alert);
   const browserCollectionRunId =
     browserCollectionRunIdFromOperationKey(operationKey);
-  const canCancel = isActiveOperation(alert) && operationKey != null;
+  const canCancel = isOperationAlertCancellable({
+    status: alert.status,
+    operationKey,
+    sourceType: alert.sourceType,
+  });
+  const canDismiss =
+    isActiveOperation(alert) && alert.status === 'pending' && !canCancel;
   const content = (
     <>
       <div className="mt-0.5">{alertIcon(alert.type)}</div>
@@ -125,6 +134,20 @@ function DashboardAlertRow({
     event.stopPropagation();
     if (!operationKey || isCancelling) return;
     setCancelConfirmOpen(true);
+  };
+
+  const dismiss = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await apiClient.post(
+        `/api/alerts/${encodeURIComponent(alert.id)}/dismiss`,
+      );
+      dismissPanelItem(alert.id);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+    } catch (error) {
+      toast.error(isApiError(error) ? error.detail : '알림 정리에 실패했습니다.');
+    }
   };
 
   const confirmCancel = async () => {
@@ -188,6 +211,20 @@ function DashboardAlertRow({
             ) : (
               <Square className="h-3 w-3" />
             )}
+          </button>
+        )}
+        {canDismiss && (
+          <button
+            type="button"
+            onClick={dismiss}
+            aria-label="알림 정리"
+            title="알림 정리"
+            className={cn(
+              'relative z-[60] mt-0.5 mr-12 shrink-0 rounded border border-slate-200 p-1 text-slate-400 transition',
+              'opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-slate-50 hover:text-slate-600',
+            )}
+          >
+            <X className="h-3 w-3" />
           </button>
         )}
       </div>

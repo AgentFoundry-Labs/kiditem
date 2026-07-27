@@ -10,6 +10,10 @@ manage local generated-file history.
 
 - Extension collection goes through `lib/order-collection-extension.ts` and
   `@/lib/extension-bridge`.
+- Session startup requires both `browserCollectionSessions` and
+  `orderCollectionFailureEvidenceV1`. Preserve `ready`, `incompatible`, and
+  `not_found` discovery states so a loaded stale extension reports its version
+  and missing capabilities instead of being mislabeled as absent.
 - Backend conversion/upload flows use `apiClient.fetchRaw()` for file/blob
   responses.
 - Coupang Rocket PA collection sends the selected active Rocket
@@ -47,6 +51,10 @@ manage local generated-file history.
 - Sellpia transmission-request state and actions render inside the existing
   generated-file flow. Do not add a shared inventory freshness drawer or header
   status, and do not replace or reorder the baseline collection layout.
+- Generated-file operations lock by file ID, not by the entire panel. Batch
+  sends snapshot their selected IDs, overlapping actions are rejected, and
+  disjoint files remain usable. Sellpia sends execute through one ordered queue
+  so repeated clicks cannot overlap irreversible submissions.
 
 ## Boundary Rules
 

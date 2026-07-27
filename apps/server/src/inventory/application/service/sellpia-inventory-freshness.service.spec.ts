@@ -985,7 +985,148 @@ describe('SellpiaInventoryFreshnessService', () => {
       }],
     });
   });
+
+  it('returns fresh component capacity without advancing the generation', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+      requestedGeneration: 7n,
+      verifiedGeneration: 7n,
+      freshnessFence: '00000000-0000-4000-8000-000000000217',
+    });
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100, 30);
+
+    await expect(readFreshCapacityOrRequest(service, [SKU_ID, SKU_ID]))
+      .resolves.toEqual({
+        status: 'fresh',
+        fence: '00000000-0000-4000-8000-000000000217',
+        generation: '7',
+        lastVerifiedAt: '2026-07-14T23:59:00.000Z',
+        expiresAt: '2026-07-15T00:09:00.000Z',
+        inventorySkus: [{
+          sellpiaInventorySkuId: SKU_ID,
+          currentStock: 100,
+          activeCommitmentQuantity: 30,
+          availableStock: 70,
+          isActive: true,
+        }],
+      });
+    expect(repository.state(ORG_ID).requestedGeneration).toBe(7n);
+    expect(repository.lastInventorySkuIds).toEqual([SKU_ID]);
+  });
+
+  it('schedules a purchase preflight generation without exposing stale stock', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      lastVerifiedAt: new Date('2026-07-14T23:49:00.000Z'),
+      requestedGeneration: 7n,
+      verifiedGeneration: 7n,
+    });
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100, 30);
+
+    await expect(readFreshCapacityOrRequest(service, [SKU_ID])).resolves.toEqual({
+      status: 'refresh_required',
+      requestedGeneration: '8',
+    });
+    expect(repository.state(ORG_ID)).toMatchObject({
+      requestedGeneration: 8n,
+      refreshReason: 'purchase_preflight',
+      refreshRequestedAt: new Date('2026-07-15T00:00:00.000Z'),
+      syncNotBefore: new Date('2026-07-15T00:00:00.000Z'),
+    });
+  });
+
+  it('joins an active or already-pending generation without scheduling another refresh', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      requestedGeneration: 8n,
+      verifiedGeneration: 7n,
+      activeGeneration: 8n,
+      activeSyncToken: '00000000-0000-4000-8000-000000000218',
+      activeSyncOwnerUserId: USER_ID,
+      activeSyncStartedAt: new Date('2026-07-15T00:00:00.000Z'),
+      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
+      refreshRequestedAt: new Date('2026-07-15T00:00:00.000Z'),
+      refreshReason: 'manual_request',
+      syncNotBefore: new Date('2026-07-15T00:00:00.000Z'),
+    });
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100, 30);
+
+    await expect(readFreshCapacityOrRequest(service, [SKU_ID])).resolves.toEqual({
+      status: 'refresh_required',
+      requestedGeneration: '8',
+    });
+    expect(repository.state(ORG_ID).requestedGeneration).toBe(8n);
+
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      requestedGeneration: 9n,
+      verifiedGeneration: 8n,
+      activeGeneration: null,
+      activeSyncToken: null,
+      activeSyncOwnerUserId: null,
+      activeSyncStartedAt: null,
+      activeSyncLeaseExpiresAt: null,
+      failedGeneration: 9n,
+      lastAttemptStatus: 'failed',
+      lastAttemptAt: new Date('2026-07-15T00:00:00.000Z'),
+      refreshRequestedAt: new Date('2026-07-15T00:00:00.000Z'),
+      refreshReason: 'purchase_preflight',
+    });
+
+    await expect(readFreshCapacityOrRequest(service, [SKU_ID])).resolves.toEqual({
+      status: 'refresh_required',
+      requestedGeneration: '9',
+    });
+    expect(repository.state(ORG_ID).requestedGeneration).toBe(9n);
+  });
+
+  it('keeps unresolved transmission intent blocking while exposing the target generation', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      requestedGeneration: 4n,
+      verifiedGeneration: 4n,
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+    });
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100, 30);
+    await service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+
+    await expect(readFreshCapacityOrRequest(service, [SKU_ID])).resolves.toEqual({
+      status: 'refresh_required',
+      requestedGeneration: '5',
+    });
+    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
+      .resolves.toMatchObject({ claimed: false });
+  });
+
+  it('rejects invalid preflight references before acquiring the freshness lock', async () => {
+    await expectCode(
+      readFreshCapacityOrRequest(service, []),
+      'PURCHASE_REFERENCE_INVALID',
+    );
+    await expectCode(
+      readFreshCapacityOrRequest(service, ['not-a-uuid']),
+      'PURCHASE_REFERENCE_INVALID',
+    );
+    expect(repository.lockCount).toBe(0);
+  });
 });
+
+function readFreshCapacityOrRequest(
+  service: SellpiaInventoryFreshnessService,
+  sellpiaInventorySkuIds: string[],
+): Promise<unknown> {
+  return (service as unknown as {
+    readFreshCapacityOrRequest(input: {
+      organizationId: string;
+      sellpiaInventorySkuIds: string[];
+    }): Promise<unknown>;
+  }).readFreshCapacityOrRequest({ organizationId: ORG_ID, sellpiaInventorySkuIds });
+}
 
 async function expectCode(promise: Promise<unknown>, code: string) {
   try {

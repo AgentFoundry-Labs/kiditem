@@ -42,6 +42,12 @@ supports explicit Wing page automation.
 - Service worker owns long-running batch status in `chrome.storage.local`.
 - Content scripts report results to the service worker instead of owning global
   progress.
+- Wing registration waits for the bounded `wingFormReady` v2 probe on the exact
+  final Wing URL before filling. Every command carries a `formSessionId`; the
+  content script returns the same in-flight/completed result for duplicate IDs.
+- A missing managed collection window may be replaced once only while the same
+  stored run is still `running`. Never adopt an arbitrary user tab, cross an
+  environment/run owner boundary, or loop window replacement.
 
 ## Coupang Rules
 

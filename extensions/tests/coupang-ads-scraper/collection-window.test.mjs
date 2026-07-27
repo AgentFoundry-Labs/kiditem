@@ -31,6 +31,7 @@ function createFakeChrome(initialStorage = {}, messageResponses = []) {
     events: [],
     tabsCreate: [],
     tabsDuplicate: [],
+    tabsReload: [],
     tabsRemove: [],
     tabMessages: [],
     tabsUpdate: [],
@@ -226,6 +227,10 @@ function createFakeChrome(initialStorage = {}, messageResponses = []) {
         }
         tabs.delete(tabId);
         callbackResult(undefined, callback);
+      },
+      reload(tabId, _properties, callback) {
+        calls.tabsReload.push(tabId);
+        callbackResult(structuredClone(tabs.get(tabId)), callback);
       },
       update(tabId, properties, callback) {
         calls.tabsUpdate.push({ tabId, properties: structuredClone(properties) });
@@ -647,6 +652,88 @@ test('reattaches a live owned tab after a worker reload and rejects another run'
     reloaded.getOrCreate('run-b', 'https://example.com/other'),
     /다른 데이터 수집 작업이 확인 대기 중/,
   );
+});
+
+test('navigate recreates one owned window when the active run loses its record', async () => {
+  const fake = createFakeChrome();
+  const sessions = {
+    async get(runId) {
+      return runId === 'run-recover' ? { status: 'running' } : null;
+    },
+  };
+  const helper = loadHelper(fake, { sessions });
+  const original = await helper.getOrCreate(
+    'run-recover',
+    'https://example.com/first',
+  );
+  delete fake.storage['owned-window'];
+  fake.windows.delete(original.windowId);
+  fake.tabs.delete(original.tabId);
+
+  const recovered = await helper.navigate(
+    'run-recover',
+    'https://example.com/recovered',
+  );
+
+  assert.equal(fake.calls.windowsCreate.length, 2);
+  assert.notEqual(recovered.windowId, original.windowId);
+  assert.equal(recovered.runId, 'run-recover');
+  assert.equal(fake.storage['owned-window'].tabId, recovered.tabId);
+  assert.equal(fake.tabs.get(recovered.tabId).url, 'https://example.com/recovered');
+});
+
+test('navigate makes one replacement attempt and returns typed recovery failure evidence', async () => {
+  const fake = createFakeChrome();
+  const sessions = { async get() { return { status: 'running' }; } };
+  const helper = loadHelper(fake, { sessions });
+  const original = await helper.getOrCreate('run-recover-fail', 'https://example.com/first');
+  delete fake.storage['owned-window'];
+  fake.windows.delete(original.windowId);
+  fake.tabs.delete(original.tabId);
+  let replacementAttempts = 0;
+  fake.chrome.windows.create = (_properties, callback) => {
+    replacementAttempts += 1;
+    queueMicrotask(() => {
+      fake.chrome.runtime.lastError = { message: 'window denied' };
+      callback(undefined);
+      fake.chrome.runtime.lastError = null;
+    });
+  };
+
+  await assert.rejects(
+    helper.navigate('run-recover-fail', 'https://example.com/recovered'),
+    (error) => {
+      assert.equal(error.code, 'collection_window_recovery_failed');
+      assert.equal(error.runId, 'run-recover-fail');
+      assert.equal(error.stage, 'create_replacement');
+      return true;
+    },
+  );
+  assert.equal(replacementAttempts, 1);
+});
+
+test('navigate never recreates an inactive run or adopts another active run window', async () => {
+  const inactiveFake = createFakeChrome();
+  const inactive = loadHelper(inactiveFake, {
+    sessions: { async get() { return { status: 'failed' }; } },
+  });
+  await assert.rejects(
+    inactive.navigate('run-terminal', 'https://example.com/recovered'),
+    (error) => error.code === 'collection_window_inactive_run',
+  );
+  assert.equal(inactiveFake.calls.windowsCreate.length, 0);
+
+  const conflictFake = createFakeChrome();
+  const conflict = loadHelper(conflictFake, {
+    sessions: { async get() { return { status: 'running' }; } },
+  });
+  await conflict.getOrCreate('run-owner', 'https://example.com/owner');
+  await assert.rejects(
+    conflict.navigate('run-incoming', 'https://example.com/incoming'),
+    (error) => error.code === 'collection_window_owner_conflict',
+  );
+  assert.equal(conflictFake.calls.windowsCreate.length, 1);
+  assert.equal(conflictFake.storage['owned-window'].runId, 'run-owner');
 });
 
 test('a new run reuses an attention window only for the same producer', async () => {
@@ -1276,6 +1363,81 @@ test('retries manual sync across receiver startup and campaign-page navigation',
   assert.ok(
     sessionCalls.some(
       ([name, runId]) => name === 'succeed' && runId === 'run-content-ready',
+    ),
+  );
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+});
+
+test('reloads the owned advertising tab once when an extension reload left no content receiver', async () => {
+  const missingReceiver =
+    'Could not establish connection. Receiving end does not exist.';
+  const fake = createFakeChrome(
+    {},
+    [
+      ...Array.from({ length: 20 }, () => ({ runtimeError: missingReceiver })),
+      {
+        success: true,
+        type: 'coupang_ads',
+        count: 1,
+        progress: {
+          current: 1,
+          total: 1,
+          completed: 1,
+          failed: 0,
+          label: '쿠팡 광고 데이터 수집 완료',
+        },
+      },
+    ],
+  );
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab() {},
+    async cancel(runId) {
+      sessionCalls.push(['cancel', runId]);
+    },
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return { status: 'running', attempt: 1 };
+    },
+    async progress(runId, progress) {
+      sessionCalls.push(['progress', runId, progress]);
+    },
+    async requireAttention(runId, attention) {
+      sessionCalls.push(['requireAttention', runId, attention]);
+    },
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'dashboard.coupang_ads',
+    runId: 'run-content-reload',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'ads-day',
+        label: '쿠팡 광고 데이터 수집',
+        url: 'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-07-27',
+      },
+    ],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(fake.calls.tabsReload.length, 1);
+  assert.equal(fake.calls.tabMessages.length, 21);
+  assert.ok(
+    sessionCalls.some(
+      ([name, runId]) => name === 'succeed' && runId === 'run-content-reload',
     ),
   );
   assert.ok(!sessionCalls.some(([name]) => name === 'fail'));

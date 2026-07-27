@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ZodError } from 'zod';
 import { ApiError } from '@/lib/api-error';
@@ -16,18 +16,31 @@ vi.mock('next/dynamic', () => ({
 }));
 
 // Mock toast (no DOM noise)
-const { toastSuccessMock, toastErrorMock } = vi.hoisted(() => ({
-  toastSuccessMock: vi.fn(),
-  toastErrorMock: vi.fn(),
-}));
 vi.mock('sonner', () => ({
-  toast: { info: vi.fn(), success: toastSuccessMock, error: toastErrorMock },
+  toast: {
+    info: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    loading: vi.fn(),
+  },
 }));
 
-// Mock apiClient — page uses .getParsed and .get
+vi.mock('@/hooks/useSellpiaChannelSales', () => ({
+  sellpiaPeriodRange: () => ({ from: '2026-07-01', to: '2026-07-27' }),
+  useSellpiaChannelSales: () => ({
+    summary: undefined,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+    sync: vi.fn(),
+    syncing: false,
+  }),
+}));
+
+// Mock apiClient — page uses .getParsed and .get.
 const getParsedMock = vi.fn();
 const getMock = vi.fn();
-const postMock = vi.fn();
 vi.mock('@/lib/api-client', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api-client')>('@/lib/api-client');
   return {
@@ -37,7 +50,6 @@ vi.mock('@/lib/api-client', async () => {
       getParsed: (path: string, schema: unknown) => getParsedMock(path, schema),
       get: (path: string) => getMock(path),
       patch: vi.fn(),
-      post: (path: string, body?: unknown) => postMock(path, body),
     },
   };
 });
@@ -85,42 +97,10 @@ const successInv = {
   },
 };
 const successTrend: unknown[] = [];
-const aiActionTask = {
-  id: 'task-ai-1',
-  organizationId: 'organization-1',
-  taskKey: 'ad_bid',
-  type: 'ai',
-  label: '광고 입찰 조정',
-  detail: null,
-  where: null,
-  href: null,
-  priority: 'high',
-  status: 'pending',
-  role: 'ad_manager',
-  apiCall: { url: '/api/ad-rules', method: 'GET' },
-  result: null,
-  notes: [],
-  activityLog: [],
-  date: '2026-04-25',
-  relatedProducts: [],
-  assigneeUserId: null,
-  assigneeUser: null,
-  sourceAlert: null,
-  createdAt: '2026-04-25T00:00:00.000Z',
-  updatedAt: '2026-04-25T00:00:00.000Z',
-};
-
 beforeEach(() => {
   getParsedMock.mockReset();
   getMock.mockReset();
-  postMock.mockReset();
-  toastSuccessMock.mockReset();
-  toastErrorMock.mockReset();
-  // Default: action-tasks endpoint via apiClient.getParsed returns []
-  getParsedMock.mockImplementation((path: string) => {
-    if (path === '/api/action-tasks') return Promise.resolve([]);
-    return Promise.resolve(null);
-  });
+  getParsedMock.mockResolvedValue(null);
   getMock.mockImplementation((path: string) => {
     if (path === '/api/agent-os/instances') return Promise.resolve([]);
     return Promise.resolve([]);
@@ -230,13 +210,12 @@ describe('Dashboard page (RTL)', () => {
     });
   });
 
-  it('T7: /api/action-tasks goes through getParsed, not get', async () => {
+  it('T7: does not fetch the retired dashboard ActionTask board', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();
@@ -244,69 +223,23 @@ describe('Dashboard page (RTL)', () => {
       expect(screen.getByText('Kiditem Foundry')).toBeTruthy();
     });
     const parsedPaths = getParsedMock.mock.calls.map((c) => c[0]);
-    expect(parsedPaths).toContain('/api/action-tasks');
+    expect(parsedPaths).not.toContain('/api/action-tasks');
     expect(getMock).not.toHaveBeenCalledWith('/api/action-tasks');
   });
 
-  it('T8: execute mutation parses the updated ActionTask response shape', async () => {
+  it('T8: renders the current department quick-action board', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      if (path === '/api/action-tasks') return Promise.resolve([aiActionTask]);
       return Promise.resolve(null);
-    });
-    postMock.mockResolvedValue({
-      ...aiActionTask,
-      status: 'done',
-      result: { ok: true },
-      activityLog: [
-        {
-          action: 'executed',
-          timestamp: '2026-04-25T01:00:00.000Z',
-          success: true,
-        },
-      ],
-      updatedAt: '2026-04-25T01:00:00.000Z',
     });
 
     renderPage();
-    await waitFor(() => {
-      expect(screen.getByText('광고 입찰 조정')).toBeTruthy();
-    });
-
-    fireEvent.click(screen.getByTitle('실행'));
-
-    await waitFor(() => {
-      expect(postMock).toHaveBeenCalledWith('/api/action-tasks/task-ai-1/execute', {});
-      expect(toastSuccessMock).toHaveBeenCalledWith('액션을 실행했습니다.');
-    });
-  });
-
-  it('T9: execute mutation rejects the legacy ok envelope before success handling', async () => {
-    getParsedMock.mockImplementation((path: string) => {
-      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
-      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
-      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
-      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      if (path === '/api/action-tasks') return Promise.resolve([aiActionTask]);
-      return Promise.resolve(null);
-    });
-    postMock.mockResolvedValue({ ok: true });
-
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByText('광고 입찰 조정')).toBeTruthy();
-    });
-
-    fireEvent.click(screen.getByTitle('실행'));
-
-    await waitFor(() => {
-      expect(postMock).toHaveBeenCalledWith('/api/action-tasks/task-ai-1/execute', {});
-      expect(toastErrorMock).toHaveBeenCalledWith('실행에 실패했습니다.');
-    });
-    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(await screen.findByText('시장분석')).toBeInTheDocument();
+    expect(screen.getByText('몰 주문수집 (전체수집)')).toBeInTheDocument();
+    expect(screen.getByText('금일 쿠팡 쉽먼트 다운')).toBeInTheDocument();
   });
 
   it('T6: pipeline-stats endpoint is NOT called', async () => {

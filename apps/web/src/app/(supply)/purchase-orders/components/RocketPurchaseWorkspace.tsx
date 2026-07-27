@@ -70,6 +70,8 @@ export function RocketPurchaseWorkspace({
     editedQuantities,
     setReviewedQuantity,
     preview,
+    pendingCheckpoint,
+    stage,
     previewDirty,
     setPreviewDirty,
     collectionRun,
@@ -88,6 +90,7 @@ export function RocketPurchaseWorkspace({
     canExport,
     canRedownload,
     recalculate,
+    retryInventoryAndPreview,
     revalidateEditedQuantities,
     exportAndDownload,
     downloadActiveWorkbook,
@@ -153,8 +156,24 @@ export function RocketPurchaseWorkspace({
             onClick={() => void recalculate()}
             className="rounded-lg bg-[var(--primary,#7048e8)] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
-            {loading ? '계산 중' : '미리보기 다시 계산'}
+            {stage === 'collecting'
+              ? '쿠팡 수집 중'
+              : stage === 'refreshing_inventory'
+                ? '재고 갱신 중'
+                : stage === 'persisting_collection'
+                  ? '수집본 저장 중'
+                  : loading ? '계산 중' : '미리보기 다시 계산'}
           </button>
+          {stage === 'attention_required' && collectionRun ? (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void retryInventoryAndPreview()}
+              className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-800 disabled:opacity-40"
+            >
+              저장된 수집본으로 재고 다시 시도
+            </button>
+          ) : null}
           {preview?.rows.length ? (
             <button
               type="button"
@@ -206,6 +225,15 @@ export function RocketPurchaseWorkspace({
           </div>
         ) : null}
       </div>
+
+      {stage === 'refreshing_inventory' && pendingCheckpoint ? (
+        <p role="status" className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-semibold text-violet-800">
+          수집본 저장 완료 · 셀피아 재고 갱신 중
+          <span className="ml-2 font-normal text-violet-600">
+            요청 세대 {pendingCheckpoint.requestedGeneration}
+          </span>
+        </p>
+      ) : null}
 
       {error ? (
         <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

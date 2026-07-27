@@ -243,6 +243,115 @@ describe('Sellpia inventory freshness policy', () => {
     );
   });
 
+  it('claims thirty settled order finalizations once at their high-water generation', () => {
+    let state = makeState({
+      sourceAccountKey: 'kiditem',
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+    });
+    for (let index = 0; index < 30; index += 1) {
+      state = {
+        ...state,
+        ...planOrderTransmissionFinalization(
+          state,
+          new Date(NOW.getTime() + index * 5_000),
+          `order-fence-${index}`,
+        ),
+      };
+    }
+
+    expect(state).toMatchObject({
+      requestedGeneration: 31n,
+      verifiedGeneration: 1n,
+      refreshRequestedAt: NOW,
+      syncNotBefore: new Date('2026-07-15T00:04:25.000Z'),
+    });
+    const claim = planClaim(state, {
+      now: new Date('2026-07-15T00:04:25.000Z'),
+      userId: '00000000-0000-4000-8000-000000000081',
+      claimToken: '00000000-0000-4000-8000-000000000082',
+      freshnessFence: '00000000-0000-4000-8000-000000000083',
+    });
+    expect(claim).toMatchObject({ kind: 'claimed', generation: 31n });
+    if (claim.kind !== 'claimed') return;
+
+    const afterImport = makeState({
+      ...state,
+      ...claim.patch,
+      requestedGeneration: 31n,
+      verifiedGeneration: 31n,
+      activeGeneration: null,
+      activeSyncToken: null,
+      activeSyncOwnerUserId: null,
+      activeSyncStartedAt: null,
+      activeSyncLeaseExpiresAt: null,
+      lastVerifiedAt: new Date('2026-07-15T00:04:30.000Z'),
+      refreshRequestedAt: null,
+      syncNotBefore: null,
+    });
+    expect(planClaim(afterImport, {
+      now: new Date('2026-07-15T00:04:31.000Z'),
+      userId: '00000000-0000-4000-8000-000000000081',
+      claimToken: '00000000-0000-4000-8000-000000000084',
+      freshnessFence: '00000000-0000-4000-8000-000000000085',
+    })).toEqual({ kind: 'joined' });
+  });
+
+  it('runs one follow-up high-water claim for sends finalized during an active refresh', () => {
+    const firstPatch = planOrderTransmissionFinalization(
+      makeState({
+        sourceAccountKey: 'kiditem',
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+      }),
+      NOW,
+      '00000000-0000-4000-8000-000000000086',
+    );
+    let state = makeState({
+      ...firstPatch,
+      sourceAccountKey: 'kiditem',
+      activeGeneration: 2n,
+      activeSyncToken: '00000000-0000-4000-8000-000000000087',
+      activeSyncOwnerUserId: '00000000-0000-4000-8000-000000000088',
+      activeSyncStartedAt: new Date('2026-07-15T00:02:00.000Z'),
+      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:03:30.000Z'),
+    });
+    for (let index = 0; index < 5; index += 1) {
+      state = {
+        ...state,
+        ...planOrderTransmissionFinalization(
+          state,
+          new Date(Date.parse('2026-07-15T00:02:30.000Z') + index * 5_000),
+          `follow-up-fence-${index}`,
+        ),
+      };
+    }
+    expect(state.requestedGeneration).toBe(7n);
+
+    const afterActiveImport = {
+      ...state,
+      verifiedGeneration: 2n,
+      activeGeneration: null,
+      activeSyncToken: null,
+      activeSyncOwnerUserId: null,
+      activeSyncStartedAt: null,
+      activeSyncLeaseExpiresAt: null,
+    };
+    expect(planClaim(afterActiveImport, {
+      now: new Date('2026-07-15T00:04:49.999Z'),
+      userId: '00000000-0000-4000-8000-000000000089',
+      claimToken: '00000000-0000-4000-8000-000000000090',
+      freshnessFence: '00000000-0000-4000-8000-000000000091',
+    })).toEqual({ kind: 'joined' });
+    expect(planClaim(afterActiveImport, {
+      now: new Date('2026-07-15T00:04:50.000Z'),
+      userId: '00000000-0000-4000-8000-000000000089',
+      claimToken: '00000000-0000-4000-8000-000000000092',
+      freshnessFence: '00000000-0000-4000-8000-000000000093',
+    })).toMatchObject({ kind: 'claimed', generation: 7n });
+  });
+
   it('preserves a pending same-hash confirmation when another order coalesces before claim', () => {
     const confirmationRequestedAt = new Date('2026-07-15T00:01:00.000Z');
     const confirmationNotBefore = new Date('2026-07-15T00:04:00.000Z');
