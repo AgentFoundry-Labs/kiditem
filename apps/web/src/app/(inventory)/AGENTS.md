@@ -77,6 +77,15 @@ React Query + inventory API helpers
 - Sellpia import-run history has exactly one screen (`?tab=sellpia-sync`). Do
   not reintroduce a separate audit or freshness tab rendering the same
   `ImportFreshness` projection.
+- `?tab=sellpia-sync` also owns `UnresolvedTransmissions`, the only screen that
+  resolves a prepared-but-unresolved order transmission. Order collection can
+  only reopen an intent while the local generated file still carries a
+  transmission marker, so a crashed submit is otherwise unrecoverable and
+  silently blocks every stock collection claim. It renders nothing when there is
+  no blocker; do not delete it as an empty section.
+- Refresh buttons report the classified outcome of the returned freshness state,
+  never HTTP success. A non-throwing refresh request does not mean work was
+  scheduled. Use `_shared/sellpia-sync-outcome.ts` so every surface agrees.
 - Stock asset reporting has exactly one component (`StockAssets`). Do not add
   a second, reduced asset projection alongside it.
 

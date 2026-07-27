@@ -17,6 +17,10 @@ describe('SellpiaInventoryFreshnessController', () => {
       'inventory/sellpia-freshness',
     );
     expect(routeMetadata('getState')).toEqual(['/', RequestMethod.GET]);
+    expect(routeMetadata('listUnresolvedOrderTransmissionIntents')).toEqual([
+      'order-transmission-intents/unresolved',
+      RequestMethod.GET,
+    ]);
     expect(routeMetadata('confirmSourceBinding')).toEqual([
       'source-binding',
       RequestMethod.POST,
@@ -82,6 +86,7 @@ describe('SellpiaInventoryFreshnessController', () => {
     const controller = new SellpiaInventoryFreshnessController(port);
 
     await controller.getState(ORG_ID, USER);
+    await controller.listUnresolvedOrderTransmissionIntents(ORG_ID, USER);
     await controller.confirmSourceBinding(ORG_ID, USER, {
       sourceOrigin: 'https://kiditem.sellpia.com',
       sourceAccountKey: 'kiditem',
@@ -111,6 +116,10 @@ describe('SellpiaInventoryFreshnessController', () => {
     await controller.cancel(ORG_ID, USER, TOKEN, {});
 
     expect(port.getState).toHaveBeenCalledWith({ organizationId: ORG_ID, userId: USER_ID });
+    expect(port.listUnresolvedOrderTransmissionIntents).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+    });
     expect(port.confirmSourceBinding).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       userId: USER_ID,
@@ -196,6 +205,9 @@ function makePort() {
   } as const;
   return {
     getState: vi.fn<SellpiaInventoryFreshnessPort['getState']>().mockResolvedValue(view),
+    listUnresolvedOrderTransmissionIntents:
+      vi.fn<SellpiaInventoryFreshnessPort['listUnresolvedOrderTransmissionIntents']>()
+        .mockResolvedValue({ items: [], hasMore: false }),
     confirmSourceBinding: vi.fn<SellpiaInventoryFreshnessPort['confirmSourceBinding']>()
       .mockResolvedValue(view),
     requestRefresh: vi.fn<SellpiaInventoryFreshnessPort['requestRefresh']>()

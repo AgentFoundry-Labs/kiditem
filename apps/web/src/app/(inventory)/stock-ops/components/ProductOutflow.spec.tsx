@@ -12,12 +12,23 @@ const freshness = vi.hoisted(() => ({
   state: {
     status: 'refresh_required',
     lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+    syncNotBefore: null as string | null,
+    unresolvedOrderTransmissionIntents: [] as Array<{
+      intentKey: string;
+      preparedAt: string;
+    }>,
   },
 }));
 const browserStorage = vi.hoisted(() => ({
   get: vi.fn(),
   set: vi.fn(),
 }));
+const toastMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+}));
+
+vi.mock('sonner', () => ({ toast: toastMock }));
 
 vi.mock('@/lib/sellpia-product-sales-api', () => ({
   fetchSellpiaProductSales: productSalesApi.fetch,
@@ -92,10 +103,16 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
       productCount: 0,
       months: [],
     });
-    requestRefresh.mockResolvedValue({ status: 'refresh_required' });
+    requestRefresh.mockResolvedValue({
+      status: 'refresh_required',
+      syncNotBefore: null,
+      unresolvedOrderTransmissionIntents: [],
+    });
     freshness.state = {
       status: 'refresh_required',
       lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+      syncNotBefore: null,
+      unresolvedOrderTransmissionIntents: [],
     };
   });
 
@@ -158,7 +175,11 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     let completeRefresh: (() => void) | undefined;
     requestRefresh.mockImplementationOnce(
       () => new Promise((resolve) => {
-        completeRefresh = () => resolve({ status: 'syncing' });
+        completeRefresh = () => resolve({
+          status: 'syncing',
+          syncNotBefore: null,
+          unresolvedOrderTransmissionIntents: [],
+        });
       }),
     );
     renderProductOutflow();
@@ -180,6 +201,8 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     freshness.state = {
       status: 'failed',
       lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+      syncNotBefore: null,
+      unresolvedOrderTransmissionIntents: [],
     };
     renderProductOutflow();
 
@@ -194,12 +217,56 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     freshness.state = {
       status: 'syncing',
       lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+      syncNotBefore: null,
+      unresolvedOrderTransmissionIntents: [],
     };
     renderProductOutflow();
 
     expect(screen.getByText('갱신 중')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /재고 동기화/ })).toBeDisabled();
     expect(requestRefresh).not.toHaveBeenCalled();
+  });
+
+  // Regression: an unresolved Sellpia transmission makes the refresh request a
+  // no-op, and the button used to toast success on any non-throwing response.
+  it('reports the blocking transmission instead of claiming the sync started', async () => {
+    const blocked = {
+      status: 'refresh_required',
+      lastVerifiedAt: '2026-07-17T00:30:00.000Z',
+      syncNotBefore: null,
+      unresolvedOrderTransmissionIntents: [
+        {
+          intentKey: '1785076954061-kidsnote-browser',
+          preparedAt: '2026-07-16T14:42:38.482Z',
+        },
+      ],
+    };
+    freshness.state = blocked;
+    requestRefresh.mockResolvedValue(blocked);
+    renderProductOutflow();
+
+    expect(screen.getByText('전송 확인 필요')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /재고 동기화/ }));
+
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledTimes(1));
+    expect(toastMock.error.mock.calls[0][0]).toContain('재고 동기화가 막혀 있습니다');
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  it('reports the settle window when the sync is genuinely queued', async () => {
+    requestRefresh.mockResolvedValue({
+      status: 'refresh_required',
+      syncNotBefore: '2026-07-17T01:02:00.000Z',
+      unresolvedOrderTransmissionIntents: [],
+    });
+    renderProductOutflow();
+
+    fireEvent.click(screen.getByRole('button', { name: /재고 동기화/ }));
+
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith(
+      '셀피아 재고 동기화를 예약했습니다. 약 120초 후 시작합니다.',
+    ));
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 
   it('renders PR 329 depletion and stock signals from the canonical inventory summary', async () => {

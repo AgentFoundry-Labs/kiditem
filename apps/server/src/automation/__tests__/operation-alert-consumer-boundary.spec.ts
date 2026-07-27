@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const SERVER_SRC = 'apps/server/src';
@@ -44,6 +44,7 @@ describe('operation alert consumer boundary', () => {
       'apps/server/src/analytics/traffic/adapter/out/automation/',
       'apps/server/src/channels/adapter/out/automation/',
       'apps/server/src/finance/adapter/out/automation/',
+      'apps/server/src/inventory/adapter/out/automation/',
       'apps/server/src/rules/adapter/out/automation/',
       'apps/server/src/sourcing/adapter/out/automation/',
       'apps/server/src/agent-os/adapter/out/automation/',

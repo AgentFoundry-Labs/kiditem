@@ -26,6 +26,11 @@ export interface RocketWorkbookExportTransactionPort {
     exportId: string;
     reason: string;
   }): Promise<RocketWorkbookExportResponse>;
+  listExportedPoLineIds(input: {
+    organizationId: string;
+    channelAccountId: string;
+    poLineIds: string[];
+  }): Promise<string[]>;
 }
 
 export const ROCKET_WORKBOOK_EXPORT_TRANSACTION_PORT = Symbol(

@@ -99,6 +99,28 @@ const SellpiaInventoryLastAttemptViewSchema = z
   })
   .strict();
 
+// A prepared-but-unresolved order transmission blocks every collection claim and
+// pins status at `refresh_required`, so the view must name the blocker. Without
+// it a blocked state is indistinguishable from an ordinary stale one and no
+// screen can offer the owner/admin reconciliation that clears it.
+export const SellpiaUnresolvedOrderTransmissionIntentViewSchema = z
+  .object({
+    intentKey: z.string().trim().min(1).max(500),
+    preparedAt: IsoDateTimeStringSchema,
+  })
+  .strict();
+
+export const SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT = 20;
+
+export const SellpiaUnresolvedOrderTransmissionIntentListResponseSchema = z
+  .object({
+    items: z
+      .array(SellpiaUnresolvedOrderTransmissionIntentViewSchema)
+      .max(SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT),
+    hasMore: z.boolean(),
+  })
+  .strict();
+
 export const SellpiaInventoryFreshnessViewSchema = z
   .object({
     status: SellpiaInventoryFreshnessStatusSchema,
@@ -255,6 +277,12 @@ export type SellpiaInventoryQualityReport = z.infer<
 >;
 export type SellpiaInventoryFreshnessView = z.infer<
   typeof SellpiaInventoryFreshnessViewSchema
+>;
+export type SellpiaUnresolvedOrderTransmissionIntentView = z.infer<
+  typeof SellpiaUnresolvedOrderTransmissionIntentViewSchema
+>;
+export type SellpiaUnresolvedOrderTransmissionIntentListResponse = z.infer<
+  typeof SellpiaUnresolvedOrderTransmissionIntentListResponseSchema
 >;
 export type SellpiaInventoryRefreshRequest = z.infer<
   typeof SellpiaInventoryRefreshRequestSchema

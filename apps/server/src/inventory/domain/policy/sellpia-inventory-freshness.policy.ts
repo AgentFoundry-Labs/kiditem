@@ -1,17 +1,26 @@
 import {
   deriveSellpiaInventoryFreshness,
+  SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
   type SellpiaInventoryCollectionFailureCode,
   type SellpiaInventoryFreshnessStatus,
   type SellpiaInventoryFreshnessView,
   type SellpiaInventoryRefreshReason,
+  type SellpiaUnresolvedOrderTransmissionIntentListResponse,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export const SELLPIA_SOURCE_ORIGIN = 'https://kiditem.sellpia.com' as const;
 export const SELLPIA_SOURCE_ACCOUNT_KEY = 'kiditem' as const;
 export const SELLPIA_FRESHNESS_TTL_MS = 10 * 60_000;
 export const SELLPIA_CLAIM_LEASE_MS = 90_000;
+export const SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE =
+  '브라우저 수집 세션 응답이 없어 재고 갱신을 완료하지 못했습니다. 다시 시도해 주세요.';
 export const SELLPIA_ORDER_SETTLE_MS = 2 * 60_000;
 export const SELLPIA_ORDER_SETTLE_CAP_MS = 5 * 60_000;
+
+export type SellpiaUnresolvedOrderTransmissionIntent = {
+  intentKey: string;
+  preparedAt: Date;
+};
 
 export type SellpiaInventoryFreshnessState = {
   organizationId: string;
@@ -35,7 +44,9 @@ export type SellpiaInventoryFreshnessState = {
   lastErrorCode: SellpiaInventoryCollectionFailureCode | null;
   lastErrorMessage: string | null;
   freshnessFence: string;
-  unresolvedOrderTransmissionIntentCount: number;
+  // Identified rather than counted: the same rows both gate claims and tell an
+  // operator which transmission to reconcile.
+  unresolvedOrderTransmissionIntents: readonly SellpiaUnresolvedOrderTransmissionIntent[];
 };
 
 export type SellpiaInventoryFreshnessStatePatch = Partial<
@@ -44,6 +55,13 @@ export type SellpiaInventoryFreshnessStatePatch = Partial<
 
 export type SellpiaClaimDecision =
   | { kind: 'joined' }
+  | {
+    kind: 'expired';
+    patch: SellpiaInventoryFreshnessStatePatch;
+    generation: bigint;
+    claimToken: string;
+    createdBy: string;
+  }
   | {
     kind: 'claimed';
     patch: SellpiaInventoryFreshnessStatePatch;
@@ -78,7 +96,7 @@ export function createInitialFreshnessState(input: {
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: input.freshnessFence,
-    unresolvedOrderTransmissionIntentCount: 0,
+    unresolvedOrderTransmissionIntents: [],
   };
 }
 
@@ -94,7 +112,7 @@ export function deriveFreshnessStatus(
     failedGeneration: state.failedGeneration,
     activeSyncLeaseExpiresAt: state.activeSyncLeaseExpiresAt,
     hasUnresolvedOrderTransmissionIntent:
-      state.unresolvedOrderTransmissionIntentCount > 0,
+      state.unresolvedOrderTransmissionIntents.length > 0,
   });
 }
 
@@ -150,6 +168,22 @@ export function toFreshnessView(
     syncNotBefore: state.syncNotBefore?.toISOString() ?? null,
     activeSync,
     lastAttempt,
+  };
+}
+
+export function toUnresolvedOrderTransmissionIntentList(
+  state: SellpiaInventoryFreshnessState,
+): SellpiaUnresolvedOrderTransmissionIntentListResponse {
+  return {
+    items: state.unresolvedOrderTransmissionIntents
+      .slice(0, SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT)
+      .map((intent) => ({
+        intentKey: intent.intentKey,
+        preparedAt: intent.preparedAt.toISOString(),
+      })),
+    hasMore:
+      state.unresolvedOrderTransmissionIntents.length
+      > SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
   };
 }
 
@@ -290,13 +324,41 @@ export function planClaim(
     freshnessFence: string;
   },
 ): SellpiaClaimDecision {
-  if (
-    state.unresolvedOrderTransmissionIntentCount > 0
-    || hasLiveLease(state, input.now)
-    || !isSourceBindingConfirmed(state)
-  ) {
+  if (hasLiveLease(state, input.now)) {
     return { kind: 'joined' };
   }
+
+  if (
+    state.activeSyncToken !== null
+    && state.activeGeneration !== null
+    && state.activeSyncLeaseExpiresAt !== null
+    && state.activeSyncLeaseExpiresAt <= input.now
+  ) {
+    return {
+      kind: 'expired',
+      generation: state.activeGeneration,
+      claimToken: state.activeSyncToken,
+      createdBy: state.activeSyncOwnerUserId ?? input.userId,
+      patch: {
+        activeSyncToken: null,
+        activeSyncOwnerUserId: null,
+        activeSyncStartedAt: null,
+        activeSyncLeaseExpiresAt: null,
+        activeGeneration: null,
+        failedGeneration: state.activeGeneration,
+        lastAttemptAt: input.now,
+        lastAttemptStatus: 'failed',
+        lastErrorCode: 'sellpia_background_timeout',
+        lastErrorMessage: SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
+        freshnessFence: input.freshnessFence,
+      },
+    };
+  }
+
+  if (
+    state.unresolvedOrderTransmissionIntents.length > 0
+    || !isSourceBindingConfirmed(state)
+  ) return { kind: 'joined' };
 
   const ttlExpired = state.requestedGeneration === state.verifiedGeneration
     && state.lastVerifiedAt !== null

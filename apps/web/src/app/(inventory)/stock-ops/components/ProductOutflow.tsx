@@ -20,6 +20,12 @@ import {
   collectSellpiaProductProfitFromExtension,
 } from '@/lib/sellpia-product-sales-collection';
 import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
+import {
+  classifySellpiaStockSync,
+  describeSellpiaStockSync,
+  sellpiaBlockedBadgeLabel,
+  type SellpiaStockSyncOutcome,
+} from '../../_shared/sellpia-sync-outcome';
 import { ProductOutflowDestinations } from './ProductOutflowDestinations';
 
 const AUTO_SYNC_KEY = 'kiditem-sellpia-product-sales-autosync';
@@ -80,12 +86,15 @@ export default function ProductOutflow() {
   }, [queryClient]);
 
   // 현재고 갱신 요청(비필수) — 실제 JSON 스냅샷 수집/적재는 공용 조정자가 수행한다.
-  const syncStock = useCallback(async (): Promise<boolean> => {
+  // 요청이 성공해도 예약됐다는 뜻은 아니다. 응답 상태를 분류해 사실만 보고한다.
+  const syncStock = useCallback(async (): Promise<SellpiaStockSyncOutcome> => {
     try {
-      await requestRefresh(freshnessState?.status === 'failed' ? 'retry' : 'manual_request');
-      return true;
+      const state = await requestRefresh(
+        freshnessState?.status === 'failed' ? 'retry' : 'manual_request',
+      );
+      return classifySellpiaStockSync(state);
     } catch {
-      return false; // 갱신 요청 실패여도 판매 데이터 수집은 유지
+      return { kind: 'request_failed' }; // 갱신 요청 실패여도 판매 데이터 수집은 유지
     }
   }, [freshnessState?.status, requestRefresh]);
 
@@ -95,12 +104,14 @@ export default function ProductOutflow() {
       const payload = await collectSellpiaProductProfitFromExtension();
       const result = await ingestSellpiaProductSales(payload);
       await invalidate();
-      const stockOk = await syncStock();
+      const stockOutcome = await syncStock();
+      const stockNotice = describeSellpiaStockSync(stockOutcome);
       safeStorageSet('local', AUTO_SYNC_KEY, todayKst());
       toast.success(
-        `상품별 소진 수집 완료 (${result.productCount}개 상품, ${result.months.length}개월)` +
-          (stockOk ? ' · 현재고 갱신 요청' : ' · 현재고 갱신 요청 실패'),
+        `상품별 소진 수집 완료 (${result.productCount}개 상품, ${result.months.length}개월)`,
       );
+      // 현재고 갱신은 별개 결과다. 실패/차단을 판매 수집 성공 문구에 묻지 않는다.
+      if (stockNotice.tone === 'error') toast.error(stockNotice.message);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '상품별 소진 수집에 실패했습니다.');
     } finally {
@@ -112,16 +123,21 @@ export default function ProductOutflow() {
   const runStockSync = useCallback(async () => {
     setStockSyncing(true);
     try {
-      const ok = await syncStock();
+      const notice = describeSellpiaStockSync(await syncStock());
       await invalidate();
-      if (ok) toast.success('셀피아 재고 동기화를 시작했습니다.');
-      else toast.error('셀피아 재고 동기화 요청에 실패했습니다.');
+      if (notice.tone === 'error') toast.error(notice.message);
+      else toast.success(notice.message);
     } finally {
       setStockSyncing(false);
     }
   }, [syncStock, invalidate]);
   const stockBusy = stockSyncing || freshnessState?.status === 'syncing';
-  const stockMeta = freshnessState ? STOCK_FRESHNESS_META[freshnessState.status] : null;
+  const stockBlockedCount =
+    freshnessState?.unresolvedOrderTransmissionIntents.length ?? 0;
+  // 차단은 status 로 드러나지 않는다(항상 refresh_required). 배지에서 구분해준다.
+  const stockMeta = stockBlockedCount > 0
+    ? { label: sellpiaBlockedBadgeLabel(), className: 'bg-red-100 text-red-700' }
+    : freshnessState ? STOCK_FRESHNESS_META[freshnessState.status] : null;
   const stockAge = freshnessState?.lastVerifiedAt ? timeAgo(freshnessState.lastVerifiedAt) : null;
 
   // 마운트 시 하루 1회 자동 수집. 확장 없으면 조용히 스킵.
@@ -163,7 +179,9 @@ export default function ProductOutflow() {
           <button
             onClick={runStockSync}
             disabled={stockBusy}
-            title="셀피아 재고(현재고) 다시 동기화"
+            title={stockBlockedCount > 0
+              ? `셀피아 전송 결과 미확인 ${stockBlockedCount}건 때문에 동기화가 막혀 있습니다. 재고 관리 > Sellpia 동기화에서 확정해주세요.`
+              : '셀피아 재고(현재고) 다시 동기화'}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold px-2.5 py-1.5 hover:bg-slate-50 disabled:opacity-50"
           >
             {stockBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}

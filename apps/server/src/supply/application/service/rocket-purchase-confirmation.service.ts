@@ -102,4 +102,12 @@ implements RocketWorkbookExportPort {
       }),
     );
   }
+
+  listExportedPoLineIds(input: {
+    organizationId: string;
+    channelAccountId: string;
+    poLineIds: string[];
+  }): Promise<string[]> {
+    return this.transactions.listExportedPoLineIds(input);
+  }
 }

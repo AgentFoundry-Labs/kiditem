@@ -16,6 +16,7 @@ import {
   getActiveRocketWorkbook,
   loadSavedRocketCollection,
   previewRocketPurchases,
+  rocketPreviewErrorMessage,
 } from '../lib/rocket-purchase-preview-api';
 import {
   buildRocketConfirmationWorkbook,
@@ -141,6 +142,9 @@ export function useRocketPurchaseWorkflow({
   const [previewDirty, setPreviewDirty] = useState(false);
   const [validatedEditFingerprint, setValidatedEditFingerprint] = useState('');
   const [sourceRows, setSourceRows] = useState<RocketPoCatalogRow[]>([]);
+  // 이 계정에서 이미 확정 엑셀로 나간 PO 라인. 수집은 매번 전량 스냅샷이라 제출한 라인이
+  // 이후 수집본에도 계속 나온다. 목록에서 "이번에 새로 들어온 것"을 가려내는 기준이다.
+  const [exportedPoLineIds, setExportedPoLineIds] = useState<string[]>([]);
   const [collectionRun, setCollectionRun] = useState<CollectionRunSummary | null>(null);
   const [shortageReasons, setShortageReasons] = useState<Record<string, RocketShortageReason>>({});
   const [exportKey, setExportKey] = useState('');
@@ -162,6 +166,7 @@ export function useRocketPurchaseWorkflow({
     setPreviewDirty(false);
     setValidatedEditFingerprint('');
     setSourceRows([]);
+    setExportedPoLineIds([]);
     setCollectionRun(null);
     setShortageReasons({});
     setExportKey('');
@@ -223,6 +228,7 @@ export function useRocketPurchaseWorkflow({
           ),
         });
         setSourceRows(reviewRows);
+        setExportedPoLineIds(saved.exportedPoLineIds);
         setEditedQuantities(effectiveEdits);
         setOperatorEditedLineIds(new Set());
         setValidatedEditFingerprint(editFingerprint(effectiveEdits));
@@ -234,7 +240,7 @@ export function useRocketPurchaseWorkflow({
         onActivity?.({ status: 'succeeded', message: '저장된 로켓 PO를 최신 재고 기준으로 다시 계산했습니다.' });
       } catch (cause) {
         if (cancelled || generation !== requestGenerationRef.current) return;
-        const message = friendlyError(cause) ?? '저장된 로켓 PO를 불러오지 못했습니다.';
+        const message = rocketPreviewErrorMessage(cause, '저장된 로켓 PO를 불러오지 못했습니다.');
         setError(message);
         onActivity?.({ status: 'failed', message });
       } finally {
@@ -300,6 +306,8 @@ export function useRocketPurchaseWorkflow({
       setValidatedEditFingerprint(editFingerprint(effectiveEdits));
       setPreviewDirty(false);
       setSourceRows(reviewRows);
+      // 새로 수집한 결과에는 제출 이력을 조회하지 않았다. 근거 없이 행을 숨기지 않도록 비운다.
+      setExportedPoLineIds([]);
       setExportKey(globalThis.crypto.randomUUID());
       setShortageReasons((current) => pruneShortageReasons(
         current,
@@ -315,7 +323,7 @@ export function useRocketPurchaseWorkflow({
       });
     } catch (cause) {
       if (generation !== requestGenerationRef.current) return;
-      const message = friendlyError(cause) ?? '로켓 발주 미리보기를 계산하지 못했습니다.';
+      const message = rocketPreviewErrorMessage(cause, '로켓 발주 미리보기를 계산하지 못했습니다.');
       setError(message);
       onActivity?.({ status: 'failed', message });
     } finally {
@@ -363,7 +371,7 @@ export function useRocketPurchaseWorkflow({
     } catch (cause) {
       if (generation !== requestGenerationRef.current) return;
       setPreviewDirty(true);
-      const message = friendlyError(cause) ?? '수량을 다시 검증하지 못했습니다.';
+      const message = rocketPreviewErrorMessage(cause, '수량을 다시 검증하지 못했습니다.');
       setError(message);
       onActivity?.({ status: 'failed', message });
     } finally {
@@ -555,6 +563,7 @@ export function useRocketPurchaseWorkflow({
     setReviewedQuantity,
     preview,
     sourceRows,
+    exportedPoLineIds,
     previewDirty,
     setPreviewDirty,
     collectionRun,

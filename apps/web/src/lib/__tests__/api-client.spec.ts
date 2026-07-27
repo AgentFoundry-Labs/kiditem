@@ -141,6 +141,20 @@ describe('apiClient HTTP method envelopes', () => {
     expect(secondInit.body).toBeUndefined();
   });
 
+  it('POST preserves caller response-profile headers alongside JSON content type', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+
+    await apiClient.post('/api/purchase-orders', { action: 'listSavedRocketPos' }, {
+      headers: { 'X-KidItem-Response-Profile': 'rocket-saved-po-v2' },
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get('Content-Type')).toBe('application/json');
+    expect(headers.get('X-KidItem-Response-Profile')).toBe('rocket-saved-po-v2');
+  });
+
   it('PATCH, PUT, and DELETE use the expected HTTP methods and JSON envelopes', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock

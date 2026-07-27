@@ -35,6 +35,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     publication = new SellpiaSnapshotPublicationRepositoryAdapter(prismaService);
     freshnessService = new SellpiaInventoryFreshnessService(
       new SellpiaInventoryFreshnessRepositoryAdapter(prismaService),
+      { fail: async () => null },
     );
     service = new SellpiaInventoryImportService(
       runRepository,

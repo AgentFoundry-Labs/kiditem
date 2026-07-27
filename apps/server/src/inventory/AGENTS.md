@@ -39,6 +39,11 @@ inventory/
 - Sellpia import-run history: `GET /api/inventory/sellpia-sync/import-runs`
 - Sellpia freshness state and browser leases:
   `/api/inventory/sellpia-freshness/*`
+- An expired Sellpia browser lease is terminalized as
+  `sellpia_background_timeout`; it must not be reclaimed automatically. A new
+  generation may be claimed only after an explicit operator `retry` request.
+  Inventory also best-effort fails the matching browser operation alert through
+  its local Automation port after the failed state is committed.
 - Idempotent browser order-transmission intents and post-submit generation
   fencing under `/api/inventory/sellpia-freshness/order-transmission-intents/*`
 - Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
@@ -141,6 +146,11 @@ change stock.
   An owner/admin may also correct a false finalized result to `not_submitted`;
   that transition is append-only audited and is the only path that permits a
   confirmed missing file to reuse the stable intent key for one safe retry.
+- The additive unresolved-intent endpoint lists the transmission intents that
+  block collection, capped at `SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT` with a
+  continuation signal. Keep the legacy strict freshness response stable for
+  already-open browser bundles. The same repository rows that make `planClaim`
+  return `joined` must be nameable by the endpoint; do not reduce them to a count.
 - Every public view serializes generations as decimal strings and derives
   `activeSync.canControl` from the authenticated user without exposing the
   owner ID.

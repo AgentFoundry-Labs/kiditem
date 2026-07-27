@@ -11,6 +11,7 @@ import {
   SellpiaInventoryClaimResponseSchema,
   SellpiaInventoryFailRequestSchema,
   SellpiaInventoryFreshnessViewSchema,
+  SellpiaUnresolvedOrderTransmissionIntentListResponseSchema,
   SellpiaInventoryHeartbeatRequestSchema,
   SellpiaOrderTransmissionIntentAbortResponseSchema,
   SellpiaOrderTransmissionIntentFinalizeResponseSchema,
@@ -168,6 +169,25 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
         accountKey: 'kiditem',
         confirmed: true,
       },
+    })).toThrow();
+  });
+
+  // 기존 freshness 응답은 오래 열린 브라우저 탭과 호환되어야 한다. 차단 목록은
+  // 별도 응답으로 버전 독립적으로 읽는다.
+  it('parses the separately versioned unresolved transmission list', () => {
+    const parsed = SellpiaUnresolvedOrderTransmissionIntentListResponseSchema.parse({
+      items: [
+        {
+          intentKey: '1785076954061-kidsnote-browser',
+          preparedAt: '2026-07-26T14:42:38.482Z',
+        },
+      ],
+      hasMore: false,
+    });
+    expect(parsed.items).toHaveLength(1);
+    expect(() => SellpiaUnresolvedOrderTransmissionIntentListResponseSchema.parse({
+      items: [{ intentKey: '', preparedAt: 'nope' }],
+      hasMore: false,
     })).toThrow();
   });
 

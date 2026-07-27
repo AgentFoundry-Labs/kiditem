@@ -26,6 +26,7 @@ vi.mock('./components/InventoryWorkspace', () => ({
   InventoryWorkspace: () => <div>inventory</div>,
 }));
 vi.mock('../stock-ops/components/ImportFreshness', () => ({ default: () => <div>freshness</div> }));
+vi.mock('../stock-ops/components/UnresolvedTransmissions', () => ({ default: () => <div>unresolved transmissions</div> }));
 vi.mock('../stock-ops/components/StockTransfers', () => ({ default: () => <div>transfers</div> }));
 vi.mock('../stock-ops/components/ReturnTransfers', () => ({ default: () => <div>returns</div> }));
 
