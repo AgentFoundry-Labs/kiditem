@@ -123,6 +123,78 @@ describe('product pipeline DB model contract', () => {
     assert.match(renderer, /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
   });
 
+  it('passes an explicit canonical web origin independently from the CORS allowlist', () => {
+    const stagingWorkflow = readModelFile('.github/workflows/staging-deploy.yml');
+    const productionWorkflow = readModelFile('.github/workflows/production-deploy.yml');
+    const renderer = readModelFile('deploy/staging/render-runtime-env.sh');
+    const stagingExample = readModelFile('deploy/staging/env/api.env.example');
+    const productionExample = readModelFile('deploy/production/env/api.env.example');
+    const serverExample = readModelFile('apps/server/.env.example');
+
+    assert.equal(
+      stagingWorkflow.match(/WEB_ORIGIN:\s*\$\{\{ vars\.STAGING_URL \}\}/g)?.length,
+      2,
+    );
+    assert.equal(
+      productionWorkflow.match(/WEB_ORIGIN:\s*\$\{\{ vars\.PRODUCTION_URL \}\}/g)?.length,
+      2,
+    );
+    assert.match(renderer, /required_api_env=\([\s\S]*?WEB_ORIGIN/);
+    assert.match(stagingExample, /^WEB_ORIGIN=https:\/\/staging\.example\.com$/m);
+    assert.match(productionExample, /^WEB_ORIGIN=https:\/\/app\.example\.com$/m);
+    assert.match(serverExample, /^WEB_ORIGIN=http:\/\/localhost:3000$/m);
+  });
+
+  it('validates the canonical web origin during API bootstrap and reuses it for render claims', () => {
+    const main = readModelFile('apps/server/src/main.ts');
+    const renderService = readModelFile(
+      'apps/server/src/ai/application/service/detail-page-client-render.service.ts',
+    );
+
+    assert.match(main, /import \{ requireWebOrigin \} from '\.\/common\/config\/web-origin';/);
+    assert.match(main, /^\s*requireWebOrigin\(\);$/m);
+    assert.match(
+      renderService,
+      /import \{ requireWebOrigin \} from '\.\.\/\.\.\/\.\.\/common\/config\/web-origin';/,
+    );
+    assert.match(
+      renderService,
+      /new URL\('\/detail-page-client-render', requireWebOrigin\(\)\)/,
+    );
+    assert.doesNotMatch(renderService, /process\.env\.(?:CORS_ORIGINS|NODE_ENV)/);
+  });
+
+  it('rejects a runtime web origin that differs from the public deployment URL before candidate startup', () => {
+    const remoteDeploy = readModelFile('deploy/staging/remote-deploy.sh');
+    const deployStart = remoteDeploy.indexOf('\ndeploy() {');
+    const validationCall = remoteDeploy.indexOf(
+      '\n  validate_web_origin_runtime_env\n',
+      deployStart,
+    );
+    const candidateStartup = remoteDeploy.indexOf(
+      'compose up -d --force-recreate "${target_services[@]}"',
+      deployStart,
+    );
+
+    assert.match(
+      remoteDeploy,
+      /expected_public_url="\$\{PUBLIC_URL:-\$\{STAGING_URL:-\}\}"/,
+    );
+    assert.match(
+      remoteDeploy,
+      /\[\[ "\$actual_web_origin" == "\$expected_web_origin" \]\]/,
+    );
+    assert.equal(
+      remoteDeploy.match(/^\s*validate_web_origin_runtime_env$/gm)?.length,
+      2,
+    );
+    assert.ok(validationCall > deployStart, 'web origin validation must run during deploy');
+    assert.ok(
+      validationCall < candidateStartup,
+      'web origin validation must run before candidate containers start',
+    );
+  });
+
   it('keeps the local server API env example aligned with the staging API runtime env', () => {
     const stagingApiKeys = extractEnvKeys('deploy/staging/env/api.env.example');
     const serverExample = readModelFile('apps/server/.env.example');

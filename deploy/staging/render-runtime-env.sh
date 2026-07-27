@@ -71,6 +71,7 @@ write_web_env() {
 required_api_env=(
   DATABASE_URL
   SUPABASE_URL
+  WEB_ORIGIN
   CORS_ORIGINS
   S3_REGION
   S3_BUCKET

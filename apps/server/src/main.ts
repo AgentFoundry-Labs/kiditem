@@ -1,5 +1,6 @@
-import { config } from 'dotenv';
+/* eslint-disable import/order -- dotenv must load before modules that read runtime env */
 import { resolve } from 'path';
+import { config } from 'dotenv';
 
 // App-local env is authoritative for the NestJS runtime; root .env is only a
 // fallback for shared local tooling values such as DATABASE_URL.
@@ -9,17 +10,20 @@ config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication, ExpressAdapter } from '@nestjs/platform-express';
-import type { Request, Response } from 'express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const express = require('express') as typeof import('express');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { requireWebOrigin } from './common/config/web-origin';
 import { ChatService } from './chat/chat.service';
 import { SupabaseAuthMiddleware } from './auth/middleware/supabase-auth.middleware';
+import type { Request, Response } from 'express';
 
 async function bootstrap() {
+  requireWebOrigin();
+
   // Express instance 를 먼저 만들어 Nest router 앞에 CopilotKit 미들웨어를 등록.
   // NestFactory 가 만든 default ExpressAdapter 를 쓰면 미들웨어가 Nest router
   // 뒤에 쌓여 `/api/chat/copilot/...` 이 Nest 의 404 에 먼저 잡힘.
