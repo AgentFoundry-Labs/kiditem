@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AutomationModule } from '../automation/automation.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CoupangShipmentsController } from './adapter/in/http/coupang-shipments.controller';
 import { InventorySkuSnapshotController } from './adapter/in/http/inventory-sku-snapshot.controller';
@@ -25,6 +26,7 @@ import { UnshippedRepositoryAdapter } from './adapter/out/repository/unshipped.r
 import { WarehousesRepositoryAdapter } from './adapter/out/repository/warehouses.repository.adapter';
 import { CoupangShipmentDateSummaryRepositoryAdapter } from './adapter/out/repository/coupang-shipment-date-summary.repository.adapter';
 import { LocalCoupangShipmentFilesAdapter } from './adapter/out/storage/local-coupang-shipment-files.adapter';
+import { InventoryOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { COUPANG_SHIPMENTS_PORT, PICKING_PORT, UNSHIPPED_PORT } from './application/port/in/fulfillment';
 import {
   INVENTORY_SKU_SNAPSHOT_LIST_PORT,
@@ -54,6 +56,7 @@ import { TRANSFERS_REPOSITORY_PORT } from './application/port/out/repository/tra
 import { UNSHIPPED_REPOSITORY_PORT } from './application/port/out/repository/unshipped.repository.port';
 import { WAREHOUSES_REPOSITORY_PORT } from './application/port/out/repository/warehouses.repository.port';
 import { COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT } from './application/port/out/repository/coupang-shipment-date-summary.repository.port';
+import { INVENTORY_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 import { COUPANG_SHIPMENT_FILE_STORAGE_PORT } from './application/port/out/storage';
 import { CoupangShipmentsService } from './application/service/coupang-shipments.service';
 import { InventorySkuSnapshotListService } from './application/service/inventory-sku-snapshot-list.service';
@@ -134,7 +137,7 @@ const APPLICATION_PORT_BINDINGS = [
 ];
 
 @Module({
-  imports: [PrismaModule],
+  imports: [AutomationModule, PrismaModule],
   controllers: [
     InventorySkuSnapshotController,
     SellpiaInventoryImportController,
@@ -163,6 +166,7 @@ const APPLICATION_PORT_BINDINGS = [
     ConfirmedOrdersRepositoryAdapter,
     LocalCoupangShipmentFilesAdapter,
     CoupangShipmentDateSummaryRepositoryAdapter,
+    InventoryOperationAlertAdapter,
     InventorySkuSnapshotListService,
     InventoryCommitmentService,
     RocketWorkbookProgressService,
@@ -177,6 +181,10 @@ const APPLICATION_PORT_BINDINGS = [
     PickingService,
     CoupangShipmentsService,
     ...REPOSITORY_PORT_BINDINGS,
+    {
+      provide: INVENTORY_OPERATION_ALERT_PORT,
+      useExisting: InventoryOperationAlertAdapter,
+    },
     ...APPLICATION_PORT_BINDINGS,
   ],
   exports: [

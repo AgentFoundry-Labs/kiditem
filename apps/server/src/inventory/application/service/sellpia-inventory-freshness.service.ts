@@ -25,6 +25,7 @@ import {
   planOrderTransmissionFinalization,
   planRefreshRequest,
   planSourceBindingConfirmation,
+  SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
   SELLPIA_FRESHNESS_TTL_MS,
   SELLPIA_SOURCE_ACCOUNT_KEY,
   SELLPIA_SOURCE_ORIGIN,
@@ -33,6 +34,10 @@ import {
   type SellpiaInventoryFreshnessState,
 } from '../../domain/policy/sellpia-inventory-freshness.policy';
 import { calculateAvailableStock } from '../../domain/policy/inventory-commitment-state';
+import {
+  INVENTORY_OPERATION_ALERT_PORT,
+  type InventoryOperationAlertPort,
+} from '../port/out/cross-domain/operation-alert.port';
 import type {
   SellpiaInventoryClaimResponse,
   SellpiaInventoryCollectionFailureCode,
@@ -67,6 +72,8 @@ implements
   constructor(
     @Inject(SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT)
     private readonly repository: SellpiaInventoryFreshnessRepositoryPort,
+    @Inject(INVENTORY_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: InventoryOperationAlertPort,
   ) {}
 
   async getState(input: ActorScope): Promise<SellpiaInventoryFreshnessView> {
@@ -314,7 +321,7 @@ implements
   }
 
   async claimDue(input: ActorScope): Promise<SellpiaInventoryClaimResponse> {
-    return this.withLockedState(input.organizationId, async (transaction) => {
+    const result = await this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
       const now = new Date();
       const claimToken = randomUUID();
@@ -326,8 +333,34 @@ implements
       });
       if (decision.kind === 'joined') {
         return {
-          claimed: false,
-          state: toFreshnessView(state, now, input.userId),
+          response: {
+            claimed: false as const,
+            state: toFreshnessView(state, now, input.userId),
+          },
+          expiredClaimToken: null,
+        };
+      }
+      if (decision.kind === 'expired') {
+        const updated = await transaction.compareAndSetState({
+          expected: expectation(state),
+          patch: decision.patch,
+        });
+        await transaction.upsertFailedAttempt({
+          organizationId: input.organizationId,
+          generation: decision.generation,
+          claimToken: decision.claimToken,
+          trigger: state.refreshReason,
+          errorCode: 'sellpia_background_timeout',
+          errorMessage: SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
+          attemptedAt: now,
+          createdBy: decision.createdBy,
+        });
+        return {
+          response: {
+            claimed: false as const,
+            state: toFreshnessView(updated, now, input.userId),
+          },
+          expiredClaimToken: decision.claimToken,
         };
       }
       const updated = await transaction.compareAndSetState({
@@ -335,13 +368,31 @@ implements
         patch: decision.patch,
       });
       return {
-        claimed: true,
-        claimToken,
-        activeGeneration: decision.generation.toString(),
-        leaseExpiresAt: decision.leaseExpiresAt.toISOString(),
-        state: toFreshnessView(updated, now, input.userId),
+        response: {
+          claimed: true as const,
+          claimToken,
+          activeGeneration: decision.generation.toString(),
+          leaseExpiresAt: decision.leaseExpiresAt.toISOString(),
+          state: toFreshnessView(updated, now, input.userId),
+        },
+        expiredClaimToken: null,
       };
     });
+    if (result.expiredClaimToken !== null) {
+      await this.operationAlerts.fail(
+        input.organizationId,
+        `browser-collection:${result.expiredClaimToken}`,
+        {
+          message: SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
+          severity: 'error',
+          metadata: {
+            staleReconciled: true,
+            staleReconciledReason: 'sellpia_lease_expired',
+          },
+        },
+      ).catch(() => undefined);
+    }
+    return result.response;
   }
 
   async heartbeat(input: ActorScope & {

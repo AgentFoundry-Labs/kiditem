@@ -31,6 +31,7 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
       new SellpiaInventoryFreshnessRepositoryAdapter(
         prisma as unknown as PrismaService,
       ),
+      { fail: async () => null },
     );
   });
 

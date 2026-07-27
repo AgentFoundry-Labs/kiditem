@@ -1,6 +1,10 @@
 import { AppException } from '@kiditem/shared/server-errors';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
+  type SellpiaInventoryFreshnessState,
+} from '../../domain/policy/sellpia-inventory-freshness.policy';
 import { SellpiaInventoryFreshnessService } from './sellpia-inventory-freshness.service';
 import type {
   FailedSellpiaInventoryAttempt,
@@ -9,7 +13,6 @@ import type {
   SellpiaInventoryStateExpectation,
   SellpiaInventoryStatePatch,
 } from '../port/out/repository/sellpia-inventory-freshness.repository.port';
-import type { SellpiaInventoryFreshnessState } from '../../domain/policy/sellpia-inventory-freshness.policy';
 
 const ORG_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_ORG_ID = '00000000-0000-4000-8000-000000000002';
@@ -21,13 +24,15 @@ const INTENT_KEY = '1721000000000-kidkids-browser';
 
 describe('SellpiaInventoryFreshnessService', () => {
   let repository: MemoryFreshnessRepository;
+  let operationAlerts: { fail: ReturnType<typeof vi.fn> };
   let service: SellpiaInventoryFreshnessService;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-15T00:00:00.000Z'));
     repository = new MemoryFreshnessRepository();
-    service = new SellpiaInventoryFreshnessService(repository);
+    operationAlerts = { fail: vi.fn().mockResolvedValue(null) };
+    service = new SellpiaInventoryFreshnessService(repository, operationAlerts);
   });
 
   afterEach(() => {
@@ -624,26 +629,71 @@ describe('SellpiaInventoryFreshnessService', () => {
     expect(repository.failedAttempts[0]?.errorMessage).toHaveLength(300);
   });
 
-  it('lets another user reclaim at the exact lease expiry boundary', async () => {
+  it('fails an expired lease instead of automatically reclaiming it', async () => {
     repository.seedPendingState();
     const first = await service.claimDue({ organizationId: ORG_ID, userId: USER_ID });
-    expect(first.claimed).toBe(true);
+    if (!first.claimed) throw new Error('expected winning claim');
 
     vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
-    const reclaimed = await service.claimDue({
+    const expired = await service.claimDue({
       organizationId: ORG_ID,
       userId: OTHER_USER_ID,
     });
 
-    expect(reclaimed).toMatchObject({
-      claimed: true,
-      activeGeneration: '2',
-      state: { activeSync: { canControl: true } },
+    expect(expired).toMatchObject({
+      claimed: false,
+      state: {
+        status: 'failed',
+        activeSync: null,
+        lastAttempt: {
+          status: 'failed',
+          errorCode: 'sellpia_background_timeout',
+        },
+      },
     });
-    expect(repository.state(ORG_ID).activeSyncOwnerUserId).toBe(OTHER_USER_ID);
+    expect(repository.state(ORG_ID)).toMatchObject({
+      activeSyncToken: null,
+      activeSyncOwnerUserId: null,
+      activeGeneration: null,
+      failedGeneration: 2n,
+    });
+    expect(repository.failedAttempts).toContainEqual(expect.objectContaining({
+      organizationId: ORG_ID,
+      generation: 2n,
+      claimToken: first.claimToken,
+      createdBy: USER_ID,
+      errorCode: 'sellpia_background_timeout',
+    }));
+    expect(operationAlerts.fail).toHaveBeenCalledWith(
+      ORG_ID,
+      `browser-collection:${first.claimToken}`,
+      {
+        message: SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
+        severity: 'error',
+        metadata: {
+          staleReconciled: true,
+          staleReconciledReason: 'sellpia_lease_expired',
+        },
+      },
+    );
+
+    await expect(service.claimDue({ organizationId: ORG_ID, userId: OTHER_USER_ID }))
+      .resolves.toMatchObject({ claimed: false, state: { status: 'failed' } });
   });
 
-  it('blocks an ownerless future lease and reclaims it at exact expiry', async () => {
+  it('keeps an expired lease failed when alert cleanup fails', async () => {
+    repository.seedPendingState();
+    const first = await service.claimDue({ organizationId: ORG_ID, userId: USER_ID });
+    if (!first.claimed) throw new Error('expected winning claim');
+    operationAlerts.fail.mockRejectedValueOnce(new Error('alerts unavailable'));
+
+    vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
+    await expect(service.claimDue({ organizationId: ORG_ID, userId: OTHER_USER_ID }))
+      .resolves.toMatchObject({ claimed: false, state: { status: 'failed' } });
+    expect(operationAlerts.fail).toHaveBeenCalledOnce();
+  });
+
+  it('requires an explicit retry before claiming after lease expiry', async () => {
     repository.seedState({
       requestedGeneration: 2n,
       verifiedGeneration: 1n,
@@ -660,8 +710,22 @@ describe('SellpiaInventoryFreshnessService', () => {
     vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
     await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
       .resolves.toMatchObject({
+        claimed: false,
+        state: { status: 'failed' },
+      });
+
+    await expect(service.requestRefresh({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      reason: 'retry',
+    })).resolves.toMatchObject({
+      requestedGeneration: '3',
+      status: 'refresh_required',
+    });
+    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
+      .resolves.toMatchObject({
         claimed: true,
-        activeGeneration: '2',
+        activeGeneration: '3',
         state: { activeSync: { canControl: true } },
       });
   });

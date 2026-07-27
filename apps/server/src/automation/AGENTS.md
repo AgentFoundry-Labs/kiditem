@@ -40,9 +40,12 @@ Browser operation producer policy registers `inventory.sellpia` at
 `/inventory-hub?tab=sellpia-sync` and stable Sellpia quality-warning operation
 keys at `/stock-ops?tab=freshness`. Mall collection alerts return to
 `/order-collection`. The authenticated web freshness coordinator is
-the sole owner of those alert lifecycles; generic browser-session reconciliation
-must not publish a second alert for the same run. Every browser lifecycle
-transition carries monotonic collection-attempt ordering metadata.
+the owner of live browser alert lifecycle transitions. When an Inventory-owned
+Sellpia lease expires, Inventory may terminalize that same operation key as
+failed through its local operation-alert port; it must not create a replacement
+alert or reclaim the lease. Generic browser-session reconciliation must not
+publish a second alert for the same run. Every browser lifecycle transition
+carries monotonic collection-attempt ordering metadata.
 
 ## Main Data Models
 

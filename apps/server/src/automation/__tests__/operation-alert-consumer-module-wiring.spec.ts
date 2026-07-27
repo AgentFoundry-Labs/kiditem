@@ -19,6 +19,9 @@ import { TRAFFIC_OPERATION_ALERT_PORT } from '../../analytics/traffic/applicatio
 import { SourcingModule } from '../../sourcing/sourcing.module';
 import { SourcingOperationAlertAdapter } from '../../sourcing/adapter/out/automation/operation-alert.adapter';
 import { SOURCING_OPERATION_ALERT_PORT } from '../../sourcing/application/port/out/cross-domain/operation-alert.port';
+import { InventoryModule } from '../../inventory/inventory.module';
+import { InventoryOperationAlertAdapter } from '../../inventory/adapter/out/automation/operation-alert.adapter';
+import { INVENTORY_OPERATION_ALERT_PORT } from '../../inventory/application/port/out/cross-domain/operation-alert.port';
 
 const IMPORTS_KEY = 'imports';
 const PROVIDERS_KEY = 'providers';
@@ -29,6 +32,12 @@ type ProviderBinding = {
 };
 
 const consumers = [
+  {
+    name: 'InventoryModule',
+    module: InventoryModule,
+    adapter: InventoryOperationAlertAdapter,
+    token: INVENTORY_OPERATION_ALERT_PORT,
+  },
   {
     name: 'AiModule',
     module: AiModule,
