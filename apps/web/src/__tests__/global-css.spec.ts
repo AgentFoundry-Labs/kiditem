@@ -17,4 +17,12 @@ describe('global page layout css', () => {
     expect(css).toMatch(/html\s*{[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*scroll;[^}]*scrollbar-gutter:\s*stable;/s);
     expect(css).toMatch(/body\s*{[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*visible;/s);
   });
+
+  it('does not reserve scrollbar gutter space on the fixed-width client render surface', () => {
+    const css = readFileSync(resolve(__dirname, '../app/globals.css'), 'utf8');
+
+    expect(css).toMatch(
+      /html\[data-kiditem-render-status\]\s*{[^}]*overflow-y:\s*hidden;[^}]*scrollbar-gutter:\s*auto;/s,
+    );
+  });
 });
