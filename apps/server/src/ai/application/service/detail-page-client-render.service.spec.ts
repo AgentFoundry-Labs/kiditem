@@ -227,10 +227,9 @@ describe('DetailPageClientRenderService', () => {
     expect(storage.createPresignedPut).toHaveBeenCalledWith(expect.objectContaining({
       key: OBJECT_KEY,
       contentType: 'image/jpeg',
-      metadata: expect.objectContaining({
+      metadata: {
         'intent-id': INTENT_ID,
-        'revision-id': REVISION_ID,
-      }),
+      },
     }));
   });
 
@@ -355,7 +354,7 @@ describe('DetailPageClientRenderService', () => {
     expect(images.failIntent).not.toHaveBeenCalled();
   });
 
-  it('finalize는 저장된 JPEG와 관측값/metadata가 모두 일치할 때만 idempotent 완료한다', async () => {
+  it('finalize는 intent fence와 SHA를 확인하고 실제 객체의 크기와 치수를 authority로 사용한다', async () => {
     const claimed = intent({ state: 'claimed', claimedByUserId: USER_ID });
     images.findIntent.mockResolvedValue(claimed);
     storage.inspectJpeg.mockResolvedValue({
@@ -366,16 +365,13 @@ describe('DetailPageClientRenderService', () => {
       sha256: 'a'.repeat(64),
       metadata: {
         'intent-id': INTENT_ID,
-        'revision-id': REVISION_ID,
-        variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
-        'output-width': '780',
       },
     });
     images.completeIntent.mockResolvedValue(imageArtifact());
     const body = {
-      byteLength: 2048,
+      byteLength: 1,
       pixelWidth: 780 as const,
-      pixelHeight: 7846,
+      pixelHeight: 1,
       sha256: 'a'.repeat(64),
     };
 
@@ -396,15 +392,64 @@ describe('DetailPageClientRenderService', () => {
       createdByUserId: USER_ID,
     }));
 
-    storage.inspectJpeg.mockResolvedValueOnce({
-      ...(await storage.inspectJpeg.mock.results[0].value),
-      pixelWidth: 779,
+  });
+
+  it('finalize는 다른 intent가 업로드한 객체를 거부한다', async () => {
+    images.findIntent.mockResolvedValue(intent({
+      state: 'claimed',
+      claimedByUserId: USER_ID,
+    }));
+    storage.inspectJpeg.mockResolvedValue({
+      contentType: 'image/jpeg',
+      byteLength: 2048,
+      pixelWidth: 780,
+      pixelHeight: 7846,
+      sha256: 'a'.repeat(64),
+      metadata: { 'intent-id': '99999999-9999-4999-8999-999999999999' },
     });
+
     await expect(service.finalize({
       organizationId: ORG_ID,
       userId: USER_ID,
       intentId: INTENT_ID,
-      body,
+      body: {
+        byteLength: 2048,
+        pixelWidth: 780,
+        pixelHeight: 7846,
+        sha256: 'a'.repeat(64),
+      },
+    })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it.each([
+    ['SHA', { sha256: 'b'.repeat(64) }],
+    ['실제 너비', { pixelWidth: 779 }],
+    ['실제 높이', { pixelHeight: 50_001 }],
+  ])('finalize는 잘못된 %s 검증값을 거부한다', async (_label, inspectedOverride) => {
+    images.findIntent.mockResolvedValue(intent({
+      state: 'claimed',
+      claimedByUserId: USER_ID,
+    }));
+    storage.inspectJpeg.mockResolvedValue({
+      contentType: 'image/jpeg',
+      byteLength: 2048,
+      pixelWidth: 780,
+      pixelHeight: 7846,
+      sha256: 'a'.repeat(64),
+      metadata: { 'intent-id': INTENT_ID },
+      ...inspectedOverride,
+    });
+
+    await expect(service.finalize({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+      body: {
+        byteLength: 2048,
+        pixelWidth: 780,
+        pixelHeight: 7846,
+        sha256: 'a'.repeat(64),
+      },
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 });

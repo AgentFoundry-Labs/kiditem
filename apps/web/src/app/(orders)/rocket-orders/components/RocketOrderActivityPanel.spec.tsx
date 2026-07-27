@@ -8,6 +8,7 @@ describe('Rocket order activity', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-18T01:02:03.000Z'));
+    window.sessionStorage.clear();
   });
 
   it('keeps newest events first and caps the page session at 50', () => {
@@ -34,5 +35,40 @@ describe('Rocket order activity', () => {
 
     expect(screen.getByRole('log')).toHaveTextContent('저장 수집본을 불러오지 못했습니다.');
     expect(screen.getByText('실패')).toBeInTheDocument();
+  });
+
+  it('restores activity after leaving and returning to the route', () => {
+    const first = renderHook(useRocketOrderActivity);
+
+    act(() => {
+      first.result.current.record({
+        status: 'started',
+        message: '쿠팡에서 로켓 PO를 새로 수집하고 있습니다.',
+      });
+    });
+    const recordAfterNavigation = first.result.current.record;
+    first.unmount();
+
+    act(() => {
+      recordAfterNavigation({
+        status: 'succeeded',
+        message: '로켓 PO 수집본 저장을 완료했습니다.',
+      });
+    });
+
+    const returned = renderHook(useRocketOrderActivity);
+    expect(returned.result.current.events.map(({ status, message }) => ({
+      status,
+      message,
+    }))).toEqual([
+      {
+        status: 'succeeded',
+        message: '로켓 PO 수집본 저장을 완료했습니다.',
+      },
+      {
+        status: 'started',
+        message: '쿠팡에서 로켓 PO를 새로 수집하고 있습니다.',
+      },
+    ]);
   });
 });

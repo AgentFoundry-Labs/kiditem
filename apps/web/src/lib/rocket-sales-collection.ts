@@ -17,6 +17,13 @@ interface CollectResponse {
   pendingLogin?: boolean;
 }
 
+export interface FinalizeRocketPoCollectionSessionInput {
+  extensionId?: string;
+  runId: string;
+  status: 'succeeded' | 'failed';
+  message: string;
+}
+
 export async function detectRocketOrderExtensionId(requiredCapability: string): Promise<string> {
   const exactId = await detectOrderCollectionExtensionId(1200, requiredCapability);
   if (exactId) return exactId;
@@ -47,6 +54,7 @@ export async function collectRocketPoRowsFromExtension({
   rows: RocketPoCatalogRow[];
   poCount: number;
   collection: RocketPoCollectionEvidence;
+  extensionId?: string;
 }> {
   return collectRocketPoRows(
     { from, to, status, dateType },
@@ -64,6 +72,7 @@ export async function collectRocketPoRowsForConfirmationFromExtension({
   rows: RocketPoCatalogRow[];
   poCount: number;
   collection: RocketPoCollectionEvidence;
+  extensionId?: string;
 }> {
   return collectRocketPoRows(
     // Preserve every monthly PO status for the calendar/history. The Supply
@@ -85,41 +94,77 @@ async function collectRocketPoRows(
   rows: RocketPoCatalogRow[];
   poCount: number;
   collection: RocketPoCollectionEvidence;
+  extensionId?: string;
 }> {
   const { from, to, status, dateType } = input;
   const runId = globalThis.crypto.randomUUID();
   const extensionId = await detectRocketOrderExtensionId(requiredCapability);
   const res = await sendToExtension<CollectResponse>(
     extensionId,
-    { action: 'collectRocketPoRows', from, to, status, dateType, runId },
+    {
+      action: 'collectRocketPoRows',
+      from,
+      to,
+      status,
+      dateType,
+      runId,
+      deferTerminal: true,
+    },
     190000,
   );
-  if (!res) {
-    throw new Error(
-      '주문수집 확장이 로켓 발주 수집 액션에 응답하지 않았습니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
-    );
+  try {
+    if (!res) {
+      throw new Error(
+        '주문수집 확장이 로켓 발주 수집 액션에 응답하지 않았습니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
+      );
+    }
+    if (!res.success || !res.rows || !res.evidence) {
+      throw Object.assign(new Error(res.error ?? '로켓 발주 수집에 실패했습니다.'), {
+        pendingLogin: res.pendingLogin === true,
+      });
+    }
+    const collection = RocketPoCollectionEvidenceSchema.parse(res.evidence);
+    if (collection.collectionRunId !== runId) {
+      throw new Error('Rocket collection run identity does not match the browser request.');
+    }
+    const rows = res.rows.map((row) => RocketPoCatalogRowSchema.parse(row));
+    if (
+      requiredCapability === 'collectRocketPoRowsConfirmationV1'
+      && rows.some((row) => !row.confirmation || row.barcode.length === 0)
+    ) {
+      throw new Error(
+        '로켓 발주확정 자료가 누락되었습니다. Chrome 확장 관리에서 주문수집 확장을 새로고침한 뒤 다시 수집해 주세요.',
+      );
+    }
+    return {
+      rows,
+      poCount: res.poCount ?? 0,
+      collection,
+      extensionId,
+    };
+  } catch (error) {
+    await finalizeRocketPoCollectionSession({
+      extensionId,
+      runId,
+      status: 'failed',
+      message: error instanceof Error ? error.message : '로켓 발주 수집에 실패했습니다.',
+    }).catch(() => undefined);
+    throw error;
   }
-  if (!res.success || !res.rows || !res.evidence) {
-    throw Object.assign(new Error(res.error ?? '로켓 발주 수집에 실패했습니다.'), {
-      pendingLogin: res.pendingLogin === true,
-    });
-  }
-  const collection = RocketPoCollectionEvidenceSchema.parse(res.evidence);
-  if (collection.collectionRunId !== runId) {
-    throw new Error('Rocket collection run identity does not match the browser request.');
-  }
-  const rows = res.rows.map((row) => RocketPoCatalogRowSchema.parse(row));
-  if (
-    requiredCapability === 'collectRocketPoRowsConfirmationV1'
-    && rows.some((row) => !row.confirmation || row.barcode.length === 0)
-  ) {
-    throw new Error(
-      '로켓 발주확정 자료가 누락되었습니다. Chrome 확장 관리에서 주문수집 확장을 새로고침한 뒤 다시 수집해 주세요.',
-    );
-  }
-  return {
-    rows,
-    poCount: res.poCount ?? 0,
-    collection,
-  };
+}
+
+export async function finalizeRocketPoCollectionSession({
+  extensionId,
+  runId,
+  status,
+  message,
+}: FinalizeRocketPoCollectionSessionInput): Promise<void> {
+  const targetExtensionId = extensionId
+    ?? await detectRocketOrderExtensionId('browserCollectionSessions');
+  await sendToExtension(targetExtensionId, {
+    action: 'finalizeCollectionSession',
+    runId,
+    status,
+    message: message.slice(0, 300),
+  });
 }

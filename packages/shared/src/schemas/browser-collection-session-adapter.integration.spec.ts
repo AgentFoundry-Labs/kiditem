@@ -62,6 +62,7 @@ describe('extension collection-session public contract', () => {
   it.each(adapterPaths)('%s emits shared-schema-compatible views from every public lifecycle surface', async (adapterPath) => {
     const manager = loadManager(adapterPath);
     const started = await manager.start({
+      environmentId: 'local',
       runId: RUN_ID,
       producer: 'sourcing.1688_trend',
       classification: 'background_preferred',
@@ -107,6 +108,7 @@ describe('extension collection-session public contract', () => {
   it.each(adapterPaths)('%s emits the registered Sellpia inventory producer', async (adapterPath) => {
     const manager = loadManager(adapterPath);
     const started = await manager.start({
+      environmentId: 'local',
       runId: RUN_ID,
       producer: 'inventory.sellpia',
       classification: 'background_preferred',

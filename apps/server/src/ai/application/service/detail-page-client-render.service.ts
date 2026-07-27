@@ -206,9 +206,6 @@ export class DetailPageClientRenderService {
       expiresInSeconds: UPLOAD_URL_TTL_SECONDS,
       metadata: {
         'intent-id': claimed.id,
-        'revision-id': claimed.revisionId,
-        variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
-        'output-width': String(DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH),
       },
     });
     const renderDocumentUrl = new URL('/detail-page-client-render', requireWebOrigin());
@@ -277,22 +274,12 @@ export class DetailPageClientRenderService {
       key: renderIntent.objectKey,
       maxByteLength: DETAIL_PAGE_CLIENT_RENDER_MAX_BYTES,
     });
-    const expectedMetadata = {
-      'intent-id': renderIntent.id,
-      'revision-id': renderIntent.revisionId,
-      variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
-      'output-width': String(DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH),
-    };
-    const metadataMatches = Object.entries(expectedMetadata).every(
-      ([key, value]) => inspected.metadata[key] === value,
-    );
+    const metadataMatches = inspected.metadata['intent-id'] === renderIntent.id;
     const observationsMatch =
       inspected.contentType === DETAIL_PAGE_CLIENT_RENDER_CONTENT_TYPE &&
-      inspected.byteLength === input.body.byteLength &&
-      inspected.pixelWidth === input.body.pixelWidth &&
-      inspected.pixelHeight === input.body.pixelHeight &&
       inspected.sha256 === input.body.sha256 &&
       inspected.pixelWidth === DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH &&
+      inspected.pixelHeight > 0 &&
       inspected.pixelHeight <= DETAIL_PAGE_CLIENT_RENDER_MAX_HEIGHT;
     if (!metadataMatches || !observationsMatch) {
       throw new BadRequestException('업로드된 상세페이지 JPEG 검증값이 일치하지 않습니다.');
