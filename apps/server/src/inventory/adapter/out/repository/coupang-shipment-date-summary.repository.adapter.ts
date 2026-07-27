@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CoupangShipmentDateSummaryRecord,
@@ -40,21 +41,26 @@ implements CoupangShipmentDateSummaryRepositoryPort {
     }
 
     if (byDate.size > 0) {
-      await this.prisma.$transaction(
-        [...byDate.entries()].map(([shipmentDate, value]) =>
-          this.prisma.coupangShipmentDateSummary.upsert({
-            where: { organizationId_shipmentDate: { organizationId, shipmentDate } },
-            create: {
-              organizationId,
-              shipmentDate,
-              count: value.count,
-              boxes: value.boxes,
-              capturedAt,
-            },
-            update: { count: value.count, boxes: value.boxes, capturedAt },
-          }),
-        ),
-      );
+      const valueRows = [...byDate.entries()].map(([shipmentDate, value]) =>
+        Prisma.sql`(
+          gen_random_uuid(),
+          ${organizationId}::uuid,
+          ${shipmentDate},
+          ${value.count},
+          ${value.boxes},
+          ${capturedAt},
+          ${capturedAt}
+        )`);
+      await this.prisma.$executeRaw(Prisma.sql`
+        INSERT INTO "coupang_shipment_date_summaries"
+          ("id", "organization_id", "shipment_date", "count", "boxes", "captured_at", "updated_at")
+        VALUES ${Prisma.join(valueRows)}
+        ON CONFLICT ("organization_id", "shipment_date") DO UPDATE SET
+          "count" = EXCLUDED."count",
+          "boxes" = EXCLUDED."boxes",
+          "captured_at" = EXCLUDED."captured_at",
+          "updated_at" = EXCLUDED."updated_at"
+      `);
     }
 
     return this.listDateSummary(organizationId);

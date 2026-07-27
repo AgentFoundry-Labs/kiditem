@@ -40,6 +40,7 @@ import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
 } from '../port/out/storage/image-storage.port';
+import { requireWebOrigin } from '../../../common/config/web-origin';
 import { buildRenderDocument } from './detail-page-render-document';
 
 const INTENT_TTL_MS = 15 * 60_000;
@@ -54,22 +55,6 @@ const MISSING_MESSAGES = {
     '저장된 상세페이지가 없습니다. 상세페이지를 생성하고 저장한 뒤 다시 시도하세요.',
   empty_html: '저장된 상세페이지 HTML 이 비어 있습니다. 상세페이지를 다시 저장하세요.',
 } as const;
-
-function resolveWebOrigin(): string {
-  const configured =
-    process.env.CORS_ORIGINS?.split(',')[0]?.trim() ||
-    (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3000');
-  if (!configured) {
-    throw new Error(
-      'DetailPageClientRenderService: CORS_ORIGINS가 필요합니다',
-    );
-  }
-  const url = new URL(configured);
-  if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new Error('DetailPageClientRenderService: web origin은 http(s)여야 합니다');
-  }
-  return url.origin;
-}
 
 function objectKey(organizationId: string, revisionId: string): string {
   return [
@@ -226,7 +211,7 @@ export class DetailPageClientRenderService {
         'output-width': String(DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH),
       },
     });
-    const renderDocumentUrl = new URL('/detail-page-client-render', resolveWebOrigin());
+    const renderDocumentUrl = new URL('/detail-page-client-render', requireWebOrigin());
     renderDocumentUrl.searchParams.set('intentId', claimed.id);
 
     return {
@@ -266,7 +251,7 @@ export class DetailPageClientRenderService {
       revisionId: renderIntent.revisionId,
       html: buildRenderDocument(
         revision.html,
-        resolveWebOrigin(),
+        requireWebOrigin(),
         this.templateStyles.getCompiledCss(),
       ),
       layoutWidth: DETAIL_PAGE_CLIENT_RENDER_LAYOUT_WIDTH,

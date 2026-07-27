@@ -19,6 +19,12 @@ describe('OrderCollectionWorkspace', () => {
     expect(source).not.toContain('<SellpiaWorkspaceFreshnessStatus');
     expect(source).toContain('미접수 확인 후 재전송');
     expect(source).toContain('retryConfirmed: true');
+    expect(source).toContain('acquireGeneratedFiles([item.id])');
+    expect(source).toContain('const batch = [...items]');
+    expect(source).toContain('lockedFileIds={lockedFileIds}');
+    expect(source).toContain('onDownload={handleDownloadGeneratedFile}');
+    expect(source).not.toContain('onDownload={downloadOrderCollectionFile}');
+    expect(source).not.toContain('sellpiaSendLockRef');
     expect(source).not.toContain('<OrderCollectionRecovery');
     expect(pipeline).toBeLessThan(daily);
     expect(daily).toBeLessThan(activity);

@@ -51,6 +51,10 @@ import type {
   SellpiaUnresolvedOrderTransmissionIntentListResponse,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import type { SellpiaInventoryFreshnessGatePort } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
+import type {
+  SellpiaFreshCapacity,
+  SellpiaFreshCapacityPreflightResult,
+} from '../port/in/stock/sellpia-inventory-freshness-gate.port';
 import type { SellpiaInventoryFreshnessPort } from '../port/in/stock/sellpia-inventory-freshness.port';
 import type { SellpiaInventoryRefreshRequestPort } from '../port/in/stock/sellpia-inventory-refresh-request.port';
 
@@ -497,40 +501,68 @@ implements
   async readFreshCapacity(input: {
     organizationId: string;
     sellpiaInventorySkuIds: string[];
-  }): Promise<{
-    fence: string;
-    generation: string;
-    lastVerifiedAt: string;
-    expiresAt: string;
-    inventorySkus: Array<{
-      sellpiaInventorySkuId: string;
-      currentStock: number;
-      activeCommitmentQuantity: number;
-      availableStock: number;
-      isActive: boolean;
-    }>;
-  }> {
+  }): Promise<SellpiaFreshCapacity> {
     const snapshot = await this.readFreshInventorySkus(input);
-    const metadata = freshnessMetadata(snapshot.state);
-    if (snapshot.state.verifiedGeneration === null) throw syncRequired();
-    const byId = new Map(snapshot.inventorySkus.map((sku) => [sku.id, sku]));
-    return {
-      ...metadata,
-      generation: snapshot.state.verifiedGeneration.toString(),
-      inventorySkus: snapshot.sellpiaInventorySkuIds.map((sellpiaInventorySkuId) => {
-        const sku = byId.get(sellpiaInventorySkuId)!;
+    return toFreshCapacity(snapshot);
+  }
+
+  async readFreshCapacityOrRequest(input: {
+    organizationId: string;
+    sellpiaInventorySkuIds: string[];
+  }): Promise<SellpiaFreshCapacityPreflightResult> {
+    validateInventorySkuIds(input.sellpiaInventorySkuIds);
+    const sellpiaInventorySkuIds = [...new Set(input.sellpiaInventorySkuIds)];
+    return this.withLockedState(input.organizationId, async (transaction) => {
+      const state = await transaction.getState();
+      const inventorySkus = await transaction.findInventorySkus(
+        sellpiaInventorySkuIds,
+      );
+      if (inventorySkus.length !== sellpiaInventorySkuIds.length) {
+        throw referenceInvalid();
+      }
+
+      const now = new Date();
+      const isFresh = isSourceBindingConfirmed(state)
+        && deriveFreshnessStatus(state, now) === 'fresh'
+        && state.lastVerifiedAt !== null
+        && !(
+          state.refreshRequestedAt !== null
+          && state.refreshRequestedAt > state.lastVerifiedAt
+        );
+      if (isFresh) {
         return {
-          sellpiaInventorySkuId,
-          currentStock: sku.currentStock,
-          activeCommitmentQuantity: sku.activeCommitmentQuantity,
-          availableStock: calculateAvailableStock(
-            sku.currentStock,
-            sku.activeCommitmentQuantity,
-          ),
-          isActive: sku.isActive,
+          status: 'fresh',
+          ...toFreshCapacity({ state, sellpiaInventorySkuIds, inventorySkus }),
         };
-      }),
-    };
+      }
+
+      const hasPendingGeneration = state.requestedGeneration > state.verifiedGeneration
+        || state.activeGeneration !== null;
+      if (hasPendingGeneration) {
+        const target = state.activeGeneration !== null
+          && state.activeGeneration > state.requestedGeneration
+          ? state.activeGeneration
+          : state.requestedGeneration;
+        return {
+          status: 'refresh_required',
+          requestedGeneration: target.toString(),
+        };
+      }
+
+      const updated = await transaction.compareAndSetState({
+        expected: expectation(state),
+        patch: planRefreshRequest(
+          state,
+          'purchase_preflight',
+          now,
+          randomUUID(),
+        ),
+      });
+      return {
+        status: 'refresh_required',
+        requestedGeneration: updated.requestedGeneration.toString(),
+      };
+    });
   }
 
   private readFreshInventorySkus(input: {
@@ -546,12 +578,7 @@ implements
       activeCommitmentQuantity: number;
     }>;
   }> {
-    if (
-      input.sellpiaInventorySkuIds.length === 0
-      || input.sellpiaInventorySkuIds.some((id) => !isUuid(id))
-    ) {
-      throw referenceInvalid();
-    }
+    validateInventorySkuIds(input.sellpiaInventorySkuIds);
     const sellpiaInventorySkuIds = [...new Set(input.sellpiaInventorySkuIds)];
     return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
@@ -601,6 +628,48 @@ implements
       operation,
     );
   }
+}
+
+type FreshCapacitySnapshot = {
+  state: SellpiaInventoryFreshnessState;
+  sellpiaInventorySkuIds: string[];
+  inventorySkus: Array<{
+    id: string;
+    isActive: boolean;
+    currentStock: number;
+    activeCommitmentQuantity: number;
+  }>;
+};
+
+function validateInventorySkuIds(sellpiaInventorySkuIds: string[]): void {
+  if (
+    sellpiaInventorySkuIds.length === 0
+    || sellpiaInventorySkuIds.some((id) => !isUuid(id))
+  ) {
+    throw referenceInvalid();
+  }
+}
+
+function toFreshCapacity(snapshot: FreshCapacitySnapshot): SellpiaFreshCapacity {
+  const metadata = freshnessMetadata(snapshot.state);
+  const byId = new Map(snapshot.inventorySkus.map((sku) => [sku.id, sku]));
+  return {
+    ...metadata,
+    generation: snapshot.state.verifiedGeneration.toString(),
+    inventorySkus: snapshot.sellpiaInventorySkuIds.map((sellpiaInventorySkuId) => {
+      const sku = byId.get(sellpiaInventorySkuId)!;
+      return {
+        sellpiaInventorySkuId,
+        currentStock: sku.currentStock,
+        activeCommitmentQuantity: sku.activeCommitmentQuantity,
+        availableStock: calculateAvailableStock(
+          sku.currentStock,
+          sku.activeCommitmentQuantity,
+        ),
+        isActive: sku.isActive,
+      };
+    }),
+  };
 }
 
 function freshnessMetadata(state: SellpiaInventoryFreshnessState) {

@@ -120,6 +120,7 @@ NODE_ENV
 PORT
 DATABASE_URL
 SUPABASE_URL
+WEB_ORIGIN
 CORS_ORIGINS
 S3_REGION
 S3_BUCKET
@@ -161,6 +162,7 @@ same-origin `/api/*` routing.
 | `PORT` | API runtime | Yes | NestJS | `4000` for the API container. |
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
 | `SUPABASE_URL` | Auth | Yes | Supabase JWT/JWKS middleware | Must match the project issuing browser session cookies. |
+| `WEB_ORIGIN` | API runtime | Yes | API bootstrap, detail page client renderer | Single canonical browser origin used to construct extension render document URLs. There is no localhost fallback; never derive it from `CORS_ORIGINS`. |
 | `CORS_ORIGINS` | API runtime | Yes in production | Nest CORS | Comma-separated public origins. Same-origin `/api/*` still works through nginx. |
 | `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
 
@@ -514,7 +516,7 @@ set +a
 
 ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
   docker exec kiditem-staging-api sh -lc '"'"'
-    for k in NODE_ENV PORT DATABASE_URL SUPABASE_URL CORS_ORIGINS \
+    for k in NODE_ENV PORT DATABASE_URL SUPABASE_URL WEB_ORIGIN CORS_ORIGINS \
       S3_ENDPOINT S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_PUBLIC_URL S3_REGION \
       PUPPETEER_EXECUTABLE_PATH; do
         eval v=\${$k-}

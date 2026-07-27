@@ -197,7 +197,12 @@ STAGING_DB_BASELINE_PREFIX=staging-db-baselines
 ```
 
 When DNS and TLS are ready, change `STAGING_URL` and `STAGING_CORS_ORIGINS` in
-GitHub Environment `staging`.
+GitHub Environment `staging`. The workflow renders `STAGING_URL` into the API
+container as the single canonical `WEB_ORIGIN`; `STAGING_CORS_ORIGINS` remains
+an independent comma-separated allowlist, so its ordering does not select the
+detail-page render origin. The API refuses to boot without `WEB_ORIGIN`, and
+the remote deploy rejects the candidate before startup when its normalized
+`WEB_ORIGIN` differs from `STAGING_URL`.
 
 Environment secrets:
 

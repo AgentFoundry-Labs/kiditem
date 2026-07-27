@@ -33,6 +33,7 @@ interface GeneratedFilesSectionProps {
   items: ConversionHistoryItem[];
   sellpiaSendingId: string | null;
   bulkAction: GeneratedFilesBulkAction;
+  lockedFileIds: ReadonlySet<string>;
   sellpiaPostProcessing: boolean;
   onSendToSellpia: (item: ConversionHistoryItem) => void;
   onSendSelectedToSellpia: (items: ConversionHistoryItem[]) => void;
@@ -48,6 +49,7 @@ export function GeneratedFilesSection({
   items,
   sellpiaSendingId,
   bulkAction,
+  lockedFileIds,
   sellpiaPostProcessing,
   onSendToSellpia,
   onSendSelectedToSellpia,
@@ -94,7 +96,7 @@ export function GeneratedFilesSection({
   const allPageSelected =
     pageData.items.length > 0 && pageData.items.every((item) => selectedIds.has(item.id));
   const somePageSelected = pageData.items.some((item) => selectedIds.has(item.id));
-  const sendBusy = sellpiaSendingId !== null || bulkAction !== null;
+  const selectedHasLockedFile = selectedItems.some((item) => lockedFileIds.has(item.id));
 
   useEffect(() => {
     if (page !== pageData.page) setPage(pageData.page);
@@ -176,7 +178,7 @@ export function GeneratedFilesSection({
                 <button
                   type="button"
                   onClick={() => onSendSelectedToSellpia(selectedUnsentItems)}
-                  disabled={sendBusy || selectedUnsentItems.length === 0 || bulkAction !== null}
+                  disabled={selectedHasLockedFile || selectedUnsentItems.length === 0 || bulkAction !== null}
                   className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {bulkAction === 'send' ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
@@ -185,7 +187,7 @@ export function GeneratedFilesSection({
                 <button
                   type="button"
                   onClick={() => onDownloadSelected(selectedItems)}
-                  disabled={sendBusy || bulkAction !== null}
+                  disabled={selectedHasLockedFile || bulkAction !== null}
                   className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {bulkAction === 'download' ? (
@@ -198,7 +200,7 @@ export function GeneratedFilesSection({
                 <button
                   type="button"
                   onClick={() => onDeleteSelected(selectedItems)}
-                  disabled={sendBusy || bulkAction !== null}
+                  disabled={selectedHasLockedFile || bulkAction !== null}
                   className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {bulkAction === 'delete' ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
@@ -359,7 +361,7 @@ export function GeneratedFilesSection({
                             <button
                               type="button"
                               onClick={() => onSendToSellpia(item)}
-                              disabled={sendBusy}
+                              disabled={lockedFileIds.has(item.id)}
                               className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {sellpiaSendingId === item.id ? (
@@ -369,6 +371,8 @@ export function GeneratedFilesSection({
                               )}
                               {sellpiaSendingId === item.id
                                 ? '전송 중'
+                                : bulkAction === 'send' && lockedFileIds.has(item.id)
+                                  ? '전송 대기'
                                 : hasSellpiaTransmissionRequest(item)
                                   ? '다시 전송 요청'
                                   : '셀피아 전송 요청'}
@@ -384,6 +388,7 @@ export function GeneratedFilesSection({
                             <button
                               type="button"
                               onClick={() => onDownload(item)}
+                              disabled={lockedFileIds.has(item.id)}
                               className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                             >
                               <Download size={13} />
@@ -392,7 +397,7 @@ export function GeneratedFilesSection({
                             <button
                               type="button"
                               onClick={() => onDelete(item)}
-                              disabled={sendBusy || bulkAction !== null}
+                              disabled={lockedFileIds.has(item.id)}
                               aria-label={`${item.fileName} 삭제`}
                               title="삭제"
                               className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1.5 text-slate-400 hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"

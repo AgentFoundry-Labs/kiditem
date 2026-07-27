@@ -29,6 +29,7 @@ conversion.
 - Domeggook and Onchannel tracking registration initiated from the KidItem
   order-collection page.
 - KidItem local and staging extension-id discovery for order operations only.
+- Versioned order-collection failure evidence for operator recovery.
 
 ## Browser Boundary
 
@@ -60,6 +61,19 @@ conversion.
   supplier.coupang.com cookies may be touched.
 - Do not send `organizationId`; backend auth/session scope owns organization
   context.
+
+## Collection Failure Contract
+
+- Advertise `orderCollectionFailureEvidenceV1` only when every automatic mall
+  failure leaving the common lifecycle includes versioned evidence with
+  `provider`, `action`, `code`, `retryable`, and `operatorAction`.
+- Keep the stable codes `login_required`, `operator_action_required`,
+  `provider_contract_changed`, `network_failed`, and `unknown_failure`.
+  Marketplace text remains display detail, not program control flow in the web
+  app. GS Shop SMS verification uses `complete_sms_auth`; ordinary login uses
+  `complete_login`.
+- The web app must distinguish a pinging but incompatible extension from a
+  missing extension and show the loaded version plus missing capabilities.
 
 ## Sellpia Inventory Contract
 

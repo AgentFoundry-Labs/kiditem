@@ -106,7 +106,6 @@ export async function updateOperationAlert(
     );
   } catch (err) {
     if (isApiError(err) && err.status === 404) {
-      console.warn(`[operation-alerts] update ${input.status} not found`, err);
       return null;
     }
     throw err;

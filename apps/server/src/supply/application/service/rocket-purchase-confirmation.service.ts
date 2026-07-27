@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import {
   isRocketWorkbookBlockingReason,
   RocketWorkbookAbandonRequestSchema,
@@ -51,6 +56,11 @@ implements RocketWorkbookExportPort {
       userId: input.userId,
       request: previewRequest satisfies RocketPurchasePreviewRequest,
     });
+    if (preview.status === 'freshness_pending') {
+      throw new ConflictException(
+        `Sellpia inventory refresh is still pending for generation ${preview.requestedGeneration}.`,
+      );
+    }
     if (!preview.catalog) {
       throw new BadRequestException(
         'A complete Rocket PO collection is required before workbook export.',

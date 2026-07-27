@@ -2,6 +2,7 @@ importScripts(
   "environment-context.js",
   "collection-session.js",
   "interactive-tabs.js",
+  "collection-failure.js",
   "order-collection-lifecycle.js",
   "sellpia-inventory.js",
   "coupang-po-session.js",
@@ -27,6 +28,9 @@ const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   producer: "orders.mall",
   classification: "background_preferred",
   restartStrategy: "web",
+  normalizeFailure(provider, value) {
+    return KidItemOrderCollectionFailure.createEvidence(provider, value);
+  },
   classifyFailure(value) {
     const error = value?.error || value;
     return value?.pendingLogin === true || isMallAccessError(error)
@@ -257,6 +261,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         collectSellpiaProductProfit: true,
         collectSellpiaInventoryJsonV1: true,
         browserCollectionSessions: true,
+        orderCollectionFailureEvidenceV1: true,
         kiditemEnvironmentProfilesV1: true,
         sellpiaOrderFileUploadEvidenceV1: true,
         uploadDomeggookTracking: true,

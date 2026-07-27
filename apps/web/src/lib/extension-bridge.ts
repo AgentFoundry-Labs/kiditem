@@ -179,8 +179,23 @@ export function sendToExtensionViaPort<TResponse = unknown>(
 
 type ExtensionPingResponse = {
   success?: boolean;
+  version?: string;
   capabilities?: Record<string, unknown>;
 };
+
+export type ExtensionRuntimeStatus =
+  | {
+    status: 'ready';
+    extensionId: string;
+    version: string;
+  }
+  | {
+    status: 'incompatible';
+    extensionId: string;
+    version: string;
+    missingCapabilities: string[];
+  }
+  | { status: 'not_found' };
 
 type DetectExtensionOptions = {
   storageKey: string;
@@ -194,22 +209,10 @@ function supportsEnvironmentProfiles(response: ExtensionPingResponse): boolean {
   return response.capabilities?.kiditemEnvironmentProfilesV1 === true;
 }
 
-async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-
-  const tryPing = async (id: string): Promise<boolean> => {
-    try {
-      const response = await sendToExtension<ExtensionPingResponse>(id, { action: 'ping' }, options.timeoutMs);
-      return !!response?.success && options.accepts(response);
-    } catch {
-      return false;
-    }
-  };
-
-  const stored = safeStorageGet('local', options.storageKey);
-  if (stored && (await tryPing(stored))) return stored;
-
-  const fromHandshake = await new Promise<string | null>((resolve) => {
+function requestExtensionIdFromHandshake(
+  options: Pick<DetectExtensionOptions, 'requestType' | 'responseType' | 'timeoutMs'>,
+): Promise<string | null> {
+  return new Promise((resolve) => {
     let done = false;
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: string; extensionId?: string } | null;
@@ -234,6 +237,24 @@ async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): 
       resolve(null);
     }, options.timeoutMs);
   });
+}
+
+async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+
+  const tryPing = async (id: string): Promise<boolean> => {
+    try {
+      const response = await sendToExtension<ExtensionPingResponse>(id, { action: 'ping' }, options.timeoutMs);
+      return !!response?.success && options.accepts(response);
+    } catch {
+      return false;
+    }
+  };
+
+  const stored = safeStorageGet('local', options.storageKey);
+  if (stored && (await tryPing(stored))) return stored;
+
+  const fromHandshake = await requestExtensionIdFromHandshake(options);
 
   if (fromHandshake && (await tryPing(fromHandshake))) {
     safeStorageSet('local', options.storageKey, fromHandshake);
@@ -399,6 +420,54 @@ export async function detectOrderCollectionExtensionId(
       (requiredCapability === null ||
         response.capabilities?.[requiredCapability] === true),
   });
+}
+
+export async function detectOrderCollectionExtensionRuntime(
+  timeoutMs = 1200,
+  requiredCapabilities: string[] = ['orderCollectionIcecreamMall'],
+): Promise<ExtensionRuntimeStatus> {
+  if (typeof window === 'undefined') return { status: 'not_found' };
+  const capabilities = [...new Set([
+    'kiditemEnvironmentProfilesV1',
+    ...requiredCapabilities,
+  ])];
+  const probe = async (extensionId: string): Promise<ExtensionRuntimeStatus | null> => {
+    try {
+      const response = await sendToExtension<ExtensionPingResponse>(
+        extensionId,
+        { action: 'ping' },
+        timeoutMs,
+      );
+      if (!response?.success) return null;
+      const version = typeof response.version === 'string' && response.version.length > 0
+        ? response.version
+        : 'unknown';
+      const missingCapabilities = capabilities.filter(
+        (capability) => response.capabilities?.[capability] !== true,
+      );
+      return missingCapabilities.length === 0
+        ? { status: 'ready', extensionId, version }
+        : { status: 'incompatible', extensionId, version, missingCapabilities };
+    } catch {
+      return null;
+    }
+  };
+
+  const stored = safeStorageGet('local', KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY);
+  const storedStatus = stored ? await probe(stored) : null;
+  if (storedStatus?.status === 'ready') return storedStatus;
+
+  const fromHandshake = await requestExtensionIdFromHandshake({
+    requestType: 'kiditem:request-order-ext-id',
+    responseType: 'kiditem:order-ext-id',
+    timeoutMs,
+  });
+  const handshakeStatus = fromHandshake ? await probe(fromHandshake) : null;
+  if (handshakeStatus?.status === 'ready') {
+    safeStorageSet('local', KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY, fromHandshake!);
+    return handshakeStatus;
+  }
+  return handshakeStatus ?? storedStatus ?? { status: 'not_found' };
 }
 
 const SellpiaInventoryExtensionReplySchema = z.discriminatedUnion('success', [

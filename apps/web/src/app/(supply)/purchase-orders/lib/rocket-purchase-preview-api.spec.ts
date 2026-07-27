@@ -50,6 +50,7 @@ describe('previewRocketPurchases', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(apiClient.post).mockResolvedValue({
+      status: 'ready',
       collectionRunId: RUN_ID,
       catalog: null,
       inventoryGeneration: null,
@@ -84,11 +85,29 @@ describe('previewRocketPurchases', () => {
     expect(body).not.toHaveProperty('userId');
   });
 
+  it('parses a freshness-pending checkpoint without requiring stale rows', async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce({
+      status: 'freshness_pending',
+      collectionRunId: RUN_ID,
+      catalog: publication(),
+      requestedGeneration: '8',
+    });
+
+    await expect(previewRocketPurchases(input())).resolves.toMatchObject({
+      status: 'freshness_pending',
+      requestedGeneration: '8',
+    });
+  });
+
   it('translates the stale inventory gate and preserves ordinary API messages', () => {
     expect(rocketPreviewErrorMessage(
       new ApiError(409, 'SELLPIA_SYNC_REQUIRED', 'stale'),
       'fallback',
     )).toContain('셀피아 재고 스냅샷이 최신이 아니어서');
+    expect(rocketPreviewErrorMessage(
+      new ApiError(409, 'SELLPIA_SYNC_REQUIRED', 'stale'),
+      'fallback',
+    )).not.toContain('자동으로 다시 계산');
     expect(rocketPreviewErrorMessage(
       new ApiError(409, 'OTHER', '서버 메시지'),
       'fallback',
@@ -259,3 +278,46 @@ describe('previewRocketPurchases', () => {
     })).resolves.toMatchObject({ exportedPoLineIds: [] });
   });
 });
+
+function publication() {
+  return {
+    run: {
+      id: '33333333-3333-4333-8333-333333333333',
+      sourceType: 'coupang_rocket_po_catalog',
+      channelAccountId: ACCOUNT_ID,
+      fileName: 'rocket-po-catalog.json',
+      fileHash: 'a'.repeat(64),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: '2026-07-27T00:00:00.000Z',
+      lastVerifiedAt: null,
+      verificationCount: 0,
+      lastTrigger: null,
+      freshnessGeneration: null,
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: null,
+      errorCode: null,
+      errorMessage: null,
+      createdAt: '2026-07-27T00:00:00.000Z',
+      updatedAt: '2026-07-27T00:00:00.000Z',
+    },
+    duplicate: false,
+    changes: {
+      createdProductCount: 0,
+      updatedProductCount: 0,
+      createdSkuCount: 0,
+      updatedSkuCount: 0,
+    },
+    recipeAutomation: {
+      evaluatedProducts: 0,
+      appliedProducts: 0,
+      appliedVariants: 0,
+      affectedOptions: 0,
+      operatorReviewProducts: 0,
+      blockedProducts: 0,
+      alreadyConfiguredProducts: 0,
+      skippedExistingVariants: 0,
+    },
+  };
+}

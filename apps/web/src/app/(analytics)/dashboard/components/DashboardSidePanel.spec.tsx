@@ -7,6 +7,7 @@ import { usePanelStore } from '@/components/panel/lib/panel-store';
 import { DashboardSidePanel } from './DashboardSidePanel';
 
 const mockApiPatch = vi.hoisted(() => vi.fn(async () => ({})));
+const mockApiPost = vi.hoisted(() => vi.fn(async () => ({})));
 const mockCancelOperation = vi.hoisted(() =>
   vi.fn(async () => ({
     ok: true,
@@ -40,6 +41,7 @@ const mockSyncBrowserCollectionAlert = vi.hoisted(() => vi.fn(async () => undefi
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     patch: mockApiPatch,
+    post: mockApiPost,
   },
 }));
 
@@ -141,6 +143,7 @@ const makePanelAlert = (overrides: Partial<PanelAlertItem> = {}): PanelAlertItem
 describe('DashboardSidePanel', () => {
   beforeEach(() => {
     mockApiPatch.mockClear();
+    mockApiPost.mockClear();
     mockCancelOperation.mockClear();
     mockSendBrowserCollectionControl.mockClear();
     mockSyncBrowserCollectionAlert.mockClear();
@@ -158,6 +161,31 @@ describe('DashboardSidePanel', () => {
     render(<DashboardSidePanel alerts={[makeAlert()]} queryClient={makeQueryClient()} />);
 
     expect(screen.getByRole('button', { name: '작업 중단' })).toBeInTheDocument();
+  });
+
+  it('offers cleanup instead of cancellation for Sellpia quality attention alerts', async () => {
+    const alert = makeAlert({
+      status: 'pending',
+      type: 'sellpia_inventory_quality',
+      sourceType: 'sellpia_inventory_import',
+      operationKey:
+        'sellpia-inventory-quality:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:missing_barcode',
+      title: 'Sellpia 재고 품질 확인 필요',
+    });
+
+    render(
+      <DashboardSidePanel alerts={[alert]} queryClient={makeQueryClient()} />,
+    );
+
+    expect(screen.queryByRole('button', { name: '작업 중단' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '알림 정리' }));
+
+    await waitFor(() => {
+      expect(mockApiPost).toHaveBeenCalledWith(
+        `/api/alerts/${encodeURIComponent(alert.id)}/dismiss`,
+      );
+    });
+    expect(mockCancelOperation).not.toHaveBeenCalled();
   });
 
   it('cancels the operation through the common cancellation API', async () => {

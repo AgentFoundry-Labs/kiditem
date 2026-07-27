@@ -76,7 +76,7 @@ export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
   const showConfirm = useStore((store) => store.showConfirm);
   const historyRef = useRef<ConversionHistoryItem[]>([]);
-  const sellpiaSendLockRef = useRef(false);
+  const sellpiaTransmissionQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [generatedFileActionLock] = useState(createGeneratedFileActionLock);
   const [state, setState] = useState<ConversionState>('idle');
   const [history, setHistory] = useState<ConversionHistoryItem[]>([]);
@@ -89,6 +89,7 @@ export function OrderCollectionWorkspace() {
   const [mallPasswordLoading, setMallPasswordLoading] = useState(false);
   const [mallPasswordVisible, setMallPasswordVisible] = useState(false);
   const [bulkAction, setBulkAction] = useState<GeneratedFilesBulkAction>(null);
+  const [lockedFileIds, setLockedFileIds] = useState<Set<string>>(() => new Set());
   const [sellpiaPostProcessing, setSellpiaPostProcessing] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
@@ -491,10 +492,28 @@ export function OrderCollectionWorkspace() {
       .catch(() => undefined);
   };
 
+  const acquireGeneratedFiles = (fileIds: readonly string[]): (() => void) | null => {
+    const release = generatedFileActionLock.acquire(fileIds);
+    if (!release) return null;
+    setLockedFileIds(new Set(generatedFileActionLock.lockedFileIds()));
+    return () => {
+      release();
+      setLockedFileIds(new Set(generatedFileActionLock.lockedFileIds()));
+    };
+  };
+
+  const enqueueSellpiaTransmission = <T,>(operation: () => Promise<T>): Promise<T> => {
+    const result = sellpiaTransmissionQueueRef.current.then(operation, operation);
+    sellpiaTransmissionQueueRef.current = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+
   const handleSendToSellpia = async (
     item: ConversionHistoryItem,
     options: {
-      allowBulk?: boolean;
       showSuccessToast?: boolean;
       retryConfirmed?: boolean;
     } = {},
@@ -502,7 +521,6 @@ export function OrderCollectionWorkspace() {
     if (
       hasSellpiaTransmissionRequest(item)
       && !options.retryConfirmed
-      && !options.allowBulk
     ) {
       showConfirm({
         title: '셀피아에 다시 전송할까요?',
@@ -516,38 +534,34 @@ export function OrderCollectionWorkspace() {
       });
       return false;
     }
-    const releaseAction = options.allowBulk ? null : generatedFileActionLock.acquire();
-    if (
-      sellpiaSendLockRef.current ||
-      (options.allowBulk ? !generatedFileActionLock.isLocked() : releaseAction === null)
-    ) {
-      releaseAction?.();
-      return false;
-    }
-    sellpiaSendLockRef.current = true;
+    const releaseAction = acquireGeneratedFiles([item.id]);
+    if (!releaseAction) return false;
     try {
-      return await sellpiaTransmission.transmit(item, {
-        showSuccessToast: options.showSuccessToast,
-        retryConfirmed: options.retryConfirmed,
-      });
+      return await enqueueSellpiaTransmission(() =>
+        sellpiaTransmission.transmit(item, {
+          showSuccessToast: options.showSuccessToast,
+          retryConfirmed: options.retryConfirmed,
+        }));
     } finally {
-      sellpiaSendLockRef.current = false;
-      releaseAction?.();
+      releaseAction();
     }
   };
 
   const handleSendSelectedToSellpia = async (items: ConversionHistoryItem[]) => {
-    if (items.length === 0) return;
-    const releaseAction = generatedFileActionLock.acquire();
+    const batch = [...items];
+    if (batch.length === 0) return;
+    const releaseAction = acquireGeneratedFiles(batch.map(({ id }) => id));
     if (!releaseAction) return;
     setBulkAction('send');
     let successCount = 0;
     try {
-      for (const item of items) {
-        if (await handleSendToSellpia(item, { allowBulk: true, showSuccessToast: false })) {
-          successCount += 1;
+      await enqueueSellpiaTransmission(async () => {
+        for (const item of batch) {
+          if (await sellpiaTransmission.transmit(item, { showSuccessToast: false })) {
+            successCount += 1;
+          }
         }
-      }
+      });
       if (successCount > 0) {
         toast.success(`선택 파일 ${formatNumber(successCount)}개 셀피아 전송 요청됨`);
       }
@@ -570,18 +584,29 @@ export function OrderCollectionWorkspace() {
   };
 
   const handleDownloadSelected = async (items: ConversionHistoryItem[]) => {
-    if (items.length === 0) return;
-    const releaseAction = generatedFileActionLock.acquire();
+    const batch = [...items];
+    if (batch.length === 0) return;
+    const releaseAction = acquireGeneratedFiles(batch.map(({ id }) => id));
     if (!releaseAction) return;
     setBulkAction('download');
     try {
-      for (const item of items) {
+      for (const item of batch) {
         downloadOrderCollectionFile(item);
         await new Promise((resolve) => window.setTimeout(resolve, 150));
       }
-      toast.success(`선택 파일 ${formatNumber(items.length)}개 다운로드 요청 완료`);
+      toast.success(`선택 파일 ${formatNumber(batch.length)}개 다운로드 요청 완료`);
     } finally {
       setBulkAction(null);
+      releaseAction();
+    }
+  };
+
+  const handleDownloadGeneratedFile = (item: ConversionHistoryItem) => {
+    const releaseAction = acquireGeneratedFiles([item.id]);
+    if (!releaseAction) return;
+    try {
+      downloadOrderCollectionFile(item);
+    } finally {
       releaseAction();
     }
   };
@@ -605,7 +630,7 @@ export function OrderCollectionWorkspace() {
 
   const handleDeleteGeneratedFile = async (item: ConversionHistoryItem) => {
     if (!window.confirm(`'${item.fileName}' 파일을 삭제할까요?`)) return;
-    const releaseAction = generatedFileActionLock.acquire();
+    const releaseAction = acquireGeneratedFiles([item.id]);
     if (!releaseAction) return;
     setBulkAction('delete');
     try {
@@ -625,16 +650,17 @@ export function OrderCollectionWorkspace() {
     ) {
       return;
     }
-    const releaseAction = generatedFileActionLock.acquire();
+    const batch = [...items];
+    const releaseAction = acquireGeneratedFiles(batch.map(({ id }) => id));
     if (!releaseAction) return;
     setBulkAction('delete');
     try {
-      const deletedCount = await deleteGeneratedFiles(items);
-      if (deletedCount === items.length) {
+      const deletedCount = await deleteGeneratedFiles(batch);
+      if (deletedCount === batch.length) {
         toast.success(`선택 파일 ${formatNumber(deletedCount)}개를 삭제했습니다.`);
       } else {
         toast.warning(
-          `${formatNumber(deletedCount)}개 삭제 완료, ${formatNumber(items.length - deletedCount)}개 실패`,
+          `${formatNumber(deletedCount)}개 삭제 완료, ${formatNumber(batch.length - deletedCount)}개 실패`,
         );
       }
     } finally {
@@ -760,21 +786,22 @@ export function OrderCollectionWorkspace() {
       />
 
       {previewItem ? (
-        <FilePreviewSection
-          item={previewItem}
-          onClose={() => setPreviewId(null)}
-          onDownload={downloadOrderCollectionFile}
-        />
+       <FilePreviewSection
+         item={previewItem}
+         onClose={() => setPreviewId(null)}
+          onDownload={handleDownloadGeneratedFile}
+       />
       ) : null}
 
       <GeneratedFilesSection
         items={history}
         bulkAction={bulkAction}
+        lockedFileIds={lockedFileIds}
         sellpiaSendingId={sellpiaTransmission.sendingId}
         sellpiaPostProcessing={sellpiaPostProcessing}
         onDelete={(item) => void handleDeleteGeneratedFile(item)}
         onDeleteSelected={(items) => void handleDeleteSelected(items)}
-        onDownload={downloadOrderCollectionFile}
+        onDownload={handleDownloadGeneratedFile}
         onDownloadSelected={(items) => void handleDownloadSelected(items)}
         onPreview={setPreviewId}
         onSellpiaPostProcess={() => void handleSellpiaPostProcess()}

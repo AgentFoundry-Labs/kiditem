@@ -10,7 +10,7 @@ export interface RocketWorkbookExportTransactionPort {
     userId: string;
     sourceImportRunId: string;
     request: RocketWorkbookExportRequest;
-    preview: RocketPurchasePreviewResponse;
+    preview: Extract<RocketPurchasePreviewResponse, { status: 'ready' }>;
     artifactBytes: Buffer;
   }): Promise<RocketWorkbookExportResponse>;
   getActiveWorkflow(input: {

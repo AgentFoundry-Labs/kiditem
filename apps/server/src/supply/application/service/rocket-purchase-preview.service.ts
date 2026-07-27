@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import {
   RocketPurchasePreviewRequestSchema,
   type RocketPurchasePreviewRequest,
@@ -48,6 +53,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     const selectedRows = previewRowsForScope(request);
     if (catalog.blockingReason) {
       return translatePreviewPolicy(() => ({
+        status: 'ready' as const,
         collectionRunId: request.collection.collectionRunId,
         catalog: null,
         inventoryGeneration: null,
@@ -114,10 +120,23 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
         .map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))];
     let inventoryGeneration: string | null = null;
     if (sellpiaInventorySkuIds.length > 0) {
-      const gated = await this.freshness.readFreshCapacity({
+      const gated = await this.freshness.readFreshCapacityOrRequest({
         organizationId: input.organizationId,
         sellpiaInventorySkuIds,
       });
+      if (gated.status === 'refresh_required') {
+        if (!catalog.catalog) {
+          throw new InternalServerErrorException(
+            'Rocket catalog checkpoint is missing before inventory refresh',
+          );
+        }
+        return {
+          status: 'freshness_pending',
+          collectionRunId: request.collection.collectionRunId,
+          catalog: catalog.catalog,
+          requestedGeneration: gated.requestedGeneration,
+        };
+      }
       inventoryGeneration = gated.generation;
       const inventorySkuById = new Map(gated.inventorySkus.map((sku) =>
         [sku.sellpiaInventorySkuId, sku]));
@@ -136,6 +155,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     }
 
     return {
+      status: 'ready',
       collectionRunId: request.collection.collectionRunId,
       catalog: catalog.catalog,
       inventoryGeneration,

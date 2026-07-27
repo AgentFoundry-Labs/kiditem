@@ -9,6 +9,7 @@ const formSource = await readFile(
 const workerSource = await readFile(
   new URL('../../coupang-ads-scraper/background/service-worker.js', import.meta.url), 'utf8',
 );
+const FORM_URL = 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2';
 
 test('routes category search text only from the sender Wing tab to trusted browser input', () => {
   assert.match(workerSource, /msg\.action === "inputWingCategorySearch"/);
@@ -45,18 +46,53 @@ function formHarness(identity) {
     setTimeout,
   });
   context.window = context;
+  context.location = { href: FORM_URL };
   if (identity !== undefined) context.KidItemWingAccountIdentity = identity;
   vm.runInContext(formSource, context, { filename: 'wing-registration-fill.js' });
 
   return {
-    async fill() {
+    async send(message) {
       return new Promise((resolve) => {
-        assert.equal(listener({ action: 'fillWingForm', product: {}, expectedVendorId: 'A00012345' }, {}, resolve), true);
+        listener(message, {}, resolve);
       });
+    },
+    fill(formSessionId) {
+      return this.send({
+        action: 'fillWingForm',
+        product: {},
+        expectedVendorId: 'A00012345',
+        ...(formSessionId ? { formSessionId } : {}),
+      });
+    },
+    ready() {
+      return this.send({ action: 'wingFormReady', contractVersion: 2 });
     },
     mutations: () => ({ queryCalls, clicks, uploads }),
   };
 }
+
+test('content script advertises readiness contract v2 and caches a form session', async () => {
+  let identityChecks = 0;
+  const harness = formHarness({
+    verifyExpectedVendorId: () => {
+      identityChecks += 1;
+      return { ok: false, error: 'stop after identity evidence' };
+    },
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(await harness.ready())), {
+    ready: true,
+    contractVersion: 2,
+    url: FORM_URL,
+  });
+  const first = await harness.fill('session-1');
+  const duplicate = await harness.fill('session-1');
+  assert.equal(first.error, duplicate.error);
+  assert.equal(identityChecks, 1);
+
+  await harness.fill('session-2');
+  assert.equal(identityChecks, 2);
+});
 
 test('missing WING identity helper stops before any form mutation, upload, or submit', async () => {
   const harness = formHarness(undefined);
@@ -87,6 +123,7 @@ test('worker response exposes verified fill evidence at the top level', async ()
     INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
     interactiveTabs: { createTab: async () => ({ id: 17 }) },
     waitForTabComplete: async () => true,
+    wingFormReadiness: { wait: async () => ({ ok: true }) },
     wingFormRuntimeCompat: {
       prepareNavigation: async () => ({ ok: true, status: 'prepared' }),
       ensure: async () => ({ ok: true, status: 'already-compatible' }),
@@ -125,6 +162,7 @@ test('manual form fill does not require an execution id before any provider subm
     INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
     interactiveTabs: { createTab: async () => ({ id: 18 }) },
     waitForTabComplete: async () => true,
+    wingFormReadiness: { wait: async () => ({ ok: true }) },
     wingFormRuntimeCompat: {
       prepareNavigation: async () => ({ ok: true, status: 'prepared' }),
       ensure: async () => ({ ok: true, status: 'already-compatible' }),
@@ -168,6 +206,12 @@ test('bootstraps the Wing runtime before navigation and form fill', async () => 
       order.push('complete');
       return true;
     },
+    wingFormReadiness: {
+      wait: async () => {
+        order.push('ready');
+        return { ok: true };
+      },
+    },
     wingFormRuntimeCompat: {
       prepareNavigation: async (tabId, url) => {
         order.push(`bootstrap:${tabId}:${url}`);
@@ -206,6 +250,7 @@ test('bootstraps the Wing runtime before navigation and form fill', async () => 
     'bootstrap:19:https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2',
     'complete',
     'compat',
+    'ready',
     'fill',
   ]);
 });

@@ -4,7 +4,7 @@ import {
   ForbiddenException,
   GoneException,
 } from '@nestjs/common';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
   DETAIL_PAGE_CLIENT_RENDER_VARIANT,
@@ -106,7 +106,7 @@ describe('DetailPageClientRenderService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.CORS_ORIGINS = 'https://staging.kiditem.example';
+    process.env.WEB_ORIGIN = 'https://staging.kiditem.example';
     service = new DetailPageClientRenderService(
       detailPages as never,
       images as never,
@@ -114,6 +114,10 @@ describe('DetailPageClientRenderService', () => {
       templateStyles,
       () => NOW,
     );
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('저장 HTML이 없거나 비어 있으면 명시적인 missing을 반환한다', async () => {
@@ -228,6 +232,58 @@ describe('DetailPageClientRenderService', () => {
         'revision-id': REVISION_ID,
       }),
     }));
+  });
+
+  it('claim 렌더 URL은 CORS 목록 순서가 아니라 명시적인 WEB_ORIGIN을 사용한다', async () => {
+    process.env.WEB_ORIGIN = 'https://staging.merchon.org';
+    process.env.CORS_ORIGINS = [
+      'http://3.106.120.252',
+      'https://staging.kiditem.ai',
+      'https://staging.merchon.org',
+    ].join(',');
+    images.findIntent.mockResolvedValue(intent());
+    images.claimIntent.mockResolvedValue({
+      status: 'claimed',
+      intent: intent({ state: 'claimed', claimedByUserId: USER_ID }),
+    });
+    storage.createPresignedPut.mockResolvedValue({
+      uploadUrl: 'https://upload.example.com/signed',
+      headers: { 'Content-Type': 'image/jpeg' },
+      expiresAt: new Date(NOW.getTime() + 5 * 60_000),
+      imageUrl: `https://cdn.example.com/${OBJECT_KEY}`,
+    });
+
+    const result = await service.claim({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+    });
+
+    expect(result.renderDocumentUrl).toBe(
+      `https://staging.merchon.org/detail-page-client-render?intentId=${INTENT_ID}`,
+    );
+  });
+
+  it('개발 환경에서도 WEB_ORIGIN이 없으면 localhost로 대체하지 않는다', async () => {
+    vi.stubEnv('WEB_ORIGIN', '');
+    vi.stubEnv('NODE_ENV', 'development');
+    images.findIntent.mockResolvedValue(intent());
+    images.claimIntent.mockResolvedValue({
+      status: 'claimed',
+      intent: intent({ state: 'claimed', claimedByUserId: USER_ID }),
+    });
+    storage.createPresignedPut.mockResolvedValue({
+      uploadUrl: 'https://upload.example.com/signed',
+      headers: { 'Content-Type': 'image/jpeg' },
+      expiresAt: new Date(NOW.getTime() + 5 * 60_000),
+      imageUrl: `https://cdn.example.com/${OBJECT_KEY}`,
+    });
+
+    await expect(service.claim({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentId: INTENT_ID,
+    })).rejects.toThrow('Runtime configuration: WEB_ORIGIN이 필요합니다');
   });
 
   it('만료 intent는 claim 전에 상태를 만료시키고 거부한다', async () => {

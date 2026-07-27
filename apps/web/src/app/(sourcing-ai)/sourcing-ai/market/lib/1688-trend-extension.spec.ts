@@ -78,10 +78,10 @@ describe('1688 trend Chrome extension bridge', () => {
     // 토큰을 기다린다. 웹이 그보다 먼저 끊으면 "로그인 후 다시 시도" 라는 실제
     // 사유가 버려지고 원인 불명의 "응답 시간 초과"만 남는다.
     const extensionAuthRefreshTimeoutMs = Number(
-      /AUTH_REFRESH_TIMEOUT_MS\s*=\s*([\d_]+)/
+      /DEFAULT_AUTH_REFRESH_TIMEOUT_MS\s*=\s*([\d_]+)/
         .exec(
           fs.readFileSync(
-            path.resolve('../../extensions/product-scraper/background.js'),
+            path.resolve('../../extensions/product-scraper/environment-context.js'),
             'utf8',
           ),
         )?.[1]

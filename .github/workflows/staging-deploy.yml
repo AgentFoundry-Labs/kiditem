@@ -381,6 +381,7 @@ jobs:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.STAGING_DIRECT_URL }}
           SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          WEB_ORIGIN: ${{ vars.STAGING_URL }}
           CORS_ORIGINS: ${{ vars.STAGING_CORS_ORIGINS || vars.STAGING_URL }}
           S3_REGION: ${{ vars.STAGING_S3_REGION }}
           S3_BUCKET: ${{ vars.STAGING_S3_BUCKET }}
@@ -651,6 +652,7 @@ jobs:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.STAGING_DIRECT_URL }}
           SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          WEB_ORIGIN: ${{ vars.STAGING_URL }}
           CORS_ORIGINS: ${{ vars.STAGING_CORS_ORIGINS || vars.STAGING_URL }}
           S3_REGION: ${{ vars.STAGING_S3_REGION }}
           S3_BUCKET: ${{ vars.STAGING_S3_BUCKET }}

@@ -9,6 +9,7 @@ importScripts(
   "interactive-tabs.js",
   "wing-image-fetch.js",
   "wing-form-runtime-compat.js",
+  "wing-form-readiness.js",
   "detail-page-client-raster.js",
   "../utils/coupang-seller-detail.js",
   "../shared/coupang-catalog-collector.js?revision=2",
@@ -154,6 +155,7 @@ const collectionRuns = KidItemCollectionRuns.create({
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
 const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
 const wingFormRuntimeCompat = KidItemWingFormRuntimeCompat.create({ chrome });
+const wingFormReadiness = KidItemWingFormReadiness.create({ chrome });
 const wingImageFetch = KidItemWingImageFetch.create({
   runtimeId: chrome.runtime.id,
   fetchFn: fetch,
@@ -649,6 +651,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         kiditemEnvironmentProfilesV1: true,
         wingFormRegister: true,
         wingFormRegisterSource: "wing-formV2-fill",
+        wingFormReadinessV2: true,
         wingFormPortV1: true,
         detailPageClientRasterV1: true,
       },
@@ -1012,11 +1015,23 @@ async function registerToWingForm(message) {
       error: `WING 상품등록 화면을 준비하지 못했습니다. ${runtimeCompatibility.error}`,
     };
   }
-  // React formV2 렌더 여유
-  await new Promise((r) => setTimeout(r, 2500));
+  const readiness = await wingFormReadiness.wait(tab.id, url);
+  if (!readiness.ok) {
+    return {
+      ok: false,
+      tabId: tab.id,
+      failure: readiness,
+      error: readiness.code === "wing_form_content_not_ready"
+        ? "WING 상품등록 확장 스크립트가 준비되지 않았습니다. 확장을 리로드한 뒤 다시 시도하세요."
+        : "WING 상품등록 화면 준비 상태를 확인하지 못했습니다.",
+    };
+  }
+  const formSessionId = globalThis.crypto?.randomUUID?.()
+    || `wing-form-${tab.id}-${Date.now()}`;
   try {
     const fill = await chrome.tabs.sendMessage(tab.id, {
       action: "fillWingForm",
+      formSessionId,
       product,
       autoSubmit,
       executionId,

@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { AppException } from '@kiditem/shared/server-errors';
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { RocketPurchasePreviewService } from '../rocket-purchase-preview.service';
@@ -77,6 +76,14 @@ function dependencies() {
       expiresAt: '2026-07-16T00:10:00.000Z',
       inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, activeCommitmentQuantity: 0, availableStock: 5, isActive: true }],
     }),
+    readFreshCapacityOrRequest: vi.fn().mockResolvedValue({
+      status: 'fresh',
+      fence: '77777777-7777-4777-8777-777777777777',
+      generation: '1',
+      lastVerifiedAt: '2026-07-16T00:00:00.000Z',
+      expiresAt: '2026-07-16T00:10:00.000Z',
+      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, activeCommitmentQuantity: 0, availableStock: 5, isActive: true }],
+    }),
   } as unknown as SellpiaInventoryFreshnessGatePort;
   return { catalog, availability, freshness };
 }
@@ -106,11 +113,13 @@ describe('RocketPurchasePreviewService', () => {
       [channelSkuId],
     );
     expect((deps.freshness as unknown as {
-      readFreshCapacity: ReturnType<typeof vi.fn>;
-    }).readFreshCapacity).toHaveBeenCalledWith({
+      readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
+    }).readFreshCapacityOrRequest).toHaveBeenCalledWith({
       organizationId,
       sellpiaInventorySkuIds: [sellpiaInventorySkuId],
     });
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error('Expected ready preview');
     expect(result.rows[0]).toMatchObject({
       poLineId,
       plannedDeliveryDate: '2026-07-20',
@@ -155,6 +164,7 @@ describe('RocketPurchasePreviewService', () => {
 
     const result = await service.preview({ organizationId, userId, request: input });
 
+    if (result.status !== 'ready') throw new Error('Expected ready preview');
     expect(deps.catalog.publishAndResolve).toHaveBeenCalledWith({
       organizationId,
       userId,
@@ -176,12 +186,13 @@ describe('RocketPurchasePreviewService', () => {
 
       const result = await service.preview({ organizationId, userId, request: request() });
 
+      if (result.status !== 'ready') throw new Error('Expected ready preview');
       expect(result.rows[0]?.reason).toBe(blockingReason);
       expect(result.rows[0]?.plannedDeliveryDate).toBe('2026-07-20');
       expect(deps.availability.findByChannelSkuIds).not.toHaveBeenCalled();
       expect((deps.freshness as unknown as {
-        readFreshCapacity: ReturnType<typeof vi.fn>;
-      }).readFreshCapacity).not.toHaveBeenCalled();
+        readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
+      }).readFreshCapacityOrRequest).not.toHaveBeenCalled();
     },
   );
 
@@ -225,6 +236,7 @@ describe('RocketPurchasePreviewService', () => {
         } as never,
       });
 
+      if (result.status !== 'ready') throw new Error('Expected ready preview');
       expect(result.rows[0]).toMatchObject({
         maxQuantity: 0,
         editedQuantity: 0,
@@ -235,28 +247,41 @@ describe('RocketPurchasePreviewService', () => {
     },
   );
 
-  it.each([
-    'SELLPIA_SYNC_REQUIRED',
-    'SELLPIA_SYNC_IN_PROGRESS',
-    'SELLPIA_SYNC_FAILED',
-  ])('surfaces %s before returning any capacity recommendation', async (code) => {
+  it('returns a durable pending checkpoint before exposing any capacity recommendation', async () => {
     const deps = dependencies();
     vi.mocked((deps.freshness as unknown as {
-      readFreshCapacity: ReturnType<typeof vi.fn>;
-    }).readFreshCapacity).mockRejectedValue(
-      new AppException(409, code, 'fresh snapshot required'),
-    );
+      readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
+    }).readFreshCapacityOrRequest).mockResolvedValue({
+      status: 'refresh_required',
+      requestedGeneration: '2',
+    });
     const service = previewService(deps);
 
-    await expect(service.preview({ organizationId, userId, request: request() }))
-      .rejects.toMatchObject({ code });
+    const result = await service.preview({ organizationId, userId, request: request() });
+    const published = await vi.mocked(deps.catalog.publishAndResolve)
+      .mock.results[0]!.value;
+
+    expect(result).toEqual({
+      status: 'freshness_pending',
+      collectionRunId: request().collection.collectionRunId,
+      catalog: published.catalog,
+      requestedGeneration: '2',
+    });
+    expect(result).not.toHaveProperty('rows');
+    expect(vi.mocked(deps.catalog.publishAndResolve).mock.invocationCallOrder[0])
+      .toBeLessThan(
+      (deps.freshness as unknown as {
+        readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
+      }).readFreshCapacityOrRequest.mock.invocationCallOrder[0],
+      );
   });
 
   it('allocates from the gated generation when stock refreshes after availability read', async () => {
     const deps = dependencies();
     vi.mocked((deps.freshness as unknown as {
-      readFreshCapacity: ReturnType<typeof vi.fn>;
-    }).readFreshCapacity).mockResolvedValue({
+      readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
+    }).readFreshCapacityOrRequest).mockResolvedValue({
+      status: 'fresh',
       fence: '88888888-8888-4888-8888-888888888888',
       generation: '2',
       lastVerifiedAt: '2026-07-16T00:01:00.000Z',
@@ -267,6 +292,7 @@ describe('RocketPurchasePreviewService', () => {
 
     const result = await service.preview({ organizationId, userId, request: request() });
 
+    if (result.status !== 'ready') throw new Error('Expected ready preview');
     expect(result.rows[0]).toMatchObject({
       maxQuantity: 0,
       recommendedQuantity: 0,
@@ -296,10 +322,11 @@ describe('RocketPurchasePreviewService', () => {
 
     const result = await service.preview({ organizationId, userId, request: request() });
 
+    if (result.status !== 'ready') throw new Error('Expected ready preview');
     expect(result.rows[0]).toMatchObject({ reason, maxQuantity: 0 });
     expect((deps.freshness as unknown as {
-      readFreshCapacity: ReturnType<typeof vi.fn>;
-    }).readFreshCapacity).not.toHaveBeenCalled();
+      readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
+    }).readFreshCapacityOrRequest).not.toHaveBeenCalled();
   });
 
   it('deduplicates a physical component shared by multiple PO lines before freshness read', async () => {
@@ -324,8 +351,8 @@ describe('RocketPurchasePreviewService', () => {
     await service.preview({ organizationId, userId, request: input });
 
     expect((deps.freshness as unknown as {
-      readFreshCapacity: ReturnType<typeof vi.fn>;
-    }).readFreshCapacity).toHaveBeenCalledWith({
+      readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
+    }).readFreshCapacityOrRequest).toHaveBeenCalledWith({
       organizationId,
       sellpiaInventorySkuIds: [sellpiaInventorySkuId],
     });
@@ -334,8 +361,9 @@ describe('RocketPurchasePreviewService', () => {
   it('uses the gated current stock while ignoring common active commitments', async () => {
     const deps = dependencies();
     vi.mocked((deps.freshness as unknown as {
-      readFreshCapacity: ReturnType<typeof vi.fn>;
-    }).readFreshCapacity).mockResolvedValue({
+      readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
+    }).readFreshCapacityOrRequest).mockResolvedValue({
+      status: 'fresh',
       fence: '77777777-7777-4777-8777-777777777777',
       generation: '1',
       lastVerifiedAt: '2026-07-16T00:00:00.000Z',
@@ -354,7 +382,9 @@ describe('RocketPurchasePreviewService', () => {
 
     const result = await service.preview({ organizationId, userId, request: input });
 
+    if (result.status !== 'ready') throw new Error('Expected ready preview');
     expect(result).toMatchObject({
+      status: 'ready',
       inventoryGeneration: '1',
       rows: [{
         maxQuantity: 100,
