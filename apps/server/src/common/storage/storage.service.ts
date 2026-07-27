@@ -119,6 +119,10 @@ export class StorageService implements OnModuleInit {
     const metadata = Object.fromEntries(
       Object.entries(input.metadata).map(([key, value]) => [key.toLowerCase(), value]),
     );
+    const metadataHeaders = Object.fromEntries(
+      Object.entries(metadata).map(([key, value]) => [`x-amz-meta-${key}`, value]),
+    );
+    const metadataHeaderNames = Object.keys(metadataHeaders);
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: input.key,
@@ -128,7 +132,12 @@ export class StorageService implements OnModuleInit {
     });
     const uploadUrl = await getSignedUrl(this.client, command, {
       expiresIn: input.expiresInSeconds,
-      signableHeaders: new Set(['cache-control', 'content-type']),
+      signableHeaders: new Set([
+        'cache-control',
+        'content-type',
+        ...metadataHeaderNames,
+      ]),
+      unhoistableHeaders: new Set(metadataHeaderNames),
     });
 
     return {
@@ -136,6 +145,7 @@ export class StorageService implements OnModuleInit {
       headers: {
         'Content-Type': input.contentType,
         'Cache-Control': IMMUTABLE_ASSET_CACHE_CONTROL,
+        ...metadataHeaders,
       },
       expiresAt: new Date(Date.now() + input.expiresInSeconds * 1000),
       imageUrl: this.getUrl(input.key),

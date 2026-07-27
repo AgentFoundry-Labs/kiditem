@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # KidItem
 
 KidItem is an e-commerce operations automation monorepo for kids' products:
@@ -46,12 +44,12 @@ Keep every active root-to-leaf instruction chain below 28 KiB. Run
 
 ## Session Boundaries
 
-- Work in one business domain per session. Same-domain cross-layer changes are
-  allowed; unrelated business domains are not.
-- Boundary exceptions: organization guards, raw SQL policy, scanners, shared
-  exports, dependency tooling, and instruction cleanup may cross domains.
-- No follow-up issues: apply all in-scope changes now and do not leave
-  deferred handoffs.
+- Keep one business domain per session; same-domain cross-layer work is allowed.
+- Cross-domain exceptions are organization guards, raw SQL policy, scanners,
+  shared exports, dependency tooling, instruction cleanup, or a user-declared
+  incident hotfix that restores one operator workflow through one PR/deployment.
+  State the exception and exclude unrelated cleanup.
+- Apply all in-scope changes now; do not defer follow-ups.
 - Research major OSS projects before introducing new architectural patterns.
 - Maintain plans/specs in `docs/superpowers/`; keep scratch and agent logs out
   of git.

@@ -9,7 +9,10 @@ import { friendlyError } from '@/lib/api-error';
 import { downloadBlob } from '@/lib/browser-download';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
-import { collectRocketPoRowsForConfirmationFromExtension } from '@/lib/rocket-sales-collection';
+import {
+  collectRocketPoRowsForConfirmationFromExtension,
+  finalizeRocketPoCollectionSession,
+} from '@/lib/rocket-sales-collection';
 import { queryKeys } from '@/lib/query-keys';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import {
@@ -35,6 +38,7 @@ import type {
   RocketPurchasePreviewFreshnessPendingResponse,
   RocketPurchasePreviewReadyResponse,
   RocketPurchasePreviewRequest,
+  RocketPurchasePreviewResponse,
   RocketShortageReason,
   RocketWorkbookExportResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
@@ -217,12 +221,13 @@ export function useRocketPurchaseWorkflow({
     generation: number;
     controller: AbortController;
     notifyCatalogSaved: boolean;
+    initial?: RocketPurchasePreviewResponse;
   }): Promise<RocketPurchasePreviewReadyResponse> => {
     const isCurrent = () => (
       input.generation === requestGenerationRef.current
       && !input.controller.signal.aborted
     );
-    const initial = await previewRocketPurchases(input.request);
+    const initial = input.initial ?? await previewRocketPurchases(input.request);
     if (!isCurrent()) {
       throw new Error('Stale Rocket preview response');
     }
@@ -368,7 +373,13 @@ export function useRocketPurchaseWorkflow({
 
   const performRecalculation = async () => {
     const generation = requestGenerationRef.current;
-    const controller = beginWaiter();
+    // This controller intentionally outlives the route. A client-side route
+    // transition must not cancel collection persistence or freshness recovery.
+    const controller = new AbortController();
+    let collectedRun: Awaited<ReturnType<
+      typeof collectRocketPoRowsForConfirmationFromExtension
+    >> | null = null;
+    let collectionSessionTerminal = false;
     setLoading(true);
     setCollecting(true);
     setStage('collecting');
@@ -376,7 +387,7 @@ export function useRocketPurchaseWorkflow({
     onActivity?.({ status: 'started', message: '쿠팡에서 로켓 PO를 새로 수집하고 있습니다.' });
     try {
       const collected = await collectRocketPoRowsForConfirmationFromExtension({ from, to });
-      if (generation !== requestGenerationRef.current) return;
+      collectedRun = collected;
       const reviewRows = confirmationRequestedRows(collected.rows);
       const retainedEdits = operatorEditsForRows(
         operatorEditedLineIds,
@@ -397,30 +408,51 @@ export function useRocketPurchaseWorkflow({
       setExportedPoLineIds([]);
       setPendingCheckpoint(null);
       setStage('persisting_collection');
-      const result = await previewWithFreshnessRecovery({
-        request: {
+      const request: RocketPurchasePreviewRequest = {
           channelAccountId,
           collection: collected.collection,
           rows: collected.rows,
           editedQuantities: retainedEdits,
           clampEditedQuantities: true,
           previewScope: 'confirmation_requested',
-        },
-        generation,
-        controller,
-        notifyCatalogSaved: true,
-      });
-      if (generation !== requestGenerationRef.current) return;
-      if (collected.poCount > 0 && result.catalog === null) {
-        const incomplete = result.rows.some(({ reason }) => reason === 'collection_incomplete');
+      };
+      const initial = await previewRocketPurchases(request);
+      if (initial.catalog) onCatalogSaved?.();
+      if (collected.poCount > 0 && initial.catalog === null) {
+        const incomplete = initial.status === 'ready'
+          && initial.rows.some(({ reason }) => reason === 'collection_incomplete');
         const message = incomplete
           ? `로켓 PO ${collected.poCount}건 중 ${collected.collection.detailPoCount}건만 수집되어 저장하지 않았습니다.`
           : `로켓 PO ${collected.poCount}건을 수집했지만 검증을 통과하지 못해 저장하지 않았습니다.`;
-        setError(message);
-        setStage('review_required');
+        await finalizeRocketPoCollectionSession({
+          ...(collected.extensionId ? { extensionId: collected.extensionId } : {}),
+          runId: collected.collection.collectionRunId,
+          status: 'failed',
+          message,
+        }).catch(() => undefined);
+        collectionSessionTerminal = true;
         onActivity?.({ status: 'failed', message });
+        if (generation === requestGenerationRef.current) {
+          setError(message);
+          setStage('review_required');
+        }
         return;
       }
+      await finalizeRocketPoCollectionSession({
+        ...(collected.extensionId ? { extensionId: collected.extensionId } : {}),
+        runId: collected.collection.collectionRunId,
+        status: 'succeeded',
+        message: '로켓 PO 수집본 저장을 완료했습니다.',
+      }).catch(() => undefined);
+      collectionSessionTerminal = true;
+      const result = await previewWithFreshnessRecovery({
+        request,
+        generation,
+        controller,
+        notifyCatalogSaved: false,
+        initial,
+      });
+      if (generation !== requestGenerationRef.current) return;
       const effectiveEdits = visibleReviewQuantities(result);
       const currentLineIds = new Set(result.rows.map(({ poLineId }) => poLineId));
       setEditedQuantities(effectiveEdits);
@@ -445,13 +477,25 @@ export function useRocketPurchaseWorkflow({
         message: `로켓 PO ${collected.collection.detailPoCount}/${collected.poCount}건을 수집·저장하고 거래확인요청 ${new Set(result.rows.map(({ poNumber }) => poNumber)).size}건의 재고 미리보기를 계산했습니다.`,
       });
     } catch (cause) {
+      if (collectedRun && !collectionSessionTerminal) {
+        await finalizeRocketPoCollectionSession({
+          ...(collectedRun.extensionId
+            ? { extensionId: collectedRun.extensionId }
+            : {}),
+          runId: collectedRun.collection.collectionRunId,
+          status: 'failed',
+          message: rocketPreviewErrorMessage(
+            cause,
+            '로켓 PO 수집본을 서버에 저장하지 못했습니다.',
+          ),
+        }).catch(() => undefined);
+      }
       if (generation !== requestGenerationRef.current) return;
       setStage(stageForRecoveryFailure(cause));
       const message = recoveryErrorMessage(cause, '로켓 발주 미리보기를 계산하지 못했습니다.');
       setError(message);
       onActivity?.({ status: 'failed', message });
     } finally {
-      finishWaiter(controller);
       if (generation === requestGenerationRef.current) {
         setLoading(false);
         setCollecting(false);

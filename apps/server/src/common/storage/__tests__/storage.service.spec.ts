@@ -187,7 +187,16 @@ describe('StorageService', () => {
       });
       expect(options).toEqual({
         expiresIn: 300,
-        signableHeaders: new Set(['cache-control', 'content-type']),
+        signableHeaders: new Set([
+          'cache-control',
+          'content-type',
+          'x-amz-meta-intent-id',
+          'x-amz-meta-revision-id',
+        ]),
+        unhoistableHeaders: new Set([
+          'x-amz-meta-intent-id',
+          'x-amz-meta-revision-id',
+        ]),
       });
       expect(result).toMatchObject({
         uploadUrl: 'https://upload.example.com/signed',
@@ -196,6 +205,8 @@ describe('StorageService', () => {
         headers: {
           'Content-Type': 'image/jpeg',
           'Cache-Control': IMMUTABLE_ASSET_CACHE_CONTROL,
+          'x-amz-meta-intent-id': 'intent-1',
+          'x-amz-meta-revision-id': 'revision-1',
         },
       });
       expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
