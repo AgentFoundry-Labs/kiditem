@@ -682,6 +682,48 @@ test('navigate recreates one owned window when the active run loses its record',
   assert.equal(fake.tabs.get(recovered.tabId).url, 'https://example.com/recovered');
 });
 
+test('navigate recovers when the reattached tab disappears between validation and update', async () => {
+  // 실측된 실패: 첫 target 을 성공한 뒤 다음 target 으로 navigate 하는 순간 소유 탭이
+  // 사라져 있고, reattach 는 직전 검증을 통과했으므로 recovered=false 였다. 그 경로에는
+  // 복구가 없어서 run 전체가 "No tab with id: N" 이라는 크롬 원문으로 끝났다.
+  const fake = createFakeChrome();
+  const sessions = { async get() { return { status: 'running' }; } };
+  const helper = loadHelper(fake, { sessions });
+  const original = await helper.getOrCreate(
+    'run-vanish',
+    'https://example.com/first',
+  );
+
+  // 기록(owned-window)과 창은 그대로 두고 탭만 사라뜨려 reattach 는 통과시킨다.
+  const realUpdate = fake.chrome.tabs.update;
+  let firstUpdate = true;
+  fake.chrome.tabs.update = (tabId, properties, callback) => {
+    if (firstUpdate) {
+      firstUpdate = false;
+      fake.tabs.delete(tabId);
+      queueMicrotask(() => {
+        fake.chrome.runtime.lastError = { message: `No tab with id: ${tabId}.` };
+        callback(undefined);
+        fake.chrome.runtime.lastError = null;
+      });
+      return;
+    }
+    realUpdate(tabId, properties, callback);
+  };
+
+  const recovered = await helper.navigate(
+    'run-vanish',
+    'https://example.com/second',
+  );
+
+  assert.equal(recovered.runId, 'run-vanish');
+  assert.notEqual(recovered.tabId, original.tabId);
+  assert.equal(
+    fake.tabs.get(recovered.tabId).url,
+    'https://example.com/second',
+  );
+});
+
 test('navigate makes one replacement attempt and returns typed recovery failure evidence', async () => {
   const fake = createFakeChrome();
   const sessions = { async get() { return { status: 'running' }; } };

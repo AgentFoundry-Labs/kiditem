@@ -668,18 +668,35 @@
 
     async function navigate(runId, url) {
       let live = await reattach(runId);
-      const recovered = !live;
+      let recovered = !live;
       if (!live) live = await recoverOwnedWindow(runId, url);
       let tab;
       try {
         tab = await updateTab(live.tabId, { url, active: true });
       } catch (cause) {
-        if (!recovered) throw cause;
-        throw collectionWindowError(
-          "collection_window_recovery_failed",
-          errorMessage(cause),
-          { runId, stage: "navigate_replacement", retryable: true },
-        );
+        // reattach 가 살아있다고 본 탭이 그 직후 사라질 수 있다(브라우저가 탭을 닫거나
+        // 폐기). 예전에는 recovered=false 인 이 경로에 복구가 없어서, 첫 target 을 성공한
+        // 뒤 다음 target 으로 넘어가는 순간 "No tab with id: N" 이라는 크롬 원문 오류로
+        // run 전체가 끝났다 — 이미 만들어 둔 recoverOwnedWindow 를 쓰지 못한 채였다.
+        if (!recovered) {
+          live = await recoverOwnedWindow(runId, url);
+          recovered = true;
+          try {
+            tab = await updateTab(live.tabId, { url, active: true });
+          } catch (retryCause) {
+            throw collectionWindowError(
+              "collection_window_recovery_failed",
+              errorMessage(retryCause),
+              { runId, stage: "navigate_replacement", retryable: true },
+            );
+          }
+        } else {
+          throw collectionWindowError(
+            "collection_window_recovery_failed",
+            errorMessage(cause),
+            { runId, stage: "navigate_replacement", retryable: true },
+          );
+        }
       }
       if (tab.windowId !== live.windowId) {
         throw collectionWindowError(
