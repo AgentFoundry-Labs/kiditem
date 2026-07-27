@@ -1,5 +1,4 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -9,11 +8,12 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import type { PrismaService } from '../../prisma/prisma.service';
 import { InventoryCommitmentRepositoryAdapter } from '../adapter/out/repository/inventory-commitment.repository.adapter';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { InventoryCommitmentService } from '../application/service/inventory-commitment.service';
 import { SellpiaInventoryFreshnessService } from '../application/service/sellpia-inventory-freshness.service';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 const SKU_ID = '10000000-0000-4000-8000-000000000101';
 const FOREIGN_SKU_ID = '10000000-0000-4000-8000-000000000102';
@@ -39,6 +39,7 @@ describe('inventory commitment repository (PG integration)', () => {
       new SellpiaInventoryFreshnessRepositoryAdapter(
         prisma as unknown as PrismaService,
       ),
+      { fail: async () => null },
     );
   });
 

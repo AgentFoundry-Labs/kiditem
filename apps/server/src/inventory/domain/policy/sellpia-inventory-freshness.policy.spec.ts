@@ -377,7 +377,7 @@ describe('Sellpia inventory freshness policy', () => {
     })).toEqual({ kind: 'joined' });
   });
 
-  it('blocks an ownerless future lease and reclaims it at exact expiry', () => {
+  it('blocks an ownerless future lease and fails it at exact expiry', () => {
     const orphanedLease = makeState({
       requestedGeneration: 2n,
       verifiedGeneration: 1n,
@@ -399,9 +399,18 @@ describe('Sellpia inventory freshness policy', () => {
       ...claimInput,
       now: new Date('2026-07-15T00:01:30.000Z'),
     })).toMatchObject({
-      kind: 'claimed',
+      kind: 'expired',
+      claimToken: orphanedLease.activeSyncToken,
       generation: 2n,
-      patch: { activeSyncOwnerUserId: claimInput.userId },
+      createdBy: claimInput.userId,
+      patch: {
+        activeSyncToken: null,
+        activeSyncOwnerUserId: null,
+        activeGeneration: null,
+        failedGeneration: 2n,
+        lastAttemptStatus: 'failed',
+        lastErrorCode: 'sellpia_background_timeout',
+      },
     });
   });
 });
