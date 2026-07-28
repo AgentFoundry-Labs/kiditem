@@ -63,6 +63,13 @@ export default function WingRegistrationConfirmDialog({
   ];
   const nameLength = overrides.productName.trim().length;
   const nameOverLimit = nameLength > WING_DISPLAY_NAME_MAX;
+  const selectedCategory = WING_CATEGORY_DEFINITIONS.find(
+    (definition) => definition.key === overrides.categoryKey,
+  );
+  const showUnitWeight = Boolean(
+    String(overrides.unitWeightValue ?? '').trim()
+    || selectedCategory?.requiredPurchaseOptionTypes.includes('개당 중량'),
+  );
   const patch = (next: Partial<WingRegistrationOverrides>) =>
     setOverrides((prev) => (prev ? { ...prev, ...next } : prev));
   // 숫자 입력은 빈 문자열을 0 으로 읽는다. NaN 을 흘려보내면 검증 메시지가
@@ -136,7 +143,7 @@ export default function WingRegistrationConfirmDialog({
 
           <Field
             label="WING 카테고리"
-            hint="KidItem에서 사용하는 고정 카테고리 목록입니다. 카테고리 변경은 옵션·고시정보를 바꾸지 않습니다."
+            hint="KidItem 고정 카테고리입니다. 카테고리에 필요한 옵션 항목이 아래에 표시됩니다."
           >
             <select
               aria-label="WING 카테고리"
@@ -185,7 +192,7 @@ export default function WingRegistrationConfirmDialog({
             />
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={cn('grid gap-3', showUnitWeight ? 'grid-cols-3' : 'grid-cols-2')}>
             <Field label="옵션 · 색상">
               <input
                 type="text"
@@ -202,6 +209,18 @@ export default function WingRegistrationConfirmDialog({
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400"
               />
             </Field>
+            {showUnitWeight && (
+              <Field label="옵션 · 개당 중량 (g)" hint="WING 필수 옵션">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  aria-label="옵션 · 개당 중량 (g)"
+                  value={overrides.unitWeightValue}
+                  onChange={(event) => patch({ unitWeightValue: event.target.value })}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400"
+                />
+              </Field>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-3">

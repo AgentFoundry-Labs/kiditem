@@ -615,6 +615,7 @@ function createOptionAndNoticeHarness({
   optionCreationAvailable = true,
   optionCreationMode = 'legacy',
   generatedRowCount = 0,
+  dynamicRequiredOptionTypes = ['색상', '수량'],
 } = {}) {
   let listener = null;
   const events = [];
@@ -818,7 +819,7 @@ function createOptionAndNoticeHarness({
         dynamicAppliedOptions.set(optionType, input.value);
         events.push(`optionAdd:${optionType}`);
         input.value = '';
-        if (dynamicAppliedOptions.size === 2) {
+        if (dynamicRequiredOptionTypes.every((type) => dynamicAppliedOptions.has(type))) {
           while (rows.length < generatedRowCount) rows.push(checkbox('row'));
         }
       },
@@ -832,11 +833,14 @@ function createOptionAndNoticeHarness({
     return { input, row };
   };
   const colorOption = makeOptionInput('색상', '옵션값 입력');
+  const weightOption = makeOptionInput('개당 중량', '숫자만 입력');
   const quantityOption = makeOptionInput('수량', '숫자만 입력');
   const dynamicOptionCreation = {
     offsetParent: {},
     querySelectorAll(selector) {
-      return selector.includes('.attribute') ? [colorOption.row, quantityOption.row] : [];
+      return selector.includes('.attribute')
+        ? [colorOption.row, weightOption.row, quantityOption.row]
+        : [];
     },
   };
 
@@ -1007,6 +1011,30 @@ test('supports current DynamicOption rows that auto-generate without #generateIt
   assert.equal(harness.events.includes('generateItems'), false);
   assert.ok(harness.events.indexOf('optionAdd:수량') < harness.events.indexOf('selectAll:true'));
   assert.deepEqual(harness.getBulkValues(), ['12900', '999']);
+});
+
+test('fills every live required DynamicOption attribute before generating rows', async () => {
+  const harness = createOptionAndNoticeHarness({
+    rowCount: 0,
+    generatedRowCount: 1,
+    optionCreationMode: 'dynamic',
+    dynamicRequiredOptionTypes: ['색상', '개당 중량', '수량'],
+  });
+  const result = await harness.fill({
+    purchaseOptions: [
+      { type: '색상', value: '단일' },
+      { type: '개당 중량', value: '120g' },
+      { type: '수량', value: '1개' },
+    ],
+    salePrice: 12900,
+    stock: 999,
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.ok(result.steps.includes('option:개당 중량=120'));
+  assert.ok(result.steps.includes('optionRows:1'));
+  assert.ok(harness.events.includes('optionAdd:개당 중량'));
+  assert.ok(harness.events.indexOf('optionAdd:개당 중량') < harness.events.indexOf('selectAll:true'));
 });
 
 test('pins the notice category to 기타 재화 and checks 전체 상품 상세페이지 참조', async () => {

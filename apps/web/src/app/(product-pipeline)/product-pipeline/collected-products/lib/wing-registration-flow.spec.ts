@@ -750,6 +750,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(overrides.sellerProductName).toBe('딸깍이 키링');
     expect(overrides.colorValue).toBe('단일');
     expect(overrides.quantityValue).toBe('1');
+    expect(overrides.unitWeightValue).toBe('');
     expect(overrides.salePrice).toBe(2200);
     expect(overrides.stock).toBe(999);
   });
@@ -770,6 +771,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
       sellerProductName: '내부관리명-001',
       colorValue: '핑크',
       quantityValue: '2',
+      unitWeightValue: '',
       salePrice: 3900,
       origPrice: 5900,
       stock: 30,
@@ -808,6 +810,29 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(applied.noticeValues).toEqual(['사용자가 고친 품명', '대한민국']);
   });
 
+  it('슬라임 카테고리는 개당 중량을 필수로 받고 WING 구매옵션에 반영한다', () => {
+    const original = product();
+    const base = buildWingRegistrationOverrides(original);
+
+    expect(validateWingRegistrationOverrides({
+      ...base,
+      categoryKey: '103112',
+      unitWeightValue: '',
+    })).toContain('개당 중량을 입력하세요.');
+
+    const applied = applyWingRegistrationOverrides(original, {
+      ...base,
+      categoryKey: '103112',
+      unitWeightValue: '120g',
+    });
+
+    expect(applied.variants[0].purchaseOptions).toEqual([
+      { type: '색상', value: '단일' },
+      { type: '수량', value: '1' },
+      { type: '개당 중량', value: '120g' },
+    ]);
+  });
+
   it('정상가를 비우면 판매가를 할인율 기준가로 쓴다', () => {
     const applied = applyWingRegistrationOverrides(product(), {
       ...buildWingRegistrationOverrides(product()),
@@ -823,6 +848,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
       ...buildWingRegistrationOverrides(product()),
       colorValue: '  ',
       quantityValue: '3',
+      unitWeightValue: '',
     });
 
     expect(applied.variants[0].purchaseOptions).toEqual([{ type: '수량', value: '3' }]);
