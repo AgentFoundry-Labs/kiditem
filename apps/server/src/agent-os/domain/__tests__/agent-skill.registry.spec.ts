@@ -15,7 +15,7 @@ describe('agent skill registry', () => {
       description: expect.stringContaining('Sourcing browser extractors'),
       category: 'sourcing',
       version: '1.0.0',
-      skillPath: 'tools/codex/skills/magic-scraper/SKILL.md',
+      skillPath: '~/.codex/skills/magic-scraper/SKILL.md',
       defaultPreload: true,
       allowedAgentTypes: ['sourcing'],
       mode: 'development_workflow',

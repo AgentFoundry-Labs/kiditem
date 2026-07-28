@@ -8,7 +8,28 @@
   // showBadge is loaded from utils/dom.js via manifest
 
   function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    const milliseconds = Math.min(
+      5_000,
+      Math.max(0, Math.round(Number(ms) || 0)),
+    );
+    if (typeof chrome?.runtime?.sendMessage !== "function") {
+      return new Promise((resolve) => setTimeout(resolve, milliseconds));
+    }
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { action: "waitForAdCollectorDelay", milliseconds },
+          () => {
+            void chrome.runtime.lastError;
+            resolve();
+          },
+        );
+      } catch {
+        // 확장이 다시 로드되는 순간에는 즉시 상위 상태 검사를 진행해 실패를
+        // 표면화한다. 비활성 페이지 타이머로 되돌아가 장시간 대기하지 않는다.
+        resolve();
+      }
+    });
   }
 
   // 백그라운드 창에서 수집이 실패하던 직접 원인.
@@ -28,8 +49,9 @@
   // 값이 들어왔지만(2026-07-18·19 집행 광고비 48,196원·47,676원 정상 수집),
   // 그 뒤 캠페인 상세 sweep 은 한 행도 남기지 못했다.
   //
-  // 그래서 벽시계 예산과 별개로 최소 시도 횟수를 보장한다. 스로틀이 걸리면
-  // 느려질 뿐 실패하지는 않는다.
+  // 짧은 대기는 위 sleep()에서 visibility throttling 대상이 아닌 확장 service
+  // worker로 넘긴다. 최소 시도 횟수도 함께 유지해 worker/content 응답 경계의
+  // 일시적인 렌더 지연이 단 한 번의 검사로 실패 처리되지 않게 한다.
   const THROTTLED_MIN_ATTEMPTS = 6;
 
   async function pollUntil(check, options = {}) {
@@ -2557,6 +2579,39 @@
     );
   }
 
+  function findDashboardCampaignGrid() {
+    const candidates = Array.from(
+      document.querySelectorAll(
+        ".rt-table, [class*='rt-table'], [role='grid']",
+      ),
+    );
+    if (candidates.length === 0) {
+      const onlyCandidate = document.querySelector(
+        ".rt-table, [class*='rt-table'], [role='grid']",
+      );
+      if (onlyCandidate) candidates.push(onlyCandidate);
+    }
+    return candidates.find((grid) => {
+      const rowGroups = Array.from(
+        grid.querySelectorAll(".rt-tbody .rt-tr-group"),
+      );
+      if (
+        rowGroups.some((row) => {
+          const title = dashboardCampaignTitleElement(row);
+          return title && normalizeText(title.innerText || "").length > 0;
+        })
+      ) {
+        return true;
+      }
+      const headers = Array.from(
+        grid.querySelectorAll(".rt-thead .rt-th, [role='columnheader']"),
+      )
+        .map((node) => normalizeText(node.innerText || ""))
+        .filter(Boolean);
+      return headers.length >= 3 && isAdReportHeaderSet(headers);
+    }) || null;
+  }
+
   function campaignNavigationKey(campaign) {
     return [
       "dashboard-campaign",
@@ -2591,6 +2646,9 @@
       campaignId,
       href: canonicalHref,
       hasDetailHref: true,
+      discoveredByNavigation:
+        campaign?.discoveredByNavigation === true ||
+        campaign?.requiresIdentityProbe === true,
       requiresIdentityProbe: false,
     };
   }
@@ -2638,7 +2696,7 @@
   // - 캠페인 상태(운영중/일시정지)는 보존만 하고 sweep 큐 진입 필터로 쓰지 않음
   //   → 사용자가 "캠페인 모두 다" 요구. paused 도 광고 전략 분석용.
   function inspectCampaignsFromDashboard() {
-    const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+    const grid = findDashboardCampaignGrid();
     if (!grid) {
       return {
         campaigns: [],
@@ -2696,6 +2754,11 @@
       const identity = campaignIdentityFromHref(href, name);
       if (!identity) {
         missingIdentityNames.push(name);
+        const isLinklessClickableCampaignAnchor =
+          anchor &&
+          typeof anchor.click === "function" &&
+          rg.querySelector("[data-bigfoot-component='campaign_name'] a") === anchor &&
+          String(anchor.getAttribute?.("href") || "").trim() === "";
         // 상세 URL/provider id가 없는 AI 캠페인은 표시명을 authoritative
         // identity로 승격하지 않는다. 대신 대시보드에서 관찰한 원본 행을
         // multi_campaign_raw로 저장할 수 있게 별도 큐에 보존한다. 이 행 하나
@@ -2703,8 +2766,13 @@
         //
         // anchor 자체가 없거나 예상하지 못한 URL이면 DOM drift일 수 있으므로
         // 기존 fail-closed 동작을 유지한다. 실측된 no-detail 캠페인처럼 anchor가
-        // 명시적으로 dashboard list URL을 가리킬 때만 raw-only로 분류한다.
-        if (isExplicitDashboardListAnchor(anchor)) {
+        // dashboard list URL을 가리키거나, 빈 href 클릭 anchor인 자동화 캠페인만
+        // raw-only로 분류한다.
+        if (
+          isExplicitDashboardListAnchor(anchor) ||
+          (isAutomatedNoDetailCampaign({ name }) &&
+            isLinklessClickableCampaignAnchor)
+        ) {
           rawOnlyCampaigns.push({
             rowIndex,
             name,
@@ -2713,12 +2781,7 @@
             cells: cells.map((cell) =>
               normalizeText(cell.innerText || cell.textContent || "")),
           });
-        } else if (
-          anchor &&
-          typeof anchor.click === "function" &&
-          rg.querySelector("[data-bigfoot-component='campaign_name'] a") === anchor &&
-          String(anchor.getAttribute?.("href") || "").trim() === ""
-        ) {
+        } else if (isLinklessClickableCampaignAnchor) {
           // 현재 광고센터는 href를 렌더하지 않고 클릭 핸들러에서만 상세 URL을
           // push한다. 이름을 identity로 발명하지 않고, sweep이 이 행을 클릭한
           // 뒤 실제 `/campaign/{providerId}/...` URL에서 identity를 확정한다.
@@ -2932,7 +2995,7 @@
         // 상세 화면에도 campaign table/empty-state가 존재한다. URL 경계를 먼저
         // 확인하지 않으면 상세 화면을 dashboard 복귀 완료로 오판할 수 있다.
         if (!isDashboardListPage()) return false;
-        const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+        const grid = findDashboardCampaignGrid();
         const rows = grid?.querySelectorAll(".rt-tbody .rt-tr-group") || [];
         if (rows.length > 0) {
           const titled = Array.from(rows).filter((r) => {
@@ -2995,7 +3058,7 @@
 
   // DOM rebuild 가능성에 대비해 identity로 fresh anchor를 다시 찾아 클릭한다.
   function clickCampaignAnchor(campaign) {
-    const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+    const grid = findDashboardCampaignGrid();
     if (!grid) return false;
     const rowGroups = Array.from(grid.querySelectorAll(".rt-tbody .rt-tr-group"));
     for (let rowIndex = 0; rowIndex < rowGroups.length; rowIndex += 1) {
@@ -3426,7 +3489,10 @@
 
   function unresolvedCampaignWorkKeys(errors) {
     return normalizeSweepErrors(errors)
-      .filter((entry) => entry?.name !== "_dashboard")
+      .filter(
+        (entry) =>
+          entry?.name !== "_dashboard" && entry?.retryable !== true,
+      )
       .map((entry) => {
         const identity = typeof entry?.identity === "string"
           ? entry.identity.trim()
@@ -3716,11 +3782,12 @@
         label,
       });
     };
-    const recordTerminalCampaignFailure = async (
+    const recordCampaignFailure = async (
       campaign,
       error,
       details = {},
       label = `${campaign?.name || "캠페인"}: ${error}`,
+      terminalNavigation = true,
     ) => {
       ({ errors, failed } = reconcileCampaignFailureState(
         errors,
@@ -3728,7 +3795,9 @@
         error,
         details,
       ));
-      persistTerminalLinklessNavigation(campaign, completedNavigationKeys);
+      if (terminalNavigation) {
+        persistTerminalLinklessNavigation(campaign, completedNavigationKeys);
+      }
       clearPendingCampaignNavigation();
       saveSweepProgress();
       // 광고센터의 dashboard/detail 전환은 full-document navigation일 수 있다.
@@ -3751,7 +3820,7 @@
         explicitTotal: readDashboardCampaignTotal(),
         previousTotal: progressTotal,
       });
-      await recordTerminalCampaignFailure(
+      await recordCampaignFailure(
         dashboardReturnedCampaign,
         "campaign_identity_navigation_returned_to_dashboard",
         {},
@@ -3945,7 +4014,7 @@
           explicitTotal: readDashboardCampaignTotal(),
           previousTotal: progressTotal,
         });
-        await recordTerminalCampaignFailure(
+        await recordCampaignFailure(
           camp,
           identityProbe.error,
           {},
@@ -3994,7 +4063,7 @@
         // 오늘 OFF여도 최근 31일에 집행 실적이 있을 수 있다.
         const clicked = identityProbe.navigated || clickCampaignAnchor(camp);
         if (!clicked) {
-          await recordTerminalCampaignFailure(
+          await recordCampaignFailure(
             camp,
             "anchor not found",
           );
@@ -4004,7 +4073,7 @@
         // 2b) 상세 identity + rows/명시적 empty-state 렌더 대기
         const detail = await waitForCampaignDetailPage(camp, 20000);
         if (!detail.ok) {
-          await recordTerminalCampaignFailure(
+          await recordCampaignFailure(
             camp,
             detail.error,
           );
@@ -4195,11 +4264,29 @@
           "#22c55e",
         );
       } else if (campaignFailure) {
-        await recordTerminalCampaignFailure(
+        const stoppedProgressSnapshot = await recordCampaignFailure(
           camp,
           campaignFailure.error,
-          campaignFailure.details,
+          { ...campaignFailure.details, retryable: true },
+          `${camp.name}: ${campaignFailure.error}`,
+          false,
         );
+        showBadge(
+          `❌ ${camp.name}: ${campaignFailure.error} — 확인 후 다시 실행해주세요`,
+          "#ef4444",
+        );
+        return {
+          success: false,
+          type: "ad_sync",
+          campaigns: synced,
+          failed,
+          totalRows,
+          error:
+            `${camp.name}: ${campaignFailure.error}. ` +
+            "광고센터 상태를 확인한 뒤 광고 동기화를 다시 실행해주세요.",
+          errors,
+          progress: stoppedProgressSnapshot,
+        };
       }
       if (!campaignFailure) {
         saveSweepProgress();
@@ -4387,14 +4474,20 @@
 
   // doSync / runDashboardSweep 중복 실행 방지 — auto-trigger + manualSync 동시 시 같은 Promise 공유
   let currentSync = null;
-  function runSyncOnce() {
+  function shouldRunDashboardSweep(syncMode = null) {
+    return (
+      syncMode === "campaign_sweep" ||
+      /#kiditemAdSync=1/.test(window.location.hash || "") ||
+      campaignResumedFromDetailHref(window.location.href) !== null
+    );
+  }
+
+  function runSyncOnce(syncMode = null) {
     if (!currentSync) {
       // 대시보드 hash뿐 아니라 href 없는 캠페인 클릭이 연 상세 document의
       // pending handoff도 같은 sweep이다. 후자는 상세 URL에 hash가 없으므로
       // sessionStorage owner를 확인하지 않으면 legacy doSync로 잘못 분기한다.
-      const isAdSync =
-        /#kiditemAdSync=1/.test(window.location.hash || "") ||
-        campaignResumedFromDetailHref(window.location.href) !== null;
+      const isAdSync = shouldRunDashboardSweep(syncMode);
       const job = isAdSync ? runDashboardSweep() : doSync();
       currentSync = job.finally(() => {
         currentSync = null;
@@ -4491,6 +4584,8 @@
     resetReportPaginationToFirstPage,
     returnToDashboard,
     savePendingCampaignNavigation,
+    sleep,
+    shouldRunDashboardSweep,
     unresolvedCampaignWorkKeys,
     withCollectionRunId,
   });
@@ -4569,7 +4664,7 @@
         return false;
       }
       if (admission.shareCurrent) {
-        runSyncOnce()
+        runSyncOnce(msg.syncMode)
           .then((result) => sendResponse(result))
           .catch((error) =>
             sendResponse({ success: false, error: error?.message || String(error) }),
@@ -4593,7 +4688,7 @@
       if (executionChanged) {
         lastReportedSweepProgress = { current: 0, total: 0 };
       }
-      runSyncOnce()
+      runSyncOnce(msg.syncMode)
         .then((result) => sendResponse(result))
         .catch((error) =>
           sendResponse({ success: false, error: error?.message || String(error) }),

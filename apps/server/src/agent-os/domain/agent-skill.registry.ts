@@ -8,7 +8,7 @@ const SKILLS: readonly AgentSkillDefinitionRecord[] = [
       'Develop, repair, and harden Sourcing browser extractors from authorized local Chrome CDP page evidence.',
     category: 'sourcing',
     version: '1.0.0',
-    skillPath: 'tools/codex/skills/magic-scraper/SKILL.md',
+    skillPath: '~/.codex/skills/magic-scraper/SKILL.md',
     defaultPreload: true,
     allowedAgentTypes: ['sourcing'],
     mode: 'development_workflow',

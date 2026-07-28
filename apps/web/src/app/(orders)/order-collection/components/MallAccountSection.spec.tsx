@@ -64,6 +64,7 @@ function renderSection(
       selectedMall={accounts[0]}
       mallDraft={{
         loginId: "",
+        supplierLoginId: "",
         password: "",
         siteUrl: "",
         memo: "",
@@ -191,6 +192,17 @@ describe("MallAccountSection", () => {
 
     await user.click(screen.getByRole("button", { name: "키드키즈 설정" }));
     expect(callbacks.onOpenSettings).toHaveBeenCalledWith(account);
+  });
+
+  it("shows a second ID field only for the single art09 account", () => {
+    const source = readFileSync(
+      path.resolve(import.meta.dirname, "MallAccountSection.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("selectedMall?.key === \"art09\"");
+    expect(source).toContain("공급사 ID");
+    expect(source).not.toContain("아트공구 2");
   });
 
   it("renders collection recovery controls above the mall cards", () => {

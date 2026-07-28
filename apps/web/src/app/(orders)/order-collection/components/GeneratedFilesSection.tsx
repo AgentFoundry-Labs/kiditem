@@ -20,8 +20,11 @@ import {
 } from '../lib/generated-file-view-model';
 import {
   countLabel,
+  dayKey,
   groupHistoryByDay,
   hasSellpiaTransmissionRequest,
+  isSellpiaOrderFile,
+  todayYmd,
   type ConversionHistoryItem,
 } from '../lib/order-collection-page-model';
 
@@ -32,6 +35,7 @@ export type GeneratedFilesBulkAction = 'send' | 'download' | 'delete' | null;
 interface GeneratedFilesSectionProps {
   items: ConversionHistoryItem[];
   sellpiaSendingId: string | null;
+  sellpiaSettlingId: string | null;
   bulkAction: GeneratedFilesBulkAction;
   lockedFileIds: ReadonlySet<string>;
   sellpiaPostProcessing: boolean;
@@ -48,6 +52,7 @@ interface GeneratedFilesSectionProps {
 export function GeneratedFilesSection({
   items,
   sellpiaSendingId,
+  sellpiaSettlingId,
   bulkAction,
   lockedFileIds,
   sellpiaPostProcessing,
@@ -90,13 +95,25 @@ export function GeneratedFilesSection({
     [items, selectedIds],
   );
   const selectedUnsentItems = useMemo(
-    () => selectedItems.filter((item) => !hasSellpiaTransmissionRequest(item)),
+    () => selectedItems.filter(
+      (item) => isSellpiaOrderFile(item) && !hasSellpiaTransmissionRequest(item),
+    ),
     [selectedItems],
   );
   const allPageSelected =
     pageData.items.length > 0 && pageData.items.every((item) => selectedIds.has(item.id));
   const somePageSelected = pageData.items.some((item) => selectedIds.has(item.id));
   const selectedHasLockedFile = selectedItems.some((item) => lockedFileIds.has(item.id));
+  const todayItems = useMemo(() => {
+    const today = todayYmd();
+    return items.filter(
+      (item) => (item.collectionDate ?? dayKey(item.convertedAt)) === today,
+    );
+  }, [items]);
+  const allTodaySelected =
+    todayItems.length > 0 && todayItems.every((item) => selectedIds.has(item.id));
+  const someTodaySelected = todayItems.some((item) => selectedIds.has(item.id));
+  const sendBusy = sellpiaSendingId !== null || sellpiaSettlingId !== null || bulkAction !== null;
 
   useEffect(() => {
     if (page !== pageData.page) setPage(pageData.page);
@@ -129,6 +146,17 @@ export function GeneratedFilesSection({
     setSelectedIds((current) => {
       const next = new Set(current);
       for (const item of pageData.items) {
+        if (checked) next.add(item.id);
+        else next.delete(item.id);
+      }
+      return next;
+    });
+  };
+
+  const toggleToday = (checked: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const item of todayItems) {
         if (checked) next.add(item.id);
         else next.delete(item.id);
       }
@@ -171,6 +199,19 @@ export function GeneratedFilesSection({
                   className="h-4 w-4 cursor-pointer accent-purple-600"
                 />
                 현재 페이지 선택
+              </label>
+            ) : null}
+            {todayItems.length > 0 ? (
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-100">
+                <input
+                  type="checkbox"
+                  checked={allTodaySelected}
+                  aria-label={`오늘 생성 파일 전체 선택 (${todayItems.length}개)`}
+                  onChange={(event) => toggleToday(event.target.checked)}
+                  className="h-4 w-4 cursor-pointer accent-purple-600"
+                />
+                오늘 전체 선택 ({formatNumber(todayItems.length)})
+                {someTodaySelected && !allTodaySelected ? ' · 일부' : ''}
               </label>
             ) : null}
             {selectedItems.length > 0 ? (
@@ -288,7 +329,7 @@ export function GeneratedFilesSection({
                 <div className="text-xs tabular-nums text-slate-400">{formatNumber(group.items.length)}개</div>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1120px] table-fixed text-sm">
+                <table className="w-full min-w-[1440px] table-fixed text-sm">
                   <colgroup>
                     <col className="w-[44px]" />
                     <col className="w-[190px]" />
@@ -296,8 +337,8 @@ export function GeneratedFilesSection({
                     <col className="w-[110px]" />
                     <col className="w-[64px]" />
                     <col className="w-[64px]" />
-                    <col className="w-[180px]" />
-                    <col className="w-[330px]" />
+                    <col className="w-[250px]" />
+                    <col className="w-[420px]" />
                   </colgroup>
                   <thead className="text-xs text-slate-500">
                     <tr>
@@ -307,8 +348,8 @@ export function GeneratedFilesSection({
                       <th className="px-4 py-3 text-left font-medium">전송상태</th>
                       <th className="px-4 py-3 text-right font-medium">상품</th>
                       <th className="px-4 py-3 text-right font-medium">출력</th>
-                      <th className="px-4 py-3 text-left font-medium">생성시각</th>
-                      <th className="px-4 py-3 text-right font-medium">작업</th>
+                      <th className="py-3 pl-4 pr-6 text-left font-medium">생성시각</th>
+                      <th className="py-3 pl-6 pr-4 text-right font-medium">작업</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -328,13 +369,20 @@ export function GeneratedFilesSection({
                           />
                         </td>
                         <td className="truncate px-4 py-3 text-slate-700" title={item.sourceName}>
-                          {item.mallName ?? item.sourceName}
+                          <div className="truncate">{item.mallName ?? item.sourceName}</div>
+                          <div className="mt-1 text-[11px] text-slate-400">
+                            {isSellpiaOrderFile(item) ? '주문수집' : '송장 업로드'}
+                          </div>
                         </td>
                         <td className="truncate px-4 py-3 font-medium text-slate-900" title={item.fileName}>
                           {item.fileName}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
-                          {hasSellpiaTransmissionRequest(item) ? (
+                          {!isSellpiaOrderFile(item) ? (
+                            <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                              파일 생성됨
+                            </span>
+                          ) : hasSellpiaTransmissionRequest(item) ? (
                             <span
                               className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
                               title={formatDateTime(item.transmissionRequestedAt!)}
@@ -353,30 +401,36 @@ export function GeneratedFilesSection({
                         <td className="px-4 py-3 text-right tabular-nums text-slate-700">
                           {countLabel(item.outputRows)}
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-500">
+                        <td className="whitespace-nowrap py-3 pl-4 pr-6 text-slate-500">
                           {formatDateTime(item.convertedAt)}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="py-3 pl-6 pr-4">
                           <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => onSendToSellpia(item)}
-                              disabled={lockedFileIds.has(item.id)}
-                              className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {sellpiaSendingId === item.id ? (
-                                <Loader2 size={13} className="animate-spin" />
-                              ) : (
-                                <Send size={13} />
-                              )}
-                              {sellpiaSendingId === item.id
-                                ? '전송 중'
-                                : bulkAction === 'send' && lockedFileIds.has(item.id)
-                                  ? '전송 대기'
-                                : hasSellpiaTransmissionRequest(item)
-                                  ? '다시 전송 요청'
-                                  : '셀피아 전송 요청'}
-                            </button>
+                            {isSellpiaOrderFile(item) ? (
+                              <button
+                                type="button"
+                                onClick={() => onSendToSellpia(item)}
+                                disabled={sendBusy || lockedFileIds.has(item.id)}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {sellpiaSendingId === item.id ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : sellpiaSettlingId === item.id ? (
+                                  <PackageCheck size={13} />
+                                ) : (
+                                  <Send size={13} />
+                                )}
+                                {sellpiaSendingId === item.id
+                                  ? '전송 중'
+                                  : sellpiaSettlingId === item.id
+                                    ? '접수 확인됨'
+                                  : bulkAction === 'send' && lockedFileIds.has(item.id)
+                                    ? '전송 대기'
+                                  : hasSellpiaTransmissionRequest(item)
+                                    ? '다시 전송 요청'
+                                    : '셀피아 전송 요청'}
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => onPreview(item.id)}

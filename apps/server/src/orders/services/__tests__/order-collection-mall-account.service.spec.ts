@@ -92,6 +92,39 @@ describe('OrderCollectionMallAccountService', () => {
     expect(JSON.stringify(account)).not.toContain('icecream-password');
   });
 
+  it('stores both Cafe24 IDs on the single art09 account', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    let stored: Record<string, unknown> | null = null;
+
+    prisma.channelAccount.findFirst.mockResolvedValue(null);
+    prisma.channelAccount.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      stored = {
+        ...data,
+        updatedAt: new Date('2026-07-27T06:30:00.000Z'),
+      };
+      return stored;
+    });
+
+    const account = await service.update(ORGANIZATION_ID, 'art09', {
+      enabled: true,
+      loginId: 'shop-id',
+      supplierLoginId: 'supplier-id',
+      password: 'art09-password',
+      siteUrl: 'https://example.cafe24.com',
+    });
+
+    expect(account).toMatchObject({
+      key: 'art09',
+      name: '아트공구',
+      configured: true,
+      loginId: 'shop-id',
+      supplierLoginId: 'supplier-id',
+    });
+    expect(JSON.stringify(stored?.config)).toContain('supplier-id');
+    expect(JSON.stringify(stored?.config)).not.toContain('art09-password');
+  });
+
   it('reveals a saved mall password only through the password lookup', async () => {
     const prisma = makePrisma();
     const service = new OrderCollectionMallAccountService(prisma as never);

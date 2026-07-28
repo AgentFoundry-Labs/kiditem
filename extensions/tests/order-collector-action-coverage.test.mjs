@@ -144,9 +144,9 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   }
 });
 
-test('order collector manifest publishes normalized failure evidence at version 0.1.86', () => {
+test('order collector manifest publishes normalized failure evidence and Kidkids login stabilization at version 0.1.89', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.86');
+  assert.equal(manifest.version, '0.1.89');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
   const worker = readFileSync(workerPath, 'utf8');

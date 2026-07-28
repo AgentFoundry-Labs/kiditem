@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { transmitSellpiaOrder } from './sellpia-order-transmission';
+import {
+  SellpiaOrderTransmissionResolutionRequiredError,
+  transmitSellpiaOrder,
+} from './sellpia-order-transmission';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
 function generatedFile(): StoredOrderCollectionFile {
@@ -74,7 +77,8 @@ describe('transmitSellpiaOrder', () => {
   });
 
   it('prepares durably, submits once, then finalizes before local history work', async () => {
-    const result = await transmitSellpiaOrder(input());
+    const onSubmissionConfirmed = vi.fn();
+    const result = await transmitSellpiaOrder({ ...input(), onSubmissionConfirmed });
 
     expect(result).toMatchObject({
       status: 'transmission_requested',
@@ -88,11 +92,15 @@ describe('transmitSellpiaOrder', () => {
     );
     expect(freshness.prepareOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
     expect(freshness.finalizeOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
+    expect(onSubmissionConfirmed).toHaveBeenCalledOnce();
     expect(invalidateFreshnessHistory).toHaveBeenCalledOnce();
     expect(freshness.prepareOrderTransmissionIntent.mock.invocationCallOrder[0]).toBeLessThan(
       extension.sendSellpiaOrders.mock.invocationCallOrder[0],
     );
     expect(extension.sendSellpiaOrders.mock.invocationCallOrder[0]).toBeLessThan(
+      onSubmissionConfirmed.mock.invocationCallOrder[0],
+    );
+    expect(onSubmissionConfirmed.mock.invocationCallOrder[0]).toBeLessThan(
       freshness.finalizeOrderTransmissionIntent.mock.invocationCallOrder[0],
     );
     expect(freshness.finalizeOrderTransmissionIntent.mock.invocationCallOrder[0]).toBeLessThan(
@@ -162,8 +170,8 @@ describe('transmitSellpiaOrder', () => {
       error: '익스텐션 응답 시간이 초과되었습니다.',
     });
 
-    await expect(transmitSellpiaOrder(input())).rejects.toThrow(
-      '셀피아 전송 결과 확인 필요',
+    await expect(transmitSellpiaOrder(input())).rejects.toBeInstanceOf(
+      SellpiaOrderTransmissionResolutionRequiredError,
     );
     expect(freshness.abortOrderTransmissionIntent).not.toHaveBeenCalled();
     expect(freshness.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();
@@ -187,8 +195,8 @@ describe('transmitSellpiaOrder', () => {
       disposition: 'already_prepared',
     });
 
-    await expect(transmitSellpiaOrder(input())).rejects.toThrow(
-      '이전 셀피아 전송 결과 확인 필요',
+    await expect(transmitSellpiaOrder(input())).rejects.toBeInstanceOf(
+      SellpiaOrderTransmissionResolutionRequiredError,
     );
     expect(extension.sendSellpiaOrders).not.toHaveBeenCalled();
     expect(freshness.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();

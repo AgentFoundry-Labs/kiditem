@@ -28,6 +28,7 @@ function historyItem(
     mallName: overrides.mallName,
     orderNumbers: overrides.orderNumbers,
     transmissionRequestedAt: overrides.transmissionRequestedAt,
+    fileKind: overrides.fileKind,
   };
 }
 
@@ -176,6 +177,25 @@ describe("buildOrderCollectionSummary", () => {
     expect(summary.totals.orders).toBe(0);
     expect(summary.mallStatsByKey.get("kidkids")?.orderRows).toBe(0);
   });
+
+  it("excludes tracking artifacts from order collection totals", () => {
+    const tracking = historyItem({
+      id: "tracking",
+      fileKind: "tracking",
+      collectionMode: "tracking",
+      collectionDate: "2026-07-27",
+      mallKey: "art09",
+      mallName: "아트공구",
+      orderNumbers: ["ORDER-1"],
+      outputRows: 1,
+      productRows: 0,
+    });
+
+    const summary = buildOrderCollectionSummary([tracking], "2026-07-27");
+    expect(summary.totals).toEqual({ orders: 0, products: 0 });
+    expect(summary.dailyStats).toEqual([]);
+    expect(summary.mallStats).toEqual([]);
+  });
 });
 
 describe("buildOrderCollectionPipelineSummary", () => {
@@ -203,6 +223,26 @@ describe("buildOrderCollectionPipelineSummary", () => {
       waiting: 2,
       transmissionRequested: 2,
       inventoryPending: 2,
+      trackingSent: 0,
+      done: 0,
+    });
+  });
+
+  it("does not treat generated tracking files as collected or sent orders", () => {
+    expect(buildOrderCollectionPipelineSummary([
+      historyItem({
+        fileKind: "tracking",
+        collectionMode: "tracking",
+        collectionDate: "2026-07-27",
+        orderNumbers: ["ORDER-1"],
+        outputRows: 1,
+        productRows: 0,
+      }),
+    ], "2026-07-27")).toEqual({
+      todayOrders: 0,
+      waiting: 0,
+      transmissionRequested: 0,
+      inventoryPending: 0,
       trackingSent: 0,
       done: 0,
     });

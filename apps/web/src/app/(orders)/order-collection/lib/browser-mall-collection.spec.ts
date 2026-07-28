@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   detectExtension: vi.fn(),
   ensureLogin: vi.fn(),
   collectKidsnote: vi.fn(),
+  collectArt09: vi.fn(),
   collectCoupang: vi.fn(),
   convertCoupang: vi.fn(),
   password: vi.fn(),
@@ -25,6 +26,9 @@ vi.mock('./order-collection-extension', () => ({
 vi.mock('./kidsnote-orders-api', () => ({
   collectKidsnoteOrdersFromExtension: mocks.collectKidsnote,
   convertKidsnoteToSellpiaFile: vi.fn(),
+}));
+vi.mock('./art09-orders-api', () => ({
+  collectArt09CsvFromExtension: mocks.collectArt09,
 }));
 vi.mock('./order-mall-account-api', () => ({
   orderMallAccountApi: { password: mocks.password },
@@ -62,9 +66,14 @@ describe('createBrowserMallCollector', () => {
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
     mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
+    mocks.collectArt09.mockResolvedValue({
+      outputRows: 0,
+      orderNumbers: [],
+      sourceRows: 0,
+    });
   });
 
-  it('continues the managed collector with the same run after login preflight needs attention', async () => {
+  it('stops collection when login preflight needs attention', async () => {
     mocks.ensureLogin.mockResolvedValue({
       success: false,
       pendingLogin: true,
@@ -77,24 +86,14 @@ describe('createBrowserMallCollector', () => {
       setPreviewId: vi.fn(),
     });
 
-    await expect(collector(ACCOUNT, RUN)).resolves.toEqual({
-      rowCount: 0,
-      masked: false,
-      date: expect.any(String),
-    });
+    await expect(collector(ACCOUNT, RUN)).rejects.toThrow('로그인 확인이 필요합니다.');
 
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
       'kidsnote',
       { loginId: 'operator', password: 'secret' },
       expect.objectContaining(RUN),
     );
-    expect(mocks.collectKidsnote).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      '',
-      true,
-      expect.objectContaining(RUN),
-    );
+    expect(mocks.collectKidsnote).not.toHaveBeenCalled();
   });
 
   it('reuses the original date when restarting a managed collection', async () => {
@@ -115,6 +114,34 @@ describe('createBrowserMallCollector', () => {
       '',
       true,
       run,
+    );
+  });
+
+  it('passes both IDs from the single art09 account to the login preflight', async () => {
+    mocks.ensureLogin.mockResolvedValue({ success: true });
+    const art09Account: OrderCollectionMallAccount = {
+      ...ACCOUNT,
+      key: 'art09',
+      name: '아트공구',
+      supplierLoginId: 'supplier-operator',
+    };
+    const collector = createBrowserMallCollector({
+      mallAccounts: [art09Account],
+      rocketChannelAccountId: null,
+      addGeneratedFile: vi.fn(),
+      setPreviewId: vi.fn(),
+    });
+
+    await collector(art09Account, RUN);
+
+    expect(mocks.ensureLogin).toHaveBeenCalledWith(
+      'art09',
+      {
+        loginId: 'operator',
+        supplierLoginId: 'supplier-operator',
+        password: 'secret',
+      },
+      expect.objectContaining(RUN),
     );
   });
 

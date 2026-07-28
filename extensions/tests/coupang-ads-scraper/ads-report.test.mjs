@@ -35,7 +35,9 @@ function loadContract(options = {}) {
       runtime: {
         lastError: null,
         onMessage: { addListener() {} },
-        sendMessage() {},
+        sendMessage:
+          options.sendMessage ||
+          ((_message, callback) => callback?.({ success: true })),
       },
       storage: { local: { set() {} } },
     },
@@ -266,6 +268,70 @@ test("campaign detail waits for the verified sales navigation to mount before re
   assert.equal(sidebarClicks, 1);
 });
 
+test("dashboard readiness ignores a date-picker grid mounted before the campaign grid", async () => {
+  const location = {
+    href: "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1",
+    pathname: "/marketing/dashboard/sales",
+    search: "",
+    hash: "#kiditemAdSync=1",
+  };
+  const calendarGrid = {
+    className: "ant-calendar-table",
+    closest() {
+      return null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+  const title = { innerText: "운영 캠페인" };
+  const row = {
+    querySelector(selector) {
+      return selector.includes("campaign_name") ? title : null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+  const campaignGrid = {
+    className: "rt-table",
+    closest() {
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === ".rt-tbody .rt-tr-group") return [row];
+      if (selector.includes("columnheader")) {
+        return ["ON/OFF", "상품명", "상태"].map((innerText) => ({
+          innerText,
+        }));
+      }
+      return [];
+    },
+  };
+  const contract = loadContract({
+    location,
+    setTimeout(callback) {
+      callback();
+      return 0;
+    },
+    document: {
+      querySelector(selector) {
+        if (selector.includes("[role='grid']")) return calendarGrid;
+        return null;
+      },
+      querySelectorAll(selector) {
+        if (selector.includes("[role='grid']")) {
+          return [calendarGrid, campaignGrid];
+        }
+        return [];
+      },
+      title: "광고센터",
+    },
+  });
+
+  assert.equal(await contract.returnToDashboard(10), true);
+});
+
 test("campaign detail does not use history fallback when no verified dashboard control exists", async () => {
   let historyBackCalls = 0;
   const contract = loadContract({
@@ -412,6 +478,20 @@ test("dashboard collection hash waits for run-scoped manualSync instead of auto-
     source,
     /const isLegacyBatchMode\s*=[\s\S]{0,160}kiditemAdSync=1/,
   );
+});
+
+test("explicit campaign sweep mode survives when Coupang drops the dashboard hash", () => {
+  const contract = loadContract({
+    location: {
+      href: "https://advertising.coupang.com/marketing/dashboard/sales",
+      pathname: "/marketing/dashboard/sales",
+      search: "",
+      hash: "",
+    },
+  });
+
+  assert.equal(typeof contract.shouldRunDashboardSweep, "function");
+  assert.equal(contract.shouldRunDashboardSweep("campaign_sweep"), true);
 });
 
 test("manual sync shares only the same active run and rejects a new attempt before mutation", () => {
@@ -1492,6 +1572,19 @@ test("current dashboard linkless campaign anchor is clicked before provider iden
   assert.equal(probe.campaign.identity, "campaign:101");
   assert.equal(probe.campaign.campaignId, "101");
   assert.equal(probe.campaign.requiresIdentityProbe, false);
+  assert.equal(
+    probe.campaign.discoveredByNavigation,
+    true,
+    "same-document navigation must retain the linkless dashboard origin",
+  );
+  const completedNavigationKeys = new Set();
+  assert.equal(
+    contract.persistTerminalLinklessNavigation(
+      probe.campaign,
+      completedNavigationKeys,
+    ),
+    inspection.campaigns[1].navigationKey,
+  );
   assert.match(probe.campaign.href, /\/campaign\/101\/group\/301\/product/);
   assert.equal(
     contract.campaignUsesDetailReport({
@@ -1512,6 +1605,78 @@ test("current dashboard linkless campaign anchor is clicked before provider iden
       pageNumber: 2,
     }),
   );
+});
+
+test("linkless AI smart campaign stays roster-only without identity navigation", () => {
+  let clickCount = 0;
+  const name = "AI스마트광고(wing)";
+  const anchor = {
+    innerText: name,
+    getAttribute(attribute) {
+      return attribute === "href" ? "" : null;
+    },
+    closest(selector) {
+      return selector === "a" ? this : null;
+    },
+    querySelector() {
+      return null;
+    },
+    click() {
+      clickCount += 1;
+    },
+  };
+  const cells = [`${name}수정삭제`, "ON", "운영중"].map((innerText) => ({
+    innerText,
+    textContent: innerText,
+    querySelector() {
+      return null;
+    },
+  }));
+  const row = {
+    querySelector(selector) {
+      return selector === "[data-bigfoot-component='campaign_name'] a"
+        ? anchor
+        : null;
+    },
+    querySelectorAll(selector) {
+      return selector === "[role='gridcell']" ? cells : [];
+    },
+  };
+  const grid = {
+    querySelectorAll(selector) {
+      return selector === ".rt-tbody .rt-tr-group" ? [row] : [];
+    },
+  };
+  const contract = loadContract({
+    document: {
+      querySelector(selector) {
+        return selector.includes(".rt-table") ? grid : null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      title: "광고센터",
+    },
+  });
+
+  const inspection = contract.inspectCampaignsFromDashboard();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(inspection.campaigns)), []);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(inspection.rawOnlyCampaigns)),
+    [{
+      rowIndex: 0,
+      name,
+      onOff: "ON",
+      status: "운영중",
+      cells: [`${name}수정삭제`, "ON", "운영중"],
+    }],
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contract.campaignIdentityCoverage(inspection))),
+    { complete: true, error: null, missingCount: 1, rawOnlyCount: 1 },
+  );
+  assert.equal(clickCount, 0);
 });
 
 test("AI스마트광고(HUB) automated campaigns skip detail collection and are handled roster-only", () => {
@@ -2268,6 +2433,62 @@ test("successful resume clears the prior campaign error and recalculates failed"
   const syncedIndex = source.indexOf("synced++;", saveIndex);
   assert.ok(reconciliationIndex > saveIndex && reconciliationIndex < syncedIndex);
   assert.match(source, /let failed = errors\.length;/);
+});
+
+test("partial campaign collection failure stops for operator retry without terminalizing", () => {
+  const contract = loadContract();
+  const campaign = {
+    identity: "campaign:100",
+    name: "부분 수집 캠페인",
+    navigationKey: "dashboard-campaign\u001f1\u001f1\u001f부분 수집 캠페인",
+    requiresIdentityProbe: true,
+  };
+  const failure = contract.reconcileCampaignFailureState(
+    [],
+    campaign,
+    "date_picker_failed",
+    { businessDate: "2026-07-06", retryable: true },
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contract.unresolvedCampaignWorkKeys(failure.errors))),
+    [],
+    "retryable missing dates must not count as terminal campaign work",
+  );
+
+  const failureBranchStart = source.indexOf("} else if (campaignFailure) {");
+  const dashboardReturnStart = source.indexOf(
+    "// 2e) 대시보드로 복귀",
+    failureBranchStart,
+  );
+  const failureBranch = source.slice(failureBranchStart, dashboardReturnStart);
+  assert.ok(failureBranchStart > 0 && dashboardReturnStart > failureBranchStart);
+  assert.match(failureBranch, /retryable: true/);
+  assert.match(failureBranch, /recordCampaignFailure\([\s\S]*false,/);
+  assert.match(failureBranch, /success: false/);
+  assert.match(failureBranch, /광고센터 상태를 확인한 뒤 광고 동기화를 다시 실행/);
+  assert.doesNotMatch(failureBranch, /resumeRequired: true/);
+});
+
+test("content waits through the extension worker instead of a throttled page timer", async () => {
+  let pendingDelay = null;
+  const contract = loadContract({
+    sendMessage(message, callback) {
+      if (message?.action === "waitForAdCollectorDelay") {
+        pendingDelay = { message, callback };
+        return;
+      }
+      callback?.({ success: true });
+    },
+  });
+
+  const waiting = contract.sleep(600);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pendingDelay?.message)),
+    { action: "waitForAdCollectorDelay", milliseconds: 600 },
+  );
+  pendingDelay.callback({ success: true });
+  await waiting;
 });
 
 test("successful sweep clears a prior dashboard identity error but keeps unresolved campaign errors", () => {

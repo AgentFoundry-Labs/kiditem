@@ -123,7 +123,7 @@ describe('agent-os schemas', () => {
       description: 'Develop Sourcing extractors from CDP page evidence.',
       category: 'sourcing',
       version: '1.0.0',
-      skillPath: 'tools/codex/skills/magic-scraper/SKILL.md',
+      skillPath: '~/.codex/skills/magic-scraper/SKILL.md',
       defaultPreload: true,
       allowedAgentTypes: ['sourcing'],
       mode: 'development_workflow',

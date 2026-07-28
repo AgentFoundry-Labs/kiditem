@@ -1,6 +1,13 @@
 import type { SellpiaSendResult } from './order-collection-extension';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
+export class SellpiaOrderTransmissionResolutionRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SellpiaOrderTransmissionResolutionRequiredError';
+  }
+}
+
 export interface SellpiaOrderTransmissionInput {
   file: StoredOrderCollectionFile;
   retryConfirmed?: boolean;
@@ -30,6 +37,7 @@ export interface SellpiaOrderTransmissionInput {
     }) => Promise<unknown>;
   };
   invalidateFreshnessHistory: () => Promise<void>;
+  onSubmissionConfirmed?: () => void;
   now?: () => number;
 }
 
@@ -78,7 +86,7 @@ export async function transmitSellpiaOrder(
 
   const hasLocalSubmissionMarker = input.file.transmissionRequestedAt !== undefined;
   if (preparation.disposition === 'already_prepared' && !hasLocalSubmissionMarker) {
-    throw new Error(
+    throw new SellpiaOrderTransmissionResolutionRequiredError(
       '이전 셀피아 전송 결과 확인 필요 — 셀피아 주문 내역을 확인한 뒤 처리하세요.',
     );
   }
@@ -108,10 +116,11 @@ export async function transmitSellpiaOrder(
       };
     }
     if (extensionResult.outcome === 'unknown') {
-      throw new Error(
+      throw new SellpiaOrderTransmissionResolutionRequiredError(
         `셀피아 전송 결과 확인 필요 — 재전송하지 말고 Sellpia 주문 내역을 확인하세요. (${extensionResult.error})`,
       );
     }
+    input.onSubmissionConfirmed?.();
     submittedShopName = extensionResult.shop ?? shopName;
     finalizationWarning = !await finalizeWithRetry(input, intentKey);
   }
