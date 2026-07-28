@@ -7,6 +7,7 @@ describe('CoupangCategorySuggestionService', () => {
   it('infers from active Coupang listings in the current organization only', async () => {
     const findMany = vi.fn().mockResolvedValue([
       {
+        channelName: '4000과일바구니딸깍이키링',
         displayName: '4구 스핀 딸깍이 키링 1p 휴대용 열쇠고리',
         category: KEYHOLDER,
       },
@@ -28,10 +29,13 @@ describe('CoupangCategorySuggestionService', () => {
             status: 'active',
           },
         },
-        displayName: { not: null },
+        OR: [
+          { channelName: { not: null } },
+          { displayName: { not: null } },
+        ],
         category: { startsWith: '[' },
       },
-      select: { displayName: true, category: true },
+      select: { channelName: true, displayName: true, category: true },
     });
     expect(result).toEqual({
       corpusSize: 1,
