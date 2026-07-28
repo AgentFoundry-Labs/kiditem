@@ -5,7 +5,9 @@ export interface StoredOrderCollectionFile extends OrderCollectionConversionResu
   sourceName: string;
   convertedAt: number;
   collectionDate?: string;
-  collectionMode?: 'browser' | 'manual-upload';
+  collectionMode?: 'browser' | 'manual-upload' | 'tracking';
+  /** 주문수집 파일인지 송장 업로드 파일인지. 기존 레코드는 값이 없으며 주문 파일로 취급한다. */
+  fileKind?: 'order' | 'tracking';
   collectedRows?: number;
   mallKey?: string;
   mallName?: string;
@@ -27,6 +29,40 @@ const DB_NAME = 'kiditem-order-collection-files';
 const STORE_NAME = 'files';
 const DB_VERSION = 1;
 const MAX_FILES = 1000;
+
+export interface CreateStoredTrackingFileInput {
+  fileName: string;
+  blob: Blob;
+  previewRows: string[][];
+  rowCount: number;
+  mallKey: string;
+  mallName: string;
+  collectionDate: string;
+  convertedAt?: number;
+}
+
+export function createStoredTrackingFile(
+  input: CreateStoredTrackingFileInput,
+): StoredOrderCollectionFile {
+  const convertedAt = input.convertedAt ?? Date.now();
+  return {
+    id: `tracking-${convertedAt}-${input.mallKey}-${input.fileName}`,
+    fileName: input.fileName,
+    sourceName: input.fileName,
+    blob: input.blob,
+    previewRows: input.previewRows,
+    sourceRows: input.rowCount,
+    productRows: null,
+    outputRows: input.rowCount,
+    skippedRows: 0,
+    convertedAt,
+    collectionDate: input.collectionDate,
+    collectionMode: 'tracking',
+    fileKind: 'tracking',
+    mallKey: input.mallKey,
+    mallName: input.mallName,
+  };
+}
 
 export async function loadGeneratedOrderFiles(): Promise<StoredOrderCollectionFile[]> {
   if (!canUseIndexedDb()) return [];

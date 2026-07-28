@@ -9,9 +9,11 @@ import {
 } from './order-collection-extension';
 import {
   buildMallTrackingCsvBlob,
+  buildMallTrackingPreviewRows,
   collectSellpiaDeliTrackingFromExtension,
   filterTrackingByMall,
   isTrackingSupportedMall,
+  type SellpiaTrackingRow,
   uploadOnchTrackingViaExtension,
 } from './icecream-tracking-api';
 import { todayYmd } from './order-collection-page-model';
@@ -20,11 +22,41 @@ import type { OrderCollectionMallAccount } from './order-mall-account-api';
 interface UploadTrackingOptions {
   account: OrderCollectionMallAccount;
   logError: (title: string, message: string) => void;
+  onGeneratedFile?: (artifact: GeneratedTrackingArtifact) => void;
 }
 
 interface SellpiaPostProcessOptions {
   logError: (title: string, message: string) => void;
   logInfo?: (title: string, message: string) => void;
+  onGeneratedFile?: (artifact: GeneratedTrackingArtifact) => void;
+}
+
+export interface GeneratedTrackingArtifact {
+  blob: Blob;
+  fileName: string;
+  mallKey: string;
+  mallName: string;
+  orderNumbers: string[];
+  previewRows: string[][];
+  rowCount: number;
+}
+
+function generatedTrackingArtifact(options: {
+  blob: Blob;
+  fileName: string;
+  mallKey: string;
+  mallName: string;
+  rows: SellpiaTrackingRow[];
+}): GeneratedTrackingArtifact {
+  return {
+    blob: options.blob,
+    fileName: options.fileName,
+    mallKey: options.mallKey,
+    mallName: options.mallName,
+    orderNumbers: options.rows.map((row) => row.ordNo).filter(Boolean),
+    previewRows: buildMallTrackingPreviewRows(options.rows),
+    rowCount: options.rows.length,
+  };
 }
 
 function summarizeUnmatched(rows: SellpiaUnmatchedRow[], limit = 8): string {
@@ -48,6 +80,7 @@ function summarizeUnmatched(rows: SellpiaUnmatchedRow[], limit = 8): string {
 export async function runSellpiaPostProcess({
   logError,
   logInfo,
+  onGeneratedFile,
 }: SellpiaPostProcessOptions): Promise<void> {
   const toastId = toast.loading('셀피아 후처리 중… (등록 → 조회 → 자동합포 → 자동재고매칭)');
   let result;
@@ -110,8 +143,16 @@ export async function runSellpiaPostProcess({
     // 채번 직후 캡처한 송장번호를 바로 CSV로 내려준다(재출력 재조회 없이 "여기서 바로").
     const invoiceRows = invoice.rows ?? [];
     if (invoiceRows.length > 0) {
+      const fileName = `셀피아_채번송장_${todayYmd().replace(/-/g, '')}.csv`;
       const blob = buildMallTrackingCsvBlob(invoiceRows);
-      downloadBlob(blob, `셀피아_채번송장_${todayYmd().replace(/-/g, '')}.csv`);
+      onGeneratedFile?.(generatedTrackingArtifact({
+        blob,
+        fileName,
+        mallKey: 'sellpia',
+        mallName: '셀피아',
+        rows: invoiceRows,
+      }));
+      downloadBlob(blob, fileName);
     }
     toast.success(
       `송장 자동채번 완료 (${formatNumber(invoice.invoiced ?? invoiceRows.length)}건)` +
@@ -129,6 +170,7 @@ export async function runSellpiaPostProcess({
 export async function uploadTrackingForMall({
   account,
   logError,
+  onGeneratedFile,
 }: UploadTrackingOptions): Promise<void> {
   if (!isTrackingSupportedMall(account.key)) {
     toast(`${account.name} 송장 업로드는 아직 준비 중입니다.`);
@@ -192,6 +234,13 @@ export async function uploadTrackingForMall({
     // 채번된 송장번호를 몰별 CSV(주문번호·수취인·우편·주소·택배사·송장번호)로 내려준다.
     const blob = buildMallTrackingCsvBlob(tracking);
     const fileName = `${account.name}_송장_${todayYmd().replace(/-/g, '')}.csv`;
+    onGeneratedFile?.(generatedTrackingArtifact({
+      blob,
+      fileName,
+      mallKey: account.key,
+      mallName: account.name,
+      rows: tracking,
+    }));
     downloadBlob(blob, fileName);
     toast.success(`${account.name} 채번 송장 ${formatNumber(tracking.length)}건 CSV를 다운로드했습니다.`, {
       id: toastId,

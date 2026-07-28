@@ -55,6 +55,7 @@ import {
   buildOrderCollectionSummary,
 } from '../lib/order-collection-stats';
 import {
+  createStoredTrackingFile,
   deleteGeneratedOrderFile,
   loadGeneratedOrderFiles,
   saveGeneratedOrderFile,
@@ -66,6 +67,7 @@ import {
 } from '../lib/order-mall-account-api';
 import {
   runSellpiaPostProcess,
+  type GeneratedTrackingArtifact,
   uploadTrackingForMall,
 } from '../lib/order-tracking-actions';
 
@@ -193,6 +195,13 @@ export function OrderCollectionWorkspace() {
     });
   }, []);
 
+  const addGeneratedTrackingFile = useCallback((artifact: GeneratedTrackingArtifact) => {
+    addGeneratedFile(createStoredTrackingFile({
+      ...artifact,
+      collectionDate: todayYmd(),
+    }));
+  }, [addGeneratedFile]);
+
   const collectBrowserMall = useMemo(
     () => createBrowserMallCollector({
       mallAccounts,
@@ -261,7 +270,9 @@ export function OrderCollectionWorkspace() {
         await sessionControls.finalizeRun(
           activeRun,
           'succeeded',
-          `${account.name} 수집 및 파일 생성 완료`,
+          collected.rowCount === 0
+            ? `${account.name} 배송준비전 주문 없음`
+            : `${account.name} 수집 및 파일 생성 완료 (${formatNumber(collected.rowCount)}행)`,
         );
         clearMallErrorActivity(account.name);
         if (collected.rowCount === 0) logActivity('empty', account.name);
@@ -478,11 +489,16 @@ export function OrderCollectionWorkspace() {
 
   const handleSaveMallAccount = async () => {
     if (!selectedMall) return;
+    if (selectedMall.key === 'art09' && !mallDraft.supplierLoginId.trim()) {
+      toast.error('아트공구 공급사 ID를 입력해 주세요.');
+      return;
+    }
     await saveMallAccountMutation
       .mutateAsync({
         mallKey: selectedMall.key,
         input: {
           loginId: mallDraft.loginId,
+          supplierLoginId: selectedMall.key === 'art09' ? mallDraft.supplierLoginId : undefined,
           password: mallDraft.password.trim() ? mallDraft.password : undefined,
           siteUrl: mallDraft.siteUrl,
           memo: mallDraft.memo,
@@ -577,6 +593,7 @@ export function OrderCollectionWorkspace() {
     try {
       await runSellpiaPostProcess({
         logError: (title, message) => logActivity('error', title, message),
+        onGeneratedFile: addGeneratedTrackingFile,
       });
     } finally {
       setSellpiaPostProcessing(false);
@@ -781,6 +798,7 @@ export function OrderCollectionWorkspace() {
           void uploadTrackingForMall({
             account,
             logError: (title, message) => logActivity('error', title, message),
+            onGeneratedFile: addGeneratedTrackingFile,
           })
         }
       />
@@ -798,6 +816,7 @@ export function OrderCollectionWorkspace() {
         bulkAction={bulkAction}
         lockedFileIds={lockedFileIds}
         sellpiaSendingId={sellpiaTransmission.sendingId}
+        sellpiaSettlingId={sellpiaTransmission.settlingId}
         sellpiaPostProcessing={sellpiaPostProcessing}
         onDelete={(item) => void handleDeleteGeneratedFile(item)}
         onDeleteSelected={(items) => void handleDeleteSelected(items)}

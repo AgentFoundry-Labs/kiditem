@@ -48,10 +48,8 @@ describe('MallAccountGroups', () => {
         stats={stats}
         selectedMall={null}
         settingsOpen={false}
-        browserCollecting={false}
         collectingKeys={new Set()}
         cancellingKeys={new Set()}
-        conversionState="idle"
         autoDetect={false}
         autoNextRunAt={null}
         autoRunning={false}
@@ -71,5 +69,36 @@ describe('MallAccountGroups', () => {
 
     await user.click(screen.getByRole('button', { name: '카카오 수집' }));
     expect(onCollectMall).toHaveBeenCalledWith(collectable);
+  });
+
+  it('keeps another mall collection button enabled while one mall is collecting', async () => {
+    const user = userEvent.setup();
+    const kidsnote = account('kidsnote', { name: '키즈노트' });
+    const kakao = account('kakao', { name: '카카오' });
+    const onCollectMall = vi.fn();
+
+    render(
+      <MallAccountGroups
+        accounts={[kidsnote, kakao]}
+        stats={new Map()}
+        selectedMall={null}
+        settingsOpen={false}
+        collectingKeys={new Set(['kidsnote'])}
+        cancellingKeys={new Set()}
+        autoDetect={false}
+        autoNextRunAt={null}
+        autoRunning={false}
+        onOpenSettings={vi.fn()}
+        onCollectMall={onCollectMall}
+        onCancelMall={vi.fn()}
+        onUploadTracking={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '키즈노트 중단' })).toBeEnabled();
+    const kakaoCollect = screen.getByRole('button', { name: '카카오 수집' });
+    expect(kakaoCollect).toBeEnabled();
+    await user.click(kakaoCollect);
+    expect(onCollectMall).toHaveBeenCalledWith(kakao);
   });
 });

@@ -6,7 +6,10 @@ import {
   getHistoryCollectionBucket,
   getHistoryOrderCount,
 } from "./order-history-count";
-import { hasSellpiaTransmissionRequest } from "./order-collection-page-model";
+import {
+  hasSellpiaTransmissionRequest,
+  isSellpiaOrderFile,
+} from "./order-collection-page-model";
 import type { StoredOrderCollectionFile } from "./order-generated-file-store";
 import type { OrderCollectionPipelineSummary } from "../components/OrderCollectionPipeline";
 
@@ -71,6 +74,7 @@ export function buildOrderCollectionSummary(
   let latestAt = 0;
 
   for (const item of items) {
+    if (!isSellpiaOrderFile(item)) continue;
     const orderRows = getOrderCount(item);
     const productRows = item.productRows ?? 0;
     const outputRows = item.outputRows ?? 0;
@@ -215,6 +219,7 @@ export function buildOrderCollectionPipelineSummary(
   };
 
   for (const item of items) {
+    if (!isSellpiaOrderFile(item)) continue;
     if ((item.collectionDate ?? dayKey(item.convertedAt)) !== date) continue;
     const orderCount = getHistoryOrderCount(item) ?? 0;
     summary.todayOrders += orderCount;

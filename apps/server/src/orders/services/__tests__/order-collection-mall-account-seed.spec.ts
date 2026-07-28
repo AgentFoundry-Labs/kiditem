@@ -63,6 +63,27 @@ describe("order-collection mall account seed", () => {
     );
   });
 
+  it("requires and parses the separate Art09 supplier login ID", () => {
+    const result = resolveOrderCollectionMallSeedConfig({
+      ORDER_COLLECTION_MALL_SEED_CONFIRM: CONFIRMATION,
+      ORDER_COLLECTION_MALL_ORGANIZATION_ID: ORGANIZATION_ID,
+      ART09_ID: "shop-id",
+      ART09_SUPPLIER_ID: "supplier-id",
+      ART09_PW: "art09-password",
+      ART09_URL: "https://art09.example.com/login",
+    });
+
+    expect(result.accounts).toEqual([
+      {
+        key: "art09",
+        loginId: "shop-id",
+        supplierLoginId: "supplier-id",
+        password: "art09-password",
+        siteUrl: "https://art09.example.com/login",
+      },
+    ]);
+  });
+
   it("rejects execution without the explicit confirmation token", () => {
     expect(() =>
       resolveOrderCollectionMallSeedConfig({
@@ -192,15 +213,112 @@ describe("order-collection mall account seed", () => {
     });
     expect(service.update).not.toHaveBeenCalled();
   });
+
+  it("preserves the Art09 supplier login ID when updating another seeded field", async () => {
+    const prisma = {
+      organization: {
+        findFirst: vi.fn().mockResolvedValue({ id: ORGANIZATION_ID }),
+      },
+    };
+    const service = {
+      list: vi.fn().mockResolvedValue([
+        mallAccount({
+          key: "art09",
+          loginId: "shop-id",
+          supplierLoginId: "supplier-id",
+          siteUrl: "https://old.example.com",
+        }),
+      ]),
+      getPassword: vi
+        .fn()
+        .mockResolvedValue({ key: "art09", password: "same-password" }),
+      update: vi.fn(),
+    } as unknown as OrderCollectionMallAccountService;
+
+    await seedOrderCollectionMallAccounts(
+      prisma as never,
+      {
+        organizationId: ORGANIZATION_ID,
+        accounts: [
+          {
+            key: "art09",
+            loginId: "shop-id",
+            password: "same-password",
+            siteUrl: "https://new.example.com",
+          },
+        ],
+      },
+      service,
+    );
+
+    expect(service.update).toHaveBeenCalledWith(ORGANIZATION_ID, "art09", {
+      enabled: true,
+      loginId: "shop-id",
+      supplierLoginId: "supplier-id",
+      password: undefined,
+      siteUrl: "https://new.example.com",
+      memo: "existing memo",
+    });
+  });
+
+  it("rejects a new Art09 seed when neither input nor storage has a supplier login ID", async () => {
+    const prisma = {
+      organization: {
+        findFirst: vi.fn().mockResolvedValue({ id: ORGANIZATION_ID }),
+      },
+    };
+    const service = {
+      list: vi.fn().mockResolvedValue([
+        mallAccount({
+          key: "always",
+          loginId: "always-id",
+          siteUrl: "https://old.example.com",
+        }),
+      ]),
+      getPassword: vi
+        .fn()
+        .mockResolvedValue({ key: "always", password: "same-password" }),
+      update: vi.fn(),
+    } as unknown as OrderCollectionMallAccountService;
+
+    await expect(
+      seedOrderCollectionMallAccounts(
+        prisma as never,
+        {
+          organizationId: ORGANIZATION_ID,
+          accounts: [
+            {
+              key: "always",
+              loginId: "always-id",
+              password: "same-password",
+              siteUrl: "https://new.example.com",
+            },
+            {
+              key: "art09",
+              loginId: "shop-id",
+              password: "password",
+              siteUrl: "https://art09.example.com/login",
+            },
+          ],
+        },
+        service,
+      ),
+    ).rejects.toThrow(
+      "Missing ART09_SUPPLIER_ID: a new Art09 seed requires the supplier login ID.",
+    );
+    expect(service.update).not.toHaveBeenCalled();
+  });
 });
 
 function mallAccount({
   key,
   loginId,
+  supplierLoginId,
   siteUrl,
 }: {
-  key: "always" | "kakao";
+  key: "always" | "art09" | "kakao";
   loginId: string;
+  supplierLoginId?: string;
   siteUrl: string;
 }) {
   return {
@@ -209,6 +327,7 @@ function mallAccount({
     configured: true,
     enabled: true,
     loginId,
+    supplierLoginId: supplierLoginId ?? null,
     hasPassword: true,
     siteUrl,
     memo: "existing memo",

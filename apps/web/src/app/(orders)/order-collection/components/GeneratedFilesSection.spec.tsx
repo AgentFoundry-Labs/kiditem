@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { GeneratedFilesSection } from './GeneratedFilesSection';
 import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
+import { todayYmd } from '../lib/order-collection-page-model';
 
 function generatedFile(
   id: string,
@@ -19,11 +20,14 @@ function generatedFile(
     outputRows: overrides.outputRows ?? 2,
     skippedRows: overrides.skippedRows ?? 0,
     convertedAt: overrides.convertedAt ?? 100,
-    collectionDate: overrides.collectionDate ?? '2026-07-14',
+    collectionDate: 'collectionDate' in overrides
+      ? overrides.collectionDate
+      : '2026-07-14',
     mallKey: overrides.mallKey,
     mallName: overrides.mallName,
     orderNumbers: overrides.orderNumbers,
     transmissionRequestedAt: overrides.transmissionRequestedAt,
+    fileKind: overrides.fileKind,
   };
 }
 
@@ -45,6 +49,7 @@ function renderSection(items: StoredOrderCollectionFile[]) {
       bulkAction={null}
       lockedFileIds={new Set()}
       sellpiaSendingId={null}
+      sellpiaSettlingId={null}
       sellpiaPostProcessing={false}
       {...callbacks}
     />,
@@ -54,6 +59,13 @@ function renderSection(items: StoredOrderCollectionFile[]) {
 }
 
 describe('GeneratedFilesSection', () => {
+  it('keeps visible spacing between the created-at and action columns', () => {
+    renderSection([generatedFile('spacing')]);
+
+    expect(screen.getByRole('columnheader', { name: '생성시각' })).toHaveClass('pr-6');
+    expect(screen.getByRole('columnheader', { name: '작업' })).toHaveClass('pl-6');
+  });
+
   it('filters by search, mall, and Sellpia status without losing the full count', async () => {
     const user = userEvent.setup();
     renderSection([
@@ -99,6 +111,59 @@ describe('GeneratedFilesSection', () => {
     expect(callbacks.onDeleteSelected).toHaveBeenCalledWith([items[0]]);
   });
 
+  it('selects every file created today across pages and sends only eligible files', async () => {
+    const user = userEvent.setup();
+    const today = todayYmd();
+    const todayItems = Array.from({ length: 21 }, (_, index) =>
+      generatedFile(`today-${index}`, {
+        collectionDate: today,
+        convertedAt: Date.now() - index,
+        ...(index === 3 ? { transmissionRequestedAt: 200 } : {}),
+      }),
+    );
+    const legacyTodayItem = generatedFile('legacy-today', {
+      collectionDate: undefined,
+      convertedAt: Date.now(),
+    });
+    const oldItem = generatedFile('old', { collectionDate: '2026-07-01' });
+    const callbacks = renderSection([...todayItems, legacyTodayItem, oldItem]);
+
+    await user.click(
+      screen.getByRole('checkbox', { name: '오늘 생성 파일 전체 선택 (22개)' }),
+    );
+
+    expect(screen.getByRole('button', { name: '선택 다운로드 (22)' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '선택 전송 요청 (21)' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: '선택 전송 요청 (21)' }));
+    expect(callbacks.onSendSelectedToSellpia).toHaveBeenCalledWith([
+      ...todayItems.filter((item) => item.transmissionRequestedAt === undefined),
+      legacyTodayItem,
+    ]);
+  });
+
+  it('shows tracking artifacts without offering Sellpia order transmission', async () => {
+    const user = userEvent.setup();
+    const order = generatedFile('order');
+    const tracking = generatedFile('tracking', {
+      fileName: '아트공구_송장_20260727.csv',
+      fileKind: 'tracking',
+      collectionMode: 'tracking',
+      mallKey: 'art09',
+      mallName: '아트공구',
+    });
+    const callbacks = renderSection([order, tracking]);
+
+    expect(screen.getByText('송장 업로드')).toBeInTheDocument();
+    expect(screen.getByText('파일 생성됨')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '셀피아 전송 요청' })).toHaveLength(1);
+
+    await user.click(screen.getByRole('checkbox', { name: 'order.xlsx 선택' }));
+    await user.click(screen.getByRole('checkbox', { name: '아트공구_송장_20260727.csv 선택' }));
+    await user.click(screen.getByRole('button', { name: '선택 전송 요청 (1)' }));
+
+    expect(callbacks.onSendSelectedToSellpia).toHaveBeenCalledWith([order]);
+  });
+
   it('renders at most twenty rows and pages through the filtered result', async () => {
     const user = userEvent.setup();
     const items = Array.from({ length: 21 }, (_, index) =>
@@ -123,6 +188,7 @@ describe('GeneratedFilesSection', () => {
         bulkAction="send"
         lockedFileIds={new Set(['active', 'queued'])}
         sellpiaSendingId="active"
+        sellpiaSettlingId={null}
         sellpiaPostProcessing={false}
         onDelete={vi.fn()}
         onDeleteSelected={vi.fn()}
@@ -142,5 +208,30 @@ describe('GeneratedFilesSection', () => {
     expect(screen.getByRole('button', { name: 'free.xlsx 삭제' })).toBeEnabled();
     expect(screen.getAllByRole('button', { name: '셀피아 전송 요청' }))
       .toHaveLength(1);
+  });
+
+  it('shows acceptance without a spinner while confirmed submission is finalized', () => {
+    const item = generatedFile('settling');
+    render(
+      <GeneratedFilesSection
+        items={[item]}
+        bulkAction={null}
+        lockedFileIds={new Set<string>()}
+        sellpiaSendingId={null}
+        sellpiaSettlingId={item.id}
+        sellpiaPostProcessing={false}
+        onDelete={vi.fn()}
+        onDeleteSelected={vi.fn()}
+        onDownload={vi.fn()}
+        onDownloadSelected={vi.fn()}
+        onPreview={vi.fn()}
+        onSellpiaPostProcess={vi.fn()}
+        onSendSelectedToSellpia={vi.fn()}
+        onSendToSellpia={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '접수 확인됨' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '전송 중' })).not.toBeInTheDocument();
   });
 });

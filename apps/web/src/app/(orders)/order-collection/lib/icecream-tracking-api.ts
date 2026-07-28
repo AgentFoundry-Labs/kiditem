@@ -173,6 +173,30 @@ export function filterTrackingByMall(rows: SellpiaTrackingRow[], mallKey: string
 
 const COURIER_NAME: Record<string, string> = { '1136': 'CJ대한통운' };
 const COURIER_HDC: Record<string, string> = { '1136': '10' };
+const TRACKING_CSV_HEADERS = [
+  '주문번호',
+  '수취인',
+  '우편번호',
+  '주소',
+  '택배사',
+  '택배사코드',
+  '송장번호',
+];
+
+export function buildMallTrackingPreviewRows(rows: SellpiaTrackingRow[]): string[][] {
+  return [
+    TRACKING_CSV_HEADERS,
+    ...rows.map((row) => [
+      row.ordNo,
+      row.receiver ?? '',
+      row.post ?? '',
+      row.addr ?? '',
+      COURIER_NAME[row.courier] ?? row.courier,
+      COURIER_HDC[row.courier] ?? '',
+      row.invNo,
+    ]),
+  ];
+}
 
 /** 몰별 송장 파일(CSV, 엑셀 호환 BOM). 컬럼: 주문번호·수취인·우편번호·주소·택배사·택배사코드·송장번호. */
 export function buildMallTrackingCsvBlob(rows: SellpiaTrackingRow[]): Blob {
@@ -180,21 +204,7 @@ export function buildMallTrackingCsvBlob(rows: SellpiaTrackingRow[]): Blob {
     const cell = String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/"/g, '""');
     return /[",]/.test(cell) ? `"${cell}"` : cell;
   };
-  const header = ['주문번호', '수취인', '우편번호', '주소', '택배사', '택배사코드', '송장번호'];
-  const lines = [header.join(',')];
-  for (const row of rows) {
-    lines.push(
-      [
-        esc(row.ordNo),
-        esc(row.receiver ?? ''),
-        esc(row.post ?? ''),
-        esc(row.addr ?? ''),
-        esc(COURIER_NAME[row.courier] ?? row.courier),
-        esc(COURIER_HDC[row.courier] ?? ''),
-        esc(row.invNo),
-      ].join(','),
-    );
-  }
+  const lines = buildMallTrackingPreviewRows(rows).map((row) => row.map(esc).join(','));
   return new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
 }
 

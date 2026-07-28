@@ -104,7 +104,7 @@ describe('order collection extension session bridge', () => {
     const result = await ensureMallLoggedInViaExtension(
       'kidsnote',
       { loginId: 'operator', password: 'secret' },
-      { runId: RUN_ID, extensionId: 'order-extension' },
+      { runId: RUN_ID, extensionId: 'order-extension', date: '2026-07-28' },
     );
 
     expect(result).toEqual({
@@ -114,7 +114,11 @@ describe('order collection extension session bridge', () => {
     });
     expect(bridge.sendToExtension).toHaveBeenCalledWith(
       'order-extension',
-      expect.objectContaining({ action: 'ensureMallLoggedIn', runId: RUN_ID }),
+      expect.objectContaining({
+        action: 'ensureMallLoggedIn',
+        runId: RUN_ID,
+        date: '2026-07-28',
+      }),
       45000,
     );
   });

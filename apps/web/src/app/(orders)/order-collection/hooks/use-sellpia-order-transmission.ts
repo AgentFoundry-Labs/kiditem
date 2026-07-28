@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -11,7 +12,10 @@ import {
   markGeneratedOrderFileTransmissionRequested,
   type StoredOrderCollectionFile,
 } from '../lib/order-generated-file-store';
-import { transmitSellpiaOrder } from '../lib/sellpia-order-transmission';
+import {
+  SellpiaOrderTransmissionResolutionRequiredError,
+  transmitSellpiaOrder,
+} from '../lib/sellpia-order-transmission';
 
 const VIEW_REFRESH_WARNING =
   '셀피아 전송 요청은 완료됐지만 최신 상태를 화면에 반영하지 못했습니다. 새로고침하세요.';
@@ -22,7 +26,9 @@ export function useSellpiaOrderTransmission({
   onTransmissionRequested: (file: StoredOrderCollectionFile) => void;
 }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [settlingId, setSettlingId] = useState<string | null>(null);
 
   const invalidateFreshnessHistory = useCallback(async () => {
     await Promise.all([
@@ -37,6 +43,7 @@ export function useSellpiaOrderTransmission({
       options: { showSuccessToast?: boolean; retryConfirmed?: boolean } = {},
     ): Promise<boolean> => {
       setSendingId(file.id);
+      setSettlingId(null);
       try {
         const result = await transmitSellpiaOrder({
           file,
@@ -47,6 +54,10 @@ export function useSellpiaOrderTransmission({
           },
           freshness: sellpiaInventoryFreshnessApi,
           invalidateFreshnessHistory,
+          onSubmissionConfirmed: () => {
+            setSendingId(null);
+            setSettlingId(file.id);
+          },
         });
 
         if (result.status === 'not_submitted') {
@@ -84,14 +95,26 @@ export function useSellpiaOrderTransmission({
         }
         return true;
       } catch (error) {
-        toast.error(friendlyError(error) ?? '셀피아 전송 요청 실패');
+        const message = friendlyError(error) ?? '셀피아 전송 요청 실패';
+        if (error instanceof SellpiaOrderTransmissionResolutionRequiredError) {
+          toast.error(message, {
+            duration: 12000,
+            action: {
+              label: '전송 결과 확인',
+              onClick: () => router.push('/inventory-hub?tab=sellpia-sync'),
+            },
+          });
+        } else {
+          toast.error(message);
+        }
         return false;
       } finally {
         setSendingId(null);
+        setSettlingId(null);
       }
     },
-    [invalidateFreshnessHistory, onTransmissionRequested],
+    [invalidateFreshnessHistory, onTransmissionRequested, router],
   );
 
-  return { sendingId, transmit };
+  return { sendingId, settlingId, transmit };
 }
