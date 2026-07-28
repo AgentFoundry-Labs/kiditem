@@ -619,12 +619,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.action === "ensureMallLoggedIn") {
-    ensureMallLoggedIn(msg.mallKey, msg.credentials)
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "자동 로그인 실패" });
-      });
-    return true;
+    return respond(ensureMallLoginWithLifecycle(msg));
   }
 
   if (msg?.action === "collectKidkidsOrders") {
@@ -4488,7 +4483,19 @@ async function ensureMallLogin(tabId, credentials) {
 
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
 // 저장된 계정으로 로그인 후 닫는다. 이후 수집 탭은 같은 세션 쿠키라 로그인 상태. credentials 없으면 스킵.
-async function ensureMallLoggedIn(mallKey, credentials) {
+function ensureMallLoginWithLifecycle(message) {
+  return orderCollectionLifecycle.run(
+    message,
+    KidItemOrderCollectionLifecycle.createIdentity(
+      message.mallKey,
+      message.date,
+    ),
+    (collection) =>
+      ensureMallLoggedIn(message.mallKey, message.credentials, collection),
+  );
+}
+
+async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
   if (!credentials || !credentials.loginId || !credentials.password) {
     return { success: true, submitted: false };
   }
@@ -4510,6 +4517,18 @@ async function ensureMallLoggedIn(mallKey, credentials) {
   if (!url) return { success: true, submitted: false }; // 자동 로그인 미지원 몰
   const tab = await chrome.tabs.create({ url, active: false }); // 백그라운드
   if (!tab?.id) return { success: false, error: "자동 로그인 탭을 열 수 없습니다." };
+  if (collection) {
+    try {
+      await collection.attachTab(tab, { owned: true });
+    } catch (error) {
+      try {
+        await chrome.tabs.remove(tab.id);
+      } catch {
+        /* 이미 닫힘 — 무시 */
+      }
+      throw error;
+    }
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -4533,6 +4552,13 @@ async function ensureMallLoggedIn(mallKey, credentials) {
     };
   } finally {
     if (!keepOpen) {
+      if (collection) {
+        try {
+          await collection.detachTab(tab, { owned: false });
+        } catch {
+          /* 탭 종료는 계속 진행하고 다음 실행에서 stale 소유권을 정리한다. */
+        }
+      }
       try {
         await chrome.tabs.remove(tab.id);
       } catch {

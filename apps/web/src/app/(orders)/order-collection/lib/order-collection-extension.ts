@@ -156,6 +156,7 @@ export async function ensureMallLoggedInViaExtension(
         mallKey,
         credentials,
         runId: run?.runId ?? globalThis.crypto.randomUUID(),
+        date: run?.date ?? null,
       },
       45000,
     );

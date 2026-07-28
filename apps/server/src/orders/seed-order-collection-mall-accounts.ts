@@ -48,6 +48,7 @@ type OrderCollectionMallSeedKey =
 export interface OrderCollectionMallSeedAccount {
   key: OrderCollectionMallSeedKey;
   loginId: string;
+  supplierLoginId?: string;
   password: string;
   siteUrl: string;
 }
@@ -97,12 +98,16 @@ export function resolveOrderCollectionMallSeedConfig(
   const accounts: OrderCollectionMallSeedAccount[] = [];
   for (const mall of ORDER_COLLECTION_MALL_ENV) {
     const loginId = read(`${mall.prefix}_ID`);
+    const supplierLoginId = mall.key === "art09"
+      ? read(`${mall.prefix}_SUPPLIER_ID`)
+      : undefined;
     const password = read(`${mall.prefix}_PW`);
     const siteUrl = read(`${mall.prefix}_URL`);
-    const presentCount = [loginId, password, siteUrl].filter(Boolean).length;
+    const credentialValues = [loginId, password, siteUrl];
+    const presentCount = credentialValues.filter(Boolean).length;
 
-    if (presentCount === 0) continue;
-    if (presentCount !== 3) {
+    if (presentCount === 0 && !supplierLoginId) continue;
+    if (presentCount !== credentialValues.length) {
       throw new Error(
         `Incomplete ${mall.prefix} credential triple: ${mall.prefix}_ID, ${mall.prefix}_PW, and ${mall.prefix}_URL must be set together.`,
       );
@@ -111,6 +116,7 @@ export function resolveOrderCollectionMallSeedConfig(
     accounts.push({
       key: mall.key,
       loginId: loginId!,
+      ...(supplierLoginId ? { supplierLoginId } : {}),
       password: password!,
       siteUrl: siteUrl!,
     });
@@ -162,7 +168,24 @@ export async function seedOrderCollectionMallAccounts(
   let unchangedCount = 0;
 
   for (const account of seedConfig.accounts) {
+    if (
+      account.key === "art09" &&
+      !resolveArt09SupplierLoginId(
+        account,
+        currentAccounts.get(account.key),
+      )
+    ) {
+      throw new Error(
+        "Missing ART09_SUPPLIER_ID: a new Art09 seed requires the supplier login ID.",
+      );
+    }
+  }
+
+  for (const account of seedConfig.accounts) {
     const current = currentAccounts.get(account.key);
+    const supplierLoginId = account.key === "art09"
+      ? resolveArt09SupplierLoginId(account, current)
+      : undefined;
     const passwordMatches = await hasMatchingPassword(
       service,
       seedConfig.organizationId,
@@ -172,6 +195,8 @@ export async function seedOrderCollectionMallAccounts(
     const unchanged =
       current?.enabled === true &&
       current.loginId === account.loginId &&
+      (account.key !== "art09" ||
+        current.supplierLoginId === supplierLoginId) &&
       current.siteUrl === account.siteUrl &&
       passwordMatches;
 
@@ -183,6 +208,9 @@ export async function seedOrderCollectionMallAccounts(
     await service.update(seedConfig.organizationId, account.key, {
       enabled: true,
       loginId: account.loginId,
+      ...(account.key === "art09"
+        ? { supplierLoginId }
+        : {}),
       password: passwordMatches ? undefined : account.password,
       siteUrl: account.siteUrl,
       memo: current?.memo ?? undefined,
@@ -196,6 +224,13 @@ export async function seedOrderCollectionMallAccounts(
     updatedCount,
     unchangedCount,
   };
+}
+
+function resolveArt09SupplierLoginId(
+  account: OrderCollectionMallSeedAccount,
+  current: OrderCollectionMallAccount | undefined,
+): string | undefined {
+  return account.supplierLoginId ?? current?.supplierLoginId ?? undefined;
 }
 
 async function hasMatchingPassword(

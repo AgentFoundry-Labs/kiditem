@@ -132,7 +132,7 @@ test("a login tab stays open without stealing focus when automatic login needs a
     new URL("../order-collector/background/service-worker.js", import.meta.url),
     "utf8",
   );
-  const calls = { removed: [] };
+  const calls = { attached: [], detached: [], removed: [] };
   const ensureMallLoggedInSource = extractFunction(source, "ensureMallLoggedIn").replace(
     /^function /,
     "async function ",
@@ -152,7 +152,7 @@ test("a login tab stays open without stealing focus when automatic login needs a
       TEACHERVILLE_ORDER_URL: "https://example.invalid/teacher-mall",
       chrome: {
         tabs: {
-          create: async () => ({ id: 17 }),
+          create: async () => ({ id: 17, windowId: 5 }),
           remove: async (...args) => calls.removed.push(args),
         },
       },
@@ -170,14 +170,75 @@ test("a login tab stays open without stealing focus when automatic login needs a
     },
   );
 
-  const result = await ensureMallLoggedIn("art09", {
-    loginId: "fake-shop-id",
-    supplierLoginId: "fake-supplier-id",
-    password: "fake-password",
-  });
+  const collection = {
+    async attachTab(tab, attachment) {
+      calls.attached.push([tab, attachment]);
+    },
+    async detachTab(tab, attachment) {
+      calls.detached.push([tab, attachment]);
+    },
+  };
+  const result = await ensureMallLoggedIn(
+    "art09",
+    {
+      loginId: "fake-shop-id",
+      supplierLoginId: "fake-supplier-id",
+      password: "fake-password",
+    },
+    collection,
+  );
 
   assert.equal(result.pendingLogin, true);
+  assert.equal(calls.attached.length, 1);
+  assert.equal(calls.attached[0][0].id, 17);
+  assert.equal(calls.attached[0][0].windowId, 5);
+  assert.equal(calls.attached[0][1].owned, true);
+  assert.deepEqual(calls.detached, []);
   assert.equal(calls.removed.length, 0);
+});
+
+test("login preflight runs inside the matching order collection lifecycle", async () => {
+  const source = readFileSync(
+    new URL("../order-collector/background/service-worker.js", import.meta.url),
+    "utf8",
+  );
+  const calls = [];
+  const ensureMallLoginWithLifecycle = vm.runInNewContext(
+    `(${extractFunction(source, "ensureMallLoginWithLifecycle")})`,
+    {
+      KidItemOrderCollectionLifecycle: {
+        createIdentity: (mallKey, date) => ({ mallKey, date }),
+      },
+      ensureMallLoggedIn: async (mallKey, credentials, collection) => {
+        calls.push(["ensure", mallKey, credentials, collection]);
+        return { success: false, pendingLogin: true };
+      },
+      orderCollectionLifecycle: {
+        async run(message, identity, operation) {
+          calls.push(["run", message, identity]);
+          return operation({ runId: message.runId });
+        },
+      },
+    },
+  );
+  const message = {
+    mallKey: "art09",
+    credentials: { loginId: "shop-id", password: "password" },
+    date: "2026-07-28",
+    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  };
+
+  const result = await ensureMallLoginWithLifecycle(message);
+
+  assert.equal(result.pendingLogin, true);
+  assert.deepEqual(calls[0], [
+    "run",
+    message,
+    { mallKey: "art09", date: "2026-07-28" },
+  ]);
+  assert.equal(calls[1][0], "ensure");
+  assert.equal(calls[1][1], "art09");
+  assert.deepEqual(calls[1][3], { runId: message.runId });
 });
 
 test("art09 collection ignores visible orders outside the 배송준비전 state", async () => {

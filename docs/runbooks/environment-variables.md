@@ -247,6 +247,10 @@ into a `ChannelAccount` owned by one explicit organization. A complete triple
 is required for each included mall; missing triples are ignored and existing
 accounts for omitted malls are not deleted.
 
+Art09 also accepts `ART09_SUPPLIER_ID`. Existing Art09 accounts preserve their
+stored supplier login ID when it is omitted, while an initial Art09 seed must
+provide it.
+
 | Variable | Owner | Required when | Notes |
 |---|---|---|---|
 | `ORDER_COLLECTION_MALL_ORGANIZATION_ID` | Seed operator | Every seed | Exact active organization UUID. Local execution may use root `KIDITEM_DEV_ORGANIZATION_ID`. |
