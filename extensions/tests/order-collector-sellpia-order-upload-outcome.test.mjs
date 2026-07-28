@@ -201,6 +201,7 @@ test('Sellpia page injection stays unknown when the click produces no acceptance
 });
 
 test('Sellpia service worker separates preflight failure from post-injection uncertainty', async () => {
+  let injection = null;
   const baseContext = {
     findOrCreateSellpiaTab: async () => ({ id: 1, url: 'https://kiditem.sellpia.com/' }),
     waitForTabReady: async () => {},
@@ -208,7 +209,12 @@ test('Sellpia service worker separates preflight failure from post-injection unc
     injectSellpiaOrderFile() {},
     SELLPIA_ORDER_UPLOAD_URL: 'https://kiditem.sellpia.com/order_collect.html?ctype=OM_FILE',
     chrome: {
-      scripting: { executeScript: async () => [] },
+      scripting: {
+        executeScript: async (input) => {
+          injection = input;
+          return [];
+        },
+      },
       tabs: { get: async () => ({ id: 1, url: 'https://kiditem.sellpia.com/' }) },
     },
   };
@@ -218,6 +224,12 @@ test('Sellpia service worker separates preflight failure from post-injection unc
   );
 
   const preflight = await send({ shopName: null, fileName: null, fileBase64: null });
+  await send({
+    shopName: null,
+    fileName: 'orders.xlsx',
+    fileBase64: 'b3JkZXJz',
+  });
+  assert.equal(injection.world, 'MAIN');
   baseContext.chrome.scripting.executeScript = async () => {
     throw new Error('response lost');
   };

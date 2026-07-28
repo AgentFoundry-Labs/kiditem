@@ -4,6 +4,7 @@ const COUPANG_DIRECT_KEY = 'coupang-direct';
 
 export function getHistoryOrderCount(result: StoredOrderCollectionFile | null): number | null {
   if (!result) return null;
+  if (result.fileKind === 'tracking') return null;
   if (result.orderNumbers && result.orderNumbers.length > 0) {
     return new Set(result.orderNumbers.map((value) => String(value).trim()).filter(Boolean)).size;
   }

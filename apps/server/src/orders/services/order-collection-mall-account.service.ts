@@ -43,6 +43,7 @@ export interface OrderCollectionMallAccount {
   configured: boolean;
   enabled: boolean;
   loginId: string | null;
+  supplierLoginId: string | null;
   hasPassword: boolean;
   siteUrl: string | null;
   memo: string | null;
@@ -52,6 +53,7 @@ export interface OrderCollectionMallAccount {
 
 export interface UpdateOrderCollectionMallAccountInput {
   loginId?: unknown;
+  supplierLoginId?: unknown;
   password?: unknown;
   siteUrl?: unknown;
   memo?: unknown;
@@ -91,6 +93,7 @@ export class OrderCollectionMallAccountService {
   ): Promise<OrderCollectionMallAccount> {
     const mall = findMall(mallKey);
     const loginId = trimToNullable(input.loginId);
+    const supplierLoginId = trimToNullable(input.supplierLoginId);
     const password = trimToOptional(input.password);
     const siteUrl = trimToNullable(input.siteUrl);
     const memo = trimToNullable(input.memo);
@@ -117,6 +120,7 @@ export class OrderCollectionMallAccountService {
         version: 1,
         enabled,
         loginId,
+        supplierLoginId,
         password: nextPassword ? envelopeToJson(nextPassword) : null,
         passwordUpdatedAt,
         siteUrl,
@@ -194,14 +198,16 @@ function toMallAccount(
 ): OrderCollectionMallAccount {
   const config = readOrderCollectionConfig(toJsonRecord(account?.config));
   const loginId = readString(config.loginId);
+  const supplierLoginId = readString(config.supplierLoginId);
   const hasPassword = isEncryptedCredentialEnvelope(config.password);
 
   return {
     key,
     name,
-    configured: Boolean(loginId && hasPassword),
+    configured: Boolean(loginId && hasPassword && (key !== 'art09' || supplierLoginId)),
     enabled: readBoolean(config.enabled, true),
     loginId,
+    supplierLoginId,
     hasPassword,
     siteUrl: readString(config.siteUrl),
     memo: readString(config.memo),

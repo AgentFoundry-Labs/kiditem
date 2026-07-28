@@ -188,6 +188,16 @@ const ICECREAM_DELIVERY_HEADERS = [
   "출고지시일시",
   "출고완료일시",
 ];
+const ICECREAM_EXCLUDED_DELIVERY_STATUSES = [
+  "출고완료",
+  "배송중",
+  "배송완료",
+  "구매확정",
+  "반품접수",
+  "회수지시",
+  "회수확인",
+  "회수완료",
+];
 
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   const senderEnvironment = environmentContext.resolveSender(sender);
@@ -609,12 +619,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.action === "ensureMallLoggedIn") {
-    ensureMallLoggedIn(msg.mallKey, msg.credentials)
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "자동 로그인 실패" });
-      });
-    return true;
+    return respond(ensureMallLoginWithLifecycle(msg));
   }
 
   if (msg?.action === "collectKidkidsOrders") {
@@ -679,7 +684,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(orderCollectionLifecycle.run(
       msg,
       KidItemOrderCollectionLifecycle.createIdentity("art09", msg.date),
-      (collection) => collectArt09Orders(collection),
+      (collection) => collectArt09Orders(msg.date, collection),
     ));
   }
 
@@ -776,6 +781,9 @@ async function sendOrderFileToSellpia({ shopName, fileName, fileBase64 }) {
     injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
+        // Sellpia의 SlickGrid dataView는 페이지 전역에 있으므로 MAIN world에서
+        // 행 증가를 직접 관찰해, 화면에 이미 접수된 뒤에도 DOM pager만 기다리지 않는다.
+        world: "MAIN",
         func: injectSellpiaOrderFile,
         args: [{ shopName: shopName || null, fileName, fileBase64 }],
       }),
@@ -1541,7 +1549,11 @@ async function collectKidkidsOrders(dateFilter, collection) {
       180000,
       "키드키즈 주문 수집 시간이 초과되었습니다.",
     );
-    return injected[0]?.result ?? { success: false, error: "키드키즈 화면에 접근하지 못했습니다." };
+    const result = injected[0]?.result ?? { success: false, error: "키드키즈 화면에 접근하지 못했습니다." };
+    // 페이지 컨텍스트가 로그인 리다이렉트를 감지하면(로그인 필요), 빈 목록으로 오인하지 않도록
+    // 다른 몰과 동일한 로그인 안내 결과로 바꾸고, 사용자가 로그인할 수 있게 탭을 열어 둔다.
+    if (result && result.loginRequired) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
+    return result;
   } catch (e) {
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
     return mallGenericErrorResult("키드키즈", e);
@@ -1857,7 +1869,7 @@ async function findOrCreateArt09Tab() {
   return { tab, created: true };
 }
 
-async function collectArt09Orders(collection) {
+async function collectArt09Orders(date, collection) {
   const { tab, created } = await findOrCreateArt09Tab();
   if (!tab?.id) return { success: false, error: "아트공구(zzogzzog1.cafe24.com) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
@@ -1876,6 +1888,7 @@ async function collectArt09Orders(collection) {
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: scrapeArt09Orders,
+        args: [date || null],
       }),
       180000,
       "아트공구 주문 수집 시간이 초과되었습니다.",
@@ -1900,10 +1913,14 @@ async function collectArt09Orders(collection) {
   }
 }
 
-async function scrapeArt09Orders() {
+async function scrapeArt09Orders(dateFilter) {
   const ORDER_ID_RE = /\b\d{8}-\d{7}\b/g;
   const ORDER_DATETIME_RE = /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/;
   const compact = (s) => clean(s).replace(/\s|[:：]/g, "").toLowerCase();
+  const normalizeOrderItemId = (value, orderId) => {
+    const match = clean(value).match(/\b\d{8}-\d{7}-\d{2,}\b/);
+    return match && match[0].startsWith(`${orderId}-`) ? match[0] : "";
+  };
 
   try {
     const listOrders = readVisibleOrderList();
@@ -1917,9 +1934,11 @@ async function scrapeArt09Orders() {
         };
       }
       return {
-        success: false,
-        error:
-          "아트공구 주문목록에서 주문번호를 찾지 못했습니다. Cafe24 주문목록 화면을 열고 조회 결과가 보이는지 확인해주세요.",
+        success: true,
+        rows: [],
+        count: 0,
+        orderCount: 0,
+        failures: [],
       };
     }
 
@@ -1929,12 +1948,12 @@ async function scrapeArt09Orders() {
       try {
         const detail = await fetchOrderDetail(order.orderId);
         const items = detail.items.length > 0 ? detail.items : fallbackItems(order.productText);
-        items.forEach((item, index) => {
+        items.forEach((item) => {
           rows.push({
             shopName: "한국어 쇼핑몰",
             shopNo: "1",
             orderId: order.orderId,
-            orderItemId: `${order.orderId}-${String(index + 1).padStart(2, "0")}`,
+            orderItemId: normalizeOrderItemId(item.orderItemId, order.orderId),
             message: detail.message || "",
             totalOrderAmount: "****",
             totalPaymentAmount: "****",
@@ -1984,13 +2003,18 @@ async function scrapeArt09Orders() {
       if (!ids.length) continue;
       const orderId = ids[0];
       const checkbox = tr.querySelector('input[type="checkbox"]');
+      const orderLink = tr.querySelector('a[href*="order_id="], a[onclick*="order_id"]');
+      if (!checkbox && !orderLink) continue;
       const checked = Boolean(checkbox && checkbox.checked);
       if (checked) hasCheckedRows = true;
       const cells = Array.from(tr.cells || []).map((cell) => clean(cell.innerText || cell.textContent || ""));
       const headers = tableHeaderCells(tr.closest("table")).map((cell) => compact(cell));
+      const stateIndex = findHeaderIndex(headers, ["처리상태", "주문상태", "배송상태"]);
+      if (stateIndex < 0 || !compact(cells[stateIndex] || "").includes(compact("배송준비전"))) continue;
       const productIndex = findHeaderIndex(headers, ["상품명", "주문상품명"]);
       const orderCellIndex = cells.findIndex((cell) => cell.includes(orderId));
       const orderedAt = (text.match(ORDER_DATETIME_RE) || [])[0] || "";
+      if (dateFilter && (!orderedAt || orderedAt.slice(0, 10) !== dateFilter)) continue;
       const productText =
         productIndex >= 0 ? normalizeProductName(cells[productIndex] || "") : pickListProductText(cells, orderCellIndex);
       candidates.push({ orderId, orderedAt, productText, checked });
@@ -2051,7 +2075,7 @@ async function scrapeArt09Orders() {
       paymentType: readLabeledValue(doc, ["결제구분"], []) || "T",
       paymentMethod: readLabeledValue(doc, ["결제수단", "결제방법"], []),
       orderedAt: readLabeledValue(doc, ["발주일", "주문일", "결제일", "주문일시"], []) || ((clean(doc.body?.innerText || "").match(ORDER_DATETIME_RE) || [])[0] || ""),
-      items: parseItems(doc),
+      items: parseItems(doc, orderId),
     };
   }
 
@@ -2077,7 +2101,7 @@ async function scrapeArt09Orders() {
     return best || new TextDecoder().decode(buf);
   }
 
-  function parseItems(doc) {
+  function parseItems(doc, orderId) {
     const out = [];
     for (const table of Array.from(doc.querySelectorAll("table"))) {
       const trs = Array.from(table.querySelectorAll("tr"));
@@ -2086,17 +2110,24 @@ async function scrapeArt09Orders() {
       const { index, headers } = headerInfo;
       const nameIndex = findHeaderIndex(headers, ["주문상품명", "상품명", "품목명"]);
       const optionIndex = findHeaderIndex(headers, ["옵션포함", "옵션", "옵션명"]);
+      const orderItemIdIndex = findHeaderIndex(headers, ["품목별주문번호", "상품주문번호"]);
       const productNoIndex = findHeaderIndex(headers, ["상품번호", "상품코드", "품목코드", "상품품목코드"]);
       const qtyIndex = findHeaderIndex(headers, ["수량", "주문수량", "구매수량"]);
+      if (nameIndex < 0 || qtyIndex < 0) continue;
       for (const tr of trs.slice(index + 1)) {
         const cells = rowCells(tr);
         if (cells.length < 2) continue;
+        if (tr.querySelector?.('[colspan]')) continue;
         const normalized = cells.map((cell) => compact(cell));
         if (normalized.some((cell) => cell.includes("상품명")) && normalized.some((cell) => cell.includes("수량"))) continue;
-        const name = normalizeProductName(cells[nameIndex] || cells.find((cell) => /[가-힣A-Za-z]/.test(cell)) || "");
-        if (!name || /합계|총계|배송비|결제정보/.test(name)) continue;
-        const qty = qtyIndex >= 0 ? numericText(cells[qtyIndex]) || "1" : "1";
+        const name = normalizeProductName(cells[nameIndex] || "");
+        if (!name || /합계|총계|배송비|결제정보|안내|설명/.test(name)) continue;
+        const qty = numericText(cells[qtyIndex]);
+        if (!qty || Number(qty) <= 0) continue;
         out.push({
+          orderItemId: orderItemIdIndex >= 0
+            ? normalizeOrderItemId(cells[orderItemIdIndex], orderId)
+            : "",
           productNo: productNoIndex >= 0 ? productNumber(cells[productNoIndex]) : "",
           name,
           optionName: optionIndex >= 0 ? normalizeProductName(cells[optionIndex]) || name : name,
@@ -2854,12 +2885,34 @@ async function scrapeAlwayzOrders() {
 async function scrapeKidkidsOrders(dateFilter) {
   const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
   const num = (s) => Number(String(s || "").replace(/[^0-9.-]/g, "")) || 0;
+  const isAuthenticationGateUrl = (value) => {
+    const normalized = String(value || "").toLowerCase();
+    return (
+      /login|partnerlogin|partner_login/.test(normalized) ||
+      /\/security\/verify_user\.htm(?:[?#]|$)/.test(normalized)
+    );
+  };
   try {
+    // 키드키즈는 로그인 직후 별도 본인확인 화면으로 이동할 수 있다. 이 화면은
+    // 주문 목록이 아니므로 0건 성공으로 처리하지 않고 운영자 확인을 요청한다.
+    if (isAuthenticationGateUrl(window.location.href)) {
+      return { success: false, loginRequired: true };
+    }
     // 1) 출고관리 목록 (page_view_cnt 크게 = 전부). management 는 partner.kidkids.net 동일 origin.
     // 목록도 euc-kr → arrayBuffer 로 받아 명시 디코딩(아니면 주문자명 한글 깨짐).
     const listRes = await fetch("/logis/logis_index.htm?from_logis_index=Y&page_view_cnt=500", { credentials: "include" });
+    const finalUrl = String(listRes.url || "").toLowerCase();
     const listHtml = new TextDecoder("euc-kr").decode(await listRes.arrayBuffer());
     const ldoc = new DOMParser().parseFromString(listHtml, "text/html");
+    // 미로그인이면 logis_index 요청이 로그인 페이지(partnerLogin/partner_login)로 리다이렉트되어
+    // CheckBox2 행이 하나도 없다. 이걸 "주문 0건"과 구분하지 못하면 프론트가 "출고예정일 미지정"으로
+    // 잘못 안내한다. 로그인 리다이렉트/비밀번호 폼을 감지해 명시적으로 로그인 필요를 신호한다.
+    if (!ldoc.querySelector('input[name="CheckBox2"]')) {
+      const looksLikeLogin =
+        isAuthenticationGateUrl(finalUrl) ||
+        Boolean(ldoc.querySelector('input[type="password"]'));
+      if (looksLikeLogin) return { success: false, loginRequired: true };
+    }
     const seen = [];
     for (const cb of ldoc.querySelectorAll('input[name="CheckBox2"]')) {
       const dpd = cb.getAttribute("delivery_plan_date") || "";
@@ -3032,7 +3085,11 @@ async function collectDomeggookOrders(date, collection) {
     await delay(1500); // 기간 필터 목록 렌더 대기
     // 1) 엑셀다운로드 → 생성요청 모달 submit (설정한 기간으로 export 생성 요청)
     const trig = await withTimeout(
-      chrome.scripting.executeScript({ target: { tabId: tab.id }, func: triggerDomeggookExcelGen }),
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: triggerDomeggookExcelGen,
+      }),
       30000,
       "도매꾹 생성 요청 시간이 초과되었습니다.",
     );
@@ -3082,17 +3139,27 @@ async function collectDomeggookOrders(date, collection) {
 async function triggerDomeggookExcelGen() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   try {
-    const btn = [...document.querySelectorAll("#lList a, #lList button, #lList span, #lList div")].find(
-      (e) => (e.textContent || "").replace(/\s+/g, "") === "엑셀다운로드",
+    const btn = [
+      ...document.querySelectorAll(
+        "#lList a, #lList button, #lList input[type='button'], #lList [role='button'], #lList [onclick]",
+      ),
+    ].find(
+      (element) =>
+        String(element.textContent || element.value || "").replace(/\s+/g, "") ===
+        "엑셀다운로드",
     );
     if (!btn) return { success: false, error: "엑셀다운로드 버튼을 찾지 못했습니다. (로그인/화면 확인)" };
     btn.click();
     let doc = null;
+    let modalSeen = false;
     for (let i = 0; i < 25; i++) {
       await sleep(300);
-      const iframe = document.querySelector("#gLayerFrame iframe");
+      const iframe = document.querySelector("iframe#gLayerFrame, #gLayerFrame iframe");
       try {
-        if (iframe && iframe.contentDocument && iframe.contentDocument.querySelector("#lXlsReqNoticeBtnSubmit")) {
+        if (iframe?.contentDocument) {
+          modalSeen = true;
+        }
+        if (iframe?.contentDocument?.querySelector("#lXlsReqNoticeBtnSubmit")) {
           doc = iframe.contentDocument;
           if (iframe.contentWindow) {
             iframe.contentWindow.confirm = () => true; // 혹시 모를 confirm 자동 승인
@@ -3100,12 +3167,18 @@ async function triggerDomeggookExcelGen() {
           }
           break;
         }
+        const dialog = document.querySelector("#gLayerFrame:not(iframe), [role='dialog']");
+        if (dialog) modalSeen = true;
+        if (dialog?.querySelector("#lXlsReqNoticeBtnSubmit")) {
+          doc = document;
+          break;
+        }
       } catch (e) {
         /* 로딩 중 접근 예외 — 무시하고 재시도 */
       }
     }
-    if (!doc) return { success: false, error: "도매꾹 생성 요청 모달을 열지 못했습니다." };
-    const submit = doc.querySelector("#lXlsReqNoticeBtnSubmit");
+    if (!modalSeen) return { success: false, error: "도매꾹 생성 요청 모달을 열지 못했습니다." };
+    const submit = doc?.querySelector("#lXlsReqNoticeBtnSubmit");
     if (!submit) return { success: false, error: "도매꾹 생성 요청 버튼을 찾지 못했습니다." };
     submit.click();
     return { success: true };
@@ -4153,7 +4226,7 @@ async function collectIcecreamMallOrders(date, credentials, collection) {
       world: "MAIN", // ⭐페이지 컨텍스트로 실행: 조회(#btn_list) 클릭이 몰 프레임워크(WebSquare) 핸들러를
       // 확실히 발동시켜 그리드가 로딩됨. ISOLATED 월드 클릭은 핸들러를 못 깨워 "총 0건"에서 멈춘다.
       func: scrapeIcecreamMallDeliveryGrid,
-      args: [date, ICECREAM_DELIVERY_HEADERS],
+      args: [date, ICECREAM_DELIVERY_HEADERS, ICECREAM_EXCLUDED_DELIVERY_STATUSES],
     }),
     35000,
     "아이스크림몰 배송목록 수집 시간이 초과되었습니다.",
@@ -4371,11 +4444,14 @@ function delay(ms) {
 
 // 제네릭 자동 로그인: 탭에 로그인 폼(ID/비밀번호칸)이 보이면 저장된 계정으로 채워 제출한다.
 // credentials 없으면 아무것도 안 함(세션에 의존 = 기존 동작). autoSubmitIcecreamMallLogin 휴리스틱 재사용.
-async function ensureMallLogin(tabId, credentials) {
+async function ensureMallLogin(tabId, credentials, mallKey = null) {
   if (!credentials || !credentials.loginId || !credentials.password) {
     return { success: true, submitted: false };
   }
   const expiresAt = Date.now() + 15000;
+  let sawIncompleteLoginForm = false;
+  let lastIncompleteReason = null;
+  let kidkidsManagementStableSince = null;
   while (Date.now() < expiresAt) {
     let results = [];
     try {
@@ -4395,17 +4471,94 @@ async function ensureMallLogin(tabId, credentials) {
       return { success: true, submitted: true };
     }
     // 어느 프레임에서도 로그인 폼이 없으면 이미 로그인된 상태로 간주.
+    // 키드키즈는 management.htm 로드가 끝난 뒤 클라이언트 리다이렉트로 로그인 페이지를
+    // 여는 구간이 있어, 첫 no-login-form 을 성공으로 처리하면 자동 로그인을 건너뛴다.
     if (results.length && results.every((r) => r.state === "no-login-form")) {
-      return { success: true, submitted: false };
+      if (mallKey !== "kidkids") {
+        return { success: true, submitted: false };
+      }
+
+      let currentUrl = "";
+      try {
+        currentUrl = String((await chrome.tabs.get(tabId))?.url || "").toLowerCase();
+      } catch {
+        /* 탭 URL도 아직 준비되지 않음 — 제한시간 안에서 재시도 */
+      }
+
+      if (/\/security\/verify_user\.htm(?:[?#]|$)/.test(currentUrl)) {
+        return {
+          success: false,
+          submitted: false,
+          pendingLogin: true,
+          error: "키드키즈 본인 인증이 필요합니다. 열린 탭에서 인증 후 다시 수집해 주세요.",
+        };
+      }
+
+      const isKidkidsLoginUrl =
+        /\/partnerlogin\.htm(?:[?#]|$)/.test(currentUrl) ||
+        /\/join\/partner_login\.htm(?:[?#]|$)/.test(currentUrl);
+      const isKidkidsManagementUrl =
+        /^https:\/\/partner\.kidkids\.net\/new\/pages\/logis\/management\.htm(?:[?#]|$)/.test(
+          currentUrl,
+        );
+
+      if (isKidkidsLoginUrl) {
+        kidkidsManagementStableSince = null;
+      } else if (isKidkidsManagementUrl) {
+        kidkidsManagementStableSince ??= Date.now();
+        if (Date.now() - kidkidsManagementStableSince >= 5000) {
+          return { success: true, submitted: false };
+        }
+      } else {
+        kidkidsManagementStableSince = null;
+      }
+
+      await delay(500);
+      continue;
+    }
+    const incomplete = results.find((result) =>
+      ["incomplete", "credentials-missing"].includes(result.state),
+    );
+    if (incomplete) {
+      sawIncompleteLoginForm = true;
+      lastIncompleteReason = incomplete.reason || incomplete.state;
     }
     await delay(500);
+  }
+  if (sawIncompleteLoginForm) {
+    return {
+      success: false,
+      submitted: false,
+      pendingLogin: true,
+      error: `로그인 폼 자동 입력을 완료하지 못했습니다 (${lastIncompleteReason || "unknown"}). 열린 탭에서 로그인 후 다시 수집해 주세요.`,
+    };
+  }
+  if (mallKey === "kidkids") {
+    return {
+      success: false,
+      submitted: false,
+      pendingLogin: true,
+      error: "키드키즈 로그인 상태를 제한시간 안에 확인하지 못했습니다. 열린 탭에서 로그인 후 다시 수집해 주세요.",
+    };
   }
   return { success: true, submitted: false }; // 폼 못 봄 → 이미 로그인 간주
 }
 
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
 // 저장된 계정으로 로그인 후 닫는다. 이후 수집 탭은 같은 세션 쿠키라 로그인 상태. credentials 없으면 스킵.
-async function ensureMallLoggedIn(mallKey, credentials) {
+function ensureMallLoginWithLifecycle(message) {
+  return orderCollectionLifecycle.run(
+    message,
+    KidItemOrderCollectionLifecycle.createIdentity(
+      message.mallKey,
+      message.date,
+    ),
+    (collection) =>
+      ensureMallLoggedIn(message.mallKey, message.credentials, collection),
+  );
+}
+
+async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
   if (!credentials || !credentials.loginId || !credentials.password) {
     return { success: true, submitted: false };
   }
@@ -4418,24 +4571,62 @@ async function ensureMallLoggedIn(mallKey, credentials) {
     boribori: BORIBORI_ORDER_URL,
     art09: ART09_ORDER_URL,
     "icecream-mall": ICECREAM_MALL_URL,
+    "teacher-mall": TEACHERVILLE_ORDER_URL,
+    "gs-shop": GSSHOP_ORDER_URL,
+    // 롯데ON(SSO/AuthToken)·카카오(토큰)·올웨이즈(JWT localStorage)는 채울 로그인 폼이 없어
+    // form-fill 자동로그인이 불가능하다. 각 collector 가 미로그인을 감지해 "로그인 필요"로 안내한다.
   };
   const url = urls[mallKey];
   if (!url) return { success: true, submitted: false }; // 자동 로그인 미지원 몰
   const tab = await chrome.tabs.create({ url, active: false }); // 백그라운드
   if (!tab?.id) return { success: false, error: "자동 로그인 탭을 열 수 없습니다." };
+  if (collection) {
+    try {
+      await collection.attachTab(tab, { owned: true });
+    } catch (error) {
+      try {
+        await chrome.tabs.remove(tab.id);
+      } catch {
+        /* 이미 닫힘 — 무시 */
+      }
+      throw error;
+    }
+  }
+  let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
     await delay(1000);
-    return await withTimeout(
-      ensureMallLogin(tab.id, credentials),
+    const result = await withTimeout(
+      ensureMallLogin(tab.id, credentials, mallKey),
       35000,
       "자동 로그인 시간이 초과되었습니다.",
     );
+    if (!result.success || result.pendingLogin) {
+      keepOpen = true;
+    }
+    return result;
+  } catch (error) {
+    keepOpen = true;
+    return {
+      success: false,
+      submitted: false,
+      pendingLogin: true,
+      error: error instanceof Error ? error.message : "자동 로그인을 완료하지 못했습니다.",
+    };
   } finally {
-    try {
-      await chrome.tabs.remove(tab.id);
-    } catch {
-      /* 이미 닫힘 — 무시 */
+    if (!keepOpen) {
+      if (collection) {
+        try {
+          await collection.detachTab(tab, { owned: false });
+        } catch {
+          /* 탭 종료는 계속 진행하고 다음 실행에서 stale 소유권을 정리한다. */
+        }
+      }
+      try {
+        await chrome.tabs.remove(tab.id);
+      } catch {
+        /* 이미 닫힘 — 무시 */
+      }
     }
   }
 }
@@ -4492,13 +4683,24 @@ function autoSubmitIcecreamMallLogin(credentials) {
     return { state: "credentials-missing" };
   }
 
-  const loginInput = pickLoginIdInput(passwordInput);
+  const supplierLoginInput = credentials.supplierLoginId
+    ? pickSupplierLoginIdInput(passwordInput)
+    : null;
+  const loginInput = credentials.supplierLoginId
+    ? pickCafe24ShopIdInput(passwordInput, supplierLoginInput)
+    : pickLoginIdInput(passwordInput);
   if (!loginInput) {
     // 비번칸은 떴는데 ID칸이 아직 안 보임 → 다음 스캔에서 재시도.
     return { state: "incomplete", reason: "id-input-not-found" };
   }
+  if (credentials.supplierLoginId && !supplierLoginInput) {
+    return { state: "incomplete", reason: "supplier-id-input-not-found" };
+  }
 
   setInputValue(loginInput, credentials.loginId);
+  if (supplierLoginInput) {
+    setInputValue(supplierLoginInput, credentials.supplierLoginId);
+  }
   setInputValue(passwordInput, credentials.password);
 
   if (triggerLogin(passwordInput)) {
@@ -4534,6 +4736,31 @@ function autoSubmitIcecreamMallLogin(credentials) {
     let inputs = textInputs(form);
     if (inputs.length === 0 && form !== document) inputs = textInputs(document);
     return rankLoginInputs(inputs, anchor)[0] || null;
+  }
+
+  function pickSupplierLoginIdInput(anchor) {
+    const form = anchor.closest("form") || document;
+    let inputs = textInputs(form);
+    if (inputs.length === 0 && form !== document) inputs = textInputs(document);
+    return (
+      inputs.find((input) => /공급사|supplier|vendor/.test(inputDescriptor(input))) ||
+      rankLoginInputs(inputs, anchor)[0] ||
+      null
+    );
+  }
+
+  function pickCafe24ShopIdInput(anchor, supplierInput) {
+    const form = anchor.closest("form") || document;
+    let inputs = textInputs(form);
+    if (inputs.length < 2 && form !== document) inputs = textInputs(document);
+    const candidates = inputs.filter((input) => input !== supplierInput);
+    return (
+      candidates.find((input) =>
+        /쇼핑몰|mall.?id|shop.?id|cafe24/.test(inputDescriptor(input)),
+      ) ||
+      candidates[0] ||
+      null
+    );
   }
 
   function textInputs(root) {
@@ -4801,7 +5028,7 @@ async function ensureIcecreamMallDeliveryInquiry() {
   };
 }
 
-async function scrapeIcecreamMallDeliveryGrid(date, expectedHeaders) {
+async function scrapeIcecreamMallDeliveryGrid(date, expectedHeaders, excludedStatuses) {
   function hasDeliveryInquiryText(text) {
     const compact = String(text || "").replace(/\s+/g, "");
     return (
@@ -4861,8 +5088,7 @@ async function scrapeIcecreamMallDeliveryGrid(date, expectedHeaders) {
   function findDataRows(headers) {
     const columnCount = headers.length;
     const statusIdx = headers.indexOf("주문내역상태");
-    // 이미 처리된 상태(출고/배송완료·구매확정·반품·회수)는 제외 = 출고 전 주문만 수집(중복 배송 방지).
-    const DONE_STATUS = ["출고완료", "배송완료", "구매확정", "반품접수", "회수지시", "회수확인", "회수완료"];
+    // 이미 처리 중/완료된 상태는 제외 = 출고 전 주문만 수집(중복 배송 방지).
     const rows = [];
     const seen = new Set();
     let candidateRows = 0; // 표에서 스캔한 행 수(진단용)
@@ -4889,9 +5115,9 @@ async function scrapeIcecreamMallDeliveryGrid(date, expectedHeaders) {
       if (seen.has(key)) continue;
       seen.add(key);
 
-      // 출고 전 주문만: 이미 출고/배송완료·구매확정·반품·회수 상태는 제외.
+      // 출고 전 주문만: 배송중/배송완료 등 이미 처리 중이거나 완료된 상태는 제외.
       const status = statusIdx >= 0 ? String(normalized[statusIdx] || "") : "";
-      if (DONE_STATUS.some((s) => status.includes(s))) {
+      if (excludedStatuses.some((excluded) => status.includes(excluded))) {
         doneExcluded += 1;
         continue;
       }

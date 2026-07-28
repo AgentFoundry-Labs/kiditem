@@ -87,6 +87,7 @@ describe('order collection page model', () => {
   it('builds editable mall drafts without exposing stored passwords', () => {
     expect(draftFromMallAccount(mallAccount({ enabled: false }))).toEqual({
       loginId: 'operator',
+      supplierLoginId: '',
       password: '',
       siteUrl: 'https://example.test',
       memo: 'memo',

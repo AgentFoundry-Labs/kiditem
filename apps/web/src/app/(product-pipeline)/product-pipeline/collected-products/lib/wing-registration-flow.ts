@@ -449,6 +449,8 @@ export interface WingRegistrationOverrides {
   colorValue: string;
   /** 구매옵션 `수량` 값. */
   quantityValue: string;
+  /** 구매옵션 `개당 중량` 값. WING 화면의 단위는 g이다. */
+  unitWeightValue: string;
   /** 판매가(원). 10원 단위, 0보다 커야 한다. */
   salePrice: number;
   /** 정상가(할인율 기준가, 원). 0이면 판매가를 그대로 쓴다. */
@@ -494,6 +496,7 @@ export interface WingChannelAccountOption {
 
 const PURCHASE_OPTION_COLOR = '색상';
 const PURCHASE_OPTION_QUANTITY = '수량';
+const PURCHASE_OPTION_UNIT_WEIGHT = '개당 중량';
 
 const findOptionValue = (product: WingProduct, type: string): string =>
   product.variants[0]?.purchaseOptions.find((option) => option.type === type)?.value ?? '';
@@ -513,6 +516,7 @@ export function buildWingRegistrationOverrides(product: WingProduct): WingRegist
     sellerProductName: product.sellerProductName ?? '',
     colorValue: findOptionValue(product, PURCHASE_OPTION_COLOR),
     quantityValue: findOptionValue(product, PURCHASE_OPTION_QUANTITY),
+    unitWeightValue: findOptionValue(product, PURCHASE_OPTION_UNIT_WEIGHT),
     salePrice: variant?.salePrice ?? 0,
     origPrice: variant?.origPrice ?? 0,
     stock: variant?.stock ?? 0,
@@ -538,6 +542,19 @@ export function validateWingRegistrationOverrides(
     errors.push(`노출상품명은 ${WING_DISPLAY_NAME_MAX}자 이하여야 합니다 (현재 ${productName.length}자).`);
   }
   if (!overrides.sellerProductName.trim()) errors.push('등록상품명(판매자관리용)을 입력하세요.');
+
+  const category = getWingCategoryDefinition(overrides.categoryKey);
+  if (category?.requiredPurchaseOptionTypes.includes(PURCHASE_OPTION_UNIT_WEIGHT)) {
+    const unitWeight = String(overrides.unitWeightValue ?? '').trim();
+    if (!unitWeight) {
+      errors.push('개당 중량을 입력하세요.');
+    } else {
+      const numericUnitWeight = unitWeight.replace(/\s*g$/i, '');
+      if (!/^\d+(?:\.\d+)?$/.test(numericUnitWeight) || Number(numericUnitWeight) <= 0) {
+        errors.push('개당 중량은 0보다 큰 숫자로 입력하세요.');
+      }
+    }
+  }
 
   if (!Number.isFinite(overrides.salePrice) || overrides.salePrice <= 0) {
     errors.push('판매가는 0원보다 커야 합니다.');
@@ -578,6 +595,7 @@ export function applyWingRegistrationOverrides(
   const editableValues = new Map([
     [PURCHASE_OPTION_COLOR, overrides.colorValue.trim()],
     [PURCHASE_OPTION_QUANTITY, overrides.quantityValue.trim()],
+    [PURCHASE_OPTION_UNIT_WEIGHT, String(overrides.unitWeightValue ?? '').trim()],
   ]);
   const existingTypes = new Set(variant.purchaseOptions.map((option) => option.type));
   const purchaseOptions = variant.purchaseOptions.flatMap((option) => {

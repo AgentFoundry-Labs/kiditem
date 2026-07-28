@@ -246,19 +246,19 @@ export function SourcingHomeHero() {
   ];
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-4">
       {/* 헤더 — 제목 우측에 실시간 상태, 오른쪽 끝에 데이터 수집 */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex min-h-11 flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-indigo-700">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-600 shadow-sm ring-4 ring-purple-50">
             <Compass size={18} className="text-white" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-lg font-bold tracking-tight text-slate-900">소싱 에이전트</h1>
-            <span className="ml-1 h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-mono text-[11px] font-semibold text-emerald-600">실시간</span>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">소싱 에이전트</h1>
+            <span className="ml-1 h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+            <span className="text-[11px] font-semibold text-green-600">실시간</span>
             {lastUpdated && (
-              <span className="font-mono text-[11px] text-slate-400">· {formatTime(lastUpdated)} 갱신</span>
+              <span className="text-[11px] tabular-nums text-slate-400">· {formatTime(lastUpdated)} 갱신</span>
             )}
           </div>
         </div>
@@ -267,7 +267,7 @@ export function SourcingHomeHero() {
           onClick={() => collectMutation.mutate()}
           disabled={collectMutation.isPending}
           title="네이버·1688·쇼츠 트렌드를 수집하고 전체 소싱 데이터를 갱신합니다"
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-purple-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Database size={14} className={collectMutation.isPending ? 'animate-pulse' : undefined} />
           {collectMutation.isPending ? '수집 중…' : '데이터 수집'}

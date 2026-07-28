@@ -6,7 +6,6 @@ import {
   formatMallCollectionTime,
   isAutoDetectableMall,
   isBrowserCollectableMall,
-  type ConversionState,
 } from '../lib/order-collection-page-model';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
@@ -16,10 +15,8 @@ interface MallAccountGroupsProps {
   stats: Map<string, MallCollectionStat>;
   selectedMall: OrderCollectionMallAccount | null | undefined;
   settingsOpen: boolean;
-  browserCollecting: boolean;
   collectingKeys: Set<string>;
   cancellingKeys: Set<string>;
-  conversionState: ConversionState;
   autoDetect: boolean;
   autoNextRunAt: number | null;
   autoRunning: boolean;
@@ -34,10 +31,8 @@ export function MallAccountGroups({
   stats,
   selectedMall,
   settingsOpen,
-  browserCollecting,
   collectingKeys,
   cancellingKeys,
-  conversionState,
   autoDetect,
   autoNextRunAt,
   autoRunning,
@@ -60,8 +55,6 @@ export function MallAccountGroups({
             isOpen={settingsOpen && selectedMall?.key === account.key}
             isCollecting={collectingKeys.has(account.key)}
             isCancelling={cancellingKeys.has(account.key)}
-            browserCollecting={browserCollecting}
-            conversionState={conversionState}
             autoDetect={autoDetect}
             autoNextRunAt={autoNextRunAt}
             autoRunning={autoRunning}
@@ -82,8 +75,6 @@ interface MallAccountCardProps {
   isOpen: boolean;
   isCollecting: boolean;
   isCancelling: boolean;
-  browserCollecting: boolean;
-  conversionState: ConversionState;
   autoDetect: boolean;
   autoNextRunAt: number | null;
   autoRunning: boolean;
@@ -99,8 +90,6 @@ function MallAccountCard({
   isOpen,
   isCollecting,
   isCancelling,
-  browserCollecting,
-  conversionState,
   autoDetect,
   autoNextRunAt,
   autoRunning,
@@ -209,7 +198,7 @@ function MallAccountCard({
           }`}
           disabled={isCollecting
             ? isCancelling
-            : browserCollecting || conversionState === 'converting' || !collectable}
+            : !collectable}
           title={isCollecting
             ? `${account.name} 수집 중단`
             : !account.enabled

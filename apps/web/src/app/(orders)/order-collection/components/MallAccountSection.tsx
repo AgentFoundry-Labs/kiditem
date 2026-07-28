@@ -225,10 +225,8 @@ export function MallAccountSection({
               stats={mallCollectionStats}
               selectedMall={selectedMall}
               settingsOpen={mallSettingsOpen}
-              browserCollecting={browserCollecting}
               collectingKeys={collectingKeys}
               cancellingKeys={cancellingKeys}
-              conversionState={conversionState}
               autoDetect={autoDetect}
               autoNextRunAt={autoNextRunAt}
               autoRunning={autoRunning}
@@ -367,7 +365,7 @@ function MallSettingsDialog({
             </label>
             <label className="block">
               <span className="text-xs font-medium text-slate-600">
-                로그인 ID
+                {selectedMall?.key === "art09" ? "Cafe24 쇼핑몰 ID" : "로그인 ID"}
               </span>
               <input
                 type="text"
@@ -382,6 +380,29 @@ function MallSettingsDialog({
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 disabled:opacity-50"
               />
             </label>
+            {selectedMall?.key === "art09" ? (
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600">
+                  공급사 ID
+                </span>
+                <input
+                  type="text"
+                  value={draft.supplierLoginId}
+                  onChange={(event) =>
+                    onDraftChange((current) => ({
+                      ...current,
+                      supplierLoginId: event.target.value,
+                    }))
+                  }
+                  disabled={mallSaving}
+                  autoComplete="username"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 disabled:opacity-50"
+                />
+                <span className="mt-1 block text-xs text-slate-400">
+                  아트공구 로그인 화면의 공급사 아이디(로그인 아이디)입니다.
+                </span>
+              </label>
+            ) : null}
             <label className="block">
               <span className="flex items-center justify-between gap-2 text-xs font-medium text-slate-600">
                 <span>비밀번호</span>

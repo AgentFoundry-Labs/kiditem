@@ -110,7 +110,15 @@ export interface WingCategoryDefinition {
   label: string;
   aliases: readonly string[];
   categoryCell: string;
+  /** WING DynamicOption에서 이 카테고리가 추가로 요구하는 구매옵션. */
+  requiredPurchaseOptionTypes: readonly string[];
 }
+
+const REQUIRED_PURCHASE_OPTION_TYPES: Partial<Record<WingCategoryKey, readonly string[]>> = {
+  // 라이브 formV2(2026-07-28): 색상·수량만 넣으면 옵션 행이 0개로 남고,
+  // 개당 중량까지 넣은 뒤에야 조합 행이 생성된다.
+  '103112': ['개당 중량'],
+};
 
 const CURATED_ALIASES: Partial<Record<WingCategoryKey, readonly string[]>> = {
   '64687': ['키링', '열쇠고리', '키홀더'],
@@ -134,6 +142,7 @@ export const WING_CATEGORY_DEFINITIONS: readonly WingCategoryDefinition[] =
       key,
       label,
       categoryCell,
+      requiredPurchaseOptionTypes: REQUIRED_PURCHASE_OPTION_TYPES[key] ?? [],
       aliases: uniqueAliases([
         categoryCell,
         categoryPath(categoryCell),

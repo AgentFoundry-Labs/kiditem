@@ -57,7 +57,7 @@
         !current.username &&
         !current.password &&
         !current.port &&
-        /^\/marketing\/(?:dashboard\/sales\/)?campaign\/[^/]+(?:\/|$)/i.test(
+        /^\/marketing\/(?:dashboard\/(?:sales|pa)\/)?campaign\/[^/]+(?:\/|$)/i.test(
           current.pathname,
         )
       ) {
@@ -103,7 +103,7 @@
     } else if (
       segments[0]?.toLowerCase() === "marketing" &&
       segments[1]?.toLowerCase() === "dashboard" &&
-      segments[2]?.toLowerCase() === "sales" &&
+      ["sales", "pa"].includes(segments[2]?.toLowerCase()) &&
       segments[3]?.toLowerCase() === "campaign"
     ) {
       campaignId = segments[4] || "";
@@ -663,23 +663,64 @@
       }
       const record = { runId, windowId: win.id, tabId: tab.id };
       await chromeApi.storage.local.set({ [storageKey]: record });
+      if (sessions && typeof sessions.attachTab === "function") {
+        let attached;
+        try {
+          attached = await sessions.attachTab(runId, {
+            tabId: record.tabId,
+            windowId: record.windowId,
+          });
+        } catch (cause) {
+          if (await closeOwnedRecord(record)) await clearRecord();
+          throw collectionWindowError(
+            "collection_window_recovery_failed",
+            errorMessage(cause),
+            { runId, stage: "attach_replacement", retryable: true },
+          );
+        }
+        if (attached?.status !== "running") {
+          if (await closeOwnedRecord(record)) await clearRecord();
+          throw collectionWindowError(
+            "collection_window_inactive_run",
+            INACTIVE_COLLECTION_RUN_MESSAGE,
+            { runId, stage: "attach_replacement" },
+          );
+        }
+      }
       return record;
     }
 
     async function navigate(runId, url) {
       let live = await reattach(runId);
-      const recovered = !live;
+      let recovered = !live;
       if (!live) live = await recoverOwnedWindow(runId, url);
       let tab;
       try {
         tab = await updateTab(live.tabId, { url, active: true });
       } catch (cause) {
-        if (!recovered) throw cause;
-        throw collectionWindowError(
-          "collection_window_recovery_failed",
-          errorMessage(cause),
-          { runId, stage: "navigate_replacement", retryable: true },
-        );
+        // reattach 가 살아있다고 본 탭이 그 직후 사라질 수 있다(브라우저가 탭을 닫거나
+        // 폐기). 예전에는 recovered=false 인 이 경로에 복구가 없어서, 첫 target 을 성공한
+        // 뒤 다음 target 으로 넘어가는 순간 "No tab with id: N" 이라는 크롬 원문 오류로
+        // run 전체가 끝났다 — 이미 만들어 둔 recoverOwnedWindow 를 쓰지 못한 채였다.
+        if (!recovered) {
+          live = await recoverOwnedWindow(runId, url);
+          recovered = true;
+          try {
+            tab = await updateTab(live.tabId, { url, active: true });
+          } catch (retryCause) {
+            throw collectionWindowError(
+              "collection_window_recovery_failed",
+              errorMessage(retryCause),
+              { runId, stage: "navigate_replacement", retryable: true },
+            );
+          }
+        } else {
+          throw collectionWindowError(
+            "collection_window_recovery_failed",
+            errorMessage(cause),
+            { runId, stage: "navigate_replacement", retryable: true },
+          );
+        }
       }
       if (tab.windowId !== live.windowId) {
         throw collectionWindowError(
@@ -729,7 +770,17 @@
         chromeApi.tabs.onUpdated.addListener(onUpdated);
         chromeApi.tabs.onRemoved.addListener(onRemoved);
         chromeApi.tabs.get(tabId, (tab) => {
-          if (!chromeApi.runtime.lastError && tab?.status === "complete") {
+          if (chromeApi.runtime.lastError || !tab?.id) {
+            finish(
+              null,
+              new Error(
+                chromeApi.runtime.lastError?.message ||
+                  "Collection tab was closed",
+              ),
+            );
+            return;
+          }
+          if (tab.status === "complete") {
             finish(tab);
           }
         });
@@ -846,6 +897,10 @@
       );
     }
 
+    function isMissingCollectionTab(error) {
+      return /No tab with id:/i.test(errorMessage(error));
+    }
+
     async function sendTabMessageWhenReady(tabId, message) {
       let lastError = null;
       for (
@@ -880,7 +935,13 @@
       }
     }
 
-    async function runManualSync(tabId, runId, resumeUrl, environmentId) {
+    async function runManualSync(
+      tabId,
+      runId,
+      resumeUrl,
+      environmentId,
+      producer,
+    ) {
       const attempt = await collectionAttempt(runId);
       try {
         for (
@@ -888,12 +949,16 @@
           busyAttempt <= AD_SYNC_BUSY_MAX_ATTEMPTS;
           busyAttempt += 1
         ) {
-          const response = await sendTabMessageWhenReady(tabId, {
+          const message = {
             action: "manualSync",
             collectionRunId: runId,
             collectionAttempt: attempt,
             environmentId,
-          });
+          };
+          if (producer === "advertising.ad_sync") {
+            message.syncMode = "campaign_sweep";
+          }
+          const response = await sendTabMessageWhenReady(tabId, message);
           if (
             response?.error !== "ad_sync_already_running" ||
             response?.retryable !== true
@@ -959,12 +1024,14 @@
       runId,
       resumeUrl,
       environmentId,
+      producer,
     ) {
       let response = await runManualSync(
         tabId,
         runId,
         resumeUrl,
         environmentId,
+        producer,
       );
       if (!isMissingMessageReceiver(response?.error)) return response;
 
@@ -981,6 +1048,7 @@
         runId,
         resumeUrl,
         environmentId,
+        producer,
       );
       return response;
     }
@@ -995,7 +1063,26 @@
         runId,
         target.url,
         environmentId,
+        producer,
       );
+
+      // The owned tab can disappear during the bounded post-navigation wait.
+      // In that case the first observable failure is tabs.sendMessage rather
+      // than tabs.update, so navigate's recovery guard has not run yet. Replace
+      // the same run's managed tab once and replay only this target command.
+      if (isMissingCollectionTab(response?.error)) {
+        tab = await navigate(runId, target.url);
+        await bindTab(tab.tabId, environmentId);
+        await waitForTabComplete(tab.tabId);
+        await wait(4000);
+        response = await runManualSyncWithReceiverRecovery(
+          tab.tabId,
+          runId,
+          target.url,
+          environmentId,
+          producer,
+        );
+      }
 
       // 광고 캠페인 sweep가 SPA 상세 화면에서 대시보드 복귀에 실패하면 content
       // script가 unload되기 전에 명시적으로 응답한다. 캠페인 수가 4개보다 많아도
@@ -1055,6 +1142,7 @@
               runId,
               target.url,
               environmentId,
+              producer,
             );
             const nextProgress = campaignSweepProgress(response);
             resumeProgress = mergeCampaignSweepProgress(
@@ -1102,6 +1190,7 @@
           runId,
           target.url,
           environmentId,
+          producer,
         );
         const nextProgress = campaignSweepProgress(response);
         if (hasCampaignSweepProgressed(resumeProgress, nextProgress)) {
@@ -1203,7 +1292,7 @@
         let attentionRequired = false;
         await chromeApi.storage.local.remove(cancelKey);
         try {
-          const owned = await getOrCreate(runId, targets[0].url, producer);
+          let owned = await getOrCreate(runId, targets[0].url, producer);
           await bindTab(owned.tabId, environmentId);
           await sessions.attachTab(runId, {
             tabId: owned.tabId,
@@ -1253,6 +1342,8 @@
               environmentId,
               producer,
             );
+            const liveOwned = await reattach(runId);
+            if (liveOwned) owned = liveOwned;
             if (await isCancelled(runId)) {
               cancelled = true;
               break;

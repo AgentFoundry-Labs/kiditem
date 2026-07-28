@@ -682,6 +682,99 @@ test('navigate recreates one owned window when the active run loses its record',
   assert.equal(fake.tabs.get(recovered.tabId).url, 'https://example.com/recovered');
 });
 
+test('navigate recovers when the reattached tab disappears between validation and update', async () => {
+  // 실측된 실패: 첫 target 을 성공한 뒤 다음 target 으로 navigate 하는 순간 소유 탭이
+  // 사라져 있고, reattach 는 직전 검증을 통과했으므로 recovered=false 였다. 그 경로에는
+  // 복구가 없어서 run 전체가 "No tab with id: N" 이라는 크롬 원문으로 끝났다.
+  const fake = createFakeChrome();
+  const attachedTabs = [];
+  const sessions = {
+    async attachTab(runId, tab) {
+      attachedTabs.push([runId, structuredClone(tab)]);
+      return { status: 'running' };
+    },
+    async get() {
+      return { status: 'running' };
+    },
+  };
+  const helper = loadHelper(fake, { sessions });
+  const original = await helper.getOrCreate(
+    'run-vanish',
+    'https://example.com/first',
+  );
+
+  // 기록(owned-window)과 창은 그대로 두고 탭만 사라뜨려 reattach 는 통과시킨다.
+  const realUpdate = fake.chrome.tabs.update;
+  let firstUpdate = true;
+  fake.chrome.tabs.update = (tabId, properties, callback) => {
+    if (firstUpdate) {
+      firstUpdate = false;
+      fake.tabs.delete(tabId);
+      queueMicrotask(() => {
+        fake.chrome.runtime.lastError = { message: `No tab with id: ${tabId}.` };
+        callback(undefined);
+        fake.chrome.runtime.lastError = null;
+      });
+      return;
+    }
+    realUpdate(tabId, properties, callback);
+  };
+
+  const recovered = await helper.navigate(
+    'run-vanish',
+    'https://example.com/second',
+  );
+
+  assert.equal(recovered.runId, 'run-vanish');
+  assert.notEqual(recovered.tabId, original.tabId);
+  assert.equal(
+    fake.tabs.get(recovered.tabId).url,
+    'https://example.com/second',
+  );
+  assert.deepEqual(attachedTabs, [
+    [
+      'run-vanish',
+      { tabId: recovered.tabId, windowId: recovered.windowId },
+    ],
+  ]);
+});
+
+test('recovery removes its replacement when cancellation wins the attach race', async () => {
+  const fake = createFakeChrome();
+  const sessions = {
+    async attachTab() {
+      return { status: 'cancelled' };
+    },
+    async get() {
+      return { status: 'running' };
+    },
+  };
+  const helper = loadHelper(fake, { sessions });
+  const original = await helper.getOrCreate(
+    'run-cancelled-recovery',
+    'https://example.com/first',
+  );
+  delete fake.storage['owned-window'];
+  fake.windows.delete(original.windowId);
+  fake.tabs.delete(original.tabId);
+
+  await assert.rejects(
+    helper.navigate(
+      'run-cancelled-recovery',
+      'https://example.com/recovered',
+    ),
+    (error) => {
+      assert.equal(error.code, 'collection_window_inactive_run');
+      assert.equal(error.stage, 'attach_replacement');
+      return true;
+    },
+  );
+
+  assert.equal(fake.calls.windowsCreate.length, 2);
+  assert.equal(fake.calls.windowsRemove.length, 1);
+  assert.equal(fake.storage['owned-window'], undefined);
+});
+
 test('navigate makes one replacement attempt and returns typed recovery failure evidence', async () => {
   const fake = createFakeChrome();
   const sessions = { async get() { return { status: 'running' }; } };
@@ -1144,6 +1237,166 @@ test('late login response cannot restore attention after cancellation', async ()
   assert.equal(fake.storage['collection-status'].cancelled, true);
 });
 
+test('attention status follows a replacement tab after navigation recovery', async () => {
+  const fake = createFakeChrome({}, [
+    {
+      success: false,
+      pendingLogin: true,
+      error: '쿠팡 광고센터 로그인이 필요합니다.',
+    },
+  ]);
+  const attachedTabs = [];
+  const sessions = {
+    async attachTab(runId, tab) {
+      attachedTabs.push([runId, structuredClone(tab)]);
+      return { status: 'running' };
+    },
+    async cancel() {},
+    async fail() {},
+    async get() {
+      return { status: 'running', attempt: 1 };
+    },
+    async progress() {},
+    async requireAttention() {},
+    async succeed() {},
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+  const realUpdate = fake.chrome.tabs.update;
+  let firstUpdate = true;
+  fake.chrome.tabs.update = (tabId, properties, callback) => {
+    if (firstUpdate) {
+      firstUpdate = false;
+      fake.tabs.delete(tabId);
+      queueMicrotask(() => {
+        fake.chrome.runtime.lastError = { message: `No tab with id: ${tabId}.` };
+        callback(undefined);
+        fake.chrome.runtime.lastError = null;
+      });
+      return;
+    }
+    realUpdate(tabId, properties, callback);
+  };
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'dashboard.coupang_ads',
+    runId: 'run-attention-recovery',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'ads-day',
+        label: '쿠팡 광고 데이터 수집',
+        url: 'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-07-28',
+      },
+    ],
+  });
+
+  assert.equal(result.attentionRequired, true);
+  assert.equal(attachedTabs.length, 2);
+  assert.notEqual(attachedTabs[1][1].tabId, attachedTabs[0][1].tabId);
+  assert.equal(
+    fake.storage['collection-status'].currentTabId,
+    attachedTabs[1][1].tabId,
+  );
+});
+
+test('ad sync replaces its owned tab when it disappears before the content command', async () => {
+  const missingTab = 'No tab with id: 200.';
+  const fake = createFakeChrome({}, [
+    { runtimeError: missingTab },
+    {
+      success: true,
+      type: 'ad_sync',
+      count: 1,
+      progress: {
+        current: 1,
+        total: 1,
+        completed: 1,
+        failed: 0,
+        label: '광고 동기화 완료',
+      },
+    },
+  ]);
+  const attachedTabs = [];
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab(runId, tab) {
+      attachedTabs.push([runId, structuredClone(tab)]);
+      return { status: 'running' };
+    },
+    async cancel(runId) {
+      sessionCalls.push(['cancel', runId]);
+    },
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return { status: 'running', attempt: 1 };
+    },
+    async progress(runId, progress) {
+      sessionCalls.push(['progress', runId, progress]);
+    },
+    async requireAttention() {},
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+  const realSendMessage = fake.chrome.tabs.sendMessage;
+  let closeBeforeFirstCommand = true;
+  fake.chrome.tabs.sendMessage = (tabId, message, callback) => {
+    if (closeBeforeFirstCommand) {
+      closeBeforeFirstCommand = false;
+      const closedTab = fake.tabs.get(tabId);
+      fake.tabs.delete(tabId);
+      if (closedTab) fake.windows.delete(closedTab.windowId);
+    }
+    realSendMessage(tabId, message, callback);
+  };
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'advertising.ad_sync',
+    runId: 'run-command-tab-recovery',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'ads',
+        label: '광고 동기화',
+        url: 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+      },
+    ],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.completed, 1);
+  assert.equal(result.failed, 0);
+  assert.equal(fake.calls.windowsCreate.length, 2);
+  assert.equal(attachedTabs.length, 2);
+  assert.notEqual(attachedTabs[1][1].tabId, attachedTabs[0][1].tabId);
+  assert.deepEqual(
+    fake.calls.tabMessages.map(({ tabId }) => tabId),
+    [attachedTabs[0][1].tabId, attachedTabs[1][1].tabId],
+  );
+  assert.ok(
+    sessionCalls.some(
+      ([name, runId]) =>
+        name === 'succeed' && runId === 'run-command-tab-recovery',
+    ),
+  );
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+});
+
 for (const scenario of [
   {
     producer: 'advertising.ad_sync',
@@ -1358,6 +1611,7 @@ test('retries manual sync across receiver startup and campaign-page navigation',
       collectionRunId: 'run-content-ready',
       collectionAttempt: 4,
       environmentId: 'local',
+      syncMode: 'campaign_sweep',
     })),
   );
   assert.ok(
@@ -1681,12 +1935,14 @@ test('resumes an interrupted campaign sweep in the same owned tab', async () => 
         collectionRunId: 'run-resume',
         collectionAttempt: 1,
         environmentId: 'local',
+        syncMode: 'campaign_sweep',
       },
       {
         action: 'manualSync',
         collectionRunId: 'run-resume',
         collectionAttempt: 1,
         environmentId: 'local',
+        syncMode: 'campaign_sweep',
       },
     ],
   );
@@ -1811,6 +2067,31 @@ test('non-advertising resumes stay within the original HTTPS target path family'
         'dashboard.wing_sales',
       ),
     /outside the allowed target family/,
+  );
+});
+
+test('preserves the observed advertising pa campaign redirect as a safe detail resume', () => {
+  const contract = loadContract(createFakeChrome());
+  const dashboardUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+  const paDetailUrl =
+    'https://advertising.coupang.com/marketing/dashboard/pa/' +
+    'campaign/104640375/group/205034227/product' +
+    '?internalChannel=click_campaign_name';
+
+  assert.equal(
+    contract.advertisingNavigationResumeUrl(paDetailUrl, dashboardUrl),
+    paDetailUrl,
+    'the live pa redirect must not be replaced with the dashboard while Coupang finishes the detail transition',
+  );
+  assert.equal(contract.isAllowlistedAdvertisingResumeUrl(paDetailUrl), true);
+  assert.equal(
+    contract.resolveCollectionResumeUrl(
+      paDetailUrl,
+      dashboardUrl,
+      'advertising.ad_sync',
+    ),
+    paDetailUrl,
   );
 });
 

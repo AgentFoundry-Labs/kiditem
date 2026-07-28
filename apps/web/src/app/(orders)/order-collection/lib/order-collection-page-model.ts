@@ -7,6 +7,7 @@ export type ConversionHistoryItem = StoredOrderCollectionFile;
 
 export interface MallAccountDraft {
   loginId: string;
+  supplierLoginId: string;
   password: string;
   siteUrl: string;
   memo: string;
@@ -21,6 +22,7 @@ export const MALL_ACCOUNT_GRID_CLASS =
 
 export const EMPTY_MALL_DRAFT: MallAccountDraft = {
   loginId: '',
+  supplierLoginId: '',
   password: '',
   siteUrl: '',
   memo: '',
@@ -40,13 +42,18 @@ export function countLabel(value: number | null): string {
 }
 
 export function getOrderCount(result: ConversionHistoryItem | null): number | null {
-  if (!result || result.outputRows === null || result.productRows === null) return null;
+  if (!result || !isSellpiaOrderFile(result)) return null;
+  if (result.outputRows === null || result.productRows === null) return null;
   const orderCount = result.outputRows - result.productRows;
   return orderCount >= 0 ? orderCount : null;
 }
 
 export function hasSellpiaTransmissionRequest(item: ConversionHistoryItem): boolean {
   return item.transmissionRequestedAt !== undefined;
+}
+
+export function isSellpiaOrderFile(item: ConversionHistoryItem): boolean {
+  return item.fileKind !== 'tracking';
 }
 
 export function groupHistoryByDay(items: ConversionHistoryItem[]): Array<{
@@ -117,6 +124,7 @@ export function formatMallCollectionTime(timestamp: number): string {
 export function draftFromMallAccount(account: OrderCollectionMallAccount): MallAccountDraft {
   return {
     loginId: account.loginId ?? '',
+    supplierLoginId: account.supplierLoginId ?? '',
     password: '',
     siteUrl: account.siteUrl ?? '',
     memo: account.memo ?? '',

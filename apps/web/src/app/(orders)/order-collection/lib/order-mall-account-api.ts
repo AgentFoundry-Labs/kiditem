@@ -6,6 +6,7 @@ export interface OrderCollectionMallAccount {
   configured: boolean;
   enabled: boolean;
   loginId: string | null;
+  supplierLoginId?: string | null;
   hasPassword: boolean;
   siteUrl: string | null;
   memo: string | null;
@@ -15,6 +16,7 @@ export interface OrderCollectionMallAccount {
 
 export interface UpdateOrderCollectionMallAccountInput {
   loginId: string;
+  supplierLoginId?: string;
   password?: string;
   siteUrl: string;
   memo: string;

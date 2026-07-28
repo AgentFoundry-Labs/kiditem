@@ -85,6 +85,30 @@ test('preserves existing Wing lodash-compatible implementations', () => {
   assert.equal(context._.filter, existingFilter);
 });
 
+test('repairs Wing lexical underscore strings during the main-world ensure check', () => {
+  const context = loadCompat({
+    underscore: {
+      isEmpty: (value) => value == null,
+      filter: (values, predicate) => values.filter(predicate),
+    },
+  });
+
+  const result = context.KidItemWingFormRuntimeCompat.installInPage();
+  const capabilityTypes = vm.runInContext(
+    `((_) => ({
+      isEmpty: typeof _.isEmpty,
+      filter: typeof _.filter,
+    }))('b33cdffa-8647-4f29-8f0c-2a872166a726')`,
+    context,
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(capabilityTypes)), {
+    isEmpty: 'function',
+    filter: 'function',
+  });
+});
+
 test('intercepts the first Wing underscore assignment at document_start', () => {
   const context = loadCompat({ underscore: undefined, autoBootstrap: true });
   const assigned = function translate() {};
@@ -112,6 +136,48 @@ test('keeps the compatibility capabilities when Wing reassigns underscore', () =
     Array.from(context._.filter(['color', 'quantity'], (value) => value !== 'quantity')),
     ['color'],
   );
+});
+
+test('installs lodash capabilities for Wing lexical underscore strings at document_start', () => {
+  const context = loadCompat({
+    underscore: {
+      isEmpty: (value) => value == null,
+      filter: (values, predicate) => values.filter(predicate),
+    },
+    autoBootstrap: true,
+  });
+
+  const capabilityTypes = vm.runInContext(
+    `((_) => ({
+      isEmpty: typeof _.isEmpty,
+      filter: typeof _.filter,
+    }))('b33cdffa-8647-4f29-8f0c-2a872166a726')`,
+    context,
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(capabilityTypes)), {
+    isEmpty: 'function',
+    filter: 'function',
+  });
+
+  const behavior = vm.runInContext(
+    `((_) => ({
+      empty: _.isEmpty({}),
+      nonEmpty: _.isEmpty({ id: 1 }),
+      filtered: Array.from(_.filter(['color', 'quantity'], (value) => value === 'color')),
+      descriptors: {
+        isEmpty: Object.getOwnPropertyDescriptor(String.prototype, 'isEmpty'),
+        filter: Object.getOwnPropertyDescriptor(String.prototype, 'filter'),
+      },
+    }))('b33cdffa-8647-4f29-8f0c-2a872166a726')`,
+    context,
+  );
+
+  assert.equal(behavior.empty, true);
+  assert.equal(behavior.nonEmpty, false);
+  assert.deepEqual(Array.from(behavior.filtered), ['color']);
+  assert.equal(behavior.descriptors.isEmpty.enumerable, false);
+  assert.equal(behavior.descriptors.filter.enumerable, false);
 });
 
 test('manifest installs the compatibility shim before Wing SPA routing in MAIN world', () => {
@@ -182,6 +248,17 @@ test('registers a self-contained main-world bootstrap before navigating the blan
     Array.from(page._.filter(['color', 'quantity'], (value) => value === 'color')),
     ['color'],
   );
+  const lexicalCapabilityTypes = vm.runInContext(
+    `((_) => ({
+      isEmpty: typeof _.isEmpty,
+      filter: typeof _.filter,
+    }))('b33cdffa-8647-4f29-8f0c-2a872166a726')`,
+    page,
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(lexicalCapabilityTypes)), {
+    isEmpty: 'function',
+    filter: 'function',
+  });
 });
 
 test('detaches the debugger and fails closed when early Wing navigation cannot be prepared', async () => {

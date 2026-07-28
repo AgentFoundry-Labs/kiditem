@@ -46,12 +46,18 @@ export function createBrowserMallCollector({
 
   const tryLoadMallCredentials = async (
     mallKey: string,
-  ): Promise<{ loginId: string; password: string } | null> => {
+  ): Promise<{ loginId: string; supplierLoginId?: string; password: string } | null> => {
     try {
       const account = mallAccounts.find((a) => a.key === mallKey);
       if (!account?.loginId || !account.hasPassword) return null;
       const { password } = await orderMallAccountApi.password(mallKey);
-      return password ? { loginId: account.loginId, password } : null;
+      return password
+        ? {
+            loginId: account.loginId,
+            ...(account.supplierLoginId ? { supplierLoginId: account.supplierLoginId } : {}),
+            password,
+          }
+        : null;
     } catch {
       return null;
     }
@@ -65,10 +71,7 @@ export function createBrowserMallCollector({
     if (!credentials) return;
     const result = await ensureMallLoggedInViaExtension(mallKey, credentials, run);
     if (!result.success) {
-      console.warn(
-        `[order-collection] ${mallKey} login preflight did not complete; continuing with the managed collector`,
-        result.error,
-      );
+      throw new Error(result.error ?? `${mallKey} 로그인을 완료하지 못했습니다.`);
     }
   };
 
@@ -214,6 +217,8 @@ export function createBrowserMallCollector({
     const { collectLotteonXlsxFromExtension, convertLotteonToSellpiaFile } = await import(
       './lotteon-orders-api'
     );
+    // 롯데ON은 통합회원 SSO/토큰 로그인이라 form-fill 자동로그인 불가 — 미로그인 시 collectLotteon 이
+    // 로그인 탭을 띄우고 "로그인 필요"로 안내한다.
     const { xlsxBase64, fileName } = await collectLotteonXlsxFromExtension(run);
     let result: Awaited<ReturnType<typeof convertLotteonToSellpiaFile>>;
     try {
@@ -246,6 +251,7 @@ export function createBrowserMallCollector({
     const { collectGsshopXlsxFromExtension, convertGsshopToSellpiaFile } = await import(
       './gsshop-orders-api'
     );
+    await ensureMallLogin('gs-shop', run);
     const collected = await collectGsshopXlsxFromExtension(run);
     if ('empty' in collected) {
       toast('GS샵 신규 주문이 없습니다.');
@@ -323,6 +329,7 @@ export function createBrowserMallCollector({
     const { collectBoriboriXlsxFromExtension, convertBoriboriToSellpiaFile } = await import(
       './boribori-orders-api'
     );
+    await ensureMallLogin('boribori', run);
     const { xlsxBase64, fileName } = await collectBoriboriXlsxFromExtension({ run });
     let result: Awaited<ReturnType<typeof convertBoriboriToSellpiaFile>>;
     try {
@@ -355,6 +362,7 @@ export function createBrowserMallCollector({
     const { collectTeachervilleXlsxFromExtension, convertTeachervilleToSellpiaFile } = await import(
       './teacherville-orders-api'
     );
+    await ensureMallLogin('teacher-mall', run);
     const { xlsxBase64, fileName } = await collectTeachervilleXlsxFromExtension(run);
     let result: Awaited<ReturnType<typeof convertTeachervilleToSellpiaFile>>;
     try {
@@ -498,6 +506,8 @@ export function createBrowserMallCollector({
     const { collectKakaoOrdersFromExtension, convertKakaoToSellpiaFile } = await import(
       './kakao-orders-api'
     );
+    // 카카오는 토큰/SSO 로그인이라 form-fill 자동로그인 불가 — collectKakao 가 미로그인을 감지해
+    // pendingLogin 으로 "로그인 필요"를 안내한다.
     const orders = await collectKakaoOrdersFromExtension(undefined, run);
     if (orders.length === 0) {
       toast('배송준비중인 카카오 주문이 없습니다.');
