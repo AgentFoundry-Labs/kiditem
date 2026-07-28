@@ -2070,6 +2070,31 @@ test('non-advertising resumes stay within the original HTTPS target path family'
   );
 });
 
+test('preserves the observed advertising pa campaign redirect as a safe detail resume', () => {
+  const contract = loadContract(createFakeChrome());
+  const dashboardUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+  const paDetailUrl =
+    'https://advertising.coupang.com/marketing/dashboard/pa/' +
+    'campaign/104640375/group/205034227/product' +
+    '?internalChannel=click_campaign_name';
+
+  assert.equal(
+    contract.advertisingNavigationResumeUrl(paDetailUrl, dashboardUrl),
+    paDetailUrl,
+    'the live pa redirect must not be replaced with the dashboard while Coupang finishes the detail transition',
+  );
+  assert.equal(contract.isAllowlistedAdvertisingResumeUrl(paDetailUrl), true);
+  assert.equal(
+    contract.resolveCollectionResumeUrl(
+      paDetailUrl,
+      dashboardUrl,
+      'advertising.ad_sync',
+    ),
+    paDetailUrl,
+  );
+});
+
 test('resumes a linkless campaign from the full-document detail URL', async () => {
   const dashboardUrl =
     'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';

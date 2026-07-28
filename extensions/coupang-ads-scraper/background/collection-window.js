@@ -57,7 +57,7 @@
         !current.username &&
         !current.password &&
         !current.port &&
-        /^\/marketing\/(?:dashboard\/sales\/)?campaign\/[^/]+(?:\/|$)/i.test(
+        /^\/marketing\/(?:dashboard\/(?:sales|pa)\/)?campaign\/[^/]+(?:\/|$)/i.test(
           current.pathname,
         )
       ) {
@@ -103,7 +103,7 @@
     } else if (
       segments[0]?.toLowerCase() === "marketing" &&
       segments[1]?.toLowerCase() === "dashboard" &&
-      segments[2]?.toLowerCase() === "sales" &&
+      ["sales", "pa"].includes(segments[2]?.toLowerCase()) &&
       segments[3]?.toLowerCase() === "campaign"
     ) {
       campaignId = segments[4] || "";
