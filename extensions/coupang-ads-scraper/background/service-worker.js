@@ -3,6 +3,7 @@
 importScripts(
   "environment-context.js",
   "environment-runtime.js",
+  "ad-collector-delay.js",
   "collection-session.js",
   "collection-window.js",
   "collection-runs.js",
@@ -15,6 +16,8 @@ importScripts(
   "../shared/coupang-catalog-collector.js?revision=2",
   "coupang-catalog-import.js",
 );
+
+chrome.runtime.onMessage.addListener(KidItemAdCollectorDelay.handleMessage);
 
 const COUPANG_CATALOG_CONTRACT_REVISION = 2;
 if (

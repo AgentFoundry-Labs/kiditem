@@ -8,7 +8,28 @@
   // showBadge is loaded from utils/dom.js via manifest
 
   function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    const milliseconds = Math.min(
+      5_000,
+      Math.max(0, Math.round(Number(ms) || 0)),
+    );
+    if (typeof chrome?.runtime?.sendMessage !== "function") {
+      return new Promise((resolve) => setTimeout(resolve, milliseconds));
+    }
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { action: "waitForAdCollectorDelay", milliseconds },
+          () => {
+            void chrome.runtime.lastError;
+            resolve();
+          },
+        );
+      } catch {
+        // 확장이 다시 로드되는 순간에는 즉시 상위 상태 검사를 진행해 실패를
+        // 표면화한다. 비활성 페이지 타이머로 되돌아가 장시간 대기하지 않는다.
+        resolve();
+      }
+    });
   }
 
   // 백그라운드 창에서 수집이 실패하던 직접 원인.
@@ -28,8 +49,9 @@
   // 값이 들어왔지만(2026-07-18·19 집행 광고비 48,196원·47,676원 정상 수집),
   // 그 뒤 캠페인 상세 sweep 은 한 행도 남기지 못했다.
   //
-  // 그래서 벽시계 예산과 별개로 최소 시도 횟수를 보장한다. 스로틀이 걸리면
-  // 느려질 뿐 실패하지는 않는다.
+  // 짧은 대기는 위 sleep()에서 visibility throttling 대상이 아닌 확장 service
+  // worker로 넘긴다. 최소 시도 횟수도 함께 유지해 worker/content 응답 경계의
+  // 일시적인 렌더 지연이 단 한 번의 검사로 실패 처리되지 않게 한다.
   const THROTTLED_MIN_ATTEMPTS = 6;
 
   async function pollUntil(check, options = {}) {
@@ -4044,7 +4066,6 @@
         : campaignBusinessDates.length - pendingBusinessDates.length;
       let campaignRows = 0;
       let campaignFailure = null;
-      let resumeAfterCampaignFailure = false;
 
       for (
         let dateIndex = 0;
@@ -4210,14 +4231,29 @@
           "#22c55e",
         );
       } else if (campaignFailure) {
-        resumeAfterCampaignFailure = true;
-        await recordCampaignFailure(
+        const stoppedProgressSnapshot = await recordCampaignFailure(
           camp,
           campaignFailure.error,
           { ...campaignFailure.details, retryable: true },
           `${camp.name}: ${campaignFailure.error}`,
           false,
         );
+        showBadge(
+          `❌ ${camp.name}: ${campaignFailure.error} — 확인 후 다시 실행해주세요`,
+          "#ef4444",
+        );
+        return {
+          success: false,
+          type: "ad_sync",
+          campaigns: synced,
+          failed,
+          totalRows,
+          error:
+            `${camp.name}: ${campaignFailure.error}. ` +
+            "광고센터 상태를 확인한 뒤 광고 동기화를 다시 실행해주세요.",
+          errors,
+          progress: stoppedProgressSnapshot,
+        };
       }
       if (!campaignFailure) {
         saveSweepProgress();
@@ -4229,7 +4265,7 @@
       }
 
       // 2e) 대시보드로 복귀 — 어느 페이지로 떨어지든 OK (seen 셋이 dedupe)
-      if (resumeAfterDateBudget || resumeAfterCampaignFailure) {
+      if (resumeAfterDateBudget) {
         // 정상적인 12일 slice handoff도 detail → dashboard full reload를 만든다.
         // 이 pending은 다음 dashboard에서 실패로 소비하면 안 된다. dashboard가
         // 같은 row를 다시 클릭할 때 새로운 pending을 저장하고 남은 날짜를 잇는다.
@@ -4270,25 +4306,6 @@
           resumeRequired: true,
           resumeUrl: "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1",
           error: "광고 일별 수집을 이어서 실행합니다.",
-          synced,
-          failed,
-          totalRows,
-          progress: resumeProgressSnapshot,
-        };
-      }
-      if (resumeAfterCampaignFailure) {
-        showBadge(
-          `🔁 ${camp.name} — 남은 날짜부터 재시도`,
-          "#f59e0b",
-        );
-        const resumeProgressSnapshot = await reportCurrentSweepProgress({
-          label: `${camp.name}: ${campaignFailure.error} — 남은 날짜 재시도`,
-        });
-        return {
-          success: false,
-          resumeRequired: true,
-          resumeUrl: "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1",
-          error: `${camp.name}: ${campaignFailure.error} — 남은 날짜부터 재시도합니다.`,
           synced,
           failed,
           totalRows,
@@ -4534,6 +4551,7 @@
     resetReportPaginationToFirstPage,
     returnToDashboard,
     savePendingCampaignNavigation,
+    sleep,
     shouldRunDashboardSweep,
     unresolvedCampaignWorkKeys,
     withCollectionRunId,

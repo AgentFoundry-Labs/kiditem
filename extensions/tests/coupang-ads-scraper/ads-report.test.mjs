@@ -35,7 +35,9 @@ function loadContract(options = {}) {
       runtime: {
         lastError: null,
         onMessage: { addListener() {} },
-        sendMessage() {},
+        sendMessage:
+          options.sendMessage ||
+          ((_message, callback) => callback?.({ success: true })),
       },
       storage: { local: { set() {} } },
     },
@@ -2369,7 +2371,7 @@ test("successful resume clears the prior campaign error and recalculates failed"
   assert.match(source, /let failed = errors\.length;/);
 });
 
-test("partial campaign collection failure remains retryable after dashboard return", () => {
+test("partial campaign collection failure stops for operator retry without terminalizing", () => {
   const contract = loadContract();
   const campaign = {
     identity: "campaign:100",
@@ -2397,16 +2399,32 @@ test("partial campaign collection failure remains retryable after dashboard retu
   );
   const failureBranch = source.slice(failureBranchStart, dashboardReturnStart);
   assert.ok(failureBranchStart > 0 && dashboardReturnStart > failureBranchStart);
-  assert.match(failureBranch, /resumeAfterCampaignFailure = true;/);
   assert.match(failureBranch, /retryable: true/);
   assert.match(failureBranch, /recordCampaignFailure\([\s\S]*false,/);
+  assert.match(failureBranch, /success: false/);
+  assert.match(failureBranch, /광고센터 상태를 확인한 뒤 광고 동기화를 다시 실행/);
+  assert.doesNotMatch(failureBranch, /resumeRequired: true/);
+});
 
-  const resumeBranch = source.slice(
-    dashboardReturnStart,
-    source.indexOf("await sleep(1000);", dashboardReturnStart),
+test("content waits through the extension worker instead of a throttled page timer", async () => {
+  let pendingDelay = null;
+  const contract = loadContract({
+    sendMessage(message, callback) {
+      if (message?.action === "waitForAdCollectorDelay") {
+        pendingDelay = { message, callback };
+        return;
+      }
+      callback?.({ success: true });
+    },
+  });
+
+  const waiting = contract.sleep(600);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pendingDelay?.message)),
+    { action: "waitForAdCollectorDelay", milliseconds: 600 },
   );
-  assert.match(resumeBranch, /if \(resumeAfterCampaignFailure\)/);
-  assert.match(resumeBranch, /resumeRequired: true/);
+  pendingDelay.callback({ success: true });
+  await waiting;
 });
 
 test("successful sweep clears a prior dashboard identity error but keeps unresolved campaign errors", () => {
@@ -2869,7 +2887,7 @@ test("31-day sweep uses bounded resumable date slices and finalizes only after p
     "// 2e) 대시보드로 복귀",
   );
   const budgetClearIndex = source.indexOf(
-    "if (resumeAfterDateBudget || resumeAfterCampaignFailure) {",
+    "if (resumeAfterDateBudget) {",
     dashboardReturnBlock,
   );
   const pendingClearIndex = source.indexOf(
