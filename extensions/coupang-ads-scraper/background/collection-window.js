@@ -770,7 +770,17 @@
         chromeApi.tabs.onUpdated.addListener(onUpdated);
         chromeApi.tabs.onRemoved.addListener(onRemoved);
         chromeApi.tabs.get(tabId, (tab) => {
-          if (!chromeApi.runtime.lastError && tab?.status === "complete") {
+          if (chromeApi.runtime.lastError || !tab?.id) {
+            finish(
+              null,
+              new Error(
+                chromeApi.runtime.lastError?.message ||
+                  "Collection tab was closed",
+              ),
+            );
+            return;
+          }
+          if (tab.status === "complete") {
             finish(tab);
           }
         });
