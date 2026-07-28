@@ -108,7 +108,7 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /unsupported collection producer/i);
-  assert.equal(manifest.version, '1.2.97');
+  assert.equal(manifest.version, '1.2.98');
   assert.match(worker, /wingFormPortV1:\s*true/);
   assert.match(worker, /kiditem-wing-form-v1/);
   assert.match(

@@ -268,6 +268,70 @@ test("campaign detail waits for the verified sales navigation to mount before re
   assert.equal(sidebarClicks, 1);
 });
 
+test("dashboard readiness ignores a date-picker grid mounted before the campaign grid", async () => {
+  const location = {
+    href: "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1",
+    pathname: "/marketing/dashboard/sales",
+    search: "",
+    hash: "#kiditemAdSync=1",
+  };
+  const calendarGrid = {
+    className: "ant-calendar-table",
+    closest() {
+      return null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+  const title = { innerText: "운영 캠페인" };
+  const row = {
+    querySelector(selector) {
+      return selector.includes("campaign_name") ? title : null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+  const campaignGrid = {
+    className: "rt-table",
+    closest() {
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === ".rt-tbody .rt-tr-group") return [row];
+      if (selector.includes("columnheader")) {
+        return ["ON/OFF", "상품명", "상태"].map((innerText) => ({
+          innerText,
+        }));
+      }
+      return [];
+    },
+  };
+  const contract = loadContract({
+    location,
+    setTimeout(callback) {
+      callback();
+      return 0;
+    },
+    document: {
+      querySelector(selector) {
+        if (selector.includes("[role='grid']")) return calendarGrid;
+        return null;
+      },
+      querySelectorAll(selector) {
+        if (selector.includes("[role='grid']")) {
+          return [calendarGrid, campaignGrid];
+        }
+        return [];
+      },
+      title: "광고센터",
+    },
+  });
+
+  assert.equal(await contract.returnToDashboard(10), true);
+});
+
 test("campaign detail does not use history fallback when no verified dashboard control exists", async () => {
   let historyBackCalls = 0;
   const contract = loadContract({

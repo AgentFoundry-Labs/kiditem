@@ -2885,7 +2885,19 @@ async function scrapeAlwayzOrders() {
 async function scrapeKidkidsOrders(dateFilter) {
   const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
   const num = (s) => Number(String(s || "").replace(/[^0-9.-]/g, "")) || 0;
+  const isAuthenticationGateUrl = (value) => {
+    const normalized = String(value || "").toLowerCase();
+    return (
+      /login|partnerlogin|partner_login/.test(normalized) ||
+      /\/security\/verify_user\.htm(?:[?#]|$)/.test(normalized)
+    );
+  };
   try {
+    // 키드키즈는 로그인 직후 별도 본인확인 화면으로 이동할 수 있다. 이 화면은
+    // 주문 목록이 아니므로 0건 성공으로 처리하지 않고 운영자 확인을 요청한다.
+    if (isAuthenticationGateUrl(window.location.href)) {
+      return { success: false, loginRequired: true };
+    }
     // 1) 출고관리 목록 (page_view_cnt 크게 = 전부). management 는 partner.kidkids.net 동일 origin.
     // 목록도 euc-kr → arrayBuffer 로 받아 명시 디코딩(아니면 주문자명 한글 깨짐).
     const listRes = await fetch("/logis/logis_index.htm?from_logis_index=Y&page_view_cnt=500", { credentials: "include" });
@@ -2897,7 +2909,7 @@ async function scrapeKidkidsOrders(dateFilter) {
     // 잘못 안내한다. 로그인 리다이렉트/비밀번호 폼을 감지해 명시적으로 로그인 필요를 신호한다.
     if (!ldoc.querySelector('input[name="CheckBox2"]')) {
       const looksLikeLogin =
-        /login|partnerlogin|partner_login/.test(finalUrl) ||
+        isAuthenticationGateUrl(finalUrl) ||
         Boolean(ldoc.querySelector('input[type="password"]'));
       if (looksLikeLogin) return { success: false, loginRequired: true };
     }
@@ -4432,13 +4444,14 @@ function delay(ms) {
 
 // 제네릭 자동 로그인: 탭에 로그인 폼(ID/비밀번호칸)이 보이면 저장된 계정으로 채워 제출한다.
 // credentials 없으면 아무것도 안 함(세션에 의존 = 기존 동작). autoSubmitIcecreamMallLogin 휴리스틱 재사용.
-async function ensureMallLogin(tabId, credentials) {
+async function ensureMallLogin(tabId, credentials, mallKey = null) {
   if (!credentials || !credentials.loginId || !credentials.password) {
     return { success: true, submitted: false };
   }
   const expiresAt = Date.now() + 15000;
   let sawIncompleteLoginForm = false;
   let lastIncompleteReason = null;
+  let kidkidsManagementStableSince = null;
   while (Date.now() < expiresAt) {
     let results = [];
     try {
@@ -4458,8 +4471,50 @@ async function ensureMallLogin(tabId, credentials) {
       return { success: true, submitted: true };
     }
     // 어느 프레임에서도 로그인 폼이 없으면 이미 로그인된 상태로 간주.
+    // 키드키즈는 management.htm 로드가 끝난 뒤 클라이언트 리다이렉트로 로그인 페이지를
+    // 여는 구간이 있어, 첫 no-login-form 을 성공으로 처리하면 자동 로그인을 건너뛴다.
     if (results.length && results.every((r) => r.state === "no-login-form")) {
-      return { success: true, submitted: false };
+      if (mallKey !== "kidkids") {
+        return { success: true, submitted: false };
+      }
+
+      let currentUrl = "";
+      try {
+        currentUrl = String((await chrome.tabs.get(tabId))?.url || "").toLowerCase();
+      } catch {
+        /* 탭 URL도 아직 준비되지 않음 — 제한시간 안에서 재시도 */
+      }
+
+      if (/\/security\/verify_user\.htm(?:[?#]|$)/.test(currentUrl)) {
+        return {
+          success: false,
+          submitted: false,
+          pendingLogin: true,
+          error: "키드키즈 본인 인증이 필요합니다. 열린 탭에서 인증 후 다시 수집해 주세요.",
+        };
+      }
+
+      const isKidkidsLoginUrl =
+        /\/partnerlogin\.htm(?:[?#]|$)/.test(currentUrl) ||
+        /\/join\/partner_login\.htm(?:[?#]|$)/.test(currentUrl);
+      const isKidkidsManagementUrl =
+        /^https:\/\/partner\.kidkids\.net\/new\/pages\/logis\/management\.htm(?:[?#]|$)/.test(
+          currentUrl,
+        );
+
+      if (isKidkidsLoginUrl) {
+        kidkidsManagementStableSince = null;
+      } else if (isKidkidsManagementUrl) {
+        kidkidsManagementStableSince ??= Date.now();
+        if (Date.now() - kidkidsManagementStableSince >= 5000) {
+          return { success: true, submitted: false };
+        }
+      } else {
+        kidkidsManagementStableSince = null;
+      }
+
+      await delay(500);
+      continue;
     }
     const incomplete = results.find((result) =>
       ["incomplete", "credentials-missing"].includes(result.state),
@@ -4476,6 +4531,14 @@ async function ensureMallLogin(tabId, credentials) {
       submitted: false,
       pendingLogin: true,
       error: `로그인 폼 자동 입력을 완료하지 못했습니다 (${lastIncompleteReason || "unknown"}). 열린 탭에서 로그인 후 다시 수집해 주세요.`,
+    };
+  }
+  if (mallKey === "kidkids") {
+    return {
+      success: false,
+      submitted: false,
+      pendingLogin: true,
+      error: "키드키즈 로그인 상태를 제한시간 안에 확인하지 못했습니다. 열린 탭에서 로그인 후 다시 수집해 주세요.",
     };
   }
   return { success: true, submitted: false }; // 폼 못 봄 → 이미 로그인 간주
@@ -4534,7 +4597,7 @@ async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
     await waitForTabReady(tab.id);
     await delay(1000);
     const result = await withTimeout(
-      ensureMallLogin(tab.id, credentials),
+      ensureMallLogin(tab.id, credentials, mallKey),
       35000,
       "자동 로그인 시간이 초과되었습니다.",
     );
