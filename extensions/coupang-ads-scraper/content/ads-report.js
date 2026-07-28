@@ -2696,6 +2696,11 @@
       const identity = campaignIdentityFromHref(href, name);
       if (!identity) {
         missingIdentityNames.push(name);
+        const isLinklessClickableCampaignAnchor =
+          anchor &&
+          typeof anchor.click === "function" &&
+          rg.querySelector("[data-bigfoot-component='campaign_name'] a") === anchor &&
+          String(anchor.getAttribute?.("href") || "").trim() === "";
         // 상세 URL/provider id가 없는 AI 캠페인은 표시명을 authoritative
         // identity로 승격하지 않는다. 대신 대시보드에서 관찰한 원본 행을
         // multi_campaign_raw로 저장할 수 있게 별도 큐에 보존한다. 이 행 하나
@@ -2703,8 +2708,13 @@
         //
         // anchor 자체가 없거나 예상하지 못한 URL이면 DOM drift일 수 있으므로
         // 기존 fail-closed 동작을 유지한다. 실측된 no-detail 캠페인처럼 anchor가
-        // 명시적으로 dashboard list URL을 가리킬 때만 raw-only로 분류한다.
-        if (isExplicitDashboardListAnchor(anchor)) {
+        // dashboard list URL을 가리키거나, 빈 href 클릭 anchor인 자동화 캠페인만
+        // raw-only로 분류한다.
+        if (
+          isExplicitDashboardListAnchor(anchor) ||
+          (isAutomatedNoDetailCampaign({ name }) &&
+            isLinklessClickableCampaignAnchor)
+        ) {
           rawOnlyCampaigns.push({
             rowIndex,
             name,
@@ -2713,12 +2723,7 @@
             cells: cells.map((cell) =>
               normalizeText(cell.innerText || cell.textContent || "")),
           });
-        } else if (
-          anchor &&
-          typeof anchor.click === "function" &&
-          rg.querySelector("[data-bigfoot-component='campaign_name'] a") === anchor &&
-          String(anchor.getAttribute?.("href") || "").trim() === ""
-        ) {
+        } else if (isLinklessClickableCampaignAnchor) {
           // 현재 광고센터는 href를 렌더하지 않고 클릭 핸들러에서만 상세 URL을
           // push한다. 이름을 identity로 발명하지 않고, sweep이 이 행을 클릭한
           // 뒤 실제 `/campaign/{providerId}/...` URL에서 identity를 확정한다.

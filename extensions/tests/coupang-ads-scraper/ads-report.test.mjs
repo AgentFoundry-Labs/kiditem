@@ -1514,6 +1514,78 @@ test("current dashboard linkless campaign anchor is clicked before provider iden
   );
 });
 
+test("linkless AI smart campaign stays roster-only without identity navigation", () => {
+  let clickCount = 0;
+  const name = "AI스마트광고(wing)";
+  const anchor = {
+    innerText: name,
+    getAttribute(attribute) {
+      return attribute === "href" ? "" : null;
+    },
+    closest(selector) {
+      return selector === "a" ? this : null;
+    },
+    querySelector() {
+      return null;
+    },
+    click() {
+      clickCount += 1;
+    },
+  };
+  const cells = [`${name}수정삭제`, "ON", "운영중"].map((innerText) => ({
+    innerText,
+    textContent: innerText,
+    querySelector() {
+      return null;
+    },
+  }));
+  const row = {
+    querySelector(selector) {
+      return selector === "[data-bigfoot-component='campaign_name'] a"
+        ? anchor
+        : null;
+    },
+    querySelectorAll(selector) {
+      return selector === "[role='gridcell']" ? cells : [];
+    },
+  };
+  const grid = {
+    querySelectorAll(selector) {
+      return selector === ".rt-tbody .rt-tr-group" ? [row] : [];
+    },
+  };
+  const contract = loadContract({
+    document: {
+      querySelector(selector) {
+        return selector.includes(".rt-table") ? grid : null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      title: "광고센터",
+    },
+  });
+
+  const inspection = contract.inspectCampaignsFromDashboard();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(inspection.campaigns)), []);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(inspection.rawOnlyCampaigns)),
+    [{
+      rowIndex: 0,
+      name,
+      onOff: "ON",
+      status: "운영중",
+      cells: [`${name}수정삭제`, "ON", "운영중"],
+    }],
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contract.campaignIdentityCoverage(inspection))),
+    { complete: true, error: null, missingCount: 1, rawOnlyCount: 1 },
+  );
+  assert.equal(clickCount, 0);
+});
+
 test("AI스마트광고(HUB) automated campaigns skip detail collection and are handled roster-only", () => {
   const contract = loadContract();
   // 자동화 광고(AI스마트광고/HUB)는 상세에 상품별 일별 실적이 없어 상세 진입 시
