@@ -2579,6 +2579,39 @@
     );
   }
 
+  function findDashboardCampaignGrid() {
+    const candidates = Array.from(
+      document.querySelectorAll(
+        ".rt-table, [class*='rt-table'], [role='grid']",
+      ),
+    );
+    if (candidates.length === 0) {
+      const onlyCandidate = document.querySelector(
+        ".rt-table, [class*='rt-table'], [role='grid']",
+      );
+      if (onlyCandidate) candidates.push(onlyCandidate);
+    }
+    return candidates.find((grid) => {
+      const rowGroups = Array.from(
+        grid.querySelectorAll(".rt-tbody .rt-tr-group"),
+      );
+      if (
+        rowGroups.some((row) => {
+          const title = dashboardCampaignTitleElement(row);
+          return title && normalizeText(title.innerText || "").length > 0;
+        })
+      ) {
+        return true;
+      }
+      const headers = Array.from(
+        grid.querySelectorAll(".rt-thead .rt-th, [role='columnheader']"),
+      )
+        .map((node) => normalizeText(node.innerText || ""))
+        .filter(Boolean);
+      return headers.length >= 3 && isAdReportHeaderSet(headers);
+    }) || null;
+  }
+
   function campaignNavigationKey(campaign) {
     return [
       "dashboard-campaign",
@@ -2663,7 +2696,7 @@
   // - 캠페인 상태(운영중/일시정지)는 보존만 하고 sweep 큐 진입 필터로 쓰지 않음
   //   → 사용자가 "캠페인 모두 다" 요구. paused 도 광고 전략 분석용.
   function inspectCampaignsFromDashboard() {
-    const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+    const grid = findDashboardCampaignGrid();
     if (!grid) {
       return {
         campaigns: [],
@@ -2962,7 +2995,7 @@
         // 상세 화면에도 campaign table/empty-state가 존재한다. URL 경계를 먼저
         // 확인하지 않으면 상세 화면을 dashboard 복귀 완료로 오판할 수 있다.
         if (!isDashboardListPage()) return false;
-        const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+        const grid = findDashboardCampaignGrid();
         const rows = grid?.querySelectorAll(".rt-tbody .rt-tr-group") || [];
         if (rows.length > 0) {
           const titled = Array.from(rows).filter((r) => {
@@ -3025,7 +3058,7 @@
 
   // DOM rebuild 가능성에 대비해 identity로 fresh anchor를 다시 찾아 클릭한다.
   function clickCampaignAnchor(campaign) {
-    const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+    const grid = findDashboardCampaignGrid();
     if (!grid) return false;
     const rowGroups = Array.from(grid.querySelectorAll(".rt-tbody .rt-tr-group"));
     for (let rowIndex = 0; rowIndex < rowGroups.length; rowIndex += 1) {
