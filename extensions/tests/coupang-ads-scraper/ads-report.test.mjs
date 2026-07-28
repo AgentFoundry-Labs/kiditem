@@ -1506,6 +1506,19 @@ test("current dashboard linkless campaign anchor is clicked before provider iden
   assert.equal(probe.campaign.identity, "campaign:101");
   assert.equal(probe.campaign.campaignId, "101");
   assert.equal(probe.campaign.requiresIdentityProbe, false);
+  assert.equal(
+    probe.campaign.discoveredByNavigation,
+    true,
+    "same-document navigation must retain the linkless dashboard origin",
+  );
+  const completedNavigationKeys = new Set();
+  assert.equal(
+    contract.persistTerminalLinklessNavigation(
+      probe.campaign,
+      completedNavigationKeys,
+    ),
+    inspection.campaigns[1].navigationKey,
+  );
   assert.match(probe.campaign.href, /\/campaign\/101\/group\/301\/product/);
   assert.equal(
     contract.campaignUsesDetailReport({

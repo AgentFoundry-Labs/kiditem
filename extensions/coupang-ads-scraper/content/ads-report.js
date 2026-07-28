@@ -2591,6 +2591,9 @@
       campaignId,
       href: canonicalHref,
       hasDetailHref: true,
+      discoveredByNavigation:
+        campaign?.discoveredByNavigation === true ||
+        campaign?.requiresIdentityProbe === true,
       requiresIdentityProbe: false,
     };
   }
