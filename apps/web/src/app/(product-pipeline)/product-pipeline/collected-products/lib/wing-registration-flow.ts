@@ -310,7 +310,7 @@ export function resolveWingCategoryKey(detail: ProductDetailResponse): WingCateg
   return matchWingCategoryAlias(detail.basicInfo.category)?.key ?? '';
 }
 
-/** 저장/정확 별칭이 없을 때만 parkerynch 원본의 등록상품 기반 추론을 사용한다. */
+/** 저장/정확 별칭이 없을 때 기존 쿠팡 등록상품과 동일한 상품의 카테고리를 사용한다. */
 export async function resolveWingCategoryKeyForRegistration(
   detail: ProductDetailResponse,
 ): Promise<WingCategoryKey | ''> {

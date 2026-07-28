@@ -4,10 +4,7 @@ import type {
 } from '@kiditem/shared/coupang-category';
 import { apiClient } from '@/lib/api-client';
 
-const AUTO_APPLY_CONFIDENCES: CoupangCategorySuggestion['confidence'][] = [
-  'high',
-  'medium',
-];
+const AUTO_APPLY_CONFIDENCES: CoupangCategorySuggestion['confidence'][] = ['high'];
 
 export interface WingCategoryResolution {
   categoryCell: string | null;
