@@ -3434,7 +3434,10 @@
 
   function unresolvedCampaignWorkKeys(errors) {
     return normalizeSweepErrors(errors)
-      .filter((entry) => entry?.name !== "_dashboard")
+      .filter(
+        (entry) =>
+          entry?.name !== "_dashboard" && entry?.retryable !== true,
+      )
       .map((entry) => {
         const identity = typeof entry?.identity === "string"
           ? entry.identity.trim()
@@ -3724,11 +3727,12 @@
         label,
       });
     };
-    const recordTerminalCampaignFailure = async (
+    const recordCampaignFailure = async (
       campaign,
       error,
       details = {},
       label = `${campaign?.name || "캠페인"}: ${error}`,
+      terminalNavigation = true,
     ) => {
       ({ errors, failed } = reconcileCampaignFailureState(
         errors,
@@ -3736,7 +3740,9 @@
         error,
         details,
       ));
-      persistTerminalLinklessNavigation(campaign, completedNavigationKeys);
+      if (terminalNavigation) {
+        persistTerminalLinklessNavigation(campaign, completedNavigationKeys);
+      }
       clearPendingCampaignNavigation();
       saveSweepProgress();
       // 광고센터의 dashboard/detail 전환은 full-document navigation일 수 있다.
@@ -3759,7 +3765,7 @@
         explicitTotal: readDashboardCampaignTotal(),
         previousTotal: progressTotal,
       });
-      await recordTerminalCampaignFailure(
+      await recordCampaignFailure(
         dashboardReturnedCampaign,
         "campaign_identity_navigation_returned_to_dashboard",
         {},
@@ -3953,7 +3959,7 @@
           explicitTotal: readDashboardCampaignTotal(),
           previousTotal: progressTotal,
         });
-        await recordTerminalCampaignFailure(
+        await recordCampaignFailure(
           camp,
           identityProbe.error,
           {},
@@ -4002,7 +4008,7 @@
         // 오늘 OFF여도 최근 31일에 집행 실적이 있을 수 있다.
         const clicked = identityProbe.navigated || clickCampaignAnchor(camp);
         if (!clicked) {
-          await recordTerminalCampaignFailure(
+          await recordCampaignFailure(
             camp,
             "anchor not found",
           );
@@ -4012,7 +4018,7 @@
         // 2b) 상세 identity + rows/명시적 empty-state 렌더 대기
         const detail = await waitForCampaignDetailPage(camp, 20000);
         if (!detail.ok) {
-          await recordTerminalCampaignFailure(
+          await recordCampaignFailure(
             camp,
             detail.error,
           );
@@ -4038,6 +4044,7 @@
         : campaignBusinessDates.length - pendingBusinessDates.length;
       let campaignRows = 0;
       let campaignFailure = null;
+      let resumeAfterCampaignFailure = false;
 
       for (
         let dateIndex = 0;
@@ -4203,10 +4210,13 @@
           "#22c55e",
         );
       } else if (campaignFailure) {
-        await recordTerminalCampaignFailure(
+        resumeAfterCampaignFailure = true;
+        await recordCampaignFailure(
           camp,
           campaignFailure.error,
-          campaignFailure.details,
+          { ...campaignFailure.details, retryable: true },
+          `${camp.name}: ${campaignFailure.error}`,
+          false,
         );
       }
       if (!campaignFailure) {
@@ -4219,7 +4229,7 @@
       }
 
       // 2e) 대시보드로 복귀 — 어느 페이지로 떨어지든 OK (seen 셋이 dedupe)
-      if (resumeAfterDateBudget) {
+      if (resumeAfterDateBudget || resumeAfterCampaignFailure) {
         // 정상적인 12일 slice handoff도 detail → dashboard full reload를 만든다.
         // 이 pending은 다음 dashboard에서 실패로 소비하면 안 된다. dashboard가
         // 같은 row를 다시 클릭할 때 새로운 pending을 저장하고 남은 날짜를 잇는다.
@@ -4260,6 +4270,25 @@
           resumeRequired: true,
           resumeUrl: "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1",
           error: "광고 일별 수집을 이어서 실행합니다.",
+          synced,
+          failed,
+          totalRows,
+          progress: resumeProgressSnapshot,
+        };
+      }
+      if (resumeAfterCampaignFailure) {
+        showBadge(
+          `🔁 ${camp.name} — 남은 날짜부터 재시도`,
+          "#f59e0b",
+        );
+        const resumeProgressSnapshot = await reportCurrentSweepProgress({
+          label: `${camp.name}: ${campaignFailure.error} — 남은 날짜 재시도`,
+        });
+        return {
+          success: false,
+          resumeRequired: true,
+          resumeUrl: "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1",
+          error: `${camp.name}: ${campaignFailure.error} — 남은 날짜부터 재시도합니다.`,
           synced,
           failed,
           totalRows,

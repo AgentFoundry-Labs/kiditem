@@ -2369,6 +2369,46 @@ test("successful resume clears the prior campaign error and recalculates failed"
   assert.match(source, /let failed = errors\.length;/);
 });
 
+test("partial campaign collection failure remains retryable after dashboard return", () => {
+  const contract = loadContract();
+  const campaign = {
+    identity: "campaign:100",
+    name: "부분 수집 캠페인",
+    navigationKey: "dashboard-campaign\u001f1\u001f1\u001f부분 수집 캠페인",
+    requiresIdentityProbe: true,
+  };
+  const failure = contract.reconcileCampaignFailureState(
+    [],
+    campaign,
+    "date_picker_failed",
+    { businessDate: "2026-07-06", retryable: true },
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contract.unresolvedCampaignWorkKeys(failure.errors))),
+    [],
+    "retryable missing dates must not count as terminal campaign work",
+  );
+
+  const failureBranchStart = source.indexOf("} else if (campaignFailure) {");
+  const dashboardReturnStart = source.indexOf(
+    "// 2e) 대시보드로 복귀",
+    failureBranchStart,
+  );
+  const failureBranch = source.slice(failureBranchStart, dashboardReturnStart);
+  assert.ok(failureBranchStart > 0 && dashboardReturnStart > failureBranchStart);
+  assert.match(failureBranch, /resumeAfterCampaignFailure = true;/);
+  assert.match(failureBranch, /retryable: true/);
+  assert.match(failureBranch, /recordCampaignFailure\([\s\S]*false,/);
+
+  const resumeBranch = source.slice(
+    dashboardReturnStart,
+    source.indexOf("await sleep(1000);", dashboardReturnStart),
+  );
+  assert.match(resumeBranch, /if \(resumeAfterCampaignFailure\)/);
+  assert.match(resumeBranch, /resumeRequired: true/);
+});
+
 test("successful sweep clears a prior dashboard identity error but keeps unresolved campaign errors", () => {
   const contract = loadContract();
   const remaining = contract.clearResolvedDashboardSweepErrors([
@@ -2829,7 +2869,7 @@ test("31-day sweep uses bounded resumable date slices and finalizes only after p
     "// 2e) 대시보드로 복귀",
   );
   const budgetClearIndex = source.indexOf(
-    "if (resumeAfterDateBudget) {",
+    "if (resumeAfterDateBudget || resumeAfterCampaignFailure) {",
     dashboardReturnBlock,
   );
   const pendingClearIndex = source.indexOf(
