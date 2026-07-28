@@ -20,6 +20,86 @@
       };
     }
 
+    function patchLexicalStringAlias() {
+      const prototype = String.prototype;
+      const hasIsEmpty = typeof prototype.isEmpty === "function";
+      const hasFilter = typeof prototype.filter === "function";
+      if (hasIsEmpty && hasFilter) {
+        return { ok: true, status: "already-compatible" };
+      }
+      if (!Object.isExtensible(prototype)) {
+        return {
+          ok: false,
+          status: "unsupported",
+          error: "WING 문자열 런타임에 호환 기능을 추가할 수 없습니다.",
+        };
+      }
+
+      const isEmpty = (value) => {
+        if (value == null) return true;
+        if (typeof value === "string" || Array.isArray(value)) {
+          return value.length === 0;
+        }
+        if (
+          typeof Map === "function" &&
+          (value instanceof Map || value instanceof Set)
+        ) {
+          return value.size === 0;
+        }
+        return Object.keys(Object(value)).length === 0;
+      };
+      const filter = (collection, predicate) => {
+        if (collection == null) return [];
+        const values = Array.isArray(collection)
+          ? collection
+          : Object.values(Object(collection));
+        const matches =
+          typeof predicate === "function"
+            ? predicate
+            : (value) => Boolean(value);
+        return values.filter((value, index) =>
+          matches(value, index, collection),
+        );
+      };
+
+      try {
+        if (!hasIsEmpty) {
+          Object.defineProperty(prototype, "isEmpty", {
+            configurable: true,
+            enumerable: false,
+            writable: true,
+            value: isEmpty,
+          });
+        }
+        if (!hasFilter) {
+          Object.defineProperty(prototype, "filter", {
+            configurable: true,
+            enumerable: false,
+            writable: true,
+            value: filter,
+          });
+        }
+      } catch {
+        return {
+          ok: false,
+          status: "unsupported",
+          error: "WING 문자열 런타임의 누락 기능을 보완하지 못했습니다.",
+        };
+      }
+
+      return typeof prototype.isEmpty === "function" &&
+        typeof prototype.filter === "function"
+        ? { ok: true, status: "installed" }
+        : {
+            ok: false,
+            status: "unsupported",
+            error: "WING 문자열 런타임 호환 기능을 확인하지 못했습니다.",
+          };
+    }
+
+    const lexicalStringCompatibility = patchLexicalStringAlias();
+    if (!lexicalStringCompatibility.ok) return lexicalStringCompatibility;
+
     const underscore = globalThis._;
     const underscoreType = typeof underscore;
     if (
@@ -119,6 +199,93 @@
     ) {
       return { ok: false, status: "wrong-page" };
     }
+
+    /**
+     * 2026-07-28 Wing formV2 번들은 일부 scope 에서 lodash 전역 `_` 대신
+     * UUID 문자열을 `_` 로 캡처한 채 `_.isEmpty(...)` / `_.filter(...)` 를
+     * 호출한다. 이 값은 lexical binding 이라 globalThis._ 패치로는 닿지 않는다.
+     * 문자열 property lookup 이 String.prototype 을 거치는 점을 이용해 이 Wing
+     * document 에서만 필요한 두 함수를 non-enumerable 로 제공한다.
+     */
+    function patchLexicalStringAlias() {
+      const prototype = String.prototype;
+      const hasIsEmpty = typeof prototype.isEmpty === "function";
+      const hasFilter = typeof prototype.filter === "function";
+      if (hasIsEmpty && hasFilter) {
+        return { ok: true, status: "already-compatible" };
+      }
+      if (!Object.isExtensible(prototype)) {
+        return {
+          ok: false,
+          status: "unsupported",
+          error: "WING 문자열 런타임에 호환 기능을 추가할 수 없습니다.",
+        };
+      }
+
+      const isEmpty = (value) => {
+        if (value == null) return true;
+        if (typeof value === "string" || Array.isArray(value)) {
+          return value.length === 0;
+        }
+        if (
+          typeof Map === "function" &&
+          (value instanceof Map || value instanceof Set)
+        ) {
+          return value.size === 0;
+        }
+        return Object.keys(Object(value)).length === 0;
+      };
+      const filter = (collection, predicate) => {
+        if (collection == null) return [];
+        const values = Array.isArray(collection)
+          ? collection
+          : Object.values(Object(collection));
+        const matches =
+          typeof predicate === "function"
+            ? predicate
+            : (value) => Boolean(value);
+        return values.filter((value, index) =>
+          matches(value, index, collection),
+        );
+      };
+
+      try {
+        if (!hasIsEmpty) {
+          Object.defineProperty(prototype, "isEmpty", {
+            configurable: true,
+            enumerable: false,
+            writable: true,
+            value: isEmpty,
+          });
+        }
+        if (!hasFilter) {
+          Object.defineProperty(prototype, "filter", {
+            configurable: true,
+            enumerable: false,
+            writable: true,
+            value: filter,
+          });
+        }
+      } catch {
+        return {
+          ok: false,
+          status: "unsupported",
+          error: "WING 문자열 런타임의 누락 기능을 보완하지 못했습니다.",
+        };
+      }
+
+      return typeof prototype.isEmpty === "function" &&
+        typeof prototype.filter === "function"
+        ? { ok: true, status: "installed" }
+        : {
+            ok: false,
+            status: "unsupported",
+            error: "WING 문자열 런타임 호환 기능을 확인하지 못했습니다.",
+          };
+    }
+
+    const lexicalStringCompatibility = patchLexicalStringAlias();
+    if (!lexicalStringCompatibility.ok) return lexicalStringCompatibility;
 
     function patchCurrent(underscore) {
       const underscoreType = typeof underscore;

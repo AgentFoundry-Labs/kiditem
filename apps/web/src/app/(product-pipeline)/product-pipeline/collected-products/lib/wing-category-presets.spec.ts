@@ -19,6 +19,12 @@ describe('WING category presets', () => {
     expect(getWingCategoryDefinition('not-supported')).toBeNull();
   });
 
+  it('declares the live required purchase options for the slime category', () => {
+    expect(getWingCategoryDefinition('103112')?.requiredPurchaseOptionTypes).toEqual([
+      '개당 중량',
+    ]);
+  });
+
   it('keeps the current Excel category set complete and unique', () => {
     const keys = WING_CATEGORY_DEFINITIONS.map((item) => item.key);
     const cells = WING_CATEGORY_DEFINITIONS.map((item) => item.categoryCell);
