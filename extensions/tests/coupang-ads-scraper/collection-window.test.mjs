@@ -687,7 +687,16 @@ test('navigate recovers when the reattached tab disappears between validation an
   // 사라져 있고, reattach 는 직전 검증을 통과했으므로 recovered=false 였다. 그 경로에는
   // 복구가 없어서 run 전체가 "No tab with id: N" 이라는 크롬 원문으로 끝났다.
   const fake = createFakeChrome();
-  const sessions = { async get() { return { status: 'running' }; } };
+  const attachedTabs = [];
+  const sessions = {
+    async attachTab(runId, tab) {
+      attachedTabs.push([runId, structuredClone(tab)]);
+      return { status: 'running' };
+    },
+    async get() {
+      return { status: 'running' };
+    },
+  };
   const helper = loadHelper(fake, { sessions });
   const original = await helper.getOrCreate(
     'run-vanish',
@@ -722,6 +731,48 @@ test('navigate recovers when the reattached tab disappears between validation an
     fake.tabs.get(recovered.tabId).url,
     'https://example.com/second',
   );
+  assert.deepEqual(attachedTabs, [
+    [
+      'run-vanish',
+      { tabId: recovered.tabId, windowId: recovered.windowId },
+    ],
+  ]);
+});
+
+test('recovery removes its replacement when cancellation wins the attach race', async () => {
+  const fake = createFakeChrome();
+  const sessions = {
+    async attachTab() {
+      return { status: 'cancelled' };
+    },
+    async get() {
+      return { status: 'running' };
+    },
+  };
+  const helper = loadHelper(fake, { sessions });
+  const original = await helper.getOrCreate(
+    'run-cancelled-recovery',
+    'https://example.com/first',
+  );
+  delete fake.storage['owned-window'];
+  fake.windows.delete(original.windowId);
+  fake.tabs.delete(original.tabId);
+
+  await assert.rejects(
+    helper.navigate(
+      'run-cancelled-recovery',
+      'https://example.com/recovered',
+    ),
+    (error) => {
+      assert.equal(error.code, 'collection_window_inactive_run');
+      assert.equal(error.stage, 'attach_replacement');
+      return true;
+    },
+  );
+
+  assert.equal(fake.calls.windowsCreate.length, 2);
+  assert.equal(fake.calls.windowsRemove.length, 1);
+  assert.equal(fake.storage['owned-window'], undefined);
 });
 
 test('navigate makes one replacement attempt and returns typed recovery failure evidence', async () => {
@@ -1184,6 +1235,74 @@ test('late login response cannot restore attention after cancellation', async ()
   assert.ok(!sessionCalls.some(([name]) => name === 'succeed'));
   assert.equal(fake.storage['collection-status'].status, 'cancelled');
   assert.equal(fake.storage['collection-status'].cancelled, true);
+});
+
+test('attention status follows a replacement tab after navigation recovery', async () => {
+  const fake = createFakeChrome({}, [
+    {
+      success: false,
+      pendingLogin: true,
+      error: '쿠팡 광고센터 로그인이 필요합니다.',
+    },
+  ]);
+  const attachedTabs = [];
+  const sessions = {
+    async attachTab(runId, tab) {
+      attachedTabs.push([runId, structuredClone(tab)]);
+      return { status: 'running' };
+    },
+    async cancel() {},
+    async fail() {},
+    async get() {
+      return { status: 'running', attempt: 1 };
+    },
+    async progress() {},
+    async requireAttention() {},
+    async succeed() {},
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+  const realUpdate = fake.chrome.tabs.update;
+  let firstUpdate = true;
+  fake.chrome.tabs.update = (tabId, properties, callback) => {
+    if (firstUpdate) {
+      firstUpdate = false;
+      fake.tabs.delete(tabId);
+      queueMicrotask(() => {
+        fake.chrome.runtime.lastError = { message: `No tab with id: ${tabId}.` };
+        callback(undefined);
+        fake.chrome.runtime.lastError = null;
+      });
+      return;
+    }
+    realUpdate(tabId, properties, callback);
+  };
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'dashboard.coupang_ads',
+    runId: 'run-attention-recovery',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'ads-day',
+        label: '쿠팡 광고 데이터 수집',
+        url: 'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-07-28',
+      },
+    ],
+  });
+
+  assert.equal(result.attentionRequired, true);
+  assert.equal(attachedTabs.length, 2);
+  assert.notEqual(attachedTabs[1][1].tabId, attachedTabs[0][1].tabId);
+  assert.equal(
+    fake.storage['collection-status'].currentTabId,
+    attachedTabs[1][1].tabId,
+  );
 });
 
 for (const scenario of [

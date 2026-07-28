@@ -663,6 +663,30 @@
       }
       const record = { runId, windowId: win.id, tabId: tab.id };
       await chromeApi.storage.local.set({ [storageKey]: record });
+      if (sessions && typeof sessions.attachTab === "function") {
+        let attached;
+        try {
+          attached = await sessions.attachTab(runId, {
+            tabId: record.tabId,
+            windowId: record.windowId,
+          });
+        } catch (cause) {
+          if (await closeOwnedRecord(record)) await clearRecord();
+          throw collectionWindowError(
+            "collection_window_recovery_failed",
+            errorMessage(cause),
+            { runId, stage: "attach_replacement", retryable: true },
+          );
+        }
+        if (attached?.status !== "running") {
+          if (await closeOwnedRecord(record)) await clearRecord();
+          throw collectionWindowError(
+            "collection_window_inactive_run",
+            INACTIVE_COLLECTION_RUN_MESSAGE,
+            { runId, stage: "attach_replacement" },
+          );
+        }
+      }
       return record;
     }
 
@@ -1220,7 +1244,7 @@
         let attentionRequired = false;
         await chromeApi.storage.local.remove(cancelKey);
         try {
-          const owned = await getOrCreate(runId, targets[0].url, producer);
+          let owned = await getOrCreate(runId, targets[0].url, producer);
           await bindTab(owned.tabId, environmentId);
           await sessions.attachTab(runId, {
             tabId: owned.tabId,
@@ -1270,6 +1294,8 @@
               environmentId,
               producer,
             );
+            const liveOwned = await reattach(runId);
+            if (liveOwned) owned = liveOwned;
             if (await isCancelled(runId)) {
               cancelled = true;
               break;
