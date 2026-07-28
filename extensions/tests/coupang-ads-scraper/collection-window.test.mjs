@@ -1305,6 +1305,98 @@ test('attention status follows a replacement tab after navigation recovery', asy
   );
 });
 
+test('ad sync replaces its owned tab when it disappears before the content command', async () => {
+  const missingTab = 'No tab with id: 200.';
+  const fake = createFakeChrome({}, [
+    { runtimeError: missingTab },
+    {
+      success: true,
+      type: 'ad_sync',
+      count: 1,
+      progress: {
+        current: 1,
+        total: 1,
+        completed: 1,
+        failed: 0,
+        label: '광고 동기화 완료',
+      },
+    },
+  ]);
+  const attachedTabs = [];
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab(runId, tab) {
+      attachedTabs.push([runId, structuredClone(tab)]);
+      return { status: 'running' };
+    },
+    async cancel(runId) {
+      sessionCalls.push(['cancel', runId]);
+    },
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return { status: 'running', attempt: 1 };
+    },
+    async progress(runId, progress) {
+      sessionCalls.push(['progress', runId, progress]);
+    },
+    async requireAttention() {},
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+  const realSendMessage = fake.chrome.tabs.sendMessage;
+  let closeBeforeFirstCommand = true;
+  fake.chrome.tabs.sendMessage = (tabId, message, callback) => {
+    if (closeBeforeFirstCommand) {
+      closeBeforeFirstCommand = false;
+      const closedTab = fake.tabs.get(tabId);
+      fake.tabs.delete(tabId);
+      if (closedTab) fake.windows.delete(closedTab.windowId);
+    }
+    realSendMessage(tabId, message, callback);
+  };
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'advertising.ad_sync',
+    runId: 'run-command-tab-recovery',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'ads',
+        label: '광고 동기화',
+        url: 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+      },
+    ],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.completed, 1);
+  assert.equal(result.failed, 0);
+  assert.equal(fake.calls.windowsCreate.length, 2);
+  assert.equal(attachedTabs.length, 2);
+  assert.notEqual(attachedTabs[1][1].tabId, attachedTabs[0][1].tabId);
+  assert.deepEqual(
+    fake.calls.tabMessages.map(({ tabId }) => tabId),
+    [attachedTabs[0][1].tabId, attachedTabs[1][1].tabId],
+  );
+  assert.ok(
+    sessionCalls.some(
+      ([name, runId]) =>
+        name === 'succeed' && runId === 'run-command-tab-recovery',
+    ),
+  );
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+});
+
 for (const scenario of [
   {
     producer: 'advertising.ad_sync',

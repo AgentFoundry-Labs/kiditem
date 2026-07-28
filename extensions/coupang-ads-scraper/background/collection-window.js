@@ -887,6 +887,10 @@
       );
     }
 
+    function isMissingCollectionTab(error) {
+      return /No tab with id:/i.test(errorMessage(error));
+    }
+
     async function sendTabMessageWhenReady(tabId, message) {
       let lastError = null;
       for (
@@ -1037,6 +1041,23 @@
         target.url,
         environmentId,
       );
+
+      // The owned tab can disappear during the bounded post-navigation wait.
+      // In that case the first observable failure is tabs.sendMessage rather
+      // than tabs.update, so navigate's recovery guard has not run yet. Replace
+      // the same run's managed tab once and replay only this target command.
+      if (isMissingCollectionTab(response?.error)) {
+        tab = await navigate(runId, target.url);
+        await bindTab(tab.tabId, environmentId);
+        await waitForTabComplete(tab.tabId);
+        await wait(4000);
+        response = await runManualSyncWithReceiverRecovery(
+          tab.tabId,
+          runId,
+          target.url,
+          environmentId,
+        );
+      }
 
       // 광고 캠페인 sweep가 SPA 상세 화면에서 대시보드 복귀에 실패하면 content
       // script가 unload되기 전에 명시적으로 응답한다. 캠페인 수가 4개보다 많아도
