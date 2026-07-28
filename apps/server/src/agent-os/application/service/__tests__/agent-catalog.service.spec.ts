@@ -37,7 +37,7 @@ describe('AgentCatalogService', () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: 'sourcing.magic_scraper',
-          skillPath: 'tools/codex/skills/magic-scraper/SKILL.md',
+          skillPath: '~/.codex/skills/magic-scraper/SKILL.md',
           allowedAgentTypes: ['sourcing'],
           mode: 'development_workflow',
         }),
