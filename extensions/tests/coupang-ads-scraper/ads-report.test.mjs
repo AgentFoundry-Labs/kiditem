@@ -414,6 +414,20 @@ test("dashboard collection hash waits for run-scoped manualSync instead of auto-
   );
 });
 
+test("explicit campaign sweep mode survives when Coupang drops the dashboard hash", () => {
+  const contract = loadContract({
+    location: {
+      href: "https://advertising.coupang.com/marketing/dashboard/sales",
+      pathname: "/marketing/dashboard/sales",
+      search: "",
+      hash: "",
+    },
+  });
+
+  assert.equal(typeof contract.shouldRunDashboardSweep, "function");
+  assert.equal(contract.shouldRunDashboardSweep("campaign_sweep"), true);
+});
+
 test("manual sync shares only the same active run and rejects a new attempt before mutation", () => {
   const contract = loadContract();
   const same = contract.manualSyncAdmission({

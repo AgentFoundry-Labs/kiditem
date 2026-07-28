@@ -4392,14 +4392,20 @@
 
   // doSync / runDashboardSweep 중복 실행 방지 — auto-trigger + manualSync 동시 시 같은 Promise 공유
   let currentSync = null;
-  function runSyncOnce() {
+  function shouldRunDashboardSweep(syncMode = null) {
+    return (
+      syncMode === "campaign_sweep" ||
+      /#kiditemAdSync=1/.test(window.location.hash || "") ||
+      campaignResumedFromDetailHref(window.location.href) !== null
+    );
+  }
+
+  function runSyncOnce(syncMode = null) {
     if (!currentSync) {
       // 대시보드 hash뿐 아니라 href 없는 캠페인 클릭이 연 상세 document의
       // pending handoff도 같은 sweep이다. 후자는 상세 URL에 hash가 없으므로
       // sessionStorage owner를 확인하지 않으면 legacy doSync로 잘못 분기한다.
-      const isAdSync =
-        /#kiditemAdSync=1/.test(window.location.hash || "") ||
-        campaignResumedFromDetailHref(window.location.href) !== null;
+      const isAdSync = shouldRunDashboardSweep(syncMode);
       const job = isAdSync ? runDashboardSweep() : doSync();
       currentSync = job.finally(() => {
         currentSync = null;
@@ -4496,6 +4502,7 @@
     resetReportPaginationToFirstPage,
     returnToDashboard,
     savePendingCampaignNavigation,
+    shouldRunDashboardSweep,
     unresolvedCampaignWorkKeys,
     withCollectionRunId,
   });
@@ -4574,7 +4581,7 @@
         return false;
       }
       if (admission.shareCurrent) {
-        runSyncOnce()
+        runSyncOnce(msg.syncMode)
           .then((result) => sendResponse(result))
           .catch((error) =>
             sendResponse({ success: false, error: error?.message || String(error) }),
@@ -4598,7 +4605,7 @@
       if (executionChanged) {
         lastReportedSweepProgress = { current: 0, total: 0 };
       }
-      runSyncOnce()
+      runSyncOnce(msg.syncMode)
         .then((result) => sendResponse(result))
         .catch((error) =>
           sendResponse({ success: false, error: error?.message || String(error) }),

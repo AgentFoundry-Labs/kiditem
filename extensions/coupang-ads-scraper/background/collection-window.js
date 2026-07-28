@@ -935,7 +935,13 @@
       }
     }
 
-    async function runManualSync(tabId, runId, resumeUrl, environmentId) {
+    async function runManualSync(
+      tabId,
+      runId,
+      resumeUrl,
+      environmentId,
+      producer,
+    ) {
       const attempt = await collectionAttempt(runId);
       try {
         for (
@@ -943,12 +949,16 @@
           busyAttempt <= AD_SYNC_BUSY_MAX_ATTEMPTS;
           busyAttempt += 1
         ) {
-          const response = await sendTabMessageWhenReady(tabId, {
+          const message = {
             action: "manualSync",
             collectionRunId: runId,
             collectionAttempt: attempt,
             environmentId,
-          });
+          };
+          if (producer === "advertising.ad_sync") {
+            message.syncMode = "campaign_sweep";
+          }
+          const response = await sendTabMessageWhenReady(tabId, message);
           if (
             response?.error !== "ad_sync_already_running" ||
             response?.retryable !== true
@@ -1014,12 +1024,14 @@
       runId,
       resumeUrl,
       environmentId,
+      producer,
     ) {
       let response = await runManualSync(
         tabId,
         runId,
         resumeUrl,
         environmentId,
+        producer,
       );
       if (!isMissingMessageReceiver(response?.error)) return response;
 
@@ -1036,6 +1048,7 @@
         runId,
         resumeUrl,
         environmentId,
+        producer,
       );
       return response;
     }
@@ -1050,6 +1063,7 @@
         runId,
         target.url,
         environmentId,
+        producer,
       );
 
       // The owned tab can disappear during the bounded post-navigation wait.
@@ -1066,6 +1080,7 @@
           runId,
           target.url,
           environmentId,
+          producer,
         );
       }
 
@@ -1127,6 +1142,7 @@
               runId,
               target.url,
               environmentId,
+              producer,
             );
             const nextProgress = campaignSweepProgress(response);
             resumeProgress = mergeCampaignSweepProgress(
@@ -1174,6 +1190,7 @@
           runId,
           target.url,
           environmentId,
+          producer,
         );
         const nextProgress = campaignSweepProgress(response);
         if (hasCampaignSweepProgressed(resumeProgress, nextProgress)) {

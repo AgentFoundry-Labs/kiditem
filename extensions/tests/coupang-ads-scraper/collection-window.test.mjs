@@ -1611,6 +1611,7 @@ test('retries manual sync across receiver startup and campaign-page navigation',
       collectionRunId: 'run-content-ready',
       collectionAttempt: 4,
       environmentId: 'local',
+      syncMode: 'campaign_sweep',
     })),
   );
   assert.ok(
@@ -1934,12 +1935,14 @@ test('resumes an interrupted campaign sweep in the same owned tab', async () => 
         collectionRunId: 'run-resume',
         collectionAttempt: 1,
         environmentId: 'local',
+        syncMode: 'campaign_sweep',
       },
       {
         action: 'manualSync',
         collectionRunId: 'run-resume',
         collectionAttempt: 1,
         environmentId: 'local',
+        syncMode: 'campaign_sweep',
       },
     ],
   );
