@@ -5,13 +5,19 @@
   const DEFAULT_PROFILE_STORAGE_KEY = 'kiditem_environment_profiles_v1';
   const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
   const DEFAULT_AUTH_REFRESH_TIMEOUT_MS = 10_000;
-  const ENVIRONMENT_IDS = Object.freeze(['local', 'staging']);
+  const ENVIRONMENT_IDS = Object.freeze(['local', 'office', 'staging']);
   const ENVIRONMENTS = Object.freeze({
     local: Object.freeze({
       environmentId: 'local',
       webOrigin: 'http://localhost:3000',
       apiOrigin: 'http://localhost:4000',
       webUrlPattern: 'http://localhost:3000/*',
+    }),
+    office: Object.freeze({
+      environmentId: 'office',
+      webOrigin: 'http://kiditem-office',
+      apiOrigin: 'http://kiditem-office',
+      webUrlPattern: 'http://kiditem-office/*',
     }),
     staging: Object.freeze({
       environmentId: 'staging',
@@ -348,6 +354,7 @@
       resolveSender,
       setAccessToken,
       storageKey,
+      environmentIds: ENVIRONMENT_IDS,
     });
   }
 

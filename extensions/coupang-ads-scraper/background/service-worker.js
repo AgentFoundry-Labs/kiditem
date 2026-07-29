@@ -31,6 +31,7 @@ if (
 // 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
 const KIDITEM_WEB_URL_PATTERNS = [
   "http://localhost:3000/*",
+  "http://kiditem-office/*",
   "https://staging.merchon.org/*",
 ];
 const AD_ACTION_URL =
@@ -82,7 +83,7 @@ const collectionSessions = KidItemCollectionSession.create({
   environmentContext,
 });
 const collectionWindows = Object.fromEntries(
-  ["local", "staging"].map((environmentId) => [
+  environmentContext.environmentIds.map((environmentId) => [
     environmentId,
     KidItemCollectionWindow.create({
       chrome,
@@ -102,7 +103,7 @@ const collectionWindows = Object.fromEntries(
   ]),
 );
 const catalogCollectionWindows = Object.fromEntries(
-  ["local", "staging"].map((environmentId) => [
+  environmentContext.environmentIds.map((environmentId) => [
     environmentId,
     KidItemCollectionWindow.create({
       chrome,
@@ -221,7 +222,7 @@ chrome.runtime.onInstalled.addListener(() => {
   cleanupStorage();
   // 알람은 onInstalled에서만 등록 (서비스워커 재시작 시 유지됨)
   chrome.alarms.create("storage-cleanup", { periodInMinutes: 1440 });
-  for (const environmentId of ["local", "staging"]) {
+  for (const environmentId of environmentContext.environmentIds) {
     chrome.alarms.create(coupangEnvironment.alarmName("auto-scrape", environmentId), { periodInMinutes: 180 });
     chrome.alarms.create(coupangEnvironment.alarmName("keyword-rank-check", environmentId), { periodInMinutes: 720 });
     chrome.alarms.create(coupangEnvironment.alarmName(WING_RANK_RESUME_ALARM, environmentId), { periodInMinutes: 1 });
@@ -549,19 +550,21 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         ? msg.runId
         : collectionRuns.createRunId();
     const startedAt = Date.now();
+    // Acknowledge the external request before awaiting MV3 session/storage
+    // setup. The caller owns runId and polls the durable session separately.
+    sendResponse({
+      success: true,
+      started: true,
+      total: urls.length,
+      runId,
+      startedAt,
+    });
     prepareScrapeTargets(urls, runId, startedAt, {
       producer,
       restartStrategy: "web",
       environmentId,
     })
       .then(({ runId: preparedRunId, producer: preparedProducer }) => {
-        sendResponse({
-          success: true,
-          started: true,
-          total: urls.length,
-          runId: preparedRunId,
-          startedAt,
-        });
         // MV3 service worker 는 30초 유휴면 종료된다. 수집은 수십 분이 걸리는데
         // 이 경로에는 keepalive 가 없어서, 웹 UI 가 2초마다 보내는 상태 폴링에
         // 우연히 기대고 있었다. 사용자가 KIDITEM 탭을 떠나거나 그 탭이 백그라운드로
@@ -594,14 +597,21 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
           .finally(() => clearInterval(keepAlive));
       })
       .catch((error) => {
-        sendResponse({
-          success: false,
-          started: false,
-          runId,
-          error: error?.message || "Collection session start failed",
+        chrome.storage.local.set({
+          [coupangEnvironment.stateKey(BATCH_SCRAPE_STATUS_KEY, environmentId)]: {
+            runId,
+            total: urls.length,
+            completed: 0,
+            failed: 1,
+            current: 0,
+            status: "error",
+            startedAt,
+            endedAt: Date.now(),
+            error: error?.message || "Collection session start failed",
+          },
         });
       });
-    return true;
+    return false;
   }
 
   if (msg.action === "getBatchScrapeStatus") {

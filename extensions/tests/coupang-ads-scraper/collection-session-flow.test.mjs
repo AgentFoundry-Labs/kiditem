@@ -60,7 +60,7 @@ test('loads the canonical session manager and focus owners before collector runt
   assert.match(worker, /storageKey:\s*["']kiditem_collection_sessions["']/);
   assert.match(
     worker,
-    /const KIDITEM_WEB_URL_PATTERNS = \[[\s\S]*?["']http:\/\/localhost:3000\/\*["'][\s\S]*?["']https:\/\/staging\.merchon\.org\/\*["'][\s\S]*?\]/,
+    /const KIDITEM_WEB_URL_PATTERNS = \[[\s\S]*?["']http:\/\/localhost:3000\/\*["'][\s\S]*?["']http:\/\/kiditem-office\/\*["'][\s\S]*?["']https:\/\/staging\.merchon\.org\/\*["'][\s\S]*?\]/,
   );
   assert.match(worker, /environmentContext,\s*\n\s*\}\);/);
 });
@@ -88,6 +88,17 @@ test('handles generic collection controls before producer actions', () => {
   );
 });
 
+test('acknowledges scrape target runs before asynchronous session preparation', () => {
+  const handler = worker.slice(
+    worker.indexOf('if (msg.action === "scrapeTargets")'),
+    worker.indexOf('if (msg.action === "getBatchScrapeStatus")'),
+  );
+  const acknowledgement = handler.indexOf('sendResponse({');
+  const preparation = handler.indexOf('prepareScrapeTargets(');
+  assert.ok(acknowledgement >= 0 && acknowledgement < preparation);
+  assert.match(handler, /return false;/);
+});
+
 test('persists only allowlisted Coupang producers and advertises the capability', () => {
   const producerSources = `${worker}\n${collectionRunsSource}`;
   for (const producer of [
@@ -108,7 +119,7 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /unsupported collection producer/i);
-  assert.equal(manifest.version, '1.2.99');
+  assert.equal(manifest.version, '1.2.101');
   assert.match(worker, /wingFormPortV1:\s*true/);
   assert.match(worker, /kiditem-wing-form-v1/);
   assert.match(

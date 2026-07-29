@@ -162,6 +162,49 @@ describe('wing catalog extension helpers', () => {
     );
   });
 
+  it('preserves the collection run when Coupang login requires attention', async () => {
+    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
+    mockedSendToExtension
+      .mockResolvedValueOnce({
+        success: true,
+        version: '1.2.33',
+        capabilities: {
+          wingCatalogSearch: true,
+          browserCollectionSessions: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        attentionRequired: true,
+        runId: '11111111-1111-4111-8111-111111111111',
+        tabId: 42,
+        error: '쿠팡 로그인이 필요합니다.',
+      });
+
+    await expect(searchWingCatalogProducts({
+      keyword: '유아복',
+      maxPages: 2,
+      runId: '11111111-1111-4111-8111-111111111111',
+    })).resolves.toMatchObject({
+      attentionRequired: true,
+      runId: '11111111-1111-4111-8111-111111111111',
+      tabId: 42,
+      rows: [],
+    });
+
+    expect(mockedSendToExtension).toHaveBeenNthCalledWith(
+      2,
+      'extension-1',
+      {
+        action: 'searchWingCatalogProducts',
+        keyword: '유아복',
+        maxPages: 2,
+        runId: '11111111-1111-4111-8111-111111111111',
+      },
+      WING_CATALOG_SEARCH_TIMEOUT_MS,
+    );
+  });
+
   it('builds related keyword insight candidates from catalog product names', () => {
     const insightRows: WingCatalogProduct[] = [
       { ...rows[0], productName: '수채화 팔레트 1개 미술용' },

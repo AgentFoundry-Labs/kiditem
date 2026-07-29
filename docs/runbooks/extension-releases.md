@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Package all KidItem Chrome extensions as universal artifacts that support local
-and staging simultaneously, then publish them together in the GitHub Release
+Package all KidItem Chrome extensions as universal artifacts that support local,
+office, and staging simultaneously, then publish them together in the GitHub Release
 for the staging deployment tag. Publishing is manual; there is no GitHub
 Actions extension-publishing workflow.
 GitHub Packages/GHCR remains for server images and is not an extension
@@ -24,16 +24,17 @@ one ZIP with all three extension directories.
 ## Universal Environment Contract
 
 - One installed copy supports local web/API at `http://localhost:3000` /
-  `http://localhost:4000` and staging web/API at
+  `http://localhost:4000`, office web/API at `http://kiditem-office`, and
+  staging web/API at
   `https://staging.merchon.org`.
 - The verified external sender origin selects the environment profile. A caller
   cannot choose another environment by sending an environment id.
 - Auth profiles, runs, status, tabs, alarms, caches, and callbacks remain bound
-  to their owning environment, so local and staging operations may run at the
-  same time.
+  to their owning environment, so local, office, and staging operations may run
+  at the same time.
 - The packager never rewrites origins or runtime code. It copies every loadable
   source file byte-for-byte, omitting only agent documentation and hidden files.
-- Do not create or maintain local-only or staging-only source/package variants.
+- Do not create or maintain environment-specific source/package variants.
 
 ## Prerequisites
 
@@ -149,9 +150,9 @@ Chrome does not install the ZIP directly.
    unpacked** for each of those three directories.
 4. For an update, replace the directory contents and click **Reload** on the
    existing extension card. Do not leave old and new copies enabled together.
-5. Reload each open KidItem page. Confirm local and staging handshakes report
-   the expected extension version and environment-profile capability.
-6. Visit and authenticate both KidItem origins when both profiles are needed.
+5. Reload each open KidItem page. Confirm local, office, and staging handshakes
+   report the expected extension version and environment-profile capability.
+6. Visit and authenticate each KidItem origin whose profile is needed.
    Marketplace login and OTP stay in the operator's normal Chrome profile.
 
 ## Verification
@@ -171,9 +172,9 @@ git diff --check
 Manual acceptance for the released extension:
 
 1. Extract the bundle once and load each of its three extension directories.
-2. Open both the local and staging KidItem pages in the same Chrome profile.
-3. Confirm both pages discover the same installed extension/version.
-4. Authenticate both profiles and confirm each page reports its own connected
+2. Open the local, office, and staging KidItem pages in the same Chrome profile.
+3. Confirm all pages discover the same installed extension/version.
+4. Authenticate the profiles and confirm each page reports its own connected
    environment.
 5. Start safe read-only work from each environment and confirm status,
    cancellation, and completion callbacks never cross environments.

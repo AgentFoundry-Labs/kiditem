@@ -169,7 +169,7 @@ test('requires, persists, filters, and publishes the collection environment owne
   const published = [];
   const environmentContext = {
     requireEnvironment(environmentId) {
-      if (!['local', 'staging'].includes(environmentId)) {
+      if (!['local', 'office', 'staging'].includes(environmentId)) {
         throw new Error('Unsupported KidItem environment');
       }
       return { environmentId };
@@ -190,17 +190,22 @@ test('requires, persists, filters, and publishes the collection environment owne
     /Collection environment is required/,
   );
   const local = await manager.start(startInput());
+  await manager.start({
+    ...startInput('33333333-3333-4333-8333-333333333333'),
+    environmentId: 'office',
+  });
   await manager.start({ ...startInput(OTHER_RUN_ID), environmentId: 'staging' });
 
   assert.equal(local.environmentId, 'local');
   assert.deepEqual(Array.from((await manager.list('local')).map((item) => item.runId)), [RUN_ID]);
   assert.equal(await manager.getOwned(RUN_ID, 'staging'), null);
   assert.equal((await manager.getOwned(RUN_ID, 'local')).runId, RUN_ID);
-  assert.equal((await manager.listAll()).length, 2);
+  assert.equal((await manager.listAll()).length, 3);
   assert.deepEqual(
     published.map(({ environmentId, eventName }) => ({ environmentId, eventName })),
     [
       { environmentId: 'local', eventName: 'kiditem:browser-collection-session' },
+      { environmentId: 'office', eventName: 'kiditem:browser-collection-session' },
       { environmentId: 'staging', eventName: 'kiditem:browser-collection-session' },
     ],
   );

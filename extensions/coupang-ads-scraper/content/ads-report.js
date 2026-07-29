@@ -3,8 +3,6 @@
 (function () {
   "use strict";
 
-  const SERVER = "http://localhost:4000";
-
   // showBadge is loaded from utils/dom.js via manifest
 
   function sleep(ms) {
@@ -1629,7 +1627,13 @@
       dateTo = targetDate;
     }
 
-    const collection = await collectPaginatedReport({ maxPages: 50 });
+    const collection = await collectPaginatedReport({
+      maxPages: 50,
+      // Exact-day rows can still be hydrating after the date picker settles.
+      ...(targetDate
+        ? { readPage: () => readSettledReportPage(30000) }
+        : {}),
+    });
     if (!collection.complete) {
       const error = `광고 페이지 수집 불완전: ${collection.error || "unknown"}`;
       showBadge(`❌ ${error}`, "#ef4444");
@@ -4505,7 +4509,7 @@
             showBadge("ℹ️ 실행할 승인 액션이 없습니다.", "#94a3b8");
             return { success: true, executed: 0, skipped: 0 };
           }
-          return executeApprovedActions(actions, `${SERVER}/api/ads/actions`);
+          return executeApprovedActions(actions);
         })
         .finally(() => {
           currentActionExecution = null;
@@ -4621,8 +4625,15 @@
     }, 400);
   }
 
+  const legacyBatchAutoStartDelayMs = isLegacyBatchMode ? 6000 : 3000;
   setTimeout(() => {
     if (!isActionMode && !isLegacyBatchMode) {
+      return;
+    }
+    // The managed collection-window path sends manualSync with an owned run
+    // id. Do not race it with the legacy hash auto-run or close its tab after
+    // the first date.
+    if (isLegacyBatchMode && activeCollectionRunId !== null) {
       return;
     }
     const runner = isActionMode ? runApprovedActionsOnce() : runSyncOnce();
@@ -4640,7 +4651,7 @@
         } catch {}
       }
     });
-  }, 3000);
+  }, legacyBatchAutoStartDelayMs);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {

@@ -14,6 +14,18 @@ const source = fs.readFileSync(
   "utf8",
 );
 
+test("managed daily collection wins the legacy hash auto-start race", () => {
+  assert.match(
+    source,
+    /legacyBatchAutoStartDelayMs = isLegacyBatchMode \? 6000 : 3000/,
+  );
+  assert.match(
+    source,
+    /isLegacyBatchMode && activeCollectionRunId !== null/,
+  );
+  assert.match(source, /readSettledReportPage\(30000\)/);
+});
+
 function loadContract(options = {}) {
   const location = options.location || {
     href: "https://advertising.coupang.com/marketing/dashboard/sales",

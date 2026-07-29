@@ -1,5 +1,6 @@
 'use client';
 
+import { BrowserCollectionRunIdSchema } from '@kiditem/shared/browser-collection-session';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -16,6 +17,8 @@ import {
   Check,
   type LucideIcon,
 } from 'lucide-react';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { isChromeExtensionRuntimeAvailable } from '@/lib/extension-bridge';
 import { isApiError } from '@/lib/api-error';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
@@ -71,6 +74,17 @@ export function WingCatalogPage() {
   const [reviewProduct, setReviewProduct] = useState<WingCatalogProduct | null>(null);
   const [trackedProductIds, setTrackedProductIds] = useState<Set<string>>(new Set());
   const [trackingProductId, setTrackingProductId] = useState<string | null>(null);
+  const [activeCollectionRunId, setActiveCollectionRunId] = useState(readCollectionRunId);
+  const collectionSessionQuery = useBrowserCollectionSession(activeCollectionRunId);
+  const collectionSession =
+    collectionSessionQuery.data?.producer === 'sourcing.wing_catalog'
+      ? collectionSessionQuery.data
+      : null;
+  const visibleCollectionSession =
+    collectionSession?.status === 'running' ||
+    collectionSession?.status === 'attention_required'
+      ? collectionSession
+      : null;
 
   const rows = useMemo(() => sortWingCatalogRows(result?.rows ?? [], sortKey), [result?.rows, sortKey]);
   const summary = useMemo(() => buildWingCatalogSummary(result?.rows ?? []), [result?.rows]);
@@ -187,18 +201,27 @@ export function WingCatalogPage() {
     };
   }, [result?.keyword]);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const runCatalogSearch = async (runId?: string) => {
     setError(null);
     setIsSearching(true);
     try {
-      const response = await searchWingCatalogProducts({ keyword, maxPages });
+      const response = await searchWingCatalogProducts({ keyword, maxPages, runId });
+      if (response.attentionRequired && response.runId) {
+        setActiveCollectionRunId(response.runId);
+        return;
+      }
+      setActiveCollectionRunId(null);
       setResult(response);
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : String(searchError));
     } finally {
       setIsSearching(false);
     }
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await runCatalogSearch();
   };
 
   const handleDownload = () => {
@@ -302,6 +325,36 @@ export function WingCatalogPage() {
               <p className="mt-1">{error}</p>
             </div>
           </div>
+        )}
+
+        {visibleCollectionSession && (
+          <section
+            className={cn(
+              'rounded-lg border p-4',
+              visibleCollectionSession.status === 'attention_required'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-[var(--border)] bg-[var(--surface)]',
+            )}
+          >
+            <p className="font-black text-[var(--text-primary)]">
+              {visibleCollectionSession.status === 'attention_required'
+                ? '쿠팡 로그인 필요'
+                : '쿠팡 상품 분석 진행 중'}
+            </p>
+            {visibleCollectionSession.status === 'attention_required' && (
+              <p className="mt-1 text-sm font-semibold text-amber-800">
+                확인 탭을 열어 쿠팡에 로그인한 뒤 처음부터 재실행을 눌러주세요.
+              </p>
+            )}
+            <BrowserCollectionRunControls
+              session={visibleCollectionSession}
+              onWebRestart={async (session) => {
+                await runCatalogSearch(session.runId);
+                await collectionSessionQuery.refetch();
+              }}
+              className="mt-3"
+            />
+          </section>
         )}
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -918,4 +971,12 @@ function downloadCsv(fileName: string, rows: WingCatalogProduct[]) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function readCollectionRunId(): string | null {
+  if (typeof window === 'undefined') return null;
+  const parsed = BrowserCollectionRunIdSchema.safeParse(
+    new URLSearchParams(window.location.search).get('collectionRun'),
+  );
+  return parsed.success ? parsed.data : null;
 }

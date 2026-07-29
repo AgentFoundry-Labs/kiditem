@@ -97,3 +97,20 @@ test('attaches normalized evidence when a collector throws', async () => {
   assert.equal(result.failure.code, 'network_failed');
   assert.equal(result.failure.provider, 'boribori');
 });
+
+test('accepts the office environment owner', async () => {
+  const lifecycleModule = loadLifecycle();
+  const lifecycle = lifecycleModule.create({
+    sessions: createSessions(),
+    producer: 'orders.mall',
+  });
+
+  const result = await lifecycle.run(
+    { runId: RUN_ID, environmentId: 'office' },
+    lifecycleModule.createIdentity('sellpia', '2026-07-29'),
+    async () => ({ success: true }),
+  );
+
+  assert.equal(result.collectionSession.environmentId, 'office');
+  assert.equal(result.collectionSession.status, 'succeeded');
+});

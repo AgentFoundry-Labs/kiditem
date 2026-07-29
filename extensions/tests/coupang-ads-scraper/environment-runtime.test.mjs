@@ -32,13 +32,13 @@ function createRuntime(initial = {}) {
   vm.runInContext(source, context);
   const environmentContext = {
     requireEnvironment(environmentId) {
-      if (!['local', 'staging'].includes(environmentId)) throw new Error('invalid');
+      if (!['local', 'office', 'staging'].includes(environmentId)) throw new Error('invalid');
       return { environmentId };
     },
     storageKey: (base, environmentId) => `${base}:${environmentId}`,
     alarmName: (base, environmentId) => `${base}:${environmentId}`,
     parseAlarmName(base, name) {
-      for (const environmentId of ['local', 'staging']) {
+      for (const environmentId of ['local', 'office', 'staging']) {
         if (name === `${base}:${environmentId}`) return environmentId;
       }
       return null;
@@ -69,23 +69,27 @@ test('binds marketplace tabs to one explicit connected environment', async () =>
   const { runtime } = createRuntime();
 
   await runtime.bindTab(41, 'local');
+  await runtime.bindTab(43, 'office');
   await runtime.bindTab(42, 'staging');
 
   assert.equal(await runtime.environmentForTab(41), 'local');
+  assert.equal(await runtime.environmentForTab(43), 'office');
   assert.equal(await runtime.environmentForTab(42), 'staging');
   await runtime.clearTab(41);
   assert.equal(await runtime.environmentForTab(41), null);
 });
 
-test('preserves concurrent local and staging tab bindings', async () => {
+test('preserves concurrent local, office, and staging tab bindings', async () => {
   const { runtime } = createRuntime();
 
   await Promise.all([
     runtime.bindTab(51, 'local'),
+    runtime.bindTab(53, 'office'),
     runtime.bindTab(52, 'staging'),
   ]);
 
   assert.equal(await runtime.environmentForTab(51), 'local');
+  assert.equal(await runtime.environmentForTab(53), 'office');
   assert.equal(await runtime.environmentForTab(52), 'staging');
 });
 
