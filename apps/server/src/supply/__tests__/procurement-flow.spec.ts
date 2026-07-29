@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { ROCKET_SAVED_PO_RESPONSE_PROFILE } from '@kiditem/shared/rocket-purchase-preview';
@@ -380,6 +381,21 @@ describe('ProcurementController purchase submission boundary', () => {
         reason: '쿠팡에 업로드하지 않음',
       },
     });
+  });
+
+  it('allows bounded Rocket workbook metadata above the multipart 1 MiB default', () => {
+    const source = readFileSync(
+      __filename.replace(/__tests__\/[^/]+$/, 'adapter/in/http/procurement.controller.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain(`limits: {
+      fileSize: MAX_ROCKET_WORKBOOK_SIZE,
+      fieldSize: MAX_ROCKET_WORKBOOK_REQUEST_SIZE,
+    }`);
+    expect(source).toContain(
+      'const MAX_ROCKET_WORKBOOK_REQUEST_SIZE = 25 * 1024 * 1024;',
+    );
   });
 
   it('routes previewRocket through the existing action-body endpoint with server actor scope', async () => {

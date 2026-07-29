@@ -14,7 +14,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { toast } from "sonner";
 
 type RecipeDraft = ProductRecipeComponentCandidate & {
-  quantity: number;
+  quantity: number | null;
 };
 
 export function RocketInlineRecipeEditor({
@@ -96,7 +96,8 @@ export function RocketInlineRecipeEditor({
   });
 
   const hasInvalidQuantity = draft.some(
-    ({ quantity }) => !Number.isInteger(quantity) || quantity <= 0,
+    ({ quantity }) =>
+      quantity === null || !Number.isInteger(quantity) || quantity <= 0,
   );
   const canSave = draft.length > 0 && !hasInvalidQuantity && !save.isPending;
   const addCandidate = (candidate: ProductRecipeComponentCandidate) => {
@@ -256,14 +257,17 @@ export function RocketInlineRecipeEditor({
                       step={1}
                       required
                       aria-label={`${component.code} 구성 수량`}
-                      value={component.quantity}
+                      value={component.quantity ?? ""}
                       onChange={(event) =>
                         setDraft((current) =>
                           current.map((item, itemIndex) =>
                             itemIndex === index
                               ? {
                                   ...item,
-                                  quantity: Number(event.target.value),
+                                  quantity:
+                                    event.target.value === ""
+                                      ? null
+                                      : Number(event.target.value),
                                 }
                               : item,
                           ),

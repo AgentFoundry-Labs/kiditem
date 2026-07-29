@@ -103,6 +103,36 @@ describe("<RocketInlineRecipeEditor />", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the quantity field empty while the operator replaces its value", async () => {
+    renderEditor();
+    fireEvent.change(
+      screen.getByRole("searchbox", {
+        name: "Sellpia 상품 코드 또는 상품명 검색",
+      }),
+      { target: { value: "9633-1" } },
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "9633-1 재고 추가" }),
+    );
+    const quantity = screen.getByRole("spinbutton", {
+      name: "9633-1 구성 수량",
+    });
+
+    fireEvent.change(quantity, { target: { value: "" } });
+
+    expect(quantity).toHaveValue(null);
+    expect(
+      screen.getByRole("button", { name: "재고 연결하고 다시 계산" }),
+    ).toBeDisabled();
+
+    fireEvent.change(quantity, { target: { value: "4" } });
+
+    expect(quantity).toHaveValue(4);
+    expect(
+      screen.getByRole("button", { name: "재고 연결하고 다시 계산" }),
+    ).toBeEnabled();
+  });
+
   it("creates the empty variant recipe and asks the Rocket preview to recalculate", async () => {
     const onSaved = vi.fn().mockResolvedValue(undefined);
     vi.mocked(apiClient.post).mockResolvedValue({
