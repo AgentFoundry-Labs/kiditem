@@ -173,7 +173,12 @@ function Assert-ImageRevision {
   )
 
   Invoke-Checked docker pull $Image
-  $revision = Get-CheckedOutput docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' $Image
+  $imageJson = Get-CheckedOutput docker image inspect $Image
+  $imageMetadata = @(ConvertFrom-Json -InputObject $imageJson)
+  if ($imageMetadata.Count -ne 1) {
+    throw "Expected one image inspection result for $Image; found $($imageMetadata.Count)."
+  }
+  $revision = $imageMetadata[0].Config.Labels.'org.opencontainers.image.revision'
   if ($revision -ne $ExpectedRevision) {
     throw "Image revision mismatch for $Image. Expected $ExpectedRevision, found $revision."
   }
