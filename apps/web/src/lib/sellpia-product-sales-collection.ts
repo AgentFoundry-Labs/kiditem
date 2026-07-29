@@ -24,8 +24,10 @@ async function detectExtensionId(): Promise<string> {
 }
 
 // 확장을 통해 셀피아 상품별 이익현황(월별 소진)을 스크랩한다.
-export async function collectSellpiaProductProfitFromExtension(): Promise<SellpiaProductSalesIngestPayload> {
-  const extensionId = await detectExtensionId();
+export async function collectSellpiaProductProfitFromExtension(
+  knownExtensionId?: string,
+): Promise<SellpiaProductSalesIngestPayload> {
+  const extensionId = knownExtensionId ?? await detectExtensionId();
   const res = await sendToExtension<CollectResponse>(
     extensionId,
     { action: 'collectSellpiaProductProfit' },

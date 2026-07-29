@@ -37,7 +37,8 @@ describe('retired shared Sellpia drawer', () => {
     expect(productOutflow).toContain(
       "freshnessState?.status === 'failed' ? 'retry' : 'manual_request'",
     );
-    expect(productOutflow).toContain('재고 동기화');
+    expect(productOutflow).toContain('셀피아 동기화');
     expect(coordinator).toContain('collectSellpiaInventory');
+    expect(coordinator).toContain('collectSellpiaProductProfitFromExtension');
   });
 });

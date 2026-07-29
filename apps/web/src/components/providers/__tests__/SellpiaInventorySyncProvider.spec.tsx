@@ -21,6 +21,10 @@ const extension = vi.hoisted(() => ({
   finalizeSellpiaInventorySession: vi.fn(),
   cancelSellpiaInventorySession: vi.fn(),
 }));
+const productSales = vi.hoisted(() => ({
+  collect: vi.fn(),
+  ingest: vi.fn(),
+}));
 const auth = vi.hoisted(() => ({ useAuth: vi.fn() }));
 const alerts = vi.hoisted(() => ({
   startOperationAlert: vi.fn(),
@@ -34,6 +38,12 @@ const invalidateSellpiaInventory = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({ sellpiaInventoryFreshnessApi: api }));
 vi.mock('@/lib/sellpia-inventory-extension', () => extension);
+vi.mock('@/lib/sellpia-product-sales-collection', () => ({
+  collectSellpiaProductProfitFromExtension: productSales.collect,
+}));
+vi.mock('@/lib/sellpia-product-sales-api', () => ({
+  ingestSellpiaProductSales: productSales.ingest,
+}));
 vi.mock('@/hooks/useAuth', () => auth);
 vi.mock('@/lib/operation-alerts', () => alerts);
 vi.mock('@/app/(inventory)/_shared/invalidate-sellpia-inventory', () => ({
@@ -54,7 +64,7 @@ const dueState = {
   requestedGeneration: '2',
   verifiedGeneration: '1',
   refreshRequestedAt: '2026-07-16T00:11:00.000Z',
-  refreshReason: 'ttl_expired' as const,
+  refreshReason: 'manual_request' as const,
   syncNotBefore: null,
   activeSync: null,
   lastAttempt: null,
@@ -97,7 +107,7 @@ function completedImport(issues: Array<{
       importedAt: '2026-07-16T00:02:00.000Z',
       lastVerifiedAt: '2026-07-16T00:02:00.000Z',
       verificationCount: 1,
-      lastTrigger: 'ttl_expired' as const,
+      lastTrigger: 'manual_request' as const,
       freshnessGeneration: '2',
       manualFreshExportConfirmedAt: null,
       manualFreshExportConfirmedBy: null,
@@ -132,6 +142,8 @@ function renderProvider(children: React.ReactNode = null) {
 function expectNoStaleClaimSideEffects() {
   expect(api.heartbeat).not.toHaveBeenCalled();
   expect(extension.collectSellpiaInventory).not.toHaveBeenCalled();
+  expect(productSales.collect).not.toHaveBeenCalled();
+  expect(productSales.ingest).not.toHaveBeenCalled();
   expect(api.importBrowser).not.toHaveBeenCalled();
   expect(extension.finalizeSellpiaInventorySession).not.toHaveBeenCalled();
   expect(extension.cancelSellpiaInventorySession).not.toHaveBeenCalled();
@@ -159,6 +171,15 @@ describe('SellpiaInventorySyncProvider', () => {
     extension.collectSellpiaInventory.mockResolvedValue({
       file: new File(['workbook'], 'inventory.xls'),
       extensionId: 'extension-id',
+    });
+    productSales.collect.mockResolvedValue({
+      range: { from: '2026-06-01', to: '2026-07-16' },
+      products: [],
+    });
+    productSales.ingest.mockResolvedValue({
+      upserted: 0,
+      productCount: 0,
+      months: ['2026-06', '2026-07'],
     });
     extension.finalizeSellpiaInventorySession.mockResolvedValue(undefined);
     extension.cancelSellpiaInventorySession.mockResolvedValue(undefined);
@@ -502,7 +523,7 @@ describe('SellpiaInventorySyncProvider', () => {
     await waitFor(() => expect(api.claimDue).toHaveBeenCalledTimes(2));
   });
 
-  it('uploads, finalizes, invalidates projections, and deduplicates quality alerts by hash and warning code', async () => {
+  it('ingests product depletion before publishing inventory, then finalizes and invalidates every projection', async () => {
     api.importBrowser.mockResolvedValue(completedImport([{
       code: `${'a'.repeat(64)}:snapshot_churn`,
       severity: 'warning',
@@ -521,8 +542,15 @@ describe('SellpiaInventorySyncProvider', () => {
     expect(api.importBrowser).toHaveBeenCalledWith(expect.any(File), {
       claimToken: RUN_ID,
       activeGeneration: '2',
-      trigger: 'ttl_expired',
+      trigger: 'manual_request',
     });
+    expect(productSales.collect).toHaveBeenCalledWith('extension-id');
+    expect(productSales.ingest).toHaveBeenCalledWith({
+      range: { from: '2026-06-01', to: '2026-07-16' },
+      products: [],
+    });
+    expect(productSales.ingest.mock.invocationCallOrder[0])
+      .toBeLessThan(api.importBrowser.mock.invocationCallOrder[0]);
     expect(invalidateSellpiaInventory).toHaveBeenCalled();
     expect(alerts.startOperationAlert).toHaveBeenCalledWith(expect.objectContaining({
       operationKey: `browser-collection:${RUN_ID}`,
@@ -618,6 +646,25 @@ describe('SellpiaInventorySyncProvider', () => {
     expect(api.fail).not.toHaveBeenCalled();
   });
 
+  it('keeps automatic TTL evidence refresh inventory-only', async () => {
+    api.claimDue.mockResolvedValue({
+      ...claimed,
+      state: {
+        ...claimed.state,
+        refreshReason: 'ttl_expired',
+      },
+    });
+
+    renderProvider();
+
+    await waitFor(() => expect(api.importBrowser).toHaveBeenCalledWith(
+      expect.any(File),
+      expect.objectContaining({ trigger: 'ttl_expired' }),
+    ));
+    expect(productSales.collect).not.toHaveBeenCalled();
+    expect(productSales.ingest).not.toHaveBeenCalled();
+  });
+
   it('does not fail a completed inventory import when quality alert transport fails', async () => {
     api.importBrowser.mockResolvedValue(completedImport([{
       code: 'snapshot_churn',
@@ -660,6 +707,22 @@ describe('SellpiaInventorySyncProvider', () => {
           collectionUpdatedAt: expect.any(Number),
         }),
       }),
+    );
+  });
+
+  it('does not publish inventory when product depletion ingest fails', async () => {
+    productSales.ingest.mockRejectedValue(new Error('product depletion ingest failed'));
+
+    renderProvider();
+
+    await waitFor(() => expect(api.fail).toHaveBeenCalledWith(RUN_ID, expect.objectContaining({
+      errorMessage: 'product depletion ingest failed',
+    })));
+    expect(api.importBrowser).not.toHaveBeenCalled();
+    expect(extension.finalizeSellpiaInventorySession).toHaveBeenCalledWith(
+      { extensionId: 'extension-id', runId: RUN_ID },
+      'failed',
+      'product depletion ingest failed',
     );
   });
 

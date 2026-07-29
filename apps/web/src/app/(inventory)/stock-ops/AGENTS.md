@@ -26,6 +26,9 @@ not what an operator does to it. Inventory operations live in
   projection. Matched rows expose physical current stock without separate
   commitment or available-stock columns. Reorder and months-left remain
   backend-owned signals.
+- Its refresh action schedules the shared Sellpia synchronization. The global
+  coordinator owns both inventory and depletion collection; this analysis
+  component must not run a second product-profit collector.
 - Every matched destination renders its nullable stored
   `MasterProduct.abcGrade`; shared SKUs may therefore show multiple destination
   grades. Filters and summaries use those same values and keep unclassified
