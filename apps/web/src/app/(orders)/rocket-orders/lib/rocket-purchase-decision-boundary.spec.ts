@@ -95,7 +95,7 @@ describe('Rocket purchase decision boundary', () => {
     expect(purchaseWorkspaceSource).not.toContain("activeTab === 'rocket'");
     expect(purchaseWorkspaceSource).not.toContain('RocketOrdersWorkspace');
     // orders 워크스페이스는 '발주 미리보기' 카드(RocketPurchasePreviewSection)를 더 이상
-    // 렌더하지 않는다(사용자 요청 제거). 대신 활성 로켓 계정만 백그라운드로 선택
+    // 렌더하지 않는다(사용자 요청 제거). 대신 내부 로켓 식별자만 백그라운드로 자동 연결
     // (RocketAccountBootstrap)해 달력·발주목록·차트에 공급하고, decisionWorkspace
     // 렌더프롭으로 원본 워크북 패널(저장 발주 달력 공급)을 주입한다.
     expect(operationsSource).toContain('decisionWorkspace');

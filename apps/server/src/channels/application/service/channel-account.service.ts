@@ -5,6 +5,7 @@ import type {
 } from '@kiditem/shared/channel-account';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
+  type ChannelAccountListRow,
   CoupangAccountConfigurationError,
   type ChannelAccountRepositoryPort,
   type CoupangCredentials,
@@ -33,6 +34,10 @@ export class ChannelAccountService {
 
   resolveCoupangCredentials(organizationId: string): Promise<CoupangCredentials> {
     return this.repository.resolveCoupangCredentials(organizationId);
+  }
+
+  ensureRocketAccount(organizationId: string): Promise<ChannelAccountListRow> {
+    return this.repository.ensureRocketAccount(organizationId);
   }
 }
 

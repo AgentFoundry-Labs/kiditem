@@ -4,11 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
-import { z } from 'zod';
-import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
-import { apiClient } from '@/lib/api-client';
 import { friendlyError } from '@/lib/api-error';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
@@ -72,8 +70,6 @@ import {
 } from '../lib/order-tracking-actions';
 
 const COLLECT_ALL_CONCURRENCY = 4;
-const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
-
 export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
   const showConfirm = useStore((store) => store.showConfirm);
@@ -102,12 +98,12 @@ export function OrderCollectionWorkspace() {
     meta: { suppressGlobalErrorToast: true },
   });
   const mallAccounts = mallAccountsQuery.data ?? [];
-  const rocketAccountsQuery = useQuery({
-    queryKey: queryKeys.channelAccounts.active(),
-    queryFn: () => apiClient.getParsed('/api/channels/accounts', ChannelAccountListSchema),
-  });
-  const rocketAccounts = (rocketAccountsQuery.data ?? [])
-    .filter((account) => account.channel === 'rocket');
+  const {
+    rocketAccounts,
+    isLoading: rocketAccountsLoading,
+    isBootstrapping: rocketAccountBootstrapping,
+    error: rocketAccountError,
+  } = useRocketChannelAccounts();
   const selectedRocketAccount = rocketAccounts.find(
     ({ id }) => id === selectedRocketAccountId,
   ) ?? rocketAccounts[0] ?? null;
@@ -701,7 +697,7 @@ export function OrderCollectionWorkspace() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {selectedRocketAccount ? (
+          {selectedRocketAccount && rocketAccounts.length > 1 ? (
             <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
               <span>로켓 계정</span>
               <select
@@ -713,8 +709,18 @@ export function OrderCollectionWorkspace() {
                 {rocketAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
               </select>
             </label>
+          ) : selectedRocketAccount ? (
+            <span className="text-xs font-semibold text-emerald-700">
+              로켓 자동 연결 · {selectedRocketAccount.name}
+            </span>
+          ) : rocketAccountsLoading || rocketAccountBootstrapping ? (
+            <span className="text-xs font-semibold text-slate-500">로켓 계정 자동 연결 중</span>
           ) : (
-            <span className="text-xs font-semibold text-amber-700">로켓 채널 계정 없음</span>
+            <span className="text-xs font-semibold text-amber-700">
+              {rocketAccountError
+                ? `로켓 계정 자동 연결 실패: ${friendlyError(rocketAccountError)}`
+                : '쿠팡 익스텐션 계정 감지 필요'}
+            </span>
           )}
           <button
             type="button"

@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useQuery } from '@tanstack/react-query';
+import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
 import { RocketAccountBootstrap } from './RocketAccountBootstrap';
 
-vi.mock('@tanstack/react-query', () => ({ useQuery: vi.fn() }));
+vi.mock('@/hooks/useRocketChannelAccounts', () => ({
+  useRocketChannelAccounts: vi.fn(),
+}));
 
 const first = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -28,7 +30,7 @@ describe('<RocketAccountBootstrap />', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('auto-propagates the only Rocket account without rendering a selector', async () => {
-    vi.mocked(useQuery).mockReturnValue({ data: [first], isSuccess: true } as ReturnType<typeof useQuery>);
+    mockAccounts([first]);
     const onAccountChange = vi.fn();
     render(
       <RocketAccountBootstrap
@@ -47,7 +49,7 @@ describe('<RocketAccountBootstrap />', () => {
   });
 
   it('requires an explicit choice when several Rocket accounts are active', async () => {
-    vi.mocked(useQuery).mockReturnValue({ data: [first, second], isSuccess: true } as ReturnType<typeof useQuery>);
+    mockAccounts([first, second]);
     const onAccountChange = vi.fn();
     const user = userEvent.setup();
     function Harness() {
@@ -75,7 +77,7 @@ describe('<RocketAccountBootstrap />', () => {
 
   it('clears a stale parent selection when account data changes to ambiguous, empty, or missing', async () => {
     const onAccountChange = vi.fn();
-    vi.mocked(useQuery).mockReturnValue({ data: [first], isSuccess: true } as ReturnType<typeof useQuery>);
+    mockAccounts([first]);
     const props = {
       selectedAccountId: '',
       onSelectedAccountIdChange: vi.fn(),
@@ -88,17 +90,17 @@ describe('<RocketAccountBootstrap />', () => {
       vendorId: first.vendorId,
     }));
 
-    vi.mocked(useQuery).mockReturnValue({ data: [first, second], isSuccess: true } as ReturnType<typeof useQuery>);
+    mockAccounts([first, second]);
     rerender(<RocketAccountBootstrap {...props} />);
     await waitFor(() => expect(onAccountChange).toHaveBeenLastCalledWith(null));
 
-    vi.mocked(useQuery).mockReturnValue({ data: [], isSuccess: true } as ReturnType<typeof useQuery>);
+    mockAccounts([]);
     rerender(<RocketAccountBootstrap {...props} />);
     await waitFor(() => expect(onAccountChange).toHaveBeenLastCalledWith(null));
   });
 
   it('keeps a persisted account selection untouched while account data is loading', () => {
-    vi.mocked(useQuery).mockReturnValue({ data: undefined, isSuccess: false } as ReturnType<typeof useQuery>);
+    mockAccounts([], false);
     const onSelectedAccountIdChange = vi.fn();
     const onAccountChange = vi.fn();
 
@@ -114,3 +116,14 @@ describe('<RocketAccountBootstrap />', () => {
     expect(onAccountChange).not.toHaveBeenCalled();
   });
 });
+
+function mockAccounts(rocketAccounts: Array<typeof first>, isSuccess = true) {
+  vi.mocked(useRocketChannelAccounts).mockReturnValue({
+    accounts: rocketAccounts,
+    rocketAccounts,
+    isLoading: !isSuccess,
+    isSuccess,
+    isBootstrapping: false,
+    error: null,
+  });
+}
