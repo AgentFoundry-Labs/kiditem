@@ -42,6 +42,9 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
   assert.match(script, /status --porcelain --untracked-files=no/);
   assert.match(script, /ls-remote --heads origin refs\/heads\/release\/office/);
   assert.match(script, /org\.opencontainers\.image\.revision/);
+  assert.match(script, /docker image inspect \$Image/);
+  assert.match(script, /ConvertFrom-Json -InputObject \$imageJson/);
+  assert.doesNotMatch(script, /docker image inspect --format/);
   assert.match(script, /buildx prune --max-used-space 5gb --force/);
   assert.match(script, /Docker\\wsl\\disk\\docker_data\.vhdx/);
   assert.match(script, /up -d --no-build api worker web nginx/);
