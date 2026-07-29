@@ -31,6 +31,9 @@ list, chart, workbook-panel position, and local file-history composition.
   download never filters, hides, or locks preview rows.
 - A quantity or shortage-reason edit makes the preview dirty and disables
   workbook export until one whole-preview server revalidation succeeds.
+- A recipe-backed `insufficient_capacity` row always uses reviewed/workbook
+  quantity `0`; never confirm a partial quantity from `maxQuantity`. The
+  operator may review only its shortage reason.
 - Opening or recalculating an operator preview uses the latest stored Sellpia
   snapshot immediately and never waits for a background refresh. Official
   workbook export remains server-fenced by a fresh inventory generation.

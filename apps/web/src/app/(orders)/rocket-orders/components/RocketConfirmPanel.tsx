@@ -18,7 +18,11 @@ import {
 } from "@kiditem/shared/rocket-purchase-preview";
 import { toast } from "sonner";
 import { cn, formatKRW, formatNumber } from "@/lib/utils";
-import { useRocketPurchaseWorkflow } from "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow";
+import {
+  rocketReviewedQuantity,
+  rocketReviewedQuantityLimit,
+  useRocketPurchaseWorkflow,
+} from "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow";
 import type { RocketDecisionWorkspaceContext } from "./RocketOrdersWorkspace";
 import { RocketInlineRecipeEditor } from "./RocketInlineRecipeEditor";
 import {
@@ -128,15 +132,20 @@ export function RocketConfirmPanel({
         ? previewDates[0]!
         : `수집본 전체 ${previewDates[0]} ~ ${previewDates.at(-1)}`;
   const eligibleShortageLineIds = rows.flatMap((row) => {
-    const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
+    const quantity = rocketReviewedQuantity(
+      row,
+      editedQuantities[row.poLineId],
+    );
     return !isRowReviewBlocked(row.reason) && quantity < row.orderQuantity
       ? [row.poLineId]
       : [];
   });
   const confirmTotals = rows.reduce(
     (acc, row) => {
-      const quantity =
-        editedQuantities[row.poLineId] ?? row.recommendedQuantity;
+      const quantity = rocketReviewedQuantity(
+        row,
+        editedQuantities[row.poLineId],
+      );
       const unitPrice =
         sourceByLineId.get(row.poLineId)?.confirmation?.purchasePrice ?? 0;
       return {
@@ -197,7 +206,7 @@ export function RocketConfirmPanel({
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
     const bounded = Math.max(
       0,
-      Math.min(row.orderQuantity, row.maxQuantity, quantity),
+      Math.min(rocketReviewedQuantityLimit(row), quantity),
     );
     setReviewedQuantity(row.poLineId, bounded);
     setShortageReasons((current) => {
@@ -463,8 +472,10 @@ export function RocketConfirmPanel({
               <tbody>
                 {rows.map((row) => {
                   const source = sourceByLineId.get(row.poLineId);
-                  const quantity =
-                    editedQuantities[row.poLineId] ?? row.recommendedQuantity;
+                  const quantity = rocketReviewedQuantity(
+                    row,
+                    editedQuantities[row.poLineId],
+                  );
                   const short = quantity < row.orderQuantity;
                   const blocking = isRowReviewBlocked(row.reason);
                   const matchingBlocked = isRocketWorkbookBlockingReason(
@@ -568,9 +579,11 @@ export function RocketConfirmPanel({
                             aria-label={`${row.poNumber} 엑셀 수량`}
                             type="number"
                             min={0}
-                            max={Math.min(row.maxQuantity, row.orderQuantity)}
+                            max={rocketReviewedQuantityLimit(row)}
                             value={quantity}
-                            disabled={blocking}
+                            disabled={
+                              blocking || row.reason === "insufficient_capacity"
+                            }
                             onChange={(event) =>
                               editQuantity(row, Number(event.target.value) || 0)
                             }

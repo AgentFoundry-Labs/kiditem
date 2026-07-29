@@ -35,6 +35,7 @@ import type {
   RocketPurchasePreviewReadyResponse,
   RocketPurchasePreviewRequest,
   RocketPurchasePreviewResponse,
+  RocketPurchasePreviewRow,
   RocketShortageReason,
 } from '@kiditem/shared/rocket-purchase-preview';
 
@@ -61,12 +62,28 @@ function editFingerprint(quantities: Record<string, number>): string {
     left.localeCompare(right)));
 }
 
+export function rocketReviewedQuantity(
+  row: RocketPurchasePreviewRow,
+  editedQuantity?: number,
+): number {
+  if (row.reason === 'insufficient_capacity') return 0;
+  return editedQuantity ?? row.editedQuantity ?? row.recommendedQuantity;
+}
+
+export function rocketReviewedQuantityLimit(
+  row: RocketPurchasePreviewRow,
+): number {
+  return row.reason === 'insufficient_capacity'
+    ? 0
+    : Math.min(row.maxQuantity, row.orderQuantity);
+}
+
 function visibleReviewQuantities(
   preview: RocketPurchasePreviewReadyResponse,
 ): Record<string, number> {
   return Object.fromEntries(preview.rows.map((row) => [
     row.poLineId,
-    row.editedQuantity ?? row.recommendedQuantity,
+    rocketReviewedQuantity(row),
   ]));
 }
 
@@ -120,7 +137,10 @@ function reconcileShortageReasons(
 ): Record<string, RocketShortageReason> {
   return Object.fromEntries(preview.rows.flatMap((row) => {
     if (isRocketWorkbookBlockingReason(row.reason)) return [];
-    const reviewedQuantity = reviewedQuantities[row.poLineId] ?? row.recommendedQuantity;
+    const reviewedQuantity = rocketReviewedQuantity(
+      row,
+      reviewedQuantities[row.poLineId],
+    );
     if (reviewedQuantity >= row.orderQuantity) return [];
     return [[
       row.poLineId,
@@ -597,7 +617,7 @@ export function useRocketPurchaseWorkflow({
   const reviewedQuantities = preview
     ? Object.fromEntries(preview.rows.map((row) => [
         row.poLineId,
-        editedQuantities[row.poLineId] ?? row.recommendedQuantity,
+        rocketReviewedQuantity(row, editedQuantities[row.poLineId]),
       ]))
     : {};
   const canExport = Boolean(
