@@ -182,7 +182,7 @@ export function RocketConfirmPanel({
 
   async function collectMonth() {
     if (!channelAccountId) {
-      toast.error("활성 로켓 채널 계정이 필요합니다.");
+      toast.error("쿠팡 익스텐션 계정을 자동으로 연결하는 중입니다. 잠시 후 다시 시도해주세요.");
       return;
     }
     await recalculate();

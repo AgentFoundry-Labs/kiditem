@@ -120,7 +120,7 @@ export function RocketOrdersWorkspace({
   // 발주 행 키는 `${sourceImportRunId}:${poNumber}` 문자열이다.
   const [openPo, setOpenPo] = useState<string | null>(null);
   // 로켓 채널 계정: '발주 미리보기' 카드는 제거했지만, 달력·발주목록·차트가 쓰는 계정 선택은
-  // RocketAccountBootstrap 이 활성 로켓 계정으로 백그라운드에서 유지한다.
+  // RocketAccountBootstrap 이 익스텐션에서 확보한 내부 로켓 식별자를 유지한다.
   const [selectedRocketAccountName, setSelectedRocketAccountName] = useState('');
   const [hasConfiguredVendorId, setHasConfiguredVendorId] = useState(false);
   const [selectedSourceImportRunId, setSelectedSourceImportRunId] = useState<string | null>(null);
@@ -548,7 +548,7 @@ export function RocketOrdersWorkspace({
         </div>
       </div>
 
-      {/* 활성 로켓 계정 백그라운드 선택 (계정은 달력·발주목록·차트의 데이터 기준) */}
+      {/* 내부 로켓 식별자 자동 연결 (달력·발주목록·차트의 데이터 기준) */}
       <RocketAccountBootstrap
         selectedAccountId={selectedRocketAccountId}
         onSelectedAccountIdChange={handleRocketAccountSelection}

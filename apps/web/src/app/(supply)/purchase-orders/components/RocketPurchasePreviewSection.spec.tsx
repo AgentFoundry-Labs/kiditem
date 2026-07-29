@@ -69,13 +69,32 @@ describe('<RocketPurchasePreviewSection>', () => {
     ]);
   });
 
-  it('mounts the workbook workspace behind an active Rocket account selector', async () => {
+  it('mounts the workbook workspace and only asks for a choice when multiple Rocket identities exist', async () => {
     renderSection();
 
     expect(await screen.findByRole('combobox', { name: '로켓 채널 계정' }))
       .toHaveValue(rocketAccountId);
     expect(screen.getByRole('button', { name: '미리보기 다시 계산' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '쿠팡 엑셀 다운로드' })).toBeDisabled();
+  });
+
+  it('does not expose account selection when the extension resolves one Rocket identity', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValue([
+      {
+        id: rocketAccountId,
+        channel: 'rocket',
+        name: '로켓 공급사',
+        externalAccountId: 'ROCKET',
+        vendorId: 'ROCKET',
+        sellerId: null,
+        isPrimary: false,
+      },
+    ]);
+
+    renderSection();
+
+    expect(await screen.findByRole('button', { name: '미리보기 다시 계산' })).toBeEnabled();
+    expect(screen.queryByRole('combobox', { name: '로켓 채널 계정' })).toBeNull();
   });
 
   it('keeps the calendar-owned range while remounting account-scoped workspace state', async () => {

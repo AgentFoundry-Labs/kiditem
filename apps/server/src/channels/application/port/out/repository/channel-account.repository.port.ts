@@ -40,6 +40,8 @@ export interface ChannelAccountRepositoryPort {
 
   listActive(organizationId: string): Promise<ChannelAccountListRow[]>;
 
+  ensureRocketAccount(organizationId: string): Promise<ChannelAccountListRow>;
+
   getPrimaryCoupangAccountId(organizationId: string): Promise<string | null>;
 }
 
