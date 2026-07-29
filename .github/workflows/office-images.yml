@@ -1,0 +1,185 @@
+name: Office Images
+run-name: "office images sha=${{ inputs.expected_git_sha }} correlation=${{ inputs.dispatch_correlation_id }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_git_sha:
+        description: Full immutable release/office SHA selected for this build.
+        required: true
+        type: string
+      dispatch_correlation_id:
+        description: Operator-generated UUID used to identify this exact build.
+        required: true
+        type: string
+
+concurrency:
+  group: office-images
+  cancel-in-progress: false
+
+jobs:
+  identity_guard:
+    name: Validate office release identity
+    runs-on: ubuntu-latest
+    environment: office
+    outputs:
+      git_sha: ${{ steps.identity.outputs.git_sha }}
+    steps:
+      - name: Validate branch, SHA, and correlation
+        id: identity
+        env:
+          EXPECTED_GIT_SHA: ${{ inputs.expected_git_sha }}
+          DISPATCH_CORRELATION_ID: ${{ inputs.dispatch_correlation_id }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/release/office" ]] || { echo "Office images must be dispatched from release/office" >&2; exit 2; }
+          [[ "$EXPECTED_GIT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "expected_git_sha must be full 40-hex SHA" >&2; exit 2; }
+          [[ "$DISPATCH_CORRELATION_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || { echo "dispatch_correlation_id must be UUID" >&2; exit 2; }
+          [[ "$GITHUB_SHA" == "$EXPECTED_GIT_SHA" ]] || { echo "GITHUB_SHA does not match expected immutable SHA" >&2; exit 2; }
+          echo "git_sha=$EXPECTED_GIT_SHA" >> "$GITHUB_OUTPUT"
+
+  prepare:
+    name: Prepare office image build
+    needs: identity_guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      app_version: ${{ steps.refs.outputs.app_version }}
+    steps:
+      - name: Checkout exact release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.identity_guard.outputs.git_sha }}
+
+      - name: Validate office web build variables
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${NEXT_PUBLIC_SUPABASE_URL:?Set repository variable NEXT_PUBLIC_SUPABASE_URL}"
+          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set repository variable NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
+
+      - name: Read release version
+        id: refs
+        run: |
+          set -euo pipefail
+          app_version="$(tr -d '[:space:]' < VERSION)"
+          [[ "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid root VERSION: $app_version" >&2; exit 2; }
+          echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
+
+  build_api:
+    name: Build and push office API image
+    needs: prepare
+    uses: ./.github/workflows/build-image.yml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      image_base: ghcr.io/agentfoundry-labs/kiditem-api
+      dockerfile: ./apps/server/Dockerfile
+      cache_scope: office-api
+      title: KidItem Office API
+      app_version: ${{ needs.prepare.outputs.app_version }}
+      build_args: |
+        API_RUNTIME_BASE_IMAGE=ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e
+      extra_tags: ghcr.io/agentfoundry-labs/kiditem-api:office-candidate
+      preflight_image: ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e
+
+  build_web:
+    name: Build and push office web image
+    needs: prepare
+    uses: ./.github/workflows/build-image.yml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      image_base: ghcr.io/agentfoundry-labs/kiditem-web
+      dockerfile: ./apps/web/Dockerfile
+      cache_scope: office-web
+      title: KidItem Office Web
+      app_version: ${{ needs.prepare.outputs.app_version }}
+      build_args: |
+        NEXT_PUBLIC_API_URL=
+        NEXT_PUBLIC_SUPABASE_URL=${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      extra_tags: ghcr.io/agentfoundry-labs/kiditem-web:office-candidate
+
+  publish_manifest:
+    name: Publish immutable office bundle
+    needs:
+      - identity_guard
+      - prepare
+      - build_api
+      - build_web
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.identity_guard.outputs.git_sha }}
+
+      - name: Create deployment manifest and operator bundle
+        env:
+          GIT_SHA: ${{ needs.identity_guard.outputs.git_sha }}
+          APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+          API_IMAGE: ${{ needs.build_api.outputs.image_ref }}
+          API_DIGEST: ${{ needs.build_api.outputs.digest }}
+          WEB_IMAGE: ${{ needs.build_web.outputs.image_ref }}
+          WEB_DIGEST: ${{ needs.build_web.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p office-bundle
+          jq -n \
+            --arg gitSha "$GIT_SHA" \
+            --arg appVersion "$APP_VERSION" \
+            --arg apiImage "$API_IMAGE" \
+            --arg apiDigest "$API_DIGEST" \
+            --arg webImage "$WEB_IMAGE" \
+            --arg webDigest "$WEB_DIGEST" \
+            --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg runUrl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{
+              schemaVersion: 1,
+              environment: "office",
+              sourceRef: "refs/heads/release/office",
+              gitSha: $gitSha,
+              appVersion: $appVersion,
+              apiImage: $apiImage,
+              apiDigest: $apiDigest,
+              webImage: $webImage,
+              webDigest: $webDigest,
+              createdAt: $createdAt,
+              workflowRunUrl: $runUrl
+            }' > office-bundle/office-deployment.json
+          cp deploy/office/compose.office.yml office-bundle/
+          cp deploy/office/nginx.conf office-bundle/
+          cp deploy/office/apply-deployment.ps1 office-bundle/
+
+      - name: Upload office deployment bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: office-deployment-${{ needs.identity_guard.outputs.git_sha }}
+          path: office-bundle/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summarize immutable image refs
+        env:
+          API_IMAGE: ${{ needs.build_api.outputs.image_ref }}
+          WEB_IMAGE: ${{ needs.build_web.outputs.image_ref }}
+          GIT_SHA: ${{ needs.identity_guard.outputs.git_sha }}
+        run: |
+          {
+            echo "## Office image bundle"
+            echo ""
+            echo "- Git SHA: \`$GIT_SHA\`"
+            echo "- API: \`$API_IMAGE\`"
+            echo "- Web: \`$WEB_IMAGE\`"
+            echo "- Runtime deployment is a separate, local operator action."
+          } >> "$GITHUB_STEP_SUMMARY"

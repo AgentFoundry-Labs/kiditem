@@ -9,6 +9,13 @@ streaming over SSH is intentionally not kept because it bypasses GHCR digest
 pinning, GitHub Environment secret rendering, deployment manifests, and PR
 checks.
 
+The office runtime follows the same build-once and digest-pinning contract but
+has a different host boundary. GitHub Actions publishes an operator bundle;
+the Windows office PC pulls the exact images and performs a guarded Compose
+recreate. It never builds product images locally. Its existing PostgreSQL and
+MinIO external volumes plus protected runtime env files remain local under the
+office operator boundary.
+
 ## Runtime Shape
 
 ```text
@@ -19,6 +26,15 @@ Internet
         -> active api slot    api-blue | api-green
         -> active web slot    web-blue | web-green
         -> active worker slot worker-blue | worker-green
+```
+
+The office path is:
+
+```text
+protected release/office
+  -> GitHub Actions -> GHCR digest refs + workflow manifest artifact
+    -> Windows office operator -> compose api/worker/web/nginx
+      -> local external PostgreSQL and MinIO volumes
 ```
 
 Each slot uses immutable GHCR image references. The API container sets
@@ -58,9 +74,19 @@ starting a candidate slot.
   files receive only the channel encryption key, never mall plaintext.
 - Production deploy pushes `:production-candidate` as a convenience tag but
   also deploys the digest reference emitted by the build job.
+- Office image builds push `:office-candidate` as a convenience tag but publish
+  only API/web digest refs in `office-deployment.json`. The local deploy guard
+  requires `release/office`, its exact remote SHA, clean tracked state, approved
+  GHCR names, and matching OCI revision labels before a recreate.
+- `release/office` is a permanent protected environment branch. It must reject
+  deletion and force pushes and must never be removed after a promotion PR.
 - Terraform owns host bootstrap, security group shape, Docker/nginx package
   installation, and Elastic IP allocation. Shell scripts under `bin/` must not
   become an alternate deploy path.
+- Terraform does not own the current Windows office workstation. Its local
+  Docker Desktop installation and stateful volumes remain operator-managed;
+  Terraform becomes appropriate only if this workload moves to a reproducible
+  long-lived remote host.
 
 ## Guarded Authoritative Rebuild
 
@@ -164,6 +190,22 @@ It does not undo:
 If a deploy includes schema/data changes, verify the rollback story before
 running production deploy.
 
+The office runtime keeps `current.json` and `previous.json` under
+`C:\ProgramData\Kiditem\deployments`. Rollback pulls and verifies the prior
+digest refs through the same branch, revision, health, and smoke guards. Office
+rollback also does not reverse schema, data, storage, queue, or marketplace
+side effects. See [Office Deploy](office-deploy.md).
+
+## Office Disk Boundary
+
+Office deployments require a free-space guard before image pulls. The only
+automated cleanup is bounded BuildKit cache pruning with
+`docker buildx prune --max-used-space 5gb`; named volumes and broad Docker
+system pruning are prohibited. If that is insufficient, move Docker Desktop's
+disk image to a larger local SSD during an approved maintenance window. A NAS
+share may hold verified backups but is not an active repository, Docker data,
+database, or object-storage root.
+
 ## Verification
 
 Before changing deployment architecture:
@@ -172,6 +214,9 @@ Before changing deployment architecture:
 bash -n deploy/staging/render-runtime-env.sh deploy/staging/remote-deploy.sh deploy/production/remote-deploy.sh infra/terraform/modules/single-host/user-data.sh
 shellcheck deploy/staging/render-runtime-env.sh deploy/staging/remote-deploy.sh deploy/production/remote-deploy.sh infra/terraform/modules/single-host/user-data.sh
 npm run build --workspace=apps/server
+powershell -NoProfile -Command '$tokens = $null; $errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile("deploy/office/apply-deployment.ps1",[ref]$tokens,[ref]$errors); if ($errors.Count) { $errors; exit 1 }'
+docker compose --env-file deploy/office/office.env.example --env-file deploy/office/digest.env.example -f deploy/office/compose.office.yml config --quiet
+npm run test:scripts
 ```
 
 After remote deploy:
