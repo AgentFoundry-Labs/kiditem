@@ -230,7 +230,7 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     })).toMatchObject({ status: 'finalized', finalizedGeneration: 5n });
   });
 
-  it('keeps a crashed intent stale, unclaimable, and isolated from another organization', async () => {
+  it('keeps a crashed intent independent from freshness and isolated from another organization', async () => {
     await prisma.sellpiaInventoryState.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -250,7 +250,7 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     await expect(service.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-    })).resolves.toMatchObject({ status: 'refresh_required' });
+    })).resolves.toMatchObject({ status: 'fresh' });
     await expect(service.claimDue({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
