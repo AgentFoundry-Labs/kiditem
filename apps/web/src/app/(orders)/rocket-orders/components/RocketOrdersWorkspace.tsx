@@ -34,7 +34,7 @@ const RocketOrdersChart = dynamic(
 
 const STATUS_OPTIONS = [
   { value: '', label: '전체 상태' },
-  { value: '거래명세서확인요청', label: '신규 주문 (거래명세서확인요청)' },
+  { value: '거래처확인요청', label: '거래처확인요청' },
 ];
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];

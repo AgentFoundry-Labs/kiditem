@@ -392,6 +392,24 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(hook.result.current.sourceRows).toEqual([confirmationRow]);
   });
 
+  it('defaults saved insufficient-capacity rows to the inventory-shortage reason', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases).mockResolvedValue(
+      preview(source, [previewRow('LINE-A', 'insufficient_capacity', 2)]),
+    );
+    const hook = renderWorkflow({
+      channelAccountId: ACCOUNT_A,
+      savedSourceImportRunId: SOURCE_A,
+    });
+
+    await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
+
+    expect(hook.result.current.shortageReasons).toEqual({
+      'LINE-A': SHORTAGE_REASON,
+    });
+  });
+
   it('shows only the selected delivery date while calculating from the complete saved snapshot', async () => {
     const lineA = sourceRow('LINE-A');
     const lineB = {

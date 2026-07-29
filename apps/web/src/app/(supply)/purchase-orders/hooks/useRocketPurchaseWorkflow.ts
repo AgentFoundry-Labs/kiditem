@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   isRocketWorkbookBlockingReason,
+  ROCKET_SHORTAGE_REASONS,
 } from '@kiditem/shared/rocket-purchase-preview';
 import { friendlyError } from '@/lib/api-error';
 import { downloadBlob } from '@/lib/browser-download';
@@ -118,16 +119,19 @@ function previewForDeliveryDate(
   };
 }
 
-function pruneShortageReasons(
+function reconcileShortageReasons(
   current: Record<string, RocketShortageReason>,
   preview: RocketPurchasePreviewReadyResponse,
   reviewedQuantities: Record<string, number>,
 ): Record<string, RocketShortageReason> {
-  const rowsByLineId = new Map(preview.rows.map((row) => [row.poLineId, row]));
-  return Object.fromEntries(Object.entries(current).filter(([poLineId]) => {
-    const row = rowsByLineId.get(poLineId);
-    if (!row || isRocketWorkbookBlockingReason(row.reason)) return false;
-    return (reviewedQuantities[poLineId] ?? row.recommendedQuantity) < row.orderQuantity;
+  return Object.fromEntries(preview.rows.flatMap((row) => {
+    if (isRocketWorkbookBlockingReason(row.reason)) return [];
+    const reviewedQuantity = reviewedQuantities[row.poLineId] ?? row.recommendedQuantity;
+    if (reviewedQuantity >= row.orderQuantity) return [];
+    return [[
+      row.poLineId,
+      current[row.poLineId] ?? ROCKET_SHORTAGE_REASONS[0],
+    ]];
   }));
 }
 
@@ -376,7 +380,11 @@ export function useRocketPurchaseWorkflow({
         setValidatedEditFingerprint(editFingerprint(effectiveEdits));
         setPreviewDirty(false);
         setExportKey(globalThis.crypto.randomUUID());
-        setShortageReasons({});
+        setShortageReasons((current) => reconcileShortageReasons(
+          current,
+          result,
+          effectiveEdits,
+        ));
         setAbandonReason('');
         setPreview(result);
         setPendingCheckpoint(null);
@@ -505,7 +513,7 @@ export function useRocketPurchaseWorkflow({
       setPreviewDirty(false);
       // 새로 수집한 결과에는 제출 이력을 조회하지 않았다. 근거 없이 행을 숨기지 않도록 비운다.
       setExportKey(globalThis.crypto.randomUUID());
-      setShortageReasons((current) => pruneShortageReasons(
+      setShortageReasons((current) => reconcileShortageReasons(
         current,
         result,
         effectiveEdits,
@@ -595,7 +603,7 @@ export function useRocketPurchaseWorkflow({
       setPreviewDirty(false);
       setPendingCheckpoint(null);
       setStage('ready');
-      setShortageReasons((current) => pruneShortageReasons(
+      setShortageReasons((current) => reconcileShortageReasons(
         current,
         result,
         effectiveEdits,

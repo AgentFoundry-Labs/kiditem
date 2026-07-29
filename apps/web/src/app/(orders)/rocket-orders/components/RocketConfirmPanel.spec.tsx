@@ -27,17 +27,14 @@ vi.mock("./RocketMatchStatusModal", async (importOriginal) => ({
 vi.mock("./RocketInlineRecipeEditor", () => ({
   RocketInlineRecipeEditor: ({
     productName,
-    initialSearch,
     onCancel,
     onSaved,
   }: {
     productName: string;
-    initialSearch: string;
     onCancel: () => void;
     onSaved: () => Promise<void>;
   }) => (
     <section aria-label={`${productName} Sellpia 재고 연결`}>
-      <span>{initialSearch}</span>
       <button type="button" onClick={onCancel}>
         인라인 닫기
       </button>
@@ -186,7 +183,7 @@ describe("<RocketConfirmPanel />", () => {
     );
   });
 
-  it("requires an explicit shortage reason without choosing the first option for the operator", () => {
+  it("defaults a newly shortened row to the inventory-shortage reason", () => {
     renderPanel();
     fireEvent.change(
       screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
@@ -198,7 +195,9 @@ describe("<RocketConfirmPanel />", () => {
     const updateReasons = setShortageReasons.mock.calls.at(-1)?.[0] as (
       current: Record<string, string>,
     ) => Record<string, string>;
-    expect(updateReasons({})).toEqual({});
+    expect(updateReasons({})).toEqual({
+      "PO-1:PRODUCT-1:1": "협력사 재고부족 - 수요예측 오류",
+    });
     expect(setReviewedQuantity).toHaveBeenCalledWith("PO-1:PRODUCT-1:1", 2);
     expect(
       screen.getByRole("button", { name: "쿠팡 엑셀 다운로드" }),
@@ -271,9 +270,8 @@ describe("<RocketConfirmPanel />", () => {
       name: "상품 1 Sellpia 재고 연결",
     });
     expect(editor).toBeInTheDocument();
-    expect(within(editor).getByText("8800000000001")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "인라인 저장" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "인라인 저장" }));
     await waitFor(() =>
       expect(revalidateEditedQuantities).toHaveBeenCalledTimes(1),
     );

@@ -33,7 +33,6 @@ function renderEditor(options?: {
       <RocketInlineRecipeEditor
         productVariantId="55555555-5555-4555-8555-555555555555"
         productName="상품 1"
-        initialSearch="8800000000001"
         onSaved={options?.onSaved ?? vi.fn().mockResolvedValue(undefined)}
         onCancel={options?.onCancel ?? vi.fn()}
       />
@@ -48,19 +47,28 @@ describe("<RocketInlineRecipeEditor />", () => {
     vi.mocked(apiClient.getParsed).mockResolvedValue({ items: [candidate] });
   });
 
-  it("searches from the Rocket barcode and edits the recipe without opening a modal", async () => {
+  it("searches Sellpia inventory by product code or product name without a Rocket barcode default", async () => {
     renderEditor();
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("searchbox", { name: "Sellpia 재고 검색" }),
-    ).toHaveValue("8800000000001");
+    const searchbox = screen.getByRole("searchbox", {
+      name: "Sellpia 상품 코드 또는 상품명 검색",
+    });
+    expect(searchbox).toHaveValue("");
+    expect(searchbox).toHaveAttribute(
+      "placeholder",
+      "Sellpia 상품 코드 또는 상품명",
+    );
+    expect(apiClient.getParsed).not.toHaveBeenCalled();
+
+    fireEvent.change(searchbox, { target: { value: "9633-1" } });
+
     expect(
       await screen.findByText("9633-1 · 큐티 점핑볼 인형 세트"),
     ).toBeInTheDocument();
     expect(screen.getByText("랜덤 · 현재고 168")).toBeInTheDocument();
     expect(apiClient.getParsed).toHaveBeenCalledWith(
-      "/api/products/recipe-component-candidates?search=8800000000001&limit=20",
+      "/api/products/recipe-component-candidates?search=9633-1&limit=20",
       expect.anything(),
     );
 
@@ -102,6 +110,13 @@ describe("<RocketInlineRecipeEditor />", () => {
       unchangedProductVariantIds: [],
     });
     const { invalidate } = renderEditor({ onSaved });
+
+    fireEvent.change(
+      screen.getByRole("searchbox", {
+        name: "Sellpia 상품 코드 또는 상품명 검색",
+      }),
+      { target: { value: "9633-1" } },
+    );
 
     fireEvent.click(
       await screen.findByRole("button", { name: "9633-1 재고 추가" }),

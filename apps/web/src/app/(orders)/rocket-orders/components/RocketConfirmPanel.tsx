@@ -236,9 +236,10 @@ export function RocketConfirmPanel({
         delete next[row.poLineId];
         return next;
       }
-      const next = { ...current };
-      delete next[row.poLineId];
-      return next;
+      return {
+        ...current,
+        [row.poLineId]: current[row.poLineId] ?? ROCKET_SHORTAGE_REASONS[0],
+      };
     });
   }
 
@@ -745,7 +746,6 @@ export function RocketConfirmPanel({
                             <RocketInlineRecipeEditor
                               productVariantId={row.productVariantId}
                               productName={row.productName}
-                              initialSearch={source?.barcode || row.productNo}
                               onCancel={() => setEditingRecipePoLineId(null)}
                               onSaved={async () => {
                                 await revalidateEditedQuantities();

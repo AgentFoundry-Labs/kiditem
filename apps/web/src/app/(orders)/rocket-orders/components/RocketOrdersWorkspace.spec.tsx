@@ -235,7 +235,7 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
 
     expect(screen.getByLabelText('입고예정일 시작')).toHaveValue('2026-06-01');
     expect(screen.getByLabelText('입고예정일 종료')).toHaveValue('2026-06-30');
-    expect(screen.getByLabelText('발주 상태')).toHaveValue('거래명세서확인요청');
+    expect(screen.getByLabelText('발주 상태')).toHaveValue('거래처확인요청');
     expect(screen.getByText('06/20 선택')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '차트' })).toHaveClass('bg-purple-50');
   });
@@ -301,6 +301,24 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
       from: '2026-07-01',
       to: '2026-07-31',
       status: undefined,
+    });
+  });
+
+  it('filters the calendar by confirmation requests', async () => {
+    navigation.params = new URLSearchParams({ status: '거래처확인요청' });
+    renderWorkspace();
+
+    expect(screen.getByLabelText('발주 상태')).toHaveValue('거래처확인요청');
+    const enabledCall = [...queryMock.mock.calls]
+      .reverse()
+      .find(([options]) => options.enabled === true);
+    await enabledCall?.[0].queryFn();
+
+    expect(listSavedRocketPos).toHaveBeenCalledWith({
+      channelAccountId: rocketAccountId,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      status: '거래처확인요청',
     });
   });
 

@@ -9,6 +9,10 @@ import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
 
 export const ROCKET_PO_CATALOG_SOURCE_TYPE = 'coupang_rocket_po_catalog';
+const ROCKET_CONFIRMATION_REQUEST_STATUSES = [
+  '거래명세서확인요청',
+  '거래처확인요청',
+];
 
 type PublishInput = Parameters<RocketPoCatalogRepositoryPort['publish']>[0];
 
@@ -114,6 +118,11 @@ export async function listSavedRocketPos(
     includeRepeatedSnapshots?: boolean;
   },
 ): Promise<RocketSavedPoSummary[]> {
+  const poStatusFilter = input.status
+    ? ROCKET_CONFIRMATION_REQUEST_STATUSES.includes(input.status)
+      ? { in: ROCKET_CONFIRMATION_REQUEST_STATUSES }
+      : input.status
+    : undefined;
   const snapshots = await prisma.rocketPoCatalogSnapshot.findMany({
     where: {
       organizationId: input.organizationId,
@@ -122,7 +131,7 @@ export async function listSavedRocketPos(
       lines: {
         some: {
           plannedDeliveryDate: { gte: day(input.from), lte: day(input.to) },
-          ...(input.status ? { poStatus: input.status } : {}),
+          ...(poStatusFilter ? { poStatus: poStatusFilter } : {}),
         },
       },
     },
@@ -135,7 +144,7 @@ export async function listSavedRocketPos(
       lines: {
         where: {
           plannedDeliveryDate: { gte: day(input.from), lte: day(input.to) },
-          ...(input.status ? { poStatus: input.status } : {}),
+          ...(poStatusFilter ? { poStatus: poStatusFilter } : {}),
         },
         orderBy: [{ poNumber: 'asc' }, { poLineId: 'asc' }],
         select: {

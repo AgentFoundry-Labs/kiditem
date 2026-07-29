@@ -20,18 +20,16 @@ type RecipeDraft = ProductRecipeComponentCandidate & {
 export function RocketInlineRecipeEditor({
   productVariantId,
   productName,
-  initialSearch,
   onSaved,
   onCancel,
 }: {
   productVariantId: string;
   productName: string;
-  initialSearch: string;
   onSaved: () => Promise<void>;
   onCancel: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState(initialSearch);
+  const [search, setSearch] = useState("");
   const [draft, setDraft] = useState<RecipeDraft[]>([]);
   const candidateParams = useMemo(
     () =>
@@ -166,10 +164,10 @@ export function RocketInlineRecipeEditor({
             />
             <input
               type="search"
-              aria-label="Sellpia 재고 검색"
+              aria-label="Sellpia 상품 코드 또는 상품명 검색"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="상품코드 · 상품명 · 옵션명 · 바코드"
+              placeholder="Sellpia 상품 코드 또는 상품명"
               className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-800"
             />
           </label>
