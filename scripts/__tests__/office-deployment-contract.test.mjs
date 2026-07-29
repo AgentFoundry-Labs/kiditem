@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -47,7 +48,11 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
   assert.doesNotMatch(script, /docker image inspect --format/);
   assert.match(script, /buildx prune --max-used-space 5gb --force/);
   assert.match(script, /Docker\\wsl\\disk\\docker_data\.vhdx/);
-  assert.match(script, /up -d --no-build api worker web nginx/);
+  assert.equal(
+    script.match(/up --detach --no-build api worker web nginx/g)?.length,
+    2,
+  );
+  assert.doesNotMatch(script, /up -d --no-build/);
   assert.match(script, /'Rollback'/);
   assert.match(script, /merge-base --is-ancestor/);
   assert.match(script, /bundles\\\{0\}/);
@@ -55,6 +60,43 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
   assert.doesNotMatch(script, /docker system prune/);
   assert.doesNotMatch(script, /docker volume prune/);
 });
+
+test(
+  'office operator forwards detach and parses revision under Windows PowerShell',
+  { skip: process.platform !== 'win32' },
+  () => {
+    const probe = String.raw`
+. '.\deploy\office\apply-deployment.ps1'
+$script:capturedArgs = @()
+$script:fakeRevision = 'a' * 40
+function docker {
+  $script:capturedArgs = @($args)
+  if ($args.Count -ge 3 -and $args[0] -eq 'image' -and $args[1] -eq 'inspect') {
+    [pscustomobject]@{
+      Config = [pscustomobject]@{
+        Labels = [pscustomobject]@{
+          'org.opencontainers.image.revision' = $script:fakeRevision
+        }
+      }
+    } | ConvertTo-Json -Depth 4
+  }
+  $global:LASTEXITCODE = 0
+}
+Invoke-Checked docker compose up --detach --no-build api worker web nginx
+if ($script:capturedArgs -notcontains '--detach') {
+  throw 'Invoke-Checked did not forward --detach.'
+}
+Assert-ImageRevision 'example.invalid/kiditem-api@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' $script:fakeRevision
+`;
+    const result = spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', probe],
+      { cwd: root, encoding: 'utf8' },
+    );
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  },
+);
 
 test('office runbook fixes branch lifetime and rollback boundaries', () => {
   const runbook = read('docs/runbooks/office-deploy.md');
