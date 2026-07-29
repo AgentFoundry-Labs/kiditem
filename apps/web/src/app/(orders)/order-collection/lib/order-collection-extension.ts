@@ -4,6 +4,7 @@ import {
   sendToExtension,
   type ExtensionRuntimeStatus,
 } from '@/lib/extension-bridge';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 
 export interface IcecreamMallExtensionRows {
   mall: '아이스크림몰';
@@ -96,7 +97,7 @@ export async function collectIcecreamMallRowsFromExtension(
     action: 'collectIcecreamMallOrders',
     date,
     credentials,
-    runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    runId: run?.runId ?? createSecureRandomUuid(),
   }, 90000);
 
   if (!response?.success || !response.headers || !response.rows) {
@@ -155,7 +156,7 @@ export async function ensureMallLoggedInViaExtension(
         action: 'ensureMallLoggedIn',
         mallKey,
         credentials,
-        runId: run?.runId ?? globalThis.crypto.randomUUID(),
+        runId: run?.runId ?? createSecureRandomUuid(),
         date: run?.date ?? null,
       },
       45000,

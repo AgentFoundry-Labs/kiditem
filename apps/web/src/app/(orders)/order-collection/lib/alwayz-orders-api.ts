@@ -1,3 +1,4 @@
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
@@ -32,7 +33,7 @@ export async function collectAlwayzXlsxFromExtension(run?: OrderCollectionExtens
     {
       action: 'collectAlwayzOrders',
       date: run?.date,
-      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+      runId: run?.runId ?? createSecureRandomUuid(),
     },
     130000, // 엑셀추출(클라이언트 조립)이라 넉넉히
   );

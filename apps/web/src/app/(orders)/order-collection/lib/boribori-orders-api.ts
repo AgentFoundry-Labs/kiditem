@@ -1,3 +1,4 @@
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
@@ -32,7 +33,7 @@ export async function collectBoriboriXlsxFromExtension(options?: {
       action: 'collectBoriboriOrders',
       date: options?.run?.date,
       password: options?.password ?? '',
-      runId: options?.run?.runId ?? globalThis.crypto.randomUUID(),
+      runId: options?.run?.runId ?? createSecureRandomUuid(),
     },
     130000,
   );
