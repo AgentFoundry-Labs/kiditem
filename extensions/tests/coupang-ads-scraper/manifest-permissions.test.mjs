@@ -10,18 +10,19 @@ const manifestUrl = new URL(
 test("seller catalog collection can inspect Coupang seller shops", async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
 
-  assert.equal(manifest.version, "1.2.99");
+  assert.equal(manifest.version, "1.2.103");
   assert.ok(
     manifest.host_permissions.includes("https://shop.coupang.com/*"),
     "shop.coupang.com host permission is required for chrome.scripting.executeScript",
   );
 });
 
-test('client detail renderer has debugger access and only the committed upload hosts', async () => {
+test('Wing form image fetch has debugger access and only the committed storage hosts', async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'));
 
   assert.ok(manifest.permissions.includes('debugger'));
   assert.ok(manifest.host_permissions.includes('http://localhost:9000/*'));
+  assert.ok(manifest.host_permissions.includes('http://kiditem-office:9000/*'));
   assert.ok(
     manifest.host_permissions.includes(
       'https://gheoobctiarluauprvro.storage.supabase.co/*',
@@ -33,13 +34,17 @@ test('client detail renderer has debugger access and only the committed upload h
   );
 });
 
-test("web bridge reaches both localhost and the staging KidItem origin", async () => {
+test("web bridge reaches local, office, and staging KidItem origins", async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
 
   const externalMatches = manifest.externally_connectable?.matches ?? [];
   assert.ok(
     externalMatches.includes("http://localhost:3000/*"),
     "localhost web origin must stay externally connectable",
+  );
+  assert.ok(
+    externalMatches.includes("http://kiditem-office/*"),
+    "office web origin must be externally connectable",
   );
   assert.ok(
     externalMatches.includes("https://staging.merchon.org/*"),
@@ -53,6 +58,10 @@ test("web bridge reaches both localhost and the staging KidItem origin", async (
   assert.ok(
     hostBridge.matches.includes("http://localhost:3000/*"),
     "host-bridge must inject on localhost for extension-id discovery",
+  );
+  assert.ok(
+    hostBridge.matches.includes("http://kiditem-office/*"),
+    "host-bridge must inject on the office server",
   );
   assert.ok(
     hostBridge.matches.includes("https://staging.merchon.org/*"),

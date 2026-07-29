@@ -19,6 +19,7 @@ import {
   updateOperationAlert,
 } from './operation-alerts';
 import { queryKeys } from './query-keys';
+import { createSecureRandomUuid } from './secure-random-uuid';
 
 type BrowserCollectionInputIdentity =
   BrowserCollectionSessionView['inputIdentity'];
@@ -190,7 +191,7 @@ export async function recordMissingBrowserCollection(
   inputIdentity: BrowserCollectionInputIdentity,
   existingRunId?: string,
 ): Promise<{ runId: string }> {
-  const runId = existingRunId ?? globalThis.crypto.randomUUID();
+  const runId = existingRunId ?? createSecureRandomUuid();
   const now = Date.now();
   BrowserCollectionSessionViewSchema.parse({
     runId,

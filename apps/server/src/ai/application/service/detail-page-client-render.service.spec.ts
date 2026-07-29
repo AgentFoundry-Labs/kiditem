@@ -11,6 +11,8 @@ import {
 } from '@kiditem/shared/ai';
 import { DetailPageClientRenderService } from './detail-page-client-render.service';
 
+const sharp: typeof import('sharp') = require('sharp');
+
 const ORG_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const OTHER_USER_ID = '33333333-3333-4333-8333-333333333333';
@@ -21,6 +23,8 @@ const INTENT_ID = '77777777-7777-4777-8777-777777777777';
 const IMAGE_ARTIFACT_ID = '88888888-8888-4888-8888-888888888888';
 const OBJECT_KEY =
   `detail-page-images/${ORG_ID}/${REVISION_ID}/wing-client-jpeg-v1-780.jpg`;
+const SERVER_OBJECT_KEY =
+  `detail-page-images/${ORG_ID}/${REVISION_ID}/wing-server-jpeg-v1-780.jpg`;
 const NOW = new Date('2026-07-26T00:00:00.000Z');
 
 function savedDetailPage(html = '<main><img src="/hero.jpg"></main>') {
@@ -60,7 +64,7 @@ function intent(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function imageArtifact() {
+function imageArtifact(overrides: Record<string, unknown> = {}) {
   return {
     id: IMAGE_ARTIFACT_ID,
     organizationId: ORG_ID,
@@ -78,6 +82,7 @@ function imageArtifact() {
     createdByUserId: USER_ID,
     createdAt: NOW,
     updatedAt: NOW,
+    ...overrides,
   };
 }
 
@@ -97,11 +102,13 @@ describe('DetailPageClientRenderService', () => {
     expireIntent: vi.fn(),
   };
   const storage = {
+    save: vi.fn(),
     createPresignedPut: vi.fn(),
     inspectJpeg: vi.fn(),
     getUrl: vi.fn((key: string) => `https://cdn.example.com/${key}`),
   };
   const templateStyles = { getCompiledCss: vi.fn(() => '.detail { display: block; }') };
+  const rasterization = { render: vi.fn() };
   let service: DetailPageClientRenderService;
 
   beforeEach(() => {
@@ -112,6 +119,7 @@ describe('DetailPageClientRenderService', () => {
       images as never,
       storage as never,
       templateStyles,
+      rasterization as never,
       () => NOW,
     );
   });
@@ -139,7 +147,12 @@ describe('DetailPageClientRenderService', () => {
 
   it('현재 revision의 확정 artifact가 있으면 새 intent 없이 ready를 반환한다', async () => {
     detailPages.findCandidateCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
-    images.findArtifact.mockResolvedValue(imageArtifact());
+    images.findArtifact.mockResolvedValue(imageArtifact({
+      variant: 'wing-server-jpeg-v1',
+      objectKey: SERVER_OBJECT_KEY,
+      imageUrl: `https://cdn.example.com/${SERVER_OBJECT_KEY}`,
+      rendererKind: 'server-puppeteer',
+    }));
 
     const result = await service.prepare({
       organizationId: ORG_ID,
@@ -154,37 +167,123 @@ describe('DetailPageClientRenderService', () => {
       outputWidth: 780,
     });
     expect(images.createIntent).not.toHaveBeenCalled();
+    expect(rasterization.render).not.toHaveBeenCalled();
   });
 
-  it('같은 revision의 활성 intent를 재사용하고, 없으면 서버 고정 key로 생성한다', async () => {
+  it('저장 revision을 서버에서 780px JPEG로 렌더하고 artifact를 확정한다', async () => {
     detailPages.findCandidateCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
     images.findArtifact.mockResolvedValue(null);
-    images.findActiveIntent
-      .mockResolvedValueOnce(intent())
-      .mockResolvedValueOnce(null);
     images.createIntent.mockImplementation(async (value) => intent(value));
+    images.claimIntent.mockImplementation(async () => ({
+      status: 'claimed',
+      intent: intent({
+        state: 'claimed',
+        claimedByUserId: USER_ID,
+        variant: 'wing-server-jpeg-v1',
+        objectKey: SERVER_OBJECT_KEY,
+      }),
+    }));
+    const jpeg = await sharp({
+      create: {
+        width: 780,
+        height: 1200,
+        channels: 3,
+        background: '#ffffff',
+      },
+    }).jpeg({ quality: 82 }).toBuffer();
+    rasterization.render.mockResolvedValue({ buffer: jpeg, contentType: 'image/jpeg' });
+    storage.save.mockResolvedValue(`https://cdn.example.com/${SERVER_OBJECT_KEY}`);
+    images.completeIntent.mockImplementation(async (value) => imageArtifact({
+      variant: 'wing-server-jpeg-v1',
+      objectKey: SERVER_OBJECT_KEY,
+      imageUrl: `https://cdn.example.com/${SERVER_OBJECT_KEY}`,
+      byteLength: value.byteLength,
+      pixelWidth: value.pixelWidth,
+      pixelHeight: value.pixelHeight,
+      sha256: value.sha256,
+      rendererKind: value.rendererKind,
+    }));
 
-    const reused = await service.prepare({
+    const result = await service.prepare({
       organizationId: ORG_ID,
       userId: USER_ID,
       sourceCandidateId: CANDIDATE_ID,
     });
-    const created = await service.prepare({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      sourceCandidateId: CANDIDATE_ID,
-    });
 
-    expect(reused).toMatchObject({ status: 'render_required', intentId: INTENT_ID });
-    expect(created).toMatchObject({ status: 'render_required', revisionId: REVISION_ID });
+    expect(result).toMatchObject({
+      status: 'ready',
+      imageUrl: `https://cdn.example.com/${SERVER_OBJECT_KEY}`,
+      outputWidth: 780,
+      contentType: 'image/jpeg',
+      byteLength: jpeg.byteLength,
+    });
     expect(images.createIntent).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORG_ID,
       sourceCandidateId: CANDIDATE_ID,
       revisionId: REVISION_ID,
-      objectKey: OBJECT_KEY,
-      variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
+      objectKey: SERVER_OBJECT_KEY,
+      variant: 'wing-server-jpeg-v1',
       outputWidth: 780,
     }));
+    expect(rasterization.render).toHaveBeenCalledWith(expect.objectContaining({
+      html: expect.stringContaining('<base href="https://staging.kiditem.example/"'),
+      viewportWidth: 720,
+      outputWidth: 780,
+      format: 'jpeg',
+      quality: 82,
+    }));
+    expect(storage.save).toHaveBeenCalledWith(
+      SERVER_OBJECT_KEY,
+      jpeg,
+      'image/jpeg',
+    );
+    expect(images.completeIntent).toHaveBeenCalledWith(expect.objectContaining({
+      rendererKind: 'server-puppeteer',
+      pixelWidth: 780,
+      pixelHeight: 1200,
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }));
+  });
+
+  it('서버 렌더 실패를 intent에 기록하고 빈 artifact로 진행하지 않는다', async () => {
+    detailPages.findCandidateCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
+    images.findArtifact.mockResolvedValue(null);
+    images.createIntent.mockImplementation(async (value) => intent({
+      ...value,
+      variant: 'wing-server-jpeg-v1',
+      objectKey: SERVER_OBJECT_KEY,
+    }));
+    images.claimIntent.mockResolvedValue({
+      status: 'claimed',
+      intent: intent({
+        state: 'claimed',
+        claimedByUserId: USER_ID,
+        variant: 'wing-server-jpeg-v1',
+        objectKey: SERVER_OBJECT_KEY,
+      }),
+    });
+    images.failIntent.mockResolvedValue(intent({
+      state: 'failed',
+      failureCode: 'server_render_failed',
+      failureMessage: 'Chromium launch failed',
+    }));
+    rasterization.render.mockRejectedValue(new Error('Chromium launch failed'));
+
+    await expect(service.prepare({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      sourceCandidateId: CANDIDATE_ID,
+    })).rejects.toThrow('Chromium launch failed');
+
+    expect(images.failIntent).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      intentId: INTENT_ID,
+      failureCode: 'server_render_failed',
+      failureMessage: 'Chromium launch failed',
+      failedAt: NOW,
+    });
+    expect(storage.save).not.toHaveBeenCalled();
+    expect(images.completeIntent).not.toHaveBeenCalled();
   });
 
   it('claim은 다른 claimant를 거부하고 소유자에게만 고정 업로드 정보를 준다', async () => {

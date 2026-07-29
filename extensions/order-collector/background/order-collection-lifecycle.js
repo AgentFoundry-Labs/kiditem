@@ -90,7 +90,11 @@
         throw new Error("Collection run ID is required");
       }
       const environmentId = message?.environmentId;
-      if (environmentId !== "local" && environmentId !== "staging") {
+      if (
+        environmentId !== "local" &&
+        environmentId !== "office" &&
+        environmentId !== "staging"
+      ) {
         throw new Error("Collection environment is required");
       }
       const runId = validRunId(message?.runId) ? message.runId : createRunId();

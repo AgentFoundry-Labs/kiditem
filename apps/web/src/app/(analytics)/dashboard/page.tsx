@@ -31,6 +31,7 @@ import PageSkeleton from '@/components/ui/PageSkeleton';
 import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
 import { useAuthSession } from '@/components/providers/AuthProvider';
 import { queryKeys } from '@/lib/query-keys';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
 import ReadinessModal from '@/components/ReadinessModal';
@@ -192,7 +193,7 @@ export default function Dashboard() {
         },
         producer: 'dashboard.wing_sales',
         extensionId,
-        runId: crypto.randomUUID(),
+        runId: createSecureRandomUuid(),
         accessToken: authSession?.access_token,
       });
       if (session.status === 'succeeded') {

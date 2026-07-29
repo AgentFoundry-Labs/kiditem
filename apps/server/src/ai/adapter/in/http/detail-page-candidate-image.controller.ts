@@ -19,14 +19,14 @@ import {
 } from './dto';
 
 /**
- * 수집상품의 저장된 revision을 브라우저 렌더 intent와 확정 이미지 artifact로 연결한다.
- * 서버는 revision/저장 key/검증 권한을 소유하지만 이 경로에서 Chromium을 실행하지 않는다.
+ * 수집상품의 저장된 revision을 서버 Chromium으로 렌더하고 확정 이미지 artifact로 연결한다.
+ * Wing 폼 확장은 완성된 이미지 URL만 소비하며 상세페이지 캡처에는 관여하지 않는다.
  */
 @Controller('ai/detail-page-image')
 export class DetailPageCandidateImageController {
   constructor(private readonly service: DetailPageClientRenderService) {}
 
-  @Post('candidate/:candidateId/client-render')
+  @Post('candidate/:candidateId/server-render')
   @HttpCode(200)
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   prepare(

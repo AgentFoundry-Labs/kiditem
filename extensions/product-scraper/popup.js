@@ -53,11 +53,15 @@
           dom.environmentSelect.append(new Option("로그인된 환경 없음", ""));
           dom.environmentSelect.disabled = true;
           dom.environmentHelp.textContent =
-            "로컬 또는 스테이징 KidItem에 로그인해주세요.";
+            "로컬, 사무실 또는 스테이징 KidItem에 로그인해주세요.";
         } else {
           dom.environmentSelect.append(new Option("환경 선택", ""));
           for (const environmentId of connected) {
-            const label = environmentId === "local" ? "로컬" : "스테이징";
+            const label = environmentId === "local"
+              ? "로컬"
+              : environmentId === "office"
+                ? "사무실"
+                : "스테이징";
             dom.environmentSelect.append(new Option(label, environmentId));
           }
           dom.environmentSelect.disabled = connected.length === 1;

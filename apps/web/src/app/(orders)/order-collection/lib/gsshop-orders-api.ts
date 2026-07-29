@@ -1,3 +1,4 @@
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
@@ -32,7 +33,7 @@ export async function collectGsshopXlsxFromExtension(run?: OrderCollectionExtens
     {
       action: 'collectGsshopOrders',
       date: run?.date,
-      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+      runId: run?.runId ?? createSecureRandomUuid(),
     },
     150000, // GS 는 조회+상세 fetch 후 클라이언트 엑셀 조립이라 넉넉히
   );

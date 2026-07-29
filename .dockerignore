@@ -1,5 +1,6 @@
 # Dependencies (Dockerfile에서 자체 install)
 node_modules/
+**/node_modules/
 
 # Build artifacts (Docker 안에서 빌드)
 apps/server/dist/
