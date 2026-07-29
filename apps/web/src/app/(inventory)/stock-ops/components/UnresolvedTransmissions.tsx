@@ -13,13 +13,11 @@ import { invalidateSellpiaInventory } from '../../_shared/invalidate-sellpia-inv
 import { ProjectionCard } from './StockProjectionUi';
 
 /**
- * The only operator path out of a prepared-but-unresolved Sellpia transmission.
+ * Operator reconciliation for a prepared-but-unresolved Sellpia transmission.
  *
- * Order collection deliberately leaves an intent unresolved when the extension
- * errors or the tab dies, and that intent blocks every stock collection claim.
- * The order-collection retry gate can only reopen it while the local generated
- * file still carries a transmission marker, so a crashed submit was previously
- * unrecoverable from any screen.
+ * Order collection leaves an intent unresolved when the extension errors or the
+ * tab dies. It protects that exact file from accidental resubmission without
+ * blocking independent order collection or inventory synchronization.
  */
 export default function UnresolvedTransmissions() {
   const { state } = useSellpiaInventoryFreshness({ enabled: true });
@@ -29,7 +27,7 @@ export default function UnresolvedTransmissions() {
   return (
     <ProjectionCard
       title="셀피아 전송 결과 미확인"
-      description="이 건이 남아 있는 동안 재고 동기화가 차단됩니다. 셀피아 주문 내역을 확인한 뒤 접수 여부를 확정해주세요."
+      description="셀피아 주문 내역을 확인한 뒤 이 파일의 접수 여부를 확정해주세요. 다른 주문 수집과 재고 동기화는 계속 사용할 수 있습니다."
       icon={AlertTriangle}
     >
       <div className="space-y-2">
@@ -61,7 +59,7 @@ function UnresolvedTransmissionRow({
       });
       await invalidateSellpiaInventory(queryClient);
       toast.success(outcome === 'submitted'
-        ? '접수됨으로 확정했습니다. 재고 동기화가 다시 진행됩니다.'
+        ? '접수됨으로 확정했습니다.'
         : '미접수로 확정했습니다. 해당 파일을 다시 전송할 수 있습니다.');
     } catch (err) {
       toast.error(

@@ -1,5 +1,12 @@
 # Rocket Workbook and Sellpia Workflow Implementation Plan
 
+> **Superseded behavior (2026-07-29):** The operator-controlled Sellpia
+> application plan overrides this document wherever it says unresolved
+> transmissions block stock collection or unmatched Rocket final-order rows
+> produce HTTP 204/no artifact. Matching records workflow evidence without
+> filtering Sellpia candidates. Rocket PO rows also remain visible while the
+> fresh Sellpia comparison is running.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Rocket confirmation/reservation behavior with an exact-file workbook export that serializes the next export until matching Coupang orders have been sent to Sellpia and a newer verified inventory generation is observed.

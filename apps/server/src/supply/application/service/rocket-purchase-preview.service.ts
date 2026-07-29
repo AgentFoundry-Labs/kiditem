@@ -42,6 +42,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
   async preview(input: {
     organizationId: string;
     userId: string;
+    inventoryRequirement: 'advisory' | 'fresh';
     request: RocketPurchasePreviewRequest;
   }): Promise<RocketPurchasePreviewResponse> {
     const request = RocketPurchasePreviewRequestSchema.parse(input.request);
@@ -118,8 +119,16 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       .filter(({ recipeStatus }) => recipeStatus === 'matched')
       .flatMap(({ components }) => components
         .map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))];
+    const calculateRows = () => translatePreviewPolicy(() => previewRocketCapacity({
+      rows: previewRows,
+      editedQuantities: request.editedQuantities,
+      clampEditedQuantities: request.clampEditedQuantities,
+    }));
     let inventoryGeneration: string | null = null;
-    if (sellpiaInventorySkuIds.length > 0) {
+    if (
+      input.inventoryRequirement === 'fresh'
+      && sellpiaInventorySkuIds.length > 0
+    ) {
       const gated = await this.freshness.readFreshCapacityOrRequest({
         organizationId: input.organizationId,
         sellpiaInventorySkuIds,
@@ -135,6 +144,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
           collectionRunId: request.collection.collectionRunId,
           catalog: catalog.catalog,
           requestedGeneration: gated.requestedGeneration,
+          rows: calculateRows(),
         };
       }
       inventoryGeneration = gated.generation;
@@ -159,11 +169,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       collectionRunId: request.collection.collectionRunId,
       catalog: catalog.catalog,
       inventoryGeneration,
-      rows: translatePreviewPolicy(() => previewRocketCapacity({
-        rows: previewRows,
-        editedQuantities: request.editedQuantities,
-        clampEditedQuantities: request.clampEditedQuantities,
-      })),
+      rows: calculateRows(),
     };
   }
 }

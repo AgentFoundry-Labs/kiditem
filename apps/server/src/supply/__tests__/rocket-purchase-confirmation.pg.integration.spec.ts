@@ -326,7 +326,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         collectedOrderLineItemId: '21000000-0000-4000-8000-000000000020',
       },
     });
-    const intentKey = `rocket-workbook:${created.exportId}:shipment`;
+    const intentKey = `rocket-final-order:${SOURCE_IMPORT_RUN_ID}:shipment`;
     await prisma.rocketPurchaseConfirmationTransmission.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,

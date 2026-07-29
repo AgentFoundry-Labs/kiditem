@@ -122,6 +122,7 @@ export class ProcurementController {
       return this.rocketPreview.preview({
         organizationId,
         userId: user.id,
+        inventoryRequirement: 'fresh',
         request: {
           channelAccountId: body.channelAccountId!,
           collection: body.collection!,

@@ -104,7 +104,7 @@ describe('Sellpia inventory freshness vocabulary', () => {
     })).toBe('refresh_required');
   });
 
-  it('keeps an unresolved order transmission intent conservatively stale', () => {
+  it('does not let an unresolved order transmission redefine stock freshness', () => {
     expect(deriveSellpiaInventoryFreshness({
       now: new Date('2026-07-15T00:01:00.000Z'),
       lastVerifiedAt: VERIFIED_AT,
@@ -114,7 +114,7 @@ describe('Sellpia inventory freshness vocabulary', () => {
       activeSyncLeaseExpiresAt: null,
       hasUnresolvedOrderTransmissionIntent: true,
     })).toBe(
-      'refresh_required',
+      'fresh',
     );
   });
 

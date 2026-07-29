@@ -31,8 +31,9 @@ const ROCKET_SAVED_PO_PROFILE_HEADERS = {
   'X-KidItem-Response-Profile': ROCKET_SAVED_PO_RESPONSE_PROFILE,
 } as const;
 
-/** Legacy server fallback during a rolling deploy. New servers return a
- * `freshness_pending` checkpoint and the workflow performs the actual wait. */
+/** Compatibility copy for an older server that still freshness-gates preview.
+ * The collected source remains saved, but this client never polls or triggers
+ * inventory synchronization before showing an advisory preview. */
 export function rocketPreviewErrorMessage(cause: unknown, fallback: string): string {
   if (isApiError(cause) && cause.code === 'SELLPIA_SYNC_REQUIRED') {
     return '셀피아 재고 스냅샷이 최신이 아니어서 납품 수량을 계산할 수 없습니다.'

@@ -85,17 +85,19 @@ describe('previewRocketPurchases', () => {
     expect(body).not.toHaveProperty('userId');
   });
 
-  it('parses a freshness-pending checkpoint without requiring stale rows', async () => {
+  it('parses a freshness-pending checkpoint with advisory rows', async () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({
       status: 'freshness_pending',
       collectionRunId: RUN_ID,
       catalog: publication(),
       requestedGeneration: '8',
+      rows: [],
     });
 
     await expect(previewRocketPurchases(input())).resolves.toMatchObject({
       status: 'freshness_pending',
       requestedGeneration: '8',
+      rows: [],
     });
   });
 

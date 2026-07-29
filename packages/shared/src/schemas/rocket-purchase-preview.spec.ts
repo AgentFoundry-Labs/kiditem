@@ -406,24 +406,44 @@ describe('Rocket purchase preview contract', () => {
     })).toThrow(/plannedDeliveryDate/i);
   });
 
-  it('parses a durable freshness-pending checkpoint without stale quantity rows', () => {
+  it('parses a freshness-pending checkpoint with immediately visible advisory rows', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
       status: 'freshness_pending',
       collectionRunId: RUN_ID,
       catalog: publication(),
       requestedGeneration: '8',
+      rows: [{
+        poLineId: request().rows[0]!.poLineId,
+        poNumber: '1001',
+        productNo: 'P-1',
+        productName: '로켓 상품',
+        plannedDeliveryDate: '2026-07-20',
+        orderQuantity: 4,
+        recommendedQuantity: 2,
+        maxQuantity: 2,
+        editedQuantity: null,
+        reason: 'insufficient_capacity',
+        channelSkuId: ACCOUNT_ID,
+        masterProductId: MASTER_PRODUCT_ID,
+        productVariantId: PRODUCT_VARIANT_ID,
+        components: [{
+          sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+          quantity: 1,
+          currentStock: 2,
+          isActive: true,
+        }],
+      }],
     });
 
     expect(response).toMatchObject({
       status: 'freshness_pending',
       collectionRunId: RUN_ID,
       requestedGeneration: '8',
+      rows: [expect.objectContaining({ poLineId: request().rows[0]!.poLineId })],
     });
-    expect(response).not.toHaveProperty('rows');
     expect(response).not.toHaveProperty('inventoryGeneration');
     expect(() => RocketPurchasePreviewResponseSchema.parse({
       ...response,
-      rows: [],
       inventoryGeneration: '7',
     })).toThrow();
   });

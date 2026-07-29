@@ -377,6 +377,7 @@ export const RocketPurchasePreviewFreshnessPendingResponseSchema = z.object({
   collectionRunId: z.string().uuid(),
   catalog: RocketPoCatalogPublicationSchema,
   requestedGeneration: z.string().regex(/^\d+$/),
+  rows: z.array(RocketPurchasePreviewRowSchema).max(ROCKET_PO_ROW_LIMIT),
 }).strict();
 export type RocketPurchasePreviewFreshnessPendingResponse = z.infer<
   typeof RocketPurchasePreviewFreshnessPendingResponseSchema

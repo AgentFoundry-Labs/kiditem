@@ -54,6 +54,7 @@ implements RocketWorkbookExportPort {
     const preview = await this.previewPort.preview({
       organizationId: input.organizationId,
       userId: input.userId,
+      inventoryRequirement: 'fresh',
       request: previewRequest satisfies RocketPurchasePreviewRequest,
     });
     if (preview.status === 'freshness_pending') {

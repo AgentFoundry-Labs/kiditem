@@ -134,6 +134,7 @@ describe('RocketWorkbookExportService', () => {
     deps.preview.preview.mockResolvedValue({
       status: 'freshness_pending',
       requestedGeneration: '13',
+      rows: [],
       collectionRunId,
       catalog: previewResult().catalog,
     });
@@ -175,6 +176,7 @@ describe('RocketWorkbookExportService', () => {
     expect(deps.preview.preview).toHaveBeenCalledWith({
       organizationId,
       userId,
+      inventoryRequirement: 'fresh',
       request: previewRequest,
     });
     expect(deps.transactions.exportWorkbook).toHaveBeenCalledWith({

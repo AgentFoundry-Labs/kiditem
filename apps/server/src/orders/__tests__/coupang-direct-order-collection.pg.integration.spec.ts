@@ -85,10 +85,13 @@ describe('Coupang direct final-order collection (PG integration)', () => {
 
     expect(first).toMatchObject({
       exportId,
-      transmissionIntentKey: `rocket-workbook:${exportId}:shipment`,
+      transmissionIntentKey: `rocket-final-order:${first.importRunId}:shipment`,
       matchedLineCount: 1,
       duplicate: false,
       reconciledRows: 1,
+      collectedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+      matchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+      unmatchedLines: [],
     });
     expect(replay).toEqual({ ...first, duplicate: true });
     expect(await prisma.order.count()).toBe(1);
@@ -119,14 +122,14 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         confirmationId: exportId,
         sourceImportRunId: first.importRunId,
         transport: 'SHIPMENT',
-        intentKey: `rocket-workbook:${exportId}:shipment`,
+        intentKey: `rocket-final-order:${first.importRunId}:shipment`,
         matchedLineCount: 1,
       }),
     ]);
     expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
-  it('collects without throwing when no active confirmation exists, reporting the skip', async () => {
+  it('collects without an active confirmation and keeps the row as a Sellpia candidate', async () => {
     // 현재 운영 상태(rocket_purchase_confirmation_lines = 0)를 재현한다.
     // 예전에는 ROCKET_REQUEST_COMMITMENT_NOT_FOUND 409 로 수집 전체가 터졌다.
     const input = collectionRequest('PO-9', 'P-9', '8801234567890', 3);
@@ -139,11 +142,12 @@ describe('Coupang direct final-order collection (PG integration)', () => {
 
     expect(result).toMatchObject({
       exportId: null,
-      transmissionIntentKey: null,
+      transmissionIntentKey: `rocket-final-order:${result.importRunId}:shipment`,
       matchedLineCount: 0,
       reconciledRows: 0,
-      confirmedLines: [],
-      skippedLines: [{ poNumber: 'PO-9', productNo: 'P-9' }],
+      collectedLines: [{ poNumber: 'PO-9', productNo: 'P-9' }],
+      matchedLines: [],
+      unmatchedLines: [{ poNumber: 'PO-9', productNo: 'P-9' }],
       duplicate: false,
     });
     // 최종주문 자체는 실제 주문이라 적재되지만, 발주확정이 없어 재고 커밋은 생기지 않는다.
@@ -193,8 +197,9 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       exportId,
       transmissionIntentKey: null,
       matchedLineCount: 0,
-      confirmedLines: [],
-      skippedLines: [],
+      collectedLines: [],
+      matchedLines: [],
+      unmatchedLines: [],
     });
     expect(await prisma.rocketPurchaseConfirmationTransmission.findFirstOrThrow()).toMatchObject({
       confirmationId: exportId,

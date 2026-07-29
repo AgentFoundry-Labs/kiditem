@@ -101,7 +101,12 @@ describe('RocketPurchasePreviewService', () => {
     const deps = dependencies();
     const service = previewService(deps);
 
-    const result = await service.preview({ organizationId, userId, request: request() });
+    const result = await service.preview({
+      organizationId,
+      userId,
+      inventoryRequirement: 'fresh',
+      request: request(),
+    });
 
     expect(deps.catalog.publishAndResolve).toHaveBeenCalledWith({
       organizationId,
@@ -133,6 +138,27 @@ describe('RocketPurchasePreviewService', () => {
     expect(result).not.toHaveProperty('submissionAttempt');
   });
 
+  it('returns advisory rows immediately without requesting inventory freshness', async () => {
+    const deps = dependencies();
+    const service = previewService(deps);
+
+    const result = await service.preview({
+      organizationId,
+      userId,
+      inventoryRequirement: 'advisory',
+      request: request(),
+    });
+
+    expect(result).toMatchObject({
+      status: 'ready',
+      inventoryGeneration: null,
+      rows: [{ poLineId, recommendedQuantity: 4 }],
+    });
+    expect((deps.freshness as unknown as {
+      readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
+    }).readFreshCapacityOrRequest).not.toHaveBeenCalled();
+  });
+
   it('publishes the full monthly archive but previews only confirmation-requested rows', async () => {
     const deps = dependencies();
     const completedLineId = '1002:P-2:8801234567891:1';
@@ -162,7 +188,12 @@ describe('RocketPurchasePreviewService', () => {
     };
     const service = previewService(deps);
 
-    const result = await service.preview({ organizationId, userId, request: input });
+    const result = await service.preview({
+      organizationId,
+      userId,
+      inventoryRequirement: 'fresh',
+      request: input,
+    });
 
     if (result.status !== 'ready') throw new Error('Expected ready preview');
     expect(deps.catalog.publishAndResolve).toHaveBeenCalledWith({
@@ -184,7 +215,12 @@ describe('RocketPurchasePreviewService', () => {
       });
       const service = previewService(deps);
 
-      const result = await service.preview({ organizationId, userId, request: request() });
+      const result = await service.preview({
+        organizationId,
+        userId,
+        inventoryRequirement: 'fresh',
+        request: request(),
+      });
 
       if (result.status !== 'ready') throw new Error('Expected ready preview');
       expect(result.rows[0]?.reason).toBe(blockingReason);
@@ -209,7 +245,12 @@ describe('RocketPurchasePreviewService', () => {
       const edited = request();
       edited.editedQuantities = { [poLineId]: 1 };
 
-      await expect(service.preview({ organizationId, userId, request: edited }))
+      await expect(service.preview({
+        organizationId,
+        userId,
+        inventoryRequirement: 'fresh',
+        request: edited,
+      }))
         .rejects.toBeInstanceOf(BadRequestException);
       expect(deps.availability.findByChannelSkuIds).not.toHaveBeenCalled();
     },
@@ -229,6 +270,7 @@ describe('RocketPurchasePreviewService', () => {
       const result = await service.preview({
         organizationId,
         userId,
+        inventoryRequirement: 'fresh',
         request: {
           ...request(),
           editedQuantities: { [poLineId]: 1 },
@@ -247,7 +289,7 @@ describe('RocketPurchasePreviewService', () => {
     },
   );
 
-  it('returns a durable pending checkpoint before exposing any capacity recommendation', async () => {
+  it('returns advisory rows while fresh inventory collection is pending', async () => {
     const deps = dependencies();
     vi.mocked((deps.freshness as unknown as {
       readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
@@ -257,7 +299,12 @@ describe('RocketPurchasePreviewService', () => {
     });
     const service = previewService(deps);
 
-    const result = await service.preview({ organizationId, userId, request: request() });
+    const result = await service.preview({
+      organizationId,
+      userId,
+      inventoryRequirement: 'fresh',
+      request: request(),
+    });
     const published = await vi.mocked(deps.catalog.publishAndResolve)
       .mock.results[0]!.value;
 
@@ -266,8 +313,11 @@ describe('RocketPurchasePreviewService', () => {
       collectionRunId: request().collection.collectionRunId,
       catalog: published.catalog,
       requestedGeneration: '2',
+      rows: [expect.objectContaining({
+        poLineId: request().rows[0]!.poLineId,
+        recommendedQuantity: 4,
+      })],
     });
-    expect(result).not.toHaveProperty('rows');
     expect(vi.mocked(deps.catalog.publishAndResolve).mock.invocationCallOrder[0])
       .toBeLessThan(
       (deps.freshness as unknown as {
@@ -290,7 +340,12 @@ describe('RocketPurchasePreviewService', () => {
     });
     const service = previewService(deps);
 
-    const result = await service.preview({ organizationId, userId, request: request() });
+    const result = await service.preview({
+      organizationId,
+      userId,
+      inventoryRequirement: 'fresh',
+      request: request(),
+    });
 
     if (result.status !== 'ready') throw new Error('Expected ready preview');
     expect(result.rows[0]).toMatchObject({
@@ -320,7 +375,12 @@ describe('RocketPurchasePreviewService', () => {
     }]);
     const service = previewService(deps);
 
-    const result = await service.preview({ organizationId, userId, request: request() });
+    const result = await service.preview({
+      organizationId,
+      userId,
+      inventoryRequirement: 'fresh',
+      request: request(),
+    });
 
     if (result.status !== 'ready') throw new Error('Expected ready preview');
     expect(result.rows[0]).toMatchObject({ reason, maxQuantity: 0 });
@@ -348,7 +408,12 @@ describe('RocketPurchasePreviewService', () => {
     });
     const service = previewService(deps);
 
-    await service.preview({ organizationId, userId, request: input });
+    await service.preview({
+      organizationId,
+      userId,
+      inventoryRequirement: 'fresh',
+      request: input,
+    });
 
     expect((deps.freshness as unknown as {
       readFreshCapacityOrRequest: ReturnType<typeof vi.fn>;
@@ -380,7 +445,12 @@ describe('RocketPurchasePreviewService', () => {
     const input = request();
     input.rows[0]!.orderQty = 100;
 
-    const result = await service.preview({ organizationId, userId, request: input });
+    const result = await service.preview({
+      organizationId,
+      userId,
+      inventoryRequirement: 'fresh',
+      request: input,
+    });
 
     if (result.status !== 'ready') throw new Error('Expected ready preview');
     expect(result).toMatchObject({

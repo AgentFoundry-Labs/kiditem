@@ -157,15 +157,15 @@ describe('SellpiaInventoryFreshnessService', () => {
       intentKey: INTENT_KEY,
     });
 
-    expect(first).toMatchObject({ disposition: 'prepared', state: { status: 'refresh_required' } });
+    expect(first).toMatchObject({ disposition: 'prepared', state: { status: 'fresh' } });
     expect(repeated).toMatchObject({
       disposition: 'already_prepared',
-      state: { status: 'refresh_required' },
+      state: { status: 'fresh' },
     });
     expect(repository.unresolvedIntentCount(ORG_ID)).toBe(1);
   });
 
-  it('keeps a crashed tab stale and prevents a collection claim', async () => {
+  it('keeps a crashed submit visible while allowing an independent stock collection', async () => {
     repository.seedState({
       sourceAccountKey: 'kiditem',
       requestedGeneration: 4n,
@@ -179,9 +179,15 @@ describe('SellpiaInventoryFreshnessService', () => {
     });
 
     await expect(service.getState({ organizationId: ORG_ID, userId: USER_ID }))
-      .resolves.toMatchObject({ status: 'refresh_required' });
+      .resolves.toMatchObject({ status: 'fresh' });
+    await service.requestRefresh({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      reason: 'manual_request',
+    });
     await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
-      .resolves.toMatchObject({ claimed: false });
+      .resolves.toMatchObject({ claimed: true, activeGeneration: '5' });
+    expect(repository.unresolvedIntentCount(ORG_ID)).toBe(1);
   });
 
   it('finalizes exactly once into a generation after a concurrent sync completion', async () => {
@@ -443,7 +449,7 @@ describe('SellpiaInventoryFreshnessService', () => {
     expect(repeatedAbort.status).toBe('aborted');
     expect(reopened).toMatchObject({
       disposition: 'prepared',
-      state: { status: 'refresh_required' },
+      state: { status: 'fresh' },
     });
     expect(repository.unresolvedIntentCount(ORG_ID)).toBe(1);
   });
@@ -1081,7 +1087,7 @@ describe('SellpiaInventoryFreshnessService', () => {
     expect(repository.state(ORG_ID).requestedGeneration).toBe(9n);
   });
 
-  it('keeps unresolved transmission intent blocking while exposing the target generation', async () => {
+  it('returns the verified capacity while a separate transmission is unresolved', async () => {
     repository.seedState({
       sourceAccountKey: 'kiditem',
       requestedGeneration: 4n,
@@ -1095,10 +1101,18 @@ describe('SellpiaInventoryFreshnessService', () => {
       intentKey: INTENT_KEY,
     });
 
-    await expect(readFreshCapacityOrRequest(service, [SKU_ID])).resolves.toEqual({
-      status: 'refresh_required',
-      requestedGeneration: '5',
+    await expect(readFreshCapacityOrRequest(service, [SKU_ID])).resolves.toMatchObject({
+      status: 'fresh',
+      generation: '4',
+      inventorySkus: [{
+        sellpiaInventorySkuId: SKU_ID,
+        currentStock: 100,
+        activeCommitmentQuantity: 30,
+        availableStock: 70,
+        isActive: true,
+      }],
     });
+    expect(repository.state(ORG_ID).requestedGeneration).toBe(4n);
     await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
       .resolves.toMatchObject({ claimed: false });
   });

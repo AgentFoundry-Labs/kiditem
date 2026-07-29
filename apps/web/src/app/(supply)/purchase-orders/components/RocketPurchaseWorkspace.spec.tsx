@@ -69,30 +69,37 @@ describe('RocketPurchaseWorkspace', () => {
     );
   });
 
-  it('shows that the collection is saved while inventory refresh is pending', async () => {
+  it('shows collected rows while fresh inventory comparison is still running', async () => {
     const row = sourceRow();
-    const freshness = new Promise<never>(() => undefined);
+    const inventoryState = deferred<ReturnType<typeof freshnessState>>();
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
       collection: collectionEvidence(),
       rows: [row],
       poCount: 1,
     });
-    vi.mocked(previewRocketPurchases).mockResolvedValue({
-      status: 'freshness_pending',
-      collectionRunId: collectionEvidence().collectionRunId,
-      catalog: catalogPublication(1),
-      requestedGeneration: '12',
-    });
-    vi.mocked(sellpiaInventoryFreshnessApi.getState).mockReturnValue(freshness);
+    vi.mocked(previewRocketPurchases)
+      .mockResolvedValueOnce({
+        status: 'freshness_pending',
+        collectionRunId: collectionEvidence().collectionRunId,
+        catalog: catalogPublication(1),
+        requestedGeneration: '12',
+        rows: [previewRow(null, 2)],
+      })
+      .mockResolvedValueOnce(preview([row], [previewRow(null, 3)]));
+    vi.mocked(sellpiaInventoryFreshnessApi.getState).mockReturnValue(inventoryState.promise);
     const user = userEvent.setup();
-    const view = renderWorkspace();
+    renderWorkspace();
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
-    expect(await screen.findByText('수집본 저장 완료 · 셀피아 재고 갱신 중'))
-      .toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '재고 갱신 중' })).toBeDisabled();
-    view.unmount();
+    expect(await screen.findByRole('spinbutton', { name: '1001 엑셀 수량' }))
+      .toHaveValue(2);
+    expect(screen.getByText(/셀피아 재고 갱신 중/)).toBeInTheDocument();
+
+    inventoryState.resolve(freshnessState({ status: 'fresh', verifiedGeneration: '12' }));
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: '1001 엑셀 수량' }))
+      .toHaveValue(3));
+    expect(screen.queryByText(/셀피아 재고 갱신 중/)).not.toBeInTheDocument();
   });
 
   it('keeps the existing shell but exposes workbook language without commitment inventory', () => {
@@ -355,6 +362,12 @@ function freshnessState(overrides: Record<string, unknown> = {}) {
     hasMoreUnresolvedOrderTransmissionIntents: false,
     ...overrides,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 function catalogPublication(rowCount: number): RocketPoCatalogPublication {

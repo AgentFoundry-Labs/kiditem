@@ -37,6 +37,17 @@ export function useSellpiaOrderTransmission({
     ]);
   }, [queryClient]);
 
+  const requestInventoryRefresh = useCallback(() => {
+    void sellpiaInventoryFreshnessApi.requestRefresh('manual_request')
+      .then(async () => {
+        await invalidateFreshnessHistory();
+        toast.success('셀피아 재고 동기화를 요청했습니다.');
+      })
+      .catch((error) => {
+        toast.error(friendlyError(error) ?? '셀피아 재고 동기화 요청에 실패했습니다.');
+      });
+  }, [invalidateFreshnessHistory]);
+
   const transmit = useCallback(
     async (
       file: StoredOrderCollectionFile,
@@ -66,7 +77,12 @@ export function useSellpiaOrderTransmission({
               '셀피아 전송은 제출되지 않았지만 준비 상태 해제에 실패했습니다. 재시도 전에 상태를 확인하세요.',
             );
           } else if (result.error) {
-            toast.error(result.error);
+            toast.error(result.error, {
+              action: {
+                label: '재고 동기화',
+                onClick: requestInventoryRefresh,
+              },
+            });
           } else {
             toast.warning('셀피아 전송 요청이 제출되지 않았습니다.');
           }
@@ -113,7 +129,7 @@ export function useSellpiaOrderTransmission({
         setSettlingId(null);
       }
     },
-    [invalidateFreshnessHistory, onTransmissionRequested, router],
+    [invalidateFreshnessHistory, onTransmissionRequested, requestInventoryRefresh, router],
   );
 
   return { sendingId, settlingId, transmit };

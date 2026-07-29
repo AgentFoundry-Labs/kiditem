@@ -56,8 +56,11 @@ logged-in order-collector extension
   including free-text `supplierName` creation.
 - Rocket preview quantities are editable only up to the backend-recomputed
   maximum. Explicit new collection creates fresh provider evidence. A completed
-  persisted catalog snapshot may be reopened, but every reopen reruns Inventory
-  freshness and capacity; persisted inventory quantities are never reused.
+  persisted catalog snapshot may be reopened. Collected rows render immediately
+  from the pending checkpoint while the shared coordinator synchronizes Sellpia;
+  the UI labels those quantities as prior-snapshot advisory values, keeps export
+  disabled, and replaces them with the fresh-generation comparison before
+  review completes. An unresolved order-file intent never blocks this refresh.
 - Recollection intersects retained edit keys with fresh PO lines and sends all
   retained edits once using the backend's joint clamp mode. UI state uses the
   returned effective quantities because multiple rows may share component

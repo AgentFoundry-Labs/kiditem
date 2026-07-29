@@ -43,10 +43,12 @@ provider HTTP APIs directly.
   record-only.
 - Coupang directship conversion (`/api/orders/collection/coupang-directship/convert`)
   persists the collection, reconciles rows against the active Supply-owned
-  Rocket workbook, and exports only matching rows to the Sellpia workbook.
-  The service returns a stable transmission key derived from workbook export
-  and transport. An empty SHIPMENT or MILKRUN probe still persists no-match
-  evidence and returns HTTP 204.
+  Rocket workbook, and exports every collected row for the selected transport
+  to the Sellpia workbook. Exact matches receive workbook linkage; unmatched
+  rows remain in the operator-selectable file. The service returns a stable
+  transmission key derived from source import run and transport. An empty
+  SHIPMENT or MILKRUN probe still persists no-match evidence and returns HTTP
+  204 without a transmission key.
 
 ## Boundary Rules
 
@@ -58,11 +60,12 @@ provider HTTP APIs directly.
   status. Keep them independent.
 - New channels add `platform` values and channel adapters, not
   channel-specific order tables.
-- Directship convert requires the active workbook identifiers supplied by the
-  extension headers, persists deterministic order/import identities, and links
-  exact PO/product rows through Supply reconciliation. The selected transport
-  splits SHIPMENT vs MILKRUN output. No matching rows returns no workbook, but
-  the probe remains durable evidence for safe workflow abandonment.
+- Directship convert requires the selected Rocket channel account, persists
+  deterministic order/import identities, and links exact PO/product rows
+  through Supply reconciliation when a workbook matches. The selected transport
+  splits SHIPMENT vs MILKRUN output. Non-empty unmatched-only collection still
+  returns a Sellpia workbook; a transport with no collected rows returns 204 and
+  remains durable evidence for safe workflow abandonment.
 - `CreateCsBodyDto.productId` is only a backward-compatible alias for
   `listingId`; new callers send `listingId`.
 

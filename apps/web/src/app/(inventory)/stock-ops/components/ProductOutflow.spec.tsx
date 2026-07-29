@@ -227,10 +227,8 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     expect(requestRefresh).not.toHaveBeenCalled();
   });
 
-  // Regression: an unresolved Sellpia transmission makes the refresh request a
-  // no-op, and the button used to toast success on any non-throwing response.
-  it('reports the blocking transmission instead of claiming the sync started', async () => {
-    const blocked = {
+  it('keeps stock refresh available while reporting an unresolved transmission separately', async () => {
+    const unresolved = {
       status: 'refresh_required',
       lastVerifiedAt: '2026-07-17T00:30:00.000Z',
       syncNotBefore: null,
@@ -241,16 +239,16 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
         },
       ],
     };
-    freshness.state = blocked;
-    requestRefresh.mockResolvedValue(blocked);
+    freshness.state = unresolved;
+    requestRefresh.mockResolvedValue(unresolved);
     renderProductOutflow();
 
-    expect(screen.getByText('전송 확인 필요')).toBeInTheDocument();
+    expect(screen.getByText('전송 확인 필요 1')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /재고 동기화/ }));
 
-    await waitFor(() => expect(toastMock.error).toHaveBeenCalledTimes(1));
-    expect(toastMock.error.mock.calls[0][0]).toContain('재고 동기화가 막혀 있습니다');
-    expect(toastMock.success).not.toHaveBeenCalled();
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
+    expect(toastMock.success).toHaveBeenCalledWith('셀피아 재고 동기화를 예약했습니다.');
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 
   it('reports the settle window when the sync is genuinely queued', async () => {

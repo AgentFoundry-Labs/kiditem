@@ -234,15 +234,19 @@ export function useRocketPurchaseWorkflow({
     if (input.notifyCatalogSaved && initial.catalog) onCatalogSaved?.();
 
     return recoverRocketPreviewFreshness(initial, {
-      retryPreview: async () => {
-        if (isCurrent()) setStage('calculating');
-        return previewRocketPurchases(input.request);
-      },
+      retryPreview: () => previewRocketPurchases(input.request),
       getFreshnessState: sellpiaInventoryFreshnessApi.getState,
       requestRetry: () => sellpiaInventoryFreshnessApi.requestRefresh('retry'),
       publishPending: (checkpoint) => {
         if (!isCurrent()) return;
         setPendingCheckpoint(checkpoint);
+        setPreview({
+          status: 'ready',
+          collectionRunId: checkpoint.collectionRunId,
+          catalog: checkpoint.catalog,
+          inventoryGeneration: null,
+          rows: checkpoint.rows,
+        });
         setStage('refreshing_inventory');
       },
       publishFreshnessState: async () => {
@@ -374,7 +378,7 @@ export function useRocketPurchaseWorkflow({
   const performRecalculation = async () => {
     const generation = requestGenerationRef.current;
     // This controller intentionally outlives the route. A client-side route
-    // transition must not cancel collection persistence or freshness recovery.
+    // transition must not cancel collection persistence.
     const controller = new AbortController();
     let collectedRun: Awaited<ReturnType<
       typeof collectRocketPoRowsForConfirmationFromExtension
