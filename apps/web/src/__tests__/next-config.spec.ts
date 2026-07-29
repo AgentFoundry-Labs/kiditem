@@ -8,6 +8,11 @@ interface RewriteRule {
   destination: string;
 }
 
+interface ImageRemotePattern {
+  protocol: string;
+  hostname: string;
+}
+
 const ORIGINAL_API_URL = process.env.NEXT_PUBLIC_API_URL;
 const webRoot = process.cwd().endsWith('/apps/web')
   ? process.cwd()
@@ -28,6 +33,19 @@ async function getRewrites(): Promise<RewriteRule[]> {
     { encoding: 'utf8', env: { ...process.env } },
   );
   return JSON.parse(output) as RewriteRule[];
+}
+
+async function getImageRemotePatterns(): Promise<ImageRemotePattern[]> {
+  const script = [
+    `const mod = await import(${JSON.stringify(nextConfigUrl)});`,
+    'console.log(JSON.stringify(mod.default.images?.remotePatterns ?? []));',
+  ].join('\n');
+  const output = execFileSync(
+    process.execPath,
+    ['--input-type=module', '--eval', script],
+    { encoding: 'utf8', env: { ...process.env } },
+  );
+  return JSON.parse(output) as ImageRemotePattern[];
 }
 
 describe('next.config rewrites — chat runtime same-origin transport', () => {
@@ -82,5 +100,15 @@ describe('next.config rewrites — chat runtime same-origin transport', () => {
     expect(rules.map((r) => r.destination)).toContain(
       'http://api.kiditem.local:4001/api/chat/copilot',
     );
+  });
+});
+
+describe('next.config images - 1688 CDN proxying', () => {
+  it('allows the Alibaba CDN families returned by 1688 search', async () => {
+    await expect(getImageRemotePatterns()).resolves.toEqual([
+      { protocol: 'https', hostname: '**.alicdn.com' },
+      { protocol: 'https', hostname: '**.tbcdn.cn' },
+      { protocol: 'https', hostname: '**.taobaocdn.com' },
+    ]);
   });
 });
