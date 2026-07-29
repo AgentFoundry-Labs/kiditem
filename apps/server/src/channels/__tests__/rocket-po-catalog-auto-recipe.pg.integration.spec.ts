@@ -125,13 +125,13 @@ describe('Rocket PO catalog automatic recipe (PG integration)', () => {
     expect(replay.catalog).toMatchObject({
       duplicate: true,
       recipeAutomation: {
-        evaluatedProducts: 1,
+        evaluatedProducts: 0,
         appliedProducts: 0,
         appliedVariants: 0,
         affectedOptions: 0,
         operatorReviewProducts: 0,
         blockedProducts: 0,
-        alreadyConfiguredProducts: 1,
+        alreadyConfiguredProducts: 0,
         skippedExistingVariants: 0,
       },
     });

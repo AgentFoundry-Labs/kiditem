@@ -38,6 +38,9 @@ Current runbooks:
 - [Production Deploy](production-deploy.md) — operate production deploy,
   rollback, status, confirmation strings, and production-only GitHub
   Environment variables.
+- [Office Deploy](office-deploy.md) — build immutable office images in GitHub
+  Actions, apply digest-only releases to the Windows office runtime, verify
+  health, manage disk pressure, and roll back without local image builds.
 - [Deployment Architecture](deployment-architecture.md) — CI/CD architecture,
   blue-green slot ownership, API/worker split, image immutability, rollback
   boundaries, and IaC baseline.
