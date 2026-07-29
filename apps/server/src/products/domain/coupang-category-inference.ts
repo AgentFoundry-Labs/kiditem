@@ -8,6 +8,7 @@ export interface CoupangCategoryCell {
 
 export interface CategoryCorpusEntry {
   displayName: string;
+  registeredName?: string | null;
   categoryCell: string;
 }
 
@@ -62,6 +63,25 @@ const STOP_TOKENS = new Set([
 const QUANTITY_TOKEN =
   /^\d+(?:개입|개월|개|입|매|장|종|셋트|세트|p|pcs|g|kg|ml|l|cm|mm|호)?$/;
 
+const LEADING_CATALOG_PRICE = /^(\d{3,6})\s*(?=[a-z가-힣])/i;
+
+/**
+ * 쿠팡 등록상품명의 선행 소비자가(예: `3500꿀사과슬랑이`)와 공백/기호를
+ * 제거해 동일 상품 여부만 비교할 수 있는 키를 만든다.
+ */
+export function normalizeCatalogProductIdentity(value: string): string {
+  const normalized = (value ?? '').normalize('NFKC').toLowerCase().trim();
+  const priceMatch = LEADING_CATALOG_PRICE.exec(normalized);
+  const withoutCatalogPrice =
+    priceMatch
+    && Number(priceMatch[1]) >= 500
+    && Number(priceMatch[1]) % 100 === 0
+      ? normalized.slice(priceMatch[0].length)
+      : normalized;
+
+  return withoutCatalogPrice.replace(/[^0-9a-z가-힣]+/g, '');
+}
+
 export function tokenizeProductName(value: string): Set<string> {
   const normalized = (value ?? '')
     .normalize('NFKC')
@@ -114,11 +134,47 @@ export interface InferCategoryOptions {
   evidenceLimit?: number;
 }
 
-const HIGH_SCORE = 0.5;
 const MEDIUM_SCORE = 0.32;
 const NEIGHBOUR_COUNT = 10;
-const HIGH_CONSENSUS = 0.7;
 const MEDIUM_CONSENSUS = 0.45;
+
+interface ParsedCategoryCorpusEntry {
+  cell: CoupangCategoryCell;
+  names: string[];
+}
+
+interface IdentityMatch {
+  cell: CoupangCategoryCell;
+  name: string;
+  exact: boolean;
+}
+
+function uniqueNames(entry: CategoryCorpusEntry): string[] {
+  return [
+    ...new Set(
+      [entry.registeredName, entry.displayName]
+        .filter((name): name is string => typeof name === 'string' && Boolean(name.trim()))
+        .map((name) => name.trim()),
+    ),
+  ];
+}
+
+function findIdentityMatches(
+  productName: string,
+  corpus: ParsedCategoryCorpusEntry[],
+): IdentityMatch[] {
+  const target = normalizeCatalogProductIdentity(productName);
+  if (target.length < 4) return [];
+
+  return corpus.flatMap((entry) =>
+    entry.names.flatMap((name) => {
+      const candidate = normalizeCatalogProductIdentity(name);
+      if (candidate.length < 4) return [];
+      const exact = candidate === target;
+      const prefix = candidate.startsWith(target) || target.startsWith(candidate);
+      return exact || prefix ? [{ cell: entry.cell, name, exact }] : [];
+    }));
+}
 
 export function inferCoupangCategory(
   productName: string,
@@ -129,16 +185,47 @@ export function inferCoupangCategory(
   const evidenceLimit = options.evidenceLimit ?? 3;
   if (!productName?.trim() || !Array.isArray(corpus) || corpus.length === 0) return null;
 
-  const scored: { cell: CoupangCategoryCell; name: string; score: number }[] = [];
+  const parsedCorpus: ParsedCategoryCorpusEntry[] = [];
   const supportByCell = new Map<string, number>();
   for (const entry of corpus) {
     const cell = parseCoupangCategoryCell(entry?.categoryCell ?? '');
-    if (!cell || !entry.displayName?.trim()) continue;
+    const names = uniqueNames(entry);
+    if (!cell || names.length === 0) continue;
+    parsedCorpus.push({ cell, names });
     supportByCell.set(cell.raw, (supportByCell.get(cell.raw) ?? 0) + 1);
+  }
+  if (parsedCorpus.length === 0) return null;
+
+  // 엑셀의 등록상품명/노출상품명과 동일한 상품이면 그 카테고리를 최우선한다.
+  // 같은 상품명이 서로 다른 카테고리에 걸쳐 있으면 자동선택하지 않고 아래의
+  // 저신뢰도 추천으로 내려 보낸다.
+  const identityMatches = findIdentityMatches(productName, parsedCorpus);
+  const identityCategories = new Set(identityMatches.map((match) => match.cell.raw));
+  if (identityMatches.length > 0 && identityCategories.size === 1) {
+    const winner = identityMatches[0];
+    const evidence = [...new Set(identityMatches.map((match) => match.name))]
+      .slice(0, evidenceLimit);
+    return {
+      cell: winner.cell,
+      score: identityMatches.some((match) => match.exact) ? 1 : 0.95,
+      confidence: 'high',
+      basedOn: evidence,
+      support: supportByCell.get(winner.cell.raw) ?? 1,
+    };
+  }
+
+  const scored: { cell: CoupangCategoryCell; name: string; score: number }[] = [];
+  for (const entry of parsedCorpus) {
+    const nameScores = entry.names.map((name) => ({
+      name,
+      score: scoreNameSimilarity(productName, name),
+    }));
+    const bestName = nameScores.sort((left, right) => right.score - left.score)[0];
+    if (!bestName) continue;
     scored.push({
-      cell,
-      name: entry.displayName,
-      score: scoreNameSimilarity(productName, entry.displayName),
+      cell: entry.cell,
+      name: bestName.name,
+      score: bestName.score,
     });
   }
   if (scored.length === 0) return null;
@@ -178,11 +265,9 @@ export function inferCoupangCategory(
 
   const consensus = totalWeight > 0 ? winner.weight / totalWeight : 0;
   const confidence: CategoryConfidence =
-    consensus >= HIGH_CONSENSUS || winner.best >= HIGH_SCORE
-      ? 'high'
-      : consensus >= MEDIUM_CONSENSUS || winner.best >= MEDIUM_SCORE
-        ? 'medium'
-        : 'low';
+    consensus >= MEDIUM_CONSENSUS || winner.best >= MEDIUM_SCORE
+      ? 'medium'
+      : 'low';
 
   return {
     cell: winner.cell,
