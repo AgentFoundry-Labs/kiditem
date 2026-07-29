@@ -15,17 +15,21 @@ describe('generation progress labels', () => {
     ).toBe('KIDITEM DESIGN 이미지 생성 중...');
   });
 
-  it('keeps draft/full pending rows in the copy generation stage', () => {
+  it('does not claim an untracked copy stage for draft/full pending rows', () => {
     expect(
       getInlineGenerationProgressLabel({
         templateLabel: 'KIDITEM DESIGN',
         imageProcessingStatus: 'pending',
         rawInput: { generationMode: 'draft' },
       }),
-    ).toBe('KIDITEM DESIGN 카피 생성 중...');
+    ).toBe('KIDITEM DESIGN 생성 준비 중...');
   });
 
   it('uses image stage text for image-only progress banners', () => {
     expect(getDetailGenerationStage('pending', 'image')).toBe('AI 이미지 생성 중');
+  });
+
+  it('uses a coarse stage while the backend cannot expose internal milestones', () => {
+    expect(getDetailGenerationStage('processing', 'full')).toBe('AI 상세페이지 생성 중');
   });
 });

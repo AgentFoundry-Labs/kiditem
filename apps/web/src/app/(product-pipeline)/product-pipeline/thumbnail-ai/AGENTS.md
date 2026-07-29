@@ -16,8 +16,10 @@ Shared generation hooks live in
 - Thumbnail analysis and batch analysis controls
 - Batch cancel UI
 - Candidate select/apply/skip controls reused with thumbnail generation
-- Source media comes from sourcing/listing content workspaces. This route does
-  not own a separate Wing image-sync action.
+- Dashboard product rows and product-backed actions use active Coupang
+  channel-listing workspaces only. Sourcing-candidate/collected workspaces
+  remain provenance and must never surface in this route. This route does not
+  own a separate Wing image-sync action.
 
 ## State + Data Flow
 
