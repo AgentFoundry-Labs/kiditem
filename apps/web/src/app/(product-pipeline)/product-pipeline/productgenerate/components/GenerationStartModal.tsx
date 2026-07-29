@@ -37,6 +37,7 @@ export default function GenerationStartModal({ state, onClose, onAction, onCance
   const titleText = getTitleText(state);
   const descriptionText = getDescriptionText(state);
   const progressLabel = getProgressLabel(state);
+  const progressPercent = getProgressPercent(state);
   const actionLabel = getActionLabel(state);
   const canCancel =
     isStarted &&
@@ -133,18 +134,28 @@ export default function GenerationStartModal({ state, onClose, onAction, onCance
           <div
             className={cn(
               'mt-5 h-2 overflow-hidden rounded-full',
-              isCompleted ? 'bg-emerald-100' : 'bg-violet-100',
+              isCompleted && 'bg-emerald-100',
+              isFailed && 'bg-rose-100',
+              isCancelled && 'bg-[var(--surface-sunken)]',
+              isInProgress && 'bg-violet-100',
             )}
+            role="progressbar"
+            aria-label="상품 생성 진행 상태"
+            aria-valuenow={progressPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuetext={progressLabel}
           >
             <div
               className={cn(
-                'h-full rounded-full',
-                isCompleted && 'w-full bg-emerald-500',
-                isFailed && 'w-full bg-rose-400',
-                isCancelled && 'w-full bg-[var(--text-tertiary)]',
-                isStarted && 'w-2/3 animate-pulse bg-violet-500',
-                isSubmitting && 'w-1/3 animate-pulse bg-violet-500',
+                'h-full rounded-full transition-[width] duration-500',
+                isCompleted && 'bg-emerald-500',
+                isFailed && 'bg-rose-400',
+                isCancelled && 'bg-[var(--text-tertiary)]',
+                isStarted && 'animate-pulse bg-violet-500',
+                isSubmitting && 'animate-pulse bg-violet-500',
               )}
+              style={{ width: `${progressPercent}%` }}
             />
           </div>
           <p className="mt-2 text-xs font-bold text-[var(--text-tertiary)]">
@@ -189,10 +200,10 @@ function getTitleText(state: GenerationDialogState): string {
 }
 
 function getDescriptionText(state: GenerationDialogState): string {
-  if (state.description) return state.description;
   if (state.phase === 'completed') return '상세페이지와 썸네일 생성이 완료되었습니다.';
   if (state.phase === 'failed') return '상품 생성이 완료되지 못했습니다.';
   if (state.phase === 'cancelled') return '요청한 상품 생성이 중단되었습니다.';
+  if (state.description) return state.description;
   if (state.phase === 'started') return '백그라운드에서 상세페이지와 썸네일을 만들고 있습니다.';
   return '상품 정보와 이미지를 정리해 상품 생성 요청을 등록하고 있습니다.';
 }
@@ -201,8 +212,18 @@ function getProgressLabel(state: GenerationDialogState): string {
   if (state.phase === 'completed') return '완료';
   if (state.phase === 'failed') return '실패';
   if (state.phase === 'cancelled') return '중단됨';
+  if (state.progressLabel) return state.progressLabel;
   if (state.phase === 'started') return 'AI 생성 진행 중';
   return '요청 등록 중';
+}
+
+function getProgressPercent(state: GenerationDialogState): number {
+  if (state.phase === 'completed' || state.phase === 'failed') return 100;
+  if (typeof state.progress === 'number') {
+    return Math.round(Math.max(0, Math.min(1, state.progress)) * 100);
+  }
+  if (state.phase === 'submitting') return 10;
+  return 25;
 }
 
 function getActionLabel(state: GenerationDialogState): string {

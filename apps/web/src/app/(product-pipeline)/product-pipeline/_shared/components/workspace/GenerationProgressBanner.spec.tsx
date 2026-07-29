@@ -3,6 +3,27 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { GenerationProgressBannerStack } from './GenerationProgressBanner';
 
 describe('GenerationProgressBannerStack', () => {
+  it('shows indeterminate status instead of an untrackable image count', () => {
+    render(
+      <GenerationProgressBannerStack
+        entries={[
+          {
+            id: 'generation-1',
+            templateId: 'kids-playful',
+            status: 'processing',
+            productName: '테스트 상품',
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole('progressbar', { name: '상세페이지 생성 진행 상태' }),
+    ).toHaveAttribute('aria-valuetext', 'AI 상세페이지 생성 중');
+    expect(screen.queryByText(/이미지 \d+ \/ \d+개 처리됨/)).not.toBeInTheDocument();
+    expect(screen.getByText(/생성 상태를 확인하고 있습니다/)).toBeInTheDocument();
+  });
+
   it('offers a cancel action for running detail-page generation banners', async () => {
     const onCancel = vi.fn().mockResolvedValue(undefined);
 
@@ -13,8 +34,6 @@ describe('GenerationProgressBannerStack', () => {
             id: 'generation-1',
             templateId: 'kids-playful',
             status: 'processing',
-            processedCount: 0,
-            totalCount: 2,
             productName: '테스트 상품',
           },
         ]}

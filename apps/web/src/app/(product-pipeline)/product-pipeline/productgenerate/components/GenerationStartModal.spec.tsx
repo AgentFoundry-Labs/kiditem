@@ -10,6 +10,8 @@ const startedState: GenerationDialogState = {
   productName: '테스트 상품',
   templateId: 'bold-vertical',
   operationKey: 'product-generation:operation-1',
+  progress: 0.6,
+  progressLabel: '상세페이지 완료 · 썸네일 생성 중',
 };
 
 describe('Product GenerationStartModal', () => {
@@ -31,5 +33,35 @@ describe('Product GenerationStartModal', () => {
     fireEvent.click(screen.getByRole('button', { name: '생성 중단' }));
 
     expect(onCancel).toHaveBeenCalledWith(startedState);
+  });
+
+  it('renders parent-operation milestone progress without image counts', async () => {
+    render(
+      <GenerationStartModal
+        state={startedState}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const progressbar = await screen.findByRole('progressbar', {
+      name: '상품 생성 진행 상태',
+    });
+    expect(progressbar).toHaveAttribute('aria-valuenow', '60');
+    expect(progressbar.firstElementChild).toHaveStyle({ width: '60%' });
+    expect(screen.getByText('상세페이지 완료 · 썸네일 생성 중')).toBeInTheDocument();
+    expect(screen.queryByText(/이미지 \d+ \/ \d+개 처리됨/)).not.toBeInTheDocument();
+  });
+
+  it('keeps cancelled progress at the last confirmed milestone', async () => {
+    render(
+      <GenerationStartModal
+        state={{ ...startedState, phase: 'cancelled' }}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('progressbar', { name: '상품 생성 진행 상태' }),
+    ).toHaveAttribute('aria-valuenow', '60');
   });
 });
