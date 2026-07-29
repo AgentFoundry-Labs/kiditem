@@ -11,7 +11,6 @@ importScripts(
   "wing-image-fetch.js",
   "wing-form-runtime-compat.js",
   "wing-form-readiness.js",
-  "detail-page-client-raster.js",
   "../utils/coupang-seller-detail.js",
   "../shared/coupang-catalog-collector.js?revision=2",
   "coupang-catalog-import.js",
@@ -166,13 +165,6 @@ const wingImageFetch = KidItemWingImageFetch.create({
   FileReaderCtor: FileReader,
 });
 chrome.runtime.onMessage.addListener(wingImageFetch.handleMessage);
-const detailPageClientRaster = KidItemDetailPageClientRaster.create({
-  chrome,
-  authedFetch,
-  fetchFn: fetch,
-  resolveEnvironment: (environmentId) =>
-    environmentContext.requireEnvironment(environmentId),
-});
 const WING_FORM_PORT_NAME = "kiditem-wing-form-v1";
 
 function handleWingFormPort(port) {
@@ -201,13 +193,6 @@ chrome.runtime.onConnectExternal.addListener((port) => {
   const senderEnvironment = environmentContext.resolveSender(port.sender);
   if (!senderEnvironment) {
     port.disconnect();
-    return;
-  }
-  if (port.name === KidItemDetailPageClientRaster.PORT_NAME) {
-    detailPageClientRaster.handlePort(
-      port,
-      senderEnvironment.environmentId,
-    );
     return;
   }
   if (port.name === WING_FORM_PORT_NAME) {
@@ -666,7 +651,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         wingFormRegisterSource: "wing-formV2-fill",
         wingFormReadinessV2: true,
         wingFormPortV1: true,
-        detailPageClientRasterV1: true,
       },
     });
     return;
@@ -1246,6 +1230,20 @@ async function searchWingCatalogProducts(message) {
       throw error;
     }
     if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+
+    if (response?.errorCode === "wing_xsrf_token_missing") {
+      if (rows.length === 0) {
+        return collectionRuns.requireAttention(
+          runId,
+          tabId,
+          "marketplace_login",
+          response.error,
+        );
+      }
+      warnings.push(`${searchPage}페이지: ${response.error}`);
+      stopReason = "authentication_token_missing";
+      break;
+    }
 
     if (
       !response?.ok ||
@@ -3950,47 +3948,76 @@ async function executeWingCatalogSearchWithRetry(tabId, payload) {
   return response;
 }
 
+async function executeWingCatalogSearchInPage(requestPayload, endpoint) {
+  const xsrfCookie = String(document.cookie || "")
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("XSRF-TOKEN="));
+  const encodedXsrfToken = xsrfCookie?.slice("XSRF-TOKEN=".length) || "";
+  let xsrfToken = "";
+  try {
+    xsrfToken = decodeURIComponent(encodedXsrfToken);
+  } catch {
+    xsrfToken = encodedXsrfToken;
+  }
+  if (!xsrfToken) {
+    return {
+      ok: false,
+      status: 0,
+      contentType: "",
+      body: null,
+      errorCode: "wing_xsrf_token_missing",
+      error:
+        "Wing 검색 인증 토큰을 찾지 못했습니다. Wing 탭을 새로고침하거나 다시 로그인해 주세요.",
+    };
+  }
+
+  try {
+    // 타임아웃 없는 in-page fetch 는 Wing API stall 시 injection 이 영원히 안 끝나
+    // executeScript 가 resolve 안 되고 배치가 그 키워드에서 멈춘다. 20s 로 제한.
+    const res = await fetch(endpoint, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "X-XSRF-TOKEN": xsrfToken,
+      },
+      body: JSON.stringify(requestPayload),
+      signal: AbortSignal.timeout(20000),
+    });
+    const contentType = res.headers.get("content-type") || "";
+    const text = await res.text();
+    let body = null;
+    if (contentType.includes("application/json")) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = null;
+      }
+    }
+    return {
+      ok: res.ok,
+      status: res.status,
+      contentType,
+      body,
+      textPreview: body ? null : text.slice(0, 200),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      contentType: "",
+      body: null,
+      error: error?.message || String(error),
+    };
+  }
+}
+
 async function executeWingCatalogSearch(tabId, payload) {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: async (requestPayload, endpoint) => {
-      try {
-        // 타임아웃 없는 in-page fetch 는 Wing API stall 시 injection 이 영원히 안 끝나
-        // executeScript 가 resolve 안 되고 배치가 그 키워드에서 멈춘다. 20s 로 제한.
-        const res = await fetch(endpoint, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestPayload),
-          signal: AbortSignal.timeout(20000),
-        });
-        const contentType = res.headers.get("content-type") || "";
-        const text = await res.text();
-        let body = null;
-        if (contentType.includes("application/json")) {
-          try {
-            body = JSON.parse(text);
-          } catch {
-            body = null;
-          }
-        }
-        return {
-          ok: res.ok,
-          status: res.status,
-          contentType,
-          body,
-          textPreview: body ? null : text.slice(0, 200),
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          status: 0,
-          contentType: "",
-          body: null,
-          error: error?.message || String(error),
-        };
-      }
-    },
+    func: executeWingCatalogSearchInPage,
     args: [payload, WING_CATALOG_SEARCH_ENDPOINT],
   });
   return result?.result || null;

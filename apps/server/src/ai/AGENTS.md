@@ -20,13 +20,12 @@ conversion under `mapper`.
 - Text transform: `POST /api/text-ai/transform`
 - Detail-page generation and editor APIs: `/api/ai/detail-page/*`
 - Saved detail page → marketplace description image:
-  `POST /api/ai/detail-page-image/candidate/:candidateId/client-render` plus the
-  `/api/ai/detail-page-image/render-intents/:intentId/*` claim, document,
-  status, finalize, and fail routes. Missing saved HTML returns
+  `POST /api/ai/detail-page-image/candidate/:candidateId/server-render`.
+  Missing saved HTML returns
   `{ status: 'missing' }` rather than 404 so callers cannot silently substitute
-  another image. The company Chrome extension owns rasterization; the server
-  owns revision binding, upload targets, stored-JPEG verification, and the
-  durable artifact.
+  another image. The server owns Chromium rasterization, revision binding,
+  stored-JPEG verification, storage, and the durable artifact. The company
+  Chrome extension only receives the completed image URL for Wing form entry.
 - Generated content archive: `/api/ai/content-archive/*`
 - Content asset library: `/api/ai/content-assets`
 - Content workspace thumbnail selection:
@@ -48,8 +47,8 @@ conversion under `mapper`.
   assets, or other generations.
 - `DetailPageArtifact` is the editable detail-page identity.
 - `DetailPageRevision` is the append-only edited HTML/version record.
-- `DetailPageImageRenderIntent` binds one candidate, artifact, revision,
-  output variant, and server-derived object key for client rasterization.
+- `DetailPageImageRenderIntent` records one candidate, artifact, revision,
+  output variant, and server-derived object key for a bounded render attempt.
 - `DetailPageImageArtifact` is the verified immutable JPEG authority used by
   Wing registration.
 - `ContentAsset` stores reusable media in a workspace group.
@@ -118,11 +117,12 @@ definitions.
   `DetailPageArtifact.currentRevisionId`.
 - Editor saves never schedule marketplace raster jobs. Wing preparation reads
   the current immutable revision, reuses a matching verified image artifact,
-  or issues a client-render intent.
-- Wing detail rendering must remain one 780px JPEG (`wing-client-jpeg-v1`). The
-  extension uploads directly through a short-lived presigned URL; finalization
-  verifies bounded bytes, JPEG dimensions, metadata, and SHA-256. Do not add a
-  server Puppeteer fallback or split/stitch path.
+  or performs a synchronous server render.
+- Wing detail rendering must remain one 780px JPEG (`wing-server-jpeg-v1`). The
+  server renders the immutable revision with Puppeteer, validates bounded
+  bytes, JPEG dimensions, and SHA-256, stores it, and finalizes the artifact
+  before returning. Do not restore browser-extension capture or a split/stitch
+  path.
 - Registration branches selected artifact/revision metadata and HTML from a
   candidate workspace into a listing-owned workspace. It reuses storage URLs
   and the managed thumbnail asset, but never clones generation jobs or
@@ -182,9 +182,8 @@ compacting the exception.
 - Prisma query/write helper modules for AI-owned rows live beside their
   repository adapters. Do not reintroduce `adapter/out/prisma` as a legacy
   staging area.
-- `render-image.controller.ts` still owns inline Puppeteer/filesystem
-  rendering for its separate manual endpoint. It is not a Wing detail-image
-  fallback.
+- `DetailPageRasterizationService` owns bounded Puppeteer rendering for both
+  the manual render endpoint and the Wing detail-image server path.
 - Authenticated Wing catalog collection belongs to Channels plus the browser
   extension. AI consumes listing workspace media and must not restore a
   separate image-sync job map or server-side Wing scrape fallback.

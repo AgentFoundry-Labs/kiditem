@@ -10,14 +10,14 @@ const manifestUrl = new URL(
 test("seller catalog collection can inspect Coupang seller shops", async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
 
-  assert.equal(manifest.version, "1.2.102");
+  assert.equal(manifest.version, "1.2.103");
   assert.ok(
     manifest.host_permissions.includes("https://shop.coupang.com/*"),
     "shop.coupang.com host permission is required for chrome.scripting.executeScript",
   );
 });
 
-test('client detail renderer has debugger access and only the committed upload hosts', async () => {
+test('Wing form image fetch has debugger access and only the committed storage hosts', async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'));
 
   assert.ok(manifest.permissions.includes('debugger'));

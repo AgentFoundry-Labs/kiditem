@@ -66,7 +66,7 @@ describe('detail-page route-family controllers', () => {
     );
     expect(route(DetailPageCandidateImageController, 'prepare')).toEqual({
       method: RequestMethod.POST,
-      path: 'candidate/:candidateId/client-render',
+      path: 'candidate/:candidateId/server-render',
     });
     expect(route(DetailPageCandidateImageController, 'claim')).toEqual({
       method: RequestMethod.POST,

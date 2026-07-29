@@ -102,7 +102,7 @@ describe('wing catalog extension helpers', () => {
   });
 
   it('keeps a specific reload guidance for stale extension versions', () => {
-    expect(WING_CATALOG_EXTENSION_MIN_VERSION).toBe('1.2.33');
+    expect(WING_CATALOG_EXTENSION_MIN_VERSION).toBe('1.2.103');
     expect(WING_CATALOG_EXTENSION_RELOAD_REQUIRED).toContain('새로고침');
     expect(WING_CATALOG_EXTENSION_RELOAD_REQUIRED).toContain('chrome://extensions');
   });
@@ -111,7 +111,7 @@ describe('wing catalog extension helpers', () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedSendToExtension.mockResolvedValueOnce({
       success: true,
-      version: '1.2.32',
+      version: '1.2.102',
       capabilities: {
         wingCatalogSearch: true,
         browserCollectionSessions: true,
@@ -138,7 +138,7 @@ describe('wing catalog extension helpers', () => {
     mockedSendToExtension
       .mockResolvedValueOnce({
         success: true,
-        version: '1.2.33',
+        version: '1.2.103',
         capabilities: {
           wingCatalogSearch: true,
           browserCollectionSessions: true,
@@ -167,7 +167,7 @@ describe('wing catalog extension helpers', () => {
     mockedSendToExtension
       .mockResolvedValueOnce({
         success: true,
-        version: '1.2.33',
+        version: '1.2.103',
         capabilities: {
           wingCatalogSearch: true,
           browserCollectionSessions: true,

@@ -67,7 +67,7 @@ interface KidItemExtensionPingResponse {
   };
 }
 
-export const WING_CATALOG_EXTENSION_MIN_VERSION = '1.2.33';
+export const WING_CATALOG_EXTENSION_MIN_VERSION = '1.2.103';
 export const WING_CATALOG_EXTENSION_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램을 설치/새로고침한 뒤 다시 실행하세요.';
 export const WING_CATALOG_CHROME_REQUIRED =
