@@ -199,6 +199,7 @@ export const RocketWorkbookExportRequestSchema = RocketPurchaseRequestBaseSchema
   .omit({ clampEditedQuantities: true })
   .extend({
     idempotencyKey: z.string().uuid(),
+    selectedPoLineIds: z.array(requiredText(300)).min(1).max(4_000).optional(),
     shortageReasons: z.record(
       z.string().min(1).max(300),
       RocketShortageReasonSchema,
@@ -212,7 +213,26 @@ export const RocketWorkbookExportRequestSchema = RocketPurchaseRequestBaseSchema
   .superRefine((value, ctx) => {
     validateRocketPurchaseLines(value, ctx);
     const rowsByLineId = new Map(value.rows.map((row) => [row.poLineId, row]));
-    for (const row of value.rows) {
+    const selectedPoLineIds = value.selectedPoLineIds
+      ?? value.rows.map(({ poLineId }) => poLineId);
+    if (new Set(selectedPoLineIds).size !== selectedPoLineIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['selectedPoLineIds'],
+        message: 'Selected workbook PO line IDs must be unique',
+      });
+    }
+    for (const lineId of selectedPoLineIds) {
+      if (!rowsByLineId.has(lineId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['selectedPoLineIds', lineId],
+          message: 'Selected workbook PO line references an unknown source line',
+        });
+      }
+    }
+    const selectedLineIds = new Set(selectedPoLineIds);
+    for (const row of value.rows.filter(({ poLineId }) => selectedLineIds.has(poLineId))) {
       if (!row.confirmation || row.barcode.length === 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -253,11 +273,11 @@ export const RocketWorkbookExportRequestSchema = RocketPurchaseRequestBaseSchema
       }
     }
     for (const lineId of Object.keys(value.shortageReasons)) {
-      if (!rowsByLineId.has(lineId)) {
+      if (!selectedLineIds.has(lineId)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['shortageReasons', lineId],
-          message: 'Shortage reason references an unknown PO line',
+          message: 'Shortage reason references an unselected PO line',
         });
       }
     }

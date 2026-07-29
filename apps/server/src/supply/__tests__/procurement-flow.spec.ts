@@ -416,7 +416,7 @@ describe('ProcurementController purchase submission boundary', () => {
     expect(previews.preview).toHaveBeenCalledWith({
       organizationId: 'organization-1',
       userId: 'authenticated-user',
-      inventoryRequirement: 'fresh',
+      inventoryRequirement: 'advisory',
       request: {
         channelAccountId: body.channelAccountId,
         collection: body.collection,

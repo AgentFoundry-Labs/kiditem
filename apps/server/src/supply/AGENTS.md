@@ -68,12 +68,11 @@ Route shape is frozen.
   only.
 - `previewRocket` publishes complete Rocket PO catalog evidence through the
   Channels-owned port before reading inventory, so inventory state never
-  discards a completed marketplace collection. It resolves confirmed component
-  recipes through `CHANNEL_SKU_AVAILABILITY_PORT`, then applies the Inventory
-  freshness gate for the stockout decision. A `freshness_pending` checkpoint
-  includes advisory rows from the last stored snapshot so the web can display
-  every collected PO immediately while inventory refresh proceeds; those rows
-  are recalculated from the target generation before review completes.
+  discards a completed marketplace collection. Operator preview resolves
+  confirmed component recipes through `CHANNEL_SKU_AVAILABILITY_PORT` and uses
+  the latest stored inventory snapshot immediately; it does not wait for or
+  request a Sellpia refresh. Official workbook export reruns the same canonical
+  preview in fresh mode before persisting the artifact.
 - Fresh-mode Rocket allocation replaces any earlier projected stock with
   Inventory's same-generation gated `currentStock` snapshot before official
   export. A refresh cannot bless quantities copied from an older generation.

@@ -46,6 +46,7 @@ implements RocketWorkbookExportPort {
     }
     const {
       idempotencyKey: _idempotencyKey,
+      selectedPoLineIds,
       shortageReasons: _shortageReasons,
       artifactFileName: _artifactFileName,
       artifactContentType: _artifactContentType,
@@ -67,18 +68,36 @@ implements RocketWorkbookExportPort {
         'A complete Rocket PO collection is required before workbook export.',
       );
     }
-    if (preview.rows.some(({ reason }) => isRocketWorkbookBlockingReason(reason))) {
+    const selectedLineIds = new Set(
+      selectedPoLineIds ?? request.rows.map(({ poLineId }) => poLineId),
+    );
+    const selectedPreviewRows = preview.rows.filter(({ poLineId }) =>
+      selectedLineIds.has(poLineId));
+    if (selectedPreviewRows.length !== selectedLineIds.size) {
+      throw new ConflictException(
+        'Selected Rocket workbook rows changed before export.',
+      );
+    }
+    if (selectedPreviewRows.some(({ reason }) => isRocketWorkbookBlockingReason(reason))) {
       throw new BadRequestException(
         'Every Rocket workbook line requires a confirmed product recipe.',
       );
     }
+    const decisionRequest = RocketWorkbookExportRequestSchema.parse({
+      ...request,
+      rows: request.rows.filter(({ poLineId }) => selectedLineIds.has(poLineId)),
+    });
+    const decisionPreview = {
+      ...preview,
+      rows: selectedPreviewRows,
+    };
     return RocketWorkbookExportResponseSchema.parse(
       await this.transactions.exportWorkbook({
         organizationId: input.organizationId,
         userId: input.userId,
         sourceImportRunId: preview.catalog.run.id,
-        request,
-        preview,
+        request: decisionRequest,
+        preview: decisionPreview,
         artifactBytes: input.artifactBytes,
       }),
     );

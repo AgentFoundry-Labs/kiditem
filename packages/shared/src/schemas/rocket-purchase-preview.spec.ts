@@ -522,6 +522,35 @@ describe('Rocket purchase preview contract', () => {
     })).toThrow(/workbook evidence/i);
   });
 
+  it('accepts a date-scoped workbook decision while retaining the complete source snapshot', () => {
+    const selectedRow = request().rows[0]!;
+    const unselectedRow = {
+      ...selectedRow,
+      poLineId: '1002:P-2:8801234567891:1',
+      poNumber: '1002',
+      productNo: 'P-2',
+      barcode: '8801234567891',
+      plannedDeliveryDate: '2026-07-21',
+    };
+
+    expect(RocketWorkbookExportRequestSchema.parse({
+      ...request(),
+      collection: { ...request().collection, detailPoCount: 2 },
+      rows: [selectedRow, unselectedRow],
+      selectedPoLineIds: [selectedRow.poLineId],
+      idempotencyKey: CONFIRMATION_ID,
+      editedQuantities: { [selectedRow.poLineId]: 2 },
+      shortageReasons: {
+        [selectedRow.poLineId]: '협력사 재고부족 - 수요예측 오류',
+      },
+      artifactFileName: '쿠팡_로켓.xlsx',
+      artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).toMatchObject({
+      selectedPoLineIds: [selectedRow.poLineId],
+      rows: [selectedRow, unselectedRow],
+    });
+  });
+
   it('publishes workflow and immutable artifact metadata without raw workbook bytes', () => {
     const response = RocketWorkbookExportResponseSchema.parse({
       exportId: CONFIRMATION_ID,

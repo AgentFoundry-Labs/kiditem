@@ -392,6 +392,40 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(hook.result.current.sourceRows).toEqual([confirmationRow]);
   });
 
+  it('shows only the selected delivery date while calculating from the complete saved snapshot', async () => {
+    const lineA = sourceRow('LINE-A');
+    const lineB = {
+      ...sourceRow('LINE-B'),
+      plannedDeliveryDate: '2026-07-21',
+    };
+    const source = savedCollection(
+      ACCOUNT_A,
+      SOURCE_A,
+      COLLECTION_A,
+      [lineA, lineB],
+    );
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases).mockResolvedValue(
+      preview(source, [
+        previewRow('LINE-A', null, 4),
+        { ...previewRow('LINE-B', null, 4), plannedDeliveryDate: '2026-07-21' },
+      ]),
+    );
+
+    const hook = renderWorkflow({
+      channelAccountId: ACCOUNT_A,
+      savedSourceImportRunId: SOURCE_A,
+      selectedDeliveryDate: '2026-07-21',
+    });
+
+    await waitFor(() => expect(hook.result.current.preview?.rows).toHaveLength(1));
+    expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
+      rows: [lineA, lineB],
+    }));
+    expect(hook.result.current.preview?.rows[0]?.poLineId).toBe('LINE-B');
+    expect(hook.result.current.sourceRows).toEqual([lineB]);
+  });
+
   it('sends a real operator edit and keeps the server-clamped reviewed value', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
@@ -553,14 +587,15 @@ describe('useRocketPurchaseWorkflow', () => {
 
 function renderWorkflow(input: {
   channelAccountId: string;
-  savedSourceImportRunId: string;
+  savedSourceImportRunId: string | null;
+  selectedDeliveryDate?: string;
 }) {
   return renderHook(() => useRocketPurchaseWorkflow({
     ...input,
     hasConfiguredVendorId: true,
     from: '2026-07-01',
     to: '2026-07-31',
-  }), { wrapper: queryWrapper() });
+  } as never), { wrapper: queryWrapper() });
 }
 
 function sourceRow(poLineId: string): RocketPoCatalogRow {

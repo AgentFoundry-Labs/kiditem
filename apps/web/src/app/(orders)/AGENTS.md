@@ -38,8 +38,11 @@ React Query + apiClient
   and workflow are the exact re-download and synchronization evidence.
 - `/order-collection` and `/orders` own their live workspaces and remain
   independent active routes.
-- Channel SKU recipe repair remains exclusively in the independently reachable
-  `/product-hub/matching` route.
+- Channel product/option identity repair remains in the independently reachable
+  `/product-hub/matching` route. A Rocket row whose identity is already confirmed
+  but whose `ProductVariant` recipe is empty may create that Sellpia recipe
+  inline in `/rocket-orders`; it must use the Products-owned create-if-empty API
+  and must not edit Sellpia physical stock.
 - `/rocket-orders` keeps the baseline calendar/list/file-history composition.
   Its calendar and reopened evidence use the account-scoped Supply catalog
   snapshot actions, and it injects `RocketConfirmPanel` through the workspace

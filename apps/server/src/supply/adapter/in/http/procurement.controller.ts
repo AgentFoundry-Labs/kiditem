@@ -119,10 +119,10 @@ export class ProcurementController {
       });
     }
     if (body.action === 'previewRocket') {
-      return this.rocketPreview.preview({
+      const result = await this.rocketPreview.preview({
         organizationId,
         userId: user.id,
-        inventoryRequirement: 'fresh',
+        inventoryRequirement: 'advisory',
         request: {
           channelAccountId: body.channelAccountId!,
           collection: body.collection!,
@@ -136,6 +136,7 @@ export class ProcurementController {
           }),
         },
       });
+      return result;
     }
     if (body.action === 'exportRocketWorkbook') {
       if (!workbook) throw new BadRequestException('Rocket workbook file is required.');
