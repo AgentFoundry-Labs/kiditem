@@ -79,7 +79,8 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain('selectedRocketAccountId');
     expect(operationsSource).toContain('selectedSourceImportRunId');
     expect(operationsSource).toContain('sourceImportRunId');
-    expect(operationsSource).toContain('이 수집본으로 납품 판단');
+    expect(operationsSource).toContain('newestSourceImportRunId');
+    expect(operationsSource).not.toContain('이 수집본으로 납품 판단');
     // 저장 발주 빈 상태 문구는 양쪽 워크스페이스 판본에 공통으로 존재하는 문구를 기준으로 검증한다.
     expect(operationsSource).toContain('이 달엔 해당 발주가 없습니다');
     // 상단 워크플로 STEP 4카드(신규주문·납품판단·쉽먼트/밀크런·송장출력)는 사용자 요청으로 제거됨.

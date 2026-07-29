@@ -85,17 +85,29 @@ describe('previewRocketPurchases', () => {
     expect(body).not.toHaveProperty('userId');
   });
 
-  it('parses a freshness-pending checkpoint without requiring stale rows', async () => {
+  it('requests fresh inventory only when the caller explicitly requires it', async () => {
+    await previewRocketPurchases(input(), { inventoryRequirement: 'fresh' });
+
+    expect(apiClient.post).toHaveBeenCalledWith('/api/purchase-orders', {
+      action: 'previewRocket',
+      inventoryRequirement: 'fresh',
+      ...input(),
+    });
+  });
+
+  it('parses a freshness-pending checkpoint with advisory rows', async () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({
       status: 'freshness_pending',
       collectionRunId: RUN_ID,
       catalog: publication(),
       requestedGeneration: '8',
+      rows: [],
     });
 
     await expect(previewRocketPurchases(input())).resolves.toMatchObject({
       status: 'freshness_pending',
       requestedGeneration: '8',
+      rows: [],
     });
   });
 

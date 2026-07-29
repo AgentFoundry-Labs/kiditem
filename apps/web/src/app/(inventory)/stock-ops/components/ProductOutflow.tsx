@@ -23,7 +23,7 @@ import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshne
 import {
   classifySellpiaStockSync,
   describeSellpiaStockSync,
-  sellpiaBlockedBadgeLabel,
+  sellpiaTransmissionReviewBadgeLabel,
   type SellpiaStockSyncOutcome,
 } from '../../_shared/sellpia-sync-outcome';
 import { ProductOutflowDestinations } from './ProductOutflowDestinations';
@@ -110,7 +110,7 @@ export default function ProductOutflow() {
       toast.success(
         `상품별 소진 수집 완료 (${result.productCount}개 상품, ${result.months.length}개월)`,
       );
-      // 현재고 갱신은 별개 결과다. 실패/차단을 판매 수집 성공 문구에 묻지 않는다.
+      // 현재고 갱신은 별개 결과다. 실패를 판매 수집 성공 문구에 묻지 않는다.
       if (stockNotice.tone === 'error') toast.error(stockNotice.message);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '상품별 소진 수집에 실패했습니다.');
@@ -132,12 +132,9 @@ export default function ProductOutflow() {
     }
   }, [syncStock, invalidate]);
   const stockBusy = stockSyncing || freshnessState?.status === 'syncing';
-  const stockBlockedCount =
+  const unresolvedTransmissionCount =
     freshnessState?.unresolvedOrderTransmissionIntents.length ?? 0;
-  // 차단은 status 로 드러나지 않는다(항상 refresh_required). 배지에서 구분해준다.
-  const stockMeta = stockBlockedCount > 0
-    ? { label: sellpiaBlockedBadgeLabel(), className: 'bg-red-100 text-red-700' }
-    : freshnessState ? STOCK_FRESHNESS_META[freshnessState.status] : null;
+  const stockMeta = freshnessState ? STOCK_FRESHNESS_META[freshnessState.status] : null;
   const stockAge = freshnessState?.lastVerifiedAt ? timeAgo(freshnessState.lastVerifiedAt) : null;
 
   // 마운트 시 하루 1회 자동 수집. 확장 없으면 조용히 스킵.
@@ -179,8 +176,8 @@ export default function ProductOutflow() {
           <button
             onClick={runStockSync}
             disabled={stockBusy}
-            title={stockBlockedCount > 0
-              ? `셀피아 전송 결과 미확인 ${stockBlockedCount}건 때문에 동기화가 막혀 있습니다. 재고 관리 > Sellpia 동기화에서 확정해주세요.`
+            title={unresolvedTransmissionCount > 0
+              ? `셀피아 전송 결과 미확인 ${unresolvedTransmissionCount}건은 별도 확인이 필요하지만 재고 동기화는 계속할 수 있습니다.`
               : '셀피아 재고(현재고) 다시 동기화'}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold px-2.5 py-1.5 hover:bg-slate-50 disabled:opacity-50"
           >
@@ -189,6 +186,11 @@ export default function ProductOutflow() {
             {stockMeta && (
               <span className={cn('rounded-full px-1.5 py-0.5 text-[11px] font-semibold', stockMeta.className)}>
                 {stockMeta.label}
+              </span>
+            )}
+            {unresolvedTransmissionCount > 0 && (
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                {sellpiaTransmissionReviewBadgeLabel()} {unresolvedTransmissionCount}
               </span>
             )}
             {stockAge && <span className="font-normal text-slate-400">{stockAge}</span>}

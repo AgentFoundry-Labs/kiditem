@@ -87,7 +87,7 @@ describe('useRocketPurchaseWorkflow', () => {
     );
   });
 
-  it('collects once, preserves the catalog checkpoint, waits, and retries from the same rows', async () => {
+  it('shows collected rows immediately when the server already has fresh inventory', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     const events: string[] = [];
     const onCatalogSaved = vi.fn();
@@ -96,23 +96,9 @@ describe('useRocketPurchaseWorkflow', () => {
         events.push('extension.collect');
         return { collection: source.collection, rows: source.rows, poCount: 1 };
       });
-    vi.mocked(previewRocketPurchases)
-      .mockImplementationOnce(async () => {
-        events.push('server.preview.pending-and-persisted');
-        return {
-          status: 'freshness_pending',
-          collectionRunId: source.collection.collectionRunId,
-          catalog: catalogPublication(ACCOUNT_A, SOURCE_A, 1),
-          requestedGeneration: '12',
-        };
-      })
-      .mockImplementationOnce(async () => {
-        events.push('server.preview.ready');
-        return preview(source, [previewRow('LINE-A', null, 3)]);
-      });
-    vi.mocked(sellpiaInventoryFreshnessApi.getState).mockImplementation(async () => {
-      events.push('freshness.wait');
-      return freshnessState({ status: 'fresh', verifiedGeneration: '12' });
+    vi.mocked(previewRocketPurchases).mockImplementationOnce(async () => {
+      events.push('server.preview.fresh');
+      return preview(source, [previewRow('LINE-A', null, 3)]);
     });
     const hook = renderHook(() => useRocketPurchaseWorkflow({
       channelAccountId: ACCOUNT_A,
@@ -127,13 +113,15 @@ describe('useRocketPurchaseWorkflow', () => {
 
     expect(events).toEqual([
       'extension.collect',
-      'server.preview.pending-and-persisted',
-      'freshness.wait',
-      'server.preview.ready',
+      'server.preview.fresh',
     ]);
     expect(collectRocketPoRowsForConfirmationFromExtension).toHaveBeenCalledTimes(1);
-    expect(previewRocketPurchases).toHaveBeenNthCalledWith(2,
-      expect.objectContaining({ rows: source.rows, collection: source.collection }));
+    expect(previewRocketPurchases).toHaveBeenCalledTimes(1);
+    expect(previewRocketPurchases).toHaveBeenCalledWith(
+      expect.objectContaining({ rows: source.rows, collection: source.collection }),
+    );
+    expect(sellpiaInventoryFreshnessApi.getState).not.toHaveBeenCalled();
+    expect(sellpiaInventoryFreshnessApi.requestRefresh).not.toHaveBeenCalled();
     expect(onCatalogSaved).toHaveBeenCalledTimes(1);
     expect(finalizeRocketPoCollectionSession).toHaveBeenCalledWith({
       runId: source.collection.collectionRunId,
@@ -183,29 +171,26 @@ describe('useRocketPurchaseWorkflow', () => {
     });
   });
 
-  it('keeps collected rows when freshness needs operator attention', async () => {
+  it('keeps collected rows visible while waiting for fresh inventory despite an unresolved file', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     const onCatalogSaved = vi.fn();
+    const inventoryState = deferred<ReturnType<typeof freshnessState>>();
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
       collection: source.collection,
       rows: source.rows,
       poCount: 1,
     });
-    vi.mocked(previewRocketPurchases).mockResolvedValue({
-      status: 'freshness_pending',
-      collectionRunId: source.collection.collectionRunId,
-      catalog: catalogPublication(ACCOUNT_A, SOURCE_A, 1),
-      requestedGeneration: '12',
-    });
-    vi.mocked(sellpiaInventoryFreshnessApi.getState).mockResolvedValue(
-      freshnessState({
-        sourceBinding: {
-          origin: 'https://kiditem.sellpia.com',
-          accountKey: null,
-          confirmed: false,
-        },
-      }),
-    );
+    const advisoryRows = [previewRow('LINE-A', null, 2)];
+    vi.mocked(previewRocketPurchases)
+      .mockResolvedValueOnce({
+        status: 'freshness_pending',
+        collectionRunId: source.collection.collectionRunId,
+        catalog: catalogPublication(ACCOUNT_A, SOURCE_A, 1),
+        requestedGeneration: '12',
+        rows: advisoryRows,
+      })
+      .mockResolvedValueOnce(preview(source, [previewRow('LINE-A', null, 3)]));
+    vi.mocked(sellpiaInventoryFreshnessApi.getState).mockReturnValue(inventoryState.promise);
     const hook = renderHook(() => useRocketPurchaseWorkflow({
       channelAccountId: ACCOUNT_A,
       hasConfiguredVendorId: true,
@@ -215,12 +200,27 @@ describe('useRocketPurchaseWorkflow', () => {
       onCatalogSaved,
     }), { wrapper: queryWrapper() });
 
-    await act(async () => hook.result.current.recalculate());
+    let recalculating!: Promise<void>;
+    act(() => {
+      recalculating = hook.result.current.recalculate();
+    });
 
-    expect(hook.result.current.stage).toBe('attention_required');
+    await waitFor(() => expect(hook.result.current.stage).toBe('refreshing_inventory'));
+    expect(hook.result.current.preview?.rows).toEqual(advisoryRows);
     expect(hook.result.current.sourceRows).toEqual(source.rows);
     expect(hook.result.current.collectionRun?.collection).toEqual(source.collection);
     expect(onCatalogSaved).toHaveBeenCalledTimes(1);
+    inventoryState.resolve(freshnessState({
+      status: 'fresh',
+      verifiedGeneration: '12',
+      unresolvedOrderTransmissionIntents: [{
+        intentKey: 'other-file',
+        preparedAt: '2026-07-28T00:00:00.000Z',
+      }],
+    }));
+    await act(async () => recalculating);
+    expect(hook.result.current.stage).toBe('ready');
+    expect(hook.result.current.preview?.rows[0]?.recommendedQuantity).toBe(3);
   });
 
   it('revalidates the same saved collection without sending an untouched mapping zero', async () => {
@@ -352,7 +352,14 @@ describe('useRocketPurchaseWorkflow', () => {
   });
 
   it('keeps completed rows in the saved archive while reviewing only confirmation requests', async () => {
-    const confirmationRow = { ...sourceRow('LINE-A'), poStatusCode: 'RP' };
+    const confirmationRow = {
+      ...sourceRow('LINE-A'),
+      poStatusCode: 'RI',
+      confirmation: {
+        ...sourceRow('LINE-A').confirmation!,
+        poStatus: '거래명세서확인요청',
+      },
+    };
     const completedRow = {
       ...sourceRow('LINE-B'),
       poStatusCode: 'CI',
@@ -383,6 +390,58 @@ describe('useRocketPurchaseWorkflow', () => {
       previewScope: 'confirmation_requested',
     }));
     expect(hook.result.current.sourceRows).toEqual([confirmationRow]);
+  });
+
+  it('defaults saved insufficient-capacity rows to the inventory-shortage reason', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases).mockResolvedValue(
+      preview(source, [previewRow('LINE-A', 'insufficient_capacity', 2)]),
+    );
+    const hook = renderWorkflow({
+      channelAccountId: ACCOUNT_A,
+      savedSourceImportRunId: SOURCE_A,
+    });
+
+    await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
+
+    expect(hook.result.current.shortageReasons).toEqual({
+      'LINE-A': SHORTAGE_REASON,
+    });
+  });
+
+  it('shows only the selected delivery date while calculating from the complete saved snapshot', async () => {
+    const lineA = sourceRow('LINE-A');
+    const lineB = {
+      ...sourceRow('LINE-B'),
+      plannedDeliveryDate: '2026-07-21',
+    };
+    const source = savedCollection(
+      ACCOUNT_A,
+      SOURCE_A,
+      COLLECTION_A,
+      [lineA, lineB],
+    );
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases).mockResolvedValue(
+      preview(source, [
+        previewRow('LINE-A', null, 4),
+        { ...previewRow('LINE-B', null, 4), plannedDeliveryDate: '2026-07-21' },
+      ]),
+    );
+
+    const hook = renderWorkflow({
+      channelAccountId: ACCOUNT_A,
+      savedSourceImportRunId: SOURCE_A,
+      selectedDeliveryDate: '2026-07-21',
+    });
+
+    await waitFor(() => expect(hook.result.current.preview?.rows).toHaveLength(1));
+    expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
+      rows: [lineA, lineB],
+    }));
+    expect(hook.result.current.preview?.rows[0]?.poLineId).toBe('LINE-B');
+    expect(hook.result.current.sourceRows).toEqual([lineB]);
   });
 
   it('sends a real operator edit and keeps the server-clamped reviewed value', async () => {
@@ -542,18 +601,68 @@ describe('useRocketPurchaseWorkflow', () => {
       blob: artifactBlob,
     }));
   });
+
+  it('clamps reviewed quantities to fresh inventory before building the workbook', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases)
+      .mockResolvedValueOnce(preview(source, [previewRow('LINE-A', null, 4)]))
+      .mockResolvedValueOnce(preview(source, [
+        previewRow('LINE-A', 'insufficient_capacity', 2),
+      ]));
+    vi.mocked(buildRocketConfirmationWorkbook).mockReturnValue({
+      blob: new Blob(['fresh-workbook']),
+      fileName: '쿠팡_로켓.xlsx',
+      summary: {
+        totalRows: 1,
+        workbookQuantity: 2,
+        fullyConfirmedRows: 0,
+        shortRows: 1,
+      },
+    });
+    vi.mocked(exportRocketWorkbook).mockResolvedValue(workbookExport());
+    vi.mocked(downloadRocketWorkbook).mockResolvedValue({
+      blob: new Blob(['stored-workbook']),
+      fileName: '쿠팡_로켓.xlsx',
+    });
+    const hook = renderWorkflow({
+      channelAccountId: ACCOUNT_A,
+      savedSourceImportRunId: SOURCE_A,
+    });
+    await waitFor(() => expect(hook.result.current.canExport).toBe(true));
+
+    await act(async () => hook.result.current.exportAndDownload());
+
+    expect(previewRocketPurchases).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      editedQuantities: { 'LINE-A': 4 },
+      clampEditedQuantities: true,
+      previewScope: 'confirmation_requested',
+    }), { inventoryRequirement: 'fresh' });
+    expect(buildRocketConfirmationWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      workbookRows: [{
+        poLineId: 'LINE-A',
+        workbookQuantity: 2,
+        shortageReason: SHORTAGE_REASON,
+      }],
+    }));
+    expect(exportRocketWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      editedQuantities: { 'LINE-A': 2 },
+      shortageReasons: { 'LINE-A': SHORTAGE_REASON },
+    }), expect.any(Blob));
+  });
 });
 
 function renderWorkflow(input: {
   channelAccountId: string;
-  savedSourceImportRunId: string;
+  savedSourceImportRunId: string | null;
+  selectedDeliveryDate?: string;
 }) {
   return renderHook(() => useRocketPurchaseWorkflow({
     ...input,
     hasConfiguredVendorId: true,
     from: '2026-07-01',
     to: '2026-07-31',
-  }), { wrapper: queryWrapper() });
+  } as never), { wrapper: queryWrapper() });
 }
 
 function sourceRow(poLineId: string): RocketPoCatalogRow {

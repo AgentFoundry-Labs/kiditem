@@ -38,23 +38,26 @@ describe('UnresolvedTransmissions', () => {
     freshness.state = { unresolvedOrderTransmissionIntents: [BLOCKER] };
   });
 
-  it('stays invisible while no transmission blocks collection', () => {
+  it('stays invisible while no transmission needs reconciliation', () => {
     freshness.state = { unresolvedOrderTransmissionIntents: [] };
     renderSection();
 
     expect(screen.queryByText('셀피아 전송 결과 미확인')).not.toBeInTheDocument();
   });
 
-  it('names the blocking transmission so the operator can find it in Sellpia', () => {
+  it('names the unresolved transmission without claiming stock sync is blocked', () => {
     renderSection();
 
     expect(screen.getByText('셀피아 전송 결과 미확인')).toBeInTheDocument();
     expect(screen.getByText(BLOCKER.intentKey)).toBeInTheDocument();
+    expect(screen.getByText(/다른 주문 수집과 재고 동기화는 계속 사용할 수 있습니다/))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/재고 동기화가 차단됩니다/)).not.toBeInTheDocument();
   });
 
   // The recovery the order-collection retry gate cannot offer once the local
   // generated file has no transmission marker.
-  it('confirms receipt as submitted, which finalizes the intent and unblocks sync', async () => {
+  it('confirms receipt as submitted and finalizes the exact intent', async () => {
     renderSection();
 
     fireEvent.click(screen.getByRole('button', { name: '셀피아에 접수됨' }));

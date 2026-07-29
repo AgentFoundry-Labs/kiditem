@@ -18,15 +18,16 @@ manage local generated-file history.
   responses.
 - Coupang Rocket PA collection sends the selected active Rocket
   `channelAccountId`. The backend must persist `SourceImportRun`, `Order`, and
-  `OrderLineItem`, link only rows matching the active Rocket workbook, and
-  return a 17-column Sellpia workbook only for those rows. Both SHIPMENT and
-  MILKRUN probes run even when one transport has no matching rows. Missing
-  import/workflow headers or any linkage failure is a hard failure.
+  `OrderLineItem`, link exact rows matching the active Rocket workbook, and
+  return a 17-column Sellpia workbook containing every collected row for the
+  selected transport. Unmatched rows stay visible for operator selection. Both
+  SHIPMENT and MILKRUN probes run; a non-empty response requires import and
+  transmission headers, while workbook export linkage is optional.
 - Local generated file history and seen-row detection may use browser storage
   for operator convenience only.
 - Before invoking the irreversible Sellpia extension submit, durably prepare
-  an intent keyed by `{rocketWorkbookExportId, transport}`; the backend returns
-  that stable key as the generated file ID. If preparation fails or returns
+  the backend key `rocket-final-order:{sourceImportRunId}:{transport}`; the
+  generated file uses that stable key as its ID. If preparation fails or returns
   `already_prepared` or `already_finalized`, do not invoke the extension unless
   an owner/admin explicitly confirms in the UI that Sellpia did not receive the
   file. That recovery records an audited `not_submitted` reconciliation, reopens
@@ -38,7 +39,10 @@ manage local generated-file history.
   a strictly newer freshness generation before local
   `transmissionRequestedAt` persistence and freshness/history invalidation.
   Only explicit `{ submitted: false }` aborts the intent for safe retry;
-  extension errors and tab crashes remain unresolved and conservatively stale.
+  extension errors and tab crashes remain unresolved for operator verification
+  but do not block other collection or inventory synchronization. An explicit
+  Sellpia rejection displays the provider message and may offer manual inventory
+  synchronization; it never automatically refreshes or resubmits.
   Normalize legacy `sentAt` while reading only; new writes use
   `transmissionRequestedAt`.
 - Mall account reads/writes go through route-local API helpers.

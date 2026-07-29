@@ -231,7 +231,7 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
     })).resolves.toBeNull();
   });
 
-  it('retains an older PO when a later monthly snapshot no longer contains it', async () => {
+  it('replaces the previous raw snapshot after a later complete collection succeeds', async () => {
     const olderRow = {
       ...row('P-OLDER'),
       poNumber: '9001',
@@ -254,19 +254,29 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
 
     expect(saved).toEqual([
       expect.objectContaining({
-        sourceImportRunId: older.run.id,
-        poNumber: '9001',
-        plannedDeliveryDate: '2026-06-20',
-      }),
-      expect.objectContaining({
         sourceImportRunId: current.run.id,
         poNumber: '9002',
         plannedDeliveryDate: '2026-07-20',
       }),
     ]);
+    await expect(prisma.rocketPoCatalogSnapshot.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_ID,
+      },
+    })).resolves.toBe(1);
+    await expect(repository.loadSavedCollection({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: ACCOUNT_ID,
+      sourceImportRunId: older.run.id,
+    })).resolves.toBeNull();
+    await expect(prisma.sourceImportRun.findUnique({
+      where: { id: older.run.id },
+      select: { id: true },
+    })).resolves.toEqual({ id: older.run.id });
   });
 
-  it('opts into every snapshot run without changing the legacy latest-PO list', async () => {
+  it('does not expose superseded raw snapshots through the repeated-run profile', async () => {
     const older = await repository.publish(
       publishInput('4'.repeat(64), row('P-REPEATED-OLDER')),
     );
@@ -288,8 +298,11 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
       includeRepeatedSnapshots: true,
     })).resolves.toEqual([
       expect.objectContaining({ sourceImportRunId: current.run.id, poNumber: '1001' }),
-      expect.objectContaining({ sourceImportRunId: older.run.id, poNumber: '1001' }),
     ]);
+    await expect(prisma.rocketPoCatalogSnapshot.findFirst({
+      where: { sourceImportRunId: older.run.id },
+      select: { id: true },
+    })).resolves.toBeNull();
   });
 
   it('provisions exact barcode identities and channel-origin fallbacks during Rocket publication', async () => {

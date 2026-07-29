@@ -42,6 +42,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
   async preview(input: {
     organizationId: string;
     userId: string;
+    inventoryRequirement: 'advisory' | 'fresh';
     request: RocketPurchasePreviewRequest;
   }): Promise<RocketPurchasePreviewResponse> {
     const request = RocketPurchasePreviewRequestSchema.parse(input.request);
@@ -108,6 +109,9 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
         recipeStatus: item?.recipeStatus ?? 'unmatched' as const,
         components: item?.components.map((component) => ({
           sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+          code: component.code,
+          name: component.name,
+          optionName: component.optionName,
           quantity: component.quantity,
           currentStock: component.currentStock,
           isActive: component.isActive,
@@ -118,8 +122,16 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       .filter(({ recipeStatus }) => recipeStatus === 'matched')
       .flatMap(({ components }) => components
         .map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))];
+    const calculateRows = () => translatePreviewPolicy(() => previewRocketCapacity({
+      rows: previewRows,
+      editedQuantities: request.editedQuantities,
+      clampEditedQuantities: request.clampEditedQuantities,
+    }));
     let inventoryGeneration: string | null = null;
-    if (sellpiaInventorySkuIds.length > 0) {
+    if (
+      input.inventoryRequirement === 'fresh'
+      && sellpiaInventorySkuIds.length > 0
+    ) {
       const gated = await this.freshness.readFreshCapacityOrRequest({
         organizationId: input.organizationId,
         sellpiaInventorySkuIds,
@@ -135,6 +147,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
           collectionRunId: request.collection.collectionRunId,
           catalog: catalog.catalog,
           requestedGeneration: gated.requestedGeneration,
+          rows: calculateRows(),
         };
       }
       inventoryGeneration = gated.generation;
@@ -159,11 +172,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       collectionRunId: request.collection.collectionRunId,
       catalog: catalog.catalog,
       inventoryGeneration,
-      rows: translatePreviewPolicy(() => previewRocketCapacity({
-        rows: previewRows,
-        editedQuantities: request.editedQuantities,
-        clampEditedQuantities: request.clampEditedQuantities,
-      })),
+      rows: calculateRows(),
     };
   }
 }
@@ -173,8 +182,10 @@ function previewRowsForScope(
 ): RocketPurchasePreviewRequest['rows'] {
   if (request.previewScope !== 'confirmation_requested') return request.rows;
   return request.rows.filter((row) => (
-    row.poStatusCode?.toUpperCase() === 'RP'
-    || row.confirmation?.poStatus.trim() === '거래처확인요청'
+    ['RI', 'RP'].includes(row.poStatusCode?.toUpperCase() ?? '')
+    || ['거래명세서확인요청', '거래처확인요청'].includes(
+      row.confirmation?.poStatus.trim() ?? '',
+    )
   ));
 }
 

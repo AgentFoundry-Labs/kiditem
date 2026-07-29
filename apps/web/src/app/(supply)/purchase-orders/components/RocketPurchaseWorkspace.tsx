@@ -159,7 +159,7 @@ export function RocketPurchaseWorkspace({
             {stage === 'collecting'
               ? '쿠팡 수집 중'
               : stage === 'refreshing_inventory'
-                ? '재고 갱신 중'
+                ? '재고 확인 중'
                 : stage === 'persisting_collection'
                   ? '수집본 저장 중'
                   : loading ? '계산 중' : '미리보기 다시 계산'}
@@ -228,7 +228,7 @@ export function RocketPurchaseWorkspace({
 
       {stage === 'refreshing_inventory' && pendingCheckpoint ? (
         <p role="status" className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-semibold text-violet-800">
-          수집본 저장 완료 · 셀피아 재고 갱신 중
+          로켓 PO 수집본 저장 완료 · 셀피아 재고 갱신 중 · 현재 표시 수량은 직전 재고 기준이며 완료 후 품절 여부를 다시 계산합니다.
           <span className="ml-2 font-normal text-violet-600">
             요청 세대 {pendingCheckpoint.requestedGeneration}
           </span>

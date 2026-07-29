@@ -34,7 +34,7 @@ const RocketOrdersChart = dynamic(
 
 const STATUS_OPTIONS = [
   { value: '', label: '전체 상태' },
-  { value: '거래처확인요청', label: '신규 주문 (거래확인서요청)' },
+  { value: '거래처확인요청', label: '거래처확인요청' },
 ];
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -52,15 +52,6 @@ export interface RocketOrderExplorerRenderOptions {
   onSelectDate: (date: string | null, sourceRunCount: number) => void;
 }
 
-/** One 수집본 candidate for the selected date, summarized over that date's rows. */
-export interface RocketDateSourceRun {
-  sourceImportRunId: string;
-  collectedAt: string;
-  poCount: number;
-  quantity: number;
-  amount: number;
-}
-
 export interface RocketDecisionWorkspaceContext {
   activeMonth: string;
   channelAccountId: string;
@@ -73,10 +64,6 @@ export interface RocketDecisionWorkspaceContext {
   // URL 복원(새로고침·링크 공유)에서 값이 비어 안내 배너가 통째로 사라졌다.
   selectedDate: string | null;
   selectedDateSourceRunCount: number;
-  // 한 날짜에 수집본이 여럿이면 자동 선택이 금지된다(서로 다른 수집본의 행을 섞을 수 없음).
-  // 후보를 최신순으로 넘겨 패널이 그 자리에서 명시적 선택을 받을 수 있게 한다.
-  selectedDateSourceRuns: RocketDateSourceRun[];
-  onSelectSourceImportRun: (sourceImportRunId: string) => void;
   onActivity: (activity: RocketOrderActivityInput) => void;
   onOrdersChanged: () => void;
   renderOrderExplorer: (options: RocketOrderExplorerRenderOptions) => ReactNode;
@@ -188,20 +175,18 @@ export function RocketOrdersWorkspace({
   });
 
   const orders = data ?? EMPTY_ROCKET_POS;
+  const latestSourceImportRunId = useMemo(
+    () => newestSourceImportRunId(orders),
+    [orders],
+  );
 
-  // The v2 response includes every saved snapshot so the source picker can
-  // enumerate exact runs. Calendar/list stay on the latest observation of each
-  // PO, preserving the pre-v2 operator view and avoiding full-snapshot duplicates.
-  const latestOrders = useMemo(() => {
-    const byPoNumber = new Map<string, RocketSavedPoSummary>();
-    for (const order of orders) {
-      const existing = byPoNumber.get(order.poNumber);
-      if (!existing || order.collectedAt > existing.collectedAt) {
-        byPoNumber.set(order.poNumber, order);
-      }
-    }
-    return [...byPoNumber.values()];
-  }, [orders]);
+  // 과거 원본이 정리되기 전에도 운영 화면은 최신 정상 수집본 하나만 사용한다.
+  const latestOrders = useMemo(
+    () => latestSourceImportRunId
+      ? orders.filter(({ sourceImportRunId }) => sourceImportRunId === latestSourceImportRunId)
+      : EMPTY_ROCKET_POS,
+    [latestSourceImportRunId, orders],
+  );
 
   // 입고예정일별 그룹
   const byDate = useMemo(() => {
@@ -237,51 +222,16 @@ export function RocketOrdersWorkspace({
     return record;
   }, [byDate]);
 
-  // 선택 날짜의 수집본 수. 클릭·URL 복원 어느 경로로 날짜가 정해졌든 동일하게 파생되므로,
-  // 새로고침 후에도 "발주 없음 / 수집본 선택 필요" 안내가 유지된다.
-  const selectedDaySourceRuns = useMemo<RocketDateSourceRun[]>(() => {
-    if (!selectedDay) return [];
-    const byRun = new Map<string, RocketDateSourceRun>();
-    for (const po of orders.filter(
-      ({ plannedDeliveryDate }) => plannedDeliveryDate === selectedDay,
-    )) {
-      const existing = byRun.get(po.sourceImportRunId);
-      if (existing) {
-        existing.poCount += 1;
-        existing.quantity += po.orderQuantity;
-        existing.amount += po.orderAmount;
-        // 한 수집본 안에서도 행마다 collectedAt 이 다를 수 있어 가장 늦은 값을 대표로 쓴다.
-        if (po.collectedAt > existing.collectedAt) existing.collectedAt = po.collectedAt;
-        continue;
-      }
-      byRun.set(po.sourceImportRunId, {
-        sourceImportRunId: po.sourceImportRunId,
-        collectedAt: po.collectedAt,
-        poCount: 1,
-        quantity: po.orderQuantity,
-        amount: po.orderAmount,
-      });
-    }
-    return [...byRun.values()].sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
-  }, [orders, selectedDay]);
-  const selectedDaySourceRunCount = selectedDaySourceRuns.length;
-
+  const selectedDayOrders = useMemo(() => {
+    if (!selectedDay) return EMPTY_ROCKET_POS;
+    return latestOrders.filter(({ plannedDeliveryDate }) => plannedDeliveryDate === selectedDay);
+  }, [latestOrders, selectedDay]);
+  const selectedDaySourceRunCount = new Set(
+    selectedDayOrders.map(({ sourceImportRunId }) => sourceImportRunId),
+  ).size;
   useEffect(() => {
-    if (!selectedDay) {
-      setSelectedSourceImportRunId(null);
-      return;
-    }
-    const sourceRuns = new Set(
-      orders
-        .filter(({ plannedDeliveryDate }) => plannedDeliveryDate === selectedDay)
-        .map(({ sourceImportRunId }) => sourceImportRunId),
-    );
-    // 운영자가 이미 그 날짜의 수집본을 고른 상태라면 유지한다(재조회로 byDate 가 바뀌어도 선택이 풀리지 않게).
-    setSelectedSourceImportRunId((current) => {
-      if (current && sourceRuns.has(current)) return current;
-      return sourceRuns.size === 1 ? [...sourceRuns][0]! : null;
-    });
-  }, [orders, selectedDay]);
+    setSelectedSourceImportRunId(latestSourceImportRunId);
+  }, [latestSourceImportRunId]);
 
   function selectOrderDay(
     date: string | null,
@@ -289,18 +239,11 @@ export function RocketOrdersWorkspace({
   ) {
     setViewState((current) => ({ ...current, date: date ?? '' }));
     setOpenPo(null);
-    const sourceRuns = new Set(
-      date
-        ? orders
-            .filter(({ plannedDeliveryDate }) => plannedDeliveryDate === date)
-            .map(({ sourceImportRunId }) => sourceImportRunId)
-        : [],
-    );
-    if (!date) {
-      setSelectedSourceImportRunId(null);
-    } else {
-      setSelectedSourceImportRunId(sourceRuns.size === 1 ? [...sourceRuns][0]! : null);
-    }
+    const rowsForDate = date
+      ? latestOrders.filter(({ plannedDeliveryDate }) => plannedDeliveryDate === date)
+      : [];
+    const sourceRuns = new Set(rowsForDate.map(({ sourceImportRunId }) => sourceImportRunId));
+    setSelectedSourceImportRunId(latestSourceImportRunId);
     onSelectDate(date, sourceRuns.size);
   }
 
@@ -313,7 +256,6 @@ export function RocketOrdersWorkspace({
       date: '',
       view: 'month',
     }));
-    setSelectedSourceImportRunId(null);
     setOpenPo(null);
     onSelectDate(null, 0);
   }
@@ -323,7 +265,6 @@ export function RocketOrdersWorkspace({
   ) {
     const b = shiftMonthBounds(from, delta);
     setViewState((current) => ({ ...current, from: b.start, to: b.end, date: '' }));
-    setSelectedSourceImportRunId(null);
     setOpenPo(null);
     onSelectDate(null, 0);
   }
@@ -364,7 +305,6 @@ export function RocketOrdersWorkspace({
             value={from}
             onChange={(e) => {
               setViewState((current) => ({ ...current, from: e.target.value, date: '' }));
-              setSelectedSourceImportRunId(null);
               setOpenPo(null);
               onSelectDate(null, 0);
             }}
@@ -377,7 +317,6 @@ export function RocketOrdersWorkspace({
             value={to}
             onChange={(e) => {
               setViewState((current) => ({ ...current, to: e.target.value, date: '' }));
-              setSelectedSourceImportRunId(null);
               setOpenPo(null);
               onSelectDate(null, 0);
             }}
@@ -395,7 +334,6 @@ export function RocketOrdersWorkspace({
             value={status}
             onChange={(e) => {
               setViewState((current) => ({ ...current, status: e.target.value, date: '' }));
-              setSelectedSourceImportRunId(null);
               setOpenPo(null);
               onSelectDate(null, 0);
             }}
@@ -502,7 +440,8 @@ export function RocketOrdersWorkspace({
   function renderPoRow(po: RocketSavedPoSummary) {
     const poKey = `${po.sourceImportRunId}:${po.poNumber}`;
     const open = openPo === poKey;
-    const isNew = po.status === '거래처확인요청';
+    const isNew = po.status === '거래명세서확인요청'
+      || po.status === '거래처확인요청';
     return (
       <Fragment key={poKey}>
         <div
@@ -546,28 +485,9 @@ export function RocketOrdersWorkspace({
         </div>
         {open && (
           <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-3 pl-9">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-              <span>
-                품목 {formatNumber(po.skuCount)}종 · 수집 {po.collectedAt.slice(0, 19).replace('T', ' ')}
-              </span>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setSelectedSourceImportRunId(po.sourceImportRunId);
-                }}
-                className={cn(
-                  'rounded-md border px-2.5 py-1 font-semibold',
-                  selectedSourceImportRunId === po.sourceImportRunId
-                    ? 'border-purple-300 bg-purple-50 text-purple-700'
-                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
-                )}
-              >
-                {selectedSourceImportRunId === po.sourceImportRunId
-                  ? '선택된 수집본'
-                  : '이 수집본으로 납품 판단'}
-              </button>
-            </div>
+            <span className="text-[11px] text-slate-400">
+              품목 {formatNumber(po.skuCount)}종 · 최신 수집 {po.collectedAt.slice(0, 19).replace('T', ' ')}
+            </span>
           </div>
         )}
       </Fragment>
@@ -646,8 +566,6 @@ export function RocketOrdersWorkspace({
         selectedSourceImportRunId,
         selectedDate: selectedDay || null,
         selectedDateSourceRunCount: selectedDaySourceRunCount,
-        selectedDateSourceRuns: selectedDaySourceRuns,
-        onSelectSourceImportRun: setSelectedSourceImportRunId,
         onActivity: recordActivity,
         onOrdersChanged: () => void refetch(),
         renderOrderExplorer,
@@ -660,4 +578,13 @@ export function RocketOrdersWorkspace({
       <RocketConfirmFileList refreshKey={0} />
     </div>
   );
+}
+
+function newestSourceImportRunId(
+  orders: RocketSavedPoSummary[],
+): string | null {
+  const newest = [...orders].sort((left, right) =>
+    right.collectedAt.localeCompare(left.collectedAt)
+    || right.sourceImportRunId.localeCompare(left.sourceImportRunId))[0];
+  return newest?.sourceImportRunId ?? null;
 }

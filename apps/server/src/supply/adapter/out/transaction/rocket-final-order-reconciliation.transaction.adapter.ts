@@ -37,7 +37,7 @@ implements RocketFinalOrderReconciliationTransactionPort {
 
     let reconciledRows = 0;
     const matchedExportIds = new Set<string>();
-    const skippedLines: Array<{ poNumber: string; productNo: string }> = [];
+    const unmatchedLines: Array<{ poNumber: string; productNo: string }> = [];
     for (const line of lines) {
       const matches = activeExportIds.length === 0 ? []
         : await tx.rocketPurchaseConfirmationLine.findMany({
@@ -58,7 +58,7 @@ implements RocketFinalOrderReconciliationTransactionPort {
           take: 2,
         });
       if (matches.length === 0) {
-        skippedLines.push({ poNumber: line.poNumber, productNo: line.productNo });
+        unmatchedLines.push({ poNumber: line.poNumber, productNo: line.productNo });
         continue;
       }
       if (matches.length > 1) {
@@ -116,28 +116,21 @@ implements RocketFinalOrderReconciliationTransactionPort {
         'Collected Rocket order lines matched more than one workbook export.',
       );
     }
-    if (matchedExportIds.size === 0 && activeExports.length > 1) {
-      throw new AppException(
-        409,
-        'ROCKET_WORKBOOK_ACTIVE_AMBIGUOUS',
-        'More than one active Rocket workbook export was found.',
-      );
-    }
-
-    const exportId = [...matchedExportIds][0] ?? activeExports[0]?.id ?? null;
+    const exportId = [...matchedExportIds][0]
+      ?? (activeExports.length === 1 ? activeExports[0]!.id : null);
+    const transmissionIntentKey = lines.length > 0
+      ? `rocket-final-order:${input.sourceImportRunId}:${input.transport.toLowerCase()}`
+      : null;
     if (!exportId) {
       return {
         exportId: null,
-        transmissionIntentKey: null,
+        transmissionIntentKey,
         matchedLineCount: 0,
         reconciledRows: 0,
-        skippedLines,
+        unmatchedLines,
       };
     }
 
-    const transmissionIntentKey = reconciledRows > 0
-      ? `rocket-workbook:${exportId}:${input.transport.toLowerCase()}`
-      : null;
     await tx.rocketPurchaseConfirmationTransmission.upsert({
       where: {
         confirmationId_transport: {
@@ -191,7 +184,7 @@ implements RocketFinalOrderReconciliationTransactionPort {
       transmissionIntentKey,
       matchedLineCount: reconciledRows,
       reconciledRows,
-      skippedLines,
+      unmatchedLines,
     };
   }
 }

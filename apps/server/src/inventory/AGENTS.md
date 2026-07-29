@@ -145,18 +145,18 @@ change stock.
   settle window.
 - Before the browser invokes irreversible Sellpia order submission, Inventory
   persists an organization-scoped `prepared` transmission intent. An unresolved
-  intent keeps freshness `refresh_required` and blocks collection claims. Only
-  `submitted: true` finalization advances to a generation strictly newer than
+  intent protects that exact file from accidental resubmission but does not
+  redefine freshness or block independent collection claims. Only `submitted:
+  true` finalization advances to a generation strictly newer than
   every generation visible at finalization; retries return the same finalized
   generation. Explicit non-submission may abort and reopen the same intent key.
   An owner/admin may also correct a false finalized result to `not_submitted`;
   that transition is append-only audited and is the only path that permits a
   confirmed missing file to reuse the stable intent key for one safe retry.
-- The additive unresolved-intent endpoint lists the transmission intents that
-  block collection, capped at `SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT` with a
-  continuation signal. Keep the legacy strict freshness response stable for
-  already-open browser bundles. The same repository rows that make `planClaim`
-  return `joined` must be nameable by the endpoint; do not reduce them to a count.
+- The additive unresolved-intent endpoint lists transmission intents requiring
+  operator reconciliation, capped at `SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT`
+  with a continuation signal. Keep every row nameable by the endpoint; do not
+  reduce them to a count or feed them back into freshness/claim derivation.
 - Every public view serializes generations as decimal strings and derives
   `activeSync.canControl` from the authenticated user without exposing the
   owner ID.

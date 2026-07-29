@@ -48,20 +48,18 @@ describe('Sellpia inventory freshness policy', () => {
     }), NOW)).toBe('refresh_required');
   });
 
-  it('keeps a tab-crashed transmission intent stale after generations catch up', () => {
+  it('keeps stock fresh when a separate transmission result is unresolved', () => {
     const state = makeState({
       requestedGeneration: 4n,
       verifiedGeneration: 4n,
       unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
     });
 
-    expect(deriveFreshnessStatus(state, NOW)).toBe('refresh_required');
+    expect(deriveFreshnessStatus(state, NOW)).toBe('fresh');
   });
 
-  // A blocked state is status-identical to an ordinary stale one, so the
-  // separately versioned blocker response must name the same rows that gate claims.
-  it('names the unresolved transmissions that pin the state at refresh_required', () => {
-    const blocked = makeState({
+  it('lists unresolved transmissions without redefining freshness or claim state', () => {
+    const state = makeState({
       sourceAccountKey: 'kiditem',
       requestedGeneration: 4n,
       verifiedGeneration: 4n,
@@ -69,11 +67,11 @@ describe('Sellpia inventory freshness policy', () => {
       unresolvedOrderTransmissionIntents: [UNRESOLVED_INTENT],
     });
 
-    const view = toFreshnessView(blocked, NOW, null);
-    const blockers = toUnresolvedOrderTransmissionIntentList(blocked);
+    const view = toFreshnessView(state, NOW, null);
+    const unresolved = toUnresolvedOrderTransmissionIntentList(state);
 
-    expect(view.status).toBe('refresh_required');
-    expect(blockers).toEqual({
+    expect(view.status).toBe('fresh');
+    expect(unresolved).toEqual({
       items: [
       {
         intentKey: UNRESOLVED_INTENT.intentKey,
@@ -82,13 +80,6 @@ describe('Sellpia inventory freshness policy', () => {
       ],
       hasMore: false,
     });
-    // The same rows refuse the claim, so the view and the gate cannot disagree.
-    expect(planClaim(blocked, {
-      now: NOW,
-      userId: '00000000-0000-4000-8000-000000000012',
-      claimToken: '00000000-0000-4000-8000-000000000013',
-      freshnessFence: '00000000-0000-4000-8000-000000000014',
-    })).toEqual({ kind: 'joined' });
   });
 
   it('reports an empty blocker list once every transmission is resolved', () => {
@@ -469,7 +460,7 @@ describe('Sellpia inventory freshness policy', () => {
     )).toEqual({ kind: 'joined' });
   });
 
-  it('does not claim a generation while an order transmission intent is unresolved', () => {
+  it('claims a due generation while an order transmission intent is unresolved', () => {
     const state = makeState({
       sourceAccountKey: 'kiditem',
       requestedGeneration: 2n,
@@ -483,7 +474,7 @@ describe('Sellpia inventory freshness policy', () => {
       userId: '00000000-0000-4000-8000-000000000064',
       claimToken: '00000000-0000-4000-8000-000000000065',
       freshnessFence: '00000000-0000-4000-8000-000000000066',
-    })).toEqual({ kind: 'joined' });
+    })).toMatchObject({ kind: 'claimed', generation: 2n });
   });
 
   it('blocks an ownerless future lease and fails it at exact expiry', () => {

@@ -33,7 +33,9 @@ export const COUPANG_TRANSPORT_LABEL: Record<CoupangTransport, string> = {
 
 export interface CoupangDirectConversionResult {
   file: OrderCollectionConversionResult | null;
-  matchedRows: number;
+  outputRows: number;
+  workbookMatchedRows: number;
+  workbookUnmatchedRows: number;
   importRunId: string;
   rocketWorkbookExportId: string | null;
   transmissionIntentKey: string | null;
@@ -93,18 +95,22 @@ export async function convertCoupangDirectToSellpiaFile(
   const importRunId = requiredHeader(res, 'X-Order-Collection-Import-Run-Id');
   const rocketWorkbookExportId = res.headers.get('X-Rocket-Workbook-Export-Id');
   const transmissionIntentKey = res.headers.get('X-Sellpia-Transmission-Intent-Key');
-  const matchedRows = numHeader(res, 'X-Order-Collection-Output-Rows') ?? 0;
+  const outputRows = numHeader(res, 'X-Order-Collection-Output-Rows') ?? 0;
+  const workbookMatchedRows = numHeader(res, 'X-Rocket-Workbook-Matched-Rows') ?? 0;
+  const workbookUnmatchedRows = numHeader(res, 'X-Rocket-Workbook-Unmatched-Rows') ?? 0;
   if (res.status === 204) {
     return {
       file: null,
-      matchedRows,
+      outputRows,
+      workbookMatchedRows,
+      workbookUnmatchedRows,
       importRunId,
       rocketWorkbookExportId,
       transmissionIntentKey,
     };
   }
-  if (!rocketWorkbookExportId || !transmissionIntentKey) {
-    throw new Error('쿠팡 로켓 워크북 연결 정보가 없어 셀피아 파일을 저장하지 않았습니다.');
+  if (!transmissionIntentKey) {
+    throw new Error('쿠팡 로켓 수집 식별 정보가 없어 셀피아 파일을 저장하지 않았습니다.');
   }
   const blob = await res.blob();
   const cd = res.headers.get('Content-Disposition') ?? '';
@@ -126,7 +132,9 @@ export async function convertCoupangDirectToSellpiaFile(
       rocketWorkbookExportId,
       transmissionIntentKey,
     },
-    matchedRows,
+    outputRows,
+    workbookMatchedRows,
+    workbookUnmatchedRows,
     importRunId,
     rocketWorkbookExportId,
     transmissionIntentKey,

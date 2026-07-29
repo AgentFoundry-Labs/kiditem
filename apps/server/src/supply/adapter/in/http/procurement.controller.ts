@@ -43,6 +43,7 @@ import type { AuthUser } from '../../../../auth/auth.types';
 import type { MulterFile } from '../../../../common/types';
 
 const MAX_ROCKET_WORKBOOK_SIZE = 10 * 1024 * 1024;
+const MAX_ROCKET_WORKBOOK_REQUEST_SIZE = 25 * 1024 * 1024;
 
 @Controller('purchase-orders')
 export class ProcurementController {
@@ -68,7 +69,10 @@ export class ProcurementController {
 
   @Post()
   @UseInterceptors(FileInterceptor('workbook', {
-    limits: { fileSize: MAX_ROCKET_WORKBOOK_SIZE },
+    limits: {
+      fileSize: MAX_ROCKET_WORKBOOK_SIZE,
+      fieldSize: MAX_ROCKET_WORKBOOK_REQUEST_SIZE,
+    },
   }))
   async handleAction(
     @CurrentOrganization() organizationId: string,
@@ -119,9 +123,10 @@ export class ProcurementController {
       });
     }
     if (body.action === 'previewRocket') {
-      return this.rocketPreview.preview({
+      const result = await this.rocketPreview.preview({
         organizationId,
         userId: user.id,
+        inventoryRequirement: body.inventoryRequirement ?? 'advisory',
         request: {
           channelAccountId: body.channelAccountId!,
           collection: body.collection!,
@@ -135,6 +140,7 @@ export class ProcurementController {
           }),
         },
       });
+      return result;
     }
     if (body.action === 'exportRocketWorkbook') {
       if (!workbook) throw new BadRequestException('Rocket workbook file is required.');

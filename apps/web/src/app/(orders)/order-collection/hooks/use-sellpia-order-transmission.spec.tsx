@@ -17,6 +17,7 @@ const freshness = vi.hoisted(() => ({
   finalizeOrderTransmissionIntent: vi.fn(),
   abortOrderTransmissionIntent: vi.fn(),
   reconcileOrderTransmissionIntent: vi.fn(),
+  requestRefresh: vi.fn(),
 }));
 const toast = vi.hoisted(() => ({
   error: vi.fn(),
@@ -86,6 +87,10 @@ describe('useSellpiaOrderTransmission', () => {
       intentKey: 'orders-1',
       status: 'aborted',
       outcome: 'not_submitted',
+    });
+    freshness.requestRefresh.mockResolvedValue({
+      status: 'queued',
+      reason: 'manual_request',
     });
   });
 
@@ -226,12 +231,12 @@ describe('useSellpiaOrderTransmission', () => {
     );
   });
 
-  it('does not record or announce a transmission when the extension did not submit', async () => {
+  it('offers manual inventory sync when Sellpia rejects the transmission for stock', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     extension.sendOrderFileToSellpiaViaExtension.mockResolvedValue({
       success: false,
       outcome: 'not_submitted',
-      error: '판매처를 찾지 못했습니다.',
+      error: '상품코드 K-100의 재고가 부족합니다.',
     });
     const onTransmissionRequested = vi.fn();
     const { result } = renderHook(
@@ -245,8 +250,19 @@ describe('useSellpiaOrderTransmission', () => {
 
     expect(onTransmissionRequested).not.toHaveBeenCalled();
     expect(freshness.abortOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
+    expect(freshness.requestRefresh).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith('판매처를 찾지 못했습니다.');
+    expect(toast.error).toHaveBeenCalledWith(
+      '상품코드 K-100의 재고가 부족합니다.',
+      expect.objectContaining({
+        action: expect.objectContaining({ label: '재고 동기화' }),
+      }),
+    );
+    const toastOptions = toast.error.mock.calls.at(-1)?.[1];
+    toastOptions.action.onClick();
+    await waitFor(() => {
+      expect(freshness.requestRefresh).toHaveBeenCalledWith('manual_request');
+    });
   });
 
   it('keeps an unknown extension outcome unresolved and asks for verification', async () => {
@@ -267,6 +283,7 @@ describe('useSellpiaOrderTransmission', () => {
     });
 
     expect(freshness.abortOrderTransmissionIntent).not.toHaveBeenCalled();
+    expect(freshness.requestRefresh).not.toHaveBeenCalled();
     expect(onTransmissionRequested).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith(
       expect.stringContaining('셀피아 전송 결과 확인 필요'),

@@ -178,10 +178,10 @@ explicit deterministic command through that Products port.
   claim the single vendor identity from one complete authenticated Supplier Hub
   PO evidence run inside the account-scoped publication lock; any mismatch
   conflicts.
-- Rocket purchase-order collection may publish complete account-scoped
-  `ChannelProduct`/`ChannelSku` identities and capacity previews; it never adds
-  reservation, confirmation, provider submission, inventory/physical-stock
-  mutation, or special stock tables.
+- Rocket PO publication replaces the account raw snapshot
+  and prunes prior payload/lines while retaining `SourceImportRun` and Supply
+  workbook evidence. It may publish identities/capacity, but never
+  reserve, confirm, submit, mutate stock, or expose a history picker.
 
 ## Transitional Exceptions
 
