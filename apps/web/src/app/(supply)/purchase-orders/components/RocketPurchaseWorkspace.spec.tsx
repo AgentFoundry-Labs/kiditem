@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectRocketPoRowsForConfirmationFromExtension } from '@/lib/rocket-sales-collection';
 import {
-  getActiveRocketWorkbook,
   loadSavedRocketCollection,
   previewRocketPurchases,
 } from '../lib/rocket-purchase-preview-api';
@@ -22,10 +21,6 @@ vi.mock('@/lib/rocket-sales-collection', () => ({
   finalizeRocketPoCollectionSession: vi.fn(async () => undefined),
 }));
 vi.mock('../lib/rocket-purchase-preview-api', () => ({
-  abandonRocketWorkbook: vi.fn(),
-  downloadRocketWorkbook: vi.fn(),
-  exportRocketWorkbook: vi.fn(),
-  getActiveRocketWorkbook: vi.fn(),
   loadSavedRocketCollection: vi.fn(),
   previewRocketPurchases: vi.fn(),
   rocketPreviewErrorMessage: (_cause: unknown, fallback: string) => fallback,
@@ -38,7 +33,6 @@ vi.mock('../lib/rocket-confirmation-workbook', () => ({
   fillRocketConfirmationWorkbook: vi.fn(),
 }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
-vi.mock('@/lib/rocket-confirm-file-store', () => ({ saveRocketConfirmFile: vi.fn() }));
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({
   sellpiaInventoryFreshnessApi: {
     getState: vi.fn(),
@@ -54,7 +48,6 @@ const TO = '2026-07-16';
 describe('RocketPurchaseWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getActiveRocketWorkbook).mockResolvedValue(null);
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
       collection: collectionEvidence(),
       rows: [],

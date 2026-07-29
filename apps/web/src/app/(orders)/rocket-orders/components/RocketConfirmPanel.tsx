@@ -45,15 +45,6 @@ function componentQuantityValues(row: RocketPurchasePreviewRow): string {
     .join(" / ");
 }
 
-const WORKFLOW_LABEL = {
-  awaiting_coupang_confirmation: "쿠팡 업로드·발주확정 대기",
-  orders_collected: "주문수집 완료",
-  sellpia_transmitting: "Sellpia 반영 중",
-  awaiting_inventory_sync: "재고 동기화 대기",
-  completed: "재고 동기화 완료",
-  failed: "재고 동기화 실패 — 다시 시도",
-} as const;
-
 function isRowReviewBlocked(
   reason: RocketPurchasePreviewRow["reason"],
 ): boolean {
@@ -65,7 +56,6 @@ function isRowReviewBlocked(
 }
 
 export function RocketConfirmPanel({
-  onSaved,
   activeMonth,
   channelAccountId,
   hasConfiguredVendorId,
@@ -77,7 +67,7 @@ export function RocketConfirmPanel({
   onActivity,
   onOrdersChanged,
   renderOrderExplorer,
-}: { onSaved: () => void } & RocketDecisionWorkspaceContext) {
+}: RocketDecisionWorkspaceContext) {
   // 날짜 상태는 워크스페이스가 소유한다(URL 복원 포함). 패널은 읽기만 한다.
   const selectedDate = selectedDateProp ?? "";
   const [matchModalOpen, setMatchModalOpen] = useState(false);
@@ -87,10 +77,8 @@ export function RocketConfirmPanel({
   const [bulkShortageReason, setBulkShortageReason] = useState<
     RocketShortageReason | ""
   >("");
-  const [showAllRows, setShowAllRows] = useState(false);
 
   useEffect(() => {
-    setShowAllRows(false);
     setEditingRecipePoLineId(null);
   }, [channelAccountId, selectedDate, selectedSourceImportRunId]);
   const {
@@ -98,29 +86,20 @@ export function RocketConfirmPanel({
     setReviewedQuantity,
     preview,
     sourceRows,
-    exportedPoLineIds,
     previewDirty,
     setPreviewDirty,
     shortageReasons,
     setShortageReasons,
-    workbookExport,
     exporting,
-    abandonReason,
-    setAbandonReason,
-    abandoning,
     setTemplateFile,
     loading,
     collecting,
     error,
     collectionWarning,
     canExport,
-    canRedownload,
     recalculate,
     revalidateEditedQuantities,
     exportAndDownload,
-    downloadActiveWorkbook,
-    refreshActiveWorkbook,
-    abandonActiveWorkbook,
   } = useRocketPurchaseWorkflow({
     channelAccountId,
     hasConfiguredVendorId,
@@ -137,19 +116,7 @@ export function RocketConfirmPanel({
     [sourceRows],
   );
   const allRows = preview?.rows ?? [];
-  // 수집은 매번 전량 스냅샷이라 이미 제출한 라인이 이후 수집본에도 계속 나온다. 기본값은
-  // "이번에 새로 들어온 것만"이고, 제출 이력이 있을 때만 걸러 근거 없이 숨기지 않는다.
-  const exportedLineIds = useMemo(
-    () => new Set(exportedPoLineIds),
-    [exportedPoLineIds],
-  );
-  const newRows = useMemo(
-    () => allRows.filter((row) => !exportedLineIds.has(row.poLineId)),
-    [allRows, exportedLineIds],
-  );
-  const alreadyExportedCount = allRows.length - newRows.length;
-  const canFilterNewRows = alreadyExportedCount > 0;
-  const rows = canFilterNewRows && !showAllRows ? newRows : allRows;
+  const rows = allRows;
   const poCount = new Set(rows.map((row) => row.poNumber)).size;
   const previewDates = [
     ...new Set(rows.map((row) => row.plannedDeliveryDate)),
@@ -194,7 +161,7 @@ export function RocketConfirmPanel({
   const hasBlockingRows = rows.some((row) =>
     isRocketWorkbookBlockingReason(row.reason),
   );
-  const busy = loading || exporting || abandoning;
+  const busy = loading || exporting;
 
   function handleExplorerDateSelection(
     _date: string | null,
@@ -252,21 +219,6 @@ export function RocketConfirmPanel({
       toast.success(
         `쿠팡 엑셀 다운로드 — ${formatNumber(result.totals.workbookQuantity)}개`,
       );
-      onSaved();
-      onOrdersChanged();
-    }
-  }
-
-  async function handleAbandon() {
-    await abandonActiveWorkbook();
-    onOrdersChanged();
-  }
-
-  async function handleDownload() {
-    const downloaded = await downloadActiveWorkbook();
-    if (downloaded) {
-      onSaved();
-      toast.success("서버에 저장된 동일 엑셀을 다운로드했습니다.");
     }
   }
 
@@ -372,60 +324,6 @@ export function RocketConfirmPanel({
         </div>
       ) : null}
 
-      {workbookExport ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-5 py-2 text-xs text-emerald-800">
-          <span>
-            {WORKFLOW_LABEL[workbookExport.status]} · 품목{" "}
-            <b>{formatNumber(workbookExport.totals.lineCount)}</b>행 · 엑셀 수량{" "}
-            <b>{formatNumber(workbookExport.totals.workbookQuantity)}</b>개
-          </span>
-          <button
-            type="button"
-            onClick={() => void handleDownload()}
-            disabled={!canRedownload || exporting}
-            className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-white px-2.5 py-1 font-semibold disabled:opacity-50"
-          >
-            {exporting ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <Download size={12} />
-            )}
-            동일 파일 다시 다운로드
-          </button>
-          <button
-            type="button"
-            onClick={() => void refreshActiveWorkbook()}
-            className="rounded-md border border-emerald-300 bg-white px-2.5 py-1 font-semibold disabled:opacity-50"
-          >
-            상태 새로고침
-          </button>
-          {workbookExport.status === "awaiting_coupang_confirmation" ? (
-            <>
-              <input
-                aria-label="워크북 미사용 사유"
-                value={abandonReason}
-                onChange={(event) => setAbandonReason(event.target.value)}
-                placeholder="쿠팡에 제출하지 않은 사유"
-                maxLength={500}
-                className="ml-auto min-w-56 rounded-md border border-emerald-200 bg-white px-2 py-1 text-xs"
-              />
-              <button
-                type="button"
-                disabled={
-                  !workbookExport.canAbandon ||
-                  !abandonReason.trim() ||
-                  abandoning
-                }
-                onClick={() => void handleAbandon()}
-                className="rounded-md border border-emerald-300 bg-white px-2.5 py-1 font-semibold disabled:opacity-50"
-              >
-                {abandoning ? "종료 중…" : "워크북 사용 안 함"}
-              </button>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-
       {rows.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
@@ -486,18 +384,6 @@ export function RocketConfirmPanel({
                 </b>
                 원
               </span>
-              {canFilterNewRows ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAllRows((current) => !current)}
-                  title="엑셀은 수집본 전체 기준으로 만들어집니다. 이 토글은 목록 표시만 바꿉니다."
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-800 hover:bg-purple-100"
-                >
-                  {showAllRows
-                    ? `신규 ${formatNumber(newRows.length)}행만 보기`
-                    : `이미 제출 ${formatNumber(alreadyExportedCount)}행 포함해 전체 보기`}
-                </button>
-              ) : null}
               {previewDirty ? (
                 <button
                   type="button"
@@ -534,7 +420,7 @@ export function RocketConfirmPanel({
                   (!canExport || busy) && "pointer-events-none opacity-60",
                 )}
               >
-                {exporting && !canRedownload ? (
+                {exporting ? (
                   <Loader2 size={14} className="animate-spin" />
                 ) : (
                   <Download size={14} />
@@ -620,11 +506,6 @@ export function RocketConfirmPanel({
                             >
                               {matchStateLabel}
                             </span>
-                            {exportedLineIds.has(row.poLineId) ? (
-                              <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                                이미 제출
-                              </span>
-                            ) : null}
                             {row.masterProductId && row.productVariantId ? (
                               <button
                                 type="button"
@@ -689,13 +570,7 @@ export function RocketConfirmPanel({
                             min={0}
                             max={Math.min(row.maxQuantity, row.orderQuantity)}
                             value={quantity}
-                            disabled={
-                              blocking ||
-                              Boolean(
-                                workbookExport &&
-                                workbookExport.status !== "completed",
-                              )
-                            }
+                            disabled={blocking}
                             onChange={(event) =>
                               editQuantity(row, Number(event.target.value) || 0)
                             }
@@ -711,14 +586,7 @@ export function RocketConfirmPanel({
                           <select
                             aria-label={`${row.poNumber} 납품부족사유`}
                             value={shortageReasons[row.poLineId] ?? ""}
-                            disabled={
-                              blocking ||
-                              !short ||
-                              Boolean(
-                                workbookExport &&
-                                workbookExport.status !== "completed",
-                              )
-                            }
+                            disabled={blocking || !short}
                             onChange={(event) => {
                               setShortageReasons((current) => ({
                                 ...current,

@@ -15,10 +15,6 @@ import {
   finalizeRocketPoCollectionSession,
 } from '@/lib/rocket-sales-collection';
 import {
-  abandonRocketWorkbook,
-  downloadRocketWorkbook,
-  exportRocketWorkbook,
-  getActiveRocketWorkbook,
   loadSavedRocketCollection,
   previewRocketPurchases,
 } from '../lib/rocket-purchase-preview-api';
@@ -26,7 +22,6 @@ import {
   buildRocketConfirmationWorkbook,
 } from '../lib/rocket-confirmation-workbook';
 import { downloadBlob } from '@/lib/browser-download';
-import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import { useRocketPurchaseWorkflow } from './useRocketPurchaseWorkflow';
 
@@ -35,10 +30,6 @@ vi.mock('@/lib/rocket-sales-collection', () => ({
   finalizeRocketPoCollectionSession: vi.fn(),
 }));
 vi.mock('../lib/rocket-purchase-preview-api', () => ({
-  abandonRocketWorkbook: vi.fn(),
-  downloadRocketWorkbook: vi.fn(),
-  exportRocketWorkbook: vi.fn(),
-  getActiveRocketWorkbook: vi.fn(),
   loadSavedRocketCollection: vi.fn(),
   previewRocketPurchases: vi.fn(),
   rocketPreviewErrorMessage: (_cause: unknown, fallback: string) => fallback,
@@ -48,7 +39,6 @@ vi.mock('../lib/rocket-confirmation-workbook', () => ({
   fillRocketConfirmationWorkbook: vi.fn(),
 }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
-vi.mock('@/lib/rocket-confirm-file-store', () => ({ saveRocketConfirmFile: vi.fn() }));
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({
   sellpiaInventoryFreshnessApi: {
     getState: vi.fn(),
@@ -75,10 +65,6 @@ describe('useRocketPurchaseWorkflow', () => {
       new Error('unexpected collection'),
     );
     vi.mocked(finalizeRocketPoCollectionSession).mockResolvedValue(undefined);
-    vi.mocked(getActiveRocketWorkbook).mockResolvedValue(null);
-    vi.mocked(exportRocketWorkbook).mockRejectedValue(new Error('unexpected export'));
-    vi.mocked(downloadRocketWorkbook).mockRejectedValue(new Error('unexpected download'));
-    vi.mocked(abandonRocketWorkbook).mockRejectedValue(new Error('unexpected abandon'));
     vi.mocked(sellpiaInventoryFreshnessApi.getState).mockResolvedValue(
       freshnessState({ status: 'fresh', verifiedGeneration: '12' }),
     );
@@ -236,7 +222,7 @@ describe('useRocketPurchaseWorkflow', () => {
     });
     await waitFor(() => expect(hook.result.current.preview?.rows[0]?.reason)
       .toBe('mapping_required'));
-    expect(hook.result.current.exportedPoLineIds).toEqual(['LINE-A']);
+    expect(hook.result.current.preview?.rows).toHaveLength(1);
     expect(hook.result.current.editedQuantities['LINE-A']).toBe(0);
 
     await act(async () => hook.result.current.revalidateEditedQuantities());
@@ -547,15 +533,15 @@ describe('useRocketPurchaseWorkflow', () => {
     });
   });
 
-  it('exports once and repeatedly downloads the exact server-stored workbook', async () => {
+  it('downloads the reviewed workbook directly without starting a post-download workflow', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
     vi.mocked(previewRocketPurchases).mockResolvedValue(
       preview(source, [previewRow('LINE-A', null, 4)]),
     );
-    const artifactBlob = new Blob(['stored-workbook']);
+    const generatedBlob = new Blob(['generated-workbook']);
     vi.mocked(buildRocketConfirmationWorkbook).mockReturnValue({
-      blob: new Blob(['generated-workbook']),
+      blob: generatedBlob,
       fileName: '쿠팡_로켓.xlsx',
       summary: {
         totalRows: 1,
@@ -564,11 +550,6 @@ describe('useRocketPurchaseWorkflow', () => {
         shortRows: 0,
       },
     });
-    vi.mocked(exportRocketWorkbook).mockResolvedValue(workbookExport());
-    vi.mocked(downloadRocketWorkbook).mockResolvedValue({
-      blob: artifactBlob,
-      fileName: '쿠팡_로켓.xlsx',
-    });
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
       savedSourceImportRunId: SOURCE_A,
@@ -576,7 +557,6 @@ describe('useRocketPurchaseWorkflow', () => {
     await waitFor(() => expect(hook.result.current.canExport).toBe(true));
 
     await act(async () => hook.result.current.exportAndDownload());
-    await act(async () => hook.result.current.downloadActiveWorkbook());
 
     expect(buildRocketConfirmationWorkbook).toHaveBeenCalledWith(expect.objectContaining({
       sourceRows: source.rows,
@@ -586,20 +566,7 @@ describe('useRocketPurchaseWorkflow', () => {
         shortageReason: null,
       }],
     }));
-    expect(exportRocketWorkbook).toHaveBeenCalledTimes(1);
-    expect(exportRocketWorkbook).toHaveBeenCalledWith(
-      expect.objectContaining({
-        idempotencyKey: expect.any(String),
-        artifactFileName: '쿠팡_로켓.xlsx',
-      }),
-      expect.any(Blob),
-    );
-    expect(downloadRocketWorkbook).toHaveBeenCalledTimes(2);
-    expect(downloadBlob).toHaveBeenCalledWith(artifactBlob, '쿠팡_로켓.xlsx');
-    expect(saveRocketConfirmFile).toHaveBeenCalledWith(expect.objectContaining({
-      id: `rocket-workbook-${workbookExport().exportId}`,
-      blob: artifactBlob,
-    }));
+    expect(downloadBlob).toHaveBeenCalledWith(generatedBlob, '쿠팡_로켓.xlsx');
   });
 
   it('clamps reviewed quantities to fresh inventory before building the workbook', async () => {
@@ -619,11 +586,6 @@ describe('useRocketPurchaseWorkflow', () => {
         fullyConfirmedRows: 0,
         shortRows: 1,
       },
-    });
-    vi.mocked(exportRocketWorkbook).mockResolvedValue(workbookExport());
-    vi.mocked(downloadRocketWorkbook).mockResolvedValue({
-      blob: new Blob(['stored-workbook']),
-      fileName: '쿠팡_로켓.xlsx',
     });
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
@@ -645,10 +607,6 @@ describe('useRocketPurchaseWorkflow', () => {
         shortageReason: SHORTAGE_REASON,
       }],
     }));
-    expect(exportRocketWorkbook).toHaveBeenCalledWith(expect.objectContaining({
-      editedQuantities: { 'LINE-A': 2 },
-      shortageReasons: { 'LINE-A': SHORTAGE_REASON },
-    }), expect.any(Blob));
   });
 });
 
@@ -788,30 +746,6 @@ function freshnessState(overrides: Record<string, unknown> = {}) {
     unresolvedOrderTransmissionIntents: [],
     hasMoreUnresolvedOrderTransmissionIntents: false,
     ...overrides,
-  };
-}
-
-function workbookExport() {
-  return {
-    exportId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-    status: 'awaiting_coupang_confirmation' as const,
-    duplicate: false,
-    canAbandon: false,
-    inventoryGeneration: '12',
-    generatedAt: '2026-07-23T00:00:00.000Z',
-    artifact: {
-      fileName: '쿠팡_로켓.xlsx',
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const,
-      sha256: 'a'.repeat(64),
-      byteLength: 15,
-    },
-    totals: {
-      lineCount: 1,
-      orderQuantity: 4,
-      workbookQuantity: 4,
-      componentQuantity: 4,
-    },
-    rows: [{ poLineId: 'LINE-A', workbookQuantity: 4, shortageReason: null }],
   };
 }
 

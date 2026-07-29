@@ -3,10 +3,6 @@ import { ROCKET_SAVED_PO_RESPONSE_PROFILE } from '@kiditem/shared/rocket-purchas
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import {
-  abandonRocketWorkbook,
-  downloadRocketWorkbook,
-  exportRocketWorkbook,
-  getActiveRocketWorkbook,
   listSavedRocketPos,
   loadSavedRocketCollection,
   previewRocketPurchases,
@@ -125,106 +121,6 @@ describe('previewRocketPurchases', () => {
       'fallback',
     )).toBe('서버 메시지');
     expect(rocketPreviewErrorMessage({}, 'fallback')).toBe('조회 실패');
-  });
-
-  it('uses explicit Supply actions for exact workbook export, lookup, download, and abandon', async () => {
-    const workbookRequest = {
-      ...input(),
-      rows: [{
-        ...input().rows[0]!,
-        poLineId: '1001:P-1:8800000000001:1',
-        barcode: '8800000000001',
-        confirmation: {
-          center: '덕평1센터',
-          inboundType: '택배',
-          poStatus: '거래처확인요청',
-          returnManager: '',
-          returnContact: '',
-          returnAddress: '',
-          purchasePrice: 1_000,
-          supplyPrice: 900,
-          vat: 90,
-          totalPurchase: 1_980,
-          poRegisteredAt: '2026-07-17 09:00:00',
-          xdock: 'N',
-        },
-      }],
-      idempotencyKey: '33333333-3333-4333-8333-333333333333',
-      editedQuantities: { '1001:P-1:8800000000001:1': 1 },
-      shortageReasons: {
-        '1001:P-1:8800000000001:1': '협력사 재고부족 - 수요예측 오류' as const,
-      },
-      artifactFileName: '쿠팡_로켓.xlsx',
-      artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const,
-    };
-    const exportResponse = {
-      exportId: '44444444-4444-4444-8444-444444444444',
-      status: 'awaiting_coupang_confirmation',
-      duplicate: false,
-      canAbandon: false,
-      inventoryGeneration: '12',
-      generatedAt: '2026-07-17T00:00:00.000Z',
-      artifact: {
-        fileName: '쿠팡_로켓.xlsx',
-        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        sha256: 'a'.repeat(64),
-        byteLength: 8,
-      },
-      totals: {
-        lineCount: 1,
-        orderQuantity: 2,
-        workbookQuantity: 1,
-        componentQuantity: 1,
-      },
-      rows: [{
-        poLineId: workbookRequest.rows[0]!.poLineId,
-        workbookQuantity: 1,
-        shortageReason: '협력사 재고부족 - 수요예측 오류',
-      }],
-    };
-    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response(
-      JSON.stringify(exportResponse),
-      { status: 200, headers: { 'content-type': 'application/json' } },
-    ));
-
-    await exportRocketWorkbook(workbookRequest, new Blob(['workbook']));
-    const exportCall = vi.mocked(apiClient.fetchRaw).mock.calls[0]!;
-    expect(exportCall[0]).toBe('/api/purchase-orders');
-    expect(exportCall[1]).toMatchObject({ method: 'POST', body: expect.any(FormData) });
-    const formData = exportCall[1]!.body as FormData;
-    expect(formData.get('action')).toBe('exportRocketWorkbook');
-    expect(JSON.parse(String(formData.get('requestJson')))).toEqual(workbookRequest);
-
-    vi.mocked(apiClient.post).mockResolvedValueOnce(exportResponse);
-    await getActiveRocketWorkbook();
-    expect(apiClient.post).toHaveBeenLastCalledWith('/api/purchase-orders', {
-      action: 'getActiveRocketWorkbook',
-    });
-
-    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response('workbook', {
-      status: 200,
-      headers: { 'Content-Disposition': "attachment; filename*=UTF-8''rocket.xlsx" },
-    }));
-    await expect(downloadRocketWorkbook(exportResponse.exportId)).resolves.toMatchObject({
-      fileName: 'rocket.xlsx',
-    });
-
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ ...exportResponse, status: 'completed' });
-    await abandonRocketWorkbook({
-      exportId: exportResponse.exportId,
-      reason: '쿠팡에서 발주확정되지 않음',
-    });
-    expect(apiClient.post).toHaveBeenLastCalledWith('/api/purchase-orders', {
-      action: 'abandonRocketWorkbook',
-      exportId: exportResponse.exportId,
-      abandonReason: '쿠팡에서 발주확정되지 않음',
-    });
-  });
-
-  it('treats the empty POST body for no active workbook as a normal null result', async () => {
-    vi.mocked(apiClient.post).mockResolvedValueOnce({});
-
-    await expect(getActiveRocketWorkbook()).resolves.toBeNull();
   });
 
   it('lists and loads server-saved Rocket evidence through account-scoped actions', async () => {

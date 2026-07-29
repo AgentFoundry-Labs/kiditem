@@ -16,7 +16,6 @@ import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { RocketAccountBootstrap } from './RocketAccountBootstrap';
 import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
-import { RocketConfirmFileList } from './RocketConfirmFileList';
 import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
 import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
 import { useRocketOrderActivity } from '../hooks/useRocketOrderActivity';
@@ -574,8 +573,6 @@ export function RocketOrdersWorkspace({
       {/* 날짜를 선택한 경우에만 해당 날짜의 발주 목록을 표시한다. */}
       {selectedDay && renderSelectedOrderList()}
 
-      {/* 기존 생성 파일 이력 (목록 · 재다운로드 · 삭제) */}
-      <RocketConfirmFileList refreshKey={0} />
     </div>
   );
 }
