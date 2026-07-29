@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   fireEvent,
   render,
@@ -98,35 +97,25 @@ const baseWorkflow = {
       plannedDeliveryDate: "2026-07-20",
     },
   ],
-  exportedPoLineIds: [] as string[],
   previewDirty: false,
   setPreviewDirty,
   shortageReasons: {},
   setShortageReasons,
-  workbookExport: null,
   exporting: false,
-  abandonReason: "",
-  setAbandonReason: vi.fn(),
-  abandoning: false,
   setTemplateFile: vi.fn(),
   loading: false,
   collecting: false,
   error: null as string | null,
   collectionWarning: null,
   canExport: false,
-  canRedownload: false,
   recalculate: vi.fn(),
   revalidateEditedQuantities: vi.fn(),
   exportAndDownload: vi.fn(),
-  downloadActiveWorkbook: vi.fn(),
-  refreshActiveWorkbook: vi.fn(),
-  abandonActiveWorkbook: vi.fn(),
 };
 
 function renderPanel(options?: {
   preview?: RocketPurchasePreviewResponse | null;
   workflow?: Partial<typeof baseWorkflow>;
-  exportedPoLineIds?: string[];
   // 날짜 상태는 워크스페이스가 소유하므로 props 로 주입한다(클릭 없이 복원되는 경로까지 포함).
   selectedDate?: string | null;
   selectedDateSourceRunCount?: number;
@@ -137,7 +126,6 @@ function renderPanel(options?: {
     ...baseWorkflow,
     ...options?.workflow,
     preview: options?.preview === undefined ? basePreview : options.preview,
-    exportedPoLineIds: options?.exportedPoLineIds ?? [],
   } as ReturnType<typeof useRocketPurchaseWorkflow>);
   return render(
     <RocketConfirmPanel
@@ -496,9 +484,7 @@ describe("<RocketConfirmPanel />", () => {
     ).not.toBeInTheDocument();
   });
 
-  // 수집은 매번 전량 스냅샷이라 이미 제출한 라인이 이후 수집본에 계속 나온다.
-  // 기본값은 "이번에 새로 들어온 것만"이어야 한다.
-  it("shows only lines that are new since the last workbook, with an opt-in for the rest", () => {
+  it("keeps every row in the selected PO preview visible", () => {
     const twoRows: RocketPurchasePreviewResponse = {
       ...basePreview,
       rows: [
@@ -510,90 +496,14 @@ describe("<RocketConfirmPanel />", () => {
         },
       ],
     };
-    renderPanel({ preview: twoRows, exportedPoLineIds: ["PO-1:PRODUCT-1:1"] });
+    renderPanel({ preview: twoRows });
 
-    // 이미 제출한 PO-1 은 숨고 신규 PO-2 만 남는다.
     expect(
-      screen.queryByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
-    ).toBeNull();
+      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("spinbutton", { name: "PO-2 엑셀 수량" }),
     ).toBeInTheDocument();
-
-    const toggle = screen.getByRole("button", {
-      name: /이미 제출 1행 포함해 전체 보기/,
-    });
-    fireEvent.click(toggle);
-
-    expect(
-      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("이미 제출")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /신규 1행만 보기/ }),
-    ).toBeInTheDocument();
-  });
-
-  it("restores the new-lines-only default when the selected collection changes", async () => {
-    const secondRow = {
-      ...basePreview.rows[0]!,
-      poLineId: "PO-2:PRODUCT-2:1",
-      poNumber: "PO-2",
-    };
-    vi.mocked(useRocketPurchaseWorkflow).mockReturnValue({
-      ...baseWorkflow,
-      preview: { ...basePreview, rows: [basePreview.rows[0]!, secondRow] },
-      exportedPoLineIds: ["PO-1:PRODUCT-1:1"],
-    } as ReturnType<typeof useRocketPurchaseWorkflow>);
-
-    function Harness() {
-      const [sourceRunId, setSourceRunId] = useState("run-1");
-      return (
-        <>
-          <button type="button" onClick={() => setSourceRunId("run-2")}>
-            수집본 변경
-          </button>
-          <RocketConfirmPanel
-            onSaved={vi.fn()}
-            activeMonth="2026-07"
-            channelAccountId="11111111-1111-4111-8111-111111111111"
-            channelAccountName="로켓 1호점"
-            hasConfiguredVendorId
-            from="2026-07-01"
-            to="2026-07-31"
-            selectedSourceImportRunId={sourceRunId}
-            selectedDate={null}
-            selectedDateSourceRunCount={0}
-            onActivity={vi.fn()}
-            onOrdersChanged={vi.fn()}
-            renderOrderExplorer={() => null}
-          />
-        </>
-      );
-    }
-
-    render(<Harness />);
-    fireEvent.click(
-      screen.getByRole("button", { name: /이미 제출 1행 포함해 전체 보기/ }),
-    );
-    expect(
-      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "수집본 변경" }));
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
-      ).toBeNull(),
-    );
-  });
-
-  it("never hides a row when there is no workbook evidence yet", () => {
-    renderPanel({ exportedPoLineIds: [] });
-
-    expect(
-      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /전체 보기/ })).toBeNull();
     expect(screen.queryByText("이미 제출")).toBeNull();
   });
 
@@ -611,27 +521,15 @@ describe("<RocketConfirmPanel />", () => {
     ).toBeNull();
   });
 
-  it("keeps exact re-download available while no-match abandonment remains evidence-gated", () => {
-    renderPanel({
-      preview: null,
-      workflow: {
-        workbookExport: activeWorkbook(),
-        canRedownload: true,
-      },
-    });
+  it("does not expose post-download workbook workflow controls", () => {
+    renderPanel();
 
     expect(
-      screen.getByText("쿠팡 업로드·발주확정 대기", { exact: false }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "동일 파일 다시 다운로드" }),
+      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
     ).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: "워크북 사용 안 함" }),
-    ).toBeDisabled();
-    expect(
-      screen.queryByText(/재고 예약|예약 확정|가용재고|약정/),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/쿠팡 업로드·발주확정 대기/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "동일 파일 다시 다운로드" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "워크북 사용 안 함" })).toBeNull();
   });
 });
 
@@ -651,36 +549,5 @@ function previewWithReason(
         reason === "mapping_required" ? null : row.productVariantId,
       components: reason === "insufficient_capacity" ? row.components : [],
     })),
-  };
-}
-
-function activeWorkbook() {
-  return {
-    exportId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    status: "awaiting_coupang_confirmation" as const,
-    duplicate: false,
-    canAbandon: false,
-    inventoryGeneration: "1",
-    generatedAt: "2026-07-23T00:00:00.000Z",
-    artifact: {
-      fileName: "rocket.xlsx",
-      contentType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" as const,
-      sha256: "a".repeat(64),
-      byteLength: 10,
-    },
-    totals: {
-      lineCount: 1,
-      orderQuantity: 3,
-      workbookQuantity: 3,
-      componentQuantity: 3,
-    },
-    rows: [
-      {
-        poLineId: "PO-1:PRODUCT-1:1",
-        workbookQuantity: 3,
-        shortageReason: null,
-      },
-    ],
   };
 }

@@ -9,7 +9,6 @@ import {
 import { friendlyError } from '@/lib/api-error';
 import { downloadBlob } from '@/lib/browser-download';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
-import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
 import {
   collectRocketPoRowsForConfirmationFromExtension,
   finalizeRocketPoCollectionSession,
@@ -17,10 +16,6 @@ import {
 import { queryKeys } from '@/lib/query-keys';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import {
-  abandonRocketWorkbook,
-  downloadRocketWorkbook,
-  exportRocketWorkbook,
-  getActiveRocketWorkbook,
   loadSavedRocketCollection,
   previewRocketPurchases,
   rocketPreviewErrorMessage,
@@ -41,7 +36,6 @@ import type {
   RocketPurchasePreviewRequest,
   RocketPurchasePreviewResponse,
   RocketShortageReason,
-  RocketWorkbookExportResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
 
 interface CollectionRunSummary {
@@ -198,16 +192,9 @@ export function useRocketPurchaseWorkflow({
   const [validatedEditFingerprint, setValidatedEditFingerprint] = useState('');
   const [sourceRows, setSourceRows] = useState<RocketPoCatalogRow[]>([]);
   const [collectionRows, setCollectionRows] = useState<RocketPoCatalogRow[]>([]);
-  // 이 계정에서 이미 확정 엑셀로 나간 PO 라인. 수집은 매번 전량 스냅샷이라 제출한 라인이
-  // 이후 수집본에도 계속 나온다. 목록에서 "이번에 새로 들어온 것"을 가려내는 기준이다.
-  const [exportedPoLineIds, setExportedPoLineIds] = useState<string[]>([]);
   const [collectionRun, setCollectionRun] = useState<CollectionRunSummary | null>(null);
   const [shortageReasons, setShortageReasons] = useState<Record<string, RocketShortageReason>>({});
-  const [exportKey, setExportKey] = useState('');
-  const [workbookExport, setWorkbookExport] = useState<RocketWorkbookExportResponse | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [abandonReason, setAbandonReason] = useState('');
-  const [abandoning, setAbandoning] = useState(false);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [collecting, setCollecting] = useState(false);
@@ -229,11 +216,8 @@ export function useRocketPurchaseWorkflow({
     setValidatedEditFingerprint('');
     setSourceRows([]);
     setCollectionRows([]);
-    setExportedPoLineIds([]);
     setCollectionRun(null);
     setShortageReasons({});
-    setExportKey('');
-    setAbandonReason('');
     setLoading(false);
     setCollecting(false);
     setError(null);
@@ -315,22 +299,6 @@ export function useRocketPurchaseWorkflow({
   );
 
   useEffect(() => {
-    let cancelled = false;
-    const loadActive = async () => {
-      try {
-        const active = await getActiveRocketWorkbook();
-        if (!cancelled) setWorkbookExport(active);
-      } catch (cause) {
-        if (!cancelled) setError(friendlyError(cause) ?? '진행 중인 로켓 워크북을 확인하지 못했습니다.');
-      }
-    };
-    void loadActive();
-    return () => {
-      cancelled = true;
-    };
-  }, [channelAccountId]);
-
-  useEffect(() => {
     if (!savedSourceImportRunId) return;
     const generation = requestGenerationRef.current;
     const controller = beginWaiter();
@@ -364,7 +332,6 @@ export function useRocketPurchaseWorkflow({
         });
         setSourceRows(reviewRows);
         setCollectionRows(saved.rows);
-        setExportedPoLineIds(saved.exportedPoLineIds);
         const completeResult = await previewWithFreshnessRecovery({
           request: {
           channelAccountId,
@@ -385,13 +352,11 @@ export function useRocketPurchaseWorkflow({
         setOperatorEditedLineIds(new Set());
         setValidatedEditFingerprint(editFingerprint(effectiveEdits));
         setPreviewDirty(false);
-        setExportKey(globalThis.crypto.randomUUID());
         setShortageReasons((current) => reconcileShortageReasons(
           current,
           result,
           effectiveEdits,
         ));
-        setAbandonReason('');
         setPreview(result);
         setPendingCheckpoint(null);
         setStage('ready');
@@ -460,7 +425,6 @@ export function useRocketPurchaseWorkflow({
       });
       setSourceRows(reviewRows);
       setCollectionRows(collected.rows);
-      setExportedPoLineIds([]);
       setPendingCheckpoint(null);
       setStage('persisting_collection');
       const request: RocketPurchasePreviewRequest = {
@@ -517,8 +481,6 @@ export function useRocketPurchaseWorkflow({
       ));
       setValidatedEditFingerprint(editFingerprint(effectiveEdits));
       setPreviewDirty(false);
-      // 새로 수집한 결과에는 제출 이력을 조회하지 않았다. 근거 없이 행을 숨기지 않도록 비운다.
-      setExportKey(globalThis.crypto.randomUUID());
       setShortageReasons((current) => reconcileShortageReasons(
         current,
         result,
@@ -527,7 +489,6 @@ export function useRocketPurchaseWorkflow({
       setPreview(result);
       setPendingCheckpoint(null);
       setStage('ready');
-      setAbandonReason('');
       onActivity?.({
         status: 'succeeded',
         message: `로켓 PO ${collected.collection.detailPoCount}/${collected.poCount}건을 수집·저장하고 거래확인요청 ${new Set(result.rows.map(({ poNumber }) => poNumber)).size}건의 재고 미리보기를 계산했습니다.`,
@@ -652,11 +613,8 @@ export function useRocketPurchaseWorkflow({
         ? Boolean(shortageReasons[row.poLineId])
         : !shortageReasons[row.poLineId]
     ))
-    && !collectionWarning
-    && exportKey
-    && (!workbookExport || workbookExport.status === 'completed'),
+    && !collectionWarning,
   );
-  const canRedownload = Boolean(workbookExport);
 
   const setReviewedQuantity = (poLineId: string, quantity: number): void => {
     setOperatorEditedLineIds((current) => {
@@ -670,7 +628,11 @@ export function useRocketPurchaseWorkflow({
   };
 
   const buildReviewedWorkbook = async (
-    workbookRows: RocketWorkbookExportResponse['rows'],
+    workbookRows: Array<{
+      poLineId: string;
+      workbookQuantity: number;
+      shortageReason: string | null;
+    }>,
   ) => {
     const workbook = templateFile
       ? fillRocketConfirmationWorkbook({
@@ -686,34 +648,7 @@ export function useRocketPurchaseWorkflow({
     return workbook;
   };
 
-  const downloadStoredWorkbook = async (
-    result: RocketWorkbookExportResponse,
-    summary?: {
-      totalRows: number;
-      fullyConfirmedRows: number;
-      shortRows: number;
-    },
-  ): Promise<void> => {
-    const artifact = await downloadRocketWorkbook(result.exportId);
-    downloadBlob(artifact.blob, artifact.fileName);
-    try {
-      const shortRows = summary?.shortRows
-        ?? result.rows.filter(({ shortageReason }) => shortageReason !== null).length;
-      await saveRocketConfirmFile({
-        id: `rocket-workbook-${result.exportId}`,
-        fileName: artifact.fileName,
-        createdAt: Date.now(),
-        blob: artifact.blob,
-        totalRows: summary?.totalRows ?? result.totals.lineCount,
-        fullyConfirmed: summary?.fullyConfirmedRows ?? result.totals.lineCount - shortRows,
-        shortRows,
-      });
-    } catch {
-      setError('엑셀은 다운로드됐지만 로컬 파일 이력에 저장하지 못했습니다.');
-    }
-  };
-
-  const exportAndDownload = async (): Promise<RocketWorkbookExportResponse | null> => {
+  const exportAndDownload = async () => {
     if (!preview || !collectionRun || !canExport) return null;
     const generation = requestGenerationRef.current;
     const controller = beginWaiter();
@@ -771,21 +706,13 @@ export function useRocketPurchaseWorkflow({
         };
       });
       const workbook = await buildReviewedWorkbook(freshWorkbookRows);
-      const result = await exportRocketWorkbook({
-        idempotencyKey: exportKey,
-        channelAccountId,
-        collection: collectionRun.collection,
-        rows: collectionRows,
-        selectedPoLineIds: sourceRows.map(({ poLineId }) => poLineId),
-        editedQuantities: freshQuantities,
-        shortageReasons: freshShortageReasons,
-        artifactFileName: workbook.fileName,
-        artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      }, workbook.blob);
-      setWorkbookExport(result);
-      await downloadStoredWorkbook(result, workbook.summary);
+      downloadBlob(workbook.blob, workbook.fileName);
       onActivity?.({ status: 'succeeded', message: '쿠팡 제출용 엑셀을 다운로드했습니다.' });
-      return result;
+      return {
+        totals: {
+          workbookQuantity: workbook.summary.workbookQuantity,
+        },
+      };
     } catch (cause) {
       const message = friendlyError(cause) ?? '쿠팡 제출용 엑셀을 만들지 못했습니다.';
       setError(message);
@@ -797,60 +724,6 @@ export function useRocketPurchaseWorkflow({
     }
   };
 
-  const downloadActiveWorkbook = async (
-    result: RocketWorkbookExportResponse | null = workbookExport,
-  ): Promise<boolean> => {
-    if (!result) return false;
-    setExporting(true);
-    setError(null);
-    onActivity?.({ status: 'started', message: '저장된 동일 엑셀을 다운로드하고 있습니다.' });
-    try {
-      await downloadStoredWorkbook(result);
-      onActivity?.({ status: 'succeeded', message: '저장된 동일 엑셀을 다운로드했습니다.' });
-      return true;
-    } catch (cause) {
-      const message = friendlyError(cause) ?? '저장된 로켓 엑셀을 다운로드하지 못했습니다.';
-      setError(message);
-      onActivity?.({ status: 'failed', message });
-      return false;
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const refreshActiveWorkbook = async () => {
-    setError(null);
-    try {
-      setWorkbookExport(await getActiveRocketWorkbook());
-    } catch (cause) {
-      setError(friendlyError(cause) ?? '로켓 워크북 진행 상태를 확인하지 못했습니다.');
-    }
-  };
-
-  const abandonActiveWorkbook = async () => {
-    if (
-      workbookExport?.status !== 'awaiting_coupang_confirmation'
-      || !workbookExport.canAbandon
-      || !abandonReason.trim()
-    ) return;
-    setAbandoning(true);
-    setError(null);
-    onActivity?.({ status: 'started', message: '사용하지 않는 로켓 워크북을 종료하고 있습니다.' });
-    try {
-      setWorkbookExport(await abandonRocketWorkbook({
-        exportId: workbookExport.exportId,
-        reason: abandonReason.trim(),
-      }));
-      onActivity?.({ status: 'succeeded', message: '사용하지 않는 로켓 워크북을 종료했습니다.' });
-    } catch (cause) {
-      const message = friendlyError(cause) ?? '로켓 워크북을 종료하지 못했습니다.';
-      setError(message);
-      onActivity?.({ status: 'failed', message });
-    } finally {
-      setAbandoning(false);
-    }
-  };
-
   return {
     editedQuantities,
     setReviewedQuantity,
@@ -858,17 +731,12 @@ export function useRocketPurchaseWorkflow({
     pendingCheckpoint,
     stage,
     sourceRows,
-    exportedPoLineIds,
     previewDirty,
     setPreviewDirty,
     collectionRun,
     shortageReasons,
     setShortageReasons,
-    workbookExport,
     exporting,
-    abandonReason,
-    setAbandonReason,
-    abandoning,
     templateFile,
     setTemplateFile,
     loading,
@@ -876,13 +744,9 @@ export function useRocketPurchaseWorkflow({
     error,
     collectionWarning,
     canExport,
-    canRedownload,
     recalculate,
     retryInventoryAndPreview: revalidateEditedQuantities,
     revalidateEditedQuantities,
     exportAndDownload,
-    downloadActiveWorkbook,
-    refreshActiveWorkbook,
-    abandonActiveWorkbook,
   };
 }

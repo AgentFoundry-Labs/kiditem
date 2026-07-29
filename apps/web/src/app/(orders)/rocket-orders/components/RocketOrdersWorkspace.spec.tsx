@@ -80,9 +80,6 @@ vi.mock('next/dynamic', () => ({
   ),
 }));
 
-vi.mock('./RocketConfirmFileList', () => ({
-  RocketConfirmFileList: () => <div>기존 생성 파일 이력</div>,
-}));
 
 vi.mock('./RocketAccountBootstrap', () => ({
   RocketAccountBootstrap: ({

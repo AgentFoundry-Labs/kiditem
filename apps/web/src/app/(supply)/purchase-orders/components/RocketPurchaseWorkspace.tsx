@@ -22,15 +22,6 @@ const PREVIEW_REASON_LABELS: Record<RocketPurchasePreviewReason, string> = {
   vendor_mismatch: '채널 계정 불일치',
 };
 
-const WORKFLOW_LABEL = {
-  awaiting_coupang_confirmation: '쿠팡 업로드·발주확정 대기',
-  orders_collected: '주문수집 완료',
-  sellpia_transmitting: 'Sellpia 반영 중',
-  awaiting_inventory_sync: '재고 동기화 대기',
-  completed: '재고 동기화 완료',
-  failed: '재고 동기화 실패 — 다시 시도',
-} as const;
-
 function previewReasonLabel(
   reason: RocketPurchasePreviewReason,
   hasConfiguredVendorId: boolean,
@@ -77,24 +68,17 @@ export function RocketPurchaseWorkspace({
     collectionRun,
     shortageReasons,
     setShortageReasons,
-    workbookExport,
     exporting,
-    abandonReason,
-    setAbandonReason,
-    abandoning,
     templateFile,
     setTemplateFile,
     loading,
     error,
     collectionWarning,
     canExport,
-    canRedownload,
     recalculate,
     retryInventoryAndPreview,
     revalidateEditedQuantities,
     exportAndDownload,
-    downloadActiveWorkbook,
-    abandonActiveWorkbook,
   } = useRocketPurchaseWorkflow({
     channelAccountId,
     hasConfiguredVendorId,
@@ -186,44 +170,20 @@ export function RocketPurchaseWorkspace({
           ) : null}
           <button
             type="button"
-            disabled={(!canExport && !canRedownload) || exporting || loading}
-            onClick={() => void (canRedownload ? downloadActiveWorkbook() : exportAndDownload())}
+            disabled={!canExport || exporting || loading}
+            onClick={() => void exportAndDownload()}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
           >
-            {exporting
-              ? '다운로드 중'
-              : canRedownload ? '동일 파일 다시 다운로드' : '쿠팡 엑셀 다운로드'}
+            {exporting ? '다운로드 중' : '쿠팡 엑셀 다운로드'}
           </button>
           <span className="text-sm font-semibold text-[var(--text-secondary,#475569)]">
-            {workbookExport
-              ? WORKFLOW_LABEL[workbookExport.status]
-                : previewDirty
-                  ? '수량이 변경되었습니다. 전체 수량을 다시 검증해 주세요.'
-                  : canExport
-                  ? '검토한 수량으로 쿠팡 제출용 엑셀을 생성합니다.'
-                  : '미리보기 검토 후 엑셀을 다운로드할 수 있습니다.'}
+            {previewDirty
+              ? '수량이 변경되었습니다. 전체 수량을 다시 검증해 주세요.'
+              : canExport
+                ? '검토한 수량으로 쿠팡 제출용 엑셀을 생성합니다.'
+                : '미리보기 검토 후 엑셀을 다운로드할 수 있습니다.'}
           </span>
         </div>
-        {workbookExport?.status === 'awaiting_coupang_confirmation' ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border,#e2e8f0)] pt-3">
-            <input
-              aria-label="워크북 미사용 사유"
-              value={abandonReason}
-              onChange={(event) => setAbandonReason(event.target.value)}
-              placeholder="쿠팡에 제출하지 않은 사유"
-              maxLength={500}
-              className="min-w-64 flex-1 rounded-lg border border-[var(--border,#cbd5e1)] px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              disabled={!workbookExport.canAbandon || !abandonReason.trim() || abandoning}
-              onClick={() => void abandonActiveWorkbook()}
-              className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 disabled:opacity-50"
-            >
-              {abandoning ? '종료 중' : '워크북 사용 안 함'}
-            </button>
-          </div>
-        ) : null}
       </div>
 
       {stage === 'refreshing_inventory' && pendingCheckpoint ? (
@@ -331,10 +291,7 @@ export function RocketPurchaseWorkspace({
                       max={Math.min(row.maxQuantity, row.orderQuantity)}
                       step={1}
                       value={editedQuantities[row.poLineId] ?? row.recommendedQuantity}
-                      disabled={
-                        isRocketWorkbookBlockingReason(row.reason)
-                        || Boolean(workbookExport && workbookExport.status !== 'completed')
-                      }
+                      disabled={isRocketWorkbookBlockingReason(row.reason)}
                       onChange={(event) => {
                         const quantity = normalizeReviewQuantity(
                           event.target.value,
@@ -359,7 +316,6 @@ export function RocketPurchaseWorkspace({
                       disabled={
                         isRocketWorkbookBlockingReason(row.reason)
                         || (editedQuantities[row.poLineId] ?? row.recommendedQuantity) >= row.orderQuantity
-                        || Boolean(workbookExport && workbookExport.status !== 'completed')
                       }
                       onChange={(event) => {
                         const reason = event.target.value;
