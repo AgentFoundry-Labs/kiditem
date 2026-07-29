@@ -905,6 +905,66 @@ test("target-date fixture accepts only the requested displayed range", () => {
   );
 });
 
+test("date range popup discovery ignores hidden AntD dropdowns", () => {
+  const hiddenPopup = {
+    classList: { contains: (name) => name === "ant-dropdown-hidden" },
+    getAttribute() {
+      return null;
+    },
+    getClientRects() {
+      return [{}];
+    },
+    hidden: false,
+    parentElement: null,
+    style: {},
+  };
+  const visiblePopup = {
+    ...hiddenPopup,
+    classList: { contains: () => false },
+  };
+  const contract = loadContract({
+    document: {
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [hiddenPopup, visiblePopup];
+      },
+      title: "Advertising report",
+    },
+  });
+
+  assert.equal(contract.findVisibleDateRangePopup(), visiblePopup);
+});
+
+test("date range popup opener retries when the first trigger click is dropped", async () => {
+  const contract = loadContract();
+  const popup = { id: "visible-date-range-popup" };
+  let clicks = 0;
+  let clock = 0;
+  const trigger = {
+    click() {
+      clicks += 1;
+    },
+  };
+
+  const opened = await contract.openDateRangePopup({
+    findPopup: () => (clicks >= 2 ? popup : null),
+    getTrigger: () => trigger,
+    intervalMs: 1,
+    maxAttempts: 3,
+    minAttempts: 2,
+    now: () => clock,
+    popupTimeoutMs: 2,
+    wait: async (milliseconds) => {
+      clock += milliseconds;
+    },
+  });
+
+  assert.equal(opened, popup);
+  assert.equal(clicks, 2);
+});
+
 test("empty target date builds an explicit all-zero daily fact", () => {
   const contract = loadContract();
   assert.deepEqual(

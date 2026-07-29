@@ -662,6 +662,53 @@
     return true;
   }
 
+  function findVisibleDateRangePopup(root = document) {
+    const popups = Array.from(
+      root?.querySelectorAll?.(
+        ".ant-dropdown.dashboard-metric-widget-calendar-dropdown",
+      ) || [],
+    );
+    return popups.find(
+      (element) =>
+        !element.classList?.contains("ant-dropdown-hidden") &&
+        isElementVisible(element),
+    ) || null;
+  }
+
+  async function openDateRangePopup(options = {}) {
+    const getTrigger = options.getTrigger || (() =>
+      document.querySelector(
+        "button.dashboard-metric-widget-date-indicator-revamp.ant-dropdown-trigger",
+      ));
+    const findPopup = options.findPopup || (() => findVisibleDateRangePopup());
+    const wait = options.wait || sleep;
+    const now = options.now || (() => Date.now());
+    const maxAttempts = Math.max(
+      1,
+      Math.min(5, Math.round(Number(options.maxAttempts) || 3)),
+    );
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const existingPopup = findPopup();
+      if (existingPopup) return existingPopup;
+
+      const trigger = getTrigger();
+      if (!trigger) return null;
+      trigger.click();
+
+      const popup = await pollUntil(findPopup, {
+        timeoutMs: Number(options.popupTimeoutMs) || 3000,
+        intervalMs: Number(options.intervalMs) || 200,
+        minAttempts: Number(options.minAttempts) || 3,
+        now,
+        wait,
+      });
+      if (popup) return popup;
+    }
+
+    return findPopup();
+  }
+
   function visibleElementsWithin(roots, selectors) {
     const found = new Set();
     for (const root of roots || []) {
@@ -1415,28 +1462,13 @@
       console.warn("[KIDITEM] setDateRange: trigger not found after 15s polling");
       return false;
     }
-    trigger.click();
-    await sleep(600);
-
-    // 2) popup 찾기 — antd dropdown mount 도 한 박자 늦을 수 있어 폴링
-    const findVisiblePopup = () => {
-      const popups = Array.from(
-        document.querySelectorAll(".ant-dropdown.dashboard-metric-widget-calendar-dropdown")
-      );
-      return popups.find((el) => {
-        const rect = el.getBoundingClientRect();
-        return !el.classList.contains("ant-dropdown-hidden") && rect.width > 0 && rect.height > 0;
-      }) || null;
-    };
-
-    let popup = null;
-    for (let i = 0; i < 15; i++) {
-      popup = findVisiblePopup();
-      if (popup) break;
-      await sleep(200);
-    }
+    // 2) AntD가 다시 마운트되며 첫 클릭을 버릴 수 있으므로 트리거를
+    // 다시 찾고 제한된 횟수만큼 팝업 열기를 재시도한다.
+    const popup = await openDateRangePopup({
+      getTrigger: () => document.querySelector(triggerSelector),
+    });
     if (!popup) {
-      console.warn("[KIDITEM] setDateRange: popup not found");
+      console.warn("[KIDITEM] setDateRange: popup not found after retries");
       return false;
     }
     const left = popup.querySelector(".ant-calendar-range-left");
@@ -4556,6 +4588,7 @@
     estimateSweepDateWorkTotal,
     evaluateExplicitEmptyDailyKpis,
     findDashboardReturnControl,
+    findVisibleDateRangePopup,
     findConversionCountHeaderIndex,
     findHeaderIndex,
     filterPendingCampaignBusinessDates,
@@ -4577,6 +4610,7 @@
     manualSyncAdmission,
     normalizeSweepErrors,
     normalizeSweepProgress,
+    openDateRangePopup,
     parseNumber,
     persistTerminalLinklessNavigation,
     pollUntil,

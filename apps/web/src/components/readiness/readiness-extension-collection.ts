@@ -13,10 +13,9 @@ export const READINESS_COLLECTION_PRODUCERS = {
   coupang_products: 'channels.coupang_catalog',
   wing_kpi: 'advertising.wing_rank',
 } as const satisfies Record<string, BrowserCollectionProducer>;
-export const COUPANG_COLLECTION_EXTENSION_MIN_VERSION = '1.2.90';
+export const COUPANG_COLLECTION_EXTENSION_MIN_VERSION = '1.2.102';
 
 const POLL_INTERVAL_MS = 2_000;
-const SESSION_DISCOVERY_TIMEOUT_MS = 15_000;
 // The extension content-script watchdog is 30 minutes. Keep the web poller
 // longer so a valid late response is not reported as a UI timeout first.
 const AD_SYNC_MIN_TIMEOUT_MS = 35 * 60_000;
@@ -56,6 +55,7 @@ export type ReadinessExtensionCollectionInput = {
   runId: string;
   accessToken: string | null | undefined;
   onStarted?: () => void;
+  onPoll?: () => Promise<unknown> | unknown;
   onSession?: (session: BrowserCollectionSessionView) => void;
 };
 
@@ -93,6 +93,7 @@ export async function runReadinessExtensionCollection({
   runId,
   accessToken,
   onStarted,
+  onPoll,
   onSession,
 }: ReadinessExtensionCollectionInput): Promise<BrowserCollectionSessionView> {
   const urls = check.scrapeUrls ?? [];
@@ -131,26 +132,32 @@ export async function runReadinessExtensionCollection({
   onStarted?.();
 
   const deadline = Date.now() + readinessCollectionTimeoutMs(producer, urls.length);
-  const sessionDiscoveryDeadline = Date.now() + SESSION_DISCOVERY_TIMEOUT_MS;
-  let observedSession = false;
   while (Date.now() <= deadline) {
-    const response = await sendToExtension<unknown>(extensionId, {
-      action: 'getCollectionSession',
-      runId,
-    });
+    const pollStartedAt = Date.now();
+    const [response] = await Promise.all([
+      sendToExtension<unknown>(extensionId, {
+        action: 'getCollectionSession',
+        runId,
+      }, POLL_INTERVAL_MS).catch(() => null),
+      Promise.resolve()
+        .then(() => onPoll?.())
+        .catch((error) => {
+          console.warn('[readiness] live refresh failed', error);
+        }),
+    ]);
     const parsed = BrowserCollectionSessionViewSchema.safeParse(response);
     if (parsed.success && parsed.data.runId === runId) {
-      observedSession = true;
       onSession?.(parsed.data);
       await syncBrowserCollectionAlert(parsed.data).catch((error) => {
         console.warn('[browser-collection] alert synchronization failed', error);
       });
-      if (parsed.data.status !== 'running') return parsed.data;
     }
-    if (!observedSession && Date.now() > sessionDiscoveryDeadline) {
-      throw new Error('확장 프로그램이 수집 세션을 시작하지 못했습니다. 다시 실행해주세요.');
-    }
-    await wait(POLL_INTERVAL_MS);
+    if (
+      parsed.success &&
+      parsed.data.runId === runId &&
+      parsed.data.status !== 'running'
+    ) return parsed.data;
+    await wait(Math.max(0, POLL_INTERVAL_MS - (Date.now() - pollStartedAt)));
   }
 
   throw new Error('브라우저 수집 상태 확인 시간이 초과되었습니다.');

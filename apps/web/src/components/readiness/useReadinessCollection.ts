@@ -172,6 +172,7 @@ export function useReadinessCollection({
       extensionId,
       runId,
       accessToken: authSession?.access_token,
+      onPoll: refetchReadiness,
       onSession: setActiveSession,
     });
     announceSession(session);
