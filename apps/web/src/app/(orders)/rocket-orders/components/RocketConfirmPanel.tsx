@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   Download,
@@ -9,58 +9,57 @@ import {
   Package,
   RefreshCw,
   Upload,
-} from 'lucide-react';
+} from "lucide-react";
 import {
   isRocketWorkbookBlockingReason,
   ROCKET_SHORTAGE_REASONS,
   type RocketPurchasePreviewRow,
   type RocketShortageReason,
-} from '@kiditem/shared/rocket-purchase-preview';
-import { toast } from 'sonner';
-import { cn, formatKRW, formatNumber } from '@/lib/utils';
-import { useRocketPurchaseWorkflow } from '@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow';
-import { RocketDeterministicMatchingPanel } from '@/app/(supply)/purchase-orders/components/RocketDeterministicMatchingPanel';
-import type { RocketDecisionWorkspaceContext } from './RocketOrdersWorkspace';
+} from "@kiditem/shared/rocket-purchase-preview";
+import { toast } from "sonner";
+import { cn, formatKRW, formatNumber } from "@/lib/utils";
+import {
+  rocketReviewedQuantity,
+  rocketReviewedQuantityLimit,
+  useRocketPurchaseWorkflow,
+} from "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow";
+import type { RocketDecisionWorkspaceContext } from "./RocketOrdersWorkspace";
+import { RocketInlineRecipeEditor } from "./RocketInlineRecipeEditor";
 import {
   RocketMatchStatusModal,
   rocketMatchStateLabel,
   rocketProductMatchingHref,
   type RocketMatchStatusRow,
-} from './RocketMatchStatusModal';
+} from "./RocketMatchStatusModal";
 
-function componentValues(
-  row: RocketPurchasePreviewRow,
-): string {
-  if (row.components.length === 0) return '—';
-  return row.components.map((component) => formatNumber(component.currentStock)).join(' / ');
+function componentValues(row: RocketPurchasePreviewRow): string {
+  if (row.components.length === 0) return "—";
+  return row.components
+    .map((component) => `${component.code} · ${component.name}`)
+    .join(" / ");
 }
 
-function componentQuantityValues(
-  row: RocketPurchasePreviewRow,
-): string {
-  if (row.components.length === 0) return '구성 —';
-  return `구성 ${row.components
-    .map((component) => `×${formatNumber(component.quantity)}`)
-    .join(' / ')}`;
+function componentQuantityValues(row: RocketPurchasePreviewRow): string {
+  if (row.components.length === 0) return "—";
+  return row.components
+    .map(
+      (component) =>
+        `${component.optionName ?? "옵션 없음"} · 현재고 ${formatNumber(component.currentStock)} · 구성 ×${formatNumber(component.quantity)}`,
+    )
+    .join(" / ");
 }
 
-const WORKFLOW_LABEL = {
-  awaiting_coupang_confirmation: '쿠팡 업로드·발주확정 대기',
-  orders_collected: '주문수집 완료',
-  sellpia_transmitting: 'Sellpia 반영 중',
-  awaiting_inventory_sync: '재고 동기화 대기',
-  completed: '재고 동기화 완료',
-  failed: '재고 동기화 실패 — 다시 시도',
-} as const;
-
-function isRowReviewBlocked(reason: RocketPurchasePreviewRow['reason']): boolean {
-  return isRocketWorkbookBlockingReason(reason)
-    || reason === 'collection_incomplete'
-    || reason === 'vendor_mismatch';
+function isRowReviewBlocked(
+  reason: RocketPurchasePreviewRow["reason"],
+): boolean {
+  return (
+    isRocketWorkbookBlockingReason(reason) ||
+    reason === "collection_incomplete" ||
+    reason === "vendor_mismatch"
+  );
 }
 
 export function RocketConfirmPanel({
-  onSaved,
   activeMonth,
   channelAccountId,
   hasConfiguredVendorId,
@@ -69,55 +68,49 @@ export function RocketConfirmPanel({
   selectedSourceImportRunId,
   selectedDate: selectedDateProp,
   selectedDateSourceRunCount,
-  selectedDateSourceRuns,
-  onSelectSourceImportRun,
   onActivity,
   onOrdersChanged,
   renderOrderExplorer,
-}: { onSaved: () => void } & RocketDecisionWorkspaceContext) {
+}: RocketDecisionWorkspaceContext) {
   // 날짜 상태는 워크스페이스가 소유한다(URL 복원 포함). 패널은 읽기만 한다.
-  const selectedDate = selectedDateProp ?? '';
+  const selectedDate = selectedDateProp ?? "";
   const [matchModalOpen, setMatchModalOpen] = useState(false);
-  const [bulkShortageReason, setBulkShortageReason] = useState<RocketShortageReason | ''>('');
-  const [showAllRows, setShowAllRows] = useState(false);
+  const [editingRecipePoLineId, setEditingRecipePoLineId] = useState<
+    string | null
+  >(null);
+  const [bulkShortageReason, setBulkShortageReason] = useState<
+    RocketShortageReason | ""
+  >("");
 
   useEffect(() => {
-    setShowAllRows(false);
-  }, [channelAccountId, selectedSourceImportRunId]);
+    setEditingRecipePoLineId(null);
+  }, [channelAccountId, selectedDate, selectedSourceImportRunId]);
   const {
     editedQuantities,
     setReviewedQuantity,
     preview,
     sourceRows,
-    exportedPoLineIds,
     previewDirty,
     setPreviewDirty,
     shortageReasons,
     setShortageReasons,
-    workbookExport,
     exporting,
-    abandonReason,
-    setAbandonReason,
-    abandoning,
     setTemplateFile,
     loading,
     collecting,
     error,
     collectionWarning,
     canExport,
-    canRedownload,
     recalculate,
     revalidateEditedQuantities,
     exportAndDownload,
-    downloadActiveWorkbook,
-    refreshActiveWorkbook,
-    abandonActiveWorkbook,
   } = useRocketPurchaseWorkflow({
     channelAccountId,
     hasConfiguredVendorId,
     from,
     to,
     savedSourceImportRunId: selectedSourceImportRunId,
+    selectedDeliveryDate: selectedDate || undefined,
     onCatalogSaved: onOrdersChanged,
     onActivity,
   });
@@ -127,63 +120,69 @@ export function RocketConfirmPanel({
     [sourceRows],
   );
   const allRows = preview?.rows ?? [];
-  // 수집은 매번 전량 스냅샷이라 이미 제출한 라인이 이후 수집본에도 계속 나온다. 기본값은
-  // "이번에 새로 들어온 것만"이고, 제출 이력이 있을 때만 걸러 근거 없이 숨기지 않는다.
-  const exportedLineIds = useMemo(
-    () => new Set(exportedPoLineIds),
-    [exportedPoLineIds],
-  );
-  const newRows = useMemo(
-    () => allRows.filter((row) => !exportedLineIds.has(row.poLineId)),
-    [allRows, exportedLineIds],
-  );
-  const alreadyExportedCount = allRows.length - newRows.length;
-  const canFilterNewRows = alreadyExportedCount > 0;
-  const rows = canFilterNewRows && !showAllRows ? newRows : allRows;
+  const rows = allRows;
   const poCount = new Set(rows.map((row) => row.poNumber)).size;
-  const previewDates = [...new Set(rows.map((row) => row.plannedDeliveryDate))].sort();
-  const previewRangeLabel = previewDates.length === 0
-    ? `${from} ~ ${to}`
-    : previewDates.length === 1
-      ? previewDates[0]!
-      : `수집본 전체 ${previewDates[0]} ~ ${previewDates.at(-1)}`;
+  const previewDates = [
+    ...new Set(rows.map((row) => row.plannedDeliveryDate)),
+  ].sort();
+  const previewRangeLabel =
+    previewDates.length === 0
+      ? `${from} ~ ${to}`
+      : previewDates.length === 1
+        ? previewDates[0]!
+        : `수집본 전체 ${previewDates[0]} ~ ${previewDates.at(-1)}`;
   const eligibleShortageLineIds = rows.flatMap((row) => {
-    const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
+    const quantity = rocketReviewedQuantity(
+      row,
+      editedQuantities[row.poLineId],
+    );
     return !isRowReviewBlocked(row.reason) && quantity < row.orderQuantity
       ? [row.poLineId]
       : [];
   });
-  const confirmTotals = rows.reduce((acc, row) => {
-    const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
-    const unitPrice = sourceByLineId.get(row.poLineId)?.confirmation?.purchasePrice ?? 0;
-    return {
-      qty: acc.qty + quantity,
-      amount: acc.amount + unitPrice * quantity,
-      short: acc.short + (quantity < row.orderQuantity ? 1 : 0),
-    };
-  }, { qty: 0, amount: 0, short: 0 });
+  const confirmTotals = rows.reduce(
+    (acc, row) => {
+      const quantity = rocketReviewedQuantity(
+        row,
+        editedQuantities[row.poLineId],
+      );
+      const unitPrice =
+        sourceByLineId.get(row.poLineId)?.confirmation?.purchasePrice ?? 0;
+      return {
+        qty: acc.qty + quantity,
+        amount: acc.amount + unitPrice * quantity,
+        short: acc.short + (quantity < row.orderQuantity ? 1 : 0),
+      };
+    },
+    { qty: 0, amount: 0, short: 0 },
+  );
   const matchRows: RocketMatchStatusRow[] = rows.map((row) => ({
     poLineId: row.poLineId,
     poNumber: row.poNumber,
     productNo: row.productNo,
     productName: row.productName,
-    barcode: sourceByLineId.get(row.poLineId)?.barcode ?? '',
+    barcode: sourceByLineId.get(row.poLineId)?.barcode ?? "",
     orderQuantity: row.orderQuantity,
     reason: row.reason,
     channelSkuId: row.channelSkuId,
     components: row.components,
   }));
-  const hasBlockingRows = rows.some((row) => isRocketWorkbookBlockingReason(row.reason));
-  const busy = loading || exporting || abandoning;
+  const hasBlockingRows = rows.some((row) =>
+    isRocketWorkbookBlockingReason(row.reason),
+  );
+  const busy = loading || exporting;
 
-  function handleExplorerDateSelection(_date: string | null, _sourceRunCount: number) {
+  function handleExplorerDateSelection(
+    _date: string | null,
+    _sourceRunCount: number,
+  ) {
     // 날짜/수집본 수는 워크스페이스가 내려준다. 패널은 날짜가 바뀌면 매칭 모달만 닫는다.
     setMatchModalOpen(false);
   }
 
   async function collectMonth() {
     if (!channelAccountId) {
-      toast.error('활성 로켓 채널 계정이 필요합니다.');
+      toast.error("활성 로켓 채널 계정이 필요합니다.");
       return;
     }
     await recalculate();
@@ -194,16 +193,21 @@ export function RocketConfirmPanel({
     if (eligibleShortageLineIds.length === 0) return;
     setShortageReasons((current) => ({
       ...current,
-      ...Object.fromEntries(eligibleShortageLineIds.map((poLineId) => [
-        poLineId,
-        bulkShortageReason,
-      ])),
+      ...Object.fromEntries(
+        eligibleShortageLineIds.map((poLineId) => [
+          poLineId,
+          bulkShortageReason,
+        ]),
+      ),
     }));
     setPreviewDirty(true);
   }
 
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
-    const bounded = Math.max(0, Math.min(row.orderQuantity, row.maxQuantity, quantity));
+    const bounded = Math.max(
+      0,
+      Math.min(rocketReviewedQuantityLimit(row), quantity),
+    );
     setReviewedQuantity(row.poLineId, bounded);
     setShortageReasons((current) => {
       if (bounded >= row.orderQuantity) {
@@ -211,31 +215,19 @@ export function RocketConfirmPanel({
         delete next[row.poLineId];
         return next;
       }
-      const next = { ...current };
-      delete next[row.poLineId];
-      return next;
+      return {
+        ...current,
+        [row.poLineId]: current[row.poLineId] ?? ROCKET_SHORTAGE_REASONS[0],
+      };
     });
   }
 
   async function handleExport() {
     const result = await exportAndDownload();
     if (result) {
-      toast.success(`쿠팡 엑셀 다운로드 — ${formatNumber(result.totals.workbookQuantity)}개`);
-      onSaved();
-      onOrdersChanged();
-    }
-  }
-
-  async function handleAbandon() {
-    await abandonActiveWorkbook();
-    onOrdersChanged();
-  }
-
-  async function handleDownload() {
-    const downloaded = await downloadActiveWorkbook();
-    if (downloaded) {
-      onSaved();
-      toast.success('서버에 저장된 동일 엑셀을 다운로드했습니다.');
+      toast.success(
+        `쿠팡 엑셀 다운로드 — ${formatNumber(result.totals.workbookQuantity)}개`,
+      );
     }
   }
 
@@ -245,25 +237,31 @@ export function RocketConfirmPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
           <div className="flex items-center gap-2">
             <CalendarDays size={16} className="text-purple-600" />
-            <span className="text-sm font-semibold text-slate-900">로켓 PO 보관 · 입고예정일 달력</span>
+            <span className="text-sm font-semibold text-slate-900">
+              로켓 PO 보관 · 입고예정일 달력
+            </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => void collectMonth()}
               disabled={busy || !channelAccountId}
-              title={`${activeMonth} 거래처확인요청 발주를 선택한 로켓 계정에서 수집합니다.`}
+              title={`${activeMonth} 거래명세서확인요청 발주를 선택한 로켓 계정에서 수집합니다.`}
               className={cn(
-                'inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50',
-                (busy || !channelAccountId) && 'pointer-events-none opacity-60',
+                "inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50",
+                (busy || !channelAccountId) && "pointer-events-none opacity-60",
               )}
             >
-              {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              {loading ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <RefreshCw size={15} />
+              )}
               {collecting
-                ? '쿠팡 수집·저장 중…'
+                ? "쿠팡 수집·저장 중…"
                 : loading
-                  ? '저장본 계산 중…'
-                  : '이 달 쿠팡 PO 수집·보관'}
+                  ? "저장본 계산 중…"
+                  : "이 달 쿠팡 PO 수집·보관"}
             </button>
           </div>
         </div>
@@ -276,13 +274,21 @@ export function RocketConfirmPanel({
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
             <span>
-              날짜 선택 → 발주 목록에서 수집본 선택 → 최신 Sellpia 재고로 미리보기
-              {loading ? <Loader2 size={13} className="ml-1.5 inline animate-spin text-purple-500" /> : null}
+              최신 PO 수집본 → 최신 Sellpia 재고 즉시 비교 → 수량·부족사유 검토 →
+              엑셀 생성 시 최신 재고 재검증
+              {loading ? (
+                <Loader2
+                  size={13}
+                  className="ml-1.5 inline animate-spin text-purple-500"
+                />
+              ) : null}
             </span>
-            <label className={cn(
-              'inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600 hover:bg-slate-50',
-              busy && 'pointer-events-none opacity-60',
-            )}>
+            <label
+              className={cn(
+                "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600 hover:bg-slate-50",
+                busy && "pointer-events-none opacity-60",
+              )}
+            >
               <Upload size={13} /> 쿠팡 양식 파일 선택
               <input
                 type="file"
@@ -292,8 +298,11 @@ export function RocketConfirmPanel({
                 onChange={(event) => {
                   const file = event.target.files?.[0] ?? null;
                   setTemplateFile(file);
-                  if (file) toast.success(`${file.name} 양식을 선택했습니다. 쿠팡 엑셀 생성에 사용합니다.`);
-                  event.target.value = '';
+                  if (file)
+                    toast.success(
+                      `${file.name} 양식을 선택했습니다. 쿠팡 엑셀 생성에 사용합니다.`,
+                    );
+                  event.target.value = "";
                 }}
               />
             </label>
@@ -307,109 +316,33 @@ export function RocketConfirmPanel({
         </div>
       ) : null}
 
-      {/* 수집본이 여럿이면 자동 선택이 금지된다(서로 다른 수집본의 행을 섞을 수 없음).
-          그래도 선택은 여기서 바로 할 수 있어야 한다 — 예전에는 발주 목록을 펼쳐
-          행마다 숨은 버튼을 찾아야 해서 사실상 막힌 것처럼 보였다. */}
-      {selectedDate && selectedDateSourceRunCount > 1 && !selectedSourceImportRunId && !loading ? (
-        <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
-          <p>
-            이 날짜에는 수집본이 <b>{selectedDateSourceRunCount}개</b> 있어 자동으로 정해지지 않습니다.
-            서로 다른 수집본의 행은 섞을 수 없으니 사용할 수집본을 하나 고르세요.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {selectedDateSourceRuns.map((run, index) => (
-              <button
-                key={run.sourceImportRunId}
-                type="button"
-                onClick={() => onSelectSourceImportRun(run.sourceImportRunId)}
-                className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-left text-xs text-slate-700 hover:border-purple-300 hover:bg-purple-50"
-              >
-                <span className="block font-semibold text-slate-800">
-                  수집 {run.collectedAt.slice(0, 16).replace('T', ' ')}
-                  {index === 0 ? <span className="ml-1.5 text-purple-600">최신</span> : null}
-                </span>
-                <span className="block text-slate-500">
-                  {formatNumber(run.poCount)}건 · {formatNumber(run.quantity)}개 ·{' '}
-                  {formatKRW(run.amount)}원
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       {error ? (
-        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-700">
+        <div
+          role="alert"
+          className="rounded-xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-700"
+        >
           {error}
         </div>
       ) : null}
       {collectionWarning ? (
-        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
+        <div
+          role="alert"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800"
+        >
           {collectionWarning}
         </div>
-      ) : null}
-
-      {workbookExport ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-5 py-2 text-xs text-emerald-800">
-          <span>
-            {WORKFLOW_LABEL[workbookExport.status]} · 품목{' '}
-            <b>{formatNumber(workbookExport.totals.lineCount)}</b>행 · 엑셀 수량{' '}
-            <b>{formatNumber(workbookExport.totals.workbookQuantity)}</b>개
-          </span>
-          <button
-            type="button"
-            onClick={() => void handleDownload()}
-            disabled={!canRedownload || exporting}
-            className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-white px-2.5 py-1 font-semibold disabled:opacity-50"
-          >
-            {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-            동일 파일 다시 다운로드
-          </button>
-          <button
-            type="button"
-            onClick={() => void refreshActiveWorkbook()}
-            className="rounded-md border border-emerald-300 bg-white px-2.5 py-1 font-semibold disabled:opacity-50"
-          >
-            상태 새로고침
-          </button>
-          {workbookExport.status === 'awaiting_coupang_confirmation' ? (
-            <>
-              <input
-                aria-label="워크북 미사용 사유"
-                value={abandonReason}
-                onChange={(event) => setAbandonReason(event.target.value)}
-                placeholder="쿠팡에 제출하지 않은 사유"
-                maxLength={500}
-                className="ml-auto min-w-56 rounded-md border border-emerald-200 bg-white px-2 py-1 text-xs"
-              />
-              <button
-                type="button"
-                disabled={!workbookExport.canAbandon || !abandonReason.trim() || abandoning}
-                onClick={() => void handleAbandon()}
-                className="rounded-md border border-emerald-300 bg-white px-2.5 py-1 font-semibold disabled:opacity-50"
-              >
-                {abandoning ? '종료 중…' : '워크북 사용 안 함'}
-              </button>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-
-      {preview?.catalog ? (
-        <RocketDeterministicMatchingPanel
-          channelAccountId={channelAccountId}
-          latestAutomation={preview.catalog.recipeAutomation}
-        />
       ) : null}
 
       {rows.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
             <div className="text-sm font-semibold text-slate-900">
-              미리보기 · 편집{' '}
+              미리보기 · 편집{" "}
               <span className="text-xs font-normal text-slate-400">
                 {previewRangeLabel} · 발주 {poCount}건 · {rows.length}행
-                {selectedSourceImportRunId ? ` · 수집본 ${selectedSourceImportRunId.slice(0, 8)}` : ''}
+                {selectedSourceImportRunId
+                  ? ` · 수집본 ${selectedSourceImportRunId.slice(0, 8)}`
+                  : ""}
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -418,42 +351,48 @@ export function RocketConfirmPanel({
                   aria-label="전체 납품부족사유"
                   value={bulkShortageReason}
                   disabled={busy || eligibleShortageLineIds.length === 0}
-                  onChange={(event) => setBulkShortageReason(
-                    event.target.value as RocketShortageReason | '',
-                  )}
+                  onChange={(event) =>
+                    setBulkShortageReason(
+                      event.target.value as RocketShortageReason | "",
+                    )
+                  }
                   className="max-w-[260px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs disabled:opacity-50"
                 >
                   <option value="">전체 사유 선택</option>
                   {ROCKET_SHORTAGE_REASONS.map((reason) => (
-                    <option key={reason} value={reason}>{reason}</option>
+                    <option key={reason} value={reason}>
+                      {reason}
+                    </option>
                   ))}
                 </select>
                 <button
                   type="button"
                   onClick={applyBulkShortageReason}
-                  disabled={busy || !bulkShortageReason || eligibleShortageLineIds.length === 0}
+                  disabled={
+                    busy ||
+                    !bulkShortageReason ||
+                    eligibleShortageLineIds.length === 0
+                  }
                   className="whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
                 >
                   부족 행 전체 적용
                 </button>
               </div>
               <span className="text-xs text-slate-500">
-                엑셀 <b className="tabular-nums text-slate-900">{formatNumber(confirmTotals.qty)}</b>개 · 부족{' '}
-                <b className="tabular-nums text-amber-600">{confirmTotals.short}</b>행 · 금액{' '}
-                <b className="tabular-nums text-purple-700">{formatKRW(confirmTotals.amount)}</b>원
+                엑셀{" "}
+                <b className="tabular-nums text-slate-900">
+                  {formatNumber(confirmTotals.qty)}
+                </b>
+                개 · 부족{" "}
+                <b className="tabular-nums text-amber-600">
+                  {confirmTotals.short}
+                </b>
+                행 · 금액{" "}
+                <b className="tabular-nums text-purple-700">
+                  {formatKRW(confirmTotals.amount)}
+                </b>
+                원
               </span>
-              {canFilterNewRows ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAllRows((current) => !current)}
-                  title="엑셀은 수집본 전체 기준으로 만들어집니다. 이 토글은 목록 표시만 바꿉니다."
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-800 hover:bg-purple-100"
-                >
-                  {showAllRows
-                    ? `신규 ${formatNumber(newRows.length)}행만 보기`
-                    : `이미 제출 ${formatNumber(alreadyExportedCount)}행 포함해 전체 보기`}
-                </button>
-              ) : null}
               {previewDirty ? (
                 <button
                   type="button"
@@ -486,131 +425,224 @@ export function RocketConfirmPanel({
                 onClick={() => void handleExport()}
                 disabled={!canExport || busy}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800',
-                  (!canExport || busy) && 'pointer-events-none opacity-60',
+                  "inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800",
+                  (!canExport || busy) && "pointer-events-none opacity-60",
                 )}
               >
-                {exporting && !canRedownload ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                {exporting ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Download size={14} />
+                )}
                 쿠팡 엑셀 다운로드
               </button>
             </div>
           </div>
 
           <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-2 text-xs text-slate-500">
-            Sellpia 원재고는 물리 재고입니다. 납품가능은 구성수량과 같은 수집본의 선행 발주 배정을
-            반영한 해당 행의 최대 수량입니다.
+            Sellpia 원재고는 물리 재고입니다. 납품가능은 구성수량과 같은
+            수집본의 선행 발주 배정을 반영한 해당 행의 최대 수량입니다.
           </div>
 
           <div className="max-h-[460px] overflow-auto">
             <table className="min-w-[980px] text-sm">
               <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold">발주번호</th>
-                  <th className="px-3 py-2 text-left font-semibold">상품 (바코드)</th>
+                  <th className="px-3 py-2 text-left font-semibold">
+                    발주번호
+                  </th>
+                  <th className="px-3 py-2 text-left font-semibold">
+                    상품 (바코드)
+                  </th>
                   <th className="px-3 py-2 text-right font-semibold">발주</th>
-                  <th className="px-3 py-2 text-right font-semibold">Sellpia 원재고</th>
-                  <th className="px-3 py-2 text-right font-semibold">납품가능</th>
-                  <th className="px-3 py-2 text-right font-semibold">엑셀 수량</th>
-                  <th className="px-3 py-2 text-left font-semibold">납품부족사유</th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Sellpia 원재고
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    납품가능
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    엑셀 수량
+                  </th>
+                  <th className="px-3 py-2 text-left font-semibold">
+                    납품부족사유
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => {
                   const source = sourceByLineId.get(row.poLineId);
-                  const quantity = editedQuantities[row.poLineId] ?? row.recommendedQuantity;
+                  const quantity = rocketReviewedQuantity(
+                    row,
+                    editedQuantities[row.poLineId],
+                  );
                   const short = quantity < row.orderQuantity;
                   const blocking = isRowReviewBlocked(row.reason);
-                  const matchingBlocked = isRocketWorkbookBlockingReason(row.reason);
+                  const matchingBlocked = isRocketWorkbookBlockingReason(
+                    row.reason,
+                  );
                   const matchStateLabel = rocketMatchStateLabel(row.reason);
                   return (
-                    <tr key={row.poLineId} className={cn(
-                      'border-t border-slate-100',
-                      blocking ? 'bg-rose-50/40' : short && 'bg-amber-50/40',
-                    )}>
-                      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-slate-500">{row.poNumber}</td>
-                      <td className="max-w-[260px] px-3 py-1.5">
-                        <div className="truncate text-slate-700"><Package size={11} className="mr-1 inline text-purple-400" />{row.productName}</div>
-                        <div className="font-mono text-[10px] text-slate-400">{source?.barcode || '—'}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <span className={cn(
-                            'rounded px-1.5 py-0.5 text-[10px] font-semibold',
-                            blocking ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700',
-                          )}>
-                            {matchStateLabel}
-                          </span>
-                          {exportedLineIds.has(row.poLineId) ? (
-                            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                              이미 제출
-                            </span>
-                          ) : null}
-                          {matchingBlocked ? (
-                            <a
-                              href={rocketProductMatchingHref({
-                                channelAccountId,
-                                productNo: row.productNo,
-                                channelSkuId: row.channelSkuId,
-                              })}
-                              target="_blank"
-                              rel="noreferrer"
-                              aria-label={`${matchStateLabel} 해결`}
-                              className="text-[10px] font-semibold text-purple-700 hover:underline"
-                            >
-                              상품 매칭 센터
-                            </a>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{formatNumber(row.orderQuantity)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">
-                        <div>{componentValues(row)}</div>
-                        <div className="text-[10px] text-slate-400">{componentQuantityValues(row)}</div>
-                      </td>
-                      <td
-                        aria-label={`${row.poNumber} 납품가능 ${row.maxQuantity}개`}
+                    <Fragment key={row.poLineId}>
+                      <tr
                         className={cn(
-                          'px-3 py-1.5 text-right font-semibold tabular-nums',
-                          row.maxQuantity < row.orderQuantity ? 'text-amber-700' : 'text-slate-700',
+                          "border-t border-slate-100",
+                          blocking
+                            ? "bg-rose-50/40"
+                            : short && "bg-amber-50/40",
                         )}
                       >
-                        {formatNumber(row.maxQuantity)}
-                      </td>
-                      <td className="px-3 py-1.5 text-right">
-                        <input
-                          aria-label={`${row.poNumber} 엑셀 수량`}
-                          type="number"
-                          min={0}
-                          max={Math.min(row.maxQuantity, row.orderQuantity)}
-                          value={quantity}
-                          disabled={blocking || Boolean(workbookExport && workbookExport.status !== 'completed')}
-                          onChange={(event) => editQuantity(row, Number(event.target.value) || 0)}
+                        <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-slate-500">
+                          {row.poNumber}
+                        </td>
+                        <td className="max-w-[260px] px-3 py-1.5">
+                          <div className="truncate text-slate-700">
+                            <Package
+                              size={11}
+                              className="mr-1 inline text-purple-400"
+                            />
+                            {row.productName}
+                          </div>
+                          <div className="font-mono text-[10px] text-slate-400">
+                            {source?.barcode || "—"}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={cn(
+                                "rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                blocking
+                                  ? "bg-rose-100 text-rose-700"
+                                  : "bg-emerald-50 text-emerald-700",
+                              )}
+                            >
+                              {matchStateLabel}
+                            </span>
+                            {row.masterProductId && row.productVariantId ? (
+                              <button
+                                type="button"
+                                aria-label={`${row.productName} Sellpia 재고 ${row.components.length > 0 ? "수정" : "연결"}`}
+                                disabled={busy}
+                                onClick={() =>
+                                  setEditingRecipePoLineId((current) =>
+                                    current === row.poLineId
+                                      ? null
+                                      : row.poLineId,
+                                  )
+                                }
+                                className="text-[10px] font-semibold text-purple-700 hover:underline disabled:opacity-50"
+                              >
+                                {editingRecipePoLineId === row.poLineId
+                                  ? "재고 연결 닫기"
+                                  : row.components.length > 0
+                                    ? "Sellpia 재고 수정"
+                                    : "Sellpia 재고 연결"}
+                              </button>
+                            ) : matchingBlocked ? (
+                              <a
+                                href={rocketProductMatchingHref({
+                                  channelAccountId,
+                                  productNo: row.productNo,
+                                  channelSkuId: row.channelSkuId,
+                                })}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={`${matchStateLabel} 해결`}
+                                className="text-[10px] font-semibold text-purple-700 hover:underline"
+                              >
+                                상품 매칭 센터
+                              </a>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
+                          {formatNumber(row.orderQuantity)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">
+                          <div>{componentValues(row)}</div>
+                          <div className="text-[10px] text-slate-400">
+                            {componentQuantityValues(row)}
+                          </div>
+                        </td>
+                        <td
+                          aria-label={`${row.poNumber} 납품가능 ${row.maxQuantity}개`}
                           className={cn(
-                            'w-20 rounded-md border px-2 py-1 text-right text-sm tabular-nums',
-                            short ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200',
-                          )}
-                        />
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <select
-                          aria-label={`${row.poNumber} 납품부족사유`}
-                          value={shortageReasons[row.poLineId] ?? ''}
-                          disabled={blocking || !short || Boolean(workbookExport && workbookExport.status !== 'completed')}
-                          onChange={(event) => {
-                            setShortageReasons((current) => ({
-                              ...current,
-                              [row.poLineId]: event.target.value as RocketShortageReason,
-                            }));
-                            setPreviewDirty(true);
-                          }}
-                          className={cn(
-                            'w-full max-w-[280px] rounded-md border border-slate-200 px-2 py-1 text-xs',
-                            !short && 'bg-slate-50 text-slate-300',
+                            "px-3 py-1.5 text-right font-semibold tabular-nums",
+                            row.maxQuantity < row.orderQuantity
+                              ? "text-amber-700"
+                              : "text-slate-700",
                           )}
                         >
-                          <option value="">{short ? '사유 선택' : '—'}</option>
-                          {ROCKET_SHORTAGE_REASONS.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
-                        </select>
-                      </td>
-                    </tr>
+                          {formatNumber(row.maxQuantity)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right">
+                          <input
+                            aria-label={`${row.poNumber} 엑셀 수량`}
+                            type="number"
+                            min={0}
+                            max={rocketReviewedQuantityLimit(row)}
+                            value={quantity}
+                            disabled={
+                              blocking || row.reason === "insufficient_capacity"
+                            }
+                            onChange={(event) =>
+                              editQuantity(row, Number(event.target.value) || 0)
+                            }
+                            className={cn(
+                              "w-20 rounded-md border px-2 py-1 text-right text-sm tabular-nums",
+                              short
+                                ? "border-amber-300 bg-amber-50 text-amber-800"
+                                : "border-slate-200",
+                            )}
+                          />
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <select
+                            aria-label={`${row.poNumber} 납품부족사유`}
+                            value={shortageReasons[row.poLineId] ?? ""}
+                            disabled={blocking || !short}
+                            onChange={(event) => {
+                              setShortageReasons((current) => ({
+                                ...current,
+                                [row.poLineId]: event.target
+                                  .value as RocketShortageReason,
+                              }));
+                              setPreviewDirty(true);
+                            }}
+                            className={cn(
+                              "w-full max-w-[280px] rounded-md border border-slate-200 px-2 py-1 text-xs",
+                              !short && "bg-slate-50 text-slate-300",
+                            )}
+                          >
+                            <option value="">
+                              {short ? "사유 선택" : "—"}
+                            </option>
+                            {ROCKET_SHORTAGE_REASONS.map((reason) => (
+                              <option key={reason} value={reason}>
+                                {reason}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                      {editingRecipePoLineId === row.poLineId &&
+                      row.masterProductId && row.productVariantId ? (
+                        <tr className="border-t border-purple-100 bg-purple-50/30">
+                          <td colSpan={7} className="px-3 py-3">
+                            <RocketInlineRecipeEditor
+                              masterProductId={row.masterProductId}
+                              productVariantId={row.productVariantId}
+                              productName={row.productName}
+                              existingComponents={row.components}
+                              onCancel={() => setEditingRecipePoLineId(null)}
+                              onSaved={async () => {
+                                await revalidateEditedQuantities();
+                                setEditingRecipePoLineId(null);
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -621,7 +653,9 @@ export function RocketConfirmPanel({
 
       {preview && rows.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-400">
-          검토할 로켓 발주가 없습니다.
+          {selectedDate && selectedDateSourceRunCount > 0 && preview.rows.length === 0
+            ? "선택한 날짜의 PO는 저장되어 있지만 모두 발주확정 상태라 엑셀 검토 대상이 아닙니다."
+            : "검토할 로켓 발주가 없습니다."}
         </div>
       ) : null}
 
@@ -634,19 +668,15 @@ export function RocketConfirmPanel({
         <div className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center">
           <p className="text-sm font-medium text-slate-600">
             {error
-              ? '납품 판단 영역을 불러오지 못했습니다.'
-              : selectedDate && selectedDateSourceRunCount > 1 && !selectedSourceImportRunId
-                ? '사용할 수집본을 아직 고르지 않았습니다.'
-                : selectedDate && selectedDateSourceRunCount === 0
-                  ? '선택한 날짜에 저장된 발주가 없습니다.'
-                  : '납품 판단을 시작할 수집본이 없습니다.'}
+              ? "납품 판단 영역을 불러오지 못했습니다."
+              : selectedDate && selectedDateSourceRunCount === 0
+                ? "선택한 날짜에 저장된 발주가 없습니다."
+                : "납품 판단을 시작할 수집본이 없습니다."}
           </p>
           <p className="mt-1 text-xs text-slate-400">
             {error
-              ? '위 안내를 해결한 뒤 다시 시도해 주세요.'
-              : selectedDate && selectedDateSourceRunCount > 1 && !selectedSourceImportRunId
-                ? '위 안내에서 사용할 수집본을 눌러 주세요.'
-                : '달력에서 발주가 있는 날짜를 고르거나, 쿠팡에서 새로 수집해 주세요.'}
+              ? "위 안내를 해결한 뒤 다시 시도해 주세요."
+              : "최신 쿠팡 PO를 새로 수집해 주세요."}
           </p>
         </div>
       ) : null}

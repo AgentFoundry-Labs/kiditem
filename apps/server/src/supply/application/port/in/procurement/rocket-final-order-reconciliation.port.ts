@@ -6,11 +6,8 @@ export type RocketFinalOrderReconciliationLine = {
   unitQuantity: number;
 };
 
-/**
- * 활성 발주확정(commitment) 이 없어 정산 대상에서 제외된 최종주문 라인.
- * 배치 전체를 막는 하드 에러 대신 스킵 근거로 호출자에게 보고한다.
- */
-export type RocketFinalOrderSkippedLine = {
+/** 활성 워크북에는 연결되지 않았지만 Sellpia 후보에는 남는 최종주문 라인. */
+export type RocketFinalOrderUnmatchedLine = {
   poNumber: string;
   productNo: string;
 };
@@ -20,7 +17,7 @@ export type RocketFinalOrderReconciliationResult = {
   transmissionIntentKey: string | null;
   matchedLineCount: number;
   reconciledRows: number;
-  skippedLines: RocketFinalOrderSkippedLine[];
+  unmatchedLines: RocketFinalOrderUnmatchedLine[];
 };
 
 export interface RocketFinalOrderReconciliationPort {

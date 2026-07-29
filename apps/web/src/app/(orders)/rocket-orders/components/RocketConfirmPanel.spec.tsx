@@ -1,117 +1,134 @@
-import { useState } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useRocketPurchaseWorkflow } from '@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useRocketPurchaseWorkflow } from "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow";
 import type {
   RocketPurchasePreviewReason,
   RocketPurchasePreviewResponse,
-} from '@kiditem/shared/rocket-purchase-preview';
-import { RocketConfirmPanel } from './RocketConfirmPanel';
+} from "@kiditem/shared/rocket-purchase-preview";
+import { RocketConfirmPanel } from "./RocketConfirmPanel";
 
-vi.mock('@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow', () => ({
-  useRocketPurchaseWorkflow: vi.fn(),
-}));
-vi.mock('./RocketMatchStatusModal', async (importOriginal) => ({
-  ...await importOriginal<typeof import('./RocketMatchStatusModal')>(),
+vi.mock(
+  "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow")
+    >()),
+    useRocketPurchaseWorkflow: vi.fn(),
+  }),
+);
+vi.mock("./RocketMatchStatusModal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./RocketMatchStatusModal")>()),
   RocketMatchStatusModal: () => null,
 }));
-vi.mock('@/app/(supply)/purchase-orders/components/RocketDeterministicMatchingPanel', () => ({
-  RocketDeterministicMatchingPanel: () => <div>상품·재고 매칭 상태</div>,
+vi.mock("./RocketInlineRecipeEditor", () => ({
+  RocketInlineRecipeEditor: ({
+    productName,
+    onCancel,
+    onSaved,
+  }: {
+    productName: string;
+    onCancel: () => void;
+    onSaved: () => Promise<void>;
+  }) => (
+    <section aria-label={`${productName} Sellpia 재고 연결`}>
+      <button type="button" onClick={onCancel}>
+        인라인 닫기
+      </button>
+      <button type="button" onClick={() => void onSaved()}>
+        인라인 저장
+      </button>
+    </section>
+  ),
 }));
 
 const setReviewedQuantity = vi.fn();
 const setPreviewDirty = vi.fn();
 const setShortageReasons = vi.fn();
 const basePreview: RocketPurchasePreviewResponse = {
-  collectionRunId: '22222222-2222-4222-8222-222222222222',
+  collectionRunId: "22222222-2222-4222-8222-222222222222",
   catalog: null,
-  inventoryGeneration: '1',
-  rows: [{
-    poLineId: 'PO-1:PRODUCT-1:1',
-    poNumber: 'PO-1',
-    productNo: 'PRODUCT-1',
-    productName: '상품 1',
-    plannedDeliveryDate: '2026-07-20',
-    orderQuantity: 3,
-    recommendedQuantity: 3,
-    maxQuantity: 3,
-    editedQuantity: null,
-    reason: null,
-    channelSkuId: '33333333-3333-4333-8333-333333333333',
-    masterProductId: '44444444-4444-4444-8444-444444444444',
-    productVariantId: '55555555-5555-4555-8555-555555555555',
-    components: [{
-      sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
-      quantity: 1,
-      currentStock: 3,
-      isActive: true,
-    }],
-  }],
+  inventoryGeneration: "1",
+  rows: [
+    {
+      poLineId: "PO-1:PRODUCT-1:1",
+      poNumber: "PO-1",
+      productNo: "PRODUCT-1",
+      productName: "상품 1",
+      plannedDeliveryDate: "2026-07-20",
+      orderQuantity: 3,
+      recommendedQuantity: 3,
+      maxQuantity: 3,
+      editedQuantity: null,
+      reason: null,
+      channelSkuId: "33333333-3333-4333-8333-333333333333",
+      masterProductId: "44444444-4444-4444-8444-444444444444",
+      productVariantId: "55555555-5555-4555-8555-555555555555",
+      components: [
+        {
+          sellpiaInventorySkuId: "66666666-6666-4666-8666-666666666666",
+          code: "SP-100",
+          name: "Sellpia 연결 상품",
+          optionName: "랜덤",
+          quantity: 1,
+          currentStock: 3,
+          isActive: true,
+        },
+      ],
+    },
+  ],
 };
 
 const baseWorkflow = {
   editedQuantities: {},
   setReviewedQuantity,
   preview: basePreview,
-  sourceRows: [{
-    poLineId: 'PO-1:PRODUCT-1:1',
-    poNumber: 'PO-1',
-    vendorId: 'VENDOR-1',
-    productNo: 'PRODUCT-1',
-    barcode: '8800000000001',
-    productName: '상품 1',
-    orderQty: 3,
-    plannedDeliveryDate: '2026-07-20',
-  }],
-  exportedPoLineIds: [] as string[],
+  sourceRows: [
+    {
+      poLineId: "PO-1:PRODUCT-1:1",
+      poNumber: "PO-1",
+      vendorId: "VENDOR-1",
+      productNo: "PRODUCT-1",
+      barcode: "8800000000001",
+      productName: "상품 1",
+      orderQty: 3,
+      plannedDeliveryDate: "2026-07-20",
+    },
+  ],
   previewDirty: false,
   setPreviewDirty,
   shortageReasons: {},
   setShortageReasons,
-  workbookExport: null,
   exporting: false,
-  abandonReason: '',
-  setAbandonReason: vi.fn(),
-  abandoning: false,
   setTemplateFile: vi.fn(),
   loading: false,
   collecting: false,
   error: null as string | null,
   collectionWarning: null,
   canExport: false,
-  canRedownload: false,
   recalculate: vi.fn(),
   revalidateEditedQuantities: vi.fn(),
   exportAndDownload: vi.fn(),
-  downloadActiveWorkbook: vi.fn(),
-  refreshActiveWorkbook: vi.fn(),
-  abandonActiveWorkbook: vi.fn(),
 };
 
 function renderPanel(options?: {
   preview?: RocketPurchasePreviewResponse | null;
   workflow?: Partial<typeof baseWorkflow>;
-  exportedPoLineIds?: string[];
   // 날짜 상태는 워크스페이스가 소유하므로 props 로 주입한다(클릭 없이 복원되는 경로까지 포함).
   selectedDate?: string | null;
   selectedDateSourceRunCount?: number;
   selectedSourceImportRunId?: string | null;
-  onSelectSourceImportRun?: (sourceImportRunId: string) => void;
 }) {
-  // 후보 목록은 워크스페이스가 파생한다. 스펙에서는 개수만 주면 되도록 여기서 만들어 준다.
   const sourceRunCount = options?.selectedDateSourceRunCount ?? 0;
-  const selectedDateSourceRuns = Array.from({ length: sourceRunCount }, (_, index) => ({
-    sourceImportRunId: `run-${index + 1}`,
-    collectedAt: `2026-07-2${index + 1}T09:00:00.000Z`,
-    poCount: index + 1,
-    quantity: (index + 1) * 100,
-    amount: (index + 1) * 10_000,
-  })).sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
   vi.mocked(useRocketPurchaseWorkflow).mockReturnValue({
     ...baseWorkflow,
     ...options?.workflow,
     preview: options?.preview === undefined ? basePreview : options.preview,
-    exportedPoLineIds: options?.exportedPoLineIds ?? [],
   } as ReturnType<typeof useRocketPurchaseWorkflow>);
   return render(
     <RocketConfirmPanel
@@ -125,94 +142,205 @@ function renderPanel(options?: {
       selectedSourceImportRunId={options?.selectedSourceImportRunId ?? null}
       selectedDate={options?.selectedDate ?? null}
       selectedDateSourceRunCount={sourceRunCount}
-      selectedDateSourceRuns={selectedDateSourceRuns}
-      onSelectSourceImportRun={options?.onSelectSourceImportRun ?? vi.fn()}
       onActivity={vi.fn()}
       onOrdersChanged={vi.fn()}
       renderOrderExplorer={({ onSelectDate }) => (
         <>
-          <button type="button" onClick={() => onSelectDate('2026-07-21', 0)}>빈 날짜</button>
-          <button type="button" onClick={() => onSelectDate('2026-07-22', 2)}>여러 수집본 날짜</button>
+          <button type="button" onClick={() => onSelectDate("2026-07-21", 0)}>
+            빈 날짜
+          </button>
+          <button type="button" onClick={() => onSelectDate("2026-07-22", 2)}>
+            여러 수집본 날짜
+          </button>
         </>
       )}
     />,
   );
 }
 
-describe('<RocketConfirmPanel />', () => {
+describe("<RocketConfirmPanel />", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('labels saved-date loading separately from a fresh Coupang collection', () => {
+  it("labels saved-date loading separately from a fresh Coupang collection", () => {
     renderPanel({ workflow: { loading: true, collecting: false } });
 
-    expect(screen.getByRole('button', { name: '저장본 계산 중…' })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "저장본 계산 중…" }),
+    ).toBeDisabled();
   });
 
-  it('requires an explicit shortage reason without choosing the first option for the operator', () => {
+  it("passes the selected delivery date to the preview workflow", () => {
+    renderPanel({ selectedDate: "2026-07-21" });
+
+    expect(useRocketPurchaseWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedDeliveryDate: "2026-07-21" }),
+    );
+  });
+
+  it("defaults a newly shortened row to the inventory-shortage reason", () => {
     renderPanel();
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' }), {
-      target: { value: '2' },
-    });
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+      {
+        target: { value: "2" },
+      },
+    );
 
     const updateReasons = setShortageReasons.mock.calls.at(-1)?.[0] as (
       current: Record<string, string>,
     ) => Record<string, string>;
-    expect(updateReasons({})).toEqual({});
-    expect(setReviewedQuantity).toHaveBeenCalledWith('PO-1:PRODUCT-1:1', 2);
-    expect(screen.getByRole('button', { name: '쿠팡 엑셀 다운로드' })).toBeDisabled();
+    expect(updateReasons({})).toEqual({
+      "PO-1:PRODUCT-1:1": "협력사 재고부족 - 수요예측 오류",
+    });
+    expect(setReviewedQuantity).toHaveBeenCalledWith("PO-1:PRODUCT-1:1", 2);
+    expect(
+      screen.getByRole("button", { name: "쿠팡 엑셀 다운로드" }),
+    ).toBeDisabled();
   });
 
-  it('renders one preview heading and one current-preview matching action', () => {
+  it("renders one preview heading and one current-preview matching action", () => {
     renderPanel();
     const heading = screen.getByText(/미리보기 · 편집/);
     expect(heading.textContent?.match(/미리보기 · 편집/g)).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: /매칭 현황/ })).toHaveLength(1);
-  });
-
-  it.each([
-    ['mapping_required', '상품 연결 필요'],
-    ['configuration_required', '재고 구성 필요'],
-    ['review_required', '레시피 검토 필요'],
-  ] as const)('blocks quantity review for %s and routes the operator to matching', (reason, label) => {
-    renderPanel({ preview: previewWithReason(reason) });
-
-    expect(screen.getByText(label)).toBeInTheDocument();
-    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'PO-1 납품부족사유' })).toBeDisabled();
-    expect(screen.getByRole('link', { name: `${label} 해결` })).toHaveAttribute(
-      'href',
-      '/product-hub/matching?channelAccountId=11111111-1111-4111-8111-111111111111&search=PRODUCT-1&focusOptionId=33333333-3333-4333-8333-333333333333',
+    expect(screen.getAllByRole("button", { name: /매칭 현황/ })).toHaveLength(
+      1,
     );
   });
 
+  it("does not render the account-wide product and stock matching status panel", () => {
+    renderPanel({
+      preview: {
+        ...basePreview,
+        catalog: { recipeAutomation: {} } as never,
+      },
+    });
+
+    expect(screen.queryByText("상품·재고 매칭 상태")).not.toBeInTheDocument();
+  });
+
+  it.each([["mapping_required", "상품 연결 필요"]] as const)(
+    "blocks quantity review for %s and routes the operator to matching",
+    (reason, label) => {
+      renderPanel({ preview: previewWithReason(reason) });
+
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(
+        screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("combobox", { name: "PO-1 납품부족사유" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("link", { name: `${label} 해결` }),
+      ).toHaveAttribute(
+        "href",
+        "/product-hub/matching?channelAccountId=11111111-1111-4111-8111-111111111111&search=PRODUCT-1&focusOptionId=33333333-3333-4333-8333-333333333333",
+      );
+    },
+  );
+
+  it("repairs a configuration-required recipe in the Rocket row and recalculates the saved source", async () => {
+    const revalidateEditedQuantities = vi.fn().mockResolvedValue(undefined);
+    renderPanel({
+      preview: previewWithReason("configuration_required"),
+      workflow: { revalidateEditedQuantities },
+    });
+
+    expect(screen.getByText("재고 구성 필요")).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole("link", { name: "재고 구성 필요 해결" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "상품 1 Sellpia 재고 연결" }),
+    );
+    const editor = screen.getByRole("region", {
+      name: "상품 1 Sellpia 재고 연결",
+    });
+    expect(editor).toBeInTheDocument();
+
+    fireEvent.click(within(editor).getByRole("button", { name: "인라인 저장" }));
+    await waitFor(() =>
+      expect(revalidateEditedQuantities).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      screen.queryByRole("region", { name: "상품 1 Sellpia 재고 연결" }),
+    ).not.toBeInTheDocument();
+  });
+
   it.each([
-    ['collection_incomplete', '수집 검증 필요'],
-    ['vendor_mismatch', '공급사 검증 필요'],
-  ] as const)('blocks quantity and shortage editing for %s', (reason, label) => {
-    renderPanel({ preview: previewWithReason(reason) });
+    ["collection_incomplete", "수집 검증 필요"],
+    ["vendor_mismatch", "공급사 검증 필요"],
+  ] as const)(
+    "blocks quantity and shortage editing for %s",
+    (reason, label) => {
+      renderPanel({ preview: previewWithReason(reason) });
 
-    expect(screen.getByText(label)).toBeInTheDocument();
-    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'PO-1 납품부족사유' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: '전체 납품부족사유' })).toBeDisabled();
-    expect(screen.queryByRole('link', { name: `${label} 해결` })).not.toBeInTheDocument();
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(
+        screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("combobox", { name: "PO-1 납품부족사유" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("combobox", { name: "전체 납품부족사유" }),
+      ).toBeDisabled();
+      expect(
+        screen.queryByRole("link", { name: `${label} 해결` }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("fixes an insufficient-capacity row quantity at zero", () => {
+    renderPanel({ preview: previewWithReason("insufficient_capacity") });
+
+    expect(screen.getByText("구성 완료")).toBeInTheDocument();
+    const quantity = screen.getByRole("spinbutton", {
+      name: "PO-1 엑셀 수량",
+    });
+    expect(quantity).toHaveValue(0);
+    expect(quantity).toHaveAttribute("max", "0");
+    expect(quantity).toBeDisabled();
+    expect(
+      screen.getByRole("combobox", { name: "PO-1 납품부족사유" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("columnheader", { name: "Sellpia 원재고" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "납품가능" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "엑셀 수량" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("columnheader", { name: "약정" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("columnheader", { name: "가용재고" }),
+    ).not.toBeInTheDocument();
   });
 
-  it('keeps an insufficient-capacity row editable and shows only physical current stock', () => {
-    renderPanel({ preview: previewWithReason('insufficient_capacity') });
+  it("shows the linked Sellpia product and opens inline correction for a configured recipe", () => {
+    renderPanel({ preview: previewWithReason("insufficient_capacity") });
 
-    expect(screen.getByText('구성 완료')).toBeInTheDocument();
-    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeEnabled();
-    expect(screen.getByRole('combobox', { name: 'PO-1 납품부족사유' })).toBeEnabled();
-    expect(screen.getByRole('columnheader', { name: 'Sellpia 원재고' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: '납품가능' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: '엑셀 수량' })).toBeInTheDocument();
-    expect(screen.queryByRole('columnheader', { name: '약정' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('columnheader', { name: '가용재고' })).not.toBeInTheDocument();
+    expect(screen.getByText("SP-100 · Sellpia 연결 상품")).toBeInTheDocument();
+    expect(screen.getByText("랜덤 · 현재고 3 · 구성 ×1")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "상품 1 Sellpia 재고 수정" }),
+    );
+    expect(
+      screen.getByRole("region", { name: "상품 1 Sellpia 재고 연결" }),
+    ).toBeInTheDocument();
   });
 
-  it('distinguishes Sellpia physical stock from the per-line deliverable limit', () => {
-    const preview = previewWithReason('insufficient_capacity');
+  it("distinguishes Sellpia physical stock from the per-line deliverable limit", () => {
+    const preview = previewWithReason("insufficient_capacity");
     renderPanel({
       preview: {
         ...preview,
@@ -230,263 +358,202 @@ describe('<RocketConfirmPanel />', () => {
       },
     });
 
-    expect(screen.getByRole('columnheader', { name: 'Sellpia 원재고' })).toBeInTheDocument();
-    expect(screen.getByText('구성 ×4')).toBeInTheDocument();
-    expect(screen.getByRole('cell', { name: 'PO-1 납품가능 0개' })).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "Sellpia 원재고" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("랜덤 · 현재고 307 · 구성 ×4")).toBeInTheDocument();
+    expect(
+      screen.getByRole("cell", { name: "PO-1 납품가능 0개" }),
+    ).toBeInTheDocument();
   });
 
-  it('applies one shortage reason to every eligible short row', () => {
+  it("applies one shortage reason to every eligible short row", () => {
     const secondRow = {
-      ...previewWithReason('insufficient_capacity').rows[0]!,
-      poLineId: 'PO-2:PRODUCT-2:1',
-      poNumber: 'PO-2',
-      productNo: 'PRODUCT-2',
-      productName: '상품 2',
-      channelSkuId: '77777777-7777-4777-8777-777777777777',
+      ...previewWithReason("insufficient_capacity").rows[0]!,
+      poLineId: "PO-2:PRODUCT-2:1",
+      poNumber: "PO-2",
+      productNo: "PRODUCT-2",
+      productName: "상품 2",
+      channelSkuId: "77777777-7777-4777-8777-777777777777",
     };
     renderPanel({
       preview: {
-        ...previewWithReason('insufficient_capacity'),
-        rows: [previewWithReason('insufficient_capacity').rows[0]!, secondRow],
+        ...previewWithReason("insufficient_capacity"),
+        rows: [previewWithReason("insufficient_capacity").rows[0]!, secondRow],
       },
     });
 
-    fireEvent.change(screen.getByRole('combobox', { name: '전체 납품부족사유' }), {
-      target: { value: '협력사 재고부족 - 수요예측 오류' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: '부족 행 전체 적용' }));
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "전체 납품부족사유" }),
+      {
+        target: { value: "협력사 재고부족 - 수요예측 오류" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "부족 행 전체 적용" }));
 
     const updateReasons = setShortageReasons.mock.calls.at(-1)?.[0] as (
       current: Record<string, string>,
     ) => Record<string, string>;
-    expect(updateReasons({ existing: '기존 사유' })).toEqual({
-      existing: '기존 사유',
-      'PO-1:PRODUCT-1:1': '협력사 재고부족 - 수요예측 오류',
-      'PO-2:PRODUCT-2:1': '협력사 재고부족 - 수요예측 오류',
+    expect(updateReasons({ existing: "기존 사유" })).toEqual({
+      existing: "기존 사유",
+      "PO-1:PRODUCT-1:1": "협력사 재고부족 - 수요예측 오류",
+      "PO-2:PRODUCT-2:1": "협력사 재고부족 - 수요예측 오류",
     });
     expect(setPreviewDirty).toHaveBeenCalledWith(true);
   });
 
-  it('recalculates the same saved preview after mapping is reflected', () => {
+  it("recalculates the same saved preview after mapping is reflected", () => {
     const revalidateEditedQuantities = vi.fn();
     renderPanel({
-      preview: previewWithReason('mapping_required'),
+      preview: previewWithReason("mapping_required"),
       workflow: { revalidateEditedQuantities },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '매핑 반영해 다시 계산' }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "매핑 반영해 다시 계산" }),
+    );
     expect(revalidateEditedQuantities).toHaveBeenCalledTimes(1);
   });
 
-  it('distinguishes an empty selected day from a day requiring source choice', () => {
+  it("distinguishes an empty selected day without introducing a source picker", () => {
     // 클릭 없이 props 만으로 렌더한다 = URL 로 직접 들어오거나 새로고침한 경로.
     const empty = renderPanel({
       preview: null,
-      selectedDate: '2026-07-21',
+      selectedDate: "2026-07-21",
       selectedDateSourceRunCount: 0,
     });
-    expect(screen.getByText('선택한 날짜에 저장된 발주가 없습니다. 쿠팡에서 새로 수집해 주세요.'))
-      .toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "선택한 날짜에 저장된 발주가 없습니다. 쿠팡에서 새로 수집해 주세요.",
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/자동으로 정해지지 않습니다/)).toBeNull();
     empty.unmount();
 
     renderPanel({
       preview: null,
-      selectedDate: '2026-07-22',
+      selectedDate: "2026-07-22",
       selectedDateSourceRunCount: 2,
     });
-    expect(screen.getByText(/자동으로 정해지지 않습니다/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/자동으로 정해지지 않습니다/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("납품 판단을 시작할 수집본이 없습니다."),
+    ).toBeInTheDocument();
   });
 
-  it('explains the empty decision area instead of rendering nothing when the preview failed', () => {
+  it("explains the empty decision area instead of rendering nothing when the preview failed", () => {
     renderPanel({
       preview: null,
-      selectedDate: '2026-07-28',
+      selectedDate: "2026-07-28",
       selectedDateSourceRunCount: 1,
-      workflow: { error: '셀피아 재고 스냅샷이 최신이 아니어서 납품 수량을 계산할 수 없습니다.' },
+      workflow: {
+        error:
+          "셀피아 재고 스냅샷이 최신이 아니어서 납품 수량을 계산할 수 없습니다.",
+      },
     });
-    expect(screen.getByText('납품 판단 영역을 불러오지 못했습니다.')).toBeInTheDocument();
-    expect(screen.getByText(/셀피아 재고 스냅샷이 최신이 아니어서/)).toBeInTheDocument();
+    expect(
+      screen.getByText("납품 판단 영역을 불러오지 못했습니다."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/셀피아 재고 스냅샷이 최신이 아니어서/),
+    ).toBeInTheDocument();
   });
 
-  it('guides the operator to pick a collection when a day has several source runs', () => {
+  it("explains that saved confirmed POs are not workbook review targets", () => {
     renderPanel({
-      preview: null,
-      selectedDate: '2026-07-28',
-      selectedDateSourceRunCount: 2,
-      selectedSourceImportRunId: null,
+      preview: { ...basePreview, rows: [] },
+      selectedDate: "2026-07-29",
+      selectedDateSourceRunCount: 1,
     });
-    expect(screen.getByText('사용할 수집본을 아직 고르지 않았습니다.')).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        "선택한 날짜의 PO는 저장되어 있지만 모두 발주확정 상태라 엑셀 검토 대상이 아닙니다.",
+      ),
+    ).toBeInTheDocument();
   });
 
-  // 재현: 7/28 처럼 수집본이 여러 개인 날짜는 자동 선택이 금지되는데, 후보가 발주 목록 행을
-  // 펼쳐야 나오는 숨은 버튼뿐이라 "28일자가 안 나온다"로 보였다. 선택은 여기서 끝나야 한다.
-  it('offers every candidate collection inline, newest first, without auto-picking one', () => {
-    const onSelectSourceImportRun = vi.fn();
+  it("does not ask the operator to choose a historical collection", () => {
     renderPanel({
       preview: null,
-      selectedDate: '2026-07-28',
+      selectedDate: "2026-07-28",
       selectedDateSourceRunCount: 3,
       selectedSourceImportRunId: null,
-      onSelectSourceImportRun,
     });
-
-    expect(screen.getByText(/수집본이/)).toBeInTheDocument();
-    const candidates = screen.getAllByRole('button', { name: /^수집 2026-07-2/ });
-    expect(candidates).toHaveLength(3);
-    // 최신순 정렬 + 최신 표시. 자동 선택은 하지 않는다(운영자 클릭이 있어야 한다).
-    expect(candidates[0]).toHaveTextContent('최신');
-    expect(candidates[1]).not.toHaveTextContent('최신');
-    expect(onSelectSourceImportRun).not.toHaveBeenCalled();
-
-    fireEvent.click(candidates[0]!);
-    expect(onSelectSourceImportRun).toHaveBeenCalledWith('run-3');
+    expect(
+      screen.queryByText(/자동으로 정해지지|사용할 수집본을 하나/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^수집 2026-07-2/ }),
+    ).not.toBeInTheDocument();
   });
 
-  // 수집은 매번 전량 스냅샷이라 이미 제출한 라인이 이후 수집본에 계속 나온다.
-  // 기본값은 "이번에 새로 들어온 것만"이어야 한다.
-  it('shows only lines that are new since the last workbook, with an opt-in for the rest', () => {
+  it("keeps every row in the selected PO preview visible", () => {
     const twoRows: RocketPurchasePreviewResponse = {
       ...basePreview,
       rows: [
         basePreview.rows[0]!,
-        { ...basePreview.rows[0]!, poLineId: 'PO-2:PRODUCT-2:1', poNumber: 'PO-2' },
+        {
+          ...basePreview.rows[0]!,
+          poLineId: "PO-2:PRODUCT-2:1",
+          poNumber: "PO-2",
+        },
       ],
     };
-    renderPanel({ preview: twoRows, exportedPoLineIds: ['PO-1:PRODUCT-1:1'] });
+    renderPanel({ preview: twoRows });
 
-    // 이미 제출한 PO-1 은 숨고 신규 PO-2 만 남는다.
-    expect(screen.queryByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeNull();
-    expect(screen.getByRole('spinbutton', { name: 'PO-2 엑셀 수량' })).toBeInTheDocument();
-
-    const toggle = screen.getByRole('button', { name: /이미 제출 1행 포함해 전체 보기/ });
-    fireEvent.click(toggle);
-
-    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeInTheDocument();
-    expect(screen.getByText('이미 제출')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /신규 1행만 보기/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: "PO-2 엑셀 수량" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("이미 제출")).toBeNull();
   });
 
-  it('restores the new-lines-only default when the selected collection changes', async () => {
-    const secondRow = {
-      ...basePreview.rows[0]!,
-      poLineId: 'PO-2:PRODUCT-2:1',
-      poNumber: 'PO-2',
-    };
-    vi.mocked(useRocketPurchaseWorkflow).mockReturnValue({
-      ...baseWorkflow,
-      preview: { ...basePreview, rows: [basePreview.rows[0]!, secondRow] },
-      exportedPoLineIds: ['PO-1:PRODUCT-1:1'],
-    } as ReturnType<typeof useRocketPurchaseWorkflow>);
-
-    function Harness() {
-      const [sourceRunId, setSourceRunId] = useState('run-1');
-      return (
-        <>
-          <button type="button" onClick={() => setSourceRunId('run-2')}>수집본 변경</button>
-          <RocketConfirmPanel
-            onSaved={vi.fn()}
-            activeMonth="2026-07"
-            channelAccountId="11111111-1111-4111-8111-111111111111"
-            channelAccountName="로켓 1호점"
-            hasConfiguredVendorId
-            from="2026-07-01"
-            to="2026-07-31"
-            selectedSourceImportRunId={sourceRunId}
-            selectedDate={null}
-            selectedDateSourceRunCount={0}
-            selectedDateSourceRuns={[]}
-            onSelectSourceImportRun={vi.fn()}
-            onActivity={vi.fn()}
-            onOrdersChanged={vi.fn()}
-            renderOrderExplorer={() => null}
-          />
-        </>
-      );
-    }
-
-    render(<Harness />);
-    fireEvent.click(screen.getByRole('button', { name: /이미 제출 1행 포함해 전체 보기/ }));
-    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' }))
-      .toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '수집본 변경' }));
-    await waitFor(() => expect(
-      screen.queryByRole('spinbutton', { name: 'PO-1 엑셀 수량' }),
-    ).toBeNull());
-  });
-
-  it('never hides a row when there is no workbook evidence yet', () => {
-    renderPanel({ exportedPoLineIds: [] });
-
-    expect(screen.getByRole('spinbutton', { name: 'PO-1 엑셀 수량' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /전체 보기/ })).toBeNull();
-    expect(screen.queryByText('이미 제출')).toBeNull();
-  });
-
-  it('hides the candidate picker once a collection is chosen', () => {
+  it("hides the candidate picker once a collection is chosen", () => {
     renderPanel({
       preview: null,
-      selectedDate: '2026-07-28',
+      selectedDate: "2026-07-28",
       selectedDateSourceRunCount: 3,
-      selectedSourceImportRunId: 'run-3',
+      selectedSourceImportRunId: "run-3",
     });
 
     expect(screen.queryByText(/자동으로 정해지지 않습니다/)).toBeNull();
-    expect(screen.queryByRole('button', { name: /^수집 2026-07-2/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^수집 2026-07-2/ }),
+    ).toBeNull();
   });
 
-  it('keeps exact re-download available while no-match abandonment remains evidence-gated', () => {
-    renderPanel({
-      preview: null,
-      workflow: {
-        workbookExport: activeWorkbook(),
-        canRedownload: true,
-      },
-    });
+  it("does not expose post-download workbook workflow controls", () => {
+    renderPanel();
 
-    expect(screen.getByText('쿠팡 업로드·발주확정 대기', { exact: false }))
-      .toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '동일 파일 다시 다운로드' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: '워크북 사용 안 함' })).toBeDisabled();
-    expect(screen.queryByText(/재고 예약|예약 확정|가용재고|약정/)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+    ).toBeEnabled();
+    expect(screen.queryByText(/쿠팡 업로드·발주확정 대기/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "동일 파일 다시 다운로드" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "워크북 사용 안 함" })).toBeNull();
   });
 });
 
-function previewWithReason(reason: RocketPurchasePreviewReason): RocketPurchasePreviewResponse {
+function previewWithReason(
+  reason: RocketPurchasePreviewReason,
+): RocketPurchasePreviewResponse {
   return {
     ...basePreview,
     rows: basePreview.rows.map((row) => ({
       ...row,
       reason,
-      recommendedQuantity: reason === 'insufficient_capacity' ? 2 : 0,
-      maxQuantity: reason === 'insufficient_capacity' ? 2 : 0,
-      masterProductId: reason === 'mapping_required' ? null : row.masterProductId,
-      productVariantId: reason === 'mapping_required' ? null : row.productVariantId,
-      components: reason === 'insufficient_capacity' ? row.components : [],
+      recommendedQuantity: reason === "insufficient_capacity" ? 2 : 0,
+      maxQuantity: reason === "insufficient_capacity" ? 2 : 0,
+      masterProductId:
+        reason === "mapping_required" ? null : row.masterProductId,
+      productVariantId:
+        reason === "mapping_required" ? null : row.productVariantId,
+      components: reason === "insufficient_capacity" ? row.components : [],
     })),
-  };
-}
-
-function activeWorkbook() {
-  return {
-    exportId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    status: 'awaiting_coupang_confirmation' as const,
-    duplicate: false,
-    canAbandon: false,
-    inventoryGeneration: '1',
-    generatedAt: '2026-07-23T00:00:00.000Z',
-    artifact: {
-      fileName: 'rocket.xlsx',
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const,
-      sha256: 'a'.repeat(64),
-      byteLength: 10,
-    },
-    totals: {
-      lineCount: 1,
-      orderQuantity: 3,
-      workbookQuantity: 3,
-      componentQuantity: 3,
-    },
-    rows: [{ poLineId: 'PO-1:PRODUCT-1:1', workbookQuantity: 3, shortageReason: null }],
   };
 }

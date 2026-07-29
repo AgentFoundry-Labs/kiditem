@@ -134,6 +134,7 @@ describe('RocketWorkbookExportService', () => {
     deps.preview.preview.mockResolvedValue({
       status: 'freshness_pending',
       requestedGeneration: '13',
+      rows: [],
       collectionRunId,
       catalog: previewResult().catalog,
     });
@@ -175,7 +176,11 @@ describe('RocketWorkbookExportService', () => {
     expect(deps.preview.preview).toHaveBeenCalledWith({
       organizationId,
       userId,
-      request: previewRequest,
+      inventoryRequirement: 'fresh',
+      request: {
+        ...previewRequest,
+        previewScope: 'confirmation_requested',
+      },
     });
     expect(deps.transactions.exportWorkbook).toHaveBeenCalledWith({
       organizationId,
@@ -189,6 +194,67 @@ describe('RocketWorkbookExportService', () => {
       status: 'awaiting_coupang_confirmation',
       duplicate: false,
     });
+  });
+
+  it('persists only selected workbook lines after validating the complete preview', async () => {
+    const unselectedPoLineId = '1002:P-2:8801234567891:1';
+    const completeRequest = {
+      ...request(),
+      collection: { ...request().collection, detailPoCount: 2 },
+      rows: [
+        ...request().rows,
+        {
+          ...request().rows[0]!,
+          poLineId: unselectedPoLineId,
+          poNumber: '1002',
+          productNo: 'P-2',
+          barcode: '8801234567891',
+          plannedDeliveryDate: '2026-07-21',
+        },
+      ],
+      selectedPoLineIds: [poLineId],
+    };
+    const fullPreview = {
+      ...previewResult(),
+      rows: [
+        ...previewResult().rows,
+        {
+          ...previewResult().rows[0]!,
+          poLineId: unselectedPoLineId,
+          poNumber: '1002',
+          productNo: 'P-2',
+          plannedDeliveryDate: '2026-07-21',
+          editedQuantity: null,
+          recommendedQuantity: 0,
+          maxQuantity: 0,
+          reason: 'configuration_required' as const,
+          components: [],
+        },
+      ],
+    };
+    const deps = dependencies();
+    deps.preview.preview.mockResolvedValue(fullPreview);
+    const service = new RocketWorkbookExportService(
+      deps.preview as never,
+      deps.transactions as never,
+    );
+
+    await service.exportWorkbook({
+      organizationId,
+      userId,
+      request: completeRequest,
+      artifactBytes,
+    });
+
+    expect(deps.preview.preview).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({ rows: completeRequest.rows }),
+    }));
+    expect(deps.transactions.exportWorkbook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({ rows: request().rows }),
+        preview: expect.objectContaining({ rows: previewResult().rows }),
+      }),
+    );
   });
 
   it('rejects an incomplete or vendor-mismatched collection before persistence', async () => {

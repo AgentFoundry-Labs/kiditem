@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type ThumbnailAnalysisRepositoryPort,
@@ -7,6 +6,9 @@ import {
   type UpsertThumbnailAnalysisInput,
 } from '../../../application/port/out/repository/thumbnail-analysis.repository.port';
 import { upsertThumbnailAnalysis } from './thumbnail-analysis.persistence';
+import type { Prisma } from '@prisma/client';
+
+const THUMBNAIL_ANALYSIS_CHANNEL = 'coupang';
 
 const workspaceSelect = {
   id: true,
@@ -86,8 +88,22 @@ export class ThumbnailAnalysisRepositoryAdapter
     const rows = await this.prisma.contentWorkspace.findMany({
       where: {
         organizationId,
+        ownerType: 'channel_listing',
         status: 'active',
         isDeleted: false,
+        channelListingId: { not: null },
+        channelListing: {
+          is: {
+            organizationId,
+            isActive: true,
+            channelAccount: {
+              is: {
+                organizationId,
+                channel: THUMBNAIL_ANALYSIS_CHANNEL,
+              },
+            },
+          },
+        },
         ...(ids ? { id: { in: ids } } : {}),
       },
       select: workspaceSelect,

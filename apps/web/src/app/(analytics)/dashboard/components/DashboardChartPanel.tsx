@@ -63,7 +63,7 @@ type Dept = {
 const ACTION_LABEL: Record<DeptAction, string> = {
   collectTrend: '시장분석 수집',
   refreshInventory: '재고 분석 업데이트',
-  syncSellpia: '셀피아 재고 동기화',
+  syncSellpia: '셀피아 동기화',
   collectAllOrders: '몰 주문 전체수집',
   collectShipmentToday: '금일 쿠팡 쉽먼트 다운',
 };
@@ -92,7 +92,7 @@ const DEPT_MAP: readonly Dept[] = [
     key: 'analysis', label: '분석', color: '#ef4444', faceColor: 'rose', faceRole: 'finance',
     buttons: [
       { label: '재고 분석 업데이트', kind: 'action', action: 'refreshInventory' },
-      { label: '셀피아 재고 동기화', kind: 'action', action: 'syncSellpia' },
+      { label: '셀피아 동기화', kind: 'action', action: 'syncSellpia' },
     ],
   },
 ];

@@ -14,7 +14,7 @@ describe('WING category resolution', () => {
     post.mockReset();
   });
 
-  it('deduplicates names and auto-applies high and medium suggestions', async () => {
+  it('deduplicates names and only auto-applies high-confidence catalog matches', async () => {
     post.mockResolvedValue({
       corpusSize: 2,
       results: [
@@ -53,7 +53,8 @@ describe('WING category resolution', () => {
       names: ['키링', '보드게임'],
     });
     expect(result.get('키링')?.categoryCell).toContain('[64687]');
-    expect(result.get('보드게임')?.categoryCell).toContain('[77448]');
+    expect(result.get('보드게임')?.categoryCell).toBeNull();
+    expect(result.get('보드게임')?.suggestion?.categoryCell).toContain('[77448]');
   });
 
   it('does not auto-apply a low-confidence suggestion and keeps the hint', async () => {

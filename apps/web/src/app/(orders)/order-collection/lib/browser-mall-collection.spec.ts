@@ -156,8 +156,7 @@ describe('createBrowserMallCollector', () => {
   });
 
   it('probes both Rocket transports and stores the server transmission key as the file ID', async () => {
-    const exportId = '55555555-5555-4555-8555-555555555555';
-    const intentKey = `rocket-workbook:${exportId}:shipment`;
+    const intentKey = 'rocket-final-order:66666666-6666-4666-8666-666666666666:shipment';
     mocks.collectCoupang.mockResolvedValue({
       pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
       centers: {},
@@ -173,16 +172,20 @@ describe('createBrowserMallCollector', () => {
           outputRows: 1,
           skippedRows: 0,
         },
-        matchedRows: 1,
+        outputRows: 1,
+        workbookMatchedRows: 0,
+        workbookUnmatchedRows: 1,
         importRunId: '66666666-6666-4666-8666-666666666666',
-        rocketWorkbookExportId: exportId,
+        rocketWorkbookExportId: null,
         transmissionIntentKey: intentKey,
       })
       .mockResolvedValueOnce({
         file: null,
-        matchedRows: 0,
+        outputRows: 0,
+        workbookMatchedRows: 0,
+        workbookUnmatchedRows: 0,
         importRunId: '77777777-7777-4777-8777-777777777777',
-        rocketWorkbookExportId: exportId,
+        rocketWorkbookExportId: null,
         transmissionIntentKey: null,
       });
     const addGeneratedFile = vi.fn();
@@ -206,7 +209,8 @@ describe('createBrowserMallCollector', () => {
     ]);
     expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
       id: intentKey,
-      rocketWorkbookExportId: exportId,
+      sourceName: expect.stringContaining('워크북 미매칭 1품목 포함'),
+      rocketWorkbookExportId: null,
       transmissionIntentKey: intentKey,
     }));
   });

@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { Workbook } from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import {
   buildRocketConfirmationWorkbook,
@@ -84,7 +85,7 @@ function templateBytes({
 
 describe('buildRocketConfirmationWorkbook', () => {
   it('renders the canonical 23-column Coupang sheet from confirmed source evidence', async () => {
-    const result = buildRocketConfirmationWorkbook({
+    const result = await buildRocketConfirmationWorkbook({
       sourceRows: [sourceRow()],
       workbookRows: [{
         poLineId: PO_LINE_ID,
@@ -93,17 +94,19 @@ describe('buildRocketConfirmationWorkbook', () => {
       }],
       now: new Date('2026-07-17T00:00:00.000Z'),
     });
-    const workbook = XLSX.read(await result.blob.arrayBuffer());
-    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(
-      workbook.Sheets['상품목록']!,
-      { header: 1, raw: true },
-    );
+    const workbook = new Workbook();
+    await workbook.xlsx.load(await result.blob.arrayBuffer() as never);
+    const productSheet = workbook.getWorksheet('상품목록')!;
+    const rows = productSheet.getSheetValues()
+      .slice(1)
+      .map((row) => (row as (string | number)[]).slice(1));
 
     expect(rows[0]).toHaveLength(23);
     expect(rows[0]?.[8]).toBe('확정수량');
     expect(rows[1]).toEqual([
       '1001', '덕평1센터', '택배', '거래처확인요청', 'P-1', '8801234567890',
-      'Rocket item', 4, 2, '', '', '', '협력사 재고부족 - 수요예측 오류',
+      'Rocket item', 4, 2, undefined, undefined, undefined,
+      '협력사 재고부족 - 수요예측 오류',
       '담당자', '010-0000-0000', '서울시', 1_000, 900, 90, 3_960,
       '20260720', '2026-07-17 09:00:00', 'N',
     ]);
@@ -111,25 +114,89 @@ describe('buildRocketConfirmationWorkbook', () => {
       fileName: '쿠팡_로켓_20260717.xlsx',
       summary: { totalRows: 1, workbookQuantity: 2, shortRows: 1 },
     });
-    expect(workbook.SheetNames).toEqual(['상품목록', 'hiddenSheet']);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(['상품목록', 'hiddenSheet']);
   });
 
-  it('rejects rows collected without the confirmation metadata capability', () => {
+  it('matches Coupang styling, dimensions, validation, and hidden reason sheet', async () => {
+    const result = await buildRocketConfirmationWorkbook({
+      sourceRows: [sourceRow()],
+      workbookRows: [{
+        poLineId: PO_LINE_ID,
+        workbookQuantity: 2,
+        shortageReason: '협력사 재고부족 - 수요예측 오류',
+      }],
+    });
+    const workbook = new Workbook();
+    await workbook.xlsx.load(await result.blob.arrayBuffer() as never);
+    const productSheet = workbook.getWorksheet('상품목록')!;
+    const reasonSheet = workbook.getWorksheet('hiddenSheet')!;
+
+    expect(productSheet.columns.map((column) => column.width)).toEqual([
+      16, 16, 16, 16, 16, 20, 40, 16, 16, 32, 16, 16,
+      64, 20, 36, 65, 12, 12, 12, 28, 20, 24, 20,
+    ]);
+    expect(productSheet.properties.defaultRowHeight).toBe(15);
+    expect(productSheet.pageSetup.margins).toEqual({
+      left: 0.7,
+      right: 0.7,
+      top: 0.75,
+      bottom: 0.75,
+      header: 0.3,
+      footer: 0.3,
+    });
+    expect(productSheet.getCell('A1')).toMatchObject({
+      font: { name: '나눔고딕', size: 12 },
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC0C0C0' } },
+      alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+      border: {
+        top: { style: 'medium' },
+        bottom: { style: 'thin' },
+        left: { style: 'thin' },
+        right: { style: 'thin' },
+      },
+    });
+    for (const address of ['C2', 'I2', 'M2', 'N2', 'O2', 'P2']) {
+      expect(productSheet.getCell(address).fill).toMatchObject({
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFFF00' },
+      });
+    }
+    expect(productSheet.getCell('B2').fill).toMatchObject({
+      type: 'pattern',
+      pattern: 'none',
+    });
+    expect(productSheet.getCell('A2').border.left?.style).toBe('medium');
+    expect(productSheet.getCell('C2').dataValidation).toMatchObject({
+      type: 'list',
+      allowBlank: true,
+      formulae: ['"쉽먼트,밀크런"'],
+    });
+    expect(productSheet.getCell('M2').dataValidation).toMatchObject({
+      type: 'list',
+      allowBlank: true,
+      formulae: ['hiddenSheet!$A$1:$A$20'],
+    });
+    expect(reasonSheet.state).toBe('hidden');
+    expect(reasonSheet.getCell('A4').value).toBe('협력사 재고부족 - 수요예측 오류');
+  });
+
+  it('rejects rows collected without the confirmation metadata capability', async () => {
     const { confirmation: _confirmation, ...legacyRow } = sourceRow();
-    expect(() => buildRocketConfirmationWorkbook({
+    await expect(buildRocketConfirmationWorkbook({
       sourceRows: [legacyRow],
       workbookRows: [{
         poLineId: PO_LINE_ID,
         workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류',
       }],
-    })).toThrow(/metadata/i);
+    })).rejects.toThrow(/metadata/i);
   });
 });
 
 describe('fillRocketConfirmationWorkbook', () => {
   it('fills only confirmation outputs in the original Coupang workbook', async () => {
-    const result = fillRocketConfirmationWorkbook({
+    const result = await fillRocketConfirmationWorkbook({
       template: templateBytes(),
       templateFileName: '쿠팡_원본.xlsx',
       sourceRows: [sourceRow()],
@@ -152,13 +219,18 @@ describe('fillRocketConfirmationWorkbook', () => {
     expect(productSheet['!cols']?.[0]?.wch).toBeGreaterThan(27);
     expect(workbook.Sheets['안내']?.['A1']?.v).toBe('보존값');
     expect(workbook.Sheets['안내']?.['A2']?.v).toBe('원본 안내 문구');
+    const roundTrippedWorkbook = new Workbook();
+    await roundTrippedWorkbook.xlsx.load(await result.blob.arrayBuffer() as never);
+    expect(Object.keys(
+      roundTrippedWorkbook.model.themes as unknown as Record<string, string>,
+    )).toContain('theme1');
     expect(result).toMatchObject({
       fileName: '쿠팡_원본_쿠팡제출_20260717.xlsx',
       summary: { totalRows: 1, workbookQuantity: 2, shortRows: 1 },
     });
   });
 
-  it('fails closed when required headers or one-to-one source rows do not match', () => {
+  it('fails closed when required headers or one-to-one source rows do not match', async () => {
     const input = {
       templateFileName: '쿠팡_원본.xlsx',
       sourceRows: [sourceRow()],
@@ -169,18 +241,18 @@ describe('fillRocketConfirmationWorkbook', () => {
       }],
     };
 
-    expect(() => fillRocketConfirmationWorkbook({
+    await expect(fillRocketConfirmationWorkbook({
       ...input,
       template: templateBytes({ includeReasonHeader: false }),
-    })).toThrow(/납품부족사유/);
-    expect(() => fillRocketConfirmationWorkbook({
+    })).rejects.toThrow(/납품부족사유/);
+    await expect(fillRocketConfirmationWorkbook({
       ...input,
       template: templateBytes({ productNo: 'WRONG' }),
-    })).toThrow(/match/i);
-    expect(() => fillRocketConfirmationWorkbook({
+    })).rejects.toThrow(/match/i);
+    await expect(fillRocketConfirmationWorkbook({
       ...input,
       template: templateBytes({ includeExtraRow: true }),
-    })).toThrow(/match/i);
+    })).rejects.toThrow(/match/i);
   });
 
   it('matches duplicate source identifiers by occurrence order', async () => {
@@ -188,7 +260,7 @@ describe('fillRocketConfirmationWorkbook', () => {
       ...sourceRow(),
       poLineId: '1001:P-1:8801234567890:2',
     };
-    const result = fillRocketConfirmationWorkbook({
+    const result = await fillRocketConfirmationWorkbook({
       template: templateBytes({ duplicateMatchingRow: true }),
       templateFileName: '쿠팡_원본.xlsx',
       sourceRows: [sourceRow(), secondSource],

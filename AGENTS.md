@@ -23,32 +23,22 @@ kiditem/
 
 ## Instruction Map
 
-`AGENTS.md` is the shared instruction authority. The most-specific
-`AGENTS.md` wins, then parent files. Every directory that contains `AGENTS.md`
-also contains a `CLAUDE.md` compatibility shim whose only content is
-`@AGENTS.md`.
+`AGENTS.md` is the shared instruction authority; the most-specific file wins,
+then its parents. A sibling `CLAUDE.md` contains only `@AGENTS.md`.
 
-Before editing, do not rely on memorized rules or a remembered path map. Use
-`rg --files -g AGENTS.md` to discover scoped guides for the target path, then
-read every applicable `AGENTS.md` from the repo root down to the nearest one
-under the target directory. If the work moves to another directory or creates a
-new nested surface, rerun discovery and read the newly applicable guide before
-editing there.
-
-Keep `Folder Map` sections only when the structure itself is a contract,
-exception, or ownership boundary. Do not add maps that only repeat discoverable
-file lists; use `rg --files` for exploration instead.
+Before editing, use `rg --files -g AGENTS.md` to read root-to-target guides;
+rerun when scope moves or nests. Keep `Folder Map` only for structural
+contracts, exceptions, or ownership; use `rg --files` for ordinary exploration.
 
 Keep every active root-to-leaf instruction chain below 28 KiB. Run
 `npm run check:agents-hygiene` after changing `AGENTS.md` or `CLAUDE.md`.
 
 ## Session Boundaries
 
-- Keep one business domain per session; same-domain cross-layer work is allowed.
-- Cross-domain exceptions are organization guards, raw SQL policy, scanners,
-  shared exports, dependency tooling, instruction cleanup, or a user-declared
-  incident hotfix that restores one operator workflow through one PR/deployment.
-  State the exception and exclude unrelated cleanup.
+- Keep one business domain per session; cross-layer work within it is allowed.
+- Cross-domain work is limited to organization/raw SQL guards, scanners, shared
+  exports, dependencies, instruction cleanup, or a declared incident hotfix for
+  one operator workflow. State the exception and exclude unrelated cleanup.
 - Apply all in-scope changes now; do not defer follow-ups.
 - Research major OSS projects before introducing new architectural patterns.
 - Maintain plans/specs in `docs/superpowers/`; keep scratch and agent logs out
@@ -134,13 +124,12 @@ business rewrites.
 
 ## Documentation
 
-- Keep durable guidance in `docs/`, scoped `AGENTS.md`, or source comments that
-  are inseparable from implementation.
+- Keep durable guidance in `docs/`, scoped `AGENTS.md`, or inseparable source
+  comments.
 - Consolidate nearby rules when adding guidance; do not append stale history.
-- Environment/collaboration setup belongs in AI-executable runbooks under
-  [`docs/runbooks/`](docs/runbooks/).
-- Runbooks list prerequisites, safe agent actions, env vars, paths,
-  verification, blockers, and final report format.
+- Put environment/collaboration setup in AI-executable [`docs/runbooks/`](docs/runbooks/)
+  covering prerequisites, safe actions, env vars, paths, verification, blockers,
+  and final report format.
 
 ## Verification
 

@@ -73,10 +73,9 @@ describe('Coupang direct-shipment collection lifecycle', () => {
       });
   });
 
-  it('parses the durable Rocket export and Sellpia transmission keys', async () => {
-    const exportId = '55555555-5555-4555-8555-555555555555';
-    const intentKey = `rocket-workbook:${exportId}:shipment`;
-    api.fetchRaw.mockResolvedValue(fileResponse({ exportId, intentKey }));
+  it('keeps every collected row even when none match an active Rocket workbook', async () => {
+    const intentKey = 'rocket-final-order:66666666-6666-4666-8666-666666666666:shipment';
+    api.fetchRaw.mockResolvedValue(fileResponse({ exportId: null, intentKey }));
 
     const result = await convertCoupangDirectToSellpiaFile(
       { pos: [], centers: {} },
@@ -89,9 +88,11 @@ describe('Coupang direct-shipment collection lifecycle', () => {
 
     expect(result).toMatchObject({
       file: expect.objectContaining({ fileName: 'rocket.xls' }),
-      matchedRows: 1,
+      outputRows: 1,
+      workbookMatchedRows: 0,
+      workbookUnmatchedRows: 1,
       importRunId: '66666666-6666-4666-8666-666666666666',
-      rocketWorkbookExportId: exportId,
+      rocketWorkbookExportId: null,
       transmissionIntentKey: intentKey,
     });
   });
@@ -116,7 +117,9 @@ describe('Coupang direct-shipment collection lifecycle', () => {
       },
     )).resolves.toEqual({
       file: null,
-      matchedRows: 0,
+      outputRows: 0,
+      workbookMatchedRows: 0,
+      workbookUnmatchedRows: 0,
       importRunId: '66666666-6666-4666-8666-666666666666',
       rocketWorkbookExportId: exportId,
       transmissionIntentKey: null,
@@ -124,7 +127,7 @@ describe('Coupang direct-shipment collection lifecycle', () => {
   });
 });
 
-function fileResponse(input: { exportId: string; intentKey: string }): Response {
+function fileResponse(input: { exportId: string | null; intentKey: string }): Response {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
     workbook,
@@ -136,12 +139,14 @@ function fileResponse(input: { exportId: string; intentKey: string }): Response 
     headers: {
       'Content-Disposition': "attachment; filename*=UTF-8''rocket.xls",
       'X-Order-Collection-Import-Run-Id': '66666666-6666-4666-8666-666666666666',
-      'X-Rocket-Workbook-Export-Id': input.exportId,
+      ...(input.exportId ? { 'X-Rocket-Workbook-Export-Id': input.exportId } : {}),
       'X-Sellpia-Transmission-Intent-Key': input.intentKey,
       'X-Order-Collection-Source-Rows': '1',
       'X-Order-Collection-Product-Rows': '1',
       'X-Order-Collection-Output-Rows': '1',
       'X-Order-Collection-Skipped-Rows': '0',
+      'X-Rocket-Workbook-Matched-Rows': '0',
+      'X-Rocket-Workbook-Unmatched-Rows': '1',
     },
   });
 }

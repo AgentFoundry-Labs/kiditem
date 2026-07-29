@@ -12,7 +12,11 @@ here affect every route.
 - Global QueryCache error toast behavior
 - Auth session state and SIGNED_OUT redirect ownership
 - React Query devtools lazy loading policy
-- One authenticated Sellpia inventory coordinator. It deduplicates claims with
+- One authenticated Sellpia synchronization coordinator. An explicit manual or
+  retry run collects and stores both the physical inventory snapshot and
+  product-level monthly depletion before it completes the inventory generation.
+  TTL and post-order evidence refreshes remain inventory-only to avoid scraping
+  the 13-month depletion report every 10 minutes. It deduplicates claims with
   the Web Locks API plus an in-memory guard keyed by the same local lock name,
   heartbeats only its claim, and leaves unmounted/tab-closed leases to expire
   without cancellation. Claim attempts retry on each authenticated freshness
@@ -29,8 +33,9 @@ here affect every route.
 - `installQueryClientErrorHandler()` exists so HMR-created QueryClient
   instances receive the current global handler.
 - `SellpiaInventorySyncProvider` is a background coordinator only. It renders
-  no freshness drawer, status entry, or manual-import UI; explicit refresh
-  buttons call the shared freshness hook and the coordinator claims the work.
+  no freshness drawer, status entry, or manual-import UI; explicit Sellpia sync
+  buttons call the shared freshness hook and the coordinator claims both data
+  collections as one user-visible operation.
 
 ## Boundary Rules
 

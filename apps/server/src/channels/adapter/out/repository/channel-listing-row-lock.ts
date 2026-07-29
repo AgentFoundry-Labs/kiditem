@@ -27,7 +27,11 @@ export async function lockChannelListingRow(
           FROM source_import_runs
           WHERE organization_id = ${input.organizationId}::uuid
             AND status = 'completed'
-            AND source_type IN ('coupang_wing_catalog', 'coupang_rocket_po_catalog')
+            AND source_type IN (
+              'coupang_wing_catalog',
+              'coupang_rocket_catalog_seed',
+              'coupang_rocket_po_catalog'
+            )
         )
         OR EXISTS (
           SELECT 1

@@ -100,7 +100,7 @@ export function useDepartmentQuickActions() {
     await apiClient.post('/api/sourcing/trend/collect', {});
   }, []);
 
-  // 재고 분석 업데이트 / 셀피아 재고 동기화 — 공용 freshness 조정자에 재수집 요청.
+  // 재고 분석 업데이트 / 셀피아 동기화 — 공용 조정자에 현재고·소진 재수집 요청.
   const requestInventoryRefresh = useCallback(async () => {
     await freshness.requestRefresh('manual_request');
   }, [freshness]);

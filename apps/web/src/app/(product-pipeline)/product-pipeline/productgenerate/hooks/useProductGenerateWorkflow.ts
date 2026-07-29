@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { usePanelStore } from '@/components/panel/lib/panel-store';
 import { isApiError } from '@/lib/api-error';
 import { apiClient } from '@/lib/api-client';
 import { cancelOperation } from '@/lib/operation-cancellation';
@@ -13,6 +14,7 @@ import {
 } from '../../_shared/lib/product-pipeline-routes';
 import { useGenerateForm, type GenerateTemplateId } from '../../detail-template-generation/hooks/useGenerateForm';
 import { buildProductGenerationPayload } from '../lib/product-generation-payload';
+import { projectProductGenerationDialog } from '../lib/product-generation-progress';
 
 interface ProductGenerationResponse {
   ok: boolean;
@@ -30,9 +32,14 @@ export function useProductGenerateWorkflow() {
   const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
   const [isRegisteringCandidate, setIsRegisteringCandidate] = useState(false);
   const [createdCandidateId, setCreatedCandidateId] = useState<string | null>(null);
+  const panelItemsById = usePanelStore((state) => state.byId);
   const form = useGenerateForm({
     successDescription: '생성 요청 후 수집 상품 화면에서 진행 상태를 확인할 수 있습니다.',
   });
+  const generationDialog = useMemo(
+    () => projectProductGenerationDialog(form.generationDialog, panelItemsById),
+    [form.generationDialog, panelItemsById],
+  );
 
   const handleSubmit = async (selectedTemplateId: GenerateTemplateId, thumbnailUrls: string[]) => {
     const title = form.rawTitle.trim();
@@ -90,10 +97,10 @@ export function useProductGenerateWorkflow() {
   };
 
   const handleGenerationDialogAction = async () => {
-    const phase = form.generationDialog?.phase;
+    const phase = generationDialog?.phase;
     const isCompleted = phase === 'completed';
-    const candidateId = form.generationDialog?.editorUrl
-      ? new URL(form.generationDialog.editorUrl, 'http://kiditem.local').searchParams.get('sourceCandidateId')
+    const candidateId = generationDialog?.editorUrl
+      ? new URL(generationDialog.editorUrl, 'http://kiditem.local').searchParams.get('sourceCandidateId')
       : null;
     const targetCandidateId = candidateId ?? createdCandidateId;
     const targetUrl = targetCandidateId ? collectedProductDetailHref(targetCandidateId) : COLLECTED_PRODUCTS_ROOT;
@@ -118,7 +125,7 @@ export function useProductGenerateWorkflow() {
   };
 
   const handleGenerationDialogCancel = async () => {
-    const state = form.generationDialog;
+    const state = generationDialog;
     if (!state?.operationKey) return;
     try {
       await cancelOperation({
@@ -146,7 +153,7 @@ export function useProductGenerateWorkflow() {
     templateId,
     setTemplateId,
     isRegisteringCandidate,
-    form,
+    form: { ...form, generationDialog },
     handleSubmit,
     handleGenerationDialogAction,
     handleGenerationDialogCancel,

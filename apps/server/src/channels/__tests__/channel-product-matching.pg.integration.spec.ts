@@ -488,6 +488,49 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(availability.map((row) => row.listing.externalId)).not.toContain('P-INACTIVE');
   });
 
+  it('treats an operator-seeded Rocket catalog as eligible without PO evidence', async () => {
+    const rocketAccount = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'rocket',
+        name: 'Rocket',
+      },
+    });
+    const seedRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_rocket_catalog_seed',
+        channelAccountId: rocketAccount.id,
+        fileName: 'rocket-matching.csv',
+        fileHash: randomUUID(),
+        status: 'completed',
+        importedAt: new Date(),
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: rocketAccount.id,
+        externalId: 'ROCKET-SEED-1',
+        displayName: 'Seeded Rocket product',
+        lastImportRunId: seedRun.id,
+      },
+    });
+    const option = await createOption(listing.id, {
+      externalOptionId: 'ROCKET-SEED-1',
+    });
+    const product = await createProduct('KI-ROCKET-SEED', 'Seeded Rocket product');
+
+    const queue = await service.list(TEST_ORGANIZATION_ID, {
+      channelAccountId: rocketAccount.id,
+    });
+    expect(queue.products.map((row) => row.listing.id)).toContain(listing.id);
+    expect(queue.options.map((row) => row.option.id)).toContain(option.id);
+    await expect(service.linkProduct(TEST_ORGANIZATION_ID, listing.id, {
+      masterProductId: product.id,
+    })).resolves.toBeUndefined();
+  });
+
   it('exposes an atomically published browser chunk before the full snapshot completes', async () => {
     const product = await createProduct('KI-PARTIAL-BROWSER', 'Partial browser product');
     const listing = await createListing({

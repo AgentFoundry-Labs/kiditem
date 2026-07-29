@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowDownRight, ArrowUpRight, Loader2, Minus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import type {
@@ -11,24 +11,16 @@ import type {
 } from '@kiditem/shared/dashboard';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber, formatDateTime, timeAgo } from '@/lib/utils';
-import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
-import {
-  fetchSellpiaProductSales,
-  ingestSellpiaProductSales,
-} from '@/lib/sellpia-product-sales-api';
-import {
-  collectSellpiaProductProfitFromExtension,
-} from '@/lib/sellpia-product-sales-collection';
+import { fetchSellpiaProductSales } from '@/lib/sellpia-product-sales-api';
 import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
 import {
   classifySellpiaStockSync,
   describeSellpiaStockSync,
-  sellpiaBlockedBadgeLabel,
+  sellpiaTransmissionReviewBadgeLabel,
   type SellpiaStockSyncOutcome,
 } from '../../_shared/sellpia-sync-outcome';
 import { ProductOutflowDestinations } from './ProductOutflowDestinations';
 
-const AUTO_SYNC_KEY = 'kiditem-sellpia-product-sales-autosync';
 const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
 
 // 재고 동기화 버튼에 표시할 셀피아 재고 최신성 상태 배지
@@ -43,21 +35,12 @@ const STOCK_FRESHNESS_META: Record<string, { label: string; className: string }>
 type SortKey = 'avg2m' | 'currentStock' | string;
 type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C' | 'unclassified';
 
-function todayKst(): string {
-  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${kst.getUTCFullYear()}-${p(kst.getUTCMonth() + 1)}-${p(kst.getUTCDate())}`;
-}
-
 export default function ProductOutflow() {
-  const queryClient = useQueryClient();
   const { requestRefresh, state: freshnessState } = useSellpiaInventoryFreshness({ enabled: true });
   const [syncing, setSyncing] = useState(false);
-  const [stockSyncing, setStockSyncing] = useState(false);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('avg2m');
   const [filter, setFilter] = useState<FilterKey>('all');
-  const autoRan = useRef(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.inventory.productSales(MONTHS_WINDOW),
@@ -65,97 +48,33 @@ export default function ProductOutflow() {
     refetchInterval: 60_000,
   });
 
-  const invalidate = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.inventory.productSalesAll(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.products.operations.all,
-      }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.dashboard.all,
-      }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.ads.all,
-      }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.actionTasks.all,
-      }),
-    ]);
-  }, [queryClient]);
-
-  // 현재고 갱신 요청(비필수) — 실제 JSON 스냅샷 수집/적재는 공용 조정자가 수행한다.
-  // 요청이 성공해도 예약됐다는 뜻은 아니다. 응답 상태를 분류해 사실만 보고한다.
-  const syncStock = useCallback(async (): Promise<SellpiaStockSyncOutcome> => {
+  // 현재고와 상품별 소진을 함께 갱신한다. 실제 수집/적재는 공용 조정자가 수행한다.
+  const requestSellpiaSync = useCallback(async (): Promise<SellpiaStockSyncOutcome> => {
     try {
       const state = await requestRefresh(
         freshnessState?.status === 'failed' ? 'retry' : 'manual_request',
       );
       return classifySellpiaStockSync(state);
     } catch {
-      return { kind: 'request_failed' }; // 갱신 요청 실패여도 판매 데이터 수집은 유지
+      return { kind: 'request_failed' };
     }
   }, [freshnessState?.status, requestRefresh]);
 
   const runSync = useCallback(async () => {
     setSyncing(true);
     try {
-      const payload = await collectSellpiaProductProfitFromExtension();
-      const result = await ingestSellpiaProductSales(payload);
-      await invalidate();
-      const stockOutcome = await syncStock();
-      const stockNotice = describeSellpiaStockSync(stockOutcome);
-      safeStorageSet('local', AUTO_SYNC_KEY, todayKst());
-      toast.success(
-        `상품별 소진 수집 완료 (${result.productCount}개 상품, ${result.months.length}개월)`,
-      );
-      // 현재고 갱신은 별개 결과다. 실패/차단을 판매 수집 성공 문구에 묻지 않는다.
-      if (stockNotice.tone === 'error') toast.error(stockNotice.message);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '상품별 소진 수집에 실패했습니다.');
-    } finally {
-      setSyncing(false);
-    }
-  }, [invalidate, syncStock]);
-
-  // 재고만 동기화 — 판매 수집과 분리해 셀피아 재고 엑셀 백그라운드 재수집만 요청한다.
-  const runStockSync = useCallback(async () => {
-    setStockSyncing(true);
-    try {
-      const notice = describeSellpiaStockSync(await syncStock());
-      await invalidate();
+      const notice = describeSellpiaStockSync(await requestSellpiaSync());
       if (notice.tone === 'error') toast.error(notice.message);
       else toast.success(notice.message);
     } finally {
-      setStockSyncing(false);
+      setSyncing(false);
     }
-  }, [syncStock, invalidate]);
-  const stockBusy = stockSyncing || freshnessState?.status === 'syncing';
-  const stockBlockedCount =
+  }, [requestSellpiaSync]);
+  const syncBusy = syncing || freshnessState?.status === 'syncing';
+  const unresolvedTransmissionCount =
     freshnessState?.unresolvedOrderTransmissionIntents.length ?? 0;
-  // 차단은 status 로 드러나지 않는다(항상 refresh_required). 배지에서 구분해준다.
-  const stockMeta = stockBlockedCount > 0
-    ? { label: sellpiaBlockedBadgeLabel(), className: 'bg-red-100 text-red-700' }
-    : freshnessState ? STOCK_FRESHNESS_META[freshnessState.status] : null;
+  const stockMeta = freshnessState ? STOCK_FRESHNESS_META[freshnessState.status] : null;
   const stockAge = freshnessState?.lastVerifiedAt ? timeAgo(freshnessState.lastVerifiedAt) : null;
-
-  // 마운트 시 하루 1회 자동 수집. 확장 없으면 조용히 스킵.
-  useEffect(() => {
-    if (autoRan.current) return;
-    autoRan.current = true;
-    if (safeStorageGet('local', AUTO_SYNC_KEY) === todayKst()) return;
-    (async () => {
-      try {
-        const payload = await collectSellpiaProductProfitFromExtension();
-        const result = await ingestSellpiaProductSales(payload);
-        await invalidate();
-        await syncStock();
-        safeStorageSet('local', AUTO_SYNC_KEY, todayKst());
-        toast.success(`상품별 소진 수집 완료 (${result.productCount}개 상품)`);
-      } catch { /* 확장 미설치/미로그인 — 조용히 스킵(수동 버튼으로 유도) */ }
-    })();
-  }, [invalidate, syncStock]);
 
   return (
     <div className="space-y-3">
@@ -177,29 +96,27 @@ export default function ProductOutflow() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={runStockSync}
-            disabled={stockBusy}
-            title={stockBlockedCount > 0
-              ? `셀피아 전송 결과 미확인 ${stockBlockedCount}건 때문에 동기화가 막혀 있습니다. 재고 관리 > Sellpia 동기화에서 확정해주세요.`
-              : '셀피아 재고(현재고) 다시 동기화'}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold px-2.5 py-1.5 hover:bg-slate-50 disabled:opacity-50"
+            onClick={runSync}
+            disabled={syncBusy}
+            aria-label="셀피아 동기화"
+            title={unresolvedTransmissionCount > 0
+              ? `셀피아 전송 결과 미확인 ${unresolvedTransmissionCount}건은 별도 확인이 필요하지만 동기화는 계속할 수 있습니다.`
+              : '셀피아 현재고와 상품별 소진을 함께 동기화'}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 hover:bg-slate-700 disabled:opacity-50"
           >
-            {stockBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            <span>재고 동기화</span>
+            {syncBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            <span>{syncBusy ? '동기화 중...' : '셀피아 동기화'}</span>
             {stockMeta && (
               <span className={cn('rounded-full px-1.5 py-0.5 text-[11px] font-semibold', stockMeta.className)}>
                 {stockMeta.label}
               </span>
             )}
+            {unresolvedTransmissionCount > 0 && (
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                {sellpiaTransmissionReviewBadgeLabel()} {unresolvedTransmissionCount}
+              </span>
+            )}
             {stockAge && <span className="font-normal text-slate-400">{stockAge}</span>}
-          </button>
-          <button
-            onClick={runSync}
-            disabled={syncing}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 hover:bg-slate-700 disabled:opacity-50"
-          >
-            {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            {syncing ? '수집 중...' : '지금 수집'}
           </button>
         </div>
       </div>
@@ -214,16 +131,8 @@ export default function ProductOutflow() {
           <button onClick={() => refetch()} className="text-xs text-purple-600 hover:underline">다시 시도</button>
         </div>
       ) : !data || !data.hasData ? (
-        <div className="h-40 flex flex-col items-center justify-center gap-2 text-sm text-slate-400">
+        <div className="h-40 flex items-center justify-center text-sm text-slate-400">
           <span>아직 수집된 상품별 소진 데이터가 없습니다.</span>
-          <button
-            onClick={runSync}
-            disabled={syncing}
-            className="inline-flex items-center gap-1.5 text-xs text-purple-600 hover:underline disabled:opacity-50"
-          >
-            {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            셀피아 상품별 이익현황 지금 수집
-          </button>
         </div>
       ) : (
         <ProductOutflowTable

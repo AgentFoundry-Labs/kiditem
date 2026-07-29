@@ -5,6 +5,7 @@ import {
   type ExtensionRuntimeStatus,
 } from '@/lib/extension-bridge';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { extractSellpiaOrderNumbers } from './sellpia-order-targets';
 
 export interface IcecreamMallExtensionRows {
   mall: '아이스크림몰';
@@ -178,6 +179,7 @@ type SellpiaSendResultMetadata = {
   excelFormat?: string | null;
   acceptedRows?: number;
   pendingRows?: number;
+  targetOrderCount?: number;
 };
 
 export type SellpiaSendResult =
@@ -199,10 +201,11 @@ export async function sendOrderFileToSellpiaViaExtension(params: {
   shopName: string;
   fileName: string;
   blob: Blob;
+  orderNumbers?: string[];
 }): Promise<SellpiaSendResult> {
   const extensionId = await detectOrderCollectionExtensionId(
     1200,
-    'sellpiaOrderFileUploadEvidenceV1',
+    'sellpiaScopedAutoInvoiceV1',
   );
   if (!extensionId) {
     return {
@@ -210,6 +213,34 @@ export async function sendOrderFileToSellpiaViaExtension(params: {
       outcome: 'not_submitted',
       error:
         '셀피아 접수 확인 기능이 포함된 최신 주문수집 확장프로그램이 필요합니다. 확장프로그램을 다시 로드한 뒤 재시도해주세요.',
+    };
+  }
+
+  let targetOrderNumbers: string[];
+  const suppliedOrderNumbers = [
+    ...new Set(params.orderNumbers?.map((value) => String(value).trim()).filter(Boolean) ?? []),
+  ];
+  try {
+    const uploadedWorkbookOrderNumbers = await extractSellpiaOrderNumbers(params.blob);
+    targetOrderNumbers = uploadedWorkbookOrderNumbers.length > 0
+      ? uploadedWorkbookOrderNumbers
+      : suppliedOrderNumbers;
+  } catch (error) {
+    if (suppliedOrderNumbers.length === 0) {
+      return {
+        success: false,
+        outcome: 'not_submitted',
+        error: error instanceof Error ? error.message : '셀피아 주문번호를 읽지 못했습니다.',
+      };
+    }
+    targetOrderNumbers = suppliedOrderNumbers;
+  }
+  if (targetOrderNumbers.length === 0) {
+    return {
+      success: false,
+      outcome: 'not_submitted',
+      error:
+        '이번 파일의 주문번호를 식별하지 못해 셀피아 전송을 시작하지 않았습니다. 송장채번 범위를 안전하게 제한할 수 있는 주문번호가 필요합니다.',
     };
   }
 
@@ -231,6 +262,7 @@ export async function sendOrderFileToSellpiaViaExtension(params: {
         shopName: params.shopName,
         fileName: params.fileName,
         fileBase64,
+        targetOrderNumbers,
       },
       60000,
     );
@@ -276,6 +308,7 @@ export interface SellpiaPostTransferResult {
   matched?: number;
   unmatched?: SellpiaUnmatchedRow[];
   unmatchedCount?: number;
+  invoiceTargetCount?: number;
   register?: { registered?: number | null; message?: string };
   message?: string;
   error?: string;
@@ -286,7 +319,10 @@ export interface SellpiaPostTransferResult {
  * 비파괴 단계. 자동재고매칭이 안 된(미매칭/재고부족) 주문 목록을 함께 반환한다.
  */
 export async function runSellpiaPostTransferViaExtension(): Promise<SellpiaPostTransferResult> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(
+    1200,
+    'sellpiaScopedAutoInvoiceV1',
+  );
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
@@ -316,6 +352,9 @@ export interface SellpiaInvoiceRow {
 export interface SellpiaAutoInvoiceResult {
   success: boolean;
   invoiced?: number;
+  requestedTargetCount?: number;
+  selectedTargetCount?: number;
+  missingTargetCount?: number;
   /** 채번 직후 그리드에서 바로 캡처한 발급 송장번호 행들. */
   rows?: SellpiaInvoiceRow[];
   message?: string;
@@ -326,7 +365,10 @@ export interface SellpiaAutoInvoiceResult {
  * ⚠️되돌리기 어려움: 셀피아 송장 자동채번(실제 송장번호 발급). 프론트 확인 이후에만 호출.
  */
 export async function runSellpiaAutoInvoiceViaExtension(): Promise<SellpiaAutoInvoiceResult> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(
+    1200,
+    'sellpiaScopedAutoInvoiceV1',
+  );
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',

@@ -28,7 +28,22 @@ describe('ChannelRecipeAutomationContextRepositoryAdapter', () => {
       where: expect.objectContaining({
         organizationId,
         isActive: true,
-        listing: { is: expect.objectContaining({ channelAccountId, organizationId, isActive: true }) },
+        listing: { is: expect.objectContaining({
+          channelAccountId,
+          organizationId,
+          isActive: true,
+          OR: expect.arrayContaining([
+            {
+              lastImportRun: {
+                is: expect.objectContaining({
+                  sourceType: {
+                    in: expect.arrayContaining(['coupang_rocket_catalog_seed']),
+                  },
+                }),
+              },
+            },
+          ]),
+        }) },
       }),
     }));
     expect(findMany.mock.calls[1]?.[0]).toEqual(expect.objectContaining({

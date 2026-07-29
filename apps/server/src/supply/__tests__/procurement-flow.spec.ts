@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { ROCKET_SAVED_PO_RESPONSE_PROFILE } from '@kiditem/shared/rocket-purchase-preview';
@@ -382,6 +383,21 @@ describe('ProcurementController purchase submission boundary', () => {
     });
   });
 
+  it('allows bounded Rocket workbook metadata above the multipart 1 MiB default', () => {
+    const source = readFileSync(
+      __filename.replace(/__tests__\/[^/]+$/, 'adapter/in/http/procurement.controller.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain(`limits: {
+      fileSize: MAX_ROCKET_WORKBOOK_SIZE,
+      fieldSize: MAX_ROCKET_WORKBOOK_REQUEST_SIZE,
+    }`);
+    expect(source).toContain(
+      'const MAX_ROCKET_WORKBOOK_REQUEST_SIZE = 25 * 1024 * 1024;',
+    );
+  });
+
   it('routes previewRocket through the existing action-body endpoint with server actor scope', async () => {
     const previews = { preview: vi.fn().mockResolvedValue({ rows: [] }) };
     const Controller = ProcurementController as unknown as new (
@@ -416,6 +432,7 @@ describe('ProcurementController purchase submission boundary', () => {
     expect(previews.preview).toHaveBeenCalledWith({
       organizationId: 'organization-1',
       userId: 'authenticated-user',
+      inventoryRequirement: 'advisory',
       request: {
         channelAccountId: body.channelAccountId,
         collection: body.collection,
@@ -424,6 +441,43 @@ describe('ProcurementController purchase submission boundary', () => {
         clampEditedQuantities: true,
       },
     });
+  });
+
+  it('allows Rocket export preflight to require fresh inventory explicitly', async () => {
+    const previews = { preview: vi.fn().mockResolvedValue({ rows: [] }) };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: Record<string, unknown>,
+      previews: typeof previews,
+    ) => ProcurementController;
+    const controller = new Controller({}, {}, previews);
+    const body = {
+      action: 'previewRocket',
+      inventoryRequirement: 'fresh',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 0,
+        failedPoNumbers: [],
+      },
+      rows: [],
+      editedQuantities: {},
+      clampEditedQuantities: true,
+    };
+
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      body as never,
+    );
+
+    expect(previews.preview).toHaveBeenCalledWith(expect.objectContaining({
+      inventoryRequirement: 'fresh',
+    }));
   });
 
   it('passes the caller key and authenticated actor to the common submission port', async () => {

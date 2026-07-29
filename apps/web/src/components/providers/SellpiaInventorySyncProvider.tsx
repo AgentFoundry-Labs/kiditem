@@ -12,6 +12,8 @@ import {
   collectSellpiaInventory,
   finalizeSellpiaInventorySession,
 } from '@/lib/sellpia-inventory-extension';
+import { ingestSellpiaProductSales } from '@/lib/sellpia-product-sales-api';
+import { collectSellpiaProductProfitFromExtension } from '@/lib/sellpia-product-sales-collection';
 import {
   failOperationAlert,
   progressOperationAlert,
@@ -106,7 +108,7 @@ function errorDetails(error: unknown): {
   };
   return {
     code: candidate.failureCode ?? 'sellpia_network_failed',
-    message: (candidate.message ?? 'Sellpia 재고 갱신에 실패했습니다.').slice(0, 300),
+    message: (candidate.message ?? 'Sellpia 동기화에 실패했습니다.').slice(0, 300),
     reason: candidate.reason,
   };
 }
@@ -238,6 +240,7 @@ export function SellpiaInventorySyncProvider({
       });
       return;
     }
+    const includesProductSales = trigger === 'manual_request' || trigger === 'retry';
 
     ownerClaimTokenRef.current = claimToken;
     cacheFreshnessIfChanged(queryClient, claim.state);
@@ -259,13 +262,14 @@ export function SellpiaInventorySyncProvider({
     };
     stopHeartbeatRef.current = stopHeartbeat;
 
+    let collected: Awaited<ReturnType<typeof collectSellpiaInventory>> | null = null;
     try {
       if (claimIsStopped()) return;
       await bestEffortAlert(() => startOperationAlert({
         operationKey: `browser-collection:${claimToken}`,
         type: 'browser_collection',
-        title: 'Sellpia 재고 갱신',
-        message: 'Sellpia 재고 스냅샷을 수집하고 있습니다.',
+        title: 'Sellpia 동기화',
+        message: 'Sellpia 현재고를 수집하고 있습니다.',
         sourceType: 'browser_collection_session',
         sourceId: 'inventory.sellpia',
         href: '/inventory-hub?tab=sellpia-sync',
@@ -277,57 +281,54 @@ export function SellpiaInventorySyncProvider({
       }));
       if (claimIsStopped()) return;
 
-      const collected = await collectSellpiaInventory({ runId: claimToken });
+      collected = await collectSellpiaInventory({ runId: claimToken });
       if (claimIsStopped()) return;
+      if (includesProductSales) {
+        await bestEffortAlert(() => progressOperationAlert(
+          `browser-collection:${claimToken}`,
+          {
+            message: 'Sellpia 상품별 소진을 수집하고 있습니다.',
+            progress: 0.35,
+            metadata: nextAlertMetadata(claimToken),
+          },
+        ));
+        if (claimIsStopped()) return;
+
+        const productSalesPayload = await collectSellpiaProductProfitFromExtension(
+          collected.extensionId,
+        );
+        if (claimIsStopped()) return;
+        await ingestSellpiaProductSales(productSalesPayload);
+        if (claimIsStopped()) return;
+      }
       await bestEffortAlert(() => progressOperationAlert(
         `browser-collection:${claimToken}`,
         {
-          message: 'Sellpia 재고 스냅샷을 검증하고 있습니다.',
-          progress: 0.5,
+          message: includesProductSales
+            ? 'Sellpia 현재고와 소진 데이터를 반영하고 있습니다.'
+            : 'Sellpia 현재고를 반영하고 있습니다.',
+          progress: includesProductSales ? 0.7 : 0.5,
           metadata: nextAlertMetadata(claimToken),
         },
       ));
       if (claimIsStopped()) return;
 
-      let imported;
-      try {
-        imported = await sellpiaInventoryFreshnessApi.importBrowser(collected.file, {
-          claimToken,
-          activeGeneration: claim.activeGeneration,
-          trigger,
-        });
-      } catch (error) {
-        if (claimIsStopped()) return;
-        const details = errorDetails(error);
-        await sellpiaInventoryFreshnessApi.fail(claimToken, {
-          errorCode: details.code,
-          errorMessage: details.message,
-        }).catch(() => undefined);
-        if (claimIsStopped()) return;
-        await finalizeSellpiaInventorySession(
-          { extensionId: collected.extensionId, runId: claimToken },
-          'failed',
-          details.message,
-        ).catch(() => undefined);
-        if (claimIsStopped()) return;
-        await bestEffortAlert(() => failOperationAlert(
-          `browser-collection:${claimToken}`,
-          {
-            message: details.message,
-            severity: 'error',
-            metadata: nextAlertMetadata(claimToken),
-          },
-        ));
-        return;
-      }
+      const imported = await sellpiaInventoryFreshnessApi.importBrowser(collected.file, {
+        claimToken,
+        activeGeneration: claim.activeGeneration,
+        trigger,
+      });
 
       if (claimIsStopped()) return;
       let extensionFinalized = true;
+      const successMessage = includesProductSales
+        ? 'Sellpia 현재고와 상품별 소진 동기화가 완료되었습니다.'
+        : 'Sellpia 현재고 동기화가 완료되었습니다.';
       try {
         await finalizeSellpiaInventorySession(
           { extensionId: collected.extensionId, runId: claimToken },
           'succeeded',
-          'Sellpia 재고 갱신이 완료되었습니다.',
+          successMessage,
         );
       } catch (error) {
         extensionFinalized = false;
@@ -335,7 +336,7 @@ export function SellpiaInventorySyncProvider({
         await bestEffortAlert(() => failOperationAlert(
           `browser-collection:${claimToken}`,
           {
-            message: `재고 반영은 완료되었지만 확장 세션 정리에 실패했습니다: ${errorDetails(error).message}`,
+            message: `Sellpia 데이터 반영은 완료되었지만 확장 세션 정리에 실패했습니다: ${errorDetails(error).message}`,
             severity: 'warning',
             metadata: nextAlertMetadata(claimToken),
           },
@@ -347,7 +348,7 @@ export function SellpiaInventorySyncProvider({
         await bestEffortAlert(() => succeedOperationAlert(
           `browser-collection:${claimToken}`,
           {
-            message: 'Sellpia 재고 갱신이 완료되었습니다.',
+            message: successMessage,
             progress: 1,
             metadata: nextAlertMetadata(claimToken),
           },
@@ -392,6 +393,14 @@ export function SellpiaInventorySyncProvider({
         errorCode: details.code,
         errorMessage: details.message,
       }).catch(() => undefined);
+      if (claimIsStopped()) return;
+      if (collected) {
+        await finalizeSellpiaInventorySession(
+          { extensionId: collected.extensionId, runId: claimToken },
+          'failed',
+          details.message,
+        ).catch(() => undefined);
+      }
       if (claimIsStopped()) return;
       await bestEffortAlert(() => failOperationAlert(
         `browser-collection:${claimToken}`,

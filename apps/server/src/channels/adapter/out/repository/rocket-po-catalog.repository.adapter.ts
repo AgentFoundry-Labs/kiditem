@@ -142,11 +142,6 @@ implements RocketPoCatalogRepositoryPort {
         },
       });
       if (duplicate) {
-        await publishIdentities(tx, this.productProvisioner, input, {
-          sourceImportRunId: duplicate.id,
-          products,
-        });
-        await ensureRocketPoCatalogSnapshot(tx, input, duplicate.id);
         return {
           run: toCompletedRun(duplicate),
           duplicate: true,

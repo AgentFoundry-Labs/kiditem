@@ -24,10 +24,6 @@ export interface GenerationEntry {
   templateId: string;
   /** 'pending' | 'processing' | 'completed' | 'failed' */
   status: string;
-  /** processedImages 채워진 갯수 */
-  processedCount?: number;
-  /** 총 raw 이미지 갯수 */
-  totalCount?: number;
   /** 어떤 상품인지 */
   productName?: string;
   /** detail-page generationMode. rawInput 에서 온다. */
@@ -52,8 +48,6 @@ const TEMPLATE_LABEL: Record<string, string> = {
 export function GenerationProgressBanner({
   templateId,
   status,
-  processedCount = 0,
-  totalCount = 0,
   productName,
   generationMode = 'full',
   compact = false,
@@ -64,13 +58,8 @@ export function GenerationProgressBanner({
   onDismissCancel,
 }: GenerationProgressBannerProps) {
   const tLabel = TEMPLATE_LABEL[templateId] ?? templateId;
-  const isProcessing = status === 'processing';
 
   const stage = getDetailGenerationStage(status, generationMode);
-  const pct =
-    isProcessing && totalCount > 0
-      ? Math.min(100, Math.round((processedCount / totalCount) * 100))
-      : null;
 
   const padCls = compact ? 'px-4 py-2.5' : 'px-5 py-4';
   const titleCls = compact ? 'text-[13px] font-bold' : 'text-[15px] font-bold';
@@ -100,28 +89,25 @@ export function GenerationProgressBanner({
             onRequest={onRequestCancel}
           />
         </div>
-        <div className={`${barH} rounded-full overflow-hidden`} style={{ background: '#7c3aed20' }}>
-          {pct !== null ? (
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{ width: `${pct}%`, background: '#7c3aed' }}
-            />
-          ) : (
-            <div
-              className="h-full rounded-full"
-              style={{
-                width: '40%',
-                background: '#7c3aed',
-                animation: 'kiditem-progress-indeterminate 1.4s ease-in-out infinite',
-              }}
-            />
-          )}
+        <div
+          className={`${barH} rounded-full overflow-hidden`}
+          style={{ background: '#7c3aed20' }}
+          role="progressbar"
+          aria-label="상세페이지 생성 진행 상태"
+          aria-valuetext={stage}
+        >
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: '40%',
+              background: '#7c3aed',
+              animation: 'kiditem-progress-indeterminate 1.4s ease-in-out infinite',
+            }}
+          />
         </div>
         {!compact && (
           <div className={subCls} style={{ color: '#7c3aed90' }}>
-            {isProcessing && totalCount > 0
-              ? `이미지 ${processedCount} / ${totalCount}개 처리됨`
-              : '잠시만 기다려주세요 — 다른 페이지로 이동해도 백그라운드에서 계속 진행됩니다'}
+            생성 상태를 확인하고 있습니다 — 다른 페이지로 이동해도 백그라운드에서 계속 진행됩니다
           </div>
         )}
         {isConfirmingCancel && (

@@ -8,11 +8,12 @@ describe('CoupangDirectOrderCollectionService', () => {
       collect: vi.fn().mockResolvedValue({
         importRunId: '11111111-1111-4111-8111-111111111111',
         exportId: '55555555-5555-4555-8555-555555555555',
-        transmissionIntentKey: 'rocket-workbook:55555555-5555-4555-8555-555555555555:shipment',
+        transmissionIntentKey: 'rocket-final-order:11111111-1111-4111-8111-111111111111:shipment',
         matchedLineCount: 1,
         reconciledRows: 1,
-        confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
-        skippedLines: [],
+        collectedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        matchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        unmatchedLines: [],
         duplicate: false,
       }),
     };
@@ -42,8 +43,9 @@ describe('CoupangDirectOrderCollectionService', () => {
         transmissionIntentKey: null,
         matchedLineCount: 0,
         reconciledRows: 0,
-        confirmedLines: [],
-        skippedLines: [],
+        collectedLines: [],
+        matchedLines: [],
+        unmatchedLines: [],
         duplicate: false,
       }),
     };
@@ -68,11 +70,12 @@ describe('CoupangDirectOrderCollectionService', () => {
       collect: vi.fn().mockResolvedValue({
         importRunId: '11111111-1111-4111-8111-111111111111',
         exportId: '55555555-5555-4555-8555-555555555555',
-        transmissionIntentKey: 'rocket-workbook:55555555-5555-4555-8555-555555555555:shipment',
+        transmissionIntentKey: 'rocket-final-order:11111111-1111-4111-8111-111111111111:shipment',
         matchedLineCount: 1,
         reconciledRows: 1,
-        confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
-        skippedLines: [],
+        collectedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        matchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        unmatchedLines: [],
         duplicate: false,
       }),
     };
@@ -90,11 +93,12 @@ describe('CoupangDirectOrderCollectionService', () => {
     expect(result).toEqual({
       importRunId: '11111111-1111-4111-8111-111111111111',
       exportId: '55555555-5555-4555-8555-555555555555',
-      transmissionIntentKey: 'rocket-workbook:55555555-5555-4555-8555-555555555555:shipment',
+      transmissionIntentKey: 'rocket-final-order:11111111-1111-4111-8111-111111111111:shipment',
       matchedLineCount: 1,
       reconciledRows: 1,
-      confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
-      skippedLines: [],
+      collectedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+      matchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+      unmatchedLines: [],
       duplicate: false,
     });
     expect(transactions.collect).toHaveBeenCalledTimes(1);

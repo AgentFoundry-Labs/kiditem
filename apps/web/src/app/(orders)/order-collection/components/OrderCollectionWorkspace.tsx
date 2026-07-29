@@ -797,6 +797,7 @@ export function OrderCollectionWorkspace() {
         onUploadTracking={(account) =>
           void uploadTrackingForMall({
             account,
+            history,
             logError: (title, message) => logActivity('error', title, message),
             onGeneratedFile: addGeneratedTrackingFile,
           })

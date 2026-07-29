@@ -5,24 +5,28 @@ const ORGANIZATION_ID = '22222222-2222-4222-8222-222222222222';
 const USER_ID = '33333333-3333-4333-8333-333333333333';
 
 describe('OrderCollectionController Coupang direct convert', () => {
-  it('collects atomically and generates a Sellpia workbook only from matched export lines', async () => {
+  it('generates a Sellpia workbook from every collected line and reports linkage separately', async () => {
     const workbook = {
       generate: vi.fn().mockResolvedValue({
         buffer: Buffer.from('xls'),
         fileName: 'orders.xls',
         poCount: 1,
-        rowCount: 1,
+        rowCount: 2,
       }),
     };
     const collection = {
       collect: vi.fn().mockResolvedValue({
         importRunId: '11111111-1111-4111-8111-111111111111',
         exportId: '55555555-5555-4555-8555-555555555555',
-        transmissionIntentKey: 'rocket-workbook:55555555-5555-4555-8555-555555555555:shipment',
+        transmissionIntentKey: 'rocket-final-order:11111111-1111-4111-8111-111111111111:shipment',
         matchedLineCount: 1,
         reconciledRows: 1,
-        confirmedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
-        skippedLines: [{ poNumber: 'PO-1', productNo: 'P-2' }],
+        collectedLines: [
+          { poNumber: 'PO-1', productNo: 'P-1' },
+          { poNumber: 'PO-1', productNo: 'P-2' },
+        ],
+        matchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-2' }],
         duplicate: false,
       }),
     };
@@ -51,7 +55,10 @@ describe('OrderCollectionController Coupang direct convert', () => {
       transport: 'SHIPMENT',
       pos: [{
         seq: 'PO-1',
-        items: [expect.objectContaining({ skuId: 'P-1' })],
+        items: [
+          expect.objectContaining({ skuId: 'P-1' }),
+          expect.objectContaining({ skuId: 'P-2' }),
+        ],
       }],
     });
     expect(file).toBeDefined();
@@ -65,25 +72,41 @@ describe('OrderCollectionController Coupang direct convert', () => {
     );
     expect(response.setHeader).toHaveBeenCalledWith(
       'X-Sellpia-Transmission-Intent-Key',
-      'rocket-workbook:55555555-5555-4555-8555-555555555555:shipment',
+      'rocket-final-order:11111111-1111-4111-8111-111111111111:shipment',
     );
     expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Source-Rows', '1');
-    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Product-Rows', '1');
-    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Output-Rows', '1');
-    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Skipped-Rows', '1');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Product-Rows', '2');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Output-Rows', '2');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Skipped-Rows', '0');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Rocket-Workbook-Matched-Rows', '1');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Rocket-Workbook-Unmatched-Rows', '1');
   });
 
-  it('returns 204 without generating an empty workbook after persisting a no-match probe', async () => {
-    const workbook = { generate: vi.fn() };
+  it('generates a Sellpia workbook when every collected line is unmatched', async () => {
+    const workbook = {
+      generate: vi.fn().mockResolvedValue({
+        buffer: Buffer.from('xls'),
+        fileName: 'orders.xls',
+        poCount: 1,
+        rowCount: 2,
+      }),
+    };
     const collection = {
       collect: vi.fn().mockResolvedValue({
         importRunId: '11111111-1111-4111-8111-111111111111',
-        exportId: '55555555-5555-4555-8555-555555555555',
-        transmissionIntentKey: null,
+        exportId: null,
+        transmissionIntentKey: 'rocket-final-order:11111111-1111-4111-8111-111111111111:shipment',
         matchedLineCount: 0,
         reconciledRows: 0,
-        confirmedLines: [],
-        skippedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+        collectedLines: [
+          { poNumber: 'PO-1', productNo: 'P-1' },
+          { poNumber: 'PO-1', productNo: 'P-2' },
+        ],
+        matchedLines: [],
+        unmatchedLines: [
+          { poNumber: 'PO-1', productNo: 'P-1' },
+          { poNumber: 'PO-1', productNo: 'P-2' },
+        ],
         duplicate: false,
       }),
     };
@@ -105,10 +128,50 @@ describe('OrderCollectionController Coupang direct convert', () => {
       response as never,
     );
 
+    expect(result).toBeDefined();
+    expect(response.status).not.toHaveBeenCalled();
+    expect(workbook.generate).toHaveBeenCalledWith(
+      request(),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Skipped-Rows', '0');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Rocket-Workbook-Unmatched-Rows', '2');
+  });
+
+  it('returns 204 only when the selected transport has no collected row', async () => {
+    const workbook = { generate: vi.fn() };
+    const collection = {
+      collect: vi.fn().mockResolvedValue({
+        importRunId: '11111111-1111-4111-8111-111111111111',
+        exportId: null,
+        transmissionIntentKey: null,
+        matchedLineCount: 0,
+        reconciledRows: 0,
+        collectedLines: [],
+        matchedLines: [],
+        unmatchedLines: [],
+        duplicate: false,
+      }),
+    };
+    const controller = new OrderCollectionController(
+      {} as never,
+      workbook as never,
+      collection as never,
+    );
+    const response = { setHeader: vi.fn(), status: vi.fn().mockReturnThis() };
+    const emptyRequest = { ...request(), pos: [] };
+
+    const result = await controller.convertCoupangDirectship(
+      emptyRequest as never,
+      ORGANIZATION_ID,
+      { id: USER_ID } as never,
+      { once: vi.fn() } as never,
+      response as never,
+    );
+
     expect(result).toBeUndefined();
     expect(response.status).toHaveBeenCalledWith(204);
     expect(workbook.generate).not.toHaveBeenCalled();
-    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Skipped-Rows', '1');
   });
 });
 

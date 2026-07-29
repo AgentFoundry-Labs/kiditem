@@ -10,9 +10,13 @@ import type { StoredOrderCollectionFile } from './order-generated-file-store';
 const KEY = 'kiditem-icecream-deli-index';
 const MAX_AGE_MS = 21 * 24 * 60 * 60 * 1000; // 21일 지나면 정리
 
-interface DeliEntry {
+interface DeliRecord {
   deliNo: string;
-  items: string[]; // 상품번호들 (배송순번 파생용)
+  deliSeq: string;
+}
+
+interface DeliEntry {
+  deliveries: DeliRecord[];
   at: number;
 }
 type DeliIndex = Record<string, DeliEntry>; // 주문번호 → entry
@@ -21,22 +25,68 @@ function loadRaw(): DeliIndex {
   if (typeof window === 'undefined') return {};
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as DeliIndex) : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed).flatMap(([ordNo, value]) => {
+        const entry = normalizeEntry(value);
+        return entry ? [[ordNo, entry]] : [];
+      }),
+    );
   } catch {
     return {};
   }
 }
 
 const norm = (value: unknown): string => String(value ?? '').trim();
+const normSeq = (value: unknown): string => norm(value) || '1';
 const colIndex = (headers: string[], name: string): number =>
   headers.findIndex((h) => String(h ?? '').replace(/\s+/g, '') === name);
+
+function normalizeEntry(value: unknown): DeliEntry | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as {
+    deliveries?: unknown;
+    deliNo?: unknown;
+    deliSeq?: unknown;
+    at?: unknown;
+  };
+  const deliveries = Array.isArray(raw.deliveries)
+    ? raw.deliveries.flatMap((item) => {
+        if (!item || typeof item !== 'object') return [];
+        const record = item as { deliNo?: unknown; deliSeq?: unknown };
+        const deliNo = norm(record.deliNo);
+        return deliNo ? [{ deliNo, deliSeq: normSeq(record.deliSeq) }] : [];
+      })
+    : [];
+
+  // v1 저장값({ deliNo, items })은 배송순번을 저장하지 않았다. 아이스크림몰의
+  // 기본 배송순번 1로 한 번만 마이그레이션하고 이후에는 실제 배송순번을 보존한다.
+  const legacyDeliNo = norm(raw.deliNo);
+  if (deliveries.length === 0 && legacyDeliNo) {
+    deliveries.push({ deliNo: legacyDeliNo, deliSeq: normSeq(raw.deliSeq) });
+  }
+  if (deliveries.length === 0) return null;
+
+  return {
+    deliveries: dedupeDeliveries(deliveries),
+    at: Number.isFinite(Number(raw.at)) ? Number(raw.at) : Date.now(),
+  };
+}
+
+function dedupeDeliveries(records: DeliRecord[]): DeliRecord[] {
+  return [...new Map(records.map((record) => [
+    `${record.deliNo}\u001f${record.deliSeq}`,
+    record,
+  ])).values()];
+}
 
 /** 수집(배송조회 원본 행) 시 주문번호→배송번호 인덱스를 누적 저장. */
 export function saveIcecreamDeliveryIndex(headers: string[], rows: string[][]): void {
   if (typeof window === 'undefined') return;
   const oi = colIndex(headers, '주문번호');
   const di = colIndex(headers, '배송번호');
-  const pi = colIndex(headers, '상품번호');
+  const si = colIndex(headers, '배송순번');
   if (oi < 0 || di < 0) return;
 
   const idx = loadRaw();
@@ -45,11 +95,10 @@ export function saveIcecreamDeliveryIndex(headers: string[], rows: string[][]): 
     const ordNo = norm(row[oi]);
     const deliNo = norm(row[di]);
     if (!ordNo || !deliNo) continue;
-    const item = pi >= 0 ? norm(row[pi]) : '';
-    const cur = idx[ordNo] ?? { deliNo, items: [], at: now };
-    cur.deliNo = deliNo;
+    const deliSeq = si >= 0 ? normSeq(row[si]) : '1';
+    const cur = idx[ordNo] ?? { deliveries: [], at: now };
     cur.at = now;
-    if (item && !cur.items.includes(item)) cur.items.push(item);
+    cur.deliveries = dedupeDeliveries([...cur.deliveries, { deliNo, deliSeq }]);
     idx[ordNo] = cur;
   }
   const cutoff = now - MAX_AGE_MS;
@@ -61,7 +110,7 @@ export function saveIcecreamDeliveryIndex(headers: string[], rows: string[][]): 
   }
 }
 
-/** 생성된 아이스크림 파일(셀피아 xlsx) blob 을 파싱해 주문번호→배송번호/상품번호 백필. */
+/** 생성된 아이스크림 파일 blob 을 파싱해 주문번호→배송번호/배송순번 백필. */
 async function backfillFromFile(file: StoredOrderCollectionFile, into: DeliIndex): Promise<void> {
   try {
     const XLSX = await import('xlsx');
@@ -77,7 +126,7 @@ async function backfillFromFile(file: StoredOrderCollectionFile, into: DeliIndex
     const headers = (aoa[0] as unknown[]).map((h) => String(h ?? ''));
     const oi = colIndex(headers, '주문번호');
     const di = colIndex(headers, '배송번호');
-    const pi = colIndex(headers, '상품번호');
+    const si = colIndex(headers, '배송순번');
     if (oi < 0 || di < 0) return;
     const at = file.convertedAt ?? Date.now();
     for (const raw of aoa.slice(1)) {
@@ -85,10 +134,10 @@ async function backfillFromFile(file: StoredOrderCollectionFile, into: DeliIndex
       const ordNo = norm(row[oi]);
       const deliNo = norm(row[di]);
       if (!ordNo || !deliNo) continue;
-      const item = pi >= 0 ? norm(row[pi]) : '';
-      const cur = into[ordNo] ?? { deliNo, items: [], at };
-      cur.deliNo = deliNo;
-      if (item && !cur.items.includes(item)) cur.items.push(item);
+      const deliSeq = si >= 0 ? normSeq(row[si]) : '1';
+      const cur = into[ordNo] ?? { deliveries: [], at };
+      cur.deliveries = dedupeDeliveries([...cur.deliveries, { deliNo, deliSeq }]);
+      cur.at = Math.max(cur.at, at);
       into[ordNo] = cur;
     }
   } catch {
@@ -97,14 +146,20 @@ async function backfillFromFile(file: StoredOrderCollectionFile, into: DeliIndex
 }
 
 /**
- * 주어진 주문번호들의 배송번호/상품번호를 모아 백엔드 조인용 원본 형태 {headers, rows} 로 반환.
- * (headers=['주문번호','배송번호','상품번호'], 상품번호 하나당 한 행 → 백엔드가 배송순번 파생 + 송장 조인.)
+ * 주어진 주문번호들의 배송번호/배송순번을 모아 출고완료 파일 조인용 원본 형태로 반환.
+ * 상품 행 수가 아니라 (배송번호, 배송순번) 기준으로 한 번만 반환한다.
  * 인덱스에 없는 주문번호는 넘겨받은 아이스크림 생성 파일에서 백필. 못 찾으면 그 주문은 빠진다.
  */
 export async function buildIcecreamDeliveryRows(
   ordNos: Set<string>,
   icecreamFiles: StoredOrderCollectionFile[],
-): Promise<{ headers: string[]; rows: string[][]; matchedOrders: number; indexSize: number }> {
+): Promise<{
+  headers: string[];
+  rows: string[][];
+  matchedOrders: number;
+  missingOrderNumbers: string[];
+  indexSize: number;
+}> {
   const idx: DeliIndex = { ...loadRaw() };
   const stillMissing = () => [...ordNos].some((o) => !idx[o]);
   if (stillMissing()) {
@@ -114,15 +169,26 @@ export async function buildIcecreamDeliveryRows(
     }
   }
 
-  const headers = ['주문번호', '배송번호', '상품번호'];
+  const headers = ['주문번호', '배송번호', '배송순번'];
   const rows: string[][] = [];
   let matchedOrders = 0;
+  const missingOrderNumbers: string[] = [];
   for (const ordNo of ordNos) {
     const entry = idx[ordNo];
-    if (!entry) continue;
+    if (!entry) {
+      missingOrderNumbers.push(ordNo);
+      continue;
+    }
     matchedOrders += 1;
-    const items = entry.items.length ? entry.items : [''];
-    for (const item of items) rows.push([ordNo, entry.deliNo, item]);
+    for (const delivery of entry.deliveries) {
+      rows.push([ordNo, delivery.deliNo, delivery.deliSeq]);
+    }
   }
-  return { headers, rows, matchedOrders, indexSize: Object.keys(idx).length };
+  return {
+    headers,
+    rows,
+    matchedOrders,
+    missingOrderNumbers,
+    indexSize: Object.keys(idx).length,
+  };
 }

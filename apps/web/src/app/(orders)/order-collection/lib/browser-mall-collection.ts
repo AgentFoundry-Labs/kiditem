@@ -441,6 +441,9 @@ export function createBrowserMallCollector({
         signal: run.signal,
       });
       if (!conversion.file) continue;
+      if (!conversion.transmissionIntentKey) {
+        throw new Error('쿠팡 로켓 수집 식별 정보가 없어 파일을 저장하지 않았습니다.');
+      }
       const result = conversion.file;
       // 수집한 발주는 전부 파일에 담긴다 — 표시 건수는 발주 기준(sourceRows)으로 맞춘다.
       const itemRows = result.outputRows ?? 0;
@@ -448,11 +451,13 @@ export function createBrowserMallCollector({
       const poCount = result.sourceRows || orderNumbers.length || matchingPos.length;
       totalOrders += poCount;
       const convertedAt = Date.now();
+      const unmatchedLabel = conversion.workbookUnmatchedRows > 0
+        ? ` · 워크북 미매칭 ${formatNumber(conversion.workbookUnmatchedRows)}품목 포함`
+        : '';
       const historyItem = {
         ...result,
-        id: conversion.transmissionIntentKey
-          ?? `${convertedAt}-coupang-direct-${transport.toLowerCase()}-browser`,
-        sourceName: `쿠팡직배송 ${label} (${formatNumber(poCount)}건 · ${formatNumber(itemRows)}품목)`,
+        id: conversion.transmissionIntentKey,
+        sourceName: `쿠팡직배송 ${label} (${formatNumber(poCount)}건 · ${formatNumber(itemRows)}품목${unmatchedLabel})`,
         convertedAt,
         collectionDate: collectionDateOf(run),
         collectionMode: 'browser' as const,

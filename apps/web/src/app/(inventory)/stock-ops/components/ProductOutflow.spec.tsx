@@ -4,9 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const productSalesApi = vi.hoisted(() => ({
   fetch: vi.fn(),
-  ingest: vi.fn(),
 }));
-const productProfitCollection = vi.hoisted(() => vi.fn());
 const requestRefresh = vi.hoisted(() => vi.fn());
 const freshness = vi.hoisted(() => ({
   state: {
@@ -19,10 +17,6 @@ const freshness = vi.hoisted(() => ({
     }>,
   },
 }));
-const browserStorage = vi.hoisted(() => ({
-  get: vi.fn(),
-  set: vi.fn(),
-}));
 const toastMock = vi.hoisted(() => ({
   success: vi.fn(),
   error: vi.fn(),
@@ -32,21 +26,11 @@ vi.mock('sonner', () => ({ toast: toastMock }));
 
 vi.mock('@/lib/sellpia-product-sales-api', () => ({
   fetchSellpiaProductSales: productSalesApi.fetch,
-  ingestSellpiaProductSales: productSalesApi.ingest,
-}));
-vi.mock('@/lib/sellpia-product-sales-collection', () => ({
-  collectSellpiaProductProfitFromExtension: productProfitCollection,
 }));
 vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({
   useSellpiaInventoryFreshness: () => ({ requestRefresh, state: freshness.state }),
 }));
-vi.mock('@/lib/browser-storage', () => ({
-  safeStorageGet: browserStorage.get,
-  safeStorageSet: browserStorage.set,
-}));
-
 import ProductOutflow from './ProductOutflow';
-import { queryKeys } from '@/lib/query-keys';
 
 function renderProductOutflow() {
   const client = new QueryClient({
@@ -67,7 +51,6 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-07-17T01:00:00.000Z'));
-    browserStorage.get.mockReturnValue('2026-07-17');
     productSalesApi.fetch.mockResolvedValue({
       range: { from: '2026-07', to: '2026-07' },
       months: [],
@@ -94,15 +77,6 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
       unclassifiedProductCount: 0,
       leadTimeMonths: 1,
     });
-    productProfitCollection.mockResolvedValue({
-      range: { from: '2026-07-01', to: '2026-07-16' },
-      products: [],
-    });
-    productSalesApi.ingest.mockResolvedValue({
-      upserted: 0,
-      productCount: 0,
-      months: [],
-    });
     requestRefresh.mockResolvedValue({
       status: 'refresh_required',
       syncNotBefore: null,
@@ -120,84 +94,17 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     vi.useRealTimers();
   });
 
-  it('keeps product-profit collection and delegates stock refresh to the shared coordinator', async () => {
+  it('offers one Sellpia sync action and delegates both datasets to the shared coordinator', async () => {
     renderProductOutflow();
 
-    fireEvent.click(screen.getByRole('button', { name: '지금 수집' }));
-
-    await waitFor(() => expect(productProfitCollection).toHaveBeenCalledTimes(1));
-    expect(productSalesApi.ingest).toHaveBeenCalledTimes(1);
-    expect(requestRefresh).toHaveBeenCalledWith('manual_request');
-  });
-
-  it('invalidates every stored-grade consumer immediately after a successful manual ingest', async () => {
-    const { client } = renderProductOutflow();
-    const invalidateQueries = vi.spyOn(client, 'invalidateQueries');
-
-    fireEvent.click(screen.getByRole('button', { name: '지금 수집' }));
-
-    await waitFor(() => expect(productSalesApi.ingest).toHaveBeenCalledOnce());
-    await waitFor(() => expectInvalidationTargets(invalidateQueries));
-  });
-
-  it('does not wait for the optional stock refresh before invalidating stored-grade consumers', async () => {
-    requestRefresh.mockImplementationOnce(() => new Promise(() => undefined));
-    const { client } = renderProductOutflow();
-    const invalidateQueries = vi.spyOn(client, 'invalidateQueries');
-
-    fireEvent.click(screen.getByRole('button', { name: '지금 수집' }));
-
-    await waitFor(() => expect(productSalesApi.ingest).toHaveBeenCalledOnce());
-    await waitFor(() => expectInvalidationTargets(invalidateQueries));
-  });
-
-  it('invalidates the same query families after a successful automatic ingest', async () => {
-    browserStorage.get.mockReturnValue(null);
-    const { client } = renderProductOutflow();
-    const invalidateQueries = vi.spyOn(client, 'invalidateQueries');
-
-    await waitFor(() => expect(productSalesApi.ingest).toHaveBeenCalledOnce());
-    await waitFor(() => expectInvalidationTargets(invalidateQueries));
-  });
-
-  it('does not invalidate query families when the manual ingest fails', async () => {
-    productSalesApi.ingest.mockRejectedValueOnce(new Error('ingest failed'));
-    const { client } = renderProductOutflow();
-    const invalidateQueries = vi.spyOn(client, 'invalidateQueries');
-
-    fireEvent.click(screen.getByRole('button', { name: '지금 수집' }));
-
-    await waitFor(() => expect(productSalesApi.ingest).toHaveBeenCalledOnce());
-    expect(invalidateQueries).not.toHaveBeenCalled();
-  });
-
-  it('refreshes Sellpia stock separately without collecting or ingesting product profit', async () => {
-    let completeRefresh: (() => void) | undefined;
-    requestRefresh.mockImplementationOnce(
-      () => new Promise((resolve) => {
-        completeRefresh = () => resolve({
-          status: 'syncing',
-          syncNotBefore: null,
-          unresolvedOrderTransmissionIntents: [],
-        });
-      }),
-    );
-    renderProductOutflow();
-
-    const stockRefresh = screen.getByRole('button', { name: /재고 동기화/ });
-    expect(screen.getByText('갱신 필요')).toBeInTheDocument();
-    fireEvent.click(stockRefresh);
+    fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
     await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
-    expect(stockRefresh).toBeDisabled();
-    expect(productProfitCollection).not.toHaveBeenCalled();
-    expect(productSalesApi.ingest).not.toHaveBeenCalled();
-
-    completeRefresh?.();
-    await waitFor(() => expect(stockRefresh).toBeEnabled());
+    expect(screen.queryByRole('button', { name: '지금 수집' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /재고 동기화/ })).not.toBeInTheDocument();
   });
 
-  it('retries the failed Sellpia generation from the direct stock refresh action', async () => {
+  it('retries the failed Sellpia generation from the unified sync action', async () => {
     freshness.state = {
       status: 'failed',
       lastVerifiedAt: '2026-07-17T00:30:00.000Z',
@@ -206,14 +113,12 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     };
     renderProductOutflow();
 
-    fireEvent.click(screen.getByRole('button', { name: /재고 동기화/ }));
+    fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
     await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('retry'));
-    expect(productProfitCollection).not.toHaveBeenCalled();
-    expect(productSalesApi.ingest).not.toHaveBeenCalled();
   });
 
-  it('renders shared syncing freshness as a disabled stock refresh action', () => {
+  it('renders shared syncing freshness as a disabled unified sync action', () => {
     freshness.state = {
       status: 'syncing',
       lastVerifiedAt: '2026-07-17T00:30:00.000Z',
@@ -223,14 +128,12 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     renderProductOutflow();
 
     expect(screen.getByText('갱신 중')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /재고 동기화/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /셀피아 동기화/ })).toBeDisabled();
     expect(requestRefresh).not.toHaveBeenCalled();
   });
 
-  // Regression: an unresolved Sellpia transmission makes the refresh request a
-  // no-op, and the button used to toast success on any non-throwing response.
-  it('reports the blocking transmission instead of claiming the sync started', async () => {
-    const blocked = {
+  it('keeps Sellpia sync available while reporting an unresolved transmission separately', async () => {
+    const unresolved = {
       status: 'refresh_required',
       lastVerifiedAt: '2026-07-17T00:30:00.000Z',
       syncNotBefore: null,
@@ -241,16 +144,16 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
         },
       ],
     };
-    freshness.state = blocked;
-    requestRefresh.mockResolvedValue(blocked);
+    freshness.state = unresolved;
+    requestRefresh.mockResolvedValue(unresolved);
     renderProductOutflow();
 
-    expect(screen.getByText('전송 확인 필요')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /재고 동기화/ }));
+    expect(screen.getByText('전송 확인 필요 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
-    await waitFor(() => expect(toastMock.error).toHaveBeenCalledTimes(1));
-    expect(toastMock.error.mock.calls[0][0]).toContain('재고 동기화가 막혀 있습니다');
-    expect(toastMock.success).not.toHaveBeenCalled();
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
+    expect(toastMock.success).toHaveBeenCalledWith('셀피아 동기화를 예약했습니다.');
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 
   it('reports the settle window when the sync is genuinely queued', async () => {
@@ -261,10 +164,10 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     });
     renderProductOutflow();
 
-    fireEvent.click(screen.getByRole('button', { name: /재고 동기화/ }));
+    fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
     await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith(
-      '셀피아 재고 동기화를 예약했습니다. 약 120초 후 시작합니다.',
+      '셀피아 동기화를 예약했습니다. 약 120초 후 시작합니다.',
     ));
     expect(toastMock.error).not.toHaveBeenCalled();
   });
@@ -423,21 +326,3 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     expect(screen.getByText('이상치 재고 상품')).toBeInTheDocument();
   });
 });
-
-function expectInvalidationTargets(invalidateQueries: ReturnType<typeof vi.fn>) {
-  expect(invalidateQueries).toHaveBeenCalledWith({
-    queryKey: queryKeys.inventory.productSalesAll(),
-  });
-  expect(invalidateQueries).toHaveBeenCalledWith({
-    queryKey: queryKeys.products.operations.all,
-  });
-  expect(invalidateQueries).toHaveBeenCalledWith({
-    queryKey: queryKeys.dashboard.all,
-  });
-  expect(invalidateQueries).toHaveBeenCalledWith({
-    queryKey: queryKeys.ads.all,
-  });
-  expect(invalidateQueries).toHaveBeenCalledWith({
-    queryKey: queryKeys.actionTasks.all,
-  });
-}

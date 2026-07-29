@@ -8,6 +8,7 @@ import type {
 
 const COMPLETED_CATALOG_SOURCE_TYPES = [
   'coupang_wing_catalog',
+  'coupang_rocket_catalog_seed',
   'coupang_rocket_po_catalog',
 ] as const;
 const PUBLISHED_BROWSER_CATALOG_SOURCE = 'coupang_catalog_browser';

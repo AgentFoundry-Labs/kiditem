@@ -40,17 +40,25 @@ export class CoupangCategorySuggestionService {
             status: 'active',
           },
         },
-        displayName: { not: null },
+        OR: [
+          { channelName: { not: null } },
+          { displayName: { not: null } },
+        ],
         category: { startsWith: '[' },
       },
-      select: { displayName: true, category: true },
+      select: { channelName: true, displayName: true, category: true },
     });
 
-    return rows.flatMap((row) =>
-      row.displayName && row.category
-        ? [{ displayName: row.displayName, categoryCell: row.category }]
-        : [],
-    );
+    return rows.flatMap((row) => {
+      const displayName = row.displayName ?? row.channelName;
+      return displayName && row.category
+        ? [{
+            registeredName: row.channelName,
+            displayName,
+            categoryCell: row.category,
+          }]
+        : [];
+    });
   }
 }
 

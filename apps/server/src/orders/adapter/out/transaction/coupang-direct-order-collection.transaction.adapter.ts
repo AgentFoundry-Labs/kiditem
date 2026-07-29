@@ -147,17 +147,16 @@ implements CoupangDirectOrderCollectionTransactionPort {
         transport: input.request.transport,
         lines: reconciliationLines,
       });
-      // 활성 발주확정이 없어 정산에서 제외된 라인은 하드 에러가 아니라 스킵으로 보고한다.
-      // 확정(정산)된 라인만 셀피아 양식·후속 처리 대상이 되도록 (발주번호, SKU) 식별자로 분리한다.
-      const skippedKeys = new Set(
-        reconciled.skippedLines.map(({ poNumber, productNo }) => lineKey(poNumber, productNo)),
+      // 워크북 연결 여부는 후속 진행 근거일 뿐 Sellpia 후보를 거르는 조건이 아니다.
+      const unmatchedKeys = new Set(
+        reconciled.unmatchedLines.map(({ poNumber, productNo }) => lineKey(poNumber, productNo)),
       );
-      const confirmedLines = dedupeLineRefs(
-        reconciliationLines
-          .filter(({ poNumber, productNo }) => !skippedKeys.has(lineKey(poNumber, productNo)))
-          .map(({ poNumber, productNo }) => ({ poNumber, productNo })),
+      const collectedLines = dedupeLineRefs(
+        reconciliationLines.map(({ poNumber, productNo }) => ({ poNumber, productNo })),
       );
-      const skippedLines = dedupeLineRefs(reconciled.skippedLines);
+      const matchedLines = collectedLines.filter(({ poNumber, productNo }) =>
+        !unmatchedKeys.has(lineKey(poNumber, productNo)));
+      const unmatchedLines = dedupeLineRefs(reconciled.unmatchedLines);
       await tx.sourceImportRun.update({
         where: { id: importRun.id },
         data: {
@@ -174,8 +173,9 @@ implements CoupangDirectOrderCollectionTransactionPort {
         transmissionIntentKey: reconciled.transmissionIntentKey,
         matchedLineCount: reconciled.matchedLineCount,
         reconciledRows: reconciled.reconciledRows,
-        confirmedLines,
-        skippedLines,
+        collectedLines,
+        matchedLines,
+        unmatchedLines,
         duplicate: existingRun?.status === 'completed',
       };
     }, TRANSACTION_OPTIONS);

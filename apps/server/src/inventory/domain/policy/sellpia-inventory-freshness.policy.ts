@@ -111,8 +111,6 @@ export function deriveFreshnessStatus(
     verifiedGeneration: state.verifiedGeneration,
     failedGeneration: state.failedGeneration,
     activeSyncLeaseExpiresAt: state.activeSyncLeaseExpiresAt,
-    hasUnresolvedOrderTransmissionIntent:
-      state.unresolvedOrderTransmissionIntents.length > 0,
   });
 }
 
@@ -355,10 +353,7 @@ export function planClaim(
     };
   }
 
-  if (
-    state.unresolvedOrderTransmissionIntents.length > 0
-    || !isSourceBindingConfirmed(state)
-  ) return { kind: 'joined' };
+  if (!isSourceBindingConfirmed(state)) return { kind: 'joined' };
 
   const ttlExpired = state.requestedGeneration === state.verifiedGeneration
     && state.lastVerifiedAt !== null

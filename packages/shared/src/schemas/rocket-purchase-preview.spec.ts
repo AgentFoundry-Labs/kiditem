@@ -335,6 +335,9 @@ describe('Rocket purchase preview contract', () => {
         productVariantId: PRODUCT_VARIANT_ID,
         components: [{
           sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+          code: 'SP-100',
+          name: 'Sellpia 연결 상품',
+          optionName: null,
           quantity: 1,
           currentStock: 5,
           isActive: true,
@@ -406,24 +409,47 @@ describe('Rocket purchase preview contract', () => {
     })).toThrow(/plannedDeliveryDate/i);
   });
 
-  it('parses a durable freshness-pending checkpoint without stale quantity rows', () => {
+  it('parses a freshness-pending checkpoint with immediately visible advisory rows', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
       status: 'freshness_pending',
       collectionRunId: RUN_ID,
       catalog: publication(),
       requestedGeneration: '8',
+      rows: [{
+        poLineId: request().rows[0]!.poLineId,
+        poNumber: '1001',
+        productNo: 'P-1',
+        productName: '로켓 상품',
+        plannedDeliveryDate: '2026-07-20',
+        orderQuantity: 4,
+        recommendedQuantity: 2,
+        maxQuantity: 2,
+        editedQuantity: null,
+        reason: 'insufficient_capacity',
+        channelSkuId: ACCOUNT_ID,
+        masterProductId: MASTER_PRODUCT_ID,
+        productVariantId: PRODUCT_VARIANT_ID,
+        components: [{
+          sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+          code: 'SP-100',
+          name: 'Sellpia 연결 상품',
+          optionName: null,
+          quantity: 1,
+          currentStock: 2,
+          isActive: true,
+        }],
+      }],
     });
 
     expect(response).toMatchObject({
       status: 'freshness_pending',
       collectionRunId: RUN_ID,
       requestedGeneration: '8',
+      rows: [expect.objectContaining({ poLineId: request().rows[0]!.poLineId })],
     });
-    expect(response).not.toHaveProperty('rows');
     expect(response).not.toHaveProperty('inventoryGeneration');
     expect(() => RocketPurchasePreviewResponseSchema.parse({
       ...response,
-      rows: [],
       inventoryGeneration: '7',
     })).toThrow();
   });
@@ -431,23 +457,48 @@ describe('Rocket purchase preview contract', () => {
   it('accepts current stock as the only Rocket stock quantity', () => {
     expect(RocketPurchasePreviewComponentSchema.parse({
       sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: null,
       quantity: 1,
       currentStock: 5,
       isActive: true,
     })).toEqual({
       sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: null,
       quantity: 1,
       currentStock: 5,
       isActive: true,
     });
     expect(() => RocketPurchasePreviewComponentSchema.parse({
       sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: null,
       quantity: 1,
       currentStock: 5,
       activeCommitmentQuantity: 1,
       availableStock: 4,
       isActive: true,
     })).toThrow();
+  });
+
+  it('carries the Sellpia product identity needed to review a recipe', () => {
+    expect(RocketPurchasePreviewComponentSchema.parse({
+      sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: '랜덤',
+      quantity: 1,
+      currentStock: 5,
+      isActive: true,
+    })).toMatchObject({
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: '랜덤',
+    });
   });
 
   it('requires an explicit reviewed quantity, shortage reason, and artifact metadata for every workbook line', () => {
@@ -500,6 +551,35 @@ describe('Rocket purchase preview contract', () => {
       artifactFileName: '쿠팡_로켓.xlsx',
       artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })).toThrow(/workbook evidence/i);
+  });
+
+  it('accepts a date-scoped workbook decision while retaining the complete source snapshot', () => {
+    const selectedRow = request().rows[0]!;
+    const unselectedRow = {
+      ...selectedRow,
+      poLineId: '1002:P-2:8801234567891:1',
+      poNumber: '1002',
+      productNo: 'P-2',
+      barcode: '8801234567891',
+      plannedDeliveryDate: '2026-07-21',
+    };
+
+    expect(RocketWorkbookExportRequestSchema.parse({
+      ...request(),
+      collection: { ...request().collection, detailPoCount: 2 },
+      rows: [selectedRow, unselectedRow],
+      selectedPoLineIds: [selectedRow.poLineId],
+      idempotencyKey: CONFIRMATION_ID,
+      editedQuantities: { [selectedRow.poLineId]: 2 },
+      shortageReasons: {
+        [selectedRow.poLineId]: '협력사 재고부족 - 수요예측 오류',
+      },
+      artifactFileName: '쿠팡_로켓.xlsx',
+      artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).toMatchObject({
+      selectedPoLineIds: [selectedRow.poLineId],
+      rows: [selectedRow, unselectedRow],
+    });
   });
 
   it('publishes workflow and immutable artifact metadata without raw workbook bytes', () => {

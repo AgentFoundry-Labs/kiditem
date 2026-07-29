@@ -107,6 +107,10 @@ export class PurchaseOrderActionBodyDto {
   @IsIn(['all_rows', 'confirmation_requested']) @IsOptional()
   previewScope?: 'all_rows' | 'confirmation_requested';
 
+  @ValidateIf(o => o.action === 'previewRocket' && o.inventoryRequirement !== undefined)
+  @IsIn(['advisory', 'fresh'])
+  inventoryRequirement?: 'advisory' | 'fresh';
+
   @ValidateIf(o => o.action === 'exportRocketWorkbook')
   @IsString() @MinLength(2)
   requestJson?: string;

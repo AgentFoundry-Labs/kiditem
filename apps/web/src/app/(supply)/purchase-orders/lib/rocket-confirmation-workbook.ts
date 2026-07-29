@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import type { Cell, CellValue, Workbook, Worksheet } from 'exceljs';
 import { ROCKET_SHORTAGE_REASONS } from '@kiditem/shared/rocket-purchase-preview';
 import type {
   RocketPoCatalogRow,
@@ -33,19 +33,45 @@ const TEMPLATE_MATCH_HEADERS = [
   '납품부족사유',
 ] as const;
 
-export function buildRocketConfirmationWorkbook(input: {
+const PRODUCT_COLUMN_WIDTHS = [
+  16, 16, 16, 16, 16, 20, 40, 16, 16, 32, 16, 16,
+  64, 20, 36, 65, 12, 12, 12, 28, 20, 24, 20,
+] as const;
+const COUPANG_REASON_SHEET_VALUES = [
+  ...ROCKET_SHORTAGE_REASONS.slice(5, 8),
+  ...ROCKET_SHORTAGE_REASONS.slice(0, 5),
+  ...ROCKET_SHORTAGE_REASONS.slice(8),
+];
+const HIGHLIGHTED_DATA_COLUMNS = new Set([3, 9, 13, 14, 15, 16]);
+const COUPANG_FONT = {
+  name: '나눔고딕',
+  size: 12,
+  color: { argb: 'FF000000' },
+} as const;
+const COUPANG_ALIGNMENT = {
+  horizontal: 'center',
+  vertical: 'middle',
+  wrapText: true,
+} as const;
+const COUPANG_PAGE_MARGINS = {
+  left: 0.7,
+  right: 0.7,
+  top: 0.75,
+  bottom: 0.75,
+  header: 0.3,
+  footer: 0.3,
+} as const;
+
+export async function buildRocketConfirmationWorkbook(input: {
   sourceRows: RocketPoCatalogRow[];
   workbookRows: RocketWorkbookExportResponse['rows'];
   now?: Date;
-}): RocketConfirmationWorkbookResult {
-  const workbookByLineId = new Map(input.workbookRows.map((row) => [row.poLineId, row]));
-  if (workbookByLineId.size !== input.sourceRows.length) {
-    throw new Error('Rocket workbook rows do not match the collected source evidence.');
-  }
+}): Promise<RocketConfirmationWorkbookResult> {
+  const workbookByLineId = validateWorkbookRows(input.sourceRows, input.workbookRows);
   let workbookQuantity = 0;
   let fullyConfirmedRows = 0;
   let shortRows = 0;
-  const rows: (string | number)[][] = [Array.from(HEADER)];
+  const rows: (string | number | null)[][] = [];
   for (const source of input.sourceRows) {
     const confirmation = source.confirmation;
     const workbookRow = workbookByLineId.get(source.poLineId);
@@ -68,10 +94,10 @@ export function buildRocketConfirmationWorkbook(input: {
       source.productName,
       source.orderQty,
       workbookRow.workbookQuantity,
-      '',
-      '',
-      '',
-      workbookRow.shortageReason ?? '',
+      null,
+      null,
+      null,
+      workbookRow.shortageReason,
       confirmation.returnManager,
       confirmation.returnContact,
       confirmation.returnAddress,
@@ -85,26 +111,31 @@ export function buildRocketConfirmationWorkbook(input: {
     ]);
   }
 
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), PRODUCT_SHEET);
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.aoa_to_sheet(ROCKET_SHORTAGE_REASONS.map((reason) => [reason])),
-    REASON_SHEET,
-  );
-  workbook.Workbook = {
-    ...(workbook.Workbook ?? {}),
-    Sheets: [
-      { name: PRODUCT_SHEET, Hidden: 0 },
-      { name: REASON_SHEET, Hidden: 1 },
-    ],
-  };
-  const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  const workbook = await createWorkbook();
+  const productSheet = workbook.addWorksheet(PRODUCT_SHEET, {
+    properties: { defaultRowHeight: 15 },
+    pageSetup: { margins: COUPANG_PAGE_MARGINS },
+  });
+  productSheet.addRow(Array.from(HEADER));
+  productSheet.addRows(rows);
+  applyCoupangWorkbookFormat(productSheet, rows.length);
+
+  const reasonSheet = workbook.addWorksheet(REASON_SHEET, {
+    properties: { defaultRowHeight: 15 },
+    pageSetup: { margins: COUPANG_PAGE_MARGINS },
+    state: 'hidden',
+  });
+  reasonSheet.addRows(COUPANG_REASON_SHEET_VALUES.map((reason) => [reason]));
+  reasonSheet.eachRow((row) => {
+    const cell = row.getCell(1);
+    cell.font = { ...COUPANG_FONT };
+    cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+  });
+
+  const bytes = await workbook.xlsx.writeBuffer();
   const now = input.now ?? new Date();
   return {
-    blob: new Blob([bytes], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    }),
+    blob: workbookBlob(bytes),
     fileName: `쿠팡_로켓_${calendarStamp(now)}.xlsx`,
     summary: {
       totalRows: input.sourceRows.length,
@@ -115,27 +146,28 @@ export function buildRocketConfirmationWorkbook(input: {
   };
 }
 
-export function fillRocketConfirmationWorkbook(input: {
+export async function fillRocketConfirmationWorkbook(input: {
   template: ArrayBuffer;
   templateFileName: string;
   sourceRows: RocketPoCatalogRow[];
   workbookRows: RocketWorkbookExportResponse['rows'];
   now?: Date;
-}): RocketConfirmationWorkbookResult {
+}): Promise<RocketConfirmationWorkbookResult> {
   const workbookByLineId = validateWorkbookRows(input.sourceRows, input.workbookRows);
-  const workbook = XLSX.read(input.template, { type: 'array', cellStyles: true });
-  const sheet = workbook.Sheets[PRODUCT_SHEET];
-  if (!sheet?.['!ref']) {
+  const workbook = await createWorkbook();
+  await workbook.xlsx.load(input.template as never);
+  restoreDefaultThemeWhenTemplateOmitsIt(workbook);
+  const sheet = workbook.getWorksheet(PRODUCT_SHEET);
+  if (!sheet) {
     throw new Error(`Rocket confirmation template is missing the ${PRODUCT_SHEET} sheet.`);
   }
 
-  const range = XLSX.utils.decode_range(sheet['!ref']);
   let headerRow = -1;
   let headerIndex = new Map<string, number>();
-  for (let row = range.s.r; row <= range.e.r; row += 1) {
+  for (let row = 1; row <= sheet.rowCount; row += 1) {
     const candidate = new Map<string, number>();
-    for (let column = range.s.c; column <= range.e.c; column += 1) {
-      const value = sheet[XLSX.utils.encode_cell({ r: row, c: column })]?.v;
+    for (let column = 1; column <= sheet.columnCount; column += 1) {
+      const value = plainCellValue(sheet.getCell(row, column).value);
       if (typeof value === 'string') candidate.set(value, column);
     }
     if (candidate.has('발주번호')) {
@@ -160,17 +192,17 @@ export function fillRocketConfirmationWorkbook(input: {
   const reasonColumn = headerIndex.get('납품부족사유')!;
   const templateRowsByKey = new Map<string, number[]>();
   let templateRowCount = 0;
-  for (let row = headerRow + 1; row <= range.e.r; row += 1) {
-    const values = [poColumn, productColumn, barcodeColumn].map((column) =>
-      sheet[XLSX.utils.encode_cell({ r: row, c: column })]?.v);
+  for (let row = headerRow + 1; row <= sheet.rowCount; row += 1) {
+    const values = [poColumn, productColumn, barcodeColumn]
+      .map((column) => plainCellValue(sheet.getCell(row, column).value));
     if (values.every(isBlankCellValue)) continue;
     if (values.some(isBlankCellValue)) {
       throw new Error('Rocket confirmation template rows do not match the collected source evidence.');
     }
     const key = sourceMatchKey(values[0], values[1], values[2]);
-    const rows = templateRowsByKey.get(key) ?? [];
-    rows.push(row);
-    templateRowsByKey.set(key, rows);
+    const matchingRows = templateRowsByKey.get(key) ?? [];
+    matchingRows.push(row);
+    templateRowsByKey.set(key, matchingRows);
     templateRowCount += 1;
   }
   if (templateRowCount !== input.sourceRows.length) {
@@ -190,23 +222,17 @@ export function fillRocketConfirmationWorkbook(input: {
     if (templateRow === undefined || !workbookRow) {
       throw new Error('Rocket workbook template rows do not match the collected source evidence.');
     }
-    writeTemplateCell(sheet, templateRow, quantityColumn, workbookRow.workbookQuantity);
-    writeTemplateCell(sheet, templateRow, reasonColumn, workbookRow.shortageReason ?? '');
+    sheet.getCell(templateRow, quantityColumn).value = workbookRow.workbookQuantity;
+    sheet.getCell(templateRow, reasonColumn).value = workbookRow.shortageReason;
     workbookQuantity += workbookRow.workbookQuantity;
     if (workbookRow.workbookQuantity < source.orderQty) shortRows += 1;
     else fullyConfirmedRows += 1;
   }
 
-  const bytes = XLSX.write(workbook, {
-    type: 'array',
-    bookType: 'xlsx',
-    cellStyles: true,
-  }) as ArrayBuffer;
+  const bytes = await workbook.xlsx.writeBuffer();
   const now = input.now ?? new Date();
   return {
-    blob: new Blob([bytes], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    }),
+    blob: workbookBlob(bytes),
     fileName: `${templateFileStem(input.templateFileName)}_쿠팡제출_${calendarStamp(now)}.xlsx`,
     summary: {
       totalRows: input.sourceRows.length,
@@ -215,6 +241,69 @@ export function fillRocketConfirmationWorkbook(input: {
       shortRows,
     },
   };
+}
+
+async function createWorkbook(): Promise<Workbook> {
+  type WorkbookConstructor = new () => Workbook;
+  const module = await import('exceljs') as unknown as {
+    Workbook?: WorkbookConstructor;
+    default?: { Workbook?: WorkbookConstructor };
+  };
+  const ExcelWorkbook = module.Workbook ?? module.default?.Workbook;
+  if (!ExcelWorkbook) throw new Error('Excel workbook generator is unavailable.');
+  return new ExcelWorkbook();
+}
+
+function restoreDefaultThemeWhenTemplateOmitsIt(workbook: Workbook): void {
+  const themes = workbook.model.themes as unknown as Record<string, string> | undefined;
+  if (!themes || Object.keys(themes).length > 0) return;
+  // ExcelJS parses a theme-less Coupang workbook as an empty theme map. Its writer
+  // then creates a theme relationship without the matching part unless the map is
+  // absent, in which case it correctly emits ExcelJS's built-in default theme.
+  (workbook as unknown as { _themes?: Record<string, string> })._themes = undefined;
+}
+
+function workbookBlob(
+  bytes: Awaited<ReturnType<Workbook['xlsx']['writeBuffer']>>,
+): Blob {
+  const copy = Uint8Array.from(bytes as unknown as ArrayLike<number>);
+  return new Blob([copy.buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+
+function applyCoupangWorkbookFormat(sheet: Worksheet, dataRowCount: number): void {
+  sheet.columns.forEach((column, index) => {
+    column.width = PRODUCT_COLUMN_WIDTHS[index];
+  });
+
+  const headerRow = sheet.getRow(1);
+  headerRow.eachCell({ includeEmpty: true }, (cell) => {
+    cell.font = { ...COUPANG_FONT };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFC0C0C0' },
+    };
+    cell.alignment = { ...COUPANG_ALIGNMENT };
+    cell.border = {
+      top: { style: 'medium' },
+      bottom: { style: 'thin' },
+      left: { style: 'thin' },
+      right: { style: 'thin' },
+    };
+    cell.protection = { locked: true };
+  });
+
+  for (let rowNumber = 2; rowNumber <= dataRowCount + 1; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber);
+    for (let columnNumber = 1; columnNumber <= HEADER.length; columnNumber += 1) {
+      const cell = row.getCell(columnNumber);
+      applyCoupangDataCellFormat(cell, columnNumber);
+    }
+    row.getCell(3).dataValidation = coupangListValidation('"쉽먼트,밀크런"');
+    row.getCell(13).dataValidation = coupangListValidation('hiddenSheet!$A$1:$A$20');
+  }
 }
 
 function validateWorkbookRows(
@@ -232,28 +321,53 @@ function validateWorkbookRows(
   return workbookByLineId;
 }
 
+function applyCoupangDataCellFormat(cell: Cell, columnNumber: number): void {
+  cell.font = { ...COUPANG_FONT };
+  cell.fill = HIGHLIGHTED_DATA_COLUMNS.has(columnNumber)
+    ? {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFFF00' },
+      }
+    : { type: 'pattern', pattern: 'none' };
+  cell.alignment = { ...COUPANG_ALIGNMENT };
+  cell.border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: columnNumber === 1 ? 'medium' : 'thin' },
+    right: { style: 'thin' },
+  };
+  cell.protection = { locked: true };
+  if (columnNumber >= 17 && columnNumber <= 20) cell.numFmt = '#,##0';
+}
+
+function coupangListValidation(formula: string) {
+  return {
+    type: 'list' as const,
+    allowBlank: true,
+    showErrorMessage: true,
+    errorStyle: 'stop' as const,
+    errorTitle: 'ERROR',
+    error: '잘못된 값을 입력하였습니다.',
+    formulae: [formula],
+  };
+}
+
+function plainCellValue(value: CellValue): unknown {
+  if (value === null) return null;
+  if (typeof value !== 'object') return value;
+  if ('result' in value) return value.result;
+  if ('text' in value) return value.text;
+  if ('richText' in value) return value.richText.map((part) => part.text).join('');
+  return value;
+}
+
 function isBlankCellValue(value: unknown): boolean {
   return value === undefined || value === null || value === '';
 }
 
 function sourceMatchKey(poNumber: unknown, productNo: unknown, barcode: unknown): string {
   return JSON.stringify([String(poNumber), String(productNo), String(barcode)]);
-}
-
-function writeTemplateCell(
-  sheet: XLSX.WorkSheet,
-  row: number,
-  column: number,
-  value: string | number,
-): void {
-  const address = XLSX.utils.encode_cell({ r: row, c: column });
-  const existing = sheet[address] ?? {};
-  const { w: _formattedValue, ...preserved } = existing;
-  sheet[address] = {
-    ...preserved,
-    t: typeof value === 'number' ? 'n' : 's',
-    v: value,
-  };
 }
 
 function templateFileStem(fileName: string): string {
