@@ -20,6 +20,8 @@ test('requires an environment selector instead of an editable API URL', () => {
   assert.match(popupSource, /environmentId/);
   assert.doesNotMatch(popupSource, /apiBase/);
   assert.doesNotMatch(popupSource, /chrome\.storage\.local\.set/);
+  assert.match(popupSource, /environmentId === "office"/);
+  assert.match(popupSource, /사무실/);
 });
 
 test('does not persist a global environment fallback', () => {

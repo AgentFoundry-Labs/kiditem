@@ -8,6 +8,7 @@ import { ChannelSyncController } from './adapter/in/http/channel-sync.controller
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
 import { ChannelAccountController } from './adapter/in/http/channel-account.controller';
 import { ChannelAccountListController } from './adapter/in/http/channel-account-list.controller';
+import { RocketAccountController } from './adapter/in/http/rocket-account.controller';
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
 import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
 import { ChannelCatalogCollectionController } from './adapter/in/http/channel-catalog-collection.controller';
@@ -78,6 +79,7 @@ import { CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT } from './application
     ChannelDashboardController,
     ChannelAccountController,
     ChannelAccountListController,
+    RocketAccountController,
     ChannelListingController,
     ChannelCatalogImportController,
     ChannelCatalogCollectionController,

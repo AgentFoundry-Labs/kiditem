@@ -1,15 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { z } from 'zod';
-import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
-import { apiClient } from '@/lib/api-client';
-import { queryKeys } from '@/lib/query-keys';
+import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { RocketPurchaseWorkspace } from './RocketPurchaseWorkspace';
-
-const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 export function RocketPurchasePreviewSection({
   from,
@@ -28,11 +22,12 @@ export function RocketPurchasePreviewSection({
   onActivity?: (activity: RocketOrderActivityInput) => void;
 }) {
   const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
-  const accountsQuery = useQuery({
-    queryKey: queryKeys.channelAccounts.active(),
-    queryFn: () => apiClient.getParsed('/api/channels/accounts', ChannelAccountListSchema),
-  });
-  const accounts = (accountsQuery.data ?? []).filter((account) => account.channel === 'rocket');
+  const {
+    rocketAccounts: accounts,
+    isLoading: accountsLoading,
+    isBootstrapping,
+    error: accountError,
+  } = useRocketChannelAccounts();
   const selectedAccount = accounts.find(({ id }) => id === selectedRocketAccountId)
     ?? accounts[0]
     ?? null;
@@ -50,24 +45,26 @@ export function RocketPurchasePreviewSection({
       <div>
         <h2 className="font-bold text-slate-900">쿠팡 로켓 발주 미리보기</h2>
         <p className="text-sm text-slate-500">
-          활성 로켓 계정을 선택하고 Sellpia 최신 재고 기준 검토수량을 계산합니다.
+          쿠팡 익스텐션 계정을 자동으로 연결하고 Sellpia 최신 재고 기준 검토수량을 계산합니다.
         </p>
       </div>
       {selectedAccount ? (
         <>
-          <label className="block max-w-md space-y-1 text-sm font-semibold text-slate-600">
-            <span>로켓 채널 계정</span>
-            <select
-              aria-label="로켓 채널 계정"
-              value={selectedAccount.id}
-              onChange={(event) => setSelectedRocketAccountId(event.target.value)}
-              className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-            >
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>{account.name}</option>
-              ))}
-            </select>
-          </label>
+          {accounts.length > 1 ? (
+            <label className="block max-w-md space-y-1 text-sm font-semibold text-slate-600">
+              <span>로켓 채널 계정</span>
+              <select
+                aria-label="로켓 채널 계정"
+                value={selectedAccount.id}
+                onChange={(event) => setSelectedRocketAccountId(event.target.value)}
+                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              >
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>{account.name}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <RocketPurchaseWorkspace
             key={selectedAccount.id}
             channelAccountId={selectedAccount.id}
@@ -79,10 +76,14 @@ export function RocketPurchasePreviewSection({
             onActivity={onActivity}
           />
         </>
-      ) : accountsQuery.isLoading ? (
-        <p className="text-sm text-slate-500">로켓 계정을 불러오는 중입니다.</p>
+      ) : accountsLoading || isBootstrapping ? (
+        <p className="text-sm text-slate-500">로켓 계정을 자동으로 연결하는 중입니다.</p>
       ) : (
-        <p className="text-sm text-amber-700">활성 로켓 채널 계정이 없습니다.</p>
+        <p className="text-sm text-amber-700">
+          {accountError
+            ? '로켓 계정을 자동으로 연결하지 못했습니다.'
+            : '쿠팡 익스텐션에서 계정 정보를 먼저 감지해주세요.'}
+        </p>
       )}
     </section>
   );

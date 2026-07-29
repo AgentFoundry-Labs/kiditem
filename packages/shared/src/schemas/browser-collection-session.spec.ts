@@ -104,6 +104,10 @@ describe('BrowserCollectionSessionViewSchema', () => {
     }).environmentId).toBe('local');
     expect(BrowserCollectionSessionViewSchema.parse({
       ...createSession(),
+      environmentId: 'office',
+    }).environmentId).toBe('office');
+    expect(BrowserCollectionSessionViewSchema.parse({
+      ...createSession(),
       environmentId: 'staging',
     }).environmentId).toBe('staging');
     expect(() => BrowserCollectionSessionViewSchema.parse({

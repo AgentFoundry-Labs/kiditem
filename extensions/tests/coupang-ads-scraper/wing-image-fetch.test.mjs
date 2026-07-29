@@ -92,6 +92,23 @@ test("returns a data URL for the WING registration content script and KidItem Mi
   ]);
 });
 
+test("returns a data URL for the office KidItem MinIO bucket", async () => {
+  const harness = createHarness();
+
+  const response = await harness.dispatch(
+    {
+      action: "fetchImageAsDataUrl",
+      url: "http://kiditem-office:9000/kiditem/detail-page-images/revision/detail.jpg",
+    },
+    validSender,
+  );
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(harness.fetchCalls, [
+    "http://kiditem-office:9000/kiditem/detail-page-images/revision/detail.jpg",
+  ]);
+});
+
 test("rejects external or non-registration-page senders before fetching", async () => {
   for (const sender of [
     { ...validSender, id: "external-web-app" },

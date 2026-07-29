@@ -30,8 +30,11 @@ export interface WingCatalogSearchResponse {
   success?: boolean;
   error?: string;
   pendingLogin?: boolean;
+  attentionRequired?: boolean;
+  cancelled?: boolean;
   opened?: boolean;
   tabId?: number;
+  runId?: string;
   keyword?: string;
   rows?: WingCatalogProduct[];
   total?: number;
@@ -64,7 +67,7 @@ interface KidItemExtensionPingResponse {
   };
 }
 
-export const WING_CATALOG_EXTENSION_MIN_VERSION = '1.2.33';
+export const WING_CATALOG_EXTENSION_MIN_VERSION = '1.2.103';
 export const WING_CATALOG_EXTENSION_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램을 설치/새로고침한 뒤 다시 실행하세요.';
 export const WING_CATALOG_CHROME_REQUIRED =
@@ -76,6 +79,7 @@ export const WING_CATALOG_SEARCH_TIMEOUT_MS = 90_000;
 export async function searchWingCatalogProducts(input: {
   keyword: string;
   maxPages: number;
+  runId?: string;
 }): Promise<WingCatalogSearchResponse> {
   const keyword = input.keyword.trim();
   if (!keyword) throw new Error('검색 키워드를 입력하세요.');
@@ -97,7 +101,19 @@ export async function searchWingCatalogProducts(input: {
     action: 'searchWingCatalogProducts',
     keyword,
     maxPages: input.maxPages,
+    ...(input.runId ? { runId: input.runId } : {}),
   }, WING_CATALOG_SEARCH_TIMEOUT_MS);
+
+  if (
+    !response?.success &&
+    response?.attentionRequired &&
+    typeof response.runId === 'string'
+  ) {
+    return {
+      ...response,
+      rows: [],
+    };
+  }
 
   if (!response?.success) {
     throw new Error(

@@ -1,3 +1,4 @@
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import type { OrderCollectionExtensionRun } from './order-collection-extension';
 import { apiClient } from '@/lib/api-client';
@@ -242,7 +243,7 @@ export async function collectSellpiaDeliTrackingFromExtension(options?: {
       action: 'collectSellpiaDeliTracking',
       startDate: options?.startDate ?? null,
       endDate: options?.endDate ?? null,
-      runId: options?.run?.runId ?? globalThis.crypto.randomUUID(),
+      runId: options?.run?.runId ?? createSecureRandomUuid(),
     },
     90000,
   );

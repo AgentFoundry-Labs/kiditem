@@ -4,11 +4,10 @@ import {
   KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
   KIDITEM_SOURCING_EXTENSION_ID_KEY,
   detectExtensionId,
-  detectDetailPageRendererExtensionId,
+  detectWingFormExtensionId,
   detectOrderCollectionExtensionId,
   detectOrderCollectionExtensionRuntime,
   detectSourcingExtensionId,
-  renderDetailPageImageWithExtension,
   sendToExtensionViaPort,
 } from '../extension-bridge';
 
@@ -54,32 +53,22 @@ describe('universal extension discovery', () => {
     await expect(detectExtensionId(5)).resolves.toBe('coupang-extension');
   });
 
-  it('requires both client raster and durable Wing form port capabilities', async () => {
+  it('requires the durable Wing form port capability without client raster', async () => {
     window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, 'coupang-extension');
     installChrome({
       success: true,
       capabilities: { kiditemEnvironmentProfilesV1: true },
     });
-    await expect(detectDetailPageRendererExtensionId(5)).resolves.toBeNull();
+    await expect(detectWingFormExtensionId(5)).resolves.toBeNull();
 
     installChrome({
       success: true,
       capabilities: {
         kiditemEnvironmentProfilesV1: true,
-        detailPageClientRasterV1: true,
-      },
-    });
-    await expect(detectDetailPageRendererExtensionId(5)).resolves.toBeNull();
-
-    installChrome({
-      success: true,
-      capabilities: {
-        kiditemEnvironmentProfilesV1: true,
-        detailPageClientRasterV1: true,
         wingFormPortV1: true,
       },
     });
-    await expect(detectDetailPageRendererExtensionId(5)).resolves.toBe(
+    await expect(detectWingFormExtensionId(5)).resolves.toBe(
       'coupang-extension',
     );
   });
@@ -180,7 +169,6 @@ describe('universal extension discovery', () => {
     });
   });
 });
-
 describe('durable extension command port', () => {
   it('keeps the port open until the Wing form command returns', async () => {
     const messageListeners: Array<(message: unknown) => void> = [];
@@ -224,103 +212,5 @@ describe('durable extension command port', () => {
       name: 'kiditem-wing-form-v1',
     });
     expect(disconnect).toHaveBeenCalledOnce();
-  });
-});
-
-describe('detail-page renderer extension port', () => {
-  it('forwards progress and resolves one rendered terminal message', async () => {
-    const messageListeners: Array<(message: unknown) => void> = [];
-    const disconnectListeners: Array<() => void> = [];
-    const disconnect = vi.fn();
-    const postMessage = vi.fn((message: unknown) => {
-      expect(message).toEqual({
-        action: 'renderDetailPageImage',
-        intentId: '77777777-7777-4777-8777-777777777777',
-      });
-      queueMicrotask(() => {
-        messageListeners.forEach((listener) =>
-          listener({ status: 'progress', phase: 'capturing' }),
-        );
-        messageListeners.forEach((listener) =>
-          listener({
-            status: 'rendered',
-            artifact: {
-              artifactId: '88888888-8888-4888-8888-888888888888',
-              revisionId: '55555555-5555-4555-8555-555555555555',
-              imageUrl: 'https://cdn.example.com/detail.jpg',
-              outputWidth: 780,
-              contentType: 'image/jpeg',
-              byteLength: 2048,
-              pixelWidth: 780,
-              pixelHeight: 7846,
-              sha256: 'a'.repeat(64),
-            },
-          }),
-        );
-      });
-    });
-    Object.defineProperty(window, 'chrome', {
-      configurable: true,
-      value: {
-        runtime: {
-          lastError: undefined,
-          connect: vi.fn(() => ({
-            postMessage,
-            disconnect,
-            onMessage: {
-              addListener: (listener: (message: unknown) => void) =>
-                messageListeners.push(listener),
-              removeListener: vi.fn(),
-            },
-            onDisconnect: {
-              addListener: (listener: () => void) => disconnectListeners.push(listener),
-              removeListener: vi.fn(),
-            },
-          })),
-        },
-      },
-    });
-    const onProgress = vi.fn();
-
-    await expect(
-      renderDetailPageImageWithExtension(
-        'extension-1',
-        '77777777-7777-4777-8777-777777777777',
-        { onProgress, timeoutMs: 1000 },
-      ),
-    ).resolves.toMatchObject({ status: 'rendered' });
-    expect(onProgress).toHaveBeenCalledWith('capturing');
-    expect(disconnect).toHaveBeenCalledOnce();
-  });
-
-  it('rejects when the renderer port disconnects before a terminal message', async () => {
-    const disconnectListeners: Array<() => void> = [];
-    Object.defineProperty(window, 'chrome', {
-      configurable: true,
-      value: {
-        runtime: {
-          lastError: { message: 'service worker stopped' },
-          connect: vi.fn(() => ({
-            postMessage: () => queueMicrotask(() =>
-              disconnectListeners.forEach((listener) => listener()),
-            ),
-            disconnect: vi.fn(),
-            onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
-            onDisconnect: {
-              addListener: (listener: () => void) => disconnectListeners.push(listener),
-              removeListener: vi.fn(),
-            },
-          })),
-        },
-      },
-    });
-
-    await expect(
-      renderDetailPageImageWithExtension(
-        'extension-1',
-        '77777777-7777-4777-8777-777777777777',
-        { timeoutMs: 1000 },
-      ),
-    ).rejects.toThrow(/service worker stopped/);
   });
 });

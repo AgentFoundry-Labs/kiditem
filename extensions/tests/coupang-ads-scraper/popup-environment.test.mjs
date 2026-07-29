@@ -18,6 +18,7 @@ test('requires an environment selector and proxies API calls through the worker'
   assert.doesNotMatch(popup, /kiditem_auth_token/);
   assert.doesNotMatch(popup, /fetch\s*\(/);
   assert.doesNotMatch(popup, /const API_URL/);
+  assert.match(popup, /office:\s*\{[^}]*http:\/\/kiditem-office/);
 });
 
 test('does not persist a global environment fallback', () => {

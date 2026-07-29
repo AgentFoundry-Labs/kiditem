@@ -37,6 +37,7 @@ import type {
   RocketPurchasePreviewResponse,
   RocketPurchasePreviewRow,
   RocketShortageReason,
+  RocketWorkbookExportResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
 
 interface CollectionRunSummary {
@@ -648,11 +649,7 @@ export function useRocketPurchaseWorkflow({
   };
 
   const buildReviewedWorkbook = async (
-    workbookRows: Array<{
-      poLineId: string;
-      workbookQuantity: number;
-      shortageReason: string | null;
-    }>,
+    workbookRows: RocketWorkbookExportResponse['rows'],
   ) => {
     const workbook = templateFile
       ? fillRocketConfirmationWorkbook({

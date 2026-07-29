@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
-  detectDetailPageRendererExtensionId,
-  renderDetailPageImageWithExtension,
+  detectWingFormExtensionId,
   sendToExtensionViaPort,
 } from '@/lib/extension-bridge';
 import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
@@ -27,8 +26,7 @@ import {
 } from './wing-registration-flow';
 import { candidatesApi, productsApi } from './sourcing-api';
 import {
-  getDetailPageRenderStatus,
-  prepareCandidateDetailImage,
+  renderCandidateDetailImageOnServer,
 } from './detail-page-image-api';
 import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
 import type { WingProduct } from './wing-registration-excel';
@@ -36,15 +34,13 @@ import { resolveWingCategories } from './wing-category-resolution';
 
 vi.mock('@/lib/extension-bridge', () => ({
   KIDITEM_WING_FORM_PORT_NAME: 'kiditem-wing-form-v1',
-  detectDetailPageRendererExtensionId: vi.fn().mockResolvedValue('extension-1'),
+  detectWingFormExtensionId: vi.fn().mockResolvedValue('extension-1'),
   isChromeExtensionRuntimeAvailable: vi.fn(() => true),
-  renderDetailPageImageWithExtension: vi.fn(),
   sendToExtensionViaPort: vi.fn(),
 }));
 
 vi.mock('./detail-page-image-api', () => ({
-  getDetailPageRenderStatus: vi.fn(),
-  prepareCandidateDetailImage: vi.fn(),
+  renderCandidateDetailImageOnServer: vi.fn(),
 }));
 
 vi.mock('../../_shared/lib/content-workspaces-api', () => ({
@@ -89,11 +85,9 @@ beforeEach(() => {
   vi.mocked(candidatesApi.prepareExternalWingRegistration).mockClear();
   vi.mocked(candidatesApi.startExternalWingRegistration).mockClear();
   vi.mocked(candidatesApi.markExternalWingRegistrationUnresolved).mockClear();
-  vi.mocked(detectDetailPageRendererExtensionId).mockResolvedValue('extension-1');
-  vi.mocked(renderDetailPageImageWithExtension).mockReset();
+  vi.mocked(detectWingFormExtensionId).mockResolvedValue('extension-1');
   vi.mocked(productsApi.getDetail).mockReset();
-  vi.mocked(prepareCandidateDetailImage).mockReset();
-  vi.mocked(getDetailPageRenderStatus).mockReset();
+  vi.mocked(renderCandidateDetailImageOnServer).mockReset();
   vi.mocked(contentWorkspacesApi.get).mockReset();
   vi.mocked(buildGenerationHistoryHtml).mockReset();
   vi.mocked(resolveWingCategories).mockResolvedValue(new Map());
@@ -186,7 +180,7 @@ describe('direct WING account selection', () => {
       registrationInput: {},
     } as ProductDetailResponse['productPreparation'];
     vi.mocked(productsApi.getDetail).mockResolvedValue(prepared);
-    vi.mocked(prepareCandidateDetailImage).mockResolvedValue(renderedDetail);
+    vi.mocked(renderCandidateDetailImageOnServer).mockResolvedValue(renderedDetail);
     vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
       { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
       { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
@@ -202,7 +196,7 @@ describe('direct WING account selection', () => {
 
   it('requires an explicit choice when an unprepared product has multiple Coupang accounts', async () => {
     vi.mocked(productsApi.getDetail).mockResolvedValue(detail(basics()));
-    vi.mocked(prepareCandidateDetailImage).mockResolvedValue(renderedDetail);
+    vi.mocked(renderCandidateDetailImageOnServer).mockResolvedValue(renderedDetail);
     vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
       { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
       { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
@@ -224,7 +218,7 @@ describe('direct WING account selection', () => {
     const product = detail(basics());
     product.contentWorkspaceId = '44444444-4444-4444-8444-444444444444';
     vi.mocked(productsApi.getDetail).mockResolvedValue(product);
-    vi.mocked(prepareCandidateDetailImage)
+    vi.mocked(renderCandidateDetailImageOnServer)
       .mockResolvedValueOnce({
         status: 'missing',
         reason: 'no_saved_detail_page',
@@ -291,82 +285,28 @@ describe('direct WING account selection', () => {
       '/api/ai/detail-page/55555555-5555-4555-8555-555555555555/edited-html',
       { html: '<!DOCTYPE html><html><body><section>saved detail</section></body></html>' },
     );
-    expect(prepareCandidateDetailImage).toHaveBeenCalledTimes(2);
+    expect(renderCandidateDetailImageOnServer).toHaveBeenCalledTimes(2);
     expect(draft.detailImageUrl).toBe(renderedDetail.imageUrl);
   });
 
-  it('returns a renderer failure without loading channel accounts or opening Wing', async () => {
+  it('surfaces a server renderer failure without loading channel accounts or opening Wing', async () => {
     vi.mocked(productsApi.getDetail).mockResolvedValue(detail(basics()));
-    vi.mocked(prepareCandidateDetailImage).mockResolvedValue({
-      status: 'render_required',
-      intentId: '77777777-7777-4777-8777-777777777777',
-      revisionId: '60620087-f5d8-4307-8591-221fd018eaa0',
-      outputWidth: 780,
-      expiresAt: '2026-07-26T01:00:00.000Z',
-    });
-    vi.mocked(renderDetailPageImageWithExtension).mockResolvedValue({
-      status: 'failed',
-      error: {
-        code: 'capture_failed',
-        message: '상세페이지 캡처에 실패했습니다.',
-        retryable: false,
-      },
-    });
+    vi.mocked(renderCandidateDetailImageOnServer).mockRejectedValue(
+      new Error('상세페이지 서버 렌더링에 실패했습니다.'),
+    );
     const get = vi.spyOn(apiClient, 'get');
 
-    await expect(prepareWingRegistration('candidate-1')).resolves.toEqual({
-      status: 'failed',
-      candidateId: 'candidate-1',
-      message: '상세페이지 캡처에 실패했습니다.',
-    });
+    await expect(prepareWingRegistration('candidate-1')).rejects.toThrow(
+      '상세페이지 서버 렌더링에 실패했습니다.',
+    );
     expect(get).not.toHaveBeenCalled();
   });
 
-  it('waits for the extension finalize status and then builds exactly one detail image', async () => {
+  it('uses the server-rendered artifact and builds exactly one detail image', async () => {
     vi.mocked(productsApi.getDetail).mockResolvedValue(detail(basics()));
-    vi.mocked(prepareCandidateDetailImage).mockResolvedValue({
-      status: 'render_required',
-      intentId: '77777777-7777-4777-8777-777777777777',
-      revisionId: '55555555-5555-4555-8555-555555555555',
-      outputWidth: 780,
-      expiresAt: '2026-07-26T01:00:00.000Z',
-    });
-    vi.mocked(renderDetailPageImageWithExtension).mockImplementation(
-      async (_extensionId, _intentId, options) => {
-        options?.onProgress?.('capturing');
-        return {
-          status: 'rendered',
-          artifact: {
-            artifactId: '88888888-8888-4888-8888-888888888888',
-            revisionId: '55555555-5555-4555-8555-555555555555',
-            imageUrl: 'https://cdn.example.com/detail.jpg',
-            outputWidth: 780,
-            contentType: 'image/jpeg',
-            byteLength: 2048,
-            pixelWidth: 780,
-            pixelHeight: 7846,
-            sha256: 'a'.repeat(64),
-          },
-        };
-      },
-    );
-    vi.mocked(getDetailPageRenderStatus).mockResolvedValue({
-      intentId: '77777777-7777-4777-8777-777777777777',
-      revisionId: '55555555-5555-4555-8555-555555555555',
-      state: 'completed',
-      expiresAt: '2026-07-26T01:00:00.000Z',
-      error: null,
-      artifact: {
-        artifactId: '88888888-8888-4888-8888-888888888888',
-        revisionId: '55555555-5555-4555-8555-555555555555',
-        imageUrl: 'https://cdn.example.com/detail.jpg',
-        outputWidth: 780,
-        contentType: 'image/jpeg',
-        byteLength: 2048,
-        pixelWidth: 780,
-        pixelHeight: 7846,
-        sha256: 'a'.repeat(64),
-      },
+    vi.mocked(renderCandidateDetailImageOnServer).mockResolvedValue({
+      ...renderedDetail,
+      imageUrl: 'https://cdn.example.com/detail.jpg',
     });
     vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
       { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
@@ -382,15 +322,13 @@ describe('direct WING account selection', () => {
     expect(result.draft.product.detailImageUrls).toEqual([
       'https://cdn.example.com/detail.jpg',
     ]);
-    expect(onRenderProgress).toHaveBeenCalledWith('capturing');
-    expect(getDetailPageRenderStatus).toHaveBeenCalledWith(
-      '77777777-7777-4777-8777-777777777777',
-    );
+    expect(onRenderProgress).toHaveBeenNthCalledWith(1, 'rendering');
+    expect(onRenderProgress).toHaveBeenNthCalledWith(2, 'finalizing');
     expect(sendToExtensionViaPort).not.toHaveBeenCalled();
   });
 
   it('blocks an outdated extension before loading candidate data', async () => {
-    vi.mocked(detectDetailPageRendererExtensionId).mockResolvedValue(null);
+    vi.mocked(detectWingFormExtensionId).mockResolvedValue(null);
 
     await expect(prepareWingRegistration('candidate-1')).rejects.toThrow(
       /최신 KidItem 확장.*리로드/,

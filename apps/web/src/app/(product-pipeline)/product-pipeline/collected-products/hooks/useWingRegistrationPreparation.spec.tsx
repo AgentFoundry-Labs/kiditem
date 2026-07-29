@@ -23,7 +23,7 @@ describe('useWingRegistrationPreparation', () => {
     vi.clearAllMocks();
   });
 
-  it('shows extension phases without polling and completes the attempt once', async () => {
+  it('shows server render phases without polling and completes the attempt once', async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -32,7 +32,7 @@ describe('useWingRegistrationPreparation', () => {
     let finishPreparation!: (value: unknown) => void;
     mockPrepareWingRegistration.mockImplementation(
       async (_candidateId, _defaults, options) => {
-        options.onRenderProgress('capturing');
+        options.onRenderProgress('rendering');
         return new Promise((resolve) => {
           finishPreparation = resolve;
         });
@@ -46,7 +46,7 @@ describe('useWingRegistrationPreparation', () => {
     act(() => hook.result.current.start(CANDIDATE));
     await waitFor(() =>
       expect(hook.result.current.message).toBe(
-        '상세페이지를 긴 이미지 한 장으로 캡처하고 있습니다.',
+        '서버에서 상세페이지 이미지를 생성하고 있습니다.',
       ),
     );
 

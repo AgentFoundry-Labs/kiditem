@@ -12,6 +12,7 @@ importScripts(
 
 const KIDITEM_WEB_URL_PATTERNS = [
   "http://localhost:3000/*",
+  "http://kiditem-office/*",
   "https://staging.merchon.org/*",
 ];
 const environmentContext = KidItemEnvironmentContext.create({
@@ -5817,7 +5818,7 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
 // 인증/전송 소유), 캐시는 KidItem 웹앱이 열릴 때 getSellpiaSalesCache 로 flush 된다.
 function ensureSellpiaSalesAlarm() {
   try {
-    for (const environmentId of ["local", "staging"]) {
+    for (const environmentId of environmentContext.environmentIds) {
       chrome.alarms.create(
         environmentContext.alarmName(SELLPIA_SALES_ALARM, environmentId),
         { delayInMinutes: 1, periodInMinutes: 360 },

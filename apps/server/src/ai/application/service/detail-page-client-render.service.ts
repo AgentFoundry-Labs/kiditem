@@ -8,6 +8,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import {
   DETAIL_PAGE_CLIENT_RENDER_CONTENT_TYPE,
   DETAIL_PAGE_CLIENT_RENDER_LAYOUT_WIDTH,
@@ -41,11 +42,19 @@ import {
   type ImageStoragePort,
 } from '../port/out/storage/image-storage.port';
 import { requireWebOrigin } from '../../../common/config/web-origin';
-import { buildRenderDocument } from './detail-page-render-document';
+import {
+  buildRenderDocument,
+  COUPANG_DETAIL_JPEG_QUALITY,
+} from './detail-page-render-document';
+import { DetailPageRasterizationService } from './detail-page-rasterization.service';
+
+const sharp: typeof import('sharp') = require('sharp');
 
 const INTENT_TTL_MS = 15 * 60_000;
 const UPLOAD_URL_TTL_SECONDS = 5 * 60;
-const RENDERER_KIND = 'chrome-extension-cdp';
+const CLIENT_RENDERER_KIND = 'chrome-extension-cdp';
+const SERVER_RENDERER_KIND = 'server-puppeteer';
+const SERVER_RENDER_VARIANT = 'wing-server-jpeg-v1';
 export const DETAIL_PAGE_CLIENT_RENDER_CLOCK = Symbol(
   'DETAIL_PAGE_CLIENT_RENDER_CLOCK',
 );
@@ -56,12 +65,12 @@ const MISSING_MESSAGES = {
   empty_html: '저장된 상세페이지 HTML 이 비어 있습니다. 상세페이지를 다시 저장하세요.',
 } as const;
 
-function objectKey(organizationId: string, revisionId: string): string {
+function serverObjectKey(organizationId: string, revisionId: string): string {
   return [
     'detail-page-images',
     organizationId,
     revisionId,
-    `${DETAIL_PAGE_CLIENT_RENDER_VARIANT}-${DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH}.jpg`,
+    `${SERVER_RENDER_VARIANT}-${DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH}.jpg`,
   ].join('/');
 }
 
@@ -105,6 +114,7 @@ export class DetailPageClientRenderService {
     private readonly storage: ImageStoragePort,
     @Inject(DETAIL_PAGE_TEMPLATE_STYLES_PORT)
     private readonly templateStyles: DetailPageTemplateStylesPort,
+    private readonly rasterization: DetailPageRasterizationService,
     @Optional()
     @Inject(DETAIL_PAGE_CLIENT_RENDER_CLOCK)
     private readonly now: () => Date = () => new Date(),
@@ -137,41 +147,100 @@ export class DetailPageClientRenderService {
     const artifact = await this.images.findArtifact({
       organizationId: input.organizationId,
       revisionId: saved.revisionId,
-      variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
+      variant: SERVER_RENDER_VARIANT,
       outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
     });
     if (artifact) return readyArtifact(artifact);
 
     const currentTime = this.now();
-    const active = await this.images.findActiveIntent({
+    const renderIntent = await this.images.createIntent({
       organizationId: input.organizationId,
       sourceCandidateId: input.sourceCandidateId,
+      detailPageArtifactId: saved.artifactId,
       revisionId: saved.revisionId,
-      variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
+      variant: SERVER_RENDER_VARIANT,
       outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
-      now: currentTime,
+      objectKey: serverObjectKey(input.organizationId, saved.revisionId),
+      requestedByUserId: input.userId,
+      expiresAt: new Date(currentTime.getTime() + INTENT_TTL_MS),
     });
-    const renderIntent =
-      active ??
-      (await this.images.createIntent({
-        organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
-        detailPageArtifactId: saved.artifactId,
-        revisionId: saved.revisionId,
-        variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
-        outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
-        objectKey: objectKey(input.organizationId, saved.revisionId),
-        requestedByUserId: input.userId,
-        expiresAt: new Date(currentTime.getTime() + INTENT_TTL_MS),
-      }));
-
-    return {
-      status: 'render_required',
+    const claimed = await this.images.claimIntent({
+      organizationId: input.organizationId,
       intentId: renderIntent.id,
-      revisionId: renderIntent.revisionId,
-      outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
-      expiresAt: renderIntent.expiresAt.toISOString(),
-    };
+      userId: input.userId,
+      claimedAt: currentTime,
+    });
+    if (claimed.status !== 'claimed') {
+      throw new ConflictException('상세페이지 서버 렌더 작업을 시작하지 못했습니다. 다시 시도해 주세요.');
+    }
+
+    try {
+      const document = buildRenderDocument(
+        saved.html,
+        requireWebOrigin(),
+        this.templateStyles.getCompiledCss(),
+      );
+      const raster = await this.rasterization.render({
+        html: document,
+        viewportWidth: DETAIL_PAGE_CLIENT_RENDER_LAYOUT_WIDTH,
+        outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
+        format: 'jpeg',
+        quality: COUPANG_DETAIL_JPEG_QUALITY,
+      });
+      if (
+        raster.contentType !== DETAIL_PAGE_CLIENT_RENDER_CONTENT_TYPE ||
+        raster.buffer.byteLength <= 0 ||
+        raster.buffer.byteLength > DETAIL_PAGE_CLIENT_RENDER_MAX_BYTES
+      ) {
+        throw new BadRequestException('서버에서 생성한 상세페이지 JPEG 크기가 허용 범위를 벗어났습니다.');
+      }
+      const metadata = await sharp(raster.buffer, { failOn: 'error' }).metadata();
+      const pixelWidth = metadata.width ?? 0;
+      const pixelHeight = metadata.height ?? 0;
+      if (
+        metadata.format !== 'jpeg' ||
+        pixelWidth !== DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH ||
+        pixelHeight <= 0 ||
+        pixelHeight > DETAIL_PAGE_CLIENT_RENDER_MAX_HEIGHT
+      ) {
+        throw new BadRequestException(
+          `서버에서 생성한 상세페이지 JPEG 규격이 올바르지 않습니다 (${pixelWidth}x${pixelHeight}).`,
+        );
+      }
+      const sha256 = createHash('sha256').update(raster.buffer).digest('hex');
+      const imageUrl = await this.storage.save(
+        renderIntent.objectKey,
+        raster.buffer,
+        DETAIL_PAGE_CLIENT_RENDER_CONTENT_TYPE,
+      );
+      const completed = await this.images.completeIntent({
+        organizationId: input.organizationId,
+        intentId: renderIntent.id,
+        imageUrl,
+        contentType: DETAIL_PAGE_CLIENT_RENDER_CONTENT_TYPE,
+        byteLength: raster.buffer.byteLength,
+        pixelWidth,
+        pixelHeight,
+        sha256,
+        rendererKind: SERVER_RENDERER_KIND,
+        createdByUserId: input.userId,
+        completedAt: this.now(),
+      });
+      if (!completed) {
+        throw new ConflictException('상세페이지 서버 렌더 결과를 확정하지 못했습니다. 다시 시도해 주세요.');
+      }
+      return readyArtifact(completed);
+    } catch (error) {
+      const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
+      await this.images.failIntent({
+        organizationId: input.organizationId,
+        intentId: renderIntent.id,
+        failureCode: 'server_render_failed',
+        failureMessage: message || '상세페이지 서버 렌더링에 실패했습니다.',
+        failedAt: this.now(),
+      }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async claim(input: {
@@ -294,7 +363,7 @@ export class DetailPageClientRenderService {
       pixelWidth: inspected.pixelWidth,
       pixelHeight: inspected.pixelHeight,
       sha256: inspected.sha256,
-      rendererKind: RENDERER_KIND,
+      rendererKind: CLIENT_RENDERER_KIND,
       createdByUserId: input.userId,
       completedAt: this.now(),
     });

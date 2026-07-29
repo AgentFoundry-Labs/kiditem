@@ -1,5 +1,6 @@
 const ENVIRONMENTS = Object.freeze({
   local: { label: '로컬', webOrigin: 'http://localhost:3000' },
+  office: { label: '사무실', webOrigin: 'http://kiditem-office' },
   staging: { label: '스테이징', webOrigin: 'https://staging.merchon.org' },
 });
 
@@ -87,7 +88,7 @@ async function configureEnvironmentSelector() {
     select.append(new Option('연결된 환경 없음', ''));
     select.disabled = true;
     selectedEnvironmentId = null;
-    showResult('로컬 또는 스테이징 KidItem에 로그인한 뒤 다시 열어주세요.', true);
+    showResult('로컬, 사무실 또는 스테이징 KidItem에 로그인한 뒤 다시 열어주세요.', true);
     return false;
   }
 

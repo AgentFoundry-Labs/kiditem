@@ -13,6 +13,7 @@
   "externally_connectable": {
     "matches": [
       "http://localhost:3000/*",
+      "http://kiditem-office/*",
       "https://staging.merchon.org/*"
     ]
   },
@@ -39,12 +40,14 @@
     "https://zzogzzog1.cafe24.com/*",
     "https://shopping-seller.kakao.com/*",
     "http://localhost:3000/*",
+    "http://kiditem-office/*",
     "https://staging.merchon.org/*"
   ],
   "content_scripts": [
     {
       "matches": [
         "http://localhost:3000/*",
+        "http://kiditem-office/*",
         "https://staging.merchon.org/*"
       ],
       "js": [

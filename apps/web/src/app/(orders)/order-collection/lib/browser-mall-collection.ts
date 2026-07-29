@@ -1,4 +1,5 @@
 import { toast } from 'sonner';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { formatNumber } from '@/lib/utils';
 import {
   collectIcecreamMallRowsFromExtension,
@@ -544,7 +545,7 @@ export function createBrowserMallCollector({
       throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
     }
     const resolvedRun: OrderCollectionExtensionRun = {
-      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+      runId: run?.runId ?? createSecureRandomUuid(),
       extensionId,
       date: run?.date ?? todayYmd(),
       signal: run?.signal,

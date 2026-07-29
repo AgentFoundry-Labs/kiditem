@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Auto-Seller Product Scraper",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "이커머스 상품·중국 라이브 방송·TikTok Creative Center 트렌드 데이터 추출 (Alibaba, 1688, Douyin, TikTok Creative Center)",
   "permissions": [
     "activeTab",
@@ -11,6 +11,7 @@
   "externally_connectable": {
     "matches": [
       "http://localhost:3000/*",
+      "http://kiditem-office/*",
       "https://staging.merchon.org/*"
     ]
   },
@@ -24,6 +25,7 @@
     "https://ads.tiktok.com/*",
     "https://itemcdn.tmall.com/*",
     "http://localhost:3000/*",
+    "http://kiditem-office/*",
     "https://staging.merchon.org/*",
     "http://localhost:4000/*",
     "http://127.0.0.1:4000/*"
@@ -97,6 +99,7 @@
     {
       "matches": [
         "http://localhost:3000/*",
+        "http://kiditem-office/*",
         "https://staging.merchon.org/*"
       ],
       "js": ["host-bridge.js"],

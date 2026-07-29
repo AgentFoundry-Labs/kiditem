@@ -16,6 +16,13 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const nextConfig = {
   output: 'standalone',
   transpilePackages: ['@kiditem/templates'],
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: '**.alicdn.com' },
+      { protocol: 'https', hostname: '**.tbcdn.cn' },
+      { protocol: 'https', hostname: '**.taobaocdn.com' },
+    ],
+  },
   turbopack: {
     root: repoRoot,
   },
