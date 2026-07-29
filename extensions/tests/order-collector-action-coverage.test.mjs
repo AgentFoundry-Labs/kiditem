@@ -122,9 +122,9 @@ test('every automatic collector explicitly attaches its inactive tab to its own 
   }
 });
 
-test('order worker imports failure evidence, session lifecycle, and focused Sellpia inventory producer before dispatch', () => {
+test('order worker imports failure evidence, session lifecycle, and focused Sellpia producers before dispatch', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*collection-failure\.js[\s\S]*order-collection-lifecycle\.js[\s\S]*sellpia-inventory\.js/);
+  assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*collection-failure\.js[\s\S]*order-collection-lifecycle\.js[\s\S]*sellpia-inventory\.js[\s\S]*sellpia-post-processing\.js/);
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /collectSellpiaInventoryJsonV1:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
@@ -144,13 +144,14 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   }
 });
 
-test('order collector manifest publishes normalized failure evidence and Kidkids login stabilization at version 0.1.89', () => {
+test('order collector manifest publishes normalized failure evidence and scoped Sellpia invoice selection at version 0.1.90', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.89');
+  assert.equal(manifest.version, '0.1.90');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
   const worker = readFileSync(workerPath, 'utf8');
   assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
+  assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
   assert.match(worker, /collectCoupangShipmentDateSummaryValidatedV1:\s*true/);
 });
 

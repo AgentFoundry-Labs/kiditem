@@ -41,7 +41,10 @@ function injectedContext(overrides = {}) {
       querySelectorAll: () => [],
     },
     window: {
-      dataView: { getLength: () => pendingCount },
+      dataView: {
+        getLength: () => pendingCount,
+        getItems: () => [],
+      },
       jQuery: { active: 0 },
     },
     File: class FakeFile {},
@@ -182,6 +185,33 @@ test('Sellpia page injection accepts newly queued rows when the result dialog al
   assert.equal(result.pendingRows, 2);
 });
 
+test('Sellpia page injection returns only order identities newly accepted by this upload', async () => {
+  const context = injectedContext();
+  let items = [{ group_no: 'provider_OLDER-1' }];
+  context.window.dataView.getLength = () => items.length;
+  context.window.dataView.getItems = () => items;
+  context.elements.btn_om_upload.click = () => {
+    items = [
+      ...items,
+      { group_no: 'provider_ORDER-NEW' },
+      { group_no: 'provider_ORDER-NEW' },
+    ];
+  };
+  const inject = vm.runInNewContext(
+    `(${extractAsyncFunction('injectSellpiaOrderFile')})`,
+    context,
+  );
+
+  const result = await inject({
+    shopName: null,
+    fileName: 'orders.xlsx',
+    fileBase64: Buffer.from('orders').toString('base64'),
+    targetOrderNumbers: ['OLDER-1', 'ORDER-NEW'],
+  });
+
+  assert.deepEqual(Array.from(result.acceptedTargetOrderNumbers), ['ORDER-NEW']);
+});
+
 test('Sellpia page injection stays unknown when the click produces no acceptance evidence', async () => {
   const context = injectedContext();
   context.elements.btn_om_upload.click = () => {};
@@ -207,6 +237,12 @@ test('Sellpia service worker separates preflight failure from post-injection unc
     waitForTabReady: async () => {},
     withTimeout: async (promise) => promise,
     injectSellpiaOrderFile() {},
+    sellpiaPostProcessing: {
+      normalizeTargetOrderNumbers: (value) => Array.isArray(value) ? value : [],
+    },
+    sellpiaInvoiceTargets: {
+      remember: async (_environmentId, value) => value,
+    },
     SELLPIA_ORDER_UPLOAD_URL: 'https://kiditem.sellpia.com/order_collect.html?ctype=OM_FILE',
     chrome: {
       scripting: {
@@ -223,13 +259,25 @@ test('Sellpia service worker separates preflight failure from post-injection unc
     baseContext,
   );
 
-  const preflight = await send({ shopName: null, fileName: null, fileBase64: null });
+  const preflight = await send({
+    shopName: null,
+    fileName: null,
+    fileBase64: null,
+    targetOrderNumbers: ['ORDER-1'],
+    environmentId: 'local',
+  });
   await send({
     shopName: null,
     fileName: 'orders.xlsx',
     fileBase64: 'b3JkZXJz',
+    targetOrderNumbers: ['ORDER-1'],
+    environmentId: 'local',
   });
   assert.equal(injection.world, 'MAIN');
+  assert.deepEqual(
+    Array.from(injection.args[0].targetOrderNumbers),
+    ['ORDER-1'],
+  );
   baseContext.chrome.scripting.executeScript = async () => {
     throw new Error('response lost');
   };
@@ -237,6 +285,8 @@ test('Sellpia service worker separates preflight failure from post-injection unc
     shopName: null,
     fileName: 'orders.xlsx',
     fileBase64: 'b3JkZXJz',
+    targetOrderNumbers: ['ORDER-1'],
+    environmentId: 'local',
   });
 
   assert.equal(preflight.outcome, 'not_submitted');

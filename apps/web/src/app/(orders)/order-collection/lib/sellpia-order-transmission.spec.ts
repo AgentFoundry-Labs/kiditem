@@ -18,6 +18,7 @@ function generatedFile(): StoredOrderCollectionFile {
     skippedRows: 0,
     convertedAt: 100,
     mallName: '키드키즈',
+    orderNumbers: ['ORDER-1', 'ORDER-2'],
   };
 }
 
