@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   prepareWingRegistration,
+  type WingRegistrationPreparationPhase,
   type WingRegistrationDraft,
 } from '../lib/wing-registration-flow';
-import type { DetailPageRasterProgressPhase } from '@/lib/extension-bridge';
 
 interface WingRegistrationPreparationCallbacks {
   onReady: (draft: WingRegistrationDraft) => void;
@@ -22,7 +22,7 @@ export function useWingRegistrationPreparation(
   callbacks: WingRegistrationPreparationCallbacks,
 ) {
   const [attempt, setAttempt] = useState<PreparationAttempt | null>(null);
-  const [renderPhase, setRenderPhase] = useState<DetailPageRasterProgressPhase | null>(null);
+  const [renderPhase, setRenderPhase] = useState<WingRegistrationPreparationPhase | null>(null);
   const sequence = useRef(0);
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
@@ -91,14 +91,12 @@ export function useWingRegistrationPreparation(
   };
 }
 
-function renderPhaseMessage(phase: DetailPageRasterProgressPhase | null): string {
+function renderPhaseMessage(phase: WingRegistrationPreparationPhase | null): string {
   switch (phase) {
-    case 'capturing':
-      return '상세페이지를 긴 이미지 한 장으로 캡처하고 있습니다.';
-    case 'uploading':
-      return '상세페이지 이미지를 저장하고 있습니다.';
+    case 'rendering':
+      return '서버에서 상세페이지 이미지를 생성하고 있습니다.';
     case 'finalizing':
-      return '저장된 상세페이지 이미지를 확인하고 있습니다.';
+      return '생성된 상세페이지 이미지와 Wing 등록 정보를 확인하고 있습니다.';
     case 'loading':
     default:
       return '쿠팡 WING 등록을 준비하고 있습니다.';
