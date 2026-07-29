@@ -301,7 +301,7 @@ function Restore-Transaction {
   }
   if ($restored) {
     Set-ComposeArguments
-    Invoke-Checked docker @script:ComposeArgs up -d --no-build api worker web nginx
+    Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
     Wait-ForRuntime
     Assert-SmokeTests
     Write-Warning 'Previous office runtime files were restored after deployment failure.'
@@ -370,7 +370,7 @@ function Install-Deployment {
     Move-Item -LiteralPath $candidateDeployEnv -Destination $script:DeployEnvPath -Force
     Set-ComposeArguments
     Invoke-Checked docker @script:ComposeArgs config --quiet
-    Invoke-Checked docker @script:ComposeArgs up -d --no-build api worker web nginx
+    Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
     Wait-ForRuntime
     Assert-SmokeTests
   }
@@ -425,6 +425,10 @@ function Show-OfficeStatus {
     Write-Host "Current web image: $($current.Manifest.webImage)"
   }
   Invoke-Checked docker system df
+}
+
+if ($MyInvocation.InvocationName -eq '.') {
+  return
 }
 
 $head = Assert-LiveCheckout
