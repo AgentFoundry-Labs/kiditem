@@ -601,6 +601,55 @@ describe('useRocketPurchaseWorkflow', () => {
       blob: artifactBlob,
     }));
   });
+
+  it('clamps reviewed quantities to fresh inventory before building the workbook', async () => {
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases)
+      .mockResolvedValueOnce(preview(source, [previewRow('LINE-A', null, 4)]))
+      .mockResolvedValueOnce(preview(source, [
+        previewRow('LINE-A', 'insufficient_capacity', 2),
+      ]));
+    vi.mocked(buildRocketConfirmationWorkbook).mockReturnValue({
+      blob: new Blob(['fresh-workbook']),
+      fileName: '쿠팡_로켓.xlsx',
+      summary: {
+        totalRows: 1,
+        workbookQuantity: 2,
+        fullyConfirmedRows: 0,
+        shortRows: 1,
+      },
+    });
+    vi.mocked(exportRocketWorkbook).mockResolvedValue(workbookExport());
+    vi.mocked(downloadRocketWorkbook).mockResolvedValue({
+      blob: new Blob(['stored-workbook']),
+      fileName: '쿠팡_로켓.xlsx',
+    });
+    const hook = renderWorkflow({
+      channelAccountId: ACCOUNT_A,
+      savedSourceImportRunId: SOURCE_A,
+    });
+    await waitFor(() => expect(hook.result.current.canExport).toBe(true));
+
+    await act(async () => hook.result.current.exportAndDownload());
+
+    expect(previewRocketPurchases).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      editedQuantities: { 'LINE-A': 4 },
+      clampEditedQuantities: true,
+      previewScope: 'confirmation_requested',
+    }), { inventoryRequirement: 'fresh' });
+    expect(buildRocketConfirmationWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      workbookRows: [{
+        poLineId: 'LINE-A',
+        workbookQuantity: 2,
+        shortageReason: SHORTAGE_REASON,
+      }],
+    }));
+    expect(exportRocketWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      editedQuantities: { 'LINE-A': 2 },
+      shortageReasons: { 'LINE-A': SHORTAGE_REASON },
+    }), expect.any(Blob));
+  });
 });
 
 function renderWorkflow(input: {

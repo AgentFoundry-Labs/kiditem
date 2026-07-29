@@ -31,15 +31,18 @@ import {
 function componentValues(row: RocketPurchasePreviewRow): string {
   if (row.components.length === 0) return "—";
   return row.components
-    .map((component) => formatNumber(component.currentStock))
+    .map((component) => `${component.code} · ${component.name}`)
     .join(" / ");
 }
 
 function componentQuantityValues(row: RocketPurchasePreviewRow): string {
-  if (row.components.length === 0) return "구성 —";
-  return `구성 ${row.components
-    .map((component) => `×${formatNumber(component.quantity)}`)
-    .join(" / ")}`;
+  if (row.components.length === 0) return "—";
+  return row.components
+    .map(
+      (component) =>
+        `${component.optionName ?? "옵션 없음"} · 현재고 ${formatNumber(component.currentStock)} · 구성 ×${formatNumber(component.quantity)}`,
+    )
+    .join(" / ");
 }
 
 const WORKFLOW_LABEL = {
@@ -622,11 +625,10 @@ export function RocketConfirmPanel({
                                 이미 제출
                               </span>
                             ) : null}
-                            {row.reason === "configuration_required" &&
-                            row.productVariantId ? (
+                            {row.masterProductId && row.productVariantId ? (
                               <button
                                 type="button"
-                                aria-label={`${row.productName} Sellpia 재고 연결`}
+                                aria-label={`${row.productName} Sellpia 재고 ${row.components.length > 0 ? "수정" : "연결"}`}
                                 disabled={busy}
                                 onClick={() =>
                                   setEditingRecipePoLineId((current) =>
@@ -639,7 +641,9 @@ export function RocketConfirmPanel({
                               >
                                 {editingRecipePoLineId === row.poLineId
                                   ? "재고 연결 닫기"
-                                  : "Sellpia 재고 연결"}
+                                  : row.components.length > 0
+                                    ? "Sellpia 재고 수정"
+                                    : "Sellpia 재고 연결"}
                               </button>
                             ) : matchingBlocked ? (
                               <a
@@ -740,12 +744,14 @@ export function RocketConfirmPanel({
                         </td>
                       </tr>
                       {editingRecipePoLineId === row.poLineId &&
-                      row.productVariantId ? (
+                      row.masterProductId && row.productVariantId ? (
                         <tr className="border-t border-purple-100 bg-purple-50/30">
                           <td colSpan={7} className="px-3 py-3">
                             <RocketInlineRecipeEditor
+                              masterProductId={row.masterProductId}
                               productVariantId={row.productVariantId}
                               productName={row.productName}
+                              existingComponents={row.components}
                               onCancel={() => setEditingRecipePoLineId(null)}
                               onSaved={async () => {
                                 await revalidateEditedQuantities();

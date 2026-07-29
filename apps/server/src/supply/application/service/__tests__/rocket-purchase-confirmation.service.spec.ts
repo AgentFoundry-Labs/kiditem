@@ -177,7 +177,10 @@ describe('RocketWorkbookExportService', () => {
       organizationId,
       userId,
       inventoryRequirement: 'fresh',
-      request: previewRequest,
+      request: {
+        ...previewRequest,
+        previewScope: 'confirmation_requested',
+      },
     });
     expect(deps.transactions.exportWorkbook).toHaveBeenCalledWith({
       organizationId,

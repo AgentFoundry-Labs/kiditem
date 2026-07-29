@@ -1,36 +1,56 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Search, Trash2, X } from "lucide-react";
 import {
+  MasterProductOperationsDetailSchema,
   ProductRecipeComponentCandidateListResponseSchema,
   type CreateProductVariantRecipesIfEmptyResponse,
   type ProductRecipeComponentCandidate,
 } from "@kiditem/shared/product-operations";
+import type { RocketPurchasePreviewComponent } from "@kiditem/shared/rocket-purchase-preview";
 import { apiClient } from "@/lib/api-client";
 import { friendlyError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
 import { toast } from "sonner";
 
-type RecipeDraft = ProductRecipeComponentCandidate & {
+type RecipeDraft = Pick<
+  ProductRecipeComponentCandidate,
+  "sellpiaInventorySkuId" | "code" | "name" | "optionName" | "currentStock"
+> & {
   quantity: number | null;
 };
 
 export function RocketInlineRecipeEditor({
+  masterProductId,
   productVariantId,
   productName,
+  existingComponents,
   onSaved,
   onCancel,
 }: {
+  masterProductId: string;
   productVariantId: string;
   productName: string;
+  existingComponents: RocketPurchasePreviewComponent[];
   onSaved: () => Promise<void>;
   onCancel: () => void;
 }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [draft, setDraft] = useState<RecipeDraft[]>([]);
+  const hasExistingRecipe = existingComponents.length > 0;
+  const [draft, setDraft] = useState<RecipeDraft[]>(() =>
+    existingComponents.map((component) => ({
+      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+      code: component.code,
+      name: component.name,
+      optionName: component.optionName,
+      currentStock: component.currentStock,
+      quantity: component.quantity,
+    })),
+  );
+  const [draftTouched, setDraftTouched] = useState(false);
   const candidateParams = useMemo(
     () =>
       new URLSearchParams({
@@ -53,22 +73,71 @@ export function RocketInlineRecipeEditor({
       ),
     enabled: search.trim().length >= 2,
   });
+  const product = useQuery({
+    queryKey: queryKeys.products.operations.detail(masterProductId),
+    queryFn: () =>
+      apiClient.getParsed(
+        `/api/products/masters/${masterProductId}`,
+        MasterProductOperationsDetailSchema,
+      ),
+    enabled: hasExistingRecipe,
+  });
+  const currentVariant = product.data?.variants.find(
+    ({ id }) => id === productVariantId,
+  );
+
+  useEffect(() => {
+    if (!currentVariant || draftTouched) return;
+    setDraft(
+      currentVariant.components.map((component) => ({
+        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+        code: component.code,
+        name: component.name,
+        optionName: component.optionName,
+        currentStock: component.currentStock,
+        quantity: component.quantity,
+      })),
+    );
+  }, [currentVariant, draftTouched]);
+
   const save = useMutation({
-    mutationFn: () =>
-      apiClient.post<CreateProductVariantRecipesIfEmptyResponse>(
+    mutationFn: async () => {
+      const components = draft.map(({ sellpiaInventorySkuId, quantity }) => ({
+        sellpiaInventorySkuId,
+        quantity,
+      }));
+      if (hasExistingRecipe) {
+        if (!currentVariant) {
+          throw new Error("현재 Sellpia 재고 구성을 불러오지 못했습니다.");
+        }
+        await apiClient.put(
+          `/api/products/variants/${productVariantId}/components`,
+          {
+            components,
+            expectedRecipe: currentVariant.components.map((component) => ({
+              id: component.id,
+              sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+              quantity: component.quantity,
+              source: component.source,
+              confirmedBy: component.confirmedBy,
+              confirmedAt: component.confirmedAt,
+            })),
+          },
+        );
+        return { mode: "replaced" as const };
+      }
+      const result = await apiClient.post<CreateProductVariantRecipesIfEmptyResponse>(
         "/api/products/variant-recipes/create-if-empty",
         {
-          recipes: [
-            {
-              productVariantId,
-              components: draft.map(({ sellpiaInventorySkuId, quantity }) => ({
-                sellpiaInventorySkuId,
-                quantity,
-              })),
-            },
-          ],
+          recipes: [{ productVariantId, components }],
         },
-      ),
+      );
+      return {
+        mode: result.appliedProductVariantIds.includes(productVariantId)
+          ? ("created" as const)
+          : ("unchanged" as const),
+      };
+    },
     onSuccess: async (result) => {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -82,7 +151,11 @@ export function RocketInlineRecipeEditor({
         }),
         queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
       ]);
-      if (result.appliedProductVariantIds.includes(productVariantId)) {
+      if (result.mode === "replaced") {
+        toast.success(
+          "Sellpia 재고 구성을 수정했습니다. 현재 발주를 다시 계산합니다.",
+        );
+      } else if (result.mode === "created") {
         toast.success(
           "Sellpia 재고 구성을 연결했습니다. 현재 발주를 다시 계산합니다.",
         );
@@ -99,8 +172,13 @@ export function RocketInlineRecipeEditor({
     ({ quantity }) =>
       quantity === null || !Number.isInteger(quantity) || quantity <= 0,
   );
-  const canSave = draft.length > 0 && !hasInvalidQuantity && !save.isPending;
+  const canSave =
+    draft.length > 0 &&
+    !hasInvalidQuantity &&
+    (!hasExistingRecipe || Boolean(currentVariant)) &&
+    !save.isPending;
   const addCandidate = (candidate: ProductRecipeComponentCandidate) => {
+    setDraftTouched(true);
     setDraft((current) =>
       current.some(
         ({ sellpiaInventorySkuId }) =>
@@ -115,9 +193,11 @@ export function RocketInlineRecipeEditor({
     if (!canSave) return;
     save.mutate();
   };
-  const errorMessage = save.error
-    ? (friendlyError(save.error) ?? "Sellpia 재고 구성을 저장하지 못했습니다.")
-    : null;
+  const errorMessage = product.error
+    ? "현재 Sellpia 재고 구성을 불러오지 못했습니다."
+    : save.error
+      ? (friendlyError(save.error) ?? "Sellpia 재고 구성을 저장하지 못했습니다.")
+      : null;
 
   return (
     <section
@@ -127,7 +207,7 @@ export function RocketInlineRecipeEditor({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-extrabold text-slate-900">
-            Sellpia 재고 연결
+            Sellpia 재고 {hasExistingRecipe ? "수정" : "연결"}
           </h3>
           <p className="mt-1 text-xs text-slate-600">
             이 상품 1개를 출고할 때 차감할 Sellpia 재고와 구성 수량을
@@ -259,19 +339,22 @@ export function RocketInlineRecipeEditor({
                       aria-label={`${component.code} 구성 수량`}
                       value={component.quantity ?? ""}
                       onChange={(event) =>
-                        setDraft((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? {
-                                  ...item,
-                                  quantity:
-                                    event.target.value === ""
-                                      ? null
-                                      : Number(event.target.value),
-                                }
-                              : item,
-                          ),
-                        )
+                        {
+                          setDraftTouched(true);
+                          setDraft((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? {
+                                    ...item,
+                                    quantity:
+                                      event.target.value === ""
+                                        ? null
+                                        : Number(event.target.value),
+                                  }
+                                : item,
+                            ),
+                          );
+                        }
                       }
                       className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-right text-sm tabular-nums"
                     />
@@ -280,9 +363,12 @@ export function RocketInlineRecipeEditor({
                     type="button"
                     aria-label={`${component.code} 재고 제거`}
                     onClick={() =>
-                      setDraft((current) =>
-                        current.filter((_, itemIndex) => itemIndex !== index),
-                      )
+                      {
+                        setDraftTouched(true);
+                        setDraft((current) =>
+                          current.filter((_, itemIndex) => itemIndex !== index),
+                        );
+                      }
                     }
                     className="mb-0.5 flex h-8 w-8 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50"
                   >
@@ -325,7 +411,11 @@ export function RocketInlineRecipeEditor({
               {save.isPending ? (
                 <Loader2 size={13} className="animate-spin" />
               ) : null}
-              {save.isPending ? "저장·계산 중…" : "재고 연결하고 다시 계산"}
+              {save.isPending
+                ? "저장·계산 중…"
+                : hasExistingRecipe
+                  ? "재고 수정하고 다시 계산"
+                  : "재고 연결하고 다시 계산"}
             </button>
           </div>
         </div>

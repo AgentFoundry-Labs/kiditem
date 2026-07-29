@@ -56,7 +56,10 @@ implements RocketWorkbookExportPort {
       organizationId: input.organizationId,
       userId: input.userId,
       inventoryRequirement: 'fresh',
-      request: previewRequest satisfies RocketPurchasePreviewRequest,
+      request: {
+        ...previewRequest,
+        previewScope: 'confirmation_requested',
+      } satisfies RocketPurchasePreviewRequest,
     });
     if (preview.status === 'freshness_pending') {
       throw new ConflictException(

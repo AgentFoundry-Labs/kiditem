@@ -44,10 +44,14 @@ export function rocketPreviewErrorMessage(cause: unknown, fallback: string): str
 
 export async function previewRocketPurchases(
   input: RocketPurchasePreviewRequest,
+  options?: { inventoryRequirement?: 'advisory' | 'fresh' },
 ): Promise<RocketPurchasePreviewResponse> {
   const request = RocketPurchasePreviewRequestSchema.parse(input);
   const response = await apiClient.post('/api/purchase-orders', {
     action: 'previewRocket',
+    ...(options?.inventoryRequirement && {
+      inventoryRequirement: options.inventoryRequirement,
+    }),
     ...request,
   });
   return parseRocketResponse(

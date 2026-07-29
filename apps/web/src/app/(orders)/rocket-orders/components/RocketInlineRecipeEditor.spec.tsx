@@ -5,7 +5,7 @@ import { apiClient } from "@/lib/api-client";
 import { RocketInlineRecipeEditor } from "./RocketInlineRecipeEditor";
 
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { getParsed: vi.fn(), post: vi.fn() },
+  apiClient: { getParsed: vi.fn(), post: vi.fn(), put: vi.fn() },
 }));
 
 const candidate = {
@@ -20,6 +20,15 @@ const candidate = {
 function renderEditor(options?: {
   onSaved?: () => Promise<void>;
   onCancel?: () => void;
+  existingComponents?: Array<{
+    sellpiaInventorySkuId: string;
+    code: string;
+    name: string;
+    optionName: string | null;
+    currentStock: number;
+    quantity: number;
+    isActive: boolean;
+  }>;
 }) {
   const client = new QueryClient({
     defaultOptions: {
@@ -31,8 +40,10 @@ function renderEditor(options?: {
   render(
     <QueryClientProvider client={client}>
       <RocketInlineRecipeEditor
+        masterProductId="44444444-4444-4444-8444-444444444444"
         productVariantId="55555555-5555-4555-8555-555555555555"
         productName="상품 1"
+        existingComponents={options?.existingComponents ?? []}
         onSaved={options?.onSaved ?? vi.fn().mockResolvedValue(undefined)}
         onCancel={options?.onCancel ?? vi.fn()}
       />
@@ -189,6 +200,83 @@ describe("<RocketInlineRecipeEditor />", () => {
       queryKey: ["channelSkuAvailability"],
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["inventory"] });
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces an existing recipe with optimistic recipe evidence", async () => {
+    const onSaved = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(apiClient.getParsed).mockImplementation(async (url) => {
+      if (String(url).includes("/api/products/masters/")) {
+        return {
+          variants: [{
+            id: "55555555-5555-4555-8555-555555555555",
+            components: [{
+              id: "77777777-7777-4777-8777-777777777777",
+              sellpiaInventorySkuId: "88888888-8888-4888-8888-888888888888",
+              code: "SP-OLD",
+              name: "잘못 연결된 상품",
+              optionName: null,
+              currentStock: 5,
+              activeCommitmentQuantity: 0,
+              availableStock: 5,
+              isActive: true,
+              quantity: 2,
+              source: "manual",
+              confirmedBy: null,
+              confirmedAt: "2026-07-29T00:00:00.000Z",
+            }],
+          }],
+        } as never;
+      }
+      return { items: [candidate] } as never;
+    });
+    vi.mocked(apiClient.put).mockResolvedValue({ id: "variant" });
+    renderEditor({
+      onSaved,
+      existingComponents: [{
+        sellpiaInventorySkuId: "88888888-8888-4888-8888-888888888888",
+        code: "SP-OLD",
+        name: "잘못 연결된 상품",
+        optionName: null,
+        currentStock: 5,
+        quantity: 2,
+        isActive: true,
+      }],
+    });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "SP-OLD 재고 제거" }),
+    );
+    fireEvent.change(
+      screen.getByRole("searchbox", {
+        name: "Sellpia 상품 코드 또는 상품명 검색",
+      }),
+      { target: { value: "9633-1" } },
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "9633-1 재고 추가" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "재고 수정하고 다시 계산" }),
+    );
+
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith(
+      "/api/products/variants/55555555-5555-4555-8555-555555555555/components",
+      {
+        components: [{
+          sellpiaInventorySkuId: candidate.sellpiaInventorySkuId,
+          quantity: 1,
+        }],
+        expectedRecipe: [{
+          id: "77777777-7777-4777-8777-777777777777",
+          sellpiaInventorySkuId: "88888888-8888-4888-8888-888888888888",
+          quantity: 2,
+          source: "manual",
+          confirmedBy: null,
+          confirmedAt: "2026-07-29T00:00:00.000Z",
+        }],
+      },
+    ));
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 });

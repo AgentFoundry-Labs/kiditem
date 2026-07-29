@@ -109,6 +109,9 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
         recipeStatus: item?.recipeStatus ?? 'unmatched' as const,
         components: item?.components.map((component) => ({
           sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+          code: component.code,
+          name: component.name,
+          optionName: component.optionName,
           quantity: component.quantity,
           currentStock: component.currentStock,
           isActive: component.isActive,

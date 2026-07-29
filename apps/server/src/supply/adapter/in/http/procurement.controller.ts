@@ -126,7 +126,7 @@ export class ProcurementController {
       const result = await this.rocketPreview.preview({
         organizationId,
         userId: user.id,
-        inventoryRequirement: 'advisory',
+        inventoryRequirement: body.inventoryRequirement ?? 'advisory',
         request: {
           channelAccountId: body.channelAccountId!,
           collection: body.collection!,

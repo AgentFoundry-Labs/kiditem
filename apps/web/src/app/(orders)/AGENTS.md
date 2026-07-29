@@ -40,9 +40,10 @@ React Query + apiClient
   independent active routes.
 - Channel product/option identity repair remains in the independently reachable
   `/product-hub/matching` route. A Rocket row whose identity is already confirmed
-  but whose `ProductVariant` recipe is empty may create that Sellpia recipe
-  inline in `/rocket-orders`; it must use the Products-owned create-if-empty API
-  and must not edit Sellpia physical stock.
+  may create or explicitly correct its Sellpia recipe inline in `/rocket-orders`.
+  Empty recipes use the Products-owned create-if-empty API; existing recipes use
+  Products' complete replacement API with the current recipe as optimistic
+  evidence. Neither path edits Sellpia physical stock.
 - `/rocket-orders` keeps the baseline calendar/list/file-history composition.
   Its calendar and reopened evidence use the account-scoped Supply catalog
   snapshot actions, and it injects `RocketConfirmPanel` through the workspace

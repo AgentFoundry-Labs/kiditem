@@ -85,6 +85,16 @@ describe('previewRocketPurchases', () => {
     expect(body).not.toHaveProperty('userId');
   });
 
+  it('requests fresh inventory only when the caller explicitly requires it', async () => {
+    await previewRocketPurchases(input(), { inventoryRequirement: 'fresh' });
+
+    expect(apiClient.post).toHaveBeenCalledWith('/api/purchase-orders', {
+      action: 'previewRocket',
+      inventoryRequirement: 'fresh',
+      ...input(),
+    });
+  });
+
   it('parses a freshness-pending checkpoint with advisory rows', async () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({
       status: 'freshness_pending',

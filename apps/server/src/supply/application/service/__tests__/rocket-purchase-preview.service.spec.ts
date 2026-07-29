@@ -132,7 +132,12 @@ describe('RocketPurchasePreviewService', () => {
       reason: null,
       masterProductId,
       productVariantId,
-      components: [{ sellpiaInventorySkuId }],
+      components: [{
+        sellpiaInventorySkuId,
+        code: 'SP-1',
+        name: 'Sellpia',
+        optionName: null,
+      }],
     });
     expect(result).not.toHaveProperty('confirmationFile');
     expect(result).not.toHaveProperty('submissionAttempt');

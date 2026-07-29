@@ -335,6 +335,9 @@ describe('Rocket purchase preview contract', () => {
         productVariantId: PRODUCT_VARIANT_ID,
         components: [{
           sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+          code: 'SP-100',
+          name: 'Sellpia 연결 상품',
+          optionName: null,
           quantity: 1,
           currentStock: 5,
           isActive: true,
@@ -428,6 +431,9 @@ describe('Rocket purchase preview contract', () => {
         productVariantId: PRODUCT_VARIANT_ID,
         components: [{
           sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+          code: 'SP-100',
+          name: 'Sellpia 연결 상품',
+          optionName: null,
           quantity: 1,
           currentStock: 2,
           isActive: true,
@@ -451,23 +457,48 @@ describe('Rocket purchase preview contract', () => {
   it('accepts current stock as the only Rocket stock quantity', () => {
     expect(RocketPurchasePreviewComponentSchema.parse({
       sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: null,
       quantity: 1,
       currentStock: 5,
       isActive: true,
     })).toEqual({
       sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: null,
       quantity: 1,
       currentStock: 5,
       isActive: true,
     });
     expect(() => RocketPurchasePreviewComponentSchema.parse({
       sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: null,
       quantity: 1,
       currentStock: 5,
       activeCommitmentQuantity: 1,
       availableStock: 4,
       isActive: true,
     })).toThrow();
+  });
+
+  it('carries the Sellpia product identity needed to review a recipe', () => {
+    expect(RocketPurchasePreviewComponentSchema.parse({
+      sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: '랜덤',
+      quantity: 1,
+      currentStock: 5,
+      isActive: true,
+    })).toMatchObject({
+      code: 'SP-100',
+      name: 'Sellpia 연결 상품',
+      optionName: '랜덤',
+    });
   });
 
   it('requires an explicit reviewed quantity, shortage reason, and artifact metadata for every workbook line', () => {

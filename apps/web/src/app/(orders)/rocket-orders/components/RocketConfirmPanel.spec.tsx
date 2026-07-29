@@ -70,6 +70,9 @@ const basePreview: RocketPurchasePreviewResponse = {
       components: [
         {
           sellpiaInventorySkuId: "66666666-6666-4666-8666-666666666666",
+          code: "SP-100",
+          name: "Sellpia 연결 상품",
+          optionName: "랜덤",
           quantity: 1,
           currentStock: 3,
           isActive: true,
@@ -224,10 +227,7 @@ describe("<RocketConfirmPanel />", () => {
     expect(screen.queryByText("상품·재고 매칭 상태")).not.toBeInTheDocument();
   });
 
-  it.each([
-    ["mapping_required", "상품 연결 필요"],
-    ["review_required", "레시피 검토 필요"],
-  ] as const)(
+  it.each([["mapping_required", "상품 연결 필요"]] as const)(
     "blocks quantity review for %s and routes the operator to matching",
     (reason, label) => {
       renderPanel({ preview: previewWithReason(reason) });
@@ -331,6 +331,20 @@ describe("<RocketConfirmPanel />", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows the linked Sellpia product and opens inline correction for a configured recipe", () => {
+    renderPanel({ preview: previewWithReason("insufficient_capacity") });
+
+    expect(screen.getByText("SP-100 · Sellpia 연결 상품")).toBeInTheDocument();
+    expect(screen.getByText("랜덤 · 현재고 3 · 구성 ×1")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "상품 1 Sellpia 재고 수정" }),
+    );
+    expect(
+      screen.getByRole("region", { name: "상품 1 Sellpia 재고 연결" }),
+    ).toBeInTheDocument();
+  });
+
   it("distinguishes Sellpia physical stock from the per-line deliverable limit", () => {
     const preview = previewWithReason("insufficient_capacity");
     renderPanel({
@@ -353,7 +367,7 @@ describe("<RocketConfirmPanel />", () => {
     expect(
       screen.getByRole("columnheader", { name: "Sellpia 원재고" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("구성 ×4")).toBeInTheDocument();
+    expect(screen.getByText("랜덤 · 현재고 307 · 구성 ×4")).toBeInTheDocument();
     expect(
       screen.getByRole("cell", { name: "PO-1 납품가능 0개" }),
     ).toBeInTheDocument();

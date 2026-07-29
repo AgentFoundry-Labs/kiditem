@@ -45,6 +45,8 @@ list, chart, workbook-panel position, and local file-history composition.
   Product Hub matching center. A `configuration_required` row already has a
   confirmed `ProductVariant`, so it creates the empty Sellpia component recipe
   directly in the Rocket table through the Products-owned create-if-empty API.
+  A configured row displays each Sellpia component code and name and may replace
+  the complete recipe inline through Products' expected-recipe-fenced manual API.
   After any correction, rerun the same saved-source preview; do not collect from
   Coupang again. Quantity and shortage-reason controls stay disabled until the
   blocker clears. Only a recipe-backed insufficient-capacity row may proceed
@@ -71,9 +73,11 @@ list, chart, workbook-panel position, and local file-history composition.
   stock. Reopening saved evidence always reruns current Inventory freshness and
   capacity.
 - Inline Rocket recipe repair may select active Sellpia inventory identities and
-  positive component quantities only. It creates an empty central recipe; it
-  does not replace an existing recipe, infer identity, or mutate stock.
-- Display Sellpia `currentStock` only. Within one preview/export, shared SKU
+  positive component quantities only. It may create an empty recipe or replace
+  an operator-reviewed complete recipe with optimistic current-recipe evidence;
+  it does not infer product identity or mutate stock.
+- Display each Sellpia component's product code, product name, and `currentStock`.
+  Within one preview/export, shared SKU
   capacity is consumed from one in-memory remaining-stock map in stable
   ETA/PO/line order. Completion requires finalized matching transmissions and
   a newer verified Sellpia generation.

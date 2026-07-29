@@ -343,6 +343,9 @@ export type RocketPoCatalogPublication = z.infer<
 
 export const RocketPurchasePreviewComponentSchema = z.object({
   sellpiaInventorySkuId: z.string().uuid(),
+  code: requiredText(120),
+  name: requiredText(240),
+  optionName: z.string().trim().min(1).max(240).nullable(),
   quantity: z.number().int().positive(),
   currentStock: z.number().int().nonnegative(),
   isActive: z.boolean(),
