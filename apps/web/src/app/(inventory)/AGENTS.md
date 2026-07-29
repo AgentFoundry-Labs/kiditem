@@ -40,9 +40,12 @@ React Query + inventory API helpers
   print helper.
 - Keep projection helpers pure and covered by focused tests.
 - Sellpia refresh requests are made through explicit action buttons and claimed
-  by the authenticated background coordinator. There is no global freshness
-  drawer, status entry, or manual-import UI. Completed automatic attempts share
-  one import-run history.
+  by the authenticated background coordinator. One user-requested
+  synchronization collects both the physical inventory snapshot and
+  product-level monthly depletion; users do not start those sources separately.
+  TTL and post-order evidence refreshes remain inventory-only. There is no
+  global freshness drawer, status entry, or manual-import UI. Completed
+  automatic attempts share one import-run history.
 - `/inventory-hub` owns exactly three tabs — `status`, `sellpia-sync`, and
   `rocket-events` — and has **no nested tab strip**. Related views
   stack as sections inside one tab (`status` contains the inventory snapshot

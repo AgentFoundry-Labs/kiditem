@@ -38,14 +38,14 @@ export function describeSellpiaStockSync(
 ): { tone: 'success' | 'error'; message: string } {
   switch (outcome.kind) {
     case 'running':
-      return { tone: 'success', message: '셀피아 재고를 수집하고 있습니다.' };
+      return { tone: 'success', message: '셀피아 데이터를 수집하고 있습니다.' };
     case 'queued': {
       const waitSeconds = Math.ceil(outcome.startsInMs / 1000);
       return {
         tone: 'success',
         message: waitSeconds > 0
-          ? `셀피아 재고 동기화를 예약했습니다. 약 ${waitSeconds}초 후 시작합니다.`
-          : '셀피아 재고 동기화를 예약했습니다.',
+          ? `셀피아 동기화를 예약했습니다. 약 ${waitSeconds}초 후 시작합니다.`
+          : '셀피아 동기화를 예약했습니다.',
       };
     }
     case 'stalled':
@@ -56,9 +56,9 @@ export function describeSellpiaStockSync(
           : '직전 수집이 실패한 상태라 동기화를 예약하지 못했습니다.',
       };
     case 'fresh':
-      return { tone: 'success', message: '셀피아 재고가 이미 최신입니다.' };
+      return { tone: 'success', message: '셀피아 데이터가 이미 최신입니다.' };
     case 'request_failed':
-      return { tone: 'error', message: '셀피아 재고 동기화 요청에 실패했습니다.' };
+      return { tone: 'error', message: '셀피아 동기화 요청에 실패했습니다.' };
   }
 }
 
