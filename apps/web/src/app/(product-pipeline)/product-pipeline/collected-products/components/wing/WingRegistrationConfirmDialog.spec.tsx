@@ -15,6 +15,7 @@ const draft = {
     sellerProductName: '테스트 등록상품명',
     colorValue: '핑크',
     quantityValue: '1개',
+    unitWeightValue: '',
     salePrice: 4900,
     origPrice: 5900,
     stock: 100,
@@ -86,6 +87,35 @@ describe('WingRegistrationConfirmDialog', () => {
       expect.any(Object),
       false,
       '22222222-2222-4222-8222-222222222222',
+    );
+  });
+
+  it('requires a per-unit weight before starting the live slime-category form', () => {
+    const onConfirm = vi.fn();
+    render(
+      <WingRegistrationConfirmDialog
+        draft={{
+          ...draft,
+          overrides: { ...draft.overrides, categoryKey: '103112' },
+        }}
+        isSubmitting={false}
+        onCancel={() => {}}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    expect(screen.getByText('개당 중량을 입력하세요.')).toBeInTheDocument();
+    const weight = screen.getByLabelText('옵션 · 개당 중량 (g)');
+    const confirm = screen.getByRole('button', { name: '확인하고 WING 등록 시작' });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(weight, { target: { value: '120' } });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ unitWeightValue: '120' }),
+      false,
+      '11111111-1111-4111-8111-111111111111',
     );
   });
 

@@ -1375,11 +1375,16 @@
         let optionsApplied = true;
         for (const opt of purchaseOptions) {
           const isQuantity = String(opt.type || '').includes('수량');
-          const placeholder = isQuantity ? '숫자만 입력' : '옵션값 입력';
+          const isUnitWeight = String(opt.type || '').includes('중량');
+          const placeholder = isQuantity || isUnitWeight ? '숫자만 입력' : '옵션값 입력';
           // 수량은 숫자만 받는다. '1개' 같은 값이 와도 숫자만 남긴다.
+          // 개당 중량은 WING 행의 단위 선택이 g로 따로 렌더되므로 숫자(소수 포함)만 넣는다.
+          const rawValue = String(opt.value || '');
           const value = isQuantity
-            ? String(opt.value || '').replace(/[^\d]/g, '') || '1'
-            : String(opt.value || '');
+            ? rawValue.replace(/[^\d]/g, '') || '1'
+            : isUnitWeight
+              ? rawValue.match(/\d+(?:\.\d+)?/)?.[0] || ''
+              : rawValue;
           if (await addOptionValue(opt.type, placeholder, value)) {
             log('option:' + opt.type + '=' + value);
           } else {
