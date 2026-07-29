@@ -69,8 +69,6 @@ export function RocketConfirmPanel({
   selectedSourceImportRunId,
   selectedDate: selectedDateProp,
   selectedDateSourceRunCount,
-  selectedDateSourceRuns,
-  onSelectSourceImportRun,
   onActivity,
   onOrdersChanged,
   renderOrderExplorer,
@@ -276,7 +274,7 @@ export function RocketConfirmPanel({
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
             <span>
-              날짜 선택 → 발주 목록에서 수집본 선택 → 최신 Sellpia 재고로 미리보기
+              최신 PO 수집본 → 최신 Sellpia 재고 비교 → 엑셀 수량·납품부족사유 검토
               {loading ? <Loader2 size={13} className="ml-1.5 inline animate-spin text-purple-500" /> : null}
             </span>
             <label className={cn(
@@ -304,37 +302,6 @@ export function RocketConfirmPanel({
       {selectedDate && selectedDateSourceRunCount === 0 && !loading ? (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm text-slate-600">
           선택한 날짜에 저장된 발주가 없습니다. 쿠팡에서 새로 수집해 주세요.
-        </div>
-      ) : null}
-
-      {/* 수집본이 여럿이면 자동 선택이 금지된다(서로 다른 수집본의 행을 섞을 수 없음).
-          그래도 선택은 여기서 바로 할 수 있어야 한다 — 예전에는 발주 목록을 펼쳐
-          행마다 숨은 버튼을 찾아야 해서 사실상 막힌 것처럼 보였다. */}
-      {selectedDate && selectedDateSourceRunCount > 1 && !selectedSourceImportRunId && !loading ? (
-        <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
-          <p>
-            이 날짜에는 수집본이 <b>{selectedDateSourceRunCount}개</b> 있어 자동으로 정해지지 않습니다.
-            서로 다른 수집본의 행은 섞을 수 없으니 사용할 수집본을 하나 고르세요.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {selectedDateSourceRuns.map((run, index) => (
-              <button
-                key={run.sourceImportRunId}
-                type="button"
-                onClick={() => onSelectSourceImportRun(run.sourceImportRunId)}
-                className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-left text-xs text-slate-700 hover:border-purple-300 hover:bg-purple-50"
-              >
-                <span className="block font-semibold text-slate-800">
-                  수집 {run.collectedAt.slice(0, 16).replace('T', ' ')}
-                  {index === 0 ? <span className="ml-1.5 text-purple-600">최신</span> : null}
-                </span>
-                <span className="block text-slate-500">
-                  {formatNumber(run.poCount)}건 · {formatNumber(run.quantity)}개 ·{' '}
-                  {formatKRW(run.amount)}원
-                </span>
-              </button>
-            ))}
-          </div>
         </div>
       ) : null}
 
@@ -635,18 +602,14 @@ export function RocketConfirmPanel({
           <p className="text-sm font-medium text-slate-600">
             {error
               ? '납품 판단 영역을 불러오지 못했습니다.'
-              : selectedDate && selectedDateSourceRunCount > 1 && !selectedSourceImportRunId
-                ? '사용할 수집본을 아직 고르지 않았습니다.'
-                : selectedDate && selectedDateSourceRunCount === 0
+              : selectedDate && selectedDateSourceRunCount === 0
                   ? '선택한 날짜에 저장된 발주가 없습니다.'
                   : '납품 판단을 시작할 수집본이 없습니다.'}
           </p>
           <p className="mt-1 text-xs text-slate-400">
             {error
               ? '위 안내를 해결한 뒤 다시 시도해 주세요.'
-              : selectedDate && selectedDateSourceRunCount > 1 && !selectedSourceImportRunId
-                ? '위 안내에서 사용할 수집본을 눌러 주세요.'
-                : '달력에서 발주가 있는 날짜를 고르거나, 쿠팡에서 새로 수집해 주세요.'}
+              : '최신 쿠팡 PO를 새로 수집해 주세요.'}
           </p>
         </div>
       ) : null}

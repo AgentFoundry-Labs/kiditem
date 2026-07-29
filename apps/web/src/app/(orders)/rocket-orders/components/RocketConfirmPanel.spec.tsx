@@ -96,17 +96,8 @@ function renderPanel(options?: {
   selectedDate?: string | null;
   selectedDateSourceRunCount?: number;
   selectedSourceImportRunId?: string | null;
-  onSelectSourceImportRun?: (sourceImportRunId: string) => void;
 }) {
-  // 후보 목록은 워크스페이스가 파생한다. 스펙에서는 개수만 주면 되도록 여기서 만들어 준다.
   const sourceRunCount = options?.selectedDateSourceRunCount ?? 0;
-  const selectedDateSourceRuns = Array.from({ length: sourceRunCount }, (_, index) => ({
-    sourceImportRunId: `run-${index + 1}`,
-    collectedAt: `2026-07-2${index + 1}T09:00:00.000Z`,
-    poCount: index + 1,
-    quantity: (index + 1) * 100,
-    amount: (index + 1) * 10_000,
-  })).sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
   vi.mocked(useRocketPurchaseWorkflow).mockReturnValue({
     ...baseWorkflow,
     ...options?.workflow,
@@ -125,8 +116,6 @@ function renderPanel(options?: {
       selectedSourceImportRunId={options?.selectedSourceImportRunId ?? null}
       selectedDate={options?.selectedDate ?? null}
       selectedDateSourceRunCount={sourceRunCount}
-      selectedDateSourceRuns={selectedDateSourceRuns}
-      onSelectSourceImportRun={options?.onSelectSourceImportRun ?? vi.fn()}
       onActivity={vi.fn()}
       onOrdersChanged={vi.fn()}
       renderOrderExplorer={({ onSelectDate }) => (
@@ -278,7 +267,7 @@ describe('<RocketConfirmPanel />', () => {
     expect(revalidateEditedQuantities).toHaveBeenCalledTimes(1);
   });
 
-  it('distinguishes an empty selected day from a day requiring source choice', () => {
+  it('distinguishes an empty selected day without introducing a source picker', () => {
     // 클릭 없이 props 만으로 렌더한다 = URL 로 직접 들어오거나 새로고침한 경로.
     const empty = renderPanel({
       preview: null,
@@ -295,7 +284,8 @@ describe('<RocketConfirmPanel />', () => {
       selectedDate: '2026-07-22',
       selectedDateSourceRunCount: 2,
     });
-    expect(screen.getByText(/자동으로 정해지지 않습니다/)).toBeInTheDocument();
+    expect(screen.queryByText(/자동으로 정해지지 않습니다/)).not.toBeInTheDocument();
+    expect(screen.getByText('납품 판단을 시작할 수집본이 없습니다.')).toBeInTheDocument();
   });
 
   it('explains the empty decision area instead of rendering nothing when the preview failed', () => {
@@ -309,38 +299,15 @@ describe('<RocketConfirmPanel />', () => {
     expect(screen.getByText(/셀피아 재고 스냅샷이 최신이 아니어서/)).toBeInTheDocument();
   });
 
-  it('guides the operator to pick a collection when a day has several source runs', () => {
-    renderPanel({
-      preview: null,
-      selectedDate: '2026-07-28',
-      selectedDateSourceRunCount: 2,
-      selectedSourceImportRunId: null,
-    });
-    expect(screen.getByText('사용할 수집본을 아직 고르지 않았습니다.')).toBeInTheDocument();
-  });
-
-  // 재현: 7/28 처럼 수집본이 여러 개인 날짜는 자동 선택이 금지되는데, 후보가 발주 목록 행을
-  // 펼쳐야 나오는 숨은 버튼뿐이라 "28일자가 안 나온다"로 보였다. 선택은 여기서 끝나야 한다.
-  it('offers every candidate collection inline, newest first, without auto-picking one', () => {
-    const onSelectSourceImportRun = vi.fn();
+  it('does not ask the operator to choose a historical collection', () => {
     renderPanel({
       preview: null,
       selectedDate: '2026-07-28',
       selectedDateSourceRunCount: 3,
       selectedSourceImportRunId: null,
-      onSelectSourceImportRun,
     });
-
-    expect(screen.getByText(/수집본이/)).toBeInTheDocument();
-    const candidates = screen.getAllByRole('button', { name: /^수집 2026-07-2/ });
-    expect(candidates).toHaveLength(3);
-    // 최신순 정렬 + 최신 표시. 자동 선택은 하지 않는다(운영자 클릭이 있어야 한다).
-    expect(candidates[0]).toHaveTextContent('최신');
-    expect(candidates[1]).not.toHaveTextContent('최신');
-    expect(onSelectSourceImportRun).not.toHaveBeenCalled();
-
-    fireEvent.click(candidates[0]!);
-    expect(onSelectSourceImportRun).toHaveBeenCalledWith('run-3');
+    expect(screen.queryByText(/자동으로 정해지지|사용할 수집본을 하나/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^수집 2026-07-2/ })).not.toBeInTheDocument();
   });
 
   // 수집은 매번 전량 스냅샷이라 이미 제출한 라인이 이후 수집본에 계속 나온다.
@@ -395,8 +362,6 @@ describe('<RocketConfirmPanel />', () => {
             selectedSourceImportRunId={sourceRunId}
             selectedDate={null}
             selectedDateSourceRunCount={0}
-            selectedDateSourceRuns={[]}
-            onSelectSourceImportRun={vi.fn()}
             onActivity={vi.fn()}
             onOrdersChanged={vi.fn()}
             renderOrderExplorer={() => null}

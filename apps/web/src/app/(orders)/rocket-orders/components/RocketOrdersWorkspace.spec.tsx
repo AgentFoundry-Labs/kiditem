@@ -29,7 +29,7 @@ const savedOrders: RocketSavedPoSummary[] = [
     collectedAt: '2026-07-18T03:00:00.000Z',
   },
   {
-    sourceImportRunId: secondSourceImportRunId,
+    sourceImportRunId,
     poNumber: 'PO-1002',
     orderedAt: '2026-07-18',
     plannedDeliveryDate: '2026-07-19',
@@ -304,6 +304,24 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     });
   });
 
+  it('opens the latest saved collection without requiring a date click', () => {
+    let latestContext: RocketDecisionWorkspaceContext | null = null;
+
+    renderWorkspace({ onContext: (context) => { latestContext = context; } });
+
+    expect(latestContext?.selectedSourceImportRunId).toBe(sourceImportRunId);
+  });
+
+  it('keeps the latest collection preview open when the selected day has no rows', () => {
+    navigation.params = new URLSearchParams({ date: '2026-07-31' });
+    let latestContext: RocketDecisionWorkspaceContext | null = null;
+
+    renderWorkspace({ onContext: (context) => { latestContext = context; } });
+
+    expect(latestContext?.selectedDateSourceRunCount).toBe(0);
+    expect(latestContext?.selectedSourceImportRunId).toBe(sourceImportRunId);
+  });
+
   it('keeps wide purchase rows scrollable instead of clipping or overlapping text', () => {
     renderWorkspace();
 
@@ -312,7 +330,7 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     expect(screen.getByTestId('rocket-po-table-scroll')).toHaveClass('overflow-x-auto');
   });
 
-  it('propagates an explicit account change and clears the previously selected source run', () => {
+  it('clears the previous source while switching Rocket accounts', () => {
     let latestContext: RocketDecisionWorkspaceContext | null = null;
     renderWorkspace({ onContext: (context) => { latestContext = context; } });
 
@@ -335,7 +353,7 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     expect(latestContext?.selectedSourceImportRunId).toBeNull();
   });
 
-  it('keeps every repeated full-snapshot run as an explicit candidate while deduping the calendar PO', () => {
+  it('automatically selects the newest run when legacy repeated snapshots remain', () => {
     const repeatedRuns: RocketSavedPoSummary[] = [
       {
         ...savedOrders[0]!,
@@ -363,20 +381,6 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
 
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' }))
       .toBeInTheDocument();
-    expect(latestContext?.selectedSourceImportRunId).toBeNull();
-    expect(latestContext?.selectedDateSourceRuns).toEqual([
-      expect.objectContaining({
-        sourceImportRunId: secondSourceImportRunId,
-        poCount: 1,
-        quantity: 3,
-        amount: 12_000,
-      }),
-      expect.objectContaining({
-        sourceImportRunId,
-        poCount: 1,
-        quantity: 3,
-        amount: 12_000,
-      }),
-    ]);
+    expect(latestContext?.selectedSourceImportRunId).toBe(secondSourceImportRunId);
   });
 });
