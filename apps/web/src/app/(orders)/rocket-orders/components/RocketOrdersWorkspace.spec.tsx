@@ -18,7 +18,7 @@ const savedOrders: RocketSavedPoSummary[] = [
     poNumber: 'PO-1001',
     orderedAt: '2026-07-17',
     plannedDeliveryDate: '2026-07-18',
-    status: '거래처확인요청',
+    status: '거래명세서확인요청',
     vendorId: 'ROCKET',
     centerName: '고양센터',
     inboundType: '택배',
@@ -226,7 +226,7 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     navigation.params = new URLSearchParams({
       from: '2026-06-01',
       to: '2026-06-30',
-      status: '거래처확인요청',
+      status: '거래명세서확인요청',
       date: '2026-06-20',
       view: 'chart',
     });
@@ -235,7 +235,7 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
 
     expect(screen.getByLabelText('입고예정일 시작')).toHaveValue('2026-06-01');
     expect(screen.getByLabelText('입고예정일 종료')).toHaveValue('2026-06-30');
-    expect(screen.getByLabelText('발주 상태')).toHaveValue('거래처확인요청');
+    expect(screen.getByLabelText('발주 상태')).toHaveValue('거래명세서확인요청');
     expect(screen.getByText('06/20 선택')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '차트' })).toHaveClass('bg-purple-50');
   });

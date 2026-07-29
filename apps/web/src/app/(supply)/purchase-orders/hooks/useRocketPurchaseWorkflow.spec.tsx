@@ -352,7 +352,14 @@ describe('useRocketPurchaseWorkflow', () => {
   });
 
   it('keeps completed rows in the saved archive while reviewing only confirmation requests', async () => {
-    const confirmationRow = { ...sourceRow('LINE-A'), poStatusCode: 'RP' };
+    const confirmationRow = {
+      ...sourceRow('LINE-A'),
+      poStatusCode: 'RI',
+      confirmation: {
+        ...sourceRow('LINE-A').confirmation!,
+        poStatus: '거래명세서확인요청',
+      },
+    };
     const completedRow = {
       ...sourceRow('LINE-B'),
       poStatusCode: 'CI',

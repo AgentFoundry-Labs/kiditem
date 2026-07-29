@@ -175,7 +175,7 @@ describe('RocketPurchasePreviewService', () => {
       previewScope: 'confirmation_requested' as const,
       collection: { ...request().collection, detailPoCount: 2 },
       rows: [
-        { ...request().rows[0]!, poStatusCode: 'RP' },
+        { ...request().rows[0]!, poStatusCode: 'RI' },
         {
           ...request().rows[0]!,
           poLineId: completedLineId,

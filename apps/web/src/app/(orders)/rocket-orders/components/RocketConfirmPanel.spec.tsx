@@ -15,9 +15,6 @@ vi.mock('./RocketMatchStatusModal', async (importOriginal) => ({
   ...await importOriginal<typeof import('./RocketMatchStatusModal')>(),
   RocketMatchStatusModal: () => null,
 }));
-vi.mock('@/app/(supply)/purchase-orders/components/RocketDeterministicMatchingPanel', () => ({
-  RocketDeterministicMatchingPanel: () => <div>상품·재고 매칭 상태</div>,
-}));
 
 const setReviewedQuantity = vi.fn();
 const setPreviewDirty = vi.fn();
@@ -156,6 +153,17 @@ describe('<RocketConfirmPanel />', () => {
     const heading = screen.getByText(/미리보기 · 편집/);
     expect(heading.textContent?.match(/미리보기 · 편집/g)).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: /매칭 현황/ })).toHaveLength(1);
+  });
+
+  it('does not render the account-wide product and stock matching status panel', () => {
+    renderPanel({
+      preview: {
+        ...basePreview,
+        catalog: { recipeAutomation: {} } as never,
+      },
+    });
+
+    expect(screen.queryByText('상품·재고 매칭 상태')).not.toBeInTheDocument();
   });
 
   it.each([

@@ -179,8 +179,10 @@ function previewRowsForScope(
 ): RocketPurchasePreviewRequest['rows'] {
   if (request.previewScope !== 'confirmation_requested') return request.rows;
   return request.rows.filter((row) => (
-    row.poStatusCode?.toUpperCase() === 'RP'
-    || row.confirmation?.poStatus.trim() === '거래처확인요청'
+    ['RI', 'RP'].includes(row.poStatusCode?.toUpperCase() ?? '')
+    || ['거래명세서확인요청', '거래처확인요청'].includes(
+      row.confirmation?.poStatus.trim() ?? '',
+    )
   ));
 }
 

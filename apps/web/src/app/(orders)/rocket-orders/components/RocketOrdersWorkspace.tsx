@@ -34,7 +34,7 @@ const RocketOrdersChart = dynamic(
 
 const STATUS_OPTIONS = [
   { value: '', label: '전체 상태' },
-  { value: '거래처확인요청', label: '신규 주문 (거래확인서요청)' },
+  { value: '거래명세서확인요청', label: '신규 주문 (거래명세서확인요청)' },
 ];
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -440,7 +440,8 @@ export function RocketOrdersWorkspace({
   function renderPoRow(po: RocketSavedPoSummary) {
     const poKey = `${po.sourceImportRunId}:${po.poNumber}`;
     const open = openPo === poKey;
-    const isNew = po.status === '거래처확인요청';
+    const isNew = po.status === '거래명세서확인요청'
+      || po.status === '거래처확인요청';
     return (
       <Fragment key={poKey}>
         <div

@@ -19,7 +19,6 @@ import {
 import { toast } from 'sonner';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { useRocketPurchaseWorkflow } from '@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow';
-import { RocketDeterministicMatchingPanel } from '@/app/(supply)/purchase-orders/components/RocketDeterministicMatchingPanel';
 import type { RocketDecisionWorkspaceContext } from './RocketOrdersWorkspace';
 import {
   RocketMatchStatusModal,
@@ -250,7 +249,7 @@ export function RocketConfirmPanel({
               type="button"
               onClick={() => void collectMonth()}
               disabled={busy || !channelAccountId}
-              title={`${activeMonth} 거래처확인요청 발주를 선택한 로켓 계정에서 수집합니다.`}
+              title={`${activeMonth} 거래명세서확인요청 발주를 선택한 로켓 계정에서 수집합니다.`}
               className={cn(
                 'inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50',
                 (busy || !channelAccountId) && 'pointer-events-none opacity-60',
@@ -360,13 +359,6 @@ export function RocketConfirmPanel({
             </>
           ) : null}
         </div>
-      ) : null}
-
-      {preview?.catalog ? (
-        <RocketDeterministicMatchingPanel
-          channelAccountId={channelAccountId}
-          latestAutomation={preview.catalog.recipeAutomation}
-        />
       ) : null}
 
       {rows.length > 0 ? (

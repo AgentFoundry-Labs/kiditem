@@ -54,7 +54,10 @@ function parseState(
     account: values.account?.trim() ?? '',
     from,
     to,
-    status: values.status === '거래처확인요청' ? values.status : '',
+    status: values.status === '거래명세서확인요청'
+      || values.status === '거래처확인요청'
+      ? '거래명세서확인요청'
+      : '',
     date,
     view: values.view === 'chart' ? 'chart' : 'month',
   };
