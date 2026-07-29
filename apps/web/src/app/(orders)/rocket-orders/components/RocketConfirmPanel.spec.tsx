@@ -15,7 +15,10 @@ import { RocketConfirmPanel } from "./RocketConfirmPanel";
 
 vi.mock(
   "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow",
-  () => ({
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow")
+    >()),
     useRocketPurchaseWorkflow: vi.fn(),
   }),
 );
@@ -292,13 +295,16 @@ describe("<RocketConfirmPanel />", () => {
     },
   );
 
-  it("keeps an insufficient-capacity row editable and shows only physical current stock", () => {
+  it("fixes an insufficient-capacity row quantity at zero", () => {
     renderPanel({ preview: previewWithReason("insufficient_capacity") });
 
     expect(screen.getByText("구성 완료")).toBeInTheDocument();
-    expect(
-      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
-    ).toBeEnabled();
+    const quantity = screen.getByRole("spinbutton", {
+      name: "PO-1 엑셀 수량",
+    });
+    expect(quantity).toHaveValue(0);
+    expect(quantity).toHaveAttribute("max", "0");
+    expect(quantity).toBeDisabled();
     expect(
       screen.getByRole("combobox", { name: "PO-1 납품부족사유" }),
     ).toBeEnabled();

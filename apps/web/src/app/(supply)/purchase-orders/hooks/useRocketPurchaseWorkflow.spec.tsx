@@ -394,6 +394,7 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(hook.result.current.shortageReasons).toEqual({
       'LINE-A': SHORTAGE_REASON,
     });
+    expect(hook.result.current.editedQuantities['LINE-A']).toBe(0);
   });
 
   it('shows only the selected delivery date while calculating from the complete saved snapshot', async () => {
@@ -430,7 +431,7 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(hook.result.current.sourceRows).toEqual([lineB]);
   });
 
-  it('sends a real operator edit and keeps the server-clamped reviewed value', async () => {
+  it('forces a server-clamped insufficient-capacity value to zero', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
     vi.mocked(previewRocketPurchases)
@@ -452,7 +453,7 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(previewRocketPurchases).toHaveBeenNthCalledWith(2, expect.objectContaining({
       editedQuantities: { 'LINE-A': 2 },
     }));
-    expect(hook.result.current.editedQuantities['LINE-A']).toBe(1);
+    expect(hook.result.current.editedQuantities['LINE-A']).toBe(0);
     expect(hook.result.current.previewDirty).toBe(false);
   });
 
@@ -569,7 +570,7 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(downloadBlob).toHaveBeenCalledWith(generatedBlob, '쿠팡_로켓.xlsx');
   });
 
-  it('clamps reviewed quantities to fresh inventory before building the workbook', async () => {
+  it('forces a fresh insufficient-capacity workbook quantity to zero', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
     vi.mocked(previewRocketPurchases)
@@ -582,7 +583,7 @@ describe('useRocketPurchaseWorkflow', () => {
       fileName: '쿠팡_로켓.xlsx',
       summary: {
         totalRows: 1,
-        workbookQuantity: 2,
+        workbookQuantity: 0,
         fullyConfirmedRows: 0,
         shortRows: 1,
       },
@@ -603,7 +604,7 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(buildRocketConfirmationWorkbook).toHaveBeenCalledWith(expect.objectContaining({
       workbookRows: [{
         poLineId: 'LINE-A',
-        workbookQuantity: 2,
+        workbookQuantity: 0,
         shortageReason: SHORTAGE_REASON,
       }],
     }));

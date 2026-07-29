@@ -6,7 +6,11 @@ import {
   ROCKET_SHORTAGE_REASONS,
 } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
-import { useRocketPurchaseWorkflow } from '../hooks/useRocketPurchaseWorkflow';
+import {
+  rocketReviewedQuantity,
+  rocketReviewedQuantityLimit,
+  useRocketPurchaseWorkflow,
+} from '../hooks/useRocketPurchaseWorkflow';
 import { RocketDeterministicMatchingPanel } from './RocketDeterministicMatchingPanel';
 import type {
   RocketPurchasePreviewReason,
@@ -288,14 +292,20 @@ export function RocketPurchaseWorkspace({
                       aria-label={`${row.poNumber} 엑셀 수량`}
                       type="number"
                       min={0}
-                      max={Math.min(row.maxQuantity, row.orderQuantity)}
+                      max={rocketReviewedQuantityLimit(row)}
                       step={1}
-                      value={editedQuantities[row.poLineId] ?? row.recommendedQuantity}
-                      disabled={isRocketWorkbookBlockingReason(row.reason)}
+                      value={rocketReviewedQuantity(
+                        row,
+                        editedQuantities[row.poLineId],
+                      )}
+                      disabled={
+                        isRocketWorkbookBlockingReason(row.reason)
+                        || row.reason === 'insufficient_capacity'
+                      }
                       onChange={(event) => {
                         const quantity = normalizeReviewQuantity(
                           event.target.value,
-                          Math.min(row.maxQuantity, row.orderQuantity),
+                          rocketReviewedQuantityLimit(row),
                         );
                         setReviewedQuantity(row.poLineId, quantity);
                         setShortageReasons((current) => {
@@ -315,7 +325,10 @@ export function RocketPurchaseWorkspace({
                       value={shortageReasons[row.poLineId] ?? ''}
                       disabled={
                         isRocketWorkbookBlockingReason(row.reason)
-                        || (editedQuantities[row.poLineId] ?? row.recommendedQuantity) >= row.orderQuantity
+                        || rocketReviewedQuantity(
+                          row,
+                          editedQuantities[row.poLineId],
+                        ) >= row.orderQuantity
                       }
                       onChange={(event) => {
                         const reason = event.target.value;
