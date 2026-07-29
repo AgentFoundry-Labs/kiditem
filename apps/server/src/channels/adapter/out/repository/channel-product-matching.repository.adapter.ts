@@ -17,6 +17,7 @@ import type {
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const COMPLETED_CATALOG_SOURCE_TYPES = [
   'coupang_wing_catalog',
+  'coupang_rocket_catalog_seed',
   'coupang_rocket_po_catalog',
 ] as const;
 const PUBLISHED_BROWSER_CATALOG_SOURCE = 'coupang_catalog_browser';

@@ -371,5 +371,8 @@ describe('source import contracts', () => {
     expect(SourceImportTypeSchema.parse('coupang_rocket_po_catalog')).toBe(
       'coupang_rocket_po_catalog',
     );
+    expect(SourceImportTypeSchema.parse('coupang_rocket_catalog_seed')).toBe(
+      'coupang_rocket_catalog_seed',
+    );
   });
 });

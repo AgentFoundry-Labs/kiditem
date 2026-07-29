@@ -64,6 +64,7 @@ export type SellpiaInventoryBrowserSnapshot = z.infer<
 export const SourceImportTypeSchema = z.enum([
   'sellpia_inventory',
   'coupang_wing_catalog',
+  'coupang_rocket_catalog_seed',
   'coupang_rocket_po_catalog',
 ]);
 export type SourceImportType = z.infer<typeof SourceImportTypeSchema>;
