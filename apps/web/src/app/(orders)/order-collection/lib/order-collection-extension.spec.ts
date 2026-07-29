@@ -173,7 +173,7 @@ describe('order collection extension session bridge', () => {
 
     expect(bridge.detectOrderCollectionExtensionId).toHaveBeenCalledWith(
       1200,
-      'sellpiaOrderFileUploadEvidenceV1',
+      'sellpiaScopedAutoInvoiceV1',
     );
   });
 
@@ -194,6 +194,7 @@ describe('order collection extension session bridge', () => {
       shopName: '키드키즈',
       fileName: 'orders.xlsx',
       blob: new Blob(['orders']),
+      orderNumbers: ['ORDER-1'],
     })).resolves.toMatchObject({
       success: false,
       outcome: 'not_submitted',
@@ -209,6 +210,7 @@ describe('order collection extension session bridge', () => {
       shopName: '키드키즈',
       fileName: 'orders.xlsx',
       blob: new Blob(['orders']),
+      orderNumbers: ['ORDER-1'],
     })).resolves.toMatchObject({
       success: false,
       outcome: 'unknown',
@@ -232,6 +234,7 @@ describe('order collection extension session bridge', () => {
       shopName: '키드키즈',
       fileName: 'orders.xlsx',
       blob: new Blob(['orders']),
+      orderNumbers: ['ORDER-1'],
     };
 
     await expect(sendOrderFileToSellpiaViaExtension(params)).resolves.toMatchObject({

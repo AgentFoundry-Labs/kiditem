@@ -5,6 +5,7 @@ importScripts(
   "collection-failure.js",
   "order-collection-lifecycle.js",
   "sellpia-inventory.js",
+  "sellpia-post-processing.js",
   "coupang-po-session.js",
   "rocket-po-collection.js",
 );
@@ -57,6 +58,12 @@ const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
 const sellpiaInventory = KidItemSellpiaInventory.create({ chrome });
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
 const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
+const sellpiaPostProcessing = KidItemSellpiaPostProcessing;
+const sellpiaInvoiceTargets = sellpiaPostProcessing.createTargetStore({
+  chrome,
+  storageKeyForEnvironment: (base, environmentId) =>
+    environmentContext.storageKey(base, environmentId),
+});
 const coupangPoSession = KidItemCoupangPoSession.create({
   chrome,
   attachOrderCollectionTab,
@@ -274,6 +281,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         orderCollectionFailureEvidenceV1: true,
         kiditemEnvironmentProfilesV1: true,
         sellpiaOrderFileUploadEvidenceV1: true,
+        sellpiaScopedAutoInvoiceV1: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
         sellpiaPostTransfer: true,
@@ -403,6 +411,10 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       shopName: typeof msg.shopName === "string" ? msg.shopName : null,
       fileName: typeof msg.fileName === "string" ? msg.fileName : null,
       fileBase64: typeof msg.fileBase64 === "string" ? msg.fileBase64 : null,
+      targetOrderNumbers: sellpiaPostProcessing.normalizeTargetOrderNumbers(
+        msg.targetOrderNumbers,
+      ),
+      environmentId,
     })
       .then((result) => sendResponse(result))
       .catch((error) => {
@@ -417,7 +429,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   // 셀피아 전송 이후 후처리(등록→조회→자동합포→자동재고매칭 + 미매칭 리포트). 비파괴 단계.
   if (msg?.action === "sellpiaPostTransfer") {
-    runSellpiaPostTransfer()
+    runSellpiaPostTransfer(environmentId)
       .then((result) => sendResponse(result))
       .catch((error) => {
         sendResponse({
@@ -430,7 +442,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   // 셀피아 송장 자동채번(되돌리기 어려움). 프론트 확인 게이트 이후에만 호출된다.
   if (msg?.action === "sellpiaAutoInvoice") {
-    runSellpiaAutoInvoice()
+    runSellpiaAutoInvoice(environmentId)
       .then((result) => sendResponse(result))
       .catch((error) => {
         sendResponse({
@@ -748,12 +760,29 @@ function mallGenericErrorResult(mallName, err) {
 }
 
 // ── 셀피아 전송 (API 아님 — order_collect 화면에 판매처 선택 + 파일 주입 + 주문접수 클릭) ──
-async function sendOrderFileToSellpia({ shopName, fileName, fileBase64 }) {
+async function sendOrderFileToSellpia({
+  shopName,
+  fileName,
+  fileBase64,
+  targetOrderNumbers,
+  environmentId,
+}) {
   if (!fileBase64 || !fileName) {
     return {
       success: false,
       outcome: "not_submitted",
       error: "셀피아로 보낼 파일이 없습니다.",
+    };
+  }
+  const invoiceTargets = sellpiaPostProcessing.normalizeTargetOrderNumbers(
+    targetOrderNumbers,
+  );
+  if (invoiceTargets.length === 0) {
+    return {
+      success: false,
+      outcome: "not_submitted",
+      error:
+        "이번 파일의 주문번호가 없어 셀피아 전송을 시작하지 않았습니다. 송장채번 대상을 안전하게 제한할 수 없습니다.",
     };
   }
 
@@ -785,7 +814,12 @@ async function sendOrderFileToSellpia({ shopName, fileName, fileBase64 }) {
         // 행 증가를 직접 관찰해, 화면에 이미 접수된 뒤에도 DOM pager만 기다리지 않는다.
         world: "MAIN",
         func: injectSellpiaOrderFile,
-        args: [{ shopName: shopName || null, fileName, fileBase64 }],
+        args: [{
+          shopName: shopName || null,
+          fileName,
+          fileBase64,
+          targetOrderNumbers: invoiceTargets,
+        }],
       }),
       45000,
       "셀피아 주문접수 화면 주입 시간이 초과되었습니다.",
@@ -803,6 +837,26 @@ async function sendOrderFileToSellpia({ shopName, fileName, fileBase64 }) {
     outcome: "unknown",
     error: "셀피아 주문접수 화면에 접근하지 못했습니다.",
   };
+  if (result.success === true && result.outcome === "submitted") {
+    const acceptedTargets = sellpiaPostProcessing.normalizeTargetOrderNumbers(
+      result.acceptedTargetOrderNumbers,
+    );
+    if (acceptedTargets.length === 0) {
+      result.targetTrackingWarning =
+        "새로 접수된 주문번호를 확인하지 못해 자동 송장채번 대상에 포함하지 않았습니다.";
+    } else {
+      try {
+        const tracked = await sellpiaInvoiceTargets.remember(
+          environmentId,
+          acceptedTargets,
+        );
+        result.targetOrderCount = tracked.length;
+      } catch (error) {
+        result.targetTrackingWarning =
+          error?.message || "송장채번 대상 주문번호를 보관하지 못했습니다.";
+      }
+    }
+  }
   const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
   return { ...result, url: currentTab.url || tab.url || SELLPIA_ORDER_UPLOAD_URL };
 }
@@ -3564,6 +3618,47 @@ async function injectSellpiaOrderFile(payload) {
   const fileName = payload.fileName;
   const fileBase64 = payload.fileBase64;
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const targetOrderNumbers = Array.from(new Set(
+    (Array.isArray(payload.targetOrderNumbers) ? payload.targetOrderNumbers : [])
+      .map((value) => String(value == null ? "" : value).trim())
+      .filter(Boolean),
+  ));
+
+  function targetForPendingRow(row) {
+    const text = (value) => String(value == null ? "" : value).trim();
+    const values = [
+      row?.group_no,
+      row?.c_group_no,
+      row?.ord_no,
+      row?.order_no,
+      row?.shop_order_no,
+      row?.provider_order_no,
+      row?.seller_order_no,
+      row?.om_order_no,
+    ].map(text).filter(Boolean);
+    for (const target of targetOrderNumbers) {
+      for (const value of values) {
+        if (value === target) return target;
+        if (!value.endsWith(target)) continue;
+        const prefix = value.slice(0, -target.length);
+        if (/[_:|\/\s-]$/.test(prefix)) return target;
+      }
+    }
+    return null;
+  }
+
+  function pendingTargetOrderNumbers() {
+    try {
+      if (!window.dataView || typeof window.dataView.getItems !== "function") return [];
+      return Array.from(new Set(
+        window.dataView.getItems()
+          .map(targetForPendingRow)
+          .filter(Boolean),
+      ));
+    } catch {
+      return [];
+    }
+  }
 
   function parsePendingRowCount(value) {
     const match = String(value || "")
@@ -3628,17 +3723,21 @@ async function injectSellpiaOrderFile(payload) {
     return pendingRowCount();
   }
 
-  async function waitForUploadEvidence(beforeCount) {
+  async function waitForUploadEvidence(beforeCount, targetOrderNumbersBefore) {
     for (let attempt = 0; attempt < 50; attempt += 1) {
       // 셀피아는 일부 주문을 정상 접수하면서 이미 수집된 중복 주문 경고를 같은
       // 결과 팝업에 함께 표시한다. 새 대기 행이 실제로 늘었다면 그 증가분을
       // 우선 성공 근거로 인정하고, 행 증가가 없을 때만 팝업을 전체 거절로 본다.
       const afterCount = pendingRowCount();
       if (afterCount !== null && afterCount > beforeCount) {
+        const beforeTargets = new Set(targetOrderNumbersBefore);
+        const acceptedTargetOrderNumbers = pendingTargetOrderNumbers()
+          .filter((orderNumber) => !beforeTargets.has(orderNumber));
         return {
           kind: "accepted",
           acceptedRows: afterCount - beforeCount,
           pendingRows: afterCount,
+          acceptedTargetOrderNumbers,
         };
       }
       const dialogText = visibleDialogText();
@@ -3772,6 +3871,7 @@ async function injectSellpiaOrderFile(payload) {
         "셀피아 대기 주문 목록을 읽지 못해 주문접수를 실행하지 않았습니다. 화면을 새로고침한 뒤 다시 시도해주세요.",
     };
   }
+  const pendingTargetOrderNumbersBefore = pendingTargetOrderNumbers();
   try {
     submitButton.click();
   } catch (error) {
@@ -3784,7 +3884,10 @@ async function injectSellpiaOrderFile(payload) {
     };
   }
 
-  const uploadEvidence = await waitForUploadEvidence(pendingRowsBefore);
+  const uploadEvidence = await waitForUploadEvidence(
+    pendingRowsBefore,
+    pendingTargetOrderNumbersBefore,
+  );
   if (uploadEvidence.kind === "rejected") {
     return {
       success: false,
@@ -3813,6 +3916,7 @@ async function injectSellpiaOrderFile(payload) {
     fileName,
     acceptedRows: uploadEvidence.acceptedRows,
     pendingRows: uploadEvidence.pendingRows,
+    acceptedTargetOrderNumbers: uploadEvidence.acceptedTargetOrderNumbers,
   };
 
   function setSelectValue(element, value) {
@@ -3843,13 +3947,16 @@ async function injectSellpiaOrderFile(payload) {
 // → 미매칭(재고부족) 리포트. 실제 버튼 클릭 + $.prompt 자동응답 방식(셀피아 자체 로직/사용자
 // localStorage 기준값을 그대로 재사용). 송장 자동채번은 되돌리기 어려우므로 별도(runSellpiaAutoInvoice).
 
-async function runSellpiaStepInTab(tabId, step, timeoutMs) {
+async function runSellpiaStepInTab(tabId, step, timeoutMs, targetOrderNumbers = []) {
   const injected = await withTimeout(
     chrome.scripting.executeScript({
       target: { tabId },
       world: "MAIN", // 페이지 jQuery/전역(dataView, getList, $.prompt) 접근 필요.
-      func: sellpiaDriveStep,
-      args: [step],
+      func: sellpiaPostProcessing.driveStep,
+      args: [
+        step,
+        sellpiaPostProcessing.normalizeTargetOrderNumbers(targetOrderNumbers),
+      ],
     }),
     timeoutMs,
     `셀피아 ${step} 단계 시간이 초과되었습니다.`,
@@ -3858,7 +3965,7 @@ async function runSellpiaStepInTab(tabId, step, timeoutMs) {
 }
 
 // 등록(order_collect) → 재고매칭 화면 이동 → 조회 → 자동합포 → 자동재고매칭 + 미매칭 리포트.
-async function runSellpiaPostTransfer() {
+async function runSellpiaPostTransfer(environmentId) {
   const tab = await findOrCreateSellpiaTab(); // order_collect 탭 포커스/생성
   if (!tab?.id) return { success: false, error: "셀피아 탭을 열 수 없습니다." };
   await waitForTabReady(tab.id);
@@ -3887,6 +3994,7 @@ async function runSellpiaPostTransfer() {
     step: "stockmatch",
     register,
     ...process,
+    invoiceTargetCount: (await sellpiaInvoiceTargets.read(environmentId)).length,
     url: currentTab.url || SELLPIA_STOCKMATCH_URL,
   };
 }
@@ -3908,277 +4016,36 @@ async function findOrCreateSellpiaInvoiceTab() {
 }
 
 // ⚠️되돌리기 어려움: 송장채번 화면에서 실제 송장번호를 발급한다. 프론트 확인 이후에만 호출.
-async function runSellpiaAutoInvoice() {
+async function runSellpiaAutoInvoice(environmentId) {
+  const targetOrderNumbers = await sellpiaInvoiceTargets.read(environmentId);
+  if (targetOrderNumbers.length === 0) {
+    return {
+      success: false,
+      error:
+        "이번에 셀피아로 전송한 주문번호가 없습니다. 주문 파일을 먼저 전송한 뒤 후처리를 다시 실행하세요.",
+    };
+  }
   const { tab } = await findOrCreateSellpiaInvoiceTab();
   if (!tab?.id) return { success: false, error: "셀피아 송장채번 탭을 열 수 없습니다." };
   await interactiveTabs.focusTab(tab.id, INTERACTIVE_TAB_REASONS.TRACKING_MUTATION);
   await waitForTabReady(tab.id);
-  const result = await runSellpiaStepInTab(tab.id, "invoice", 160000);
+  const result = await runSellpiaStepInTab(
+    tab.id,
+    "invoice",
+    160000,
+    targetOrderNumbers,
+  );
+  if (result?.success && Array.isArray(result.selectedTargetOrderNumbers)) {
+    await sellpiaInvoiceTargets.consume(
+      environmentId,
+      result.selectedTargetOrderNumbers,
+    );
+  }
   const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
   return { ...result, url: currentTab.url || SELLPIA_INVOICE_URL };
 }
 
 // 페이지 컨텍스트(MAIN world)에서 실행. 자체완결(외부 참조 금지). step: register|stockmatch|invoice.
-async function sellpiaDriveStep(step) {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const jq = window.jQuery;
-  if (!jq) {
-    return { success: false, error: "셀피아 페이지(jQuery)를 찾지 못했습니다. 로그인/화면을 확인하세요." };
-  }
-  const norm = (s) => String(s == null ? "" : s).replace(/\s+/g, "");
-  const stripHtml = (h) => {
-    const d = document.createElement("div");
-    d.innerHTML = String(h == null ? "" : h);
-    return (d.textContent || "").trim();
-  };
-  const promptButtons = () => Array.from(document.querySelectorAll(".jqibuttons button"));
-  const promptOpen = () => promptButtons().length > 0;
-  const promptMessage = () => {
-    const els = Array.from(document.querySelectorAll(".jqimessage"));
-    const el = els[els.length - 1];
-    return el ? (el.textContent || "").trim() : "";
-  };
-  // 라벨(정규화 부분일치)로 impromptu 버튼 클릭. labels 는 우선순위 순.
-  function answerPrompt(labels) {
-    const btns = promptButtons();
-    for (const label of labels) {
-      const target = norm(label);
-      const b = btns.find((x) => norm(x.textContent).includes(target));
-      if (b) {
-        b.click();
-        return true;
-      }
-    }
-    return false;
-  }
-  async function waitPrompt(matchRe, timeoutMs) {
-    const until = Date.now() + timeoutMs;
-    while (Date.now() < until) {
-      if (promptOpen()) {
-        const t = promptMessage();
-        if (!matchRe || matchRe.test(t)) return t;
-      }
-      await sleep(150);
-    }
-    return null;
-  }
-  // 모든 jQuery AJAX가 끝날 때까지 대기(완료 신호).
-  async function waitIdle(timeoutMs) {
-    const until = Date.now() + timeoutMs;
-    await sleep(400); // AJAX 가 시작될 여유
-    while (Date.now() < until) {
-      if ((jq.active || 0) === 0) {
-        await sleep(300);
-        if ((jq.active || 0) === 0) return true;
-      }
-      await sleep(200);
-    }
-    return false;
-  }
-  async function waitGrid(timeoutMs) {
-    const until = Date.now() + timeoutMs;
-    while (Date.now() < until) {
-      if (window.dataView && typeof window.dataView.getLength === "function") return true;
-      await sleep(200);
-    }
-    return false;
-  }
-
-  try {
-    if (step === "register") {
-      await waitGrid(12000);
-      await waitIdle(15000); // 로드시 자동 getList(수집 대기 주문) 완료 대기
-      const btn = document.getElementById("save_b");
-      if (!btn) {
-        return {
-          success: false,
-          error: "등록 버튼(#save_b)을 찾지 못했습니다. 셀피아 주문서수집 화면인지/로그인 상태인지 확인하세요.",
-        };
-      }
-      if (window.dataView && window.dataView.getLength() <= 0) {
-        return {
-          success: false,
-          empty: true,
-          error: "등록할 수집 주문이 없습니다. 먼저 셀피아 전송을 진행한 뒤 후처리를 실행하세요.",
-        };
-      }
-      const pending = window.dataView ? window.dataView.getLength() : null;
-      btn.click();
-      const confirmTxt = await waitPrompt(/정리된 내용|등록/, 8000);
-      if (!confirmTxt) return { success: false, error: "등록 확인창이 표시되지 않았습니다." };
-      if (!answerPrompt(["기 등록된 내용 유지", "확인"])) {
-        return { success: false, error: "등록 확인 버튼(기 등록된 내용 유지)을 찾지 못했습니다." };
-      }
-      await waitIdle(50000);
-      const resultTxt = await waitPrompt(/등록되었습니다|등록에 실패|실패/, 4000);
-      answerPrompt(["Ok", "확인", "닫기"]); // 성공 안내창 닫기(재고매칭으로 이동 링크는 누르지 않음)
-      await sleep(300);
-      if (resultTxt && /실패/.test(resultTxt)) return { success: false, error: stripHtml(resultTxt) };
-      return { success: true, registered: pending, message: resultTxt ? stripHtml(resultTxt) : "주문 등록 완료" };
-    }
-
-    if (step === "stockmatch") {
-      if (!(await waitGrid(15000))) {
-        return { success: false, error: "재고매칭 화면(그리드)을 찾지 못했습니다. 로그인/화면을 확인하세요." };
-      }
-      // 1) 조회
-      const searchBtn = document.getElementById("btn_search");
-      if (!searchBtn) return { success: false, error: "조회 버튼(#btn_search)을 찾지 못했습니다." };
-      searchBtn.click();
-      const initP = await waitPrompt(/초기화|계속/, 1500);
-      if (initP) answerPrompt(["예"]);
-      await waitIdle(70000);
-      await sleep(600);
-      const listCount = window.dataView ? window.dataView.getLength() : 0;
-      if (listCount <= 0) {
-        return {
-          success: true,
-          listCount: 0,
-          matched: 0,
-          unmatched: [],
-          unmatchedCount: 0,
-          message: "재고매칭 화면에 조회된 주문이 없습니다.",
-        };
-      }
-
-      // 2) 자동합포
-      const tieBtn = document.getElementById("btn_tie");
-      if (tieBtn) {
-        tieBtn.click();
-        const tieP = await waitPrompt(/합포|일치/, 6000);
-        if (tieP) {
-          answerPrompt(["자동합포 리스트", "확인", "예"]);
-          await waitIdle(70000);
-          const tieDone = await waitPrompt(/합포|완료|없습니다/, 2500);
-          if (tieDone) answerPrompt(["확인", "예", "Ok", "닫기"]);
-          await sleep(400);
-        }
-      }
-
-      // 3) 자동재고매칭
-      const smatchBtn = document.getElementById("btn_smatch");
-      if (!smatchBtn) return { success: false, error: "자동재고매칭 버튼(#btn_smatch)을 찾지 못했습니다." };
-      smatchBtn.click();
-      const smP = await waitPrompt(/재고매칭|계속/, 6000);
-      if (!smP) return { success: false, error: "자동재고매칭 확인창이 표시되지 않았습니다." };
-      answerPrompt(["예"]);
-      await waitIdle(120000);
-      const doneTxt = await waitPrompt(/재고매칭을 완료|없습니다/, 5000);
-      let matchedFromPrompt = null;
-      if (doneTxt) {
-        const m = doneTxt.match(/완료\s*\(?\s*([0-9,]+)/);
-        if (m) matchedFromPrompt = Number(m[1].replace(/,/g, ""));
-        answerPrompt(["확인", "예", "Ok", "닫기"]);
-        await sleep(400);
-      }
-
-      // 4) 미매칭(재고부족) 읽기 — 처리결과(c_result)에 '재고매칭' 없으면 미매칭. 배송비 라인 제외.
-      const items = window.dataView && window.dataView.getItems ? window.dataView.getItems() : [];
-      const isFee = (nm) => /택배비|배송비/.test(String(nm || ""));
-      const unmatched = [];
-      let matched = 0;
-      let productRows = 0;
-      for (const it of items) {
-        const name = it.c_prd_name || it.c_prd_name_sp || "";
-        if (isFee(name)) continue; // 배송비/택배비 라인은 재고매칭 대상 아님
-        productRows += 1;
-        const result = stripHtml(it.c_result);
-        if (/재고매칭/.test(result)) {
-          matched += 1;
-          continue;
-        }
-        unmatched.push({
-          groupNo: String(it.c_group_no || ""),
-          receiver: stripHtml(it.c_receiver),
-          provider: stripHtml(it.c_provider_name),
-          product: stripHtml(name),
-          option: stripHtml(it.c_opt_name),
-          result: result || "미매칭",
-        });
-      }
-      return {
-        success: true,
-        listCount,
-        productRows,
-        matched: matchedFromPrompt != null ? matchedFromPrompt : matched,
-        unmatched,
-        unmatchedCount: unmatched.length,
-        message: `조회 ${listCount}건 · 재고매칭 ${matched}건 · 미매칭 ${unmatched.length}건`,
-      };
-    }
-
-    if (step === "invoice") {
-      if (!(await waitGrid(20000))) {
-        return { success: false, error: "송장채번 화면(그리드)을 찾지 못했습니다. 로그인/자동송장연동 설정을 확인하세요." };
-      }
-      await waitIdle(25000); // 로드시 채번 대기 리스트(getList) 완료 대기
-      await sleep(500);
-      const btn = document.getElementById("btn_get_auto_delinum");
-      if (!btn) {
-        return { success: false, error: "송장번호채번 버튼(#btn_get_auto_delinum)을 찾지 못했습니다." };
-      }
-      if (btn.disabled) {
-        return { success: false, error: "송장번호 채번 불가 상태입니다(자동송장연동/발송지 설정을 확인하세요)." };
-      }
-      const waiting = window.dataView ? window.dataView.getLength() : 0;
-      if (waiting <= 0) {
-        return { success: true, invoiced: 0, message: "송장채번 대기 주문이 없습니다(이미 채번되었거나 재고매칭 대기)." };
-      }
-      // 사용자 플로우: 대기 리스트 행을 선택(노란색)한 뒤 송장번호채번. 전체 대기건을 선택한다.
-      if (window.grid && typeof window.grid.setSelectedRows === "function") {
-        const rows = [];
-        for (let i = 0; i < waiting; i += 1) rows.push(i);
-        try {
-          window.grid.setSelectedRows(rows);
-        } catch (e) {
-          /* 선택 실패 시 페이지 자체 '전체 채번' 경로로 폴백 */
-        }
-        await sleep(300);
-      }
-      btn.click();
-      const confirmTxt = await waitPrompt(/채번|진행/, 6000);
-      if (!confirmTxt) return { success: false, error: "송장채번 확인창이 표시되지 않았습니다." };
-      answerPrompt(["예"]);
-      await waitIdle(120000);
-      const doneTxt = await waitPrompt(/완료|채번|실패|없습니다/, 6000);
-      answerPrompt(["확인", "예", "Ok", "닫기"]);
-      await sleep(700);
-      if (doneTxt && /실패/.test(doneTxt)) return { success: false, error: stripHtml(doneTxt) };
-      // ⭐채번 직후 그리드에서 발급된 송장번호를 바로 캡처(리로드하면 대기 리스트에서 빠지므로 지금 읽는다).
-      const st = (v) => String(v == null ? "" : v).trim();
-      const gItems = window.dataView && window.dataView.getItems ? window.dataView.getItems() : [];
-      const rows = gItems
-        .filter((it) => st(it.delinum))
-        .map((it) => {
-          const gno = st(it.group_no);
-          const ordNo = gno.includes("_") ? gno.split("_").pop() : gno;
-          const addr = st(it.receiver_addr) || [st(it.receiver_addr1), st(it.receiver_addr2)].filter(Boolean).join(" ");
-          return {
-            ordNo,
-            itemNo: "",
-            invNo: st(it.delinum),
-            courier: "1136", // 채번 그리드에 택배사 없음 → 계정 기본(CJ대한통운=1136)
-            provider: st(it.provider_name),
-            receiver: st(it.receiver).replace(/\([^)]*\)\s*$/, "").trim(),
-            post: st(it.receiver_post),
-            addr,
-            groupNo: gno,
-          };
-        });
-      return {
-        success: true,
-        invoiced: rows.length || waiting,
-        rows,
-        message: doneTxt ? stripHtml(doneTxt) : `송장채번 완료(${rows.length || waiting}건)`,
-      };
-    }
-
-    return { success: false, error: "알 수 없는 단계: " + step };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-}
-
 async function collectIcecreamMallOrders(date, credentials, collection) {
   const { tab, created } = await findOrCreateIcecreamMallTab();
   if (!tab.id) {

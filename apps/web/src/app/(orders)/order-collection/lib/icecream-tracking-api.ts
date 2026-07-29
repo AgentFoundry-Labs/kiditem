@@ -171,8 +171,12 @@ export function filterTrackingByMall(rows: SellpiaTrackingRow[], mallKey: string
   });
 }
 
-const COURIER_NAME: Record<string, string> = { '1136': 'CJ대한통운' };
-const COURIER_HDC: Record<string, string> = { '1136': '10' };
+const COURIER_NAME: Record<string, string> = { '1136': 'CJ대한통운', '10': 'CJ대한통운' };
+const COURIER_HDC: Record<string, string> = {
+  '1136': '10',
+  '10': '10',
+  CJ대한통운: '10',
+};
 const TRACKING_CSV_HEADERS = [
   '주문번호',
   '수취인',
@@ -258,37 +262,138 @@ export interface IcecreamSendFinishResult {
   unmappedCouriers: string[]; // hdcCd 코드로 못 바꾼 택배사명 (검토 필요)
 }
 
-/** 조인+파일생성을 백엔드에 위임 → 아이스크림몰 출고완료 일괄등록 xlsx 반환 (다운로드는 옵션). */
+const ICECREAM_SEND_FINISH_HEADERS = ['배송번호', '배송순번', '택배사', '송장번호'];
+
+interface IcecreamSendFinishRowsResult {
+  previewRows: string[][];
+  matchedRows: number;
+  unmappedCouriers: string[];
+}
+
+function normalizedHeader(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, '');
+}
+
+function columnIndex(headers: string[], name: string): number {
+  return headers.findIndex((header) => normalizedHeader(header) === name);
+}
+
+/**
+ * 아이스크림몰 배송 원본과 셀피아 송장을 원 판매처 주문번호로 조인한다.
+ * 상품/택배비 행 수와 무관하게 (배송번호, 배송순번) 하나당 업로드 행 하나만 만든다.
+ */
+export function buildIcecreamSendFinishPreviewRows(
+  headers: string[],
+  rows: string[][],
+  tracking: SellpiaTrackingRow[],
+): IcecreamSendFinishRowsResult {
+  const orderIndex = columnIndex(headers, '주문번호');
+  const deliveryIndex = columnIndex(headers, '배송번호');
+  const sequenceIndex = columnIndex(headers, '배송순번');
+  if (orderIndex < 0 || deliveryIndex < 0) {
+    throw new Error('아이스크림몰 주문번호 또는 배송번호가 없어 송장 파일을 만들 수 없습니다.');
+  }
+
+  const trackingByOrder = new Map<string, { invoice: string; hdcCode: string }>();
+  const unmappedCouriers = new Set<string>();
+  for (const row of tracking) {
+    const orderNo = String(row.ordNo ?? '').trim();
+    const invoice = String(row.invNo ?? '').trim();
+    const courier = String(row.courier ?? '').trim();
+    if (!orderNo || !invoice) continue;
+    const hdcCode = COURIER_HDC[courier];
+    if (!hdcCode) {
+      unmappedCouriers.add(courier || '(없음)');
+      continue;
+    }
+    const previous = trackingByOrder.get(orderNo);
+    if (
+      previous &&
+      (previous.invoice !== invoice || previous.hdcCode !== hdcCode)
+    ) {
+      throw new Error(
+        `아이스크림몰 주문 ${orderNo}에 서로 다른 송장이 있어 자동 매칭을 중단했습니다.`,
+      );
+    }
+    trackingByOrder.set(orderNo, { invoice, hdcCode });
+  }
+
+  const uploadRows = new Map<string, string[]>();
+  for (const row of rows) {
+    const orderNo = String(row[orderIndex] ?? '').trim();
+    const deliveryNo = String(row[deliveryIndex] ?? '').trim();
+    const deliverySequence =
+      sequenceIndex >= 0 ? String(row[sequenceIndex] ?? '').trim() || '1' : '1';
+    const tracked = trackingByOrder.get(orderNo);
+    if (!orderNo || !deliveryNo || !tracked) continue;
+
+    const deliveryKey = `${deliveryNo}\u001f${deliverySequence}`;
+    const uploadRow = [
+      deliveryNo,
+      deliverySequence,
+      tracked.hdcCode,
+      tracked.invoice,
+    ];
+    const previous = uploadRows.get(deliveryKey);
+    if (previous && previous.join('\u001f') !== uploadRow.join('\u001f')) {
+      throw new Error(
+        `아이스크림몰 배송번호 ${deliveryNo}-${deliverySequence}에 서로 다른 송장이 매칭되었습니다.`,
+      );
+    }
+    uploadRows.set(deliveryKey, uploadRow);
+  }
+
+  const values = [...uploadRows.values()];
+  return {
+    previewRows: [ICECREAM_SEND_FINISH_HEADERS, ...values],
+    matchedRows: values.length,
+    unmappedCouriers: [...unmappedCouriers],
+  };
+}
+
+/** 아이스크림몰 출고완료 일괄등록 4열 xlsx를 브라우저에서 생성한다. */
 export async function buildIcecreamSendFinishFile(
   headers: string[],
   rows: string[][],
   tracking: SellpiaTrackingRow[],
-  options?: { download?: boolean },
+  options?: { download?: boolean; fileName?: string },
 ): Promise<IcecreamSendFinishResult> {
-  const response = await apiClient.fetchRaw('/api/orders/collection/icecream-mall/sendfinish-file', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ headers, rows, tracking }),
-  });
-  if (!response.ok) {
-    const body = (await response.clone().json().catch(() => null)) as { message?: unknown } | null;
-    throw new Error(typeof body?.message === 'string' ? body.message : `파일 생성 실패 (${response.status})`);
+  const built = buildIcecreamSendFinishPreviewRows(headers, rows, tracking);
+  const XLSX = await import('xlsx');
+  const worksheet = XLSX.utils.aoa_to_sheet(built.previewRows);
+  worksheet['!cols'] = [
+    { wch: 14 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 18 },
+  ];
+  for (let rowIndex = 1; rowIndex < built.previewRows.length; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < 4; columnIndex += 1) {
+      const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+      const cell = worksheet[address];
+      if (!cell) continue;
+      cell.t = 's';
+      cell.z = '@';
+      cell.v = String(cell.v ?? '');
+    }
   }
-
-  const blob = await response.blob();
-  const fileName =
-    fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ??
-    '아이스크림몰_송장업로드.xlsx';
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+  const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+  const blob = new Blob([bytes], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const fileName = options?.fileName ?? '아이스크림몰_송장업로드.xlsx';
   if (options?.download !== false) downloadBlob(blob, fileName);
 
   return {
     fileName,
     blob,
-    previewRows: await readPreviewRows(blob),
-    sourceRows: numericHeader(response, 'X-Icecream-SendFinish-Source-Rows'),
-    trackingRows: numericHeader(response, 'X-Icecream-SendFinish-Tracking-Rows'),
-    matchedRows: numericHeader(response, 'X-Icecream-SendFinish-Matched-Rows'),
-    unmappedCouriers: unmappedCouriersHeader(response),
+    previewRows: built.previewRows,
+    sourceRows: rows.length,
+    trackingRows: tracking.length,
+    matchedRows: built.matchedRows,
+    unmappedCouriers: built.unmappedCouriers,
   };
 }
 
@@ -297,19 +402,6 @@ function numericHeader(response: Response, name: string): number | null {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function unmappedCouriersHeader(response: Response): string[] {
-  const raw = response.headers.get('X-Icecream-SendFinish-Unmapped-Couriers');
-  if (!raw) return [];
-  try {
-    return decodeURIComponent(raw)
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
 }
 
 function fileNameFromContentDisposition(value: string | null): string | null {
@@ -323,17 +415,4 @@ function fileNameFromContentDisposition(value: string | null): string | null {
     }
   }
   return /filename="([^"]+)"/i.exec(value)?.[1] ?? null;
-}
-
-async function readPreviewRows(blob: Blob): Promise<string[][]> {
-  const XLSX = await import('xlsx');
-  const workbook = XLSX.read(await blob.arrayBuffer(), { type: 'array' });
-  const sheet = workbook.Sheets[workbook.SheetNames[0] ?? ''];
-  if (!sheet) return [];
-  const rows = XLSX.utils.sheet_to_json<Array<string | number | boolean | null | undefined>>(sheet, {
-    header: 1,
-    raw: false,
-    defval: '',
-  });
-  return rows.slice(0, 24).map((row) => row.slice(0, 4).map((cell) => String(cell ?? '')));
 }

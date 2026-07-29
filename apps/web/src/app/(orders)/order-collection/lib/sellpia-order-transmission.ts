@@ -16,6 +16,7 @@ export interface SellpiaOrderTransmissionInput {
       shopName: string;
       fileName: string;
       blob: Blob;
+      orderNumbers?: string[];
     }) => Promise<SellpiaSendResult>;
   };
   store: {
@@ -100,6 +101,7 @@ export async function transmitSellpiaOrder(
       shopName,
       fileName: input.file.fileName,
       blob: input.file.blob,
+      orderNumbers: input.file.orderNumbers,
     });
 
     if (extensionResult.outcome === 'not_submitted') {

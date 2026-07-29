@@ -7,7 +7,9 @@ import {
   runSellpiaPostTransferViaExtension,
   type SellpiaUnmatchedRow,
 } from './order-collection-extension';
+import { buildIcecreamDeliveryRows } from './icecream-delivery-index';
 import {
+  buildIcecreamSendFinishFile,
   buildMallTrackingCsvBlob,
   buildMallTrackingPreviewRows,
   collectSellpiaDeliTrackingFromExtension,
@@ -16,11 +18,17 @@ import {
   type SellpiaTrackingRow,
   uploadOnchTrackingViaExtension,
 } from './icecream-tracking-api';
-import { todayYmd } from './order-collection-page-model';
+import {
+  ICECREAM_MALL_KEY,
+  todayYmd,
+  type ConversionHistoryItem,
+} from './order-collection-page-model';
+import { resolveOrderCollectionMallKey } from './order-collection-malls';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
 
 interface UploadTrackingOptions {
   account: OrderCollectionMallAccount;
+  history: ConversionHistoryItem[];
   logError: (title: string, message: string) => void;
   onGeneratedFile?: (artifact: GeneratedTrackingArtifact) => void;
 }
@@ -115,15 +123,23 @@ export async function runSellpiaPostProcess({
     logError(`셀피아 미매칭 ${formatNumber(unmatched.length)}건`, summary);
   }
 
-  const readyForInvoice = (result.listCount ?? 0) > 0;
+  const invoiceTargetCount = result.invoiceTargetCount ?? 0;
+  const readyForInvoice = (result.listCount ?? 0) > 0 && invoiceTargetCount > 0;
   if (!readyForInvoice) {
+    if ((result.listCount ?? 0) > 0) {
+      toast.warning(
+        '이번에 전송한 주문번호를 확인할 수 없어 송장채번을 실행하지 않았습니다. 다른 대기 주문은 선택하지 않았습니다.',
+        { duration: 10000 },
+      );
+    }
     return;
   }
 
   const confirmed = window.confirm(
     `재고매칭 완료: 매칭 ${formatNumber(matched)}건` +
       (unmatched.length > 0 ? `, 미매칭 ${formatNumber(unmatched.length)}건` : '') +
-      `\n\n이어서 '송장 자동채번'을 진행할까요?\n되돌리기 어려운 작업입니다(실제 송장번호가 발급됩니다).` +
+      `\n\n이번 전송 주문 ${formatNumber(invoiceTargetCount)}건만 '송장 자동채번'을 진행할까요?` +
+      `\n되돌리기 어려운 작업입니다(실제 송장번호가 발급됩니다).` +
       (unmatched.length > 0 ? '\n미매칭 주문은 채번되지 않습니다.' : ''),
   );
   if (!confirmed) {
@@ -169,6 +185,7 @@ export async function runSellpiaPostProcess({
 
 export async function uploadTrackingForMall({
   account,
+  history,
   logError,
   onGeneratedFile,
 }: UploadTrackingOptions): Promise<void> {
@@ -193,6 +210,62 @@ export async function uploadTrackingForMall({
         id: toastId,
         duration: 9000,
       });
+      return;
+    }
+
+    if (account.key === ICECREAM_MALL_KEY) {
+      toast.loading('아이스크림몰 배송번호와 송장번호 매칭 중…', { id: toastId });
+      const orderNumbers = new Set(
+        tracking.map((row) => row.ordNo.trim()).filter(Boolean),
+      );
+      const icecreamFiles = history.filter(
+        (item) => resolveOrderCollectionMallKey(item) === ICECREAM_MALL_KEY,
+      );
+      const delivery = await buildIcecreamDeliveryRows(orderNumbers, icecreamFiles);
+      if (delivery.missingOrderNumbers.length > 0) {
+        throw new Error(
+          `오늘 셀피아 송장 ${formatNumber(tracking.length)}건 중 배송번호를 찾지 못한 주문이 ` +
+            `${formatNumber(delivery.missingOrderNumbers.length)}건 있습니다: ` +
+            delivery.missingOrderNumbers.slice(0, 5).join(', ') +
+            (delivery.missingOrderNumbers.length > 5 ? ' 외' : ''),
+        );
+      }
+      if (delivery.rows.length === 0) {
+        throw new Error(
+          '아이스크림몰 배송번호가 없습니다. 해당 주문을 먼저 수집한 뒤 다시 시도해주세요.',
+        );
+      }
+
+      const fileName = `아이스크림몰_출고완료_${today.replace(/-/g, '')}.xlsx`;
+      const result = await buildIcecreamSendFinishFile(
+        delivery.headers,
+        delivery.rows,
+        tracking,
+        { download: false, fileName },
+      );
+      if (result.unmappedCouriers.length > 0) {
+        throw new Error(
+          `아이스크림몰 택배사 코드가 없는 송장이 있습니다: ${result.unmappedCouriers.join(', ')}`,
+        );
+      }
+      if (!result.matchedRows) {
+        throw new Error('아이스크림몰 배송번호와 셀피아 송장이 일치하지 않습니다.');
+      }
+
+      onGeneratedFile?.({
+        blob: result.blob,
+        fileName: result.fileName,
+        mallKey: account.key,
+        mallName: account.name,
+        orderNumbers: [...orderNumbers],
+        previewRows: result.previewRows,
+        rowCount: result.matchedRows,
+      });
+      downloadBlob(result.blob, result.fileName);
+      toast.success(
+        `아이스크림몰 송장 ${formatNumber(result.matchedRows)}건을 배송번호 기준으로 매칭했습니다.`,
+        { id: toastId, duration: 9000 },
+      );
       return;
     }
 
