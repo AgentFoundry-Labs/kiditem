@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  buildIcecreamFile: vi.fn(),
+  buildIcecreamRows: vi.fn(),
   collectTracking: vi.fn(),
   downloadBlob: vi.fn(),
   runAutoInvoice: vi.fn(),
@@ -21,10 +23,14 @@ vi.mock('./order-collection-extension', () => ({
   runSellpiaAutoInvoiceViaExtension: mocks.runAutoInvoice,
   runSellpiaPostTransferViaExtension: mocks.runPostTransfer,
 }));
+vi.mock('./icecream-delivery-index', () => ({
+  buildIcecreamDeliveryRows: mocks.buildIcecreamRows,
+}));
 vi.mock('./icecream-tracking-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./icecream-tracking-api')>();
   return {
     ...actual,
+    buildIcecreamSendFinishFile: mocks.buildIcecreamFile,
     collectSellpiaDeliTrackingFromExtension: mocks.collectTracking,
     uploadOnchTrackingViaExtension: mocks.uploadOnch,
   };
@@ -56,6 +62,12 @@ const art09Account: OrderCollectionMallAccount = {
   memo: null,
 };
 
+const icecreamAccount: OrderCollectionMallAccount = {
+  ...art09Account,
+  key: 'icecream-mall',
+  name: '아이스크림몰',
+};
+
 describe('order tracking actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -68,6 +80,7 @@ describe('order tracking actions', () => {
       listCount: 1,
       matched: 1,
       unmatched: [],
+      invoiceTargetCount: 1,
     });
     mocks.runAutoInvoice.mockResolvedValue({
       success: true,
@@ -94,12 +107,34 @@ describe('order tracking actions', () => {
     expect(mocks.downloadBlob).toHaveBeenCalledOnce();
   });
 
+  it('does not request invoice issuance without current transmission targets', async () => {
+    mocks.runPostTransfer.mockResolvedValue({
+      success: true,
+      listCount: 3,
+      matched: 3,
+      unmatched: [],
+      invoiceTargetCount: 0,
+    });
+
+    await runSellpiaPostProcess({
+      logError: vi.fn(),
+    });
+
+    expect(mocks.runAutoInvoice).not.toHaveBeenCalled();
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(mocks.toast.warning).toHaveBeenCalledWith(
+      expect.stringContaining('다른 대기 주문은 선택하지 않았습니다'),
+      expect.any(Object),
+    );
+  });
+
   it('emits a mall-specific CSV artifact but does not upload it irreversibly', async () => {
     mocks.collectTracking.mockResolvedValue([trackingRow]);
     const onGeneratedFile = vi.fn();
 
     await uploadTrackingForMall({
       account: art09Account,
+      history: [],
       logError: vi.fn(),
       onGeneratedFile,
     });
@@ -113,5 +148,66 @@ describe('order tracking actions', () => {
     }));
     expect(mocks.downloadBlob).toHaveBeenCalledOnce();
     expect(mocks.uploadOnch).not.toHaveBeenCalled();
+  });
+
+  it('emits the exact Icecream delivery-number xlsx instead of a generic tracking CSV', async () => {
+    const icecreamTracking = {
+      ...trackingRow,
+      ordNo: '20260729M037101',
+      invNo: '576997610340',
+      provider: '아이스크림몰',
+    };
+    mocks.collectTracking.mockResolvedValue([icecreamTracking]);
+    mocks.buildIcecreamRows.mockResolvedValue({
+      headers: ['주문번호', '배송번호', '배송순번'],
+      rows: [['20260729M037101', '116569790', '1']],
+      matchedOrders: 1,
+      missingOrderNumbers: [],
+      indexSize: 1,
+    });
+    const blob = new Blob(['xlsx']);
+    mocks.buildIcecreamFile.mockResolvedValue({
+      fileName: '아이스크림몰_출고완료_20260729.xlsx',
+      blob,
+      previewRows: [
+        ['배송번호', '배송순번', '택배사', '송장번호'],
+        ['116569790', '1', '10', '576997610340'],
+      ],
+      sourceRows: 1,
+      trackingRows: 1,
+      matchedRows: 1,
+      unmappedCouriers: [],
+    });
+    const onGeneratedFile = vi.fn();
+
+    await uploadTrackingForMall({
+      account: icecreamAccount,
+      history: [],
+      logError: vi.fn(),
+      onGeneratedFile,
+    });
+
+    expect(mocks.buildIcecreamFile).toHaveBeenCalledWith(
+      ['주문번호', '배송번호', '배송순번'],
+      [['20260729M037101', '116569790', '1']],
+      [icecreamTracking],
+      expect.objectContaining({ download: false }),
+    );
+    expect(onGeneratedFile).toHaveBeenCalledWith({
+      blob,
+      fileName: '아이스크림몰_출고완료_20260729.xlsx',
+      mallKey: 'icecream-mall',
+      mallName: '아이스크림몰',
+      orderNumbers: ['20260729M037101'],
+      previewRows: [
+        ['배송번호', '배송순번', '택배사', '송장번호'],
+        ['116569790', '1', '10', '576997610340'],
+      ],
+      rowCount: 1,
+    });
+    expect(mocks.downloadBlob).toHaveBeenCalledWith(
+      blob,
+      '아이스크림몰_출고완료_20260729.xlsx',
+    );
   });
 });
