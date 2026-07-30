@@ -14,7 +14,7 @@ const TEST_MEMBERSHIP_ID = '33333333-3333-4333-8333-333333333333';
 
 /**
  * E2E 용 인증 패스스루 — `req.authUser` 를 고정 값으로 채운다.
- * Nest 의 SupabaseAuthMiddleware 는 토큰이 없으면 silent pass 하므로,
+ * Nest 의 SessionAuthMiddleware 는 토큰이 없으면 silent pass 하므로,
  * 그 앞단에 raw express middleware 로 한 번 채워두면 그대로 통과한다.
  */
 function e2eAuthPassthrough(req: Request, _res: Response, next: NextFunction): void {
@@ -43,8 +43,8 @@ export async function createApp() {
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new GlobalExceptionFilter());
-  // SupabaseAuthMiddleware 보다 먼저 등록 — raw express middleware 가 req.authUser 를
-  // 채우면, SupabaseAuthMiddleware 는 토큰 없을 때 그대로 next() 하므로 보존된다.
+  // SessionAuthMiddleware 보다 먼저 등록 — raw express middleware 가 req.authUser 를
+  // 채우면, SessionAuthMiddleware 는 기존 테스트 주체를 보존한다.
   app.use(e2eAuthPassthrough);
 
   await app.init();

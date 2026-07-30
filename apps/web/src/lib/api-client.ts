@@ -1,40 +1,23 @@
 import { ZodType, ZodError } from 'zod';
 import { getApiBase } from './api';
 import { ApiError } from './api-error';
-import { createSupabaseBrowserClient } from './supabase/client';
-import { refreshOrFail, triggerSignOut } from './supabase/refresh';
+import { clearAuthSession, getAuthSession } from './auth/session';
 
 /**
- * Supabase 세션 access token 을 `Authorization: Bearer <token>` 헤더로 첨부.
+ * KidItem opaque session token 을 `Authorization: Bearer <token>` 헤더로 첨부.
  *
  * `credentials: 'include'` 는 local cross-origin 개발(web:3000 → server:4000)과
  * staging/prod same-origin `/api/*` routing 양쪽에서 cookie 전달을 일관되게 둔다.
- * Authorization 헤더가 없는 SSE/EventSource 요청도 같은 cookie 를 사용해 인증한다
- * (SupabaseAuthMiddleware 가 SSR auth-token cookie session 을 읽음).
+ * Authorization 헤더가 없는 요청도 같은 HttpOnly cookie 를 사용할 수 있다.
  *
- * 401 `auth_required` 응답 시:
- *   1. `refreshOrFail()` 로 한 번 refresh 시도 (mutex 가 동시 401 들을 1회로 직렬화).
- *   2. 성공 → 원 요청 1회 재시도.
- *   3. 실패 → `triggerSignOut('session_expired')` 호출. AuthProvider 의 SIGNED_OUT
- *      핸들러가 `/login?reason=session_expired&next=...` redirect 를 단독 소유.
- *
- * FormData body 는 stream 소진 문제로 자동 재시도 대상에서 제외 — 즉시 signOut.
+ * 30일 절대 만료 세션은 refresh token 이 없다. 401 `auth_required` 는 저장된
+ * 세션을 즉시 지우고 AuthProvider 가 로그인 화면 전환을 소유하며 원 요청은
+ * 재시도하지 않는다.
  * `no_organization_context` 401 은 인증은 유효하나 조직 미할당 상태이므로 refresh 도,
  * signOut 도 일으키지 않고 caller 가 결정한다 (토스트 등).
  */
 async function getAccessToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  try {
-    const supabase = createSupabaseBrowserClient();
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token ?? null;
-    if (token) return token;
-  } catch {
-    // Fall through to direct cookie parsing. In local cross-origin dev, the
-    // browser may still expose the Supabase SSR cookie to the web app even
-    // when it is not sent to the API host.
-  }
-  return getAccessTokenFromDocumentCookie();
+  return getAuthSession()?.token ?? null;
 }
 
 async function withAuthHeaders(init?: RequestInit): Promise<RequestInit> {
@@ -44,90 +27,6 @@ async function withAuthHeaders(init?: RequestInit): Promise<RequestInit> {
     headers.set('Authorization', `Bearer ${token}`);
   }
   return { credentials: 'include', ...init, headers };
-}
-
-function getAccessTokenFromDocumentCookie(): string | null {
-  if (typeof document === 'undefined' || !document.cookie) return null;
-  const cookies = parseCookieHeader(document.cookie);
-  for (const baseName of findSupabaseAuthCookieBaseNames(cookies)) {
-    const encodedSession = combineCookieChunks(cookies, baseName);
-    if (!encodedSession) continue;
-    const sessionJson = decodeSupabaseCookieValue(encodedSession);
-    if (!sessionJson) continue;
-    try {
-      const session = JSON.parse(sessionJson) as unknown;
-      if (
-        session &&
-        typeof session === 'object' &&
-        typeof (session as Record<string, unknown>).access_token === 'string'
-      ) {
-        return (session as { access_token: string }).access_token;
-      }
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-function parseCookieHeader(cookieHeader: string): Record<string, string> {
-  const cookies: Record<string, string> = {};
-  for (const part of cookieHeader.split(';')) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    const separator = trimmed.indexOf('=');
-    if (separator < 0) continue;
-    const name = trimmed.slice(0, separator);
-    const rawValue = trimmed.slice(separator + 1);
-    try {
-      cookies[name] = decodeURIComponent(rawValue);
-    } catch {
-      cookies[name] = rawValue;
-    }
-  }
-  return cookies;
-}
-
-function findSupabaseAuthCookieBaseNames(cookies: Record<string, string>): string[] {
-  const baseNames = new Set<string>();
-  for (const name of Object.keys(cookies)) {
-    const baseName = name.replace(/\.[0-9]+$/, '');
-    if (baseName === 'supabase.auth.token' || /^sb-.+-auth-token$/.test(baseName)) {
-      baseNames.add(baseName);
-    }
-  }
-  return [...baseNames].sort();
-}
-
-function combineCookieChunks(cookies: Record<string, string>, baseName: string): string | null {
-  if (cookies[baseName]) return cookies[baseName];
-  const chunks: string[] = [];
-  for (let index = 0; ; index += 1) {
-    const chunk = cookies[`${baseName}.${index}`];
-    if (!chunk) break;
-    chunks.push(chunk);
-  }
-  return chunks.length > 0 ? chunks.join('') : null;
-}
-
-function decodeSupabaseCookieValue(value: string): string | null {
-  const base64Prefix = 'base64-';
-  if (!value.startsWith(base64Prefix)) return value;
-  try {
-    const base64 = value
-      .slice(base64Prefix.length)
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
-    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
-    const bytes = Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
-function isFormDataBody(init: RequestInit | undefined): boolean {
-  return typeof FormData !== 'undefined' && init?.body instanceof FormData;
 }
 
 function isAbortError(err: unknown): boolean {
@@ -158,10 +57,9 @@ async function read401Message(res: Response): Promise<string | null> {
   }
 }
 
-async function requestWithRetry<T>(
+async function request<T>(
   path: string,
-  init: RequestInit | undefined,
-  attempt: 1 | 2,
+  init?: RequestInit,
 ): Promise<T> {
   const res = await fetchApi(path, init);
 
@@ -169,11 +67,7 @@ async function requestWithRetry<T>(
     const message = await read401Message(res);
 
     if (message === 'auth_required') {
-      if (attempt === 1 && !isFormDataBody(init)) {
-        const refreshed = await refreshOrFail();
-        if (refreshed) return requestWithRetry<T>(path, init, 2);
-      }
-      await triggerSignOut('session_expired');
+      clearAuthSession('session_expired');
       throw new ApiError(401, 'auth_required', '세션이 만료되었습니다. 다시 로그인해주세요.');
     }
 
@@ -186,15 +80,6 @@ async function requestWithRetry<T>(
       );
     }
 
-    if (message === 'auth_user_not_mirrored') {
-      // Supabase JWT 는 유효하지만 KidItem 로컬 사용자 레코드가 없음. 세션 만료가
-      // 아니므로 refresh/signOut 하지 않고 운영자가 조치할 수 있는 오류로 노출.
-      throw new ApiError(
-        401,
-        'auth_user_not_mirrored',
-        '로그인 계정이 KidItem 사용자로 연결되지 않았습니다. 관리자에게 사용자 동기화를 요청해주세요.',
-      );
-    }
     // 기타 401 (희귀) → 일반 ApiError flow 로 fall through
   }
 
@@ -218,27 +103,15 @@ async function requestWithRetry<T>(
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  return requestWithRetry<T>(path, init, 1);
-}
-
-async function fetchRawWithRetry(
+async function fetchRaw(
   path: string,
-  init: RequestInit | undefined,
-  attempt: 1 | 2,
+  init?: RequestInit,
 ): Promise<Response> {
   const res = await fetchApi(path, init);
   if (res.status === 401) {
     const message = await read401Message(res);
     if (message === 'auth_required') {
-      if (attempt === 1 && !isFormDataBody(init)) {
-        const refreshed = await refreshOrFail();
-        if (refreshed) return fetchRawWithRetry(path, init, 2);
-      }
-      await triggerSignOut('session_expired');
-      // raw Response 반환 contract 유지. AuthProvider 의 SIGNED_OUT handler 는
-      // 비동기로 redirect 하므로 caller 가 짧은 윈도우 동안 401 Response 를 받을
-      // 수 있다. fetchRaw 사용처는 `res.status === 401` 체크 책임.
+      clearAuthSession('session_expired');
     }
   }
   return res;
@@ -336,9 +209,9 @@ export const apiClient = {
     request<T>(path, { method: 'POST', body: formData }),
   /**
    * Response 객체 직접 반환 (blob, stream 등 non-JSON 응답용).
-   * 401 auth_required 시 refresh + retry 가 자동 작동하지만 사후 signOut path 에서
-   * raw Response 가 그대로 반환될 수 있으므로 caller 는 `res.status === 401` 체크 책임.
+   * 401 auth_required 시 세션을 지우고 raw Response 를 그대로 반환하므로 caller 는
+   * `res.status === 401` 체크 책임.
    */
   fetchRaw: async (path: string, init?: RequestInit): Promise<Response> =>
-    fetchRawWithRetry(path, init, 1),
+    fetchRaw(path, init),
 };

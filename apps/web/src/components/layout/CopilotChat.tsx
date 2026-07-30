@@ -16,13 +16,12 @@ interface CopilotChatProps {
  * Next.js rewrites the path to the Nest chat runtime (see
  * `apps/web/next.config.mjs`), so the browser never references
  * `NEXT_PUBLIC_API_URL` / `API_BASE` for chat. This avoids cross-origin
- * cookie/CORS concerns and lets the existing Supabase SSR cookie
- * (`sb-<project-ref>-auth-token`) authenticate the request automatically.
+ * cookie/CORS concerns and lets the KidItem HttpOnly `kiditem_session` cookie
+ * authenticate the request automatically.
  *
  * `credentials="include"` keeps the cookie attached on a same-origin
- * request — required for `fetch` defaults to omit credentials. We do NOT
- * fetch a Supabase access token in the browser and forward it as a Bearer
- * header; the SSR cookie covers it on both Next and Nest sides.
+ * request. Chat does not synthesize a separate Authorization header; the
+ * same-origin KidItem cookie covers the Nest route.
  */
 export default function CopilotChat({ children, defaultOpen = false, onChatOpenChange }: CopilotChatProps) {
   const [chatOpen, setChatOpen] = useState(defaultOpen);

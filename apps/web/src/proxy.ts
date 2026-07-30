@@ -1,9 +1,8 @@
-import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { AuthRequiredErrorBody } from '@kiditem/shared/auth';
 
 /**
- * 보호 라우트 가드 — Supabase 세션 쿠키가 없으면:
+ * 보호 라우트 가드 — KidItem 세션 쿠키가 없으면:
  *   - navigation (HTML 요청)    → `/login?next=<원래 경로>` 307 redirect
  *   - fetch caller (`/api/*` 또는 `Accept: application/json`) → 401 JSON
  *
@@ -13,10 +12,12 @@ import type { AuthRequiredErrorBody } from '@kiditem/shared/auth';
  * `{ statusCode, error, message, timestamp, path }` 를 emit 해 apiClient 가
  * dev 직결 path 와 prod proxy path 양쪽에서 동일하게 인터셉트 가능.
  *
- * 인증된 사용자가 `/login` 직접 접근 시 `/` 로 리다이렉트.
- * `NEXT_PUBLIC_SUPABASE_*` 키가 없으면 보호 라우트는 로그인으로 보낸다.
+ * 이 계층은 쿠키 존재만 확인한다. 만료/폐기/사용자·조직 검증 권한은 NestJS의
+ * SessionAuthMiddleware에 있다. `/login`은 stale cookie redirect loop 방지를 위해
+ * 항상 public이다.
  */
-const PUBLIC_PATHS = ['/login', '/auth'];
+const PUBLIC_PATHS = ['/login'];
+const AUTH_SESSION_COOKIE = 'kiditem_session';
 
 /**
  * Same-origin transport for the AI chat runtime. The browser hits
@@ -58,44 +59,12 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !publishableKey) {
-    if (isPublic) return NextResponse.next();
+  if (isPublic) return NextResponse.next();
+  if (!req.cookies.has(AUTH_SESSION_COOKIE)) {
     if (isApiFetchCaller(req, path)) return authRequiredJsonResponse(path);
     return redirectToLogin(req, path);
   }
-
-  let res = NextResponse.next({ request: req });
-
-  const supabase = createServerClient(url, publishableKey, {
-    cookies: {
-      getAll() {
-        return req.cookies.getAll();
-      },
-      setAll(toSet) {
-        toSet.forEach(({ name, value }) => req.cookies.set(name, value));
-        res = NextResponse.next({ request: req });
-        toSet.forEach(({ name, value, options }) => res.cookies.set(name, value, options));
-      },
-    },
-  });
-
-  const { data } = await supabase.auth.getClaims();
-  const claims = data?.claims ?? null;
-
-  if (!claims && !isPublic) {
-    if (isApiFetchCaller(req, path)) return authRequiredJsonResponse(path);
-    return redirectToLogin(req, path);
-  }
-  if (claims && path === '/login') {
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = '/';
-    redirectUrl.search = '';
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  return res;
+  return NextResponse.next({ request: req });
 }
 
 function redirectToLogin(req: NextRequest, nextPath: string) {

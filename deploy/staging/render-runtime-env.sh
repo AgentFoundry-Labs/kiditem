@@ -70,7 +70,6 @@ write_web_env() {
 
 required_api_env=(
   DATABASE_URL
-  SUPABASE_URL
   WEB_ORIGIN
   CORS_ORIGINS
   S3_REGION
@@ -89,10 +88,7 @@ required_api_env=(
   AGENT_DEFAULT_MODEL
 )
 
-required_web_env=(
-  NEXT_PUBLIC_SUPABASE_URL
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-)
+required_web_env=()
 
 optional_api_env=(
   DIRECT_URL

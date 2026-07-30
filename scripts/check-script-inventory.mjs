@@ -20,7 +20,6 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-shared-interface-names.mjs',
   'check-shared-root-imports.sh',
   'check-tenant-scope.sh',
-  'create-dev-preview-session.mjs',
   'dev-data-coupang.ts',
   'dev-data.ts',
   'generate-prisma-erd.mjs',
@@ -32,7 +31,6 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'seed-order-collection-mall-accounts.ts',
   'staging-db-baseline.ts',
   'storage-cache-control.ts',
-  'sync-supabase-user.ts',
   'transfer-channel-recipes.ts',
   'vitest.config.ts',
 ]);

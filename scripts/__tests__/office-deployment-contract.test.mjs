@@ -26,6 +26,7 @@ test('office workflow builds both images and publishes digest refs', () => {
 
 test('office Compose is image-only and preserves external state volumes', () => {
   const compose = read('deploy/office/compose.office.yml');
+  const envExample = read('deploy/office/office.env.example');
 
   assert.doesNotMatch(compose, /^\s*build\s*:/m);
   assert.match(compose, /image: \$\{KIDITEM_API_IMAGE:\?/);
@@ -33,6 +34,13 @@ test('office Compose is image-only and preserves external state volumes', () => 
   assert.match(compose, /name: kiditem_pgdata/);
   assert.match(compose, /name: kiditem_minio-data/);
   assert.equal(compose.match(/external: true/g)?.length, 2);
+  assert.doesNotMatch(compose, /SUPABASE_URL|NEXT_PUBLIC_SUPABASE/);
+  assert.doesNotMatch(envExample, /SUPABASE_URL|NEXT_PUBLIC_SUPABASE/);
+});
+
+test('office web image build has no Supabase authentication configuration', () => {
+  const workflow = read('.github/workflows/office-images.yml');
+  assert.doesNotMatch(workflow, /NEXT_PUBLIC_SUPABASE|SUPABASE_URL/);
 });
 
 test('office operator guards identity, disk, revision, health, and rollback', () => {
@@ -57,8 +65,18 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
   assert.match(script, /merge-base --is-ancestor/);
   assert.match(script, /bundles\\\{0\}/);
   assert.match(script, /\/api\/auth\/me/);
+  assert.match(script, /\[switch\]\$ApplySchema/);
+  assert.match(script, /\$Operation -ne 'Deploy'/);
+  assert.match(script, /run --rm --no-deps api sh -lc 'cd \/app && npx prisma db push'/);
+  assert.match(script, /stop api worker web nginx/);
   assert.doesNotMatch(script, /docker system prune/);
   assert.doesNotMatch(script, /docker volume prune/);
+});
+
+test('office API runtime includes the Prisma CLI used by explicit schema apply', () => {
+  const serverPackage = JSON.parse(read('apps/server/package.json'));
+  assert.equal(typeof serverPackage.dependencies.prisma, 'string');
+  assert.equal(serverPackage.devDependencies?.prisma, undefined);
 });
 
 test(
@@ -107,4 +125,6 @@ test('office runbook fixes branch lifetime and rollback boundaries', () => {
   assert.match(runbook, /previous\.json/);
   assert.match(runbook, /never runs `docker system prune`/);
   assert.match(runbook, /larger local SSD/);
+  assert.match(runbook, /-ApplySchema/);
+  assert.match(runbook, /does not undo Prisma schema changes/);
 });

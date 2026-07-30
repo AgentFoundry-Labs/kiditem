@@ -11,7 +11,6 @@ import { InventoryWorkspace } from './components/InventoryWorkspace';
 import ImportFreshness from '../stock-ops/components/ImportFreshness';
 import ReturnTransfers from '../stock-ops/components/ReturnTransfers';
 import StockTransfers from '../stock-ops/components/StockTransfers';
-import UnresolvedTransmissions from '../stock-ops/components/UnresolvedTransmissions';
 import { RocketInventoryWorkspace } from './components/InventoryOperationWorkspaces';
 
 const TAB_IDS = ['status', 'sellpia-sync', 'rocket-events'] as const;
@@ -96,8 +95,6 @@ function SellpiaSyncWorkspace() {
           자동 재고 동기화 결과와 스냅샷 실사 기록을 확인합니다.
         </p>
       </div>
-      {/* 동기화를 차단 중인 전송 미확인 건을 이력보다 먼저 보여준다. */}
-      <UnresolvedTransmissions />
       <ImportFreshness />
     </section>
   );

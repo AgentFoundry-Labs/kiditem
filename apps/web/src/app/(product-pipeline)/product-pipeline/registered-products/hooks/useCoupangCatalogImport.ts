@@ -111,7 +111,7 @@ export function useCoupangCatalogImport(
       const detected = await startCoupangCatalogBrowser({
         channelAccountId,
         runId: run.id,
-        accessToken: session?.access_token,
+      accessToken: session?.token,
       });
       setExtensionId(detected);
       try {

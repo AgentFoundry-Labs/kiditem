@@ -72,7 +72,7 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         producer: 'advertising.ad_sync',
         extensionId,
         runId: nextRunId,
-        accessToken: authSession?.access_token,
+        accessToken: authSession?.token,
         onStarted: () => {
           toast.info('광고 동기화를 백그라운드에서 시작합니다.');
         },

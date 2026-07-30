@@ -3,12 +3,15 @@ import 'dotenv/config';
 
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { createClient } from '@supabase/supabase-js';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertLocalDevelopmentDatabase } from './bootstrap-authoritative-inventory-dev';
+import {
+  createTemporaryAuthSession,
+  revokeTemporaryAuthSession,
+} from './_shared/temporary-auth-session';
 
 const SCHEMA_VERSION = 'kiditem.authoritative-inventory-rebuild.v2';
 const REBUILD_STATUS_KEY = 'inventory.rebuild.status';
@@ -438,26 +441,6 @@ export function assertProtectedApiDestination(
   }
   if (actual.origin !== expected.origin) {
     throw new Error('Rebuild API URL does not match the expected protected API origin');
-  }
-}
-
-export function assertProtectedSupabaseDestination(
-  supabaseUrl: string,
-  expectedProjectRef: string,
-): void {
-  const parsed = new URL(supabaseUrl);
-  const expectedOrigin = `https://${expectedProjectRef}.supabase.co`;
-  if (
-    parsed.protocol !== 'https:' ||
-    parsed.origin !== expectedOrigin ||
-    parsed.port !== '' ||
-    parsed.username !== '' ||
-    parsed.password !== '' ||
-    parsed.pathname !== '/' ||
-    parsed.search !== '' ||
-    parsed.hash !== ''
-  ) {
-    throw new Error('Supabase URL does not match the expected protected Supabase project');
   }
 }
 
@@ -1322,15 +1305,12 @@ async function readStagingAccountBaseline(
   const unsupportedHumanUsers = await prisma.user.count({
     where: {
       type: 'human',
-      OR: [
-        { password: { not: null } },
-        { agentInstanceId: { not: null } },
-      ],
+      agentInstanceId: { not: null },
     },
   });
   if (unsupportedHumanUsers > 0) {
     throw new Error(
-      'Staging account export refuses human users with legacy passwords or agent identities',
+      'Staging account export refuses human users with agent identities',
     );
   }
 
@@ -1721,27 +1701,6 @@ async function preflightBootstrap(
       );
     }
 
-    const supabaseUrl = cliValue(cli, 'supabase-url', 'SUPABASE_URL');
-    const expectedProjectRef = cliValue(
-      cli,
-      'expected-supabase-project-ref',
-      'REBUILD_EXPECTED_SUPABASE_PROJECT_REF',
-    );
-    assertProtectedSupabaseDestination(supabaseUrl, expectedProjectRef);
-    const supabase = createClient(
-      supabaseUrl,
-      cliValue(cli, 'supabase-secret-key', 'SUPABASE_SECRET_KEY'),
-      { auth: { autoRefreshToken: false, persistSession: false } },
-    );
-    const { data, error } = await supabase.auth.admin.getUserById(plan.user.id);
-    if (error) throw error;
-    if (
-      data.user?.id !== plan.user.id ||
-      data.user.email?.trim().toLowerCase() !== plan.user.email.trim().toLowerCase()
-    ) {
-      throw new Error('Protected Supabase auth user ID/email does not match the baseline');
-    }
-
     const manifest = buildBootstrapPreflightManifest({
       target,
       originRunId,
@@ -1904,9 +1863,16 @@ async function replayCoupang(cli: ParsedCli, target: RebuildTarget): Promise<voi
   const expectedApiOrigin = cliValue(cli, 'expected-api-origin', 'REBUILD_EXPECTED_API_ORIGIN');
   assertProtectedApiDestination(apiUrl, expectedApiOrigin);
   const prisma = await createPrisma();
+  let operatorSessionId: string | null = null;
   try {
     await bindRebuildImports(prisma, bundle, target, sourceManifest);
-    const accessToken = await generateOperatorAccessToken(cli);
+    const operatorUserId = cliValue(cli, 'user-id', 'REBUILD_USER_ID');
+    assertUuid(operatorUserId, 'userId');
+    const operatorSession = await createTemporaryAuthSession(prisma, {
+      userId: operatorUserId,
+      email: cliValue(cli, 'user-email', 'REBUILD_USER_EMAIL'),
+    });
+    operatorSessionId = operatorSession.id;
     const checkpointKey = `${REBUILD_STATUS_KEY}.replay.${bundle.originRunId}`;
     const checkpoint = await prisma.systemSetting.findUnique({
       where: {
@@ -1928,7 +1894,7 @@ async function replayCoupang(cli: ParsedCli, target: RebuildTarget): Promise<voi
       const response = await fetch(`${apiUrl}/api/ads/extension/sync`, {
         method: 'POST',
         headers: {
-          authorization: `Bearer ${accessToken}`,
+          authorization: `Bearer ${operatorSession.token}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1985,7 +1951,11 @@ async function replayCoupang(cli: ParsedCli, target: RebuildTarget): Promise<voi
       factDigestSha256,
     }));
   } finally {
-    await prisma.$disconnect();
+    try {
+      if (operatorSessionId) await revokeTemporaryAuthSession(prisma, operatorSessionId);
+    } finally {
+      await prisma.$disconnect();
+    }
   }
 }
 
@@ -2179,50 +2149,6 @@ async function verifyReady(cli: ParsedCli, target: RebuildTarget): Promise<void>
   } finally {
     await prisma.$disconnect();
   }
-}
-
-async function generateOperatorAccessToken(cli: ParsedCli): Promise<string> {
-  const supabaseUrl = cliValue(cli, 'supabase-url', 'SUPABASE_URL');
-  const expectedProjectRef = cliValue(
-    cli,
-    'expected-supabase-project-ref',
-    'REBUILD_EXPECTED_SUPABASE_PROJECT_REF',
-  );
-  assertProtectedSupabaseDestination(supabaseUrl, expectedProjectRef);
-  const supabaseSecretKey = cliValue(cli, 'supabase-secret-key', 'SUPABASE_SECRET_KEY');
-  const userEmail = cliValue(cli, 'user-email', 'REBUILD_USER_EMAIL');
-  const userId = cliValue(cli, 'user-id', 'REBUILD_USER_ID');
-  assertUuid(userId, 'userId');
-  const supabase = createClient(supabaseUrl, supabaseSecretKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-  const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-    type: 'magiclink',
-    email: userEmail,
-  });
-  if (linkError) throw linkError;
-  const emailOtp = linkData.properties?.email_otp;
-  if (!emailOtp) throw new Error('Supabase did not return an operator email OTP');
-  const { data: sessionData, error: verifyError } = await supabase.auth.verifyOtp({
-    email: userEmail,
-    token: emailOtp,
-    type: 'email',
-  });
-  if (verifyError) throw verifyError;
-  const accessToken = sessionData.session?.access_token;
-  if (!accessToken) throw new Error('Supabase did not return an operator access token');
-  const subject = decodeJwtSubject(accessToken);
-  if (subject !== userId) {
-    throw new Error('Supabase operator identity does not match the rebuild baseline user');
-  }
-  return accessToken;
-}
-
-function decodeJwtSubject(token: string): string {
-  const encoded = token.split('.')[1];
-  if (!encoded) throw new Error('Supabase access token is malformed');
-  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { sub?: unknown };
-  return typeof payload.sub === 'string' ? payload.sub : '';
 }
 
 function buildCoupangReplayScope(organizationId: string, channelAccountId: string) {

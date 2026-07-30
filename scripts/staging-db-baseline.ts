@@ -313,6 +313,29 @@ async function publicRowCounts(dbUrl: string): Promise<Record<string, number>> {
   return counts;
 }
 
+async function assertNoLocalAuthSecrets(dbUrl: string): Promise<void> {
+  const { stdout } = await execFileAsync(
+    'psql',
+    [
+      dbUrl,
+      '-X',
+      '-A',
+      '-t',
+      '-c',
+      `SELECT
+        (SELECT count(*) FROM public.users WHERE password IS NOT NULL) +
+        (SELECT count(*) FROM public.auth_sessions);`,
+    ],
+    { maxBuffer: 1024 * 1024 },
+  );
+  const secretRows = Number(stdout.trim());
+  if (!Number.isSafeInteger(secretRows) || secretRows !== 0) {
+    throw new Error(
+      'Sanitized baseline export refuses password hashes or auth session rows; clear disposable credentials first',
+    );
+  }
+}
+
 function quoteIdent(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
@@ -489,6 +512,7 @@ async function commandExport(args: CliArgs): Promise<void> {
     }
   }
 
+  await assertNoLocalAuthSecrets(dbUrl);
   await runPgDump(dbUrl, dumpPath);
   const manifest: BaselineManifest = {
     schemaVersion: STAGING_DB_BASELINE_SCHEMA_VERSION,
@@ -506,7 +530,7 @@ async function commandExport(args: CliArgs): Promise<void> {
     },
     rowCounts: await publicRowCounts(dbUrl),
     excludedSchemas: ['auth', 'storage'],
-    notes: 'public schema only; Supabase auth/storage schemas are excluded and must be bootstrapped separately.',
+    notes: 'public schema only; local password hashes and auth sessions were verified absent; Supabase auth/storage schemas are excluded.',
   };
   await writeJson(manifestPath, manifest);
 

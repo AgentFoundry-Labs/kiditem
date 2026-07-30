@@ -4,8 +4,8 @@ import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { clearAuthSession } from '@/lib/auth/session';
 import { useAuthSession } from '@/components/providers/AuthProvider';
-import { triggerSignOut } from '@/lib/supabase/refresh';
 import type { AuthUserPublic } from '@kiditem/shared/auth';
 
 export type AuthStatus = 'loading' | 'anonymous' | 'ready' | 'no_organization' | 'error';
@@ -16,8 +16,8 @@ export type AuthStatus = 'loading' | 'anonymous' | 'ready' | 'no_organization' |
  * `useAuthSession()` 의 session 이 있을 때만 query 활성화. session 이 null 이면
  * (만료/로그아웃) query 도 비활성화되어 stale user 객체를 노출하지 않는다.
  *
- * `logout()` 은 `triggerSignOut('manual')` 만 호출. SDK 가 SIGNED_OUT 이벤트
- * 발화 → AuthProvider 가 `/login` redirect 처리. 만료 토스트는 노출되지 않는다.
+ * `logout()` 은 현재 서버 세션만 revoke하고 로컬 세션 이벤트를 발행한다.
+ * AuthProvider가 확장 토큰 삭제와 `/login` redirect를 단독 소유한다.
  */
 export function useAuth() {
   const queryClient = useQueryClient();
@@ -32,8 +32,12 @@ export function useAuth() {
   });
 
   const logout = useCallback(async () => {
-    await triggerSignOut('manual');
-    queryClient.removeQueries({ queryKey: ['auth', 'me'] });
+    try {
+      await apiClient.post('/api/auth/logout');
+    } finally {
+      clearAuthSession('manual');
+      queryClient.removeQueries({ queryKey: ['auth', 'me'] });
+    }
   }, [queryClient]);
 
   const status = getAuthStatus({

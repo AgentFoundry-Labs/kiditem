@@ -70,7 +70,7 @@ describe('classifySellpiaStockSync', () => {
     expect(outcome).toEqual({ kind: 'queued', startsInMs: 126_324 });
     expect(describeSellpiaStockSync(outcome)).toEqual({
       tone: 'success',
-      message: '셀피아 동기화를 예약했습니다. 약 127초 후 시작합니다.',
+      message: '셀피아 동기화 요청을 보냈습니다. 약 127초 후 시작합니다.',
     });
   });
 
@@ -81,7 +81,7 @@ describe('classifySellpiaStockSync', () => {
 
     expect(outcome).toEqual({ kind: 'queued', startsInMs: 0 });
     expect(describeSellpiaStockSync(outcome).message)
-      .toBe('셀피아 동기화를 예약했습니다.');
+      .toBe('셀피아 동기화 요청을 보냈습니다. 곧 시작합니다.');
   });
 
   it('reports a running collection and an already-fresh snapshot distinctly', () => {

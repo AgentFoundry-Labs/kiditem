@@ -33,14 +33,16 @@ Current runbooks:
   migrations, and promote the assembled train without another bump.
 - [Staging Deploy](staging-deploy.md) — operate the EC2 staging runtime through
   GitHub Actions, GHCR image tags/digests, Docker Compose, container nginx, host
-  TLS proxy, Supabase staging DB/Auth, and Supabase Storage through its
-  S3-compatible API.
+  TLS proxy, the hosted PostgreSQL database, and Supabase Storage through its
+  S3-compatible API. Application authentication is local.
 - [Production Deploy](production-deploy.md) — operate production deploy,
   rollback, status, confirmation strings, and production-only GitHub
   Environment variables.
 - [Office Deploy](office-deploy.md) — build immutable office images in GitHub
   Actions, apply digest-only releases to the Windows office runtime, verify
   health, manage disk pressure, and roll back without local image builds.
+- [KidItem Local Authentication](auth-office-local.md) — operate Office
+  email/password hashes, 30-day sessions, revocation, and extension token sync.
 - [Deployment Architecture](deployment-architecture.md) — CI/CD architecture,
   blue-green slot ownership, API/worker split, image immutability, rollback
   boundaries, and IaC baseline.

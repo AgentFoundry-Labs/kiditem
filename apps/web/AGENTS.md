@@ -63,10 +63,12 @@ contents and keep local maps only when they encode ownership or exceptions.
 
 ## Auth + Chat Transport
 
-- 401 refresh/sign-out flow is owned by `lib/supabase/refresh.ts` and
-  `components/providers/AuthProvider.tsx`. Do not add direct
-  `supabase.auth.signOut()`, `window.location.assign('/login')`, or separate
-  401 redirect/toast handling.
+- Opaque local-session persistence is owned by `lib/auth/session.ts`; lifecycle,
+  cross-tab propagation, absolute expiry, extension sync, and login redirect
+  ownership belong to `components/providers/AuthProvider.tsx`.
+- `apiClient` attaches the bearer token and clears the local session on
+  `auth_required`. There is no refresh endpoint or 401 retry path; do not add
+  separate redirect/toast handling.
 - CopilotKit browser runtime calls same-origin `/api/chat/copilot`.
   `next.config` rewrites it to Nest for local/dev. Do not add
   `app/api/.../route.ts`.

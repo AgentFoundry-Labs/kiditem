@@ -196,7 +196,7 @@ async function waitForCallCount(calls, count) {
   assert.equal(calls.length, count);
 }
 
-test('stores the local KidItem Supabase token in its environment profile', async () => {
+test('stores the local KidItem session token in its environment profile', async () => {
   const env = loadBackground({
     kiditem_sourcing_ingest_token: 'legacy-token',
     kiditem_sourcing_ingest_token_expires_at: '2026-05-21T12:30:00.000Z',
@@ -439,7 +439,7 @@ test('ignores ambiguous legacy API bases and tokens', async () => {
   assert.equal(env.fetchCalls.length, 0);
 });
 
-test('requests web refresh and retries once after 401 with a changed token', async () => {
+test('requests web resync and retries once after 401 with a changed token', async () => {
   const env = loadBackground(
     {
       kiditem_environment_profiles_v1: {
