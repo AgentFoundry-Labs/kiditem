@@ -30,6 +30,7 @@ import {
   candidatesApi,
   isInProgress,
   productsApi,
+  searchSellpiaInventorySkus,
   type QuickProcessTask,
   type SourcingSort,
 } from './lib/sourcing-api';
@@ -42,6 +43,7 @@ import {
   waitForRegisteredListing,
   type WingRegistrationDraft,
   type WingRegistrationOverrides,
+  type WingSellpiaSelection,
 } from './lib/wing-registration-flow';
 import {
   emptyStateCopyForSourceFilter,
@@ -111,13 +113,21 @@ export default function SourcingPage() {
       const succeededIds = results
         .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
         .map((result) => result.value);
-      const failedIds = ids.filter((id) => !succeededIds.includes(id));
-      return { succeededIds, failedIds };
+      const failures = results.flatMap((result, index) =>
+        result.status === 'rejected'
+          ? [{ id: ids[index]!, reason: result.reason as unknown }]
+          : [],
+      );
+      return {
+        succeededIds,
+        failedIds: failures.map((failure) => failure.id),
+        firstFailure: failures[0]?.reason,
+      };
     },
     onMutate: (ids) => {
       setDeletingIds((prev) => new Set([...prev, ...ids]));
     },
-    onSuccess: ({ succeededIds, failedIds }) => {
+    onSuccess: ({ succeededIds, failedIds, firstFailure }) => {
       setSelectedIds((prev) => {
         const next = new Set(prev);
         succeededIds.forEach((id) => next.delete(id));
@@ -129,7 +139,11 @@ export default function SourcingPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations({ sourceCandidateId: id }) });
       });
       if (failedIds.length > 0) {
-        toast.error(`${failedIds.length}개 소싱 후보 삭제에 실패했습니다.`);
+        toast.error(
+          failedIds.length === 1 && isApiError(firstFailure)
+            ? firstFailure.detail
+            : `${failedIds.length}개 소싱 후보 삭제에 실패했습니다.`,
+        );
       }
     },
     onError: (err) => toast.error(isApiError(err) ? err.detail : '소싱 후보 삭제에 실패했습니다.'),
@@ -235,6 +249,7 @@ export default function SourcingPage() {
     overrides: WingRegistrationOverrides,
     autoSubmit: boolean,
     channelAccountId: string,
+    sellpiaSelection: WingSellpiaSelection,
   ) => {
     if (!wingDraft || wingSubmitting) return;
     const candidateId = wingDraft.candidateId;
@@ -246,12 +261,13 @@ export default function SourcingPage() {
         overrides,
         autoSubmit,
         channelAccountId,
+        sellpiaSelection,
       );
       const executionId = result.submission.executionId;
       if (!executionId) throw new Error('WING 등록 실행 ID를 확인하지 못했습니다.');
 
-      // 브라우저가 본 완료 상태는 빠른 경로를 고르는 힌트일 뿐이다. 최종 확정은
-      // 서버가 선택된 ChannelAccount로 쿠팡 상품을 독립 조회한 뒤 수행한다.
+      // 신규 등록은 확장이 확인한 WING 계정 증거로 확정한다. 준비 단계에서 이미
+      // 동기화된 리스팅을 찾았다면 서버가 frozen한 내부 리스팅으로 확정한다.
       if (isConfirmedWingRegistration(result.submission)) {
         const externalListingId = result.submission.externalListingId;
         try {
@@ -488,6 +504,7 @@ export default function SourcingPage() {
           setWingSubmissionError(null);
         }}
         onConfirm={handleWingConfirm}
+        onSearchSellpia={searchSellpiaInventorySkus}
       />
     </div>
   );

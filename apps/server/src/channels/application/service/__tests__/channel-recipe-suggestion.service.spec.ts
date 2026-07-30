@@ -6,6 +6,45 @@ const organizationId = '00000000-0000-4000-8000-000000000001';
 const optionId = '00000000-0000-4000-8000-000000000002';
 
 describe('ChannelRecipeSuggestionService', () => {
+  it('reuses the channel recipe matcher before registration and strips a leading Sellpia price code', async () => {
+    const repository = { getContext: vi.fn() };
+    const sellpiaSku = {
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+      code: '10451-1',
+      name: '3500꿀사과슬랑이',
+      optionName: null,
+      barcode: null,
+      currentStock: 13,
+    };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([sellpiaSku]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggestRegistration(organizationId, {
+      sourceCandidateId: optionId,
+      listingName: '꿀사과슬랑이',
+      itemName: null,
+    })).resolves.toMatchObject({
+      channelListingOptionId: optionId,
+      productVariantId: null,
+      masterProductId: null,
+      status: 'high_confidence_name',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
+      proposals: [{
+        sellpiaInventorySkuId: sellpiaSku.sellpiaInventorySkuId,
+        code: '10451-1',
+        name: '3500꿀사과슬랑이',
+        currentStock: 13,
+      }],
+    });
+    expect(repository.getContext).not.toHaveBeenCalled();
+  });
+
   it('batches code, typed barcode, and product-name evidence across all options linked to the variant', async () => {
     const context = {
       channelListingOptionId: optionId,

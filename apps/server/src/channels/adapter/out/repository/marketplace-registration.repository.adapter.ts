@@ -36,6 +36,47 @@ export class MarketplaceRegistrationRepositoryAdapter
     return account;
   }
 
+  async findExistingActiveListingBySellerSku(input: {
+    organizationId: string;
+    channelAccountId: string;
+    sellerSku: string;
+  }): Promise<{
+    externalListingId: string;
+    displayName: string;
+    status: string | null;
+  } | null> {
+    const listings = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+        isActive: true,
+        options: {
+          some: {
+            organizationId: input.organizationId,
+            sellerSku: input.sellerSku,
+            isActive: true,
+          },
+        },
+      },
+      select: { externalId: true, displayName: true, status: true },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      take: 2,
+    });
+    if (listings.length > 1) {
+      throw new ConflictException(
+        `Sellpia SKU '${input.sellerSku}' resolved to multiple active channel listings.`,
+      );
+    }
+    const listing = listings[0];
+    return listing
+      ? {
+        externalListingId: listing.externalId,
+        displayName: listing.displayName?.trim() || listing.externalId,
+        status: listing.status?.trim() || null,
+      }
+      : null;
+  }
+
   async preflightExactProductLinks(input: {
     organizationId: string;
     masterProductId?: string;

@@ -7,6 +7,10 @@ import {
 import type {
   ChannelProductRegistrationPort,
   ChannelProductRegistrationSubmissionInput,
+  ExternalRegistrationMatchPreviewInput,
+  ExternalRegistrationMatchPreviewResult,
+  ExternalRegistrationPreflightInput,
+  ExternalRegistrationPreflightResult,
   ResolveChannelListingInput,
 } from '../../../application/port/out/cross-domain/channel-product-registration.port';
 import { DefinitiveChannelProductRegistrationError } from '../../../application/port/out/cross-domain/channel-product-registration.port';
@@ -21,19 +25,23 @@ export class ChannelProductRegistrationAdapter
     private readonly registration: ChannelsMarketplaceRegistrationCapabilityPort,
   ) {}
 
+  previewExternalRegistrationMatch(
+    input: ExternalRegistrationMatchPreviewInput,
+  ): Promise<ExternalRegistrationMatchPreviewResult> {
+    return this.registration.previewExternalProductRegistrationMatch(input);
+  }
+
+  preflightExternalRegistration(
+    input: ExternalRegistrationPreflightInput,
+  ): Promise<ExternalRegistrationPreflightResult> {
+    return this.registration.preflightExternalProductRegistration(input);
+  }
+
   assertExternalRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
   }): Promise<{ channel: 'coupang'; vendorId: string }> {
     return this.registration.assertExternalProductRegistrationAccount(input);
-  }
-
-  verifyExternalRegistration(input: {
-    organizationId: string;
-    channelAccountId: string;
-    externalListingId: string;
-  }) {
-    return this.registration.verifyExternalProductRegistration(input);
   }
 
   reconcile(input: ChannelProductRegistrationSubmissionInput) {

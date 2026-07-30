@@ -24,6 +24,19 @@ const draft = {
   channelAccounts: [
     { id: '11111111-1111-4111-8111-111111111111', name: 'Wing A' },
   ],
+  sellpiaMatchPreview: {
+    status: 'matched',
+    reason: '상품명으로 하나의 셀피아 재고를 찾았습니다.',
+    sellpiaMatch: {
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+      code: '10451-1',
+      name: '3500꿀사과슬랑이',
+      optionName: null,
+      currentStock: 13,
+      quantity: 1,
+    },
+    proposals: [],
+  },
   registrationInput: {},
 } satisfies WingRegistrationDraft;
 
@@ -55,6 +68,7 @@ describe('WingRegistrationConfirmDialog', () => {
       expect.objectContaining({ categoryKey: '64687' }),
       false,
       '11111111-1111-4111-8111-111111111111',
+      draft.sellpiaMatchPreview.sellpiaMatch,
     );
   });
 
@@ -87,6 +101,7 @@ describe('WingRegistrationConfirmDialog', () => {
       expect.any(Object),
       false,
       '22222222-2222-4222-8222-222222222222',
+      draft.sellpiaMatchPreview.sellpiaMatch,
     );
   });
 
@@ -116,6 +131,86 @@ describe('WingRegistrationConfirmDialog', () => {
       expect.objectContaining({ unitWeightValue: '120' }),
       false,
       '11111111-1111-4111-8111-111111111111',
+      draft.sellpiaMatchPreview.sellpiaMatch,
+    );
+  });
+
+  it('shows the exact Sellpia SKU and deduction quantity before registration', () => {
+    const onConfirm = vi.fn();
+    render(
+      <WingRegistrationConfirmDialog
+        draft={draft}
+        isSubmitting={false}
+        onCancel={() => {}}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    expect(screen.getByText('셀피아 매칭 완료')).toBeInTheDocument();
+    expect(screen.getByText('10451-1')).toBeInTheDocument();
+    expect(screen.getByText('3500꿀사과슬랑이')).toBeInTheDocument();
+    expect(screen.getByText('현재고 13개')).toBeInTheDocument();
+    expect(screen.getByLabelText('판매 1개당 셀피아 차감수량')).toHaveValue(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '확인하고 WING 등록 시작' }));
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.any(Object),
+      false,
+      draft.channelAccountId,
+      draft.sellpiaMatchPreview.sellpiaMatch,
+    );
+  });
+
+  it('blocks registration until an unmatched product is linked from Sellpia search', async () => {
+    const onConfirm = vi.fn();
+    const onSearchSellpia = vi.fn().mockResolvedValue([{
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000099',
+      code: 'MANUAL-99',
+      name: '직접 선택한 셀피아 상품',
+      optionName: '파랑',
+      currentStock: 7,
+    }]);
+    render(
+      <WingRegistrationConfirmDialog
+        draft={{
+          ...draft,
+          sellpiaMatchPreview: {
+            status: 'selection_required',
+            reason: '자동으로 확정할 셀피아 상품이 없습니다.',
+            sellpiaMatch: null,
+            proposals: [],
+          },
+        }}
+        isSubmitting={false}
+        onCancel={() => {}}
+        onConfirm={onConfirm}
+        onSearchSellpia={onSearchSellpia}
+      />,
+    );
+
+    const confirm = screen.getByRole('button', { name: '확인하고 WING 등록 시작' });
+    expect(screen.getAllByText('셀피아 상품을 연결하세요.')).not.toHaveLength(0);
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('셀피아 재고 검색'), {
+      target: { value: '직접 선택' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '셀피아 검색' }));
+    const result = await screen.findByRole('button', {
+      name: 'MANUAL-99 직접 선택한 셀피아 상품 선택',
+    });
+    fireEvent.click(result);
+
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.any(Object),
+      false,
+      draft.channelAccountId,
+      expect.objectContaining({
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000099',
+        quantity: 1,
+      }),
     );
   });
 

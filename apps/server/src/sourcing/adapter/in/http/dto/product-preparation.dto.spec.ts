@@ -4,8 +4,24 @@ import { describe, expect, it } from 'vitest';
 import { CreateProductPreparationDto } from './create-product-preparation.dto';
 import { UpdateProductPreparationDto } from './update-product-preparation.dto';
 import { ConfirmExternalRegistrationDto } from './confirm-external-registration.dto';
+import { PrepareExternalWingRegistrationDto } from './external-wing-registration.dto';
 
 describe('product preparation DTOs', () => {
+  it('accepts an optional real Sellpia SKU selection with a positive unit quantity', async () => {
+    const dto = plainToInstance(PrepareExternalWingRegistrationDto, {
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      displayName: '꿀사과슬랑이',
+      registrationInput: { wingProduct: { productName: '꿀사과슬랑이' } },
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
+      sellpiaInventorySkuId: '33333333-3333-4333-8333-333333333333',
+      sellpiaQuantity: 1,
+    });
+
+    expect(await validate(dto, { whitelist: true })).toHaveLength(0);
+    expect(dto.sellpiaInventorySkuId).toBe('33333333-3333-4333-8333-333333333333');
+    expect(dto.sellpiaQuantity).toBe(1);
+  });
+
   it('rejects a blank create display name', async () => {
     const dto = plainToInstance(CreateProductPreparationDto, {
       channelAccountId: '11111111-1111-4111-8111-111111111111',
@@ -70,7 +86,17 @@ describe('product preparation DTOs', () => {
     expect(await validate(forged)).not.toHaveLength(0);
   });
 
-  it('allows provider-verified external completion when browser identity evidence is unavailable', async () => {
+  it('accepts the deterministic identity sources emitted by the live WING extension', async () => {
+    const dto = plainToInstance(ConfirmExternalRegistrationDto, {
+      executionId: '11111111-1111-4111-8111-111111111111',
+      externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:inline-script' },
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('allows evidence omission so a frozen synced-listing match can be completed', async () => {
     const dto = plainToInstance(ConfirmExternalRegistrationDto, {
       executionId: '11111111-1111-4111-8111-111111111111',
       externalListingId: '427011919',

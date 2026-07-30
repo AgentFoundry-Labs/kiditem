@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type {
   CreateProductPreparationInput,
   ProductPreparationCommandResult,
@@ -64,14 +64,71 @@ export class ProductRegistrationService {
       displayName: string;
       registrationInput: Record<string, unknown>;
       idempotencyKey: string;
+      sellpiaInventorySkuId?: string;
+      sellpiaQuantity?: number;
     },
   ) {
+    const wingProduct = requiredRecord(
+      input.registrationInput.wingProduct,
+      'registrationInput.wingProduct',
+    );
+    const listingName = requiredPayloadString(
+      wingProduct.sellerProductName ?? wingProduct.productName,
+      'registrationInput.wingProduct.sellerProductName',
+    );
+    const itemName = optionalString(wingProduct.productName);
+    const variants = Array.isArray(wingProduct.variants)
+      ? wingProduct.variants.map((variant, index) =>
+        requiredRecord(variant, `registrationInput.wingProduct.variants[${index}]`))
+      : [];
+    if (variants.length !== 1) {
+      throw new BadRequestException('External WING registration requires exactly one variant.');
+    }
+    const preflight = await this.channels.preflightExternalRegistration({
+      organizationId,
+      channelAccountId: input.channelAccountId,
+      sourceCandidateId: candidateId,
+      listingName,
+      itemName,
+      ...(input.sellpiaInventorySkuId
+        ? { selectedSellpiaInventorySkuId: input.sellpiaInventorySkuId }
+        : {}),
+      ...(input.sellpiaQuantity !== undefined
+        ? { selectedQuantity: input.sellpiaQuantity }
+        : {}),
+    });
+    const registrationInput = {
+      ...input.registrationInput,
+      // Server-derived only. A client-provided value with the same key is overwritten.
+      // It lets confirmation reuse an account-scoped listing already present in our
+      // synced channel catalog without consulting the Coupang Open API.
+      existingChannelListing: preflight.existingListing,
+      sellpiaMatch: {
+        sellpiaInventorySkuId: preflight.sellpiaMatch.sellpiaInventorySkuId,
+        code: preflight.sellpiaMatch.code,
+        name: preflight.sellpiaMatch.name,
+        optionName: preflight.sellpiaMatch.optionName,
+        quantity: preflight.sellpiaMatch.quantity,
+      },
+      wingProduct: {
+        ...wingProduct,
+        variants: [{
+          ...variants[0],
+          vendorItemCode: preflight.sellpiaMatch.code,
+        }],
+      },
+    };
     const operation = await this.preparations.prepareExternalExecution(
       {
         organizationId,
         sourceCandidateId: candidateId,
         requestedByUserId: userId,
-        ...input,
+        channelAccountId: input.channelAccountId,
+        displayName: input.displayName,
+        registrationInput,
+        idempotencyKey: input.idempotencyKey,
+        // A miss in our synced channel catalog is not proof of absence in Coupang.
+        providerAbsenceVerified: false,
       },
       (tx) => this.contentWorkspaces.ensureCandidateWorkspace(tx, {
         organizationId,
@@ -81,7 +138,24 @@ export class ProductRegistrationService {
       }),
       (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
     );
-    return { ...operation, expectedVendorId: operation.expectedProviderAccountId };
+    return {
+      ...operation,
+      expectedVendorId: operation.expectedProviderAccountId,
+      ...preflight,
+    };
+  }
+
+  previewExternalWingRegistrationMatch(
+    organizationId: string,
+    candidateId: string,
+    input: { listingName: string; itemName?: string },
+  ) {
+    return this.channels.previewExternalRegistrationMatch({
+      organizationId,
+      sourceCandidateId: candidateId,
+      listingName: input.listingName,
+      itemName: optionalString(input.itemName),
+    });
   }
 
   startExternalWingRegistration(
@@ -258,17 +332,19 @@ export class ProductRegistrationService {
   /**
    * 이미 마켓에 등록된 상품을 우리 등록상품으로 확정한다.
    *
-   * 쿠팡 WING 등록은 Open API 가 아니라 확장이 WING 화면을 직접 조작해 수행한다.
-   * 그래서 서버가 provider create 를 부르는 `submit()` 경로를 탈 수 없다. 대신
-   * **이미 발급된 등록상품ID를 근거로** 선택된 계정의 provider 조회를 수행하고,
-   * 실제 ID·판매자·상태가 확인된 경우에만 같은 finalize 트랜잭션을 재사용한다.
+   * 쿠팡 WING 등록은 Open API가 아니라 확장이 WING 화면을 직접 조작해 수행한다.
+   * 그래서 서버가 provider create를 부르는 `submit()` 경로를 타지 않고,
+   * immutable execution과 저장된 ChannelAccount vendorId로 확장 증거를 대조한 뒤
+   * 같은 finalize 트랜잭션을 재사용한다.
    *
    * 두 갈래가 이 경로를 쓴다:
    *  - 확장이 자동 제출 후 완료를 관찰하고 등록상품ID를 돌려준 경우
    *  - 사용자가 WING 에서 직접 등록한 뒤 등록상품ID를 입력해 "등록 완료 확인" 한 경우
    *
-   * `externalListingId` 는 사용자/확장이 주는 값이므로 신뢰 경계다. Channels가 선택된
-   * 계정으로 provider 조회를 수행하고, 소유권·중복·교차 후보 충돌도 다시 판정한다.
+   * `externalListingId`는 사용자/확장이 주는 값이므로 신뢰 경계다. 선택된 계정의
+   * 저장된 vendorId와 확장이 WING 화면에서 확인한 vendorId를
+   * 대조한다. 이미 동기화된 리스팅을 찾은 경우에는 frozen 서버 조회 결과를 쓴다.
+   * 이 외부 WING 경로는 쿠팡 Open API 자격증명을 요구하지 않는다.
    */
   async confirmExternalRegistration(
     organizationId: string,
@@ -317,14 +393,22 @@ export class ProductRegistrationService {
     if (account.vendorId !== operation.expectedProviderAccountId) {
       throw new Error('Persisted WING account identity changed after external registration was prepared.');
     }
-    const providerVerification = await this.channels.verifyExternalRegistration({
-      organizationId,
-      channelAccountId: submission.channelAccountId,
-      externalListingId,
-    });
-    if (providerVerification.vendorId !== operation.expectedProviderAccountId
-      || providerVerification.externalListingId !== externalListingId) {
-      throw new Error('Coupang provider verification does not match the prepared registration.');
+    const syncedListing = frozenExistingChannelListing(submission.submissionPayloadJson);
+    let resultSource: 'synced-channel-listing' | 'coupang-wing-extension';
+    let verifiedEvidence: { wingVendorId: string; wingIdentitySource: string } | null;
+    if (syncedListing) {
+      if (syncedListing.externalListingId !== externalListingId) {
+        throw new Error('Synced channel listing does not match the prepared registration.');
+      }
+      resultSource = 'synced-channel-listing';
+      verifiedEvidence = null;
+    } else {
+      verifiedEvidence = requiredWingExtensionEvidence(input.evidence);
+      if (verifiedEvidence.wingVendorId !== operation.expectedProviderAccountId
+        || verifiedEvidence.wingVendorId !== account.vendorId) {
+        throw new Error('WING extension evidence does not match the prepared registration.');
+      }
+      resultSource = 'coupang-wing-extension';
     }
     const submissionLeaseToken = submission.submissionLeaseToken;
     if (!submissionLeaseToken) {
@@ -332,7 +416,8 @@ export class ProductRegistrationService {
     }
 
     try {
-      // provider create는 부르지 않는다. 독립 조회로 확인한 외부 등록 결과만 기록한다.
+      // provider create/read는 부르지 않는다. 확장의 WING 완료 증거 또는 서버가
+      // frozen한 내부 동기화 리스팅만 기록한다.
       await this.preparations.recordProviderResult(
         organizationId,
         submission.preparationId,
@@ -343,10 +428,10 @@ export class ProductRegistrationService {
           // The selected persisted ChannelAccount, not browser/client text, owns channel identity.
           channel: account.channel,
           rawResult: {
-            source: 'coupang-wing-extension',
+            source: resultSource,
             confirmedAt: new Date().toISOString(),
-            evidence: input.evidence ?? null,
-            providerVerification: providerVerification.rawResult,
+            evidence: verifiedEvidence,
+            syncedListing,
           },
         },
       );
@@ -445,6 +530,66 @@ export class ProductRegistrationService {
       ...(providerOutcome ? { providerOutcome } : {}),
     });
   }
+}
+
+function requiredRecord(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new BadRequestException(`${field} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requiredPayloadString(value: unknown, field: string): string {
+  const parsed = optionalString(value);
+  if (!parsed) throw new BadRequestException(`${field} must be a non-empty string.`);
+  return parsed;
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+const WING_EXTENSION_IDENTITY_SOURCES = new Set([
+  'dom:data-vendor-id',
+  'meta:vendor-id',
+  'url:vendorId',
+  'dom:vendor-code-label',
+  'dom:inline-script',
+]);
+
+function requiredWingExtensionEvidence(
+  value: unknown,
+): { wingVendorId: string; wingIdentitySource: string } {
+  const evidence = asRecord(value);
+  const wingVendorId = optionalString(evidence.wingVendorId);
+  const wingIdentitySource = optionalString(evidence.wingIdentitySource);
+  if (
+    !wingVendorId
+    || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(wingVendorId)
+    || !wingIdentitySource
+    || !WING_EXTENSION_IDENTITY_SOURCES.has(wingIdentitySource)
+  ) {
+    throw new Error('WING extension evidence is required to confirm a new registration.');
+  }
+  return { wingVendorId, wingIdentitySource };
+}
+
+function frozenExistingChannelListing(value: unknown): {
+  externalListingId: string;
+  displayName: string;
+  status: string | null;
+} | null {
+  const payload = asRecord(value);
+  const registrationInput = asRecord(payload.registrationInput);
+  const listing = asRecord(registrationInput.existingChannelListing);
+  const externalListingId = optionalString(listing.externalListingId);
+  const displayName = optionalString(listing.displayName);
+  if (!externalListingId || !displayName) return null;
+  return {
+    externalListingId,
+    displayName,
+    status: optionalString(listing.status),
+  };
 }
 
 function kidItemFirstLinks(value: unknown): {

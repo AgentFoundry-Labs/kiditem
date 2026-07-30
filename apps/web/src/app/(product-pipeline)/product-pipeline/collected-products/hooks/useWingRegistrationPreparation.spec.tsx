@@ -74,4 +74,25 @@ describe('useWingRegistrationPreparation', () => {
     expect(hook.result.current.isPreparing).toBe(false);
     expect(hook.result.current.message).toBeNull();
   });
+
+  it('uses an actionable fallback when preparation rejects with an empty message', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    mockPrepareWingRegistration.mockRejectedValueOnce(new Error(''));
+    const hook = renderHook(
+      () => useWingRegistrationPreparation({ onReady, onError }),
+      { wrapper: wrapper(client) },
+    );
+
+    act(() => hook.result.current.start(CANDIDATE));
+
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith('쿠팡 WING 등록 준비에 실패했습니다.'),
+    );
+    expect(onReady).not.toHaveBeenCalled();
+    expect(hook.result.current.isPreparing).toBe(false);
+  });
 });

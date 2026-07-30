@@ -21,6 +21,15 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
     return (await this.inventory.listActiveForMatching(organizationId)).map(toEvidenceSku);
   }
 
+  async findByIds(
+    organizationId: string,
+    ids: string[],
+  ): Promise<SellpiaRecipeEvidenceSku[]> {
+    return (await this.inventory.findByIds(organizationId, ids))
+      .filter((sku) => sku.isActive)
+      .map(toEvidenceSku);
+  }
+
   async findByCodes(organizationId: string, codes: string[]): Promise<SellpiaRecipeEvidenceSku[]> {
     return (await this.inventory.findByCodes(organizationId, codes)).map(toEvidenceSku);
   }

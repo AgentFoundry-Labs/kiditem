@@ -66,6 +66,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message = exception.message;
     }
 
+    if (typeof message !== 'string' || !message.trim()) {
+      message = statusCode >= 500 ? 'Internal server error' : `HTTP ${statusCode}`;
+    }
+
     if (statusCode >= 500) {
       this.logger.error(
         `${request.method} ${request.url} → ${statusCode} ${error}`,

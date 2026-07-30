@@ -18,6 +18,14 @@ interface PreparationAttempt {
   sequence: number;
 }
 
+const PREPARATION_ERROR_FALLBACK = '쿠팡 WING 등록 준비에 실패했습니다.';
+
+function preparationErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message.trim()
+    : PREPARATION_ERROR_FALLBACK;
+}
+
 export function useWingRegistrationPreparation(
   callbacks: WingRegistrationPreparationCallbacks,
 ) {
@@ -52,7 +60,9 @@ export function useWingRegistrationPreparation(
       return;
     }
     if (query.data?.status === 'failed') {
-      callbacksRef.current.onError(query.data.message);
+      callbacksRef.current.onError(
+        query.data.message.trim() || PREPARATION_ERROR_FALLBACK,
+      );
       setRenderPhase(null);
       setAttempt((current) =>
         current?.sequence === attempt.sequence ? null : current,
@@ -60,11 +70,7 @@ export function useWingRegistrationPreparation(
       return;
     }
     if (query.error) {
-      callbacksRef.current.onError(
-        query.error instanceof Error
-          ? query.error.message
-          : '쿠팡 WING 등록 준비에 실패했습니다.',
-      );
+      callbacksRef.current.onError(preparationErrorMessage(query.error));
       setRenderPhase(null);
       setAttempt((current) =>
         current?.sequence === attempt.sequence ? null : current,

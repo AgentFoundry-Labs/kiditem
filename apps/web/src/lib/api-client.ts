@@ -91,10 +91,10 @@ async function request<T>(
     const messageRaw = record.message;
     const detailRaw = record.detail;
     const detail =
-      typeof messageRaw === 'string'
-        ? messageRaw
-        : typeof detailRaw === 'string'
-          ? detailRaw
+      typeof messageRaw === 'string' && messageRaw.trim()
+        ? messageRaw.trim()
+        : typeof detailRaw === 'string' && detailRaw.trim()
+          ? detailRaw.trim()
           : `API error: ${res.status}`;
     throw new ApiError(res.status, code, detail);
   }
