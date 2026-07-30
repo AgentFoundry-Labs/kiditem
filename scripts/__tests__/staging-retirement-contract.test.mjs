@@ -33,6 +33,10 @@ describe('staging retirement remote-script contract', () => {
 
     const deploy = extractFunction(remote, 'deploy');
     assert.ok(
+      deploy.indexOf('cd "$APP_DIR"') < deploy.indexOf('assert_not_retired'),
+      'deploy must resolve a relative retirement marker from APP_DIR',
+    );
+    assert.ok(
       deploy.indexOf('assert_not_retired') < deploy.indexOf('docker_login_if_available'),
       'deploy must check retirement before Docker login',
     );
@@ -50,9 +54,18 @@ describe('staging retirement remote-script contract', () => {
     assert.match(markerWriter, /GITHUB_SHA/);
     assert.match(markerWriter, /DISPATCH_CORRELATION_ID/);
     assert.doesNotMatch(markerWriter, /GHCR_TOKEN|password|secret/i);
+    assert.doesNotMatch(retire, /assert_not_retired/);
+    assert.match(
+      retire,
+      /if \[\[ -f "\$RETIREMENT_LOCK_FILE" \]\]; then\s+echo "Staging is already retired; preserving existing marker:"\s+cat "\$RETIREMENT_LOCK_FILE"\s+else\s+write_retirement_marker\s+fi/s,
+    );
     assert.ok(
       retire.indexOf('write_retirement_marker') < retire.indexOf('compose stop'),
       'retirement marker must be written before services stop',
+    );
+    assert.ok(
+      retire.indexOf('if [[ -f "$RETIREMENT_LOCK_FILE" ]]') < retire.indexOf('compose stop'),
+      'retrying retirement must still stop the exact services after showing the marker',
     );
     assert.doesNotMatch(extractRetireFunction(remote), /compose down|docker volume|rm -rf/);
   });

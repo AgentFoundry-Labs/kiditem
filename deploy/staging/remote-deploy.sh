@@ -860,13 +860,17 @@ retire() {
     fail "retire requires ALLOW_STAGING_RETIRE=RETIRE_STAGING"
 
   cd "$APP_DIR"
-  assert_not_retired
   require_command docker
   require_file "$COMPOSE_FILE"
   require_file "$DEPLOY_ENV_FILE"
   require_file "$WEB_ENV_FILE"
 
-  write_retirement_marker
+  if [[ -f "$RETIREMENT_LOCK_FILE" ]]; then
+    echo "Staging is already retired; preserving existing marker:"
+    cat "$RETIREMENT_LOCK_FILE"
+  else
+    write_retirement_marker
+  fi
   echo "Retiring staging application services without deleting runtime data"
   compose stop api-blue web-blue worker-blue api-green web-green worker-green nginx
   compose ps
