@@ -8,6 +8,14 @@ const remote = readFileSync(
   join(repoRoot, 'deploy/staging/remote-deploy.sh'),
   'utf8',
 );
+const workflow = readFileSync(
+  join(repoRoot, '.github/workflows/staging-deploy.yml'),
+  'utf8',
+);
+
+function source(relativePath) {
+  return readFileSync(join(repoRoot, relativePath), 'utf8');
+}
 
 function extractFunction(source, name) {
   const match = source.match(new RegExp(`^${name}\\(\\) \\{([\\s\\S]*?)^\\}`, 'm'));
@@ -17,6 +25,17 @@ function extractFunction(source, name) {
 
 function extractRetireFunction(source) {
   return extractFunction(source, 'retire');
+}
+
+function extractWorkflowJob(source, name) {
+  const start = source.indexOf(`  ${name}:\n`);
+  assert.ok(start >= 0, `missing ${name} workflow job`);
+
+  const following = source.slice(start + 1);
+  const nextJobOffset = following.search(/^  [a-z_]+:\n/m);
+  return nextJobOffset < 0
+    ? source.slice(start)
+    : source.slice(start, start + 1 + nextJobOffset);
 }
 
 describe('staging retirement remote-script contract', () => {
@@ -90,5 +109,42 @@ describe('staging retirement remote-script contract', () => {
     assert.match(status, /not retired/);
     assert.match(remote, /retire\)\n\s+retire/);
     assert.match(remote, /restore\)\n\s+restore/);
+  });
+
+  it('provides a guarded workflow operator for retirement without deploy work', () => {
+    assert.match(workflow, /- retire/);
+    assert.match(workflow, /- restore/);
+    assert.match(workflow, /retirement_confirmation/);
+    assert.match(workflow, /deploy\/staging\/remote-deploy\.sh retire/);
+    assert.match(workflow, /deploy\/staging\/remote-deploy\.sh restore/);
+
+    const retirement = extractWorkflowJob(workflow, 'retirement');
+    assert.match(retirement, /inputs\.operation == 'retire' \|\| inputs\.operation == 'restore'/);
+    assert.match(retirement, /needs: identity_guard/);
+    assert.match(retirement, /environment: staging\b/);
+    assert.match(retirement, /ref: \$\{\{ needs\.identity_guard\.outputs\.git_sha \}\}/);
+    assert.match(retirement, /ALLOW_STAGING_RETIRE/);
+    assert.match(retirement, /ALLOW_STAGING_RESTORE/);
+    assert.match(retirement, /retirement_confirmation/);
+    assert.match(retirement, /remote-deploy\.sh status/);
+    assert.match(retirement, /STAGING_URL/);
+    assert.match(retirement, /\/login/);
+    assert.match(retirement, /== "200"/);
+    assert.doesNotMatch(retirement, /npm ci|docker pull|prisma|db push|git tag/i);
+  });
+
+  it('documents retirement evidence, confirmations, and retained infrastructure', () => {
+    for (const relativePath of [
+      'docs/runbooks/staging-deploy.md',
+      'docs/runbooks/deployment-architecture.md',
+      'tools/codex/skills/staging-deploy-operator/SKILL.md',
+    ]) {
+      const document = source(relativePath);
+      assert.match(document, /deployments\/retired\.json/);
+      assert.match(document, /RETIRE_STAGING/);
+      assert.match(document, /RESUME_RETIRED_STAGING/);
+      assert.match(document, /operation=status/);
+      assert.match(document, /no\s+data\s+deletion|without deleting.*data/i);
+    }
   });
 });

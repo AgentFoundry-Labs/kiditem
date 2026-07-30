@@ -347,6 +347,12 @@ Triggers:
   distinguish image cleanup from an EC2 root-volume resize after `ENOSPC`.
 - Manual `workflow_dispatch` with `operation=rollback` deploys an existing GHCR
   git-SHA tag. Do not pass `staging` as a rollback tag.
+- Manual `workflow_dispatch` with `operation=retire` stops staging application
+  services after recording `deployments/retired.json`. It does not build,
+  pull, migrate, reset, or delete application data.
+- Manual `workflow_dispatch` with `operation=restore` resumes the retired
+  runtime, waits for the normal public smoke contract, and then clears
+  `deployments/retired.json`.
 
 Branch model:
 
@@ -362,7 +368,7 @@ does not deploy automatically; an operator triggers the workflow manually. Do
 not create a long-lived `staging` branch; staging is a GitHub Environment, not a
 separate source branch.
 
-Only deploy/rollback/status jobs declare GitHub Environment
+Only deploy/rollback/status/retirement jobs declare GitHub Environment
 `staging`. Build and preparation jobs intentionally avoid it. The destructive
 deploy and its later finalization are separately protected staging operations.
 
@@ -551,6 +557,67 @@ host, then re-run:
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
+```
+
+## Retire Or Restore Staging
+
+Retirement is a reversible runtime boundary for staging. It writes the durable
+marker `/opt/kiditem/deployments/retired.json`, then stops exactly these Compose
+services: `api-blue`, `web-blue`, `worker-blue`, `api-green`, `web-green`,
+`worker-green`, and `nginx`. The marker makes later deploy and rollback
+operations reject the retired runtime until an explicit restore succeeds.
+
+Retirement performs no data deletion. It retains the EC2 instance, attached
+volumes, Docker volumes, Supabase data, uploaded assets, deployment history,
+and runtime configuration. Terraform or Supabase destruction is a separate,
+later decision boundary; do not cross it until Office local auth is implemented
+and verified.
+
+Dispatch from an immutable `origin/main` workflow SHA with a new correlation
+UUID. The confirmation value is exact and is passed only to the matching
+remote operation:
+
+```bash
+workflow_code_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=retire \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id" \
+  -f retirement_confirmation=RETIRE_STAGING
+```
+
+The retirement job records final remote `status` evidence and fails if the
+public `$STAGING_URL/login` probe still returns HTTP `200`. Select the exact
+run by SHA and correlation, inspect any failure logs, then run a separate final
+status query:
+
+```bash
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=status \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+```
+
+Confirm `/opt/kiditem/deployments/retired.json` exists, all seven services are
+stopped, and public `/login` is not HTTP `200` before declaring retirement
+complete.
+
+Restore uses the separate exact confirmation below. It resumes the retained
+runtime before removing the marker, then requires `/login -> 200` and
+`/api/auth/me -> 401` from the public staging URL:
+
+```bash
+workflow_code_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=restore \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id" \
+  -f retirement_confirmation=RESUME_RETIRED_STAGING
 ```
 
 ## Manual Compose Commands
