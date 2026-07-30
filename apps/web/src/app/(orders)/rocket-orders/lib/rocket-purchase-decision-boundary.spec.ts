@@ -79,7 +79,8 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain('selectedRocketAccountId');
     expect(operationsSource).toContain('selectedSourceImportRunId');
     expect(operationsSource).toContain('sourceImportRunId');
-    expect(operationsSource).toContain('이 수집본으로 납품 판단');
+    expect(operationsSource).toContain('newestSourceImportRunId');
+    expect(operationsSource).not.toContain('이 수집본으로 납품 판단');
     // 저장 발주 빈 상태 문구는 양쪽 워크스페이스 판본에 공통으로 존재하는 문구를 기준으로 검증한다.
     expect(operationsSource).toContain('이 달엔 해당 발주가 없습니다');
     // 상단 워크플로 STEP 4카드(신규주문·납품판단·쉽먼트/밀크런·송장출력)는 사용자 요청으로 제거됨.
@@ -88,13 +89,13 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain("['chart', '차트']");
     expect(operationsSource).toContain('selectedDay &&');
     expect(operationsSource).not.toContain('visibleDates.map');
-    expect(operationsSource).toContain('<RocketConfirmFileList');
+    expect(operationsSource).not.toContain('RocketConfirmFileList');
     // supply 워크스페이스는 로켓 탭을 더 이상 소유하지 않는다.
     expect(purchaseWorkspaceSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(purchaseWorkspaceSource).not.toContain("activeTab === 'rocket'");
     expect(purchaseWorkspaceSource).not.toContain('RocketOrdersWorkspace');
     // orders 워크스페이스는 '발주 미리보기' 카드(RocketPurchasePreviewSection)를 더 이상
-    // 렌더하지 않는다(사용자 요청 제거). 대신 활성 로켓 계정만 백그라운드로 선택
+    // 렌더하지 않는다(사용자 요청 제거). 대신 내부 로켓 식별자만 백그라운드로 자동 연결
     // (RocketAccountBootstrap)해 달력·발주목록·차트에 공급하고, decisionWorkspace
     // 렌더프롭으로 원본 워크북 패널(저장 발주 달력 공급)을 주입한다.
     expect(operationsSource).toContain('decisionWorkspace');
@@ -107,16 +108,15 @@ describe('Rocket purchase decision boundary', () => {
     expect(confirmPanelSource).toContain('savedSourceImportRunId');
     expect(confirmPanelSource).toContain('revalidateEditedQuantities');
     expect(confirmPanelSource).toContain('setPreviewDirty(true)');
-    expect(canonicalWorkbookSource).toContain('globalThis.crypto.randomUUID()');
     expect(canonicalWorkbookSource).toContain('editedQuantities: reviewedQuantities');
     expect(canonicalWorkbookSource).toContain('shortageReasons');
     expect(canonicalWorkbookSource).not.toMatch(
       /matchRocketStock|exportStockWorkbook|allowMissingConfirmation|재고 기준 엑셀/,
     );
-    expect(canonicalWorkbookSource).toContain('exportRocketWorkbook');
-    expect(canonicalWorkbookSource).toContain('downloadActiveWorkbook');
-    expect(canonicalWorkbookSource).toContain('getActiveRocketWorkbook');
-    expect(canonicalWorkbookSource).toContain('abandonRocketWorkbook');
+    expect(canonicalWorkbookSource).toContain('downloadBlob(workbook.blob, workbook.fileName)');
+    expect(canonicalWorkbookSource).not.toMatch(
+      /exportRocketWorkbook|downloadActiveWorkbook|getActiveRocketWorkbook|abandonRocketWorkbook/,
+    );
     expect(canonicalWorkbookSource).not.toMatch(
       /RocketInventoryCommitmentList|activeCommitmentQuantity|availableStock|재고 예약|예약 확정/,
     );
@@ -126,13 +126,12 @@ describe('Rocket purchase decision boundary', () => {
     expect(previewSectionSource).not.toContain('<RocketInventoryCommitmentList');
     expect(previewSource).toContain('미리보기 다시 계산');
     expect(previewSource).toContain('쿠팡 엑셀 다운로드');
-    expect(previewSource).toContain('동일 파일 다시 다운로드');
+    expect(previewSource).not.toContain('동일 파일 다시 다운로드');
     expect(previewWorkflowSource).toContain('loadSavedRocketCollection');
     expect(previewSource).not.toMatch(/providerSubmit|currentStock\s*=/);
-    expect(previewApiSource).toContain("formData.append('action', 'exportRocketWorkbook')");
-    expect(previewApiSource).toContain("action: 'getActiveRocketWorkbook'");
-    expect(previewApiSource).toContain("action: 'downloadRocketWorkbook'");
-    expect(previewApiSource).toContain("action: 'abandonRocketWorkbook'");
+    expect(previewApiSource).not.toMatch(
+      /exportRocketWorkbook|getActiveRocketWorkbook|downloadRocketWorkbook|abandonRocketWorkbook/,
+    );
     expect(previewApiSource).toContain("action: 'listSavedRocketPos'");
     expect(previewApiSource).toContain("action: 'loadSavedRocketCollection'");
     expect(previewApiSource).not.toMatch(/confirmRocket|releaseRocketConfirmation/);

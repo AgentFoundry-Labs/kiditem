@@ -33,28 +33,29 @@ React Query + apiClient
 - Order-transmission status and Sellpia freshness scheduling are wired into the
   baseline generated-file flow; do not replace the order-collection layout with
   a separate synchronization workspace.
-- Existing local Rocket file history may use browser storage for operator
-  convenience; it is not server truth. The server-persisted workbook artifact
-  and workflow are the exact re-download and synchronization evidence.
 - `/order-collection` and `/orders` own their live workspaces and remain
   independent active routes.
-- Channel SKU recipe repair remains exclusively in the independently reachable
-  `/product-hub/matching` route.
-- `/rocket-orders` keeps the baseline calendar/list/file-history composition.
+- Channel product/option identity repair remains in the independently reachable
+  `/product-hub/matching` route. A Rocket row whose identity is already confirmed
+  may create or explicitly correct its Sellpia recipe inline in `/rocket-orders`.
+  Empty recipes use the Products-owned create-if-empty API; existing recipes use
+  Products' complete replacement API with the current recipe as optimistic
+  evidence. Neither path edits Sellpia physical stock.
+- `/rocket-orders` keeps the baseline calendar/list composition.
   Its calendar and reopened evidence use the account-scoped Supply catalog
   snapshot actions, and it injects `RocketConfirmPanel` through the workspace
-  `decisionWorkspace` render prop. Workbook export is read-only with respect to
-  provider and physical Sellpia stock actions.
+  `decisionWorkspace` render prop. The operator flow ends when the reviewed
+  workbook is downloaded; it does not expose a post-download workflow.
 
 ## Boundary Rules
 
 - Do not send `organizationId`; backend session scope owns order tenancy.
 - Do not write directly to marketplace pages from the web app. Use the
   documented order-collector extension bridge.
-- Rocket catalog listing, saved evidence load, preview, workbook export,
-  exact re-download, and evidence-gated abandonment use the shared Supply
-  `/api/purchase-orders` action contract. Rocket does not create or project
-  inventory commitments.
+- Rocket catalog listing, saved evidence load, and preview use the shared Supply
+  `/api/purchase-orders` action contract. The browser generates and downloads
+  the reviewed workbook after a fresh preview. Rocket does not create or
+  project inventory commitments.
 - Extension-backed queries that render local error UI may suppress the global
   React Query error toast with query meta.
 - A successful order-collector extension submit requires observed Sellpia

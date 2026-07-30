@@ -3,8 +3,6 @@
 (function () {
   "use strict";
 
-  const SERVER = "http://localhost:4000";
-
   // showBadge is loaded from utils/dom.js via manifest
 
   function sleep(ms) {
@@ -662,6 +660,53 @@
       return false;
     }
     return true;
+  }
+
+  function findVisibleDateRangePopup(root = document) {
+    const popups = Array.from(
+      root?.querySelectorAll?.(
+        ".ant-dropdown.dashboard-metric-widget-calendar-dropdown",
+      ) || [],
+    );
+    return popups.find(
+      (element) =>
+        !element.classList?.contains("ant-dropdown-hidden") &&
+        isElementVisible(element),
+    ) || null;
+  }
+
+  async function openDateRangePopup(options = {}) {
+    const getTrigger = options.getTrigger || (() =>
+      document.querySelector(
+        "button.dashboard-metric-widget-date-indicator-revamp.ant-dropdown-trigger",
+      ));
+    const findPopup = options.findPopup || (() => findVisibleDateRangePopup());
+    const wait = options.wait || sleep;
+    const now = options.now || (() => Date.now());
+    const maxAttempts = Math.max(
+      1,
+      Math.min(5, Math.round(Number(options.maxAttempts) || 3)),
+    );
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const existingPopup = findPopup();
+      if (existingPopup) return existingPopup;
+
+      const trigger = getTrigger();
+      if (!trigger) return null;
+      trigger.click();
+
+      const popup = await pollUntil(findPopup, {
+        timeoutMs: Number(options.popupTimeoutMs) || 3000,
+        intervalMs: Number(options.intervalMs) || 200,
+        minAttempts: Number(options.minAttempts) || 3,
+        now,
+        wait,
+      });
+      if (popup) return popup;
+    }
+
+    return findPopup();
   }
 
   function visibleElementsWithin(roots, selectors) {
@@ -1417,28 +1462,13 @@
       console.warn("[KIDITEM] setDateRange: trigger not found after 15s polling");
       return false;
     }
-    trigger.click();
-    await sleep(600);
-
-    // 2) popup 찾기 — antd dropdown mount 도 한 박자 늦을 수 있어 폴링
-    const findVisiblePopup = () => {
-      const popups = Array.from(
-        document.querySelectorAll(".ant-dropdown.dashboard-metric-widget-calendar-dropdown")
-      );
-      return popups.find((el) => {
-        const rect = el.getBoundingClientRect();
-        return !el.classList.contains("ant-dropdown-hidden") && rect.width > 0 && rect.height > 0;
-      }) || null;
-    };
-
-    let popup = null;
-    for (let i = 0; i < 15; i++) {
-      popup = findVisiblePopup();
-      if (popup) break;
-      await sleep(200);
-    }
+    // 2) AntD가 다시 마운트되며 첫 클릭을 버릴 수 있으므로 트리거를
+    // 다시 찾고 제한된 횟수만큼 팝업 열기를 재시도한다.
+    const popup = await openDateRangePopup({
+      getTrigger: () => document.querySelector(triggerSelector),
+    });
     if (!popup) {
-      console.warn("[KIDITEM] setDateRange: popup not found");
+      console.warn("[KIDITEM] setDateRange: popup not found after retries");
       return false;
     }
     const left = popup.querySelector(".ant-calendar-range-left");
@@ -1629,7 +1659,13 @@
       dateTo = targetDate;
     }
 
-    const collection = await collectPaginatedReport({ maxPages: 50 });
+    const collection = await collectPaginatedReport({
+      maxPages: 50,
+      // Exact-day rows can still be hydrating after the date picker settles.
+      ...(targetDate
+        ? { readPage: () => readSettledReportPage(30000) }
+        : {}),
+    });
     if (!collection.complete) {
       const error = `광고 페이지 수집 불완전: ${collection.error || "unknown"}`;
       showBadge(`❌ ${error}`, "#ef4444");
@@ -4505,7 +4541,7 @@
             showBadge("ℹ️ 실행할 승인 액션이 없습니다.", "#94a3b8");
             return { success: true, executed: 0, skipped: 0 };
           }
-          return executeApprovedActions(actions, `${SERVER}/api/ads/actions`);
+          return executeApprovedActions(actions);
         })
         .finally(() => {
           currentActionExecution = null;
@@ -4552,6 +4588,7 @@
     estimateSweepDateWorkTotal,
     evaluateExplicitEmptyDailyKpis,
     findDashboardReturnControl,
+    findVisibleDateRangePopup,
     findConversionCountHeaderIndex,
     findHeaderIndex,
     filterPendingCampaignBusinessDates,
@@ -4573,6 +4610,7 @@
     manualSyncAdmission,
     normalizeSweepErrors,
     normalizeSweepProgress,
+    openDateRangePopup,
     parseNumber,
     persistTerminalLinklessNavigation,
     pollUntil,
@@ -4621,8 +4659,15 @@
     }, 400);
   }
 
+  const legacyBatchAutoStartDelayMs = isLegacyBatchMode ? 6000 : 3000;
   setTimeout(() => {
     if (!isActionMode && !isLegacyBatchMode) {
+      return;
+    }
+    // The managed collection-window path sends manualSync with an owned run
+    // id. Do not race it with the legacy hash auto-run or close its tab after
+    // the first date.
+    if (isLegacyBatchMode && activeCollectionRunId !== null) {
       return;
     }
     const runner = isActionMode ? runApprovedActionsOnce() : runSyncOnce();
@@ -4640,7 +4685,7 @@
         } catch {}
       }
     });
-  }, 3000);
+  }, legacyBatchAutoStartDelayMs);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {

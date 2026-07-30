@@ -72,7 +72,7 @@ describe("deployment-scoped extension release management", () => {
     expect(metadata).toMatchObject({
       deploymentTag,
       target: "universal",
-      environmentProfiles: ["local", "staging"],
+      environmentProfiles: ["local", "office", "staging"],
     });
     expect(metadata.gitSha).toMatch(/^[0-9a-f]{40}$/);
     expect(metadata.archive.fileName).toBe(bundleFileName);

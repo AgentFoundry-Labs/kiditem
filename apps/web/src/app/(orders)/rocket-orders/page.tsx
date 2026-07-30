@@ -7,7 +7,7 @@ export default function RocketOrdersPage() {
   return (
     <RocketOrdersWorkspace
       decisionWorkspace={(workspace) => (
-        <RocketConfirmPanel onSaved={() => {}} {...workspace} />
+        <RocketConfirmPanel {...workspace} />
       )}
     />
   );

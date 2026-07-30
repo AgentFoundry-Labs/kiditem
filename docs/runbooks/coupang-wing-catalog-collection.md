@@ -21,11 +21,12 @@ change physical `SellpiaInventorySku` stock or central
 - Load `extensions/coupang-ads-scraper` in the same Chrome profile.
 - Keep an authenticated Wing inventory tab open. A human completes login, OTP,
   and account selection; never record credentials, cookies, or session dumps.
-- Start the KidItem API and web app for local use, or open
+- Start the KidItem API and web app for local use, open
+  `http://kiditem-office` for office use, or open
   `https://staging.merchon.org` for staging use.
 - Use the same loaded `extensions/coupang-ads-scraper` directory or universal
-  release package for local and staging. The extension resolves the environment
-  from the verified KidItem page origin and keeps auth/runs separate.
+  release package for local, office, and staging. The extension resolves the
+  environment from the verified KidItem page origin and keeps auth/runs separate.
 
 ## Operator Flow
 
@@ -76,8 +77,9 @@ Wing registration**. It must advertise:
 detailPageClientRasterV1 = true
 ```
 
-The extension manifest requires the `debugger` permission, local MinIO upload
-access (`http://localhost:9000/*`), and the exact staging S3 upload origin
+The extension manifest requires the `debugger` permission, local and office
+MinIO upload access (`http://localhost:9000/*` and
+`http://kiditem-office:9000/*`), and the exact staging S3 upload origin
 (`https://gheoobctiarluauprvro.storage.supabase.co/*`). Reload the unpacked
 extension after updating it and acknowledge Chrome's debugger warning. Do not
 replace the exact staging origin with a wildcard.

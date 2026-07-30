@@ -15,14 +15,13 @@ Browser
 apps/server
   -> Coupang Wing / channel providers
   -> Gemini / image providers
+  -> Chromium detail-page image rendering
   -> Claude CLI Agent OS runtime
   -> TS Playwright sourcing browser runtime
   -> Python worker/tools for analysis-heavy sourcing helpers
 
 Company Chrome extension
-  -> authenticated detail-page render route
-  -> direct presigned upload to S3-compatible object storage
-  -> apps/server finalize/verification API
+  -> authenticated Coupang Wing form automation
 ```
 
 Frontend code never talks to the database directly. All app data flows through

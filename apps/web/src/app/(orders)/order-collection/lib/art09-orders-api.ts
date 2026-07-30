@@ -1,3 +1,4 @@
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { downloadBlob } from '@/lib/browser-download';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import type { OrderCollectionConversionResult } from './order-collection-api';
@@ -76,7 +77,7 @@ export async function collectArt09OrdersFromExtension(run?: OrderCollectionExten
     {
       action: 'collectArt09Orders',
       date: run?.date,
-      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+      runId: run?.runId ?? createSecureRandomUuid(),
       deferTerminal: Boolean(run?.runId),
     },
     190000,

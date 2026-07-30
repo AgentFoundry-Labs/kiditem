@@ -5,7 +5,6 @@ import type {
 } from '@kiditem/shared/rocket-purchase-preview';
 import type {
   SellpiaInventoryFreshnessView,
-  SellpiaUnresolvedOrderTransmissionIntentView,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export const ROCKET_FRESHNESS_POLL_MS = 2_000;
@@ -18,10 +17,7 @@ type RocketPreviewFreshnessState = Pick<
   | 'requestedGeneration'
   | 'sourceBinding'
   | 'lastAttempt'
-> & {
-  unresolvedOrderTransmissionIntents?: SellpiaUnresolvedOrderTransmissionIntentView[];
-  hasMoreUnresolvedOrderTransmissionIntents?: boolean;
-};
+>;
 
 export type RocketPreviewFreshnessRecoveryCode =
   | 'attention_required'
@@ -76,7 +72,7 @@ export async function recoverRocketPreviewFreshness(
     throwIfAborted(signal, checkpoint);
     const state = await dependencies.getFreshnessState();
     throwIfAborted(signal, checkpoint);
-    assertNoAttentionBlocker(state, checkpoint);
+    assertSourceBinding(state, checkpoint);
 
     if (
       state.status === 'fresh'
@@ -103,7 +99,7 @@ export async function recoverRocketPreviewFreshness(
       retryRequested = true;
       const retriedState = await dependencies.requestRetry();
       throwIfAborted(signal, checkpoint);
-      assertNoAttentionBlocker(retriedState, checkpoint);
+      assertSourceBinding(retriedState, checkpoint);
       targetGeneration = maxGeneration(
         targetGeneration,
         BigInt(retriedState.requestedGeneration),
@@ -121,27 +117,16 @@ export async function recoverRocketPreviewFreshness(
   );
 }
 
-function assertNoAttentionBlocker(
+function assertSourceBinding(
   state: RocketPreviewFreshnessState,
   checkpoint: RocketPurchasePreviewFreshnessPendingResponse,
 ): void {
-  if (!state.sourceBinding.confirmed) {
-    throw new RocketPreviewFreshnessRecoveryError(
-      'attention_required',
-      '수집본은 저장됐습니다. 셀피아 계정 연결을 확인한 뒤 재고 갱신을 다시 시도해 주세요.',
-      checkpoint,
-    );
-  }
-  if (
-    (state.unresolvedOrderTransmissionIntents?.length ?? 0) > 0
-    || state.hasMoreUnresolvedOrderTransmissionIntents === true
-  ) {
-    throw new RocketPreviewFreshnessRecoveryError(
-      'attention_required',
-      '수집본은 저장됐습니다. 결과가 확정되지 않은 셀피아 전송 건을 먼저 확인해 주세요.',
-      checkpoint,
-    );
-  }
+  if (state.sourceBinding.confirmed) return;
+  throw new RocketPreviewFreshnessRecoveryError(
+    'attention_required',
+    '수집본은 저장됐습니다. 셀피아 계정 연결을 확인한 뒤 재고 갱신을 다시 시도해 주세요.',
+    checkpoint,
+  );
 }
 
 function freshnessFailureMessage(state: RocketPreviewFreshnessState): string {

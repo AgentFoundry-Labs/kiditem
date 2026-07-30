@@ -67,18 +67,15 @@ Route shape is frozen.
   checks; application services depend on `application/port/out/*` contracts
   only.
 - `previewRocket` publishes complete Rocket PO catalog evidence through the
-  Channels-owned port before checking Sellpia freshness, so a stale snapshot
-  never discards a completed marketplace collection. The freshness gate may
-  return a `freshness_pending` checkpoint with the collected source identity;
-  the caller waits for that exact generation and retries the same collection
-  without scraping Rocket again. Publication applies only freshly evaluated safe
-  deterministic recipes for the published Rocket options, then Supply resolves
-  confirmed component recipes through
-  `CHANNEL_SKU_AVAILABILITY_PORT`, and applies the Inventory freshness gate
-  before calculating quantities.
-- Rocket allocation replaces any earlier projected stock with Inventory's
-  same-generation gated `currentStock` snapshot before calculation. A refresh
-  cannot bless quantities copied from an older generation.
+  Channels-owned port before reading inventory, so inventory state never
+  discards a completed marketplace collection. Operator preview resolves
+  confirmed component recipes through `CHANNEL_SKU_AVAILABILITY_PORT` and uses
+  the latest stored inventory snapshot immediately; it does not wait for or
+  request a Sellpia refresh. Official workbook export reruns the same canonical
+  preview in fresh mode before persisting the artifact.
+- Fresh-mode Rocket allocation replaces any earlier projected stock with
+  Inventory's same-generation gated `currentStock` snapshot before official
+  export. A refresh cannot bless quantities copied from an older generation.
 - Rocket preview allocation is a pure in-memory policy over Sellpia
   `currentStock`. It seeds one remaining-stock map per preview and consumes
   shared component stock in stable ETA/PO/line order. It may return
@@ -111,9 +108,12 @@ Route shape is frozen.
 - Coupang PA order collection calls the exported
   `ROCKET_FINAL_ORDER_RECONCILIATION_PORT` with its caller-owned transaction.
   Supply links an exact active workbook line by account, PO number, and product
-  number, verifies barcode evidence when both sides provide it, and returns the
-  stable `rocket-workbook:{exportId}:{transport}` transmission key. Supply does
-  not write Orders or Inventory stock tables.
+  number and verifies barcode evidence when both sides provide it. Workbook
+  linkage classifies matched versus unmatched rows but never filters the
+  collected Sellpia output. Every non-empty transport returns the stable
+  `rocket-final-order:{sourceImportRunId}:{transport}` transmission key; an
+  empty probe has no transmission key. Supply does not write Orders or Inventory
+  stock tables.
 - Workflow completion requires all linked transmission intents to be finalized
   and a strictly newer verified Sellpia generation. Abandonment requires fresh
   SHIPMENT and MILKRUN probes with no matched rows plus an explicit reason.

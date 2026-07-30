@@ -2,12 +2,11 @@
 
 ## Purpose
 
-Release `0.1.21` keeps Sellpia as the physical inventory authority and adds an
-operator-confirmed Rocket capacity commitment after the deterministic preview.
-Rocket collection may persist observed channel identities, calculate how much
-can be fulfilled from a fresh Sellpia snapshot, persist an internal component
-allocation, and generate the official confirmation workbook. Confirmation must
-not create a provider order or mutate physical inventory.
+KidItem keeps Sellpia as the physical inventory authority. The Rocket screen
+collects Coupang pre-confirmation PO rows, compares them with a fresh Sellpia
+snapshot, lets the operator decide confirmed/stockout quantities, and generates
+the workbook uploaded back to Coupang. This review does not create a Sellpia
+order, call a marketplace provider, or mutate physical inventory.
 
 Automatic freshness operation and recovery are defined in
 [Sellpia Inventory Freshness Operations](sellpia-inventory-freshness.md).
@@ -24,13 +23,15 @@ authenticated Sellpia full option-product export
 authenticated Rocket PO collection
   -> Channels validates active organization Rocket account + vendor identity
   -> non-destructive ChannelListing / ChannelListingOption identity upsert
-  -> Supply reads a fresh Inventory capacity snapshot
-  -> deterministic in-memory preview
+  -> collected rows appear immediately
+  -> Inventory refreshes Sellpia when needed
+  -> Supply recalculates a deterministic preview from the fresh generation
   -> operator reviews every quantity and shortage reason
-  -> Supply reruns preview under lock and Inventory creates rocket_request commitment
-  -> browser downloads official workbook
-  -> Orders collects PA and Inventory replaces request with rocket_final_order
-  -> newer Sellpia snapshot proves movement, then operator settles final commitment
+  -> Supply reruns the fresh preview and stores the exact official workbook
+  -> operator uploads the workbook to Coupang
+  -> Coupang decides and exposes the confirmed PA through Coupang Directship
+  -> Orders collects every PA row and links exact active-workbook matches
+  -> operator selects generated transport files for Sellpia submission
   -> no provider submit / no direct Sellpia stock write
 ```
 
@@ -38,9 +39,9 @@ Inventory owns freshness, publication, physical `SellpiaInventorySku`, and
 `currentStock`. Channels owns Rocket `ChannelAccount` and observed listing/SKU
 identity. Products owns the operator-confirmed `ProductVariantComponent`
 recipes. Supply owns the preview calculation and Rocket decision/workbook audit.
-Orders owns PA persistence in the general order spine. Inventory owns the common
-commitment lifecycle and all availability math; Supply and Orders do not derive
-freshness or write inventory state.
+Orders owns PA persistence in the general order spine. Inventory owns freshness
+and physical stock; Supply and Orders do not derive freshness or write inventory
+state.
 
 ## Rocket Collection Contract
 
@@ -72,18 +73,19 @@ missing evidence manually.
 
 ## Preview Calculation
 
-Before allocation, Supply requires a fresh Inventory read containing the same
-verified generation, opaque fence, active state, and `currentStock` for every
-confirmed recipe component. Stale inventory returns
-`SELLPIA_SYNC_REQUIRED`; the UI joins the automatic refresh before another
-preview.
+Before final stockout allocation, Supply requires a fresh Inventory read
+containing one verified generation, active state, and `currentStock` for every
+confirmed recipe component. When inventory is stale, the server first returns
+a `freshness_pending` checkpoint containing rows calculated from the last stored
+snapshot. The UI shows those collected rows immediately, labels their quantities
+as advisory, joins the automatic refresh, then replaces them with the target
+generation calculation. Workbook export stays disabled during that wait.
 
 Rows are allocated in stable ETA, PO, and line order. For each confirmed
 component:
 
 ```text
-availableStock = max(currentStock - activeCommitmentQuantity, 0)
-component capacity = floor(availableStock / component quantity per sale)
+component capacity = floor(currentStock / component quantity per sale)
 row capacity = min(PO order quantity, minimum remaining component capacity)
 ```
 
@@ -97,41 +99,35 @@ Explicit block reasons cover incomplete collection, vendor mismatch, missing
 mapping, inactive component, and insufficient capacity. Missing mapping is not
 treated as a confirmed zero-capacity recipe.
 
-## Request Confirmation, PA Collection, And Settlement
+## Workbook Review, Coupang Confirmation, And Sellpia Application
 
 1. Review every row quantity. Every line must have an explicit value; every
    quantity below the PO order quantity must use one controlled shortage reason.
-2. Choose **확정 후 엑셀 다운로드**. The browser sends a stable UUID idempotency
-   key through `POST /api/purchase-orders { action: 'confirmRocket' }`.
-3. Supply reruns the canonical preview, locks organization capacity, verifies
-   the current completed source run and Inventory generation, and compares the
-   current channel option/variant/component recipe with the preview.
-4. Supply persists `RocketPurchaseConfirmation`, line decisions, and immutable
-   component audit allocations; Inventory creates one `rocket_request`
-   commitment per positive line in the same transaction. Active common
-   commitments reduce every later availability projection; Sellpia
-   `currentStock` is unchanged.
-5. Only after the server commit succeeds does the browser generate and download
-   the 23-column official workbook. Replaying the same key and input returns the
-   existing confirmation; changed input with the same key is rejected.
-6. The server commitment list remains available after refresh. If the request
-   is cancelled before PA, enter a reason and release its confirmation.
+2. Choose **쿠팡 엑셀 다운로드**. The browser uses a stable UUID idempotency key.
+3. Supply reruns the canonical preview against fresh Inventory capacity, verifies
+   the completed source run and unchanged option/variant/component recipes, and
+   persists the exact uploaded workbook bytes plus immutable line evidence.
+4. Replaying the same key and input returns the same workbook bytes; changed
+   input with the same key is rejected.
+5. The operator uploads that workbook to Coupang. KidItem does not describe the
+   download or upload as Coupang acceptance.
+6. Coupang evaluates the response and exposes accepted PA rows through Coupang
+   Directship.
 7. In `/order-collection`, select the same Rocket channel account and collect
-   the Coupang PA order. Orders persists `SourceImportRun`, `Order`, and
-   `OrderLineItem`, then Supply reconciles account + PO + product + barcode and
-   Inventory atomically replaces `rocket_request` with `rocket_final_order`.
-   Only after that commit may the 17-column Sellpia workbook enter file history.
-8. PA replay is idempotent. A barcode mismatch, missing/ambiguous request,
-   capacity conflict, or order persistence failure rolls back the entire import
-   and produces no workbook.
-9. A final-order commitment remains active until either the order is cancelled
-   (release with reason) or a strictly newer completed Sellpia snapshot shows
-   the real shipment. After verifying that evidence, choose **정산**. Settlement
-   stops the logical hold while the newer physical `currentStock` already
-   contains the decrease, so stock is not subtracted twice.
+   both SHIPMENT and MILKRUN. Orders persists every `SourceImportRun`, `Order`,
+   and `OrderLineItem`. Supply links exact account + PO + product (+ barcode
+   when present) matches to the active workbook, but unmatched rows remain in
+   the generated 17-column Sellpia candidate file.
+8. Each non-empty transport uses the stable key
+   `rocket-final-order:{sourceImportRunId}:{transport}`. A transport with no
+   collected row returns HTTP 204 and has no transmission key.
+9. The operator selects which generated file to submit to Sellpia. Explicit
+   rejection shows Sellpia's message and offers a manual inventory refresh;
+   unknown outcome requires reconciliation for only that file. Neither outcome
+   blocks other collection or inventory synchronization.
 
-This confirmation is KidItem's internal decision and capacity commitment. It is
-not proof of Coupang acceptance and does not call a marketplace provider.
+The workbook is KidItem's internal stockout decision artifact. It is not proof
+of Coupang acceptance and does not call a marketplace provider.
 
 ## Owned Screens
 
@@ -141,7 +137,7 @@ not proof of Coupang acceptance and does not call a marketplace provider.
 | `/purchase-orders` | General supplier purchase-order operations only. |
 | `/product-hub/matching` | Baseline Coupang/Rocket SKU queue and exact Sellpia component-recipe confirmation workspace. |
 | `/inventory-hub?tab=sellpia-sync` | Shared Sellpia freshness status, current basis, attempts, warnings, and manual fallback. |
-| `/stock-ops?tab=product-outflow` | Direct Sellpia SKU sales/depletion with current stock, active commitment, available stock, mapping state, and operating-product destinations. |
+| `/stock-ops?tab=product-outflow` | Direct Sellpia SKU sales/depletion with current stock, mapping state, and operating-product destinations. |
 
 On `/rocket-orders`, integrate the Supply-owned contract only at the existing
 capacity-decision placeholder; do not replace the calendar/list/file-history
@@ -161,11 +157,12 @@ for a real-world stock change.
 - Do not add `/api/orders/rocket/*`; confirmation and release stay on the
   Supply `/api/purchase-orders` action contract.
 - Do not create a Rocket-only inventory balance or ledger.
-- Do not treat a collection request, preview, or edit as a commitment. Only a
-  successful active `RocketPurchaseConfirmation` reserves component capacity.
+- Do not treat a collection request, preview, edit, or workbook as a stock
+  reservation or a Sellpia order.
 - Do not infer vendor identity from a display name or bypass incomplete
   evidence.
-- Do not calculate preview capacity from stale cached channel availability.
+- Do not enable workbook export from the prior-snapshot advisory rows shown
+  while freshness is pending.
 - Preserved inventory and ledger screens must remain record-only with respect
   to `SellpiaInventorySku.currentStock`; do not add receive/issue/adjust/reserve/
   release actions that write the Sellpia-owned balance.
@@ -179,21 +176,21 @@ for a real-world stock change.
 | Missing/truncated details | Narrow the date range, restore the provider page/session, and recollect until completeness evidence is clean. |
 | SKU is unmapped | Open `/product-hub/matching` and confirm the entire recipe; do not infer quantity from a title. |
 | Recipe component inactive | Review and replace/confirm the recipe. Persisted mapping remains diagnosable and appears in `needs_review`. |
-| `SELLPIA_SYNC_REQUIRED` | Wait for the automatic Sellpia refresh and recompute from the fresh generation. |
+| Freshness pending | Keep the collected rows visible as advisory, wait for automatic Sellpia refresh, and recompute from the requested generation before export. |
 | Edited quantity rejected | Keep the preview dirty, run **수량 다시 검증**, and use the jointly returned effective quantities. |
 | Confirmation reports stale generation/source/recipe | Recollect and recompute. Do not reuse old rows or override the fence. |
 | Idempotency conflict | Keep the existing decision or create a new confirmation intent with a new UUID after operator review. |
-| Workbook generation fails after confirmation | The server allocation is still active. Retry the same intent to regenerate, or explicitly release it with a reason. |
-| Capacity is no longer needed | Release the active confirmation with an explicit reason, then recompute. |
-| PA reconciliation missing/ambiguous | Verify the same Rocket account, PO/product/barcode, and one active request commitment. Do not download or manually link the order. |
-| Final commitment cannot settle | Collect a newer full Sellpia snapshot and verify the real shipment first. Do not release merely to make availability increase. |
+| Workbook generation/download fails after persistence | Retry the same idempotency key to download the exact stored artifact; do not recalculate silently. |
+| PA row does not match the active workbook | Keep it in the generated Sellpia candidate file and report it as unmatched metadata; do not discard the order. |
+| Sellpia explicitly rejects a transport file | Show the exact error, optionally request inventory sync, then let the operator choose whether to retry. Never auto-resubmit. |
+| Sellpia outcome is unknown | Reconcile that exact transmission key before retrying it; other files and inventory sync remain available. |
 
 ## Verification
 
 ```bash
 rtk npm exec --workspace=packages/shared vitest -- run src/schemas/rocket-purchase-preview.spec.ts
 rtk npm exec --workspace=apps/server vitest -- run src/inventory src/channels src/supply
-rtk npm run test:integration --workspace=apps/server -- src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-confirmation.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-commitment-query.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
+rtk npm run test:integration --workspace=apps/server -- src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-confirmation.pg.integration.spec.ts src/supply/__tests__/rocket-final-order-reconciliation.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
 rtk npm exec --workspace=apps/web vitest -- run src/app/\(supply\)/purchase-orders src/app/\(orders\)/rocket-orders src/app/\(orders\)/order-collection src/app/\(inventory\)/stock-ops
 rtk node --test extensions/tests/order-collector-rocket-sales-contract.test.mjs extensions/tests/order-collector-action-coverage.test.mjs
 rtk npm run build --workspace=packages/shared
@@ -201,9 +198,9 @@ rtk npm run build --workspace=apps/server
 rtk npm run build --workspace=apps/web
 ```
 
-The boundary and integration tests must prove confirmation stays in Supply,
+The boundary and integration tests must prove workbook export stays in Supply,
 replays idempotently, rejects request drift/stale generations/recipe drift,
-serializes concurrent capacity, releases allocations, and has no provider or
+keeps unmatched PA rows as Sellpia candidates, and has no provider or
 physical-stock-write lane.
 
 ## Blockers

@@ -250,7 +250,16 @@ test('advertises the logged-in Chrome trend and live-commerce collector capabili
   assert.equal(response?.capabilities?.sourcingTiktokCcCollector, true);
   assert.equal(response?.capabilities?.browserCollectionSessions, true);
   assert.equal(response?.capabilities?.kiditemEnvironmentProfilesV1, true);
-  assert.equal(manifest.version, '2.3.1');
+  assert.equal(manifest.version, '2.3.2');
+});
+
+test('manifest connects the office web origin to the host bridge and API permission', () => {
+  assert.ok(manifest.externally_connectable.matches.includes('http://kiditem-office/*'));
+  assert.ok(manifest.host_permissions.includes('http://kiditem-office/*'));
+  const hostBridge = manifest.content_scripts.find((entry) =>
+    entry.js?.includes('host-bridge.js'),
+  );
+  assert.ok(hostBridge?.matches.includes('http://kiditem-office/*'));
 });
 
 test('loads collection sessions and the interactive focus owner before sourcing collectors', () => {
@@ -335,6 +344,30 @@ test('stores staging auth without accepting a client API base', async () => {
   assert.equal(
     env.storage.kiditem_environment_profiles_v1.staging.accessToken,
     'token-from-web',
+  );
+});
+
+test('stores office auth and routes requests to the office API origin', async () => {
+  const env = loadBackground();
+
+  const response = await sendExternal(
+    env.externalListeners[0],
+    { action: 'setAuthToken', token: 'office-token' },
+    { url: 'http://kiditem-office/product-pipeline/collected-products' },
+  );
+
+  assert.equal(response?.success, true);
+  await env.context.sendToBackend(
+    { source_url: 'https://detail.1688.com/offer/607635921546.html' },
+    'office',
+  );
+  assert.equal(
+    env.fetchCalls[0].url,
+    'http://kiditem-office/api/sourcing/extension/product-data',
+  );
+  assert.equal(
+    new Headers(env.fetchCalls[0].init.headers).get('authorization'),
+    'Bearer office-token',
   );
 });
 

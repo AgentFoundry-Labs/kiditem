@@ -1,4 +1,4 @@
-// Kiditem 대시보드(localhost/staging) 에 익스텐션 ID 를 자동 등록.
+// Kiditem 대시보드(local/office/staging)에 익스텐션 ID를 자동 등록.
 // - manifest.externally_connectable 이 허용한 KidItem origin 에서만,
 //   페이지가 chrome.runtime.sendMessage(extId, ...) 로 직접 호출하려면
 //   페이지가 익스텐션 ID 를 먼저 알아야 한다.

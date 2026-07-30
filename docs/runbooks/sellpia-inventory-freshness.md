@@ -102,19 +102,18 @@ edit `currentStock` or release a final commitment merely to imitate shipment.
 
 Orders collected from one or many malls do not request a refresh by themselves.
 Before the extension submits a generated file, the server persists an
-organization-scoped idempotent transmission intent. An unresolved intent keeps
-freshness stale and blocks collection claims, including when another tab
-finishes the generation that was current when the intent was prepared. Only
-`{ success: true, submitted: true }` finalizes the intent and schedules an
-`order_transmission_requested` generation strictly newer than every generation
-visible at finalization. The server then waits two minutes for Sellpia to settle
-and coalesces later successful transmissions only while that order generation
-remains pending and non-failed, capped at five minutes from the first finalized
-request. A new transmission after verification, failure, or the exact cap
-boundary starts a new two-minute window. A
-successful extension request means only that
-transmission was requested; the later Sellpia snapshot is the acceptance and
-stock evidence.
+organization-scoped idempotent transmission intent. An unresolved intent
+protects that exact file from accidental resubmission and remains visible for
+operator reconciliation; it does not redefine freshness or block inventory or
+order collection. Only `{ success: true, submitted: true }` finalizes the intent
+and schedules an `order_transmission_requested` generation strictly newer than
+every generation visible at finalization. Explicit non-submission aborts that
+intent for a safe manual retry, while an unknown result requires reconciliation
+before retrying the same file. The server waits two minutes for Sellpia to
+settle and coalesces later successful transmissions only while that order
+generation remains pending and non-failed, capped at five minutes from the
+first finalized request. A successful extension request means only that
+transmission was requested; the later Sellpia snapshot is the stock evidence.
 
 Internal operation links return to the screen that owns the action: mall
 collection to `/order-collection`, channel order results to `/orders`, channel

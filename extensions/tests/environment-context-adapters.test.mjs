@@ -127,6 +127,10 @@ test('resolves only the closed KidItem sender origins', () => {
     'local',
   );
   assert.equal(
+    environmentContext.resolveSender({ url: 'http://kiditem-office/orders' }).environmentId,
+    'office',
+  );
+  assert.equal(
     environmentContext.resolveSender({ url: 'https://staging.merchon.org/dashboard' }).environmentId,
     'staging',
   );
@@ -137,37 +141,46 @@ test('resolves only the closed KidItem sender origins', () => {
 test('stores and clears authenticated profiles independently', async () => {
   const { environmentContext, storage } = createHarness();
   await environmentContext.setAccessToken('local', 'local-token');
+  await environmentContext.setAccessToken('office', 'office-token');
   await environmentContext.setAccessToken('staging', 'staging-token');
 
   assert.equal(await environmentContext.getAccessToken('local'), 'local-token');
+  assert.equal(await environmentContext.getAccessToken('office'), 'office-token');
   assert.equal(await environmentContext.getAccessToken('staging'), 'staging-token');
   assert.deepEqual(
     Array.from(await environmentContext.connectedEnvironmentIds()),
-    ['local', 'staging'],
+    ['local', 'office', 'staging'],
   );
 
   await environmentContext.clearAccessToken('local');
   assert.equal(await environmentContext.getAccessToken('local'), null);
   assert.equal(await environmentContext.getAccessToken('staging'), 'staging-token');
-  assert.deepEqual(Object.keys(storage.kiditem_environment_profiles_v1), ['staging']);
+  assert.deepEqual(Object.keys(storage.kiditem_environment_profiles_v1), [
+    'office',
+    'staging',
+  ]);
 });
 
 test('routes concurrent requests to fixed environment API origins', async () => {
   const { environmentContext, fetchCalls } = createHarness();
   await environmentContext.setAccessToken('local', 'local-token');
+  await environmentContext.setAccessToken('office', 'office-token');
   await environmentContext.setAccessToken('staging', 'staging-token');
 
   await Promise.all([
     environmentContext.authedFetch('local', '/api/health'),
+    environmentContext.authedFetch('office', '/api/health'),
     environmentContext.authedFetch('staging', '/api/health'),
   ]);
 
   assert.deepEqual(fetchCalls.map((call) => call.url), [
     'http://localhost:4000/api/health',
+    'http://kiditem-office/api/health',
     'https://staging.merchon.org/api/health',
   ]);
   assert.equal(new Headers(fetchCalls[0].init.headers).get('authorization'), 'Bearer local-token');
-  assert.equal(new Headers(fetchCalls[1].init.headers).get('authorization'), 'Bearer staging-token');
+  assert.equal(new Headers(fetchCalls[1].init.headers).get('authorization'), 'Bearer office-token');
+  assert.equal(new Headers(fetchCalls[2].init.headers).get('authorization'), 'Bearer staging-token');
 });
 
 test('refreshes a 401 through only the owning environment and retries once', async () => {

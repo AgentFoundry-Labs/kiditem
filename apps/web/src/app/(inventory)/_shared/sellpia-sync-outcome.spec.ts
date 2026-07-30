@@ -33,10 +33,9 @@ function view(
 }
 
 describe('classifySellpiaStockSync', () => {
-  // The live regression: an unresolved transmission makes the refresh request a
-  // no-op, and the old code reported "동기화를 시작했습니다" anyway.
-  it('reports a blocked sync instead of a scheduled one when a transmission is unresolved', () => {
+  it('classifies the actual sync state while a transmission is unresolved', () => {
     const outcome = classifySellpiaStockSync(view({
+      status: 'syncing',
       unresolvedOrderTransmissionIntents: [
         {
           intentKey: '1785076954061-kidsnote-browser',
@@ -45,24 +44,22 @@ describe('classifySellpiaStockSync', () => {
       ],
     }), NOW);
 
-    expect(outcome).toEqual({
-      kind: 'blocked',
-      intentKeys: ['1785076954061-kidsnote-browser'],
+    expect(outcome).toEqual({ kind: 'running' });
+    expect(describeSellpiaStockSync(outcome)).toEqual({
+      tone: 'success',
+      message: '셀피아 데이터를 수집하고 있습니다.',
     });
-    const notice = describeSellpiaStockSync(outcome);
-    expect(notice.tone).toBe('error');
-    expect(notice.message).toContain('1건');
   });
 
-  it('treats the blocker as the reason even while a lease is live', () => {
+  it('keeps a queued refresh available while a transmission is unresolved', () => {
     const outcome = classifySellpiaStockSync(view({
-      status: 'syncing',
+      syncNotBefore: '2026-07-27T02:49:06.324Z',
       unresolvedOrderTransmissionIntents: [
         { intentKey: 'orders-1', preparedAt: '2026-07-26T14:42:38.482Z' },
       ],
     }), NOW);
 
-    expect(outcome.kind).toBe('blocked');
+    expect(outcome).toEqual({ kind: 'queued', startsInMs: 126_324 });
   });
 
   it('surfaces the remaining settle window when a sync is genuinely queued', () => {
@@ -73,7 +70,7 @@ describe('classifySellpiaStockSync', () => {
     expect(outcome).toEqual({ kind: 'queued', startsInMs: 126_324 });
     expect(describeSellpiaStockSync(outcome)).toEqual({
       tone: 'success',
-      message: '셀피아 재고 동기화를 예약했습니다. 약 127초 후 시작합니다.',
+      message: '셀피아 동기화를 예약했습니다. 약 127초 후 시작합니다.',
     });
   });
 
@@ -84,7 +81,7 @@ describe('classifySellpiaStockSync', () => {
 
     expect(outcome).toEqual({ kind: 'queued', startsInMs: 0 });
     expect(describeSellpiaStockSync(outcome).message)
-      .toBe('셀피아 재고 동기화를 예약했습니다.');
+      .toBe('셀피아 동기화를 예약했습니다.');
   });
 
   it('reports a running collection and an already-fresh snapshot distinctly', () => {

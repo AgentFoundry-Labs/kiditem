@@ -11,7 +11,6 @@ importScripts(
   "wing-image-fetch.js",
   "wing-form-runtime-compat.js",
   "wing-form-readiness.js",
-  "detail-page-client-raster.js",
   "../utils/coupang-seller-detail.js",
   "../shared/coupang-catalog-collector.js?revision=2",
   "coupang-catalog-import.js",
@@ -31,6 +30,7 @@ if (
 // 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
 const KIDITEM_WEB_URL_PATTERNS = [
   "http://localhost:3000/*",
+  "http://kiditem-office/*",
   "https://staging.merchon.org/*",
 ];
 const AD_ACTION_URL =
@@ -82,7 +82,7 @@ const collectionSessions = KidItemCollectionSession.create({
   environmentContext,
 });
 const collectionWindows = Object.fromEntries(
-  ["local", "staging"].map((environmentId) => [
+  environmentContext.environmentIds.map((environmentId) => [
     environmentId,
     KidItemCollectionWindow.create({
       chrome,
@@ -102,7 +102,7 @@ const collectionWindows = Object.fromEntries(
   ]),
 );
 const catalogCollectionWindows = Object.fromEntries(
-  ["local", "staging"].map((environmentId) => [
+  environmentContext.environmentIds.map((environmentId) => [
     environmentId,
     KidItemCollectionWindow.create({
       chrome,
@@ -165,13 +165,6 @@ const wingImageFetch = KidItemWingImageFetch.create({
   FileReaderCtor: FileReader,
 });
 chrome.runtime.onMessage.addListener(wingImageFetch.handleMessage);
-const detailPageClientRaster = KidItemDetailPageClientRaster.create({
-  chrome,
-  authedFetch,
-  fetchFn: fetch,
-  resolveEnvironment: (environmentId) =>
-    environmentContext.requireEnvironment(environmentId),
-});
 const WING_FORM_PORT_NAME = "kiditem-wing-form-v1";
 
 function handleWingFormPort(port) {
@@ -202,13 +195,6 @@ chrome.runtime.onConnectExternal.addListener((port) => {
     port.disconnect();
     return;
   }
-  if (port.name === KidItemDetailPageClientRaster.PORT_NAME) {
-    detailPageClientRaster.handlePort(
-      port,
-      senderEnvironment.environmentId,
-    );
-    return;
-  }
   if (port.name === WING_FORM_PORT_NAME) {
     handleWingFormPort(port);
     return;
@@ -221,7 +207,7 @@ chrome.runtime.onInstalled.addListener(() => {
   cleanupStorage();
   // 알람은 onInstalled에서만 등록 (서비스워커 재시작 시 유지됨)
   chrome.alarms.create("storage-cleanup", { periodInMinutes: 1440 });
-  for (const environmentId of ["local", "staging"]) {
+  for (const environmentId of environmentContext.environmentIds) {
     chrome.alarms.create(coupangEnvironment.alarmName("auto-scrape", environmentId), { periodInMinutes: 180 });
     chrome.alarms.create(coupangEnvironment.alarmName("keyword-rank-check", environmentId), { periodInMinutes: 720 });
     chrome.alarms.create(coupangEnvironment.alarmName(WING_RANK_RESUME_ALARM, environmentId), { periodInMinutes: 1 });
@@ -549,19 +535,21 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         ? msg.runId
         : collectionRuns.createRunId();
     const startedAt = Date.now();
+    // Acknowledge the external request before awaiting MV3 session/storage
+    // setup. The caller owns runId and polls the durable session separately.
+    sendResponse({
+      success: true,
+      started: true,
+      total: urls.length,
+      runId,
+      startedAt,
+    });
     prepareScrapeTargets(urls, runId, startedAt, {
       producer,
       restartStrategy: "web",
       environmentId,
     })
       .then(({ runId: preparedRunId, producer: preparedProducer }) => {
-        sendResponse({
-          success: true,
-          started: true,
-          total: urls.length,
-          runId: preparedRunId,
-          startedAt,
-        });
         // MV3 service worker 는 30초 유휴면 종료된다. 수집은 수십 분이 걸리는데
         // 이 경로에는 keepalive 가 없어서, 웹 UI 가 2초마다 보내는 상태 폴링에
         // 우연히 기대고 있었다. 사용자가 KIDITEM 탭을 떠나거나 그 탭이 백그라운드로
@@ -594,14 +582,21 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
           .finally(() => clearInterval(keepAlive));
       })
       .catch((error) => {
-        sendResponse({
-          success: false,
-          started: false,
-          runId,
-          error: error?.message || "Collection session start failed",
+        chrome.storage.local.set({
+          [coupangEnvironment.stateKey(BATCH_SCRAPE_STATUS_KEY, environmentId)]: {
+            runId,
+            total: urls.length,
+            completed: 0,
+            failed: 1,
+            current: 0,
+            status: "error",
+            startedAt,
+            endedAt: Date.now(),
+            error: error?.message || "Collection session start failed",
+          },
         });
       });
-    return true;
+    return false;
   }
 
   if (msg.action === "getBatchScrapeStatus") {
@@ -656,7 +651,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         wingFormRegisterSource: "wing-formV2-fill",
         wingFormReadinessV2: true,
         wingFormPortV1: true,
-        detailPageClientRasterV1: true,
       },
     });
     return;
@@ -1236,6 +1230,20 @@ async function searchWingCatalogProducts(message) {
       throw error;
     }
     if (await collectionRuns.isCancelled(runId)) return cancelledResult;
+
+    if (response?.errorCode === "wing_xsrf_token_missing") {
+      if (rows.length === 0) {
+        return collectionRuns.requireAttention(
+          runId,
+          tabId,
+          "marketplace_login",
+          response.error,
+        );
+      }
+      warnings.push(`${searchPage}페이지: ${response.error}`);
+      stopReason = "authentication_token_missing";
+      break;
+    }
 
     if (
       !response?.ok ||
@@ -3940,47 +3948,76 @@ async function executeWingCatalogSearchWithRetry(tabId, payload) {
   return response;
 }
 
+async function executeWingCatalogSearchInPage(requestPayload, endpoint) {
+  const xsrfCookie = String(document.cookie || "")
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("XSRF-TOKEN="));
+  const encodedXsrfToken = xsrfCookie?.slice("XSRF-TOKEN=".length) || "";
+  let xsrfToken = "";
+  try {
+    xsrfToken = decodeURIComponent(encodedXsrfToken);
+  } catch {
+    xsrfToken = encodedXsrfToken;
+  }
+  if (!xsrfToken) {
+    return {
+      ok: false,
+      status: 0,
+      contentType: "",
+      body: null,
+      errorCode: "wing_xsrf_token_missing",
+      error:
+        "Wing 검색 인증 토큰을 찾지 못했습니다. Wing 탭을 새로고침하거나 다시 로그인해 주세요.",
+    };
+  }
+
+  try {
+    // 타임아웃 없는 in-page fetch 는 Wing API stall 시 injection 이 영원히 안 끝나
+    // executeScript 가 resolve 안 되고 배치가 그 키워드에서 멈춘다. 20s 로 제한.
+    const res = await fetch(endpoint, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "X-XSRF-TOKEN": xsrfToken,
+      },
+      body: JSON.stringify(requestPayload),
+      signal: AbortSignal.timeout(20000),
+    });
+    const contentType = res.headers.get("content-type") || "";
+    const text = await res.text();
+    let body = null;
+    if (contentType.includes("application/json")) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = null;
+      }
+    }
+    return {
+      ok: res.ok,
+      status: res.status,
+      contentType,
+      body,
+      textPreview: body ? null : text.slice(0, 200),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      contentType: "",
+      body: null,
+      error: error?.message || String(error),
+    };
+  }
+}
+
 async function executeWingCatalogSearch(tabId, payload) {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: async (requestPayload, endpoint) => {
-      try {
-        // 타임아웃 없는 in-page fetch 는 Wing API stall 시 injection 이 영원히 안 끝나
-        // executeScript 가 resolve 안 되고 배치가 그 키워드에서 멈춘다. 20s 로 제한.
-        const res = await fetch(endpoint, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestPayload),
-          signal: AbortSignal.timeout(20000),
-        });
-        const contentType = res.headers.get("content-type") || "";
-        const text = await res.text();
-        let body = null;
-        if (contentType.includes("application/json")) {
-          try {
-            body = JSON.parse(text);
-          } catch {
-            body = null;
-          }
-        }
-        return {
-          ok: res.ok,
-          status: res.status,
-          contentType,
-          body,
-          textPreview: body ? null : text.slice(0, 200),
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          status: 0,
-          contentType: "",
-          body: null,
-          error: error?.message || String(error),
-        };
-      }
-    },
+    func: executeWingCatalogSearchInPage,
     args: [payload, WING_CATALOG_SEARCH_ENDPOINT],
   });
   return result?.result || null;

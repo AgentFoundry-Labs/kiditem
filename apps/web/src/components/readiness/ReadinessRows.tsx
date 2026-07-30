@@ -356,7 +356,7 @@ const STOCK_SYNC_STATUS: Record<string, { text: string; chipClass: string }> = {
 };
 
 /**
- * 셀피아 재고 동기화 행. AdSyncRow 와 마찬가지로 readiness check 가 아닌 별도 행이라
+ * 셀피아 동기화 행. AdSyncRow 와 마찬가지로 readiness check 가 아닌 별도 행이라
  * 진행바 분모(N/5)를 바꾸지 않는다. 공유 freshness 상태를 읽고 공유 requestRefresh 만
  * 호출한다 — TTL 계산이나 claim/heartbeat 타이머를 자체 보유하지 않는다.
  */
@@ -370,9 +370,9 @@ export function StockSyncRow() {
     setRequesting(true);
     try {
       await requestRefresh('manual_request');
-      toast.success('셀피아 재고 동기화를 시작했습니다.');
+      toast.success('셀피아 동기화를 시작했습니다.');
     } catch {
-      toast.error('셀피아 재고 동기화 요청에 실패했습니다.');
+      toast.error('셀피아 동기화 요청에 실패했습니다.');
     } finally {
       setRequesting(false);
     }
@@ -387,7 +387,7 @@ export function StockSyncRow() {
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">셀피아 재고</h3>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">셀피아 데이터</h3>
             {meta && (
               <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-semibold', meta.chipClass)}>
                 {meta.text}
@@ -395,7 +395,7 @@ export function StockSyncRow() {
             )}
           </div>
           <p className="mt-1 text-xs text-[var(--text-secondary)]">
-            현재고를 다시 받아와 재고분석·발주 판단을 최신으로 맞춰요
+            현재고와 상품별 소진을 함께 받아 재고분석·발주 판단을 최신으로 맞춰요
           </p>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
             마지막 검증 {formatRelative(state?.lastVerifiedAt ?? null)}
@@ -419,7 +419,7 @@ export function StockSyncRow() {
           ) : (
             <>
               <RefreshCw className="h-3.5 w-3.5" />
-              재고 동기화
+              셀피아 동기화
             </>
           )}
         </button>

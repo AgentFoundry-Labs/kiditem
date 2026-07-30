@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
@@ -47,7 +48,7 @@ export async function collectKidkidsOrdersFromExtension(date?: string, run?: Ord
     {
       action: 'collectKidkidsOrders',
       date: date ?? run?.date,
-      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+      runId: run?.runId ?? createSecureRandomUuid(),
     },
     190000,
   );

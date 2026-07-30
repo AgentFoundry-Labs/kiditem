@@ -40,9 +40,12 @@ React Query + inventory API helpers
   print helper.
 - Keep projection helpers pure and covered by focused tests.
 - Sellpia refresh requests are made through explicit action buttons and claimed
-  by the authenticated background coordinator. There is no global freshness
-  drawer, status entry, or manual-import UI. Completed automatic attempts share
-  one import-run history.
+  by the authenticated background coordinator. One user-requested
+  synchronization collects both the physical inventory snapshot and
+  product-level monthly depletion; users do not start those sources separately.
+  TTL and post-order evidence refreshes remain inventory-only. There is no
+  global freshness drawer, status entry, or manual-import UI. Completed
+  automatic attempts share one import-run history.
 - `/inventory-hub` owns exactly three tabs — `status`, `sellpia-sync`, and
   `rocket-events` — and has **no nested tab strip**. Related views
   stack as sections inside one tab (`status` contains the inventory snapshot
@@ -80,9 +83,11 @@ React Query + inventory API helpers
 - `?tab=sellpia-sync` also owns `UnresolvedTransmissions`, the only screen that
   resolves a prepared-but-unresolved order transmission. Order collection can
   only reopen an intent while the local generated file still carries a
-  transmission marker, so a crashed submit is otherwise unrecoverable and
-  silently blocks every stock collection claim. It renders nothing when there is
-  no blocker; do not delete it as an empty section.
+  transmission marker, so a crashed submit still needs explicit operator
+  reconciliation. The unresolved intent protects only that file; it does not
+  redefine freshness or block other order collection or stock synchronization.
+  The section renders nothing when there is no unresolved intent; do not delete
+  it as an empty section.
 - Refresh buttons report the classified outcome of the returned freshness state,
   never HTTP success. A non-throwing refresh request does not mean work was
   scheduled. Use `_shared/sellpia-sync-outcome.ts` so every surface agrees.

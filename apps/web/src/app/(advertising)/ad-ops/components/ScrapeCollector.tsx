@@ -14,6 +14,7 @@ import { apiClient } from '@/lib/api-client';
 import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { cn, formatDateTime } from '@/lib/utils';
 
 interface ScrapeTarget {
@@ -127,7 +128,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
     }
 
     try {
-      const nextRunId = requestedRunId ?? crypto.randomUUID();
+      const nextRunId = requestedRunId ?? createSecureRandomUuid();
       setRunId(nextRunId);
       const check: ReadinessCheck = {
         key: producer === 'advertising.ad_sync' ? 'ad_sync' : 'scrape_targets',

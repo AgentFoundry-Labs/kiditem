@@ -99,10 +99,9 @@ const SellpiaInventoryLastAttemptViewSchema = z
   })
   .strict();
 
-// A prepared-but-unresolved order transmission blocks every collection claim and
-// pins status at `refresh_required`, so the view must name the blocker. Without
-// it a blocked state is indistinguishable from an ordinary stale one and no
-// screen can offer the owner/admin reconciliation that clears it.
+// A prepared-but-unresolved order transmission protects that exact file from
+// accidental resubmission. It remains visible for owner/admin reconciliation,
+// but does not redefine inventory freshness or block independent collection.
 export const SellpiaUnresolvedOrderTransmissionIntentViewSchema = z
   .object({
     intentKey: z.string().trim().min(1).max(500),
@@ -331,6 +330,7 @@ export type SellpiaFreshnessDerivationInput = {
   verifiedGeneration: bigint;
   failedGeneration: bigint | null;
   activeSyncLeaseExpiresAt: Date | null;
+  /** @deprecated Transmission reconciliation is independent from stock freshness. */
   hasUnresolvedOrderTransmissionIntent?: boolean;
 };
 
@@ -345,7 +345,6 @@ export function deriveSellpiaInventoryFreshness(
     input.failedGeneration === input.requestedGeneration &&
     input.failedGeneration > input.verifiedGeneration
   ) return 'failed';
-  if (input.hasUnresolvedOrderTransmissionIntent) return 'refresh_required';
   if (!input.lastVerifiedAt) return 'refresh_required';
   if (input.requestedGeneration > input.verifiedGeneration) {
     return 'refresh_required';

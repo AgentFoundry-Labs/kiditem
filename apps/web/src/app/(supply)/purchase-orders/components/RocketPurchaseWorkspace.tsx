@@ -6,7 +6,11 @@ import {
   ROCKET_SHORTAGE_REASONS,
 } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
-import { useRocketPurchaseWorkflow } from '../hooks/useRocketPurchaseWorkflow';
+import {
+  rocketReviewedQuantity,
+  rocketReviewedQuantityLimit,
+  useRocketPurchaseWorkflow,
+} from '../hooks/useRocketPurchaseWorkflow';
 import { RocketDeterministicMatchingPanel } from './RocketDeterministicMatchingPanel';
 import type {
   RocketPurchasePreviewReason,
@@ -21,15 +25,6 @@ const PREVIEW_REASON_LABELS: Record<RocketPurchasePreviewReason, string> = {
   collection_incomplete: '수집 자료 불완전',
   vendor_mismatch: '채널 계정 불일치',
 };
-
-const WORKFLOW_LABEL = {
-  awaiting_coupang_confirmation: '쿠팡 업로드·발주확정 대기',
-  orders_collected: '주문수집 완료',
-  sellpia_transmitting: 'Sellpia 반영 중',
-  awaiting_inventory_sync: '재고 동기화 대기',
-  completed: '재고 동기화 완료',
-  failed: '재고 동기화 실패 — 다시 시도',
-} as const;
 
 function previewReasonLabel(
   reason: RocketPurchasePreviewReason,
@@ -77,24 +72,17 @@ export function RocketPurchaseWorkspace({
     collectionRun,
     shortageReasons,
     setShortageReasons,
-    workbookExport,
     exporting,
-    abandonReason,
-    setAbandonReason,
-    abandoning,
     templateFile,
     setTemplateFile,
     loading,
     error,
     collectionWarning,
     canExport,
-    canRedownload,
     recalculate,
     retryInventoryAndPreview,
     revalidateEditedQuantities,
     exportAndDownload,
-    downloadActiveWorkbook,
-    abandonActiveWorkbook,
   } = useRocketPurchaseWorkflow({
     channelAccountId,
     hasConfiguredVendorId,
@@ -159,7 +147,7 @@ export function RocketPurchaseWorkspace({
             {stage === 'collecting'
               ? '쿠팡 수집 중'
               : stage === 'refreshing_inventory'
-                ? '재고 갱신 중'
+                ? '재고 확인 중'
                 : stage === 'persisting_collection'
                   ? '수집본 저장 중'
                   : loading ? '계산 중' : '미리보기 다시 계산'}
@@ -186,49 +174,25 @@ export function RocketPurchaseWorkspace({
           ) : null}
           <button
             type="button"
-            disabled={(!canExport && !canRedownload) || exporting || loading}
-            onClick={() => void (canRedownload ? downloadActiveWorkbook() : exportAndDownload())}
+            disabled={!canExport || exporting || loading}
+            onClick={() => void exportAndDownload()}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
           >
-            {exporting
-              ? '다운로드 중'
-              : canRedownload ? '동일 파일 다시 다운로드' : '쿠팡 엑셀 다운로드'}
+            {exporting ? '다운로드 중' : '쿠팡 엑셀 다운로드'}
           </button>
           <span className="text-sm font-semibold text-[var(--text-secondary,#475569)]">
-            {workbookExport
-              ? WORKFLOW_LABEL[workbookExport.status]
-                : previewDirty
-                  ? '수량이 변경되었습니다. 전체 수량을 다시 검증해 주세요.'
-                  : canExport
-                  ? '검토한 수량으로 쿠팡 제출용 엑셀을 생성합니다.'
-                  : '미리보기 검토 후 엑셀을 다운로드할 수 있습니다.'}
+            {previewDirty
+              ? '수량이 변경되었습니다. 전체 수량을 다시 검증해 주세요.'
+              : canExport
+                ? '검토한 수량으로 쿠팡 제출용 엑셀을 생성합니다.'
+                : '미리보기 검토 후 엑셀을 다운로드할 수 있습니다.'}
           </span>
         </div>
-        {workbookExport?.status === 'awaiting_coupang_confirmation' ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border,#e2e8f0)] pt-3">
-            <input
-              aria-label="워크북 미사용 사유"
-              value={abandonReason}
-              onChange={(event) => setAbandonReason(event.target.value)}
-              placeholder="쿠팡에 제출하지 않은 사유"
-              maxLength={500}
-              className="min-w-64 flex-1 rounded-lg border border-[var(--border,#cbd5e1)] px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              disabled={!workbookExport.canAbandon || !abandonReason.trim() || abandoning}
-              onClick={() => void abandonActiveWorkbook()}
-              className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 disabled:opacity-50"
-            >
-              {abandoning ? '종료 중' : '워크북 사용 안 함'}
-            </button>
-          </div>
-        ) : null}
       </div>
 
       {stage === 'refreshing_inventory' && pendingCheckpoint ? (
         <p role="status" className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-semibold text-violet-800">
-          수집본 저장 완료 · 셀피아 재고 갱신 중
+          로켓 PO 수집본 저장 완료 · 셀피아 재고 갱신 중 · 현재 표시 수량은 직전 재고 기준이며 완료 후 품절 여부를 다시 계산합니다.
           <span className="ml-2 font-normal text-violet-600">
             요청 세대 {pendingCheckpoint.requestedGeneration}
           </span>
@@ -328,17 +292,20 @@ export function RocketPurchaseWorkspace({
                       aria-label={`${row.poNumber} 엑셀 수량`}
                       type="number"
                       min={0}
-                      max={Math.min(row.maxQuantity, row.orderQuantity)}
+                      max={rocketReviewedQuantityLimit(row)}
                       step={1}
-                      value={editedQuantities[row.poLineId] ?? row.recommendedQuantity}
+                      value={rocketReviewedQuantity(
+                        row,
+                        editedQuantities[row.poLineId],
+                      )}
                       disabled={
                         isRocketWorkbookBlockingReason(row.reason)
-                        || Boolean(workbookExport && workbookExport.status !== 'completed')
+                        || row.reason === 'insufficient_capacity'
                       }
                       onChange={(event) => {
                         const quantity = normalizeReviewQuantity(
                           event.target.value,
-                          Math.min(row.maxQuantity, row.orderQuantity),
+                          rocketReviewedQuantityLimit(row),
                         );
                         setReviewedQuantity(row.poLineId, quantity);
                         setShortageReasons((current) => {
@@ -358,8 +325,10 @@ export function RocketPurchaseWorkspace({
                       value={shortageReasons[row.poLineId] ?? ''}
                       disabled={
                         isRocketWorkbookBlockingReason(row.reason)
-                        || (editedQuantities[row.poLineId] ?? row.recommendedQuantity) >= row.orderQuantity
-                        || Boolean(workbookExport && workbookExport.status !== 'completed')
+                        || rocketReviewedQuantity(
+                          row,
+                          editedQuantities[row.poLineId],
+                        ) >= row.orderQuantity
                       }
                       onChange={(event) => {
                         const reason = event.target.value;

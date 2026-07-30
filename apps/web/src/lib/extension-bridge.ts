@@ -1,10 +1,6 @@
 import { z } from 'zod';
 import { SellpiaInventoryCollectionFailureCodeSchema } from '@kiditem/shared/sellpia-inventory-freshness';
 import { SellpiaInventoryBrowserSnapshotSchema } from '@kiditem/shared/source-import';
-import {
-  DETAIL_PAGE_CLIENT_RENDER_CONTENT_TYPE,
-  DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
-} from '@kiditem/shared/ai';
 import { safeStorageGet, safeStorageSet } from './browser-storage';
 
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
@@ -273,7 +269,7 @@ export async function detectExtensionId(timeoutMs = 1200): Promise<string | null
   });
 }
 
-export async function detectDetailPageRendererExtensionId(
+export async function detectWingFormExtensionId(
   timeoutMs = 1200,
 ): Promise<string | null> {
   return detectExtensionIdWithHandshake({
@@ -283,114 +279,7 @@ export async function detectDetailPageRendererExtensionId(
     timeoutMs,
     accepts: (response) =>
       supportsEnvironmentProfiles(response) &&
-      response.capabilities?.detailPageClientRasterV1 === true &&
       response.capabilities?.wingFormPortV1 === true,
-  });
-}
-
-const DetailPageRasterArtifactSchema = z.object({
-  artifactId: z.string().uuid(),
-  revisionId: z.string().uuid(),
-  imageUrl: z.string().url(),
-  outputWidth: z.literal(DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH),
-  contentType: z.literal(DETAIL_PAGE_CLIENT_RENDER_CONTENT_TYPE),
-  byteLength: z.number().int().positive(),
-  pixelWidth: z.literal(DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH),
-  pixelHeight: z.number().int().positive(),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-}).strict();
-
-const DetailPageRasterPortMessageSchema = z.discriminatedUnion('status', [
-  z.object({
-    status: z.literal('progress'),
-    phase: z.enum(['loading', 'capturing', 'uploading', 'finalizing']),
-  }).strict(),
-  z.object({
-    status: z.literal('rendered'),
-    artifact: DetailPageRasterArtifactSchema,
-  }).strict(),
-  z.object({
-    status: z.literal('failed'),
-    error: z.object({
-      code: z.string().min(1).max(64),
-      message: z.string().min(1).max(300),
-      retryable: z.boolean(),
-    }).strict(),
-  }).strict(),
-]);
-
-export type DetailPageRasterProgressPhase =
-  | 'loading'
-  | 'capturing'
-  | 'uploading'
-  | 'finalizing';
-export type DetailPageRasterResult = Exclude<
-  z.infer<typeof DetailPageRasterPortMessageSchema>,
-  { status: 'progress' }
->;
-
-export function renderDetailPageImageWithExtension(
-  extensionId: string,
-  intentId: string,
-  options: {
-    onProgress?: (phase: DetailPageRasterProgressPhase) => void;
-    timeoutMs?: number;
-  } = {},
-): Promise<DetailPageRasterResult> {
-  return new Promise((resolve, reject) => {
-    const chrome = getChrome();
-    if (!chrome?.runtime?.connect) {
-      reject(new Error('Chrome 익스텐션 포트 API 미지원'));
-      return;
-    }
-    let settled = false;
-    let port: ChromeRuntimePort;
-    const finish = (operation: () => void) => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timeout);
-      port.onMessage.removeListener(onMessage);
-      port.onDisconnect.removeListener(onDisconnect);
-      operation();
-      try {
-        port.disconnect();
-      } catch {
-        // The extension may already have closed its side after a terminal message.
-      }
-    };
-    const onMessage = (raw: unknown) => {
-      const parsed = DetailPageRasterPortMessageSchema.safeParse(raw);
-      if (!parsed.success) {
-        finish(() => reject(new Error('확장 렌더 응답 형식이 올바르지 않습니다.')));
-        return;
-      }
-      if (parsed.data.status === 'progress') {
-        options.onProgress?.(parsed.data.phase);
-        return;
-      }
-      const terminal: DetailPageRasterResult = parsed.data;
-      finish(() => resolve(terminal));
-    };
-    const onDisconnect = () => {
-      const message = chrome.runtime?.lastError?.message;
-      finish(() => reject(new Error(message || '상세페이지 렌더 확장 연결이 종료되었습니다.')));
-    };
-    const timeout = window.setTimeout(() => {
-      finish(() => reject(new Error('상세페이지 이미지 생성 시간이 초과되었습니다.')));
-    }, options.timeoutMs ?? 60_000);
-
-    try {
-      port = chrome.runtime.connect(extensionId, {
-        name: 'kiditem-detail-page-raster-v1',
-      });
-      port.onMessage.addListener(onMessage);
-      port.onDisconnect.addListener(onDisconnect);
-      port.postMessage({ action: 'renderDetailPageImage', intentId });
-    } catch (error) {
-      window.clearTimeout(timeout);
-      settled = true;
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
   });
 }
 

@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   CoupangAccountSettings,
@@ -18,6 +23,16 @@ import {
   type EncryptedCredentialEnvelope,
   isEncryptedCredentialEnvelope,
 } from '../../../domain/channel-credential-crypto';
+
+const CHANNEL_ACCOUNT_LIST_SELECT = {
+  id: true,
+  channel: true,
+  name: true,
+  externalAccountId: true,
+  vendorId: true,
+  sellerId: true,
+  isPrimary: true,
+} as const;
 
 function toJsonRecord(value: Prisma.JsonValue | null | undefined): Prisma.JsonObject {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -258,15 +273,106 @@ export class ChannelAccountRepositoryAdapter
     return this.prisma.channelAccount.findMany({
       where: { organizationId, status: 'active' },
       orderBy: [{ channel: 'asc' }, { isPrimary: 'desc' }, { name: 'asc' }],
-      select: {
-        id: true,
-        channel: true,
-        name: true,
-        externalAccountId: true,
-        vendorId: true,
-        sellerId: true,
-        isPrimary: true,
-      },
+      select: CHANNEL_ACCOUNT_LIST_SELECT,
+    });
+  }
+
+  ensureRocketAccount(organizationId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const lockKey = `rocket-account-bootstrap:${organizationId}`;
+      await tx.$queryRaw`
+        -- queryraw-tenancy-exempt: organization-scoped advisory lock
+        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+      `;
+
+      const coupangAccount = await tx.channelAccount.findFirst({
+        where: {
+          organizationId,
+          channel: 'coupang',
+          status: 'active',
+          isPrimary: true,
+        },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: {
+          externalAccountId: true,
+          vendorId: true,
+        },
+      });
+      if (!coupangAccount) {
+        throw new NotFoundException('쿠팡 익스텐션에서 감지된 계정 정보가 없습니다.');
+      }
+
+      const identities = [...new Set([
+        coupangAccount.externalAccountId?.trim(),
+        coupangAccount.vendorId?.trim(),
+      ].filter((value): value is string => Boolean(value)))];
+      if (identities.length === 0) {
+        throw new NotFoundException('쿠팡 익스텐션에서 Vendor ID를 확인하지 못했습니다.');
+      }
+      if (identities.length > 1) {
+        throw new ConflictException('쿠팡 계정의 Vendor ID가 서로 충돌합니다.');
+      }
+      const vendorId = identities[0]!;
+
+      const existing = await tx.channelAccount.findFirst({
+        where: {
+          organizationId,
+          channel: 'rocket',
+          OR: [
+            { externalAccountId: vendorId },
+            { vendorId },
+          ],
+        },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: {
+          ...CHANNEL_ACCOUNT_LIST_SELECT,
+          status: true,
+        },
+      });
+      if (existing) {
+        const persistedIdentities = [...new Set([
+          existing.externalAccountId?.trim(),
+          existing.vendorId?.trim(),
+        ].filter((value): value is string => Boolean(value)))];
+        if (persistedIdentities.some((identity) => identity !== vendorId)) {
+          throw new ConflictException('기존 로켓 계정의 Vendor ID가 쿠팡 계정과 충돌합니다.');
+        }
+        if (existing.status !== 'active') {
+          throw new ConflictException('중지된 로켓 계정은 자동으로 다시 활성화하지 않습니다.');
+        }
+
+        const missingIdentity = {
+          ...(existing.externalAccountId ? {} : { externalAccountId: vendorId }),
+          ...(existing.vendorId ? {} : { vendorId }),
+        };
+        if (Object.keys(missingIdentity).length > 0) {
+          return tx.channelAccount.update({
+            where: {
+              id_organizationId: {
+                id: existing.id,
+                organizationId,
+              },
+            },
+            data: missingIdentity,
+            select: CHANNEL_ACCOUNT_LIST_SELECT,
+          });
+        }
+        const { status: _status, ...account } = existing;
+        return account;
+      }
+
+      return tx.channelAccount.create({
+        data: {
+          organizationId,
+          channel: 'rocket',
+          name: '쿠팡 로켓',
+          externalAccountId: vendorId,
+          vendorId,
+          status: 'active',
+          isPrimary: false,
+        },
+        select: CHANNEL_ACCOUNT_LIST_SELECT,
+      });
     });
   }
 

@@ -9,6 +9,10 @@ import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
 
 export const ROCKET_PO_CATALOG_SOURCE_TYPE = 'coupang_rocket_po_catalog';
+const ROCKET_CONFIRMATION_REQUEST_STATUSES = [
+  '거래명세서확인요청',
+  '거래처확인요청',
+];
 
 type PublishInput = Parameters<RocketPoCatalogRepositoryPort['publish']>[0];
 
@@ -47,48 +51,59 @@ export async function ensureRocketPoCatalogSnapshot(
     where: { sourceImportRunId, organizationId: input.organizationId },
     select: { id: true },
   });
-  if (existing) return;
-  const snapshot = await tx.rocketPoCatalogSnapshot.create({
-    data: {
+  let snapshotId = existing?.id;
+  if (!snapshotId) {
+    const snapshot = await tx.rocketPoCatalogSnapshot.create({
+      data: {
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+        sourceImportRunId,
+        collectionRunId: input.collection.collectionRunId,
+        vendorId: input.collection.vendorId,
+        listPagesRead: input.collection.listPagesRead,
+        totalListPages: input.collection.totalListPages,
+        detailPoCount: input.collection.detailPoCount,
+      },
+      select: { id: true },
+    });
+    const createdSnapshotId = snapshot.id;
+    snapshotId = createdSnapshotId;
+    await tx.rocketPoCatalogLine.createMany({
+      data: input.rows.map((row) => ({
+        organizationId: input.organizationId,
+        snapshotId: createdSnapshotId,
+        poLineId: row.poLineId,
+        poNumber: row.poNumber,
+        vendorId: row.vendorId,
+        productNo: row.productNo,
+        barcode: row.barcode,
+        productName: row.productName,
+        orderQty: row.orderQty,
+        plannedDeliveryDate: day(row.plannedDeliveryDate),
+        poStatusCode: row.poStatusCode ?? null,
+        businessDateBasis: row.businessDateBasis ?? null,
+        hasConfirmation: Boolean(row.confirmation),
+        center: row.confirmation?.center ?? null,
+        inboundType: row.confirmation?.inboundType ?? null,
+        poStatus: row.confirmation?.poStatus ?? null,
+        returnManager: row.confirmation?.returnManager ?? null,
+        returnContact: row.confirmation?.returnContact ?? null,
+        returnAddress: row.confirmation?.returnAddress ?? null,
+        purchasePrice: row.confirmation?.purchasePrice ?? null,
+        supplyPrice: row.confirmation?.supplyPrice ?? null,
+        vat: row.confirmation?.vat ?? null,
+        totalPurchase: row.confirmation?.totalPurchase ?? null,
+        poRegisteredAt: row.confirmation?.poRegisteredAt ?? null,
+        xdock: row.confirmation?.xdock ?? null,
+      })),
+    });
+  }
+  await tx.rocketPoCatalogSnapshot.deleteMany({
+    where: {
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
-      sourceImportRunId,
-      collectionRunId: input.collection.collectionRunId,
-      vendorId: input.collection.vendorId,
-      listPagesRead: input.collection.listPagesRead,
-      totalListPages: input.collection.totalListPages,
-      detailPoCount: input.collection.detailPoCount,
+      id: { not: snapshotId },
     },
-    select: { id: true },
-  });
-  await tx.rocketPoCatalogLine.createMany({
-    data: input.rows.map((row) => ({
-      organizationId: input.organizationId,
-      snapshotId: snapshot.id,
-      poLineId: row.poLineId,
-      poNumber: row.poNumber,
-      vendorId: row.vendorId,
-      productNo: row.productNo,
-      barcode: row.barcode,
-      productName: row.productName,
-      orderQty: row.orderQty,
-      plannedDeliveryDate: day(row.plannedDeliveryDate),
-      poStatusCode: row.poStatusCode ?? null,
-      businessDateBasis: row.businessDateBasis ?? null,
-      hasConfirmation: Boolean(row.confirmation),
-      center: row.confirmation?.center ?? null,
-      inboundType: row.confirmation?.inboundType ?? null,
-      poStatus: row.confirmation?.poStatus ?? null,
-      returnManager: row.confirmation?.returnManager ?? null,
-      returnContact: row.confirmation?.returnContact ?? null,
-      returnAddress: row.confirmation?.returnAddress ?? null,
-      purchasePrice: row.confirmation?.purchasePrice ?? null,
-      supplyPrice: row.confirmation?.supplyPrice ?? null,
-      vat: row.confirmation?.vat ?? null,
-      totalPurchase: row.confirmation?.totalPurchase ?? null,
-      poRegisteredAt: row.confirmation?.poRegisteredAt ?? null,
-      xdock: row.confirmation?.xdock ?? null,
-    })),
   });
 }
 
@@ -103,6 +118,11 @@ export async function listSavedRocketPos(
     includeRepeatedSnapshots?: boolean;
   },
 ): Promise<RocketSavedPoSummary[]> {
+  const poStatusFilter = input.status
+    ? ROCKET_CONFIRMATION_REQUEST_STATUSES.includes(input.status)
+      ? { in: ROCKET_CONFIRMATION_REQUEST_STATUSES }
+      : input.status
+    : undefined;
   const snapshots = await prisma.rocketPoCatalogSnapshot.findMany({
     where: {
       organizationId: input.organizationId,
@@ -111,7 +131,7 @@ export async function listSavedRocketPos(
       lines: {
         some: {
           plannedDeliveryDate: { gte: day(input.from), lte: day(input.to) },
-          ...(input.status ? { poStatus: input.status } : {}),
+          ...(poStatusFilter ? { poStatus: poStatusFilter } : {}),
         },
       },
     },
@@ -124,7 +144,7 @@ export async function listSavedRocketPos(
       lines: {
         where: {
           plannedDeliveryDate: { gte: day(input.from), lte: day(input.to) },
-          ...(input.status ? { poStatus: input.status } : {}),
+          ...(poStatusFilter ? { poStatus: poStatusFilter } : {}),
         },
         orderBy: [{ poNumber: 'asc' }, { poLineId: 'asc' }],
         select: {

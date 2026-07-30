@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
@@ -42,7 +43,7 @@ export async function collectOnchannelOrdersFromExtension(date?: string, run?: O
   }
   const res = await sendToExtension<OnchannelCollectResponse>(
     extensionId,
-    { action: 'collectOnchannelOrders', date, runId: run?.runId ?? globalThis.crypto.randomUUID() }, // "YYYY-MM-DD" 면 그날 주문만
+    { action: 'collectOnchannelOrders', date, runId: run?.runId ?? createSecureRandomUuid() }, // "YYYY-MM-DD" 면 그날 주문만
     130000,
   );
   if (!res?.success || !Array.isArray(res.orders)) {

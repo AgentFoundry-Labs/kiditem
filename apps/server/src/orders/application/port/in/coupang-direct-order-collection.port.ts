@@ -2,7 +2,7 @@ import type {
   CoupangDirectOrderCollectionRequest,
 } from '@kiditem/shared/coupang-direct-order';
 
-/** 발주확정(정산) 성공/제외 라인을 (poNumber=발주번호, productNo=SKU) 식별자로 보고한다. */
+/** 수집·워크북 연결 상태를 (poNumber=발주번호, productNo=SKU) 식별자로 보고한다. */
 export type CoupangDirectCollectionLineRef = {
   poNumber: string;
   productNo: string;
@@ -19,8 +19,9 @@ export interface CoupangDirectOrderCollectionPort {
     transmissionIntentKey: string | null;
     matchedLineCount: number;
     reconciledRows: number;
-    confirmedLines: CoupangDirectCollectionLineRef[];
-    skippedLines: CoupangDirectCollectionLineRef[];
+    collectedLines: CoupangDirectCollectionLineRef[];
+    matchedLines: CoupangDirectCollectionLineRef[];
+    unmatchedLines: CoupangDirectCollectionLineRef[];
     duplicate: boolean;
   }>;
 }

@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { ExternalLink, ShoppingCart, X } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { normalize1688ImageUrl } from '../lib/1688-image-url';
 
 const CNY_TO_KRW = 190;
 
@@ -143,14 +145,14 @@ function OfferCard({
             <span className="absolute right-2 top-2 z-10 h-5 w-5 rounded-md bg-white/95 ring-1 ring-[#dbe2ea]" />
           </>
         )}
-        {offer.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={offer.imageUrl} alt="" className="h-full w-full object-cover transition group-hover:scale-[1.03]" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-[#9ca3af]">
-            <ExternalLink size={24} />
-          </div>
-        )}
+        <WholesaleOfferImage
+          imageUrl={offer.imageUrl}
+          alt={offer.title}
+          sizes={compact
+            ? '(max-width: 767px) 50vw, (max-width: 1279px) 33vw, 17vw'
+            : '(max-width: 767px) 50vw, 33vw'}
+          className="object-cover transition group-hover:scale-[1.03]"
+        />
       </div>
 
       <div className={cn('space-y-2', compact ? 'p-2.5' : 'p-4')}>
@@ -330,11 +332,13 @@ function OfferOrderModal({
         </div>
 
         <div className="grid gap-5 p-5 md:grid-cols-[240px_1fr]">
-          <div className="aspect-square overflow-hidden rounded-xl bg-[#eef1f5]">
-            {offer.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={offer.imageUrl} alt="" className="h-full w-full object-cover" />
-            ) : null}
+          <div className="relative aspect-square overflow-hidden rounded-xl bg-[#eef1f5]">
+            <WholesaleOfferImage
+              imageUrl={offer.imageUrl}
+              alt={offer.title}
+              sizes="240px"
+              className="object-cover"
+            />
           </div>
 
           <div className="min-w-0">
@@ -398,5 +402,39 @@ function ModalMetric({ label, value }: { label: string; value: string }) {
       <p className="text-[10px] font-bold text-[#9ca3af]">{label}</p>
       <p className="mt-1 truncate text-sm font-black text-[#111827]">{value}</p>
     </div>
+  );
+}
+
+function WholesaleOfferImage({
+  imageUrl,
+  alt,
+  sizes,
+  className,
+}: {
+  imageUrl: string | null;
+  alt: string;
+  sizes: string;
+  className: string;
+}) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const normalizedUrl = normalize1688ImageUrl(imageUrl);
+
+  if (!normalizedUrl || failedUrl === normalizedUrl) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-[#9ca3af]">
+        <ExternalLink size={24} />
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={normalizedUrl}
+      alt={alt}
+      fill
+      sizes={sizes}
+      className={className}
+      onError={() => setFailedUrl(normalizedUrl)}
+    />
   );
 }

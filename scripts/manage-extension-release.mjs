@@ -19,7 +19,7 @@ const supportedExtensions = [
   "coupang-ads-scraper",
   "order-collector",
 ];
-const environmentProfiles = ["local", "staging"];
+const environmentProfiles = ["local", "office", "staging"];
 
 function parseArgs(argv) {
   const [command, ...tokens] = argv;

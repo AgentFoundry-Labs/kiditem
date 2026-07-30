@@ -67,11 +67,13 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
       collection: request.collection,
       rows,
     });
-    const recipeAutomation = await this.recipeAutomation.applySafeForOptions({
-      organizationId: input.organizationId,
-      channelAccountId: request.channelAccountId,
-      channelListingOptionIds: published.identities.map(({ channelSkuId }) => channelSkuId),
-    });
+    const recipeAutomation = published.duplicate
+      ? emptyRecipeAutomationResult()
+      : await this.recipeAutomation.applySafeForOptions({
+        organizationId: input.organizationId,
+        channelAccountId: request.channelAccountId,
+        channelListingOptionIds: published.identities.map(({ channelSkuId }) => channelSkuId),
+      });
     const { identities, ...catalog } = published;
     return {
       blockingReason: null,
@@ -97,6 +99,19 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
   }) {
     return this.repository.loadSavedCollection(input);
   }
+}
+
+function emptyRecipeAutomationResult() {
+  return {
+    evaluatedProducts: 0,
+    appliedProducts: 0,
+    appliedVariants: 0,
+    affectedOptions: 0,
+    operatorReviewProducts: 0,
+    blockedProducts: 0,
+    alreadyConfiguredProducts: 0,
+    skippedExistingVariants: 0,
+  };
 }
 
 function isCompleteCollection(request: RocketPurchasePreviewRequest): boolean {

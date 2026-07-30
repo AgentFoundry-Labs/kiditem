@@ -1,5 +1,6 @@
 'use client';
 
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   BrowserCollectionRunIdSchema,
   BrowserCollectionSessionViewSchema,
@@ -52,7 +53,7 @@ export function useOrderCollectionSessionControls(
     account: OrderCollectionMallAccount,
     existingRunId?: string,
   ): Promise<OrderCollectionExtensionRun | null> => {
-    const nextRunId = existingRunId ?? globalThis.crypto.randomUUID();
+    const nextRunId = existingRunId ?? createSecureRandomUuid();
     setRunId(nextRunId);
     const extensionStatus = await detectOrderCollectionSessionExtensionStatus();
     if (extensionStatus.status === 'ready') {

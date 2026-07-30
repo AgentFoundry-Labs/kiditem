@@ -4,6 +4,7 @@ import {
   getGenerateSourceReferences,
   getLoadedContentWorkspaceId,
   resolveGenerateOwnerInputs,
+  resolveProductGenerationDialogPhase,
 } from './useGenerateForm';
 
 describe('getGenerateFormValidation', () => {
@@ -103,5 +104,40 @@ describe('resolveGenerateOwnerInputs', () => {
       }],
       primarySourceCandidateId: 'candidate-1',
     });
+  });
+});
+
+describe('resolveProductGenerationDialogPhase', () => {
+  it('waits for the parent operation when an expected child has no generation id', () => {
+    expect(
+      resolveProductGenerationDialogPhase({
+        currentPhase: 'started',
+        operationKey: 'product-generation:batch-1',
+        detailGenerationId: null,
+        thumbnailGenerationId: 'thumbnail-1',
+        thumbnail: {
+          id: 'thumbnail-1',
+          contentWorkspaceId: 'workspace-1',
+          sourceCandidateId: null,
+          originalUrl: null,
+          candidates: [],
+          selectedUrl: null,
+          status: 'succeeded',
+          phase: 'ready',
+          grade: 'A',
+          score: 90,
+          method: 'generate',
+          editAnalysis: null,
+          createdAt: '2026-07-29T00:00:00.000Z',
+          contentWorkspace: {
+            id: 'workspace-1',
+            name: '테스트 상품',
+            imageUrl: null,
+            coupangProductId: null,
+            category: null,
+          },
+        },
+      }),
+    ).toBe('started');
   });
 });

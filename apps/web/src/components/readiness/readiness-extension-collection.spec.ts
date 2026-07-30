@@ -26,7 +26,7 @@ import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-colle
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const COMPATIBLE_PING = {
   success: true,
-  version: '1.2.90',
+  version: '1.2.102',
   capabilities: { browserCollectionSessions: true },
 };
 
@@ -325,7 +325,7 @@ describe('readiness extension collection', () => {
         accessToken: 'kiditem-access-token',
       }),
     ).rejects.toThrow(/1\.2\.72|새로고침/);
-    expect(COUPANG_COLLECTION_EXTENSION_MIN_VERSION).toBe('1.2.90');
+    expect(COUPANG_COLLECTION_EXTENSION_MIN_VERSION).toBe('1.2.102');
     expect(sendToExtension).toHaveBeenCalledTimes(1);
   });
 
@@ -353,7 +353,7 @@ describe('readiness extension collection', () => {
   it('starts a run and reads its generic collection session by run ID', async () => {
     const completed = {
       ...session('dashboard.wing_sales'),
-      environmentId: 'local' as const,
+      environmentId: 'office' as const,
     };
     const onStarted = vi.fn();
     const onSession = vi.fn();
@@ -395,10 +395,43 @@ describe('readiness extension collection', () => {
     expect(sendToExtension).toHaveBeenNthCalledWith(4, 'coupang-extension', {
       action: 'getCollectionSession',
       runId: RUN_ID,
-    });
+    }, 2_000);
     expect(syncBrowserCollectionAlert).toHaveBeenCalledWith(completed);
     expect(onStarted).toHaveBeenCalledTimes(1);
     expect(onSession).toHaveBeenCalledWith(completed);
+  });
+
+  it('keeps live readiness polling after an accepted run has delayed session discovery', async () => {
+    vi.useFakeTimers();
+    try {
+      const completed = {
+        ...session('dashboard.coupang_ads'),
+        environmentId: 'office' as const,
+      };
+      const onPoll = vi.fn().mockResolvedValue(undefined);
+      const extension = vi.mocked(sendToExtension)
+        .mockResolvedValueOnce(COMPATIBLE_PING)
+        .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID });
+      for (let attempt = 0; attempt < 9; attempt += 1) {
+        extension.mockResolvedValueOnce(null);
+      }
+      extension.mockResolvedValueOnce(completed);
+
+      const collection = runReadinessExtensionCollection({
+        check: check('coupang_ads'),
+        producer: 'dashboard.coupang_ads',
+        extensionId: 'coupang-extension',
+        runId: RUN_ID,
+        accessToken: null,
+        onPoll,
+      });
+
+      await vi.advanceTimersByTimeAsync(18_000);
+      await expect(collection).resolves.toEqual(completed);
+      expect(onPoll).toHaveBeenCalledTimes(10);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not announce a start before the extension compatibility gate passes', async () => {
@@ -646,8 +679,9 @@ describe('readiness extension collection', () => {
       }
       return session(producerByRun.get(command.runId!)!, command.runId);
     });
+    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
     const { result } = renderHook(
-      () => useReadinessCollection({ refetchReadiness: vi.fn() }),
+      () => useReadinessCollection({ refetchReadiness }),
       { wrapper: wrapper() },
     );
 
@@ -671,6 +705,7 @@ describe('readiness extension collection', () => {
         status: 'succeeded',
       }),
     );
+    expect(refetchReadiness).toHaveBeenCalledTimes(2);
   });
 
   it('keeps Wing rank pending while its background session runs and settles from session state', async () => {

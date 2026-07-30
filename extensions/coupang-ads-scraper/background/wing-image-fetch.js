@@ -5,7 +5,10 @@
   const WING_FORM_ORIGIN = "https://wing.coupang.com";
   const WING_FORM_PATH =
     /^\/tenants\/seller-web\/vendor-inventory\/formV2\/?$/;
-  const LOCAL_IMAGE_ORIGIN = "http://localhost:9000";
+  const ALLOWED_IMAGE_ORIGINS = new Set([
+    "http://localhost:9000",
+    "http://kiditem-office:9000",
+  ]);
   const LOCAL_IMAGE_PATH_PREFIX = "/kiditem/";
 
   function parseUrl(value) {
@@ -31,7 +34,7 @@
     const url = parseUrl(value);
     if (
       !url ||
-      url.origin !== LOCAL_IMAGE_ORIGIN ||
+      !ALLOWED_IMAGE_ORIGINS.has(url.origin) ||
       !url.pathname.startsWith(LOCAL_IMAGE_PATH_PREFIX)
     ) {
       return null;

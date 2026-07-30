@@ -271,7 +271,8 @@ describe("MallAccountSection", () => {
     expect(workspace).toContain("BrowserCollectionRunControls");
     expect(sessionHook).toContain("useBrowserCollectionSession");
     expect(sessionHook).toContain("collectionRun");
-    expect(sessionHook).toContain("globalThis.crypto.randomUUID()");
+    expect(sessionHook).toContain("createSecureRandomUuid()");
+    expect(sessionHook).not.toContain("globalThis.crypto.randomUUID()");
     expect(sessionHook).toContain("'orders.mall'");
     expect(workspace).toMatch(/handleBrowserCollectMall\(account,\s*session\.runId\)/);
     expect(workspace).toContain('webRestartUnavailableMessage');

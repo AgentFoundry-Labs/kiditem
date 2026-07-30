@@ -75,13 +75,13 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     const first = await prisma.$transaction((tx) => adapter.reconcile({ ...input, transaction: tx }));
     const replay = await prisma.$transaction((tx) => adapter.reconcile({ ...input, transaction: tx }));
 
-    const expectedIntentKey = `rocket-workbook:${exportId}:shipment`;
+    const expectedIntentKey = `rocket-final-order:${finalImportRunId}:shipment`;
     expect(first).toEqual({
       exportId,
       transmissionIntentKey: expectedIntentKey,
       matchedLineCount: 1,
       reconciledRows: 1,
-      skippedLines: [],
+      unmatchedLines: [],
     });
     expect(replay).toEqual(first);
     expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
@@ -106,7 +106,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
-  it('skips a line without an active confirmation instead of throwing 409', async () => {
+  it('reports an unmatched line with a stable file intent instead of throwing 409', async () => {
     // 발주확정(commitment)이 하나도 없는 현재 상태를 재현한다. 예전에는 여기서
     // ROCKET_REQUEST_COMMITMENT_NOT_FOUND 409 로 배치 전체가 죽었다.
     const result = await prisma.$transaction((tx) => adapter.reconcile({
@@ -116,10 +116,10 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
     expect(result).toEqual({
       exportId: null,
-      transmissionIntentKey: null,
+      transmissionIntentKey: `rocket-final-order:${finalImportRunId}:shipment`,
       matchedLineCount: 0,
       reconciledRows: 0,
-      skippedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+      unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
     });
     expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
@@ -156,10 +156,10 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
     expect(result).toEqual({
       exportId,
-      transmissionIntentKey: `rocket-workbook:${exportId}:shipment`,
+      transmissionIntentKey: `rocket-final-order:${finalImportRunId}:shipment`,
       matchedLineCount: 1,
       reconciledRows: 1,
-      skippedLines: [{ poNumber: 'PO-2', productNo: 'P-2' }],
+      unmatchedLines: [{ poNumber: 'PO-2', productNo: 'P-2' }],
     });
     expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
@@ -217,7 +217,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       transmissionIntentKey: null,
       matchedLineCount: 0,
       reconciledRows: 0,
-      skippedLines: [],
+      unmatchedLines: [],
     });
     expect(await prisma.rocketPurchaseConfirmationTransmission.findFirstOrThrow()).toMatchObject({
       confirmationId: exportId,

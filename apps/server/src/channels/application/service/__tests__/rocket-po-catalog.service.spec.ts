@@ -323,4 +323,29 @@ describe('RocketPoCatalogService', () => {
       }),
     }));
   });
+
+  it('does not rerun recipe automation when reopening an already published collection', async () => {
+    const repo = repository();
+    const original = await repo.publish();
+    repo.publish.mockReset().mockResolvedValue({ ...original, duplicate: true });
+    const { service: catalogService, automation } = service(repo);
+
+    const result = await catalogService.publishAndResolve({
+      organizationId,
+      userId,
+      request: request(),
+    });
+
+    expect(automation.applySafeForOptions).not.toHaveBeenCalled();
+    expect(result.catalog?.recipeAutomation).toEqual({
+      evaluatedProducts: 0,
+      appliedProducts: 0,
+      appliedVariants: 0,
+      affectedOptions: 0,
+      operatorReviewProducts: 0,
+      blockedProducts: 0,
+      alreadyConfiguredProducts: 0,
+      skippedExistingVariants: 0,
+    });
+  });
 });

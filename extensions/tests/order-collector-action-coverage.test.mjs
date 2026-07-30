@@ -155,11 +155,12 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   assert.match(worker, /collectCoupangShipmentDateSummaryValidatedV1:\s*true/);
 });
 
-test('web bridge reaches both localhost and the staging KidItem origin', () => {
+test('web bridge reaches local, office, and staging KidItem origins', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
   const externalMatches = manifest.externally_connectable?.matches ?? [];
   assert.ok(externalMatches.includes('http://localhost:3000/*'));
+  assert.ok(externalMatches.includes('http://kiditem-office/*'));
   assert.ok(
     externalMatches.includes('https://staging.merchon.org/*'),
     'staging web origin must be externally connectable for chrome.runtime.sendMessage',
@@ -170,6 +171,7 @@ test('web bridge reaches both localhost and the staging KidItem origin', () => {
   );
   assert.ok(hostBridge, 'host-bridge content script must be declared');
   assert.ok(hostBridge.matches.includes('http://localhost:3000/*'));
+  assert.ok(hostBridge.matches.includes('http://kiditem-office/*'));
   assert.ok(
     hostBridge.matches.includes('https://staging.merchon.org/*'),
     'host-bridge must inject on staging so the web app can discover the extension id',

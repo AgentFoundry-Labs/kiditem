@@ -10,7 +10,7 @@ Operate KidItem staging from GitHub Actions with evidence. Never declare staging
 ## When to Use
 
 Use for:
-- `staging-deploy.yml` deploy, status, rollback, or failed run triage.
+- `staging-deploy.yml` deploy, status, rollback, retire, restore, or failed run triage.
 - Disk-full / ENOSPC image pull recovery on EC2.
 - Questions like "why did deploy run twice?" or "CI looks duplicated."
 - Small staging hotfixes pushed to `main`, followed by `develop` sync.
@@ -24,6 +24,8 @@ Do not use for production deploys.
 | Failed deploy | Inspect failed job logs and run `operation=status` | Blindly `gh run rerun` |
 | Destructive rebuild | Use `destructive_reset=RESET_STAGING_DATA` only for the reviewed account-preserving rebuild | Treat image-pull failures as reset cases |
 | Disk full / ENOSPC | Default deploy retry stops the staging stack to free active image layers; verify status first if triaging a failure | Delete Docker volumes, DB data, or uploaded assets |
+| Retire staging | Dispatch `operation=retire` with `RETIRE_STAGING`, then require final status, seven stopped services, and public `/login` not `200` | Treat retirement as Terraform, Supabase, or data deletion |
+| Restore staging | Dispatch `operation=restore` with `RESUME_RETIRED_STAGING`, then require normal public smoke | Remove `deployments/retired.json` manually |
 | Duplicate-looking CI | Compare run id, event, head SHA, job conclusions, skipped jobs | Assume skipped jobs ran |
 | Main staging hotfix | Deploy `main`, then merge `origin/main` into `develop` | Leave develop behind |
 
@@ -152,6 +154,58 @@ once by exact `headSha` plus `correlation=<UUID>` in `run-name`, then reuse that
 numeric run ID for watch/log/status evidence.
 
 After rollback, run `operation=status` and confirm manifest, containers, and smoke endpoints.
+
+## Retire Or Restore
+
+Retirement is a reversible staging-only runtime operation. It writes the
+durable `/opt/kiditem/deployments/retired.json` marker, stops `api-blue`,
+`web-blue`, `worker-blue`, `api-green`, `web-green`, `worker-green`, and
+`nginx`, and blocks deploy/rollback while the marker exists. It has a no data
+deletion boundary: retain the EC2 host, attached and Docker volumes, Supabase
+data, uploaded assets, deployment history, and runtime configuration. Terraform
+or Supabase destruction is a separate later boundary after Office local auth is
+implemented and verified.
+
+Use an immutable workflow SHA and a new correlation ID. The confirmation is
+exact and is mapped only to its selected remote command:
+
+```bash
+workflow_code_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=retire \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id" \
+  -f retirement_confirmation=RETIRE_STAGING
+```
+
+Watch the selected run by exact SHA and correlation ID, then issue a separate
+final status query. Retirement passes only when its remote `status` shows
+`deployments/retired.json`, all seven services are stopped, and public `/login`
+is not HTTP `200`; the workflow fails if that public probe is still `200`.
+
+```bash
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=status \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+```
+
+Restore only the retained runtime, then verify the existing healthy public
+smoke contract (`/login -> 200`, `/api/auth/me -> 401`):
+
+```bash
+workflow_code_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=restore \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id" \
+  -f retirement_confirmation=RESUME_RETIRED_STAGING
+```
 
 ## Sync Develop After Main Hotfix
 
