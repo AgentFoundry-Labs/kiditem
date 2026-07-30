@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 
 const repoRoot = process.cwd();
@@ -10,6 +19,10 @@ const remote = readFileSync(
 );
 const workflow = readFileSync(
   join(repoRoot, '.github/workflows/staging-deploy.yml'),
+  'utf8',
+);
+const productionWrapper = readFileSync(
+  join(repoRoot, 'deploy/production/remote-deploy.sh'),
   'utf8',
 );
 
@@ -131,6 +144,121 @@ describe('staging retirement remote-script contract', () => {
     assert.match(retirement, /\/login/);
     assert.match(retirement, /== "200"/);
     assert.doesNotMatch(retirement, /npm ci|docker pull|prisma|db push|git tag/i);
+  });
+
+  it('blocks every deploy data mutation behind an anchored remote retirement check', () => {
+    const deploy = extractWorkflowJob(workflow, 'deploy');
+    const sshPreparation = deploy.indexOf('- name: Prepare SSH for retirement guard');
+    const retirementGuard = deploy.indexOf('- name: Refuse deployment while staging is retired');
+
+    assert.ok(sshPreparation >= 0, 'deploy must prepare SSH for the retirement guard');
+    assert.ok(
+      sshPreparation < retirementGuard,
+      'deploy must prepare SSH before checking the retirement marker',
+    );
+    const preSchemaMigration = deploy.indexOf(
+      '- name: Run pre-schema data migrations',
+    );
+    assert.doesNotMatch(
+      deploy.slice(sshPreparation, retirementGuard),
+      /^\s+if:/m,
+      'SSH preparation must cover normal and destructive deploys',
+    );
+    assert.doesNotMatch(
+      deploy.slice(retirementGuard, preSchemaMigration),
+      /^\s+if:/m,
+      'retirement guard must cover normal and destructive deploys',
+    );
+    assert.match(
+      deploy.slice(retirementGuard),
+      /STAGING_REMOTE_DIR="\$\{STAGING_REMOTE_DIR:-\/opt\/kiditem\}"[\s\S]*\$\{STAGING_REMOTE_DIR\}\/deployments\/retired\.json/,
+    );
+
+    for (const mutation of [
+      'npm run data:migrate -- up --phase pre-schema',
+      'npx prisma db push --force-reset',
+      'npx prisma db push',
+      'npm run inventory:rebuild -- restore-staging-accounts',
+      'npm run data:migrate -- up --phase post-schema',
+      'npm run seed:order-collection-malls',
+    ]) {
+      const mutationPosition = deploy.indexOf(mutation);
+      assert.ok(mutationPosition >= 0, `missing deploy mutation: ${mutation}`);
+      assert.ok(
+        retirementGuard < mutationPosition,
+        `retirement guard must precede deploy mutation: ${mutation}`,
+      );
+    }
+  });
+
+  it('forces production environment and rejects retirement commands before dispatch', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'kiditem-production-wrapper-'));
+    const productionDir = join(fixture, 'deploy/production');
+    const stagingDir = join(fixture, 'deploy/staging');
+    mkdirSync(productionDir, { recursive: true });
+    mkdirSync(stagingDir, { recursive: true });
+
+    const wrapperPath = join(productionDir, 'remote-deploy.sh');
+    const delegatePath = join(stagingDir, 'remote-deploy.sh');
+    writeFileSync(wrapperPath, productionWrapper);
+    writeFileSync(
+      delegatePath,
+      '#!/usr/bin/env bash\nprintf \'%s:%s\\n\' "$DEPLOY_ENVIRONMENT" "$1"\n',
+    );
+    chmodSync(wrapperPath, 0o755);
+    chmodSync(delegatePath, 0o755);
+
+    try {
+      const deployResult = spawnSync(wrapperPath, ['deploy'], {
+        cwd: fixture,
+        encoding: 'utf8',
+        env: { ...process.env, DEPLOY_ENVIRONMENT: 'staging' },
+      });
+      assert.equal(deployResult.status, 0, deployResult.stderr);
+      assert.equal(deployResult.stdout.trim(), 'production:deploy');
+
+      for (const operation of ['retire', 'restore']) {
+        const result = spawnSync(wrapperPath, [operation], {
+          cwd: fixture,
+          encoding: 'utf8',
+          env: { ...process.env, DEPLOY_ENVIRONMENT: 'staging' },
+        });
+        assert.notEqual(result.status, 0, `${operation} must be rejected`);
+        assert.equal(result.stdout, '', `${operation} must not reach the delegate`);
+        assert.match(result.stderr, /production.*retire|retire.*production/i);
+      }
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('syncs every asset required to restore retired staging', () => {
+    const retirement = extractWorkflowJob(workflow, 'retirement');
+    assert.match(
+      retirement,
+      /tar -czf - docker-compose\.staging\.yml deploy\/staging\/nginx\.conf deploy\/staging\/remote-deploy\.sh/,
+    );
+  });
+
+  it('collects retirement evidence after an attempted remote control operation', () => {
+    const retirement = extractWorkflowJob(workflow, 'retirement');
+    assert.match(
+      retirement,
+      /- name: Run selected staging retirement operation\s+id: remote_control/,
+    );
+
+    assert.match(
+      retirement,
+      /- name: Query final EC2 status\s+if: always\(\) && \(steps\.remote_control\.outcome == 'success' \|\| steps\.remote_control\.outcome == 'failure'\)/,
+    );
+    assert.match(
+      retirement,
+      /- name: Verify retirement public boundary\s+if: always\(\) && \(steps\.remote_control\.outcome == 'success' \|\| steps\.remote_control\.outcome == 'failure'\) && inputs\.operation == 'retire'/,
+    );
+    assert.match(
+      retirement,
+      /- name: Verify restored public staging URL\s+if: always\(\) && \(steps\.remote_control\.outcome == 'success' \|\| steps\.remote_control\.outcome == 'failure'\) && inputs\.operation == 'restore'/,
+    );
   });
 
   it('documents retirement evidence, confirmations, and retained infrastructure', () => {

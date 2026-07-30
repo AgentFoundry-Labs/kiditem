@@ -237,19 +237,7 @@ jobs:
           EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
         run: npm run inventory:rebuild -- guard
 
-      - name: Run pre-schema data migrations
-        if: inputs.destructive_reset == ''
-        env:
-          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          DATA_MIGRATION_TARGET: staging
-          DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
-        run: |
-          set -euo pipefail
-          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
-          npm run data:migrate -- up --phase pre-schema
-
-      - name: Prepare SSH for guarded rebuild
-        if: inputs.destructive_reset != ''
+      - name: Prepare SSH for retirement guard
         env:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
@@ -261,6 +249,36 @@ jobs:
           printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
           chmod 600 ~/.ssh/kiditem-staging
           printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Refuse deployment while staging is retired
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          case "$STAGING_USER" in (*[!A-Za-z0-9_.-]*|'') echo "Invalid STAGING_USER" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (/*) ;; (*) echo "STAGING_REMOTE_DIR must be absolute" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
+          target="${STAGING_USER}@${STAGING_HOST}"
+          retirement_marker="${STAGING_REMOTE_DIR}/deployments/retired.json"
+          retirement_marker_q="$(printf '%q' "$retirement_marker")"
+          ssh -i ~/.ssh/kiditem-staging "$target" \
+            "if [ -f ${retirement_marker_q} ]; then echo 'Staging is retired; refusing data mutation.' >&2; cat ${retirement_marker_q} >&2; exit 1; fi"
+
+      - name: Run pre-schema data migrations
+        if: inputs.destructive_reset == ''
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DATA_MIGRATION_TARGET: staging
+          DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
+          npm run data:migrate -- up --phase pre-schema
 
       - name: Sync staging rebuild control script
         if: inputs.destructive_reset != ''
@@ -428,19 +446,6 @@ jobs:
         run: |
           set -euo pipefail
           bash deploy/staging/render-runtime-env.sh
-
-      - name: Prepare SSH
-        env:
-          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
-          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
-        run: |
-          set -euo pipefail
-          : "${STAGING_SSH_KEY:?Set staging secret STAGING_SSH_KEY}"
-          : "${STAGING_SSH_KNOWN_HOSTS:?Set staging secret STAGING_SSH_KNOWN_HOSTS}"
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
-          chmod 600 ~/.ssh/kiditem-staging
-          printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
       - name: Sync staging compose assets
         env:
@@ -901,11 +906,12 @@ jobs:
           case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
           target="${STAGING_USER}@${STAGING_HOST}"
           remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
-          tar -czf - docker-compose.staging.yml deploy/staging/remote-deploy.sh \
+          tar -czf - docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
             | ssh -i ~/.ssh/kiditem-staging "$target" \
                 "mkdir -p ${remote_dir_q}/deploy/staging && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
 
       - name: Run selected staging retirement operation
+        id: remote_control
         env:
           OPERATION: ${{ inputs.operation }}
           RETIREMENT_CONFIRMATION: ${{ inputs.retirement_confirmation }}
@@ -952,6 +958,7 @@ jobs:
           esac
 
       - name: Query final EC2 status
+        if: always() && (steps.remote_control.outcome == 'success' || steps.remote_control.outcome == 'failure')
         env:
           STAGING_HOST: ${{ vars.STAGING_HOST }}
           STAGING_USER: ${{ vars.STAGING_USER }}
@@ -966,7 +973,7 @@ jobs:
             "cd $(q "$STAGING_REMOTE_DIR") && ./deploy/staging/remote-deploy.sh status"
 
       - name: Verify retirement public boundary
-        if: inputs.operation == 'retire'
+        if: always() && (steps.remote_control.outcome == 'success' || steps.remote_control.outcome == 'failure') && inputs.operation == 'retire'
         env:
           STAGING_URL: ${{ vars.STAGING_URL }}
         run: |
@@ -981,7 +988,7 @@ jobs:
           echo "Retirement public probe passed: $STAGING_URL/login=$login_code (expected not 200)"
 
       - name: Verify restored public staging URL
-        if: inputs.operation == 'restore'
+        if: always() && (steps.remote_control.outcome == 'success' || steps.remote_control.outcome == 'failure') && inputs.operation == 'restore'
         env:
           STAGING_URL: ${{ vars.STAGING_URL }}
         run: |
