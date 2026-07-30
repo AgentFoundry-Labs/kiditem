@@ -1,5 +1,17 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({
+  useSellpiaInventoryFreshness: () => ({
+    requestRefresh: vi.fn(),
+    state: {
+      status: 'fresh',
+      lastVerifiedAt: '2026-07-30T06:03:27.000Z',
+      unresolvedOrderTransmissionIntents: [],
+    },
+  }),
+}));
+
 import { InventoryToolbar } from './InventoryToolbar';
 
 describe('InventoryToolbar', () => {
@@ -18,6 +30,7 @@ describe('InventoryToolbar', () => {
 
     expect(screen.getByRole('heading', { name: '재고 현황' })).toBeInTheDocument();
     expect(screen.queryByText('재고/발주 관리')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '셀피아 동기화' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '바코드 출력' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '엑셀' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /입고|출고|조정/ })).not.toBeInTheDocument();

@@ -5,8 +5,10 @@ S3-compatible artifacts. It replaces Google Drive as the staging DB reset source
 Google Drive dev-data remains local developer input sharing only.
 
 The baseline captures the PostgreSQL `public` schema with `pg_dump --format=custom`.
-It intentionally excludes Supabase `auth` and `storage` schemas. Login users and
-object storage assets must be bootstrapped or verified separately.
+It intentionally excludes Supabase `auth` and `storage` schemas because they
+are not application-auth authorities. Export refuses any non-null local
+password hash or any `auth_sessions` row; restore the account rows, then set a
+disposable operator password explicitly.
 
 ## Human Prerequisites
 
@@ -171,8 +173,8 @@ Secrets:
   history file after the DB restore completes.
 - After `restore`, the `public` schema contains the restored baseline state, not
   a merge of the baseline plus leftover staging-only objects.
-- Supabase Auth users used for login still match `public.users.id` and have
-  active `OrganizationMembership` rows.
+- A restored local user has an active `OrganizationMembership`, receives a new
+  password through the stdin-only auth admin CLI, and can log in.
 
 ## Blocker Criteria
 
@@ -185,7 +187,9 @@ Stop and report if:
 - `pg_dump`, `pg_restore`, or `psql` is unavailable.
 - The manifest omits `auth` or `storage` from `excludedSchemas`.
 - Restore would run without `--confirm RESET_STAGING_DB`.
-- Auth users cannot log in after restoring `public.users` and memberships.
+- Export finds a local password hash or any auth session row.
+- A local user cannot log in after restoring rows and explicitly setting a new
+  disposable password.
 
 ## Final Report Format
 

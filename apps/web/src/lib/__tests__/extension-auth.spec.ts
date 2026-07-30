@@ -25,20 +25,21 @@ describe('syncExtensionAuth', () => {
     vi.mocked(detectSourcingExtensionId).mockResolvedValue(null);
   });
 
-  it('stores the current Supabase token in every authenticated extension', async () => {
+  it('stores the current KidItem session token in every authenticated extension', async () => {
     vi.mocked(detectExtensionId).mockResolvedValue('coupang-ext');
     vi.mocked(detectSourcingExtensionId).mockResolvedValue('sourcing-ext');
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
 
-    const result = await syncExtensionAuth({ access_token: 'supabase-token' });
+    const token = 'a'.repeat(43);
+    const result = await syncExtensionAuth({ token });
 
     expect(sendToExtension).toHaveBeenCalledWith('coupang-ext', {
       action: 'setAuthToken',
-      token: 'supabase-token',
+      token,
     });
     expect(sendToExtension).toHaveBeenCalledWith('sourcing-ext', {
       action: 'setAuthToken',
-      token: 'supabase-token',
+      token,
     });
     expect(result).toEqual({
       coupang: { status: 'synced' },
@@ -67,7 +68,7 @@ describe('syncExtensionAuth', () => {
 
   it('does not fail login when optional extensions are not installed', async () => {
     await expect(
-      syncExtensionAuth({ access_token: 'supabase-token' }),
+      syncExtensionAuth({ token: 'a'.repeat(43) }),
     ).resolves.toEqual({
       coupang: { status: 'not_installed' },
       sourcing: { status: 'not_installed' },
@@ -80,12 +81,13 @@ describe('syncExtensionAuth', () => {
     vi.mocked(detectSourcingExtensionId).mockResolvedValue('sourcing-ext');
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
 
-    const result = await syncExtensionAuth({ access_token: 'supabase-token' });
+    const token = 'a'.repeat(43);
+    const result = await syncExtensionAuth({ token });
 
     expect(sendToExtension).toHaveBeenCalledTimes(1);
     expect(sendToExtension).toHaveBeenCalledWith('sourcing-ext', {
       action: 'setAuthToken',
-      token: 'supabase-token',
+      token,
     });
     expect(result).toEqual({
       coupang: { status: 'failed' },

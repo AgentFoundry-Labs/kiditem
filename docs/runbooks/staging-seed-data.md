@@ -16,24 +16,21 @@ shared dev DB.
 
 ## Initial Shared Supabase Baseline
 
-As of the initial EC2 staging rollout, the current Supabase project is treated
-as the staging DB/Auth source. That means staging deploys should point at the
-existing Supabase project and should not import a seed profile by default.
+As of the initial EC2 staging rollout, the current Supabase project was treated
+as the staging DB/Auth source. Supabase Auth is now retired; only the historical
+database/storage context below remains relevant.
 
 Observed baseline on 2026-05-10:
 
 - 1 active organization (`Dev Company`, slug `dev-company`).
 - 4 app DB users and 4 active organization memberships.
-- 4 Supabase Auth users.
+- 4 historical Supabase Auth users, no longer used for KidItem login.
 - 1,990 active master products.
 - 1,192 channel listing rows.
 - 1,077 master product image rows.
 
-For login to work, the Supabase Auth user id must match `public.users.id`, and
-that user must have an active `OrganizationMembership`. The current usable
-staging operator accounts are the Auth users whose ids match their app DB user
-rows. Placeholder/local users whose email exists in both places but ids differ
-are not valid staging login accounts until they are explicitly mirrored.
+For current login, `public.users` owns the password hash and the user must have
+an active `OrganizationMembership`. Supabase user IDs and sessions are ignored.
 
 Treat Google Drive seed artifacts as recovery/reproduction snapshots for this
 phase, not as a deploy-time import step.
@@ -58,7 +55,7 @@ initial `/product-hub` smoke test.
 
 Verification after the copy:
 
-- `GET /api/auth/me` returns 200 with the preview Supabase session.
+- `GET /api/auth/me` returns 200 with a newly issued KidItem local session.
 - `GET /api/products/masters?page=1&limit=5&period=14&enriched=true` returns
   total `1,990`.
 - `GET /api/products/pipeline-stats?period=14` returns total `1,990`,
@@ -144,11 +141,20 @@ npm run data:dev:sync -- --profile staging-smoke-2026-05-09 --api-url "$KIDITEM_
 The profile name must be pinned. If the needed profile does not exist, create it
 in Google Drive first and record the exact artifact IDs in the profile metadata.
 
-## Supabase Auth Users
+## Local Auth Users
 
-If the seed needs login users, create them in the staging Supabase project only.
-Use the project dashboard or an approved admin script with
-`SUPABASE_SECRET_KEY` loaded from `.env.staging.seed`.
+Account rows must already exist through the reviewed seed/bootstrap path. Set a
+disposable password without placing it in argv or shell history:
+
+```bash
+read -rsp 'Temporary password: ' KIDITEM_STAGING_PASSWORD
+printf '%s' "$KIDITEM_STAGING_PASSWORD" | npm run auth:admin --workspace=apps/server -- \
+  set-password --email operator@example.com --password-stdin
+unset KIDITEM_STAGING_PASSWORD
+```
+
+The command revokes every prior session. Do not create users as a side effect
+of setting a password.
 
 Recommended initial accounts:
 

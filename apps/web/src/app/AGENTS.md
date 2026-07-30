@@ -34,8 +34,7 @@ route groups need it.
 
 ## Boundary Rules
 
-- Do not add `app/api/*/route.ts` handlers for Nest-owned APIs. The known local
-  exception is `auth/callback`.
+- Do not add `app/api/*/route.ts` handlers for Nest-owned APIs.
 - Do not send `organizationId`; backend session scope owns tenancy.
 - Do not import Prisma, `pg`, Supabase DB clients, or backend adapters.
 - Do not move route-local components into global `src/components` until another

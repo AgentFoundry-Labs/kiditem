@@ -171,7 +171,7 @@ export function useReadinessCollection({
       producer,
       extensionId,
       runId,
-      accessToken: authSession?.access_token,
+      accessToken: authSession?.token,
       onPoll: refetchReadiness,
       onSession: setActiveSession,
     });
@@ -220,7 +220,7 @@ export function useReadinessCollection({
       setActiveSession(null);
       settledBackgroundRunIdRef.current = null;
       try {
-        if (!authSession?.access_token) {
+    if (!authSession?.token) {
           throw new Error('로그인 세션을 확인할 수 없습니다.');
         }
         const accounts = await apiClient.get<ChannelAccountOption[]>(
@@ -246,7 +246,7 @@ export function useReadinessCollection({
         await startCoupangCatalogBrowser({
           channelAccountId: account.id,
           runId: run.id,
-          accessToken: authSession.access_token,
+        accessToken: authSession.token,
         });
         setBackgroundRun({
           runId: run.id,

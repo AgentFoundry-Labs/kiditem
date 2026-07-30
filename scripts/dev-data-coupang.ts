@@ -2,7 +2,6 @@ import 'dotenv/config';
 
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { createClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
@@ -23,6 +22,11 @@ import {
 } from './_shared/cli-args';
 import { readJson, readTextIfExists, sha256, writeJson } from './_shared/fs';
 import { assertSafeRelativePath, expandHome, repoPath } from './_shared/path';
+import {
+  createTemporaryAuthSession,
+  revokeTemporaryAuthSession,
+  type TemporaryAuthSession,
+} from './_shared/temporary-auth-session';
 
 const SCHEMA_VERSION = 'kiditem.dev-data.coupang.v1';
 const LOCAL_DATA_ROOT = path.join('.data', 'coupang');
@@ -85,7 +89,7 @@ type ReplayResult = {
   error?: string;
 };
 
-let cachedGeneratedApiAccessToken: string | null = null;
+let cachedGeneratedApiSession: TemporaryAuthSession | null = null;
 
 function parseArgs(raw = process.argv.slice(2)): Args {
   return parseRawArgs(raw, { commands: COMMANDS, defaultCommand: 'replay' });
@@ -366,26 +370,8 @@ function apiUrl(args: Args): string {
   return value(args, 'api-url') ?? process.env.KIDITEM_API_URL ?? 'http://localhost:4000';
 }
 
-function decodeJwtSub(token: string): string {
-  const encodedPayload = token.split('.')[1];
-  if (!encodedPayload) throw new Error('Generated Supabase access token is malformed.');
-  const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as {
-    sub?: unknown;
-  };
-  if (typeof payload.sub !== 'string' || !payload.sub) {
-    throw new Error('Generated Supabase access token has no subject.');
-  }
-  return payload.sub;
-}
-
 async function generateDevApiAccessToken(args: Args): Promise<string> {
-  if (cachedGeneratedApiAccessToken) return cachedGeneratedApiAccessToken;
-
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
-  if (!supabaseUrl || !supabaseSecretKey) {
-    throw new Error('API replay requires SUPABASE_URL and SUPABASE_SECRET_KEY for automatic dev auth.');
-  }
+  if (cachedGeneratedApiSession) return cachedGeneratedApiSession.token;
 
   const devUserId =
     value(args, 'dev-user-id') ??
@@ -403,7 +389,6 @@ async function generateDevApiAccessToken(args: Args): Promise<string> {
         memberships: {
           where: { status: 'active' },
           orderBy: [{ lastSelectedAt: 'desc' }, { joinedAt: 'asc' }],
-          take: 1,
         },
       },
     });
@@ -421,64 +406,27 @@ async function generateDevApiAccessToken(args: Args): Promise<string> {
       );
     }
 
-    const role = devUser.memberships[0]?.role ?? devUser.role;
-    const supabase = createClient(supabaseUrl, supabaseSecretKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
+    if (!devUser.memberships.some((membership) => membership.organizationId === organizationId)) {
+      throw new Error(`Dev user ${devUserId} has no active membership in ${organizationId}.`);
+    }
+
+    cachedGeneratedApiSession = await createTemporaryAuthSession(prisma, {
+      userId: devUser.id,
       email: devUser.email,
     });
-    if (linkError) throw linkError;
+    return cachedGeneratedApiSession.token;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
 
-    const emailOtp = linkData.properties?.email_otp;
-    if (!emailOtp) throw new Error('Supabase did not return a dev auth email OTP.');
-
-    const { data: sessionData, error: verifyError } = await supabase.auth.verifyOtp({
-      email: devUser.email,
-      token: emailOtp,
-      type: 'email',
-    });
-    if (verifyError) throw verifyError;
-
-    const accessToken = sessionData.session?.access_token;
-    if (!accessToken) throw new Error('Supabase did not return a dev auth access token.');
-
-    const supabaseUserId = decodeJwtSub(accessToken);
-    const existingEmailOwner = await prisma.user.findUnique({
-      where: { email: devUser.email },
-      select: { id: true },
-    });
-    const mirrorEmail =
-      existingEmailOwner && existingEmailOwner.id !== supabaseUserId
-        ? `supabase-${supabaseUserId.slice(0, 8)}@local.kiditem.dev`
-        : devUser.email;
-
-    await prisma.user.upsert({
-      where: { id: supabaseUserId },
-      update: {
-        name: devUser.name,
-        role: devUser.role,
-        type: devUser.type,
-        isActive: true,
-      },
-      create: {
-        id: supabaseUserId,
-        email: mirrorEmail,
-        name: devUser.name,
-        role: devUser.role,
-        type: devUser.type,
-        isActive: true,
-      },
-    });
-    await prisma.organizationMembership.upsert({
-      where: { organizationId_userId: { organizationId, userId: supabaseUserId } },
-      update: { role, status: 'active', lastSelectedAt: new Date() },
-      create: { organizationId, userId: supabaseUserId, role, status: 'active', lastSelectedAt: new Date() },
-    });
-
-    cachedGeneratedApiAccessToken = accessToken;
-    return accessToken;
+async function revokeGeneratedDevApiSession(): Promise<void> {
+  const session = cachedGeneratedApiSession;
+  cachedGeneratedApiSession = null;
+  if (!session) return;
+  const prisma = await createPrisma();
+  try {
+    await revokeTemporaryAuthSession(prisma, session.id);
   } finally {
     await prisma.$disconnect();
   }
@@ -554,33 +502,37 @@ async function commandReplay(args: Args): Promise<unknown> {
     }
   }
 
-  const results: ReplayResult[] = [];
-  for (const { payload, body } of bodies) {
-    try {
-      const response = await postToServer(args, body);
-      results.push({ payload: payload.path, type: payload.type, ok: true, response });
-    } catch (error) {
-      results.push({
-        payload: payload.path,
-        type: payload.type,
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      break;
+  try {
+    const results: ReplayResult[] = [];
+    for (const { payload, body } of bodies) {
+      try {
+        const response = await postToServer(args, body);
+        results.push({ payload: payload.path, type: payload.type, ok: true, response });
+      } catch (error) {
+        results.push({
+          payload: payload.path,
+          type: payload.type,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        break;
+      }
     }
-  }
 
-  const report = {
-    datasetId,
-    mode,
-    cleanup,
-    results,
-    replayedAt: new Date().toISOString(),
-  };
-  const reportPath = path.join(localDataRoot(args), `replay-report-${datasetId}.json`);
-  await writeJson(reportPath, report);
-  if (results.some((result) => !result.ok)) process.exitCode = 1;
-  return { reportPath, ...report };
+    const report = {
+      datasetId,
+      mode,
+      cleanup,
+      results,
+      replayedAt: new Date().toISOString(),
+    };
+    const reportPath = path.join(localDataRoot(args), `replay-report-${datasetId}.json`);
+    await writeJson(reportPath, report);
+    if (results.some((result) => !result.ok)) process.exitCode = 1;
+    return { reportPath, ...report };
+  } finally {
+    await revokeGeneratedDevApiSession();
+  }
 }
 
 function sanitizeValue(key: string, valueToSanitize: unknown): unknown {

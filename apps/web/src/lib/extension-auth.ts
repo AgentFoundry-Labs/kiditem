@@ -3,11 +3,11 @@ import {
   detectSourcingExtensionId,
   sendToExtension,
 } from './extension-bridge';
-import type { Session } from '@supabase/supabase-js';
+import type { BrowserAuthSession } from './auth/session';
 
 export const EXTENSION_AUTH_REQUIRED_EVENT = 'kiditem:extension-auth-required';
 
-type SessionWithToken = Pick<Session, 'access_token'> | null;
+type SessionWithToken = Pick<BrowserAuthSession, 'token'> | null;
 type ExtensionResponse = { success?: boolean; error?: string };
 type ExtensionAuthSyncStatus =
   | { status: 'synced' }
@@ -30,10 +30,10 @@ async function syncTarget(
     const extensionId = await detect();
     if (!extensionId) return { status: 'not_installed' };
 
-    const message = session?.access_token
+    const message = session?.token
       ? {
           action: 'setAuthToken',
-          token: session.access_token,
+          token: session.token,
         }
       : { action: 'clearAuthToken' };
     const response = await sendToExtension<ExtensionResponse>(
@@ -41,7 +41,7 @@ async function syncTarget(
       message,
     );
     if (response?.success === false) return { status: 'failed' };
-    return { status: session?.access_token ? 'synced' : 'cleared' };
+    return { status: session?.token ? 'synced' : 'cleared' };
   } catch {
     return { status: 'failed' };
   }

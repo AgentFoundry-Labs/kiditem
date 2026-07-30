@@ -11,7 +11,8 @@ rebuild operation; there is no warning-accepted `--accept-data-loss` fallback.
 - GitHub Environment `production` exists.
 - Production host has Docker Engine, Docker Compose plugin, nginx or an
   external load balancer, and SSH access restricted to operators.
-- Production Supabase DB/Auth/Storage are separate from staging.
+- Production DB and storage are separate from staging. Password hashes and
+  local sessions live only in the production application DB.
 - Production host nginx or load balancer routes public traffic to
   `127.0.0.1:8080`.
 - Production SSH known hosts are pinned in GitHub secrets.
@@ -25,9 +26,6 @@ PRODUCTION_HOST
 PRODUCTION_USER
 PRODUCTION_REMOTE_DIR
 PRODUCTION_URL
-PRODUCTION_NEXT_PUBLIC_SUPABASE_URL
-PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-PRODUCTION_SUPABASE_URL
 PRODUCTION_CORS_ORIGINS
 PRODUCTION_S3_REGION
 PRODUCTION_S3_BUCKET
@@ -71,7 +69,6 @@ PRODUCTION_S3_ACCESS_KEY
 PRODUCTION_S3_SECRET_KEY
 PRODUCTION_CHANNEL_CREDENTIALS_ENCRYPTION_KEY
 PRODUCTION_GEMINI_API_KEY
-PRODUCTION_SUPABASE_SECRET_KEY
 PRODUCTION_REBUILD_USER_EMAIL
 PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID
 ```
@@ -123,7 +120,7 @@ confirm: DEPLOY_PRODUCTION
 
 Inside protected GitHub Environment `production`, the workflow validates the
 dispatch SHA/correlation, exact target/token, database URL SHA-256, URL database
-name, and live `current_database()`. A read-only public-account/Supabase Auth
+name, and live `current_database()`. A read-only local account/membership
 preflight must exactly match the reviewed baseline before quiesce.
 The destructive order is: quiesce application traffic, export the selected Coupang
 account and ordered migration ledger, upload the private one-day artifact, then
@@ -137,6 +134,25 @@ After schema recreation, an empty ledger is restored from the hash-bound
 manifest with `disposition=subsumed_by_authoritative_rebuild`; no migration body
 is executed. API and web image revision labels must both equal the guarded full
 SHA before traffic cutover.
+
+The reset artifact deliberately excludes password hashes and sessions. Before
+the first interactive import, connect to the production host, resolve the exact
+active slot from the deployment manifest, and set a new password through stdin:
+
+```bash
+active_color="$(python3 -c 'import json; print(json.load(open("deployments/current.json"))["activeColor"])')"
+case "$active_color" in blue|green) ;; *) echo 'invalid active color' >&2; exit 1;; esac
+read -rsp 'New production operator password: ' KIDITEM_PRODUCTION_PASSWORD
+printf '%s' "$KIDITEM_PRODUCTION_PASSWORD" | docker exec -i \
+  "kiditem-production-api-${active_color}" \
+  node dist/auth/adapter/in/cli/auth-admin.js \
+  set-password --email operator@example.com --password-stdin
+unset KIDITEM_PRODUCTION_PASSWORD
+```
+
+Use the reviewed rebuild user email, never place the password in argv, and stop
+if the account or active membership is missing. The command revokes every
+existing session for that user.
 
 An authenticated operator then imports Sellpia at
 `/inventory-hub?tab=sellpia-sync`, followed by Wing at
@@ -156,11 +172,12 @@ destructive_reset: RESET_PRODUCTION_DATA
 rebuild_run_id: <originating deploy run ID>
 ```
 
-This downloads only the originating production artifact, creates a temporary
-operator session using the production Supabase secret only after it proves one
-exact completed Sellpia run followed by one exact completed Wing run and binds
-their IDs. It replays through authenticated `POST /api/ads/extension/sync`,
-then verifies the same hash/row-count/run-ID binding and exact facts before
+This downloads only the originating production artifact, creates a 15-minute
+hashed local operator session only after it proves one exact completed Sellpia
+run followed by one exact completed Wing run and binds their IDs. It replays
+through authenticated `POST /api/ads/extension/sync` and revokes the temporary
+session on success or failure, then verifies the same hash/row-count/run-ID
+binding and exact facts before
 marking ready. Any missing/mismatched input leaves production
 snapshot-required. The artifact expires after one day; restart the guarded
 rebuild rather than copying data or credentials outside this path.

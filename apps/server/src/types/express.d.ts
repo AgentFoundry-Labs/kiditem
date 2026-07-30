@@ -4,6 +4,7 @@ declare module 'express-serve-static-core' {
   interface Request {
     authUser?: AuthUser;
     authFailureReason?: 'auth_user_not_mirrored';
+    authSessionId?: string;
   }
 }
 

@@ -20,7 +20,7 @@ fallback/recovery
 ## State Rules
 
 - `PanelSseClient` uses `fetchEventSource` with `credentials: 'include'` and an
-  Authorization header when a Supabase session token is available.
+  Authorization header when a KidItem opaque session token is available.
 - Parse stream messages with `PanelEventSchema` before writing to panel state.
 - Preserve `last-event-id` behavior when changing reconnect/backfill logic.
 - Dismiss/promote/recovery mutations use `apiClient` and invalidate or update

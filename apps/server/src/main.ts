@@ -18,7 +18,7 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { requireWebOrigin } from './common/config/web-origin';
 import { ChatService } from './chat/chat.service';
-import { SupabaseAuthMiddleware } from './auth/middleware/supabase-auth.middleware';
+import { SessionAuthMiddleware } from './auth/middleware/session-auth.middleware';
 import type { Request, Response } from 'express';
 
 async function bootstrap() {
@@ -40,25 +40,25 @@ async function bootstrap() {
   // /request-handler.mjs `synthesizeBodyFromParsedBody`.
   expressApp.use('/api/chat/copilot', express.json({ limit: '25mb' }));
 
-  // ChatService / SupabaseAuthMiddleware 는 Nest 초기화 후에만 resolve 가능 — lazy ref.
+  // ChatService / SessionAuthMiddleware 는 Nest 초기화 후에만 resolve 가능 — lazy ref.
   // 이 raw express handler 는 Nest router 앞에 있어 AppModule middleware 와
-  // OrganizationScopeGuard 가 적용되지 않으므로, SupabaseAuthMiddleware 를 직접
+  // OrganizationScopeGuard 가 적용되지 않으므로, SessionAuthMiddleware 를 직접
   // 호출해 `req.authUser` 를 채운 뒤 401/auth_required / no_organization_context 를
   // 손수 처리한다.
   let chatServiceRef: ChatService | null = null;
-  let supabaseAuthRef: SupabaseAuthMiddleware | null = null;
+  let sessionAuthRef: SessionAuthMiddleware | null = null;
   expressApp.use('/api/chat/copilot', async (req: Request, res: Response) => {
     // Browsers reach this route through Next's same-origin rewrite (see
     // `apps/web/next.config.mjs`). There is no cross-origin browser caller,
     // so chat-specific CORS preflight handling is intentionally absent —
     // `app.enableCors` below covers the remaining server→server callers.
-    if (!chatServiceRef || !supabaseAuthRef) {
+    if (!chatServiceRef || !sessionAuthRef) {
       res.status(503).json({ error: 'service_not_ready' });
       return;
     }
     try {
       await new Promise<void>((resolveStep, rejectStep) => {
-        supabaseAuthRef!.use(req, res, (err?: unknown) => {
+        sessionAuthRef!.use(req, res, (err?: unknown) => {
           if (err) rejectStep(err as Error);
           else resolveStep();
         });
@@ -86,7 +86,7 @@ async function bootstrap() {
     new ExpressAdapter(expressApp),
   );
   chatServiceRef = app.get(ChatService);
-  supabaseAuthRef = app.get(SupabaseAuthMiddleware);
+  sessionAuthRef = app.get(SessionAuthMiddleware);
   // 프로덕션은 CORS_ORIGINS(쉼표 구분) 화이트리스트 필수. 미지정이면 전부 차단.
   const isProd = process.env.NODE_ENV === 'production';
   const prodOrigins = (process.env.CORS_ORIGINS ?? '')
@@ -110,7 +110,7 @@ async function bootstrap() {
     credentials: true,
   });
   app.useBodyParser('json', { limit: '25mb' });
-  // SupabaseAuthMiddleware 가 Supabase SSR auth-token 쿠키를 읽기 위해 필요.
+  // SessionAuthMiddleware 가 KidItem HttpOnly 세션 쿠키를 읽기 위해 필요.
   // `expressApp.use(cookieParser())` above covers both raw chat and Nest routes.
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({

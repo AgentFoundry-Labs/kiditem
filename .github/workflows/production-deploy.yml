@@ -102,13 +102,9 @@ jobs:
       - name: Validate production confirmation
         env:
           CONFIRM: ${{ inputs.confirm }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: |
           set -euo pipefail
           [[ "$CONFIRM" == "DEPLOY_PRODUCTION" ]] || { echo "confirm must be DEPLOY_PRODUCTION" >&2; exit 2; }
-          : "${NEXT_PUBLIC_SUPABASE_URL:?Set production variable PRODUCTION_NEXT_PUBLIC_SUPABASE_URL}"
-          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set production variable PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
 
       - name: Compute image references
         id: refs
@@ -163,8 +159,6 @@ jobs:
       app_version: ${{ needs.prepare.outputs.app_version }}
       build_args: |
         NEXT_PUBLIC_API_URL=
-        NEXT_PUBLIC_SUPABASE_URL=${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
-        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
       extra_tags: ghcr.io/agentfoundry-labs/kiditem-web:production-candidate
 
   deploy:
@@ -236,7 +230,7 @@ jobs:
           REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
         run: npm run inventory:rebuild -- guard
 
-      - name: Preflight protected production accounts and Supabase auth
+      - name: Preflight protected production accounts and local auth
         if: inputs.destructive_reset != ''
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
@@ -262,8 +256,6 @@ jobs:
           REBUILD_SELLPIA_ROW_COUNT: ${{ vars.PRODUCTION_REBUILD_SELLPIA_ROW_COUNT }}
           REBUILD_WING_FILE_SHA256: ${{ vars.PRODUCTION_REBUILD_WING_FILE_SHA256 }}
           REBUILD_WING_ROW_COUNT: ${{ vars.PRODUCTION_REBUILD_WING_ROW_COUNT }}
-          SUPABASE_URL: ${{ vars.PRODUCTION_SUPABASE_URL || vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SECRET_KEY: ${{ secrets.PRODUCTION_SUPABASE_SECRET_KEY }}
           REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
           REBUILD_BOOTSTRAP_PREFLIGHT_PATH: ${{ runner.temp }}/bootstrap-preflight.json
         run: npm run inventory:rebuild -- preflight-bootstrap --origin-run-id "${{ github.run_id }}"
@@ -447,7 +439,6 @@ jobs:
           WEB_ENV_FILE: .env.production.web
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
-          SUPABASE_URL: ${{ vars.PRODUCTION_SUPABASE_URL || vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
           WEB_ORIGIN: ${{ vars.PRODUCTION_URL }}
           CORS_ORIGINS: ${{ vars.PRODUCTION_CORS_ORIGINS || vars.PRODUCTION_URL }}
           S3_REGION: ${{ vars.PRODUCTION_S3_REGION }}
@@ -480,8 +471,6 @@ jobs:
           AGENT_RUNTIME_WORKER_ENABLED: ${{ vars.PRODUCTION_AGENT_RUNTIME_WORKER_ENABLED }}
           AGENT_DEFAULT_MODEL: ${{ vars.PRODUCTION_AGENT_DEFAULT_MODEL }}
           NEXT_PUBLIC_API_URL:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: bash deploy/staging/render-runtime-env.sh
 
       - name: Prepare SSH
@@ -761,9 +750,7 @@ jobs:
           REBUILD_USER_EMAIL: ${{ secrets.PRODUCTION_REBUILD_USER_EMAIL }}
           REBUILD_API_URL: ${{ vars.PRODUCTION_REBUILD_EXPECTED_API_ORIGIN }}
           REBUILD_EXPECTED_API_ORIGIN: ${{ vars.PRODUCTION_REBUILD_EXPECTED_API_ORIGIN }}
-          SUPABASE_URL: ${{ vars.PRODUCTION_SUPABASE_URL || vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
           REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
-          SUPABASE_SECRET_KEY: ${{ secrets.PRODUCTION_SUPABASE_SECRET_KEY }}
           REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild/authoritative-rebuild.json
         run: npm run inventory:rebuild -- replay-coupang --origin-run-id "${{ inputs.rebuild_run_id }}"
 
@@ -832,7 +819,6 @@ jobs:
           WEB_ENV_FILE: .env.production.web
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
-          SUPABASE_URL: ${{ vars.PRODUCTION_SUPABASE_URL || vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
           WEB_ORIGIN: ${{ vars.PRODUCTION_URL }}
           CORS_ORIGINS: ${{ vars.PRODUCTION_CORS_ORIGINS || vars.PRODUCTION_URL }}
           S3_REGION: ${{ vars.PRODUCTION_S3_REGION }}
@@ -850,8 +836,6 @@ jobs:
           AGENT_RUNTIME_WORKER_ENABLED: ${{ vars.PRODUCTION_AGENT_RUNTIME_WORKER_ENABLED }}
           AGENT_DEFAULT_MODEL: ${{ vars.PRODUCTION_AGENT_DEFAULT_MODEL }}
           NEXT_PUBLIC_API_URL:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: bash deploy/staging/render-runtime-env.sh
 
       - name: Prepare SSH

@@ -15,7 +15,9 @@ actually enabled in that environment.
 
 - Access to the GitHub repository and the target GitHub Environment.
 - SSH access to the target host when changing runtime secrets.
-- Access to the Supabase project used by the target environment.
+- Access to any Supabase database/storage project used by the target
+  environment. Application authentication is local and needs no Supabase Auth
+  project or API keys.
 - Access to provider consoles for AI keys, storage S3 keys, and marketplace
   credentials.
 
@@ -75,8 +77,8 @@ Local development:
   `deploy/staging/env/api.env.example`. The marked order-collection credential
   seed block is the only deploy-input exception and is never rendered into the
   API runtime env.
-- Root `.env` should stay narrow: Prisma CLI, Supabase bootstrap/admin sync,
-  shared dev-data paths, and the Agent OS seed model used by
+- Root `.env` should stay narrow: Prisma CLI, optional Supabase storage/data
+  tooling, shared dev-data paths, and the Agent OS seed model used by
   `npm run seed:agent-os`.
 - Product-bound detail page, thumbnail, and image-edit generation are direct AI
   jobs, not Agent OS runs. For local preview, keep `AI_TEXT_MODEL`,
@@ -90,9 +92,9 @@ Staging:
 
 - Source of truth example is `deploy/staging/env/api.env.example` for the API
   container and `deploy/staging/env/web.env.example` for the web container.
-- Staging should use a dedicated Supabase project, database, storage bucket, and
-  provider keys once real QA begins. Reusing dev is allowed only as a short
-  first-rollout bridge.
+- If staging is reactivated, it should use a dedicated database, storage
+  bucket, and provider keys once real QA begins. Reusing dev is allowed only as
+  a short first-rollout bridge. Authentication remains in the application DB.
 - The current staging compose runtime runs API, web, and nginx. It does not run
   `agents/` as a separate Python runtime.
 - Keep staging to the current minimum runtime env below. Add AI, Agent OS, or
@@ -101,8 +103,9 @@ Staging:
 
 Production:
 
-- Production must have a separate Supabase project, database, storage bucket,
-  DNS/origin list, and provider keys from local and staging.
+- Production must have a separate database, storage bucket, DNS/origin list,
+  and provider keys from local and staging. Authentication remains in the
+  application DB.
 - Source of truth examples are `deploy/production/env/api.env.example` for the
   API container and `deploy/production/env/web.env.example` for the web
   container. Values and access keys must be created independently.
@@ -119,7 +122,6 @@ managed from GitHub Environment `staging`; the deploy workflow renders
 NODE_ENV
 PORT
 DATABASE_URL
-SUPABASE_URL
 WEB_ORIGIN
 CORS_ORIGINS
 S3_REGION
@@ -147,8 +149,6 @@ Web container, current staging shape:
 
 ```text
 NEXT_PUBLIC_API_URL
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 ```
 
 `NEXT_PUBLIC_API_URL` stays empty in staging/production when nginx handles
@@ -161,7 +161,6 @@ same-origin `/api/*` routing.
 | `NODE_ENV` | API runtime | Yes | NestJS, storage, prod guards | `production` in staging/prod. |
 | `PORT` | API runtime | Yes | NestJS | `4000` for the API container. |
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
-| `SUPABASE_URL` | Auth | Yes | Supabase JWT/JWKS middleware | Must match the project issuing browser session cookies. |
 | `WEB_ORIGIN` | API runtime | Yes | API bootstrap, detail page client renderer | Single canonical browser origin used to construct extension render document URLs. There is no localhost fallback; never derive it from `CORS_ORIGINS`. |
 | `CORS_ORIGINS` | API runtime | Yes in production | Nest CORS | Comma-separated public origins. Same-origin `/api/*` still works through nginx. |
 | `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
@@ -171,8 +170,6 @@ same-origin `/api/*` routing.
 | Variable | Owner | Required | Consumed by | Notes |
 |---|---|---:|---|---|
 | `NEXT_PUBLIC_API_URL` | Web build/runtime | Local only | API client, Next rewrite destination | Local dev uses `http://localhost:4000`. Staging/prod leave empty so browser requests stay same-origin and nginx routes `/api/*`. |
-| `NEXT_PUBLIC_SUPABASE_URL` | Web build/runtime | Yes | Supabase browser/server client, proxy | Public project URL. |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Web build/runtime | Yes | Supabase browser/server client, proxy | Public publishable key. |
 | `NEXT_PUBLIC_ENABLE_QUERY_DEVTOOLS` | Web runtime | Optional | Query devtools provider | Effective only when `NODE_ENV=development`. |
 
 ## Storage
@@ -351,9 +348,8 @@ for them.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
-| `SUPABASE_SECRET_KEY` | Running Supabase admin sync/bootstrap scripts | Scripts and dev bootstrap | Secret key. Never expose to frontend or git. |
-| `DEV_USER_EMAIL` | Dev preview session callback bootstrap | `bin/dev-bootstrap.sh` | Defaults to the shared dev seed user when unset. |
-| `DEV_WEB_ORIGIN` | Dev preview session callback bootstrap | `bin/dev-bootstrap.sh` | Must match the exact local browser origin. |
+| `SUPABASE_URL` | Supabase Storage cache operations are used | Storage tooling | Project URL. This is not an application auth variable. |
+| `SUPABASE_SECRET_KEY` | Supabase Storage cache operations are used | Storage tooling | Secret key. Never expose to frontend or git. This is not an application auth credential. |
 | `KIDITEM_DEV_DATA_DRIVE_DIR` | Google Drive dev data sync | Dev data scripts | Local Google Drive Desktop path. |
 | `KIDITEM_DEV_ORGANIZATION_ID` | Dev data sync/import needs target org | Dev data scripts | Local/dev org scope. |
 | `KIDITEM_DEV_USER_ID` | Dev data API replay needs an actor | Dev data scripts | Optional explicit user id for replay. Prefer organization-scoped imports where possible. |
@@ -407,8 +403,6 @@ variables apply when running `agents/` as a separate runtime.
 Variables:
 
 ```text
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 STAGING_AGENT_DEFAULT_MODEL
 STAGING_AGENT_RUNTIME_WORKER_ENABLED
 STAGING_AI_IMAGE_ANALYSIS_MODEL
@@ -430,7 +424,6 @@ STAGING_S3_BUCKET
 STAGING_S3_ENDPOINT
 STAGING_S3_PUBLIC_URL
 STAGING_S3_REGION
-STAGING_SUPABASE_URL
 STAGING_TMAPI_BASE_URL
 STAGING_URL
 STAGING_USER
@@ -520,7 +513,7 @@ set +a
 
 ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
   docker exec kiditem-staging-api sh -lc '"'"'
-    for k in NODE_ENV PORT DATABASE_URL SUPABASE_URL WEB_ORIGIN CORS_ORIGINS \
+    for k in NODE_ENV PORT DATABASE_URL WEB_ORIGIN CORS_ORIGINS \
       S3_ENDPOINT S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_PUBLIC_URL S3_REGION \
       PUPPETEER_EXECUTABLE_PATH; do
         eval v=\${$k-}

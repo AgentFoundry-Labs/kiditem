@@ -36,7 +36,6 @@ npm run test:scripts
 | `scripts/check-shared-interface-names.mjs` | shared public Zod contract naming ratchet | `npm run check:shared-interface-names` |
 | `scripts/check-shared-root-imports.sh` | shared root-barrel ratchet | `npm run check:shared-root-imports` |
 | `scripts/check-tenant-scope.sh` | mutating service organization-scope scanner | `npm run check:tenant-scope` |
-| `scripts/create-dev-preview-session.mjs` | local preview auth session helper | `./bin/dev-bootstrap.sh`, `docs/runbooks/dev-preview-with-auth.md` |
 | `scripts/dev-data-coupang.ts` | coupang domain adapter for dev data bundles | `npm run data:dev:* -- --domain coupang` |
 | `scripts/dev-data.ts` | dev data bundle CLI | `npm run data:dev:*` |
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
@@ -48,7 +47,6 @@ npm run test:scripts
 | `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/staging-deploy.md` |
 | `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
 | `scripts/storage-cache-control.ts` | Supabase/S3 Storage cache-control inspection and staging backfill helper for public immutable image assets | `npm run storage:cache-control`, `docs/runbooks/storage-cache-control.md` |
-| `scripts/sync-supabase-user.ts` | Supabase auth mirror helper | `docs/runbooks/auth-supabase.md` |
 | `scripts/transfer-channel-recipes.ts` | exports confirmed local channel recipes to a stable-identity artifact and plans/applies create-if-empty manual recipes through authenticated local or staging APIs | `npm run recipes:transfer`, `docs/runbooks/channel-recipe-transfer.md` |
 
 ## Support Files

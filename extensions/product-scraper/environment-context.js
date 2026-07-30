@@ -4,7 +4,7 @@
   const AUTH_REQUIRED_EVENT = 'kiditem:extension-auth-required';
   const DEFAULT_PROFILE_STORAGE_KEY = 'kiditem_environment_profiles_v1';
   const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
-  const DEFAULT_AUTH_REFRESH_TIMEOUT_MS = 10_000;
+  const DEFAULT_AUTH_RESYNC_TIMEOUT_MS = 10_000;
   const ENVIRONMENT_IDS = Object.freeze(['local', 'office', 'staging']);
   const ENVIRONMENTS = Object.freeze({
     local: Object.freeze({
@@ -48,9 +48,9 @@
     const now = options.now || Date.now;
     const requestTimeoutMs =
       options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
-    const authRefreshTimeoutMs =
-      options.authRefreshTimeoutMs || DEFAULT_AUTH_REFRESH_TIMEOUT_MS;
-    const refreshes = new Map();
+    const authResyncTimeoutMs =
+      options.authResyncTimeoutMs || DEFAULT_AUTH_RESYNC_TIMEOUT_MS;
+    const resyncs = new Map();
     let profileMutationQueue = Promise.resolve();
 
     function requireEnvironment(environmentId) {
@@ -212,7 +212,7 @@
             finish(token);
           }
         };
-        timer = setTimeout(() => finish(null), authRefreshTimeoutMs);
+        timer = setTimeout(() => finish(null), authResyncTimeoutMs);
         chromeApi.storage.onChanged.addListener(handleStorageChange);
         getAccessToken(environmentId).then((token) => {
           if (token && token !== previousToken) finish(token);
@@ -237,10 +237,10 @@
       );
     }
 
-    function requestFreshAccessToken(environmentId, previousToken) {
-      const active = refreshes.get(environmentId);
+    function requestResyncedAccessToken(environmentId, previousToken) {
+      const active = resyncs.get(environmentId);
       if (active) return active;
-      const refresh = (async () => {
+      const resync = (async () => {
         const changedToken = waitForAccessTokenChange(
           environmentId,
           previousToken,
@@ -248,12 +248,12 @@
         await notifyAuthRequired(environmentId).catch(() => undefined);
         return changedToken;
       })().finally(() => {
-        if (refreshes.get(environmentId) === refresh) {
-          refreshes.delete(environmentId);
+        if (resyncs.get(environmentId) === resync) {
+          resyncs.delete(environmentId);
         }
       });
-      refreshes.set(environmentId, refresh);
-      return refresh;
+      resyncs.set(environmentId, resync);
+      return resync;
     }
 
     async function fetchOnce(environment, path, init, token) {
@@ -289,17 +289,8 @@
         throw new Error('Authenticated fetch is unavailable');
       }
       let token = await getAccessToken(environmentId);
-      if (!token && environment.environmentId === 'local') {
-        // The local Nest runtime may intentionally own authentication through
-        // its fail-loud DEV_SKIP_AUTH guard. Probe only the fixed loopback API
-        // without inventing or persisting a credential; a 401 falls through to
-        // the normal environment-scoped web-token recovery below. Staging never
-        // takes this tokenless path.
-        const localResponse = await fetchOnce(environment, path, init, null);
-        if (localResponse.status !== 401) return localResponse;
-      }
       if (!token) {
-        token = await requestFreshAccessToken(environmentId, null);
+        token = await requestResyncedAccessToken(environmentId, null);
         if (!token) {
           throw createError(
             'environment_auth_required',
@@ -310,7 +301,7 @@
       }
       const response = await fetchOnce(environment, path, init, token);
       if (response.status !== 401) return response;
-      const nextToken = await requestFreshAccessToken(environmentId, token);
+      const nextToken = await requestResyncedAccessToken(environmentId, token);
       if (!nextToken || nextToken === token) return response;
       return fetchOnce(environment, path, init, nextToken);
     }

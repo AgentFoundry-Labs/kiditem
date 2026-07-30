@@ -1,43 +1,26 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowDownRight, ArrowUpRight, Loader2, Minus, RefreshCw, Search } from 'lucide-react';
-import { toast } from 'sonner';
+import { ArrowDown, ArrowDownRight, ArrowUpRight, Loader2, Minus, Search } from 'lucide-react';
 import type {
   SellpiaProductSalesRow,
   SellpiaProductSalesSummary,
   SellpiaProductTrend,
 } from '@kiditem/shared/dashboard';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatNumber, formatDateTime, timeAgo } from '@/lib/utils';
+import { cn, formatNumber, formatDateTime } from '@/lib/utils';
 import { fetchSellpiaProductSales } from '@/lib/sellpia-product-sales-api';
-import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
-import {
-  classifySellpiaStockSync,
-  describeSellpiaStockSync,
-  sellpiaTransmissionReviewBadgeLabel,
-  type SellpiaStockSyncOutcome,
-} from '../../_shared/sellpia-sync-outcome';
+import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';
 import { ProductOutflowDestinations } from './ProductOutflowDestinations';
 
 const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
-
-// 재고 동기화 버튼에 표시할 셀피아 재고 최신성 상태 배지
-const STOCK_FRESHNESS_META: Record<string, { label: string; className: string }> = {
-  fresh: { label: '최신', className: 'bg-emerald-100 text-emerald-700' },
-  refresh_required: { label: '갱신 필요', className: 'bg-amber-100 text-amber-800' },
-  syncing: { label: '갱신 중', className: 'bg-blue-100 text-blue-700' },
-  failed: { label: '실패', className: 'bg-red-100 text-red-700' },
-};
 
 // 정렬 키: 고정 지표('avg2m'|'currentStock') 또는 특정 연월("YYYY-MM").
 type SortKey = 'avg2m' | 'currentStock' | string;
 type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C' | 'unclassified';
 
 export default function ProductOutflow() {
-  const { requestRefresh, state: freshnessState } = useSellpiaInventoryFreshness({ enabled: true });
-  const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('avg2m');
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -47,34 +30,6 @@ export default function ProductOutflow() {
     queryFn: () => fetchSellpiaProductSales({ months: MONTHS_WINDOW }),
     refetchInterval: 60_000,
   });
-
-  // 현재고와 상품별 소진을 함께 갱신한다. 실제 수집/적재는 공용 조정자가 수행한다.
-  const requestSellpiaSync = useCallback(async (): Promise<SellpiaStockSyncOutcome> => {
-    try {
-      const state = await requestRefresh(
-        freshnessState?.status === 'failed' ? 'retry' : 'manual_request',
-      );
-      return classifySellpiaStockSync(state);
-    } catch {
-      return { kind: 'request_failed' };
-    }
-  }, [freshnessState?.status, requestRefresh]);
-
-  const runSync = useCallback(async () => {
-    setSyncing(true);
-    try {
-      const notice = describeSellpiaStockSync(await requestSellpiaSync());
-      if (notice.tone === 'error') toast.error(notice.message);
-      else toast.success(notice.message);
-    } finally {
-      setSyncing(false);
-    }
-  }, [requestSellpiaSync]);
-  const syncBusy = syncing || freshnessState?.status === 'syncing';
-  const unresolvedTransmissionCount =
-    freshnessState?.unresolvedOrderTransmissionIntents.length ?? 0;
-  const stockMeta = freshnessState ? STOCK_FRESHNESS_META[freshnessState.status] : null;
-  const stockAge = freshnessState?.lastVerifiedAt ? timeAgo(freshnessState.lastVerifiedAt) : null;
 
   return (
     <div className="space-y-3">
@@ -94,31 +49,7 @@ export default function ProductOutflow() {
           )}
           <span className="text-[11px] text-slate-300">· 메이크샵 주문 기준</span>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={runSync}
-            disabled={syncBusy}
-            aria-label="셀피아 동기화"
-            title={unresolvedTransmissionCount > 0
-              ? `셀피아 전송 결과 미확인 ${unresolvedTransmissionCount}건은 별도 확인이 필요하지만 동기화는 계속할 수 있습니다.`
-              : '셀피아 현재고와 상품별 소진을 함께 동기화'}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 hover:bg-slate-700 disabled:opacity-50"
-          >
-            {syncBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            <span>{syncBusy ? '동기화 중...' : '셀피아 동기화'}</span>
-            {stockMeta && (
-              <span className={cn('rounded-full px-1.5 py-0.5 text-[11px] font-semibold', stockMeta.className)}>
-                {stockMeta.label}
-              </span>
-            )}
-            {unresolvedTransmissionCount > 0 && (
-              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700">
-                {sellpiaTransmissionReviewBadgeLabel()} {unresolvedTransmissionCount}
-              </span>
-            )}
-            {stockAge && <span className="font-normal text-slate-400">{stockAge}</span>}
-          </button>
-        </div>
+        <SellpiaSyncAction compact showStatus />
       </div>
 
       {isLoading ? (

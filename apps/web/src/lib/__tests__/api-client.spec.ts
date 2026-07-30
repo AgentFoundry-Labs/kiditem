@@ -4,20 +4,12 @@ import { apiClient } from '../api-client';
 import { normalizeLoopbackApiBase } from '../api';
 import { ApiError, isApiError } from '../api-error';
 
-const refreshOrFailMock = vi.fn();
-const triggerSignOutMock = vi.fn();
+const getAuthSessionMock = vi.fn();
+const clearAuthSessionMock = vi.fn();
 
-vi.mock('../supabase/refresh', () => ({
-  refreshOrFail: (...args: unknown[]) => refreshOrFailMock(...args),
-  triggerSignOut: (...args: unknown[]) => triggerSignOutMock(...args),
-}));
-
-vi.mock('../supabase/client', () => ({
-  createSupabaseBrowserClient: () => ({
-    auth: {
-      getSession: async () => ({ data: { session: null } }),
-    },
-  }),
+vi.mock('../auth/session', () => ({
+  getAuthSession: () => getAuthSessionMock(),
+  clearAuthSession: (...args: unknown[]) => clearAuthSessionMock(...args),
 }));
 
 const DataSchema = z.object({
@@ -45,8 +37,9 @@ function jsonResponse(status: number, body: unknown, ok = status < 400): Respons
 describe('apiClient.getParsed', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    refreshOrFailMock.mockReset();
-    triggerSignOutMock.mockReset();
+    getAuthSessionMock.mockReset();
+    getAuthSessionMock.mockReturnValue(null);
+    clearAuthSessionMock.mockReset();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -82,27 +75,26 @@ describe('apiClient.getParsed', () => {
     expect(result).toHaveLength(1);
   });
 
-  it('falls back to Supabase SSR cookie when attaching Authorization', async () => {
-    const session = JSON.stringify({ access_token: 'cookie-token' });
-    const encoded = `base64-${Buffer.from(session, 'utf8').toString('base64url')}`;
-    vi.stubGlobal('window', {});
-    vi.stubGlobal('document', {
-      cookie: `sb-test-ref-auth-token=${encodeURIComponent(encoded)}`,
+  it('attaches the KidItem browser session token as Authorization', async () => {
+    getAuthSessionMock.mockReturnValue({
+      token: 'a'.repeat(43),
+      expiresAt: '2026-08-29T03:00:00.000Z',
     });
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(jsonResponse(200, { ok: true }));
 
     await apiClient.post('/api/test');
 
     const init = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit;
-    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer cookie-token');
+    expect(new Headers(init.headers).get('Authorization')).toBe(`Bearer ${'a'.repeat(43)}`);
   });
 });
 
 describe('apiClient HTTP method envelopes', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    refreshOrFailMock.mockReset();
-    triggerSignOutMock.mockReset();
+    getAuthSessionMock.mockReset();
+    getAuthSessionMock.mockReturnValue(null);
+    clearAuthSessionMock.mockReset();
   });
 
   afterEach(() => {
@@ -217,38 +209,15 @@ describe('apiClient HTTP method envelopes', () => {
 describe('apiClient — 401 interceptor', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    refreshOrFailMock.mockReset();
-    triggerSignOutMock.mockReset();
-    triggerSignOutMock.mockResolvedValue(undefined);
+    getAuthSessionMock.mockReset();
+    getAuthSessionMock.mockReturnValue(null);
+    clearAuthSessionMock.mockReset();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('AC1: GET 401 auth_required -> refresh success -> retry -> 200 body returned', async () => {
-    const fetchMock = fetch as ReturnType<typeof vi.fn>;
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(401, {
-          statusCode: 401,
-          error: 'Unauthorized',
-          message: 'auth_required',
-          timestamp: '2026-05-12T00:00:00Z',
-          path: '/api/foo',
-        }),
-      )
-      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
-    refreshOrFailMock.mockResolvedValueOnce(true);
-
-    const result = await apiClient.get<{ ok: boolean }>('/api/foo');
-
-    expect(result).toEqual({ ok: true });
-    expect(refreshOrFailMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(triggerSignOutMock).not.toHaveBeenCalled();
-  });
-
-  it('AC2: GET 401 auth_required -> refresh fail -> triggerSignOut("session_expired") + throw', async () => {
+  it('AC1: GET 401 auth_required clears the absolute session without retrying', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -259,18 +228,16 @@ describe('apiClient — 401 interceptor', () => {
         path: '/api/foo',
       }),
     );
-    refreshOrFailMock.mockResolvedValueOnce(false);
-
     await expect(apiClient.get('/api/foo')).rejects.toMatchObject({
       status: 401,
       code: 'auth_required',
     });
 
-    expect(refreshOrFailMock).toHaveBeenCalledTimes(1);
-    expect(triggerSignOutMock).toHaveBeenCalledWith('session_expired');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(clearAuthSessionMock).toHaveBeenCalledWith('session_expired');
   });
 
-  it('AC3: POST FormData 401 auth_required -> refresh SKIP -> triggerSignOut + throw', async () => {
+  it('AC2: POST FormData follows the same single-attempt expiry path', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -290,11 +257,11 @@ describe('apiClient — 401 interceptor', () => {
       code: 'auth_required',
     });
 
-    expect(refreshOrFailMock).not.toHaveBeenCalled();
-    expect(triggerSignOutMock).toHaveBeenCalledWith('session_expired');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(clearAuthSessionMock).toHaveBeenCalledWith('session_expired');
   });
 
-  it('AC4: GET 401 no_organization_context -> NO signOut, throw ApiError', async () => {
+  it('AC3: GET 401 no_organization_context does not clear a valid session', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -311,33 +278,10 @@ describe('apiClient — 401 interceptor', () => {
       code: 'no_organization_context',
     });
 
-    expect(refreshOrFailMock).not.toHaveBeenCalled();
-    expect(triggerSignOutMock).not.toHaveBeenCalled();
+    expect(clearAuthSessionMock).not.toHaveBeenCalled();
   });
 
-  it('AC4b: GET 401 auth_user_not_mirrored -> NO signOut, throw actionable ApiError', async () => {
-    const fetchMock = fetch as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(401, {
-        statusCode: 401,
-        error: 'Unauthorized',
-        message: 'auth_user_not_mirrored',
-        timestamp: '2026-05-21T00:00:00Z',
-        path: '/api/auth/me',
-      }),
-    );
-
-    await expect(apiClient.get('/api/auth/me')).rejects.toMatchObject({
-      status: 401,
-      code: 'auth_user_not_mirrored',
-      detail: '로그인 계정이 KidItem 사용자로 연결되지 않았습니다. 관리자에게 사용자 동기화를 요청해주세요.',
-    });
-
-    expect(refreshOrFailMock).not.toHaveBeenCalled();
-    expect(triggerSignOutMock).not.toHaveBeenCalled();
-  });
-
-  it('AC5: GET 401 unknown_message -> NO refresh, throw generic ApiError', async () => {
+  it('AC4: GET 401 unknown_message throws a generic ApiError without clearing', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -359,11 +303,10 @@ describe('apiClient — 401 interceptor', () => {
     expect(isApiError(caught)).toBe(true);
     expect((caught as ApiError).status).toBe(401);
     expect((caught as ApiError).code).toBe('Unauthorized');
-    expect(refreshOrFailMock).not.toHaveBeenCalled();
-    expect(triggerSignOutMock).not.toHaveBeenCalled();
+    expect(clearAuthSessionMock).not.toHaveBeenCalled();
   });
 
-  it('AC6: GET 500 -> code === body.error (no drift)', async () => {
+  it('AC5: GET 500 preserves the backend error code', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(500, {
@@ -386,32 +329,10 @@ describe('apiClient — 401 interceptor', () => {
     expect((caught as ApiError).status).toBe(500);
     expect((caught as ApiError).code).toBe('INTERNAL');
     expect((caught as ApiError).detail).toBe('database connection lost');
-    expect(refreshOrFailMock).not.toHaveBeenCalled();
+    expect(clearAuthSessionMock).not.toHaveBeenCalled();
   });
 
-  it('AC7: fetchRaw 401 auth_required -> refresh + retry path, then 200 Response', async () => {
-    const fetchMock = fetch as ReturnType<typeof vi.fn>;
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(401, {
-          statusCode: 401,
-          error: 'Unauthorized',
-          message: 'auth_required',
-          timestamp: '2026-05-12T00:00:00Z',
-          path: '/api/render-image',
-        }),
-      )
-      .mockResolvedValueOnce(jsonResponse(200, { imageUrl: 'https://...' }));
-    refreshOrFailMock.mockResolvedValueOnce(true);
-
-    const res = await apiClient.fetchRaw('/api/render-image', { method: 'POST' });
-
-    expect(res.status).toBe(200);
-    expect(refreshOrFailMock).toHaveBeenCalledTimes(1);
-    expect(triggerSignOutMock).not.toHaveBeenCalled();
-  });
-
-  it('AC7b: fetchRaw 401 auth_required -> refresh fail -> signOut -> raw 401 Response returned', async () => {
+  it('AC6: fetchRaw 401 clears the session and returns the original response', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -422,45 +343,20 @@ describe('apiClient — 401 interceptor', () => {
         path: '/api/render-image',
       }),
     );
-    refreshOrFailMock.mockResolvedValueOnce(false);
-
     const res = await apiClient.fetchRaw('/api/render-image', { method: 'POST' });
 
     expect(res.status).toBe(401);
-    expect(triggerSignOutMock).toHaveBeenCalledWith('session_expired');
-  });
-
-  it('AC8: each independent 401 invokes refreshOrFail (mutex coalescing verified in refresh.spec R3)', async () => {
-    const fetchMock = fetch as ReturnType<typeof vi.fn>;
-    const body401 = {
-      statusCode: 401,
-      error: 'Unauthorized',
-      message: 'auth_required',
-      timestamp: '2026-05-12T00:00:00Z',
-      path: '/api/foo',
-    };
-    for (let i = 0; i < 3; i++) {
-      fetchMock
-        .mockResolvedValueOnce(jsonResponse(401, body401))
-        .mockResolvedValueOnce(jsonResponse(200, { ok: i }));
-    }
-    refreshOrFailMock.mockResolvedValue(true);
-
-    await apiClient.get<{ ok: number }>('/api/foo');
-    await apiClient.get<{ ok: number }>('/api/foo');
-    await apiClient.get<{ ok: number }>('/api/foo');
-
-    expect(refreshOrFailMock).toHaveBeenCalledTimes(3);
-    expect(triggerSignOutMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(clearAuthSessionMock).toHaveBeenCalledWith('session_expired');
   });
 });
 
 describe('api base helpers', () => {
-  it('normalizes loopback API host to the browser host', () => {
+  it('keeps loopback API requests on the browser host for host-only auth cookies', () => {
     expect(normalizeLoopbackApiBase('http://localhost:4000', '127.0.0.1'))
       .toBe('http://127.0.0.1:4000');
     expect(normalizeLoopbackApiBase('http://127.0.0.1:4000', 'localhost'))
-      .toBe('http://[::1]:4000');
+      .toBe('http://localhost:4000');
     expect(normalizeLoopbackApiBase('http://localhost:4000', '0.0.0.0'))
       .toBe('http://localhost:4000');
     expect(normalizeLoopbackApiBase('https://api.kiditem.local', 'localhost'))
