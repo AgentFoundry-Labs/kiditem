@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { MallAccountGroups } from './MallAccountGroups';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { FailedMallReason } from '../hooks/use-order-activity-events';
 
 function account(
   key: string,
@@ -100,5 +101,44 @@ describe('MallAccountGroups', () => {
     expect(kakaoCollect).toBeEnabled();
     await user.click(kakaoCollect);
     expect(onCollectMall).toHaveBeenCalledWith(kakao);
+  });
+
+  it('turns the status light red when a mall needs login or authentication', () => {
+    const kakao = account('kakao', { name: '카카오' });
+    const kidsnote = account('kidsnote', { name: '키즈노트' });
+    const gsshop = account('gsshop', { name: 'GS샵' });
+
+    render(
+      <MallAccountGroups
+        accounts={[kakao, kidsnote, gsshop]}
+        stats={new Map()}
+        failedMallReasonByKey={new Map<string, FailedMallReason>([
+          ['kidsnote', 'login'],
+          ['gsshop', 'auth'],
+        ])}
+        selectedMall={null}
+        settingsOpen={false}
+        collectingKeys={new Set()}
+        cancellingKeys={new Set()}
+        autoDetect={false}
+        autoNextRunAt={null}
+        autoRunning={false}
+        onOpenSettings={vi.fn()}
+        onCollectMall={vi.fn()}
+        onCancelMall={vi.fn()}
+        onUploadTracking={vi.fn()}
+      />,
+    );
+
+    // 로그인 안 됨 → 빨간불 + "로그인 필요" 안내
+    const loginDot = screen.getByTitle('로그인 필요 · 재수집 필요');
+    expect(loginDot).toHaveClass('bg-red-500');
+    // 인증 안 됨 → 빨간불 + "인증 필요" 안내
+    const authDot = screen.getByTitle('인증 필요 · 재수집 필요');
+    expect(authDot).toHaveClass('bg-red-500');
+    // 실패가 없는 수집 가능 몰은 초록불 유지
+    const okDot = screen.getByTitle('수집 가능');
+    expect(okDot).toHaveClass('bg-emerald-500');
+    expect(okDot).not.toHaveClass('bg-red-500');
   });
 });

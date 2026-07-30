@@ -121,7 +121,7 @@ describe("MallAccountSection", () => {
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("당일")).toBeInTheDocument();
     expect(screen.getByText("신규")).toBeInTheDocument();
-    expect(screen.getByTitle("오늘 주문 중 셀피아 미전송")).toBeInTheDocument();
+    expect(screen.getByTitle("오늘 수집한 주문 중 셀피아 미전송")).toBeInTheDocument();
     expect(screen.queryByText("전송 대기")).not.toBeInTheDocument();
     expect(screen.queryByText("누적 주문")).not.toBeInTheDocument();
     expect(screen.queryByText("operator")).not.toBeInTheDocument();
@@ -253,7 +253,7 @@ describe("MallAccountSection", () => {
     expect(screen.getByRole("button", { name: "쿠팡직배송 중단 중" })).toBeDisabled();
   });
 
-  it("wires route collectionRun recovery and same-run restart", () => {
+  it("wires route collectionRun recovery with attention surfaced as a notification", () => {
     const routeRoot = path.resolve(import.meta.dirname, "..");
     const workspace = readFileSync(
       path.join(routeRoot, "components/OrderCollectionWorkspace.tsx"),
@@ -268,14 +268,18 @@ describe("MallAccountSection", () => {
       "utf8",
     );
 
-    expect(workspace).toContain("BrowserCollectionRunControls");
+    // 조치 안내(로그인/세션 필요 등)는 몰 카드 위 인라인 배너가 아니라 알림으로만 띄운다.
+    expect(workspace).not.toContain("BrowserCollectionRunControls");
+    expect(workspace).toContain("attention_required");
+    expect(workspace).toContain("toast.warning");
     expect(sessionHook).toContain("useBrowserCollectionSession");
     expect(sessionHook).toContain("collectionRun");
     expect(sessionHook).toContain("createSecureRandomUuid()");
     expect(sessionHook).not.toContain("globalThis.crypto.randomUUID()");
     expect(sessionHook).toContain("'orders.mall'");
-    expect(workspace).toMatch(/handleBrowserCollectMall\(account,\s*session\.runId\)/);
-    expect(workspace).toContain('webRestartUnavailableMessage');
+    // 실행 취소/재시도는 몰 카드의 중단·수집 버튼이 담당한다.
+    expect(workspace).toContain('handleCancelMall');
+    expect(workspace).toContain('handleBrowserCollectMall');
     expect(sessionHook).toContain("mallAccounts.find((account) => account.key === mallKey)");
     expect(collector).toContain("runId");
     expect(collector).toContain("extensionId");

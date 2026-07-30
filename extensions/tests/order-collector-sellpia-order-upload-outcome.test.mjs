@@ -243,6 +243,8 @@ test('Sellpia service worker separates preflight failure from post-injection unc
     sellpiaInvoiceTargets: {
       remember: async (_environmentId, value) => value,
     },
+    // 셀피아 조회로도 판정하지 못한 경우(=null): 불확실 상태를 그대로 유지해야 한다.
+    verifySellpiaOrderReceipt: async () => null,
     SELLPIA_ORDER_UPLOAD_URL: 'https://kiditem.sellpia.com/order_collect.html?ctype=OM_FILE',
     chrome: {
       scripting: {
@@ -291,4 +293,73 @@ test('Sellpia service worker separates preflight failure from post-injection unc
 
   assert.equal(preflight.outcome, 'not_submitted');
   assert.equal(unknown.outcome, 'unknown');
+});
+
+test('Sellpia lookup resolves an uncertain submit instead of asking the operator', async () => {
+  const context = (verify) => ({
+    findOrCreateSellpiaTab: async () => ({ id: 1, url: 'https://kiditem.sellpia.com/' }),
+    waitForTabReady: async () => {},
+    withTimeout: async () => { throw new Error('response lost'); },
+    injectSellpiaOrderFile() {},
+    sellpiaPostProcessing: {
+      normalizeTargetOrderNumbers: (value) => (Array.isArray(value) ? value : []),
+    },
+    sellpiaInvoiceTargets: { remember: async (_environmentId, value) => value },
+    verifySellpiaOrderReceipt: verify,
+    SELLPIA_ORDER_UPLOAD_URL: 'https://kiditem.sellpia.com/order_collect.html?ctype=OM_FILE',
+    chrome: {
+      scripting: { executeScript: async () => [] },
+      tabs: { get: async () => ({ id: 1, url: 'https://kiditem.sellpia.com/' }) },
+    },
+  });
+  const payload = {
+    shopName: null,
+    fileName: 'orders.xlsx',
+    fileBase64: 'b3JkZXJz',
+    targetOrderNumbers: ['ORDER-1'],
+    environmentId: 'local',
+  };
+
+  // 셀피아에서 전부 확인되면 접수로 확정한다.
+  const accepted = await vm.runInNewContext(
+    `(${extractAsyncFunction('sendOrderFileToSellpia')})`,
+    context(async () => ({
+      success: true,
+      requestedCount: 1,
+      foundCount: 1,
+      missingCount: 0,
+      found: [{ orderNo: 'ORDER-1', receiver: '홍길동' }],
+    })),
+  )(payload);
+  assert.equal(accepted.outcome, 'submitted');
+  assert.equal(accepted.verifiedBySellpiaLookup, true);
+  assert.deepEqual(accepted.acceptedTargetOrderNumbers, ['ORDER-1']);
+
+  // 한 건도 없으면 미접수로 확정해 안전하게 재전송할 수 있어야 한다.
+  const missing = await vm.runInNewContext(
+    `(${extractAsyncFunction('sendOrderFileToSellpia')})`,
+    context(async () => ({
+      success: true,
+      requestedCount: 1,
+      foundCount: 0,
+      missingCount: 1,
+      found: [],
+      missing: ['ORDER-1'],
+    })),
+  )(payload);
+  assert.equal(missing.outcome, 'not_submitted');
+
+  // 일부만 들어간 경우는 중복 위험이 있으므로 확정하지 않는다.
+  const partial = await vm.runInNewContext(
+    `(${extractAsyncFunction('sendOrderFileToSellpia')})`,
+    context(async () => ({
+      success: true,
+      requestedCount: 2,
+      foundCount: 1,
+      missingCount: 1,
+      found: [{ orderNo: 'ORDER-1', receiver: '홍길동' }],
+    })),
+  )(payload);
+  assert.equal(partial.outcome, 'unknown');
+  assert.match(partial.error, /중복/);
 });

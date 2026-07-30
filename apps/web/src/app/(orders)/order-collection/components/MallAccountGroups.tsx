@@ -9,10 +9,12 @@ import {
 } from '../lib/order-collection-page-model';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { FailedMallReason } from '../hooks/use-order-activity-events';
 
 interface MallAccountGroupsProps {
   accounts: OrderCollectionMallAccount[];
   stats: Map<string, MallCollectionStat>;
+  failedMallReasonByKey?: Map<string, FailedMallReason>;
   selectedMall: OrderCollectionMallAccount | null | undefined;
   settingsOpen: boolean;
   collectingKeys: Set<string>;
@@ -29,6 +31,7 @@ interface MallAccountGroupsProps {
 export function MallAccountGroups({
   accounts,
   stats,
+  failedMallReasonByKey,
   selectedMall,
   settingsOpen,
   collectingKeys,
@@ -52,6 +55,7 @@ export function MallAccountGroups({
             key={account.key}
             account={account}
             collectionStat={stats.get(account.key)}
+            failedReason={failedMallReasonByKey?.get(account.key)}
             isOpen={settingsOpen && selectedMall?.key === account.key}
             isCollecting={collectingKeys.has(account.key)}
             isCancelling={cancellingKeys.has(account.key)}
@@ -72,6 +76,7 @@ export function MallAccountGroups({
 interface MallAccountCardProps {
   account: OrderCollectionMallAccount;
   collectionStat: MallCollectionStat | undefined;
+  failedReason: FailedMallReason | undefined;
   isOpen: boolean;
   isCollecting: boolean;
   isCancelling: boolean;
@@ -87,6 +92,7 @@ interface MallAccountCardProps {
 function MallAccountCard({
   account,
   collectionStat,
+  failedReason,
   isOpen,
   isCollecting,
   isCancelling,
@@ -101,15 +107,24 @@ function MallAccountCard({
   const collectable = account.enabled && isBrowserCollectableMall(account);
   const autoDetectable = isAutoDetectableMall(account);
   const trackingSupported = isTrackingSupportedMall(account.key);
+  // 로그인 실패·인증 필요일 때만 상태등을 빨간불 + 카드 배경을 빨강으로 표시한다.
+  // 일반 수집 오류(주문 없음 등)는 초록불/흰 배경을 유지한다.
+  const failed = failedReason !== undefined;
+  const failedTitle =
+    failedReason === 'login'
+      ? '로그인 필요 · 재수집 필요'
+      : '인증 필요 · 재수집 필요';
 
   return (
     <article
       aria-label={`${account.name} 계정 카드`}
       className={cn(
         'flex flex-col rounded-xl border p-3.5 transition-colors',
-        collectable
-          ? 'border-slate-200 hover:border-purple-300'
-          : 'border-slate-100 bg-slate-50/40',
+        failed
+          ? 'border-red-200 bg-red-50'
+          : collectable
+            ? 'border-slate-200 hover:border-purple-300'
+            : 'border-slate-100 bg-slate-50/40',
         isOpen && 'ring-1 ring-purple-300',
       )}
     >
@@ -118,9 +133,13 @@ function MallAccountCard({
           <span
             className={cn(
               'h-1.5 w-1.5 flex-none rounded-full',
-              collectable ? 'bg-emerald-500' : 'bg-slate-300',
+              failed
+                ? 'bg-red-500'
+                : collectable
+                  ? 'bg-emerald-500'
+                  : 'bg-slate-300',
             )}
-            title={collectable ? '수집 가능' : '준비 중'}
+            title={failed ? failedTitle : collectable ? '수집 가능' : '준비 중'}
           />
           <span
             className={cn(
@@ -142,7 +161,7 @@ function MallAccountCard({
         </button>
       </div>
 
-      <div className="mt-2.5 grid grid-cols-2 divide-x divide-slate-200/80 overflow-hidden rounded-lg bg-slate-50">
+      <div className="mt-2.5 grid grid-cols-2 divide-x divide-slate-200/80 overflow-hidden rounded-lg">
         <div
           className="px-2 py-3.5 text-center"
           title={collectionStat
@@ -163,7 +182,7 @@ function MallAccountCard({
         </div>
         <div
           className="px-2 py-3.5 text-center"
-          title="오늘 주문 중 셀피아 미전송"
+          title="오늘 수집한 주문 중 셀피아 미전송"
         >
           <div
             className={cn(
