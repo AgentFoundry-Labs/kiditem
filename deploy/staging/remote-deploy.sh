@@ -5,6 +5,7 @@ APP_DIR="${APP_DIR:-$(pwd)}"
 DEPLOY_ENVIRONMENT="${DEPLOY_ENVIRONMENT:-staging}"
 CONTAINER_PREFIX="${CONTAINER_PREFIX:-kiditem-${DEPLOY_ENVIRONMENT}}"
 DEPLOYMENTS_DIR="${DEPLOYMENTS_DIR:-deployments}"
+RETIREMENT_LOCK_FILE="${RETIREMENT_LOCK_FILE:-$DEPLOYMENTS_DIR/retired.json}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.staging.yml}"
 WEB_ENV_FILE="${WEB_ENV_FILE:-.env.staging.web}"
 API_ENV_FILE="${API_ENV_FILE:-.env.staging.api}"
@@ -20,6 +21,8 @@ Usage:
   deploy/staging/remote-deploy.sh deploy
   deploy/staging/remote-deploy.sh quiesce
   deploy/staging/remote-deploy.sh resume
+  deploy/staging/remote-deploy.sh retire
+  deploy/staging/remote-deploy.sh restore
   deploy/staging/remote-deploy.sh status
 
 Deploy mode requires KIDITEM_API_IMAGE and KIDITEM_WEB_IMAGE.
@@ -30,6 +33,9 @@ Quiesce mode stops both application slots and nginx before a guarded database
 rebuild. It is invoked only by the environment-scoped GitHub Actions workflow.
 Resume mode restarts the previously active slot after a failure that occurred
 before the database reset boundary.
+Retire mode is staging-only, requires ALLOW_STAGING_RETIRE=RETIRE_STAGING, and
+stops application services without deleting runtime data. Restore mode is
+staging-only and requires ALLOW_STAGING_RESTORE=RESUME_RETIRED_STAGING.
 USAGE
 }
 
@@ -51,6 +57,56 @@ require_command() {
 require_env() {
   local name="$1"
   [[ -n "${!name:-}" ]] || fail "missing required environment variable: $name"
+}
+
+require_staging_retirement_operation() {
+  [[ "$DEPLOY_ENVIRONMENT" == "staging" ]] ||
+    fail "retirement operations are only allowed when DEPLOY_ENVIRONMENT=staging"
+}
+
+assert_not_retired() {
+  [[ ! -f "$RETIREMENT_LOCK_FILE" ]] ||
+    fail "staging is retired; restore it before deploying (marker: $RETIREMENT_LOCK_FILE)"
+}
+
+write_retirement_marker() {
+  require_command python3
+  mkdir -p "$(dirname "$RETIREMENT_LOCK_FILE")"
+
+  local retired_at tmp
+  retired_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  tmp="$(mktemp "${RETIREMENT_LOCK_FILE}.tmp.XXXXXX")"
+  chmod 600 "$tmp"
+
+  RETIRED_AT="$retired_at" \
+  DEPLOY_ENVIRONMENT="$DEPLOY_ENVIRONMENT" \
+  GITHUB_RUN_ID="${GITHUB_RUN_ID:-}" \
+  GIT_SHA="${GIT_SHA:-${GITHUB_SHA:-}}" \
+  DISPATCH_CORRELATION_ID="${DISPATCH_CORRELATION_ID:-}" \
+    python3 - "$tmp" <<'PY'
+import json
+import os
+import sys
+
+marker = {
+    "schemaVersion": "kiditem.staging.retirement.v1",
+    "environment": os.environ["DEPLOY_ENVIRONMENT"],
+    "retiredAt": os.environ["RETIRED_AT"],
+    "github": {
+        "runId": os.environ.get("GITHUB_RUN_ID") or None,
+        "sha": os.environ.get("GIT_SHA") or None,
+        "dispatchCorrelationId": os.environ.get("DISPATCH_CORRELATION_ID") or None,
+    },
+}
+
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(marker, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+
+  mv "$tmp" "$RETIREMENT_LOCK_FILE"
+  chmod 600 "$RETIREMENT_LOCK_FILE"
+  echo "Wrote staging retirement marker: $RETIREMENT_LOCK_FILE"
 }
 
 validate_color() {
@@ -674,6 +730,7 @@ validate_image_revisions() {
 
 deploy() {
   cd "$APP_DIR"
+  assert_not_retired
   require_command docker
   require_command curl
   require_env KIDITEM_API_IMAGE
@@ -797,8 +854,47 @@ resume() {
   wait_for_public_health
 }
 
+retire() {
+  require_staging_retirement_operation
+  [[ "${ALLOW_STAGING_RETIRE:-}" == "RETIRE_STAGING" ]] ||
+    fail "retire requires ALLOW_STAGING_RETIRE=RETIRE_STAGING"
+
+  cd "$APP_DIR"
+  assert_not_retired
+  require_command docker
+  require_file "$COMPOSE_FILE"
+  require_file "$DEPLOY_ENV_FILE"
+  require_file "$WEB_ENV_FILE"
+
+  write_retirement_marker
+  echo "Retiring staging application services without deleting runtime data"
+  compose stop api-blue web-blue worker-blue api-green web-green worker-green nginx
+  compose ps
+}
+
+restore() {
+  require_staging_retirement_operation
+  [[ "${ALLOW_STAGING_RESTORE:-}" == "RESUME_RETIRED_STAGING" ]] ||
+    fail "restore requires ALLOW_STAGING_RESTORE=RESUME_RETIRED_STAGING"
+
+  cd "$APP_DIR"
+  [[ -f "$RETIREMENT_LOCK_FILE" ]] ||
+    fail "staging is not retired (marker not found: $RETIREMENT_LOCK_FILE)"
+
+  resume
+  rm -f "$RETIREMENT_LOCK_FILE"
+  echo "Removed staging retirement marker: $RETIREMENT_LOCK_FILE"
+}
+
 status() {
   cd "$APP_DIR"
+
+  echo "Retirement status:"
+  if [[ -f "$RETIREMENT_LOCK_FILE" ]]; then
+    cat "$RETIREMENT_LOCK_FILE"
+  else
+    echo "not retired"
+  fi
 
   if [[ -f "$DEPLOYMENTS_DIR/current.json" ]]; then
     echo "Current deployment manifest:"
@@ -867,6 +963,12 @@ case "${1:-}" in
     ;;
   resume)
     resume
+    ;;
+  retire)
+    retire
+    ;;
+  restore)
+    restore
     ;;
   status)
     status
