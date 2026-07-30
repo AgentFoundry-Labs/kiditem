@@ -428,6 +428,19 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // 셀피아에 현재 올라와 있는 주문(판매처+주문번호+수취인) 스냅샷. 조회만 하는 비파괴 액션.
+  if (msg?.action === "collectSellpiaOrderSnapshot") {
+    collectSellpiaOrderSnapshot()
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "셀피아 주문 조회 실패",
+        });
+      });
+    return true;
+  }
+
   // 셀피아 전송 이후 후처리(등록→조회→자동합포→자동재고매칭 + 미매칭 리포트). 비파괴 단계.
   if (msg?.action === "sellpiaPostTransfer") {
     runSellpiaPostTransfer(environmentId)
@@ -735,7 +748,13 @@ function isMallAccessError(err) {
     m.includes("cannot be scripted") ||
     m.includes("must request permission") ||
     m.includes("receiving end does not exist") ||
-    m.includes("no tab with id")
+    m.includes("no tab with id") ||
+    // 몰 화면에서의 같은 오리진 요청이 네트워크 레벨에서 죽는 건 대체로 로그인 페이지로 밀려난
+    // 경우다. raw "Failed to fetch" 를 그대로 올리면 원인도 조치 방법도 알 수 없다.
+    m.includes("failed to fetch") ||
+    m.includes("networkerror") ||
+    m.includes("load failed") ||
+    m.includes("network request failed")
   );
 }
 
@@ -758,6 +777,117 @@ function mallAccessErrorResult(mallName) {
 // 그 외(타임아웃·스크립트 예외 등)는 원문 오류 내용을 몰 이름과 함께 그대로 노출.
 function mallGenericErrorResult(mallName, err) {
   return { success: false, error: `${mallName} 수집 오류: ${String((err && err.message) || err)}` };
+}
+
+/**
+ * 셀피아에 지금 올라와 있는 주문을 판매처(수취인 괄호 이름)+주문번호로 읽어온다.
+ * 업로드 직후 주문은 order_collect 대기목록에, 등록된 주문은 재고매칭에 있으므로 둘을 합친다.
+ * 웹앱은 이걸 수집 기록과 대조해 "아직 셀피아에 안 올라간 주문"을 계산한다. 조회만 하는 비파괴 액션.
+ */
+async function collectSellpiaOrderSnapshot() {
+  // 포커스를 뺏지 않도록 백그라운드 탭을 따로 열어 조회하고, 끝나면 닫는다.
+  // 사용자가 보고 있는 탭/기존 셀피아 탭은 건드리지 않는다.
+  const tab = await chrome.tabs.create({ url: SELLPIA_ORDER_UPLOAD_URL, active: false });
+  if (!tab?.id) return { success: false, error: "셀피아 탭을 열 수 없습니다." };
+  let keepOpen = false;
+  try {
+  await waitForTabReady(tab.id);
+
+  const byOrderNo = new Map();
+  const pages = [
+    { url: SELLPIA_ORDER_UPLOAD_URL, source: "pending" },
+    { url: SELLPIA_STOCKMATCH_URL, source: "stockmatch" },
+  ];
+  let lastError = null;
+  let visited = 0;
+  for (const { url, source } of pages) {
+    try {
+      const current = await chrome.tabs.get(tab.id).catch(() => null);
+      const path = String(url).split("?")[0];
+      if (!current || !String(current.url || "").startsWith(path)) {
+        await chrome.tabs.update(tab.id, { url });
+        await waitForTabReady(tab.id);
+      }
+      const result = await runSellpiaStepInTab(tab.id, "orderSnapshot", 120000);
+      if (!result?.success) {
+        lastError = result?.error || null;
+        continue;
+      }
+      visited += 1;
+      for (const row of result.rows || []) {
+        if (!byOrderNo.has(row.orderNo)) byOrderNo.set(row.orderNo, { ...row, source });
+      }
+    } catch (error) {
+      lastError = error?.message || String(error);
+    }
+  }
+  if (visited === 0) {
+    // 한 화면도 못 읽었으면 대체로 셀피아 미로그인이다. 로그인할 수 있게 탭을 남긴다.
+    keepOpen = true;
+    return {
+      success: false,
+      pendingLogin: true,
+      error: lastError || "셀피아 주문 목록을 읽지 못했습니다. 셀피아 로그인 상태를 확인하세요.",
+    };
+  }
+  return {
+    success: true,
+    orderCount: byOrderNo.size,
+    rows: [...byOrderNo.values()],
+    partial: visited < pages.length,
+    error: visited < pages.length ? lastError : undefined,
+  };
+  } finally {
+    // 조회가 끝났으면 우리가 연 백그라운드 탭을 닫는다.
+    if (!keepOpen && tab.id) {
+      try {
+        await chrome.tabs.remove(tab.id);
+      } catch {
+        /* 이미 닫힘 — 무시 */
+      }
+    }
+  }
+}
+
+/**
+ * 주문접수 클릭 후 접수 여부를 확실히 판정하지 못했을 때, 셀피아 화면을 직접 조회해
+ * 전송한 주문번호가 실제로 들어갔는지 확인한다(조회만 하는 비파괴 단계).
+ * 업로드 직후 주문은 order_collect 대기목록에 앉고, 등록까지 진행됐다면 재고매칭에 있으므로
+ * 두 화면을 순서대로 확인한다. 한쪽에서라도 찾으면 접수된 것이다.
+ */
+async function verifySellpiaOrderReceipt(tabId, targetOrderNumbers) {
+  const targets = sellpiaPostProcessing.normalizeTargetOrderNumbers(targetOrderNumbers);
+  if (targets.length === 0) return null; // 대조할 주문번호가 없으면 판정하지 않는다.
+  const pages = [SELLPIA_ORDER_UPLOAD_URL, SELLPIA_STOCKMATCH_URL];
+  let lastError = null;
+  for (const url of pages) {
+    try {
+      const current = await chrome.tabs.get(tabId).catch(() => null);
+      const path = String(url).split("?")[0];
+      if (!current || !String(current.url || "").startsWith(path)) {
+        await chrome.tabs.update(tabId, { url });
+        await waitForTabReady(tabId);
+      }
+      const result = await runSellpiaStepInTab(tabId, "verify", 90000, targets);
+      if (!result?.success) {
+        lastError = result?.error || null;
+        continue;
+      }
+      if (result.foundCount > 0) return { ...result, verifiedOn: url };
+      lastError = null;
+    } catch (error) {
+      lastError = error?.message || String(error);
+    }
+  }
+  return {
+    success: true,
+    foundCount: 0,
+    requestedCount: targets.length,
+    missingCount: targets.length,
+    found: [],
+    missing: targets,
+    error: lastError,
+  };
 }
 
 // ── 셀피아 전송 (API 아님 — order_collect 화면에 판매처 선택 + 파일 주입 + 주문접수 클릭) ──
@@ -807,6 +937,7 @@ async function sendOrderFileToSellpia({
   }
 
   let injected;
+  let injectionError = null;
   try {
     injected = await withTimeout(
       chrome.scripting.executeScript({
@@ -826,18 +957,46 @@ async function sendOrderFileToSellpia({
       "셀피아 주문접수 화면 주입 시간이 초과되었습니다.",
     );
   } catch (error) {
-    return {
-      success: false,
-      outcome: "unknown",
-      error: error?.message || "셀피아 주문접수 결과를 확인하지 못했습니다.",
-    };
+    // 응답 유실·타임아웃·탭 크래시. 접수됐는지 알 수 없으므로 아래 셀피아 조회로 확정한다.
+    injected = null;
+    injectionError = error?.message || "셀피아 주문접수 결과를 확인하지 못했습니다.";
   }
 
-  const result = injected[0]?.result ?? {
+  const result = injected?.[0]?.result ?? {
     success: false,
     outcome: "unknown",
-    error: "셀피아 주문접수 화면에 접근하지 못했습니다.",
+    error: injectionError || "셀피아 주문접수 화면에 접근하지 못했습니다.",
   };
+  // 접수 여부가 불확실하면 운영자에게 묻지 말고 셀피아 화면을 직접 조회해 확정한다.
+  if (result.outcome === "unknown") {
+    const verified = await verifySellpiaOrderReceipt(tab.id, invoiceTargets).catch(
+      (error) => ({ success: false, error: error?.message || String(error) }),
+    );
+    if (verified?.success && verified.foundCount > 0 && verified.missingCount === 0) {
+      result.success = true;
+      result.outcome = "submitted";
+      result.verifiedBySellpiaLookup = true;
+      result.acceptedTargetOrderNumbers = verified.found.map((row) => row.orderNo);
+      result.verifiedReceivers = verified.found;
+      result.error = undefined;
+      result.message =
+        `셀피아 주문 ${verified.foundCount}건 접수 확인 (수취인 대조 완료).`;
+    } else if (verified?.success && verified.foundCount === 0) {
+      // 셀피아에 한 건도 없으면 접수되지 않은 것이므로 안전하게 재전송할 수 있다.
+      result.success = false;
+      result.outcome = "not_submitted";
+      result.verifiedBySellpiaLookup = true;
+      result.error =
+        "셀피아에서 이 파일의 주문을 찾지 못했습니다. 접수되지 않았으므로 다시 전송해도 됩니다.";
+    } else if (verified?.success && verified.foundCount > 0) {
+      // 일부만 들어간 경우는 재전송하면 중복이 되므로 확인 상태를 유지한다.
+      result.verifiedBySellpiaLookup = true;
+      result.verifiedReceivers = verified.found;
+      result.error =
+        `셀피아에 ${verified.foundCount}/${verified.requestedCount}건만 확인됐습니다. ` +
+        "재전송하면 중복될 수 있으니 셀피아에서 직접 확인해주세요.";
+    }
+  }
   if (result.success === true && result.outcome === "submitted") {
     const acceptedTargets = sellpiaPostProcessing.normalizeTargetOrderNumbers(
       result.acceptedTargetOrderNumbers,
@@ -1980,8 +2139,13 @@ async function scrapeArt09Orders(dateFilter) {
   try {
     const listOrders = readVisibleOrderList();
     if (listOrders.length === 0) {
-      const bodyText = clean(document.body?.innerText || "");
-      if (document.querySelector('input[type="password"]') || /로그인|login/i.test(bodyText)) {
+      // 미로그인 판정은 "주문목록 페이지를 벗어났는가"(로그인 리다이렉트)로만 한다.
+      // 본문 "로그인" 텍스트와 input[type=password] 는 로그인된 Cafe24 admin 화면에도
+      // 그대로 존재해서(로그인 기록·보안 입력칸) 둘 다 오탐을 낸다 — 라이브에서 확인됨.
+      const path =
+        typeof location !== "undefined" ? `${location.pathname}${location.search}` : "";
+      const redirectedAwayFromOrders = path !== "" && !/order_list\.php/i.test(path);
+      if (redirectedAwayFromOrders) {
         return {
           success: false,
           pendingLogin: true,
@@ -2310,6 +2474,21 @@ async function scrapeArt09Orders(dateFilter) {
 // seller-club.co.kr 페이지 컨텍스트: 출고대기(stateCd=d) 일괄엑셀 언마스킹 다운로드 POST → base64 xlsx.
 // 언마스킹은 "다운로드 사유"만 필요(비밀번호 불필요 — type:reason). reason="배송확인합니다".
 async function scrapeBoriboriOrders(downloadPassword) {
+  const boriboriLoginRequired = () => ({
+    success: false,
+    pendingLogin: true,
+    error:
+      "보리보리 로그인이 필요합니다. seller-club.co.kr 에 로그인한 뒤 다시 수집해주세요.",
+  });
+  // 미로그인이면 주문 화면 대신 로그인 화면으로 리다이렉트된다. 그 상태로 아래 fetch 를 돌리면
+  // 브라우저가 원인 없는 raw "Failed to fetch" 만 던져 사용자에게 "로그인 필요"를 알릴 수 없다.
+  // 그래서 주문 경로에 머물러 있는지 먼저 확인한다.
+  try {
+    const path = typeof location !== "undefined" ? String(location.pathname || "") : "";
+    if (path && !/\/order\//i.test(path)) return boriboriLoginRequired();
+  } catch (e) {
+    /* location 접근 실패는 판정하지 않고 그대로 진행 */
+  }
   try {
     const p = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}`;
@@ -2383,7 +2562,13 @@ async function scrapeBoriboriOrders(downloadPassword) {
     }
     return { success: false, error: lastError || "보리보리 다운로드가 거부되었습니다. 사유/비밀번호를 확인하세요." };
   } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
+    const message = String((e && e.message) || e);
+    // 같은 오리진 요청이 네트워크 레벨에서 죽으면(로그인 페이지/타 오리진 리다이렉트) 미로그인으로 본다.
+    // raw "Failed to fetch" 를 그대로 올리면 사용자는 원인도 조치 방법도 알 수 없다.
+    if (/failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
+      return boriboriLoginRequired();
+    }
+    return { success: false, error: "보리보리 수집 오류: " + message };
   }
 
   function uniqueJsonBodies(items) {
@@ -3149,6 +3334,7 @@ async function collectDomeggookOrders(date, collection) {
       "도매꾹 생성 요청 시간이 초과되었습니다.",
     );
     const tr = trig[0]?.result;
+    if (tr?.empty) return { success: true, empty: true }; // 주문 없음 — 오류 아님
     if (!tr?.success) return { success: false, error: tr?.error || "도매꾹 엑셀 생성 요청 실패" };
     // 2) 생성 완료 폴링 (최대 ~4분): SUCCESS + beforeReq 이후 파일. 도매꾹 생성이 느려 넉넉히.
     let url = null;
@@ -3193,6 +3379,18 @@ async function collectDomeggookOrders(date, collection) {
 // lstAll 페이지 컨텍스트: "엑셀다운로드" 클릭 → reqXlsNotice iframe(#gLayerFrame, 같은 오리진) submit.
 async function triggerDomeggookExcelGen() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // 주문이 없으면 도매꾹은 "다운로드할 주문내역이 없습니다" 류 native alert 를 띄우고 생성 모달을
+  // 열지 않는다. alert 를 가로채 '주문 없음(empty)'으로 정상 처리한다(주문이 있으면 alert 는 안 뜬다).
+  // window 가 없는 테스트/비브라우저 환경을 방어한다(MAIN world 에서는 항상 존재).
+  const win = typeof window !== "undefined" ? window : null;
+  const origAlert = win ? win.alert : null;
+  let alertMsg = "";
+  if (win) {
+    win.alert = (m) => {
+      alertMsg = String(m == null ? "" : m);
+    };
+  }
+  const emptyByAlert = () => /없습니다|없음|no\s*(order|data|result)/i.test(alertMsg);
   try {
     const btn = [
       ...document.querySelectorAll(
@@ -3205,10 +3403,13 @@ async function triggerDomeggookExcelGen() {
     );
     if (!btn) return { success: false, error: "엑셀다운로드 버튼을 찾지 못했습니다. (로그인/화면 확인)" };
     btn.click();
+    await sleep(300);
+    if (emptyByAlert()) return { success: true, empty: true, message: alertMsg };
     let doc = null;
     let modalSeen = false;
     for (let i = 0; i < 25; i++) {
       await sleep(300);
+      if (emptyByAlert()) return { success: true, empty: true, message: alertMsg };
       const iframe = document.querySelector("iframe#gLayerFrame, #gLayerFrame iframe");
       try {
         if (iframe?.contentDocument) {
@@ -3232,13 +3433,19 @@ async function triggerDomeggookExcelGen() {
         /* 로딩 중 접근 예외 — 무시하고 재시도 */
       }
     }
+    if (emptyByAlert()) return { success: true, empty: true, message: alertMsg };
     if (!modalSeen) return { success: false, error: "도매꾹 생성 요청 모달을 열지 못했습니다." };
     const submit = doc?.querySelector("#lXlsReqNoticeBtnSubmit");
-    if (!submit) return { success: false, error: "도매꾹 생성 요청 버튼을 찾지 못했습니다." };
+    if (!submit) {
+      if (emptyByAlert()) return { success: true, empty: true, message: alertMsg };
+      return { success: false, error: "도매꾹 생성 요청 버튼을 찾지 못했습니다." };
+    }
     submit.click();
     return { success: true };
   } catch (e) {
     return { success: false, error: String((e && e.message) || e) };
+  } finally {
+    if (win) win.alert = origAlert;
   }
 }
 

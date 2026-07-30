@@ -143,6 +143,97 @@
     }
 
     try {
+      // 전송한 주문이 셀피아에 실제로 들어갔는지 확인만 한다(비파괴: 조회 외 클릭 없음).
+      // order_collect(업로드 직후 대기목록)와 order_stockmatch(등록 이후) 양쪽에서 동작한다.
+      if (step === "verify") {
+        if (!(await waitGrid(15000))) {
+          return { success: false, error: "셀피아 주문 목록(그리드)을 찾지 못했습니다. 로그인/화면을 확인하세요." };
+        }
+        // 재고매칭 화면은 조회를 눌러야 목록이 뜬다. 대기목록 화면에는 조회 버튼이 없다.
+        const searchBtn = document.getElementById("btn_search");
+        if (searchBtn) {
+          searchBtn.click();
+          const initP = await waitPrompt(/초기화|계속/, 1500);
+          if (initP) answerPrompt(["예"]);
+          await waitIdle(70000);
+          await sleep(600);
+        } else {
+          await waitIdle(15000);
+        }
+        const st = (v) => String(v == null ? "" : v).trim();
+        const items = window.dataView && window.dataView.getItems ? window.dataView.getItems() : [];
+        const remaining = new Set(targetOrderNumbers);
+        const found = [];
+        for (const it of items) {
+          if (remaining.size === 0) break;
+          const candidates = [
+            it.c_group_no, it.group_no, it.ord_no, it.c_ord_no,
+            it.order_no, it.shop_order_no, it.provider_order_no,
+            it.seller_order_no, it.om_order_no,
+          ].map((v) => stripHtml(st(v))).filter(Boolean);
+          for (const target of Array.from(remaining)) {
+            const hit = candidates.some((value) => {
+              if (value === target) return true;
+              if (!value.endsWith(target)) return false;
+              return /[_:|/\s-]$/.test(value.slice(0, -target.length));
+            });
+            if (!hit) continue;
+            remaining.delete(target);
+            found.push({
+              orderNo: target,
+              receiver: stripHtml(it.c_receiver || it.receiver),
+              provider: stripHtml(it.c_provider_name || it.provider_name),
+            });
+          }
+        }
+        return {
+          success: true,
+          listCount: items.length,
+          requestedCount: targetOrderNumbers.length,
+          foundCount: found.length,
+          missingCount: Math.max(0, targetOrderNumbers.length - found.length),
+          found,
+          missing: Array.from(remaining),
+        };
+      }
+
+      // 셀피아에 현재 올라와 있는 주문을 그대로 읽어온다(비파괴: 조회 외 클릭 없음).
+      // 판매처(수취인 괄호 안 이름)와 주문번호를 함께 돌려주어, 웹앱이 몰별로 대조해
+      // "아직 셀피아에 안 올라간 주문"을 계산할 수 있게 한다.
+      if (step === "orderSnapshot") {
+        if (!(await waitGrid(15000))) {
+          return { success: false, error: "셀피아 주문 목록(그리드)을 찾지 못했습니다. 로그인/화면을 확인하세요." };
+        }
+        const searchBtn = document.getElementById("btn_search");
+        if (searchBtn) {
+          searchBtn.click();
+          const initP = await waitPrompt(/초기화|계속/, 1500);
+          if (initP) answerPrompt(["예"]);
+          await waitIdle(70000);
+          await sleep(600);
+        } else {
+          await waitIdle(15000);
+        }
+        const st = (v) => String(v == null ? "" : v).trim();
+        const items = window.dataView && window.dataView.getItems ? window.dataView.getItems() : [];
+        const seen = new Set();
+        const rows = [];
+        for (const it of items) {
+          const orderNo = stripHtml(
+            st(it.c_group_no || it.group_no || it.c_ord_no || it.ord_no || it.order_no),
+          );
+          if (!orderNo || seen.has(orderNo)) continue;
+          seen.add(orderNo);
+          rows.push({
+            orderNo,
+            receiver: stripHtml(it.c_receiver || it.receiver),
+            provider: stripHtml(it.c_provider_name || it.provider_name),
+          });
+          if (rows.length >= 5000) break; // 비정상 응답 방어
+        }
+        return { success: true, rowCount: items.length, orderCount: rows.length, rows };
+      }
+
       if (step === "register") {
         await waitGrid(12000);
         await waitIdle(15000);

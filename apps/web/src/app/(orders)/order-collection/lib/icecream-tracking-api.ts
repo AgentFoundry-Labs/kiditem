@@ -162,6 +162,21 @@ export function isTrackingSupportedMall(mallKey: string): boolean {
   return mallKey in SELLPIA_PROVIDER_BY_MALL;
 }
 
+/**
+ * 셀피아 판매처명(수취인 괄호 안 이름과 같은 값)을 우리 몰 key 로 되돌린다.
+ * 셀피아는 "아이스크림몰(외부몰)"처럼 뒤에 경로를 덧붙이므로 부분일치로 맞춘다.
+ */
+export function resolveMallKeyFromSellpiaProvider(
+  provider: string | null | undefined,
+): string | null {
+  const value = (provider || '').toLowerCase();
+  if (!value) return null;
+  for (const [mallKey, keys] of Object.entries(SELLPIA_PROVIDER_BY_MALL)) {
+    if (keys.some((key) => value.includes(key.toLowerCase()))) return mallKey;
+  }
+  return null;
+}
+
 /** 전체 셀피아 송장 중 이 몰(판매처)의 것만 필터. */
 export function filterTrackingByMall(rows: SellpiaTrackingRow[], mallKey: string): SellpiaTrackingRow[] {
   const keys = SELLPIA_PROVIDER_BY_MALL[mallKey];

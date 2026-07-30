@@ -100,6 +100,13 @@ export function BrowserCollectionRunControls({
     'rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-sunken)] disabled:cursor-wait disabled:opacity-60';
   const isControlBusy = busyControlAction !== null;
   const isRestartControlBusy = isRestarting || isControlBusy;
+  const showOpenTabButton = needsAttention && Boolean(session.attention?.canOpenTab);
+  const showRestartButton =
+    needsAttention &&
+    !(session.restartStrategy === 'web' && webRestartUnavailableMessage);
+  const showCancelButton = showCancel;
+  const hasAnyControlButton =
+    showOpenTabButton || showRestartButton || showCancelButton;
 
   return (
     <div
@@ -138,40 +145,40 @@ export function BrowserCollectionRunControls({
         <p className="mt-2 text-sm text-amber-700">{webRestartUnavailableMessage}</p>
       )}
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        {needsAttention && session.attention?.canOpenTab && (
-          <button
-            type="button"
-            className={buttonClassName}
-            disabled={isRestartControlBusy}
-            onClick={() => void runControl('openCollectionAttentionTab')}
-          >
-            확인 탭 열기
-          </button>
-        )}
-        {needsAttention && !(
-          session.restartStrategy === 'web' && webRestartUnavailableMessage
-        ) && (
-          <button
-            type="button"
-            className={buttonClassName}
-            disabled={isRestartControlBusy}
-            onClick={() => void restart()}
-          >
-            처음부터 재실행
-          </button>
-        )}
-        {showCancel && (
-          <button
-            type="button"
-            className={buttonClassName}
-            disabled={isControlBusy}
-            onClick={() => void runControl('cancelCollectionSession')}
-          >
-            중단
-          </button>
-        )}
-      </div>
+      {hasAnyControlButton && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {showOpenTabButton && (
+            <button
+              type="button"
+              className={buttonClassName}
+              disabled={isRestartControlBusy}
+              onClick={() => void runControl('openCollectionAttentionTab')}
+            >
+              확인 탭 열기
+            </button>
+          )}
+          {showRestartButton && (
+            <button
+              type="button"
+              className={buttonClassName}
+              disabled={isRestartControlBusy}
+              onClick={() => void restart()}
+            >
+              처음부터 재실행
+            </button>
+          )}
+          {showCancelButton && (
+            <button
+              type="button"
+              className={buttonClassName}
+              disabled={isControlBusy}
+              onClick={() => void runControl('cancelCollectionSession')}
+            >
+              중단
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

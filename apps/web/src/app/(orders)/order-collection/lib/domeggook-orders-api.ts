@@ -6,6 +6,8 @@ import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 interface DomeggookCollectResponse {
   success?: boolean;
+  /** 확장이 주문 없음을 감지(도매꾹 "주문내역이 없습니다" alert)한 경우. 오류가 아니다. */
+  empty?: boolean;
   csvBase64?: string;
   fileName?: string;
   size?: number;
@@ -20,7 +22,7 @@ interface DomeggookCollectResponse {
 export async function collectDomeggookCsvFromExtension(
   date?: string, // "YYYY-MM-DD" — 확장이 이 기간으로 엑셀 생성 요청
   run?: OrderCollectionExtensionRun,
-): Promise<{ csvBase64: string; fileName: string }> {
+): Promise<{ csvBase64: string; fileName: string } | { empty: true }> {
   const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
@@ -32,6 +34,9 @@ export async function collectDomeggookCsvFromExtension(
     { action: 'collectDomeggookOrders', date, runId: run?.runId ?? createSecureRandomUuid() },
     260000, // 도매꾹은 엑셀 생성(비동기, 최대 4분 폴링) 후 다운로드라 넉넉히
   );
+  if (res?.success && res.empty) {
+    return { empty: true }; // 주문 없음 — 오류가 아니라 정상(0건)으로 처리
+  }
   if (!res?.success || !res.csvBase64) {
     throw new Error(res?.error ?? '도매꾹 주문 수집에 실패했습니다.');
   }

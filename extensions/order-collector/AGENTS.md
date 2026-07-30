@@ -151,7 +151,16 @@ conversion.
   extension that lacks this capability.
 - Pre-click validation failures return `not_submitted`. Once the upload button
   has been clicked, a missing response, Sellpia rejection dialog, timeout, or
-  tab loss returns `unknown` unless newly accepted pending rows are observed.
+  tab loss is uncertain unless newly accepted pending rows are observed.
+- An uncertain submit must be resolved by reading Sellpia itself instead of
+  asking the operator. Look the transmitted order numbers up in the
+  `order_collect` pending list and then `order_stockmatch`, matching order
+  number and capturing the recipient as evidence. That lookup is read-only: it
+  may click only the stockmatch search button and must not register, merge,
+  match stock, or number invoices. All targets found becomes `submitted` with
+  `verifiedBySellpiaLookup`; none found becomes `not_submitted` so the file can
+  be resent safely; a partial match stays `unknown` because resending would
+  duplicate orders. Without target order numbers there is no verdict.
 - A successful response includes bounded non-secret accepted/pending row counts.
   It never claims that `#save_b` registration or inventory matching completed.
 
