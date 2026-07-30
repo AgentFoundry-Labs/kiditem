@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   ChannelRecipeSuggestionResponseSchema,
   type ChannelRecipeSuggestionResponse,
@@ -50,9 +50,56 @@ export class ChannelRecipeSuggestionService {
     return suggestion!;
   }
 
+  suggestRegistration(
+    organizationId: string,
+    input: {
+      sourceCandidateId: string;
+      listingName: string;
+      itemName: string | null;
+    },
+  ): Promise<ChannelRecipeSuggestionResponse> {
+    return this.suggestContexts(organizationId, [{
+      productVariantId: null,
+      masterProductId: null,
+      selectedChannelListingOptionIds: [input.sourceCandidateId],
+      allLinkedOptions: [{
+        channelListingOptionId: input.sourceCandidateId,
+        listingName: input.listingName,
+        itemName: input.itemName,
+        sellerSku: null,
+        modelNumber: null,
+        barcode: null,
+      }],
+      existingComponents: [],
+    }]).then(([suggestion]) => suggestion!);
+  }
+
+  async resolveSelectedRegistrationSku(
+    organizationId: string,
+    sellpiaInventorySkuId: string,
+  ) {
+    const [sku] = await this.evidence.findByIds(
+      organizationId,
+      [sellpiaInventorySkuId],
+    );
+    if (!sku) {
+      throw new ConflictException(
+        '선택한 셀피아 상품을 현재 조직의 활성 재고에서 찾을 수 없습니다.',
+      );
+    }
+    return sku;
+  }
+
   async suggestBatch(
     organizationId: string,
     contexts: ChannelRecipeAutomationContext[],
+  ): Promise<ChannelRecipeSuggestionResponse[]> {
+    return this.suggestContexts(organizationId, contexts);
+  }
+
+  private async suggestContexts(
+    organizationId: string,
+    contexts: RecipeSuggestionContext[],
   ): Promise<ChannelRecipeSuggestionResponse[]> {
     if (contexts.length === 0) return [];
     const allOptions = contexts.flatMap((context) => context.allLinkedOptions);
@@ -126,6 +173,14 @@ export class ChannelRecipeSuggestionService {
     });
   }
 }
+
+type RecipeSuggestionContext = Omit<
+  ChannelRecipeAutomationContext,
+  'productVariantId' | 'masterProductId'
+> & {
+  productVariantId: string | null;
+  masterProductId: string | null;
+};
 
 function evidenceForCode(
   channelValue: string | null,

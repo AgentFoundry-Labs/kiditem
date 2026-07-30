@@ -5,7 +5,11 @@ export { ScrapeUrlBodyDto, ScrapeUrlStatusQueryDto } from './scrape-url.dto';
 export { ListExtensionProductsQueryDto } from './list-extension-products.dto';
 export { CreateProductPreparationDto } from './create-product-preparation.dto';
 export { ConfirmExternalRegistrationDto } from './confirm-external-registration.dto';
-export { ExternalWingEvidenceDto, PrepareExternalWingRegistrationDto } from './external-wing-registration.dto';
+export {
+  ExternalWingEvidenceDto,
+  PrepareExternalWingRegistrationDto,
+  PreviewExternalWingRegistrationMatchDto,
+} from './external-wing-registration.dto';
 export { UpdateProductPreparationDto } from './update-product-preparation.dto';
 export { RejectCandidateBodyDto } from './reject-candidate.dto';
 export { QuickProcessCandidateDto } from './quick-process-candidate.dto';

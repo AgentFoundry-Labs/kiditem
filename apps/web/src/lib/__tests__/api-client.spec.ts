@@ -175,6 +175,7 @@ describe('apiClient HTTP method envelopes', () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(400, { error: 'COMMON_BAD_REQUEST', message: 'Invalid input' }))
       .mockResolvedValueOnce(jsonResponse(422, { error: 'VALIDATION', detail: 'Field X required' }))
+      .mockResolvedValueOnce(jsonResponse(503, { error: 'Service Unavailable', message: '' }))
       .mockResolvedValueOnce(jsonResponse(500, {}, false));
 
     await expect(apiClient.get('/api/message')).rejects.toMatchObject({
@@ -186,6 +187,11 @@ describe('apiClient HTTP method envelopes', () => {
       status: 422,
       code: 'VALIDATION',
       detail: 'Field X required',
+    });
+    await expect(apiClient.get('/api/blank-message')).rejects.toMatchObject({
+      status: 503,
+      code: 'Service Unavailable',
+      detail: 'API error: 503',
     });
     await expect(apiClient.get('/api/fallback')).rejects.toMatchObject({
       status: 500,

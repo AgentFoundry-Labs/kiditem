@@ -45,6 +45,117 @@ export class ProductPreparationRepositoryAdapter
 {
   constructor(private readonly prisma: PrismaService) {}
 
+  async cancelUnstartedExternalRegistrationIntents(
+    transaction: SourcingRepositoryTransaction,
+    input: {
+      organizationId: string;
+      sourceCandidateId: string;
+      cancelledAt: Date;
+    },
+  ): Promise<number> {
+    const tx = transaction as Prisma.TransactionClient;
+    const identities = await tx.productRegistrationExecution.findMany({
+      where: {
+        organizationId: input.organizationId,
+        executionKind: 'external_wing',
+        status: 'prepared',
+        providerOutcome: 'not_attempted',
+        providerSubmissionId: null,
+        externalListingId: null,
+        resultJson: { equals: Prisma.DbNull },
+        leaseToken: null,
+        leaseClaimedAt: null,
+        startedAt: null,
+        completedAt: null,
+        productPreparation: {
+          organizationId: input.organizationId,
+          sourceCandidateId: input.sourceCandidateId,
+          status: 'submitting',
+          providerOutcome: 'not_attempted',
+          providerSubmissionId: null,
+          registrationResult: { equals: Prisma.DbNull },
+          submissionLeaseToken: null,
+          submissionLeaseClaimedAt: null,
+          isDeleted: false,
+        },
+      },
+      select: { id: true, productPreparationId: true },
+    });
+
+    let cancelled = 0;
+    for (const identity of identities) {
+      await lockPreparation(tx, input.organizationId, identity.productPreparationId);
+      await lockExecution(tx, input.organizationId, identity.id);
+      const current = await tx.productRegistrationExecution.findFirst({
+        where: {
+          id: identity.id,
+          organizationId: input.organizationId,
+          productPreparationId: identity.productPreparationId,
+        },
+        include: { productPreparation: true },
+      });
+      if (!current || !isUnstartedExternalRegistrationIntent(
+        current,
+        input.organizationId,
+        input.sourceCandidateId,
+      )) {
+        continue;
+      }
+
+      const execution = await tx.productRegistrationExecution.updateMany({
+        where: {
+          id: current.id,
+          organizationId: input.organizationId,
+          status: 'prepared',
+          providerOutcome: 'not_attempted',
+          providerSubmissionId: null,
+          externalListingId: null,
+          resultJson: { equals: Prisma.DbNull },
+          leaseToken: null,
+          leaseClaimedAt: null,
+          startedAt: null,
+          completedAt: null,
+        },
+        data: {
+          status: 'cancelled',
+          completedAt: input.cancelledAt,
+          leaseToken: null,
+          leaseClaimedAt: null,
+        },
+      });
+      if (execution.count !== 1) continue;
+
+      const preparation = await tx.productPreparation.updateMany({
+        where: {
+          id: current.productPreparationId,
+          organizationId: input.organizationId,
+          sourceCandidateId: input.sourceCandidateId,
+          status: 'submitting',
+          providerOutcome: 'not_attempted',
+          providerSubmissionId: null,
+          registrationResult: { equals: Prisma.DbNull },
+          submissionLeaseToken: null,
+          submissionLeaseClaimedAt: null,
+          isDeleted: false,
+        },
+        data: {
+          status: 'cancelled',
+          isDeleted: true,
+          deletedAt: input.cancelledAt,
+          submissionLeaseToken: null,
+          submissionLeaseClaimedAt: null,
+        },
+      });
+      if (preparation.count !== 1) {
+        throw new ConflictException(
+          'Registration preparation changed while candidate deletion was being prepared.',
+        );
+      }
+      cancelled += 1;
+    }
+    return cancelled;
+  }
+
   async assertCandidateTerminalTransitionAllowed(
     transaction: SourcingRepositoryTransaction,
     input: { organizationId: string; sourceCandidateId: string },
@@ -292,7 +403,11 @@ export class ProductPreparationRepositoryAdapter
           executionKind: 'external_wing',
           requestHash: frozen.hash,
           requestedByUserId: input.requestedByUserId,
-          status: { in: ['prepared', 'executing', 'reconciling'] },
+          status: {
+            in: input.providerAbsenceVerified === true
+              ? ['prepared']
+              : ['prepared', 'executing', 'reconciling'],
+          },
           productPreparation: {
             organizationId: input.organizationId,
             sourceCandidateId: input.sourceCandidateId,
@@ -371,20 +486,38 @@ export class ProductPreparationRepositoryAdapter
           if (
             !active
             || !execution
-            || !canSupersedePreparedExternalExecution({
-              preparation: active,
-              execution,
-              requestedByUserId: input.requestedByUserId,
-              expectedProviderAccountId,
-              nextRequestHash: frozen.hash,
-            })
+            || !(
+              canSupersedePreparedExternalExecution({
+                preparation: active,
+                execution,
+                requestedByUserId: input.requestedByUserId,
+                expectedProviderAccountId,
+                nextRequestHash: frozen.hash,
+              })
+              || input.providerAbsenceVerified === true
+                && canRestartVerifiedMissingExternalExecution({
+                  preparation: active,
+                  execution,
+                  requestedByUserId: input.requestedByUserId,
+                  expectedProviderAccountId,
+                })
+            )
           ) {
             throw new ConflictException('An active registration preparation already exists.');
           }
 
           const supersededAt = new Date();
-          await tx.productRegistrationExecution.update({
-            where: { id: execution.id },
+          const executionCancelled = await tx.productRegistrationExecution.updateMany({
+            where: {
+              id: execution.id,
+              organizationId: input.organizationId,
+              productPreparationId: active.id,
+              status: execution.status,
+              providerOutcome: execution.providerOutcome,
+              providerSubmissionId: null,
+              externalListingId: null,
+              channelListingId: null,
+            },
             data: {
               status: 'cancelled',
               completedAt: supersededAt,
@@ -392,16 +525,21 @@ export class ProductPreparationRepositoryAdapter
               leaseClaimedAt: null,
             },
           });
+          if (executionCancelled.count !== 1) {
+            throw new ConflictException(
+              'Registration execution changed while it was being superseded.',
+            );
+          }
           const cancelled = await tx.productPreparation.updateMany({
             where: {
               id: active.id,
               organizationId: input.organizationId,
               sourceCandidateId: input.sourceCandidateId,
               channelAccountId: input.channelAccountId,
-              status: 'submitting',
-              providerOutcome: 'not_attempted',
-              submissionLeaseToken: null,
-              submissionLeaseClaimedAt: null,
+              status: active.status,
+              providerOutcome: active.providerOutcome,
+              submissionLeaseToken: active.submissionLeaseToken,
+              submissionLeaseClaimedAt: active.submissionLeaseClaimedAt,
               isDeleted: false,
             },
             data: {
@@ -1284,6 +1422,34 @@ export class ProductPreparationRepositoryAdapter
   }
 }
 
+function isUnstartedExternalRegistrationIntent(
+  execution: ProductRegistrationExecution & { productPreparation: ProductPreparation },
+  organizationId: string,
+  sourceCandidateId: string,
+): boolean {
+  const preparation = execution.productPreparation;
+  return execution.organizationId === organizationId
+    && execution.executionKind === 'external_wing'
+    && execution.status === 'prepared'
+    && execution.providerOutcome === 'not_attempted'
+    && execution.providerSubmissionId === null
+    && execution.externalListingId === null
+    && execution.resultJson === null
+    && execution.leaseToken === null
+    && execution.leaseClaimedAt === null
+    && execution.startedAt === null
+    && execution.completedAt === null
+    && preparation.organizationId === organizationId
+    && preparation.sourceCandidateId === sourceCandidateId
+    && preparation.status === 'submitting'
+    && preparation.providerOutcome === 'not_attempted'
+    && preparation.providerSubmissionId === null
+    && preparation.registrationResult === null
+    && preparation.submissionLeaseToken === null
+    && preparation.submissionLeaseClaimedAt === null
+    && preparation.isDeleted === false;
+}
+
 async function lockPreparation(
   tx: Prisma.TransactionClient,
   organizationId: string,
@@ -1359,6 +1525,42 @@ function canSupersedePreparedExternalExecution(input: {
     && execution.requestedByUserId === input.requestedByUserId
     && execution.expectedProviderAccountId === input.expectedProviderAccountId
     && execution.requestHash !== input.nextRequestHash;
+}
+
+function canRestartVerifiedMissingExternalExecution(input: {
+  preparation: ProductPreparation;
+  execution: ProductRegistrationExecution;
+  requestedByUserId: string | null;
+  expectedProviderAccountId: string;
+}): boolean {
+  const { preparation, execution } = input;
+  return preparation.status === 'submitting'
+    && preparation.providerOutcome === 'uncertain'
+    && preparation.providerSubmissionId === null
+    && preparation.registrationResult === null
+    && preparation.channelListingId === null
+    && preparation.submissionLeaseToken !== null
+    && preparation.submissionLeaseToken === execution.leaseToken
+    && preparation.submissionLeaseClaimedAt !== null
+    && preparation.submissionPayloadJson !== null
+    && preparation.submissionPayloadHash === execution.requestHash
+    && preparation.submissionKey === execution.idempotencyKey
+    && preparation.approvedByUserId === input.requestedByUserId
+    && execution.executionKind === 'external_wing'
+    && ['executing', 'reconciling'].includes(execution.status)
+    && execution.providerOutcome === 'uncertain'
+    && execution.providerSubmissionId === null
+    && execution.externalListingId === null
+    && execution.channelListingId === null
+    && execution.resultJson === null
+    && execution.leaseToken !== null
+    && execution.leaseClaimedAt !== null
+    && execution.startedAt !== null
+    && execution.completedAt === null
+    && execution.submissionPayloadJson !== null
+    && execution.submissionPayloadHash === execution.requestHash
+    && execution.requestedByUserId === input.requestedByUserId
+    && execution.expectedProviderAccountId === input.expectedProviderAccountId;
 }
 
 function externalExecutionResult(

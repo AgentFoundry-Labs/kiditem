@@ -169,6 +169,55 @@
   ];
   const OPTION_GENERATE_SELECTOR = '#generateItems';
 
+  const VENDOR_ITEM_CODE_INPUT_SELECTOR = [
+    'input[placeholder*="업체상품코드"]',
+    'input[aria-label*="업체상품코드"]',
+    'input[name*="vendorItemCode" i]',
+    'input[data-field*="vendorItemCode" i]',
+  ].join(',');
+
+  function vendorItemCodeInputs() {
+    const direct = [...document.querySelectorAll(VENDOR_ITEM_CODE_INPUT_SELECTOR)]
+      .filter((input) => input.offsetParent !== null);
+    if (direct.length > 0) return direct;
+
+    // 일부 formV2 버전은 placeholder/name 없이 옵션 표의 열 위치로만 필드를 구분한다.
+    const root = document.querySelector(OPTION_ROOT_SELECTOR);
+    if (!root) return [];
+    const headers = [...root.querySelectorAll(
+      '.option-pane-table-head .option-pane-table-cell, .option-pane-table-head [role="columnheader"]',
+    )];
+    const columnIndex = headers.findIndex((header) =>
+      /업체\s*상품\s*코드|판매자\s*상품\s*코드/.test(header.textContent || ''));
+    if (columnIndex < 0) return [];
+    return [...root.querySelectorAll('.option-pane-table-content .option-pane-table-row')]
+      .map((row) => {
+        const cells = [...row.querySelectorAll('.option-pane-table-cell, [role="cell"]')];
+        return cells[columnIndex]?.querySelector('input') || null;
+      })
+      .filter(Boolean);
+  }
+
+  async function fillVendorItemCode(value, log = () => {}) {
+    const code = String(value || '').trim();
+    if (!code) return true;
+    const inputs = await waitFor(
+      () => {
+        const found = vendorItemCodeInputs();
+        return found.length > 0 ? found : null;
+      },
+      { timeout: 5000, interval: 200 },
+    );
+    if (!inputs) {
+      log('vendorItemCodeFailed');
+      return false;
+    }
+    for (const input of inputs) setReactValue(input, code);
+    const written = inputs.every((input) => String(input.value || '').trim() === code);
+    log(written ? `vendorItemCode:${code}` : 'vendorItemCodeFailed');
+    return written;
+  }
+
   function optionRowChecks() {
     const root = document.querySelector(OPTION_ROOT_SELECTOR);
     return root ? [...root.querySelectorAll(OPTION_ROW_CHECK_SELECTOR)] : [];
@@ -1400,7 +1449,16 @@
       }
     }
 
-    // 5-1) 판매가·재고수량: 옵션 행마다 채우지 않고 WING 의 '일괄입력' 버튼을 쓴다.
+    // 5-1) 셀피아 실 SKU는 WING 업체상품코드에 기록한다. 이 코드로 다음 등록 시
+    //      쿠팡 채널 데이터를 조회하므로, 입력칸을 못 찾으면 연결이 끊긴 상품을 만들지 않는다.
+    if (variant?.vendorItemCode && !registrationError) {
+      if (!(await fillVendorItemCode(variant.vendorItemCode, log))) {
+        registrationError =
+          '쿠팡 WING 옵션의 업체상품코드 입력칸을 찾거나 값을 적용하지 못했습니다.';
+      }
+    }
+
+    // 5-2) 판매가·재고수량: 옵션 행마다 채우지 않고 WING 의 '일괄입력' 버튼을 쓴다.
     //      둘 다 등록 필수값인데 기존에는 아예 입력하지 않아 등록이 반려됐다.
     //
     //      순서는 **선택 → 일괄입력 → 저장** 이다. 행 선택을 빼먹으면 일괄입력이 조용히

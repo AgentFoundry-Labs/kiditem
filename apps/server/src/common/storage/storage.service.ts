@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   S3Client,
   PutObjectCommand,
@@ -75,15 +80,27 @@ export class StorageService implements OnModuleInit {
 
   /** key 위치에 버퍼를 업로드하고 public URL 반환 */
   async save(key: string, buffer: Buffer, mimeType: string): Promise<string> {
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        Body: buffer,
-        ContentType: mimeType,
-        CacheControl: IMMUTABLE_ASSET_CACHE_CONTROL,
-      }),
-    );
+    try {
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: buffer,
+          ContentType: mimeType,
+          CacheControl: IMMUTABLE_ASSET_CACHE_CONTROL,
+        }),
+      );
+    } catch (error) {
+      const storageError = error as Error & { code?: unknown };
+      this.logger.error(
+        `이미지 저장 실패 (${String(storageError.code ?? storageError.name ?? 'unknown')})`,
+        storageError.stack,
+      );
+      throw new ServiceUnavailableException(
+        '이미지 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        { cause: error },
+      );
+    }
     return this.getUrl(key);
   }
 

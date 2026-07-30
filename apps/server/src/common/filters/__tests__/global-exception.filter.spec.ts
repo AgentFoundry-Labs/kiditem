@@ -118,6 +118,14 @@ describe('GlobalExceptionFilter', () => {
     expect(body.message).toBe('Something broke');
   });
 
+  it('plain Error with an empty message → keeps a non-empty fallback', () => {
+    const { host, status, json } = makeHost();
+    filter.catch(new Error(''), host);
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(json.mock.calls[0][0].message).toBe('Internal server error');
+  });
+
   it('all responses include timestamp and path', () => {
     const { host, json } = makeHost('POST', '/api/orders');
     filter.catch(new Error('test'), host);
