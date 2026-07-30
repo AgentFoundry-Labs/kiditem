@@ -13,14 +13,13 @@ export interface OrderCollectionPipelineSummary {
 const STAGES: Array<{
   key: keyof OrderCollectionPipelineSummary;
   label: string;
-  emoji: string;
   tone: 'slate' | 'amber' | 'purple' | 'sky' | 'emerald';
 }> = [
-  { key: 'todayOrders', label: '오늘 주문', emoji: '📦', tone: 'slate' },
-  { key: 'waiting', label: '셀피아 전송 대기', emoji: '⏳', tone: 'amber' },
-  { key: 'transmissionRequested', label: '셀피아 전송 요청', emoji: '📤', tone: 'purple' },
-  { key: 'trackingSent', label: '셀피아 송장 전송', emoji: '🚚', tone: 'sky' },
-  { key: 'done', label: '완료', emoji: '✅', tone: 'emerald' },
+  { key: 'todayOrders', label: '오늘 주문', tone: 'slate' },
+  { key: 'waiting', label: '셀피아 전송 대기', tone: 'amber' },
+  { key: 'transmissionRequested', label: '셀피아 전송 요청', tone: 'purple' },
+  { key: 'trackingSent', label: '셀피아 송장 전송', tone: 'sky' },
+  { key: 'done', label: '완료', tone: 'emerald' },
 ];
 
 export function OrderCollectionPipeline({
@@ -36,7 +35,6 @@ export function OrderCollectionPipeline({
             <ChevronRight size={18} className="flex-none self-center text-slate-300" />
           ) : null}
           <PipelineStage
-            emoji={stage.emoji}
             label={stage.label}
             value={summary[stage.key]}
             tone={stage.tone}
@@ -48,12 +46,10 @@ export function OrderCollectionPipeline({
 }
 
 function PipelineStage({
-  emoji,
   label,
   value,
   tone,
 }: {
-  emoji: string;
   label: string;
   value: number;
   tone: 'slate' | 'amber' | 'purple' | 'sky' | 'emerald';
@@ -62,7 +58,7 @@ function PipelineStage({
   return (
     <div
       className={cn(
-        'flex min-w-[150px] flex-1 items-center gap-2.5 rounded-xl border px-3.5 py-3',
+        'flex min-w-[150px] flex-1 flex-col justify-between rounded-xl border px-4 py-5',
         tone === 'slate' && 'border-slate-200 bg-white',
         tone === 'amber' && 'border-amber-100 bg-amber-50/60',
         tone === 'purple' && 'border-purple-100 bg-purple-50/60',
@@ -70,24 +66,11 @@ function PipelineStage({
         tone === 'emerald' && 'border-emerald-100 bg-emerald-50/60',
       )}
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          'flex h-9 w-9 flex-none items-center justify-center rounded-lg text-base leading-none',
-          tone === 'slate' && 'bg-slate-100',
-          tone === 'amber' && 'bg-amber-100/70',
-          tone === 'purple' && 'bg-purple-100/70',
-          tone === 'sky' && 'bg-sky-100/70',
-          tone === 'emerald' && 'bg-emerald-100/70',
-        )}
-      >
-        {emoji}
-      </span>
-      <div className="min-w-0">
-        <div className="truncate text-[11px] font-medium text-slate-500">{label}</div>
-        <div
+      <div className="truncate text-xs font-medium text-slate-500">{label}</div>
+      <div className="mt-3 flex items-baseline gap-1">
+        <span
           className={cn(
-            'text-xl font-bold leading-tight tabular-nums',
+            'text-3xl font-bold leading-none tabular-nums',
             isEmpty && 'text-slate-300',
             !isEmpty && tone === 'slate' && 'text-slate-900',
             !isEmpty && tone === 'amber' && 'text-amber-700',
@@ -97,7 +80,10 @@ function PipelineStage({
           )}
         >
           {formatNumber(value)}
-        </div>
+        </span>
+        <span className={cn('text-sm font-medium', isEmpty ? 'text-slate-300' : 'text-slate-400')}>
+          건
+        </span>
       </div>
     </div>
   );
