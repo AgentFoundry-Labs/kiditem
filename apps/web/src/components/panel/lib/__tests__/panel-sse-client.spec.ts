@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PanelSseClient } from '../panel-sse-client';
 
 vi.mock('@microsoft/fetch-event-source', () => ({ fetchEventSource: vi.fn() }));
-vi.mock('@/lib/supabase/client', () => ({
-  createSupabaseBrowserClient: () => ({
-    auth: { getSession: () => Promise.resolve({ data: { session: null } }) },
-  }),
+const getAuthSessionMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/auth/session', () => ({
+  getAuthSession: () => getAuthSessionMock(),
 }));
 
 describe('PanelSseClient', () => {
@@ -14,6 +14,10 @@ describe('PanelSseClient', () => {
   beforeEach(async () => {
     fetchEventSource = (await import('@microsoft/fetch-event-source')).fetchEventSource;
     vi.clearAllMocks();
+    getAuthSessionMock.mockReturnValue({
+      token: 'a'.repeat(43),
+      expiresAt: '2026-08-29T03:00:00.000Z',
+    });
   });
 
   it('uses cookie-based auth (credentials: include) — Authorization header은 EventSource API 표준 한계로 첨부 못 함', async () => {
@@ -27,8 +31,9 @@ describe('PanelSseClient', () => {
         headers: expect.objectContaining({ Accept: 'text/event-stream' }),
       }),
     );
-    // 헤더 기반 인증 패턴(`x-dev-user-id`) 회귀 방지 — Supabase 쿠키만 사용.
     const callArgs = fetchEventSource.mock.calls[0][1];
+    expect(callArgs.headers.Authorization).toBe(`Bearer ${'a'.repeat(43)}`);
+    // 개발용 우회 헤더 회귀 방지.
     expect(callArgs.headers).not.toHaveProperty('x-dev-user-id');
   });
 

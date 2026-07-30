@@ -5,7 +5,6 @@ x-api-environment: &api-environment
   PORT: "4000"
   DATABASE_URL: postgresql://kiditem:${POSTGRES_PASSWORD}@postgres:5432/kiditem
   DIRECT_URL: postgresql://kiditem:${POSTGRES_PASSWORD}@postgres:5432/kiditem
-  SUPABASE_URL: ${SUPABASE_URL}
   WEB_ORIGIN: ${OFFICE_ORIGIN}
   CORS_ORIGINS: ${OFFICE_ORIGIN}
   API_SELF_URL: http://api:4000

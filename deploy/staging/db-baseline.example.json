@@ -21,5 +21,5 @@
     "master_product_images": 1077
   },
   "excludedSchemas": ["auth", "storage"],
-  "notes": "public schema only; Supabase auth/storage schemas are excluded and must be bootstrapped separately."
+  "notes": "public schema only; local password hashes and auth sessions were verified absent; Supabase auth/storage schemas are excluded."
 }

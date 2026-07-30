@@ -5,10 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { sanitizeInternalRedirectPath } from '@/lib/auth-redirect';
 import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
+import { clearAuthSession, setAuthSession } from '@/lib/auth/session';
 import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
-import { createSupabaseBrowserClient } from '@/lib/supabase/client';
-import { triggerSignOut } from '@/lib/supabase/refresh';
-import type { AuthUserPublic } from '@kiditem/shared/auth';
+import { LoginResponseSchema } from '@kiditem/shared/auth';
 
 const REMEMBERED_EMAIL_KEY = 'kiditem.login.rememberedEmail';
 
@@ -42,14 +42,19 @@ export function useLoginForm() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    let signedIn = false;
+    let sessionIssued = false;
     try {
-      const supabase = createSupabaseBrowserClient();
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      signedIn = true;
-      const user = await apiClient.get<AuthUserPublic>('/api/auth/me');
-      if (!user.organizationId) {
+      const login = LoginResponseSchema.parse(
+        await apiClient.post<unknown>('/api/auth/login', { email, password }),
+      );
+      sessionIssued = true;
+      setAuthSession({
+        token: login.session.token,
+        expiresAt: login.session.expiresAt instanceof Date
+          ? login.session.expiresAt.toISOString()
+          : login.session.expiresAt,
+      });
+      if (!login.user.organizationId) {
         throw new Error('조직에 속해있지 않습니다. 관리자에게 문의해주세요.');
       }
       if (remember) safeStorageSet('local', REMEMBERED_EMAIL_KEY, email);
@@ -60,10 +65,13 @@ export function useLoginForm() {
       router.replace(next);
       router.refresh();
     } catch (err) {
-      if (signedIn) {
-        await triggerSignOut('manual').catch(() => undefined);
+      if (sessionIssued) {
+        await apiClient.post('/api/auth/logout').catch(() => undefined);
+        clearAuthSession('manual');
       }
-      const message = err instanceof Error ? err.message : '로그인 실패';
+      const message = isApiError(err) && err.status === 401
+        ? '이메일 또는 비밀번호가 올바르지 않습니다.'
+        : err instanceof Error ? err.message : '로그인 실패';
       toast.error(message);
     } finally {
       setLoading(false);

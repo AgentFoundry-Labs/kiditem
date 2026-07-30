@@ -194,7 +194,7 @@ export default function Dashboard() {
         producer: 'dashboard.wing_sales',
         extensionId,
         runId: createSecureRandomUuid(),
-        accessToken: authSession?.access_token,
+      accessToken: authSession?.token,
       });
       if (session.status === 'succeeded') {
         toast.success('Wing 매출·트래픽 수집이 완료되었습니다.');
@@ -206,7 +206,7 @@ export default function Dashboard() {
       toast.error(error instanceof Error ? error.message : 'Wing 트래픽 수집 실패');
     });
   }, [
-    authSession?.access_token,
+    authSession?.token,
     queryClient,
     salesBaseline?.trafficKpi?.needsScrape,
     salesBaseline?.effectivePeriod?.revenueSource,

@@ -19,9 +19,9 @@ test('uses the shared environment auth context instead of a global token or API 
   assert.doesNotMatch(worker, /KidItemAuth/);
 });
 
-test('keeps local and staging auth refresh isolated in the copied common adapter', () => {
+test('keeps local and staging auth resync isolated in the copied common adapter', () => {
   assert.match(environmentContext, /kiditem_environment_profiles_v1/);
-  assert.match(environmentContext, /refreshes\.get\(environmentId\)/);
+  assert.match(environmentContext, /resyncs\.get\(environmentId\)/);
   assert.match(environmentContext, /queryWebTabs\(environmentId\)/);
   assert.match(environmentContext, /http:\/\/localhost:4000/);
   assert.match(environmentContext, /https:\/\/staging\.merchon\.org/);

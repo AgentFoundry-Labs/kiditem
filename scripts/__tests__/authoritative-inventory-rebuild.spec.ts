@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   assertProtectedApiDestination,
-  assertProtectedSupabaseDestination,
   assertReadyCounts,
   assertRebuildImportPrerequisites,
   assertLocalRebuildGuard,
@@ -137,7 +136,7 @@ describe('authoritative inventory actual database identity', () => {
 });
 
 describe('authoritative inventory credential destinations', () => {
-  it('requires exact HTTPS API and Supabase project destinations before sending credentials', () => {
+  it('requires the exact HTTPS API destination before sending credentials', () => {
     expect(() => assertProtectedApiDestination(
       'https://staging.merchon.org',
       'https://staging.merchon.org',
@@ -151,29 +150,6 @@ describe('authoritative inventory credential destinations', () => {
       'https://staging.merchon.org',
     )).toThrow(/expected protected API origin/i);
 
-    expect(() => assertProtectedSupabaseDestination(
-      'https://staging-ref.supabase.co',
-      'staging-ref',
-    )).not.toThrow();
-    expect(() => assertProtectedSupabaseDestination(
-      'https://production-ref.supabase.co',
-      'staging-ref',
-    )).toThrow(/Supabase project/i);
-
-    for (const unsafeUrl of [
-      'https://staging-ref.supabase.co:444/',
-      'https://staging-ref.supabase.co/auth/v1',
-      'https://operator@staging-ref.supabase.co/',
-      'https://staging-ref.supabase.co/?redirect=evil',
-      'https://staging-ref.supabase.co/#credential',
-    ]) {
-      expect(() => assertProtectedSupabaseDestination(unsafeUrl, 'staging-ref'))
-        .toThrow(/Supabase project/i);
-    }
-    expect(() => assertProtectedSupabaseDestination(
-      'https://staging-ref.supabase.co/',
-      'staging-ref',
-    )).not.toThrow();
   });
 });
 

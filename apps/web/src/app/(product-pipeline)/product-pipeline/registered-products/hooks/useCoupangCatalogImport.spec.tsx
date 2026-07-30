@@ -23,7 +23,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/components/providers/AuthProvider', () => ({
-  useAuthSession: () => ({ session: { access_token: 'test-token' } }),
+  useAuthSession: () => ({
+    session: { token: 'test-token', expiresAt: '2026-08-29T03:00:00.000Z' },
+  }),
 }));
 
 vi.mock('@/lib/extension-bridge', () => ({

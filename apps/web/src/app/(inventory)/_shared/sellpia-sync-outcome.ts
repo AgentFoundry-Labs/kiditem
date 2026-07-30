@@ -44,8 +44,8 @@ export function describeSellpiaStockSync(
       return {
         tone: 'success',
         message: waitSeconds > 0
-          ? `셀피아 동기화를 예약했습니다. 약 ${waitSeconds}초 후 시작합니다.`
-          : '셀피아 동기화를 예약했습니다.',
+          ? `셀피아 동기화 요청을 보냈습니다. 약 ${waitSeconds}초 후 시작합니다.`
+          : '셀피아 동기화 요청을 보냈습니다. 곧 시작합니다.',
       };
     }
     case 'stalled':
@@ -60,9 +60,4 @@ export function describeSellpiaStockSync(
     case 'request_failed':
       return { tone: 'error', message: '셀피아 동기화 요청에 실패했습니다.' };
   }
-}
-
-/** Badge copy for a transmission that still needs operator reconciliation. */
-export function sellpiaTransmissionReviewBadgeLabel(): string {
-  return '전송 확인 필요';
 }

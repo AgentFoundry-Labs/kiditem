@@ -6,11 +6,10 @@
 // Local dev sets NEXT_PUBLIC_API_URL=http://localhost:4000. Staging/prod leave
 // it empty so nginx/ALB routes same-origin `/api/*` directly to NestJS.
 //
-// Auth refresh path implication: when API_BASE points at Nest directly (dev),
-// fetch bypasses Next.js `proxy.ts` which would otherwise pre-refresh tokens
-// on every request. In that mode `apiClient`'s 401 interceptor is the *only*
-// refresh trigger, backed by the mutex in `lib/supabase/refresh.ts`. See
-// `docs/runbooks/dev-preview-with-auth.md` for the verification flow.
+// When API_BASE points at Nest directly (dev), fetch bypasses Next.js
+// `proxy.ts`. In that mode `apiClient`'s 401 interceptor is still the only
+// absolute-session expiry handling, owned by `lib/auth/session.ts`. See
+// `docs/runbooks/auth-office-local.md` for the verification flow.
 const CONFIGURED_API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 export const API_BASE = getApiBase();
@@ -34,10 +33,8 @@ export function normalizeLoopbackApiBase(apiBase: string, browserHostname: strin
 
 function normalizeBrowserLoopbackHost(browserHostname: string): string {
   if (browserHostname === '0.0.0.0') return 'localhost';
-  // Some local Chrome profiles stall on `localhost:4000` while `[::1]:4000`
-  // responds immediately. API requests carry Authorization headers, so they
-  // do not depend on localhost-domain cookies.
-  if (browserHostname === 'localhost') return '[::1]';
+  // Local auth also uses a host-only HttpOnly cookie. Keep the direct API and
+  // web proxy on the same loopback host so both receive the cookie.
   return browserHostname;
 }
 

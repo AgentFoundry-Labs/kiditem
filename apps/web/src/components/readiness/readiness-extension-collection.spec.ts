@@ -51,7 +51,10 @@ vi.mock('@/hooks/useAuth', () => ({
 
 vi.mock('@/components/providers/AuthProvider', () => ({
   useAuthSession: () => ({
-    session: { access_token: 'kiditem-access-token' },
+      session: {
+        token: 'kiditem-access-token',
+        expiresAt: '2026-08-29T03:00:00.000Z',
+      },
     isLoading: false,
   }),
 }));
@@ -161,7 +164,6 @@ function wrapper(
 describe('readiness extension collection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv('NEXT_PUBLIC_DEV_SKIP_AUTH', '0');
     mocks.detectExtensionId.mockResolvedValue('coupang-extension');
     mocks.detectRankExtensionGate.mockResolvedValue({
       status: 'ready',

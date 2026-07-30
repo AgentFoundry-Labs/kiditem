@@ -123,7 +123,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |
 | `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
-| `apps/server/src/auth` | Platform Capability | Guards, decorators, middleware, and `/api/auth/me`. |
+| `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
 | `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, conditional product/variant link writes, linked-recipe diagnostics, and sellable-capacity projections. |
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
@@ -160,7 +160,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/analytics/statistics` | Flat | read service. |
 | `apps/server/src/analytics/traffic` | Flat | read service plus operator upload mutation lane. |
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
-| `apps/server/src/auth` | Flat | guards/decorators/middleware/controller. |
+| `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
 | `apps/server/src/automation` | Hexagonal | port/adapter lanes complete; 6 outgoing repository ports + `OPERATION_ALERT_PORT` owner-side incoming port published from `application/port/in/` for cross-domain producers; architecture + module wiring specs freeze invariants; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework. |
 | `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus an Inventory-owned read-port bridge. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
@@ -327,7 +327,7 @@ Kinds:
 - `Route Subtree`: nested URL segment such as `[id]`, `edit`, or `callback`.
 - `Route-Group Shared`: `_shared` code used by 2+ sibling routes in a group.
 - `App-Wide Shared`: code used by 2+ route groups or ungrouped routes.
-- `App Internal`: Next/app shell, auth callback, tests, fonts, or special app
+- `App Internal`: Next/app shell, tests, fonts, or special app
   surfaces.
 - `Test Support`: test-only frontend helpers or specs.
 
@@ -346,7 +346,6 @@ Kinds:
 | `apps/web/src/app/(product-pipeline)` | Route Group | `detail-page-client-render` (fullscreen extension capture surface), `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `/purchase-orders` is the general purchasing surface only; Supply owns the Rocket preview and confirmation contracts consumed by `/rocket-orders`. |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surfaces `/agent-os` and `/agent-os/network`, separate from `/agents`. |
-| `apps/web/src/app/auth` | App Internal | Auth callback subtree. |
 | `apps/web/src/app/fonts` | App Internal | Next font assets. |
 | `apps/web/src/app/login` | Route Leaf | Login route. |
 | `apps/web/src/app/settings` | Route Leaf | Operational settings route. |
@@ -421,7 +420,7 @@ Notable route subtrees:
 | `apps/web/src/app/(product-pipeline)/product-pipeline/_shared` | Route-Group Shared | Product pipeline route constructors, shared detail-page editor/render helpers, product workspace screen/tabs/history/preview, inbox shells, hooks, and thumbnail UI shared by sibling product-pipeline routes. |
 | `apps/web/src/components` | App-Wide Shared | Layout, panel, product, provider, chat, Coupang, and UI components. |
 | `apps/web/src/hooks` | App-Wide Shared | Shared hooks used across routes. |
-| `apps/web/src/lib` | App-Wide Shared | API client, query keys, auth, formatting, Supabase helpers. |
+| `apps/web/src/lib` | App-Wide Shared | API client, query keys, opaque local-session state, extension auth sync, and formatting helpers. |
 | `apps/web/src/store` | App-Wide Shared | Client-only UI state stores. |
 | `apps/web/src/types` | App-Wide Shared | Frontend shared TypeScript types. |
 

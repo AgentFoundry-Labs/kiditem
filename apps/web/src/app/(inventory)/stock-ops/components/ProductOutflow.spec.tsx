@@ -132,7 +132,17 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     expect(requestRefresh).not.toHaveBeenCalled();
   });
 
-  it('keeps Sellpia sync available while reporting an unresolved transmission separately', async () => {
+  it('keeps freshness details beside the sync action instead of packing them into the button', () => {
+    renderProductOutflow();
+
+    const button = screen.getByRole('button', { name: '셀피아 동기화' });
+    expect(button).not.toHaveTextContent('갱신 필요');
+    expect(button).not.toHaveTextContent('30분 전');
+    expect(screen.getByText('갱신 필요')).toBeInTheDocument();
+    expect(screen.getByText('30분 전')).toBeInTheDocument();
+  });
+
+  it('keeps Sellpia sync available without exposing unresolved transmission bookkeeping', async () => {
     const unresolved = {
       status: 'refresh_required',
       lastVerifiedAt: '2026-07-17T00:30:00.000Z',
@@ -148,11 +158,13 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     requestRefresh.mockResolvedValue(unresolved);
     renderProductOutflow();
 
-    expect(screen.getByText('전송 확인 필요 1')).toBeInTheDocument();
+    expect(screen.queryByText('전송 확인 필요 1')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
     await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
-    expect(toastMock.success).toHaveBeenCalledWith('셀피아 동기화를 예약했습니다.');
+    expect(toastMock.success).toHaveBeenCalledWith(
+      '셀피아 동기화 요청을 보냈습니다. 곧 시작합니다.',
+    );
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
@@ -167,7 +179,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
     await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith(
-      '셀피아 동기화를 예약했습니다. 약 120초 후 시작합니다.',
+      '셀피아 동기화 요청을 보냈습니다. 약 120초 후 시작합니다.',
     ));
     expect(toastMock.error).not.toHaveBeenCalled();
   });

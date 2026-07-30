@@ -9,6 +9,7 @@
 
 | Model | Table | Description |
 |---|---|---|
+| AuthSession | `auth_sessions` | Revocable KidItem-owned browser and extension authentication session. Only a SHA-256 token hash is persisted. |
 | CategoryMapping | `category_mappings` | - |
 | ChannelAccount | `channel_accounts` | Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization. |
 | ChannelListing | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
@@ -28,6 +29,14 @@
 
 ```mermaid
 erDiagram
+  AuthSession {
+    String id PK
+    String userId FK
+    String tokenHash UK
+    DateTime createdAt
+    DateTime expiresAt
+    DateTime revokedAt
+  }
   CategoryMapping {
     String id PK
     String organizationId FK
@@ -231,7 +240,7 @@ erDiagram
     String id PK
     String email UK
     String name
-    String password
+    String passwordHash
     String role
     String type
     String team
@@ -265,6 +274,7 @@ erDiagram
   ProductVariant ||--o{ ProductVariantComponent : "productVariant"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
+  User ||--o{ AuthSession : "user"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
   User o|--o{ SourceImportRun : "manualFreshExportConfirmer"

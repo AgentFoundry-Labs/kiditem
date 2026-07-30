@@ -21,10 +21,6 @@ images during deployment.
 - External Docker volumes `kiditem_pgdata` and `kiditem_minio-data` exist and
   have a recent backup on the NAS. The NAS is a backup target, not a live
   Docker data root.
-- Repository variables `NEXT_PUBLIC_SUPABASE_URL` and
-  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are configured for the office web
-  build. These values are compiled into the browser bundle and are not runtime
-  secrets.
 - The GitHub `office` Environment exists and restricts deployments to protected
   branches. Add required reviewers there when the office approval roster is
   defined.
@@ -42,7 +38,8 @@ protected release/office SHA
       -> digest-only office-deployment.json artifact
         -> Windows operator guard
           -> pull + OCI revision verification
-            -> Compose recreate + health/smoke checks
+              -> optional approved Prisma schema push
+                -> Compose recreate + health/smoke checks
 ```
 
 GitHub owns image building and release identity. `C:\ProgramData\Kiditem` owns
@@ -54,8 +51,9 @@ whose provisioning must be reproducible.
 
 The office lane is deliberately not blue-green because the host has tight disk
 capacity and retains local state. It uses a controlled recreate with automatic
-runtime-file restoration on a failed health check. Database migrations remain
-outside runtime rollback and must be assessed separately for every release.
+runtime-file restoration on a failed health check. An approved schema change is
+applied explicitly with `-ApplySchema`; database changes remain outside runtime
+rollback and must be assessed separately for every release.
 
 ## Promote The Office Branch
 
@@ -114,8 +112,16 @@ gh run download <run-id> `
   --dir "C:\ProgramData\Kiditem\incoming\<full-sha>"
 & "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
   -Operation Deploy `
-  -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json"
+  -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json" `
+  -ApplySchema
 ```
+
+Use `-ApplySchema` only when the reviewed release contains a Prisma schema
+change. It is required for the Office local-auth release because that release
+adds `auth_sessions`. The operator stops API/worker/web/nginx, starts and waits
+for PostgreSQL, then runs `npx prisma db push` from the candidate API image
+before starting the full candidate runtime. A deploy without a schema change
+omits this switch. `Status` and `Rollback` reject it.
 
 The deploy command blocks unless all of these conditions hold:
 
@@ -133,6 +139,60 @@ The deploy command blocks unless all of these conditions hold:
 After success, the manifest is written to
 `C:\ProgramData\Kiditem\deployments\current.json`; the prior one becomes
 `previous.json` and a timestamped history copy is retained.
+
+## Initialize Office Login
+
+The local-auth release does not create users and never accepts a password on
+the command line. Set the password only for an existing `users.email`, through
+stdin. The command replaces the scrypt hash and revokes every existing session
+for that user.
+
+```powershell
+$email = 'operator@example.com'
+$secure = Read-Host 'New KidItem password' -AsSecureString
+$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$plain = $null
+try {
+  $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+  $plain | docker exec -i kiditem-api `
+    node dist/auth/adapter/in/cli/auth-admin.js `
+    set-password --email $email --password-stdin
+}
+finally {
+  if ($null -ne $plain) { Remove-Variable plain }
+  [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+  Remove-Variable secure
+}
+```
+
+To revoke every browser and extension session without changing the password:
+
+```powershell
+docker exec kiditem-api node dist/auth/adapter/in/cli/auth-admin.js `
+  revoke-sessions --email operator@example.com
+```
+
+Sessions expire absolutely after 30 days. Each browser profile/PC receives an
+independent row, and normal logout revokes only the current row. The web tab
+sends the same opaque token to the installed KidItem extensions; the database
+stores only its SHA-256 hash.
+
+After password setup, verify from two PCs or browser profiles:
+
+1. Open `http://kiditem-office/login`, sign in, and confirm `/api/auth/me`
+   succeeds through the app.
+2. Sign in from the second PC and confirm the first PC remains signed in.
+3. Reload each KidItem extension and run one authenticated read. Confirm a 401
+   causes web-tab resync rather than a separate credential prompt.
+4. Log out from one PC and confirm only that PC and its environment-specific
+   extension token are cleared.
+5. Run `revoke-sessions`, then confirm both PCs are rejected on their next API
+   request.
+
+Office currently uses plain HTTP on the trusted LAN, so the cookie cannot use
+the `Secure` flag and bearer tokens are not encrypted in transit. Do not expose
+port 80 outside the trusted office network. Moving Office to HTTPS is required
+before any untrusted-network or remote access.
 
 ## Disk Pressure
 
@@ -184,8 +244,8 @@ guards, and swaps the current/previous manifest records:
 & C:\workspace\kiditem\deploy\office\apply-deployment.ps1 -Operation Rollback
 ```
 
-Rollback is valid for application regressions only. It does not undo Prisma
-schema changes, data migrations, marketplace writes, object-storage changes,
+Rollback is valid for application regressions only. It does not undo Prisma schema changes,
+data migrations, marketplace writes, object-storage changes,
 or queued jobs. If a release changes the database incompatibly, block rollout
 until a separate data recovery or forward-fix plan is approved.
 
@@ -206,4 +266,6 @@ Stop without rebuilding, resetting, switching branches, or pruning volumes if:
 Report the deployed Git SHA and app version, API/web digest refs, workflow run
 URL, branch/upstream/clean checks, free disk before and after, container states,
 HTTP smoke results, whether BuildKit cache was pruned, and whether rollback was
-attempted. Never include env contents, credentials, tokens, or database URLs.
+attempted. Also report whether `-ApplySchema` ran and whether multi-PC and
+extension auth verification passed. Never include env contents, credentials,
+tokens, password hashes, or database URLs.

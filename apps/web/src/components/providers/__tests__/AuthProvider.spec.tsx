@@ -1,40 +1,41 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, waitFor, act } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider, useAuthSession } from '../AuthProvider';
-import { EXTENSION_AUTH_REQUIRED_EVENT } from '@/lib/extension-auth';
 
-type AuthChangeHandler = (event: string, session: unknown) => void;
-
-const getSessionMock = vi.hoisted(() => vi.fn());
-const refreshSessionMock = vi.hoisted(() => vi.fn());
-const onAuthStateChangeMock = vi.hoisted(() => vi.fn());
-const unsubscribeMock = vi.hoisted(() => vi.fn());
-const replaceMock = vi.hoisted(() => vi.fn());
-const consumeSignOutReasonMock = vi.hoisted(() => vi.fn());
-const refreshOrFailMock = vi.hoisted(() => vi.fn());
+const getAuthSessionMock = vi.hoisted(() => vi.fn());
+const subscribeAuthSessionMock = vi.hoisted(() => vi.fn());
+const clearAuthSessionMock = vi.hoisted(() => vi.fn());
 const syncExtensionAuthMock = vi.hoisted(() => vi.fn());
+const apiGetMock = vi.hoisted(() => vi.fn());
+const replaceMock = vi.hoisted(() => vi.fn());
 const browserCollectionEnabledMock = vi.hoisted(() => vi.fn());
 const sellpiaSyncMountedMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/lib/supabase/client', () => ({
-  createSupabaseBrowserClient: () => ({
-    auth: {
-      getSession: getSessionMock,
-      refreshSession: refreshSessionMock,
-      onAuthStateChange: onAuthStateChangeMock,
-    },
-  }),
-}));
+type SessionListener = (session: Session | null, reason: 'manual' | 'session_expired' | null) => void;
+type Session = { token: string; expiresAt: string };
 
-vi.mock('@/lib/supabase/refresh', () => ({
-  consumeSignOutReason: () => consumeSignOutReasonMock(),
-  refreshOrFail: () => refreshOrFailMock(),
+const SESSION: Session = {
+  token: 'a'.repeat(43),
+  expiresAt: '2026-08-29T03:00:00.000Z',
+};
+
+let sessionListener: SessionListener | null = null;
+const unsubscribeMock = vi.fn();
+
+vi.mock('@/lib/auth/session', () => ({
+  getAuthSession: () => getAuthSessionMock(),
+  subscribeAuthSession: (listener: SessionListener) => subscribeAuthSessionMock(listener),
+  clearAuthSession: (...args: unknown[]) => clearAuthSessionMock(...args),
 }));
 
 vi.mock('@/lib/extension-auth', () => ({
   EXTENSION_AUTH_REQUIRED_EVENT: 'kiditem:extension-auth-required',
-  syncExtensionAuth: (session: unknown) => syncExtensionAuthMock(session),
+  syncExtensionAuth: (...args: unknown[]) => syncExtensionAuthMock(...args),
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: (...args: unknown[]) => apiGetMock(...args) },
 }));
 
 vi.mock('next/navigation', () => ({
@@ -42,13 +43,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('../BrowserCollectionProvider', () => ({
-  BrowserCollectionProvider: ({
-    children,
-    enabled,
-  }: {
-    children: React.ReactNode;
-    enabled: boolean;
-  }) => {
+  BrowserCollectionProvider: ({ children, enabled }: { children: React.ReactNode; enabled: boolean }) => {
     browserCollectionEnabledMock(enabled);
     return children;
   },
@@ -61,372 +56,118 @@ vi.mock('../SellpiaInventorySyncProvider', () => ({
   },
 }));
 
-function renderWithProvider(ui: React.ReactNode) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={qc}>
-      <AuthProvider>{ui}</AuthProvider>
-    </QueryClientProvider>,
-  );
+function renderWithProvider(ui: React.ReactNode, queryClient = new QueryClient()) {
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>{ui}</AuthProvider>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 function setPath(pathname: string, search = '') {
   Object.defineProperty(window, 'location', {
-    value: { pathname, search, assign: vi.fn() },
-    writable: true,
+    value: { pathname, search },
+    configurable: true,
   });
 }
 
-describe('AuthProvider', () => {
-  let lastHandler: AuthChangeHandler | null = null;
-
+describe('AuthProvider local sessions', () => {
   beforeEach(() => {
-    getSessionMock.mockReset();
-    refreshSessionMock.mockReset();
-    onAuthStateChangeMock.mockReset();
+    getAuthSessionMock.mockReset();
+    getAuthSessionMock.mockReturnValue(SESSION);
+    subscribeAuthSessionMock.mockReset();
+    subscribeAuthSessionMock.mockImplementation((listener: SessionListener) => {
+      sessionListener = listener;
+      return unsubscribeMock;
+    });
     unsubscribeMock.mockReset();
-    replaceMock.mockReset();
-    consumeSignOutReasonMock.mockReset();
-    refreshOrFailMock.mockReset();
-    refreshOrFailMock.mockResolvedValue(true);
+    clearAuthSessionMock.mockReset();
     syncExtensionAuthMock.mockReset();
+    syncExtensionAuthMock.mockResolvedValue({});
+    apiGetMock.mockReset();
+    apiGetMock.mockResolvedValue({ id: 'user-id' });
+    replaceMock.mockReset();
     browserCollectionEnabledMock.mockReset();
     sellpiaSyncMountedMock.mockReset();
-
-    getSessionMock.mockResolvedValue({ data: { session: null } });
-    refreshSessionMock.mockResolvedValue({ data: { session: null }, error: null });
-    syncExtensionAuthMock.mockResolvedValue({});
-    onAuthStateChangeMock.mockImplementation((handler: AuthChangeHandler) => {
-      lastHandler = handler;
-      return { data: { subscription: { unsubscribe: unsubscribeMock } } };
-    });
-    consumeSignOutReasonMock.mockReturnValue('manual');
     setPath('/dashboard');
   });
 
   afterEach(() => {
-    lastHandler = null;
+    sessionListener = null;
+    vi.useRealTimers();
   });
 
-  it('AP1: mount triggers getSession and updates context state', async () => {
-    const session = { access_token: 'abc', user: { id: 'u1' } };
-    getSessionMock.mockResolvedValue({ data: { session } });
-
-    let observed: { session: unknown; isLoading: boolean } | null = null;
+  it('loads the stored session, enables authenticated providers, and syncs extensions', async () => {
+    let observed: ReturnType<typeof useAuthSession> | null = null;
     function Probe() {
       observed = useAuthSession();
       return null;
     }
     renderWithProvider(<Probe />);
 
-    await waitFor(() => {
-      expect(observed?.session).toEqual(session);
-      expect(observed?.isLoading).toBe(false);
-    });
-    expect(getSessionMock).toHaveBeenCalledTimes(1);
-    expect(syncExtensionAuthMock).toHaveBeenCalledWith(session);
+    await waitFor(() => expect(observed).toEqual({ session: SESSION, isLoading: false }));
+    expect(syncExtensionAuthMock).toHaveBeenCalledWith(SESSION);
+    expect(browserCollectionEnabledMock).toHaveBeenLastCalledWith(true);
   });
 
-  it('AP2a: SIGNED_OUT + reason="session_expired" → queryClient.clear + replace(/login?reason=...)', async () => {
-    consumeSignOutReasonMock.mockReturnValue('session_expired');
+  it('handles an expired session event with cache clear and a return-path redirect', async () => {
+    const queryClient = new QueryClient();
+    const clearSpy = vi.spyOn(queryClient, 'clear');
     setPath('/inventory', '?page=2');
+    renderWithProvider(<div />, queryClient);
+    await waitFor(() => expect(sessionListener).not.toBeNull());
 
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const clearSpy = vi.spyOn(qc, 'clear');
-    render(
-      <QueryClientProvider client={qc}>
-        <AuthProvider>
-          <div />
-        </AuthProvider>
-      </QueryClientProvider>,
-    );
+    act(() => sessionListener?.(null, 'session_expired'));
 
-    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
-    await act(async () => {
-      lastHandler?.('SIGNED_OUT', null);
-    });
-
-    expect(syncExtensionAuthMock).toHaveBeenCalledWith(null);
     expect(clearSpy).toHaveBeenCalled();
+    await waitFor(() => expect(syncExtensionAuthMock).toHaveBeenCalledWith(null));
     expect(replaceMock).toHaveBeenCalledWith(
       `/login?reason=session_expired&next=${encodeURIComponent('/inventory?page=2')}`,
     );
   });
 
-  it('AP2b: SIGNED_OUT + reason="manual" → replace(/login) without query', async () => {
-    consumeSignOutReasonMock.mockReturnValue('manual');
-    setPath('/inventory');
-
+  it('redirects a manual/cross-tab sign-out cleanly', async () => {
     renderWithProvider(<div />);
-    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
+    await waitFor(() => expect(sessionListener).not.toBeNull());
 
-    await act(async () => {
-      lastHandler?.('SIGNED_OUT', null);
-    });
+    act(() => sessionListener?.(null, 'manual'));
 
     expect(replaceMock).toHaveBeenCalledWith('/login');
   });
 
-  it('AP2c: consecutive SIGNED_OUT events — second uses default "manual" after reset', async () => {
-    // 첫번째 콜에서만 'session_expired', 그 다음부터 'manual' (실제 consumeSignOutReason 동작 흉내).
-    consumeSignOutReasonMock
-      .mockReturnValueOnce('session_expired')
-      .mockReturnValue('manual');
-    setPath('/inventory');
-
+  it('validates and resyncs the current token when an extension reports 401', async () => {
     renderWithProvider(<div />);
-    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
+    await waitFor(() => expect(sessionListener).not.toBeNull());
+    syncExtensionAuthMock.mockClear();
 
     await act(async () => {
-      lastHandler?.('SIGNED_OUT', null);
+      window.dispatchEvent(new Event('kiditem:extension-auth-required'));
     });
-    expect(replaceMock).toHaveBeenLastCalledWith(
-      `/login?reason=session_expired&next=${encodeURIComponent('/inventory')}`,
-    );
 
-    replaceMock.mockClear();
-    await act(async () => {
-      lastHandler?.('SIGNED_OUT', null);
-    });
-    expect(replaceMock).toHaveBeenLastCalledWith('/login');
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalledWith('/api/auth/me'));
+    expect(syncExtensionAuthMock).toHaveBeenCalledWith(SESSION);
   });
 
-  it('AP3: TOKEN_REFRESHED only updates state, no router/cache side-effects', async () => {
-    const newSession = { access_token: 'rotated', user: { id: 'u1' } };
-
-    let observed: { session: unknown } | null = null;
-    function Probe() {
-      observed = useAuthSession();
-      return null;
-    }
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const clearSpy = vi.spyOn(qc, 'clear');
-    render(
-      <QueryClientProvider client={qc}>
-        <AuthProvider>
-          <Probe />
-        </AuthProvider>
-      </QueryClientProvider>,
-    );
-
-    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
-
-    await act(async () => {
-      lastHandler?.('TOKEN_REFRESHED', newSession);
+  it('clears the session at its absolute expiry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-30T03:00:00.000Z'));
+    getAuthSessionMock.mockReturnValue({
+      ...SESSION,
+      expiresAt: '2026-07-30T03:00:01.000Z',
     });
-
-    await waitFor(() => {
-      expect(observed?.session).toEqual(newSession);
-    });
-    expect(syncExtensionAuthMock).toHaveBeenCalledWith(newSession);
-    expect(replaceMock).not.toHaveBeenCalled();
-    expect(clearSpy).not.toHaveBeenCalled();
-  });
-
-  it('AP4: SIGNED_OUT on /login path skips redirect but still consumes reason', async () => {
-    consumeSignOutReasonMock.mockReturnValue('session_expired');
-    setPath('/login');
-
     renderWithProvider(<div />);
-    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
+    await act(async () => vi.advanceTimersByTime(1_000));
 
-    await act(async () => {
-      lastHandler?.('SIGNED_OUT', null);
-    });
-
-    expect(replaceMock).not.toHaveBeenCalled();
-    expect(consumeSignOutReasonMock).toHaveBeenCalledTimes(1);
+    expect(clearAuthSessionMock).toHaveBeenCalledWith('session_expired');
   });
 
-  it('AP5: useAuthSession outside provider returns default { session: null, isLoading: true }', async () => {
-    let observed: { session: unknown; isLoading: boolean } | null = null;
-    function Probe() {
-      observed = useAuthSession();
-      return null;
-    }
-    render(<Probe />);
-
-    expect(observed).toEqual({ session: null, isLoading: true });
-  });
-
-  it('AP6: unmount unsubscribes from onAuthStateChange', async () => {
+  it('unsubscribes local and storage listeners on unmount', async () => {
     const { unmount } = renderWithProvider(<div />);
-    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
-
+    await waitFor(() => expect(sessionListener).not.toBeNull());
     unmount();
-
-    expect(unsubscribeMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('AP7: extension auth-required events coalesce one forced refresh and resync', async () => {
-    // 회전은 `lib/supabase/refresh` 의 `refreshOrFail` 단일 소유자를 거친다.
-    // apiClient 와 같은 mutex 를 써야 서로의 회전 토큰을 태우지 않는다.
-    const rotated = { access_token: 'rotated', user: { id: 'u1' } };
-    getSessionMock
-      .mockResolvedValueOnce({ data: { session: null } })
-      .mockResolvedValue({ data: { session: rotated } });
-    renderWithProvider(<div />);
-    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
-    syncExtensionAuthMock.mockClear();
-
-    await act(async () => {
-      window.dispatchEvent(new Event(EXTENSION_AUTH_REQUIRED_EVENT));
-      window.dispatchEvent(new Event(EXTENSION_AUTH_REQUIRED_EVENT));
-    });
-
-    await waitFor(() => expect(refreshOrFailMock).toHaveBeenCalledTimes(1));
-    expect(syncExtensionAuthMock).toHaveBeenCalledWith(rotated);
-  });
-
-  it('AP8: online recovery reads the current session and resyncs extensions', async () => {
-    const current = { access_token: 'current', user: { id: 'u1' } };
-    getSessionMock
-      .mockResolvedValueOnce({ data: { session: null } })
-      .mockResolvedValueOnce({ data: { session: current } });
-    renderWithProvider(<div />);
-    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
-    syncExtensionAuthMock.mockClear();
-
-    await act(async () => {
-      window.dispatchEvent(new Event('online'));
-    });
-
-    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(2));
-    expect(syncExtensionAuthMock).toHaveBeenCalledWith(current);
-  });
-
-  it('AP9: visible-tab recovery resyncs the current session', async () => {
-    const current = { access_token: 'visible', user: { id: 'u1' } };
-    getSessionMock
-      .mockResolvedValueOnce({ data: { session: null } })
-      .mockResolvedValueOnce({ data: { session: current } });
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      value: 'visible',
-    });
-    renderWithProvider(<div />);
-    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
-    syncExtensionAuthMock.mockClear();
-
-    await act(async () => {
-      document.dispatchEvent(new Event('visibilitychange'));
-    });
-
-    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(2));
-    expect(syncExtensionAuthMock).toHaveBeenCalledWith(current);
-  });
-
-  it('AP10: clears persisted extension auth when the initialized session is null', async () => {
-    getSessionMock.mockResolvedValue({ data: { session: null } });
-    renderWithProvider(<div />);
-
-    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(syncExtensionAuthMock).toHaveBeenCalledWith(null));
-  });
-
-  it('AP11: preserves the extension token when the initial read fails and Supabase emits null', async () => {
-    getSessionMock.mockResolvedValue({
-      data: { session: null },
-      error: new Error('temporary storage failure'),
-    });
-    renderWithProvider(<div />);
-
-    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
-    await act(async () => {
-      lastHandler?.('INITIAL_SESSION', null);
-    });
-    expect(syncExtensionAuthMock).not.toHaveBeenCalled();
-  });
-
-  it('AP12: SIGNED_OUT still clears extension auth after an initial read failure', async () => {
-    getSessionMock.mockResolvedValue({
-      data: { session: null },
-      error: new Error('temporary storage failure'),
-    });
-    renderWithProvider(<div />);
-    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
-
-    await act(async () => {
-      lastHandler?.('INITIAL_SESSION', null);
-    });
-    expect(syncExtensionAuthMock).not.toHaveBeenCalled();
-
-    await act(async () => {
-      lastHandler?.('SIGNED_OUT', null);
-    });
-    await waitFor(() => expect(syncExtensionAuthMock).toHaveBeenCalledWith(null));
-  });
-
-  it('AP13: still hands the extension a token when refresh-token rotation fails', async () => {
-    // Supabase 는 refresh token 을 회전시키므로, 다른 탭이 먼저 소비했거나
-    // apiClient 의 갱신과 경합하면 회전은 정상 사용 중에도 실패한다. 그때
-    // 메모리의 access_token 은 여전히 유효하므로 확장에 넘겨야 한다.
-    const live = { access_token: 'still-valid', user: { id: 'u1' } };
-    refreshOrFailMock.mockResolvedValue(false);
-    getSessionMock
-      .mockResolvedValueOnce({ data: { session: null } })
-      .mockResolvedValue({ data: { session: live } });
-    renderWithProvider(<div />);
-    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
-    syncExtensionAuthMock.mockClear();
-
-    await act(async () => {
-      window.dispatchEvent(new Event(EXTENSION_AUTH_REQUIRED_EVENT));
-    });
-
-    await waitFor(() => expect(syncExtensionAuthMock).toHaveBeenCalledWith(live));
-    expect(syncExtensionAuthMock).not.toHaveBeenCalledWith(null);
-  });
-
-  it('AP14: a queued sign-out clear runs after an older token sync finishes', async () => {
-    const session = { access_token: 'old-token', user: { id: 'u1' } };
-    let finishOldSync: (() => void) | null = null;
-    syncExtensionAuthMock
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            finishOldSync = () => resolve({});
-          }),
-      )
-      .mockResolvedValue({});
-    getSessionMock.mockResolvedValue({ data: { session } });
-
-    renderWithProvider(<div />);
-    await waitFor(() =>
-      expect(syncExtensionAuthMock).toHaveBeenCalledWith(session),
-    );
-
-    await act(async () => {
-      lastHandler?.('SIGNED_OUT', null);
-    });
-    expect(syncExtensionAuthMock).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      finishOldSync?.();
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(syncExtensionAuthMock).toHaveBeenLastCalledWith(null);
-    });
-  });
-
-  it('enables browser collection synchronization only for an authenticated session', async () => {
-    const session = { access_token: 'abc', user: { id: 'u1' } };
-    getSessionMock.mockResolvedValue({ data: { session } });
-    renderWithProvider(<div />);
-
-    await waitFor(() => {
-      expect(browserCollectionEnabledMock).toHaveBeenLastCalledWith(true);
-    });
-
-    await act(async () => {
-      lastHandler?.('SIGNED_OUT', null);
-    });
-    expect(browserCollectionEnabledMock).toHaveBeenLastCalledWith(false);
-  });
-
-  it('mounts the Sellpia coordinator inside the authenticated context tree', async () => {
-    renderWithProvider(<div />);
-    await waitFor(() => expect(sellpiaSyncMountedMock).toHaveBeenCalled());
+    expect(unsubscribeMock).toHaveBeenCalledOnce();
   });
 });

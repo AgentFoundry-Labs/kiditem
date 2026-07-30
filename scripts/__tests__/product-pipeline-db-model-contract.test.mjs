@@ -120,7 +120,7 @@ describe('product pipeline DB model contract', () => {
     assert.doesNotMatch(workflow, /STAGING_AGENT_DETAIL_PAGE_IMAGE_MODEL/);
     assert.doesNotMatch(workflow, /STAGING_AGENT_THUMBNAIL_GENERATE_MODEL/);
     assert.doesNotMatch(workflow, /STAGING_AGENT_IMAGE_EDIT_MODEL/);
-    assert.match(renderer, /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+    assert.doesNotMatch(renderer, /NEXT_PUBLIC_SUPABASE/);
   });
 
   it('passes an explicit canonical web origin independently from the CORS allowlist', () => {
