@@ -153,6 +153,11 @@ they document behavior, regression risk, domain policy, or public contracts.
 
 - `main` and `develop` are protected collaboration branches. Do not push to
   them directly; use PRs.
+- `release/office` is a long-lived protected operational branch. Never delete
+  it locally or remotely, classify it as stale or merged cleanup, or include it
+  in branch, worktree, or prune cleanup. Every KidItem development and office
+  checkout keeps a local `release/office` branch tracking
+  `origin/release/office`; if it is missing, restore it before continuing.
 - Branch names: `feat/{issue}-{desc}`, `fix/{desc}`, `chore/{desc}`, or
   `release/{desc}`.
 - Regular feature/fix/chore PRs branch from `develop` and target `develop`.
