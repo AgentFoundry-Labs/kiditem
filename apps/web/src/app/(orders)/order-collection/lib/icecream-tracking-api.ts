@@ -153,27 +153,9 @@ export interface IcecreamUploadResult {
   error?: string;
 }
 
-/**
- * 생성한 출고완료 xlsx 를 확장이 아이스크림몰 일괄등록 화면의 파일칸에 넣는다.
- * 파괴적(출고완료 확정)이라 웹에서 확인을 받은 뒤 확장이 화면 파일칸에 넣고 업로드를 실행한다.
- */
-export async function uploadIcecreamTrackingViaExtension(
-  blob: Blob,
-  fileName: string,
-): Promise<IcecreamUploadResult> {
-  const extensionId = await detectOrderCollectionExtensionId();
-  if (!extensionId) {
-    throw new Error('주문수집 확장프로그램이 필요합니다. po.i-screammall.co.kr 로그인 후 다시 시도하세요.');
-  }
-  const fileBase64 = await blobToBase64(blob);
-  const res = await sendToExtension<IcecreamUploadResult>(
-    extensionId,
-    { action: 'uploadIcecreamTracking', fileBase64, fileName },
-    130000,
-  );
-  if (!res) throw new Error('아이스크림몰 업로드에 응답이 없습니다. 확장을 새로고침해주세요.');
-  return res;
-}
+// 아이스크림몰 출고완료 업로드는 네이티브 파일 다이얼로그를 거쳐야 해 확장 자동화가 불가능하다.
+// 파일만 만들어 주고 업로드는 화면의 [파일선택]으로 사람이 올린다(order-tracking-actions 참조).
+// 예전 uploadIcecreamTrackingViaExtension 브리지는 실제 등록으로 이어지지 않아 제거했다.
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const buf = new Uint8Array(await blob.arrayBuffer());
