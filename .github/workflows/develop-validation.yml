@@ -1,9 +1,7 @@
 name: Develop Validation
 
 on:
-  push:
-    branches:
-      - develop
+  workflow_dispatch:
 
 concurrency:
   group: develop-validation-${{ github.ref }}

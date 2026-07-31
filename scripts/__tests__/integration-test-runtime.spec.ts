@@ -49,7 +49,7 @@ describe('integration test runtime contract', () => {
     expect(packageJson.devDependencies).toHaveProperty('@testcontainers/postgresql');
   });
 
-  it('keeps PR checks lightweight and fully validates develop', () => {
+  it('keeps PR checks lightweight and reserves full validation for manual develop runs', () => {
     const prWorkflowSource = readRepoFile('.github/workflows/pr-checks.yml');
     const prJobSource = readWorkflowJobSource(prWorkflowSource, 'pr-hygiene');
 
@@ -73,8 +73,8 @@ describe('integration test runtime contract', () => {
     expect(readWorkflowJobNames(developWorkflowSource)).toEqual([
       'full-validation',
     ]);
-    expect(developWorkflowSource).toContain('push:');
-    expect(developWorkflowSource).toContain('      - develop');
+    expect(developWorkflowSource).toContain('workflow_dispatch:');
+    expect(developWorkflowSource).not.toContain('push:');
     expect(developWorkflowSource).not.toContain('pull_request:');
     expect(developWorkflowSource).toContain('cancel-in-progress: true');
     expect(developJobSource).toContain('runs-on: ubuntu-latest');

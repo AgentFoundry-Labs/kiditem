@@ -56,13 +56,12 @@ starting a candidate slot.
 - Regular `develop`/`main` PR checks intentionally run only one fast
   `git diff --check` hygiene job. Authors run the scoped `AGENTS.md`
   verification and PR body guards locally so routine PR feedback stays fast.
-- Every push to `develop` runs one clean dependency install, all deployable
-  workspace builds, the web and extension suites, and the real Postgres
-  integration suite. A newer push cancels an obsolete run so only the latest
-  accumulated `develop` HEAD is validated.
-- A PR targeting protected `release/office` runs lightweight PR hygiene only.
-  Office promotion uses the already validated accumulated `develop` HEAD, so it
-  does not repeat the full suite on GitHub's merge ref.
+- PRs targeting `develop` or protected `release/office` run lightweight PR
+  hygiene only. Required build and test verification runs locally before the
+  PR is shared.
+- `Develop Validation` is a manually dispatched clean-runner check for a
+  `develop` SHA when independent cloud verification is requested; it does not
+  block normal PR review or office promotion.
 - Workflow, deploy shell, Compose, and Terraform changes keep their focused
   local syntax checks; those checks are no longer repeated for unrelated PRs.
 - Image builds are centralized in `.github/workflows/build-image.yml`.
