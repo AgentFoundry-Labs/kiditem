@@ -30,6 +30,7 @@ const AUTOMATIC_ACTIONS = [
   ['collectBoriboriOrders', 'collectBoriboriOrders', 'boribori', { date: '2026-07-15' }],
   ['collectTeachervilleOrders', 'collectTeachervilleOrders', 'teacher-mall', { date: '2026-07-15' }],
   ['collectArt09Orders', 'collectArt09Orders', 'art09', { date: '2026-07-15' }],
+  ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
   ['collectCoupangDirectOrders', 'collectCoupangDirectOrders', 'coupang-direct', { date: '2026-07-15' }],
 ];
 

@@ -144,6 +144,7 @@ test("a login tab stays open without stealing focus when automatic login needs a
       BORIBORI_ORDER_URL: "https://example.invalid/boribori",
       DOMEGGOOK_LIST_URL: "https://example.invalid/domeggook",
       GSSHOP_ORDER_URL: "https://example.invalid/gs-shop",
+      HAEBEOP_ORDER_URL: "https://example.invalid/haebeop",
       ICECREAM_MALL_URL: "https://example.invalid/icecream",
       KIDKIDS_ORDER_URL: "https://example.invalid/kidkids",
       KIDSNOTE_ORDER_URL: "https://example.invalid/kidsnote",

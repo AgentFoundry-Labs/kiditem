@@ -203,6 +203,46 @@ export interface KidkidsConvertInput {
   fileName?: string;
 }
 
+/**
+ * 해법몰(제니마켓) 주문 1행 = 상품 1건(등록번호=basket). 확장이 목록+주문상세를 조인해 넘긴다.
+ * 상세 팝업에 없는 공급단가·제조사는 비어 오며, 변환기는 그 칸을 빈칸으로 둔다.
+ */
+export interface HaebeopConvertOrder {
+  orderNo?: string; // 주문번호 (숫자 문자열)
+  regNo?: string; // 등록번호 = basket idx
+  vendor?: string; // 업체명(협력사)
+  productName?: string;
+  productCode?: string;
+  option?: string;
+  qty?: number;
+  sellPrice?: number; // 판매단가
+  sellAmount?: number; // 판매금액
+  shipFee?: number; // 상품별배송비 (주문 첫 행에만)
+  payMethod?: string;
+  orderDate?: string; // "2026-07-31 19:54:20"
+  invoice?: string;
+  ordName?: string;
+  group?: string;
+  ordId?: string;
+  ordEmail?: string;
+  ordTel?: string;
+  ordMobile?: string;
+  ordPost?: string;
+  ordAddr?: string;
+  recvName?: string;
+  recvTel?: string;
+  recvMobile?: string;
+  recvPost?: string;
+  recvAddr?: string;
+  demand?: string; // 요청사항
+  memo?: string; // 관리자메모
+  status?: string; // 처리상태
+}
+export interface HaebeopConvertInput {
+  orders?: HaebeopConvertOrder[];
+  fileName?: string;
+}
+
 @Injectable()
 export class OrderCollectionService {
   async convertIcecreamMallOrderFile(
@@ -304,6 +344,26 @@ export class OrderCollectionService {
         : `키드키즈_${dayStamp(new Date())}`;
     const name = base.toLowerCase().endsWith('.xls') ? base : `${base}.xls`;
     return convertKidkidsRows(orders, name);
+  }
+
+  /**
+   * 해법몰(제니마켓) 주문 → 셀피아 업로드 양식(.xls 50컬럼). 다운로드 엑셀과 같은 컬럼 구성을
+   * 상세 스크랩 값으로 채운다. 상세에 없는 공급단가·제조사는 빈칸으로 둔다.
+   */
+  convertHaebeopOrders(input: HaebeopConvertInput): OrderCollectionConversion {
+    const orders = Array.isArray(input?.orders) ? input.orders : [];
+    if (orders.length === 0) {
+      throw new BadRequestException('변환할 해법몰 주문이 없습니다.');
+    }
+    if (orders.length > 5_000) {
+      throw new BadRequestException('한 번에 변환할 수 있는 주문은 5,000건까지입니다.');
+    }
+    const base =
+      typeof input.fileName === 'string' && input.fileName.trim()
+        ? input.fileName.trim()
+        : `해법몰_${dayStamp(new Date())}`;
+    const name = base.toLowerCase().endsWith('.xls') ? base : `${base}.xls`;
+    return convertHaebeopRows(orders, name);
   }
 
   /**
@@ -993,6 +1053,149 @@ function convertKidkidsRows(
     outputRows: aoa.length - 1,
     skippedRows: 0,
   };
+}
+
+// ── 해법몰(제니마켓) 셀피아 양식 50컬럼 ──
+// 원본 다운로드 엑셀과 동일한 컬럼 구성. 주문 상세 스크랩으로 채우되, 상세에 없는
+// 공급단가·총 공급단가·제조사는 빈칸으로 둔다(다운로드 엑셀에만 있는 값).
+const HAEBEOP_HEADERS = [
+  '주문번호', '등록번호', '업체명', '상품명', '제조사', '상품코드', '옵션선택', '주문수량',
+  '공급단가', '옵션단가', '총 공급단가', '판매단가', '판매금액', '쿠폰할인금액', '배송비',
+  '상품별배송비', '추가배송비', '사용적립금', '웰컴마일', '도서포인트', '결제방법', '주문일자',
+  '배송사', '운송장번호', '주문자명', '시리얼번호', '그룹', '주문자아이디', '주문자 이메일',
+  '주문자 전화번호', '주문자 휴대폰', '주문자 우편번호', '주문자 주소', '수취인명',
+  '수취인 전화번호', '수취인 휴대폰', '수취인 우편번호', '수취인주소', '요청사항', '관리자메모',
+  '수강생번호', '수강생명', '처리상태', 'FC브랜드코드', '바코드', '과세여부', 'ERP코드',
+  '초도상품', '제작문구 내역', '할부기간',
+] as const;
+// 원본 export 에서 전 행 동일했던 고정값들.
+const HAEBEOP_FC_BRAND_CODE =
+  'B2C|BAC|BCL|DME|DMM|DRM|EHA|EHB|GGE|HBC|HBE|HBM|MER|MERR|MMP|SPC|TCL|Z01|';
+const HAEBEOP_TAX_TYPE = '과세';
+const HAEBEOP_FIRST_PRODUCT = 'N';
+
+// 빈 값은 null 로 둔다. 원본 export 는 값이 없는 칸에 셀을 만들지 않아, 빈 문자열을 넣으면
+// 원본에 없던 빈 셀이 생긴다(aoa_to_sheet 는 null 을 건너뛴다).
+function haebeopClean(value: unknown): string | null {
+  const s = String(value ?? '').trim();
+  return !s || s === '-' || s === '--' ? null : s;
+}
+// 숫자 컬럼(주문번호·등록번호·상품코드·우편번호)은 원본이 숫자 셀이라 숫자로 넣는다.
+function haebeopNumOrBlank(value: unknown): number | null {
+  const s = String(value ?? '').replace(/[^0-9]/g, '');
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isSafeInteger(n) ? n : null;
+}
+// "2026-07-31 19:54:20" → Excel 날짜 시리얼(시각 포함). 원본 서식 m/d/yy h:mm.
+function haebeopDateSerial(value: string): number | null {
+  const m = /(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(String(value ?? ''));
+  if (!m) return null;
+  const ms =
+    Date.UTC(
+      Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+      Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0),
+    ) - Date.UTC(1899, 11, 30);
+  return ms / 86_400_000;
+}
+
+function convertHaebeopRows(
+  orders: HaebeopConvertOrder[],
+  fileName: string,
+): OrderCollectionConversion {
+  const aoa: (string | number | null)[][] = [HAEBEOP_HEADERS.slice() as unknown as string[]];
+  const dateRows: number[] = [];
+  let productRows = 0;
+  for (const order of orders) {
+    const productName = haebeopClean(order?.productName);
+    if (!productName) continue;
+    productRows += 1;
+    const qty = kidsnoteNum(order?.qty);
+    const sellPrice = kidsnoteNum(order?.sellPrice);
+    const sellAmount = kidsnoteNum(order?.sellAmount) || sellPrice * qty;
+    aoa.push([
+      haebeopNumOrBlank(order?.orderNo),
+      haebeopNumOrBlank(order?.regNo),
+      haebeopClean(order?.vendor),
+      productName,
+      null, // 제조사 — 주문 상세에 없음
+      haebeopNumOrBlank(order?.productCode),
+      haebeopClean(order?.option),
+      qty,
+      null, // 공급단가 — 주문 상세에 없음(다운로드 엑셀 전용)
+      0, // 옵션단가
+      null, // 총 공급단가 — 공급단가가 없으므로 함께 비움
+      sellPrice,
+      sellAmount,
+      null, // 쿠폰할인금액
+      null, // 배송비(주문 단위) — 상품별배송비로만 채운다
+      kidsnoteNum(order?.shipFee),
+      0, // 추가배송비
+      null, null, null, // 사용적립금 / 웰컴마일 / 도서포인트
+      haebeopClean(order?.payMethod),
+      haebeopDateSerial(String(order?.orderDate ?? '')),
+      null, // 배송사
+      haebeopClean(order?.invoice),
+      haebeopClean(order?.ordName),
+      null, // 시리얼번호
+      haebeopClean(order?.group),
+      haebeopClean(order?.ordId),
+      haebeopClean(order?.ordEmail),
+      haebeopClean(order?.ordTel),
+      haebeopClean(order?.ordMobile),
+      haebeopNumOrBlank(order?.ordPost),
+      haebeopClean(order?.ordAddr),
+      haebeopClean(order?.recvName),
+      haebeopClean(order?.recvTel),
+      haebeopClean(order?.recvMobile),
+      haebeopNumOrBlank(order?.recvPost),
+      haebeopClean(order?.recvAddr),
+      haebeopClean(order?.demand),
+      haebeopClean(order?.memo),
+      null, null, // 수강생번호 / 수강생명
+      haebeopClean(order?.status) ?? '결제완료',
+      HAEBEOP_FC_BRAND_CODE,
+      null, // 바코드
+      HAEBEOP_TAX_TYPE,
+      null, // ERP코드
+      HAEBEOP_FIRST_PRODUCT,
+      null, null, // 제작문구 내역 / 할부기간
+    ]);
+    dateRows.push(aoa.length - 1);
+  }
+  if (aoa.length <= 1) {
+    throw new BadRequestException('변환할 해법몰 주문이 없습니다.');
+  }
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  // 주문일자(V열, index 21) 날짜+시각 서식
+  for (const r of dateRows) {
+    const ref = XLSX.utils.encode_cell({ r, c: 21 });
+    const cellObj = sheet[ref] as { v?: unknown; t?: string; z?: string } | undefined;
+    if (cellObj && typeof cellObj.v === 'number') {
+      cellObj.t = 'n';
+      cellObj.z = 'm/d/yy h:mm';
+    }
+  }
+  sheet['!cols'] = HAEBEOP_HEADERS.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, haebeopSheetName());
+  const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+  const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립
+  return {
+    buffer,
+    fileName,
+    sourceRows: orders.length,
+    productRows,
+    outputRows: aoa.length - 1,
+    skippedRows: orders.length - productRows,
+  };
+}
+
+// 시트명 = 원본 export 형식 "주문정보_(2026063009)" (YYYYMMDDHH).
+function haebeopSheetName(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `주문정보_(${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())})`;
 }
 
 // 데이터 시트명 = 타임스탬프 (원본 셀피아 export 형식 "20260630094726").

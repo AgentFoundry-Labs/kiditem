@@ -234,6 +234,34 @@ export function createBrowserMallCollector({
     return rows;
   };
 
+  const generateHaebeopSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
+    const { collectHaebeopOrdersFromExtension, convertHaebeopToSellpiaFile } = await import(
+      './haebeop-orders-api'
+    );
+    await ensureMallLogin('haebub-mall', run);
+    // 해법몰은 엑셀 다운로드가 암호 ZIP 이라, 주문 상세 팝업을 읽어 다운로드 없이 수집한다.
+    const orders = await collectHaebeopOrdersFromExtension({ date: collectionDateOf(run) }, run);
+    if (orders.length === 0) {
+      toastNoNewOrders('해법몰', `발주일 ${collectionDateOf(run)} · 결제완료 기준`);
+      return 0;
+    }
+    const result = await convertHaebeopToSellpiaFile(orders, { download: false });
+    const rows = result.outputRows ?? 0;
+    const convertedAt = Date.now();
+    addBrowserGeneratedFile({
+      ...result,
+      id: `${convertedAt}-haebub-mall-browser`,
+      sourceName: `해법몰 주문 (${formatNumber(orders.length)}건)`,
+      convertedAt,
+      collectionDate: collectionDateOf(run),
+      collectionMode: 'browser',
+      collectedRows: rows,
+      mallKey: 'haebub-mall',
+      mallName: '해법몰',
+    });
+    return rows;
+  };
+
   const generateLotteonSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectLotteonXlsxFromExtension, convertLotteonToSellpiaFile } = await import(
       './lotteon-orders-api'
@@ -626,6 +654,7 @@ export function createBrowserMallCollector({
     }
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'art09') return resultFor(await generateArt09Csv(resolvedRun), today);
+    if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
     if (!isBrowserCollectableMall(account)) {
       throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
     }
