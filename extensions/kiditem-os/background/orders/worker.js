@@ -562,6 +562,15 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.action === "uploadKidkidsTracking") {
+    uploadKidkidsTracking({ rows: Array.isArray(msg.rows) ? msg.rows : [] })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({ success: false, error: error?.message || "키드키즈 송장 업로드 실패" });
+      });
+    return true;
+  }
+
   if (msg?.action === "collectDomeggookOrders") {
     return respond(orderCollectionLifecycle.run(
       msg,
@@ -6157,6 +6166,144 @@ async function scrapeOnchUpload(rows) {
   }
 }
 
+// ── 키드키즈(kidkids) 송장 등록(발송처리) ──
+// 수집의 역방향. 셀피아 채번 송장(주문번호↔송장)을 출고관리 목록에 주입해 출고완료 처리한다.
+// 조작자 흐름: 주문번호로 행을 찾아 CJ대한통운 아래 입력칸(deliveryTxt_{od})에 송장 주입 → 출고선택
+// (CheckBox) 체크 → 하단 "출고 완료 등록"(go_reg). go_reg 재현: POST /sales/sales_process.htm
+// mode=aan, mul_id=|ods, delivery_no=|송장. ⚠️출고완료는 되돌리기 어려운 파괴적 동작이므로 웹에서
+// 명시적 확인(confirm) 후에만 이 액션이 호출되어야 한다.
+async function uploadKidkidsTracking(options = {}) {
+  const rows = Array.isArray(options.rows) ? options.rows : [];
+  if (rows.length === 0) return { success: false, error: "키드키즈 송장이 없습니다." };
+  const { tab, created } = await findOrCreateKidkidsTab();
+  if (!tab?.id) return { success: false, error: "키드키즈(partner.kidkids.net) 탭을 열 수 없습니다." };
+  // 파괴적(출고완료 확정) → 사용자 화면을 앞으로.
+  await interactiveTabs.focusTab(tab.id, INTERACTIVE_TAB_REASONS.TRACKING_MUTATION);
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: scrapeKidkidsTrackingUpload,
+        args: [rows],
+      }),
+      120000,
+      "키드키즈 송장 업로드 시간이 초과되었습니다.",
+    );
+    const result = injected[0]?.result ?? { success: false, error: "키드키즈 화면에 접근하지 못했습니다." };
+    if (result && result.loginRequired) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
+    if (!result.success) keepOpen = true; // 실패 시 사용자가 확인하도록 탭 유지
+    return result;
+  } catch (e) {
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
+    return mallGenericErrorResult("키드키즈", e);
+  } finally {
+    if (created && tab.id && !keepOpen) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+// partner.kidkids.net 페이지 컨텍스트: 목록에서 주문번호→출고선택 CheckBox(od) 매핑 → 송장 주입/체크
+// → go_reg 재현(POST /sales/sales_process.htm mode=aan). rows=[{orderNo, invNo, courier?}].
+async function scrapeKidkidsTrackingUpload(rows) {
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+  try {
+    if (/login|partnerlogin|partner_login/i.test(location.href) || document.querySelector('input[type="password"]')) {
+      return { success: false, loginRequired: true };
+    }
+    // 출고선택(CheckBox)이 있는 목록 테이블 + 주문번호 컬럼 인덱스.
+    const firstCb = document.querySelector('input[name="CheckBox"]');
+    if (!firstCb) return { success: false, error: "출고관리 목록을 찾지 못했습니다. (로그인/화면 확인)" };
+    let table = firstCb;
+    while (table && table.tagName !== "TABLE") table = table.parentElement;
+    if (!table) return { success: false, error: "출고관리 목록 테이블을 찾지 못했습니다." };
+    const trs = [...table.rows];
+    const hdr = trs.find((r) => [...r.cells].some((c) => /주문번호/.test(c.textContent)));
+    const orderNoCol = hdr ? [...hdr.cells].findIndex((c) => norm(c.textContent).includes("주문번호")) : -1;
+
+    // 주문번호 → { cb(출고선택), od } 매핑.
+    const byOrderNo = {};
+    for (const cb of table.querySelectorAll('input[name="CheckBox"]')) {
+      let tr = cb;
+      while (tr && tr.tagName !== "TR") tr = tr.parentElement;
+      if (!tr) continue;
+      const ono = orderNoCol >= 0 ? norm(tr.cells[orderNoCol]?.textContent) : "";
+      if (ono && !byOrderNo[ono]) byOrderNo[ono] = { cb, od: cb.value, tr };
+    }
+
+    // 택배사(CJ대한통운) select 옵션값 확정 — 하드코딩 대신 옵션 텍스트에서 찾는다.
+    const resolveCourierValue = (tr, courierText) => {
+      const sel = tr && tr.querySelector('select[name="logis_company_id"]');
+      if (!sel) return { sel: null, value: "" };
+      const want = String(courierText || "CJ대한통운").replace(/\s+/g, "");
+      const opt = [...sel.options].find((o) => norm(o.textContent).replace(/\s+/g, "").includes(want));
+      return { sel, value: opt ? opt.value : "" };
+    };
+
+    const targets = [];
+    const results = [];
+    for (const r of rows) {
+      const ono = String(r.orderNo || r.ordNo || "").trim();
+      const inv = String(r.invNo || r.trackingNo || "").trim();
+      if (!ono || !inv) { results.push({ orderNo: ono, ok: false, reason: "주문번호/송장 없음" }); continue; }
+      const hit = byOrderNo[ono];
+      if (!hit) { results.push({ orderNo: ono, ok: false, reason: "목록에 없음(이미 발송/기간 밖)" }); continue; }
+      // CJ대한통운 아래 송장 입력칸(deliveryTxt_{od})에 주입.
+      const input = document.querySelector(`[name="deliveryTxt_${hit.od}"], #deli_no_${hit.od}`);
+      if (!input) { results.push({ orderNo: ono, ok: false, reason: "송장 입력칸 없음" }); continue; }
+      input.value = inv;
+      // 택배사 select = CJ대한통운.
+      const { sel, value } = resolveCourierValue(hit.tr, r.courier);
+      if (sel && value) sel.value = value;
+      // 출고선택 체크.
+      hit.cb.checked = true;
+      targets.push({ od: hit.od, inv, courierValue: value });
+      results.push({ orderNo: ono, ok: true, reason: "" });
+    }
+
+    if (!targets.length) {
+      return {
+        success: false,
+        submitted: false,
+        total: rows.length,
+        okCount: 0,
+        listSize: Object.keys(byOrderNo).length,
+        results: results.slice(0, 60),
+        error: "주입 가능한 주문이 없습니다.",
+      };
+    }
+
+    // go_reg 재현: 출고완료(발송처리) 확정 POST. 서버는 |파이프 조인 mul_id/delivery_no 를 읽는다.
+    const body = new URLSearchParams();
+    body.set("from_logis_index", "Y");
+    body.set("mode", "aan");
+    body.set("mul_id", "|" + targets.map((t) => t.od).join("|"));
+    body.set("delivery_no", "|" + targets.map((t) => t.inv).join("|"));
+    const courierValue = targets.find((t) => t.courierValue)?.courierValue;
+    if (courierValue) body.set("logis_company_id", String(courierValue));
+    const res = await fetch("/sales/sales_process.htm", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    // hiddenFrame 제출과 달리 직접 POST 는 응답을 받는다. 다만 키드키즈는 성공 시 목록 HTML 을 반환할
+    // 뿐 명확한 성공 코드가 없어, HTTP ok 를 "제출됨"으로만 보고한다(실제 반영은 목록 재조회로 확인 권장).
+    return {
+      success: res.ok,
+      submitted: res.ok,
+      total: rows.length,
+      okCount: res.ok ? targets.length : 0,
+      listSize: Object.keys(byOrderNo).length,
+      results: results.slice(0, 60),
+    };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
 async function uploadDomeggookTracking(options = {}) {
   const fileBase64 = typeof options.fileBase64 === "string" ? options.fileBase64 : "";
   const fileName = typeof options.fileName === "string" ? options.fileName : "도매꾹_송장.xls";
@@ -6308,6 +6455,7 @@ KidItemDomains.register({
     sellpiaScopedAutoInvoiceV1: true,
     uploadDomeggookTracking: true,
     uploadOnchTracking: true,
+    uploadKidkidsTracking: true,
     uploadIcecreamTracking: true,
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,

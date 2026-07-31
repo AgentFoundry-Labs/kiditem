@@ -99,6 +99,82 @@ export async function uploadOnchTrackingViaExtension(rows: SellpiaTrackingRow[])
   };
 }
 
+export interface KidkidsTrackingUploadResultRow {
+  orderNo: string;
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * ⚠️파괴적: 확장이 키드키즈 출고관리 목록에서 주문번호로 행을 찾아 CJ대한통운 아래 입력칸에 송장을
+ * 주입하고 출고선택 후 출고완료(발송처리, go_reg = mode=aan)로 확정한다. 프론트가 사용자 확인 후에만 호출.
+ * ⚠️조인 주의: 셀피아 송장 ordNo(판매처주문번호)와 키드키즈 목록 주문번호가 일치해야 매칭된다.
+ */
+export async function uploadKidkidsTrackingViaExtension(rows: SellpiaTrackingRow[]): Promise<{
+  total: number;
+  okCount: number;
+  listSize: number;
+  submitted: boolean;
+  results: KidkidsTrackingUploadResultRow[];
+}> {
+  const extensionId = await detectOrderCollectionExtensionId();
+  if (!extensionId) {
+    throw new Error('주문수집 확장프로그램이 필요합니다. partner.kidkids.net 로그인 후 다시 시도하세요.');
+  }
+  const payload = rows.map((row) => ({
+    orderNo: row.ordNo,
+    invNo: row.invNo,
+    courier: COURIER_NAME[row.courier] ?? 'CJ대한통운', // 확장은 택배사 이름으로 select 옵션을 찾는다
+  }));
+  const res = await sendToExtension<{
+    success?: boolean;
+    submitted?: boolean;
+    total?: number;
+    okCount?: number;
+    listSize?: number;
+    results?: KidkidsTrackingUploadResultRow[];
+    error?: string;
+  }>(extensionId, { action: 'uploadKidkidsTracking', rows: payload }, 130000);
+  if (!res?.success) throw new Error(res?.error ?? '키드키즈 송장 업로드에 실패했습니다.');
+  return {
+    total: res.total ?? rows.length,
+    okCount: res.okCount ?? 0,
+    listSize: res.listSize ?? 0,
+    submitted: res.submitted === true,
+    results: Array.isArray(res.results) ? res.results : [],
+  };
+}
+
+export interface IcecreamUploadResult {
+  success: boolean;
+  injected?: boolean;
+  needsAuth?: boolean;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * 생성한 출고완료 xlsx 를 확장이 아이스크림몰 일괄등록 화면의 파일칸에 넣는다.
+ * 파괴적(출고완료 확정)이라 웹에서 확인을 받은 뒤 확장이 화면 파일칸에 넣고 업로드를 실행한다.
+ */
+export async function uploadIcecreamTrackingViaExtension(
+  blob: Blob,
+  fileName: string,
+): Promise<IcecreamUploadResult> {
+  const extensionId = await detectOrderCollectionExtensionId();
+  if (!extensionId) {
+    throw new Error('주문수집 확장프로그램이 필요합니다. po.i-screammall.co.kr 로그인 후 다시 시도하세요.');
+  }
+  const fileBase64 = await blobToBase64(blob);
+  const res = await sendToExtension<IcecreamUploadResult>(
+    extensionId,
+    { action: 'uploadIcecreamTracking', fileBase64, fileName },
+    130000,
+  );
+  if (!res) throw new Error('아이스크림몰 업로드에 응답이 없습니다. 확장을 새로고침해주세요.');
+  return res;
+}
+
 async function blobToBase64(blob: Blob): Promise<string> {
   const buf = new Uint8Array(await blob.arrayBuffer());
   let bin = '';
@@ -249,7 +325,7 @@ export async function collectSellpiaDeliTrackingFromExtension(options?: {
   const extensionId = options?.run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에 로드하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
+      '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os를 Chrome에 로드하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
     );
   }
   const res = await sendToExtension<SellpiaTrackingResponse>(
