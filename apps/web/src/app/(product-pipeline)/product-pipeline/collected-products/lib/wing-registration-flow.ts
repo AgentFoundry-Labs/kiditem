@@ -329,6 +329,35 @@ export async function resolveWingCategoryKeyForRegistration(
   return categoryCell ? matchWingCategoryAlias(categoryCell)?.key ?? '' : '';
 }
 
+/**
+ * 자동적용된 카테고리의 근거. 확인 모달에서 사람이 검증할 수 있게 함께 넘긴다.
+ *
+ * 추천은 기존 쿠팡 등록상품 이름과의 유사도라서 항상 맞지는 않는다. 자동적용
+ * 기준을 넘겼더라도 무엇을 근거로 골랐는지 보이지 않으면 확인할 방법이 없다.
+ */
+export async function resolveWingCategoryEvidence(
+  detail: ProductDetailResponse,
+): Promise<WingCategoryEvidence | null> {
+  if (resolveWingCategoryKey(detail)) return null;
+  const name = (detail.basicInfo.name || detail.name).trim();
+  if (!name) return null;
+  try {
+    const resolved = await resolveWingCategories([name]);
+    const suggestion = resolved.get(name)?.suggestion;
+    if (!suggestion) return null;
+    return {
+      confidence: suggestion.confidence,
+      score: suggestion.score,
+      path: suggestion.path,
+      basedOn: suggestion.basedOn.slice(0, 3),
+      applied: Boolean(resolved.get(name)?.categoryCell),
+    };
+  } catch {
+    // 근거 표시는 부가 정보다. 실패해도 등록 흐름을 막지 않는다.
+    return null;
+  }
+}
+
 export async function resolveWingCategorySelections(
   details: readonly ProductDetailResponse[],
 ): Promise<WingCategoryKey[]> {
@@ -465,6 +494,16 @@ export interface WingRegistrationOverrides {
 }
 
 /** 확장으로 넘기기 전 확인 모달이 필요로 하는 전체 컨텍스트. */
+/** 확인 모달에 보여줄 카테고리 추천 근거. */
+export interface WingCategoryEvidence {
+  confidence: 'high' | 'medium' | 'low';
+  score: number;
+  path: string;
+  basedOn: string[];
+  /** 자동적용 기준을 넘겨 카테고리가 이미 채워졌는지. */
+  applied: boolean;
+}
+
 export interface WingRegistrationDraft {
   candidateId: string;
   /** 모달을 닫기 전까지 유지하는 pre-intent 재시도 키. */
@@ -490,6 +529,8 @@ export interface WingRegistrationDraft {
   detailImageUrl: string;
   /** 기존 ProductPreparation 검토 입력. 카테고리 저장 시 함께 보존한다. */
   registrationInput: Record<string, unknown>;
+  /** 카테고리를 추천으로 정했을 때의 근거. 결정론적으로 정해졌으면 없다. */
+  categoryEvidence?: WingCategoryEvidence | null;
 }
 
 export type WingSellpiaSkuOption = SellpiaInventorySearchItem & {
@@ -662,12 +703,20 @@ export async function prepareWingRegistration(
   const extensionId = await detectWingFormExtensionId();
   if (!extensionId) {
     throw new Error(
-      'Wing 상품등록 기능이 있는 최신 KidItem 확장을 찾지 못했습니다. 확장을 리로드한 뒤 다시 시도하세요.',
+      // 확장을 리로드하면 그 전부터 열려 있던 탭은 host-bridge 콘텐츠 스크립트가
+      // 끊긴 채로 남는다. 그 탭의 localStorage 에는 옛 확장 ID 가 남아 있는데
+      // 핸드셰이크로 새 ID 를 받아올 통로도 함께 죽어 있어 탐지가 실패한다.
+      // (확장 3개를 하나로 합친 뒤에는 저장된 ID 가 반드시 옛것이라 더 자주 걸린다)
+      // 확장만 리로드하라고 안내하면 이미 리로드한 사용자가 같은 곳을 맴돈다.
+      'Wing 상품등록 기능이 있는 최신 KidItem 확장을 찾지 못했습니다. '
+      + '확장을 리로드했다면 이 페이지도 새로고침(F5)한 뒤 다시 시도하세요.',
     );
   }
   const detail = await productsApi.getDetail(candidateId);
   const categoryKey = await resolveWingCategoryKeyForRegistration(detail);
   const categoryCell = getWingCategoryDefinition(categoryKey)?.categoryCell ?? '';
+  // 추천으로 정해진 카테고리는 근거를 함께 모달에 보여 사람이 검증하게 한다.
+  const categoryEvidence = await resolveWingCategoryEvidence(detail);
 
   // 상세설명은 이 직접등록 경로의 필수값이다. 없으면 WING 탭을 열기 전에 중단한다.
   // 대표이미지·원본 수집 이미지로 대체하지 않는다 — 잘못된 상세페이지가 등록되는 것이
@@ -700,6 +749,7 @@ export async function prepareWingRegistration(
       sellpiaMatchPreview,
       detailImageUrl,
       registrationInput: { ...(detail.productPreparation?.registrationInput ?? {}) },
+      categoryEvidence,
     },
   };
 }
@@ -847,6 +897,8 @@ export async function submitWingRegistration(
     );
   } catch (error) {
     if (autoSubmit === true) {
+      // 확장과의 통신 자체가 끊긴 경우다. 제출까지 갔는지 알 수 없으므로
+      // 중복 등록을 막기 위해 미해결로 남긴다.
       await candidatesApi.markExternalWingRegistrationUnresolved(
         draft.candidateId, execution.executionId, { reason: 'extension_throw', message: String(error) },
       ).catch(() => undefined);
@@ -855,8 +907,18 @@ export async function submitWingRegistration(
   }
   if (!res?.ok) {
     if (autoSubmit === true) {
-      await candidatesApi.markExternalWingRegistrationUnresolved(
-        draft.candidateId, execution.executionId, { reason: 'extension_error', error: res?.error ?? null },
+      // ⭐ 확장이 구조화된 실패를 돌려줬다는 건 폼을 채우다 멈췄다는 뜻이다.
+      // 제출(상품등록 버튼)은 채우기가 전부 끝난 뒤에만 실행되므로 마켓에는
+      // 아무것도 올라가지 않았다. 이 경우까지 미해결로 남기면 실행이
+      // `reconciling` 에 갇혀 그 수집상품을 영원히 다시 등록할 수 없게 된다.
+      // `submission.attempted` 가 참이면 제출을 시도한 것이므로 그때만 미해결이다.
+      const attempted = res?.submission?.attempted === true;
+      const close = attempted
+        ? candidatesApi.markExternalWingRegistrationUnresolved
+        : candidatesApi.markExternalWingRegistrationNotSubmitted;
+      await close(
+        draft.candidateId, execution.executionId,
+        { reason: 'extension_error', error: res?.error ?? null, attempted },
       ).catch(() => undefined);
     }
     throw new Error(res?.error || '쿠팡 WING 상품등록 페이지 열기에 실패했습니다. 확장을 리로드했는지 확인하세요.');

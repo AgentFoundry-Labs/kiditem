@@ -188,6 +188,29 @@ export class ProductRegistrationService {
     });
   }
 
+  /**
+   * 확장이 폼을 채우다 실패해 마켓에 아무것도 제출되지 않은 경우.
+   *
+   * 제출 여부를 모르는 실패(`markExternalWingRegistrationUnresolved`)와 달리
+   * 중복 등록 위험이 없어 확정 실패로 닫고 재시도를 연다. 기록된 공급자 식별자가
+   * 있으면 저장소가 거부하므로 성공한 등록은 이 경로로 뒤집을 수 없다.
+   */
+  markExternalWingRegistrationNotSubmitted(
+    organizationId: string,
+    candidateId: string,
+    userId: string | null,
+    executionId: string,
+    evidence: unknown,
+  ) {
+    return this.preparations.markExternalExecutionNotSubmitted({
+      organizationId,
+      sourceCandidateId: candidateId,
+      executionId,
+      requestedByUserId: userId,
+      evidence,
+    });
+  }
+
   getExternalWingRegistration(
     organizationId: string,
     candidateId: string,

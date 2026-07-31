@@ -37,9 +37,9 @@ export const COUPANG_SHIPMENT_SESSION_REQUIRED_CODE = 'coupang_shipment_session_
 export const COUPANG_SHIPMENT_RESPONSE_INVALID_CODE = 'coupang_shipment_response_invalid';
 
 const ORDER_COLLECTOR_REQUIRED_MESSAGE =
-  '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드한 뒤 다시 시도해주세요.';
+  '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os를 Chrome에서 로드한 뒤 다시 시도해주세요.';
 const ORDER_COLLECTOR_RELOAD_MESSAGE =
-  '주문수집 확장프로그램이 이전 버전입니다. Chrome 확장 관리에서 extensions/order-collector를 새로고침한 뒤 다시 시도해주세요.';
+  '주문수집 확장프로그램이 이전 버전입니다. Chrome 확장 관리에서 extensions/kiditem-os를 새로고침한 뒤 다시 시도해주세요.';
 
 export class CoupangShipmentExtensionError extends Error {
   code?: string;

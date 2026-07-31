@@ -16,6 +16,7 @@ import { OrderCollectionMallAccountController } from './controllers/order-collec
 import { OrderCollectionService } from './services/order-collection.service';
 import { OrderCollectionMallAccountService } from './services/order-collection-mall-account.service';
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
+import { CoupangDirectPoSnapshotService } from './services/coupang-direct-po-snapshot.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
 import { CoupangDirectOrderCollectionService } from './application/service/coupang-direct-order-collection.service';
@@ -38,6 +39,7 @@ import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/
     OrdersService,
     OrderCollectionService,
     OrderCollectionMallAccountService,
+    CoupangDirectPoSnapshotService,
     CoupangDirectshipService,
     ReturnsService,
     CsService,

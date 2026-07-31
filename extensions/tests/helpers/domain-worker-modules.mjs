@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 // 세 확장을 kiditem-os 하나로 합치면서, 도메인 워커는 더 이상 스스로
@@ -76,5 +77,13 @@ export function dispatchExternalMessage(listeners, message, sender) {
 }
 
 // 세 확장을 합친 kiditem-os 의 manifest 버전. 개별 확장 버전(0.1.95 / 1.2.x /
-// 2.3.x)을 잇는 값이 아니라 새 확장의 첫 릴리스다.
-export const MERGED_EXTENSION_VERSION = '1.0.2';
+// 2.3.x)을 잇는 값이 아니라 새 확장의 릴리스다.
+//
+// 상수로 박아 두면 매니페스트를 올릴 때마다 테스트 4개가 같이 깨진다. 값이 아니라
+// "테스트가 매니페스트와 같은 버전을 본다"는 사실이 지켜야 할 계약이므로 직접 읽는다.
+export const MERGED_EXTENSION_VERSION = JSON.parse(
+  readFileSync(
+    new URL('../../kiditem-os/manifest.json', import.meta.url),
+    'utf8',
+  ),
+).version;

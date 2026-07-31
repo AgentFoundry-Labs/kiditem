@@ -76,9 +76,9 @@ export function orderCollectionExtensionUnavailableMessage(
 ): string {
   if (status.status === 'incompatible') {
     return `주문수집 확장프로그램 ${status.version}이 로드되어 있지만 현재 웹과 호환되지 않습니다. ` +
-      `누락 기능: ${status.missingCapabilities.join(', ')}. extensions/order-collector를 다시 로드해주세요.`;
+      `누락 기능: ${status.missingCapabilities.join(', ')}. extensions/kiditem-os를 다시 로드해주세요.`;
   }
-  return '주문수집 확장프로그램을 찾지 못했습니다. extensions/order-collector를 Chrome에서 로드해주세요.';
+  return '주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os를 Chrome에서 로드해주세요.';
 }
 
 async function requireOrderCollectionSessionExtension(): Promise<string> {
@@ -325,7 +325,7 @@ export async function runSellpiaPostTransferViaExtension(): Promise<SellpiaPostT
   );
   if (!extensionId) {
     throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
+      '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os를 Chrome에서 로드하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
     );
   }
   const response = await sendToExtension<SellpiaPostTransferResult>(

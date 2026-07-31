@@ -90,6 +90,17 @@ export interface ExternalRegistrationExecutionResult {
   listingId: string | null;
 }
 
+/**
+ * 제출되지 않은 채 닫힌 외부 등록. `ExternalRegistrationExecutionResult` 는
+ * 살아 있는 실행(prepared~succeeded)만 표현하므로 종료 상태를 섞지 않는다.
+ */
+export interface ExternalRegistrationClosedResult {
+  executionId: string;
+  preparationId: string;
+  status: 'failed';
+  providerOutcome: 'definitive_failure';
+}
+
 export type ReplaceDraftInputCommand =
   | { kind: 'replace'; input: UpdateProductPreparationInput }
   | { kind: 'cancel' };
@@ -154,6 +165,25 @@ export interface ProductPreparationRepositoryPort {
     requestedByUserId: string | null;
     evidence: unknown;
   }): Promise<ExternalRegistrationExecutionResult>;
+
+  /**
+   * 마켓에 아무것도 제출되지 않은 채 끝난 외부 등록을 확정 실패로 닫는다.
+   *
+   * 제출 여부를 모르는 실패는 `markExternalExecutionUnresolved` 로 `reconciling`
+   * 에 남겨 중복 등록을 막아야 한다. 그런데 확장이 폼을 채우다 실패한 경우는
+   * 제출 단계에 닿지도 못한 것이라 재시도가 안전하다. 이 둘을 구분하지 않으면
+   * 폼 채움 실패 한 번에 그 수집상품이 영구히 등록 불가가 된다(라이브 사례).
+   *
+   * 공급자 식별자(등록상품ID·결과)가 하나라도 기록돼 있으면 호출자가 무엇을
+   * 주장하든 거부한다. 기록된 성공을 실패로 되돌릴 수 있는 경로는 없다.
+   */
+  markExternalExecutionNotSubmitted(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+    executionId: string;
+    requestedByUserId: string | null;
+    evidence: unknown;
+  }): Promise<ExternalRegistrationClosedResult>;
 
   replaceDraftInput(
     input: ReplaceDraftInputRequest,

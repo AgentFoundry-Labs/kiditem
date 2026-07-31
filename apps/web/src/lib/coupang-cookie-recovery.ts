@@ -29,7 +29,7 @@ export async function clearCoupangCookiesViaExtension(): Promise<number> {
   const extensionId = await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
-      '주문수집 확장프로그램이 필요합니다. Chrome에서 extensions/order-collector를 로드한 뒤 다시 시도해주세요.',
+      '주문수집 확장프로그램이 필요합니다. Chrome에서 extensions/kiditem-os를 로드한 뒤 다시 시도해주세요.',
     );
   }
   const response = await sendToExtension<ClearCookiesResponse>(

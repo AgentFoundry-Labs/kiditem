@@ -66,6 +66,35 @@ describe('Coupang category inference', () => {
     expect(result?.basedOn).toEqual(['4구 스핀 딸깍이 키링 1p 휴대용 열쇠고리']);
   });
 
+  // 예전에는 `high` 가 identity match 에서만 나와, 신규 소싱 상품은 구조적으로 절대
+  // 자동적용되지 않았다(웹은 high 만 적용). 라이브 코퍼스 1145건 실측에서 아래 조합은
+  // 정확히 물총을 맞혔지만 medium 이라 카테고리가 비어 WING 등록이 통째로 막혔다.
+  it('auto-applies a strongly agreed similarity match for a brand-new product name', () => {
+    const corpus: CategoryCorpusEntry[] = [
+      { displayName: '울트라 펌프 배틀건 (1p) 대형 어린이 물총 물놀이 워터건', categoryCell: WATERGUN },
+      { displayName: '엔젤윙 롱스틱 물총 (1p) 스틱 펌프형 어린이 물총 물놀이 워터건', categoryCell: WATERGUN },
+      { displayName: '해피글로우 야광봉 (30개입) 불빛 파티 행사', categoryCell: KEYHOLDER },
+    ];
+
+    const result = inferCoupangCategory('어린이 물놀이 워터건 대용량 물총', corpus);
+
+    expect(result?.cell.raw).toBe(WATERGUN);
+    expect(result?.confidence).toBe('high');
+  });
+
+  // 점수만으로는 정답과 오답이 갈리지 않아 이웃 합의율을 함께 요구한다. 이웃이
+  // 서로 다른 카테고리로 흩어지면 자동적용하지 않고 사람이 고르게 남긴다.
+  it('keeps a split-neighbour similarity match out of auto-apply', () => {
+    const corpus: CategoryCorpusEntry[] = [
+      { displayName: '어린이 물총 물놀이 워터건', categoryCell: WATERGUN },
+      { displayName: '어린이 물놀이 튜브 워터파크', categoryCell: KEYHOLDER },
+    ];
+
+    const result = inferCoupangCategory('어린이 물놀이 워터', corpus);
+
+    expect(result?.confidence).not.toBe('high');
+  });
+
   it('prioritizes the exact registered Coupang product identity from the catalog workbook', () => {
     const corpus: CategoryCorpusEntry[] = [
       {

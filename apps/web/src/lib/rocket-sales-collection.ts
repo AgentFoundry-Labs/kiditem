@@ -32,12 +32,12 @@ export async function detectRocketOrderExtensionId(requiredCapability: string): 
   const compatibleId = await detectOrderCollectionExtensionId();
   if (compatibleId) {
     throw new Error(
-      '주문수집 확장프로그램이 이전 버전입니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침한 뒤 다시 시도해주세요.',
+      '주문수집 확장프로그램이 이전 버전입니다. Chrome 확장 관리에서 extensions/kiditem-os 를 새로고침한 뒤 다시 시도해주세요.',
     );
   }
 
   throw new Error(
-    '주문수집 확장프로그램을 찾지 못했습니다. extensions/order-collector 를 Chrome 에 로드/새로고침하고 supplier.coupang.com 로그인 후 다시 시도해주세요.',
+    '주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os 를 Chrome 에 로드/새로고침하고 supplier.coupang.com 로그인 후 다시 시도해주세요.',
   );
 }
 
@@ -116,7 +116,7 @@ async function collectRocketPoRows(
   try {
     if (!res) {
       throw new Error(
-        '주문수집 확장이 로켓 발주 수집 액션에 응답하지 않았습니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
+        '주문수집 확장이 로켓 발주 수집 액션에 응답하지 않았습니다. Chrome 확장 관리에서 extensions/kiditem-os 를 새로고침해주세요.',
       );
     }
     if (!res.success || !res.rows || !res.evidence) {

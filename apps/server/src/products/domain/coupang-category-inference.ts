@@ -138,6 +138,23 @@ const MEDIUM_SCORE = 0.32;
 const NEIGHBOUR_COUNT = 10;
 const MEDIUM_CONSENSUS = 0.45;
 
+/**
+ * 유사도 경로에서 `high` 로 올라가는 기준.
+ *
+ * 예전에는 `high` 가 identity match(이미 등록된 동일/접두 상품명)에서만 나왔다.
+ * 그런데 웹은 `high` 만 자동적용하므로, **신규 소싱 상품은 구조적으로 절대 카테고리가
+ * 채워지지 않았다** — high 가 나오려면 이미 등록된 상품이어야 했기 때문이다.
+ * 카테고리가 비면 WING 폼에서 옵션 영역 자체가 렌더되지 않아 등록이 통째로 막힌다.
+ *
+ * 실제 코퍼스(1145건) 실측 기준으로 잡은 값이다.
+ *   - "어린이 물놀이 워터건 대용량 물총" → 0.615 / 합의 높음 → 물총 (정답)
+ *   - "초등학생 캐릭터 필통 대용량 문구세트" → 0.364 → 문구세트 (정답)
+ *   - "아동용 캐릭터 LED 야광 팔찌" → 0.372 / 합의 낮음 → 캐치볼 (오답)
+ * 점수만으로는 정답과 오답이 갈리지 않아 **이웃 합의율을 함께 요구**한다.
+ */
+const HIGH_SCORE = 0.5;
+const HIGH_CONSENSUS = 0.55;
+
 interface ParsedCategoryCorpusEntry {
   cell: CoupangCategoryCell;
   names: string[];
@@ -265,9 +282,11 @@ export function inferCoupangCategory(
 
   const consensus = totalWeight > 0 ? winner.weight / totalWeight : 0;
   const confidence: CategoryConfidence =
-    consensus >= MEDIUM_CONSENSUS || winner.best >= MEDIUM_SCORE
-      ? 'medium'
-      : 'low';
+    winner.best >= HIGH_SCORE && consensus >= HIGH_CONSENSUS
+      ? 'high'
+      : consensus >= MEDIUM_CONSENSUS || winner.best >= MEDIUM_SCORE
+        ? 'medium'
+        : 'low';
 
   return {
     cell: winner.cell,

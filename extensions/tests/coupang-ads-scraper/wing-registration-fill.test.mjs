@@ -617,6 +617,9 @@ function createOptionAndNoticeHarness({
   generatedRowCount = 0,
   dynamicRequiredOptionTypes = ['색상', '수량'],
   vendorCodeInputAvailable = true,
+  // 라이브 formV2 는 판매자상품코드 입력칸에 placeholder/name/aria-label 을 주지 않아
+  // 직접 셀렉터로는 잡히지 않는다. 그때 열 위치로 찾아내는 경로를 켠다.
+  vendorCodeColumnOnly = false,
 } = {}) {
   let listener = null;
   const events = [];
@@ -694,12 +697,84 @@ function createOptionAndNoticeHarness({
     },
   };
 
+  // ⭐ 라이브 실측(formV2, 2026-07) 옵션표 구조를 그대로 본뜬다.
+  //    헤더 셀 16개 중 4개(2, 8, 9, 10)가 다른 헤더 셀 **안에 중첩**돼 있고
+  //    (옵션명 2열 묶음, 자동가격조정 3열 묶음), 본문 행은 13셀이다.
+  //    그래서 헤더 인덱스(판매자상품코드 = 12)를 본문 셀에 그대로 쓰면 어긋난다.
+  //    본문에서의 실제 위치는 9다.
+  const COLUMN_X = [
+    [0, 40], [40, 300], [300, 380], [380, 520], [520, 660], [660, 800],
+    [800, 940], [940, 1080], [1080, 1220], [1738, 1913], [1913, 2050],
+    [2050, 2190], [2190, 2230],
+  ];
+  const rectOf = ([left, right]) => () => ({ left, right, width: right - left, top: 0, bottom: 30 });
+  // FakeInput 은 아래에서 선언되므로 입력칸은 처음 조회될 때 만든다.
+  const textCell = (range) => {
+    const cell = {
+      className: 'option-pane-table-cell',
+      getBoundingClientRect: rectOf(range),
+      querySelector: (sel) => {
+        if (!sel.includes('input')) return null;
+        if (!cell._input) {
+          cell._input = Object.assign(Object.create(FakeInput.prototype), {
+            type: 'text', tagName: 'INPUT', dispatchEvent() {},
+          });
+        }
+        return cell._input;
+      },
+    };
+    return cell;
+  };
+  const plainCell = (range) => ({
+    className: 'option-pane-table-cell',
+    getBoundingClientRect: rectOf(range),
+    querySelector: () => null,
+  });
+  const columnCells = COLUMN_X.map((range, index) =>
+    [3, 4, 8, 9, 10, 11].includes(index) ? textCell(range) : plainCell(range));
+  const columnBodyRow = {
+    closest: () => null,
+    querySelectorAll: () => columnCells,
+  };
+  const headCell = (text, range, nested) => ({
+    textContent: text,
+    getBoundingClientRect: rectOf(range),
+    contains: (other) => nested.includes(other),
+  });
+  const nestedOptionName = headCell('옵션명', [40, 300], []);
+  const nestedAuto = [
+    headCell('자동가격조정', [940, 1080], []),
+    headCell('최저가', [940, 1010], []),
+    headCell('설정 가격', [1010, 1080], []),
+  ];
+  const headCells = [
+    headCell('', COLUMN_X[0], []),
+    headCell('옵션명', COLUMN_X[1], [nestedOptionName]),
+    nestedOptionName,
+    headCell('노출상태', COLUMN_X[2], []),
+    headCell('정상가 (원)', COLUMN_X[3], []),
+    headCell('판매가 (원)', COLUMN_X[4], []),
+    headCell('단위당가격(원)', COLUMN_X[5], []),
+    headCell('자동가격조정 최저가 설정 가격', COLUMN_X[6], nestedAuto),
+    ...nestedAuto,
+    headCell('재고수량', COLUMN_X[8], []),
+    headCell('판매자상품코드 업체(셀러)에서 자체적으로 관리하는 상품코드', COLUMN_X[9], []),
+    headCell('모델 번호', COLUMN_X[10], []),
+    headCell('상품 바코드', COLUMN_X[11], []),
+    headCell('삭제', COLUMN_X[12], []),
+  ];
+
   const optionRoot = {
     querySelector(selector) {
       return selector.includes('option-pane-table-head') ? selectAll : null;
     },
     querySelectorAll(selector) {
-      return selector.includes('option-pane-table-content') ? rows : [];
+      if (selector.includes('option-pane-table-content')) return rows;
+      if (vendorCodeColumnOnly && selector.includes('option-pane-table-head')) return headCells;
+      if (vendorCodeColumnOnly && selector.includes('option-pane-table-row')) {
+        return [columnBodyRow];
+      }
+      return [];
     },
   };
 
@@ -753,13 +828,17 @@ function createOptionAndNoticeHarness({
       if (selector.includes('placeholder="카테고리명 입력"')) return categoryInput;
       if (selector === '.option-content') return optionRoot;
       if (selector === '.notice-category-option-section') return noticeSection;
-      if (selector.includes('업체상품코드')) return vendorCodeInput;
+      if (selector.includes('판매자상품코드') || selector.includes('업체상품코드')) {
+        return vendorCodeInput;
+      }
       return null;
     },
     querySelectorAll(selector) {
       if (selector === 'button') return buttons;
       if (selector === 'input[type="number"]') return numberInputs;
-      if (selector.includes('업체상품코드')) return vendorCodeInput ? [vendorCodeInput] : [];
+      if (selector.includes('판매자상품코드') || selector.includes('업체상품코드')) {
+        return vendorCodeInput ? [vendorCodeInput] : [];
+      }
       return [];
     },
   };
@@ -926,6 +1005,7 @@ function createOptionAndNoticeHarness({
       });
     },
     events,
+    columnCells,
     rows,
     noticeRows,
     getNoticeCategory: () => noticeCurrent,
@@ -950,7 +1030,10 @@ test('fails closed when a verified Sellpia code cannot be written to the WING fo
   const result = await harness.fill({ ...VARIANT, vendorItemCode: '10451-1' });
 
   assert.equal(result.ok, false);
-  assert.match(result.error, /업체상품코드/);
+  // 판매자상품코드 칸은 옵션표 안에 있고, 옵션표는 카테고리를 골라야 렌더된다.
+  // 카테고리가 비어 있으면 "칸을 못 찾았다"가 아니라 1차 원인을 보고해야 한다.
+  assert.match(result.error, /카테고리가 정해지지 않아/);
+  assert.ok(result.steps.includes('categoryMissing'));
   assert.ok(result.steps.includes('vendorItemCodeFailed'));
 });
 
@@ -1002,7 +1085,8 @@ test('fails closed when Wing does not render the category option creation panel'
   });
 
   assert.equal(result.ok, false);
-  assert.match(result.error, /카테고리 속성.*옵션 입력 영역/);
+  assert.match(result.error, /카테고리가 정해지지 않아/);
+  assert.ok(result.steps.includes('categoryMissing'));
   assert.ok(result.steps.includes('optionCreationUnavailable'));
   assert.equal(harness.events.includes('generateItems'), false);
 });
@@ -1418,4 +1502,28 @@ test('reports unknown when the confirm modal never appears and nothing registers
   assert.equal(result.submission.ok, false);
   assert.equal(result.submission.status, 'unknown');
   assert.equal(result.submission.externalListingId, null);
+});
+
+// Regression: 라이브 formV2 실측(2026-07)
+// 판매자상품코드 입력칸에는 placeholder/name/aria-label 이 없어 직접 셀렉터가 0건이다.
+// 예전 폴백은 헤더 인덱스(12)를 본문 셀에 그대로 썼는데, 헤더에는 중첩 셀 4개가
+// 섞여 있어 본문의 실제 위치(9)와 어긋났고 `cells[12]` 는 입력칸 없는 '삭제' 셀이었다.
+// 그래서 항상 "입력칸을 찾지 못했습니다" 로 끝났다.
+test('판매자상품코드를 헤더 인덱스가 아니라 열 위치로 찾아 채운다', async () => {
+  const harness = createOptionAndNoticeHarness({
+    vendorCodeInputAvailable: false,
+    vendorCodeColumnOnly: true,
+  });
+
+  const result = await harness.fill({ ...VARIANT, vendorItemCode: '10451-1' });
+
+  assert.ok(
+    result.steps.includes('vendorItemCode:10451-1'),
+    JSON.stringify({ steps: result.steps, error: result.error }),
+  );
+  // 헤더 인덱스 12 가 아니라 본문 9번 셀에만 들어가야 한다.
+  assert.deepEqual(
+    harness.columnCells.map((cell) => cell._input?.value ?? null),
+    [null, null, null, null, null, null, null, null, null, '10451-1', null, null, null],
+  );
 });
