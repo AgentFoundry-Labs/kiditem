@@ -25,7 +25,7 @@ export interface SellpiaOrderTransmissionInput {
       transmissionRequestedAt: number,
     ) => Promise<StoredOrderCollectionFile>;
   };
-  freshness: {
+  transmissions: {
     prepareOrderTransmissionIntent: (intentKey: string) => Promise<{
       disposition: 'prepared' | 'already_prepared' | 'already_finalized';
     }>;
@@ -37,7 +37,6 @@ export interface SellpiaOrderTransmissionInput {
       note: string;
     }) => Promise<unknown>;
   };
-  invalidateFreshnessHistory: () => Promise<void>;
   onSubmissionConfirmed?: () => void;
   now?: () => number;
 }
@@ -47,7 +46,6 @@ export type SellpiaOrderTransmissionResult =
   | {
       status: 'transmission_requested';
       file: StoredOrderCollectionFile;
-      viewRefreshWarning: boolean;
       finalizationWarning: boolean;
       persistenceWarning: boolean;
       shopName: string;
@@ -59,22 +57,22 @@ export async function transmitSellpiaOrder(
   const shopName = input.file.mallName ?? '아이스크림몰';
   const intentKey = input.file.transmissionIntentKey ?? input.file.id;
   let preparation: Awaited<
-    ReturnType<SellpiaOrderTransmissionInput['freshness']['prepareOrderTransmissionIntent']>
+    ReturnType<SellpiaOrderTransmissionInput['transmissions']['prepareOrderTransmissionIntent']>
   >;
   try {
-    preparation = await input.freshness.prepareOrderTransmissionIntent(intentKey);
+    preparation = await input.transmissions.prepareOrderTransmissionIntent(intentKey);
   } catch {
     throw new Error('전송 준비 상태 저장에 실패해 셀피아 전송을 시작하지 않았습니다.');
   }
 
   if (input.retryConfirmed && preparation.disposition !== 'prepared') {
     try {
-      await input.freshness.reconcileOrderTransmissionIntent({
+      await input.transmissions.reconcileOrderTransmissionIntent({
         intentKey,
         outcome: 'not_submitted',
         note: '운영자가 셀피아 미접수를 확인하고 재전송을 요청함',
       });
-      preparation = await input.freshness.prepareOrderTransmissionIntent(intentKey);
+      preparation = await input.transmissions.prepareOrderTransmissionIntent(intentKey);
     } catch {
       throw new Error(
         '셀피아 재전송 상태 복구에 실패했습니다. 관리자 권한과 기존 접수 상태를 확인해주세요.',
@@ -107,7 +105,7 @@ export async function transmitSellpiaOrder(
     if (extensionResult.outcome === 'not_submitted') {
       let abortWarning = false;
       try {
-        await input.freshness.abortOrderTransmissionIntent(intentKey);
+        await input.transmissions.abortOrderTransmissionIntent(intentKey);
       } catch {
         abortWarning = true;
       }
@@ -141,17 +139,9 @@ export async function transmitSellpiaOrder(
     persistenceWarning = true;
   }
 
-  let viewRefreshWarning = false;
-  try {
-    await input.invalidateFreshnessHistory();
-  } catch {
-    viewRefreshWarning = true;
-  }
-
   return {
     status: 'transmission_requested',
     file,
-    viewRefreshWarning,
     finalizationWarning,
     persistenceWarning,
     shopName: submittedShopName,
@@ -164,7 +154,7 @@ async function finalizeWithRetry(
 ): Promise<boolean> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      await input.freshness.finalizeOrderTransmissionIntent(intentKey);
+      await input.transmissions.finalizeOrderTransmissionIntent(intentKey);
       return true;
     } catch {
       // Finalization is idempotent; one immediate retry covers a lost response.

@@ -131,7 +131,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements. |
 | `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku reads, purchase freshness gate, and record-only transfer/picking/receipt capabilities. |
-| `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, and return-transfer operations. |
+| `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, return-transfer operations, and durable Sellpia workbook submission idempotency/audit. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
@@ -168,7 +168,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
 | `apps/server/src/inventory` | Hexagonal | Sellpia freshness/publication single-writer, browser lease, full-snapshot and capacity reads, narrow purchase gate, and record-only operation capabilities behind ports/adapters. |
-| `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities. |
+| `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities; Sellpia transmission fencing is a scoped `application/port` + `adapter/out/repository` sub-capability. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/operation-cancellation` | Hexagonal | HTTP endpoint plus application service; consumes Automation, Agent OS, and AI owner-side ports only. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
@@ -220,7 +220,7 @@ Initial domain capability targets:
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
 | `supply` | Supplier, supplier-product, purchase-order, and submission-attempt reads. | Supplier matching, deterministic Rocket capacity preview, and procurement calculation helpers. | Freshness-fenced purchase submission and explicit provider reconciliation. | Supplier attach, purchase-order creation/update, and attempt terminal state; never freshness or stock. |
 | `inventory` | Sellpia freshness/source binding/current basis/history, physical SellpiaInventorySku, warehouse, transfer, receipt, unshipped, and picking reads. | Workbook parsing, bounded quality evaluation, freshness/lease policy, and snapshot normalization. | Browser claim/heartbeat/failure/cancel, atomic full-snapshot publication, and record-only transfer/picking flows. | A completed valid Sellpia publication is the only physical `SellpiaInventorySku.currentStock` writer. |
-| `orders` | Order, return, CS, review, and return-transfer reads. | Return/CS classification helpers, channel-agnostic order calculations. | Return and CS operational workflows. | Order/return status projections through order-owned commands. |
+| `orders` | Order, return, CS, review, return-transfer, and Sellpia transmission-intent reads. | Return/CS classification helpers, channel-agnostic order calculations, and deterministic submission-fence decisions. | Return, CS, and audited Sellpia workbook submission workflows. | Order/return status and Sellpia transmission-intent projections through Orders-owned commands; never freshness or stock. |
 
 Flat owner capabilities use this shape:
 
@@ -581,6 +581,7 @@ not estimate, reserve, increment, or decrement it.
 | Physical Sellpia SKU | `SellpiaInventorySku` | `sellpia_inventory_skus` | Organization + Sellpia product code. Only a completed valid Inventory publication writes active state and `current_stock`. |
 | Channel product/option | `ChannelListing` / `ChannelListingOption` | `channel_listings` / `channel_listing_options` | Organization + ChannelAccount + provider identity, with nullable links to MasterProduct/ProductVariant. Provider metadata is never inventory truth. |
 | External submission intent | `PurchaseOrderSubmissionAttempt` | `purchase_order_submission_attempts` | Organization + purchase order + idempotency key; records freshness generation, provider terminal/unknown outcome, and authenticated reconciliation. |
+| Sellpia order submission fence | `SellpiaOrderTransmissionIntent` / `SellpiaOrderTransmissionIntentReconciliation` | `sellpia_order_transmission_intents` / `sellpia_order_transmission_intent_reconciliations` | Orders-owned organization + stable workbook intent key. Prevents duplicate browser submission and audits explicit reconciliation without reading or advancing Inventory freshness. |
 | Rocket confirmation | `RocketPurchaseConfirmation` / `RocketPurchaseConfirmationLine` | `rocket_purchase_confirmations` / `rocket_purchase_confirmation_lines` | Organization + Rocket account + completed source run + UUID idempotency key; records every explicit line decision and confirmation/release actor. |
 | Rocket component allocation | `RocketPurchaseConfirmationAllocation` | `rocket_purchase_confirmation_allocations` | Immutable Supply audit snapshot for one confirmed line; not a second capacity ledger. |
 | Common inventory commitment | `InventoryCommitment` / `InventoryCommitmentAllocation` | `inventory_commitments` / `inventory_commitment_allocations` | Inventory-owned logical hold and component quantities. Active rows reduce common available capacity without writing physical stock; request rows may be replaced by final-order rows, released, or settled. |
@@ -609,11 +610,13 @@ The first post-order identical hash schedules one three-minute confirmation;
 the next identical file verifies it without a third loop. An attested manual
 fresh export uses the same validation/publication path and records actor/time.
 
-A successful Sellpia order-transmission request schedules an Inventory-owned
-refresh after a two-minute settle delay. Repeated successful transmissions
-coalesce and the server caps the wait at five minutes from the first request.
-Raw mall collection creates no refresh, and a transmission request does not
-claim Sellpia accepted the order; the later full snapshot is the stock evidence.
+Sellpia order-workbook submission is independent from Inventory freshness.
+Orders prepares and finalizes a stable transmission intent only to fence an
+irreversible browser submission. KidItem does not pre-check local stock for the
+upload; Sellpia accepts or rejects the workbook and its exact provider error is
+shown to the operator. Preparation, acceptance, rejection, and reconciliation
+never request or advance an Inventory generation, invalidate Inventory queries,
+or expose an Inventory recovery action.
 
 Supply consumes only Inventory's narrow gate. Before any real `pending ->
 ordered` transition, it checks fresh active product identities, then locks the

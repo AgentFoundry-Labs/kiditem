@@ -104,9 +104,10 @@ reconciling; it is never reborn as a fresh prepared/create execution.
 `/api/sourcing/scrape-url` enqueues a `sourcing` Agent OS request. The active
 runtime handler is `SourcingPlaywrightRuntimeHandler`: it opens Playwright
 Chromium with a persistent profile and runs approved deterministic extractor
-code. During migration it may still reuse
-`extensions/product-scraper/extractors/*` as legacy/reference page scripts, but
-new scraper development should happen through the Codex-global
+code. Its browser fallback loads the canonical sourcing scripts from the single
+extension at `extensions/kiditem-os/content/sourcing/extractors/*`; do not
+reintroduce the deleted `extensions/product-scraper` root. New scraper
+development should happen through the Codex-global
 `$magic-scraper` skill (`~/.codex/skills/magic-scraper/SKILL.md`) and then be
 promoted into reviewed sourcing extractor/runtime code with fixtures and tests.
 

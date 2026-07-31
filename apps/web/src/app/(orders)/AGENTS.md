@@ -30,9 +30,9 @@ React Query + apiClient
   state.
 - Generated Excel files may use `apiClient.fetchRaw()` because they are blob
   responses.
-- Order-transmission status and Sellpia freshness scheduling are wired into the
-  baseline generated-file flow; do not replace the order-collection layout with
-  a separate synchronization workspace.
+- Orders-owned transmission status is wired into the baseline generated-file
+  flow; do not replace the order-collection layout with a separate
+  synchronization workspace or route failures into Inventory synchronization.
 - `/order-collection` and `/orders` own their live workspaces and remain
   independent active routes.
 - Channel product/option identity repair remains in the independently reachable
@@ -65,6 +65,8 @@ React Query + apiClient
   organization-scoped intent keyed by Rocket workbook export and transport
   before invoking that irreversible submit and
   blocks submission if preparation fails or the same intent is unresolved.
-  `{ success: true, submitted: true }` immediately finalizes the intent into a
-  post-submit generation; only explicit non-submission aborts it. Raw mall
-  collection does not schedule inventory refresh or mutate stock locally.
+  `{ success: true, submitted: true }` finalizes only the Orders-owned intent;
+  only explicit confirmed non-submission aborts it. Raw mall collection and
+  workbook submission do not read, schedule, invalidate, or mutate Inventory.
+  Sellpia validates stock during upload, and provider rejection renders the
+  exact provider error without an Inventory recovery action.

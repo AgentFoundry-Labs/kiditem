@@ -17,6 +17,31 @@ function productionTypeScriptFiles(directory: string): string[] {
 }
 
 describe('Orders stock boundary', () => {
+  it('owns the Sellpia transmission fence without inventory-generation behavior', () => {
+    const schema = readFileSync(
+      path.resolve(ORDERS_ROOT, '../../../../prisma/models/orders.prisma'),
+      'utf8',
+    );
+    const intent = schema.match(
+      /model SellpiaOrderTransmissionIntent \{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
+    const reconciliation = schema.match(
+      /model SellpiaOrderTransmissionIntentReconciliation \{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
+
+    expect(intent).toContain('organizationId');
+    expect(intent).toContain('intentKey');
+    expect(intent).toContain('@@unique([organizationId, intentKey]');
+    expect(reconciliation).toContain('reconciledBy');
+    expect(reconciliation).toContain('outcome');
+
+    const source = productionTypeScriptFiles(ORDERS_ROOT)
+      .map((file) => readFileSync(file, 'utf8'))
+      .join('\n');
+    expect(source).not.toContain('SellpiaInventoryFreshness');
+    expect(source).not.toContain('order_transmission_requested');
+  });
+
   it('does not register a duplicate Rocket purchase-decision backend', () => {
     expect(existsSync(path.join(ORDERS_ROOT, 'controllers/rocket-po.controller.ts'))).toBe(false);
     expect(existsSync(path.join(ORDERS_ROOT, 'services/rocket-po-confirm.service.ts'))).toBe(false);

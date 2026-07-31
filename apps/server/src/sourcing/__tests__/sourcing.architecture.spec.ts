@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 // Architecture guard tests freeze the sourcing port/adapter contract:
@@ -123,5 +124,19 @@ describe('sourcing architecture contract', () => {
       violators,
       `Legacy folders detected — use adapter/in/http/dto/, application/service/, and adapter/out/repository/:\n${violators.join('\n')}`,
     ).toEqual([]);
+  });
+
+  it('loads browser fallback extractors from the unified KidItem OS extension', () => {
+    const runtimeSource = readFileSync(
+      path.join(SOURCING_ROOT, 'adapter/out/runtime/sourcing-playwright-runtime.handler.ts'),
+      'utf8',
+    );
+
+    expect(runtimeSource).toContain(
+      'extensions/kiditem-os/content/sourcing/extractors',
+    );
+    expect(runtimeSource).not.toContain(
+      'extensions/product-scraper/extractors',
+    );
   });
 });

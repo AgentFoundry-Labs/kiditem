@@ -350,14 +350,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
 
     await expect(adapter.getActiveWorkflow({
       organizationId: TEST_ORGANIZATION_ID,
-    })).resolves.toMatchObject({ status: 'awaiting_inventory_sync' });
-
-    await prisma.sellpiaInventoryState.update({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      data: { verifiedGeneration: 13n },
-    });
-    await expect(adapter.getActiveWorkflow({
-      organizationId: TEST_ORGANIZATION_ID,
     })).resolves.toBeNull();
     expect(await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
       where: { id: created.exportId },
