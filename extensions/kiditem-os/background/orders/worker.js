@@ -1891,52 +1891,70 @@ async function scrapeHaebeopOrders(options) {
     const from = options?.fromDate || options?.date || today;
     const to = options?.toDate || options?.date || today;
 
-    // 1) 목록 검색 (결제완료 = OY)
-    const body = new URLSearchParams();
-    body.set("search_on", "ture");           // 사이트 원본 오타 그대로 보내야 검색이 걸린다
-    body.set("page", "");
-    body.set("s_status", "");
-    body.set("search_ord_status", "OY");     // 결제완료
-    body.set("str_date", from);
-    body.set("end_date", to);
-    body.set("search_shop_name", "");        // 고객사(비움)
-    body.set("search_mall_name", vendor);    // 협력사
-    body.set("searchopt", "prdcode");
-    body.set("searchkey", "");
-    body.set("s_member_grp", "");
-    body.set("search_orderid", "");
-    const listRes = await fetch("/mall/order/basket_list.php", {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
-    if (!listRes.ok) return { success: false, error: "해법몰 목록 조회 실패 (HTTP " + listRes.status + ")" };
-    const listHtml = new TextDecoder("utf-8").decode(await listRes.arrayBuffer());
-    if (/login|로그인/i.test(String(listRes.url || "")) ) return { success: false, loginRequired: true };
-    const ldoc = new DOMParser().parseFromString(listHtml, "text/html");
-    if (ldoc.querySelector('input[type="password"]')) return { success: false, loginRequired: true };
-
-    // 목록 행: 선택 체크박스(select_checkbox)를 가진 tr.
-    // ⚠️hidden orderid/idx 는 행 단위로 격리돼 있지 않다(중첩 테이블 하나에 전 행의 hidden 이 모여 있어
-    // tr.querySelector 로는 잡히지 않는다). 그래서 주문번호는 목록 셀에서 읽는다.
-    // 셀 구성: [선택][주문날짜][주문번호][주문자명][그룹][상품명][주문방법][은행/입금자][기능]
+    // 1) 목록 검색 (결제완료 = OY). 페이지 링크가 있는 만큼 모두 읽어야 주문을 조용히 누락하지 않는다.
     const listRows = [];
-    for (const cb of ldoc.querySelectorAll('input[name="select_checkbox"]')) {
-      let tr = cb;
-      while (tr && tr.tagName !== "TR") tr = tr.parentElement;
-      if (!tr) continue;
-      const c = [...tr.cells].map((td) => norm(td.textContent));
-      const orderid = (c[2] || "").replace(/[^0-9]/g, "");
-      if (!orderid) continue;
-      listRows.push({
-        orderid,
-        orderDate: c[1] || "",   // 2026-07-31 19:54:20
-        ordName: c[3] || "",     // 주문자명
-        group: c[4] || "",       // 그룹(일반 등)
-        listProduct: c[5] || "",
-        payMethod: c[6] || "",   // 주문방법 ("신 + 포") — 셀피아 양식의 결제방법 표기와 같다
+    const queuedPages = [1];
+    const fetchedPages = new Set();
+    const MAX_LIST_PAGES = 100;
+    while (queuedPages.length) {
+      const page = queuedPages.shift();
+      if (!page || fetchedPages.has(page)) continue;
+      if (fetchedPages.size >= MAX_LIST_PAGES) {
+        return { success: false, error: "해법몰 목록 페이지가 100페이지를 초과했습니다. 조회 조건을 좁혀 다시 시도하세요." };
+      }
+      fetchedPages.add(page);
+      const body = new URLSearchParams();
+      body.set("search_on", "ture");         // 사이트 원본 오타 그대로 보내야 검색이 걸린다
+      body.set("page", String(page));
+      body.set("s_status", "");
+      body.set("search_ord_status", "OY");   // 결제완료
+      body.set("str_date", from);
+      body.set("end_date", to);
+      body.set("search_shop_name", "");      // 고객사(비움)
+      body.set("search_mall_name", vendor);  // 협력사
+      body.set("searchopt", "prdcode");
+      body.set("searchkey", "");
+      body.set("s_member_grp", "");
+      body.set("search_orderid", "");
+      const listRes = await fetch("/mall/order/basket_list.php", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
       });
+      if (!listRes.ok) return { success: false, error: "해법몰 목록 조회 실패 (페이지 " + page + ", HTTP " + listRes.status + ")" };
+      const listHtml = new TextDecoder("utf-8").decode(await listRes.arrayBuffer());
+      if (/login|로그인/i.test(String(listRes.url || ""))) return { success: false, loginRequired: true };
+      const ldoc = new DOMParser().parseFromString(listHtml, "text/html");
+      if (ldoc.querySelector('input[type="password"]')) return { success: false, loginRequired: true };
+
+      // 목록 행: 선택 체크박스(select_checkbox)를 가진 tr.
+      // ⚠️hidden orderid/idx 는 행 단위로 격리돼 있지 않다(중첩 테이블 하나에 전 행의 hidden 이 모여 있어
+      // tr.querySelector 로는 잡히지 않는다). 그래서 주문번호는 목록 셀에서 읽는다.
+      // 셀 구성: [선택][주문날짜][주문번호][주문자명][그룹][상품명][주문방법][은행/입금자][기능]
+      for (const cb of ldoc.querySelectorAll('input[name="select_checkbox"]')) {
+        let tr = cb;
+        while (tr && tr.tagName !== "TR") tr = tr.parentElement;
+        if (!tr) continue;
+        const c = [...tr.cells].map((td) => norm(td.textContent));
+        const orderid = (c[2] || "").replace(/[^0-9]/g, "");
+        if (!orderid) continue;
+        listRows.push({
+          orderid,
+          orderDate: c[1] || "",   // 2026-07-31 19:54:20
+          ordName: c[3] || "",     // 주문자명
+          group: c[4] || "",       // 그룹(일반 등)
+          listProduct: c[5] || "",
+          payMethod: c[6] || "",   // 주문방법 ("신 + 포") — 셀피아 양식의 결제방법 표기와 같다
+        });
+      }
+      for (const link of ldoc.querySelectorAll('a[href]')) {
+        const href = link.getAttribute('href') || '';
+        const nextPage = Number(new URL(href, location.href).searchParams.get('page'));
+        if (Number.isInteger(nextPage) && nextPage > 0 && !fetchedPages.has(nextPage)) {
+          queuedPages.push(nextPage);
+        }
+      }
     }
     if (!listRows.length) return { success: true, orders: [], count: 0 }; // 결제완료 신규 없음(정상)
 
@@ -1984,6 +2002,7 @@ async function scrapeHaebeopOrders(options) {
 
     // 3) orderid 별로 한 번만 상세를 받는다(같은 주문의 여러 상품이 목록에 각각 행으로 나온다).
     const detailByOrder = new Map();
+    const detailFailures = new Map();
     const orderIds = [...new Set(listRows.map((r) => r.orderid))];
     const CONCURRENCY = 4;
     for (let i = 0; i < orderIds.length; i += CONCURRENCY) {
@@ -1992,13 +2011,22 @@ async function scrapeHaebeopOrders(options) {
           const res = await fetch("/mall/order/pop_order_info.php?orderid=" + encodeURIComponent(oid), {
             credentials: "include",
           });
-          if (!res.ok) return;
+          if (!res.ok) {
+            detailFailures.set(oid, "HTTP " + res.status);
+            return;
+          }
           const html = new TextDecoder("utf-8").decode(await res.arrayBuffer());
           detailByOrder.set(oid, parseDetail(html));
-        } catch {
-          /* 개별 상세 실패 — 스킵 */
+        } catch (error) {
+          detailFailures.set(oid, String((error && error.message) || error || "네트워크 오류"));
         }
       }));
+    }
+    if (detailFailures.size) {
+      const failures = orderIds
+        .filter((oid) => detailFailures.has(oid))
+        .map((oid) => oid + " (" + detailFailures.get(oid) + ")");
+      return { success: false, error: "해법몰 주문 상세 조회 실패: " + failures.join(", ") };
     }
 
     // 4) 주문 단위로 펼친다. 목록은 "어떤 주문이 결제완료인가"만 알려주고, 상품·금액·주소는 상세에서 온다.
@@ -2010,18 +2038,7 @@ async function scrapeHaebeopOrders(options) {
       if (expanded.has(r.orderid)) continue;
       expanded.add(r.orderid);
       const d = detailByOrder.get(r.orderid);
-      if (!d) {
-        // 상세를 못 받은 경우라도 목록 정보만으로 한 행을 남겨 누락을 막는다(금액·주소는 빈값).
-        if (r.listProduct) {
-          orders.push({
-            orderNo: r.orderid, regNo: "", vendor, productName: r.listProduct,
-            productCode: "", option: "", qty: 0, sellPrice: 0, sellAmount: 0, shipFee: 0,
-            payMethod: r.payMethod, orderDate: r.orderDate, invoice: "",
-            ordName: r.ordName, group: r.group, status: "결제완료",
-          });
-        }
-        continue;
-      }
+      if (!d) return { success: false, error: "해법몰 주문 상세 조회 실패: " + r.orderid };
       // 결제완료 상태의 상품행만(목록 검색 조건과 같은 의미). 상태를 못 읽으면 전부 포함한다.
       const paid = d.items.filter((it) => !it.status || it.status.includes("결제완료"));
       const targets = paid.length ? paid : d.items;
