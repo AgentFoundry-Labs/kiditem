@@ -344,15 +344,22 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     const evidence = new Map(snapshot.evidence.map((row) => [row.masterProductId, row]));
 
     expect(snapshot.sourceCapturedAt).toEqual(capturedAt);
-    expect(evidence.get(eligible.masterProductId)).toEqual({
+    expect(evidence.get(eligible.masterProductId)).toMatchObject({
       masterProductId: eligible.masterProductId,
-      metricValue: 12,
+      periodMetricValue: 12,
+      rankingValue: 12,
+      grossRevenue: 1200,
+      grossCost: 0,
+      grossProfit: 1200,
+      observedCompleteMonths: 1,
       eligible: true,
+      eligibilityReason: 'ELIGIBLE',
     });
-    expect(evidence.get(incomplete.masterProductId)).toEqual({
+    expect(evidence.get(incomplete.masterProductId)).toMatchObject({
       masterProductId: incomplete.masterProductId,
-      metricValue: null,
+      periodMetricValue: null,
       eligible: false,
+      eligibilityReason: 'NO_OBSERVATION',
     });
     expect(evidence.get(sharedOne.masterProductId)?.eligible).toBe(false);
     expect(evidence.get(sharedTwo.masterProductId)?.eligible).toBe(false);

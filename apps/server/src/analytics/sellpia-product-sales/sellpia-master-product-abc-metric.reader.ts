@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type {
+  MasterProductAbcEligibilityReason,
   MasterProductAbcMetric,
   MasterProductAbcPeriodDays,
 } from '@kiditem/shared/product-abc';
@@ -12,20 +13,30 @@ import type {
 import { createSellpiaProductInventoryResolver } from './sellpia-product-inventory-resolver';
 import { detectAnomaly } from './sellpia-product-sales.metrics';
 
+const MAX_OBSERVATION_MONTHS = 12;
+
 type SalesFact = Readonly<{
   productCode: string;
   optionCode: string;
   yearMonth: string;
   orderQty: number;
   orderAmount: number;
+  inAmount: number;
+  costBasis: string;
+  vatIncluded: boolean | null;
   barcode: string | null;
   salePrice: number;
   capturedAt: Date;
 }>;
 
 type SkuMetricEvidence = Readonly<{
-  metricValue: number;
-  complete: boolean;
+  periodMetricValue: number | null;
+  grossRevenue: number;
+  grossCost: number;
+  grossProfit: number;
+  monthsWithFacts: ReadonlySet<string>;
+  earliestPositiveSalesMonth: string | null;
+  missingCost: boolean;
 }>;
 
 @Injectable()
@@ -39,11 +50,15 @@ export class SellpiaMasterProductAbcMetricReader
     metric: MasterProductAbcMetric;
     periodDays: MasterProductAbcPeriodDays;
   }): Promise<MasterProductAbcMetricSnapshot> {
-    const expectedMonths = completedYearMonths(input.periodDays / 30);
-    const [masters, variants, candidates, queriedFacts] = await Promise.all([
+    const periodMonths = completedYearMonths(input.periodDays / 30);
+    const observationMonths = completedYearMonths(Math.max(
+      input.periodDays / 30,
+      MAX_OBSERVATION_MONTHS,
+    ));
+    const [masters, variants, candidates, queriedFacts, allQueriedFacts] = await Promise.all([
       this.prisma.masterProduct.findMany({
         where: { organizationId: input.organizationId },
-        select: { id: true, isActive: true },
+        select: { id: true, isActive: true, createdAt: true },
       }),
       this.prisma.productVariant.findMany({
         where: { organizationId: input.organizationId, isActive: true },
@@ -63,7 +78,7 @@ export class SellpiaMasterProductAbcMetricReader
       this.prisma.sellpiaProductMonthlySales.findMany({
         where: {
           organizationId: input.organizationId,
-          yearMonth: { in: expectedMonths },
+          yearMonth: { in: observationMonths },
         },
         select: {
           productCode: true,
@@ -71,19 +86,42 @@ export class SellpiaMasterProductAbcMetricReader
           yearMonth: true,
           orderQty: true,
           orderAmount: true,
+          inAmount: true,
+          costBasis: true,
+          vatIncluded: true,
+          barcode: true,
+          salePrice: true,
+          capturedAt: true,
+        },
+      }),
+      this.prisma.sellpiaProductMonthlySales.findMany({
+        where: { organizationId: input.organizationId },
+        select: {
+          productCode: true,
+          optionCode: true,
+          yearMonth: true,
+          orderQty: true,
+          orderAmount: true,
+          inAmount: true,
+          costBasis: true,
+          vatIncluded: true,
           barcode: true,
           salePrice: true,
           capturedAt: true,
         },
       }),
     ]);
-    const expectedMonthSet = new Set(expectedMonths);
+    const observationMonthSet = new Set(observationMonths);
     const facts = (queriedFacts as SalesFact[]).filter((row) =>
-      expectedMonthSet.has(row.yearMonth));
+      observationMonthSet.has(row.yearMonth));
+    const earliestPositiveSales = earliestPositiveSalesBySku({
+      facts: allQueriedFacts as SalesFact[],
+      candidates,
+    });
     const sourceCapturedAt = latestCapturedAt(facts);
     const skuMetrics = aggregateSkuMetrics({
       facts,
-      expectedMonths,
+      periodMonths,
       metric: input.metric,
       candidates,
     });
@@ -92,6 +130,10 @@ export class SellpiaMasterProductAbcMetricReader
       variants,
       candidates,
       skuMetrics,
+      observationMonths,
+      periodMonths,
+      metric: input.metric,
+      earliestPositiveSales,
     });
     return { sourceCapturedAt, evidence };
   }
@@ -99,7 +141,7 @@ export class SellpiaMasterProductAbcMetricReader
 
 function aggregateSkuMetrics(input: {
   facts: readonly SalesFact[];
-  expectedMonths: readonly string[];
+  periodMonths: readonly string[];
   metric: MasterProductAbcMetric;
   candidates: ReadonlyArray<{
     id: string;
@@ -130,31 +172,87 @@ function aggregateSkuMetrics(input: {
     });
     if (resolution.status !== 'matched') continue;
 
-    const rowsByMonth = new Map(rows.map((row) => [row.yearMonth, row]));
-    const complete = input.expectedMonths.every((month) => rowsByMonth.has(month));
-    const monthlyQuantity = input.expectedMonths.map((yearMonth) => ({
+    const rowsByMonth = new Map<string, SalesFact>();
+    for (const row of rows) {
+      const prior = rowsByMonth.get(row.yearMonth);
+      if (!prior || row.capturedAt >= prior.capturedAt) rowsByMonth.set(row.yearMonth, row);
+    }
+    const monthlyQuantity = input.periodMonths.map((yearMonth) => ({
       yearMonth,
       orderQty: rowsByMonth.get(yearMonth)?.orderQty ?? 0,
     }));
     const anomalyMonths = new Set(
       detectAnomaly(monthlyQuantity, latest.salePrice).anomalyMonths,
     );
-    const metricValue = input.expectedMonths.reduce((sum, month) => {
+    const period = input.periodMonths.reduce((sum, month) => {
       const row = rowsByMonth.get(month);
       if (!row || anomalyMonths.has(month)) return sum;
-      return sum + (input.metric === 'SALES_AMOUNT' ? row.orderAmount : row.orderQty);
-    }, 0);
+      return {
+        orderQty: sum.orderQty + row.orderQty,
+        orderAmount: sum.orderAmount + row.orderAmount,
+        inAmount: sum.inAmount + row.inAmount,
+      };
+    }, { orderQty: 0, orderAmount: 0, inAmount: 0 });
+    const missingCost = input.metric === 'GROSS_PROFIT'
+      && input.periodMonths.some((month) => {
+        const row = rowsByMonth.get(month);
+        return Boolean(
+          row
+          && !anomalyMonths.has(month)
+          && row.orderAmount > 0
+          && (
+            row.inAmount <= 0
+            || row.costBasis !== 'ORDER_TIME_SUPPLY_COST'
+            || row.vatIncluded !== true
+          ),
+        );
+      });
+    const periodMetricValue = missingCost
+      ? null
+      : input.metric === 'SALES_QUANTITY'
+        ? period.orderQty
+        : input.metric === 'SALES_AMOUNT'
+          ? period.orderAmount
+          : period.orderAmount - period.inAmount;
+    const incoming: SkuMetricEvidence = {
+      periodMetricValue,
+      grossRevenue: period.orderAmount,
+      grossCost: period.inAmount,
+      grossProfit: period.orderAmount - period.inAmount,
+      monthsWithFacts: new Set(rowsByMonth.keys()),
+      earliestPositiveSalesMonth: rows.find((row) =>
+        row.orderQty > 0 || row.orderAmount > 0)?.yearMonth ?? null,
+      missingCost,
+    };
     const prior = bySku.get(resolution.sellpiaInventorySkuId);
-    bySku.set(resolution.sellpiaInventorySkuId, {
-      metricValue: (prior?.metricValue ?? 0) + metricValue,
-      complete: (prior?.complete ?? true) && complete,
-    });
+    bySku.set(resolution.sellpiaInventorySkuId, mergeSkuMetricEvidence(prior, incoming));
   }
   return bySku;
 }
 
+function mergeSkuMetricEvidence(
+  prior: SkuMetricEvidence | undefined,
+  incoming: SkuMetricEvidence,
+): SkuMetricEvidence {
+  if (!prior) return incoming;
+  return {
+    periodMetricValue: prior.periodMetricValue === null || incoming.periodMetricValue === null
+      ? null
+      : prior.periodMetricValue + incoming.periodMetricValue,
+    grossRevenue: prior.grossRevenue + incoming.grossRevenue,
+    grossCost: prior.grossCost + incoming.grossCost,
+    grossProfit: prior.grossProfit + incoming.grossProfit,
+    monthsWithFacts: new Set([...prior.monthsWithFacts, ...incoming.monthsWithFacts]),
+    earliestPositiveSalesMonth: earliestMonth(
+      prior.earliestPositiveSalesMonth,
+      incoming.earliestPositiveSalesMonth,
+    ),
+    missingCost: prior.missingCost || incoming.missingCost,
+  };
+}
+
 function buildMasterProductEvidence(input: {
-  masters: ReadonlyArray<{ id: string; isActive: boolean }>;
+  masters: ReadonlyArray<{ id: string; isActive: boolean; createdAt: Date }>;
   variants: ReadonlyArray<{
     id: string;
     masterProductId: string;
@@ -162,6 +260,10 @@ function buildMasterProductEvidence(input: {
   }>;
   candidates: ReadonlyArray<{ id: string; isActive: boolean }>;
   skuMetrics: ReadonlyMap<string, SkuMetricEvidence>;
+  observationMonths: readonly string[];
+  periodMonths: readonly string[];
+  metric: MasterProductAbcMetric;
+  earliestPositiveSales: ReadonlyMap<string, string>;
 }): MasterProductAbcMetricEvidence[] {
   const activeMasterIds = new Set(
     input.masters.filter((master) => master.isActive).map((master) => master.id),
@@ -192,26 +294,105 @@ function buildMasterProductEvidence(input: {
       const completeRecipe = variants.length > 0
         && variants.every((variant) => variant.components.length > 0)
         && skuIds.size > 0;
-      const eligible = master.isActive
-        && completeRecipe
-        && [...skuIds].every((skuId) => {
-          const candidate = candidateById.get(skuId);
-          const metric = input.skuMetrics.get(skuId);
-          return candidate?.isActive === true
-            && ownersBySku.get(skuId)?.size === 1
-            && metric?.complete === true;
-        });
+      const observationStartMonth = earliestMonth(
+        ...[...skuIds].map((skuId) => input.earliestPositiveSales.get(skuId) ?? null),
+      ) ?? kstYearMonth(master.createdAt);
+      const observationWindow = completedMonthsFrom(
+        observationStartMonth,
+        input.observationMonths,
+      );
+      const observedCompleteMonths = observationWindow.filter((month) =>
+        [...skuIds].every((skuId) => input.skuMetrics.get(skuId)?.monthsWithFacts.has(month)),
+      ).length;
+      const noObservation = [...skuIds].every((skuId) =>
+        input.skuMetrics.get(skuId) === undefined);
+      const incompleteMonths = observationWindow.length > 0
+        && observedCompleteMonths !== observationWindow.length;
+      const inactiveSku = [...skuIds].some((skuId) =>
+        candidateById.get(skuId)?.isActive !== true);
+      const sharedSku = [...skuIds].some((skuId) => ownersBySku.get(skuId)?.size !== 1);
+      const missingCost = input.metric === 'GROSS_PROFIT'
+        && [...skuIds].some((skuId) => input.skuMetrics.get(skuId)?.missingCost === true);
+      const eligibilityReason: MasterProductAbcEligibilityReason = !master.isActive
+        ? 'INACTIVE_PRODUCT'
+        : !completeRecipe
+          ? 'MISSING_RECIPE'
+          : sharedSku
+            ? 'SHARED_SKU'
+            : inactiveSku
+              ? 'INACTIVE_SKU'
+              : noObservation
+                ? 'NO_OBSERVATION'
+                : incompleteMonths
+                  ? 'INCOMPLETE_MONTHS'
+                  : missingCost
+                    ? 'MISSING_COST'
+                    : 'ELIGIBLE';
+      const grossRevenue = sumSkuMetric(skuIds, input.skuMetrics, 'grossRevenue');
+      const grossCost = sumSkuMetric(skuIds, input.skuMetrics, 'grossCost');
+      const grossProfit = sumSkuMetric(skuIds, input.skuMetrics, 'grossProfit');
+      const periodMetricValue = eligibilityReason === 'ELIGIBLE'
+        ? sumSkuMetric(skuIds, input.skuMetrics, 'periodMetricValue')
+        : null;
       return {
         masterProductId: master.id,
-        metricValue: eligible
-          ? [...skuIds].reduce(
-            (sum, skuId) => sum + input.skuMetrics.get(skuId)!.metricValue,
-            0,
-          )
-          : null,
-        eligible,
+        periodMetricValue,
+        rankingValue: periodMetricValue,
+        grossRevenue: noObservation ? null : grossRevenue,
+        grossCost: noObservation ? null : grossCost,
+        grossProfit: noObservation ? null : grossProfit,
+        observedCompleteMonths,
+        observationStartMonth,
+        eligible: eligibilityReason === 'ELIGIBLE',
+        eligibilityReason,
+        riskFlags: [],
       } satisfies MasterProductAbcMetricEvidence;
     });
+}
+
+function earliestPositiveSalesBySku(input: {
+  facts: readonly SalesFact[];
+  candidates: ReadonlyArray<{
+    id: string;
+    code: string;
+    barcode: string | null;
+    isActive: boolean;
+  }>;
+}): Map<string, string> {
+  const resolve = createSellpiaProductInventoryResolver(input.candidates);
+  const earliestBySku = new Map<string, string>();
+  for (const row of input.facts) {
+    if (row.orderQty <= 0 && row.orderAmount <= 0) continue;
+    const resolution = resolve({
+      productCode: row.productCode,
+      optionCode: row.optionCode,
+      barcode: row.barcode,
+    });
+    if (resolution.status !== 'matched') continue;
+    const current = earliestBySku.get(resolution.sellpiaInventorySkuId);
+    if (!current || row.yearMonth < current) {
+      earliestBySku.set(resolution.sellpiaInventorySkuId, row.yearMonth);
+    }
+  }
+  return earliestBySku;
+}
+
+function sumSkuMetric(
+  skuIds: ReadonlySet<string>,
+  metrics: ReadonlyMap<string, SkuMetricEvidence>,
+  field: 'periodMetricValue' | 'grossRevenue' | 'grossCost' | 'grossProfit',
+): number | null {
+  let total = 0;
+  for (const skuId of skuIds) {
+    const value = metrics.get(skuId)?.[field];
+    if (value === undefined || value === null) return null;
+    total += value;
+  }
+  return total;
+}
+
+function completedMonthsFrom(startMonth: string, observationMonths: readonly string[]): string[] {
+  return observationMonths.filter((month) => month >= startMonth);
 }
 
 function completedYearMonths(monthCount: number): string[] {
@@ -223,6 +404,16 @@ function completedYearMonths(monthCount: number): string[] {
     const month = ((monthIndex % 12) + 12) % 12 + 1;
     return `${year}-${String(month).padStart(2, '0')}`;
   });
+}
+
+function kstYearMonth(date: Date): string {
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function earliestMonth(...months: Array<string | null>): string | null {
+  return months.filter((month): month is string => month !== null)
+    .sort((left, right) => left.localeCompare(right))[0] ?? null;
 }
 
 function latestCapturedAt(facts: readonly SalesFact[]): Date | null {

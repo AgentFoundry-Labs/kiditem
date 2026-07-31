@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
+  DEFAULT_MASTER_PRODUCT_ABC_POLICY,
   MasterProductAbcPolicySchema,
   type MasterProductAbcPolicyResponse,
   type MasterProductAbcRecalculationResult,
@@ -8,7 +9,7 @@ import {
   MASTER_PRODUCT_ABC_METRIC_READ_PORT,
   type MasterProductAbcMetricReadPort,
 } from '../../../analytics/application/port/in/master-product-abc-metric-read.port';
-import { calculateMasterProductAbcGrades } from '../../domain/master-product-abc';
+import { calculateMasterProductAbcEvaluations } from '../../domain/master-product-abc';
 import {
   MASTER_PRODUCT_ABC_REPOSITORY_PORT,
   type MasterProductAbcPolicyRecord,
@@ -16,12 +17,7 @@ import {
 } from '../port/out/repository/master-product-abc.repository.port';
 
 const DEFAULT_POLICY: MasterProductAbcPolicyRecord = {
-  metric: 'SALES_QUANTITY',
-  periodDays: 30,
-  aCumulativeThreshold: 70,
-  bCumulativeThreshold: 90,
-  minProvisionalMonths: 3,
-  minClassifiedMonths: 6,
+  ...DEFAULT_MASTER_PRODUCT_ABC_POLICY,
   revision: 0,
   lastCalculatedAt: null,
   sourceCapturedAt: null,
@@ -84,23 +80,28 @@ export class MasterProductAbcService {
       metric: policy.metric,
       periodDays: policy.periodDays,
     });
-    const grades = calculateMasterProductAbcGrades(policy, snapshot.evidence);
-    const metricValues = new Map(snapshot.evidence.map((row) => [
-      row.masterProductId,
-      row.metricValue,
-    ]));
+    const calculatedAt = new Date();
+    const publication = calculateMasterProductAbcEvaluations(policy, snapshot.evidence, {
+      calculatedAt,
+      sourceCapturedAt: snapshot.sourceCapturedAt,
+    });
+    const metricValues = new Map([...publication.evaluations.entries()].map(([
+      masterProductId,
+      evaluation,
+    ]) => [masterProductId, evaluation.rankingValue]));
     const published = await this.repository.publishGrades({
       organizationId,
       policy,
       sourceCapturedAt: snapshot.sourceCapturedAt,
-      grades,
+      grades: publication.grades,
+      evaluations: publication.evaluations,
       metricValues,
       allowPolicyReplacement,
     });
-    const gradeItems = [...grades.entries()].map(([masterProductId, abcGrade]) => ({
+    const gradeItems = [...publication.grades.entries()].map(([masterProductId, abcGrade]) => ({
       masterProductId,
       abcGrade,
-      evaluation: null,
+      evaluation: publication.evaluations.get(masterProductId) ?? null,
     }));
     return {
       policy: published.policy,

@@ -28,6 +28,7 @@ describe('MasterProductAbcRepositoryAdapter', () => {
       },
       sourceCapturedAt: null,
       grades: new Map([['product-1', 'A']]),
+      evaluations: new Map(),
       metricValues: new Map([['product-1', 1]]),
       allowPolicyReplacement: false,
     })).resolves.toMatchObject({ changedProductCount: 0, stale: true });
@@ -59,6 +60,7 @@ describe('MasterProductAbcRepositoryAdapter', () => {
       policy: { ...persistedPolicy, revision: 1 },
       sourceCapturedAt: persistedPolicy.sourceCapturedAt,
       grades: new Map([['product-1', 'B']]),
+      evaluations: new Map(),
       metricValues: new Map([['product-1', 1]]),
     })).resolves.toMatchObject({ changedProductCount: 0, stale: true });
 

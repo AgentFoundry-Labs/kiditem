@@ -21,7 +21,7 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
     policy: MasterProductAbcPolicyRecord;
     sourceCapturedAt: Date | null;
     grades: ReadonlyMap<string, ProductAbcGrade | null>;
-    evaluations?: ReadonlyMap<string, MasterProductAbcEvaluation>;
+    evaluations: ReadonlyMap<string, MasterProductAbcEvaluation>;
     metricValues: ReadonlyMap<string, number | null>;
     allowPolicyReplacement?: boolean;
   }) {
@@ -60,13 +60,13 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
       const ids = [...input.grades.keys()].sort();
       const current = ids.length === 0 ? [] : await tx.masterProduct.findMany({
         where: { organizationId: input.organizationId, id: { in: ids } },
-        select: { id: true, abcGrade: true },
+        select: { id: true, abcGrade: true, isActive: true },
       });
       const changed = current.flatMap((row) => {
         const nextGrade = input.grades.get(row.id) ?? null;
         return row.abcGrade === nextGrade ? [] : [{ id: row.id, oldGrade: row.abcGrade, newGrade: nextGrade }];
       });
-      const calculatedAt = new Date();
+      const calculatedAt = dateOrNull([...input.evaluations.values()][0]?.calculatedAt) ?? new Date();
       const applied: typeof changed = [];
       for (const row of changed) {
         const update = await tx.masterProduct.updateMany({
@@ -87,6 +87,42 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
             metricValue: input.metricValues.get(row.id) ?? null,
             calculatedAt,
           })),
+        });
+      }
+      const activeEvaluationIds = current
+        .filter((product) => product.isActive && input.evaluations.has(product.id))
+        .map((product) => product.id);
+      await tx.masterProductAbcEvaluation.deleteMany({
+        where: activeEvaluationIds.length === 0
+          ? { organizationId: input.organizationId }
+          : {
+            organizationId: input.organizationId,
+            masterProductId: { notIn: activeEvaluationIds },
+          },
+      });
+      for (const masterProductId of activeEvaluationIds) {
+        const evaluation = input.evaluations.get(masterProductId)!;
+        await tx.masterProductAbcEvaluation.upsert({
+          where: {
+            masterProductId_organizationId: {
+              masterProductId,
+              organizationId: input.organizationId,
+            },
+          },
+          create: evaluationData({
+            organizationId: input.organizationId,
+            masterProductId,
+            evaluation,
+            calculatedAt,
+            sourceCapturedAt: input.sourceCapturedAt,
+          }),
+          update: evaluationData({
+            organizationId: input.organizationId,
+            masterProductId,
+            evaluation,
+            calculatedAt,
+            sourceCapturedAt: input.sourceCapturedAt,
+          }),
         });
       }
       const policy = await tx.masterProductAbcPolicy.upsert({
@@ -118,6 +154,47 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
       return { changedProductCount: applied.length, policy: toPolicy(policy), stale: false };
     });
   }
+}
+
+function evaluationData(input: {
+  organizationId: string;
+  masterProductId: string;
+  evaluation: MasterProductAbcEvaluation;
+  calculatedAt: Date;
+  sourceCapturedAt: Date | null;
+}) {
+  const { evaluation } = input;
+  return {
+    organizationId: input.organizationId,
+    masterProductId: input.masterProductId,
+    provisionalGrade: evaluation.provisionalGrade,
+    lifecycleStage: evaluation.lifecycleStage,
+    confidence: evaluation.confidence,
+    eligibilityReason: evaluation.eligibilityReason,
+    riskFlags: [...evaluation.riskFlags],
+    observedCompleteMonths: evaluation.observedCompleteMonths,
+    observationStartMonth: evaluation.observationStartMonth,
+    periodMetricValue: decimalOrNull(evaluation.periodMetricValue),
+    rankingValue: decimalOrNull(evaluation.rankingValue),
+    grossRevenue: evaluation.grossRevenue,
+    grossCost: evaluation.grossCost,
+    grossProfit: evaluation.grossProfit,
+    grossMarginRate: decimalOrNull(evaluation.grossMarginRate),
+    contributionRate: decimalOrNull(evaluation.contributionRate),
+    cumulativeContributionRate: decimalOrNull(evaluation.cumulativeContributionRate),
+    calculatedAt: dateOrNull(evaluation.calculatedAt) ?? input.calculatedAt,
+    sourceCapturedAt: dateOrNull(evaluation.sourceCapturedAt) ?? input.sourceCapturedAt,
+  };
+}
+
+function decimalOrNull(value: number | null): Prisma.Decimal | null {
+  return value === null ? null : new Prisma.Decimal(value);
+}
+
+function dateOrNull(value: Date | string | null): Date | null {
+  if (value === null) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function samePolicyConfig(

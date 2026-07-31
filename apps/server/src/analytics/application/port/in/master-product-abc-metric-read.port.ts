@@ -1,6 +1,8 @@
 import type {
+  MasterProductAbcEligibilityReason,
   MasterProductAbcMetric,
   MasterProductAbcPeriodDays,
+  MasterProductAbcRiskFlag,
 } from '@kiditem/shared/product-abc';
 
 export const MASTER_PRODUCT_ABC_METRIC_READ_PORT = Symbol(
@@ -9,8 +11,16 @@ export const MASTER_PRODUCT_ABC_METRIC_READ_PORT = Symbol(
 
 export type MasterProductAbcMetricEvidence = Readonly<{
   masterProductId: string;
-  metricValue: number | null;
+  periodMetricValue: number | null;
+  rankingValue: number | null;
+  grossRevenue: number | null;
+  grossCost: number | null;
+  grossProfit: number | null;
+  observedCompleteMonths: number;
+  observationStartMonth: string | null;
   eligible: boolean;
+  eligibilityReason: MasterProductAbcEligibilityReason;
+  riskFlags: readonly MasterProductAbcRiskFlag[];
 }>;
 
 export type MasterProductAbcMetricSnapshot = Readonly<{

@@ -19,7 +19,7 @@ export interface MasterProductAbcRepositoryPort {
     policy: MasterProductAbcPolicyRecord;
     sourceCapturedAt: Date | null;
     grades: ReadonlyMap<string, ProductAbcGrade | null>;
-    evaluations?: ReadonlyMap<string, MasterProductAbcEvaluation>;
+    evaluations: ReadonlyMap<string, MasterProductAbcEvaluation>;
     metricValues: ReadonlyMap<string, number | null>;
     allowPolicyReplacement?: boolean;
   }): Promise<{ changedProductCount: number; policy: MasterProductAbcPolicyRecord; stale: boolean }>;
