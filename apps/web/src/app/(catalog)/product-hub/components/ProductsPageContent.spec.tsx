@@ -110,10 +110,6 @@ vi.mock('./ProductEditorDialog', () => ({
   ProductEditorDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">상품 만들기</div> : null,
 }));
 
-vi.mock('./MasterProductAbcPolicyDialog', () => ({
-  MasterProductAbcPolicyDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">자동 ABC 정책</div> : null,
-}));
-
 vi.mock('./ProductAbcDetailDialog', () => ({
   ProductAbcDetailDialog: ({ open, product }: { open: boolean; product: { name: string } | null }) => open ? <div role="dialog">{product?.name} ABC 평가 근거</div> : null,
 }));
@@ -196,7 +192,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByText(/CP-11111111/)).not.toBeInTheDocument();
   });
 
-  it('keeps the staged header and enables period, category, and product creation controls', () => {
+  it('keeps the staged header and enables period, category, and product creation controls without ABC policy controls', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     expect(screen.getByRole('button', { name: '트래픽 업로드' })).toBeDisabled();
@@ -211,8 +207,7 @@ describe('<ProductsPageContent>', () => {
     expect(state.setCategory).toHaveBeenCalledWith('완구/놀이');
     fireEvent.click(screen.getByRole('button', { name: '+ 상품 추가' }));
     expect(screen.getByRole('dialog', { name: '' })).toHaveTextContent('상품 만들기');
-    fireEvent.click(screen.getByRole('button', { name: '자동 ABC 정책' }));
-    expect(screen.getAllByRole('dialog', { name: '' }).at(-1)).toHaveTextContent('자동 ABC 정책');
+    expect(screen.queryByRole('button', { name: '자동 ABC 정책' })).not.toBeInTheDocument();
   });
 
   it('uses full-result operating summaries and only applies the matching inventory filter', () => {

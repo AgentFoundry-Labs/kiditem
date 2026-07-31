@@ -40,16 +40,34 @@ function evidence(overrides = {}) {
 }
 
 describe('MasterProductAbcService', () => {
-  it('uses the gross-profit lifecycle default when an organization has not been initialized', async () => {
+  it('normalizes every automatic calculation to the fixed gross-profit lifecycle policy', async () => {
     const { MasterProductAbcService } = await serviceModule();
-    const repository = { findPolicy: vi.fn().mockResolvedValue(null) };
-    const service = new MasterProductAbcService(repository as never, {} as never);
+    const persisted = policy({ metric: 'SALES_AMOUNT' as const, periodDays: 90 as const, revision: 3 });
+    const repository = {
+      findPolicy: vi.fn().mockResolvedValue(persisted),
+      publishGrades: vi.fn().mockResolvedValue({ changedProductCount: 0, policy: persisted, stale: false }),
+    };
+    const metrics = {
+      readMetricSnapshot: vi.fn().mockResolvedValue({ sourceCapturedAt: null, evidence: [] }),
+    };
+    const service = new MasterProductAbcService(repository as never, metrics as never);
 
-    await expect(service.getPolicy(organizationId)).resolves.toMatchObject({
-      metric: 'GROSS_PROFIT', periodDays: 360,
-      aCumulativeThreshold: 70, bCumulativeThreshold: 90,
-      minProvisionalMonths: 3, minClassifiedMonths: 6,
+    await service.recalculate(organizationId);
+
+    expect(metrics.readMetricSnapshot).toHaveBeenCalledWith({
+      organizationId,
+      metric: 'GROSS_PROFIT',
+      periodDays: 360,
     });
+    expect(repository.publishGrades).toHaveBeenCalledWith(expect.objectContaining({
+      policy: expect.objectContaining({
+        metric: 'GROSS_PROFIT', periodDays: 360,
+        aCumulativeThreshold: 70, bCumulativeThreshold: 90,
+        minProvisionalMonths: 3, minClassifiedMonths: 6,
+        revision: 3,
+      }),
+      allowPolicyReplacement: true,
+    }));
   });
 
   it('publishes full lifecycle evaluations with official grades and ranking history values', async () => {
@@ -85,30 +103,6 @@ describe('MasterProductAbcService', () => {
     }));
   });
 
-  it('publishes a policy change atomically under the authenticated organization', async () => {
-    const { MasterProductAbcService } = await serviceModule();
-    const current = policy({ metric: 'SALES_AMOUNT' as const, periodDays: 90 as const, revision: 2 });
-    const repository = {
-      findPolicy: vi.fn().mockResolvedValue(current),
-      publishGrades: vi.fn().mockResolvedValue({ changedProductCount: 0, policy: current, stale: false }),
-    };
-    const metrics = { readMetricSnapshot: vi.fn().mockResolvedValue({ sourceCapturedAt: null, evidence: [] }) };
-    const service = new MasterProductAbcService(repository as never, metrics as never);
-
-    await service.updatePolicy(organizationId, {
-      metric: 'SALES_AMOUNT', periodDays: 90,
-      aCumulativeThreshold: 60, bCumulativeThreshold: 85,
-      minProvisionalMonths: 3, minClassifiedMonths: 6,
-    });
-    expect(metrics.readMetricSnapshot).toHaveBeenCalledWith({
-      organizationId, metric: 'SALES_AMOUNT', periodDays: 90,
-    });
-    expect(repository.publishGrades).toHaveBeenCalledWith(expect.objectContaining({
-      policy: expect.objectContaining({ metric: 'SALES_AMOUNT', periodDays: 90, revision: 2 }),
-      allowPolicyReplacement: true,
-    }));
-  });
-
   it('retries once from a fresh metric snapshot if another publication wins', async () => {
     const { MasterProductAbcService } = await serviceModule();
     const oldPolicy = policy();
@@ -128,7 +122,7 @@ describe('MasterProductAbcService', () => {
 
     await expect(service.recalculate(organizationId)).resolves.toMatchObject({ changedProductCount: 1 });
     expect(metrics.readMetricSnapshot).toHaveBeenNthCalledWith(2, {
-      organizationId, metric: 'SALES_AMOUNT', periodDays: 90,
+      organizationId, metric: 'GROSS_PROFIT', periodDays: 360,
     });
     expect(repository.publishGrades).toHaveBeenCalledTimes(2);
   });
