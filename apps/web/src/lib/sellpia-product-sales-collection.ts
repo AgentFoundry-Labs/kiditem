@@ -26,7 +26,7 @@ async function detectExtensionId(): Promise<string> {
     );
   }
   throw new Error(
-    '주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os 를 Chrome 에 로드/새로고침하고 kiditem.sellpia.com 에 로그인한 뒤 다시 시도해주세요.',
+    '주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os 를 Chrome 에 로드/새로고침한 뒤 현재 KidItem 화면도 새로고침하고, kiditem.sellpia.com 에 로그인한 후 다시 시도해주세요.',
   );
 }
 

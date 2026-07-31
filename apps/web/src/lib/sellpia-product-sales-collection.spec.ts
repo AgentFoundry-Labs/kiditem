@@ -26,4 +26,12 @@ describe('Sellpia product-profit extension bridge', () => {
     );
     expect(bridge.sendToExtension).not.toHaveBeenCalled();
   });
+
+  it('tells the operator to reload KidItem after reloading the extension', async () => {
+    bridge.detectOrderCollectionExtensionId.mockResolvedValue(null);
+
+    await expect(collectSellpiaProductProfitFromExtension()).rejects.toThrow(
+      '현재 KidItem 화면도 새로고침',
+    );
+  });
 });
