@@ -1,4 +1,5 @@
 import type { PrismaService } from '../prisma/prisma.service';
+import { kstBusinessDate } from './kst';
 
 /**
  * Plan F1 T1 (extracted from `finance/services/profit-loss.service.ts:findAll`).
@@ -50,6 +51,8 @@ export async function buildPerListingMetrics(
   from: Date,
   to: Date,
 ): Promise<PerListingMetrics[]> {
+  const businessDateFrom = kstBusinessDate(from);
+  const businessDateTo = kstBusinessDate(to);
   const [orders, adRows] = await Promise.all([
     prisma.order.findMany({
       where: {
@@ -120,7 +123,10 @@ export async function buildPerListingMetrics(
     prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
       _sum: { adSpend: true },
-      where: { organizationId, businessDate: { gte: from, lt: to } },
+      where: {
+        organizationId,
+        businessDate: { gte: businessDateFrom, lt: businessDateTo },
+      },
     }),
   ]);
 
