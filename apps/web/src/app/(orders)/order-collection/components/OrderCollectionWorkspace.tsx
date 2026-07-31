@@ -82,6 +82,10 @@ import {
   writeMemoryCachedDirectshipPos,
   type CoupangDirectPoCacheScope,
 } from '../lib/coupang-directship-po-cache';
+import {
+  readCoupangDirectSnapshot,
+  saveCoupangDirectSnapshot,
+} from '../lib/coupang-directship-snapshot-api';
 
 export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
@@ -506,6 +510,20 @@ export function OrderCollectionWorkspace() {
     const cached = cachedDirectshipPos();
     // 캐시가 있으면 즉시 달력을 띄운다. 없을 때만 로딩을 보여준다.
     setDirectshipModal({ account, run: null, pos: cached, loading: cached.length === 0 });
+    // 로컬 캐시가 비었으면(다른 PC·시크릿창 등) DB 스냅샷을 먼저 보여준다.
+    if (cached.length === 0 && directshipCacheScope) {
+      void readCoupangDirectSnapshot(directshipCacheScope.channelAccountId)
+        .then((snapshot) => {
+          if (snapshot.length === 0) return;
+          writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, snapshot);
+          writeCachedDirectshipPos(directshipCacheScope, snapshot);
+          // 아직 확장 수집 전이면 스냅샷으로 달력을 채운다.
+          setDirectshipModal((cur) => (cur && cur.pos.length === 0
+            ? { ...cur, pos: snapshot, loading: false }
+            : cur));
+        })
+        .catch(() => {/* 스냅샷은 편의 기능이라 실패해도 무시하고 확장 수집으로 간다 */});
+    }
     try {
       const run = await sessionControls.prepareRun(account);
       if (!run) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
@@ -516,6 +534,9 @@ export function OrderCollectionWorkspace() {
       if (directshipCacheScope) {
         writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, data.pos);
         writeCachedDirectshipPos(directshipCacheScope, data.pos);
+        // DB 에도 저장해 다른 기기·새로고침에서도 달력이 바로 뜨게 한다.
+        void saveCoupangDirectSnapshot(directshipCacheScope.channelAccountId, data.pos)
+          .catch(() => {/* 편의용 저장이라 실패해도 수집 흐름은 막지 않는다 */});
       }
       setDirectshipModal((cur) => (cur ? { ...cur, run, pos: data.pos, loading: false } : cur));
     } catch (err) {

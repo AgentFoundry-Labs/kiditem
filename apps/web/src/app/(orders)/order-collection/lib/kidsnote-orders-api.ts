@@ -57,7 +57,7 @@ export async function collectKidsnoteOrdersFromExtension(
   const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 shop.kidsnote.com 관리자에 로그인한 뒤 다시 시도하세요.',
+      '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os 를 Chrome 에 로드하고 shop.kidsnote.com 관리자에 로그인한 뒤 다시 시도하세요.',
     );
   }
   const res = await sendToExtension<CollectResponse>(

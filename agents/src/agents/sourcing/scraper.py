@@ -19,7 +19,20 @@ except ImportError:
 
 logger = structlog.get_logger()
 
-_EXTENSION_DIR = pathlib.Path(__file__).resolve().parents[4] / "extensions" / "product-scraper"
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
+# 확장 3개를 kiditem-os 하나로 합치면서 소싱 추출기가 옮겨졌다.
+# 병합 전 체크아웃에서도 돌아가도록 옛 경로를 폴백으로 남긴다.
+_EXTENSION_DIR = next(
+    (
+        candidate
+        for candidate in (
+            _REPO_ROOT / "extensions" / "kiditem-os" / "content" / "sourcing",
+            _REPO_ROOT / "extensions" / "product-scraper",
+        )
+        if (candidate / "extractors").is_dir()
+    ),
+    _REPO_ROOT / "extensions" / "kiditem-os" / "content" / "sourcing",
+)
 
 _NAVIGATE_TIMEOUT_MS = 30_000
 _DATA_WAIT_TIMEOUT_MS = 15_000

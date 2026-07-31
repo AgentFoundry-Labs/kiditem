@@ -56,7 +56,7 @@ const WAIT_FOR_1688_DETAIL_MODEL = `
 })()
 `;
 
-const EXTRACT_WITH_UNIFIED_SOURCING_SCRIPTS = `
+const EXTRACT_WITH_PRODUCT_SCRAPER = `
 (bridgeData) => {
   const scraper = window.ProductScraper;
   if (!scraper || !scraper.common) return null;
@@ -347,7 +347,7 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
       extraction = await this.extractWith1688DetailModel(page, url);
     }
     if (!extraction.data) {
-      extraction = await this.extractWithUnifiedSourcingScripts(page, url, platform);
+      extraction = await this.extractWithProductScraper(page, url, platform);
     }
     if (!extraction.data) {
       const recoveryReason = extraction.recoveryReason
@@ -390,7 +390,7 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
     }
   }
 
-  private async extractWithUnifiedSourcingScripts(
+  private async extractWithProductScraper(
     page: Page,
     url: string,
     platform: '1688' | 'ALIBABA',
@@ -399,19 +399,13 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
       const scripts = await loadExtractorScripts(platform);
       await page.evaluate(scripts.commonJs);
       await page.evaluate(scripts.platformJs);
-      const bridgeData = await page.evaluate(
-        BRIDGE_DATA_FROM_UNIFIED_SOURCING_SCRIPTS,
-        scripts.bridgeJs,
-      );
-      const extracted = await page.evaluate(
-        EXTRACT_WITH_UNIFIED_SOURCING_SCRIPTS,
-        bridgeData,
-      );
+      const bridgeData = await page.evaluate(BRIDGE_DATA_FROM_PRODUCT_SCRAPER_BRIDGE, scripts.bridgeJs);
+      const extracted = await page.evaluate(EXTRACT_WITH_PRODUCT_SCRAPER, bridgeData);
       return { data: isRecord(extracted) ? extracted : null };
     } catch (error) {
       if (error instanceof AgentOsRuntimeError) throw error;
       const recoveryReason = runtimeErrorMessage(error);
-      this.logger.warn(`unified sourcing extraction failed for ${url}: ${recoveryReason}`);
+      this.logger.warn(`product-scraper extraction failed for ${url}: ${recoveryReason}`);
       return { data: null, recoveryReason };
     }
   }
@@ -541,22 +535,26 @@ async function loadExtractorScripts(platform: '1688' | 'ALIBABA'): Promise<Extra
 }
 
 function resolveExtractorDir(): string {
-  const candidates = [
-    resolve(process.cwd(), 'extensions/kiditem-os/content/sourcing/extractors'),
-    resolve(process.cwd(), '../../extensions/kiditem-os/content/sourcing/extractors'),
-    resolve(__dirname, '../../../../../../../extensions/kiditem-os/content/sourcing/extractors'),
+  // 주문수집/쿠팡/소싱 확장 3개를 `extensions/kiditem-os` 하나로 합치면서 소싱
+  // 추출기가 `content/sourcing/extractors` 로 옮겨졌다. 옛 경로도 함께 남겨 두어
+  // 아직 병합 전 체크아웃에서 돌리는 환경이 깨지지 않게 한다.
+  const relatives = [
+    'extensions/kiditem-os/content/sourcing/extractors',
+    'extensions/product-scraper/extractors',
   ];
+  const roots = [process.cwd(), resolve(process.cwd(), '../..'), resolve(__dirname, '../../../../../../..')];
+  const candidates = roots.flatMap((root) => relatives.map((relative) => resolve(root, relative)));
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) {
     throw new AgentOsRuntimeError(
       'sourcing_extractors_missing',
-      `Cannot find unified KidItem OS sourcing extractors. Checked: ${candidates.join(', ')}`,
+      `Cannot find sourcing extractors. Checked: ${candidates.join(', ')}`,
     );
   }
   return found;
 }
 
-const BRIDGE_DATA_FROM_UNIFIED_SOURCING_SCRIPTS = `
+const BRIDGE_DATA_FROM_PRODUCT_SCRAPER_BRIDGE = `
 (bridgeJs) => {
   return new Promise((resolve) => {
     const validTypes = new Set(["__ps_1688_detail_data", "__ps_detail_data"]);

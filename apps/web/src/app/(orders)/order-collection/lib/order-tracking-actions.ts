@@ -16,6 +16,7 @@ import {
   filterTrackingByMall,
   isTrackingSupportedMall,
   type SellpiaTrackingRow,
+  uploadKidkidsTrackingViaExtension,
   uploadOnchTrackingViaExtension,
 } from './icecream-tracking-api';
 import {
@@ -262,8 +263,12 @@ export async function uploadTrackingForMall({
         rowCount: result.matchedRows,
       });
       downloadBlob(result.blob, result.fileName);
+      // 아이스크림몰 출고완료 업로드는 네이티브 파일 다이얼로그를 거쳐야 해 자동화가 불가능하다.
+      // (파일 주입/직접 POST 모두 실제 등록으로 이어지지 않음.) 파일만 만들어 주고 업로드는
+      // 화면의 [파일선택]으로 사람이 올린다.
       toast.success(
-        `아이스크림몰 송장 ${formatNumber(result.matchedRows)}건을 배송번호 기준으로 매칭했습니다.`,
+        `아이스크림몰 송장 ${formatNumber(result.matchedRows)}건 파일을 만들었습니다. `
+          + '출고완료 일괄등록 화면에서 [파일선택]으로 올려주세요.',
         { id: toastId, duration: 9000 },
       );
       return;
@@ -298,6 +303,42 @@ export async function uploadTrackingForMall({
           failed
             .slice(0, 6)
             .map((result) => `${result.ordNo}: ${result.reason ?? ''}`)
+            .join(' / '),
+        );
+      }
+      return;
+    }
+
+    if (account.key === 'kidkids') {
+      const confirmed = window.confirm(
+        `키드키즈 송장 ${formatNumber(tracking.length)}건을 실제 출고완료(발송처리)로 등록할까요?\n\n`
+          + '되돌리기 어려운 작업입니다(출고완료로 확정됩니다).',
+      );
+      if (!confirmed) {
+        toast.info('키드키즈 송장 등록을 취소했습니다.', { id: toastId });
+        return;
+      }
+
+      toast.loading('키드키즈에 송장 등록 중…', { id: toastId });
+      const uploaded = await uploadKidkidsTrackingViaExtension(tracking);
+      const failed = uploaded.results.filter((result) => !result.ok);
+      if (uploaded.submitted && uploaded.okCount > 0) {
+        toast.success(
+          `키드키즈 송장 ${formatNumber(uploaded.okCount)}/${formatNumber(uploaded.total)}건 출고완료 등록`,
+          { id: toastId, duration: 10000 },
+        );
+      } else {
+        toast.warning(
+          '키드키즈 출고관리에서 매칭되는 주문을 찾지 못했습니다. (셀피아 송장 주문번호와 목록 주문번호 확인)',
+          { id: toastId, duration: 10000 },
+        );
+      }
+      if (failed.length > 0) {
+        logError(
+          `키드키즈 송장 실패 ${failed.length}건`,
+          failed
+            .slice(0, 6)
+            .map((result) => `${result.orderNo}: ${result.reason ?? ''}`)
             .join(' / '),
         );
       }

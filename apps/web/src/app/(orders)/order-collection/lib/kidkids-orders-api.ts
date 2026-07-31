@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
@@ -34,13 +34,19 @@ interface KidkidsCollectResponse {
 
 /**
  * order-collector 확장으로 키드키즈(partner.kidkids.net) 출고관리 주문을 로그인 세션에서 가져온다.
- * 목록(logis_index) 출고예정일 필터 + 주문서(logis_down5) fetch → 공급단가·우편번호 포함. date "YYYY-MM-DD" 면 그 출고예정일만.
+ * 목록(logis_index)을 헤더 기준으로 읽고, planDate 가 오면 출고예정 미지정 주문에 출고예정일을 지정한 뒤
+ * 발주서02(logis_down4) fetch → 주소·우편번호·공급단가 포함. date "YYYY-MM-DD" 면 그 주문일만.
+ * planDate "YYYY-MM-DD" 는 신규(출고예정 미지정) 주문에 지정할 출고예정일(생략 시 상태 변경 없이 읽기만).
  */
-export async function collectKidkidsOrdersFromExtension(date?: string, run?: OrderCollectionExtensionRun): Promise<KidkidsOrder[]> {
+export async function collectKidkidsOrdersFromExtension(
+  date?: string,
+  run?: OrderCollectionExtensionRun,
+  planDate?: string,
+): Promise<KidkidsOrder[]> {
   const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 partner.kidkids.net 출고관리에 로그인한 뒤 다시 시도하세요.',
+      '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os 를 Chrome 에 로드하고 partner.kidkids.net 출고관리에 로그인한 뒤 다시 시도하세요.',
     );
   }
   const res = await sendToExtension<KidkidsCollectResponse>(
@@ -48,7 +54,8 @@ export async function collectKidkidsOrdersFromExtension(date?: string, run?: Ord
     {
       action: 'collectKidkidsOrders',
       date: date ?? run?.date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
+      planDate,
+      runId: run?.runId ?? createSecureRandomUuid(),
     },
     190000,
   );

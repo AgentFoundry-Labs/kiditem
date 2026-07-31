@@ -34,6 +34,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       workbook as never,
       collection as never,
+      {} as never,
     );
     const response = { setHeader: vi.fn(), status: vi.fn() };
 
@@ -114,6 +115,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       workbook as never,
       collection as never,
+      {} as never,
     );
     const response = {
       setHeader: vi.fn(),
@@ -157,6 +159,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       workbook as never,
       collection as never,
+      {} as never,
     );
     const response = { setHeader: vi.fn(), status: vi.fn().mockReturnThis() };
     const emptyRequest = { ...request(), pos: [] };

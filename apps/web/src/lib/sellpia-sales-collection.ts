@@ -36,7 +36,7 @@ async function detectExtensionId(): Promise<string> {
   const exact = await detectOrderCollectionExtensionId(1200, REQUIRED_CAPABILITY);
   if (exact) return exact;
   throw new Error(
-    '안전한 판매현황 수집 기능이 필요합니다. extensions/order-collector 0.1.78 이상을 Chrome 에서 새로고침하고 kiditem.sellpia.com 에 로그인한 뒤 다시 시도해주세요.',
+    '안전한 판매현황 수집 기능이 필요합니다. extensions/kiditem-os 0.1.78 이상을 Chrome 에서 새로고침하고 kiditem.sellpia.com 에 로그인한 뒤 다시 시도해주세요.',
   );
 }
 

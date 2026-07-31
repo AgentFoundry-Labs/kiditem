@@ -303,11 +303,7 @@ export class OrderCollectionService {
         ? input.fileName.trim()
         : `키드키즈_${dayStamp(new Date())}`;
     const name = base.toLowerCase().endsWith('.xls') ? base : `${base}.xls`;
-    const startNo =
-      Number.isFinite(input.startOrderNo) && Number(input.startOrderNo) > 0
-        ? Math.floor(Number(input.startOrderNo))
-        : 96090;
-    return convertKidkidsRows(orders, name, startNo);
+    return convertKidkidsRows(orders, name);
   }
 
   /**
@@ -902,15 +898,26 @@ function kidkidsClean(value: unknown): string {
   return s === '--' ? '' : s;
 }
 
-/** 키드키즈 주문(목록+주문서) → 셀피아 17컬럼. 이름=주문자명(유치원)+(키드키즈), 우편번호=주소 접두 5자리. */
+// 주문번호 접두용 날짜 YYYYMMDD. 주문일("2026-07-31 …") 파싱, 실패 시 오늘 날짜.
+function kidkidsOrderNoDate(value: string): string {
+  const m = /(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (m) return `${m[1]}${m[2]}${m[3]}`;
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+}
+
+/**
+ * 키드키즈 주문(목록+발주서02) → 셀피아 17컬럼. 이름=발주서02 이름+(키드키즈), 우편번호=주소 접두 5자리.
+ * 주문번호=주문일 YYYYMMDD + 날짜별 4자리 순번(숫자). 예: 2026-07-31 첫 주문 → 202607310001.
+ */
 function convertKidkidsRows(
   orders: KidkidsConvertOrder[],
   fileName: string,
-  startOrderNo: number,
 ): OrderCollectionConversion {
   const aoa: (string | number)[][] = [KIDKIDS_HEADERS.slice() as string[]];
-  const dateRows: number[] = []; // 주문일자(B열) 날짜서식 적용 행
-  let orderNo = startOrderNo;
+  const dateRows: number[] = []; // 주문일자(B열) 날짜서식 + 주문번호(A열) 숫자서식 적용 행
+  const seqByDate = new Map<string, number>(); // 주문일 YYYYMMDD 별 순번
   let key = 0;
   let productRows = 0;
   for (const order of orders) {
@@ -925,6 +932,11 @@ function convertKidkidsRows(
     const addr = rawAddr.replace(/^\d{4,5}\s+/, '').trim();
     const dser = kidkidsDateSerial(String(order?.orderDate ?? ''));
     const msg = kidkidsClean(order?.recvMsg);
+    // 주문번호 = 주문일 YYYYMMDD + 날짜별 4자리 순번(숫자). 한 주문의 모든 행(상품·택배비)이 공유.
+    const dateDigits = kidkidsOrderNoDate(String(order?.orderDate ?? ''));
+    const seq = (seqByDate.get(dateDigits) ?? 0) + 1;
+    seqByDate.set(dateDigits, seq);
+    const orderNo = Number(`${dateDigits}${String(seq).padStart(4, '0')}`);
     let first = true;
     for (const it of items) {
       key += 1;
@@ -944,19 +956,24 @@ function convertKidkidsRows(
       '택배비', '', 1, KIDKIDS_SHIPPING_FEE, KIDKIDS_SHIPPING_FEE, '', '', '', '', key,
     ]);
     dateRows.push(aoa.length - 1);
-    orderNo += 1;
   }
   if (aoa.length <= 1) {
     throw new BadRequestException('변환할 키드키즈 주문이 없습니다.');
   }
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
-  // 주문일자 셀에 날짜 서식 (원본 export = m/d/yy)
+  // 주문일자(B열)=날짜서식, 주문번호(A열)=숫자+뒤 공백 서식(원본 셀피아 export 표기와 동일)
   for (const r of dateRows) {
-    const ref = XLSX.utils.encode_cell({ r, c: 1 });
-    const cellObj = sheet[ref] as { v?: unknown; t?: string; z?: string } | undefined;
-    if (cellObj && typeof cellObj.v === 'number') {
-      cellObj.t = 'n';
-      cellObj.z = 'm/d/yy';
+    const dateRef = XLSX.utils.encode_cell({ r, c: 1 });
+    const dateCell = sheet[dateRef] as { v?: unknown; t?: string; z?: string } | undefined;
+    if (dateCell && typeof dateCell.v === 'number') {
+      dateCell.t = 'n';
+      dateCell.z = 'm/d/yy';
+    }
+    const noRef = XLSX.utils.encode_cell({ r, c: 0 });
+    const noCell = sheet[noRef] as { v?: unknown; t?: string; z?: string } | undefined;
+    if (noCell && typeof noCell.v === 'number') {
+      noCell.t = 'n';
+      noCell.z = '0 ';
     }
   }
   sheet['!cols'] = [

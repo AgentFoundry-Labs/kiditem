@@ -787,6 +787,16 @@ export const candidatesApi = {
     `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/unresolved`,
     { evidence },
   ),
+  /**
+   * 확장이 WING 폼을 채우다 실패해 제출 자체가 없었던 실행을 확정 실패로 닫는다.
+   * `unresolved` 로 두면 실행이 `reconciling` 에 갇혀 재시도도 취소도 막힌다.
+   */
+  markExternalWingRegistrationNotSubmitted: (
+    candidateId: string, executionId: string, evidence: Record<string, unknown>,
+  ) => apiClient.post(
+    `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/not-submitted`,
+    { evidence },
+  ),
   quickProcess: (id: string, task: QuickProcessTask = 'all') =>
     apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
   /**

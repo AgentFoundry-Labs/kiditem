@@ -206,11 +206,14 @@ export function createBrowserMallCollector({
       './kidkids-orders-api'
     );
     await ensureMallLogin('kidkids', run);
+    // 발주서02는 출고예정등록 없이도 전체 데이터를 반환하므로 수집은 읽기 전용으로 둔다(planDate 미전달).
+    // 출고예정일 지정은 조작자가 출고관리 화면에서 직접 한다(그쪽이 몰이 제안한 출고일로 등록). 확장은
+    // planDate 를 받으면 미지정 주문에 한해 출고예정등록도 할 수 있으나, 실주문 상태변경이라 기본은 끈다.
     const orders = await collectKidkidsOrdersFromExtension(undefined, run);
     if (orders.length === 0) {
       toastNoNewOrders(
         '키드키즈',
-        '출고관리에서 출고예정일을 먼저 지정하세요. 이미 출고처리한 주문은 목록에서 빠집니다.',
+        '이미 출고처리한 주문은 출고관리 목록에서 빠집니다.',
       );
       return 0;
     }

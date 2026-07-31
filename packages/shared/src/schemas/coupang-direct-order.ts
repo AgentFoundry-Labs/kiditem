@@ -93,3 +93,49 @@ export const CoupangDirectOrderCollectionRequestSchema = z.object({
 export type CoupangDirectOrderCollectionRequest = z.infer<
   typeof CoupangDirectOrderCollectionRequestSchema
 >;
+
+// ── 입고예정일 달력용 발주 스냅샷 (조회 편의 캐시) ──
+// 달력이 매번 쿠팡을 다시 긁지 않도록 마지막 수집분을 서버에 저장/조회한다.
+
+export const CoupangDirectPoSnapshotItemSchema = z.object({
+  barcode: z.string(),
+  name: z.string(),
+  qty: z.number().int().nonnegative(),
+  amount: z.number().nonnegative(),
+}).strict();
+export type CoupangDirectPoSnapshotItem = z.infer<
+  typeof CoupangDirectPoSnapshotItemSchema
+>;
+
+export const CoupangDirectPoSnapshotEntrySchema = z.object({
+  purchaseOrderSeq: z.string().trim().min(1),
+  centerName: z.string(),
+  transport: CoupangDirectTransportSchema,
+  deliveryDate: z.string().nullable(),
+  orderedDate: z.string().nullable(),
+  isUrgent: z.boolean(),
+  skuCount: z.number().int().nonnegative(),
+  orderQuantity: z.number().int().nonnegative(),
+  orderAmount: z.number().nonnegative(),
+  items: z.array(CoupangDirectPoSnapshotItemSchema),
+}).strict();
+export type CoupangDirectPoSnapshotEntry = z.infer<
+  typeof CoupangDirectPoSnapshotEntrySchema
+>;
+
+export const SaveCoupangDirectPoSnapshotRequestSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  entries: z.array(CoupangDirectPoSnapshotEntrySchema).max(4_000),
+}).strict();
+export type SaveCoupangDirectPoSnapshotRequest = z.infer<
+  typeof SaveCoupangDirectPoSnapshotRequestSchema
+>;
+
+export const CoupangDirectPoSnapshotResponseSchema = z.object({
+  channelAccountId: z.string(),
+  collectedAt: z.string().nullable(),
+  entries: z.array(CoupangDirectPoSnapshotEntrySchema),
+});
+export type CoupangDirectPoSnapshotResponse = z.infer<
+  typeof CoupangDirectPoSnapshotResponseSchema
+>;
