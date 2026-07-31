@@ -14,6 +14,7 @@ import { ProductLinkDialog } from './components/ProductLinkDialog';
 import { VariantLinkDialog } from './components/VariantLinkDialog';
 import { RecipeSuggestionDialog } from './components/RecipeSuggestionDialog';
 import { RecipeAutomationPanel } from './components/RecipeAutomationPanel';
+import { isChannelListingOnSale } from './lib/channel-listing-sale-status';
 import { Pagination } from '@/components/ui/Pagination';
 import {
   useChannelAccounts,
@@ -132,6 +133,13 @@ export default function MatchingPage() {
     selectedAccountIdSet.has(row.channelAccount.id)), [data?.products, selectedAccountIdSet]);
   const selectedOptions = useMemo(() => (data?.options ?? []).filter((row) =>
     selectedAccountIdSet.has(row.channelAccount.id)), [data?.options, selectedAccountIdSet]);
+  const onSaleListingIdSet = useMemo(() => new Set(selectedProducts
+    .filter((row) => isChannelListingOnSale(row.listing.status))
+    .map((row) => row.listing.id)), [selectedProducts]);
+  const onSaleListingIds = useMemo(
+    () => [...onSaleListingIdSet].sort(),
+    [onSaleListingIdSet],
+  );
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
   const optionsByListingId = useMemo(() => {
     const grouped = new Map<string, ChannelOptionMatchingQueueRow[]>();
@@ -143,14 +151,14 @@ export default function MatchingPage() {
     return grouped;
   }, [selectedOptions]);
   const filteredProducts = useMemo(() => selectedProducts.filter((row) => {
-    if (activeOnly && row.listing.status !== 'active') return false;
+    if (activeOnly && !onSaleListingIdSet.has(row.listing.id)) return false;
     if (status === 'all') return true;
     return operatorMatchingStatus(productMatchingDecision(
         row,
         optionsByListingId.get(row.listing.id) ?? [],
         automationGroupsByListingId.get(row.listing.id),
       )) === status;
-  }), [activeOnly, automationGroupsByListingId, optionsByListingId, selectedProducts, status]);
+  }), [activeOnly, automationGroupsByListingId, onSaleListingIdSet, optionsByListingId, selectedProducts, status]);
   const pageRows = filteredProducts.slice((page - 1) * 50, page * 50);
   const pageListingIds = new Set(pageRows.map((row) => row.listing.id));
   const pageOptions = selectedOptions.filter((row) => pageListingIds.has(row.listing.id));
@@ -204,6 +212,8 @@ export default function MatchingPage() {
       {!accountsQuery.error && selectedAccountIds.length > 0 && !mappingsQuery.error ? (
         <RecipeAutomationPanel
           channelAccountIds={selectedAccountIds}
+          includedChannelListingIds={activeOnly ? onSaleListingIds : undefined}
+          inclusionFilterLoading={activeOnly && mappingsQuery.isLoading}
         />
       ) : null}
 

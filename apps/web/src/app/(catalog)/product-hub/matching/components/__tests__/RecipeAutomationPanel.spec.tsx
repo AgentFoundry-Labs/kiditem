@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
@@ -104,6 +104,22 @@ describe('<RecipeAutomationPanel>', () => {
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.queryByText('상품 연결과 수량 확정을 분리합니다. 명시된 묶음 수량은 Sellpia 설정 수량과 일치할 때만 자동 확정합니다.')).not.toBeInTheDocument();
     expect(screen.queryByText('선택한 계정의 안전한 대상만 자동 적용합니다.')).not.toBeInTheDocument();
+  });
+
+  it('counts only the channel listings included by the active-only filter', () => {
+    render(
+      <RecipeAutomationPanel
+        channelAccountIds={[ACCOUNT_ID]}
+        includedChannelListingIds={[
+          '44444444-4444-4444-8444-444444444441',
+          '44444444-4444-4444-8444-444444444443',
+        ]}
+      />,
+    );
+
+    expect(within(screen.getByText('매칭 완료').parentElement!).getByText('1')).toBeInTheDocument();
+    expect(within(screen.getByText('매칭 수량 검토').parentElement!).getByText('0')).toBeInTheDocument();
+    expect(within(screen.getByText('미매칭 상품').parentElement!).getByText('1')).toBeInTheDocument();
   });
 
   it('runs Sellpia lookup and safe matching as one user action', async () => {

@@ -10,8 +10,10 @@ not inspect KidItem `MasterProduct` activity or Sellpia inventory activity.
 ## User Experience
 
 Add a `판매중 상품만` checkbox beside the existing search and matching-status
-filters. It is checked on first entry. While checked, only rows whose
-`listing.status` is exactly `active` appear. Unchecking it includes listings in
+filters. It is checked on first entry. While checked, only rows whose provider
+status represents an on-sale listing appear. The accepted values cover the
+normalized API state (`active`, `APPROVED`, `ON_SALE`) and imported Korean
+catalog states (`승인완료`, `활성`, `판매중`). Unchecking it includes listings in
 all statuses.
 
 The checkbox combines with account, search, and matching-status filters before
@@ -26,9 +28,11 @@ default checked state is represented by the absence of a query parameter.
 Unchecking writes `activeOnly=false`; loading that URL restores the unchecked
 state. Back/forward navigation updates the checkbox and visible rows.
 
-Account summary counts continue to describe each account's complete loaded
-catalog; the checkbox affects the matching table, its result pagination, and
-whether `필터 초기화` is shown.
+Account card counts continue to describe each account's loaded catalog. The
+checkbox affects the matching table, its result pagination, the three `매칭 작업
+현황` counts, and whether `필터 초기화` is shown. The matching progress panel
+uses the same included listing IDs as the table, so status normalization cannot
+make the two views disagree.
 
 ## Verification
 
@@ -39,5 +43,6 @@ Vitest suite.
 
 ## Scope
 
-Only the product-matching route and its durable tests change. No channel import,
-matching decision, recipe automation, API, or persistence behavior changes.
+Only the product-matching route, its progress display, and durable tests change.
+No channel import, matching decision, recipe automation mutation, API, or
+persistence behavior changes.

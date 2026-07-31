@@ -24,8 +24,17 @@ vi.mock('./hooks/useChannelSkuMappings', () => ({
 }));
 
 vi.mock('./components/RecipeAutomationPanel', () => ({
-  RecipeAutomationPanel: ({ channelAccountIds }: { channelAccountIds: string[] }) => (
-    <div>자동 매칭 패널 {channelAccountIds.join(',')}</div>
+  RecipeAutomationPanel: ({
+    channelAccountIds,
+    includedChannelListingIds,
+  }: {
+    channelAccountIds: string[];
+    includedChannelListingIds?: string[];
+  }) => (
+    <div>
+      자동 매칭 패널 {channelAccountIds.join(',')} · 집계 대상{' '}
+      {includedChannelListingIds?.join(',') ?? '전체'}
+    </div>
   ),
 }));
 
@@ -132,7 +141,13 @@ function responseWithInactiveProduct(): ChannelProductMatchingQueueResponse {
   return {
     ...response,
     products: [
-      ...response.products,
+      {
+        ...response.products[0]!,
+        listing: {
+          ...response.products[0]!.listing,
+          status: '승인완료',
+        },
+      },
       {
         ...response.products[0]!,
         listing: {
@@ -140,7 +155,7 @@ function responseWithInactiveProduct(): ChannelProductMatchingQueueResponse {
           id: '99999999-9999-4999-8999-999999999999',
           externalId: 'listing-inactive',
           displayName: '판매 중지 우산',
-          status: 'inactive',
+          status: '승인반려',
         },
         optionCount: 0,
         linkedOptionCount: 0,
@@ -212,6 +227,7 @@ describe('/product-hub/matching', () => {
     expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).toBeChecked();
     expect(screen.getByText('채널 우산')).toBeInTheDocument();
     expect(screen.queryByText('판매 중지 우산')).not.toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`집계 대상 ${LISTING_ID}`))).toBeInTheDocument();
   });
 
   it('shows inactive channel listings when the active-only filter is unchecked', async () => {
@@ -223,6 +239,7 @@ describe('/product-hub/matching', () => {
 
     expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).not.toBeChecked();
     expect(screen.getByText('판매 중지 우산')).toBeInTheDocument();
+    expect(screen.getByText(/집계 대상 전체/)).toBeInTheDocument();
     expect(navigation.replace).toHaveBeenLastCalledWith(
       '/product-hub/matching?activeOnly=false&page=1',
     );

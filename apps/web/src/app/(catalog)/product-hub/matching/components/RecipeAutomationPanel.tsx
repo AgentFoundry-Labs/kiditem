@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { CheckCircle2, DatabaseZap, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
@@ -11,15 +12,27 @@ import {
 
 export function RecipeAutomationPanel({
   channelAccountIds,
+  includedChannelListingIds,
+  inclusionFilterLoading = false,
 }: {
   channelAccountIds: string[];
+  includedChannelListingIds?: string[];
+  inclusionFilterLoading?: boolean;
 }) {
   const previews = useChannelRecipeAutomationPreviews(channelAccountIds);
   const runMatching = useRunChannelProductMatching();
   const previewData = previews.flatMap((query) => query.data ? [query.data] : []);
   const previewLoading = previews.some((query) => query.isLoading);
   const previewError = previews.find((query) => query.error)?.error;
+  const includedChannelListingIdSet = useMemo(
+    () => includedChannelListingIds
+      ? new Set(includedChannelListingIds)
+      : null,
+    [includedChannelListingIds],
+  );
   const outcome = previewData.flatMap((preview) => preview.productGroups)
+    .filter((group) => includedChannelListingIdSet === null
+      || includedChannelListingIdSet.has(group.channelListingId))
     .reduce((summary, group) => {
       if (group.decision === 'auto_apply' || group.decision === 'already_configured') {
         summary.matched += 1;
@@ -31,9 +44,10 @@ export function RecipeAutomationPanel({
       return summary;
     }, {
     matched: 0,
-    quantityReview: 0,
-    unmatched: 0,
+  quantityReview: 0,
+  unmatched: 0,
   });
+  const outcomeLoading = previewLoading || inclusionFilterLoading;
   const runAutomation = async () => {
     try {
       const result = await runMatching.mutateAsync({
@@ -72,9 +86,9 @@ export function RecipeAutomationPanel({
       </div>
 
       <div className="grid gap-px bg-slate-200 sm:grid-cols-3" aria-label="매칭 상태 요약">
-        <Outcome label="매칭 완료" value={previewLoading ? null : outcome.matched} tone="emerald" />
-        <Outcome label="매칭 수량 검토" value={previewLoading ? null : outcome.quantityReview} tone="amber" />
-        <Outcome label="미매칭 상품" value={previewLoading ? null : outcome.unmatched} tone="slate" />
+        <Outcome label="매칭 완료" value={outcomeLoading ? null : outcome.matched} tone="emerald" />
+        <Outcome label="매칭 수량 검토" value={outcomeLoading ? null : outcome.quantityReview} tone="amber" />
+        <Outcome label="미매칭 상품" value={outcomeLoading ? null : outcome.unmatched} tone="slate" />
       </div>
 
       {previewError ? (
