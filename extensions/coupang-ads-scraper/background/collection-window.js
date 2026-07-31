@@ -38,6 +38,8 @@
     "다른 데이터 수집 작업이 확인 대기 중입니다. 기존 작업을 완료하거나 중단한 뒤 다시 시도해주세요.";
   const INACTIVE_COLLECTION_RUN_MESSAGE =
     "이미 중단되거나 종료된 데이터 수집 작업입니다.";
+  const COLLECTION_TAB_RECOVERY_FAILED_MESSAGE =
+    "collection_window_recovery_failed: 데이터 수집 탭이 반복해서 종료되어 복구하지 못했습니다. 확장프로그램을 새로고침한 뒤 다시 시도해주세요.";
 
   function collectionWindowError(code, message, details = {}) {
     const error = new Error(message);
@@ -898,7 +900,9 @@
     }
 
     function isMissingCollectionTab(error) {
-      return /No tab with id:/i.test(errorMessage(error));
+      return /No tab with id:|Collection tab was closed|tab was closed/i.test(
+        errorMessage(error),
+      );
     }
 
     async function sendTabMessageWhenReady(tabId, message) {
@@ -1053,35 +1057,110 @@
       return response;
     }
 
-    async function collectTarget(runId, target, environmentId, producer) {
-      let tab = await navigate(runId, target.url);
+    async function runTargetCommand(
+      runId,
+      target,
+      environmentId,
+      producer,
+    ) {
+      const tab = await navigate(runId, target.url);
       await bindTab(tab.tabId, environmentId);
       await waitForTabComplete(tab.tabId);
       await wait(4000);
-      let response = await runManualSyncWithReceiverRecovery(
+      const response = await runManualSyncWithReceiverRecovery(
         tab.tabId,
         runId,
         target.url,
         environmentId,
         producer,
       );
+      return { tab, response };
+    }
 
-      // The owned tab can disappear during the bounded post-navigation wait.
-      // In that case the first observable failure is tabs.sendMessage rather
-      // than tabs.update, so navigate's recovery guard has not run yet. Replace
-      // the same run's managed tab once and replay only this target command.
-      if (isMissingCollectionTab(response?.error)) {
-        tab = await navigate(runId, target.url);
-        await bindTab(tab.tabId, environmentId);
-        await waitForTabComplete(tab.tabId);
-        await wait(4000);
-        response = await runManualSyncWithReceiverRecovery(
-          tab.tabId,
+    function targetRecoveryFailure(error, runId, stage) {
+      return collectionWindowError(
+        "collection_window_recovery_failed",
+        `${COLLECTION_TAB_RECOVERY_FAILED_MESSAGE} (${errorMessage(error)})`,
+        { runId, stage, retryable: true },
+      );
+    }
+
+    async function collectTarget(runId, target, environmentId, producer) {
+      let command;
+      let targetRecoveryAttempted = false;
+      try {
+        command = await runTargetCommand(
           runId,
-          target.url,
+          target,
           environmentId,
           producer,
         );
+      } catch (error) {
+        // Chrome may drop the managed tab after tabs.update succeeds but before
+        // waitForTabComplete performs its first tabs.get. The old recovery only
+        // covered update/sendMessage, so this gap leaked "No tab with id" and
+        // ended a multi-day batch after its first persisted target.
+        if (!isMissingCollectionTab(error)) throw error;
+        targetRecoveryAttempted = true;
+        try {
+          command = await runTargetCommand(
+            runId,
+            target,
+            environmentId,
+            producer,
+          );
+        } catch (retryError) {
+          if (isMissingCollectionTab(retryError)) {
+            throw targetRecoveryFailure(
+              retryError,
+              runId,
+              "prepare_replacement",
+            );
+          }
+          throw retryError;
+        }
+      }
+
+      let { tab, response } = command;
+      if (isMissingCollectionTab(response?.error)) {
+        if (targetRecoveryAttempted) {
+          response = {
+            ...response,
+            success: false,
+            error: `${COLLECTION_TAB_RECOVERY_FAILED_MESSAGE} (${errorMessage(response.error)})`,
+          };
+        } else {
+          // The tab may instead disappear while the content-script command is
+          // opening. Replay the whole target preparation once so navigation,
+          // environment binding, load confirmation, and command delivery all
+          // belong to the replacement tab.
+          targetRecoveryAttempted = true;
+          try {
+            command = await runTargetCommand(
+              runId,
+              target,
+              environmentId,
+              producer,
+            );
+            ({ tab, response } = command);
+          } catch (retryError) {
+            if (isMissingCollectionTab(retryError)) {
+              throw targetRecoveryFailure(
+                retryError,
+                runId,
+                "command_replacement",
+              );
+            }
+            throw retryError;
+          }
+          if (isMissingCollectionTab(response?.error)) {
+            response = {
+              ...response,
+              success: false,
+              error: `${COLLECTION_TAB_RECOVERY_FAILED_MESSAGE} (${errorMessage(response.error)})`,
+            };
+          }
+        }
       }
 
       // 광고 캠페인 sweep가 SPA 상세 화면에서 대시보드 복귀에 실패하면 content

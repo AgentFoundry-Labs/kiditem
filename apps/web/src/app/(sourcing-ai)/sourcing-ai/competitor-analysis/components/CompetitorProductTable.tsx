@@ -1,12 +1,23 @@
 import { ExternalLink } from "lucide-react";
 import { cn, formatDateTime, formatKRW, formatNumber } from "@/lib/utils";
+import type { AddWingTrackedProductInput } from "../../lib/wing-tracking-api";
+import { buildOverlapTrackingInput } from "../lib/competitor-product-tracking";
+import { CompetitorTrackButton } from "./CompetitorTrackButton";
 import { CompetitorProductThumbnail } from "./CompetitorProductThumbnail";
 import type { CompetitorSeller } from "../lib/competitor-tracking-api";
 
 export function CompetitorProductTable({
   seller,
+  trackedProductIds,
+  trackingProductId,
+  trackingPending,
+  onTrackProduct,
 }: {
   seller: CompetitorSeller;
+  trackedProductIds: ReadonlySet<string>;
+  trackingProductId: string | null;
+  trackingPending: boolean;
+  onTrackProduct: (input: AddWingTrackedProductInput | null) => void;
 }) {
   return (
     <section className="min-w-0 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
@@ -57,7 +68,7 @@ export function CompetitorProductTable({
       </header>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px]">
+        <table className="w-full min-w-[1080px]">
           <thead>
             <tr>
               <th className="px-4 py-3">경쟁 상품</th>
@@ -65,8 +76,8 @@ export function CompetitorProductTable({
               <th className="px-4 py-3 text-right">검색 순위</th>
               <th className="px-4 py-3 text-right">판매가</th>
               <th className="px-4 py-3 text-right">리뷰</th>
-              <th className="w-12 px-4 py-3">
-                <span className="sr-only">쿠팡 열기</span>
+              <th className="w-36 px-4 py-3 text-right">
+                상품 액션
               </th>
             </tr>
           </thead>
@@ -137,17 +148,35 @@ export function CompetitorProductTable({
                     <Delta value={product.reviewChange} suffix="" />
                   </td>
                   <td className="px-4 py-3 text-right align-top">
-                    {product.link ? (
-                      <a
-                        href={product.link}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label={`${product.name} 쿠팡에서 열기`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)]"
-                      >
-                        <ExternalLink size={14} />
-                      </a>
-                    ) : null}
+                    <div className="flex items-center justify-end gap-2">
+                      <CompetitorTrackButton
+                        productId={product.productId}
+                        productName={product.name}
+                        tracked={
+                          product.productId
+                            ? trackedProductIds.has(product.productId)
+                            : false
+                        }
+                        tracking={trackingProductId === product.productId}
+                        trackingPending={trackingPending}
+                        onTrack={() =>
+                          onTrackProduct(
+                            buildOverlapTrackingInput(product, seller),
+                          )
+                        }
+                      />
+                      {product.link ? (
+                        <a
+                          href={product.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`${product.name} 쿠팡에서 열기`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)]"
+                        >
+                          <ExternalLink size={14} />
+                        </a>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               );

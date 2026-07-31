@@ -38,6 +38,7 @@ import {
   runCompetitorSellerCollection,
   type CompetitorExtensionGate,
 } from "../lib/competitor-extension";
+import { useCompetitorProductTracking } from "../hooks/useCompetitorProductTracking";
 import { CompetitorSellerDetail } from "./CompetitorSellerDetail";
 import { CompetitorSellerList } from "./CompetitorSellerList";
 
@@ -53,6 +54,7 @@ type ActiveRun = {
 
 export function CompetitorTrackingPage() {
   const queryClient = useQueryClient();
+  const productTracking = useCompetitorProductTracking();
   const [periodDays, setPeriodDays] = useState(30);
   const [search, setSearch] = useState("");
   const [selectedSellerKey, setSelectedSellerKey] = useState<string | null>(
@@ -354,32 +356,6 @@ export function CompetitorTrackingPage() {
                 </h2>
               </div>
             </div>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-              Wing 카탈로그와 키드아이템 신상품 페이지에서 대표 키워드를 만들고,
-              쿠팡 검색 상위 노출 상품을 판매자별로 묶어 순위·가격·리뷰 변화를
-              추적합니다. 여기서 상위 판매자는 추적 키워드의 검색 노출
-              기준입니다.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium text-[var(--text-secondary)]">
-              <span className="rounded-full bg-purple-50 px-2.5 py-1 text-purple-700">
-                키드아이템 신상품{" "}
-                {formatNumber(data.collection.storefrontProductCount)}개
-              </span>
-              <span className="rounded-full bg-[var(--surface-sunken)] px-2.5 py-1">
-                Wing 상품 {formatNumber(data.collection.wingProductCount)}개
-              </span>
-              {data.collection.watchedCompetitors.map((competitor) => (
-                <span
-                  key={competitor.sellerId}
-                  className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700"
-                >
-                  {competitor.brandName} · {competitor.sellerName} ·{" "}
-                  {competitor.discoverySource === "kiditem"
-                    ? "자동 발굴"
-                    : "사용자 추가"}
-                </span>
-              ))}
-            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -492,6 +468,10 @@ export function CompetitorTrackingPage() {
             <CompetitorSellerDetail
               key={selectedSeller.sellerKey}
               seller={selectedSeller}
+              trackedProductIds={productTracking.trackedProductIds}
+              trackingProductId={productTracking.trackingProductId}
+              trackingPending={productTracking.trackingPending}
+              onTrackProduct={productTracking.trackProduct}
             />
           ) : (
             <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--text-tertiary)]">
