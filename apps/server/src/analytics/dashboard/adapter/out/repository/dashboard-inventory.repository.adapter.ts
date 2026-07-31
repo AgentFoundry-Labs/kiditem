@@ -14,6 +14,9 @@ import { buildPerListingMetrics } from '../../../../../common/per-listing-profit
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
+  AbcLifecycleCountRow,
+  DashboardAbcContextRow,
+  DashboardAbcRiskCount,
   DashboardPerListingMetrics,
   GradeCountRow,
   GradeChangeRow,
@@ -42,6 +45,78 @@ export class DashboardInventoryRepositoryAdapter
       abcGrade: r.abcGrade,
       count: r._count.id,
     } satisfies GradeCountRow));
+  }
+
+  async countActiveProductsByAbcLifecycle(
+    organizationId: string,
+  ): Promise<AbcLifecycleCountRow[]> {
+    const rows = await this.prisma.masterProductAbcEvaluation.groupBy({
+      by: ['lifecycleStage'],
+      _count: { id: true },
+      where: {
+        organizationId,
+        masterProduct: { is: { organizationId, isActive: true } },
+      },
+    });
+    return rows.map((row) => ({
+      lifecycleStage: row.lifecycleStage,
+      count: row._count.id,
+    } satisfies AbcLifecycleCountRow));
+  }
+
+  async countActiveProductsByAbcRisk(
+    organizationId: string,
+  ): Promise<DashboardAbcRiskCount> {
+    const activeProduct = { is: { organizationId, isActive: true } } as const;
+    const [loss, zeroValue, dataQuality] = await Promise.all([
+      this.prisma.masterProductAbcEvaluation.count({
+        where: { organizationId, masterProduct: activeProduct, riskFlags: { has: 'LOSS' } },
+      }),
+      this.prisma.masterProductAbcEvaluation.count({
+        where: { organizationId, masterProduct: activeProduct, riskFlags: { has: 'ZERO_VALUE' } },
+      }),
+      this.prisma.masterProductAbcEvaluation.count({
+        where: {
+          organizationId,
+          masterProduct: activeProduct,
+          eligibilityReason: { not: 'ELIGIBLE' },
+        },
+      }),
+    ]);
+    return { loss, zeroValue, dataQuality } satisfies DashboardAbcRiskCount;
+  }
+
+  countUnclassifiedActiveProducts(organizationId: string): Promise<number> {
+    return this.prisma.masterProduct.count({
+      where: {
+        organizationId,
+        isActive: true,
+        abcGrade: null,
+        abcEvaluation: { is: null },
+      },
+    });
+  }
+
+  async findAbcContext(
+    organizationId: string,
+  ): Promise<DashboardAbcContextRow | null> {
+    const policy = await this.prisma.masterProductAbcPolicy.findUnique({
+      where: { organizationId },
+      select: {
+        metric: true,
+        periodDays: true,
+        lastCalculatedAt: true,
+        sourceCapturedAt: true,
+      },
+    });
+    return policy
+      ? {
+        metric: policy.metric,
+        periodDays: policy.periodDays,
+        lastCalculatedAt: policy.lastCalculatedAt,
+        sourceCapturedAt: policy.sourceCapturedAt,
+      } satisfies DashboardAbcContextRow
+      : null;
   }
 
   async findUnreadAlerts(

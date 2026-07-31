@@ -9,6 +9,13 @@ describe('DashboardInventoryRepositoryAdapter listing and physical inventory rea
         count: vi.fn().mockResolvedValue(0),
         findMany: vi.fn().mockResolvedValue([]),
       },
+      masterProductAbcEvaluation: {
+        groupBy: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      masterProductAbcPolicy: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
       sellpiaInventorySku: {
         count: vi.fn().mockResolvedValue(0),
       },
@@ -19,6 +26,10 @@ describe('DashboardInventoryRepositoryAdapter listing and physical inventory rea
     const repository = new DashboardInventoryRepositoryAdapter(prisma as never);
 
     await repository.countActiveProductsByGrade('org-1');
+    await repository.countActiveProductsByAbcLifecycle('org-1');
+    await repository.countActiveProductsByAbcRisk('org-1');
+    await repository.countUnclassifiedActiveProducts('org-1');
+    await repository.findAbcContext('org-1');
     await repository.countActiveProducts('org-1');
     await repository.countChannelLinkedProducts('org-1');
     await repository.findAGradeReviewCounts('org-1');
@@ -29,6 +40,28 @@ describe('DashboardInventoryRepositoryAdapter listing and physical inventory rea
         where: expect.objectContaining({ organizationId: 'org-1', isActive: true }),
       }),
     );
+    expect(prisma.masterProductAbcEvaluation.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: 'org-1',
+          masterProduct: { is: { organizationId: 'org-1', isActive: true } },
+        }),
+      }),
+    );
+    expect(prisma.masterProductAbcEvaluation.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ organizationId: 'org-1' }),
+      }),
+    );
+    expect(prisma.masterProductAbcPolicy.findUnique).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1' },
+      select: {
+        metric: true,
+        periodDays: true,
+        lastCalculatedAt: true,
+        sourceCapturedAt: true,
+      },
+    });
     expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ organizationId: 'org-1', abcGrade: 'A' }),
@@ -38,6 +71,14 @@ describe('DashboardInventoryRepositoryAdapter listing and physical inventory rea
       where: {
         organizationId: 'org-1',
         isActive: true,
+      },
+    });
+    expect(prisma.masterProduct.count).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org-1',
+        isActive: true,
+        abcGrade: null,
+        abcEvaluation: { is: null },
       },
     });
     expect(prisma.sellpiaInventorySku.count).toHaveBeenCalledWith({

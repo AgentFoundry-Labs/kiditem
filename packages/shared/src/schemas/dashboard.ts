@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
 import {
+  MasterProductAbcMetricSchema,
+  MasterProductAbcPeriodDaysSchema,
   MasterProductAbcEvaluationSchema,
   ProductAbcGradeSchema,
 } from './product-abc.js';
@@ -37,6 +39,7 @@ export const TopProductSchema = z.object({
   name: z.string(),
   organization: z.string(),
   grade: ProductAbcGradeSchema.nullable(),
+  abcEvaluation: MasterProductAbcEvaluationSchema.nullable(),
   revenue: z.number(),
   netProfit: z.number(),
   profitRate: z.number(),
@@ -276,6 +279,22 @@ export const DashboardInventorySummarySchema = z.object({
     A: z.number().int().nonnegative(),
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
+  }).strict(),
+  abcLifecycleCount: z.object({
+    NEW: z.number().int().nonnegative(),
+    PROVISIONAL: z.number().int().nonnegative(),
+    ESTABLISHED: z.number().int().nonnegative(),
+  }).strict(),
+  abcRiskCount: z.object({
+    loss: z.number().int().nonnegative(),
+    zeroValue: z.number().int().nonnegative(),
+    dataQuality: z.number().int().nonnegative(),
+  }).strict(),
+  abcContext: z.object({
+    metric: MasterProductAbcMetricSchema,
+    periodDays: MasterProductAbcPeriodDaysSchema,
+    lastCalculatedAt: zIsoDate.nullable(),
+    sourceCapturedAt: zIsoDate.nullable(),
   }).strict(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),

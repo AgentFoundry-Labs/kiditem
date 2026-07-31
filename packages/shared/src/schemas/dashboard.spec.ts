@@ -21,6 +21,11 @@ describe('dashboard schemas', () => {
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
+      abcLifecycleCount: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 5 },
+      abcRiskCount: { loss: 0, zeroValue: 0, dataQuality: 0 },
+      abcContext: {
+        metric: 'GROSS_PROFIT', periodDays: 360, lastCalculatedAt: null, sourceCapturedAt: null,
+      },
       classifiedProductCount: 5,
       unclassifiedProductCount: 0,
       mappingStatusCounts: { matched: 10, unmatched: 1, needsReview: 1 },
@@ -49,6 +54,11 @@ describe('dashboard schemas', () => {
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
+      abcLifecycleCount: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 5 },
+      abcRiskCount: { loss: 0, zeroValue: 0, dataQuality: 0 },
+      abcContext: {
+        metric: 'GROSS_PROFIT', periodDays: 360, lastCalculatedAt: null, sourceCapturedAt: null,
+      },
       classifiedProductCount: 5,
       unclassifiedProductCount: 0,
       mappingStatusCounts: { matched: 10, unmatched: 0, needsReview: 0 },
@@ -92,8 +102,8 @@ describe('dashboard schemas', () => {
       profitRate: 20,
     };
 
-    expect(TopProductSchema.parse({ ...base, grade: null }).grade).toBeNull();
-    expect(() => TopProductSchema.parse({ ...base, grade: 'manual' })).toThrow();
+    expect(TopProductSchema.parse({ ...base, grade: null, abcEvaluation: null }).grade).toBeNull();
+    expect(() => TopProductSchema.parse({ ...base, grade: 'manual', abcEvaluation: null })).toThrow();
   });
 
   it('requires the Sellpia receipt profit after collected Coupang ad spend', () => {

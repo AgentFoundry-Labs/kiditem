@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { BarChart3 } from 'lucide-react';
 import type { DashboardSalesSummary } from '@kiditem/shared/dashboard';
-import { cn, formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
+import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
+import { cn, formatKRW, formatPercent, getProfitColor } from '@/lib/utils';
 
 export function DashboardTopProducts({
   products,
@@ -22,7 +23,7 @@ export function DashboardTopProducts({
           <thead>
             <tr className="border-b border-slate-100">
               <th className="pl-4 w-8 text-sm text-slate-400">#</th>
-              <th className="w-8 text-sm text-slate-400">등급</th>
+              <th className="min-w-[72px] text-sm text-slate-400">ABC</th>
               <th className="text-sm text-slate-400">상품명</th>
               <th className="text-right text-sm text-slate-400">매출</th>
               <th className="text-right text-sm text-slate-400">순이익</th>
@@ -34,20 +35,7 @@ export function DashboardTopProducts({
               <tr key={product.id} className="border-b border-slate-50">
                 <td className="pl-4 text-sm tabular-nums text-slate-400">{index + 1}</td>
                 <td>
-                  {product.grade ? (
-                    <span
-                      className={cn(
-                        'inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold',
-                        getGradeColor(product.grade),
-                      )}
-                    >
-                      {product.grade}
-                    </span>
-                  ) : (
-                    <span className="inline-flex w-6 items-center justify-center text-slate-400">
-                      —
-                    </span>
-                  )}
+                  <ProductAbcBadge grade={product.grade} evaluation={product.abcEvaluation} compact />
                 </td>
                 <td className="text-sm font-medium max-w-[300px] truncate text-slate-900">{product.name}</td>
                 <td className="text-right text-sm tabular-nums text-slate-900">{formatKRW(product.revenue)}<span className="text-slate-400">원</span></td>

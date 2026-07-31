@@ -12,6 +12,7 @@ describe('DashboardTopProducts', () => {
             name: '미분류 상품',
             organization: '쿠팡',
             grade: null,
+            abcEvaluation: null,
             revenue: 10_000,
             netProfit: 3_000,
             profitRate: 30,
@@ -20,7 +21,7 @@ describe('DashboardTopProducts', () => {
       />,
     );
 
-    expect(screen.getByText('—')).toHaveClass('text-slate-400');
+    expect(screen.getByText('미분류')).toBeInTheDocument();
     expect(screen.queryByText('C')).not.toBeInTheDocument();
   });
 });

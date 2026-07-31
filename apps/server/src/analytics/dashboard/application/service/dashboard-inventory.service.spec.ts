@@ -8,6 +8,12 @@ function buildRepository(
 ): DashboardInventoryRepositoryPort {
   return {
     countActiveProductsByGrade: vi.fn().mockResolvedValue([]),
+    countActiveProductsByAbcLifecycle: vi.fn().mockResolvedValue([]),
+    countActiveProductsByAbcRisk: vi.fn().mockResolvedValue({
+      loss: 0, zeroValue: 0, dataQuality: 0,
+    }),
+    countUnclassifiedActiveProducts: vi.fn().mockResolvedValue(0),
+    findAbcContext: vi.fn().mockResolvedValue(null),
     findUnreadAlerts: vi.fn().mockResolvedValue([]),
     countActiveProducts: vi.fn().mockResolvedValue(0),
     countChannelLinkedProducts: vi.fn().mockResolvedValue(0),
@@ -52,7 +58,7 @@ describe('DashboardInventoryService', () => {
     expect(result.mappingStatusCounts).toEqual({ matched: 8, unmatched: 2, needsReview: 1 });
   });
 
-  it('returns fixed stored A/B/C counts and keeps unclassified products separate', async () => {
+  it('keeps lifecycle snapshots separate from official grades and unpublished products', async () => {
     const repository = buildRepository({
       countActiveProductsByGrade: vi.fn().mockResolvedValue([
         { abcGrade: 'A', count: 2 },
@@ -60,7 +66,22 @@ describe('DashboardInventoryService', () => {
         { abcGrade: null, count: 4 },
         { abcGrade: 'legacy', count: 9 },
       ]),
-      countActiveProducts: vi.fn().mockResolvedValue(7),
+      countActiveProductsByAbcLifecycle: vi.fn().mockResolvedValue([
+        { lifecycleStage: 'NEW', count: 2 },
+        { lifecycleStage: 'PROVISIONAL', count: 1 },
+        { lifecycleStage: 'ESTABLISHED', count: 3 },
+      ]),
+      countActiveProductsByAbcRisk: vi.fn().mockResolvedValue({
+        loss: 2, zeroValue: 1, dataQuality: 3,
+      }),
+      countUnclassifiedActiveProducts: vi.fn().mockResolvedValue(2),
+      findAbcContext: vi.fn().mockResolvedValue({
+        metric: 'GROSS_PROFIT',
+        periodDays: 360,
+        lastCalculatedAt: new Date('2026-07-31T00:00:00.000Z'),
+        sourceCapturedAt: new Date('2026-07-30T00:00:00.000Z'),
+      }),
+      countActiveProducts: vi.fn().mockResolvedValue(8),
     });
 
     const result = await new DashboardInventoryService(repository).getSummary(
@@ -70,7 +91,26 @@ describe('DashboardInventoryService', () => {
 
     expect(result.gradeCount).toEqual({ A: 2, B: 1, C: 0 });
     expect(result.classifiedProductCount).toBe(3);
-    expect(result.unclassifiedProductCount).toBe(4);
+    expect(result.abcLifecycleCount).toEqual({ NEW: 2, PROVISIONAL: 1, ESTABLISHED: 3 });
+    expect(result.abcRiskCount).toEqual({ loss: 2, zeroValue: 1, dataQuality: 3 });
+    expect(result.unclassifiedProductCount).toBe(2);
+    expect(result.abcContext).toMatchObject({
+      metric: 'GROSS_PROFIT', periodDays: 360,
+    });
+  });
+
+  it('falls back to the gross-profit 12-month policy context when none is stored', async () => {
+    const result = await new DashboardInventoryService(buildRepository()).getSummary(
+      buildDashboardContext(),
+      '11111111-1111-4111-8111-111111111111',
+    );
+
+    expect(result.abcContext).toEqual({
+      metric: 'GROSS_PROFIT',
+      periodDays: 360,
+      lastCalculatedAt: null,
+      sourceCapturedAt: null,
+    });
   });
 
   it('counts nullable automatic MasterProduct grade history transitions', async () => {

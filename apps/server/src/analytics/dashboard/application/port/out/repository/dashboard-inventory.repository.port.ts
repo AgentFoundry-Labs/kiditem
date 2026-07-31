@@ -16,6 +16,24 @@ export interface GradeCountRow {
   count: number;
 }
 
+export interface AbcLifecycleCountRow {
+  lifecycleStage: string;
+  count: number;
+}
+
+export interface DashboardAbcRiskCount {
+  loss: number;
+  zeroValue: number;
+  dataQuality: number;
+}
+
+export interface DashboardAbcContextRow {
+  metric: string;
+  periodDays: number;
+  lastCalculatedAt: Date | null;
+  sourceCapturedAt: Date | null;
+}
+
 export interface GradeChangeRow {
   oldGrade: string | null;
   newGrade: string | null;
@@ -34,6 +52,14 @@ export interface DashboardPerListingMetrics {
 
 export interface DashboardInventoryRepositoryPort {
   countActiveProductsByGrade(organizationId: string): Promise<GradeCountRow[]>;
+  countActiveProductsByAbcLifecycle(
+    organizationId: string,
+  ): Promise<AbcLifecycleCountRow[]>;
+  countActiveProductsByAbcRisk(
+    organizationId: string,
+  ): Promise<DashboardAbcRiskCount>;
+  countUnclassifiedActiveProducts(organizationId: string): Promise<number>;
+  findAbcContext(organizationId: string): Promise<DashboardAbcContextRow | null>;
   findUnreadAlerts(
     organizationId: string,
     limit: number,

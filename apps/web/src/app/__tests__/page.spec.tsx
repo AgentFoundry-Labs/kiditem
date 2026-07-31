@@ -87,6 +87,13 @@ const successInv = {
   channelLinkedProducts: 3,
   channelUnlinkedProducts: 2,
   gradeCount: { A: 2, B: 2, C: 1 },
+  classifiedProductCount: 5,
+  unclassifiedProductCount: 0,
+  abcLifecycleCount: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 5 },
+  abcRiskCount: { loss: 0, zeroValue: 0, dataQuality: 0 },
+  abcContext: {
+    metric: 'GROSS_PROFIT', periodDays: 360, lastCalculatedAt: null, sourceCapturedAt: null,
+  },
   alerts: [],
   warnings: {
     minusProducts: 0,

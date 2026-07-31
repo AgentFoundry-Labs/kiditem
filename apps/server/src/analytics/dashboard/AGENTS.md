@@ -49,9 +49,11 @@ dashboard/
   zero revenue.
 - Top-N ranking uses the documented 30% margin approximation; precise
   per-listing math lives in `/api/profit-loss`.
-- Inventory ABC counts and Top Products read the nullable stored
-  `MasterProduct.abcGrade`. A/B/C ratios use classified products as the
-  denominator and expose unclassified products separately; `null` never means C.
+- Inventory ABC counts, lifecycle/risk/context, and Top Products read Products'
+  stored `MasterProduct.abcGrade` plus current evaluation snapshot. A/B/C ratios
+  use official classified products only; NEW/PROVISIONAL and risk states do not
+  become C or unclassified. Dashboard never recalculates gross profit or owns
+  ABC policy mutations.
 - Thumbnail analysis quality grades remain AI-owned product-registration
   evidence and are not a fallback or input for inventory ABC.
 

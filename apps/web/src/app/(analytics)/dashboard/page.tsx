@@ -756,6 +756,10 @@ export default function Dashboard() {
         gradeCount={inventoryData.gradeCount}
         classifiedProductCount={inventoryData.classifiedProductCount}
         unclassifiedProductCount={inventoryData.unclassifiedProductCount}
+        abcLifecycleCount={inventoryData.abcLifecycleCount}
+        abcRiskCount={inventoryData.abcRiskCount}
+        abcContext={inventoryData.abcContext}
+        gradeChanges={inventoryData.gradeChanges}
       />
 
       {/* 경고 카드 */}

@@ -10,6 +10,10 @@ import type {
   GradeChanges,
   DataFreshness,
 } from '@kiditem/shared/dashboard';
+import {
+  DEFAULT_MASTER_PRODUCT_ABC_POLICY,
+  type MasterProductAbcLifecycleStage,
+} from '@kiditem/shared/product-abc';
 import type { DashboardContext } from '../../domain/context';
 import {
   DASHBOARD_INVENTORY_REPOSITORY_PORT,
@@ -36,6 +40,10 @@ export class DashboardInventoryService {
 
       const [
         gradeRows,
+        abcLifecycleRows,
+        abcRiskCount,
+        unclassifiedProductCount,
+        abcContextRow,
         unreadAlerts,
         totalActiveProducts,
         channelLinkedProducts,
@@ -48,6 +56,10 @@ export class DashboardInventoryService {
         aGradeReviewRows,
       ] = await Promise.all([
         this.repository.countActiveProductsByGrade(organizationId),
+        this.repository.countActiveProductsByAbcLifecycle(organizationId),
+        this.repository.countActiveProductsByAbcRisk(organizationId),
+        this.repository.countUnclassifiedActiveProducts(organizationId),
+        this.repository.findAbcContext(organizationId),
         this.repository.findUnreadAlerts(organizationId, 10),
         this.repository.countActiveProducts(organizationId),
         this.repository.countChannelLinkedProducts(organizationId),
@@ -76,10 +88,31 @@ export class DashboardInventoryService {
       }
       const classifiedProductCount =
         gradeCount.A + gradeCount.B + gradeCount.C;
-      const unclassifiedProductCount = Math.max(
-        totalActiveProducts - classifiedProductCount,
-        0,
-      );
+      const abcLifecycleCount = { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 0 };
+      for (const row of abcLifecycleRows) {
+        if (
+          row.lifecycleStage === 'NEW'
+          || row.lifecycleStage === 'PROVISIONAL'
+          || row.lifecycleStage === 'ESTABLISHED'
+        ) {
+          abcLifecycleCount[row.lifecycleStage as MasterProductAbcLifecycleStage] += row.count;
+        }
+      }
+      const abcContext = {
+        metric: abcContextRow?.metric === 'SALES_QUANTITY'
+          || abcContextRow?.metric === 'SALES_AMOUNT'
+          || abcContextRow?.metric === 'GROSS_PROFIT'
+          ? abcContextRow.metric
+          : DEFAULT_MASTER_PRODUCT_ABC_POLICY.metric,
+        periodDays: abcContextRow?.periodDays === 30
+          || abcContextRow?.periodDays === 90
+          || abcContextRow?.periodDays === 180
+          || abcContextRow?.periodDays === 360
+          ? abcContextRow.periodDays
+          : DEFAULT_MASTER_PRODUCT_ABC_POLICY.periodDays,
+        lastCalculatedAt: abcContextRow?.lastCalculatedAt ?? null,
+        sourceCapturedAt: abcContextRow?.sourceCapturedAt ?? null,
+      } as const;
 
       // lowReviewProducts — A-grade products with < 10 reviews (legacy)
       const lowReviewProducts = aGradeReviewRows.filter(
@@ -128,6 +161,9 @@ export class DashboardInventoryService {
         classifiedProductCount,
         unclassifiedProductCount,
         gradeCount,
+        abcLifecycleCount,
+        abcRiskCount,
+        abcContext,
         mappingStatusCounts: {
           matched: mappingStatusRows.find((row) => row.mappingStatus === 'matched')?.count ?? 0,
           unmatched: mappingStatusRows.find((row) => row.mappingStatus === 'unmatched')?.count ?? 0,

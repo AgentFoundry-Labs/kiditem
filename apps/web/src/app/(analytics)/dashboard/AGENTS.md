@@ -19,8 +19,10 @@ sales, ads, inventory, trends, health, action tasks, and chart panels.
   read-model responsibility.
 - Dashboard action task widgets may read and execute explicit backend action
   endpoints, but action-board workflow ownership remains in automation.
-- ABC cards and Top Products render the backend's nullable stored product grade.
-  Show unclassified separately and never substitute C for `null`.
+- ABC cards, lifecycle/risk/freshness context, and Top Products render Products'
+  stored evaluation snapshot. Never rebuild gross profit locally: NEW,
+  PROVISIONAL, loss, zero-value, and data-quality states remain separate from C;
+  only Dashboard's links lead to Product Management policy/evidence controls.
 
 ## Boundary Rules
 

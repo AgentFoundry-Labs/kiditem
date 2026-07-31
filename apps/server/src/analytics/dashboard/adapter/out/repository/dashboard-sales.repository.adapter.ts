@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import type { TopProduct, DailyRevenueItem } from '@kiditem/shared/dashboard';
+import {
+  MasterProductAbcEvaluationSchema,
+  type MasterProductAbcEvaluation,
+} from '@kiditem/shared/product-abc';
 import type {
   DashboardSalesRepositoryPort,
   TodayKpiRow,
@@ -11,6 +15,23 @@ interface TopProductRawRow {
   name: string;
   organization: string | null;
   grade: string | null;
+  abcProvisionalGrade: string | null;
+  abcLifecycleStage: string | null;
+  abcConfidence: string | null;
+  abcEligibilityReason: string | null;
+  abcRiskFlags: string[] | null;
+  abcObservedCompleteMonths: number | null;
+  abcObservationStartMonth: string | null;
+  abcPeriodMetricValue: number | string | null;
+  abcRankingValue: number | string | null;
+  abcGrossRevenue: number | null;
+  abcGrossCost: number | null;
+  abcGrossProfit: number | null;
+  abcGrossMarginRate: number | string | null;
+  abcContributionRate: number | string | null;
+  abcCumulativeContributionRate: number | string | null;
+  abcCalculatedAt: Date | string | null;
+  abcSourceCapturedAt: Date | string | null;
   revenue: number;
   quantity: number;
 }
@@ -74,6 +95,23 @@ export class DashboardSalesRepositoryAdapter
         COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id) AS name,
         cl.channel_name AS organization,
         mp.abc_grade AS grade,
+        abce.provisional_grade AS "abcProvisionalGrade",
+        abce.lifecycle_stage AS "abcLifecycleStage",
+        abce.confidence AS "abcConfidence",
+        abce.eligibility_reason AS "abcEligibilityReason",
+        abce.risk_flags AS "abcRiskFlags",
+        abce.observed_complete_months AS "abcObservedCompleteMonths",
+        abce.observation_start_month AS "abcObservationStartMonth",
+        abce.period_metric_value AS "abcPeriodMetricValue",
+        abce.ranking_value AS "abcRankingValue",
+        abce.gross_revenue AS "abcGrossRevenue",
+        abce.gross_cost AS "abcGrossCost",
+        abce.gross_profit AS "abcGrossProfit",
+        abce.gross_margin_rate AS "abcGrossMarginRate",
+        abce.contribution_rate AS "abcContributionRate",
+        abce.cumulative_contribution_rate AS "abcCumulativeContributionRate",
+        abce.calculated_at AS "abcCalculatedAt",
+        abce.source_captured_at AS "abcSourceCapturedAt",
         SUM(oli.total_price)::int AS revenue,
         SUM(oli.quantity)::int AS quantity
       FROM orders o
@@ -82,6 +120,9 @@ export class DashboardSalesRepositoryAdapter
       JOIN channel_listings cl ON cl.id = clo.listing_id
       LEFT JOIN master_products mp ON mp.id = cl.master_product_id
         AND mp.organization_id = ${organizationId}::uuid
+      LEFT JOIN master_product_abc_evaluations abce
+        ON abce.master_product_id = mp.id
+        AND abce.organization_id = ${organizationId}::uuid
       WHERE o.organization_id = ${organizationId}::uuid
         AND oli.organization_id = ${organizationId}::uuid
         AND clo.organization_id = ${organizationId}::uuid
@@ -89,7 +130,15 @@ export class DashboardSalesRepositoryAdapter
         AND o.ordered_at >= ${monthStart}
         AND o.ordered_at < ${monthEnd}
         AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-      GROUP BY cl.id, mp.name, mp.abc_grade
+      GROUP BY cl.id, mp.name, mp.abc_grade,
+        abce.provisional_grade, abce.lifecycle_stage, abce.confidence,
+        abce.eligibility_reason, abce.risk_flags,
+        abce.observed_complete_months, abce.observation_start_month,
+        abce.period_metric_value, abce.ranking_value,
+        abce.gross_revenue, abce.gross_cost, abce.gross_profit,
+        abce.gross_margin_rate, abce.contribution_rate,
+        abce.cumulative_contribution_rate, abce.calculated_at,
+        abce.source_captured_at
       ORDER BY revenue DESC
       LIMIT 10
     `;
@@ -111,6 +160,7 @@ export class DashboardSalesRepositoryAdapter
           r.grade === 'A' || r.grade === 'B' || r.grade === 'C'
             ? r.grade
             : null,
+        abcEvaluation: mapAbcEvaluation(r),
         revenue,
         netProfit,
         profitRate,
@@ -144,4 +194,37 @@ export class DashboardSalesRepositoryAdapter
       (r) => ({ date: r.date, revenue: Number(r.revenue) } satisfies DailyRevenueItem),
     );
   }
+}
+
+function mapAbcEvaluation(row: TopProductRawRow): MasterProductAbcEvaluation | null {
+  if (!row.abcLifecycleStage) return null;
+  const grade = row.grade === 'A' || row.grade === 'B' || row.grade === 'C'
+    ? row.grade
+    : null;
+  const parseNumber = (value: number | string | null): number | null => {
+    if (value === null) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const evaluation = MasterProductAbcEvaluationSchema.safeParse({
+    abcGrade: grade,
+    provisionalGrade: row.abcProvisionalGrade,
+    lifecycleStage: row.abcLifecycleStage,
+    confidence: row.abcConfidence,
+    eligibilityReason: row.abcEligibilityReason,
+    riskFlags: Array.isArray(row.abcRiskFlags) ? row.abcRiskFlags : [],
+    observedCompleteMonths: row.abcObservedCompleteMonths ?? 0,
+    observationStartMonth: row.abcObservationStartMonth,
+    periodMetricValue: parseNumber(row.abcPeriodMetricValue),
+    rankingValue: parseNumber(row.abcRankingValue),
+    grossRevenue: row.abcGrossRevenue,
+    grossCost: row.abcGrossCost,
+    grossProfit: row.abcGrossProfit,
+    grossMarginRate: parseNumber(row.abcGrossMarginRate),
+    contributionRate: parseNumber(row.abcContributionRate),
+    cumulativeContributionRate: parseNumber(row.abcCumulativeContributionRate),
+    calculatedAt: row.abcCalculatedAt,
+    sourceCapturedAt: row.abcSourceCapturedAt,
+  });
+  return evaluation.success ? evaluation.data : null;
 }
