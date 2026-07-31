@@ -10,16 +10,17 @@ const postProcessingSource = readFileSync(path.join(
   repoRoot,
   'extensions/kiditem-os/background/orders/sellpia-post-processing.js',
 ), 'utf8');
+const normalizedPostProcessingSource = postProcessingSource.replace(/\r\n?/g, '\n');
 
 function extractSellpiaDriveStep() {
-  const start = postProcessingSource.indexOf('async function driveStep(');
-  const end = postProcessingSource.indexOf(
+  const start = normalizedPostProcessingSource.indexOf('async function driveStep(');
+  const end = normalizedPostProcessingSource.indexOf(
     '\n\n  root.KidItemSellpiaPostProcessing',
     start,
   );
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
-  return postProcessingSource.slice(start, end);
+  return normalizedPostProcessingSource.slice(start, end);
 }
 
 function invoiceContext(items) {
