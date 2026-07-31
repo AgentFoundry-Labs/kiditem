@@ -56,7 +56,7 @@ const refetch = vi.fn();
 const response: ChannelProductMatchingQueueResponse = {
   products: [{
     channelAccount: { id: ACCOUNT_ID, channel: 'coupang', name: 'Wing' },
-    listing: { id: LISTING_ID, externalId: 'listing-1', displayName: '채널 우산', status: 'active', masterProductId: null, channelImageUrl: null, updatedAt: '2026-07-16T00:00:00.000Z' },
+    listing: { id: LISTING_ID, externalId: 'listing-1', displayName: '채널 우산', status: '승인완료', saleStatus: '판매중', masterProductId: null, channelImageUrl: null, updatedAt: '2026-07-16T00:00:00.000Z' },
     linkedProduct: null,
     optionCount: 3,
     linkedOptionCount: 1,
@@ -146,6 +146,7 @@ function responseWithInactiveProduct(): ChannelProductMatchingQueueResponse {
         listing: {
           ...response.products[0]!.listing,
           status: '승인완료',
+          saleStatus: '판매중',
         },
       },
       {
@@ -156,6 +157,7 @@ function responseWithInactiveProduct(): ChannelProductMatchingQueueResponse {
           externalId: 'listing-inactive',
           displayName: '판매 중지 우산',
           status: '승인반려',
+          saleStatus: '판매중지',
         },
         optionCount: 0,
         linkedOptionCount: 0,

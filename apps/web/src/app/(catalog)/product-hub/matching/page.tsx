@@ -134,7 +134,7 @@ export default function MatchingPage() {
   const selectedOptions = useMemo(() => (data?.options ?? []).filter((row) =>
     selectedAccountIdSet.has(row.channelAccount.id)), [data?.options, selectedAccountIdSet]);
   const onSaleListingIdSet = useMemo(() => new Set(selectedProducts
-    .filter((row) => isChannelListingOnSale(row.listing.status))
+    .filter((row) => isChannelListingOnSale(row.listing.saleStatus))
     .map((row) => row.listing.id)), [selectedProducts]);
   const onSaleListingIds = useMemo(
     () => [...onSaleListingIdSet].sort(),

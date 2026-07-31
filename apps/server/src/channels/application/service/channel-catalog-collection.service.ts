@@ -267,7 +267,11 @@ type InspectedChunks = {
   manifest: CoupangCatalogManifestV1 | null;
   confirmation: CoupangCatalogManifestV1 | null;
   discoveryPages: Set<number>;
-  discovered: Array<{ ordinal: number; externalProductId: string }>;
+  discovered: Array<{
+    ordinal: number;
+    externalProductId: string;
+    saleStatus: string | null;
+  }>;
   products: CanonicalProduct[];
   publishedProducts: CanonicalProduct[];
   publishedChunkDates: Date[];
@@ -288,9 +292,10 @@ function inspectChunks(chunks: ChannelCatalogCollectionChunkRecord[]): Inspected
       manifest ??= payload.manifest;
       assertSameManifest(manifest, payload.manifest);
       discoveryPages.add(payload.page);
-      discovered.push(...payload.items.map(({ ordinal, externalProductId }) => ({
+      discovered.push(...payload.items.map(({ ordinal, externalProductId, saleStatus }) => ({
         ordinal,
         externalProductId,
+        saleStatus: saleStatus ?? null,
       })));
     } else if (chunk.kind === 'product_details') {
       const payload = parseStoredChunk(CoupangCatalogProductDetailsChunkV1Schema, chunk);
@@ -363,6 +368,7 @@ function assembleCompleteSnapshot(
 
   const hydratedIds = new Set<string>();
   const externalOptionOwners = new Map<string, string>();
+  const products: CanonicalProduct[] = [];
   for (const item of state.products) {
     const expected = state.discovered.find(
       (discovered) => discovered.ordinal === item.ordinal,
@@ -378,6 +384,7 @@ function assembleCompleteSnapshot(
       );
     }
     hydratedIds.add(item.product.externalProductId);
+    products.push(withDiscoverySaleStatus(item, expected.saleStatus));
     for (const option of item.product.options) {
       const owner = externalOptionOwners.get(option.externalOptionId);
       if (owner && owner !== item.product.externalProductId) {
@@ -406,7 +413,7 @@ function assembleCompleteSnapshot(
       `Product details are not published: ${unpublishedProducts.join(', ')}`,
     );
   }
-  return { manifest: state.manifest, products: state.products };
+  return { manifest: state.manifest, products };
 }
 
 function missingDiscoverySequences(state: InspectedChunks): number[] {
@@ -429,6 +436,22 @@ function missingHydratedProductIds(state: InspectedChunks): string[] {
   return state.discovered
     .filter((item) => !hydrated.has(item.externalProductId))
     .map((item) => item.externalProductId);
+}
+
+function withDiscoverySaleStatus(
+  item: CanonicalProduct,
+  saleStatus: string | null,
+): CanonicalProduct {
+  return {
+    ...item,
+    product: {
+      ...item.product,
+      raw: {
+        ...item.product.raw,
+        saleStatus,
+      },
+    },
+  };
 }
 
 function countOptions(products: CanonicalProduct[]): number {
