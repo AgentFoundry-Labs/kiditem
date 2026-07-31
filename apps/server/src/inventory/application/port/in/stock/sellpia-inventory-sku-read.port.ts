@@ -15,6 +15,10 @@ export type SellpiaInventorySkuReadModel = {
   lastImportRunId: string | null;
 };
 
+export type SellpiaInventorySkuSearchOptions = {
+  includeOutOfStock?: boolean;
+};
+
 export interface SellpiaInventorySkuReadPort {
   listActiveForMatching(
     organizationId: string,
@@ -43,5 +47,6 @@ export interface SellpiaInventorySkuReadPort {
     organizationId: string,
     query: string,
     limit: number,
+    options?: SellpiaInventorySkuSearchOptions,
   ): Promise<SellpiaInventorySkuReadModel[]>;
 }

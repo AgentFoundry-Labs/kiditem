@@ -51,9 +51,17 @@ describe('<VariantRecipeDialog>', () => {
     expect(await screen.findByText('SP-100 · 블록 본품')).toBeInTheDocument();
     expect(screen.getByText('분홍 · 재고 6')).toBeInTheDocument();
     expect(apiClient.getParsed).toHaveBeenLastCalledWith(
-      '/api/products/recipe-component-candidates?search=SP-100&limit=20',
+      '/api/products/recipe-component-candidates?search=SP-100&limit=20&stockStatus=in_stock',
       expect.anything(),
     );
+
+    const includeOutOfStock = screen.getByRole('checkbox', { name: '품절상품 포함' });
+    expect(includeOutOfStock).not.toBeChecked();
+    await user.click(includeOutOfStock);
+    await waitFor(() => expect(apiClient.getParsed).toHaveBeenLastCalledWith(
+      '/api/products/recipe-component-candidates?search=SP-100&limit=20&stockStatus=all',
+      expect.anything(),
+    ));
 
     await user.click(screen.getByRole('button', { name: 'SP-100 구성품 추가' }));
     const quantity = screen.getByLabelText('SP-100 필요 수량');

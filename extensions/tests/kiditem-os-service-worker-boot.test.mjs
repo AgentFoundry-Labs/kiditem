@@ -185,6 +185,8 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
     // 주문수집
     'orderCollectionIcecreamMall',
     'collectSellpiaInventoryJsonV1',
+    'collectSellpiaManualMatchV1',
+    'collectSellpiaManualMatchPortV1',
     'orderCollectionFailureEvidenceV1',
     // 쿠팡
     'coupangCatalogSnapshot',
@@ -208,6 +210,7 @@ test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한�
 
   const expected = {
     'orders.mall': 'cancelCollectionSession',
+    'orders.sellpia_manual_match': 'cancelCollectionSession',
     'inventory.sellpia': 'cancelCollectionSession',
     'advertising.ad_sync': 'cancelCollectionSession',
     'channels.coupang_catalog': 'cancelCollectionSession',
@@ -220,6 +223,34 @@ test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한�
     assert.equal(typeof domain[operation], 'function', `${producer}.${operation}`);
   }
   assert.equal(domains.forProducer('unknown.thing'), null);
+});
+
+test('외부 장기 실행 포트를 공용 dispatch 하나가 소유 도메인으로 전달한다', () => {
+  const { fake } = bootServiceWorker();
+  assert.equal(fake.connectExternalListeners.length, 1);
+  const [dispatch] = fake.connectExternalListeners;
+
+  for (const name of ['kiditem-wing-form-v1', 'kiditem-sellpia-manual-match-v1']) {
+    const messageListeners = [];
+    let disconnected = 0;
+    dispatch({
+      name,
+      sender: { url: 'http://kiditem-office/product-hub/matching' },
+      onMessage: { addListener: (listener) => messageListeners.push(listener) },
+      postMessage() {},
+      disconnect() { disconnected += 1; },
+    });
+    assert.equal(messageListeners.length, 1, name);
+    assert.equal(disconnected, 0, name);
+  }
+
+  let unknownDisconnected = 0;
+  dispatch({
+    name: 'unknown-port',
+    sender: { url: 'http://kiditem-office/product-hub/matching' },
+    disconnect() { unknownDisconnected += 1; },
+  });
+  assert.equal(unknownDisconnected, 1);
 });
 
 test('수집 세션 공통 액션에 도메인 워커가 경쟁 응답하지 않는다', async () => {
@@ -254,7 +285,11 @@ test('도메인 고유 액션은 그 도메인 워커만 받는다', () => {
   // 각 도메인에서 하나씩. 소유 워커만 채널을 연다.
   for (const message of [
     { action: 'collectKakaoOrders', date: '2026-07-15' },
-    { action: 'start1688TrendCollection', keywords: ['테스트'] },
+    {
+      action: 'start1688TrendCollection',
+      runId: '11111111-1111-4111-8111-111111111111',
+      keywords: ['테스트'],
+    },
   ]) {
     let keptAlive = 0;
     for (const listener of fake.externalMessageListeners) {

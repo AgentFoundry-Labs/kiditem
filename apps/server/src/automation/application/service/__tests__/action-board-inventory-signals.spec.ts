@@ -59,7 +59,7 @@ describe('ActionBoardService inventory signals', () => {
       }),
       expect.objectContaining({
         taskKey: 'h-mapping-attention',
-        href: '/product-hub/matching?status=needs_review',
+        href: '/product-hub/matching?status=unmatched',
         apiCall: null,
       }),
     ]));

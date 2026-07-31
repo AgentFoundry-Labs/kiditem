@@ -8,6 +8,7 @@ import {
 const autoItem = item('variant-a', 'option-a', 'auto_apply');
 const configuredItem = item('variant-b', 'option-b', 'already_configured');
 const reviewItem = item('variant-b', 'option-b', 'operator_review');
+const quantityReviewItem = item('variant-b', 'option-b', 'quantity_review');
 
 describe('classifyRecipeAutomationProductGroups', () => {
   it('allows automatic variants when every other child is already configured', () => {
@@ -26,6 +27,15 @@ describe('classifyRecipeAutomationProductGroups', () => {
       product([option('option-a', 'variant-a'), option('option-b', 'variant-b')]),
     ], [autoItem, reviewItem])).toEqual([expect.objectContaining({
       decision: 'operator_review',
+      autoApplyProductVariantIds: ['variant-a'],
+    })]);
+  });
+
+  it('separates a product whose identity is matched but quantity still needs review', () => {
+    expect(classifyRecipeAutomationProductGroups([
+      product([option('option-a', 'variant-a'), option('option-b', 'variant-b')]),
+    ], [autoItem, quantityReviewItem])).toEqual([expect.objectContaining({
+      decision: 'quantity_review',
       autoApplyProductVariantIds: ['variant-a'],
     })]);
   });

@@ -11,11 +11,13 @@ const ordersEnvironmentContext = KidItemEnvironmentContext.create({
   requiresAuth: false,
   legacyStorageKeys: ["apiBase", "kiditem_auth_token"],
 });
+const SELLPIA_MANUAL_MATCH_PORT_NAME = "kiditem-sellpia-manual-match-v1";
 const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
   producer: "orders.mall",
   classification: "background_preferred",
   restartStrategy: "web",
+  requireRunId: true,
   normalizeFailure(provider, value) {
     return KidItemOrderCollectionFailure.createEvidence(provider, value);
   },
@@ -43,6 +45,25 @@ const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
   },
 });
 const sellpiaInventory = KidItemSellpiaInventory.create({ chrome });
+const sellpiaManualMatchLifecycle = KidItemOrderCollectionLifecycle.create({
+  sessions: collectionSessions,
+  producer: "orders.sellpia_manual_match",
+  classification: "background_preferred",
+  restartStrategy: "extension",
+  requireRunId: true,
+  forceDeferredTerminal: true,
+  deferredLabel: "Sellpia manual-match evidence collected · import in progress",
+  failedLabel: "Sellpia manual-match evidence import failed",
+  succeededLabel: "Sellpia manual-match evidence import completed",
+  classifyFailure(value) {
+    if (value?.errorCode === "sellpia_manual_match_login_required") {
+      return "marketplace_login";
+    }
+    if (value?.errorCode === "sellpia_manual_match_timeout") return "background_timeout";
+    return null;
+  },
+});
+const sellpiaManualMatch = KidItemSellpiaManualMatch.create({ chrome });
 const sellpiaPostProcessing = KidItemSellpiaPostProcessing;
 const sellpiaInvoiceTargets = sellpiaPostProcessing.createTargetStore({
   chrome,
@@ -60,9 +81,65 @@ const rocketPoCollection = KidItemRocketPoCollection.create({
   withTimeout,
 });
 
+function runSellpiaManualMatchCollection(message) {
+  return sellpiaManualMatchLifecycle.run(
+    message,
+    {
+      sourceOrigin: "https://kiditem.sellpia.com",
+      sourcePath: "/product_manual_match.html",
+      targetCount: Array.isArray(message.targetCodes) ? message.targetCodes.length : -1,
+    },
+    (collection) => sellpiaManualMatch.collect(collection, message.targetCodes),
+  );
+}
+
+function handleSellpiaManualMatchPort(port, senderEnvironment) {
+  let started = false;
+  const finish = (result) => {
+    try {
+      port.postMessage(result);
+    } catch {
+      // The web page may have closed while a read-only collection was finishing.
+    }
+    try {
+      port.disconnect();
+    } catch {
+      // The terminal message and the remote disconnect may race.
+    }
+  };
+  port.onMessage.addListener((message) => {
+    if (message?.action === "keepAlive") return;
+    if (started) return;
+    started = true;
+    if (message?.action !== "collectSellpiaManualMatch") {
+      finish({
+        success: false,
+        runId: typeof message?.runId === "string" ? message.runId : "",
+        errorCode: "sellpia_manual_match_network_failed",
+        error: "Unsupported Sellpia manual-match request.",
+      });
+      return;
+    }
+    const environmentId = senderEnvironment.environmentId;
+    const scopedMessage = { ...message, environmentId };
+    ordersEnvironmentContext.connect(environmentId).catch(() => undefined);
+    Promise.resolve(runSellpiaManualMatchCollection(scopedMessage))
+      .then(finish)
+      .catch((error) => finish({
+        success: false,
+        runId: scopedMessage.runId,
+        errorCode: "sellpia_manual_match_network_failed",
+        error: error?.message || "Sellpia manual-match collection failed.",
+      }));
+  });
+}
+
 async function lifecycleForRun(runId, environmentId) {
   const session = await collectionSessions.getOwned(runId, environmentId);
   if (session?.producer === "inventory.sellpia") return sellpiaInventoryLifecycle;
+  if (session?.producer === "orders.sellpia_manual_match") {
+    return sellpiaManualMatchLifecycle;
+  }
   if (session?.producer === "orders.mall") return orderCollectionLifecycle;
   return null;
 }
@@ -226,6 +303,10 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       },
       (collection) => sellpiaInventory.collect(collection),
     ));
+  }
+
+  if (msg?.action === "collectSellpiaManualMatch") {
+    return respond(runSellpiaManualMatchCollection(msg));
   }
 
   if (msg?.action === "collectSellpiaDeliTracking") {
@@ -6043,6 +6124,10 @@ function normalizeSellpiaSalesOrganizationId(value) {
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
   producerPrefixes: ["orders", "inventory"],
+  externalPorts: {
+    [SELLPIA_MANUAL_MATCH_PORT_NAME]: (port, senderEnvironment) =>
+      handleSellpiaManualMatchPort(port, senderEnvironment),
+  },
   capabilities: {
     orderCollectionIcecreamMall: true,
     coupangShipmentDownloads: true,
@@ -6061,6 +6146,8 @@ KidItemDomains.register({
     collectSellpiaSaleSummaryAuthoritativeV1: true,
     collectSellpiaProductProfit: true,
     collectSellpiaInventoryJsonV1: true,
+    collectSellpiaManualMatchV1: true,
+    collectSellpiaManualMatchPortV1: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     kiditemEnvironmentProfilesV1: true,

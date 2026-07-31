@@ -1,4 +1,5 @@
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import {
   WING_CATALOG_EXTENSION_RELOAD_REQUIRED,
   WING_CATALOG_EXTENSION_REQUIRED,
@@ -66,8 +67,10 @@ export async function searchCoupangKeywordSuggestions(input: {
     throw new Error(WING_CATALOG_EXTENSION_RELOAD_REQUIRED);
   }
 
+  const runId = await issueBrowserCollectionRunId();
   const response = await sendToExtension<CoupangKeywordSuggestionResponse>(extensionId, {
     action: 'searchCoupangKeywordSuggestions',
+    runId,
     keyword,
     maxResults: input.maxResults ?? 30,
   }, COUPANG_KEYWORD_SUGGESTION_TIMEOUT_MS);

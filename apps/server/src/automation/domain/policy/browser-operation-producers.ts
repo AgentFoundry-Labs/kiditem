@@ -74,6 +74,10 @@ const COLLECTION_PRODUCERS = new Map<
   ],
   ['orders.mall', { title: '주문 데이터 수집', href: '/order-collection' }],
   [
+    'orders.sellpia_manual_match',
+    { title: 'Sellpia 상품 매칭', href: '/product-hub/matching' },
+  ],
+  [
     'inventory.sellpia',
     {
       title: 'Sellpia 재고 갱신',

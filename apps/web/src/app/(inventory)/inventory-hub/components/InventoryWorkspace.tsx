@@ -34,7 +34,7 @@ const EMPTY_SUMMARY = {
 
 export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 }) {
   const [page, setPage] = useState(1);
-  const [stockStatus, setStockStatus] = useState<InventorySkuStockStatus>('all');
+  const [stockStatus, setStockStatus] = useState<InventorySkuStockStatus>('in_stock');
   const [queryDraft, setQueryDraft] = useState('');
   const [query, setQuery] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -83,7 +83,12 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
         query={queryDraft}
         latestImportAt={data?.latestImport?.importedAt ?? null}
         busy={exporting}
+        includeOutOfStock={stockStatus !== 'in_stock'}
         onQueryChange={setQueryDraft}
+        onIncludeOutOfStockChange={(include) => {
+          setStockStatus(include ? 'all' : 'in_stock');
+          setPage(1);
+        }}
         onSearch={() => { setQuery(queryDraft.trim()); setPage(1); }}
         onBarcodePrint={handleBarcodePrint}
         onExcel={handleExcel}

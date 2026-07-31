@@ -31,10 +31,122 @@ const input = (overrides: Partial<ChannelRecipeSuggestionInput> = {}): ChannelRe
   nameOptionEvidence: [],
   nameEvidence: [],
   similarityEvidence: [],
+  manualMatchEvidence: [],
   ...overrides,
 });
 
 describe('classifyChannelRecipeSuggestion', () => {
+  it('treats one exact manual-match alias as a completed product match with its stored quantity', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      manualMatchEvidence: [{
+        channelValue: '크리스마스 아동양말 대 2개',
+        normalizedValue: '크리스마스아동양말대2개',
+        quantity: 2,
+        sku: sku({ code: '6402-1', name: '크리스마스아동양말(대)' }),
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: 'confirmed_manual_match_alias',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 2,
+      proposals: [{
+        code: '6402-1',
+        requiresQuantityConfirmation: false,
+        recommendedQuantity: 2,
+      }],
+    });
+    expect(result.proposals[0]?.evidence[0]?.kind).toBe('sellpia_manual_match_alias');
+  });
+
+  it.each([
+    ['18 개입', 18],
+    ['5 개 묶음', 5],
+  ])('auto-confirms explicit title quantity %s when Sellpia item_count agrees', (title, quantity) => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], listingName: `키즈 식판 ${title}` }],
+      manualMatchEvidence: [{
+        channelValue: `키즈 식판 ${title}`,
+        normalizedValue: `키즈식판${title.replace(/\s/g, '')}`,
+        quantity,
+        sku: sku(),
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: 'confirmed_manual_match_alias',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: quantity,
+    });
+  });
+
+  it('keeps the product matched but separates a title and Sellpia quantity disagreement', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], listingName: '키즈 식판 18개입' }],
+      manualMatchEvidence: [{
+        channelValue: '키즈 식판 18개입',
+        normalizedValue: '키즈식판18개입',
+        quantity: 12,
+        sku: sku(),
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      recommendedQuantity: null,
+      proposals: [{ requiresQuantityConfirmation: true }],
+    });
+  });
+
+  it('keeps the product match while separating conflicting alias quantities for review', () => {
+    const matchedSku = sku({ code: '6402-1', name: '크리스마스아동양말(대)' });
+    const result = classifyChannelRecipeSuggestion(input({
+      manualMatchEvidence: [
+        {
+          channelValue: '크리스마스 아동양말 대',
+          normalizedValue: '크리스마스아동양말대',
+          quantity: 1,
+          sku: matchedSku,
+        },
+        {
+          channelValue: '크리스마스 아동양말 대',
+          normalizedValue: '크리스마스아동양말대',
+          quantity: 2,
+          sku: matchedSku,
+        },
+      ],
+    }));
+
+    expect(result).toMatchObject({
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      recommendedQuantity: null,
+      proposals: [{
+        sellpiaInventorySkuId: matchedSku.sellpiaInventorySkuId,
+        requiresQuantityConfirmation: true,
+      }],
+    });
+  });
+
+  it('blocks a manual-match product identity that conflicts with exact code evidence', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      codeEvidence: [{ kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() }],
+      manualMatchEvidence: [{
+        channelValue: '다른 판매처 상품명',
+        normalizedValue: '다른판매처상품명',
+        quantity: 1,
+        sku: sku({
+          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+          code: 'SP-002',
+        }),
+      }],
+    }));
+
+    expect(result.status).toBe('conflict');
+    expect(result.automationDecision).toBe('blocked');
+  });
+
   it('preserves an existing recipe over all evidence', () => {
     const result = classifyChannelRecipeSuggestion(input({
       existingComponents: [{
@@ -73,7 +185,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     })]);
   });
 
-  it('infers quantity one when exact code evidence accompanies a one-unit sell label', () => {
+  it('does not infer quantity from matching pack-like title text', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: '2개 세트' }],
       codeEvidence: [{
@@ -82,12 +194,12 @@ describe('classifyChannelRecipeSuggestion', () => {
         sku: sku({ name: '키즈 식판 2개 세트' }),
       }],
     }));
-    expect(result.status).toBe('unique_code');
-    expect(result.automationDecision).toBe('auto_apply');
-    expect(result.recommendedQuantity).toBe(1);
+    expect(result.status).toBe('quantity_review');
+    expect(result.automationDecision).toBe('quantity_review');
+    expect(result.recommendedQuantity).toBeNull();
   });
 
-  it('infers an integer component ratio from explicit channel and Sellpia pack counts', () => {
+  it('does not derive a component ratio from title numbers', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: '블루 10개입' }],
       codeEvidence: [{
@@ -96,9 +208,9 @@ describe('classifyChannelRecipeSuggestion', () => {
         sku: sku({ name: '키즈 식판 5개입' }),
       }],
     }));
-    expect(result.status).toBe('unique_code');
-    expect(result.automationDecision).toBe('auto_apply');
-    expect(result.recommendedQuantity).toBe(2);
+    expect(result.status).toBe('quantity_review');
+    expect(result.automationDecision).toBe('quantity_review');
+    expect(result.recommendedQuantity).toBeNull();
   });
 
   it('keeps a multi-unit channel pack under review when the Sellpia unit has no pack evidence', () => {

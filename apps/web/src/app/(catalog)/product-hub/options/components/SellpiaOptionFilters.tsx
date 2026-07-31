@@ -2,6 +2,7 @@
 
 import type { FormEvent } from 'react';
 import { Search } from 'lucide-react';
+import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
 import { cn } from '@/lib/utils';
 import type {
   InventorySkuStockStatus,
@@ -14,11 +15,13 @@ interface SellpiaOptionFiltersProps {
   linkStatus: SellpiaInventorySkuLinkStatus | 'all';
   search: string;
   stockStatus: InventorySkuStockStatus;
+  includeOutOfStock: boolean;
   onActiveStatusChange: (value: SellpiaInventorySkuActiveStatus) => void;
   onLinkStatusChange: (value: SellpiaInventorySkuLinkStatus | 'all') => void;
   onSearchChange: (value: string) => void;
   onSearchSubmit: (event: FormEvent) => void;
   onStockStatusChange: (value: InventorySkuStockStatus) => void;
+  onIncludeOutOfStockChange: (value: boolean) => void;
 }
 
 const STOCK_FILTERS: Array<{
@@ -53,11 +56,13 @@ export default function SellpiaOptionFilters({
   linkStatus,
   search,
   stockStatus,
+  includeOutOfStock,
   onActiveStatusChange,
   onLinkStatusChange,
   onSearchChange,
   onSearchSubmit,
   onStockStatusChange,
+  onIncludeOutOfStockChange,
 }: SellpiaOptionFiltersProps) {
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
@@ -75,6 +80,11 @@ export default function SellpiaOptionFilters({
           className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
         />
       </form>
+
+      <SellpiaOutOfStockToggle
+        checked={includeOutOfStock}
+        onCheckedChange={onIncludeOutOfStockChange}
+      />
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <FilterGroup

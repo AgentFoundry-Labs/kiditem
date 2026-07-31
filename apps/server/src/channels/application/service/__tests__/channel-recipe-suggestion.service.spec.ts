@@ -6,6 +6,68 @@ const organizationId = '00000000-0000-4000-8000-000000000001';
 const optionId = '00000000-0000-4000-8000-000000000002';
 
 describe('ChannelRecipeSuggestionService', () => {
+  it('uses Sellpia manual-match quantity as the authoritative physical-unit recipe', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      productVariantId: '00000000-0000-4000-8000-000000000003',
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: '샤이니무지개칼라링(12개입)/매직스프링/완구',
+        itemName: null,
+        sellerSku: null,
+        modelNumber: null,
+        barcode: null,
+      }],
+      existingComponents: [],
+    };
+    const sellpiaSku = {
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+      code: '634-1',
+      name: '1500샤이니무지개칼라링',
+      optionName: null,
+      barcode: '8806384822403',
+      currentStock: 1270,
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([sellpiaSku]),
+    };
+    const manualMatches = {
+      findByNormalizedAliases: vi.fn().mockResolvedValue([{
+        sellpiaInventorySkuId: sellpiaSku.sellpiaInventorySkuId,
+        aliasTitle: context.options[0].listingName,
+        normalizedAlias: '샤이니무지개칼라링12개입매직스프링완구',
+        itemCount: 12,
+        matchedType: 'M',
+        evidenceCount: 1,
+      }]),
+    };
+    const service = new ChannelRecipeSuggestionService(
+      repository as never,
+      evidence as never,
+      manualMatches as never,
+    );
+
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'confirmed_manual_match_alias',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 12,
+      proposals: [{
+        sellpiaInventorySkuId: sellpiaSku.sellpiaInventorySkuId,
+        code: '634-1',
+        recommendedQuantity: 12,
+      }],
+    });
+    expect(manualMatches.findByNormalizedAliases).toHaveBeenCalledWith(
+      organizationId,
+      ['샤이니무지개칼라링12개입매직스프링완구'],
+    );
+  });
+
   it('reuses the channel recipe matcher before registration and strips a leading Sellpia price code', async () => {
     const repository = { getContext: vi.fn() };
     const sellpiaSku = {

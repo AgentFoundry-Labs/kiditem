@@ -6,6 +6,11 @@ const bridge = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/extension-bridge', () => bridge);
+vi.mock('@/lib/browser-collection-session', () => ({
+  issueBrowserCollectionRunId: vi.fn().mockImplementation(
+    async (runId?: string) => runId ?? '00000000-0000-4000-8000-000000000009',
+  ),
+}));
 
 import {
   collectArt09CsvFromExtension,

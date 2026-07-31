@@ -3,6 +3,7 @@ import { zIsoDate } from './common.js';
 
 export const ChannelRecipeAutomationDecisionSchema = z.enum([
   'auto_apply',
+  'quantity_review',
   'operator_review',
   'blocked',
   'already_configured',
@@ -16,6 +17,7 @@ export const ChannelRecipeAutomationReasonSchema = z.enum([
   'unique_physical_barcode',
   'exact_unique_name_option',
   'exact_unique_name',
+  'exact_sellpia_manual_match_alias',
   'high_confidence_name',
   'identifier_name_mismatch',
   'quantity_review',
@@ -94,12 +96,14 @@ export const ChannelRecipeAutomationPreviewSchema = z.object({
   summary: z.object({
     products: z.number().int().nonnegative(),
     autoApplyProducts: z.number().int().nonnegative(),
+    quantityReviewProducts: z.number().int().nonnegative(),
     operatorReviewProducts: z.number().int().nonnegative(),
     blockedProducts: z.number().int().nonnegative(),
     alreadyConfiguredProducts: z.number().int().nonnegative(),
     variants: z.number().int().nonnegative(),
     affectedOptions: z.number().int().nonnegative(),
     autoApply: z.number().int().nonnegative(),
+    quantityReview: z.number().int().nonnegative(),
     operatorReview: z.number().int().nonnegative(),
     blocked: z.number().int().nonnegative(),
     alreadyConfigured: z.number().int().nonnegative(),
@@ -136,6 +140,7 @@ export const ScopedChannelRecipeAutomationResultSchema = z.object({
   appliedProducts: z.number().int().nonnegative(),
   appliedVariants: z.number().int().nonnegative(),
   affectedOptions: z.number().int().nonnegative(),
+  quantityReviewProducts: z.number().int().nonnegative(),
   operatorReviewProducts: z.number().int().nonnegative(),
   blockedProducts: z.number().int().nonnegative(),
   alreadyConfiguredProducts: z.number().int().nonnegative(),

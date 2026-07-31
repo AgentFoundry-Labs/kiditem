@@ -3,6 +3,7 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from "@/lib/extension-bridge";
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
 // 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
@@ -91,9 +92,10 @@ export async function runCompetitorCollection(
   extensionId: string,
   runId?: string,
 ): Promise<CompetitorCollectionRun> {
+  const collectionRunId = await issueBrowserCollectionRunId(runId);
   const response = await sendToExtension<CompetitorCollectionRun>(extensionId, {
     action: "runCoupangKeywordRankCheck",
-    ...(runId ? { runId } : {}),
+    runId: collectionRunId,
   });
   if (!response?.success) {
     throw new Error(
@@ -119,12 +121,13 @@ export async function runCompetitorSellerCollection(
   sellerId: string,
   runId?: string,
 ): Promise<CompetitorCollectionRun> {
+  const collectionRunId = await issueBrowserCollectionRunId(runId);
   const response = await sendToExtension<CompetitorCollectionRun>(
     extensionId,
     {
       action: "runCoupangCompetitorSellerCatalog",
       sellerId,
-      ...(runId ? { runId } : {}),
+      runId: collectionRunId,
     },
     30_000,
   );

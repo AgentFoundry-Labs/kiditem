@@ -20,6 +20,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
 
 type DraftComponent = {
   clientId: string;
@@ -45,12 +46,14 @@ export function VariantRecipeDialog({
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<DraftComponent[]>(() => toDraft(variant));
   const [inventorySearch, setInventorySearch] = useState(initialInventorySearch ?? '');
+  const [includeOutOfStock, setIncludeOutOfStock] = useState(false);
   const nextDraftId = useRef(0);
 
   useEffect(() => {
     if (open) {
       setDraft(toDraft(variant));
       setInventorySearch(initialInventorySearch ?? '');
+      setIncludeOutOfStock(false);
     }
   }, [initialInventorySearch, open, variant]);
 
@@ -58,9 +61,10 @@ export function VariantRecipeDialog({
     const params = new URLSearchParams({
       search: inventorySearch.trim(),
       limit: '20',
+      stockStatus: includeOutOfStock ? 'all' : 'in_stock',
     });
     return params;
-  }, [inventorySearch]);
+  }, [includeOutOfStock, inventorySearch]);
   const candidateKeyParams = useMemo(
     () => Object.fromEntries(candidateParams.entries()),
     [candidateParams],
@@ -173,6 +177,11 @@ export function VariantRecipeDialog({
                     />
                   </span>
                 </label>
+                <SellpiaOutOfStockToggle
+                  checked={includeOutOfStock}
+                  onCheckedChange={setIncludeOutOfStock}
+                  className="mt-3"
+                />
                 <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
                   {inventorySearch.trim().length < 2 ? (
                     <p className="px-2 py-3 text-xs text-[var(--text-tertiary)]">Sellpia 재고 SKU를 찾으려면 2자 이상 입력하세요.</p>

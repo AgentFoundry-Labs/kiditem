@@ -28,6 +28,8 @@
 | RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
 | RocketPurchaseOrder | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
+| SellpiaManualMatchAlias | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
+| SellpiaManualMatchSnapshot | `sellpia_manual_match_snapshots` | Current organization-scoped, read-only Sellpia manual-match evidence restricted to exact aliases used by current channel listings. |
 | SellpiaProductMonthlySales | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
 | SellpiaSalesDailySnapshot | `sellpia_sales_daily_snapshots` | Sellpia 판매현황(sale_summary) 몰별·일별 매출 fact. order_search.ajax.html(mode=selldate, 주문일자 기준)에서 판매처(seller)별로 수집. channelGroup 으로 rocket(쿠팡-직배송) / others(쿠팡윙+기타 전체몰) 버킷을 구분해 대시보드 '몰별 매출' 섹션에 표시한다. price=판매금액, buy_price=매입금액, amount=판매수량. |
 
@@ -441,6 +443,32 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SellpiaManualMatchAlias {
+    String id PK
+    String organizationId FK
+    String snapshotId FK
+    String sellpiaInventorySkuId FK
+    String aliasTitle
+    String normalizedAlias
+    Int itemCount
+    String matchedType
+    Int evidenceCount
+    DateTime createdAt
+  }
+  SellpiaManualMatchSnapshot {
+    String id PK
+    String organizationId FK,UK
+    String sourceOrigin
+    String sourcePath
+    Int schemaVersion
+    Int targetCount
+    Int matchedTargetCount
+    Int aliasCount
+    String snapshotHash
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SellpiaProductMonthlySales {
     String id PK
     String organizationId FK
@@ -483,6 +511,7 @@ erDiagram
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
   CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
   RocketPoCatalogSnapshot ||--o{ RocketPoCatalogLine : "snapshot"
+  SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
 ```
 
 ## External References
@@ -525,5 +554,8 @@ erDiagram
 | RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPurchaseOrder | organization | references external | Core | Organization |
 | RocketSupplyDailySnapshot | organization | references external | Core | Organization |
+| SellpiaManualMatchAlias | organization | references external | Core | Organization |
+| SellpiaManualMatchAlias | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
+| SellpiaManualMatchSnapshot | organization | references external | Core | Organization |
 | SellpiaProductMonthlySales | organization | references external | Core | Organization |
 | SellpiaSalesDailySnapshot | organization | references external | Core | Organization |

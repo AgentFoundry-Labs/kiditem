@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
+import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
 import {
   listSellpiaInventorySkus,
   sellpiaInventoryKeyParams,
@@ -17,7 +18,13 @@ interface SellpiaMasterProductPickerProps {
 
 export default function SellpiaMasterProductPicker({ value, onChange, label }: SellpiaMasterProductPickerProps) {
   const [query, setQuery] = useState('');
-  const params = { page: 1, limit: 50, query: query.trim() || undefined };
+  const [includeOutOfStock, setIncludeOutOfStock] = useState(false);
+  const params = {
+    page: 1,
+    limit: 50,
+    query: query.trim() || undefined,
+    stockStatus: includeOutOfStock ? 'all' as const : 'in_stock' as const,
+  };
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.inventory.snapshot(sellpiaInventoryKeyParams(params)),
     queryFn: () => listSellpiaInventorySkus(params),
@@ -34,6 +41,10 @@ export default function SellpiaMasterProductPicker({ value, onChange, label }: S
           className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
         />
       </label>
+      <SellpiaOutOfStockToggle
+        checked={includeOutOfStock}
+        onCheckedChange={setIncludeOutOfStock}
+      />
       <label className="block text-sm font-medium text-[var(--text-primary)]">
         {label}
         <select

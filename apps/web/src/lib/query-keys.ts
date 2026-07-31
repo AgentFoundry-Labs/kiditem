@@ -227,6 +227,8 @@ export const queryKeys = {
       [...queryKeys.channelProductMappings.all, 'recipe-suggestion', channelListingOptionId] as const,
     recipeAutomationPreview: (channelAccountId: string) =>
       [...queryKeys.channelProductMappings.all, 'recipe-automation-preview', channelAccountId] as const,
+    sellpiaManualMatchTargets: () =>
+      [...queryKeys.channelProductMappings.all, 'sellpia-manual-match-targets'] as const,
   },
   channelSkuAvailability: {
     all: ['channelSkuAvailability'] as const,

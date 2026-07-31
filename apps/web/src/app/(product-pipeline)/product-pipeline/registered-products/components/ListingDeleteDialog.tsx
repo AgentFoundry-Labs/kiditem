@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import type { RegisteredChannelListing } from '../lib/channel-listings-api';
 
@@ -106,7 +107,7 @@ export default function ListingDeleteDialog({
     let operationId: string | null = null;
     let providerDeleteConfirmed = false;
     try {
-      const attemptKey = idempotencyKey ?? crypto.randomUUID();
+      const attemptKey = idempotencyKey ?? createSecureRandomUuid();
       setIdempotencyKey(attemptKey);
       // 1) 서버 인가. 지울 대상은 서버가 정한다.
       setPhase('삭제 권한을 확인하는 중…');

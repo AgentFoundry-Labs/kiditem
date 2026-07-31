@@ -196,6 +196,14 @@ describe('WingRegistrationConfirmDialog', () => {
       target: { value: '직접 선택' },
     });
     fireEvent.click(screen.getByRole('button', { name: '셀피아 검색' }));
+    expect(onSearchSellpia).toHaveBeenLastCalledWith('직접 선택', false);
+    await screen.findByRole('button', {
+      name: 'MANUAL-99 직접 선택한 셀피아 상품 선택',
+    });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '품절상품 포함' }));
+    fireEvent.click(screen.getByRole('button', { name: '셀피아 검색' }));
+    expect(onSearchSellpia).toHaveBeenLastCalledWith('직접 선택', true);
     const result = await screen.findByRole('button', {
       name: 'MANUAL-99 직접 선택한 셀피아 상품 선택',
     });

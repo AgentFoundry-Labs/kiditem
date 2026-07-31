@@ -14,7 +14,10 @@ import { useAuthSession } from '@/components/providers/AuthProvider';
 import { useAuth } from '@/hooks/useAuth';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
-import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
+import {
+  issueBrowserCollectionRunId,
+  recordMissingBrowserCollection,
+} from '@/lib/browser-collection-session';
 import { startCoupangCatalogBrowser } from '@/lib/coupang-catalog-extension';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
@@ -47,7 +50,7 @@ interface BackgroundReadinessRun {
   producer: 'channels.coupang_catalog' | 'advertising.wing_rank';
 }
 
-function makeRunId(): string {
+function makeClientRunKey(): string {
   return createSecureRandomUuid();
 }
 
@@ -164,7 +167,7 @@ export function useReadinessCollection({
     extensionId: string,
     requestedRunId?: string,
   ) => {
-    const runId = requestedRunId ?? makeRunId();
+    const runId = await issueBrowserCollectionRunId(requestedRunId);
     setActiveSession(null);
     const session = await runReadinessExtensionCollection({
       check,
@@ -239,7 +242,7 @@ export function useReadinessCollection({
           `/api/channels/accounts/${encodeURIComponent(account.id)}` +
             '/catalog-imports/coupang-wing/runs',
           {
-            clientRunKey: makeRunId(),
+            clientRunKey: makeClientRunKey(),
             collectorVersion: COUPANG_CATALOG_COLLECTOR_VERSION,
           },
         );
@@ -292,7 +295,7 @@ export function useReadinessCollection({
           return;
         }
 
-        const runId = requestedRunId ?? makeRunId();
+        const runId = await issueBrowserCollectionRunId(requestedRunId);
         const result = await runWingSalesRankCheck(gate.extensionId, runId);
         if (!result.started) {
           toast.info('순위를 확인할 자사 상품이 없습니다.');

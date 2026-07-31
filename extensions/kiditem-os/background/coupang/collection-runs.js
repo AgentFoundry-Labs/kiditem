@@ -89,16 +89,14 @@
       stableOwnerKeys = [],
       environmentId,
     ) {
-      const hasRequestedRunId = requestedRunId !== undefined;
       if (
-        hasRequestedRunId &&
-        (typeof requestedRunId !== "string" ||
-          !UUID_PATTERN.test(requestedRunId))
+        typeof requestedRunId !== "string" ||
+        !UUID_PATTERN.test(requestedRunId)
       ) {
-        throw new Error("Collection run ID must be a UUID");
+        throw new Error("Server-issued collection run ID is required");
       }
-      const runId = hasRequestedRunId ? requestedRunId : createRunId();
-      const existing = hasRequestedRunId ? await sessions.get(runId) : null;
+      const runId = requestedRunId;
+      const existing = await sessions.get(runId);
       if (existing) {
         if (existing.environmentId !== environmentId) {
           throw new Error("Collection session environment does not match owner");
@@ -177,8 +175,13 @@
     }
 
     async function startCatalog(message, environmentId) {
-      const runId =
-        typeof message?.runId === "string" ? message.runId : createRunId();
+      if (
+        typeof message?.runId !== "string" ||
+        !UUID_PATTERN.test(message.runId)
+      ) {
+        throw new Error("Server-issued collection run ID is required");
+      }
+      const runId = message.runId;
       await sessions.start({
         runId,
         environmentId,

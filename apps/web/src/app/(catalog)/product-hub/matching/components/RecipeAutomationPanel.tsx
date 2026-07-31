@@ -1,101 +1,113 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { CheckCircle2, DatabaseZap, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
+import { formatNumber } from '@/lib/utils';
 import {
-  useApplyChannelRecipeAutomation,
-  useChannelRecipeAutomationPreview,
+  useChannelRecipeAutomationPreviews,
+  useRunChannelProductMatching,
 } from '../hooks/useChannelSkuMappings';
 
-export function RecipeAutomationPanel({ channelAccountId }: {
-  channelAccountId?: string;
+export function RecipeAutomationPanel({
+  channelAccountIds,
+}: {
+  channelAccountIds: string[];
 }) {
-  const preview = useChannelRecipeAutomationPreview(channelAccountId);
-  const apply = useApplyChannelRecipeAutomation();
-  const data = preview.data;
-  const disabled = !channelAccountId
-    || !data
-    || data.summary.autoApply === 0
-    || preview.isLoading
-    || preview.isFetching
-    || apply.isPending;
-
+  const previews = useChannelRecipeAutomationPreviews(channelAccountIds);
+  const runMatching = useRunChannelProductMatching();
+  const previewData = previews.flatMap((query) => query.data ? [query.data] : []);
+  const previewLoading = previews.some((query) => query.isLoading);
+  const previewError = previews.find((query) => query.error)?.error;
+  const outcome = previewData.flatMap((preview) => preview.productGroups)
+    .reduce((summary, group) => {
+      if (group.decision === 'auto_apply' || group.decision === 'already_configured') {
+        summary.matched += 1;
+      } else if (group.decision === 'quantity_review') {
+        summary.quantityReview += 1;
+      } else {
+        summary.unmatched += 1;
+      }
+      return summary;
+    }, {
+    matched: 0,
+    quantityReview: 0,
+    unmatched: 0,
+  });
   const runAutomation = async () => {
-    if (!data || !channelAccountId) return;
     try {
-      const result = await apply.mutateAsync({
-        channelAccountId,
-        proposalVersion: data.proposalVersion,
+      const result = await runMatching.mutateAsync({
+        channelAccountIds,
       });
-      toast.success(
-        `상품 ${result.appliedProducts}개, 운영 옵션 ${result.affectedOptions}개에 재고 연결을 적용했습니다.`,
-      );
-      await preview.refetch();
+      if (result.appliedProducts > 0) {
+        toast.success(
+          `상품 ${result.appliedProducts}개, 운영 옵션 ${result.affectedOptions}개에 재고 구성을 적용했습니다.`,
+        );
+      } else {
+        toast.success('상품 매칭 결과를 갱신했습니다.');
+      }
     } catch (error) {
-      toast.error(friendlyError(error) ?? '자동 매칭을 적용하지 못했습니다. 미리보기를 새로 확인해 주세요.');
+      toast.error(friendlyError(error) ?? (error instanceof Error ? error.message : '상품 매칭을 실행하지 못했습니다.'));
     }
   };
 
   return (
-    <section aria-label="재고 자동 매칭" className="rounded-xl border border-purple-200 bg-purple-50/60 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-base font-extrabold text-slate-900">상품·재고 자동 매칭</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            코드·바코드·완전일치·유일한 고신뢰 상품명과 검증된 구성 수량만 자동 연결합니다. 애매한 하위 옵션은 상품별 검토로 남습니다.
-          </p>
+    <section aria-label="매칭 작업 현황" className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 size={18} className="text-emerald-600" />
+          <h2 className="text-base font-extrabold text-slate-900">매칭 작업 현황</h2>
         </div>
-        <button
-          type="button"
-          onClick={() => void runAutomation()}
-          disabled={disabled}
-          className="inline-flex items-center gap-2 rounded-xl bg-purple-700 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-        >
-          {apply.isPending ? <Loader2 size={15} className="animate-spin" /> : null}
-          상품·재고 자동 매칭
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => void runAutomation()}
+            disabled={channelAccountIds.length === 0 || runMatching.isPending}
+            className="inline-flex items-center gap-2 rounded-xl bg-purple-700 px-3.5 py-2.5 text-sm font-bold text-white hover:bg-purple-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {runMatching.isPending ? <Loader2 size={15} className="animate-spin" /> : <DatabaseZap size={15} />}
+            상품 매칭 실행
+          </button>
+        </div>
       </div>
 
-      {preview.isLoading ? (
-        <p className="mt-4 inline-flex items-center gap-2 text-sm text-slate-500">
-          <Loader2 size={14} className="animate-spin" /> 자동 매칭 미리보기를 계산하는 중입니다.
-        </p>
-      ) : preview.error ? (
-        <p role="alert" className="mt-4 text-sm text-rose-700">
-          {friendlyError(preview.error) ?? '자동 매칭 미리보기를 불러오지 못했습니다.'}
-        </p>
-      ) : data ? (
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="자동 적용 대상" value={data.summary.autoApplyProducts} tone="emerald" />
-          <Metric label="운영자 검토" value={data.summary.operatorReviewProducts} tone="amber" />
-          <Metric label="연결·매칭 필요" value={data.summary.blockedProducts} tone="slate" />
-          <Metric label="구성 완료" value={data.summary.alreadyConfiguredProducts} tone="purple" />
+      <div className="grid gap-px bg-slate-200 sm:grid-cols-3" aria-label="매칭 상태 요약">
+        <Outcome label="매칭 완료" value={previewLoading ? null : outcome.matched} tone="emerald" />
+        <Outcome label="매칭 수량 검토" value={previewLoading ? null : outcome.quantityReview} tone="amber" />
+        <Outcome label="미매칭 상품" value={previewLoading ? null : outcome.unmatched} tone="slate" />
+      </div>
+
+      {previewError ? (
+        <div className="border-t border-slate-200 px-5 py-3">
+          <p role="alert" className="text-sm text-rose-700">
+            {friendlyError(previewError) ?? '자동 재고 구성 미리보기를 불러오지 못했습니다.'}
+          </p>
         </div>
-      ) : null}
-      {data ? (
-        <p className="mt-3 text-xs text-slate-500">
-          채널 상품 {data.summary.products.toLocaleString('ko-KR')}개 · 중앙 상품 옵션 {data.summary.variants.toLocaleString('ko-KR')}개 · 선택 계정 운영 옵션 {data.summary.affectedOptions.toLocaleString('ko-KR')}개
-        </p>
       ) : null}
     </section>
   );
 }
 
-function Metric({ label, value, tone }: {
+function Outcome({
+  label,
+  value,
+  tone,
+}: {
   label: string;
-  value: number;
-  tone: 'emerald' | 'amber' | 'slate' | 'purple';
+  value: number | null;
+  tone: 'emerald' | 'amber' | 'slate';
 }) {
   const toneClass = {
-    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    amber: 'border-amber-200 bg-amber-50 text-amber-800',
-    slate: 'border-slate-200 bg-white text-slate-700',
-    purple: 'border-purple-200 bg-white text-purple-800',
+    emerald: 'text-emerald-800',
+    amber: 'text-amber-900',
+    slate: 'text-slate-700',
   }[tone];
   return (
-    <div className={`rounded-lg border px-3 py-2 text-sm font-bold ${toneClass}`}>
-      {label} {value.toLocaleString('ko-KR')}
+    <div className={`bg-white px-5 py-4 ${toneClass}`}>
+      <p className="text-xs font-bold">{label}</p>
+      <p className="mt-1 text-2xl font-extrabold tabular-nums">
+        {value === null ? <Loader2 size={18} className="animate-spin" /> : formatNumber(value)}
+      </p>
     </div>
   );
 }

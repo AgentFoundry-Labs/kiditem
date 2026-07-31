@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api-client';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   detectWingFormExtensionId,
   isChromeExtensionRuntimeAvailable,
@@ -691,7 +692,7 @@ export async function prepareWingRegistration(
     status: 'ready',
     draft: {
       candidateId,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: createSecureRandomUuid(),
       product,
       overrides: buildWingRegistrationOverrides(product),
       extensionId,
@@ -793,7 +794,7 @@ export async function submitWingRegistration(
     };
     const fingerprint = JSON.stringify(request);
     if (draft.idempotencyFingerprint && draft.idempotencyFingerprint !== fingerprint) {
-      draft.idempotencyKey = crypto.randomUUID();
+      draft.idempotencyKey = createSecureRandomUuid();
     }
     draft.idempotencyFingerprint = fingerprint;
     execution = await candidatesApi.prepareExternalWingRegistration(draft.candidateId, {

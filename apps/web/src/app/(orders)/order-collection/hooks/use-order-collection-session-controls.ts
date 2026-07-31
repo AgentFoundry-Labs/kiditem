@@ -1,6 +1,5 @@
 'use client';
 
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   BrowserCollectionRunIdSchema,
   BrowserCollectionSessionViewSchema,
@@ -10,6 +9,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import {
   recordMissingBrowserCollection,
+  issueBrowserCollectionRunId,
   sendBrowserCollectionControl,
   syncBrowserCollectionAlert,
   updateBrowserCollectionSessionCache,
@@ -53,7 +53,7 @@ export function useOrderCollectionSessionControls(
     account: OrderCollectionMallAccount,
     existingRunId?: string,
   ): Promise<OrderCollectionExtensionRun | null> => {
-    const nextRunId = existingRunId ?? createSecureRandomUuid();
+    const nextRunId = await issueBrowserCollectionRunId(existingRunId);
     setRunId(nextRunId);
     const extensionStatus = await detectOrderCollectionSessionExtensionStatus();
     if (extensionStatus.status === 'ready') {

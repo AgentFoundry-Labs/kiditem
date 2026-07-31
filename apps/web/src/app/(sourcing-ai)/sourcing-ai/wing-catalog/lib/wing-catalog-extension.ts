@@ -3,6 +3,7 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
 export type WingCatalogSortKey = 'sales' | 'revenue' | 'views' | 'conversion' | 'reviews';
@@ -100,11 +101,12 @@ export async function searchWingCatalogProducts(input: {
     throw new Error(WING_CATALOG_EXTENSION_RELOAD_REQUIRED);
   }
 
+  const runId = await issueBrowserCollectionRunId(input.runId);
   const response = await sendToExtension<WingCatalogSearchResponse>(extensionId, {
     action: 'searchWingCatalogProducts',
     keyword,
     maxPages: input.maxPages,
-    ...(input.runId ? { runId: input.runId } : {}),
+    runId,
   }, WING_CATALOG_SEARCH_TIMEOUT_MS);
 
   if (

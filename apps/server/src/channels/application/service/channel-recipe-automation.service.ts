@@ -59,6 +59,7 @@ export class ChannelRecipeAutomationService {
         products: productGroups.length,
         autoApplyProducts: productGroups.filter((group) =>
           group.autoApplyProductVariantIds.length > 0).length,
+        quantityReviewProducts: countDecision(productGroups, 'quantity_review'),
         operatorReviewProducts: countDecision(productGroups, 'operator_review'),
         blockedProducts: countDecision(productGroups, 'blocked'),
         alreadyConfiguredProducts: countDecision(productGroups, 'already_configured'),
@@ -68,6 +69,7 @@ export class ChannelRecipeAutomationService {
           0,
         ),
         autoApply: countDecision(items, 'auto_apply'),
+        quantityReview: countDecision(items, 'quantity_review'),
         operatorReview: countDecision(items, 'operator_review'),
         blocked: countDecision(items, 'blocked'),
         alreadyConfigured: countDecision(items, 'already_configured'),
@@ -150,6 +152,7 @@ export class ChannelRecipeAutomationService {
       affectedOptions: automaticItems
         .filter((item) => appliedIds.has(item.productVariantId))
         .reduce((sum, item) => sum + item.channelListingOptionIds.length, 0),
+      quantityReviewProducts: countDecision(productGroups, 'quantity_review'),
       operatorReviewProducts: countDecision(productGroups, 'operator_review'),
       blockedProducts: countDecision(productGroups, 'blocked'),
       alreadyConfiguredProducts: countDecision(productGroups, 'already_configured'),
@@ -164,6 +167,7 @@ function emptyScopedResult() {
     appliedProducts: 0,
     appliedVariants: 0,
     affectedOptions: 0,
+    quantityReviewProducts: 0,
     operatorReviewProducts: 0,
     blockedProducts: 0,
     alreadyConfiguredProducts: 0,
@@ -215,6 +219,7 @@ function automationReason(
   switch (status) {
     case 'unique_code': return 'exact_unique_code';
     case 'unique_barcode': return 'unique_physical_barcode';
+    case 'confirmed_manual_match_alias': return 'exact_sellpia_manual_match_alias';
     case 'exact_name_option': return 'exact_unique_name_option';
     case 'exact_name': return 'exact_unique_name';
     case 'high_confidence_name': return 'high_confidence_name';

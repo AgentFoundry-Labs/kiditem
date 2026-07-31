@@ -23,6 +23,7 @@ export const ORDERS_WORKER_MODULES = [
   'collection-failure.js',
   'order-collection-lifecycle.js',
   'sellpia-inventory.js',
+  'sellpia-manual-match.js',
   'sellpia-post-processing.js',
   'coupang-po-session.js',
   'rocket-po-collection.js',

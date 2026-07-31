@@ -123,16 +123,11 @@ export function ProductInventoryMatchingTable({
                     </td>
                     <td className="overflow-hidden px-4 py-4">
                       {product.linkedProduct ? (
-                        <div className="flex min-w-0 items-start gap-3">
-                          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-slate-400">
-                            <MasterProductImage imageUrl={product.linkedProduct.displayImageUrl} productName={product.linkedProduct.name} className="h-full w-full object-cover" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate font-bold text-slate-900" title={operatorProductReference(product.linkedProduct.code, product.linkedProduct.name)}>
-                              {operatorProductReference(product.linkedProduct.code, product.linkedProduct.name)}
-                            </p>
-                            <p className="mt-1 text-xs font-semibold text-emerald-700">상품 연결 완료</p>
-                          </div>
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-slate-900" title={operatorProductReference(product.linkedProduct.code, product.linkedProduct.name)}>
+                            {operatorProductReference(product.linkedProduct.code, product.linkedProduct.name)}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold text-emerald-700">상품 연결 완료</p>
                         </div>
                       ) : (
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
@@ -201,6 +196,16 @@ export function productMatchingDecision(
     return 'operator_review';
   }
   return 'blocked';
+}
+
+export type OperatorMatchingStatus = 'matched' | 'quantity_review' | 'unmatched';
+
+export function operatorMatchingStatus(
+  decision: ChannelRecipeAutomationDecision,
+): OperatorMatchingStatus {
+  if (decision === 'auto_apply' || decision === 'already_configured') return 'matched';
+  if (decision === 'quantity_review') return 'quantity_review';
+  return 'unmatched';
 }
 
 function ProductDetails({
@@ -334,11 +339,10 @@ function ProductDetails({
 
 function ProductDecisionBadge({ decision }: { decision: ChannelRecipeAutomationDecision }) {
   const presentation = {
-    auto_apply: ['자동 매칭 가능', 'bg-emerald-50 text-emerald-800'],
-    operator_review: ['운영자 검토', 'bg-amber-50 text-amber-800'],
-    blocked: ['연결·매칭 필요', 'bg-slate-100 text-slate-700'],
-    already_configured: ['재고 구성 완료', 'bg-purple-50 text-purple-800'],
-  }[decision];
+    matched: ['매칭 완료', 'bg-emerald-50 text-emerald-800'],
+    quantity_review: ['매칭 수량 검토', 'bg-amber-50 text-amber-900'],
+    unmatched: ['미매칭 상품', 'bg-slate-100 text-slate-700'],
+  }[operatorMatchingStatus(decision)];
   return (
     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${presentation[1]}`}>
       {presentation[0]}
@@ -364,9 +368,10 @@ function automationReasonLabel(item: ChannelRecipeAutomationItem): string {
     case 'unique_physical_barcode': return `자동 매칭 가능 · 고유 바코드 일치${quantity}`;
     case 'exact_unique_name_option': return `자동 매칭 가능 · 상품명+옵션 정확 일치${quantity}`;
     case 'exact_unique_name': return `자동 매칭 가능 · 상품명 완전 일치${quantity}`;
+    case 'exact_sellpia_manual_match_alias': return `자동 매칭 가능 · Sellpia 수동매칭 수량 확인${quantity}`;
     case 'high_confidence_name': return `자동 매칭 가능 · 고신뢰 상품명 일치${quantity}`;
     case 'identifier_name_mismatch': return '상품코드와 상품명 불일치 검토';
-    case 'quantity_review': return '수량 확인 필요';
+    case 'quantity_review': return '매칭 수량 검토 · 상품 연결 완료';
     case 'ambiguous': return '중복 후보';
     case 'conflict': return '증거 충돌';
     case 'name_review_only': return '상품명 후보 검토';

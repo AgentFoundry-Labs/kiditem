@@ -11,6 +11,12 @@ vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 
+vi.mock('@/lib/browser-collection-session', () => ({
+  issueBrowserCollectionRunId: vi.fn().mockResolvedValue(
+    '11111111-1111-4111-8111-111111111111',
+  ),
+}));
+
 describe('Coupang keyword extension gate', () => {
   beforeEach(() => {
     vi.clearAllMocks();

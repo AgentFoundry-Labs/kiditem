@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { SellpiaInventoryCollectionFailureCodeSchema } from '@kiditem/shared/sellpia-inventory-freshness';
+import {
+  SellpiaManualMatchCollectionFailureCodeSchema,
+  SellpiaManualMatchSnapshotSchema,
+} from '@kiditem/shared/sellpia-manual-match';
 import { SellpiaInventoryBrowserSnapshotSchema } from '@kiditem/shared/source-import';
 import { safeStorageGet, safeStorageSet } from './browser-storage';
 
@@ -7,6 +11,8 @@ export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
 export const KIDITEM_SOURCING_EXTENSION_ID_KEY = 'kiditem-sourcing-ext-id';
 export const KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY = 'kiditem-order-ext-id';
 export const KIDITEM_WING_FORM_PORT_NAME = 'kiditem-wing-form-v1';
+export const KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME =
+  'kiditem-sellpia-manual-match-v1';
 
 type ChromeRuntime = {
   runtime?: {
@@ -26,6 +32,14 @@ type ChromeRuntimePort = {
   onDisconnect: {
     addListener: (listener: () => void) => void;
     removeListener: (listener: () => void) => void;
+  };
+};
+
+type ExtensionPortCommandOptions = {
+  timeoutMs?: number | null;
+  keepAlive?: {
+    intervalMs: number;
+    message: unknown;
   };
 };
 
@@ -56,7 +70,7 @@ const extensionWakeDelay = (ms: number): Promise<void> =>
 export async function sendToExtension<TResponse = unknown>(
   id: string,
   message: unknown,
-  timeoutMs = 15000,
+  timeoutMs: number | null = 15000,
 ): Promise<TResponse> {
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= EXTENSION_WAKE_RETRY_DELAYS_MS.length; attempt += 1) {
@@ -80,19 +94,22 @@ export async function sendToExtension<TResponse = unknown>(
 function sendToExtensionOnce<TResponse = unknown>(
   id: string,
   message: unknown,
-  timeoutMs = 15000,
+  timeoutMs: number | null = 15000,
 ): Promise<TResponse> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let timeout: number | null = null;
     const settle = (fn: () => void) => {
       if (settled) return;
       settled = true;
-      window.clearTimeout(timeout);
+      if (timeout !== null) window.clearTimeout(timeout);
       fn();
     };
-    const timeout = window.setTimeout(() => {
-      settle(() => reject(new Error('익스텐션 응답 시간이 초과되었습니다.')));
-    }, timeoutMs);
+    if (timeoutMs !== null) {
+      timeout = window.setTimeout(() => {
+        settle(() => reject(new Error('익스텐션 응답 시간이 초과되었습니다.')));
+      }, timeoutMs);
+    }
 
     try {
       const chrome = getChrome();
@@ -124,9 +141,15 @@ export function sendToExtensionViaPort<TResponse = unknown>(
   id: string,
   portName: string,
   message: unknown,
-  timeoutMs = 15000,
+  timeoutOrOptions: number | null | ExtensionPortCommandOptions = 15000,
 ): Promise<TResponse> {
   return new Promise((resolve, reject) => {
+    const options: ExtensionPortCommandOptions =
+      typeof timeoutOrOptions === 'object' && timeoutOrOptions !== null
+      ? timeoutOrOptions
+      : { timeoutMs: timeoutOrOptions };
+    const timeoutMs = options.timeoutMs === undefined ? 15000 : options.timeoutMs;
+    const keepAlive = options.keepAlive;
     const chrome = getChrome();
     if (!chrome?.runtime?.connect) {
       reject(new Error('Chrome 익스텐션 포트 API 미지원'));
@@ -134,10 +157,13 @@ export function sendToExtensionViaPort<TResponse = unknown>(
     }
     let settled = false;
     let port: ChromeRuntimePort | null = null;
+    let timeout: number | null = null;
+    let keepAliveTimer: number | null = null;
     const finish = (operation: () => void) => {
       if (settled) return;
       settled = true;
-      window.clearTimeout(timeout);
+      if (timeout !== null) window.clearTimeout(timeout);
+      if (keepAliveTimer !== null) window.clearTimeout(keepAliveTimer);
       if (port) {
         port.onMessage.removeListener(onMessage);
         port.onDisconnect.removeListener(onDisconnect);
@@ -156,15 +182,32 @@ export function sendToExtensionViaPort<TResponse = unknown>(
       const message = chrome.runtime?.lastError?.message;
       finish(() => reject(new Error(message || '익스텐션 포트 연결이 종료되었습니다.')));
     };
-    const timeout = window.setTimeout(() => {
-      finish(() => reject(new Error('익스텐션 응답 시간이 초과되었습니다.')));
-    }, timeoutMs);
+    const scheduleKeepAlive = () => {
+      if (!keepAlive || settled) return;
+      keepAliveTimer = window.setTimeout(() => {
+        if (settled || !port) return;
+        try {
+          port.postMessage(keepAlive.message);
+          scheduleKeepAlive();
+        } catch (error) {
+          finish(() => reject(
+            error instanceof Error ? error : new Error(String(error)),
+          ));
+        }
+      }, keepAlive.intervalMs);
+    };
+    if (timeoutMs !== null) {
+      timeout = window.setTimeout(() => {
+        finish(() => reject(new Error('익스텐션 응답 시간이 초과되었습니다.')));
+      }, timeoutMs);
+    }
 
     try {
       port = chrome.runtime.connect(id, { name: portName });
       port.onMessage.addListener(onMessage);
       port.onDisconnect.addListener(onDisconnect);
       port.postMessage(message);
+      scheduleKeepAlive();
     } catch (error) {
       finish(() =>
         reject(error instanceof Error ? error : new Error(String(error))),
@@ -390,6 +433,53 @@ export async function collectSellpiaInventory(
   const parsed = SellpiaInventoryExtensionReplySchema.parse(response);
   if (parsed.runId !== runId) {
     throw new Error('Sellpia inventory extension returned a mismatched run ID');
+  }
+  return parsed;
+}
+
+const SellpiaManualMatchExtensionReplySchema = z.discriminatedUnion('success', [
+  z.object({
+    success: z.literal(true),
+    runId: z.string().uuid(),
+    snapshot: SellpiaManualMatchSnapshotSchema,
+    sourceOrigin: z.literal('https://kiditem.sellpia.com'),
+  }).passthrough(),
+  z.object({
+    success: z.literal(false),
+    runId: z.string().uuid(),
+    errorCode: SellpiaManualMatchCollectionFailureCodeSchema,
+    error: z.string().min(1).max(300),
+  }).passthrough(),
+]);
+
+export type SellpiaManualMatchExtensionReply = z.infer<
+  typeof SellpiaManualMatchExtensionReplySchema
+>;
+
+export async function collectSellpiaManualMatch(
+  extensionId: string,
+  runId: string,
+  targetCodes: string[],
+): Promise<SellpiaManualMatchExtensionReply> {
+  const response = await sendToExtensionViaPort<unknown>(
+    extensionId,
+    KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME,
+    {
+      action: 'collectSellpiaManualMatch',
+      runId,
+      targetCodes,
+    },
+    {
+      timeoutMs: null,
+      keepAlive: {
+        intervalMs: 15_000,
+        message: { action: 'keepAlive', runId },
+      },
+    },
+  );
+  const parsed = SellpiaManualMatchExtensionReplySchema.parse(response);
+  if (parsed.runId !== runId) {
+    throw new Error('Sellpia manual-match extension returned a mismatched run ID');
   }
   return parsed;
 }
