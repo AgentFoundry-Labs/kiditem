@@ -521,8 +521,10 @@ export function createBrowserMallCollector({
       addGeneratedFile(historyItem);
       lastId = historyItem.id;
     }
-    // 어떤 유형이 왜 안 나왔는지 알려준다. 조용히 건너뛰면 "밀크런은 왜 안 가져오냐"가 된다.
-    if (emptyTransports.length > 0) {
+    if (data.pos.length === 0) {
+      toastNoNewOrders('쿠팡직배송', '발주확정 상태 기준');
+    } else if (emptyTransports.length > 0) {
+      // 어떤 유형이 왜 안 나왔는지 알려준다. 조용히 건너뛰면 "밀크런은 왜 안 가져오냐"가 된다.
       toastNoNewOrders(
         `쿠팡직배송 ${emptyTransports.join('·')}`,
         '발주확정 상태 기준',
