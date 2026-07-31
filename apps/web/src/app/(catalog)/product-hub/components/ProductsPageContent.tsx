@@ -10,14 +10,17 @@ import { PERIOD_OPTIONS } from '../lib/product-page-config';
 import { ProductCategoryTabs } from './ProductCategoryTabs';
 import { ProductEditorDialog } from './ProductEditorDialog';
 import { MasterProductAbcPolicyDialog } from './MasterProductAbcPolicyDialog';
+import { ProductAbcDetailDialog } from './ProductAbcDetailDialog';
 import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
+import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
 
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
   const [editorOpen, setEditorOpen] = useState(false);
   const [abcPolicyOpen, setAbcPolicyOpen] = useState(false);
+  const [abcDetailProduct, setAbcDetailProduct] = useState<MasterProductOperationsListItem | null>(null);
   const data = state.data;
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
 
@@ -120,6 +123,9 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         <ProductOperationsCommandCenter
           data={state.overviewData}
           onShowOutOfStock={() => state.setInventoryStatus('out_of_stock')}
+          onShowAbcGrade={state.setAbcGrade}
+          onShowAbcStage={state.setAbcStage}
+          onShowAbcRisk={state.setAbcRisk}
         />
       ) : null}
 
@@ -145,6 +151,25 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           <option value="all">전체 상태</option>
           <option value="active">판매중</option>
           <option value="inactive">판매중지</option>
+        </select>
+        <select
+          aria-label="ABC 상태"
+          value={state.abcStage ? `stage:${state.abcStage}` : state.abcRisk ? `risk:${state.abcRisk}` : ''}
+          onChange={(event) => {
+            const [kind, value] = event.target.value.split(':');
+            if (kind === 'stage') state.setAbcStage(value as typeof state.abcStage);
+            else if (kind === 'risk') state.setAbcRisk(value as typeof state.abcRisk);
+            else state.setAbcStage('');
+          }}
+          className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[14px] font-medium text-[var(--text-secondary)]"
+        >
+          <option value="">전체 ABC 상태</option>
+          <option value="stage:NEW">신상품 · 3개월 미만</option>
+          <option value="stage:PROVISIONAL">예비 등급 · 3~5개월</option>
+          <option value="stage:ESTABLISHED">정식 평가 · 6개월 이상</option>
+          <option value="risk:LOSS">손실</option>
+          <option value="risk:ZERO_VALUE">가치 0</option>
+          <option value="risk:DATA_QUALITY">데이터 확인 필요</option>
         </select>
         <div
           className="flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
@@ -211,7 +236,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
       {data?.items.length ? (
         <div className="space-y-3">
           {data.items.map((product) => (
-            <ProductRowCard key={product.id} product={product} />
+            <ProductRowCard key={product.id} product={product} onOpenAbcDetail={setAbcDetailProduct} />
           ))}
         </div>
       ) : !state.errorMessage ? (
@@ -269,6 +294,11 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         onSaved={() => undefined}
       />
       <MasterProductAbcPolicyDialog open={abcPolicyOpen} onOpenChange={setAbcPolicyOpen} />
+      <ProductAbcDetailDialog
+        open={abcDetailProduct !== null}
+        onOpenChange={(open) => !open && setAbcDetailProduct(null)}
+        product={abcDetailProduct}
+      />
     </div>
   );
 }

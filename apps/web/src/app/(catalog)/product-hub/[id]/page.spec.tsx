@@ -125,4 +125,13 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('상품 정보 수정');
     expect(screen.queryByLabelText('재고 수량')).not.toBeInTheDocument();
   });
+
+  it('opens the already-loaded ABC evaluation evidence from the detail facts', () => {
+    render(<ProductHubDetailPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: '동물 친구들 블록 ABC 근거 보기' }));
+
+    expect(screen.getByRole('dialog', { name: 'ABC 평가 근거' })).toBeInTheDocument();
+    expect(screen.getByText('매출총이익 = 결제금액 - 주문 시점 매입금액')).toBeInTheDocument();
+  });
 });

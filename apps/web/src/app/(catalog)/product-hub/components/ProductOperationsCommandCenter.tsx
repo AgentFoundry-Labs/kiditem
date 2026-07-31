@@ -5,13 +5,24 @@ import Link from 'next/link';
 import { AlertTriangle, Bell, ClipboardList, PackageX } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import type { MasterProductOperationsListResponse } from '@kiditem/shared/product-operations';
+import type { ProductOperationsAbcRiskFilter } from '@kiditem/shared/product-operations';
+import type { MasterProductAbcLifecycleStage, ProductAbcGrade } from '@kiditem/shared/product-abc';
 
 type Props = {
   data: MasterProductOperationsListResponse;
   onShowOutOfStock: () => void;
+  onShowAbcGrade: (grade: ProductAbcGrade | 'unclassified') => void;
+  onShowAbcStage: (stage: MasterProductAbcLifecycleStage) => void;
+  onShowAbcRisk: (risk: ProductOperationsAbcRiskFilter) => void;
 };
 
-export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props) {
+export function ProductOperationsCommandCenter({
+  data,
+  onShowOutOfStock,
+  onShowAbcGrade,
+  onShowAbcStage,
+  onShowAbcRisk,
+}: Props) {
   const { connected: connectedCount, unconnected: unconnectedCount } =
     data.summary.channelConnectionCounts;
   const {
@@ -28,6 +39,8 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
     C: cGradeCount,
     unclassified: unclassifiedGradeCount,
   } = data.summary.abcGradeCounts;
+  const { NEW: newCount, PROVISIONAL: provisionalCount } = data.summary.abcLifecycleCounts;
+  const { loss: lossCount, zeroValue: zeroValueCount, dataQuality: dataQualityCount } = data.summary.abcRiskCounts;
 
   return (
     <div>
@@ -50,11 +63,13 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
           </div>
         </div>
         <div className="mt-auto">
-          <Breakdown label="신상품" value="미수집" tone="text-emerald-600" />
-          <Breakdown label="A등급" value={aGradeCount} tone="text-emerald-700" />
-          <Breakdown label="B등급" value={bGradeCount} tone="text-amber-600" />
-          <Breakdown label="C등급" value={cGradeCount} tone="text-rose-600" />
-          <Breakdown label="미분류" value={unclassifiedGradeCount} />
+          <Breakdown label="신상품" value={newCount} tone="text-sky-700" onClick={() => onShowAbcStage('NEW')} />
+          <Breakdown label="예비 등급" value={provisionalCount} tone="text-sky-700" onClick={() => onShowAbcStage('PROVISIONAL')} />
+          <Breakdown label="A등급" value={aGradeCount} tone="text-emerald-700" onClick={() => onShowAbcGrade('A')} />
+          <Breakdown label="B등급" value={bGradeCount} tone="text-amber-600" onClick={() => onShowAbcGrade('B')} />
+          <Breakdown label="C등급" value={cGradeCount} tone="text-rose-600" onClick={() => onShowAbcGrade('C')} />
+          <Breakdown label="미분류" value={unclassifiedGradeCount} onClick={() => onShowAbcGrade('unclassified')} />
+          <Breakdown label="데이터 확인" value={dataQualityCount} tone="text-amber-600" onClick={() => onShowAbcRisk('DATA_QUALITY')} />
         </div>
       </article>
 
@@ -93,8 +108,8 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
 
       <OperationsCard title="손익점검" value={lowProfitCount} valueTone="text-amber-600">
         <Breakdown label="점검 대상" value={lowProfitCount} tone="text-amber-600" />
-        <Breakdown label="적자상품" value={lowProfitCount} tone="text-rose-600" />
-        <Breakdown label="이익률 3%↓" value="미수집" tone="text-amber-600" />
+        <Breakdown label="손실 상품" value={lossCount} tone="text-rose-600" onClick={() => onShowAbcRisk('LOSS')} />
+        <Breakdown label="가치 0" value={zeroValueCount} tone="text-amber-600" onClick={() => onShowAbcRisk('ZERO_VALUE')} />
         <Breakdown label="핵심상품" value="미수집" tone="text-emerald-700" />
       </OperationsCard>
 
@@ -150,13 +165,38 @@ function OperationsCard({
   );
 }
 
-function Breakdown({ label, value, tone }: { label: string; value: number | string; tone?: string }) {
+function Breakdown({
+  label,
+  value,
+  tone,
+  onClick,
+}: {
+  label: string;
+  value: number | string;
+  tone?: string;
+  onClick?: () => void;
+}) {
+  const content = <>
+    <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
+    <p className={`text-[14px] font-extrabold tabular-nums ${tone ?? 'text-[var(--text-primary)]'}`}>
+      {typeof value === 'number' ? formatNumber(value) : value}
+    </p>
+  </>;
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`${label} 상품 보기`}
+        className="flex w-full items-center justify-between gap-2 border-b border-[var(--border-subtle)] py-1.5 text-left transition-colors hover:text-[var(--primary)] last:border-b-0"
+      >
+        {content}
+      </button>
+    );
+  }
   return (
     <div className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] py-1.5 last:border-b-0">
-      <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
-      <p className={`text-[14px] font-extrabold tabular-nums ${tone ?? 'text-[var(--text-primary)]'}`}>
-        {typeof value === 'number' ? formatNumber(value) : value}
-      </p>
+      {content}
     </div>
   );
 }

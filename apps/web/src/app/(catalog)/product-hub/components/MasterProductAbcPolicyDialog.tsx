@@ -67,9 +67,13 @@ export function MasterProductAbcPolicyDialog({ open, onOpenChange }: {
     mutationFn: async () => {
       if (!draft) throw new Error('ABC 정책을 불러오는 중입니다.');
       await apiClient.put('/api/products/abc-policy', draft);
+      return MasterProductAbcRecalculationResultSchema.parse(
+        await apiClient.post('/api/products/abc-grade/recalculate', {}),
+      );
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await invalidateDependentReads();
+      toast.success(result.changedProductCount === 0 ? 'ABC 등급이 최신 상태입니다.' : `${result.changedProductCount}개 상품의 ABC 등급을 갱신했습니다.`);
       onOpenChange(false);
     },
     onError: (error) => toast.error(isApiError(error) ? error.detail : 'ABC 정책을 저장하지 못했습니다.'),
@@ -78,6 +82,9 @@ export function MasterProductAbcPolicyDialog({ open, onOpenChange }: {
   const errorMessage = policyQuery.error
     ? (isApiError(policyQuery.error) ? policyQuery.error.detail : 'ABC 정책을 불러오지 못했습니다.')
     : null;
+  const invalidPolicy = !draft
+    || draft.aCumulativeThreshold >= draft.bCumulativeThreshold
+    || draft.minProvisionalMonths >= draft.minClassifiedMonths;
 
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
@@ -88,7 +95,7 @@ export function MasterProductAbcPolicyDialog({ open, onOpenChange }: {
             <div>
               <Dialog.Title className="text-lg font-extrabold text-[var(--text-primary)]">자동 ABC 정책</Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-[var(--text-secondary)]">
-                판매 수량 또는 매출을 완료된 월 단위로 집계해 자동 분류합니다. 수동 변경은 지원하지 않습니다.
+                완료된 월의 매출총이익으로 자동 분류합니다. 매출총이익은 결제금액에서 주문 시점 매입금액을 뺀 값이며, 수동 변경은 지원하지 않습니다.
               </Dialog.Description>
             </div>
             <Dialog.Close aria-label="닫기" className="rounded-lg p-2 text-[var(--text-tertiary)] hover:bg-[var(--surface-sunken)]"><X size={18} /></Dialog.Close>
@@ -98,9 +105,12 @@ export function MasterProductAbcPolicyDialog({ open, onOpenChange }: {
             <div className="mt-5 space-y-4">
               <label className="block text-sm font-semibold text-[var(--text-secondary)]">지표
                 <select value={draft.metric} onChange={(event) => setDraft({ ...draft, metric: event.target.value as MasterProductAbcPolicy['metric'] })} className="mt-1.5 h-10 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[var(--text-primary)]">
-                  <option value="SALES_QUANTITY">판매 수량</option><option value="SALES_AMOUNT">매출액</option>
+                  <option value="GROSS_PROFIT">매출총이익</option><option value="SALES_QUANTITY">판매 수량</option><option value="SALES_AMOUNT">매출액</option>
                 </select>
               </label>
+              <p className="rounded-xl bg-[var(--surface-sunken)] px-3 py-2 text-xs leading-5 text-[var(--text-tertiary)]">
+                광고비·마켓 수수료·배송비·반품비는 포함하지 않습니다. 원가가 누락되거나 손실·가치 0인 상품은 C등급으로 강제 분류하지 않습니다.
+              </p>
               <label className="block text-sm font-semibold text-[var(--text-secondary)]">집계 기간
                 <select value={draft.periodDays} onChange={(event) => setDraft({ ...draft, periodDays: Number(event.target.value) as MasterProductAbcPolicy['periodDays'] })} className="mt-1.5 h-10 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[var(--text-primary)]">
                   {PERIOD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -110,10 +120,32 @@ export function MasterProductAbcPolicyDialog({ open, onOpenChange }: {
                 <NumberInput label="A 누적 비율" value={draft.aCumulativeThreshold} onChange={(aCumulativeThreshold) => setDraft({ ...draft, aCumulativeThreshold })} />
                 <NumberInput label="B 누적 비율" value={draft.bCumulativeThreshold} onChange={(bCumulativeThreshold) => setDraft({ ...draft, bCumulativeThreshold })} />
               </div>
-              <p className="rounded-xl bg-[var(--surface-sunken)] px-3 py-2 text-xs text-[var(--text-tertiary)]">마지막 계산: {policyQuery.data?.lastCalculatedAt ? formatDateTime(policyQuery.data.lastCalculatedAt) : '아직 계산하지 않음'}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <NumberInput
+                  label="예비 등급 시작 완료 월"
+                  min={1}
+                  max={11}
+                  value={draft.minProvisionalMonths}
+                  onChange={(minProvisionalMonths) => setDraft({ ...draft, minProvisionalMonths })}
+                />
+                <NumberInput
+                  label="정식 등급 시작 완료 월"
+                  min={2}
+                  max={12}
+                  value={draft.minClassifiedMonths}
+                  onChange={(minClassifiedMonths) => setDraft({ ...draft, minClassifiedMonths })}
+                />
+              </div>
+              {draft.minProvisionalMonths >= draft.minClassifiedMonths ? (
+                <p role="alert" className="text-xs font-semibold text-rose-700">정식 등급 시작 완료 월은 예비 등급 시작 완료 월보다 커야 합니다.</p>
+              ) : null}
+              <div className="grid grid-cols-2 gap-3 rounded-xl bg-[var(--surface-sunken)] px-3 py-2 text-xs text-[var(--text-tertiary)]">
+                <p>마지막 계산: {policyQuery.data?.lastCalculatedAt ? formatDateTime(policyQuery.data.lastCalculatedAt) : '아직 계산하지 않음'}</p>
+                <p>원본 수집: {policyQuery.data?.sourceCapturedAt ? formatDateTime(policyQuery.data.sourceCapturedAt) : '수집 시각 없음'}</p>
+              </div>
               <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-4">
                 <button type="button" onClick={() => recalculate.mutate()} disabled={busy} className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] px-4 py-2 text-sm font-bold text-[var(--text-secondary)] disabled:opacity-50"><RefreshCw size={14} /> 지금 재계산</button>
-                <button type="button" onClick={() => save.mutate()} disabled={busy || draft.aCumulativeThreshold >= draft.bCumulativeThreshold} className="rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">저장 후 재계산</button>
+                <button type="button" onClick={() => save.mutate()} disabled={busy || invalidPolicy} className="rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">저장 후 재계산</button>
               </div>
             </div>
           ) : <p className="mt-5 text-sm text-[var(--text-tertiary)]">정책을 불러오는 중입니다.</p>}
@@ -123,6 +155,18 @@ export function MasterProductAbcPolicyDialog({ open, onOpenChange }: {
   );
 }
 
-function NumberInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return <label className="block text-sm font-semibold text-[var(--text-secondary)]">{label}<input aria-label={label} type="number" min={1} max={100} value={value} onChange={(event) => onChange(Number(event.target.value))} className="mt-1.5 h-10 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[var(--text-primary)]" /></label>;
+function NumberInput({
+  label,
+  value,
+  onChange,
+  min = 1,
+  max = 100,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+}) {
+  return <label className="block text-sm font-semibold text-[var(--text-secondary)]">{label}<input aria-label={label} type="number" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} className="mt-1.5 h-10 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[var(--text-primary)]" /></label>;
 }

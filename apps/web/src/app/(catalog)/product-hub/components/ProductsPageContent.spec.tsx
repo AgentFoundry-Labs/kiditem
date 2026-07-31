@@ -21,6 +21,14 @@ const state = vi.hoisted(() => ({
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: 'A',
+      abcEvaluation: {
+        abcGrade: 'A', provisionalGrade: null, lifecycleStage: 'ESTABLISHED' as const,
+        confidence: 'HIGH' as const, eligibilityReason: 'ELIGIBLE' as const, riskFlags: [],
+        observedCompleteMonths: 12, observationStartMonth: '2025-08', periodMetricValue: 100_000,
+        rankingValue: 100_000, grossRevenue: 200_000, grossCost: 100_000, grossProfit: 100_000,
+        grossMarginRate: 50, contributionRate: 70, cumulativeContributionRate: 70,
+        calculatedAt: '2026-08-01T00:00:00.000Z', sourceCapturedAt: '2026-07-31T00:00:00.000Z',
+      },
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -50,6 +58,8 @@ const state = vi.hoisted(() => ({
     limit: 50,
     summary: {
       abcGradeCounts: { A: 37, B: 29, C: 50, unclassified: 10 },
+      abcLifecycleCounts: { NEW: 4, PROVISIONAL: 8, ESTABLISHED: 104 },
+      abcRiskCounts: { loss: 3, zeroValue: 2, dataQuality: 6 },
       channelConnectionCounts: { connected: 120, unconnected: 6 },
       inventoryStatusCounts: {
         sellable: 81,
@@ -78,6 +88,8 @@ const state = vi.hoisted(() => ({
   refetch: vi.fn(),
   search: '',
   setAbcGrade: vi.fn(),
+  setAbcRisk: vi.fn(),
+  setAbcStage: vi.fn(),
   setActiveStatus: vi.fn(),
   setAdStatus: vi.fn(),
   setCategory: vi.fn(),
@@ -100,6 +112,10 @@ vi.mock('./ProductEditorDialog', () => ({
 
 vi.mock('./MasterProductAbcPolicyDialog', () => ({
   MasterProductAbcPolicyDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">자동 ABC 정책</div> : null,
+}));
+
+vi.mock('./ProductAbcDetailDialog', () => ({
+  ProductAbcDetailDialog: ({ open, product }: { open: boolean; product: { name: string } | null }) => open ? <div role="dialog">{product?.name} ABC 평가 근거</div> : null,
 }));
 
 describe('<ProductsPageContent>', () => {
@@ -127,17 +143,19 @@ describe('<ProductsPageContent>', () => {
     expect(within(catalogCard!).getByText('C등급')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('미분류')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('37')).toBeInTheDocument();
+    expect(within(catalogCard!).getByText('4')).toBeInTheDocument();
+    expect(within(catalogCard!).getByText('8')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('10')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('120')).toBeInTheDocument();
-    expect(within(catalogCard!).getByText('6')).toBeInTheDocument();
+    expect(within(catalogCard!.querySelector('div.grid')!).getByText('6')).toBeInTheDocument();
     expect(within(catalogCard!).queryByText(/현재 페이지 A등급/)).not.toBeInTheDocument();
     expect(screen.getByText('재고관리')).toBeInTheDocument();
     expect(screen.getByText('임박 재고')).toBeInTheDocument();
     expect(screen.getByText('발주 필요')).toBeInTheDocument();
     expect(screen.getByText('손익점검')).toBeInTheDocument();
     expect(screen.getByText('점검 대상')).toBeInTheDocument();
-    expect(screen.getByText('적자상품')).toBeInTheDocument();
-    expect(screen.getByText('이익률 3%↓')).toBeInTheDocument();
+    expect(screen.getByText('손실 상품')).toBeInTheDocument();
+    expect(screen.getAllByText('가치 0')).toHaveLength(2);
     expect(screen.getByText('핵심상품')).toBeInTheDocument();
     expect(screen.getByText('알림')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '전체 카테고리' })).toBeInTheDocument();
@@ -147,6 +165,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByRole('columnheader', { name: '매출' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '광고비율' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '미분류' })).toHaveValue('unclassified');
+    expect(screen.getByRole('option', { name: '신상품 · 3개월 미만' })).toHaveValue('stage:NEW');
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
     expect(screen.getByText(/KI-001/)).toBeInTheDocument();
     expect(screen.getAllByText('재고 연결 필요').length).toBeGreaterThan(0);
@@ -217,6 +236,31 @@ describe('<ProductsPageContent>', () => {
     });
 
     expect(state.setAbcGrade).toHaveBeenCalledWith('unclassified');
+  });
+
+  it('routes ABC summary counts to their mutually exclusive filters', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'A등급 상품 보기' }));
+    expect(state.setAbcGrade).toHaveBeenCalledWith('A');
+    fireEvent.click(screen.getByRole('button', { name: '신상품 상품 보기' }));
+    expect(state.setAbcStage).toHaveBeenCalledWith('NEW');
+    fireEvent.click(screen.getByRole('button', { name: '예비 등급 상품 보기' }));
+    expect(state.setAbcStage).toHaveBeenCalledWith('PROVISIONAL');
+    fireEvent.click(screen.getByRole('button', { name: '손실 상품 상품 보기' }));
+    expect(state.setAbcRisk).toHaveBeenCalledWith('LOSS');
+    fireEvent.click(screen.getByRole('button', { name: '가치 0 상품 보기' }));
+    expect(state.setAbcRisk).toHaveBeenCalledWith('ZERO_VALUE');
+    fireEvent.click(screen.getByRole('button', { name: '데이터 확인 상품 보기' }));
+    expect(state.setAbcRisk).toHaveBeenCalledWith('DATA_QUALITY');
+  });
+
+  it('opens the row evaluation evidence without fetching another product payload', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '스테이지 상품 ABC 근거 보기' }));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('스테이지 상품 ABC 평가 근거');
   });
 
   it('keeps overview metrics global while filters change only the product list result', () => {

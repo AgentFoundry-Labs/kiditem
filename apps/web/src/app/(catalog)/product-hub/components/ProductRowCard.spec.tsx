@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { vi } from 'vitest';
 import { ProductRowCard } from './ProductRowCard';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
 
@@ -12,6 +13,15 @@ describe('ProductRowCard', () => {
     fireEvent.error(image);
 
     expect(screen.queryByRole('img', { name: '테스트 상품 상품 이미지' })).not.toBeInTheDocument();
+  });
+
+  it('opens the already-loaded ABC evidence through an accessible badge button', () => {
+    const onOpenAbcDetail = vi.fn();
+    render(<ProductRowCard product={product()} onOpenAbcDetail={onOpenAbcDetail} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '테스트 상품 ABC 근거 보기' }));
+
+    expect(onOpenAbcDetail).toHaveBeenCalledWith(expect.objectContaining({ id: '11111111-1111-4111-8111-111111111111' }));
   });
 });
 
@@ -28,6 +38,26 @@ function product(): MasterProductOperationsListItem {
     imageUrls: [],
     displayImageUrls: ['https://cdn.example.com/channel.jpg'],
     abcGrade: 'A',
+    abcEvaluation: {
+      abcGrade: 'A',
+      provisionalGrade: null,
+      lifecycleStage: 'ESTABLISHED',
+      confidence: 'HIGH',
+      eligibilityReason: 'ELIGIBLE',
+      riskFlags: [],
+      observedCompleteMonths: 12,
+      observationStartMonth: '2025-08',
+      periodMetricValue: 100_000,
+      rankingValue: 100_000,
+      grossRevenue: 200_000,
+      grossCost: 100_000,
+      grossProfit: 100_000,
+      grossMarginRate: 50,
+      contributionRate: 70,
+      cumulativeContributionRate: 70,
+      calculatedAt: '2026-08-01T00:00:00.000Z',
+      sourceCapturedAt: '2026-07-31T00:00:00.000Z',
+    },
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import { MasterProductImage } from './MasterProductImage';
+import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
 
 const INVENTORY_LABELS = {
@@ -14,7 +15,13 @@ const INVENTORY_LABELS = {
   review_required: '검토 필요',
 } as const;
 
-export function ProductRowCard({ product }: { product: MasterProductOperationsListItem }) {
+export function ProductRowCard({
+  product,
+  onOpenAbcDetail,
+}: {
+  product: MasterProductOperationsListItem;
+  onOpenAbcDetail?: (product: MasterProductOperationsListItem) => void;
+}) {
   const isWarning = product.inventoryStatus === 'configuration_required'
     || product.inventoryStatus === 'review_required';
   const isOutOfStock = product.inventoryStatus === 'out_of_stock';
@@ -35,8 +42,16 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
       <div className="grid grid-cols-[minmax(420px,1.45fr)_repeat(8,minmax(76px,.42fr))_72px] items-center gap-4">
         <div className="flex min-w-0 items-center gap-5">
           <div className="w-14 shrink-0 text-center">
-            <p className="text-sm font-extrabold text-[var(--text-secondary)]">{product.abcGrade ?? '미분류'}</p>
-            <p className="mt-1 text-[10px] font-semibold text-[var(--text-muted)]">등급</p>
+            {onOpenAbcDetail ? (
+              <button
+                type="button"
+                onClick={() => onOpenAbcDetail(product)}
+                aria-label={`${product.name} ABC 근거 보기`}
+                className="rounded-md p-1 text-left transition-colors hover:bg-[var(--surface-sunken)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+              >
+                <ProductAbcBadge grade={product.abcGrade} evaluation={product.abcEvaluation} compact />
+              </button>
+            ) : <ProductAbcBadge grade={product.abcGrade} evaluation={product.abcEvaluation} compact />}
           </div>
           <div className="flex h-[88px] w-[88px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-muted)]">
             <MasterProductImage
