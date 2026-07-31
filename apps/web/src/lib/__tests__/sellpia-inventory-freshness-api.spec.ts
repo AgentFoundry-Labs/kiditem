@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sellpiaInventoryFreshnessApi } from '../sellpia-inventory-freshness-api';
-import { ApiError } from '../api-error';
 
 const apiClient = vi.hoisted(() => ({
   get: vi.fn(),
@@ -56,120 +55,6 @@ describe('sellpiaInventoryFreshnessApi', () => {
       '/api/inventory/sellpia-freshness/claims/11111111-1111-4111-8111-111111111111/cancel',
       {},
     );
-  });
-
-  it('uses strict server-scoped order transmission intent endpoints', async () => {
-    const state = {
-      status: 'refresh_required',
-      sourceBinding: {
-        origin: 'https://kiditem.sellpia.com',
-        accountKey: 'kiditem',
-        confirmed: true,
-      },
-      lastVerifiedAt: '2026-07-16T00:00:00.000Z',
-      expiresAt: '2026-07-16T00:10:00.000Z',
-      requestedGeneration: '5',
-      verifiedGeneration: '4',
-      refreshRequestedAt: '2026-07-16T00:01:00.000Z',
-      refreshReason: 'order_transmission_requested',
-      syncNotBefore: '2026-07-16T00:03:00.000Z',
-      activeSync: null,
-      lastAttempt: null,
-    };
-    apiClient.post
-      .mockResolvedValueOnce({ intentKey: 'orders-1', disposition: 'prepared', state })
-      .mockResolvedValueOnce({
-        intentKey: 'orders-1',
-        status: 'finalized',
-        finalizedGeneration: '5',
-        state,
-      })
-      .mockResolvedValueOnce({ intentKey: 'orders-1', status: 'aborted', state })
-      .mockResolvedValueOnce({
-        intentKey: 'orders-1',
-        status: 'aborted',
-        outcome: 'not_submitted',
-        finalizedGeneration: null,
-        reconciledBy: '11111111-1111-4111-8111-111111111111',
-        reconciledAt: '2026-07-16T00:02:00.000Z',
-        note: '셀피아 미접수 확인 후 재전송',
-        state,
-      });
-
-    await sellpiaInventoryFreshnessApi.prepareOrderTransmissionIntent('orders-1');
-    await sellpiaInventoryFreshnessApi.finalizeOrderTransmissionIntent('orders-1');
-    await sellpiaInventoryFreshnessApi.abortOrderTransmissionIntent('orders-1');
-    await sellpiaInventoryFreshnessApi.reconcileOrderTransmissionIntent({
-      intentKey: 'orders-1',
-      outcome: 'not_submitted',
-      note: '셀피아 미접수 확인 후 재전송',
-    });
-
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      1,
-      '/api/inventory/sellpia-freshness/order-transmission-intents/prepare',
-      { intentKey: 'orders-1' },
-    );
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      2,
-      '/api/inventory/sellpia-freshness/order-transmission-intents/finalize',
-      { intentKey: 'orders-1' },
-    );
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      3,
-      '/api/inventory/sellpia-freshness/order-transmission-intents/abort',
-      { intentKey: 'orders-1' },
-    );
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      4,
-      '/api/inventory/sellpia-freshness/order-transmission-intents/reconcile',
-      {
-        intentKey: 'orders-1',
-        outcome: 'not_submitted',
-        note: '셀피아 미접수 확인 후 재전송',
-      },
-    );
-  });
-
-  it('composes blockers from the additive endpoint and tolerates an old server during rollout', async () => {
-    const state = {
-      status: 'refresh_required',
-      sourceBinding: {
-        origin: 'https://kiditem.sellpia.com',
-        accountKey: 'kiditem',
-        confirmed: true,
-      },
-      lastVerifiedAt: null,
-      expiresAt: null,
-      requestedGeneration: '1',
-      verifiedGeneration: '0',
-      refreshRequestedAt: '2026-07-16T00:00:00.000Z',
-      refreshReason: 'ttl_expired',
-      syncNotBefore: null,
-      activeSync: null,
-      lastAttempt: null,
-    };
-    apiClient.get.mockResolvedValue(state);
-    apiClient.getParsed.mockResolvedValueOnce({
-      items: [{
-        intentKey: 'orders-1',
-        preparedAt: '2026-07-16T00:00:00.000Z',
-      }],
-      hasMore: true,
-    });
-
-    await expect(sellpiaInventoryFreshnessApi.getState()).resolves.toMatchObject({
-      unresolvedOrderTransmissionIntents: [{ intentKey: 'orders-1' }],
-      hasMoreUnresolvedOrderTransmissionIntents: true,
-    });
-
-    apiClient.getParsed.mockRejectedValueOnce(
-      new ApiError(404, 'not_found', 'old server'),
-    );
-    await expect(sellpiaInventoryFreshnessApi.getState()).resolves.toMatchObject({
-      unresolvedOrderTransmissionIntents: [],
-      hasMoreUnresolvedOrderTransmissionIntents: false,
-    });
   });
 
   it('uploads browser bytes with the claim token, generation, trigger, and fixed source identity', async () => {

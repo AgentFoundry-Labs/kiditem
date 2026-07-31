@@ -114,9 +114,10 @@ Route shape is frozen.
   `rocket-final-order:{sourceImportRunId}:{transport}` transmission key; an
   empty probe has no transmission key. Supply does not write Orders or Inventory
   stock tables.
-- Workflow completion requires all linked transmission intents to be finalized
-  and a strictly newer verified Sellpia generation. Abandonment requires fresh
-  SHIPMENT and MILKRUN probes with no matched rows plus an explicit reason.
+- Workflow completion requires all linked Orders-owned transmission intents to
+  be finalized. It does not wait for or request a Sellpia Inventory generation.
+  Abandonment requires fresh SHIPMENT and MILKRUN probes with no matched rows
+  plus an explicit reason.
 
 ## Cross-Domain Ports
 

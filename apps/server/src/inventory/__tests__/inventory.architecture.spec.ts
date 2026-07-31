@@ -58,21 +58,6 @@ describe('Inventory architecture contract', () => {
     expect(hits).toEqual([]);
   });
 
-  it('persists organization-scoped idempotent Sellpia order transmission intents', () => {
-    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
-    const block = schema.match(
-      /model SellpiaOrderTransmissionIntent \{([\s\S]*?)\n\}/,
-    )?.[1] ?? '';
-
-    expect(block).toContain('organizationId');
-    expect(block).toContain('intentKey');
-    expect(block).toContain('status');
-    expect(block).toContain('finalizedGeneration');
-    expect(block).toContain('@@unique([organizationId, intentKey]');
-    expect(block).toContain('@@index([organizationId, status]');
-    expect(schema).not.toMatch(/^enum\s+/m);
-  });
-
   it('owns physical-stock-independent commitments and component allocations', () => {
     const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
     const commitment = schema.match(
@@ -101,21 +86,6 @@ describe('Inventory architecture contract', () => {
         'adapter/out/repository/sellpia-inventory-transaction-lock.ts',
       ),
     ]);
-  });
-
-  it('persists append-only owner/admin reconciliation audit records', () => {
-    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
-    const block = schema.match(
-      /model SellpiaOrderTransmissionIntentReconciliation \{([\s\S]*?)\n\}/,
-    )?.[1] ?? '';
-
-    expect(block).toContain('organizationId');
-    expect(block).toContain('intentId');
-    expect(block).toContain('reconciledBy');
-    expect(block).toContain('reconciledAt');
-    expect(block).toContain('note');
-    expect(block).toContain('outcome');
-    expect(block).toContain('@@index([organizationId, reconciledAt]');
   });
 
   it('keeps Unshipped reads behind a dedicated repository adapter', () => {

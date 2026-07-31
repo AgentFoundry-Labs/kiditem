@@ -46,28 +46,6 @@ export class RocketWorkbookProgressService implements RocketWorkbookProgressPort
         verifiedGeneration: snapshot.verifiedGeneration,
       };
     }
-    const finalizedGenerations = snapshot.intents.map(
-      ({ finalizedGeneration }) => finalizedGeneration,
-    );
-    if (
-      input.exportGeneration === null
-      || finalizedGenerations.some((generation) => generation === null)
-    ) {
-      return { status: 'failed', verifiedGeneration: snapshot.verifiedGeneration };
-    }
-    const lastFinalizedGeneration = finalizedGenerations.reduce<bigint>(
-      (latest, generation) => generation! > latest ? generation! : latest,
-      0n,
-    );
-    if (
-      snapshot.verifiedGeneration > input.exportGeneration
-      && snapshot.verifiedGeneration >= lastFinalizedGeneration
-    ) {
-      return { status: 'completed', verifiedGeneration: snapshot.verifiedGeneration };
-    }
-    return {
-      status: 'awaiting_inventory_sync',
-      verifiedGeneration: snapshot.verifiedGeneration,
-    };
+    return { status: 'completed', verifiedGeneration: snapshot.verifiedGeneration };
   }
 }

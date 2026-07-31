@@ -4,13 +4,6 @@ import type {
   SellpiaInventoryFreshnessView,
   SellpiaInventoryRefreshRequest,
   SellpiaInventorySourceBindingRequest,
-  SellpiaOrderTransmissionIntentAbortResponse,
-  SellpiaOrderTransmissionIntentFinalizeResponse,
-  SellpiaOrderTransmissionIntentPrepareRequest,
-  SellpiaOrderTransmissionIntentPrepareResponse,
-  SellpiaOrderTransmissionIntentReconcileRequest,
-  SellpiaOrderTransmissionIntentReconcileResponse,
-  SellpiaUnresolvedOrderTransmissionIntentListResponse,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 type ActorScope = { organizationId: string; userId: string };
@@ -19,10 +12,6 @@ type ClaimScope = ActorScope & { claimToken: string };
 export interface SellpiaInventoryFreshnessPort {
   getState(input: ActorScope): Promise<SellpiaInventoryFreshnessView>;
 
-  listUnresolvedOrderTransmissionIntents(
-    input: ActorScope,
-  ): Promise<SellpiaUnresolvedOrderTransmissionIntentListResponse>;
-
   confirmSourceBinding(
     input: ActorScope & SellpiaInventorySourceBindingRequest,
   ): Promise<SellpiaInventoryFreshnessView>;
@@ -30,22 +19,6 @@ export interface SellpiaInventoryFreshnessPort {
   requestRefresh(
     input: ActorScope & SellpiaInventoryRefreshRequest,
   ): Promise<SellpiaInventoryFreshnessView>;
-
-  prepareOrderTransmissionIntent(
-    input: ActorScope & SellpiaOrderTransmissionIntentPrepareRequest,
-  ): Promise<SellpiaOrderTransmissionIntentPrepareResponse>;
-
-  finalizeOrderTransmissionIntent(
-    input: ActorScope & SellpiaOrderTransmissionIntentPrepareRequest,
-  ): Promise<SellpiaOrderTransmissionIntentFinalizeResponse>;
-
-  abortOrderTransmissionIntent(
-    input: ActorScope & SellpiaOrderTransmissionIntentPrepareRequest,
-  ): Promise<SellpiaOrderTransmissionIntentAbortResponse>;
-
-  reconcileOrderTransmissionIntent(
-    input: ActorScope & SellpiaOrderTransmissionIntentReconcileRequest,
-  ): Promise<SellpiaOrderTransmissionIntentReconcileResponse>;
 
   claimDue(input: ActorScope): Promise<SellpiaInventoryClaimResponse>;
 

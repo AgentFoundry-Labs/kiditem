@@ -1,11 +1,9 @@
 import {
   deriveSellpiaInventoryFreshness,
-  SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
   type SellpiaInventoryCollectionFailureCode,
   type SellpiaInventoryFreshnessStatus,
   type SellpiaInventoryFreshnessView,
   type SellpiaInventoryRefreshReason,
-  type SellpiaUnresolvedOrderTransmissionIntentListResponse,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export const SELLPIA_SOURCE_ORIGIN = 'https://kiditem.sellpia.com' as const;
@@ -14,14 +12,10 @@ export const SELLPIA_FRESHNESS_TTL_MS = 10 * 60_000;
 export const SELLPIA_CLAIM_LEASE_MS = 90_000;
 export const SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE =
   '브라우저 수집 세션 응답이 없어 재고 갱신을 완료하지 못했습니다. 다시 시도해 주세요.';
-export const SELLPIA_ORDER_SETTLE_MS = 2 * 60_000;
-export const SELLPIA_ORDER_SETTLE_CAP_MS = 5 * 60_000;
-
-export type SellpiaUnresolvedOrderTransmissionIntent = {
-  intentKey: string;
-  preparedAt: Date;
-};
-
+type SellpiaInventoryRequestReason = Extract<
+  SellpiaInventoryRefreshReason,
+  'manual_request' | 'retry' | 'purchase_preflight'
+>;
 export type SellpiaInventoryFreshnessState = {
   organizationId: string;
   sourceOrigin: string;
@@ -44,9 +38,6 @@ export type SellpiaInventoryFreshnessState = {
   lastErrorCode: SellpiaInventoryCollectionFailureCode | null;
   lastErrorMessage: string | null;
   freshnessFence: string;
-  // Identified rather than counted: the same rows both gate claims and tell an
-  // operator which transmission to reconcile.
-  unresolvedOrderTransmissionIntents: readonly SellpiaUnresolvedOrderTransmissionIntent[];
 };
 
 export type SellpiaInventoryFreshnessStatePatch = Partial<
@@ -96,7 +87,6 @@ export function createInitialFreshnessState(input: {
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: input.freshnessFence,
-    unresolvedOrderTransmissionIntents: [],
   };
 }
 
@@ -169,22 +159,6 @@ export function toFreshnessView(
   };
 }
 
-export function toUnresolvedOrderTransmissionIntentList(
-  state: SellpiaInventoryFreshnessState,
-): SellpiaUnresolvedOrderTransmissionIntentListResponse {
-  return {
-    items: state.unresolvedOrderTransmissionIntents
-      .slice(0, SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT)
-      .map((intent) => ({
-        intentKey: intent.intentKey,
-        preparedAt: intent.preparedAt.toISOString(),
-      })),
-    hasMore:
-      state.unresolvedOrderTransmissionIntents.length
-      > SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
-  };
-}
-
 export function planSourceBindingConfirmation(
   state: SellpiaInventoryFreshnessState,
   freshnessFence: string,
@@ -198,7 +172,7 @@ export function planSourceBindingConfirmation(
 
 export function planRefreshRequest(
   state: SellpiaInventoryFreshnessState,
-  reason: SellpiaInventoryRefreshReason,
+  reason: SellpiaInventoryRequestReason,
   now: Date,
   freshnessFence: string,
 ): SellpiaInventoryFreshnessStatePatch {
@@ -219,41 +193,6 @@ export function planRefreshRequest(
     ? state.requestedGeneration + 1n
     : state.requestedGeneration;
 
-  if (reason === 'order_transmission_requested') {
-    if (
-      !advancesGeneration
-      && state.refreshReason === 'same_hash_confirmation'
-    ) {
-      return {
-        requestedGeneration,
-        failedGeneration: state.failedGeneration,
-        freshnessFence,
-      };
-    }
-    const isJoiningPendingOrder = !advancesGeneration
-      && state.refreshReason === 'order_transmission_requested'
-      && state.refreshRequestedAt !== null;
-    const firstPendingOrderAt = isJoiningPendingOrder
-      ? state.refreshRequestedAt!
-      : now;
-    const currentNotBefore = isJoiningPendingOrder && state.syncNotBefore
-      ? state.syncNotBefore.getTime()
-      : now.getTime();
-    const settledAt = Math.max(currentNotBefore, now.getTime() + SELLPIA_ORDER_SETTLE_MS);
-    const cappedAt = Math.min(
-      firstPendingOrderAt.getTime() + SELLPIA_ORDER_SETTLE_CAP_MS,
-      settledAt,
-    );
-    return {
-      requestedGeneration,
-      failedGeneration: state.failedGeneration,
-      refreshRequestedAt: firstPendingOrderAt,
-      refreshReason: reason,
-      syncNotBefore: new Date(cappedAt),
-      freshnessFence,
-    };
-  }
-
   if (!advancesGeneration) {
     return {
       requestedGeneration,
@@ -268,47 +207,6 @@ export function planRefreshRequest(
     refreshRequestedAt: now,
     refreshReason: reason,
     syncNotBefore: now,
-    freshnessFence,
-  };
-}
-
-export function planOrderTransmissionFinalization(
-  state: SellpiaInventoryFreshnessState,
-  now: Date,
-  freshnessFence: string,
-): SellpiaInventoryFreshnessStatePatch {
-  const latestVisibleGeneration = [
-    state.requestedGeneration,
-    state.verifiedGeneration,
-    state.activeGeneration ?? 0n,
-  ].reduce((latest, generation) => generation > latest ? generation : latest, 0n);
-  const isJoiningPendingOrder = state.refreshReason === 'order_transmission_requested'
-    && state.refreshRequestedAt !== null
-    && latestVisibleGeneration > state.verifiedGeneration
-    && state.failedGeneration !== latestVisibleGeneration
-    && state.refreshRequestedAt.getTime() + SELLPIA_ORDER_SETTLE_CAP_MS
-      > now.getTime();
-  const firstPendingOrderAt = isJoiningPendingOrder
-    ? state.refreshRequestedAt!
-    : now;
-  const currentNotBefore = isJoiningPendingOrder && state.syncNotBefore
-    ? state.syncNotBefore.getTime()
-    : now.getTime();
-  const settledAt = Math.max(
-    currentNotBefore,
-    now.getTime() + SELLPIA_ORDER_SETTLE_MS,
-  );
-  const cappedAt = Math.min(
-    firstPendingOrderAt.getTime() + SELLPIA_ORDER_SETTLE_CAP_MS,
-    settledAt,
-  );
-
-  return {
-    requestedGeneration: latestVisibleGeneration + 1n,
-    failedGeneration: state.failedGeneration,
-    refreshRequestedAt: firstPendingOrderAt,
-    refreshReason: 'order_transmission_requested',
-    syncNotBefore: new Date(cappedAt),
     freshnessFence,
   };
 }

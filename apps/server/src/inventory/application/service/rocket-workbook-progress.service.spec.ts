@@ -50,15 +50,9 @@ describe('RocketWorkbookProgressService', () => {
       expected: 'failed',
     },
     {
-      name: 'finalized transmission before inventory refresh',
-      intents: [{ intentKey: 'rocket:shipment', status: 'finalized' as const, finalizedGeneration: 9n }],
+      name: 'finalized transmission without an inventory generation',
+      intents: [{ intentKey: 'rocket:shipment', status: 'finalized' as const, finalizedGeneration: null }],
       verifiedGeneration: 8n,
-      expected: 'awaiting_inventory_sync',
-    },
-    {
-      name: 'verified newer generation',
-      intents: [{ intentKey: 'rocket:shipment', status: 'finalized' as const, finalizedGeneration: 9n }],
-      verifiedGeneration: 9n,
       expected: 'completed',
     },
   ])('projects $name', async ({ intents, verifiedGeneration, expected }) => {

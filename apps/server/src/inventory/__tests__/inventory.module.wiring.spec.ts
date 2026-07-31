@@ -35,7 +35,6 @@ import { SELLPIA_INVENTORY_IMPORT_PORT } from '../application/port/in/stock/sell
 import { SELLPIA_RECEIPT_BATCH_PORT } from '../application/port/in/stock/sellpia-receipt-batch.port';
 import { SELLPIA_INVENTORY_FRESHNESS_PORT } from '../application/port/in/stock/sellpia-inventory-freshness.port';
 import { SELLPIA_INVENTORY_FRESHNESS_GATE_PORT } from '../application/port/in/stock/sellpia-inventory-freshness-gate.port';
-import { SELLPIA_INVENTORY_REFRESH_REQUEST_PORT } from '../application/port/in/stock/sellpia-inventory-refresh-request.port';
 import { ROCKET_WORKBOOK_PROGRESS_PORT } from '../application/port/in/stock/rocket-workbook-progress.port';
 import { CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT } from '../application/port/out/cross-domain/confirmed-channel-component-reference.port';
 import { SELLPIA_IMPORT_RUN_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-import-run.repository.port';
@@ -214,7 +213,7 @@ describe('InventoryModule authoritative capability wiring', () => {
     });
   });
 
-  it('binds freshness ownership and exports only the cross-domain refresh and gate ports', () => {
+  it('binds freshness ownership and exports only the cross-domain inventory gates', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
     expect(providers).toContainEqual({
       provide: SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT,
@@ -222,7 +221,6 @@ describe('InventoryModule authoritative capability wiring', () => {
     });
     for (const port of [
       SELLPIA_INVENTORY_FRESHNESS_PORT,
-      SELLPIA_INVENTORY_REFRESH_REQUEST_PORT,
       SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
     ]) {
       expect(providers).toContainEqual({
@@ -232,7 +230,6 @@ describe('InventoryModule authoritative capability wiring', () => {
     }
     expect(Reflect.getMetadata(EXPORTS_KEY, InventoryModule) ?? []).toEqual([
       SELLPIA_INVENTORY_SKU_READ_PORT,
-      SELLPIA_INVENTORY_REFRESH_REQUEST_PORT,
       SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
       INVENTORY_AVAILABILITY_PORT,
       INVENTORY_COMMITMENT_PORT,

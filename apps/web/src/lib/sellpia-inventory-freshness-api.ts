@@ -1,15 +1,9 @@
 import {
   SellpiaInventoryClaimResponseSchema,
   SellpiaInventoryFreshnessViewSchema,
-  SellpiaUnresolvedOrderTransmissionIntentListResponseSchema,
-  SellpiaOrderTransmissionIntentAbortResponseSchema,
-  SellpiaOrderTransmissionIntentFinalizeResponseSchema,
-  SellpiaOrderTransmissionIntentPrepareResponseSchema,
-  SellpiaOrderTransmissionIntentReconcileResponseSchema,
   type SellpiaInventoryCollectionFailureCode,
   type SellpiaInventoryFreshnessView,
   type SellpiaInventoryRefreshReason,
-  type SellpiaUnresolvedOrderTransmissionIntentView,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   SellpiaInventoryImportResponseSchema,
@@ -22,22 +16,12 @@ import {
   type SellpiaImportRunListResponse,
 } from '@kiditem/shared/inventory';
 import { apiClient } from './api-client';
-import { isApiError } from './api-error';
 
 const FRESHNESS_PATH = '/api/inventory/sellpia-freshness';
 const IMPORT_PATH = '/api/inventory/sellpia-sync/import';
 const HISTORY_PATH = '/api/inventory/sellpia-sync/import-runs';
 const CURRENT_BASIS_PATH = '/api/inventory/sellpia-skus?page=1&limit=1';
-const ORDER_TRANSMISSION_INTENT_PATH =
-  `${FRESHNESS_PATH}/order-transmission-intents`;
-const UNRESOLVED_ORDER_TRANSMISSION_INTENT_PATH =
-  `${ORDER_TRANSMISSION_INTENT_PATH}/unresolved`;
-
-export type SellpiaInventoryFreshnessWithBlockers =
-  SellpiaInventoryFreshnessView & {
-    unresolvedOrderTransmissionIntents: SellpiaUnresolvedOrderTransmissionIntentView[];
-    hasMoreUnresolvedOrderTransmissionIntents: boolean;
-  };
+export type SellpiaInventoryFreshnessWithBlockers = SellpiaInventoryFreshnessView;
 
 function claimPath(claimToken: string, action: string): string {
   return `${FRESHNESS_PATH}/claims/${encodeURIComponent(claimToken)}/${action}`;
@@ -57,41 +41,12 @@ async function parseFreshness(
   return SellpiaInventoryFreshnessViewSchema.parse(await operation);
 }
 
-async function getUnresolvedOrderTransmissionIntents() {
-  try {
-    return await apiClient.getParsed(
-      UNRESOLVED_ORDER_TRANSMISSION_INTENT_PATH,
-      SellpiaUnresolvedOrderTransmissionIntentListResponseSchema,
-    );
-  } catch (error) {
-    // During a rolling deploy, a new web bundle may briefly talk to the old
-    // server. The legacy freshness response remains usable until this additive
-    // read endpoint appears.
-    if (isApiError(error) && error.status === 404) {
-      return { items: [], hasMore: false };
-    }
-    throw error;
-  }
-}
-
-async function parseFreshnessWithBlockers(
-  operation: Promise<unknown>,
-): Promise<SellpiaInventoryFreshnessWithBlockers> {
-  const state = SellpiaInventoryFreshnessViewSchema.parse(await operation);
-  const blockers = await getUnresolvedOrderTransmissionIntents();
-  return {
-    ...state,
-    unresolvedOrderTransmissionIntents: blockers.items,
-    hasMoreUnresolvedOrderTransmissionIntents: blockers.hasMore,
-  };
-}
-
 function appendInventoryArtifact(form: FormData, file: File): void {
   form.append('file', file);
 }
 
 export const sellpiaInventoryFreshnessApi = {
-  getState: () => parseFreshnessWithBlockers(apiClient.get(FRESHNESS_PATH)),
+  getState: () => parseFreshness(apiClient.get(FRESHNESS_PATH)),
 
   async getCurrentBasis(): Promise<SellpiaImportRunSummary | null> {
     const response = await apiClient.getParsed(
@@ -126,46 +81,10 @@ export const sellpiaInventoryFreshnessApi = {
   cancel: (claimToken: string) =>
     parseFreshness(apiClient.post(claimPath(claimToken, 'cancel'), {})),
 
-  requestRefresh: (reason: Extract<SellpiaInventoryRefreshReason, 'manual_request' | 'retry' | 'order_transmission_requested'>) =>
-    parseFreshnessWithBlockers(
+  requestRefresh: (reason: Extract<SellpiaInventoryRefreshReason, 'manual_request' | 'retry'>) =>
+    parseFreshness(
       apiClient.post(`${FRESHNESS_PATH}/requests`, { reason }),
     ),
-
-  async prepareOrderTransmissionIntent(intentKey: string) {
-    const response = await apiClient.post<unknown>(
-      `${ORDER_TRANSMISSION_INTENT_PATH}/prepare`,
-      { intentKey },
-    );
-    return SellpiaOrderTransmissionIntentPrepareResponseSchema.parse(response);
-  },
-
-  async finalizeOrderTransmissionIntent(intentKey: string) {
-    const response = await apiClient.post<unknown>(
-      `${ORDER_TRANSMISSION_INTENT_PATH}/finalize`,
-      { intentKey },
-    );
-    return SellpiaOrderTransmissionIntentFinalizeResponseSchema.parse(response);
-  },
-
-  async abortOrderTransmissionIntent(intentKey: string) {
-    const response = await apiClient.post<unknown>(
-      `${ORDER_TRANSMISSION_INTENT_PATH}/abort`,
-      { intentKey },
-    );
-    return SellpiaOrderTransmissionIntentAbortResponseSchema.parse(response);
-  },
-
-  async reconcileOrderTransmissionIntent(input: {
-    intentKey: string;
-    outcome: 'submitted' | 'not_submitted';
-    note: string;
-  }) {
-    const response = await apiClient.post<unknown>(
-      `${ORDER_TRANSMISSION_INTENT_PATH}/reconcile`,
-      input,
-    );
-    return SellpiaOrderTransmissionIntentReconcileResponseSchema.parse(response);
-  },
 
   confirmSourceBinding: () =>
     parseFreshness(apiClient.post(`${FRESHNESS_PATH}/source-binding`, {
