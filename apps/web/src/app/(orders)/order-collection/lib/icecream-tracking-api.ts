@@ -212,6 +212,7 @@ const SELLPIA_PROVIDER_BY_MALL: Record<string, string[]> = {
   'coupang-direct': ['쿠팡-직배송', '쿠팡직배송'],
   'gs-shop': ['gs샵'],
   kidkids: ['키드키즈'], // 아직 셀피아 송장 미확인(발송 시 매핑)
+  'haebub-mall': ['해법몰'], // 아직 셀피아 송장 미확인(발송 시 판매처명 확인 필요)
   always: ['올웨이즈', '이레빗'],
 };
 
