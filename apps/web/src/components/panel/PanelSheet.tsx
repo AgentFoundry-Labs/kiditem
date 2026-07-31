@@ -2,20 +2,24 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArchiveX, Bell, X } from 'lucide-react';
+import { ArchiveX, Bell, EyeOff, RotateCcw, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/useAuth';
 import { isActivePanelItem, usePanelStore } from './lib/panel-store';
 import { recoverStalePanelOperations } from './lib/panel-recovery';
 import { PanelItemRow } from './PanelItemRow';
 import type { PanelItem } from '@kiditem/shared/panel';
+import { toast } from 'sonner';
 
 export function PanelSheet() {
   const [isClearing, setIsClearing] = useState(false);
   const isOpen = usePanelStore((s) => s.isOpen);
   const setOpen = usePanelStore((s) => s.setOpen);
   const byId = usePanelStore((s) => s.byId);
+  const hiddenRunIds = usePanelStore((s) => s.hiddenRunIds);
   const dismissItem = usePanelStore((s) => s.dismissItem);
+  const hideRunItems = usePanelStore((s) => s.hideRunItems);
+  const restoreHiddenRunItems = usePanelStore((s) => s.restoreHiddenRunItems);
   const connectionStatus = usePanelStore((s) => s.connectionStatus);
   const recoveryLastRunRef = useRef(0);
   const recoveryInFlightRef = useRef(false);
@@ -33,6 +37,11 @@ export function PanelSheet() {
     () => [...active, ...recent].filter(isDismissablePanelAlert),
     [active, recent],
   );
+  const activeWorkflowRuns = useMemo(
+    () => active.filter((item) => item.kind === 'run'),
+    [active],
+  );
+  const hiddenRunCount = Object.keys(hiddenRunIds).length;
 
   const { myItems, attentionItems, teamItems } = useMemo(
     () => partitionPanelItems([...active, ...recent], currentUserId),
@@ -78,6 +87,24 @@ export function PanelSheet() {
     }
   };
 
+  const hideActiveWorkflowRuns = () => {
+    if (activeWorkflowRuns.length === 0) return;
+    hideRunItems(activeWorkflowRuns.map((item) => item.id));
+    toast.success(`${activeWorkflowRuns.length}개의 진행 중 워크플로우를 화면에서 숨겼습니다.`);
+  };
+
+  const restoreHiddenWorkflowRuns = async () => {
+    restoreHiddenRunItems();
+    try {
+      const items = await apiClient.get<PanelItem[]>('/api/panel/snapshot');
+      usePanelStore.getState().handleSnapshot(items, true);
+      toast.success('숨긴 워크플로우를 다시 표시했습니다.');
+    } catch (error) {
+      console.warn('[panel] failed to restore hidden workflow runs', error);
+      toast.error('숨긴 워크플로우를 다시 불러오지 못했습니다.');
+    }
+  };
+
   return (
     <Dialog.Root open={isOpen} onOpenChange={setOpen}>
       <Dialog.Portal>
@@ -106,6 +133,30 @@ export function PanelSheet() {
                 >
                   <ArchiveX className="w-3 h-3" />
                   완료 정리
+                </button>
+              )}
+              {activeWorkflowRuns.length > 0 && (
+                <button
+                  type="button"
+                  onClick={hideActiveWorkflowRuns}
+                  aria-label="진행 중 워크플로우 화면에서 정리"
+                  title="실제 실행은 중단하지 않고 이 브라우저의 알림 화면에서만 숨깁니다"
+                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                >
+                  <EyeOff className="w-3 h-3" />
+                  진행 정리
+                </button>
+              )}
+              {hiddenRunCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void restoreHiddenWorkflowRuns()}
+                  aria-label="숨긴 워크플로우 다시 표시"
+                  title="숨긴 워크플로우 다시 표시"
+                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  복원
                 </button>
               )}
               <button

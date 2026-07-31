@@ -39,7 +39,10 @@ const makeAlertItem = (overrides: Partial<PanelItem> = {}): PanelItem => ({
 
 describe('panel-store', () => {
   let store: ReturnType<typeof createPanelStore>;
-  beforeEach(() => { store = createPanelStore(); });
+  beforeEach(() => {
+    window.localStorage.clear();
+    store = createPanelStore();
+  });
 
   it('upsertItem adds new', () => {
     store.getState().upsertItem(makeItem({ id: 'a', seq: 1 }));
@@ -90,6 +93,25 @@ describe('panel-store', () => {
     store.getState().dismissItem('a');
     expect(store.getState().byId['a']).toBeUndefined();
     expect(store.getState().hasHydrated).toBe(true);
+  });
+
+  it('hides active workflow rows locally across snapshots and restores them on demand', () => {
+    const activeRun = makeItem({ id: 'active-run', seq: 1, status: 'running' });
+    const terminalRun = makeItem({ id: 'terminal-run', seq: 2, status: 'succeeded' });
+    store.getState().handleSnapshot([activeRun, terminalRun], true);
+
+    store.getState().hideRunItems(['active-run', 'terminal-run']);
+    expect(store.getState().byId['active-run']).toBeUndefined();
+    expect(store.getState().byId['terminal-run']).toBeDefined();
+    expect(store.getState().hiddenRunIds).toEqual({ 'active-run': true });
+
+    store.getState().handleSnapshot([activeRun, terminalRun], true);
+    expect(store.getState().byId['active-run']).toBeUndefined();
+    expect(store.getState().byId['terminal-run']).toBeDefined();
+
+    store.getState().restoreHiddenRunItems();
+    store.getState().handleSnapshot([activeRun, terminalRun], true);
+    expect(store.getState().byId['active-run']).toBeDefined();
   });
 
   it('runningCount counts pending+running', () => {

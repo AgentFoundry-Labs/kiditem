@@ -3,6 +3,7 @@ import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import type { PanelItem, PanelEvent } from '@kiditem/shared/panel';
 
 const PANEL_OPEN_LS_KEY = 'kiditem.panel.open';
+const PANEL_HIDDEN_RUN_IDS_LS_KEY = 'kiditem.panel.hidden-run-ids.v1';
 
 export function isActivePanelItem(item: PanelItem): boolean {
   if (item.kind === 'run') {
@@ -25,8 +26,30 @@ const readOpenFromStorage = (): boolean => {
   return safeStorageGet('local', PANEL_OPEN_LS_KEY) === 'true';
 };
 
+type HiddenRunIds = Record<string, true>;
+
+function readHiddenRunIds(): HiddenRunIds {
+  const raw = safeStorageGet('local', PANEL_HIDDEN_RUN_IDS_LS_KEY);
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      parsed.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        .map((id) => [id, true]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function persistHiddenRunIds(hiddenRunIds: HiddenRunIds): void {
+  safeStorageSet('local', PANEL_HIDDEN_RUN_IDS_LS_KEY, JSON.stringify(Object.keys(hiddenRunIds)));
+}
+
 interface PanelStoreState {
   byId: Record<string, PanelItem>;
+  hiddenRunIds: HiddenRunIds;
   lastSeq: number;
   hasHydrated: boolean;
   isOpen: boolean;
@@ -34,6 +57,8 @@ interface PanelStoreState {
 
   upsertItem: (item: PanelItem) => void;
   dismissItem: (id: string) => void;
+  hideRunItems: (ids: string[]) => void;
+  restoreHiddenRunItems: () => void;
   handleSnapshot: (items: PanelItem[], resetClient: boolean) => void;
   applyEvent: (event: PanelEvent) => void;
   setOpen: (open: boolean) => void;
@@ -49,12 +74,19 @@ interface PanelStoreState {
 
 export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
   byId: {},
+  hiddenRunIds: readHiddenRunIds(),
   lastSeq: 0,
   hasHydrated: false,
   isOpen: readOpenFromStorage(),
   connectionStatus: 'disconnected',
 
   upsertItem: (item) => set((state) => {
+    if (item.kind === 'run' && state.hiddenRunIds[item.id]) {
+      return {
+        lastSeq: Math.max(state.lastSeq, item.seq),
+        hasHydrated: true,
+      };
+    }
     const existing = state.byId[item.id];
     // PanelAlertItem has no seq — always upsert. PanelRunItem uses seq for dedup.
     if (item.kind === 'alert') {
@@ -76,17 +108,37 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
     return { byId: rest, hasHydrated: true };
   }),
 
-  handleSnapshot: (items, _resetClient) => set(() => {
+  hideRunItems: (ids) => set((state) => {
+    const nextHiddenRunIds = { ...state.hiddenRunIds };
+    const byId = { ...state.byId };
+    for (const id of ids) {
+      const item = byId[id];
+      if (item?.kind !== 'run' || !isActivePanelItem(item)) continue;
+      nextHiddenRunIds[id] = true;
+      delete byId[id];
+    }
+    persistHiddenRunIds(nextHiddenRunIds);
+    return { byId, hiddenRunIds: nextHiddenRunIds, hasHydrated: true };
+  }),
+
+  restoreHiddenRunItems: () => set(() => {
+    const hiddenRunIds = {};
+    persistHiddenRunIds(hiddenRunIds);
+    return { hiddenRunIds, hasHydrated: true };
+  }),
+
+  handleSnapshot: (items, _resetClient) => set((state) => {
     // CRITICAL #9: PanelSnapshotEvent.resetClient는 z.literal(true) — 항상 true 고정.
     // Snapshot 수신 시 store clear + items 전부 set + lastSeq = 최대 seq.
     // resetClient 파라미터는 future-proof API shape 용도 (현재 사용 안 함).
     const byId: Record<string, PanelItem> = {};
     let maxSeq = 0;
     items.forEach((item) => {
-      byId[item.id] = item;
       // PanelAlertItem has no seq — only track seq for run items.
       const itemSeq = item.kind === 'run' ? item.seq : 0;
       if (itemSeq > maxSeq) maxSeq = itemSeq;
+      if (item.kind === 'run' && state.hiddenRunIds[item.id]) return;
+      byId[item.id] = item;
     });
     return { byId, lastSeq: maxSeq, hasHydrated: true };
   }),

@@ -54,8 +54,9 @@ const makeAlertItem = (overrides = {}): PanelItem => ({
 describe('PanelItemRow', () => {
   it('routes kind=run to run renderer (renders button with title)', () => {
     render(<PanelItemRow item={makeRunItem()} />);
-    expect(screen.getByRole('button')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '워크플로우 실행' })).toBeInTheDocument();
     expect(screen.getByText('워크플로우 실행')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '워크플로우 화면에서 숨기기' })).toBeInTheDocument();
   });
 
   it('routes kind=alert to alert renderer (renders alert title)', () => {
