@@ -31,7 +31,6 @@ function listingInclude(organizationId: string) {
       select: { id: true, code: true, name: true, imageUrls: true },
     },
     options: {
-      where: { organizationId, isActive: true },
       orderBy: [{ updatedAt: 'desc' as const }, { id: 'asc' as const }],
       include: {
         productVariant: {
@@ -477,14 +476,12 @@ function matchingListingWhere(
 ): Prisma.ChannelListingWhereInput {
   return {
     organizationId,
-    isActive: true,
     OR: [
       { lastImportRun: { is: completedCatalogRunWhere(organizationId) } },
       {
         options: {
           some: {
             organizationId,
-            isActive: true,
             rawJson: {
               path: ['source'],
               equals: PUBLISHED_BROWSER_CATALOG_SOURCE,
