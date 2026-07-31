@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import {
   collectRocketPoRowsFromExtension,
   collectRocketPoRowsForConfirmationFromExtension,
@@ -12,8 +13,11 @@ vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 
+vi.mock('@/lib/browser-collection-session', () => ({
+  issueBrowserCollectionRunId: vi.fn(),
+}));
+
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
-const OFFICE_HTTP_RUN_ID = '00000000-0000-4000-8000-000000000000';
 
 describe('detectRocketOrderExtensionId', () => {
   beforeEach(() => {
@@ -39,7 +43,7 @@ describe('detectRocketOrderExtensionId', () => {
 describe('collectRocketPoRowsFromExtension', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('crypto', { randomUUID: () => RUN_ID });
+    vi.mocked(issueBrowserCollectionRunId).mockResolvedValue(RUN_ID);
     vi.mocked(detectOrderCollectionExtensionId).mockResolvedValue('extension-id');
     vi.mocked(sendToExtension).mockResolvedValue({
       success: true,
@@ -66,7 +70,7 @@ describe('collectRocketPoRowsFromExtension', () => {
     });
   });
 
-  it('sends a browser UUID and returns the exact completeness evidence', async () => {
+  it('sends the server-issued run ID and returns the exact completeness evidence', async () => {
     const result = await collectRocketPoRowsFromExtension({
       from: '2026-07-01',
       to: '2026-07-07',
@@ -84,41 +88,6 @@ describe('collectRocketPoRowsFromExtension', () => {
     );
     expect(result.collection.collectionRunId).toBe(RUN_ID);
     expect(result.rows[0]?.poLineId).toBe('1001:P-1::1');
-  });
-
-  it('creates a secure run UUID when the office HTTP origin lacks randomUUID', async () => {
-    vi.stubGlobal('crypto', {
-      getRandomValues(bytes: Uint8Array) {
-        bytes.fill(0);
-        return bytes;
-      },
-    });
-    vi.mocked(sendToExtension).mockResolvedValueOnce({
-      success: true,
-      rows: [],
-      poCount: 0,
-      evidence: {
-        collectionRunId: OFFICE_HTTP_RUN_ID,
-        vendorId: 'VENDOR-1',
-        listPagesRead: 1,
-        totalListPages: 1,
-        truncated: false,
-        detailPoCount: 0,
-        failedPoNumbers: [],
-      },
-    });
-
-    const result = await collectRocketPoRowsFromExtension({
-      from: '2026-07-01',
-      to: '2026-07-07',
-    });
-
-    expect(sendToExtension).toHaveBeenCalledWith(
-      'extension-id',
-      expect.objectContaining({ runId: OFFICE_HTTP_RUN_ID }),
-      190000,
-    );
-    expect(result.collection.collectionRunId).toBe(OFFICE_HTTP_RUN_ID);
   });
 
   it('requires the confirmation metadata capability for workbook collection', async () => {

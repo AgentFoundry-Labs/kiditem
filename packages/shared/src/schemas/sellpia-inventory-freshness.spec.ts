@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { ErrorCodes } from '../errors/codes';
-import * as freshnessContracts from './sellpia-inventory-freshness';
 import {
   deriveSellpiaInventoryFreshness,
   SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES,
@@ -11,12 +10,7 @@ import {
   SellpiaInventoryClaimResponseSchema,
   SellpiaInventoryFailRequestSchema,
   SellpiaInventoryFreshnessViewSchema,
-  SellpiaUnresolvedOrderTransmissionIntentListResponseSchema,
   SellpiaInventoryHeartbeatRequestSchema,
-  SellpiaOrderTransmissionIntentAbortResponseSchema,
-  SellpiaOrderTransmissionIntentFinalizeResponseSchema,
-  SellpiaOrderTransmissionIntentPrepareRequestSchema,
-  SellpiaOrderTransmissionIntentPrepareResponseSchema,
   SellpiaInventoryQualityReportSchema,
   SellpiaInventoryRefreshRequestSchema,
   SellpiaInventorySourceBindingRequestSchema,
@@ -172,25 +166,6 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
     })).toThrow();
   });
 
-  // 기존 freshness 응답은 오래 열린 브라우저 탭과 호환되어야 한다. 차단 목록은
-  // 별도 응답으로 버전 독립적으로 읽는다.
-  it('parses the separately versioned unresolved transmission list', () => {
-    const parsed = SellpiaUnresolvedOrderTransmissionIntentListResponseSchema.parse({
-      items: [
-        {
-          intentKey: '1785076954061-kidsnote-browser',
-          preparedAt: '2026-07-26T14:42:38.482Z',
-        },
-      ],
-      hasMore: false,
-    });
-    expect(parsed.items).toHaveLength(1);
-    expect(() => SellpiaUnresolvedOrderTransmissionIntentListResponseSchema.parse({
-      items: [{ intentKey: '', preparedAt: 'nope' }],
-      hasMore: false,
-    })).toThrow();
-  });
-
   it('rejects source bindings inconsistent with their confirmation discriminant', () => {
     const impossibleBindings = [
       {
@@ -274,93 +249,8 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
 });
 
 describe('Sellpia freshness mutation contracts', () => {
-  it('defines strict audited privileged reconciliation contracts', () => {
-    const contracts = freshnessContracts as typeof freshnessContracts & {
-      SellpiaOrderTransmissionIntentReconcileRequestSchema?: {
-        parse(input: unknown): unknown;
-      };
-      SellpiaOrderTransmissionIntentReconcileResponseSchema?: {
-        parse(input: unknown): unknown;
-      };
-    };
-    expect(contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema).toBeDefined();
-    expect(contracts.SellpiaOrderTransmissionIntentReconcileResponseSchema).toBeDefined();
-    if (
-      !contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema
-      || !contracts.SellpiaOrderTransmissionIntentReconcileResponseSchema
-    ) return;
-
-    expect(contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema.parse({
-      intentKey: 'orders-1',
-      outcome: 'submitted',
-      note: 'Sellpia 주문 내역에서 접수 확인',
-    })).toBeTruthy();
-    expect(() => contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema!.parse({
-      intentKey: 'orders-1',
-      outcome: 'not_submitted',
-      note: ' ',
-    })).toThrow();
-    expect(() => contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema!.parse({
-      intentKey: 'orders-1',
-      outcome: 'not_submitted',
-      note: '미접수 확인',
-      reconciledBy: RUN_ID,
-    })).toThrow();
-    expect(contracts.SellpiaOrderTransmissionIntentReconcileResponseSchema.parse({
-      intentKey: 'orders-1',
-      outcome: 'submitted',
-      status: 'finalized',
-      finalizedGeneration: '5',
-      reconciledBy: RUN_ID,
-      reconciledAt: '2026-07-15T00:05:00.000Z',
-      note: 'Sellpia 주문 내역에서 접수 확인',
-      state: createFreshnessView(),
-    })).toBeTruthy();
-    expect(contracts.SellpiaOrderTransmissionIntentReconcileResponseSchema.parse({
-      intentKey: 'orders-1',
-      outcome: 'not_submitted',
-      status: 'aborted',
-      finalizedGeneration: null,
-      reconciledBy: RUN_ID,
-      reconciledAt: '2026-07-15T00:05:00.000Z',
-      note: 'Sellpia 주문 내역에서 미접수 확인',
-      state: createFreshnessView(),
-    })).toBeTruthy();
-  });
-
-  it('defines strict idempotent order-transmission intent contracts', () => {
-    expect(SellpiaOrderTransmissionIntentPrepareRequestSchema.parse({
-      intentKey: '1721000000000-kidkids-browser',
-    })).toEqual({ intentKey: '1721000000000-kidkids-browser' });
-    expect(() => SellpiaOrderTransmissionIntentPrepareRequestSchema.parse({
-      intentKey: 'orders-1',
-      organizationId: RUN_ID,
-    })).toThrow();
-    expect(SellpiaOrderTransmissionIntentPrepareResponseSchema.parse({
-      intentKey: 'orders-1',
-      disposition: 'prepared',
-      state: createFreshnessView(),
-    })).toBeTruthy();
-    expect(SellpiaOrderTransmissionIntentFinalizeResponseSchema.parse({
-      intentKey: 'orders-1',
-      status: 'finalized',
-      finalizedGeneration: '5',
-      state: {
-        ...createFreshnessView(),
-        status: 'refresh_required',
-        requestedGeneration: '5',
-      },
-    })).toBeTruthy();
-    expect(SellpiaOrderTransmissionIntentAbortResponseSchema.parse({
-      intentKey: 'orders-1',
-      status: 'aborted',
-      state: createFreshnessView(),
-    })).toBeTruthy();
-  });
-
   it('accepts only public refresh reasons and no organization or actor identity', () => {
     for (const reason of [
-      'order_transmission_requested',
       'manual_request',
       'retry',
     ] as const) {
@@ -368,6 +258,9 @@ describe('Sellpia freshness mutation contracts', () => {
     }
     expect(() => SellpiaInventoryRefreshRequestSchema.parse({
       reason: 'ttl_expired',
+    })).toThrow();
+    expect(() => SellpiaInventoryRefreshRequestSchema.parse({
+      reason: 'order_transmission_requested',
     })).toThrow();
     expect(() => SellpiaInventoryRefreshRequestSchema.parse({
       reason: 'manual_request',

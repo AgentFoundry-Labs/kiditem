@@ -79,11 +79,23 @@ describe("<RocketInlineRecipeEditor />", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("랜덤 · 현재고 168")).toBeInTheDocument();
     expect(apiClient.getParsed).toHaveBeenCalledWith(
-      "/api/products/recipe-component-candidates?search=9633-1&limit=20",
+      "/api/products/recipe-component-candidates?search=9633-1&limit=20&stockStatus=in_stock",
       expect.anything(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "9633-1 재고 추가" }));
+    const includeOutOfStock = screen.getByRole("checkbox", {
+      name: "품절상품 포함",
+    });
+    expect(includeOutOfStock).not.toBeChecked();
+    fireEvent.click(includeOutOfStock);
+    await waitFor(() =>
+      expect(apiClient.getParsed).toHaveBeenLastCalledWith(
+        "/api/products/recipe-component-candidates?search=9633-1&limit=20&stockStatus=all",
+        expect.anything(),
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "9633-1 재고 추가" }));
     expect(
       screen.getByRole("spinbutton", { name: "9633-1 구성 수량" }),
     ).toHaveValue(1);

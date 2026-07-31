@@ -3,6 +3,7 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { TrendExtensionError } from './1688-trend-extension';
 
 // 틱톡 크리에이티브 센터 수집은 봇/리전 차단이라 로그인된 Chrome 확장으로만 실행한다.
@@ -89,10 +90,12 @@ export async function collectTiktokCcFromChrome(
     );
   }
 
+  const runId = await issueBrowserCollectionRunId();
   const started = await sendToExtension<TiktokCcExtensionResponse>(
     extensionId,
     {
       action: 'startTiktokCcCollection',
+      runId,
       ...(region ? { region } : {}),
     },
     EXTENSION_START_TIMEOUT_MS,

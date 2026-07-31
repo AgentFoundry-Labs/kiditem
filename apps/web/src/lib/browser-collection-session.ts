@@ -3,12 +3,14 @@
 import {
   BrowserCollectionCommandSchema,
   BrowserCollectionRunIdSchema,
+  BrowserCollectionRunIssueResponseSchema,
   BrowserCollectionSessionViewSchema,
   type BrowserCollectionCommand,
   type BrowserCollectionProducer,
   type BrowserCollectionSessionView,
 } from '@kiditem/shared/browser-collection-session';
 import type { QueryClient } from '@tanstack/react-query';
+import { apiClient } from './api-client';
 import {
   detectBrowserCollectionExtensionIds,
   sendToExtension,
@@ -19,7 +21,6 @@ import {
   updateOperationAlert,
 } from './operation-alerts';
 import { queryKeys } from './query-keys';
-import { createSecureRandomUuid } from './secure-random-uuid';
 
 type BrowserCollectionInputIdentity =
   BrowserCollectionSessionView['inputIdentity'];
@@ -33,6 +34,14 @@ const BROWSER_COLLECTION_SOURCE_TYPE = 'browser_collection_session';
 
 export const browserCollectionOperationKey = (runId: string) =>
   `browser-collection:${runId}`;
+
+export async function issueBrowserCollectionRunId(
+  existingRunId?: string | null,
+): Promise<string> {
+  if (existingRunId) return BrowserCollectionRunIdSchema.parse(existingRunId);
+  const response = await apiClient.post<unknown>('/api/browser-collection-runs', {});
+  return BrowserCollectionRunIssueResponseSchema.parse(response).runId;
+}
 
 export function browserCollectionRunIdFromOperationKey(
   operationKey: string | null | undefined,
@@ -191,7 +200,7 @@ export async function recordMissingBrowserCollection(
   inputIdentity: BrowserCollectionInputIdentity,
   existingRunId?: string,
 ): Promise<{ runId: string }> {
-  const runId = existingRunId ?? createSecureRandomUuid();
+  const runId = await issueBrowserCollectionRunId(existingRunId);
   const now = Date.now();
   BrowserCollectionSessionViewSchema.parse({
     runId,

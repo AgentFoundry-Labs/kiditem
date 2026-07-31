@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma, type SellpiaInventoryState } from '@prisma/client';
 import {
-  SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT,
   SellpiaInventoryCollectionFailureCodeSchema,
   SellpiaInventoryRefreshReasonSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
@@ -16,7 +15,6 @@ import type {
 } from '../../../application/port/out/repository/sellpia-inventory-freshness.repository.port';
 import type {
   SellpiaInventoryFreshnessState,
-  SellpiaUnresolvedOrderTransmissionIntent,
 } from '../../../domain/policy/sellpia-inventory-freshness.policy';
 import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
@@ -36,9 +34,7 @@ implements SellpiaInventoryFreshnessRepositoryPort {
         where: { organizationId },
       });
       if (!state) return null;
-      const unresolvedOrderTransmissionIntents =
-        await findUnresolvedOrderTransmissionIntents(tx, organizationId);
-      return mapState(state, unresolvedOrderTransmissionIntents);
+      return mapState(state);
     }, {
       ...TRANSACTION_OPTIONS,
       isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
@@ -81,13 +77,10 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
   ) {}
 
   async getState(): Promise<SellpiaInventoryFreshnessState> {
-    const [state, unresolvedOrderTransmissionIntents] = await Promise.all([
-      this.tx.sellpiaInventoryState.findUniqueOrThrow({
-        where: { organizationId: this.organizationId },
-      }),
-      findUnresolvedOrderTransmissionIntents(this.tx, this.organizationId),
-    ]);
-    return mapState(state, unresolvedOrderTransmissionIntents);
+    const state = await this.tx.sellpiaInventoryState.findUniqueOrThrow({
+      where: { organizationId: this.organizationId },
+    });
+    return mapState(state);
   }
 
   async compareAndSetState(input: {
@@ -102,240 +95,6 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
       throw new ConflictException('Sellpia inventory freshness fence was lost');
     }
     return this.getState();
-  }
-
-  async prepareOrderTransmissionIntent(input: {
-    intentKey: string;
-    userId: string;
-    preparedAt: Date;
-  }): Promise<'prepared' | 'already_prepared' | 'already_finalized' | 'not_owned'> {
-    const existing = await this.tx.sellpiaOrderTransmissionIntent.findFirst({
-      where: {
-        organizationId: this.organizationId,
-        intentKey: input.intentKey,
-      },
-      select: { status: true, createdBy: true },
-    });
-    if (existing && existing.createdBy !== input.userId) return 'not_owned';
-    if (existing?.status === 'prepared') return 'already_prepared';
-    if (existing?.status === 'finalized') return 'already_finalized';
-    if (existing?.status === 'aborted') {
-      const reopened = await this.tx.sellpiaOrderTransmissionIntent.updateMany({
-        where: {
-          organizationId: this.organizationId,
-          intentKey: input.intentKey,
-          status: 'aborted',
-        },
-        data: {
-          status: 'prepared',
-          preparedAt: input.preparedAt,
-          finalizedAt: null,
-          abortedAt: null,
-          finalizedGeneration: null,
-        },
-      });
-      if (reopened.count !== 1) {
-        throw new ConflictException('Sellpia order transmission intent reopen lost its fence');
-      }
-      return 'prepared';
-    }
-    if (existing) {
-      throw new ConflictException('Sellpia order transmission intent has an invalid status');
-    }
-
-    await this.tx.sellpiaOrderTransmissionIntent.create({
-      data: {
-        organizationId: this.organizationId,
-        intentKey: input.intentKey,
-        status: 'prepared',
-        createdBy: input.userId,
-        preparedAt: input.preparedAt,
-      },
-    });
-    return 'prepared';
-  }
-
-  async findOrderTransmissionIntent(intentKey: string, userId: string): Promise<{
-    status: 'prepared' | 'finalized' | 'aborted';
-    finalizedGeneration: bigint | null;
-  } | null> {
-    const intent = await this.tx.sellpiaOrderTransmissionIntent.findFirst({
-      where: {
-        organizationId: this.organizationId,
-        intentKey,
-        createdBy: userId,
-      },
-      select: { status: true, finalizedGeneration: true },
-    });
-    if (!intent) return null;
-    if (
-      intent.status !== 'prepared'
-      && intent.status !== 'finalized'
-      && intent.status !== 'aborted'
-    ) {
-      throw new ConflictException('Sellpia order transmission intent has an invalid status');
-    }
-    return {
-      status: intent.status,
-      finalizedGeneration: intent.finalizedGeneration,
-    };
-  }
-
-  async finalizeOrderTransmissionIntent(input: {
-    intentKey: string;
-    userId: string;
-    finalizedGeneration: bigint;
-    finalizedAt: Date;
-  }): Promise<void> {
-    const finalized = await this.tx.sellpiaOrderTransmissionIntent.updateMany({
-      where: {
-        organizationId: this.organizationId,
-        intentKey: input.intentKey,
-        createdBy: input.userId,
-        status: 'prepared',
-      },
-      data: {
-        status: 'finalized',
-        finalizedGeneration: input.finalizedGeneration,
-        finalizedAt: input.finalizedAt,
-        abortedAt: null,
-      },
-    });
-    if (finalized.count !== 1) {
-      throw new ConflictException('Sellpia order transmission intent finalize lost its fence');
-    }
-  }
-
-  async abortOrderTransmissionIntent(input: {
-    intentKey: string;
-    userId: string;
-    abortedAt: Date;
-  }): Promise<void> {
-    const aborted = await this.tx.sellpiaOrderTransmissionIntent.updateMany({
-      where: {
-        organizationId: this.organizationId,
-        intentKey: input.intentKey,
-        createdBy: input.userId,
-        status: 'prepared',
-      },
-      data: {
-        status: 'aborted',
-        abortedAt: input.abortedAt,
-      },
-    });
-    if (aborted.count !== 1) {
-      throw new ConflictException('Sellpia order transmission intent abort lost its fence');
-    }
-  }
-
-  async findOrderTransmissionIntentForReconciliation(intentKey: string): Promise<{
-    status: 'prepared' | 'finalized' | 'aborted';
-    finalizedGeneration: bigint | null;
-    latestReconciliation: {
-      reconciledBy: string;
-      reconciledAt: Date;
-      note: string;
-      outcome: 'submitted' | 'not_submitted';
-    } | null;
-  } | null> {
-    const intent = await this.tx.sellpiaOrderTransmissionIntent.findFirst({
-      where: {
-        organizationId: this.organizationId,
-        intentKey,
-      },
-      select: {
-        status: true,
-        finalizedGeneration: true,
-        reconciliations: {
-          orderBy: [{ reconciledAt: 'desc' }, { id: 'desc' }],
-          take: 1,
-          select: {
-            reconciledBy: true,
-            reconciledAt: true,
-            note: true,
-            outcome: true,
-          },
-        },
-      },
-    });
-    if (!intent) return null;
-    if (!isIntentStatus(intent.status)) {
-      throw new ConflictException('Sellpia order transmission intent has an invalid status');
-    }
-    const reconciliation = intent.reconciliations[0] ?? null;
-    let latestReconciliation = null;
-    if (reconciliation) {
-      const outcome = reconciliation.outcome;
-      if (!isReconciliationOutcome(outcome)) {
-        throw new ConflictException('Sellpia order transmission reconciliation has an invalid outcome');
-      }
-      latestReconciliation = {
-        reconciledBy: reconciliation.reconciledBy,
-        reconciledAt: reconciliation.reconciledAt,
-        note: reconciliation.note,
-        outcome,
-      };
-    }
-    return {
-      status: intent.status,
-      finalizedGeneration: intent.finalizedGeneration,
-      latestReconciliation,
-    };
-  }
-
-  async reconcileOrderTransmissionIntent(input: {
-    intentKey: string;
-    userId: string;
-    reconciledAt: Date;
-    note: string;
-    outcome: 'submitted' | 'not_submitted';
-    finalizedGeneration: bigint | null;
-  }): Promise<void> {
-    const intent = await this.tx.sellpiaOrderTransmissionIntent.findFirstOrThrow({
-      where: {
-        organizationId: this.organizationId,
-        intentKey: input.intentKey,
-        status: input.outcome === 'not_submitted'
-          ? { in: ['prepared', 'finalized'] }
-          : 'prepared',
-      },
-      select: { id: true },
-    });
-    const resolved = await this.tx.sellpiaOrderTransmissionIntent.updateMany({
-      where: {
-        id: intent.id,
-        organizationId: this.organizationId,
-        status: input.outcome === 'not_submitted'
-          ? { in: ['prepared', 'finalized'] }
-          : 'prepared',
-      },
-      data: input.outcome === 'submitted'
-        ? {
-            status: 'finalized',
-            finalizedGeneration: input.finalizedGeneration,
-            finalizedAt: input.reconciledAt,
-            abortedAt: null,
-          }
-        : {
-            status: 'aborted',
-            finalizedGeneration: null,
-            finalizedAt: null,
-            abortedAt: input.reconciledAt,
-          },
-    });
-    if (resolved.count !== 1) {
-      throw new ConflictException('Sellpia order transmission reconcile lost its fence');
-    }
-    await this.tx.sellpiaOrderTransmissionIntentReconciliation.create({
-      data: {
-        organizationId: this.organizationId,
-        intentId: intent.id,
-        reconciledBy: input.userId,
-        reconciledAt: input.reconciledAt,
-        note: input.note,
-        outcome: input.outcome,
-      },
-    });
   }
 
   async hasFailedAttempt(input: {
@@ -493,44 +252,13 @@ function hasOwn(object: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
-function isIntentStatus(
-  value: string,
-): value is 'prepared' | 'finalized' | 'aborted' {
-  return value === 'prepared' || value === 'finalized' || value === 'aborted';
-}
-
-function isReconciliationOutcome(
-  value: string,
-): value is 'submitted' | 'not_submitted' {
-  return value === 'submitted' || value === 'not_submitted';
-}
-
 function toCreateData(
   state: SellpiaInventoryFreshnessState,
 ): Prisma.SellpiaInventoryStateUncheckedCreateInput {
-  const { unresolvedOrderTransmissionIntents, ...persisted } = state;
-  void unresolvedOrderTransmissionIntents;
-  return persisted;
+  return state;
 }
 
-// Capped at the public view limit: this is read on every freshness poll, and a
-// runaway backlog must not turn the state read into an unbounded scan.
-function findUnresolvedOrderTransmissionIntents(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<SellpiaUnresolvedOrderTransmissionIntent[]> {
-  return tx.sellpiaOrderTransmissionIntent.findMany({
-    where: { organizationId, status: 'prepared' },
-    select: { intentKey: true, preparedAt: true },
-    orderBy: [{ preparedAt: 'asc' }, { intentKey: 'asc' }],
-    take: SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT + 1,
-  });
-}
-
-function mapState(
-  row: SellpiaInventoryState,
-  unresolvedOrderTransmissionIntents: SellpiaUnresolvedOrderTransmissionIntent[],
-): SellpiaInventoryFreshnessState {
+function mapState(row: SellpiaInventoryState): SellpiaInventoryFreshnessState {
   return {
     organizationId: row.organizationId,
     sourceOrigin: row.sourceOrigin,
@@ -557,7 +285,6 @@ function mapState(
       : SellpiaInventoryCollectionFailureCodeSchema.parse(row.lastErrorCode),
     lastErrorMessage: row.lastErrorMessage,
     freshnessFence: row.freshnessFence,
-    unresolvedOrderTransmissionIntents,
   };
 }
 

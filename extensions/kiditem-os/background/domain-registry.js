@@ -5,6 +5,7 @@
   // 세 도메인이 같은 `kiditem_collection_sessions` 저장소를 공유하므로, 세션의
   // `producer` 접두사가 그 세션을 만든 도메인을 가리키는 유일한 식별자다.
   const byProducerPrefix = new Map();
+  const byExternalPortName = new Map();
   const capabilityMaps = [];
 
   function register(domain) {
@@ -14,6 +15,15 @@
         throw new Error(`Duplicate collection producer prefix: ${prefix}`);
       }
       byProducerPrefix.set(prefix, domain);
+    }
+    for (const [portName, handler] of Object.entries(domain.externalPorts || {})) {
+      if (byExternalPortName.has(portName)) {
+        throw new Error(`Duplicate external port name: ${portName}`);
+      }
+      if (typeof handler !== "function") {
+        throw new Error(`Invalid external port handler: ${portName}`);
+      }
+      byExternalPortName.set(portName, handler);
     }
   }
 
@@ -28,8 +38,14 @@
     return byProducerPrefix.get(producer.split(".")[0]) || null;
   }
 
+  function forExternalPort(portName) {
+    if (typeof portName !== "string") return null;
+    return byExternalPortName.get(portName) || null;
+  }
+
   function reset() {
     byProducerPrefix.clear();
+    byExternalPortName.clear();
     capabilityMaps.length = 0;
   }
 
@@ -37,6 +53,7 @@
     register,
     capabilities,
     forProducer,
+    forExternalPort,
     reset,
   });
 })(globalThis);

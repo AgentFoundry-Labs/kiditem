@@ -11,11 +11,13 @@ const ordersEnvironmentContext = KidItemEnvironmentContext.create({
   requiresAuth: false,
   legacyStorageKeys: ["apiBase", "kiditem_auth_token"],
 });
+const SELLPIA_MANUAL_MATCH_PORT_NAME = "kiditem-sellpia-manual-match-v1";
 const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
   producer: "orders.mall",
   classification: "background_preferred",
   restartStrategy: "web",
+  requireRunId: true,
   normalizeFailure(provider, value) {
     return KidItemOrderCollectionFailure.createEvidence(provider, value);
   },
@@ -43,6 +45,25 @@ const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
   },
 });
 const sellpiaInventory = KidItemSellpiaInventory.create({ chrome });
+const sellpiaManualMatchLifecycle = KidItemOrderCollectionLifecycle.create({
+  sessions: collectionSessions,
+  producer: "orders.sellpia_manual_match",
+  classification: "background_preferred",
+  restartStrategy: "extension",
+  requireRunId: true,
+  forceDeferredTerminal: true,
+  deferredLabel: "Sellpia manual-match evidence collected · import in progress",
+  failedLabel: "Sellpia manual-match evidence import failed",
+  succeededLabel: "Sellpia manual-match evidence import completed",
+  classifyFailure(value) {
+    if (value?.errorCode === "sellpia_manual_match_login_required") {
+      return "marketplace_login";
+    }
+    if (value?.errorCode === "sellpia_manual_match_timeout") return "background_timeout";
+    return null;
+  },
+});
+const sellpiaManualMatch = KidItemSellpiaManualMatch.create({ chrome });
 const sellpiaPostProcessing = KidItemSellpiaPostProcessing;
 const sellpiaInvoiceTargets = sellpiaPostProcessing.createTargetStore({
   chrome,
@@ -60,9 +81,65 @@ const rocketPoCollection = KidItemRocketPoCollection.create({
   withTimeout,
 });
 
+function runSellpiaManualMatchCollection(message) {
+  return sellpiaManualMatchLifecycle.run(
+    message,
+    {
+      sourceOrigin: "https://kiditem.sellpia.com",
+      sourcePath: "/product_manual_match.html",
+      targetCount: Array.isArray(message.targetCodes) ? message.targetCodes.length : -1,
+    },
+    (collection) => sellpiaManualMatch.collect(collection, message.targetCodes),
+  );
+}
+
+function handleSellpiaManualMatchPort(port, senderEnvironment) {
+  let started = false;
+  const finish = (result) => {
+    try {
+      port.postMessage(result);
+    } catch {
+      // The web page may have closed while a read-only collection was finishing.
+    }
+    try {
+      port.disconnect();
+    } catch {
+      // The terminal message and the remote disconnect may race.
+    }
+  };
+  port.onMessage.addListener((message) => {
+    if (message?.action === "keepAlive") return;
+    if (started) return;
+    started = true;
+    if (message?.action !== "collectSellpiaManualMatch") {
+      finish({
+        success: false,
+        runId: typeof message?.runId === "string" ? message.runId : "",
+        errorCode: "sellpia_manual_match_network_failed",
+        error: "Unsupported Sellpia manual-match request.",
+      });
+      return;
+    }
+    const environmentId = senderEnvironment.environmentId;
+    const scopedMessage = { ...message, environmentId };
+    ordersEnvironmentContext.connect(environmentId).catch(() => undefined);
+    Promise.resolve(runSellpiaManualMatchCollection(scopedMessage))
+      .then(finish)
+      .catch((error) => finish({
+        success: false,
+        runId: scopedMessage.runId,
+        errorCode: "sellpia_manual_match_network_failed",
+        error: error?.message || "Sellpia manual-match collection failed.",
+      }));
+  });
+}
+
 async function lifecycleForRun(runId, environmentId) {
   const session = await collectionSessions.getOwned(runId, environmentId);
   if (session?.producer === "inventory.sellpia") return sellpiaInventoryLifecycle;
+  if (session?.producer === "orders.sellpia_manual_match") {
+    return sellpiaManualMatchLifecycle;
+  }
   if (session?.producer === "orders.mall") return orderCollectionLifecycle;
   return null;
 }
@@ -78,7 +155,6 @@ async function finalizeOrdersCollectionSession(runId, status, message, environme
 }
 
 const ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
-const ICECREAM_BATCH_REGIST_URL = "https://po.i-screammall.co.kr/delivery/sendFinishHandling.sendFinishBatchRegistPopup.do";
 const ICECREAM_MALL_TAB_MATCHES = [
   "https://*.i-screammall.co.kr/*",
   "https://*.i-screammedia.com/*",
@@ -227,6 +303,10 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       },
       (collection) => sellpiaInventory.collect(collection),
     ));
+  }
+
+  if (msg?.action === "collectSellpiaManualMatch") {
+    return respond(runSellpiaManualMatchCollection(msg));
   }
 
   if (msg?.action === "collectSellpiaDeliTracking") {
@@ -538,19 +618,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       KidItemOrderCollectionLifecycle.createIdentity("onch", msg.date),
       (collection) => collectOnchannelOrders(msg.date, collection),
     ));
-  }
-
-  if (msg?.action === "uploadIcecreamTracking") {
-    uploadIcecreamTracking({
-      fileBase64: msg.fileBase64,
-      fileName: msg.fileName,
-      credentials: msg.credentials,
-    })
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "아이스크림몰 송장 업로드 실패" });
-      });
-    return true;
   }
 
   if (msg?.action === "uploadOnchTracking") {
@@ -5953,125 +6020,6 @@ async function scrapeKakaoOrders(dateFilter) {
   }
 }
 
-async function uploadIcecreamTracking(options = {}) {
-  const fileBase64 = String(options.fileBase64 || "");
-  const fileName = String(options.fileName || "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0_\ucd9c\uace0\uc644\ub8cc.xlsx");
-  if (!fileBase64) return { success: false, error: "\uc5c5\ub85c\ub4dc\ud560 \uc1a1\uc7a5 \ud30c\uc77c\uc774 \uc5c6\uc2b5\ub2c8\ub2e4." };
-
-  const { tab, created } = await findOrCreateIcecreamMallTab();
-  if (!tab?.id) return { success: false, error: "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \ud0ed\uc744 \uc5f4 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4." };
-  // \ud30c\uad34\uc801(\ucd9c\uace0\uc644\ub8cc \ud655\uc815) \u2192 \uc0ac\uc6a9\uc790 \ud654\uba74\uc744 \uc55e\uc73c\ub85c.
-  await interactiveTabs.focusTab(tab.id, INTERACTIVE_TAB_REASONS.TRACKING_MUTATION);
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    const login = await withTimeout(
-      ensureIcecreamMallLogin(tab.id, options.credentials),
-      35000,
-      "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \ub85c\uadf8\uc778 \uc790\ub3d9 \uc785\ub825 \uc2dc\uac04\uc774 \ucd08\uacfc\ub418\uc5c8\uc2b5\ub2c8\ub2e4.",
-    );
-    if (!login.success) {
-      keepOpen = true;
-      return { success: false, pendingLogin: login.pendingLogin ?? true, error: login.error || "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \ub85c\uadf8\uc778\uc774 \ud544\uc694\ud569\ub2c8\ub2e4." };
-    }
-
-    // \ucd9c\uace0\uc644\ub8cc \uc77c\uad04\ub4f1\ub85d \ud31d\uc5c5 \ubdf0\ub97c \ud0ed\uc5d0 \uc9c1\uc811 \uc5f4\uc5b4 \ud31d\uc5c5 \ucc28\ub2e8\uc744 \ud53c\ud55c\ub2e4.
-    // \ud30c\uc77c\uc744 \ub123\uc73c\uba74 change \uc774\ubca4\ud2b8(onExcelLoad)\ub85c \uc790\ub3d9 \uc5c5\ub85c\ub4dc\ub418\uba70 \ubcc4\ub3c4 \ub4f1\ub85d \ubc84\ud2bc\uc740 \uc5c6\ub2e4.
-    await withTimeout(
-      new Promise((resolve) => chrome.tabs.update(tab.id, { url: ICECREAM_BATCH_REGIST_URL }, () => resolve())),
-      15000,
-      "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \uc77c\uad04\ub4f1\ub85d \ud654\uba74 \uc774\ub3d9 \uc2dc\uac04\uc774 \ucd08\uacfc\ub418\uc5c8\uc2b5\ub2c8\ub2e4.",
-    );
-    await waitForTabReady(tab.id);
-
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN",
-        func: scrapeIcecreamUpload,
-        args: [fileBase64, fileName],
-      }),
-      60000,
-      "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \uc1a1\uc7a5 \uc5c5\ub85c\ub4dc \uc2dc\uac04\uc774 \ucd08\uacfc\ub418\uc5c8\uc2b5\ub2c8\ub2e4.",
-    );
-    const result = injected?.[0]?.result;
-    if (!result) {
-      keepOpen = true;
-      return { success: false, error: "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \uc77c\uad04\ub4f1\ub85d \ud654\uba74\uc5d0 \uc811\uadfc\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4." };
-    }
-    if (!result.success) keepOpen = true;
-    return result;
-  } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0"); }
-    keepOpen = true;
-    return mallGenericErrorResult("\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0", e);
-  } finally {
-    // \uc5c5\ub85c\ub4dc \uacb0\uacfc\ub97c \uc0ac\ub78c\uc774 \ud655\uc778\ud574\uc57c \ud558\ubbc0\ub85c \uc131\uacf5\ud574\ub3c4 \ubc14\ub85c \ub2eb\uc9c0 \uc54a\ub294\ub2e4.
-    void keepOpen;
-  }
-}
-
-// \ucd9c\uace0\uc644\ub8cc \uc77c\uad04\ub4f1\ub85d \ud31d\uc5c5 \ubdf0(\ud0ed\uc73c\ub85c \uc9c1\uc811 \uc5f4\ub9bc)\uc5d0\uc11c \ud30c\uc77c\uce78(#sendFinishBatchFile)\uc5d0 xlsx \uc8fc\uc785.
-// change \uc774\ubca4\ud2b8\ub85c \ud398\uc774\uc9c0 JS(onExcelLoad)\uac00 saveSendFinishBatchRegister.do \ub85c \uc790\ub3d9 \uc5c5\ub85c\ub4dc\ud55c\ub2e4.
-// 아이스크림몰 배치등록 same-origin 컨텍스트에서 실행. 팝업 JS(onExcelLoad)가 직접 URL 로
-// 열면 초기화되지 않으므로, 그 함수가 만드는 요청을 그대로 복제해 직접 POST 한다.
-// saveSendFinishBatchRegister.do 는 excelFile + excelColumns(deliNo,deliSeq,hdcCd,invNo) + excelType 을 받는다.
-async function scrapeIcecreamUpload(fileBase64, fileName) {
-  try {
-    if (/login/i.test(location.href) || document.querySelector('input[type="password"]')) {
-      return { success: false, error: "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \ub85c\uadf8\uc778\uc774 \ud544\uc694\ud569\ub2c8\ub2e4." };
-    }
-    const bin = atob(fileBase64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-    const file = new File([bytes], fileName, {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
-
-    const fd = new FormData();
-    fd.append("excelFile", file);
-    fd.append("excelColumns", "deliNo, deliSeq, hdcCd, invNo");
-    fd.append("excelType", "com.x2bee.bo.app.dto.request.delivery.DeliveryProcessRequest");
-
-    const res = await fetch("/delivery/sendFinishHandling.saveSendFinishBatchRegister.do", {
-      method: "POST",
-      credentials: "include",
-      body: fd,
-    });
-    if (!res.ok) {
-      return { success: false, error: "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \uc5c5\ub85c\ub4dc \uc751\ub2f5 \uc624\ub958 " + res.status };
-    }
-    const text = await res.text();
-    if (text.trim().charAt(0) === "<") {
-      return { success: false, error: "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \ub85c\uadf8\uc778\uc774 \ub9cc\ub8cc\ub418\uc5c8\uc2b5\ub2c8\ub2e4. \ub2e4\uc2dc \ub85c\uadf8\uc778\ud574\uc8fc\uc138\uc694." };
-    }
-    let data;
-    try { data = JSON.parse(text); } catch (e) {
-      return { success: false, error: "\uc544\uc774\uc2a4\ud06c\ub9bc\ubab0 \uc751\ub2f5\uc744 \ud574\uc11d\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4." };
-    }
-    const total = Number(data.totalCount || 0);
-    const payloads = Array.isArray(data.payloads) ? data.payloads : [];
-    const failures = payloads.filter((v) => v && v.errReason);
-    const failCount = failures.length;
-    const okCount = total - failCount;
-    return {
-      success: failCount === 0 && total > 0,
-      submitted: true,
-      total, okCount, failCount,
-      failures: failures.slice(0, 10).map((v) => ({
-        deliNo: v.deliNo, ordNo: v.ordNo, reason: v.errReason,
-      })),
-      message: total === 0
-        ? "\uc5c5\ub85c\ub4dc\ub41c \ud589\uc774 \uc5c6\uc2b5\ub2c8\ub2e4. \ud30c\uc77c \ub0b4\uc6a9\uc744 \ud655\uc778\ud558\uc138\uc694."
-        : failCount === 0
-          ? ("\ucd9c\uace0\uc644\ub8cc " + okCount + "\uac74 \ub4f1\ub85d \uc644\ub8cc.")
-          : ("\ucd9c\uace0\uc644\ub8cc " + okCount + "\uac74 \uc131\uacf5 / " + failCount + "\uac74 \uc2e4\ud328."),
-    };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-}
-
 async function uploadOnchTracking(options = {}) {
   const rows = Array.isArray(options.rows) ? options.rows : [];
   if (rows.length === 0) return { success: false, error: "온채널 송장이 없습니다." };
@@ -6430,6 +6378,10 @@ function normalizeSellpiaSalesOrganizationId(value) {
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
   producerPrefixes: ["orders", "inventory"],
+  externalPorts: {
+    [SELLPIA_MANUAL_MATCH_PORT_NAME]: (port, senderEnvironment) =>
+      handleSellpiaManualMatchPort(port, senderEnvironment),
+  },
   capabilities: {
     orderCollectionIcecreamMall: true,
     coupangShipmentDownloads: true,
@@ -6448,6 +6400,8 @@ KidItemDomains.register({
     collectSellpiaSaleSummaryAuthoritativeV1: true,
     collectSellpiaProductProfit: true,
     collectSellpiaInventoryJsonV1: true,
+    collectSellpiaManualMatchV1: true,
+    collectSellpiaManualMatchPortV1: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     kiditemEnvironmentProfilesV1: true,
@@ -6456,7 +6410,6 @@ KidItemDomains.register({
     uploadDomeggookTracking: true,
     uploadOnchTracking: true,
     uploadKidkidsTracking: true,
-    uploadIcecreamTracking: true,
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,
   },

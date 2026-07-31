@@ -24,7 +24,7 @@ describe('ChannelRecipeAutomationService', () => {
       topology('00000000-0000-4000-8000-000000000502', productA, [[optionA, variantA], [optionC, variantA]]),
     ]));
     suggestions.suggestBatch.mockResolvedValue([
-      suggestion(optionB, variantB, productB, 'quantity_review', 'operator_review'),
+      suggestion(optionB, variantB, productB, 'quantity_review', 'quantity_review'),
       suggestion(optionA, variantA, productA, 'unique_code', 'auto_apply', 2),
     ]);
 
@@ -34,18 +34,20 @@ describe('ChannelRecipeAutomationService', () => {
     expect(preview.summary).toEqual({
       products: 2,
       autoApplyProducts: 1,
-      operatorReviewProducts: 1,
+      quantityReviewProducts: 1,
+      operatorReviewProducts: 0,
       blockedProducts: 0,
       alreadyConfiguredProducts: 0,
       variants: 2,
       affectedOptions: 3,
       autoApply: 1,
-      operatorReview: 1,
+      quantityReview: 1,
+      operatorReview: 0,
       blocked: 0,
       alreadyConfigured: 0,
     });
     expect(preview.productGroups).toEqual([
-      expect.objectContaining({ decision: 'operator_review', autoApplyProductVariantIds: [] }),
+      expect.objectContaining({ decision: 'quantity_review', autoApplyProductVariantIds: [] }),
       expect.objectContaining({ decision: 'auto_apply', autoApplyProductVariantIds: [variantA] }),
     ]);
     expect(preview.proposalVersion).toMatch(/^[a-f0-9]{64}$/);
@@ -66,7 +68,7 @@ describe('ChannelRecipeAutomationService', () => {
     ]));
     suggestions.suggestBatch.mockResolvedValue([
       suggestion(optionA, variantA, productA, 'unique_code', 'auto_apply', 2),
-      suggestion(optionB, variantB, productB, 'quantity_review', 'operator_review'),
+      suggestion(optionB, variantB, productB, 'quantity_review', 'quantity_review'),
     ]);
     products.applyIfEmpty.mockResolvedValue({
       appliedProductVariantIds: [variantA],
@@ -172,6 +174,7 @@ describe('ChannelRecipeAutomationService', () => {
       appliedProducts: 1,
       appliedVariants: 1,
       affectedOptions: 1,
+      quantityReviewProducts: 0,
       operatorReviewProducts: 0,
       blockedProducts: 0,
       alreadyConfiguredProducts: 0,

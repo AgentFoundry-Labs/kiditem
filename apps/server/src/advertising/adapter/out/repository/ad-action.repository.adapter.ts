@@ -5,6 +5,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
 import type {
   AdActionQuery,
@@ -16,7 +17,6 @@ import type {
   HydratedAdAction,
   LatestTargetRow,
 } from '../../../application/port/out/repository/ad-action.repository.port';
-import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 
 const OPEN_ACTION_APPROVAL_STATUSES = ['pending_review', 'approved'] as const;
 const OPEN_ACTION_EXECUTE_STATUSES = ['queued', 'running'] as const;
@@ -261,7 +261,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             SELECT pg_advisory_xact_lock(
               hashtext('kiditem_ad_action_pause_keyword'::text),
               hashtext(${organizationId}::text)
-            )
+            )::text AS locked
           `,
         );
 

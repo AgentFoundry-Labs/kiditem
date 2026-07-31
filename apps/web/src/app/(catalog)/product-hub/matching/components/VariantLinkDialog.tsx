@@ -25,6 +25,7 @@ const REASON_LABEL: Record<ChannelMatchCandidateReason, string> = {
   existing_identity: '기존 연결',
   exact_code: '옵션 코드 일치',
   unique_barcode: '바코드 일치',
+  confirmed_manual_match_alias: 'Sellpia 수동매칭 별칭 일치',
   exact_normalized_name: '옵션명 일치',
   ai_suggestion: 'AI 제안',
   manual_search: '검색 결과',

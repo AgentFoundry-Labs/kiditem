@@ -3,6 +3,7 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 
 const EXTENSION_REQUEST_TIMEOUT_MS = 8_000;
 /**
@@ -136,10 +137,12 @@ export async function collect1688TrendsFromChrome(
     );
   }
 
+  const runId = await issueBrowserCollectionRunId();
   const started = await sendToExtension<ExtensionResponse>(
     extensionId,
     {
       action: 'start1688TrendCollection',
+      runId,
       keywords: normalizedKeywords,
       maxResultsPerKeyword: 20,
     },

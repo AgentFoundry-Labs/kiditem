@@ -18,6 +18,12 @@ vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 
+vi.mock('@/lib/browser-collection-session', () => ({
+  issueBrowserCollectionRunId: vi.fn().mockImplementation(
+    async (runId?: string) => runId ?? '11111111-1111-4111-8111-111111111111',
+  ),
+}));
+
 const mockedDetectExtension = vi.mocked(detectSourcingExtensionId);
 const mockedRuntimeAvailable = vi.mocked(isChromeExtensionRuntimeAvailable);
 const mockedSend = vi.mocked(sendToExtension);
@@ -92,7 +98,11 @@ describe('live-commerce Chrome extension bridge', () => {
     expect(mockedSend).toHaveBeenNthCalledWith(
       2,
       'sourcing-extension',
-      { action: 'collectLiveCommerceUrl', url: 'https://live.douyin.com/123456' },
+      {
+        action: 'collectLiveCommerceUrl',
+        runId: '11111111-1111-4111-8111-111111111111',
+        url: 'https://live.douyin.com/123456',
+      },
       90_000,
     );
   });

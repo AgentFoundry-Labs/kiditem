@@ -13,6 +13,12 @@ vi.mock("@/lib/extension-bridge", () => ({
   sendToExtension: vi.fn(),
 }));
 
+vi.mock('@/lib/browser-collection-session', () => ({
+  issueBrowserCollectionRunId: vi.fn().mockImplementation(
+    async (runId?: string) => runId ?? '11111111-1111-4111-8111-111111111111',
+  ),
+}));
+
 describe("competitor extension version gate", () => {
   beforeEach(() => {
     vi.mocked(sendToExtension).mockReset();

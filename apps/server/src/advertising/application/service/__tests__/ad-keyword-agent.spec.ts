@@ -169,7 +169,7 @@ describe('AdKeywordAgentService', () => {
   });
 
   it('reports failure without proposing anything when every product fails', async () => {
-    judge.judge.mockRejectedValue(new Error('AD_KEYWORD_RELEVANCE_MODEL is not set'));
+    judge.judge.mockRejectedValue(new Error('AI_TEXT_MODEL is not set'));
 
     const result = await service.run({
       organizationId: 'org-1',

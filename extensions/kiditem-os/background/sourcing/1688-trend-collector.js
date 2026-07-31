@@ -318,7 +318,12 @@
       }
     }
 
-    async function start(keywords, maxResultsPerKeyword, environmentId) {
+    async function start(
+      keywords,
+      maxResultsPerKeyword,
+      environmentId,
+      requestedRunId,
+    ) {
       const activeRun = activeRuns.get(environmentId);
       if (activeRun && activeRun.status.status === "running") {
         return {
@@ -336,7 +341,7 @@
         };
       }
 
-      const runId = createRunId();
+      const runId = requestedRunId || createRunId();
       const startedAt = now().toISOString();
       const run = {
         environmentId,

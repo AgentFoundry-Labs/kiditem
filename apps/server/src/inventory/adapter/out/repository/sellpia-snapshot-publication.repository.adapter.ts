@@ -167,6 +167,8 @@ implements SellpiaSnapshotPublicationRepositoryPort {
       const currentGenerationReason = state.requestedGeneration === generation
         ? state.refreshReason
         : null;
+      // Compatibility for a legacy generation that was claimed before Orders
+      // submission was decoupled. New order uploads cannot create this reason.
       if (currentGenerationReason === 'order_transmission_requested') {
         const hasNewerPendingGeneration = state.requestedGeneration > generation;
         const nextGeneration = hasNewerPendingGeneration

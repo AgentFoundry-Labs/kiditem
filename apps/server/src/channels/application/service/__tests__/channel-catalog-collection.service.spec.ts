@@ -202,9 +202,10 @@ describe('ChannelCatalogCollectionService', () => {
 
   it('exposes the server canonical hash when a resumable snapshot is ready', async () => {
     const repository = makeRepository();
+    const productWithSaleStatus = withSaleStatus(productChunk(0, ['P-1']).payload.products[0]!, '판매중');
     const chunks = [
       discoveryChunk(1, [
-        { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null },
+        { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null, saleStatus: '판매중' },
       ], onePageManifest()),
       productChunk(0, ['P-1']),
       confirmationChunk(onePageManifest()),
@@ -215,16 +216,15 @@ describe('ChannelCatalogCollectionService', () => {
     const result = await service.getStatus(ownedInput());
 
     expect(result.phase).toBe('ready_to_finalize');
-    expect(result.snapshotHash).toBe(hashCoupangCatalogSnapshot([
-      productChunk(0, ['P-1']).payload.products[0],
-    ]));
+    expect(result.snapshotHash).toBe(hashCoupangCatalogSnapshot([productWithSaleStatus]));
   });
 
   it('publishes one complete canonical snapshot with the server-computed hash', async () => {
     const repository = makeRepository();
+    const productWithSaleStatus = withSaleStatus(productChunk(0, ['P-1']).payload.products[0]!, '판매중');
     const chunks = [
       discoveryChunk(1, [
-        { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null },
+        { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null, saleStatus: '판매중' },
       ], onePageManifest()),
       productChunk(0, ['P-1']),
       confirmationChunk(onePageManifest()),
@@ -232,9 +232,7 @@ describe('ChannelCatalogCollectionService', () => {
     repository.getOwnedRunWithChunks.mockResolvedValue(runWithChunks(chunks));
     const publisher = makePublisher();
     const service = new ChannelCatalogCollectionService(repository, publisher);
-    const snapshotHash = hashCoupangCatalogSnapshot([
-      productChunk(0, ['P-1']).payload.products[0],
-    ]);
+    const snapshotHash = hashCoupangCatalogSnapshot([productWithSaleStatus]);
 
     await service.finalize({
       ...ownedInput(),
@@ -247,7 +245,7 @@ describe('ChannelCatalogCollectionService', () => {
       channelAccountId: ACCOUNT_ID,
       collectionRunId: RUN_ID,
       snapshotHash,
-      products: [productChunk(0, ['P-1']).payload.products[0]],
+      products: [productWithSaleStatus],
     }));
   });
 });
@@ -336,10 +334,17 @@ function discoveryPayload(
     externalProductId: string;
     registeredName: string | null;
     primaryImageUrl: string | null;
+    saleStatus?: string | null;
   }>,
   manifest = twoPageManifest(),
 ) {
-  return { version: 1 as const, kind: 'discovery_page' as const, page, manifest, items };
+  return {
+    version: 1 as const,
+    kind: 'discovery_page' as const,
+    page,
+    manifest,
+    items: items.map((item) => ({ ...item, saleStatus: item.saleStatus ?? null })),
+  };
 }
 
 function discoveryChunk(
@@ -422,5 +427,21 @@ function confirmationChunk(manifest = onePageManifest()) {
     },
     publishedAt: null,
     publicationJson: null,
+  };
+}
+
+function withSaleStatus(
+  product: ReturnType<typeof productChunk>['payload']['products'][number],
+  saleStatus: string | null,
+) {
+  return {
+    ...product,
+    product: {
+      ...product.product,
+      raw: {
+        ...product.product.raw,
+        saleStatus,
+      },
+    },
   };
 }

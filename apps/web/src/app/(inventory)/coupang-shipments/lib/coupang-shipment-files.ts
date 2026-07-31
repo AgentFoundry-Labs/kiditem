@@ -1,5 +1,7 @@
 'use client';
 
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+
 export type CoupangShipmentFileKind = 'label' | 'statement';
 
 export interface CoupangShipmentFileDraft {
@@ -70,7 +72,7 @@ const FILE_NAME_DATE_PATTERNS = [
 export function classifyCoupangShipmentFile(file: File, fallbackDate = todayKey()): CoupangShipmentFileDraft {
   const normalized = file.name.normalize('NFC');
   return {
-    id: `${Date.now()}-${crypto.randomUUID()}`,
+    id: `${Date.now()}-${createSecureRandomUuid()}`,
     file,
     name: normalized,
     kind: detectFileKind(normalized),
@@ -232,7 +234,7 @@ async function mergePdfKind(
   new Uint8Array(pdfBuffer).set(bytes);
   const fileName = `쿠팡쉽먼트_${date}_${displayKind(kind)}_${centers.join('-')}.pdf`;
   return {
-    id: `${Date.now()}-${crypto.randomUUID()}`,
+    id: `${Date.now()}-${createSecureRandomUuid()}`,
     kind,
     shipmentDate: date,
     centers,

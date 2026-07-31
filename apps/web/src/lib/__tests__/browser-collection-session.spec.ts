@@ -10,6 +10,11 @@ const mockDetectCoupang = vi.hoisted(() => vi.fn());
 const mockDetectSourcing = vi.hoisted(() => vi.fn());
 const mockDetectOrders = vi.hoisted(() => vi.fn());
 const mockSend = vi.hoisted(() => vi.fn());
+const mockApiPost = vi.hoisted(() => vi.fn());
+
+vi.mock('../api-client', () => ({
+  apiClient: { post: mockApiPost },
+}));
 
 vi.mock('../operation-alerts', () => ({
   startOperationAlert: mockStart,
@@ -39,6 +44,7 @@ import {
   browserCollectionOperationKey,
   browserCollectionRunIdFromOperationKey,
   findBrowserCollectionSession,
+  issueBrowserCollectionRunId,
   listBrowserCollectionSessions,
   recordMissingBrowserCollection,
   sendBrowserCollectionControl,
@@ -80,6 +86,7 @@ describe('browser collection alert synchronization', () => {
     mockDetectCoupang.mockResolvedValue('coupang-extension');
     mockDetectSourcing.mockResolvedValue('sourcing-extension');
     mockDetectOrders.mockResolvedValue('order-extension');
+    mockApiPost.mockResolvedValue({ runId: RUN_ID });
   });
 
   it('uses a run-scoped canonical operation key', () => {
@@ -233,10 +240,6 @@ describe('browser collection alert synchronization', () => {
   });
 
   it('does not persist extension-missing as an operation alert', async () => {
-    const randomUuid = vi
-      .spyOn(globalThis.crypto, 'randomUUID')
-      .mockReturnValue(RUN_ID);
-
     const result = await recordMissingBrowserCollection(
       'dashboard.wing_sales',
       { trigger: 'dashboard_traffic' },
@@ -246,7 +249,14 @@ describe('browser collection alert synchronization', () => {
     expect(mockStart).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
-    randomUuid.mockRestore();
+    expect(mockApiPost).toHaveBeenCalledWith('/api/browser-collection-runs', {});
+  });
+
+  it('reuses a validated run ID without asking the server for another one', async () => {
+    await expect(issueBrowserCollectionRunId(OTHER_RUN_ID)).resolves.toBe(
+      OTHER_RUN_ID,
+    );
+    expect(mockApiPost).not.toHaveBeenCalled();
   });
 
   it('keeps a route-generated run id when recording a missing extension', async () => {

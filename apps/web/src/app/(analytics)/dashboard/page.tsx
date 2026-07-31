@@ -24,14 +24,16 @@ import {
 } from '@kiditem/shared/dashboard';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
-import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
+import {
+  issueBrowserCollectionRunId,
+  recordMissingBrowserCollection,
+} from '@/lib/browser-collection-session';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
 import { useAuthSession } from '@/components/providers/AuthProvider';
 import { queryKeys } from '@/lib/query-keys';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
 import ReadinessModal from '@/components/ReadinessModal';
@@ -193,7 +195,7 @@ export default function Dashboard() {
         },
         producer: 'dashboard.wing_sales',
         extensionId,
-        runId: createSecureRandomUuid(),
+        runId: await issueBrowserCollectionRunId(),
       accessToken: authSession?.token,
       });
       if (session.status === 'succeeded') {
@@ -784,7 +786,7 @@ export default function Dashboard() {
             </div>
             <div className="text-xs mt-1 text-slate-400">최신 셀피아 스냅샷</div>
           </Link>
-          <Link href="/product-hub/matching?status=needs_review" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+          <Link href="/product-hub/matching?status=unmatched" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">매칭 확인 필요</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">
               <span data-warning-count="mapping-attention">{inventoryData.warnings.mappingAttentionSkus}</span>

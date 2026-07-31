@@ -249,7 +249,16 @@
       externalProductId: requiredId(record?.externalProductId, "externalProductId"),
       registeredName: nullableText(record?.registeredName),
       primaryImageUrl: normalizeImageUrl(record?.primaryImageUrl),
+      saleStatus: nullableText(record?.saleStatus),
     }));
+  }
+
+  function saleStatusFromText(value) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (!text) return null;
+    if (/판매\s*(중지|종료)|판매중지|판매종료/.test(text)) return "판매중지";
+    if (/판매\s*중|판매중/.test(text)) return "판매중";
+    return null;
   }
 
   async function buildManifest({ totalItems, pageSize, firstPageItems }) {
@@ -315,6 +324,7 @@
     buildManifest,
     extractSellerProductFromScripts,
     normalizeImageUrl,
+    saleStatusFromText,
     sha256Hex,
     stableStringify,
   };

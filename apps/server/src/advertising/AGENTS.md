@@ -86,8 +86,8 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   keywords (953 observed; 7,613 across 42 products). One judgement call per
   product, capped per product and per run, with the remainder reported.
 - The judgement is a language call through AI's `TEXT_JUDGEMENT_PORT`, wrapped
-  by advertising's `KEYWORD_RELEVANCE_JUDGE_PORT` seam. `AD_KEYWORD_RELEVANCE_MODEL`
-  must be set; there is no fallback model.
+  by advertising's `KEYWORD_RELEVANCE_JUDGE_PORT` seam. It uses the explicit
+  shared `AI_TEXT_MODEL`; there is no fallback model.
 - Keyword relevance judgement is a scoped exception to the root rule that LLM
   judgement starts from Agent OS. This path is a bounded direct-AI capability:
   fixed prompt/schema/model, no autonomous tool use or planning, and output

@@ -17,8 +17,6 @@
 | ReturnTransfer | `return_transfers` | - |
 | SellpiaInventorySku | `sellpia_inventory_skus` | One physical Sellpia product-code row and its latest imported current stock. |
 | SellpiaInventoryState | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
-| SellpiaOrderTransmissionIntent | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission and its post-submit inventory generation. |
-| SellpiaOrderTransmissionIntentReconciliation | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | SellpiaReceiptUploadBatch | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | `stock_audits` | - |
 | StockTransfer | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates SellpiaInventorySku.currentStock. |
@@ -155,28 +153,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  SellpiaOrderTransmissionIntent {
-    String id PK
-    String organizationId FK
-    String intentKey
-    String status
-    String createdBy FK
-    DateTime preparedAt
-    DateTime finalizedAt
-    DateTime abortedAt
-    BigInt finalizedGeneration
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  SellpiaOrderTransmissionIntentReconciliation {
-    String id PK
-    String organizationId FK
-    String intentId FK
-    String reconciledBy FK
-    DateTime reconciledAt
-    String note
-    String outcome
-  }
   SellpiaReceiptUploadBatch {
     String id PK
     String organizationId FK
@@ -241,7 +217,6 @@ erDiagram
   SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ StockTransfer : "sellpiaInventorySku"
-  SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
   Warehouse ||--o{ StockTransfer : "fromWarehouse"
   Warehouse ||--o{ StockTransfer : "toWarehouse"
 ```
@@ -261,6 +236,7 @@ erDiagram
 | ReturnTransfer | organization | references external | Core | Organization |
 | SellpiaInventorySku | lastImportRun | references external | Core | SourceImportRun |
 | SellpiaInventorySku | organization | references external | Core | Organization |
+| SellpiaInventorySku | sellpiaInventorySku | referenced by external | Channels | SellpiaManualMatchAlias |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Core | ProductVariantComponent |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | PurchaseOrderItem |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | RocketPurchaseConfirmationAllocation |
@@ -268,10 +244,6 @@ erDiagram
 | SellpiaInventoryState | activeSyncOwner | references external | Core | User |
 | SellpiaInventoryState | lastCompletedImportRun | references external | Core | SourceImportRun |
 | SellpiaInventoryState | organization | references external | Core | Organization |
-| SellpiaOrderTransmissionIntent | creator | references external | Core | User |
-| SellpiaOrderTransmissionIntent | organization | references external | Core | Organization |
-| SellpiaOrderTransmissionIntentReconciliation | organization | references external | Core | Organization |
-| SellpiaOrderTransmissionIntentReconciliation | reconciler | references external | Core | User |
 | SellpiaReceiptUploadBatch | organization | references external | Core | Organization |
 | StockAudit | organization | references external | Core | Organization |
 | StockTransfer | organization | references external | Core | Organization |

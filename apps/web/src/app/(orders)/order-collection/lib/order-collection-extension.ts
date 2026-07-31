@@ -4,7 +4,7 @@ import {
   sendToExtension,
   type ExtensionRuntimeStatus,
 } from '@/lib/extension-bridge';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { extractSellpiaOrderNumbers } from './sellpia-order-targets';
 
 export interface IcecreamMallExtensionRows {
@@ -93,12 +93,13 @@ export async function collectIcecreamMallRowsFromExtension(
   run?: OrderCollectionExtensionRun,
 ): Promise<IcecreamMallExtensionRows> {
   const extensionId = run?.extensionId ?? await requireOrderCollectionSessionExtension();
+  const runId = await issueBrowserCollectionRunId(run?.runId);
 
   const response = await sendToExtension<IcecreamMallExtensionResponse>(extensionId, {
     action: 'collectIcecreamMallOrders',
     date,
     credentials,
-    runId: run?.runId ?? createSecureRandomUuid(),
+    runId,
   }, 90000);
 
   if (!response?.success || !response.headers || !response.rows) {
@@ -151,13 +152,14 @@ export async function ensureMallLoggedInViaExtension(
     };
   }
   try {
+    const runId = await issueBrowserCollectionRunId(run?.runId);
     const response = await sendToExtension<MallLoginEnsureResult>(
       extensionId,
       {
         action: 'ensureMallLoggedIn',
         mallKey,
         credentials,
-        runId: run?.runId ?? createSecureRandomUuid(),
+        runId,
         date: run?.date ?? null,
       },
       45000,

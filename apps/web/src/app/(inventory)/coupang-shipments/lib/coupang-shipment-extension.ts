@@ -4,6 +4,7 @@ import {
   detectOrderCollectionExtensionId,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   COUPANG_SHIPMENT_PAGE_URL,
   type CoupangShipmentFileDraft,
@@ -329,7 +330,7 @@ export async function collectCoupangShipmentDraftsViaExtension(
       const center = shipment.center || '미분류';
       const name = `쿠팡쉽먼트_${date}_${center}_${shipment.seq}_${kindLabel}.pdf`;
       drafts.push({
-        id: `${Date.now()}-${crypto.randomUUID()}`,
+        id: `${Date.now()}-${createSecureRandomUuid()}`,
         file: new File([base64ToArrayBuffer(file.b64)], name, { type: 'application/pdf' }),
         name,
         kind: draftKind,

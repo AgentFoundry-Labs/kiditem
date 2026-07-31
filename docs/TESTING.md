@@ -248,25 +248,28 @@ duplicate persistent server.
 
 ## CI 통합
 
-PR 대기 시간을 줄이기 위해 `.github/workflows/pr-checks.yml` 은 아래의 단일
-저비용 검증만 수행한다. 빌드, lint, PostgreSQL 통합 테스트, repository scanner 는
-PR workflow 에서 반복하지 않는다. PR 작성자는 `AGENTS.md` 의 변경 유형별 검증과
-PR body guard 를 로컬에서 완료한 뒤 공유한다.
+`develop`/`main`/`release/office` 대상 PR은 대기 시간을 줄이기 위해
+`.github/workflows/pr-checks.yml` 은 아래의 단일 저비용 검증만 수행한다. PR
+작성자는 `AGENTS.md` 의 변경 유형별 검증과 PR body guard 를 로컬에서 완료한 뒤
+공유한다. `Develop Validation` 전체 suite는 필요할 때 `develop`에서 수동 실행한다.
 
-| Workflow / Job                                 | 실행 시점                     | 역할                                                                                                    |
-| ---------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `PR Checks / PR hygiene`                       | `develop` 또는 `main` 대상 PR | PR diff 의 whitespace error 검증 (`git diff --check`)                                                   |
-| `Develop Validation / Develop full validation` | `develop` push                | 한 번의 dependency install 뒤 deployable workspace 전체 build 와 real PostgreSQL integration suite 실행 |
+| Workflow / Job                                 | 실행 시점                                    | 역할                                                                                                                       |
+| ---------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `PR Checks / PR hygiene`                       | `develop`, `main`, `release/office` 대상 PR  | PR diff 의 whitespace error 검증 (`git diff --check`)                                                                      |
+| `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build, web/extension tests, real PostgreSQL integration suite 실행 |
 
-`Develop Validation` 은 새 merge 가 들어오면 이전 실행을 취소하고 최신 `develop`
-HEAD 만 검증한다. 이 job 은 아래 workspace build 를 순서대로 수행한 뒤
-Testcontainers 의 동적 Postgres lifecycle 로 통합 테스트를 실행한다.
+`Develop Validation` 은 `develop` 누적 HEAD에 대해 필요할 때 수동으로 실행한다.
+같은 ref의 더 새 수동 실행은 이전 실행을 취소한다. 이 job 은 아래 workspace build와
+unit/extension suite를 수행한 뒤 Testcontainers의 동적 Postgres lifecycle로 통합
+테스트를 실행한다.
 
 ```bash
 npm run build --workspace=packages/shared
 npm run build --workspace=packages/templates
 npm run build --workspace=apps/server
 npm run build --workspace=apps/web
+npm exec --workspace=apps/web vitest -- run
+node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 npm run test:integration
 ```
 

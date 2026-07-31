@@ -17,6 +17,12 @@ vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 
+vi.mock('@/lib/browser-collection-session', () => ({
+  issueBrowserCollectionRunId: vi.fn().mockResolvedValue(
+    '11111111-1111-4111-8111-111111111111',
+  ),
+}));
+
 const mockedDetectExtension = vi.mocked(detectSourcingExtensionId);
 const mockedRuntimeAvailable = vi.mocked(isChromeExtensionRuntimeAvailable);
 const mockedSend = vi.mocked(sendToExtension);
@@ -66,6 +72,7 @@ describe('1688 trend Chrome extension bridge', () => {
       'sourcing-extension',
       {
         action: 'start1688TrendCollection',
+        runId: '11111111-1111-4111-8111-111111111111',
         keywords: ['文具', '儿童玩具'],
         maxResultsPerKeyword: 20,
       },

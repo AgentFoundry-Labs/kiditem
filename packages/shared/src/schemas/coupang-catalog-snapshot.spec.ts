@@ -131,8 +131,10 @@ describe('Coupang catalog snapshot contracts', () => {
         externalProductId: '10001',
         registeredName: '첫 상품',
         primaryImageUrl: media.sourceUrl,
+        saleStatus: '판매중',
       }],
     });
+    expect(page.items[0]?.saleStatus).toBe('판매중');
     expect(page.manifest.expectedPages).toBe(2);
     expect(() => CoupangCatalogDiscoveryPageV1Schema.parse({
       ...page,

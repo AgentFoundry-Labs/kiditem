@@ -34,6 +34,8 @@ export default defineConfig({
     'src/channel-recipe-automation.ts',
     'src/source-import.ts',
     'src/sellpia-inventory-freshness.ts',
+    'src/sellpia-order-transmission.ts',
+    'src/sellpia-manual-match.ts',
     'src/rocket-purchase-preview.ts',
     'src/coupang-catalog-snapshot.ts',
     'src/agent-os.ts',

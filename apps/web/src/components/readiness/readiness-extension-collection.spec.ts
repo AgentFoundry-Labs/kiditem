@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   collectSellpiaSaleSummaryFromExtension: vi.fn(),
   ingestSellpiaSales: vi.fn(),
   detectRankExtensionGate: vi.fn(),
+  issueRunId: vi.fn(),
   runWingSalesRankCheck: vi.fn(),
   startCoupangCatalogBrowser: vi.fn(),
   wingSession: null as BrowserCollectionSessionView | null,
@@ -78,6 +79,7 @@ vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
     typeof import('@/lib/browser-collection-session')
   >()),
   recordMissingBrowserCollection: vi.fn(),
+  issueBrowserCollectionRunId: mocks.issueRunId,
   syncBrowserCollectionAlert: vi.fn(),
 }));
 
@@ -165,6 +167,7 @@ function wrapper(
 describe('readiness extension collection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.issueRunId.mockResolvedValue(RUN_ID);
     mocks.detectExtensionId.mockResolvedValue('coupang-extension');
     mocks.detectRankExtensionGate.mockResolvedValue({
       status: 'ready',

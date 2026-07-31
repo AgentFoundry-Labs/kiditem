@@ -27,11 +27,11 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 22 |
-| [Channels](erd/channels.md) | 21 |
+| [Channels](erd/channels.md) | 23 |
 | [Core](erd/core.md) | 15 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 14 |
-| [Orders](erd/orders.md) | 10 |
+| [Inventory](erd/inventory.md) | 12 |
+| [Orders](erd/orders.md) | 13 |
 | [Sourcing](erd/sourcing.md) | 12 |
 | [Supply](erd/supply.md) | 10 |
 | [System](erd/system.md) | 9 |
@@ -103,6 +103,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | RocketPoCatalogSnapshot | Channels | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
 | RocketPurchaseOrder | Channels | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
+| SellpiaManualMatchAlias | Channels | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
+| SellpiaManualMatchSnapshot | Channels | `sellpia_manual_match_snapshots` | Current organization-scoped, read-only Sellpia manual-match evidence restricted to exact aliases used by current channel listings. |
 | SellpiaProductMonthlySales | Channels | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
 | SellpiaSalesDailySnapshot | Channels | `sellpia_sales_daily_snapshots` | Sellpia 판매현황(sale_summary) 몰별·일별 매출 fact. order_search.ajax.html(mode=selldate, 주문일자 기준)에서 판매처(seller)별로 수집. channelGroup 으로 rocket(쿠팡-직배송) / others(쿠팡윙+기타 전체몰) 버킷을 구분해 대시보드 '몰별 매출' 섹션에 표시한다. price=판매금액, buy_price=매입금액, amount=판매수량. |
 | AuthSession | Core | `auth_sessions` | Revocable KidItem-owned browser and extension authentication session. Only a SHA-256 token hash is persisted. |
@@ -133,18 +135,19 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ReturnTransfer | Inventory | `return_transfers` | - |
 | SellpiaInventorySku | Inventory | `sellpia_inventory_skus` | One physical Sellpia product-code row and its latest imported current stock. |
 | SellpiaInventoryState | Inventory | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
-| SellpiaOrderTransmissionIntent | Inventory | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission and its post-submit inventory generation. |
-| SellpiaOrderTransmissionIntentReconciliation | Inventory | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | SellpiaReceiptUploadBatch | Inventory | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | Inventory | `stock_audits` | - |
 | StockTransfer | Inventory | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates SellpiaInventorySku.currentStock. |
 | Warehouse | Inventory | `warehouses` | - |
+| CoupangDirectPoSnapshot | Orders | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
 | CSRecord | Orders | `cs_records` | - |
 | Order | Orders | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | OrderReturn | Orders | `order_returns` | 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class. |
 | OrderReturnLineItem | Orders | `order_return_line_items` | 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. return FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
-| Review | Orders | `reviews` | - |
+| Review | Orders | `reviews` | 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을 |
+| SellpiaOrderTransmissionIntent | Orders | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
+| SellpiaOrderTransmissionIntentReconciliation | Orders | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | Settlement | Orders | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 | Shipment | Orders | `shipments` | - |
 | ShipmentItem | Orders | `shipment_items` | Order-line shipment detail. |
@@ -1040,6 +1043,24 @@ erDiagram
     String createdByUserId FK
     DateTime createdAt
   }
+  CoupangDirectPoSnapshot {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    String purchaseOrderSeq
+    String centerName
+    String transport
+    String deliveryDate
+    String orderedDate
+    Boolean isUrgent
+    Int skuCount
+    Int orderQuantity
+    Int orderAmount
+    Json itemsJson
+    DateTime collectedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   CoupangKeywordRankDailySnapshot {
     String id PK
     String organizationId FK
@@ -1842,10 +1863,20 @@ erDiagram
     String listingId FK
     String platform
     Int rating
+    String title
     String content
     String reviewerName
+    String externalReviewId
+    String externalOptionId
+    String externalProductId
+    String itemName
+    Int imageCount
+    Int videoCount
+    Boolean isDeleted
+    Boolean isBlinded
     DateTime reviewedAt
     DateTime createdAt
+    DateTime updatedAt
   }
   RocketPoCatalogLine {
     String id PK
@@ -2046,6 +2077,32 @@ erDiagram
     String lastErrorCode
     String lastErrorMessage
     String freshnessFence
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaManualMatchAlias {
+    String id PK
+    String organizationId FK
+    String snapshotId FK
+    String sellpiaInventorySkuId FK
+    String aliasTitle
+    String normalizedAlias
+    Int itemCount
+    String matchedType
+    Int evidenceCount
+    DateTime createdAt
+  }
+  SellpiaManualMatchSnapshot {
+    String id PK
+    String organizationId FK,UK
+    String sourceOrigin
+    String sourcePath
+    Int schemaVersion
+    Int targetCount
+    Int matchedTargetCount
+    Int aliasCount
+    String snapshotHash
+    DateTime capturedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2783,6 +2840,7 @@ erDiagram
   Organization ||--o{ ContentGenerationSource : "organization"
   Organization ||--o{ ContentWorkspace : "organization"
   Organization ||--o{ ContentWorkspaceThumbnailSelection : "organization"
+  Organization ||--o{ CoupangDirectPoSnapshot : "organization"
   Organization ||--o{ CoupangKeywordRankDailySnapshot : "organization"
   Organization ||--o{ CoupangKeywordSerpDailySnapshot : "organization"
   Organization ||--o{ CoupangKeywordTracker : "organization"
@@ -2839,6 +2897,8 @@ erDiagram
   Organization ||--o{ ScrapeTarget : "organization"
   Organization ||--o{ SellpiaInventorySku : "organization"
   Organization ||--o{ SellpiaInventoryState : "organization"
+  Organization ||--o{ SellpiaManualMatchAlias : "organization"
+  Organization ||--|| SellpiaManualMatchSnapshot : "organization"
   Organization ||--o{ SellpiaOrderTransmissionIntent : "organization"
   Organization ||--o{ SellpiaOrderTransmissionIntentReconciliation : "organization"
   Organization ||--o{ SellpiaProductMonthlySales : "organization"
@@ -2890,8 +2950,10 @@ erDiagram
   SellpiaInventorySku ||--o{ PurchaseOrderItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ RocketPurchaseConfirmationAllocation : "sellpiaInventorySku"
+  SellpiaInventorySku ||--o{ SellpiaManualMatchAlias : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ StockTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ SupplierProduct : "sellpiaInventorySku"
+  SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
   Shipment ||--o{ ShipmentItem : "shipment"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"

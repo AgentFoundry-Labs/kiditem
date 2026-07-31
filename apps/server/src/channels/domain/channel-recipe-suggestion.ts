@@ -2,6 +2,7 @@ export type ChannelRecipeSuggestionStatus =
   | 'already_configured'
   | 'unique_code'
   | 'unique_barcode'
+  | 'confirmed_manual_match_alias'
   | 'exact_name_option'
   | 'exact_name'
   | 'high_confidence_name'
@@ -14,6 +15,7 @@ export type ChannelRecipeSuggestionStatus =
 
 export type ChannelRecipeAutomationDecision =
   | 'auto_apply'
+  | 'quantity_review'
   | 'operator_review'
   | 'blocked'
   | 'already_configured';
@@ -22,6 +24,7 @@ export type ChannelRecipeSuggestionEvidenceKind =
   | 'seller_sku_code'
   | 'model_number_code'
   | 'physical_barcode'
+  | 'sellpia_manual_match_alias'
   | 'normalized_name'
   | 'normalized_name_option'
   | 'contained_name'
@@ -72,6 +75,13 @@ type SimilarityEvidence = {
   sku: ChannelRecipeSuggestionSku;
 };
 
+type ManualMatchEvidence = {
+  channelValue: string;
+  normalizedValue: string;
+  quantity: number;
+  sku: ChannelRecipeSuggestionSku;
+};
+
 export type ChannelRecipeSuggestionInput = {
   channelListingOptionId: string;
   productVariantId: string | null;
@@ -97,6 +107,7 @@ export type ChannelRecipeSuggestionInput = {
   nameOptionEvidence: NameOptionEvidence[];
   nameEvidence: NameEvidence[];
   similarityEvidence: SimilarityEvidence[];
+  manualMatchEvidence: ManualMatchEvidence[];
 };
 
 type ProposalEvidence = {
@@ -108,7 +119,8 @@ type ProposalEvidence = {
 
 type StrongEvidence = {
   identifier: string;
-  source: 'code' | 'barcode' | 'name_option';
+  source: 'code' | 'barcode' | 'name_option' | 'manual_match_alias';
+  quantity?: number;
   sku: ChannelRecipeSuggestionSku;
   evidence: ProposalEvidence;
 };
@@ -187,16 +199,40 @@ export function classifyChannelRecipeSuggestion(
 
   if (skuIds.size === 1) {
     const sku = strongEvidence[0]!.sku;
-    if (identifierNameMismatch(input)) {
+    const manualMatchQuantities = [...new Set(strongEvidence
+      .filter((item) => item.source === 'manual_match_alias')
+      .map((item) => item.quantity!))].sort((left, right) => left - right);
+    if (manualMatchQuantities.length > 1) {
+      return decision(base, strongEvidence, 'quantity_review', 'quantity_review', null,
+        'The Sellpia product match is confirmed, but historical quantities disagree');
+    }
+    const manualMatchQuantity = manualMatchQuantities[0];
+    if (manualMatchQuantity !== undefined) {
+      const explicitTitleQuantities = packCounts([
+        ...input.options.flatMap((option) => [option.listingName, option.itemName]),
+        ...input.manualMatchEvidence.map((item) => item.channelValue),
+      ]).filter((quantity) => quantity > 1);
+      if (
+        explicitTitleQuantities.length > 0
+        && (
+          explicitTitleQuantities.length !== 1
+          || explicitTitleQuantities[0] !== manualMatchQuantity
+        )
+      ) {
+        return decision(base, strongEvidence, 'quantity_review', 'quantity_review', null,
+          'The Sellpia product match is confirmed, but the explicit title quantity disagrees');
+      }
+    }
+    if (input.manualMatchEvidence.length === 0 && identifierNameMismatch(input)) {
       return decision(base, strongEvidence, 'identifier_name_mismatch', 'operator_review', null,
         'The exact identifier points to a Sellpia SKU with an incompatible product name');
     }
-    const quantity = inferRecipeQuantity(
-      input.options.flatMap((option) => [option.listingName, option.itemName]),
-      sku,
-    );
+    const quantity = manualMatchQuantity ?? inferRecipeQuantity(
+        input.options.flatMap((option) => [option.listingName, option.itemName]),
+        sku,
+      );
     if (quantity === null) {
-      return decision(base, strongEvidence, 'quantity_review', 'operator_review', null,
+      return decision(base, strongEvidence, 'quantity_review', 'quantity_review', null,
         'The channel pack cannot be converted to a verified Sellpia unit quantity');
     }
     const status = automaticStatus(strongEvidence);
@@ -215,7 +251,7 @@ export function classifyChannelRecipeSuggestion(
         return looseNameDecision(base, input.nameEvidence, 'exact_name', 'auto_apply', quantity,
           'One unique exact normalized Sellpia product name was found');
       }
-      return looseNameDecision(base, input.nameEvidence, 'quantity_review', 'operator_review', null,
+      return looseNameDecision(base, input.nameEvidence, 'quantity_review', 'quantity_review', null,
         'The exact-name channel pack cannot be converted to a verified Sellpia unit quantity');
     }
   }
@@ -268,6 +304,17 @@ function collectStrongEvidence(input: ChannelRecipeSuggestionInput): StrongEvide
         normalizedValue: joinIdentity(item.normalizedProductValue, item.normalizedOptionValue),
       },
     })),
+    ...input.manualMatchEvidence.map((item): StrongEvidence => ({
+      identifier: `sellpia_manual_match_alias:${item.normalizedValue}`,
+      source: 'manual_match_alias',
+      quantity: item.quantity,
+      sku: item.sku,
+      evidence: {
+        kind: 'sellpia_manual_match_alias',
+        channelValue: item.channelValue,
+        normalizedValue: item.normalizedValue,
+      },
+    })),
   ];
 }
 
@@ -283,19 +330,12 @@ function hasAmbiguousIdentifier(evidence: StrongEvidence[]): boolean {
 
 export function inferRecipeQuantity(
   channelValues: Array<string | null>,
-  sku: ChannelRecipeSuggestionSku,
+  _sku: ChannelRecipeSuggestionSku,
 ): number | null {
   const channel = packCounts(channelValues);
-  const physical = packCounts([sku.name, sku.optionName]);
   const channelMulti = channel.filter((count) => count > 1);
   if (channelMulti.length === 0) return 1;
-  const physicalMulti = physical.filter((count) => count > 1);
-  if (physicalMulti.length === 0) return null;
-  if (channelMulti.some((count) => physicalMulti.includes(count))) return 1;
-  const channelCount = Math.max(...channelMulti);
-  const physicalCount = Math.max(...physicalMulti);
-  const quantity = channelCount / physicalCount;
-  return Number.isSafeInteger(quantity) && quantity > 0 ? quantity : null;
+  return null;
 }
 
 function packCounts(values: Array<string | null>): number[] {
@@ -368,7 +408,7 @@ function decideSimilarity(
     best.sku,
   );
   if (quantity === null) {
-    return similarityDecision(base, evidence, 'quantity_review', 'operator_review', null,
+    return similarityDecision(base, evidence, 'quantity_review', 'quantity_review', null,
       'The matched name has an unverified channel-to-Sellpia pack ratio');
   }
   return similarityDecision(base, [best], 'high_confidence_name', 'auto_apply', quantity,
@@ -425,7 +465,11 @@ function similarityDecision(
 
 function automaticStatus(
   evidence: StrongEvidence[],
-): Extract<ChannelRecipeSuggestionStatus, 'unique_code' | 'unique_barcode' | 'exact_name_option'> {
+): Extract<ChannelRecipeSuggestionStatus,
+  'unique_code' | 'unique_barcode' | 'exact_name_option' | 'confirmed_manual_match_alias'> {
+  if (evidence.some((item) => item.source === 'manual_match_alias')) {
+    return 'confirmed_manual_match_alias';
+  }
   if (evidence.some((item) => item.source === 'code')) return 'unique_code';
   if (evidence.some((item) => item.source === 'barcode')) return 'unique_barcode';
   return 'exact_name_option';
@@ -510,9 +554,12 @@ function joinIdentity(productValue: string, optionValue: string | null): string 
 }
 
 function automaticReason(
-  status: Extract<ChannelRecipeSuggestionStatus, 'unique_code' | 'unique_barcode' | 'exact_name_option'>,
+  status: Extract<ChannelRecipeSuggestionStatus,
+    'unique_code' | 'unique_barcode' | 'exact_name_option' | 'confirmed_manual_match_alias'>,
 ): string {
   switch (status) {
+    case 'confirmed_manual_match_alias':
+      return 'One exact Sellpia manual-match alias and quantity were found';
     case 'unique_code': return 'One exact Sellpia code candidate was found';
     case 'unique_barcode': return 'One unique physical barcode candidate was found';
     case 'exact_name_option': return 'One exact normalized product and option candidate was found';

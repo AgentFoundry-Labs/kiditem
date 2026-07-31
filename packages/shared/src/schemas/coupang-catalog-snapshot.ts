@@ -151,6 +151,7 @@ export const CoupangCatalogDiscoveryItemV1Schema = z.object({
   externalProductId: ExternalIdSchema,
   registeredName: NullableTextSchema,
   primaryImageUrl: HttpUrlSchema.nullable(),
+  saleStatus: NullableTextSchema.optional().default(null),
 });
 export type CoupangCatalogDiscoveryItemV1 = z.infer<typeof CoupangCatalogDiscoveryItemV1Schema>;
 

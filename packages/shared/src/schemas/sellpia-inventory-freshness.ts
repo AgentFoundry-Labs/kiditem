@@ -10,6 +10,7 @@ export const SELLPIA_INVENTORY_FRESHNESS_STATUSES = [
 export const SELLPIA_INVENTORY_REFRESH_REASONS = [
   'initial_snapshot',
   'ttl_expired',
+  // Historical persisted/import trigger only; order submission cannot request it.
   'order_transmission_requested',
   'same_hash_confirmation',
   'purchase_preflight',
@@ -99,27 +100,6 @@ const SellpiaInventoryLastAttemptViewSchema = z
   })
   .strict();
 
-// A prepared-but-unresolved order transmission protects that exact file from
-// accidental resubmission. It remains visible for owner/admin reconciliation,
-// but does not redefine inventory freshness or block independent collection.
-export const SellpiaUnresolvedOrderTransmissionIntentViewSchema = z
-  .object({
-    intentKey: z.string().trim().min(1).max(500),
-    preparedAt: IsoDateTimeStringSchema,
-  })
-  .strict();
-
-export const SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT = 20;
-
-export const SellpiaUnresolvedOrderTransmissionIntentListResponseSchema = z
-  .object({
-    items: z
-      .array(SellpiaUnresolvedOrderTransmissionIntentViewSchema)
-      .max(SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT),
-    hasMore: z.boolean(),
-  })
-  .strict();
-
 export const SellpiaInventoryFreshnessViewSchema = z
   .object({
     status: SellpiaInventoryFreshnessStatusSchema,
@@ -139,85 +119,11 @@ export const SellpiaInventoryFreshnessViewSchema = z
 export const SellpiaInventoryRefreshRequestSchema = z
   .object({
     reason: z.enum([
-      'order_transmission_requested',
       'manual_request',
       'retry',
     ]),
   })
   .strict();
-
-const SellpiaOrderTransmissionIntentKeySchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(500);
-
-export const SellpiaOrderTransmissionIntentPrepareRequestSchema = z
-  .object({
-    intentKey: SellpiaOrderTransmissionIntentKeySchema,
-  })
-  .strict();
-
-export const SellpiaOrderTransmissionIntentPrepareResponseSchema = z
-  .object({
-    intentKey: SellpiaOrderTransmissionIntentKeySchema,
-    disposition: z.enum([
-      'prepared',
-      'already_prepared',
-      'already_finalized',
-    ]),
-    state: SellpiaInventoryFreshnessViewSchema,
-  })
-  .strict();
-
-export const SellpiaOrderTransmissionIntentFinalizeResponseSchema = z
-  .object({
-    intentKey: SellpiaOrderTransmissionIntentKeySchema,
-    status: z.literal('finalized'),
-    finalizedGeneration: SellpiaInventoryGenerationSchema,
-    state: SellpiaInventoryFreshnessViewSchema,
-  })
-  .strict();
-
-export const SellpiaOrderTransmissionIntentAbortResponseSchema = z
-  .object({
-    intentKey: SellpiaOrderTransmissionIntentKeySchema,
-    status: z.literal('aborted'),
-    state: SellpiaInventoryFreshnessViewSchema,
-  })
-  .strict();
-
-export const SellpiaOrderTransmissionIntentReconcileRequestSchema = z
-  .object({
-    intentKey: SellpiaOrderTransmissionIntentKeySchema,
-    outcome: z.enum(['submitted', 'not_submitted']),
-    note: z.string().trim().min(1).max(500),
-  })
-  .strict();
-
-const SellpiaOrderTransmissionIntentReconciliationAuditShape = {
-  intentKey: SellpiaOrderTransmissionIntentKeySchema,
-  reconciledBy: z.string().uuid(),
-  reconciledAt: IsoDateTimeStringSchema,
-  note: z.string().trim().min(1).max(500),
-  state: SellpiaInventoryFreshnessViewSchema,
-};
-
-export const SellpiaOrderTransmissionIntentReconcileResponseSchema = z
-  .discriminatedUnion('outcome', [
-    z.object({
-      ...SellpiaOrderTransmissionIntentReconciliationAuditShape,
-      outcome: z.literal('submitted'),
-      status: z.literal('finalized'),
-      finalizedGeneration: SellpiaInventoryGenerationSchema,
-    }).strict(),
-    z.object({
-      ...SellpiaOrderTransmissionIntentReconciliationAuditShape,
-      outcome: z.literal('not_submitted'),
-      status: z.literal('aborted'),
-      finalizedGeneration: z.null(),
-    }).strict(),
-  ]);
 
 export const SellpiaInventoryClaimRequestSchema = z.object({}).strict();
 export const SellpiaInventoryHeartbeatRequestSchema = z.object({}).strict();
@@ -277,32 +183,8 @@ export type SellpiaInventoryQualityReport = z.infer<
 export type SellpiaInventoryFreshnessView = z.infer<
   typeof SellpiaInventoryFreshnessViewSchema
 >;
-export type SellpiaUnresolvedOrderTransmissionIntentView = z.infer<
-  typeof SellpiaUnresolvedOrderTransmissionIntentViewSchema
->;
-export type SellpiaUnresolvedOrderTransmissionIntentListResponse = z.infer<
-  typeof SellpiaUnresolvedOrderTransmissionIntentListResponseSchema
->;
 export type SellpiaInventoryRefreshRequest = z.infer<
   typeof SellpiaInventoryRefreshRequestSchema
->;
-export type SellpiaOrderTransmissionIntentPrepareRequest = z.infer<
-  typeof SellpiaOrderTransmissionIntentPrepareRequestSchema
->;
-export type SellpiaOrderTransmissionIntentPrepareResponse = z.infer<
-  typeof SellpiaOrderTransmissionIntentPrepareResponseSchema
->;
-export type SellpiaOrderTransmissionIntentFinalizeResponse = z.infer<
-  typeof SellpiaOrderTransmissionIntentFinalizeResponseSchema
->;
-export type SellpiaOrderTransmissionIntentAbortResponse = z.infer<
-  typeof SellpiaOrderTransmissionIntentAbortResponseSchema
->;
-export type SellpiaOrderTransmissionIntentReconcileRequest = z.infer<
-  typeof SellpiaOrderTransmissionIntentReconcileRequestSchema
->;
-export type SellpiaOrderTransmissionIntentReconcileResponse = z.infer<
-  typeof SellpiaOrderTransmissionIntentReconcileResponseSchema
 >;
 export type SellpiaInventoryClaimRequest = z.infer<
   typeof SellpiaInventoryClaimRequestSchema

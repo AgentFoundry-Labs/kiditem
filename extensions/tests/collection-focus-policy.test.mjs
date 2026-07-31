@@ -34,6 +34,7 @@ const expectedLegacyFiles = [
 ];
 const automaticFocusSafeFiles = [
   'extensions/kiditem-os/background/orders/sellpia-inventory.js',
+  'extensions/kiditem-os/background/orders/sellpia-manual-match.js',
 ];
 
 function countFocusTokens(source) {

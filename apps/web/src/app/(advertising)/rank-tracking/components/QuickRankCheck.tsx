@@ -6,7 +6,7 @@ import { Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { formatDateTime } from '@/lib/utils';
 import type { SerpItem } from '../lib/rank-api';
 import {
@@ -57,7 +57,7 @@ export default function QuickRankCheck({
       if (disabledReason) toast.error(disabledReason);
       return;
     }
-    const nextRunId = requestedRunId ?? createSecureRandomUuid();
+    const nextRunId = await issueBrowserCollectionRunId(requestedRunId);
     setRunId(nextRunId);
     setLoading(true);
     try {

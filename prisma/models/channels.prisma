@@ -10,6 +10,55 @@
 // C3 daily upserts, C4 strategy reads) wire ingestion paths.
 
 /// @namespace Channels
+/// @describe Current organization-scoped, read-only Sellpia manual-match evidence restricted to exact aliases used by current channel listings.
+model SellpiaManualMatchSnapshot {
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @unique @map("organization_id") @db.Uuid
+  sourceOrigin       String   @default("https://kiditem.sellpia.com") @map("source_origin")
+  sourcePath         String   @default("/product_manual_match.html") @map("source_path")
+  schemaVersion      Int      @default(1) @map("schema_version")
+  targetCount        Int      @map("target_count")
+  matchedTargetCount Int      @map("matched_target_count")
+  aliasCount         Int      @map("alias_count")
+  snapshotHash       String   @map("snapshot_hash") @db.VarChar(64)
+  capturedAt         DateTime @map("captured_at") @db.Timestamptz
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  aliases      SellpiaManualMatchAlias[]
+
+  @@unique([id, organizationId], map: "sellpia_manual_match_snapshots_id_org_key")
+  @@index([organizationId, capturedAt])
+  @@map("sellpia_manual_match_snapshots")
+}
+
+/// @namespace Channels
+/// @describe Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity.
+model SellpiaManualMatchAlias {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  snapshotId            String   @map("snapshot_id") @db.Uuid
+  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
+  aliasTitle            String   @map("alias_title") @db.VarChar(500)
+  normalizedAlias       String   @map("normalized_alias") @db.VarChar(500)
+  itemCount             Int      @map("item_count")
+  matchedType           String   @map("matched_type") @db.VarChar(1)
+  evidenceCount         Int      @map("evidence_count")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshot            SellpiaManualMatchSnapshot @relation(fields: [snapshotId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku        @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, normalizedAlias, sellpiaInventorySkuId, itemCount], map: "sellpia_manual_match_aliases_org_alias_sku_qty_key")
+  @@index([organizationId, normalizedAlias])
+  @@index([snapshotId])
+  @@index([sellpiaInventorySkuId])
+  @@map("sellpia_manual_match_aliases")
+}
+
+/// @namespace Channels
 /// @describe 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장.
 model ChannelScrapeRun {
   id                String  @id @default(uuid()) @db.Uuid

@@ -5,7 +5,7 @@ import {
   type RocketPoCollectionEvidence,
 } from '@kiditem/shared/rocket-purchase-preview';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 
 export type RocketPoStatusCode = 'RP' | 'PA' | 'RI' | 'CI' | '';
 
@@ -98,7 +98,7 @@ async function collectRocketPoRows(
   extensionId?: string;
 }> {
   const { from, to, status, dateType } = input;
-  const runId = createSecureRandomUuid();
+  const runId = await issueBrowserCollectionRunId();
   const extensionId = await detectRocketOrderExtensionId(requiredCapability);
   const res = await sendToExtension<CollectResponse>(
     extensionId,

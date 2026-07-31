@@ -14,11 +14,11 @@ import type {
 } from '../../../application/port/out/cross-domain/keyword-relevance-judge.port';
 
 /**
- * Model for keyword relevance. Read explicitly — an unset value throws rather
- * than falling back, because a silently different model would still return
- * confident-looking verdicts that propose pausing live ads.
+ * Keyword relevance uses the shared explicit text model. An unset value throws
+ * rather than falling back, because confident-looking verdicts can propose
+ * pausing live ads.
  */
-const KEYWORD_RELEVANCE_MODEL_ENV = 'AD_KEYWORD_RELEVANCE_MODEL';
+const TEXT_MODEL_ENV = 'AI_TEXT_MODEL';
 
 @Injectable()
 export class KeywordRelevanceJudgeAdapter implements KeywordRelevanceJudgePort {
@@ -30,10 +30,10 @@ export class KeywordRelevanceJudgeAdapter implements KeywordRelevanceJudgePort {
   async judge(
     request: KeywordRelevanceJudgeRequest,
   ): Promise<KeywordRelevanceJudgeResult> {
-    const model = (process.env[KEYWORD_RELEVANCE_MODEL_ENV] ?? '').trim();
+    const model = (process.env[TEXT_MODEL_ENV] ?? '').trim();
     if (!model) {
       throw new Error(
-        `${KEYWORD_RELEVANCE_MODEL_ENV} is not set — 키워드 연관성 판정에 사용할 모델을 지정해 주세요.`,
+        `${TEXT_MODEL_ENV} is not set — 키워드 연관성 판정에 사용할 텍스트 모델을 지정해 주세요.`,
       );
     }
     const result = await this.textJudgement.judge({

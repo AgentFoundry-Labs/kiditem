@@ -5,6 +5,7 @@ import type {
   SellpiaInventorySkuReadModel,
   SellpiaInventorySkuReadRepositoryPort,
 } from '../../../application/port/out/repository/sellpia-inventory-sku-read.repository.port';
+import type { SellpiaInventorySkuSearchOptions } from '../../../application/port/in/stock/sellpia-inventory-sku-read.port';
 
 const SELLPIA_INVENTORY_SKU_SELECT = {
   id: true,
@@ -120,10 +121,12 @@ implements SellpiaInventorySkuReadRepositoryPort {
     organizationId: string,
     query: string,
     limit: number,
+    options?: SellpiaInventorySkuSearchOptions,
   ): Promise<SellpiaInventorySkuReadModel[]> {
     const rows = await this.prisma.sellpiaInventorySku.findMany({
       where: {
         ...activeSellpiaWhere(organizationId),
+        ...(options?.includeOutOfStock ? {} : { currentStock: { gt: 0 } }),
         OR: [
           { code: { contains: query, mode: 'insensitive' } },
           { name: { contains: query, mode: 'insensitive' } },

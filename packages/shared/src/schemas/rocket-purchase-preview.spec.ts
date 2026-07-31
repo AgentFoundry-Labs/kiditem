@@ -97,6 +97,7 @@ function publication() {
       appliedProducts: 1,
       appliedVariants: 1,
       affectedOptions: 1,
+      quantityReviewProducts: 0,
       operatorReviewProducts: 0,
       blockedProducts: 0,
       alreadyConfiguredProducts: 0,
