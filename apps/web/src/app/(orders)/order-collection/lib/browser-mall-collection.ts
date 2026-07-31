@@ -250,6 +250,11 @@ export function createBrowserMallCollector({
     const convertedAt = Date.now();
     addBrowserGeneratedFile({
       ...result,
+      // 해법몰은 택배비가 별도 행이 아니라 같은 행의 컬럼이라 "출력행 - 상품행" 주문수 추정이
+      // 0 이 된다. 주문번호를 직접 넘겨 몰 카드 집계와 셀피아 대조가 실주문 기준으로 돌게 한다.
+      orderNumbers: [...new Set(
+        orders.map((order) => String(order.orderNo ?? '').trim()).filter(Boolean),
+      )],
       id: `${convertedAt}-haebub-mall-browser`,
       sourceName: `해법몰 주문 (${formatNumber(orders.length)}건)`,
       convertedAt,
