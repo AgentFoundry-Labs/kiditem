@@ -34,6 +34,7 @@ import {
   rocketProductMatchingHref,
   type RocketMatchStatusRow,
 } from "./RocketMatchStatusModal";
+import { orderRocketPreviewRows } from "../lib/rocket-preview-row-order";
 
 function componentValues(row: RocketPurchasePreviewRow): string {
   if (row.components.length === 0) return "—";
@@ -248,7 +249,7 @@ export function RocketConfirmPanel({
         ) === 0,
     ).length,
   } satisfies Record<RowFilter, number>;
-  const visibleRows =
+  const filteredRows =
     rowFilter === "unmatched"
       ? rows.filter((row) => row.components.length === 0)
       : rowFilter === "zero"
@@ -261,6 +262,13 @@ export function RocketConfirmPanel({
               ) === 0,
           )
         : rows;
+  const visibleRows = orderRocketPreviewRows(filteredRows, (row) =>
+    rowQuantity(
+      row,
+      editedQuantities[row.poLineId],
+      reviewableLineIds.has(row.poLineId),
+    ),
+  );
   const poCount = new Set(rows.map((row) => row.poNumber)).size;
   const previewDates = [
     ...new Set(rows.map((row) => row.plannedDeliveryDate)),
