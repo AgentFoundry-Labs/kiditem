@@ -157,6 +157,60 @@ describe('buildPerListingMetrics (PG integration)', () => {
     expect(result[0].netProfit).toBe(80_000);           // 100k - 0 - 0 - 0 - 20k - 0
   });
 
+  it('includes the final KST business date when timestamp bounds cross a UTC calendar date', async () => {
+    const { id: masterId } = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-KST-MONTH-END',
+      name: 'KST month-end product',
+    });
+    const { id: optionId } = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId,
+      sku: 'SKU-KST-MONTH-END',
+      costPrice: 0,
+      commissionRate: 0,
+    });
+    const { listingId, listingOptionId } = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId,
+      channel: 'coupang',
+      externalId: 'EXT-KST-MONTH-END',
+      optionId,
+      externalOptionId: 'VI-KST-MONTH-END',
+    });
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'PERLIST-KST-MONTH-END',
+      orderedAt: '2026-07-31T14:59:59.000Z',
+      shippingPrice: 0,
+      lineItems: [
+        { quantity: 1, totalPrice: 100_000, optionId, listingOptionId },
+      ],
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId,
+      date: '2026-07-31',
+      spend: 20_000,
+    });
+
+    const result = await buildPerListingMetrics(
+      prisma as unknown as PrismaService,
+      TEST_ORGANIZATION_ID,
+      new Date('2026-06-30T15:00:00.000Z'),
+      new Date('2026-07-31T15:00:00.000Z'),
+    );
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        listingId,
+        revenue: 100_000,
+        adCost: 20_000,
+        netProfit: 80_000,
+      }),
+    ]);
+  });
+
   it('T5: EXCLUDED_ORDER_STATUSES filter — cancelled/returned/refunded orders are excluded', async () => {
     const { id: masterId } = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T5', name: 'Master T5',

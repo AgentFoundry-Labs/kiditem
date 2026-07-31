@@ -29,15 +29,23 @@ describe('retired shared Sellpia drawer', () => {
       path.join(webSrc, 'app/(inventory)/stock-ops/components/ProductOutflow.tsx'),
       'utf8',
     );
+    const syncAction = readFileSync(
+      path.join(webSrc, 'app/(inventory)/_shared/SellpiaSyncAction.tsx'),
+      'utf8',
+    );
     const coordinator = readFileSync(
       path.join(webSrc, 'components/providers/SellpiaInventorySyncProvider.tsx'),
       'utf8',
     );
 
     expect(productOutflow).toContain(
-      "freshnessState?.status === 'failed' ? 'retry' : 'manual_request'",
+      "import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';",
     );
-    expect(productOutflow).toContain('셀피아 동기화');
+    expect(productOutflow).toContain('<SellpiaSyncAction compact showStatus />');
+    expect(syncAction).toContain(
+      "state?.status === 'failed' ? 'retry' : 'manual_request'",
+    );
+    expect(syncAction).toContain('aria-label="셀피아 동기화"');
     expect(coordinator).toContain('collectSellpiaInventory');
     expect(coordinator).toContain('collectSellpiaProductProfitFromExtension');
   });

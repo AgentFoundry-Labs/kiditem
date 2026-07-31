@@ -107,15 +107,15 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
     expect(preview.summary).toEqual({
       products: 7,
       autoApplyProducts: 1,
-      quantityReviewProducts: 0,
-      operatorReviewProducts: 1,
+      quantityReviewProducts: 1,
+      operatorReviewProducts: 0,
       blockedProducts: 4,
       alreadyConfiguredProducts: 1,
       variants: 7,
       affectedOptions: 7,
       autoApply: 1,
-      quantityReview: 0,
-      operatorReview: 1,
+      quantityReview: 1,
+      operatorReview: 0,
       blocked: 4,
       alreadyConfigured: 1,
     });
@@ -214,7 +214,7 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
     const preview = await service.preview(TEST_ORGANIZATION_ID, ACCOUNT_ID);
     expect(preview.productGroups.find((group) =>
       group.channelListingId === groupedListing.id)).toMatchObject({
-      decision: 'operator_review',
+      decision: 'quantity_review',
       autoApplyProductVariantIds: [groupedVariants[0]],
     });
 
