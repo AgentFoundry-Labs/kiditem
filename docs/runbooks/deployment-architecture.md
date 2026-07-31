@@ -177,6 +177,46 @@ The workflow's `status` operation reports root filesystem and inode capacity,
 Docker disk usage, and top-level `/var` and `/opt` usage so persistent ENOSPC
 failures can be separated from reclaimable image pressure before another deploy.
 
+## Staging Retirement Boundary
+
+The immutable staging workflow has a guarded `retire` operator for a reversible
+runtime shutdown. It writes `deployments/retired.json` and stops `api-blue`,
+`web-blue`, `worker-blue`, `api-green`, `web-green`, `worker-green`, and
+`nginx`. The marker blocks deploy and rollback until the separate `restore`
+operator resumes the runtime and removes the marker after health checks.
+
+Both operators require the staging GitHub Environment, immutable workflow SHA,
+and correlation UUID. Dispatch them with their exact confirmations:
+
+```bash
+workflow_code_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=retire \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id" \
+  -f retirement_confirmation=RETIRE_STAGING
+
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=restore \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')" \
+  -f retirement_confirmation=RESUME_RETIRED_STAGING
+```
+
+Each operation ends with remote `status`. After retirement, run a separate
+`operation=status` query and require `deployments/retired.json`, all seven
+services stopped, and public `/login` not HTTP `200`; retirement fails when the
+public probe still returns `200`. After restore, require the normal public
+smoke contract: `/login -> 200` and `/api/auth/me -> 401`.
+
+Retirement has a no data deletion boundary: it keeps the EC2 host, attached and
+Docker volumes, Supabase data, uploaded assets, and runtime configuration.
+Terraform and Supabase destruction remain a separate later boundary, after
+Office local auth is implemented and verified.
+
 ## Rollback Boundary
 
 Rollback selects an existing immutable image tag and deploys it to the inactive

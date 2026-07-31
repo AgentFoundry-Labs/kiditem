@@ -52,9 +52,15 @@ interface MallCollectionAccumulator {
   name: string;
   files: number;
   orderNumbers: Set<string>;
-  transmissionRequestedOrderNumbers: Set<string>;
   fallbackByBucket: Map<string, number>;
+  /**
+   * "신규" = 오늘 수집분 중 셀피아 미전송. 파일 순서와 무관하게 "전송됨이 우선"이 되도록
+   * 전송된 주문번호를 따로 모아 마지막에 차집합으로 계산한다.
+   */
+  transmittedOrderNumbers: Set<string>;
+  /** 주문번호가 없는 레거시 파일용. 전송된 버킷은 신규에서 뺀다. */
   fallbackWaitingByBucket: Map<string, number>;
+  fallbackTransmittedBuckets: Set<string>;
   productRows: number;
   latestAt: number;
 }
@@ -114,6 +120,7 @@ export function buildOrderCollectionSummary(
     else dateStat.browserFiles += 1;
     if (mallName) dateStat.malls.add(mallName);
 
+    // 몰 카드는 오늘 수집분만 집계한다("당일", "신규" 모두 오늘 수집 기준).
     if (dateKey !== today) continue;
 
     const mallStatKey = mallKey ?? `unknown-${mallName}`;
@@ -124,15 +131,17 @@ export function buildOrderCollectionSummary(
         name: mallName,
         files: 0,
         orderNumbers: new Set<string>(),
-        transmissionRequestedOrderNumbers: new Set<string>(),
         fallbackByBucket: new Map<string, number>(),
+        transmittedOrderNumbers: new Set<string>(),
         fallbackWaitingByBucket: new Map<string, number>(),
+        fallbackTransmittedBuckets: new Set<string>(),
         productRows: 0,
         latestAt: item.convertedAt,
       };
       byMall.set(mallStatKey, mallStat);
     }
 
+    const transmitted = hasSellpiaTransmissionRequest(item);
     mallStat.files += 1;
     const orderNumbers = (item.orderNumbers ?? [])
       .map((value) => String(value).trim())
@@ -140,9 +149,7 @@ export function buildOrderCollectionSummary(
     if (orderNumbers.length > 0) {
       for (const orderNumber of orderNumbers) {
         mallStat.orderNumbers.add(orderNumber);
-        if (hasSellpiaTransmissionRequest(item)) {
-          mallStat.transmissionRequestedOrderNumbers.add(orderNumber);
-        }
+        if (transmitted) mallStat.transmittedOrderNumbers.add(orderNumber);
       }
     } else {
       const bucket = getHistoryCollectionBucket(item);
@@ -151,13 +158,12 @@ export function buildOrderCollectionSummary(
         bucket,
         Math.max(mallStat.fallbackByBucket.get(bucket) ?? 0, fallbackCount),
       );
-      if (!hasSellpiaTransmissionRequest(item)) {
+      if (transmitted) {
+        mallStat.fallbackTransmittedBuckets.add(bucket);
+      } else {
         mallStat.fallbackWaitingByBucket.set(
           bucket,
-          Math.max(
-            mallStat.fallbackWaitingByBucket.get(bucket) ?? 0,
-            fallbackCount,
-          ),
+          Math.max(mallStat.fallbackWaitingByBucket.get(bucket) ?? 0, fallbackCount),
         );
       }
     }
@@ -171,6 +177,13 @@ export function buildOrderCollectionSummary(
   const mallStats = [...byMall.values()]
     .map<MallCollectionStat>((stat) => {
       const hasOrderNumbers = stat.orderNumbers.size > 0;
+      // 신규 = 오늘 수집분 중 셀피아 미전송. 전송하면 빠진다.
+      const pendingOrderNumbers = [...stat.orderNumbers].filter(
+        (orderNumber) => !stat.transmittedOrderNumbers.has(orderNumber),
+      ).length;
+      const pendingFallbackRows = [...stat.fallbackWaitingByBucket.entries()]
+        .filter(([bucket]) => !stat.fallbackTransmittedBuckets.has(bucket))
+        .reduce((sum, [, count]) => sum + count, 0);
       return {
         key: stat.key,
         name: stat.name,
@@ -178,11 +191,7 @@ export function buildOrderCollectionSummary(
         orderRows: hasOrderNumbers
           ? stat.orderNumbers.size
           : sumMapValues(stat.fallbackByBucket),
-        newRows: hasOrderNumbers
-          ? [...stat.orderNumbers].filter(
-              (orderNumber) => !stat.transmissionRequestedOrderNumbers.has(orderNumber),
-            ).length
-          : sumMapValues(stat.fallbackWaitingByBucket),
+        newRows: pendingOrderNumbers + pendingFallbackRows,
         productRows: stat.productRows,
         latestAt: stat.latestAt,
       };

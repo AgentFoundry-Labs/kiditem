@@ -10,7 +10,8 @@ here affect every route.
 
 - QueryClient construction and default query options
 - Global QueryCache error toast behavior
-- Auth session state and SIGNED_OUT redirect ownership
+- Auth session state, cross-tab/extension synchronization, absolute expiry, and
+  signed-out redirect ownership
 - React Query devtools lazy loading policy
 - One authenticated Sellpia synchronization coordinator. An explicit manual or
   retry run collects and stores both the physical inventory snapshot and
@@ -26,8 +27,8 @@ here affect every route.
 
 - `AuthProvider` must stay inside `QueryProvider` because it uses
   `useQueryClient()`.
-- `apiClient` owns refresh/retry/sign-out triggering for `auth_required`; global
-  query error handling must not duplicate session-expired toasts.
+- `apiClient` owns local-session clearing for `auth_required`; global query
+  error handling must not duplicate session-expired toasts or retry 401s.
 - Route queries that render their own local error UI may opt out of the global
   toast with `meta: { suppressGlobalErrorToast: true }`.
 - `installQueryClientErrorHandler()` exists so HMR-created QueryClient
@@ -39,8 +40,8 @@ here affect every route.
 
 ## Boundary Rules
 
-- Do not call `supabase.auth.signOut()` directly from routes; use the shared
-  refresh/sign-out flow.
+- Do not clear auth storage or redirect directly from routes; use the shared
+  local-session/AuthProvider flow.
 - Do not add route-specific query defaults here.
 - Do not show generic global error toasts for transient dev fetch/chunk failures
   or handled auth-required errors.

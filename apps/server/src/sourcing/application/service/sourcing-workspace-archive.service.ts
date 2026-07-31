@@ -46,6 +46,11 @@ export class SourcingWorkspaceArchiveService {
       if (!locked || locked.status !== 'sourced') {
         throw new NotFoundException('Sourcing candidate not found');
       }
+      await this.preparations.cancelUnstartedExternalRegistrationIntents(tx, {
+        organizationId,
+        sourceCandidateId: candidateId,
+        cancelledAt: archivedAt,
+      });
       await this.preparations.assertCandidateTerminalTransitionAllowed(tx, {
         organizationId,
         sourceCandidateId: candidateId,

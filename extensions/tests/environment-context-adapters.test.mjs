@@ -91,7 +91,7 @@ function createHarness({ initialStorage = {}, responses = [200], requiresAuth = 
     chrome,
     fetchFn,
     requiresAuth,
-    authRefreshTimeoutMs: 30,
+    authResyncTimeoutMs: 30,
     now: () => 1234,
     legacyStorageKeys: ['kiditem_auth_token', 'apiBase'],
   });
@@ -183,7 +183,7 @@ test('routes concurrent requests to fixed environment API origins', async () => 
   assert.equal(new Headers(fetchCalls[2].init.headers).get('authorization'), 'Bearer staging-token');
 });
 
-test('refreshes a 401 through only the owning environment and retries once', async () => {
+test('resyncs a 401 through only the owning environment and retries once when the token changed', async () => {
   const harness = createHarness({ responses: [401, 200] });
   await harness.environmentContext.setAccessToken('local', 'local-token');
   await harness.environmentContext.setAccessToken('staging', 'staging-token');
@@ -203,36 +203,13 @@ test('refreshes a 401 through only the owning environment and retries once', asy
   assert.equal(await harness.environmentContext.getAccessToken('staging'), 'staging-token');
 });
 
-test('uses the tokenless local server contract when local dev auth accepts it', async () => {
+test('recovers a missing local token through only the local environment', async () => {
   const harness = createHarness({ responses: [200] });
-
-  const response = await harness.environmentContext.authedFetch(
-    'local',
-    '/api/orders',
-  );
-
-  assert.equal(response.status, 200);
-  assert.equal(harness.fetchCalls.length, 1);
-  assert.equal(harness.fetchCalls[0].url, 'http://localhost:4000/api/orders');
-  assert.equal(
-    new Headers(harness.fetchCalls[0].init.headers).get('authorization'),
-    null,
-  );
-  assert.deepEqual(harness.tabQueries, []);
-  assert.equal(harness.scriptCalls.length, 0);
-});
-
-test('recovers a locally rejected tokenless request through only the local environment', async () => {
-  const harness = createHarness({ responses: [401, 200] });
 
   const pending = harness.environmentContext.authedFetch('local', '/api/orders');
   await waitForCount(harness.scriptCalls, 1);
 
-  assert.equal(harness.fetchCalls.length, 1);
-  assert.equal(
-    new Headers(harness.fetchCalls[0].init.headers).get('authorization'),
-    null,
-  );
+  assert.equal(harness.fetchCalls.length, 0);
   assert.deepEqual(harness.tabQueries, [{ url: 'http://localhost:3000/*' }]);
   assert.deepEqual(
     harness.scriptCalls.map((call) => Number(call.target.tabId)),
@@ -243,10 +220,10 @@ test('recovers a locally rejected tokenless request through only the local envir
   const response = await pending;
 
   assert.equal(response.status, 200);
-  assert.equal(harness.fetchCalls.length, 2);
-  assert.equal(harness.fetchCalls[1].url, 'http://localhost:4000/api/orders');
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.equal(harness.fetchCalls[0].url, 'http://localhost:4000/api/orders');
   assert.equal(
-    new Headers(harness.fetchCalls[1].init.headers).get('authorization'),
+    new Headers(harness.fetchCalls[0].init.headers).get('authorization'),
     'Bearer recovered-local-token',
   );
   assert.equal(await harness.environmentContext.getAccessToken('staging'), null);

@@ -43,22 +43,64 @@ export interface ResolveChannelListingInput
   }>;
 }
 
+export interface ExternalRegistrationPreflightInput {
+  organizationId: string;
+  channelAccountId: string;
+  sourceCandidateId: string;
+  listingName: string;
+  itemName: string | null;
+  selectedSellpiaInventorySkuId?: string;
+  selectedQuantity?: number;
+}
+
+export type ExternalRegistrationMatchPreviewInput = Omit<
+  ExternalRegistrationPreflightInput,
+  'channelAccountId' | 'selectedSellpiaInventorySkuId' | 'selectedQuantity'
+>;
+
+export interface ExternalRegistrationMatchPreviewResult {
+  status: 'matched' | 'selection_required';
+  reason: string;
+  sellpiaMatch: ExternalRegistrationPreflightResult['sellpiaMatch'] | null;
+  proposals: Array<{
+    sellpiaInventorySkuId: string;
+    code: string;
+    name: string;
+    optionName: string | null;
+    currentStock: number;
+    recommendedQuantity: number | null;
+  }>;
+}
+
+export interface ExternalRegistrationPreflightResult {
+  sellpiaMatch: {
+    sellpiaInventorySkuId: string;
+    code: string;
+    name: string;
+    optionName: string | null;
+    currentStock: number;
+    quantity: number;
+  };
+  existingListing: {
+    externalListingId: string;
+    displayName: string;
+    status: string | null;
+  } | null;
+}
+
 export interface ChannelProductRegistrationPort {
+  previewExternalRegistrationMatch(
+    input: ExternalRegistrationMatchPreviewInput,
+  ): Promise<ExternalRegistrationMatchPreviewResult>;
+
+  preflightExternalRegistration(
+    input: ExternalRegistrationPreflightInput,
+  ): Promise<ExternalRegistrationPreflightResult>;
+
   assertExternalRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
   }): Promise<{ channel: 'coupang'; vendorId: string }>;
-  verifyExternalRegistration(input: {
-    organizationId: string;
-    channelAccountId: string;
-    externalListingId: string;
-  }): Promise<{
-    channel: 'coupang';
-    vendorId: string;
-    externalListingId: string;
-    status: string;
-    rawResult: unknown;
-  }>;
   reconcile(
     input: ChannelProductRegistrationSubmissionInput,
   ): Promise<MarketplaceSubmissionResult | null>;

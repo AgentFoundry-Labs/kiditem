@@ -37,27 +37,70 @@ export interface ResolveProductRegistrationCapabilityInput
   }>;
 }
 
+export interface ExternalProductRegistrationPreflightInput {
+  organizationId: string;
+  channelAccountId: string;
+  sourceCandidateId: string;
+  listingName: string;
+  itemName: string | null;
+  selectedSellpiaInventorySkuId?: string;
+  selectedQuantity?: number;
+}
+
+export type ExternalProductRegistrationMatchPreviewInput = Omit<
+  ExternalProductRegistrationPreflightInput,
+  'channelAccountId' | 'selectedSellpiaInventorySkuId' | 'selectedQuantity'
+>;
+
+export interface ExternalProductRegistrationMatchProposal {
+  sellpiaInventorySkuId: string;
+  code: string;
+  name: string;
+  optionName: string | null;
+  currentStock: number;
+  recommendedQuantity: number | null;
+}
+
+export interface ExternalProductRegistrationMatchPreviewResult {
+  status: 'matched' | 'selection_required';
+  reason: string;
+  sellpiaMatch: ExternalProductRegistrationPreflightResult['sellpiaMatch'] | null;
+  proposals: ExternalProductRegistrationMatchProposal[];
+}
+
+export interface ExternalProductRegistrationPreflightResult {
+  sellpiaMatch: {
+    sellpiaInventorySkuId: string;
+    code: string;
+    name: string;
+    optionName: string | null;
+    currentStock: number;
+    quantity: number;
+  };
+  existingListing: {
+    externalListingId: string;
+    displayName: string;
+    status: string | null;
+  } | null;
+}
+
 export const CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT = Symbol(
   'CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT',
 );
 
 export interface ChannelsMarketplaceRegistrationCapabilityPort {
+  previewExternalProductRegistrationMatch(
+    input: ExternalProductRegistrationMatchPreviewInput,
+  ): Promise<ExternalProductRegistrationMatchPreviewResult>;
+
+  preflightExternalProductRegistration(
+    input: ExternalProductRegistrationPreflightInput,
+  ): Promise<ExternalProductRegistrationPreflightResult>;
+
   assertExternalProductRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
   }): Promise<{ channel: 'coupang'; vendorId: string }>;
-
-  verifyExternalProductRegistration(input: {
-    organizationId: string;
-    channelAccountId: string;
-    externalListingId: string;
-  }): Promise<{
-    channel: 'coupang';
-    vendorId: string;
-    externalListingId: string;
-    status: string;
-    rawResult: unknown;
-  }>;
 
   reconcileProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,

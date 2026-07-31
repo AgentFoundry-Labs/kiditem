@@ -4,19 +4,20 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ApiError } from '@/lib/api-error';
 
 const apiGetMock = vi.hoisted(() => vi.fn());
+const apiPostMock = vi.hoisted(() => vi.fn());
 const useAuthSessionMock = vi.hoisted(() => vi.fn());
-const triggerSignOutMock = vi.hoisted(() => vi.fn());
+const clearAuthSessionMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: apiGetMock },
+  apiClient: { get: apiGetMock, post: apiPostMock },
 }));
 
 vi.mock('@/components/providers/AuthProvider', () => ({
   useAuthSession: () => useAuthSessionMock(),
 }));
 
-vi.mock('@/lib/supabase/refresh', () => ({
-  triggerSignOut: (...args: unknown[]) => triggerSignOutMock(...args),
+vi.mock('@/lib/auth/session', () => ({
+  clearAuthSession: (...args: unknown[]) => clearAuthSessionMock(...args),
 }));
 
 function wrapper(qc: QueryClient) {
@@ -28,9 +29,10 @@ function wrapper(qc: QueryClient) {
 describe('useAuth', () => {
   beforeEach(() => {
     apiGetMock.mockReset();
+    apiPostMock.mockReset();
+    apiPostMock.mockResolvedValue({});
     useAuthSessionMock.mockReset();
-    triggerSignOutMock.mockReset();
-    triggerSignOutMock.mockResolvedValue(undefined);
+    clearAuthSessionMock.mockReset();
   });
 
   it('UA2: query is disabled when session is null', async () => {
@@ -62,7 +64,7 @@ describe('useAuth', () => {
 
   it('UA3: query runs when session present, returns user', async () => {
     useAuthSessionMock.mockReturnValue({
-      session: { access_token: 'a', user: { id: 'u1' } },
+      session: { token: 'a'.repeat(43), expiresAt: '2026-08-29T03:00:00.000Z' },
       isLoading: false,
     });
     apiGetMock.mockResolvedValue({
@@ -90,7 +92,7 @@ describe('useAuth', () => {
 
   it('returns no_organization status when session user has no active organization', async () => {
     useAuthSessionMock.mockReturnValue({
-      session: { access_token: 'a', user: { id: 'u1' } },
+      session: { token: 'a'.repeat(43), expiresAt: '2026-08-29T03:00:00.000Z' },
       isLoading: false,
     });
     apiGetMock.mockResolvedValue({
@@ -116,7 +118,7 @@ describe('useAuth', () => {
 
   it('returns no_organization status for no_organization_context ApiError', async () => {
     useAuthSessionMock.mockReturnValue({
-      session: { access_token: 'a', user: { id: 'u1' } },
+      session: { token: 'a'.repeat(43), expiresAt: '2026-08-29T03:00:00.000Z' },
       isLoading: false,
     });
     apiGetMock.mockRejectedValue(
@@ -136,7 +138,7 @@ describe('useAuth', () => {
 
   it('returns anonymous status for auth_required ApiError after session check', async () => {
     useAuthSessionMock.mockReturnValue({
-      session: { access_token: 'a', user: { id: 'u1' } },
+      session: { token: 'a'.repeat(43), expiresAt: '2026-08-29T03:00:00.000Z' },
       isLoading: false,
     });
     apiGetMock.mockRejectedValue(new ApiError(401, 'auth_required', '세션 만료'));
@@ -152,9 +154,9 @@ describe('useAuth', () => {
     expect(result.current.user).toBeNull();
   });
 
-  it('UA1: logout calls triggerSignOut("manual") and clears cached user query', async () => {
+  it('UA1: logout revokes the current server session, clears local state, and removes user cache', async () => {
     useAuthSessionMock.mockReturnValue({
-      session: { access_token: 'a', user: { id: 'u1' } },
+      session: { token: 'a'.repeat(43), expiresAt: '2026-08-29T03:00:00.000Z' },
       isLoading: false,
     });
     apiGetMock.mockResolvedValue({ id: 'u1' });
@@ -167,7 +169,8 @@ describe('useAuth', () => {
 
     await result.current.logout();
 
-    expect(triggerSignOutMock).toHaveBeenCalledWith('manual');
+    expect(apiPostMock).toHaveBeenCalledWith('/api/auth/logout');
+    expect(clearAuthSessionMock).toHaveBeenCalledWith('manual');
     expect(removeQueriesSpy).toHaveBeenCalledWith({ queryKey: ['auth', 'me'] });
   });
 

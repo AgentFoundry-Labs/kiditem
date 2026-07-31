@@ -20,7 +20,8 @@ Internet
         -> worker  -> active Agent OS worker slot
 
 External services:
-  PostgreSQL/Auth -> Supabase project for this staging runtime
+  PostgreSQL      -> dedicated database for this staging runtime
+  Auth            -> local password hashes and sessions in PostgreSQL
   Storage         -> Supabase Storage public bucket, via S3-compatible API
   DB baseline     -> Supabase Storage private bucket, via S3-compatible API
   Image registry  -> GHCR images tagged by git SHA
@@ -31,9 +32,9 @@ External services:
 - EC2 Ubuntu host with inbound `80` and `443` open. SSH should be limited to the operator IP.
 - Docker Engine, Docker Compose plugin, nginx, and rsync installed on the EC2 host.
 - Host certbot installed if the public staging URL needs HTTPS.
-- A Supabase project for staging runtime. For the first rollout, this may reuse
+- A PostgreSQL database for staging runtime. For the first rollout, this may reuse
   the current shared dev Supabase project; before real QA, prefer a dedicated
-  `kiditem-staging` project. Do not reuse production DB/Auth.
+  `kiditem-staging` project. Do not reuse the production database.
 - A dedicated Supabase Storage bucket for staging uploads. The app still talks
   through an S3-compatible client, so enable Supabase Storage S3 protocol and
   generate a server-side access key pair in Dashboard -> Storage ->
@@ -153,14 +154,6 @@ to the NestJS container.
 
 Create a GitHub Environment named `staging`.
 
-Repository variables used by staging build jobs that intentionally do not
-attach GitHub Environment `staging`:
-
-```text
-NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<staging-supabase-publishable-key>
-```
-
 Environment variables:
 
 ```text
@@ -168,7 +161,6 @@ STAGING_HOST=<ec2-public-ip-or-dns>
 STAGING_USER=ubuntu
 STAGING_REMOTE_DIR=/opt/kiditem
 STAGING_URL=http://<ec2-public-ip>
-STAGING_SUPABASE_URL=https://<project-ref>.supabase.co
 STAGING_CORS_ORIGINS=http://<ec2-public-ip>
 STAGING_S3_REGION=ap-northeast-2
 STAGING_S3_BUCKET=kiditem-staging-assets
@@ -244,9 +236,6 @@ gh variable set STAGING_HOST --env staging --body "<ec2-public-ip-or-dns>"
 gh variable set STAGING_USER --env staging --body "ubuntu"
 gh variable set STAGING_REMOTE_DIR --env staging --body "/opt/kiditem"
 gh variable set STAGING_URL --env staging --body "http://<ec2-public-ip>"
-gh variable set NEXT_PUBLIC_SUPABASE_URL --body "https://<project-ref>.supabase.co"
-gh variable set NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY --body "<publishable-key>"
-gh variable set STAGING_SUPABASE_URL --env staging --body "https://<project-ref>.supabase.co"
 gh variable set STAGING_CORS_ORIGINS --env staging --body "http://<ec2-public-ip>"
 gh variable set STAGING_S3_REGION --env staging --body "ap-northeast-2"
 gh variable set STAGING_S3_BUCKET --env staging --body "kiditem-staging-assets"
@@ -347,6 +336,12 @@ Triggers:
   distinguish image cleanup from an EC2 root-volume resize after `ENOSPC`.
 - Manual `workflow_dispatch` with `operation=rollback` deploys an existing GHCR
   git-SHA tag. Do not pass `staging` as a rollback tag.
+- Manual `workflow_dispatch` with `operation=retire` stops staging application
+  services after recording `deployments/retired.json`. It does not build,
+  pull, migrate, reset, or delete application data.
+- Manual `workflow_dispatch` with `operation=restore` resumes the retired
+  runtime, waits for the normal public smoke contract, and then clears
+  `deployments/retired.json`.
 
 Branch model:
 
@@ -362,7 +357,7 @@ does not deploy automatically; an operator triggers the workflow manually. Do
 not create a long-lived `staging` branch; staging is a GitHub Environment, not a
 separate source branch.
 
-Only deploy/rollback/status jobs declare GitHub Environment
+Only deploy/rollback/status/retirement jobs declare GitHub Environment
 `staging`. Build and preparation jobs intentionally avoid it. The destructive
 deploy and its later finalization are separately protected staging operations.
 
@@ -425,9 +420,10 @@ URL hash, URL database name, live database name, and exact reset token. The
 destructive order is: quiesce application traffic, export every Organization,
 human User, and OrganizationMembership row, export the migration-ledger
 bookkeeping baseline, upload the private one-day artifact, then cross the reset
-boundary by applying the final Prisma schema with `--force-reset`. Supabase
-Auth is outside the reset schema and remains untouched. The workflow restores
-only the exported account baseline before starting the application.
+boundary by applying the final Prisma schema with `--force-reset`. Local auth
+is part of `public`: the workflow restores account/membership rows without
+password hashes or sessions before starting the application. An operator must
+set a new disposable password through the stdin-only auth CLI after cutover.
 
 The account artifact intentionally has no ChannelAccount, marketplace
 credential/config, scrape payload, product, order, inventory, Sellpia, or WING
@@ -447,7 +443,10 @@ cutover.
 
 After the deploy finishes, an authenticated operator must:
 
-1. Verify the preserved users can sign in and resolve the expected organization.
+1. Set a disposable password for a preserved user through
+   `docker exec -i <api-container> node dist/auth/adapter/in/cli/auth-admin.js
+   set-password --email <email> --password-stdin`, then verify the user can sign
+   in and resolve the expected organization. Never put the password in argv.
 2. Configure each required ChannelAccount, including actual Coupang accounts,
    after deploy. Account credentials are never part of the reset artifact.
 3. Import Sellpia and WING files after deploy when those datasets are needed.
@@ -551,6 +550,67 @@ host, then re-run:
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
+```
+
+## Retire Or Restore Staging
+
+Retirement is a reversible runtime boundary for staging. It writes the durable
+marker `/opt/kiditem/deployments/retired.json`, then stops exactly these Compose
+services: `api-blue`, `web-blue`, `worker-blue`, `api-green`, `web-green`,
+`worker-green`, and `nginx`. The marker makes later deploy and rollback
+operations reject the retired runtime until an explicit restore succeeds.
+
+Retirement performs no data deletion. It retains the EC2 instance, attached
+volumes, Docker volumes, Supabase data, uploaded assets, deployment history,
+and runtime configuration. Terraform or Supabase destruction is a separate,
+later decision boundary; do not cross it until Office local auth is implemented
+and verified.
+
+Dispatch from an immutable `origin/main` workflow SHA with a new correlation
+UUID. The confirmation value is exact and is passed only to the matching
+remote operation:
+
+```bash
+workflow_code_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=retire \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id" \
+  -f retirement_confirmation=RETIRE_STAGING
+```
+
+The retirement job records final remote `status` evidence and fails if the
+public `$STAGING_URL/login` probe still returns HTTP `200`. Select the exact
+run by SHA and correlation, inspect any failure logs, then run a separate final
+status query:
+
+```bash
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=status \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+```
+
+Confirm `/opt/kiditem/deployments/retired.json` exists, all seven services are
+stopped, and public `/login` is not HTTP `200` before declaring retirement
+complete.
+
+Restore uses the separate exact confirmation below. It resumes the retained
+runtime before removing the marker, then requires `/login -> 200` and
+`/api/auth/me -> 401` from the public staging URL:
+
+```bash
+workflow_code_sha="$(rtk git rev-parse origin/main)"
+dispatch_correlation_id="$(rtk node -e 'console.log(require("node:crypto").randomUUID())')"
+rtk gh workflow run staging-deploy.yml --ref "$workflow_code_sha" \
+  -f operation=restore \
+  -f deployment_target=staging \
+  -f expected_git_sha="$workflow_code_sha" \
+  -f dispatch_correlation_id="$dispatch_correlation_id" \
+  -f retirement_confirmation=RESUME_RETIRED_STAGING
 ```
 
 ## Manual Compose Commands

@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Deploy this ref, show status, or roll back.
+        description: Deploy this ref, show status, roll back, retire, or restore.
         type: choice
         required: true
         default: deploy
@@ -13,6 +13,8 @@ on:
           - deploy
           - status
           - rollback
+          - retire
+          - restore
       deployment_target:
         description: Shared database target. This workflow accepts staging only.
         type: choice
@@ -30,6 +32,10 @@ on:
         type: string
       destructive_reset:
         description: Exact RESET_STAGING_DATA confirmation for a fresh staging rebuild.
+        required: false
+        type: string
+      retirement_confirmation:
+        description: Exact RETIRE_STAGING or RESUME_RETIRED_STAGING confirmation for the selected retirement operation.
         required: false
         type: string
       image_tag:
@@ -91,15 +97,6 @@ jobs:
         with:
           ref: ${{ needs.identity_guard.outputs.git_sha }}
 
-      - name: Validate staging build variables
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-        run: |
-          set -euo pipefail
-          : "${NEXT_PUBLIC_SUPABASE_URL:?Set repository variable NEXT_PUBLIC_SUPABASE_URL}"
-          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set repository variable NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
-
       - name: Compute image references
         id: refs
         run: |
@@ -157,8 +154,6 @@ jobs:
       app_version: ${{ needs.prepare.outputs.app_version }}
       build_args: |
         NEXT_PUBLIC_API_URL=
-        NEXT_PUBLIC_SUPABASE_URL=${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
       extra_tags: ghcr.io/agentfoundry-labs/kiditem-web:staging
 
   deploy:
@@ -231,19 +226,7 @@ jobs:
           EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
         run: npm run inventory:rebuild -- guard
 
-      - name: Run pre-schema data migrations
-        if: inputs.destructive_reset == ''
-        env:
-          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          DATA_MIGRATION_TARGET: staging
-          DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
-        run: |
-          set -euo pipefail
-          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
-          npm run data:migrate -- up --phase pre-schema
-
-      - name: Prepare SSH for guarded rebuild
-        if: inputs.destructive_reset != ''
+      - name: Prepare SSH for retirement guard
         env:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
@@ -255,6 +238,36 @@ jobs:
           printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
           chmod 600 ~/.ssh/kiditem-staging
           printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Refuse deployment while staging is retired
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          case "$STAGING_USER" in (*[!A-Za-z0-9_.-]*|'') echo "Invalid STAGING_USER" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (/*) ;; (*) echo "STAGING_REMOTE_DIR must be absolute" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
+          target="${STAGING_USER}@${STAGING_HOST}"
+          retirement_marker="${STAGING_REMOTE_DIR}/deployments/retired.json"
+          retirement_marker_q="$(printf '%q' "$retirement_marker")"
+          ssh -i ~/.ssh/kiditem-staging "$target" \
+            "if [ -f ${retirement_marker_q} ]; then echo 'Staging is retired; refusing data mutation.' >&2; cat ${retirement_marker_q} >&2; exit 1; fi"
+
+      - name: Run pre-schema data migrations
+        if: inputs.destructive_reset == ''
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DATA_MIGRATION_TARGET: staging
+          DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
+          npm run data:migrate -- up --phase pre-schema
 
       - name: Sync staging rebuild control script
         if: inputs.destructive_reset != ''
@@ -380,7 +393,6 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.STAGING_DIRECT_URL }}
-          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
           WEB_ORIGIN: ${{ vars.STAGING_URL }}
           CORS_ORIGINS: ${{ vars.STAGING_CORS_ORIGINS || vars.STAGING_URL }}
           S3_REGION: ${{ vars.STAGING_S3_REGION }}
@@ -417,24 +429,9 @@ jobs:
           AGENT_RUNTIME_WORKER_ENABLED: ${{ vars.STAGING_AGENT_RUNTIME_WORKER_ENABLED }}
           AGENT_DEFAULT_MODEL: ${{ vars.STAGING_AGENT_DEFAULT_MODEL }}
           NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: |
           set -euo pipefail
           bash deploy/staging/render-runtime-env.sh
-
-      - name: Prepare SSH
-        env:
-          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
-          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
-        run: |
-          set -euo pipefail
-          : "${STAGING_SSH_KEY:?Set staging secret STAGING_SSH_KEY}"
-          : "${STAGING_SSH_KNOWN_HOSTS:?Set staging secret STAGING_SSH_KNOWN_HOSTS}"
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
-          chmod 600 ~/.ssh/kiditem-staging
-          printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
       - name: Sync staging compose assets
         env:
@@ -651,7 +648,6 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.STAGING_DIRECT_URL }}
-          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
           WEB_ORIGIN: ${{ vars.STAGING_URL }}
           CORS_ORIGINS: ${{ vars.STAGING_CORS_ORIGINS || vars.STAGING_URL }}
           S3_REGION: ${{ vars.STAGING_S3_REGION }}
@@ -688,8 +684,6 @@ jobs:
           AGENT_RUNTIME_WORKER_ENABLED: ${{ vars.STAGING_AGENT_RUNTIME_WORKER_ENABLED }}
           AGENT_DEFAULT_MODEL: ${{ vars.STAGING_AGENT_DEFAULT_MODEL }}
           NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: |
           set -euo pipefail
           bash deploy/staging/render-runtime-env.sh
@@ -852,3 +846,150 @@ jobs:
             echo "- URL: ${STAGING_URL:-unset}"
             echo "- Runbook: \`docs/runbooks/staging-deploy.md\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  retirement:
+    name: Retire or restore staging
+    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'retire' || inputs.operation == 'restore')
+    needs: identity_guard
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.identity_guard.outputs.git_sha }}
+
+      - name: Prepare SSH
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_SSH_KEY:?Set staging secret STAGING_SSH_KEY}"
+          : "${STAGING_SSH_KNOWN_HOSTS:?Set staging secret STAGING_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
+          chmod 600 ~/.ssh/kiditem-staging
+          printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync staging retirement control assets
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          case "$STAGING_USER" in (*[!A-Za-z0-9_.-]*|'') echo "Invalid STAGING_USER" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (/*) ;; (*) echo "STAGING_REMOTE_DIR must be absolute" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
+          target="${STAGING_USER}@${STAGING_HOST}"
+          remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
+          tar -czf - docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+            | ssh -i ~/.ssh/kiditem-staging "$target" \
+                "mkdir -p ${remote_dir_q}/deploy/staging && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
+
+      - name: Run selected staging retirement operation
+        id: remote_control
+        env:
+          OPERATION: ${{ inputs.operation }}
+          RETIREMENT_CONFIRMATION: ${{ inputs.retirement_confirmation }}
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+          GIT_SHA: ${{ needs.identity_guard.outputs.git_sha }}
+          DISPATCH_CORRELATION_ID: ${{ inputs.dispatch_correlation_id }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          target="${STAGING_USER}@${STAGING_HOST}"
+          q() { printf '%q' "$1"; }
+
+          case "$OPERATION" in
+            retire)
+              ssh -i ~/.ssh/kiditem-staging "$target" "cd $(q "$STAGING_REMOTE_DIR") && bash -s" <<REMOTE
+          set -euo pipefail
+          export DEPLOY_ENVIRONMENT=staging
+          export GIT_SHA=$(q "$GIT_SHA")
+          export GITHUB_RUN_ID=$(q "$GITHUB_RUN_ID")
+          export DISPATCH_CORRELATION_ID=$(q "$DISPATCH_CORRELATION_ID")
+          export ALLOW_STAGING_RETIRE=$(q "$RETIREMENT_CONFIRMATION")
+          ./deploy/staging/remote-deploy.sh retire
+          REMOTE
+              ;;
+            restore)
+              ssh -i ~/.ssh/kiditem-staging "$target" "cd $(q "$STAGING_REMOTE_DIR") && bash -s" <<REMOTE
+          set -euo pipefail
+          export DEPLOY_ENVIRONMENT=staging
+          export GIT_SHA=$(q "$GIT_SHA")
+          export GITHUB_RUN_ID=$(q "$GITHUB_RUN_ID")
+          export DISPATCH_CORRELATION_ID=$(q "$DISPATCH_CORRELATION_ID")
+          export ALLOW_STAGING_RESTORE=$(q "$RETIREMENT_CONFIRMATION")
+          ./deploy/staging/remote-deploy.sh restore
+          REMOTE
+              ;;
+            *)
+              echo "Unsupported retirement operation: $OPERATION" >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Query final EC2 status
+        if: always() && (steps.remote_control.outcome == 'success' || steps.remote_control.outcome == 'failure')
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-staging "${STAGING_USER}@${STAGING_HOST}" \
+            "cd $(q "$STAGING_REMOTE_DIR") && ./deploy/staging/remote-deploy.sh status"
+
+      - name: Verify retirement public boundary
+        if: always() && (steps.remote_control.outcome == 'success' || steps.remote_control.outcome == 'failure') && inputs.operation == 'retire'
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_URL:?Set staging variable STAGING_URL}"
+          STAGING_URL="${STAGING_URL%/}"
+          login_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$STAGING_URL/login" || true)"
+          if [[ "$login_code" == "200" ]]; then
+            echo "::error::Retired staging must not serve $STAGING_URL/login with HTTP 200" >&2
+            exit 1
+          fi
+          echo "Retirement public probe passed: $STAGING_URL/login=$login_code (expected not 200)"
+
+      - name: Verify restored public staging URL
+        if: always() && (steps.remote_control.outcome == 'success' || steps.remote_control.outcome == 'failure') && inputs.operation == 'restore'
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_URL:?Set staging variable STAGING_URL}"
+          STAGING_URL="${STAGING_URL%/}"
+
+          for _ in $(seq 1 12); do
+            login_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$STAGING_URL/login" || true)"
+            auth_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$STAGING_URL/api/auth/me" || true)"
+            if [[ "$login_code" == "200" && "$auth_code" == "401" ]]; then
+              echo "Public staging smoke checks passed: $STAGING_URL/login=200, $STAGING_URL/api/auth/me=$auth_code"
+              exit 0
+            fi
+            echo "Public staging not ready yet: /login=$login_code, /api/auth/me=$auth_code"
+            sleep 5
+          done
+
+          echo "::error::Restored staging URL did not become healthy: $STAGING_URL" >&2
+          curl -sS -I --max-time 15 "$STAGING_URL/login" >&2 || true
+          exit 1

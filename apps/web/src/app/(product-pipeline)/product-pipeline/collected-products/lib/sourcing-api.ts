@@ -13,6 +13,21 @@ import {
 
 export type ProductStatus = SourcingCandidateStatus;
 
+export interface SellpiaInventorySearchItem {
+  sellpiaInventorySkuId: string;
+  code: string;
+  name: string;
+  optionName: string | null;
+  currentStock: number;
+}
+
+export interface ExternalWingSellpiaMatchPreview {
+  status: 'matched' | 'selection_required';
+  reason: string;
+  sellpiaMatch: (SellpiaInventorySearchItem & { quantity: number }) | null;
+  proposals: Array<SellpiaInventorySearchItem & { recommendedQuantity: number | null }>;
+}
+
 export const isInProgress = (s: string | undefined | null): boolean =>
   s === 'pending' || s === 'processing';
 
@@ -715,8 +730,9 @@ export const candidatesApi = {
    *
    * 쿠팡 WING 등록은 확장이 화면을 조작해 수행하므로 서버의 provider create 경로를
    * 탈 수 없다. 이 호출은 **이미 발급된 등록상품ID** 를 근거로 `ChannelListing` 만
-   * 만들어 등록상품 목록에 올린다. 서버는 새 상품을 생성하지 않고 선택된 계정으로
-   * 등록상품ID를 조회해 실제 판매자와 상태를 검증한다.
+   * 만들어 등록상품 목록에 올린다. 서버는 새 상품을 생성하지 않고 선택된 계정의
+   * vendorId와 확장이 확인한 WING 계정을 대조한다. 이미 동기화된 리스팅은 준비 시
+   * frozen한 내부 결과로 확정한다.
    */
   confirmExternalRegistration: (
     candidateId: string,
@@ -735,10 +751,32 @@ export const candidatesApi = {
     displayName: string;
     registrationInput: Record<string, unknown>;
     idempotencyKey: string;
+    sellpiaInventorySkuId?: string;
+    sellpiaQuantity?: number;
   }) => apiClient.post<{
     executionId: string; preparationId: string; requestHash: string;
     status: 'prepared'; expectedVendorId: string;
+    sellpiaMatch: {
+      sellpiaInventorySkuId: string;
+      code: string;
+      name: string;
+      optionName: string | null;
+      currentStock: number;
+      quantity: number;
+    };
+    existingListing: {
+      externalListingId: string;
+      displayName: string;
+      status: string | null;
+    } | null;
   }>(`/api/sourcing/candidates/${candidateId}/registration/external-wing/prepare`, body),
+  previewExternalWingRegistrationMatch: (
+    candidateId: string,
+    body: { listingName: string; itemName?: string },
+  ) => apiClient.post<ExternalWingSellpiaMatchPreview>(
+    `/api/sourcing/candidates/${candidateId}/registration/external-wing/match-preview`,
+    body,
+  ),
   startExternalWingRegistration: (candidateId: string, executionId: string) =>
     apiClient.post<{ executionId: string; status: 'executing'; providerOutcome: 'uncertain' }>(
       `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/start`, {},
@@ -806,3 +844,18 @@ export const candidatesApi = {
   delete: (id: string) =>
     apiClient.delete<{ ok: true }>(`/api/sourcing/candidates/${id}`),
 };
+
+export async function searchSellpiaInventorySkus(
+  query: string,
+): Promise<SellpiaInventorySearchItem[]> {
+  const params = new URLSearchParams({
+    page: '1',
+    limit: '20',
+    query: query.trim(),
+    activeStatus: 'active',
+  });
+  const response = await apiClient.get<{ items: SellpiaInventorySearchItem[] }>(
+    `/api/inventory/sellpia-skus?${params.toString()}`,
+  );
+  return response.items;
+}

@@ -5,7 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
-import { SupabaseAuthMiddleware } from './auth/middleware/supabase-auth.middleware';
+import { SessionAuthMiddleware } from './auth/middleware/session-auth.middleware';
 import { OrganizationScopeGuard } from './auth/guards/organization-scope.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { StorageModule } from './common/storage/storage.module';
@@ -77,9 +77,9 @@ import { RebuildReadinessGuard } from './readiness/rebuild-readiness.guard';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    // Supabase JWT 검증 — `Authorization: Bearer` 또는 Supabase SSR auth-token 쿠키.
+    // KidItem opaque session 검증 — `Authorization: Bearer` 또는 HttpOnly 쿠키.
     // SSE (`/api/panel/*`) 는 EventSource 가 헤더를 못 보내므로 쿠키 기반으로
     // 통과한다 (frontend 가 `withCredentials: true`).
-    consumer.apply(SupabaseAuthMiddleware).forRoutes('*');
+    consumer.apply(SessionAuthMiddleware).forRoutes('*');
   }
 }

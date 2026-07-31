@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
-import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
@@ -28,6 +27,7 @@ import {
 import { useOrderCollectionSessionControls } from '../hooks/use-order-collection-session-controls';
 import { useSellpiaOrderTransmission } from '../hooks/use-sellpia-order-transmission';
 import { createBrowserMallCollector } from '../lib/browser-mall-collection';
+import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
 import { runWithConcurrency } from '../lib/order-collection-concurrency';
@@ -43,6 +43,7 @@ import {
   hasSellpiaTransmissionRequest,
   isLoginRequiredMessage,
   isNoNewOrdersMessage,
+  mallCollectionFailureMessage,
   todayYmd,
   type ConversionHistoryItem,
   type ConversionState,
@@ -109,6 +110,23 @@ export function OrderCollectionWorkspace() {
   ) ?? rocketAccounts[0] ?? null;
   const sessionControls = useOrderCollectionSessionControls(mallAccounts);
   const collectionSession = sessionControls.session;
+  // 수집 조치 안내(로그인/세션 필요 등)는 몰 카드 위 배너 대신 알림(토스트)으로만 띄운다.
+  // 같은 실행의 같은 안내가 폴링마다 반복 토스트되지 않도록 마지막으로 알린 내용을 기억한다.
+  const notifiedAttentionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const attentionMessage =
+      collectionSession?.status === 'attention_required'
+        ? collectionSession.attention?.message ?? null
+        : null;
+    if (!attentionMessage) {
+      notifiedAttentionRef.current = null;
+      return;
+    }
+    const signature = `${collectionSession?.runId ?? ''}:${attentionMessage}`;
+    if (notifiedAttentionRef.current === signature) return;
+    notifiedAttentionRef.current = signature;
+    toast.warning(attentionMessage);
+  }, [collectionSession]);
   const mallLoading = mallAccountsQuery.isLoading;
   const mallError = mallAccountsQuery.error instanceof Error
     ? mallAccountsQuery.error.message
@@ -149,13 +167,64 @@ export function OrderCollectionWorkspace() {
   ).length;
   const previewItem = previewId ? history.find((item) => item.id === previewId) ?? null : null;
   const orderCollectionSummary = useMemo(() => buildOrderCollectionSummary(history), [history]);
+  // 셀피아 실측 대조 결과. 버튼을 눌렀을 때만 조회하며, 있으면 몰 카드 "신규"가 이 값을 쓴다.
+  const [sellpiaReconcile, setSellpiaReconcile] = useState<SellpiaReconcileResult | null>(null);
+  // 대조를 돌렸으면 "신규"(=아직 셀피아에 안 올라간 주문)를 로컬 전송기록 대신 실측으로 바꾼다.
+  const mallStatsByKey = useMemo(() => {
+    if (!sellpiaReconcile) return orderCollectionSummary.mallStatsByKey;
+    const merged = new Map(orderCollectionSummary.mallStatsByKey);
+    for (const [mallKey, missing] of sellpiaReconcile.missingCountByMallKey) {
+      const stat = merged.get(mallKey);
+      if (stat) merged.set(mallKey, { ...stat, newRows: missing });
+    }
+    return merged;
+  }, [orderCollectionSummary.mallStatsByKey, sellpiaReconcile]);
+  const [reconciling, setReconciling] = useState(false);
+  const handleReconcileWithSellpia = async (
+    { silentWhenClean = false }: { silentWhenClean?: boolean } = {},
+  ) => {
+    if (reconciling) return;
+    setReconciling(true);
+    try {
+      const { collectSellpiaOrderSnapshot, reconcileCollectedOrdersWithSellpia } = await import(
+        '../lib/sellpia-order-reconcile'
+      );
+      const { rows, partial } = await collectSellpiaOrderSnapshot();
+      const result = reconcileCollectedOrdersWithSellpia({
+        history: historyRef.current,
+        sellpiaRows: rows,
+        collectionDate: todayYmd(),
+        partial,
+        checkedAt: Date.now(),
+      });
+      setSellpiaReconcile(result);
+      const missing = [...result.missingCountByMallKey.values()].reduce((sum, n) => sum + n, 0);
+      if (missing > 0) {
+        toast.warning(`셀피아 대조: 아직 안 올라간 주문 ${formatNumber(missing)}건`);
+      } else if (!silentWhenClean) {
+        // 전체 수집 뒤 자동 대조는 문제가 없으면 조용히 지나간다(수집 완료 토스트와 중복 방지).
+        toast.success(
+          `셀피아 대조 완료 · 오늘 수집분이 모두 올라가 있습니다 (셀피아 ${formatNumber(result.sellpiaOrderCount)}건 확인)`,
+        );
+      }
+    } catch (error) {
+      toast.error(friendlyError(error) ?? '셀피아 대조에 실패했습니다.');
+    } finally {
+      setReconciling(false);
+    }
+  };
   const pipelineSummary = useMemo(
     () => buildOrderCollectionPipelineSummary(history),
     [history],
   );
 
-  const { events, logActivity, clearMallErrorActivity, failedMallAccounts } =
-    useOrderActivityEvents(mallAccounts);
+  const {
+    events,
+    logActivity,
+    clearMallErrorActivity,
+    failedMallAccounts,
+    failedMallReasonByKey,
+  } = useOrderActivityEvents(mallAccounts);
 
   const handleTransmissionRequested = useCallback((file: ConversionHistoryItem) => {
     setHistory((current) =>
@@ -274,7 +343,11 @@ export function OrderCollectionWorkspace() {
         if (collected.rowCount === 0) logActivity('empty', account.name);
         return collected;
       } catch (err) {
-        const message = friendlyError(err) ?? '브라우저 수집 실패';
+        // raw 네트워크 오류("Failed to fetch")는 원인/조치를 알 수 없으므로 안내 문구로 바꾼다.
+        const message = mallCollectionFailureMessage(
+          account.name,
+          friendlyError(err) ?? '브라우저 수집 실패',
+        );
         // 일부 몰(티쳐몰·보리보리 등)은 신규 주문이 없을 때 throw 한다. 이는 오류가 아니라
         // "신규 주문 없음"이므로, 주문 0건을 반환하는 다른 몰과 동일하게 빈 결과로 처리해
         // 활동 피드에 오류로 뜨지 않게 한다.
@@ -349,6 +422,8 @@ export function OrderCollectionWorkspace() {
     } else {
       toast.success('전체 수집 완료');
     }
+    // 수집이 끝나면 셀피아와 대조해 "신규"를 아직 안 올라간 주문으로 맞춘다.
+    await handleReconcileWithSellpia({ silentWhenClean: true });
   };
 
   const handleRetryFailedMalls = async () => {
@@ -413,14 +488,6 @@ export function OrderCollectionWorkspace() {
     } catch (err) {
       toast.error(friendlyError(err) ?? `${account.name} 수집 중단에 실패했습니다.`);
     }
-  };
-
-  const restartCollectionSession = async (
-    session: NonNullable<typeof collectionSession>,
-  ) => {
-    const account = sessionControls.restartAccount;
-    if (!account) return;
-    await handleBrowserCollectMall(account, session.runId);
   };
 
   const handleModalUpload = async ({
@@ -709,12 +776,9 @@ export function OrderCollectionWorkspace() {
                 {rocketAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
               </select>
             </label>
-          ) : selectedRocketAccount ? (
-            <span className="text-xs font-semibold text-emerald-700">
-              로켓 자동 연결 · {selectedRocketAccount.name}
-            </span>
-          ) : rocketAccountsLoading || rocketAccountBootstrapping ? (
-            <span className="text-xs font-semibold text-slate-500">로켓 계정 자동 연결 중</span>
+          ) : selectedRocketAccount || rocketAccountsLoading || rocketAccountBootstrapping ? (
+            // 연결 완료/연결 중은 조치가 필요 없으므로 헤더에 문구를 띄우지 않는다.
+            null
           ) : (
             <span className="text-xs font-semibold text-amber-700">
               {rocketAccountError
@@ -766,17 +830,14 @@ export function OrderCollectionWorkspace() {
         collectingKeys={collectingKeys}
         configuredMallCount={configuredMallCount}
         conversionState={state}
-        collectionControls={collectionSession ? (
-          <BrowserCollectionRunControls
-            session={collectionSession}
-            onWebRestart={restartCollectionSession}
-            webRestartUnavailableMessage={sessionControls.webRestartUnavailableMessage}
-          />
-        ) : undefined}
         enabledMallCount={enabledMallCount}
         failedMallCount={failedMallAccounts.length}
+        failedMallReasonByKey={failedMallReasonByKey}
         mallAccounts={mallAccounts}
-        mallCollectionStats={orderCollectionSummary.mallStatsByKey}
+        mallCollectionStats={mallStatsByKey}
+        onReconcileSellpia={() => void handleReconcileWithSellpia({})}
+        reconciling={reconciling}
+        reconcileCheckedAt={sellpiaReconcile?.checkedAt ?? null}
         mallDraft={mallDraft}
         mallError={mallError}
         mallLoading={mallLoading}

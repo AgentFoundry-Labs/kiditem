@@ -154,7 +154,12 @@ export function createBrowserMallCollector({
       './domeggook-orders-api'
     );
     await ensureMallLogin('domeggook', run);
-    const { csvBase64, fileName } = await collectDomeggookCsvFromExtension(collectionDate, run);
+    const collected = await collectDomeggookCsvFromExtension(collectionDate, run);
+    if ('empty' in collected) {
+      toast(`${collectionDate} 도매꾹 주문이 없습니다.`);
+      return 0;
+    }
+    const { csvBase64, fileName } = collected;
     let result: Awaited<ReturnType<typeof convertDomeggookCsvBase64>>;
     try {
       result = await convertDomeggookCsvBase64(csvBase64, fileName, {

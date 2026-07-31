@@ -255,7 +255,7 @@ test('keeps CAPTCHA attention inactive until the generic open command and restar
   assert.equal(restartedSession.status, 'succeeded');
 });
 
-test('fails before opening 1688 when the common Supabase token is unavailable', async () => {
+test('fails before opening 1688 when the common KidItem session token is unavailable', async () => {
   const fake = createFakeChrome(({ cb }) => cb({ ok: true, items: [] }));
   const { collector } = loadCollector({
     fakeChrome: fake.chrome,

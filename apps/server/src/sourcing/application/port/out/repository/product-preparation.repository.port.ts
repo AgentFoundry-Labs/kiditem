@@ -76,6 +76,7 @@ export interface PrepareExternalRegistrationExecutionInput {
   displayName: string;
   registrationInput: Record<string, unknown>;
   idempotencyKey: string;
+  providerAbsenceVerified?: boolean;
 }
 
 export interface ExternalRegistrationExecutionResult {
@@ -106,6 +107,15 @@ export type ResolveProductPreparationSelections = (
 ) => Promise<ResolvedRegistrationContentSelections>;
 
 export interface ProductPreparationRepositoryPort {
+  cancelUnstartedExternalRegistrationIntents(
+    tx: SourcingRepositoryTransaction,
+    input: {
+      organizationId: string;
+      sourceCandidateId: string;
+      cancelledAt: Date;
+    },
+  ): Promise<number>;
+
   assertCandidateTerminalTransitionAllowed(
     tx: SourcingRepositoryTransaction,
     input: { organizationId: string; sourceCandidateId: string },

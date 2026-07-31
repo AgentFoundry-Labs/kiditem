@@ -18,7 +18,7 @@ function createModelMock() {
 }
 
 const models = [
-  'user', 'organizationMembership',
+  'user', 'organizationMembership', 'authSession',
   // Current catalog/inventory schema: Sellpia MasterProduct + channel listing/SKU recipes.
   // Legacy `product` kept for any test harness references; real Prisma schema no longer has it.
   'product', 'masterProduct',
@@ -61,7 +61,7 @@ export const TEST_DEFAULT_USER = {
   agentInstanceId: null,
   isActive: true,
   lastLoginAt: null,
-  password: null,
+  passwordHash: null,
   createdAt: new Date(),
   updatedAt: new Date(),
   memberships: [

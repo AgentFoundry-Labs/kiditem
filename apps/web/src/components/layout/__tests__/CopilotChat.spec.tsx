@@ -33,7 +33,7 @@ describe('CopilotChat', () => {
     );
   });
 
-  it('keeps Supabase SSR cookie attached via credentials="include"', () => {
+  it('keeps the KidItem session cookie attached via credentials="include"', () => {
     render(<CopilotChat />);
     expect(screen.getByTestId('copilot-runtime')).toHaveAttribute(
       'data-credentials',
@@ -41,12 +41,11 @@ describe('CopilotChat', () => {
     );
   });
 
-  it('does not forward an Authorization header — SSR cookie is the only auth path', () => {
+  it('does not forward an Authorization header — the KidItem cookie is the chat auth path', () => {
     render(<CopilotChat />);
     const props = copilotKitProps.value ?? {};
     // Browser must not synthesise a Bearer token; auth flows from the
-    // sb-<project-ref>-auth-token cookie that Supabase SSR set, which the
-    // same-origin rewrite forwards untouched.
+    // HttpOnly kiditem_session cookie, which the same-origin rewrite forwards.
     expect(props).not.toHaveProperty('headers');
   });
 });

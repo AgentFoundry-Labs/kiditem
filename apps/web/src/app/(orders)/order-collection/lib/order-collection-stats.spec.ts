@@ -83,7 +83,7 @@ describe("buildOrderCollectionSummary", () => {
     });
   });
 
-  it("deduplicates today orders by order number and excludes transmission requests from 신규", () => {
+  it("counts 신규 from today's collection only and drops orders already sent to Sellpia", () => {
     const summary = buildOrderCollectionSummary(
       [
         historyItem({
@@ -123,6 +123,7 @@ describe("buildOrderCollectionSummary", () => {
     expect(summary.mallStatsByKey.get("kidkids")).toMatchObject({
       files: 2,
       orderRows: 3,
+      // 오늘 수집분 중 미전송인 ORDER-1 만. 전송한 ORDER-2/3, 어제 수집분 ORDER-OLD 는 제외.
       newRows: 1,
       productRows: 2,
       latestAt: Date.UTC(2026, 6, 14, 2, 0),

@@ -11,6 +11,7 @@ param(
   [ValidateRange(5, 500)]
   [int]$MinimumFreeGb = 10,
   [switch]$PruneBuildCache,
+  [switch]$ApplySchema,
   [ValidateRange(30, 900)]
   [int]$HealthTimeoutSeconds = 300
 )
@@ -245,6 +246,21 @@ function Wait-ForRuntime {
   throw "Office runtime did not become healthy within $HealthTimeoutSeconds seconds: $stateSummary"
 }
 
+function Wait-ForContainerHealthy {
+  param([Parameter(Mandatory = $true)][string]$Name)
+
+  $deadline = (Get-Date).AddSeconds($HealthTimeoutSeconds)
+  do {
+    $state = Get-ContainerState $Name
+    if ($state -eq 'healthy') {
+      return
+    }
+    Start-Sleep -Seconds 5
+  } while ((Get-Date) -lt $deadline)
+
+  throw "$Name did not become healthy within $HealthTimeoutSeconds seconds; state=$state"
+}
+
 function Get-HttpStatus {
   param([Parameter(Mandatory = $true)][string]$Uri)
 
@@ -312,7 +328,8 @@ function Install-Deployment {
   param(
     [Parameter(Mandatory = $true)][string]$TargetManifestPath,
     [Parameter(Mandatory = $true)][string]$ExpectedHead,
-    [switch]$AllowAncestor
+    [switch]$AllowAncestor,
+    [switch]$ApplySchema
   )
 
   $bundle = Read-DeploymentManifest $TargetManifestPath
@@ -370,6 +387,13 @@ function Install-Deployment {
     Move-Item -LiteralPath $candidateDeployEnv -Destination $script:DeployEnvPath -Force
     Set-ComposeArguments
     Invoke-Checked docker @script:ComposeArgs config --quiet
+    if ($ApplySchema) {
+      Write-Warning 'Stopping application containers before the approved Prisma schema push. Runtime rollback cannot undo schema changes.'
+      Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
+      Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres
+      Wait-ForContainerHealthy 'kiditem-postgres'
+      Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc 'cd /app && npx prisma db push'
+    }
     Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
     Wait-ForRuntime
     Assert-SmokeTests
@@ -431,6 +455,10 @@ if ($MyInvocation.InvocationName -eq '.') {
   return
 }
 
+if ($ApplySchema -and $Operation -ne 'Deploy') {
+  throw '-ApplySchema is valid only with -Operation Deploy.'
+}
+
 $head = Assert-LiveCheckout
 
 switch ($Operation) {
@@ -441,7 +469,7 @@ switch ($Operation) {
     if (-not $ManifestPath) {
       throw '-ManifestPath is required for Deploy.'
     }
-    Install-Deployment $ManifestPath $head
+    Install-Deployment $ManifestPath $head -ApplySchema:$ApplySchema
   }
   'Rollback' {
     if (-not (Test-Path -LiteralPath $script:PreviousManifestPath -PathType Leaf)) {

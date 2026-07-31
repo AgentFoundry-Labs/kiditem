@@ -100,29 +100,33 @@ function DailyBarChart({ stats }: { stats: DailyCollectionStat[] }) {
   return (
     <div className="flex min-h-[320px] flex-1 flex-col rounded-lg border border-slate-200 bg-slate-50 px-4 pb-4 pt-5">
       <div className="relative min-h-0 flex-1">
-        {/* Y축 눈금(건수) + 가로 격자선 */}
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
+        {/* Y축 눈금(건수) + 가로 격자선: 값 비율 위치에 절대배치 → 0은 정확히 바닥, 최댓값은 천장 */}
+        <div className="pointer-events-none absolute inset-0">
           {ticks.map((tick, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div
+              key={i}
+              className="absolute inset-x-0 flex items-center gap-2"
+              style={{ bottom: `${(tick / axisMax) * 100}%`, height: 0 }}
+            >
               <span className="w-7 flex-none text-right text-[10px] tabular-nums text-slate-400">
                 {formatNumber(tick)}
               </span>
               <span
-                className={cn('h-px flex-1', i === ticks.length - 1 ? 'bg-slate-300' : 'bg-slate-200/70')}
+                className={cn('h-px flex-1', tick === 0 ? 'bg-slate-300' : 'bg-slate-200/70')}
               />
             </div>
           ))}
         </div>
-        {/* 막대 (Y축 라벨 폭만큼 왼쪽 여백) */}
-        <div className="relative flex h-full items-stretch gap-2 pl-9">
+        {/* 막대: 0(바닥) 기준으로 값 비율만큼 위로. Y축 라벨 폭만큼 왼쪽 여백 */}
+        <div className="relative flex h-full items-end gap-2 pl-9">
           {stats.map((stat, index) => {
-            const height = stat.orderRows > 0 ? Math.max(2, Math.round((stat.orderRows / axisMax) * 100)) : 0;
+            const height = stat.orderRows > 0 ? Math.max(2, (stat.orderRows / axisMax) * 100) : 0;
             const latest = index === stats.length - 1;
             return (
-              <div key={stat.key} className="flex h-full min-w-0 flex-1 flex-col justify-end">
+              <div key={stat.key} className="flex h-full min-w-0 flex-1 items-end justify-center">
                 <div
                   className={cn(
-                    'w-full max-w-7 self-center rounded-t-md',
+                    'w-full max-w-7 rounded-t-md',
                     latest ? 'bg-purple-600' : 'bg-slate-300',
                   )}
                   style={{ height: `${height}%` }}

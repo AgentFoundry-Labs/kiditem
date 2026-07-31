@@ -28,7 +28,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 21 |
-| [Core](erd/core.md) | 14 |
+| [Core](erd/core.md) | 15 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 14 |
 | [Orders](erd/orders.md) | 10 |
@@ -105,6 +105,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | SellpiaProductMonthlySales | Channels | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
 | SellpiaSalesDailySnapshot | Channels | `sellpia_sales_daily_snapshots` | Sellpia 판매현황(sale_summary) 몰별·일별 매출 fact. order_search.ajax.html(mode=selldate, 주문일자 기준)에서 판매처(seller)별로 수집. channelGroup 으로 rocket(쿠팡-직배송) / others(쿠팡윙+기타 전체몰) 버킷을 구분해 대시보드 '몰별 매출' 섹션에 표시한다. price=판매금액, buy_price=매입금액, amount=판매수량. |
+| AuthSession | Core | `auth_sessions` | Revocable KidItem-owned browser and extension authentication session. Only a SHA-256 token hash is persisted. |
 | CategoryMapping | Core | `category_mappings` | - |
 | ChannelAccount | Core | `channel_accounts` | Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization. |
 | ChannelListing | Core | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
@@ -585,6 +586,14 @@ erDiagram
     DateTime finishedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  AuthSession {
+    String id PK
+    String userId FK
+    String tokenHash UK
+    DateTime createdAt
+    DateTime expiresAt
+    DateTime revokedAt
   }
   BusinessRule {
     String id PK
@@ -2535,7 +2544,7 @@ erDiagram
     String id PK
     String email UK
     String name
-    String password
+    String passwordHash
     String role
     String type
     String team
@@ -2925,6 +2934,7 @@ erDiagram
   User o|--o{ AgentConversation : "createdBy"
   User o|--o{ AgentRunRequest : "requestedBy"
   User o|--o{ Alert : "actorUser"
+  User ||--o{ AuthSession : "user"
   User o|--o{ ChannelListingDeletionOperation : "requestedByUser"
   User o|--o{ ContentAsset : "createdByUser"
   User o|--o{ ContentGeneration : "triggeredByUser"

@@ -41,4 +41,36 @@ describe('ChannelProductRegistrationAdapter', () => {
       expect.objectContaining({ externalListingId: '427011919' }),
     );
   });
+
+  it('delegates the Sellpia and Coupang pre-registration check without changing its result', async () => {
+    const preflight = {
+      sellpiaMatch: {
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+        code: '10451-1',
+        name: '3500꿀사과슬랑이',
+        optionName: null,
+        currentStock: 13,
+        quantity: 1,
+      },
+      existingListing: {
+        externalListingId: '427011919',
+        displayName: '꿀사과슬랑이',
+        status: 'APPROVED',
+      },
+    };
+    const capability = {
+      preflightExternalProductRegistration: vi.fn().mockResolvedValue(preflight),
+    };
+    const adapter = new ChannelProductRegistrationAdapter(capability as never);
+    const input = {
+      organizationId: 'org-1',
+      channelAccountId: 'account-1',
+      sourceCandidateId: 'candidate-1',
+      listingName: '꿀사과슬랑이',
+      itemName: null,
+    };
+
+    await expect(adapter.preflightExternalRegistration(input)).resolves.toEqual(preflight);
+    expect(capability.preflightExternalProductRegistration).toHaveBeenCalledWith(input);
+  });
 });

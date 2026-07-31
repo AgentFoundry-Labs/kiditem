@@ -1,208 +1,68 @@
-import { createServerClient } from '@supabase/ssr';
 import { NextRequest } from 'next/server';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { proxy } from '../proxy';
 
-vi.mock('@supabase/ssr', () => ({
-  createServerClient: vi.fn(),
-}));
-
-const ORIGINAL_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const ORIGINAL_SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-const ORIGINAL_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-function makeRequest(path: string, init?: { accept?: string }) {
+function makeRequest(
+  path: string,
+  init?: { accept?: string; authenticated?: boolean },
+) {
   const headers: Record<string, string> = {};
   if (init?.accept) headers.accept = init.accept;
+  if (init?.authenticated) headers.cookie = `kiditem_session=${'a'.repeat(43)}`;
   return new NextRequest(new URL(path, 'http://localhost:3000'), { headers });
-}
-
-function setSupabaseEnv() {
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_test';
-}
-
-function clearSupabaseEnv() {
-  delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-  delete process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-}
-
-function mockSupabaseClaims(claims: unknown) {
-  vi.mocked(createServerClient).mockReturnValue({
-    auth: {
-      getClaims: vi.fn().mockResolvedValue({ data: { claims }, error: null }),
-    },
-  } as unknown as ReturnType<typeof createServerClient>);
 }
 
 function expectRedirectPath(response: Response, pathname: string, next: string) {
   expect(response.status).toBe(307);
-  const location = response.headers.get('location');
-  expect(location).toBeTruthy();
-  const url = new URL(location ?? '');
+  const url = new URL(response.headers.get('location') ?? '');
   expect(url.pathname).toBe(pathname);
   expect(url.searchParams.get('next')).toBe(next);
 }
 
-describe('proxy auth redirect', () => {
-  beforeEach(() => {
-    vi.mocked(createServerClient).mockReset();
-    clearSupabaseEnv();
-  });
-
-  afterAll(() => {
-    if (ORIGINAL_SUPABASE_URL === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    else process.env.NEXT_PUBLIC_SUPABASE_URL = ORIGINAL_SUPABASE_URL;
-
-    if (ORIGINAL_SUPABASE_PUBLISHABLE_KEY === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = ORIGINAL_SUPABASE_PUBLISHABLE_KEY;
-    }
-
-    if (ORIGINAL_SUPABASE_ANON_KEY === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    else process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = ORIGINAL_SUPABASE_ANON_KEY;
-  });
-
-  it('redirects protected routes to login when Supabase publishable env is missing', async () => {
+describe('proxy local session gate', () => {
+  it('redirects protected navigation when the KidItem cookie is absent', async () => {
     const response = await proxy(makeRequest('/dashboard'));
-
     expectRedirectPath(response, '/login', '/dashboard');
-    expect(createServerClient).not.toHaveBeenCalled();
   });
 
-  it('does not accept the legacy anon env as a replacement for the publishable key', async () => {
-    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'legacy-anon-key';
-
-    const response = await proxy(makeRequest('/dashboard'));
-
-    expectRedirectPath(response, '/login', '/dashboard');
-    expect(createServerClient).not.toHaveBeenCalled();
-  });
-
-  it('allows public auth routes when Supabase publishable env is missing', async () => {
-    const response = await proxy(makeRequest('/login'));
-
+  it('allows protected navigation when the cookie is present', async () => {
+    const response = await proxy(makeRequest('/dashboard', { authenticated: true }));
     expect(response.status).toBe(200);
-    expect(createServerClient).not.toHaveBeenCalled();
   });
 
-  it('uses the publishable key and redirects protected routes when Supabase has no claims', async () => {
-    setSupabaseEnv();
-    mockSupabaseClaims(null);
-
-    const response = await proxy(makeRequest('/dashboard'));
-
-    expect(createServerClient).toHaveBeenCalledWith(
-      'https://test.supabase.co',
-      'sb_publishable_test',
-      expect.any(Object),
-    );
-    expectRedirectPath(response, '/login', '/dashboard');
+  it('always leaves /login public so a stale cookie cannot create a redirect loop', async () => {
+    const response = await proxy(makeRequest('/login', { authenticated: true }));
+    expect(response.status).toBe(200);
   });
 
-  it('redirects an authenticated login page request to the launcher', async () => {
-    setSupabaseEnv();
-    mockSupabaseClaims({ sub: 'user-1' });
-
-    const response = await proxy(makeRequest('/login'));
-
-    expect(response.status).toBe(307);
-    expect(new URL(response.headers.get('location') ?? '').pathname).toBe('/');
+  it('returns the shared JSON 401 envelope for an unauthenticated API caller', async () => {
+    const response = await proxy(makeRequest('/api/dashboard/stats'));
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      statusCode: 401,
+      error: 'Unauthorized',
+      message: 'auth_required',
+      timestamp: expect.any(String),
+      path: '/api/dashboard/stats',
+    });
   });
 
-  // The CopilotKit browser runtime hits /api/chat/copilot[...] which Next
-  // rewrites to Nest. The caller is `fetch`/SSE, not a navigation, so a 307
-  // to /login would corrupt the stream. Nest itself returns JSON 401
-  // auth_required when the Supabase SSR cookie is missing.
-  describe('fetch caller JSON 401 branch', () => {
-    it('P1: /api/* path returns JSON 401 envelope when claims are absent', async () => {
-      setSupabaseEnv();
-      mockSupabaseClaims(null);
+  it('returns JSON 401 for a non-API application/json request without a cookie', async () => {
+    const response = await proxy(makeRequest('/dashboard', { accept: 'application/json' }));
+    expect(response.status).toBe(401);
+    expect((await response.json()).message).toBe('auth_required');
+  });
 
-      const response = await proxy(makeRequest('/api/dashboard/stats'));
+  it('allows authenticated API callers through to NestJS validation', async () => {
+    const response = await proxy(makeRequest('/api/dashboard/stats', { authenticated: true }));
+    expect(response.status).toBe(200);
+  });
 
-      expect(response.status).toBe(401);
-      const body = await response.json();
-      expect(body).toEqual({
-        statusCode: 401,
-        error: 'Unauthorized',
-        message: 'auth_required',
-        timestamp: expect.any(String),
-        path: '/api/dashboard/stats',
-      });
-      // envelope timestamp is ISO 8601
-      expect(new Date(body.timestamp).toString()).not.toBe('Invalid Date');
-    });
-
-    it('P2: navigation with Accept: text/html still gets 307', async () => {
-      setSupabaseEnv();
-      mockSupabaseClaims(null);
-
-      const response = await proxy(makeRequest('/dashboard', { accept: 'text/html' }));
-
-      expectRedirectPath(response, '/login', '/dashboard');
-    });
-
-    it('P3: non-/api path with Accept: application/json (RSC-like fetch) returns JSON 401', async () => {
-      setSupabaseEnv();
-      mockSupabaseClaims(null);
-
-      const response = await proxy(
-        makeRequest('/dashboard', { accept: 'application/json' }),
-      );
-
-      expect(response.status).toBe(401);
-      const body = await response.json();
-      expect(body.message).toBe('auth_required');
-    });
-
-    it('P4: /api/* path with claims falls through (next response)', async () => {
-      setSupabaseEnv();
-      mockSupabaseClaims({ sub: 'user-1' });
-
-      const response = await proxy(makeRequest('/api/dashboard/stats'));
-
+  it.each(['/api/chat/copilot', '/api/chat/copilot/info'])(
+    'passes chat transport %s through without an early cookie check',
+    async (path) => {
+      const response = await proxy(makeRequest(path));
       expect(response.status).toBe(200);
-    });
-
-    it('P5: returns JSON 401 even when Supabase env is missing for /api/* caller', async () => {
-      const response = await proxy(makeRequest('/api/dashboard/stats'));
-
-      expect(response.status).toBe(401);
-      const body = await response.json();
-      expect(body.message).toBe('auth_required');
-      expect(body.error).toBe('Unauthorized');
-      expect(createServerClient).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('chat runtime transport bypass', () => {
-    it('passes /api/chat/copilot through without checking Supabase claims', async () => {
-      const response = await proxy(makeRequest('/api/chat/copilot'));
-
-      expect(response.status).toBe(200);
-      expect(createServerClient).not.toHaveBeenCalled();
-    });
-
-    it('passes /api/chat/copilot/info through even when Supabase env is missing', async () => {
-      const response = await proxy(makeRequest('/api/chat/copilot/info'));
-
-      expect(response.status).toBe(200);
-      expect(createServerClient).not.toHaveBeenCalled();
-    });
-
-    it('passes /api/chat/copilot/info through when Supabase claims are absent', async () => {
-      setSupabaseEnv();
-      mockSupabaseClaims(null);
-
-      const response = await proxy(makeRequest('/api/chat/copilot/info'));
-
-      expect(response.status).toBe(200);
-      // Bypass runs before Supabase resolution → claims check skipped entirely.
-      expect(createServerClient).not.toHaveBeenCalled();
-    });
-  });
+    },
+  );
 });

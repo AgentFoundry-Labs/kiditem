@@ -3,7 +3,7 @@ Consult this document first instead of relying on memorized knowledge.
 # web/lib - Shared Frontend Utilities
 
 `src/lib/` owns shared frontend utilities: `apiClient`, API base resolution,
-query keys, API errors, auth refresh helpers, extension bridges, download
+query keys, API errors, local-session helpers, extension bridges, download
 helpers, formatting utilities, and operation helper APIs. Changes here affect
 multiple route groups.
 
@@ -14,7 +14,8 @@ multiple route groups.
   `fetchRaw()` and the caller checks `res.ok` or `res.status`.
 - `getParsed`, `patchParsed`, and `uploadParsed` surface Zod schema drift at
   the client boundary.
-- `apiClient` owns `auth_required` refresh/retry/sign-out triggering.
+- `apiClient` attaches the current opaque bearer token and owns local-session
+  clearing for `auth_required`; it never refreshes or retries a 401.
 
 ## Query Key Rules
 
@@ -29,8 +30,8 @@ multiple route groups.
   runtime messaging helpers.
 - Extension IDs may be cached in `localStorage`; extension data itself should
   remain route/domain-owned.
-- Supabase files in `lib/supabase/` own browser auth client creation and
-  refresh/sign-out coordination, not database access.
+- `auth/session.ts` owns validated local storage, same-tab/cross-tab change
+  events, and absolute-expiry rejection for the opaque session.
 - `sellpia-inventory-extension.ts` is the only Sellpia inventory command
   adapter. React code passes the claimed token as the extension `runId` and
   never sends extension messages directly.

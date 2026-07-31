@@ -26,7 +26,6 @@ vi.mock('./components/InventoryWorkspace', () => ({
   InventoryWorkspace: () => <div>inventory</div>,
 }));
 vi.mock('../stock-ops/components/ImportFreshness', () => ({ default: () => <div>freshness</div> }));
-vi.mock('../stock-ops/components/UnresolvedTransmissions', () => ({ default: () => <div>unresolved transmissions</div> }));
 vi.mock('../stock-ops/components/StockTransfers', () => ({ default: () => <div>transfers</div> }));
 vi.mock('../stock-ops/components/ReturnTransfers', () => ({ default: () => <div>returns</div> }));
 
@@ -86,6 +85,7 @@ describe('InventoryHubPage', () => {
 
     expect(screen.getByRole('heading', { level: 2, name: 'Sellpia 동기화' })).toBeInTheDocument();
     expect(screen.getByText('freshness')).toBeInTheDocument();
+    expect(screen.queryByText('셀피아 전송 결과 미확인')).not.toBeInTheDocument();
     expect(selectedTabLabel()).toBe('Sellpia 동기화');
     expect(replaceMock).not.toHaveBeenCalled();
   });

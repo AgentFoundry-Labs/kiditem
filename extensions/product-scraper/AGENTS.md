@@ -28,7 +28,7 @@ that contain `__tests__` or other `_`-prefixed committed paths.
 - Live-commerce snapshots post to `/trend/live-commerce-results`.
 - TikTok Creative Center reads targets from `/trend/tiktok-cc-targets` and posts
   snapshots to `/trend/tiktok-cc-results`.
-- Authorization uses the current Supabase access token delivered by the
+- Authorization uses the current KidItem opaque session token delivered by the
   logged-in KidItem web tab through `chrome.runtime.sendMessage` and stored in
   `chrome.storage.local` for extension API calls. Do not reintroduce a separate
   sourcing-only token route or middleware.

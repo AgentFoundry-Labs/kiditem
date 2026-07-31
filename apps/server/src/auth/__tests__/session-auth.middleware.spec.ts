@@ -1,0 +1,93 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { AuthService } from '../application/auth.service';
+import { AUTH_SESSION_COOKIE } from '../application/auth.service';
+import { SessionAuthMiddleware } from '../middleware/session-auth.middleware';
+
+const AUTHENTICATED = {
+  sessionId: '44444444-4444-4444-8444-444444444444',
+  authUser: {
+    id: '11111111-1111-4111-8111-111111111111',
+    email: 'operator@example.com',
+    type: 'human',
+    role: 'owner',
+    organizationId: '22222222-2222-4222-8222-222222222222',
+    membershipId: '33333333-3333-4333-8333-333333333333',
+  },
+};
+
+function makeService(authenticateToken: ReturnType<typeof vi.fn>): AuthService {
+  return { authenticateToken } as unknown as AuthService;
+}
+
+describe('SessionAuthMiddleware', () => {
+  it('passes through when no bearer or KidItem session cookie exists', async () => {
+    const authenticateToken = vi.fn();
+    const middleware = new SessionAuthMiddleware(makeService(authenticateToken));
+    const req = { headers: {}, cookies: {} } as any;
+    const next = vi.fn();
+
+    await middleware.use(req, {} as any, next);
+
+    expect(authenticateToken).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('authenticates a bearer token and attaches the existing AuthUser contract', async () => {
+    const authenticateToken = vi.fn().mockResolvedValue(AUTHENTICATED);
+    const middleware = new SessionAuthMiddleware(makeService(authenticateToken));
+    const req = { headers: { authorization: `Bearer ${'a'.repeat(43)}` } } as any;
+    const next = vi.fn();
+
+    await middleware.use(req, {} as any, next);
+
+    expect(authenticateToken).toHaveBeenCalledWith('a'.repeat(43));
+    expect(req.authUser).toEqual(AUTHENTICATED.authUser);
+    expect(req.authSessionId).toBe(AUTHENTICATED.sessionId);
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('uses the HttpOnly KidItem cookie when no bearer token exists', async () => {
+    const authenticateToken = vi.fn().mockResolvedValue(AUTHENTICATED);
+    const middleware = new SessionAuthMiddleware(makeService(authenticateToken));
+    const req = { headers: {}, cookies: { [AUTH_SESSION_COOKIE]: 'b'.repeat(43) } } as any;
+
+    await middleware.use(req, {} as any, vi.fn());
+
+    expect(authenticateToken).toHaveBeenCalledWith('b'.repeat(43));
+    expect(req.authUser).toEqual(AUTHENTICATED.authUser);
+  });
+
+  it('prefers bearer over cookie and does not fall back after an invalid bearer token', async () => {
+    const authenticateToken = vi.fn().mockResolvedValue(null);
+    const middleware = new SessionAuthMiddleware(makeService(authenticateToken));
+    const clearCookie = vi.fn();
+    const req = {
+      headers: { authorization: `Bearer ${'a'.repeat(43)}` },
+      cookies: { [AUTH_SESSION_COOKIE]: 'b'.repeat(43) },
+    } as any;
+
+    await middleware.use(req, { clearCookie } as any, vi.fn());
+
+    expect(authenticateToken).toHaveBeenCalledTimes(1);
+    expect(authenticateToken).toHaveBeenCalledWith('a'.repeat(43));
+    expect(clearCookie).not.toHaveBeenCalled();
+    expect(req.authUser).toBeUndefined();
+  });
+
+  it('clears an invalid session cookie and leaves enforcement to the global guard', async () => {
+    const authenticateToken = vi.fn().mockResolvedValue(null);
+    const middleware = new SessionAuthMiddleware(makeService(authenticateToken));
+    const clearCookie = vi.fn();
+    const req = { headers: {}, cookies: { [AUTH_SESSION_COOKIE]: 'x'.repeat(43) } } as any;
+    const next = vi.fn();
+
+    await middleware.use(req, { clearCookie } as any, next);
+
+    expect(clearCookie).toHaveBeenCalledWith(
+      AUTH_SESSION_COOKIE,
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax', path: '/' }),
+    );
+    expect(req.authUser).toBeUndefined();
+    expect(next).toHaveBeenCalledOnce();
+  });
+});

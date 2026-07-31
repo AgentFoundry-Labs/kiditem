@@ -13,16 +13,12 @@
 # the per-organization install records (WorkflowTemplate / AgentDefinition).
 apps/server/src/marketplace/marketplace.service.ts findUnique
 
-# Auth bootstrap exception: Supabase `payload.sub` identifies the current
-# principal before organization context is selected. This is not a tenant-owned
-# business resource read; the active OrganizationMembership selected here
-# becomes the request organization context that downstream guards enforce.
-apps/server/src/auth/middleware/supabase-auth.middleware.ts findUnique
-
-# Auth self profile exception: `/api/auth/me` re-reads the already-authenticated
-# principal from `@CurrentUser()` and is intentionally available to users without
-# an active organization membership.
-apps/server/src/auth/auth.controller.ts findUnique
+# Local-auth bootstrap exception: email and token-hash lookups identify the
+# global principal before organization context exists. Password/session
+# mutations target only that verified global user/session; the selected active
+# OrganizationMembership becomes downstream request scope.
+apps/server/src/auth/adapter/out/prisma/prisma-auth.repository.ts findUnique
+apps/server/src/auth/adapter/out/prisma/prisma-auth.repository.ts idMutation
 
 # Agent OS v2 global catalog tables (`agent_tool_definitions`,
 # `agent_blueprints`, `agent_blueprint_tool_policies`) have no `organization_id`

@@ -80,14 +80,11 @@ React Query + inventory API helpers
 - Sellpia import-run history has exactly one screen (`?tab=sellpia-sync`). Do
   not reintroduce a separate audit or freshness tab rendering the same
   `ImportFreshness` projection.
-- `?tab=sellpia-sync` also owns `UnresolvedTransmissions`, the only screen that
-  resolves a prepared-but-unresolved order transmission. Order collection can
-  only reopen an intent while the local generated file still carries a
-  transmission marker, so a crashed submit still needs explicit operator
-  reconciliation. The unresolved intent protects only that file; it does not
-  redefine freshness or block other order collection or stock synchronization.
-  The section renders nothing when there is no unresolved intent; do not delete
-  it as an empty section.
+- Prepared-but-unresolved order-transmission intents remain internal retry
+  bookkeeping. Inventory management and analysis surfaces do not display or
+  reconcile them; the order-collection resend flow owns any required recovery.
+  An unresolved intent protects only that file and never changes freshness or
+  blocks independent stock synchronization.
 - Refresh buttons report the classified outcome of the returned freshness state,
   never HTTP success. A non-throwing refresh request does not mean work was
   scheduled. Use `_shared/sellpia-sync-outcome.ts` so every surface agrees.

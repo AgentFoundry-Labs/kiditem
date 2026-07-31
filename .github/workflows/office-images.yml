@@ -52,15 +52,6 @@ jobs:
         with:
           ref: ${{ needs.identity_guard.outputs.git_sha }}
 
-      - name: Validate office web build variables
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-        run: |
-          set -euo pipefail
-          : "${NEXT_PUBLIC_SUPABASE_URL:?Set repository variable NEXT_PUBLIC_SUPABASE_URL}"
-          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set repository variable NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
-
       - name: Read release version
         id: refs
         run: |
@@ -104,8 +95,6 @@ jobs:
       app_version: ${{ needs.prepare.outputs.app_version }}
       build_args: |
         NEXT_PUBLIC_API_URL=
-        NEXT_PUBLIC_SUPABASE_URL=${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
       extra_tags: ghcr.io/agentfoundry-labs/kiditem-web:office-candidate
 
   publish_manifest:

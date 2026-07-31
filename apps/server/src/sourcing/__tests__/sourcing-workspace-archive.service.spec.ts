@@ -19,6 +19,7 @@ function makeRepo() {
 
 function makePreparationGuard() {
   return {
+    cancelUnstartedExternalRegistrationIntents: vi.fn().mockResolvedValue(0),
     assertCandidateTerminalTransitionAllowed: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -62,11 +63,21 @@ describe('SourcingWorkspaceArchiveService', () => {
         id: CANDIDATE_ID,
         organizationId: ORG,
       });
+      expect(preparations.cancelUnstartedExternalRegistrationIntents).toHaveBeenCalledWith(
+        { tx: true },
+        {
+          organizationId: ORG,
+          sourceCandidateId: CANDIDATE_ID,
+          cancelledAt: new Date('2026-05-15T08:00:00.000Z'),
+        },
+      );
       expect(preparations.assertCandidateTerminalTransitionAllowed).toHaveBeenCalledWith(
         { tx: true },
         { organizationId: ORG, sourceCandidateId: CANDIDATE_ID },
       );
       expect(repo.lockCandidate.mock.invocationCallOrder[0])
+        .toBeLessThan(preparations.cancelUnstartedExternalRegistrationIntents.mock.invocationCallOrder[0]);
+      expect(preparations.cancelUnstartedExternalRegistrationIntents.mock.invocationCallOrder[0])
         .toBeLessThan(preparations.assertCandidateTerminalTransitionAllowed.mock.invocationCallOrder[0]);
       expect(preparations.assertCandidateTerminalTransitionAllowed.mock.invocationCallOrder[0])
         .toBeLessThan(repo.archiveSourcedWorkspace.mock.invocationCallOrder[0]);

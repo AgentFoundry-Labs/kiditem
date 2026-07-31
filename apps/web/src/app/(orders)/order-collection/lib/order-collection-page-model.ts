@@ -159,12 +159,37 @@ export function isAuthRequiredMessage(message: string | null | undefined): boole
 }
 
 /**
+ * 브라우저가 원인 없이 던지는 네트워크 실패("Failed to fetch" 등)인지 판별한다.
+ * 몰 수집 중에는 대부분 로그인 세션이 끊겨 로그인 페이지로 밀려난 경우다.
+ */
+export function isNetworkFailureMessage(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return /failed to fetch|networkerror|load failed|network request failed|fetch failed/i.test(
+    message,
+  );
+}
+
+/**
  * 수집 실패가 "로그인/세션 필요"인지 판별한다.
  * 활동 피드에서 일반 오류가 아니라 "로그인 필요"로 표기하기 위해 사용한다.
+ * 원인 없는 네트워크 실패도 몰 수집 맥락에서는 로그인 세션 문제로 보고 조치를 안내한다.
  */
 export function isLoginRequiredMessage(message: string | null | undefined): boolean {
   if (!message) return false;
+  if (isNetworkFailureMessage(message)) return true;
   return /로그인|세션이?\s*만료|세션\s*만료/.test(message);
+}
+
+/**
+ * 사용자에게 그대로 보여주면 원인도 조치도 알 수 없는 raw 오류를 안내 문구로 바꾼다.
+ * 그 외 메시지는 몰이 알려준 내용이 더 정확하므로 손대지 않는다.
+ */
+export function mallCollectionFailureMessage(
+  mallName: string,
+  message: string,
+): string {
+  if (!isNetworkFailureMessage(message)) return message;
+  return `${mallName} 연결이 끊겼습니다. 로그인 상태(또는 네트워크)를 확인한 뒤 다시 수집해주세요.`;
 }
 
 export function dayKey(timestamp: number): string {

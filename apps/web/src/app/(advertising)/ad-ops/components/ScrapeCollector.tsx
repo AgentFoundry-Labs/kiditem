@@ -149,7 +149,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
         producer,
         extensionId: eid,
         runId: nextRunId,
-        accessToken: authSession?.access_token,
+      accessToken: authSession?.token,
       });
       setResults(
         selectedTargets.map((target, index) => ({

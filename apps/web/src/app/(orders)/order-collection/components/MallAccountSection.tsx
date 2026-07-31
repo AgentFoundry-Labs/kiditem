@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   AlertCircle,
+  ClipboardCheck,
   Eye,
   EyeOff,
   ExternalLink,
@@ -19,6 +20,7 @@ import {
 } from "../lib/order-collection-page-model";
 import type { MallCollectionStat } from "../lib/order-collection-stats";
 import type { OrderCollectionMallAccount } from "../lib/order-mall-account-api";
+import type { FailedMallReason } from "../hooks/use-order-activity-events";
 import { MallAccountGroups } from "./MallAccountGroups";
 
 interface MallAccountSectionProps {
@@ -46,6 +48,11 @@ interface MallAccountSectionProps {
   autoNextRunAt: number | null;
   autoRunning: boolean;
   failedMallCount: number;
+  failedMallReasonByKey?: Map<string, FailedMallReason>;
+  /** 셀피아에 실제로 올라갔는지 대조해 "신규" 숫자를 실측으로 바꾼다. */
+  onReconcileSellpia?: () => void;
+  reconciling?: boolean;
+  reconcileCheckedAt?: number | null;
   onCollectAll: () => void;
   onRetryFailedMalls: () => void;
   onRefresh: () => void;
@@ -91,6 +98,10 @@ export function MallAccountSection({
   autoNextRunAt,
   autoRunning,
   failedMallCount,
+  failedMallReasonByKey,
+  onReconcileSellpia,
+  reconciling = false,
+  reconcileCheckedAt = null,
   onCollectAll,
   onRetryFailedMalls,
   onRefresh,
@@ -173,6 +184,26 @@ export function MallAccountSection({
                 실패 몰 재수집 ({formatNumber(failedMallCount)})
               </button>
             ) : null}
+            {onReconcileSellpia ? (
+              <button
+                type="button"
+                onClick={onReconcileSellpia}
+                disabled={reconciling}
+                title={
+                  reconcileCheckedAt
+                    ? `셀피아 대조 ${formatMallCollectionTime(reconcileCheckedAt)} · 신규 = 아직 셀피아에 안 올라간 주문`
+                    : "셀피아를 조회해 아직 안 올라간 주문을 신규로 표시합니다"
+                }
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {reconciling ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <ClipboardCheck size={15} />
+                )}
+                셀피아 대조
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onCollectAll}
@@ -223,6 +254,7 @@ export function MallAccountSection({
             <MallAccountGroups
               accounts={mallAccounts}
               stats={mallCollectionStats}
+              failedMallReasonByKey={failedMallReasonByKey}
               selectedMall={selectedMall}
               settingsOpen={mallSettingsOpen}
               collectingKeys={collectingKeys}
