@@ -11,7 +11,7 @@ const repoRoot = path.resolve(
 );
 const runtimePath = path.join(
   repoRoot,
-  'extensions/coupang-ads-scraper/background/collection-runs.js',
+  'extensions/kiditem-os/background/coupang/collection-runs.js',
 );
 const WEB_RUN_ID = '11111111-1111-4111-8111-111111111111';
 const DASHBOARD_RUN_ID = '22222222-2222-4222-8222-222222222222';

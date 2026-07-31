@@ -16,6 +16,7 @@ import type { AdCollectionPeriod } from "./components/AdCollectionDailyChart";
 import StrategyContent from "./components/StrategyContent";
 import CampaignContent from "./components/CampaignContent";
 import AdProductsContent from "./components/AdProductsContent";
+import AdKeywordsContent from "./components/AdKeywordsContent";
 import RegisterCampaignModal from "./components/RegisterCampaignModal";
 import ExposureAnalysis from "./components/ExposureAnalysis";
 import type { TabKey } from "./lib/types";
@@ -223,6 +224,10 @@ export default function AdOpsPage() {
 
           {tab === "products" && (
             <AdProductsContent period={period} />
+          )}
+
+          {tab === "keywords" && (
+            <AdKeywordsContent period={period} />
           )}
 
           {tab === "exposure" && (

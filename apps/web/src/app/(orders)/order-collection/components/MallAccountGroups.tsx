@@ -24,6 +24,8 @@ interface MallAccountGroupsProps {
   autoRunning: boolean;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
   onCollectMall: (account: OrderCollectionMallAccount) => void;
+  /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
+  onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
   onCancelMall: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
 }
@@ -41,6 +43,7 @@ export function MallAccountGroups({
   autoRunning,
   onOpenSettings,
   onCollectMall,
+  onOpenCalendar,
   onCancelMall,
   onUploadTracking,
 }: MallAccountGroupsProps) {
@@ -64,6 +67,7 @@ export function MallAccountGroups({
             autoRunning={autoRunning}
             onOpenSettings={onOpenSettings}
             onCollectMall={onCollectMall}
+            onOpenCalendar={onOpenCalendar}
             onCancelMall={onCancelMall}
             onUploadTracking={onUploadTracking}
           />
@@ -85,6 +89,8 @@ interface MallAccountCardProps {
   autoRunning: boolean;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
   onCollectMall: (account: OrderCollectionMallAccount) => void;
+  /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
+  onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
   onCancelMall: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
 }
@@ -101,6 +107,7 @@ function MallAccountCard({
   autoRunning,
   onOpenSettings,
   onCollectMall,
+  onOpenCalendar,
   onCancelMall,
   onUploadTracking,
 }: MallAccountCardProps) {
@@ -115,11 +122,23 @@ function MallAccountCard({
       ? '로그인 필요 · 재수집 필요'
       : '인증 필요 · 재수집 필요';
 
+  // 쿠팡직배송은 카드 영역을 누르면 입고예정일 달력이 열린다.
+  // 수집 버튼은 달력 없이 곧바로 수집한다(둘을 섞지 않는다).
+  const cardOpensCalendar = collectable && Boolean(onOpenCalendar);
+
   return (
     <article
       aria-label={`${account.name} 계정 카드`}
+      onClick={cardOpensCalendar && !isCollecting
+        ? (event) => {
+            // 설정·수집·송장업로드 같은 내부 버튼 클릭까지 삼키지 않는다.
+            if ((event.target as HTMLElement).closest('button')) return;
+            onOpenCalendar?.(account);
+          }
+        : undefined}
       className={cn(
         'flex flex-col rounded-xl border p-3.5 transition-colors',
+        cardOpensCalendar && 'cursor-pointer',
         failed
           ? 'border-red-200 bg-red-50'
           : collectable

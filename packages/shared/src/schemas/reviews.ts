@@ -47,3 +47,78 @@ export const ReviewListResponseSchema = z.object({
   summary: ReviewSummarySchema,
 });
 export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
+
+// ── 개별 리뷰 열람 (GET /api/reviews/items) ─────────────────────────────────
+// 집계 테이블(`/api/reviews`)이 아니라 수집된 상품평 원문 1건씩. 운영자가 실제
+// 리뷰 내용을 읽고 상품/별점으로 좁혀 보는 화면이 소비한다.
+export const ReviewItemSchema = z.object({
+  id: z.string(),
+  listingId: z.string().nullable(),
+  /** listing 매칭 실패 시 크롤링 당시 채널 상품명으로 폴백한다. */
+  productName: z.string(),
+  optionName: z.string().nullable(),
+  rating: z.number().int(),
+  title: z.string().nullable(),
+  content: z.string().nullable(),
+  reviewerName: z.string().nullable(),
+  reviewedAt: z.string(),
+  imageCount: z.number().int().nonnegative(),
+  videoCount: z.number().int().nonnegative(),
+  /** 채널 상품 상세 링크용 노출상품ID. */
+  externalProductId: z.string().nullable(),
+});
+export type ReviewItem = z.infer<typeof ReviewItemSchema>;
+
+export const ReviewItemListResponseSchema = z.object({
+  items: z.array(ReviewItemSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+  /** 별점 1~5 별 건수. 현재 필터(별점 제외) 기준 분포. */
+  ratingCounts: z.record(z.string(), z.number().int().nonnegative()),
+  /** 본문이 있는 리뷰 수. 쿠팡은 별점만 남기는 리뷰가 대부분이다. */
+  withContentCount: z.number().int().nonnegative(),
+});
+export type ReviewItemListResponse = z.infer<typeof ReviewItemListResponseSchema>;
+
+// ── 확장 크롤링 적재 (POST /api/reviews/ingest) ─────────────────────────────
+// 쿠팡 Wing 상품평 화면(`/tenants/cs/product/review`)을 확장이 크롤링해 그대로
+// 넘긴 원본 1건. Open API 가 아닌 판매자 콘솔 세션 크롤링이므로 채널이 주는
+// 식별자(reviewId / vendorItemId / productId)를 그대로 보존한다.
+export const ReviewIngestItemSchema = z.object({
+  /** 쿠팡 reviewId. 재수집 멱등 키. */
+  externalReviewId: z.string().min(1),
+  /** 쿠팡 vendorItemId(옵션ID). ChannelListingOption 매칭 키. */
+  externalOptionId: z.string().min(1).nullable().default(null),
+  /** 쿠팡 productId(노출상품ID). */
+  externalProductId: z.string().min(1).nullable().default(null),
+  itemName: z.string().nullable().default(null),
+  rating: z.number().int().min(1).max(5),
+  title: z.string().nullable().default(null),
+  content: z.string().nullable().default(null),
+  reviewerName: z.string().nullable().default(null),
+  /** 리뷰 작성 시각(epoch ms). */
+  reviewedAt: z.number().int().positive(),
+  imageCount: z.number().int().nonnegative().default(0),
+  videoCount: z.number().int().nonnegative().default(0),
+  isDeleted: z.boolean().default(false),
+  isBlinded: z.boolean().default(false),
+});
+export type ReviewIngestItem = z.infer<typeof ReviewIngestItemSchema>;
+
+export const ReviewIngestRequestSchema = z.object({
+  platform: z.literal('coupang').default('coupang'),
+  items: z.array(ReviewIngestItemSchema).min(1).max(200),
+});
+export type ReviewIngestRequest = z.infer<typeof ReviewIngestRequestSchema>;
+
+export const ReviewIngestResponseSchema = z.object({
+  received: z.number().int().nonnegative(),
+  created: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+  /** listing 매칭에 성공한 건수. */
+  linked: z.number().int().nonnegative(),
+  /** vendorItemId 로 ChannelListingOption 을 못 찾은 건수. */
+  unlinked: z.number().int().nonnegative(),
+});
+export type ReviewIngestResponse = z.infer<typeof ReviewIngestResponseSchema>;

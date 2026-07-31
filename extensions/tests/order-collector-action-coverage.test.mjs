@@ -3,21 +3,22 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { MERGED_EXTENSION_VERSION } from './helpers/domain-worker-modules.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const routeRoot = path.join(repoRoot, 'apps/web/src/app/(orders)/order-collection');
 const workerPath = path.join(
   repoRoot,
-  'extensions/order-collector/background/service-worker.js',
+  'extensions/kiditem-os/background/orders/worker.js',
 );
-const manifestPath = path.join(repoRoot, 'extensions/order-collector/manifest.json');
+const manifestPath = path.join(repoRoot, 'extensions/kiditem-os/manifest.json');
 const rocketCollectionPath = path.join(
   repoRoot,
-  'extensions/order-collector/background/rocket-po-collection.js',
+  'extensions/kiditem-os/background/orders/rocket-po-collection.js',
 );
 const coupangPoSessionPath = path.join(
   repoRoot,
-  'extensions/order-collector/background/coupang-po-session.js',
+  'extensions/kiditem-os/background/orders/coupang-po-session.js',
 );
 const webSourceRoot = path.join(repoRoot, 'apps/web/src');
 const automaticCollectors = [
@@ -75,6 +76,17 @@ test('order-collection route actions are handled by the extension worker', () =>
       (match) => match[1],
     ),
   );
+  // 확장 병합 후 수집 세션 공통 액션은 통합 dispatch 가 처리한다. 웹앱 입장에서는
+  // 여전히 확장 하나가 전부 받으므로 두 소유자를 합쳐서 본다.
+  const dispatchSource = readFileSync(
+    path.join(repoRoot, 'extensions/kiditem-os/background/external-dispatch.js'),
+    'utf8',
+  );
+  for (const match of dispatchSource.matchAll(
+    /msg\.action === "([^"]+)"|^\s{4}"([^"]+)",$/gm,
+  )) {
+    handledActions.add(match[1] ?? match[2]);
+  }
   const missingActions = [...requestedActions].filter(
     (action) => !handledActions.has(action),
   );
@@ -124,7 +136,16 @@ test('every automatic collector explicitly attaches its inactive tab to its own 
 
 test('order worker imports failure evidence, session lifecycle, and focused Sellpia producers before dispatch', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*collection-failure\.js[\s\S]*order-collection-lifecycle\.js[\s\S]*sellpia-inventory\.js[\s\S]*sellpia-post-processing\.js/);
+  // 확장 병합 후 의존 모듈 로드는 통합 서비스워커가 소유한다.
+  const entrySource = readFileSync(
+    path.join(repoRoot, 'extensions/kiditem-os/background/service-worker.js'),
+    'utf8',
+  );
+  assert.match(
+    entrySource,
+    /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*orders\/collection-failure\.js[\s\S]*orders\/order-collection-lifecycle\.js[\s\S]*orders\/sellpia-inventory\.js[\s\S]*orders\/sellpia-post-processing\.js/,
+  );
+  assert.doesNotMatch(worker, /^importScripts\(/m);
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /collectSellpiaInventoryJsonV1:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
@@ -133,20 +154,36 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   assert.match(worker, /orderCollectionFailureEvidenceV1:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaProductStock/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
+
+  // 수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리한다. 도메인 워커가
+  // 각자 응답하면 세 리스너가 같은 메시지에 경쟁 응답하게 된다.
+  const dispatchSource = readFileSync(
+    path.join(repoRoot, 'extensions/kiditem-os/background/external-dispatch.js'),
+    'utf8',
+  );
   for (const action of [
     'listCollectionSessions',
     'getCollectionSession',
     'cancelCollectionSession',
     'openCollectionAttentionTab',
     'restartCollectionSession',
+    'finalizeCollectionSession',
   ]) {
-    assert.match(worker, new RegExp(`msg\\?\\.action === ["']${action}["']`), action);
+    assert.match(dispatchSource, new RegExp(`["']${action}["']`), action);
+    assert.doesNotMatch(
+      worker,
+      new RegExp(`msg\\?\\.action === ["']${action}["']`),
+      action,
+    );
   }
+  // 도메인은 자기 구현을 레지스트리로 넘긴다.
+  assert.match(worker, /KidItemDomains\.register\(/);
+  assert.match(worker, /producerPrefixes:\s*\["orders",\s*"inventory"\]/);
 });
 
 test('order collector manifest publishes normalized failure evidence and scoped Sellpia invoice selection at version 0.1.95', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.95');
+  assert.equal(manifest.version, MERGED_EXTENSION_VERSION);
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
   const worker = readFileSync(workerPath, 'utf8');

@@ -18,32 +18,32 @@ describe("competitor extension version gate", () => {
     vi.mocked(sendToExtension).mockReset();
   });
   it("requires the browser collection session extension version", () => {
-    expect(COMPETITOR_EXTENSION_MIN_VERSION).toBe("1.2.33");
-    expect(isVersionAtLeast("1.2.23", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+    expect(COMPETITOR_EXTENSION_MIN_VERSION).toBe("1.0.0");
+    expect(isVersionAtLeast("0.9.9", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       false,
     );
-    expect(isVersionAtLeast("1.2.25", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+    expect(isVersionAtLeast("0.9.9", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       false,
     );
-    expect(isVersionAtLeast("1.2.27", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+    expect(isVersionAtLeast("0.9.9", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       false,
     );
-    expect(isVersionAtLeast("1.2.28", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+    expect(isVersionAtLeast("0.9.9", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       false,
     );
-    expect(isVersionAtLeast("1.2.29", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+    expect(isVersionAtLeast("0.9.9", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       false,
     );
-    expect(isVersionAtLeast("1.2.30", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+    expect(isVersionAtLeast("0.9.9", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       false,
     );
-    expect(isVersionAtLeast("1.2.31", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+    expect(isVersionAtLeast("0.9.9", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       false,
     );
-    expect(isVersionAtLeast("1.2.32", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+    expect(isVersionAtLeast("0.9.9", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       false,
     );
-    expect(isVersionAtLeast("1.2.33", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+    expect(isVersionAtLeast("1.0.2", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       true,
     );
     expect(isVersionAtLeast("1.3.0", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(

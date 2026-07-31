@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const source = await readFile(
   new URL(
-    '../../coupang-ads-scraper/content/wing-registration-fill.js',
+    '../../kiditem-os/content/coupang/wing-registration-fill.js',
     import.meta.url,
   ),
   'utf8',

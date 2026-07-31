@@ -26,6 +26,8 @@ export interface LatestTargetRow {
   listingId: string | null;
   listingOptionId: string | null;
   externalId: string | null;
+  /** Advertised option (Coupang vendorItemId) when the row names exactly one. */
+  externalOptionId: string | null;
   campaignId: string | null;
   campaignName: string | null;
   keyword: string | null;
@@ -92,6 +94,13 @@ export interface ExistingAdActionDedupRow {
   proposedValue: number | null;
 }
 
+/** Open keyword-relevance proposal, used to badge the keyword view. */
+export interface OpenKeywordRelevanceActionRow {
+  targetLabel: string;
+  externalId: string | null;
+  reason: string;
+}
+
 export interface AdActionUpdatePatch {
   executeStatus?: string;
   executedAt?: Date;
@@ -113,6 +122,16 @@ export interface AdActionRepositoryPort {
     organizationId: string,
     sinceCreatedAt: Date,
   ): Promise<ExistingAdActionDedupRow[]>;
+
+  /**
+   * Open (`pending_review` or approved-but-unexecuted) `pause_keyword`
+   * proposals. A keyword with one of these is what the keyword view shows as
+   * "연관 없음"; the verdict itself is not a daily fact and is not stored on the
+   * fact row.
+   */
+  findOpenKeywordRelevanceActions(
+    organizationId: string,
+  ): Promise<OpenKeywordRelevanceActionRow[]>;
 
   // Writes
   createAdActionsFromCandidates(

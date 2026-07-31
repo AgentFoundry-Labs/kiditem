@@ -90,6 +90,8 @@ import {
 import {
   CATALOG_DISPLAY_MEDIA_REPOSITORY_PORT,
 } from '../application/port/out/repository/catalog-display-media.repository.port';
+import { TEXT_JUDGEMENT_PORT } from '../application/port/in/capability/text-judgement.port';
+import { TextJudgementService } from '../application/service/text-judgement.service';
 
 const IMPORTS_KEY = 'imports';
 const PROVIDERS_KEY = 'providers';
@@ -165,11 +167,16 @@ describe('AiModule hexagonal wiring contract', () => {
       [CANDIDATE_CONTENT_ASSET_PORT, ContentAssetService],
       [CATALOG_MEDIA_PUBLICATION_PORT, AiCatalogMediaPublicationRepositoryAdapter],
       [CATALOG_DISPLAY_MEDIA_PORT, CatalogDisplayMediaService],
+      [TEXT_JUDGEMENT_PORT, TextJudgementService],
     ].forEach(([token, adapter]) => {
       expectExistingBinding(providers, token as symbol, adapter);
     });
 
     expect(exports).toEqual([
+      // Bounded text judgement published for other owner domains (advertising
+      // keyword relevance). Consumers must not reach for the provider-side
+      // TEXT_COMPLETION_PORT.
+      TEXT_JUDGEMENT_PORT,
       PRODUCT_GENERATION_AI_TRIGGER_PORT,
       AI_WORKSPACE_ARCHIVE_PORT,
       AI_GENERATION_CANCELLATION_PORT,

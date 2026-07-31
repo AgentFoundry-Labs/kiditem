@@ -4,7 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const source = readFileSync(
-  new URL("../order-collector/background/service-worker.js", import.meta.url),
+  new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
   "utf8",
 );
 

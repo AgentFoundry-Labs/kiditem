@@ -516,7 +516,7 @@ staging URL is the Cloudflare proxied HTTPS origin configured in
 `STAGING_URL`.
 
 If authenticated Wing catalog collection is tested from staging registered
-products, load the committed `extensions/coupang-ads-scraper` directory or the
+products, load the committed `extensions/kiditem-os` directory or the
 universal release package from `chrome://extensions`. The same installed copy
 supports both `http://localhost:3000` and `https://staging.merchon.org`; do not
 generate a staging-only copy. Open staging

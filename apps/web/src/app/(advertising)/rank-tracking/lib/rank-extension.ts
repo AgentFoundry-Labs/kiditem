@@ -9,8 +9,11 @@ import {
   sendToExtension,
 } from "@/lib/extension-bridge";
 import type { SerpItem } from "./rank-api";
+import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
-export const RANK_EXTENSION_MIN_VERSION = "1.2.42";
+// 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
+// 기능 판정은 아래 ping capability 가 하고, 버전은 병합 이전 설치만 걸러낸다.
+export const RANK_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
 
 export const RANK_EXTENSION_CHROME_REQUIRED =
   "Wing 판매순위 수집은 Chrome 확장프로그램으로 실행됩니다. Chrome에서 이 페이지를 열어주세요.";

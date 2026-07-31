@@ -13,6 +13,7 @@ import type {
   CampaignCurrentSweep,
   CampaignRollup,
   CampaignSyncSweepEvidence,
+  KeywordTargetRollup,
   ProductTargetRollup,
 } from '../../../application/port/out/repository/ad-campaign.repository.port';
 
@@ -666,6 +667,59 @@ export class AdCampaignRepositoryAdapter
       FROM rollups
       JOIN latest USING ("targetKey")
       ORDER BY rollups.revenue DESC, rollups.spend DESC, rollups."targetKey" ASC
+    `);
+  }
+
+  findKeywordTargetRollups(
+    organizationId: string,
+    period: AdPeriod,
+    campaign?: {
+      channelAccountId: string;
+      campaignIdentity: string;
+    },
+  ): Promise<KeywordTargetRollup[]> {
+    const bounds = periodBounds(period);
+    // Keyword rows are trailing-window observations, not additive daily facts:
+    // the provider returns an empty keyword table for a one-day range, so the
+    // collector reads a multi-day window and stamps its width in
+    // `metaJson.data.windowDays`. Summing two collections would double-count
+    // their overlapping days, so this takes the newest observation per keyword.
+    return this.prisma.$queryRaw<KeywordTargetRollup[]>(Prisma.sql`
+      SELECT DISTINCT ON (target_key)
+        target_key              AS "targetKey",
+        channel_account_id      AS "channelAccountId",
+        campaign_identity       AS "campaignIdentity",
+        campaign_id             AS "campaignId",
+        campaign_name           AS "campaignName",
+        ad_group                AS "adGroup",
+        keyword,
+        listing_id              AS "listingId",
+        listing_option_id       AS "listingOptionId",
+        external_option_id      AS "externalOptionId",
+        status,
+        on_off                  AS "onOff",
+        current_bid             AS "currentBid",
+        meta_json               AS "metaJson",
+        last_observed_at        AS "lastObservedAt",
+        spend,
+        revenue,
+        impressions,
+        clicks,
+        conversions,
+        orders
+      FROM channel_ad_target_daily_snapshots
+      WHERE organization_id = ${organizationId}::uuid
+        AND target_type = 'keyword'
+        AND keyword IS NOT NULL
+        AND business_date >= ${bounds.from}
+        AND business_date <= ${bounds.to}
+        ${campaign
+          ? Prisma.sql`
+              AND channel_account_id = ${campaign.channelAccountId}::uuid
+              AND campaign_identity = ${campaign.campaignIdentity}
+            `
+          : Prisma.empty}
+      ORDER BY target_key, business_date DESC, last_observed_at DESC, updated_at DESC
     `);
   }
 

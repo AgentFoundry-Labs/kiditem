@@ -13,28 +13,27 @@ const focusTokens = [
   'focused: true',
   'window.open(',
 ];
+// 세 확장을 kiditem-os 하나로 합치면서 도메인마다 있던 collection-session /
+// interactive-tabs 사본이 정본 하나로 합쳐졌다.
 const expectedOwnerFiles = [
-  'extensions/coupang-ads-scraper/background/collection-session.js',
-  'extensions/coupang-ads-scraper/background/collection-window.js',
-  'extensions/coupang-ads-scraper/background/interactive-tabs.js',
-  'extensions/product-scraper/collection-session.js',
-  'extensions/product-scraper/interactive-tabs.js',
-  'extensions/order-collector/background/collection-session.js',
-  'extensions/order-collector/background/interactive-tabs.js',
+  'extensions/kiditem-os/background/collection-session.js',
+  'extensions/kiditem-os/background/interactive-tabs.js',
+  'extensions/kiditem-os/background/coupang/collection-window.js',
 ];
 const expectedLegacyFiles = [
-  'extensions/coupang-ads-scraper/background/service-worker.js',
-  'extensions/coupang-ads-scraper/background/coupang-catalog-import.js',
-  'extensions/product-scraper/1688-trend-collector.js',
-  'extensions/product-scraper/live-commerce-collector.js',
-  'extensions/product-scraper/background.js',
-  'extensions/order-collector/background/service-worker.js',
+  'extensions/kiditem-os/background/service-worker.js',
+  'extensions/kiditem-os/background/coupang/worker.js',
+  'extensions/kiditem-os/background/coupang/coupang-catalog-import.js',
+  'extensions/kiditem-os/background/orders/worker.js',
+  'extensions/kiditem-os/background/sourcing/worker.js',
+  'extensions/kiditem-os/background/sourcing/1688-trend-collector.js',
+  'extensions/kiditem-os/background/sourcing/live-commerce-collector.js',
   'apps/web/src/components/readiness/useReadinessCollection.ts',
   'apps/web/src/app/(advertising)/ad-ops/hooks/useAdSync.ts',
   'apps/web/src/app/(analytics)/dashboard/page.tsx',
 ];
 const automaticFocusSafeFiles = [
-  'extensions/order-collector/background/sellpia-inventory.js',
+  'extensions/kiditem-os/background/orders/sellpia-inventory.js',
 ];
 
 function countFocusTokens(source) {

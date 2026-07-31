@@ -6,6 +6,7 @@ import { queryKeys } from '@/lib/query-keys';
 import type {
   AdCampaignSnapshot,
   AdExtensionStatus,
+  AdKeywordsData,
   AdProductSnapshot,
   AdRulesData,
   AdWeeklyPlan,
@@ -291,6 +292,68 @@ export function useAdProducts(period: string, enabled: boolean) {
     error: productsQuery.error,
     refetch: productsQuery.refetch,
   };
+}
+
+/**
+ * Per-product keyword footprint collected from the ad centre keyword table.
+ *
+ * Enabled only while the keyword tab is open: the payload carries every keyword
+ * of every advertised product, which is an order of magnitude larger than the
+ * product list.
+ */
+export function useAdKeywords(period: string, enabled: boolean) {
+  const query = useQuery({
+    queryKey: queryKeys.ads.keywords(period),
+    queryFn: () => apiClient.get<AdKeywordsData>(`/api/ads/keywords?period=${period}`),
+    enabled,
+  });
+
+  return {
+    products: query.data?.products ?? [],
+    keywords: query.data?.keywords ?? [],
+    collectedAt: query.data?.collectedAt ?? null,
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+export type KeywordRelevanceRunResult = {
+  ok: boolean;
+  reason: string;
+  judgedProductCount: number;
+  judgedKeywordCount: number;
+  irrelevantCount: number;
+  created: number;
+  failedProductCount: number;
+  skippedProductCount: number;
+  truncatedKeywordCount: number;
+};
+
+/**
+ * Classify collected keywords against the product they advertise. It only
+ * proposes: keywords judged irrelevant become `pause_keyword` actions awaiting
+ * approval, never an immediate pause.
+ *
+ * Pass `externalOptionId` to judge a single product instead of the account.
+ */
+export function useRunKeywordAgent(period: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input?: { externalOptionId?: string }) =>
+      apiClient.post<KeywordRelevanceRunResult>(
+        '/api/ads/keywords/agent/run',
+        input?.externalOptionId
+          ? { externalOptionId: input.externalOptionId }
+          : {},
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.keywords(period) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.all });
+    },
+  });
 }
 
 export function useRegisterCampaign() {

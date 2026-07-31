@@ -6,6 +6,7 @@ import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
+import { useAuth } from '@/hooks/useAuth';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
@@ -71,10 +72,32 @@ import {
 } from '../lib/order-tracking-actions';
 
 const COLLECT_ALL_CONCURRENCY = 4;
+import { CoupangDirectCalendarModal } from './CoupangDirectCalendarModal';
+import type { CoupangDirectPo } from '../lib/coupang-directship-api';
+import {
+  createCoupangDirectPoMemoryCache,
+  readCachedDirectshipPos,
+  readMemoryCachedDirectshipPos,
+  writeCachedDirectshipPos,
+  writeMemoryCachedDirectshipPos,
+  type CoupangDirectPoCacheScope,
+} from '../lib/coupang-directship-po-cache';
+
 export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const showConfirm = useStore((store) => store.showConfirm);
   const historyRef = useRef<ConversionHistoryItem[]>([]);
+  // 쿠팡직배송은 바로 수집하지 않고 입고예정일 달력에서 처리할 날짜를 먼저 고른다.
+  const [directshipModal, setDirectshipModal] = useState<{
+    account: OrderCollectionMallAccount;
+    run: OrderCollectionExtensionRun | null;
+    pos: CoupangDirectPo[];
+    loading: boolean;
+  } | null>(null);
+  // 한 번 불러온 발주 목록은 들고 있는다. 달력을 다시 열 때 로딩을 보지 않게 하려는 것으로,
+  // 여는 즉시 캐시를 그리고 뒤에서 조용히 새로 받아 갱신한다.
+  const directshipPosRef = useRef(createCoupangDirectPoMemoryCache());
   const sellpiaTransmissionQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [generatedFileActionLock] = useState(createGeneratedFileActionLock);
   const [state, setState] = useState<ConversionState>('idle');
@@ -108,6 +131,21 @@ export function OrderCollectionWorkspace() {
   const selectedRocketAccount = rocketAccounts.find(
     ({ id }) => id === selectedRocketAccountId,
   ) ?? rocketAccounts[0] ?? null;
+  const directshipCacheScope = useMemo<CoupangDirectPoCacheScope | null>(() => {
+    if (!user?.organizationId || !selectedRocketAccount?.id) return null;
+    return {
+      organizationId: user.organizationId,
+      channelAccountId: selectedRocketAccount.id,
+    };
+  }, [selectedRocketAccount?.id, user?.organizationId]);
+  const cachedDirectshipPos = (): CoupangDirectPo[] => {
+    if (!directshipCacheScope) return [];
+    const memory = readMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope);
+    if (memory) return memory;
+    const stored = readCachedDirectshipPos(directshipCacheScope)?.pos ?? [];
+    writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, stored);
+    return stored;
+  };
   const sessionControls = useOrderCollectionSessionControls(mallAccounts);
   const collectionSession = sessionControls.session;
   // 수집 조치 안내(로그인/세션 필요 등)는 몰 카드 위 배너 대신 알림(토스트)으로만 띄운다.
@@ -167,6 +205,20 @@ export function OrderCollectionWorkspace() {
   ).length;
   const previewItem = previewId ? history.find((item) => item.id === previewId) ?? null : null;
   const orderCollectionSummary = useMemo(() => buildOrderCollectionSummary(history), [history]);
+  // 달력에서 소거법으로 뺄 발주번호.
+  //
+  // 기준은 "파일 생성"이 아니라 "셀피아 전송 요청"이다. 파일만 만들고 전송 대기 중인
+  // 발주는 아직 처리해야 할 일이 남아 있는데, 파일 기준으로 빼면 달력에서 사라져
+  // 38건 중 9건만 남는 것처럼 보인다.
+  const collectedDirectshipSeqs = useMemo(
+    () => new Set(
+      history
+        .filter((item) => item.mallKey === 'coupang-direct'
+          && hasSellpiaTransmissionRequest(item))
+        .flatMap((item) => item.orderNumbers ?? []),
+    ),
+    [history],
+  );
   // 셀피아 실측 대조 결과. 버튼을 눌렀을 때만 조회하며, 있으면 몰 카드 "신규"가 이 값을 쓴다.
   const [sellpiaReconcile, setSellpiaReconcile] = useState<SellpiaReconcileResult | null>(null);
   // 대조를 돌렸으면 "신규"(=아직 셀피아에 안 올라간 주문)를 로컬 전송기록 대신 실측으로 바꾼다.
@@ -321,7 +373,11 @@ export function OrderCollectionWorkspace() {
   ]);
 
   const collectAccount = useCallback(
-    async (account: OrderCollectionMallAccount, run?: OrderCollectionExtensionRun) => {
+    async (
+      account: OrderCollectionMallAccount,
+      run?: OrderCollectionExtensionRun,
+      directship?: { eddDates: string[] },
+    ) => {
       markCollecting(account.key, true);
       let activeRun = run;
       try {
@@ -331,7 +387,7 @@ export function OrderCollectionWorkspace() {
         if (!activeRun) {
           throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
         }
-        const collected = await collectBrowserMall(account, activeRun);
+        const collected = await collectBrowserMall(account, activeRun, { directship });
         await sessionControls.finalizeRun(
           activeRun,
           'succeeded',
@@ -443,9 +499,37 @@ export function OrderCollectionWorkspace() {
     setBrowserCollecting(false);
   };
 
+  // 카드 영역 클릭 전용. 쿠팡직배송만 입고예정일 달력을 연다.
+  // 수집 버튼은 이 경로를 타지 않고 곧바로 수집한다.
+  const handleOpenDirectshipCalendar = async (account: OrderCollectionMallAccount) => {
+    if (account.key !== 'coupang-direct') return;
+    const cached = cachedDirectshipPos();
+    // 캐시가 있으면 즉시 달력을 띄운다. 없을 때만 로딩을 보여준다.
+    setDirectshipModal({ account, run: null, pos: cached, loading: cached.length === 0 });
+    try {
+      const run = await sessionControls.prepareRun(account);
+      if (!run) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
+      const { collectCoupangDirectFromExtension } = await import(
+        '../lib/coupang-directship-api'
+      );
+      const data = await collectCoupangDirectFromExtension(run);
+      if (directshipCacheScope) {
+        writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, data.pos);
+        writeCachedDirectshipPos(directshipCacheScope, data.pos);
+      }
+      setDirectshipModal((cur) => (cur ? { ...cur, run, pos: data.pos, loading: false } : cur));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '쿠팡 발주를 불러오지 못했습니다.';
+      // 캐시로 이미 보여주고 있으면 화면을 닫지 않고 갱신 실패만 알린다.
+      setDirectshipModal((cur) => (cur && cur.pos.length > 0 ? { ...cur, loading: false } : null));
+      toast.error(message);
+    }
+  };
+
   const handleBrowserCollectMall = async (
     account: OrderCollectionMallAccount,
     existingRunId?: string,
+    directship?: { eddDates: string[] },
   ) => {
     if (!account.enabled) {
       toast.error(`${account.name} 계정이 중지되어 있습니다.`);
@@ -464,7 +548,7 @@ export function OrderCollectionWorkspace() {
         toast.error('주문수집 확장프로그램을 찾을 수 없습니다.');
         return;
       }
-      const collected = await collectAccount(account, run);
+      const collected = await collectAccount(account, run, directship);
       setState('success');
       if (collected.masked) toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
       if (collected.rowCount > 0) toast.success(`${account.name} 수집 완료`);
@@ -850,6 +934,7 @@ export function OrderCollectionWorkspace() {
         onCollectAll={() => void handleBrowserCollectAll()}
         onCancelMall={(account) => void handleCancelMall(account)}
         onCollectMall={(account) => void handleBrowserCollectMall(account)}
+        onOpenCalendar={(account) => void handleOpenDirectshipCalendar(account)}
         onDraftChange={setMallDraft}
         onOpenMall={() => {
           if (mallDraft.siteUrl) window.open(mallDraft.siteUrl, '_blank', 'noopener,noreferrer');
@@ -895,6 +980,23 @@ export function OrderCollectionWorkspace() {
         onSendToSellpia={(item) => void handleSendToSellpia(item)}
         onSendSelectedToSellpia={(items) => void handleSendSelectedToSellpia(items)}
       />
+
+      {directshipModal ? (
+        <CoupangDirectCalendarModal
+          open
+          loading={directshipModal.loading}
+          pos={directshipModal.pos}
+          collectedSeqs={collectedDirectshipSeqs}
+          today={todayYmd()}
+          onClose={() => setDirectshipModal(null)}
+          onCollect={(eddDates) => {
+            const { account, run } = directshipModal;
+            setDirectshipModal(null);
+            void handleBrowserCollectMall(account, run?.runId, { eddDates });
+          }}
+        />
+      ) : null}
+
     </div>
   );
 }

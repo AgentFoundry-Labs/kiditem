@@ -12,14 +12,14 @@ const repoRoot = path.resolve(
 const delaySource = fs.readFileSync(
   path.join(
     repoRoot,
-    "extensions/coupang-ads-scraper/background/ad-collector-delay.js",
+    "extensions/kiditem-os/background/coupang/ad-collector-delay.js",
   ),
   "utf8",
 );
 const serviceWorkerSource = fs.readFileSync(
   path.join(
     repoRoot,
-    "extensions/coupang-ads-scraper/background/service-worker.js",
+    "extensions/kiditem-os/background/coupang/worker.js",
   ),
   "utf8",
 );
@@ -67,7 +67,12 @@ test("advertising collector delay ignores unrelated messages", () => {
 });
 
 test("service worker loads and registers the advertising collector delay handler", () => {
-  assert.match(serviceWorkerSource, /"ad-collector-delay\.js"/);
+  // 확장 병합 후 의존 모듈 로드는 통합 서비스워커가 소유한다.
+  const entrySource = fs.readFileSync(
+    new URL('../../kiditem-os/background/service-worker.js', import.meta.url),
+    'utf8',
+  );
+  assert.match(entrySource, /"coupang\/ad-collector-delay\.js"/);
   assert.match(
     serviceWorkerSource,
     /chrome\.runtime\.onMessage\.addListener\(KidItemAdCollectorDelay\.handleMessage\)/,

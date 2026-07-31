@@ -2,6 +2,8 @@ import type {
   AdAccountKpi,
   AdAccountKpiDayPoint,
   AdCampaignSnapshot,
+  AdKeywordRelevance,
+  AdKeywordSnapshot,
   AdMetrics,
   AdProductSnapshot,
   AdTrendsData,
@@ -12,8 +14,10 @@ import type { ScopedAdListingReadModel } from '../application/port/out/repositor
 import type {
   CampaignCurrentState,
   CampaignRollup,
+  KeywordTargetRollup,
   ProductTargetRollup,
 } from '../application/port/out/repository/ad-campaign.repository.port';
+import { normalizeAdKeywordOrigin } from '../domain/ad-keyword';
 import type { AdTrendDailyAggregate } from '../domain/ad-trend';
 import type { AdAccountKpiDayRow } from '../application/port/out/repository/ad-account-kpi.repository.port';
 import { scopedListingToSummary } from './ad-listing.mapper';
@@ -125,9 +129,57 @@ export function toAdProductSnapshot(
   } satisfies AdProductSnapshot;
 }
 
+export function toAdKeywordSnapshot(
+  rollup: KeywordTargetRollup,
+  listing: ScopedAdListingReadModel | null,
+  period: AdPeriod,
+  relevance: {
+    verdict: AdKeywordRelevance | null;
+    reason: string | null;
+  } = { verdict: null, reason: null },
+): AdKeywordSnapshot {
+  return {
+    channelAccountId: rollup.channelAccountId,
+    campaignIdentity: rollup.campaignIdentity,
+    campaignId: rollup.campaignId,
+    campaignName: rollup.campaignName,
+    adGroup: rollup.adGroup,
+    keyword: rollup.keyword,
+    origin: normalizeAdKeywordOrigin(
+      readTargetMetaString(rollup.metaJson, 'origin'),
+    ),
+    status: rollup.status,
+    onOff: rollup.onOff,
+    currentBid: rollup.currentBid,
+    externalOptionId: rollup.externalOptionId,
+    productName:
+      readTargetMetaString(rollup.metaJson, 'productName') ??
+      listing?.channelName ??
+      listing?.masterProduct.name ??
+      null,
+    listing: listing ? scopedListingToSummary(listing) : null,
+    period,
+    metrics: buildAdMetrics({
+      spend: rollup.spend,
+      revenue: rollup.revenue,
+      impressions: rollup.impressions,
+      clicks: rollup.clicks,
+      // Keyword rows carry a real order count from the provider keyword table,
+      // so the campaign-grain revenue-as-conversions guard does not apply.
+      conversions: rollup.conversions,
+    }),
+    relevance: relevance.verdict,
+    relevanceReason: relevance.reason,
+  } satisfies AdKeywordSnapshot;
+}
+
 function readTargetMetaString(metaJson: unknown, key: string): string | null {
   if (!isRecord(metaJson)) return null;
-  for (const source of ['advertising.raw.target', 'advertising.campaign.target']) {
+  for (const source of [
+    'advertising.raw.target',
+    'advertising.campaign.target',
+    'advertising.keyword.target',
+  ]) {
     const data = metaJson[source];
     if (!isRecord(data)) continue;
     const value = data[key];

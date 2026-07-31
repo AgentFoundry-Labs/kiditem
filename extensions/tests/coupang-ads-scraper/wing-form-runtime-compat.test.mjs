@@ -5,14 +5,14 @@ import vm from 'node:vm';
 
 const source = await readFile(
   new URL(
-    '../../coupang-ads-scraper/background/wing-form-runtime-compat.js',
+    '../../kiditem-os/background/coupang/wing-form-runtime-compat.js',
     import.meta.url,
   ),
   'utf8',
 );
 const manifest = JSON.parse(
   await readFile(
-    new URL('../../coupang-ads-scraper/manifest.json', import.meta.url),
+    new URL('../../kiditem-os/manifest.json', import.meta.url),
     'utf8',
   ),
 );
@@ -182,7 +182,7 @@ test('installs lodash capabilities for Wing lexical underscore strings at docume
 
 test('manifest installs the compatibility shim before Wing SPA routing in MAIN world', () => {
   const entry = manifest.content_scripts.find((contentScript) =>
-    contentScript.js?.includes('background/wing-form-runtime-compat.js'),
+    contentScript.js?.includes('background/coupang/wing-form-runtime-compat.js'),
   );
 
   assert.ok(entry, 'missing Wing runtime compatibility content script');

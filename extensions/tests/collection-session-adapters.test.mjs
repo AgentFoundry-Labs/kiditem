@@ -9,9 +9,9 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const canonicalPath = path.join(repoRoot, 'extensions/shared/collection-session.js');
 const generatedPaths = [
-  'extensions/coupang-ads-scraper/background/collection-session.js',
-  'extensions/product-scraper/collection-session.js',
-  'extensions/order-collector/background/collection-session.js',
+  'extensions/kiditem-os/background/collection-session.js',
+  'extensions/kiditem-os/background/collection-session.js',
+  'extensions/kiditem-os/background/collection-session.js',
 ];
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_RUN_ID = '22222222-2222-4222-8222-222222222222';

@@ -10,6 +10,7 @@ import { CsController } from './controllers/cs.controller';
 import { CsService } from './services/cs.service';
 import { ReviewsController } from './controllers/reviews.controller';
 import { ReviewsService } from './services/reviews.service';
+import { ReviewIngestService } from './services/review-ingest.service';
 import { OrderCollectionController } from './controllers/order-collection.controller';
 import { OrderCollectionMallAccountController } from './controllers/order-collection-mall-account.controller';
 import { OrderCollectionService } from './services/order-collection.service';
@@ -41,6 +42,7 @@ import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/
     ReturnsService,
     CsService,
     ReviewsService,
+    ReviewIngestService,
     ReturnTransfersService,
     CoupangDirectOrderCollectionService,
     CoupangDirectOrderCollectionTransactionAdapter,

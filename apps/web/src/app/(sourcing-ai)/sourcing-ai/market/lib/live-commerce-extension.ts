@@ -4,9 +4,12 @@ import {
   sendToExtension,
 } from '@/lib/extension-bridge';
 import type { LiveCommerceSource } from './live-commerce-api';
+import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
 const REQUEST_TIMEOUT_MS = 90_000;
-export const LIVE_COMMERCE_EXTENSION_MIN_VERSION = '2.2.2';
+// 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
+// 기능 판정은 아래 ping capability 가 하고, 버전은 병합 이전 설치만 걸러낸다.
+export const LIVE_COMMERCE_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
 
 interface ExtensionResponse {
   success?: boolean;

@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { AdvertisingModule } from "../advertising.module";
 import { PrismaModule } from "../../prisma/prisma.module";
 import { AgentOsModule } from "../../agent-os/agent-os.module";
+import { AiModule } from "../../ai/ai.module";
 import { AutomationModule } from "../../automation/automation.module";
 import { ChannelsModule } from "../../channels/channels.module";
 import { ProductsModule } from "../../products/products.module";
@@ -16,6 +17,7 @@ import { AdvertisingIngestController } from "../adapter/in/http/advertising-inge
 import { AdvertisingOverviewController } from "../adapter/in/http/advertising-overview.controller";
 import { AdvertisingStrategyController } from "../adapter/in/http/advertising-strategy.controller";
 import { AdStrategyAgentController } from "../adapter/in/http/ad-strategy-agent.controller";
+import { AdKeywordAgentController } from "../adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "../adapter/in/http/keyword-rank.controller";
 import { CompetitorTrackingController } from "../adapter/in/http/competitor-tracking.controller";
 import { WingTrackedProductController } from "../adapter/in/http/wing-tracked-product.controller";
@@ -39,6 +41,7 @@ import { KiditemStorefrontAdapter } from "../adapter/out/provider/kiditem-storef
 import { AdIngestTransactionAdapter } from "../adapter/out/repository/ad-ingest-transaction.adapter";
 // adapter/out/automation
 import { OperationAlertAdapter } from "../adapter/out/automation/operation-alert.adapter";
+import { KeywordRelevanceJudgeAdapter } from "../adapter/out/ai/keyword-relevance-judge.adapter";
 
 // application/service + handlers
 import { AdvertisingService } from "../application/service/advertising.service";
@@ -90,14 +93,16 @@ const ADS_CONTROLLERS = [
 // provider, a stray legacy controller, or an accidental route rename fails
 // at vitest time before reaching dev:server boot.
 describe("AdvertisingModule capability wiring", () => {
-  it("imports owner modules for channel stock and stored product ABC capabilities", () => {
+  it("imports owner modules for channel stock, stored product ABC, and keyword judgement capabilities", () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, AdvertisingModule) ?? [];
-    expect(imports).toHaveLength(5);
+    expect(imports).toHaveLength(6);
     expect(new Set(imports)).toEqual(
       new Set([
         PrismaModule,
         AgentOsModule,
+        // Keyword relevance judgement is a language call, owned by AI.
+        AiModule,
         AutomationModule,
         ChannelsModule,
         ProductsModule,
@@ -112,6 +117,7 @@ describe("AdvertisingModule capability wiring", () => {
       new Set([
         ...ADS_CONTROLLERS,
         AdStrategyAgentController,
+        AdKeywordAgentController,
         KeywordRankController,
         CompetitorTrackingController,
         WingTrackedProductController,
@@ -140,6 +146,7 @@ describe("AdvertisingModule capability wiring", () => {
       KiditemStorefrontAdapter,
       AdIngestTransactionAdapter,
       OperationAlertAdapter,
+      KeywordRelevanceJudgeAdapter,
     ]) {
       expect(providers).toContain(cls);
     }
@@ -189,7 +196,7 @@ describe("AdvertisingModule capability wiring", () => {
       (p): p is { provide: unknown; useExisting?: unknown } =>
         typeof p === "object" && p !== null && "provide" in p,
     );
-    expect(tokenProviders).toHaveLength(19);
+    expect(tokenProviders).toHaveLength(20);
     for (const provider of tokenProviders) {
       expect(provider.useExisting).toBeDefined();
       expect((provider.useExisting as { name?: string }).name).not.toBe(

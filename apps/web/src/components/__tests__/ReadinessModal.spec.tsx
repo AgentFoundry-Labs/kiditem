@@ -310,7 +310,7 @@ describe('ReadinessModal', () => {
   it('opens from collectionRun and renders explicit browser controls', async () => {
     const runId = '11111111-1111-4111-8111-111111111111';
     mockSearchParams.set('collectionRun', runId);
-    mockCollectionSession.mockReturnValue({
+    const collectionSessionResult = {
       data: {
         runId,
         producer: 'dashboard.wing_sales',
@@ -335,7 +335,13 @@ describe('ReadinessModal', () => {
         updatedAt: 1_700_000_001_000,
         finishedAt: null,
       },
-    });
+    };
+    // Mirror the real hook: it resolves only the run it was asked about. Rows
+    // that have not started a run pass null and must not render another run's
+    // controls.
+    mockCollectionSession.mockImplementation((requestedRunId?: string | null) =>
+      requestedRunId === runId ? collectionSessionResult : { data: undefined },
+    );
 
     render(<ReadinessModal autoOpenWhen="collectionIssue" />, {
       wrapper: wrapper(),

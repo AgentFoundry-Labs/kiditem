@@ -5,11 +5,11 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
 const commonSource = fs.readFileSync(
-  path.resolve('extensions/product-scraper/extractors/common.js'),
+  path.resolve('extensions/kiditem-os/content/sourcing/extractors/common.js'),
   'utf8',
 );
 const extractorSource = fs.readFileSync(
-  path.resolve('extensions/product-scraper/extractors/1688.js'),
+  path.resolve('extensions/kiditem-os/content/sourcing/extractors/1688.js'),
   'utf8',
 );
 

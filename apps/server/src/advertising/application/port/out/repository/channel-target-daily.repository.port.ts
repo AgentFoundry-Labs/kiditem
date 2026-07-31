@@ -69,6 +69,16 @@ export interface ReplaceAdCampaignDayInput {
   campaignIdentity?: string | null;
   campaignName: string;
   targets: UpsertAdTargetDailyInput[];
+  /**
+   * Grains this replacement is authoritative for. Rows of any other
+   * `targetType` on the same account/campaign/date are left untouched.
+   *
+   * Campaign/product facts and keyword facts come from different provider
+   * surfaces (the report grid vs. the per-ad keyword table) and are collected
+   * by different producers, so neither producer may treat the other's rows as
+   * stale. Omitting the scope keeps the legacy all-grain behaviour.
+   */
+  replaceScope?: AdTargetType[];
 }
 
 export type ReplaceAdCampaignDayResult =

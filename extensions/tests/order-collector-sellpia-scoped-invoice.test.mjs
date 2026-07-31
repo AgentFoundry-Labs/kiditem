@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const postProcessingSource = readFileSync(path.join(
   repoRoot,
-  'extensions/order-collector/background/sellpia-post-processing.js',
+  'extensions/kiditem-os/background/orders/sellpia-post-processing.js',
 ), 'utf8');
 
 function extractSellpiaDriveStep() {

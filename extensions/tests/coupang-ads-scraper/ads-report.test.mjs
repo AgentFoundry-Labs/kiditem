@@ -10,7 +10,7 @@ const repoRoot = path.resolve(
   "../../..",
 );
 const source = fs.readFileSync(
-  path.join(repoRoot, "extensions/coupang-ads-scraper/content/ads-report.js"),
+  path.join(repoRoot, "extensions/kiditem-os/content/coupang/ads-report.js"),
   "utf8",
 );
 

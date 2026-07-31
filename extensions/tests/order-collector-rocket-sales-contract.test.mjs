@@ -4,11 +4,16 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import {
+  ORDERS_WORKER_MODULES,
+  dispatchExternalMessage,
+  installExternalDispatch,
+} from './helpers/domain-worker-modules.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workerPath = path.join(
   repoRoot,
-  'extensions/order-collector/background/service-worker.js',
+  'extensions/kiditem-os/background/orders/worker.js',
 );
 const backgroundRoot = path.dirname(workerPath);
 const workerSource = readFileSync(workerPath, 'utf8');
@@ -16,7 +21,7 @@ const rocketModulePath = path.join(backgroundRoot, 'rocket-po-collection.js');
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 
 function loadWorker(overrides = {}) {
-  let externalMessageListener = null;
+  const externalMessageListeners = [];
   let context;
   const storage = {};
   const sandbox = {
@@ -38,7 +43,7 @@ function loadWorker(overrides = {}) {
         onStartup: { addListener() {} },
         onMessageExternal: {
           addListener(listener) {
-            externalMessageListener = listener;
+            externalMessageListeners.push(listener);
           },
         },
         getManifest: () => ({ version: 'test' }),
@@ -74,12 +79,16 @@ function loadWorker(overrides = {}) {
     },
   };
   context = vm.createContext(sandbox);
+  // 도메인 워커는 더 이상 importScripts 를 호출하지 않는다. 통합 서비스워커와
+  // 같은 순서로 의존 모듈을 먼저 싣는다.
+  context.importScripts(...ORDERS_WORKER_MODULES);
   vm.runInContext(workerSource, context, { filename: workerPath });
-  return { context, externalMessageListener, storage };
+  installExternalDispatch(context, sandbox.chrome);
+  return { context, externalMessageListeners, storage };
 }
 
 test('collectRocketPoRows message forwards the requested status and date basis', async () => {
-  const { context, externalMessageListener } = loadWorker();
+  const { context, externalMessageListeners } = loadWorker();
   let received = null;
   let receivedCollection = null;
   context.collectRocketPoRows = async (input, collection) => {
@@ -88,21 +97,18 @@ test('collectRocketPoRows message forwards the requested status and date basis',
     return { success: true, rows: [], poCount: 0 };
   };
 
-  const response = await new Promise((resolve) => {
-    const keepAlive = externalMessageListener(
-      {
-        action: 'collectRocketPoRows',
-        from: '2026-07-01',
-        to: '2026-07-07',
-        status: 'PA',
-        dateType: 'PURCHASE_ORDER_DATE',
-        runId: RUN_ID,
-      },
-      { url: 'http://localhost:3000/order-collection' },
-      resolve,
-    );
-    assert.equal(keepAlive, true);
-  });
+  const response = await dispatchExternalMessage(
+    externalMessageListeners,
+    {
+      action: 'collectRocketPoRows',
+      from: '2026-07-01',
+      to: '2026-07-07',
+      status: 'PA',
+      dateType: 'PURCHASE_ORDER_DATE',
+      runId: RUN_ID,
+    },
+    { url: 'http://localhost:3000/order-collection' },
+  );
 
   assert.deepEqual({ ...received }, {
     from: '2026-07-01',
@@ -119,7 +125,13 @@ test('collectRocketPoRows message forwards the requested status and date basis',
 
 test('Rocket collection implementation is extracted from the service worker', () => {
   const moduleSource = readFileSync(rocketModulePath, 'utf8');
-  assert.match(workerSource, /importScripts\([\s\S]*rocket-po-collection\.js/);
+  // 의존 모듈 로드는 통합 서비스워커가 소유한다.
+  const entrySource = readFileSync(
+    path.join(repoRoot, 'extensions/kiditem-os/background/service-worker.js'),
+    'utf8',
+  );
+  assert.match(entrySource, /importScripts\([\s\S]*orders\/rocket-po-collection\.js/);
+  assert.doesNotMatch(workerSource, /^importScripts\(/m);
   assert.match(moduleSource, /KidItemRocketPoCollection/);
   assert.match(moduleSource, /listPagesRead/);
   assert.match(moduleSource, /failedPoNumbers/);

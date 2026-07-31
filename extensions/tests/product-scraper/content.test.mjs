@@ -4,7 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = await readFile(
-  new URL('../../product-scraper/content.js', import.meta.url),
+  new URL('../../kiditem-os/content/sourcing/content.js', import.meta.url),
   'utf8',
 );
 
