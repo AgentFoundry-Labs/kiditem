@@ -60,10 +60,9 @@ starting a candidate slot.
   workspace builds, the web and extension suites, and the real Postgres
   integration suite. A newer push cancels an obsolete run so only the latest
   accumulated `develop` HEAD is validated.
-- A PR targeting protected `release/office` runs the same full validation on
-  GitHub's merge ref in addition to PR hygiene. Office promotion is blocked on
-  the code that would actually land, rather than inheriting only the head
-  branch's earlier push result.
+- A PR targeting protected `release/office` runs lightweight PR hygiene only.
+  Office promotion uses the already validated accumulated `develop` HEAD, so it
+  does not repeat the full suite on GitHub's merge ref.
 - Workflow, deploy shell, Compose, and Terraform changes keep their focused
   local syntax checks; those checks are no longer repeated for unrelated PRs.
 - Image builds are centralized in `.github/workflows/build-image.yml`.

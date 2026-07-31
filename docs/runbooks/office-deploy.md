@@ -59,9 +59,10 @@ rollback and must be assessed separately for every release.
 
 Normal work still merges into `develop`. Promote an approved `develop` commit
 to `release/office` through a reviewed PR. Before merging, require both
-`PR Checks / PR hygiene` and the merge-ref `Develop Validation / Develop full
-validation` run to pass. The office branch is a persistent environment branch,
-not a disposable feature branch. After the merge, verify:
+`PR Checks / PR hygiene` and a successful `Develop Validation / Develop full
+validation` run for that accumulated `develop` SHA. The office branch is a
+persistent environment branch, not a disposable feature branch. After the
+merge, verify:
 
 ```powershell
 git ls-remote --heads origin refs/heads/release/office
