@@ -170,6 +170,11 @@ describe('SellpiaInventorySyncProvider', () => {
     });
     productSales.collect.mockResolvedValue({
       range: { from: '2026-06-01', to: '2026-07-16' },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
       products: [],
     });
     productSales.ingest.mockResolvedValue({
@@ -543,6 +548,11 @@ describe('SellpiaInventorySyncProvider', () => {
     expect(productSales.collect).toHaveBeenCalledWith('extension-id');
     expect(productSales.ingest).toHaveBeenCalledWith({
       range: { from: '2026-06-01', to: '2026-07-16' },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
       products: [],
     });
     expect(productSales.ingest.mock.invocationCallOrder[0])

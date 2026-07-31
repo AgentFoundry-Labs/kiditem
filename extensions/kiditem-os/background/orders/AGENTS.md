@@ -109,6 +109,13 @@ conversion.
   the explicit generic open action. Never return cookies, credentials, response
   headers, DOM text, or raw error/response bodies.
 
+## Sellpia Product-Profit Evidence Contract
+
+- Advertise `collectSellpiaProductProfitEvidenceV1` only for full-range
+  `buy_point=R` VAT-included order-time cost; the web app rejects old extensions.
+- Return bounded zero-filled months; malformed, partial, duplicate, or oversized
+  evidence fails the whole read.
+
 ## Rocket Purchase-Order Collection Contract
 
 - Summary and detail collection share `background/coupang-po-session.js`. A

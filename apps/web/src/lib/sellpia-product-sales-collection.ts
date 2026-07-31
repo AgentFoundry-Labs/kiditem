@@ -1,23 +1,30 @@
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import type { SellpiaProductSalesIngestPayload } from '@kiditem/shared/dashboard';
+import {
+  SellpiaProductSalesIngestPayloadSchema,
+  type SellpiaProductSalesIngestPayload,
+} from '@kiditem/shared/dashboard';
 
 // Sellpia 상품별 이익현황(stat_prd_profit) 월별 소진 수집 브릿지.
 // 확장이 셀피아 로그인 세션으로 스크랩 → 웹앱이 payload 를 백엔드로 POST.
 
 interface CollectResponse {
   success?: boolean;
-  payload?: SellpiaProductSalesIngestPayload;
+  payload?: unknown;
   productCount?: number;
   error?: string;
 }
 
-const REQUIRED_CAPABILITY = 'collectSellpiaProductProfit';
+const REQUIRED_CAPABILITY = 'collectSellpiaProductProfitEvidenceV1';
 
 async function detectExtensionId(): Promise<string> {
   const exact = await detectOrderCollectionExtensionId(1200, REQUIRED_CAPABILITY);
   if (exact) return exact;
-  const compatible = await detectOrderCollectionExtensionId();
-  if (compatible) return compatible;
+  const compatible = await detectOrderCollectionExtensionId(1200, null);
+  if (compatible) {
+    throw new Error(
+      '상품별 이익현황 수집을 지원하는 최신 확장프로그램이 필요합니다. Chrome 확장 관리에서 extensions/kiditem-os 를 새로고침해주세요.',
+    );
+  }
   throw new Error(
     '주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os 를 Chrome 에 로드/새로고침하고 kiditem.sellpia.com 에 로그인한 뒤 다시 시도해주세요.',
   );
@@ -27,7 +34,8 @@ async function detectExtensionId(): Promise<string> {
 export async function collectSellpiaProductProfitFromExtension(
   knownExtensionId?: string,
 ): Promise<SellpiaProductSalesIngestPayload> {
-  const extensionId = knownExtensionId ?? await detectExtensionId();
+  const detectedExtensionId = await detectExtensionId();
+  const extensionId = knownExtensionId ?? detectedExtensionId;
   const res = await sendToExtension<CollectResponse>(
     extensionId,
     { action: 'collectSellpiaProductProfit' },
@@ -41,5 +49,11 @@ export async function collectSellpiaProductProfitFromExtension(
   if (!res.success || !res.payload) {
     throw new Error(res.error ?? '셀피아 상품별 소진 수집에 실패했습니다.');
   }
-  return res.payload;
+  const parsed = SellpiaProductSalesIngestPayloadSchema.safeParse(res.payload);
+  if (!parsed.success) {
+    throw new Error(
+      '셀피아 상품별 이익현황 응답 형식이 올바르지 않습니다. 확장프로그램을 새로고침해주세요.',
+    );
+  }
+  return parsed.data;
 }

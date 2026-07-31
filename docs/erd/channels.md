@@ -479,6 +479,8 @@ erDiagram
     Int orderAmount
     Int inQty
     Int inAmount
+    String costBasis
+    Boolean vatIncluded
     String productName
     String optionName
     String providerName

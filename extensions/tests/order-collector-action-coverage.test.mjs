@@ -153,6 +153,7 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
   assert.match(worker, /collectSellpiaProductProfit:\s*true/);
+  assert.match(worker, /collectSellpiaProductProfitEvidenceV1:\s*true/);
   assert.match(worker, /orderCollectionFailureEvidenceV1:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaProductStock/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);

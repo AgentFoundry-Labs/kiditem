@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DashboardInventorySummarySchema,
+  SellpiaProductSalesIngestPayloadSchema,
   SellpiaSalesIngestPayloadSchema,
   SellpiaSalesSummarySchema,
   TopProductSchema,
@@ -171,6 +172,43 @@ describe('dashboard schemas', () => {
       range,
       sellers: [{ sellerId: '118', sellerName: '스마트스토어', days: [] }],
       capturedAt,
+    }).success).toBe(false);
+  });
+
+  it('requires bounded integer monthly facts with explicit order-time-cost provenance', () => {
+    const payload = {
+      range: { from: '2026-06-01', to: '2026-06-30' },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
+      products: [{
+        productCode: 'SKU-1',
+        optionCode: '',
+        productName: '상품',
+        salePrice: 1_000,
+        buyPrice: 400,
+        months: [{
+          yearMonth: '2026-06', orderQty: 0, orderAmount: 0, inQty: 0, inAmount: 0,
+        }],
+      }],
+    };
+
+    expect(SellpiaProductSalesIngestPayloadSchema.safeParse(payload).success).toBe(true);
+    expect(SellpiaProductSalesIngestPayloadSchema.safeParse({
+      ...payload,
+      provenance: { ...payload.provenance, costBasis: 'CURRENT_BUY_PRICE' },
+    }).success).toBe(false);
+    expect(SellpiaProductSalesIngestPayloadSchema.safeParse({
+      ...payload,
+      products: [{ ...payload.products[0], months: [{
+        ...payload.products[0].months[0], orderAmount: 1.5,
+      }] }],
+    }).success).toBe(false);
+    expect(SellpiaProductSalesIngestPayloadSchema.safeParse({
+      ...payload,
+      products: Array.from({ length: 20_001 }, () => payload.products[0]),
     }).success).toBe(false);
   });
 });

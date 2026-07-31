@@ -6,6 +6,11 @@ import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-read
 import { SELLPIA_PRODUCT_SALES_EVENTS } from '../sellpia-product-sales.events';
 
 const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+const PRODUCT_PROFIT_PROVENANCE = {
+  source: 'sellpia_stat_prd_profit',
+  costBasis: 'ORDER_TIME_SUPPLY_COST',
+  vatIncluded: true,
+} as const;
 
 function makePrisma() {
   const callOrder: string[] = [];
@@ -108,6 +113,7 @@ describe('SellpiaProductSalesService.ingest', () => {
     const { prisma, service, deleteMany, createMany, queryRaw, eventEmitter, callOrder } = makePrisma();
     const body: SellpiaProductSalesIngestBodyDto = {
       range: { from: '2026-05-16', to: '2026-07-15' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [
         {
           productCode: '9882',
@@ -146,6 +152,8 @@ describe('SellpiaProductSalesService.ingest', () => {
         optionCode: '1',
         yearMonth: '2026-06',
         orderQty: 13030,
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
         productName: '2000바풍투톤슬라임',
       }),
     );
@@ -161,6 +169,7 @@ describe('SellpiaProductSalesService.ingest', () => {
 
     const result = await service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-04-15', to: '2026-06-02' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [],
     });
 
@@ -181,6 +190,7 @@ describe('SellpiaProductSalesService.ingest', () => {
 
     await expect(service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-06-01', to: '2026-06-30' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [],
     })).rejects.toThrow('write failed');
     expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
@@ -195,6 +205,7 @@ describe('SellpiaProductSalesService.ingest', () => {
 
     await expect(service.ingest(ORGANIZATION_ID, {
       range,
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [],
     })).rejects.toThrow('Invalid Sellpia product-sales range');
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -205,6 +216,7 @@ describe('SellpiaProductSalesService.ingest', () => {
     const { prisma, service, createMany } = makePrisma();
     await service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-06-01', to: '2026-06-30' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [
         { productCode: '1', optionCode: '', productName: 'A', salePrice: 0, buyPrice: 0, months: [{ yearMonth: '2026-06', orderQty: 5, orderAmount: 0, inQty: 0, inAmount: 0 }] },
         { productCode: '1', optionCode: '', productName: 'A', salePrice: 0, buyPrice: 0, months: [{ yearMonth: '2026-06', orderQty: 9, orderAmount: 0, inQty: 0, inAmount: 0 }] },

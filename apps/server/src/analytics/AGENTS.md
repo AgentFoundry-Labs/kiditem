@@ -47,6 +47,10 @@ hydration.
   Products에 제공한다. Products가 평가 정책, 계산, 이력, 최종
   `MasterProduct.abcGrade`를 소유하며 Analytics는 별도 상품 등급을 만들거나
   저장하지 않는다.
+- Sellpia `stat_prd_profit` facts drive gross-profit ABC only when every
+  ingested monthly row carries explicit `ORDER_TIME_SUPPLY_COST` and
+  VAT-included provenance. Legacy or unknown-cost facts remain readable for
+  depletion but are ineligible for gross-profit ABC.
 
 ## Cross-Domain Reads
 

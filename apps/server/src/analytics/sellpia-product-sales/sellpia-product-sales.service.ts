@@ -60,6 +60,7 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     const byKey = new Map<string, {
       organizationId: string; productCode: string; optionCode: string; yearMonth: string;
       orderQty: number; orderAmount: number; inQty: number; inAmount: number;
+      costBasis: 'ORDER_TIME_SUPPLY_COST'; vatIncluded: true;
       productName: string; optionName: string | null; providerName: string | null;
       salePrice: number; buyPrice: number; barcode: string | null; capturedAt: Date;
     }>();
@@ -76,6 +77,8 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
           orderAmount: clampInt(m.orderAmount),
           inQty: clampInt(m.inQty),
           inAmount: clampInt(m.inAmount),
+          costBasis: body.provenance.costBasis,
+          vatIncluded: body.provenance.vatIncluded,
           productName: p.productName,
           optionName: p.optionName ?? null,
           providerName: p.providerName ?? null,

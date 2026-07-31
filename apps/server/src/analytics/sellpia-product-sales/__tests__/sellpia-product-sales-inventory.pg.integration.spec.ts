@@ -373,6 +373,11 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
 
     const result = await service.ingest(TEST_ORGANIZATION_ID, {
       range: { from: '2026-05-01', to: '2026-05-31' },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
       products: [],
     });
 

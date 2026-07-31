@@ -409,29 +409,40 @@ export const SellpiaSalesSummarySchema = z.object({
 // 상품별 이익현황(stat_prd_profit)의 월별 판매수량으로 상품별 1개월/2개월 평균
 // 소진량 + 월별 추이를 산정. 재고 분석(/stock-ops) 섹션. 메이크샵 주문 기준.
 
-// Ingest 요청(확장 크롤 결과) — 상품별 월별 배열.
+// Ingest 요청(확장 크롤 결과) — 상품별 월별 배열. 매출총이익 ABC는 주문시점 원가가
+// 명시된 Sellpia 상품별 이익현황 응답만 수용한다.
+const SellpiaProductSalesNonnegativeIntSchema = z.number().finite().int().nonnegative();
 export const SellpiaProductSalesIngestMonthSchema = z.object({
-  yearMonth: z.string(), // "YYYY-MM"
-  orderQty: z.number(),
-  orderAmount: z.number(),
-  inQty: z.number(),
-  inAmount: z.number(),
-});
+  yearMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  orderQty: SellpiaProductSalesNonnegativeIntSchema,
+  orderAmount: SellpiaProductSalesNonnegativeIntSchema,
+  inQty: SellpiaProductSalesNonnegativeIntSchema,
+  inAmount: SellpiaProductSalesNonnegativeIntSchema,
+}).strict();
 export const SellpiaProductSalesIngestItemSchema = z.object({
-  productCode: z.string().min(1),
-  optionCode: z.string(),
-  productName: z.string(),
-  optionName: z.string().optional(),
-  providerName: z.string().optional(),
-  salePrice: z.number(),
-  buyPrice: z.number(),
-  barcode: z.string().optional(),
-  months: z.array(SellpiaProductSalesIngestMonthSchema),
-});
+  productCode: z.string().trim().min(1).max(64),
+  optionCode: z.string().max(64),
+  productName: z.string().trim().min(1).max(400),
+  optionName: z.string().max(400).optional(),
+  providerName: z.string().max(200).optional(),
+  salePrice: SellpiaProductSalesNonnegativeIntSchema,
+  buyPrice: SellpiaProductSalesNonnegativeIntSchema,
+  barcode: z.string().max(64).optional(),
+  months: z.array(SellpiaProductSalesIngestMonthSchema).min(1).max(24),
+}).strict();
+export const SellpiaProductSalesProvenanceSchema = z.object({
+  source: z.literal('sellpia_stat_prd_profit'),
+  costBasis: z.literal('ORDER_TIME_SUPPLY_COST'),
+  vatIncluded: z.literal(true),
+}).strict();
 export const SellpiaProductSalesIngestPayloadSchema = z.object({
-  range: z.object({ from: z.string(), to: z.string() }),
-  products: z.array(SellpiaProductSalesIngestItemSchema),
-});
+  range: z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }).strict(),
+  provenance: SellpiaProductSalesProvenanceSchema,
+  products: z.array(SellpiaProductSalesIngestItemSchema).max(20_000),
+}).strict();
 export const SellpiaProductSalesIngestResultSchema = z.object({
   upserted: z.number().int().nonnegative(),
   productCount: z.number().int().nonnegative(),

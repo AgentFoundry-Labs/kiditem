@@ -6115,12 +6115,35 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
     const end = endDate || `${y.getFullYear()}-${p(y.getMonth() + 1)}-${p(y.getDate())}`;
     const s0 = new Date(d.getTime() - 400 * 24 * 60 * 60 * 1000);
     const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
+    const dateKey = /^\d{4}-\d{2}-\d{2}$/;
+    const toValidDate = (value) => {
+      if (typeof value !== "string" || !dateKey.test(value)) return null;
+      const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+      if (!Number.isFinite(timestamp)) return null;
+      const parsed = new Date(timestamp);
+      return parsed.toISOString().slice(0, 10) === value ? parsed : null;
+    };
+    const startValue = toValidDate(start);
+    const endValue = toValidDate(end);
+    if (!startValue || !endValue || startValue > endValue) {
+      return { success: false, error: "셀피아 상품별 이익현황 조회 기간이 올바르지 않습니다." };
+    }
+    const rangeMonths = [];
+    for (
+      let monthIndex = startValue.getUTCFullYear() * 12 + startValue.getUTCMonth();
+      monthIndex <= endValue.getUTCFullYear() * 12 + endValue.getUTCMonth();
+      monthIndex += 1
+    ) {
+      const year = Math.floor(monthIndex / 12);
+      rangeMonths.push(`${year}-${String(monthIndex % 12 + 1).padStart(2, "0")}`);
+    }
     const body = new URLSearchParams({
       mode: "stat_prd_profit",
       s_date: start,
       e_date: end,
-      in_s_date: end,
+      in_s_date: start,
       in_e_date: end,
+      buy_point: "R",
       provider: "",
       vat_tp: "1",
       p_str: "",
@@ -6147,43 +6170,99 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
     if (!Array.isArray(data)) {
       return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
     }
+    if (data.length > 20000) {
+      return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+    }
     const normYm = (k) => {
       const m = String(k).match(/^(\d{4})-(\d{1,2})$/);
       if (!m) return null;
-      return m[1] + "-" + String(m[2]).padStart(2, "0");
+      const month = Number(m[2]);
+      if (month < 1 || month > 12) return null;
+      return m[1] + "-" + String(month).padStart(2, "0");
+    };
+    const int = (value) => {
+      if (typeof value === "string" && !/^\d+$/.test(value)) return null;
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 2147483647
+        ? parsed
+        : null;
+    };
+    const boundedString = (value, max, allowEmpty = false) => {
+      if (typeof value !== "string" && typeof value !== "number") return null;
+      const normalized = String(value).trim();
+      if ((!allowEmpty && !normalized) || normalized.length > max) return null;
+      return normalized;
     };
     const products = [];
+    const identities = new Set();
     for (const p2 of data) {
-      const graph = p2.graph || {};
-      const months = [];
+      if (!p2 || typeof p2 !== "object" || Array.isArray(p2)) {
+        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+      }
+      const productCode = boundedString(p2.product_code, 64);
+      const optionCode = boundedString(p2.option_code ?? "", 64, true);
+      const productName = boundedString(p2.product_name, 400);
+      const salePrice = p2.sale_price == null || p2.sale_price === "" ? 0 : int(p2.sale_price);
+      const buyPrice = p2.buy_price == null || p2.buy_price === "" ? 0 : int(p2.buy_price);
+      const barcode = p2.dp_code == null || p2.dp_code === "" ? undefined : boundedString(p2.dp_code, 64);
+      if (!productCode || optionCode === null || !productName || salePrice === null || buyPrice === null || barcode === null) {
+        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+      }
+      const identity = `${productCode}\u0000${optionCode}`;
+      if (identities.has(identity)) {
+        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+      }
+      identities.add(identity);
+      const graph = p2.graph;
+      if (!graph || typeof graph !== "object" || Array.isArray(graph)) {
+        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+      }
+      const monthValues = new Map();
       for (const key of Object.keys(graph)) {
         const ym = normYm(key);
-        if (!ym) continue;
-        const parts = String(graph[key]).split(",");
-        months.push({
-          yearMonth: ym,
-          inAmount: Number(parts[0]) || 0,
-          orderAmount: Number(parts[1]) || 0,
-          orderQty: Number(parts[2]) || 0,
-          inQty: 0, // graph 에는 매입수량이 없어 0 (총계는 total_in_qty)
-        });
+        if (!ym || !rangeMonths.includes(ym) || typeof graph[key] !== "string") {
+          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+        }
+        const parts = graph[key].split(",");
+        if (parts.length !== 3) {
+          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+        }
+        const inAmount = int(parts[0]);
+        const orderAmount = int(parts[1]);
+        const orderQty = int(parts[2]);
+        if (inAmount === null || orderAmount === null || orderQty === null || monthValues.has(ym)) {
+          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+        }
+        monthValues.set(ym, { inAmount, orderAmount, orderQty });
       }
-      if (!months.length) continue;
+      const months = rangeMonths.map((yearMonth) => ({
+        yearMonth,
+        ...(monthValues.get(yearMonth) ?? { inAmount: 0, orderAmount: 0, orderQty: 0 }),
+        inQty: 0, // graph 에는 매입수량이 없어 0 (총계는 total_in_qty)
+      }));
       products.push({
-        productCode: String(p2.product_code || ""),
-        optionCode: String(p2.option_code || ""),
-        productName: String(p2.product_name || ""),
+        productCode,
+        optionCode,
+        productName,
         optionName: p2.option_name ? String(p2.option_name) : undefined,
         providerName: p2.provider_name ? String(p2.provider_name) : undefined,
-        salePrice: Number(p2.sale_price) || 0,
-        buyPrice: Number(p2.buy_price) || 0,
-        barcode: p2.dp_code ? String(p2.dp_code) : undefined,
+        salePrice,
+        buyPrice,
+        barcode,
         months,
       });
     }
     return {
       success: true,
-      payload: { range: { from: start, to: end }, products },
+      payload: {
+        range: { from: start, to: end },
+        provenance: {
+          source: "sellpia_stat_prd_profit",
+          costBasis: "ORDER_TIME_SUPPLY_COST",
+          vatIncluded: true,
+        },
+        products,
+      },
       productCount: products.length,
       range: { start, end },
     };
@@ -6683,6 +6762,7 @@ KidItemDomains.register({
     collectSellpiaSaleSummary: true,
     collectSellpiaSaleSummaryAuthoritativeV1: true,
     collectSellpiaProductProfit: true,
+    collectSellpiaProductProfitEvidenceV1: true,
     collectSellpiaInventoryJsonV1: true,
     collectSellpiaManualMatchV1: true,
     collectSellpiaManualMatchPortV1: true,
