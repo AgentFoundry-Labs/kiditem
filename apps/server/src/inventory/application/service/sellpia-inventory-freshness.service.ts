@@ -6,7 +6,6 @@ import {
   ConflictException,
   Inject,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import {
   SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT,
@@ -22,7 +21,6 @@ import {
   planClaim,
   planFailure,
   planHeartbeat,
-  planOrderTransmissionFinalization,
   planRefreshRequest,
   planSourceBindingConfirmation,
   SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
@@ -30,7 +28,6 @@ import {
   SELLPIA_SOURCE_ACCOUNT_KEY,
   SELLPIA_SOURCE_ORIGIN,
   toFreshnessView,
-  toUnresolvedOrderTransmissionIntentList,
   type SellpiaInventoryFreshnessState,
 } from '../../domain/policy/sellpia-inventory-freshness.policy';
 import { calculateAvailableStock } from '../../domain/policy/inventory-commitment-state';
@@ -42,13 +39,6 @@ import type {
   SellpiaInventoryClaimResponse,
   SellpiaInventoryCollectionFailureCode,
   SellpiaInventoryFreshnessView,
-  SellpiaInventoryRefreshReason,
-  SellpiaOrderTransmissionIntentAbortResponse,
-  SellpiaOrderTransmissionIntentFinalizeResponse,
-  SellpiaOrderTransmissionIntentPrepareResponse,
-  SellpiaOrderTransmissionIntentReconcileRequest,
-  SellpiaOrderTransmissionIntentReconcileResponse,
-  SellpiaUnresolvedOrderTransmissionIntentListResponse,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import type { SellpiaInventoryFreshnessGatePort } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
 import type {
@@ -56,22 +46,16 @@ import type {
   SellpiaFreshCapacityPreflightResult,
 } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
 import type { SellpiaInventoryFreshnessPort } from '../port/in/stock/sellpia-inventory-freshness.port';
-import type { SellpiaInventoryRefreshRequestPort } from '../port/in/stock/sellpia-inventory-refresh-request.port';
 
 type ActorScope = { organizationId: string; userId: string };
 type ActorRefreshInput = ActorScope & {
-  reason: 'order_transmission_requested' | 'manual_request' | 'retry';
-};
-type CrossDomainRefreshInput = {
-  organizationId: string;
-  reason: 'order_transmission_requested' | 'purchase_preflight';
+  reason: 'manual_request' | 'retry';
 };
 
 @Injectable()
 export class SellpiaInventoryFreshnessService
 implements
   SellpiaInventoryFreshnessPort,
-  SellpiaInventoryRefreshRequestPort,
   SellpiaInventoryFreshnessGatePort {
   constructor(
     @Inject(SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT)
@@ -90,15 +74,6 @@ implements
       const now = new Date();
       return toFreshnessView(initializedState, now, input.userId);
     });
-  }
-
-  async listUnresolvedOrderTransmissionIntents(
-    input: ActorScope,
-  ): Promise<SellpiaUnresolvedOrderTransmissionIntentListResponse> {
-    const state = await this.repository.readState(input.organizationId);
-    if (state) return toUnresolvedOrderTransmissionIntentList(state);
-    return this.withLockedState(input.organizationId, async (transaction) =>
-      toUnresolvedOrderTransmissionIntentList(await transaction.getState()));
   }
 
   async confirmSourceBinding(input: ActorScope & {
@@ -126,12 +101,9 @@ implements
     });
   }
 
-  requestRefresh(input: ActorRefreshInput): Promise<SellpiaInventoryFreshnessView>;
-  requestRefresh(input: CrossDomainRefreshInput): Promise<void>;
   async requestRefresh(
-    input: ActorRefreshInput | CrossDomainRefreshInput,
-  ): Promise<SellpiaInventoryFreshnessView | void> {
-    const userId = 'userId' in input ? input.userId : null;
+    input: ActorRefreshInput,
+  ): Promise<SellpiaInventoryFreshnessView> {
     const view = await this.withLockedState(
       input.organizationId,
       async (transaction) => {
@@ -141,187 +113,15 @@ implements
           expected: expectation(state),
           patch: planRefreshRequest(
             state,
-            input.reason as SellpiaInventoryRefreshReason,
+            input.reason,
             now,
             randomUUID(),
           ),
         });
-        return toFreshnessView(updated, now, userId);
+        return toFreshnessView(updated, now, input.userId);
       },
     );
-    if (userId !== null) return view;
-  }
-
-  async prepareOrderTransmissionIntent(input: ActorScope & {
-    intentKey: string;
-  }): Promise<SellpiaOrderTransmissionIntentPrepareResponse> {
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const now = new Date();
-      const disposition = await transaction.prepareOrderTransmissionIntent({
-        intentKey: input.intentKey,
-        userId: input.userId,
-        preparedAt: now,
-      });
-      if (disposition === 'not_owned') throw intentNotFound();
-      const state = await transaction.getState();
-      return {
-        intentKey: input.intentKey,
-        disposition,
-        state: toFreshnessView(state, now, input.userId),
-      };
-    });
-  }
-
-  async finalizeOrderTransmissionIntent(input: ActorScope & {
-    intentKey: string;
-  }): Promise<SellpiaOrderTransmissionIntentFinalizeResponse> {
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const intent = await transaction.findOrderTransmissionIntent(
-        input.intentKey,
-        input.userId,
-      );
-      if (!intent) throw intentNotFound();
-      const now = new Date();
-      if (intent.status === 'finalized') {
-        if (intent.finalizedGeneration === null) {
-          throw new ConflictException('Finalized Sellpia order intent has no generation');
-        }
-        const state = await transaction.getState();
-        return {
-          intentKey: input.intentKey,
-          status: 'finalized',
-          finalizedGeneration: intent.finalizedGeneration.toString(),
-          state: toFreshnessView(state, now, input.userId),
-        };
-      }
-      if (intent.status !== 'prepared') {
-        throw new ConflictException('Sellpia order transmission intent is not prepared');
-      }
-
-      const state = await transaction.getState();
-      const patch = planOrderTransmissionFinalization(
-        state,
-        now,
-        randomUUID(),
-      );
-      const finalizedGeneration = patch.requestedGeneration;
-      if (finalizedGeneration === undefined) {
-        throw new ConflictException('Sellpia order transmission generation was not planned');
-      }
-      await transaction.compareAndSetState({
-        expected: expectation(state),
-        patch,
-      });
-      await transaction.finalizeOrderTransmissionIntent({
-        intentKey: input.intentKey,
-        userId: input.userId,
-        finalizedGeneration,
-        finalizedAt: now,
-      });
-      const updated = await transaction.getState();
-      return {
-        intentKey: input.intentKey,
-        status: 'finalized',
-        finalizedGeneration: finalizedGeneration.toString(),
-        state: toFreshnessView(updated, now, input.userId),
-      };
-    });
-  }
-
-  async abortOrderTransmissionIntent(input: ActorScope & {
-    intentKey: string;
-  }): Promise<SellpiaOrderTransmissionIntentAbortResponse> {
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const intent = await transaction.findOrderTransmissionIntent(
-        input.intentKey,
-        input.userId,
-      );
-      if (!intent) throw intentNotFound();
-      if (intent.status === 'finalized') {
-        throw new ConflictException('Finalized Sellpia order transmission cannot be aborted');
-      }
-      const now = new Date();
-      if (intent.status === 'prepared') {
-        await transaction.abortOrderTransmissionIntent({
-          intentKey: input.intentKey,
-          userId: input.userId,
-          abortedAt: now,
-        });
-      }
-      const state = await transaction.getState();
-      return {
-        intentKey: input.intentKey,
-        status: 'aborted',
-        state: toFreshnessView(state, now, input.userId),
-      };
-    });
-  }
-
-  async reconcileOrderTransmissionIntent(
-    input: ActorScope & SellpiaOrderTransmissionIntentReconcileRequest,
-  ): Promise<SellpiaOrderTransmissionIntentReconcileResponse> {
-    const note = input.note.trim();
-    if (!note || note.length > 500) {
-      throw new BadRequestException('Reconciliation note must be 1-500 characters');
-    }
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const intent = await transaction.findOrderTransmissionIntentForReconciliation(
-        input.intentKey,
-      );
-      if (!intent) throw intentNotFound();
-      const now = new Date();
-      const correctsFalseFinalization = intent.status === 'finalized'
-        && input.outcome === 'not_submitted';
-      if (intent.status !== 'prepared' && !correctsFalseFinalization) {
-        const audit = intent.latestReconciliation;
-        if (!audit || audit.outcome !== input.outcome) {
-          throw new ConflictException('Sellpia order transmission is already resolved');
-        }
-        const state = await transaction.getState();
-        return reconciliationResponse({
-          intentKey: input.intentKey,
-          status: intent.status,
-          finalizedGeneration: intent.finalizedGeneration,
-          audit,
-          state: toFreshnessView(state, now, input.userId),
-        });
-      }
-
-      let finalizedGeneration: bigint | null = null;
-      if (input.outcome === 'submitted') {
-        const state = await transaction.getState();
-        const patch = planOrderTransmissionFinalization(state, now, randomUUID());
-        finalizedGeneration = patch.requestedGeneration ?? null;
-        if (finalizedGeneration === null) {
-          throw new ConflictException('Sellpia order transmission generation was not planned');
-        }
-        await transaction.compareAndSetState({
-          expected: expectation(state),
-          patch,
-        });
-      }
-      await transaction.reconcileOrderTransmissionIntent({
-        intentKey: input.intentKey,
-        userId: input.userId,
-        reconciledAt: now,
-        note,
-        outcome: input.outcome,
-        finalizedGeneration,
-      });
-      const updated = await transaction.getState();
-      return reconciliationResponse({
-        intentKey: input.intentKey,
-        status: input.outcome === 'submitted' ? 'finalized' : 'aborted',
-        finalizedGeneration,
-        audit: {
-          reconciledBy: input.userId,
-          reconciledAt: now,
-          note,
-          outcome: input.outcome,
-        },
-        state: toFreshnessView(updated, now, input.userId),
-      });
-    });
+    return view;
   }
 
   async claimDue(input: ActorScope): Promise<SellpiaInventoryClaimResponse> {
@@ -710,51 +510,6 @@ function sanitizeErrorMessage(message: string): string {
 
 function lostLease(): ConflictException {
   return new ConflictException('Sellpia inventory claim is not controlled by this user');
-}
-
-function intentNotFound(): NotFoundException {
-  return new NotFoundException('Sellpia order transmission intent was not found');
-}
-
-function reconciliationResponse(input: {
-  intentKey: string;
-  status: 'finalized' | 'aborted';
-  finalizedGeneration: bigint | null;
-  audit: {
-    reconciledBy: string;
-    reconciledAt: Date;
-    note: string;
-    outcome: 'submitted' | 'not_submitted';
-  };
-  state: SellpiaInventoryFreshnessView;
-}): SellpiaOrderTransmissionIntentReconcileResponse {
-  const common = {
-    intentKey: input.intentKey,
-    reconciledBy: input.audit.reconciledBy,
-    reconciledAt: input.audit.reconciledAt.toISOString(),
-    note: input.audit.note,
-    state: input.state,
-  };
-  if (input.audit.outcome === 'submitted') {
-    if (input.status !== 'finalized' || input.finalizedGeneration === null) {
-      throw new ConflictException('Submitted reconciliation has invalid terminal state');
-    }
-    return {
-      ...common,
-      outcome: 'submitted',
-      status: 'finalized',
-      finalizedGeneration: input.finalizedGeneration.toString(),
-    };
-  }
-  if (input.status !== 'aborted' || input.finalizedGeneration !== null) {
-    throw new ConflictException('Non-submitted reconciliation has invalid terminal state');
-  }
-  return {
-    ...common,
-    outcome: 'not_submitted',
-    status: 'aborted',
-    finalizedGeneration: null,
-  };
 }
 
 function referenceInvalid(): AppException {

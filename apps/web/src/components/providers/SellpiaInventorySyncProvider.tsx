@@ -49,13 +49,7 @@ function cacheFreshnessIfChanged(
 ): void {
   const queryKey = queryKeys.inventory.freshness();
   const current = queryClient.getQueryData<SellpiaInventoryFreshnessWithBlockers>(queryKey);
-  const next: SellpiaInventoryFreshnessWithBlockers = {
-    ...state,
-    unresolvedOrderTransmissionIntents:
-      current?.unresolvedOrderTransmissionIntents ?? [],
-    hasMoreUnresolvedOrderTransmissionIntents:
-      current?.hasMoreUnresolvedOrderTransmissionIntents ?? false,
-  };
+  const next: SellpiaInventoryFreshnessWithBlockers = state;
   if (current && JSON.stringify(current) === JSON.stringify(next)) return;
   queryClient.setQueryData(queryKey, next);
 }

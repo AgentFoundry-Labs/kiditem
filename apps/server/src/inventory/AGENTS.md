@@ -44,15 +44,13 @@ inventory/
   generation may be claimed only after an explicit operator `retry` request.
   Inventory also best-effort fails the matching browser operation alert through
   its local Automation port after the failed state is committed.
-- Idempotent browser order-transmission intents and post-submit generation
-  fencing under `/api/inventory/sellpia-freshness/order-transmission-intents/*`
 - Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
 - Physical-stock-independent commitments that reduce common available Sellpia
   capacity for cross-domain workflows. These records never mutate
   `SellpiaInventorySku.currentStock`. Rocket workbook workflows do not use
   this ledger.
-- Read-only Rocket workbook progress projection from linked transmission
-  intents and Sellpia generation evidence
+- Read-only Rocket workbook progress projection from linked Orders-owned
+  transmission intents
 - Unshipped reads: `/api/unshipped/*`
 - Warehouses: `/api/warehouses/*`
 - Record-only stock transfers: `/api/stock-transfers/*`
@@ -111,10 +109,9 @@ change stock.
 - Commitment ports remain available for non-Rocket workflows. Rocket workbook
   export, order linkage, and completion never create, replace, release, or
   settle an `InventoryCommitment`.
-- `InventoryModule` exports `SELLPIA_INVENTORY_REFRESH_REQUEST_PORT` for
-  deterministic order/purchase refresh requests and
-  `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT` for the final fresh-and-active
-  purchase assertion. Consumers do not control leases or read persistence.
+- `InventoryModule` exports `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT` for the
+  final fresh-and-active purchase assertion. Consumers do not control leases
+  or read persistence.
 - `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT.readFreshCapacity` returns component
   `currentStock` and active state from the same Inventory-owned freshness lock,
   fence, and verified generation. Rocket preview consumers must allocate from
@@ -124,8 +121,8 @@ change stock.
   only its target generation. Concurrent finalization advances one high-water
   target, and an active generation permits one follow-up.
 - `ROCKET_WORKBOOK_PROGRESS_PORT` projects a Rocket workflow from its linked
-  transmission intents and the latest verified Sellpia generation. It is
-  read-only and never adjusts stock.
+  Orders-owned transmission intents. It is read-only and never adjusts stock
+  or requests a refresh.
 - External domains do not inject warehouse, transfer, or picking
   services directly.
 
@@ -138,25 +135,10 @@ change stock.
 - Browser collection claims use a 90-second lease. Only the authenticated
   user who owns a live lease may heartbeat, fail, or cancel it; another user
   may claim only after expiry.
-- Order-transmission refresh requests settle for two minutes and coalesce for
-  at most five minutes only while the earlier order generation is still
-  pending, not failed, and still inside that cap. A new transmission after the
-  generation is verified, failed, or reaches the cap starts a new two-minute
-  settle window.
-- Before the browser invokes irreversible Sellpia order submission, Inventory
-  persists an organization-scoped `prepared` transmission intent. An unresolved
-  intent protects that exact file from accidental resubmission but does not
-  redefine freshness or block independent collection claims. Only `submitted:
-  true` finalization advances to a generation strictly newer than
-  every generation visible at finalization; retries return the same finalized
-  generation. Explicit non-submission may abort and reopen the same intent key.
-  An owner/admin may also correct a false finalized result to `not_submitted`;
-  that transition is append-only audited and is the only path that permits a
-  confirmed missing file to reuse the stable intent key for one safe retry.
-- The additive unresolved-intent endpoint lists transmission intents requiring
-  operator reconciliation, capped at `SELLPIA_UNRESOLVED_INTENT_VIEW_LIMIT`
-  with a continuation signal. Keep every row nameable by the endpoint; do not
-  reduce them to a count or feed them back into freshness/claim derivation.
+- Order-file preparation, submission, rejection, finalization, and recovery
+  belong to Orders. They never read freshness, request or advance an Inventory
+  generation, invalidate Inventory queries, or expose Inventory recovery
+  actions. Sellpia validates stock when it accepts the uploaded workbook.
 - Every public view serializes generations as decimal strings and derives
   `activeSync.canControl` from the authenticated user without exposing the
   owner ID.

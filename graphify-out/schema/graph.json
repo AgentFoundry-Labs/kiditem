@@ -8457,7 +8457,7 @@
       "field": "currentRevisionId",
       "field_type": "String?",
       "id": "field_detailpageartifact_currentrevisionid",
-      "community": 40,
+      "community": 68,
       "norm_label": "detailpageartifact.currentrevisionid"
     },
     {
@@ -10585,7 +10585,7 @@
       "field": "detailPageArtifactId",
       "field_type": "String",
       "id": "field_detailpageimagerenderintent_detailpageartifactid",
-      "community": 28,
+      "community": 40,
       "norm_label": "detailpageimagerenderintent.detailpageartifactid"
     },
     {
@@ -10597,7 +10597,7 @@
       "field": "revisionId",
       "field_type": "String",
       "id": "field_detailpageimagerenderintent_revisionid",
-      "community": 68,
+      "community": 28,
       "norm_label": "detailpageimagerenderintent.revisionid"
     },
     {
@@ -23491,346 +23491,6 @@
       "norm_label": "sellpiainventorystate.activesyncowner"
     },
     {
-      "label": "SellpiaOrderTransmissionIntent",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_model",
-      "namespace": "Inventory",
-      "table": "sellpia_order_transmission_intents",
-      "description": "Organization-scoped idempotency fence for browser Sellpia order transmission and its post-submit inventory generation.",
-      "id": "model_sellpiaordertransmissionintent",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent"
-    },
-    {
-      "label": "sellpia_order_transmission_intents",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "db_table",
-      "model": "SellpiaOrderTransmissionIntent",
-      "id": "table_sellpia_order_transmission_intents",
-      "community": 99,
-      "norm_label": "sellpia_order_transmission_intents"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.id",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "id",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintent_id",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.id"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.organizationId",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "organizationId",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintent_organizationid",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.organizationid"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.intentKey",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "intentKey",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintent_intentkey",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.intentkey"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.status",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "status",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintent_status",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.status"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.createdBy",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "createdBy",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintent_createdby",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.createdby"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.preparedAt",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "preparedAt",
-      "field_type": "DateTime",
-      "id": "field_sellpiaordertransmissionintent_preparedat",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.preparedat"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.finalizedAt",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "finalizedAt",
-      "field_type": "DateTime?",
-      "id": "field_sellpiaordertransmissionintent_finalizedat",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.finalizedat"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.abortedAt",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "abortedAt",
-      "field_type": "DateTime?",
-      "id": "field_sellpiaordertransmissionintent_abortedat",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.abortedat"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.finalizedGeneration",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "finalizedGeneration",
-      "field_type": "BigInt?",
-      "id": "field_sellpiaordertransmissionintent_finalizedgeneration",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.finalizedgeneration"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.createdAt",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "createdAt",
-      "field_type": "DateTime",
-      "id": "field_sellpiaordertransmissionintent_createdat",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.createdat"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.updatedAt",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "updatedAt",
-      "field_type": "DateTime",
-      "id": "field_sellpiaordertransmissionintent_updatedat",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.updatedat"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.organization",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "organization",
-      "field_type": "Organization",
-      "id": "field_sellpiaordertransmissionintent_organization",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.organization"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent.creator",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntent",
-      "field": "creator",
-      "field_type": "User",
-      "id": "field_sellpiaordertransmissionintent_creator",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent.creator"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent unique(organizationId, intentKey)",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "unique_constraint",
-      "model": "SellpiaOrderTransmissionIntent",
-      "id": "unique_sellpiaordertransmissionintent_organizationid_intentkey",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent unique(organizationid, intentkey)"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntent unique(id, organizationId)",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "unique_constraint",
-      "model": "SellpiaOrderTransmissionIntent",
-      "id": "unique_sellpiaordertransmissionintent_id_organizationid",
-      "community": 99,
-      "norm_label": "sellpiaordertransmissionintent unique(id, organizationid)"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_model",
-      "namespace": "Inventory",
-      "table": "sellpia_order_transmission_intent_reconciliations",
-      "description": "Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome.",
-      "id": "model_sellpiaordertransmissionintentreconciliation",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation"
-    },
-    {
-      "label": "sellpia_order_transmission_intent_reconciliations",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "db_table",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "id": "table_sellpia_order_transmission_intent_reconciliations",
-      "community": 127,
-      "norm_label": "sellpia_order_transmission_intent_reconciliations"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.id",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "id",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintentreconciliation_id",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.id"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.organizationId",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "organizationId",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintentreconciliation_organizationid",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.organizationid"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.intentId",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "intentId",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintentreconciliation_intentid",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.intentid"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.reconciledBy",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "reconciledBy",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintentreconciliation_reconciledby",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.reconciledby"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.reconciledAt",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "reconciledAt",
-      "field_type": "DateTime",
-      "id": "field_sellpiaordertransmissionintentreconciliation_reconciledat",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.reconciledat"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.note",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "note",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintentreconciliation_note",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.note"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.outcome",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "outcome",
-      "field_type": "String",
-      "id": "field_sellpiaordertransmissionintentreconciliation_outcome",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.outcome"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.organization",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "organization",
-      "field_type": "Organization",
-      "id": "field_sellpiaordertransmissionintentreconciliation_organization",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.organization"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.intent",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "intent",
-      "field_type": "SellpiaOrderTransmissionIntent",
-      "id": "field_sellpiaordertransmissionintentreconciliation_intent",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.intent"
-    },
-    {
-      "label": "SellpiaOrderTransmissionIntentReconciliation.reconciler",
-      "file_type": "code",
-      "source_file": "prisma/models/inventory.prisma",
-      "node_type": "prisma_field",
-      "model": "SellpiaOrderTransmissionIntentReconciliation",
-      "field": "reconciler",
-      "field_type": "User",
-      "id": "field_sellpiaordertransmissionintentreconciliation_reconciler",
-      "community": 127,
-      "norm_label": "sellpiaordertransmissionintentreconciliation.reconciler"
-    },
-    {
       "label": "StockTransfer",
       "file_type": "code",
       "source_file": "prisma/models/inventory.prisma",
@@ -25428,6 +25088,346 @@
       "id": "domain_orders",
       "community": 117,
       "norm_label": "orders"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_model",
+      "namespace": "Orders",
+      "table": "sellpia_order_transmission_intents",
+      "description": "Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness.",
+      "id": "model_sellpiaordertransmissionintent",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent"
+    },
+    {
+      "label": "sellpia_order_transmission_intents",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "db_table",
+      "model": "SellpiaOrderTransmissionIntent",
+      "id": "table_sellpia_order_transmission_intents",
+      "community": 99,
+      "norm_label": "sellpia_order_transmission_intents"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.id",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "id",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintent_id",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.id"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.organizationId",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "organizationId",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintent_organizationid",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.organizationid"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.intentKey",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "intentKey",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintent_intentkey",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.intentkey"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.status",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "status",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintent_status",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.status"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.createdBy",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "createdBy",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintent_createdby",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.createdby"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.preparedAt",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "preparedAt",
+      "field_type": "DateTime",
+      "id": "field_sellpiaordertransmissionintent_preparedat",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.preparedat"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.finalizedAt",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "finalizedAt",
+      "field_type": "DateTime?",
+      "id": "field_sellpiaordertransmissionintent_finalizedat",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.finalizedat"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.abortedAt",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "abortedAt",
+      "field_type": "DateTime?",
+      "id": "field_sellpiaordertransmissionintent_abortedat",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.abortedat"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.finalizedGeneration",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "finalizedGeneration",
+      "field_type": "BigInt?",
+      "id": "field_sellpiaordertransmissionintent_finalizedgeneration",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.finalizedgeneration"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.createdAt",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "createdAt",
+      "field_type": "DateTime",
+      "id": "field_sellpiaordertransmissionintent_createdat",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.createdat"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.updatedAt",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "updatedAt",
+      "field_type": "DateTime",
+      "id": "field_sellpiaordertransmissionintent_updatedat",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.updatedat"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.organization",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "organization",
+      "field_type": "Organization",
+      "id": "field_sellpiaordertransmissionintent_organization",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.organization"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent.creator",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntent",
+      "field": "creator",
+      "field_type": "User",
+      "id": "field_sellpiaordertransmissionintent_creator",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent.creator"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent unique(organizationId, intentKey)",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "unique_constraint",
+      "model": "SellpiaOrderTransmissionIntent",
+      "id": "unique_sellpiaordertransmissionintent_organizationid_intentkey",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent unique(organizationid, intentkey)"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntent unique(id, organizationId)",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "unique_constraint",
+      "model": "SellpiaOrderTransmissionIntent",
+      "id": "unique_sellpiaordertransmissionintent_id_organizationid",
+      "community": 99,
+      "norm_label": "sellpiaordertransmissionintent unique(id, organizationid)"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_model",
+      "namespace": "Orders",
+      "table": "sellpia_order_transmission_intent_reconciliations",
+      "description": "Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome.",
+      "id": "model_sellpiaordertransmissionintentreconciliation",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation"
+    },
+    {
+      "label": "sellpia_order_transmission_intent_reconciliations",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "db_table",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "id": "table_sellpia_order_transmission_intent_reconciliations",
+      "community": 127,
+      "norm_label": "sellpia_order_transmission_intent_reconciliations"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.id",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "id",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintentreconciliation_id",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.id"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.organizationId",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "organizationId",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintentreconciliation_organizationid",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.organizationid"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.intentId",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "intentId",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintentreconciliation_intentid",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.intentid"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.reconciledBy",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "reconciledBy",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintentreconciliation_reconciledby",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.reconciledby"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.reconciledAt",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "reconciledAt",
+      "field_type": "DateTime",
+      "id": "field_sellpiaordertransmissionintentreconciliation_reconciledat",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.reconciledat"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.note",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "note",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintentreconciliation_note",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.note"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.outcome",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "outcome",
+      "field_type": "String",
+      "id": "field_sellpiaordertransmissionintentreconciliation_outcome",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.outcome"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.organization",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "organization",
+      "field_type": "Organization",
+      "id": "field_sellpiaordertransmissionintentreconciliation_organization",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.organization"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.intent",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "intent",
+      "field_type": "SellpiaOrderTransmissionIntent",
+      "id": "field_sellpiaordertransmissionintentreconciliation_intent",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.intent"
+    },
+    {
+      "label": "SellpiaOrderTransmissionIntentReconciliation.reconciler",
+      "file_type": "code",
+      "source_file": "prisma/models/orders.prisma",
+      "node_type": "prisma_field",
+      "model": "SellpiaOrderTransmissionIntentReconciliation",
+      "field": "reconciler",
+      "field_type": "User",
+      "id": "field_sellpiaordertransmissionintentreconciliation_reconciler",
+      "community": 127,
+      "norm_label": "sellpiaordertransmissionintentreconciliation.reconciler"
     },
     {
       "label": "Order",
@@ -58463,7 +58463,7 @@
     {
       "relation": "foreign_key_to",
       "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
+      "source_file": "prisma/models/orders.prisma",
       "weight": 1.0,
       "source": "field_sellpiaordertransmissionintent_organizationid",
       "target": "model_organization",
@@ -58472,7 +58472,7 @@
     {
       "relation": "foreign_key_to",
       "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
+      "source_file": "prisma/models/orders.prisma",
       "weight": 1.0,
       "source": "field_sellpiaordertransmissionintentreconciliation_organizationid",
       "target": "model_organization",
@@ -59138,7 +59138,7 @@
     {
       "relation": "relation:organization",
       "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
+      "source_file": "prisma/models/orders.prisma",
       "weight": 1.0,
       "source": "model_sellpiaordertransmissionintent",
       "target": "model_organization",
@@ -59147,7 +59147,7 @@
     {
       "relation": "relation:organization",
       "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
+      "source_file": "prisma/models/orders.prisma",
       "weight": 1.0,
       "source": "model_sellpiaordertransmissionintentreconciliation",
       "target": "model_organization",
@@ -59480,7 +59480,7 @@
     {
       "relation": "foreign_key_to",
       "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
+      "source_file": "prisma/models/orders.prisma",
       "weight": 1.0,
       "source": "field_sellpiaordertransmissionintent_createdby",
       "target": "model_user",
@@ -59489,7 +59489,7 @@
     {
       "relation": "foreign_key_to",
       "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
+      "source_file": "prisma/models/orders.prisma",
       "weight": 1.0,
       "source": "field_sellpiaordertransmissionintentreconciliation_reconciledby",
       "target": "model_user",
@@ -59615,7 +59615,7 @@
     {
       "relation": "relation:creator",
       "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
+      "source_file": "prisma/models/orders.prisma",
       "weight": 1.0,
       "source": "model_sellpiaordertransmissionintent",
       "target": "model_user",
@@ -59624,7 +59624,7 @@
     {
       "relation": "relation:reconciler",
       "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
+      "source_file": "prisma/models/orders.prisma",
       "weight": 1.0,
       "source": "model_sellpiaordertransmissionintentreconciliation",
       "target": "model_user",
@@ -65027,24 +65027,6 @@
       "source_file": "prisma/models/inventory.prisma",
       "weight": 1.0,
       "source": "domain_inventory",
-      "target": "model_sellpiaordertransmissionintent",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains_model",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "domain_inventory",
-      "target": "model_sellpiaordertransmissionintentreconciliation",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains_model",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "domain_inventory",
       "target": "model_sellpiareceiptuploadbatch",
       "confidence_score": 1.0
     },
@@ -66351,384 +66333,6 @@
       "weight": 1.0,
       "source": "doc_prisma_agents_md",
       "target": "field_sellpiainventorystate_organizationid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "mentions_model",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/ERD.md",
-      "weight": 1.0,
-      "source": "doc_docs_erd_md",
-      "target": "model_sellpiaordertransmissionintent",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "foreign_key_to",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "field_sellpiaordertransmissionintentreconciliation_intentid",
-      "target": "model_sellpiaordertransmissionintent",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "foreign_key_to",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "field_sellpiaordertransmissionintentreconciliation_organizationid",
-      "target": "model_sellpiaordertransmissionintent",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_abortedat",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_createdat",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_createdby",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_creator",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_finalizedat",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_finalizedgeneration",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_id",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_intentkey",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_organization",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_organizationid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_preparedat",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_status",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "field_sellpiaordertransmissionintent_updatedat",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "maps_to_table",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "table_sellpia_order_transmission_intents",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_unique_key",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "unique_sellpiaordertransmissionintent_id_organizationid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_unique_key",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintent",
-      "target": "unique_sellpiaordertransmissionintent_organizationid_intentkey",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "relation:intent",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "model_sellpiaordertransmissionintent",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "primary_key_on",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "field_sellpiaordertransmissionintent_id",
-      "target": "table_sellpia_order_transmission_intents",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "uses_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "unique_sellpiaordertransmissionintent_id_organizationid",
-      "target": "field_sellpiaordertransmissionintent_id",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "mentions_field",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/ERD.md",
-      "weight": 1.0,
-      "source": "doc_docs_erd_md",
-      "target": "field_sellpiaordertransmissionintent_organizationid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "mentions_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/AGENTS.md",
-      "weight": 1.0,
-      "source": "doc_prisma_agents_md",
-      "target": "field_sellpiaordertransmissionintent_organizationid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "uses_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "unique_sellpiaordertransmissionintent_id_organizationid",
-      "target": "field_sellpiaordertransmissionintent_organizationid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "uses_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "unique_sellpiaordertransmissionintent_organizationid_intentkey",
-      "target": "field_sellpiaordertransmissionintent_organizationid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "uses_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "unique_sellpiaordertransmissionintent_organizationid_intentkey",
-      "target": "field_sellpiaordertransmissionintent_intentkey",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "mentions_model",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/ERD.md",
-      "weight": 1.0,
-      "source": "doc_docs_erd_md",
-      "target": "model_sellpiaordertransmissionintentreconciliation",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_id",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_intent",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_intentid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_note",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_organization",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_organizationid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_outcome",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_reconciledat",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_reconciledby",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "has_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "field_sellpiaordertransmissionintentreconciliation_reconciler",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "maps_to_table",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "model_sellpiaordertransmissionintentreconciliation",
-      "target": "table_sellpia_order_transmission_intent_reconciliations",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "primary_key_on",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/models/inventory.prisma",
-      "weight": 1.0,
-      "source": "field_sellpiaordertransmissionintentreconciliation_id",
-      "target": "table_sellpia_order_transmission_intent_reconciliations",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "mentions_field",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/ERD.md",
-      "weight": 1.0,
-      "source": "doc_docs_erd_md",
-      "target": "field_sellpiaordertransmissionintentreconciliation_organizationid",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "mentions_field",
-      "confidence": "EXTRACTED",
-      "source_file": "prisma/AGENTS.md",
-      "weight": 1.0,
-      "source": "doc_prisma_agents_md",
-      "target": "field_sellpiaordertransmissionintentreconciliation_organizationid",
       "confidence_score": 1.0
     },
     {
@@ -68483,6 +68087,24 @@
       "source_file": "prisma/models/orders.prisma",
       "weight": 1.0,
       "source": "domain_orders",
+      "target": "model_sellpiaordertransmissionintent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains_model",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "domain_orders",
+      "target": "model_sellpiaordertransmissionintentreconciliation",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains_model",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "domain_orders",
       "target": "model_settlement",
       "confidence_score": 1.0
     },
@@ -68511,6 +68133,384 @@
       "weight": 1.0,
       "source": "domain_orders",
       "target": "model_unshippeditem",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_model",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/ERD.md",
+      "weight": 1.0,
+      "source": "doc_docs_erd_md",
+      "target": "model_sellpiaordertransmissionintent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "foreign_key_to",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "field_sellpiaordertransmissionintentreconciliation_intentid",
+      "target": "model_sellpiaordertransmissionintent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "foreign_key_to",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "field_sellpiaordertransmissionintentreconciliation_organizationid",
+      "target": "model_sellpiaordertransmissionintent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_abortedat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_createdat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_createdby",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_creator",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_finalizedat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_finalizedgeneration",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_id",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_intentkey",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_organization",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_organizationid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_preparedat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_status",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "field_sellpiaordertransmissionintent_updatedat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "maps_to_table",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "table_sellpia_order_transmission_intents",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_unique_key",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "unique_sellpiaordertransmissionintent_id_organizationid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_unique_key",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintent",
+      "target": "unique_sellpiaordertransmissionintent_organizationid_intentkey",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "relation:intent",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "model_sellpiaordertransmissionintent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "primary_key_on",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "field_sellpiaordertransmissionintent_id",
+      "target": "table_sellpia_order_transmission_intents",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "unique_sellpiaordertransmissionintent_id_organizationid",
+      "target": "field_sellpiaordertransmissionintent_id",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_field",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/ERD.md",
+      "weight": 1.0,
+      "source": "doc_docs_erd_md",
+      "target": "field_sellpiaordertransmissionintent_organizationid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/AGENTS.md",
+      "weight": 1.0,
+      "source": "doc_prisma_agents_md",
+      "target": "field_sellpiaordertransmissionintent_organizationid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "unique_sellpiaordertransmissionintent_id_organizationid",
+      "target": "field_sellpiaordertransmissionintent_organizationid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "unique_sellpiaordertransmissionintent_organizationid_intentkey",
+      "target": "field_sellpiaordertransmissionintent_organizationid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "unique_sellpiaordertransmissionintent_organizationid_intentkey",
+      "target": "field_sellpiaordertransmissionintent_intentkey",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_model",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/ERD.md",
+      "weight": 1.0,
+      "source": "doc_docs_erd_md",
+      "target": "model_sellpiaordertransmissionintentreconciliation",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_id",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_intent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_intentid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_note",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_organization",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_organizationid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_outcome",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_reconciledat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_reconciledby",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "field_sellpiaordertransmissionintentreconciliation_reconciler",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "maps_to_table",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "model_sellpiaordertransmissionintentreconciliation",
+      "target": "table_sellpia_order_transmission_intent_reconciliations",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "primary_key_on",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/models/orders.prisma",
+      "weight": 1.0,
+      "source": "field_sellpiaordertransmissionintentreconciliation_id",
+      "target": "table_sellpia_order_transmission_intent_reconciliations",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_field",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/ERD.md",
+      "weight": 1.0,
+      "source": "doc_docs_erd_md",
+      "target": "field_sellpiaordertransmissionintentreconciliation_organizationid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_field",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/AGENTS.md",
+      "weight": 1.0,
+      "source": "doc_prisma_agents_md",
+      "target": "field_sellpiaordertransmissionintentreconciliation_organizationid",
       "confidence_score": 1.0
     },
     {
@@ -79306,5 +79306,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "1ea6b1a41d5ff79c88dd54e5699febedfaaa7118"
+  "built_at_commit": "9d5bc0af4015bf9670154ccf7b6ff192989fc040"
 }

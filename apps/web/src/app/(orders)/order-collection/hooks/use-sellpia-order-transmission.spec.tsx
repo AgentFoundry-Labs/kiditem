@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { queryKeys } from '@/lib/query-keys';
 import { useSellpiaOrderTransmission } from './use-sellpia-order-transmission';
 import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
 
@@ -12,11 +11,13 @@ const extension = vi.hoisted(() => ({
 const store = vi.hoisted(() => ({
   markGeneratedOrderFileTransmissionRequested: vi.fn(),
 }));
-const freshness = vi.hoisted(() => ({
+const transmissions = vi.hoisted(() => ({
   prepareOrderTransmissionIntent: vi.fn(),
   finalizeOrderTransmissionIntent: vi.fn(),
   abortOrderTransmissionIntent: vi.fn(),
   reconcileOrderTransmissionIntent: vi.fn(),
+}));
+const freshness = vi.hoisted(() => ({
   requestRefresh: vi.fn(),
 }));
 const toast = vi.hoisted(() => ({
@@ -24,15 +25,16 @@ const toast = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
 }));
-const router = vi.hoisted(() => ({ push: vi.fn() }));
 
 vi.mock('../lib/order-collection-extension', () => extension);
 vi.mock('../lib/order-generated-file-store', () => store);
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({
   sellpiaInventoryFreshnessApi: freshness,
 }));
+vi.mock('../lib/sellpia-order-transmission-api', () => ({
+  sellpiaOrderTransmissionApi: transmissions,
+}));
 vi.mock('sonner', () => ({ toast }));
-vi.mock('next/navigation', () => ({ useRouter: () => router }));
 
 function generatedFile(): StoredOrderCollectionFile {
   return {
@@ -70,20 +72,19 @@ describe('useSellpiaOrderTransmission', () => {
         transmissionRequestedAt,
       }),
     );
-    freshness.prepareOrderTransmissionIntent.mockResolvedValue({
+    transmissions.prepareOrderTransmissionIntent.mockResolvedValue({
       intentKey: 'orders-1',
       disposition: 'prepared',
     });
-    freshness.finalizeOrderTransmissionIntent.mockResolvedValue({
+    transmissions.finalizeOrderTransmissionIntent.mockResolvedValue({
       intentKey: 'orders-1',
       status: 'finalized',
-      finalizedGeneration: '5',
     });
-    freshness.abortOrderTransmissionIntent.mockResolvedValue({
+    transmissions.abortOrderTransmissionIntent.mockResolvedValue({
       intentKey: 'orders-1',
       status: 'aborted',
     });
-    freshness.reconcileOrderTransmissionIntent.mockResolvedValue({
+    transmissions.reconcileOrderTransmissionIntent.mockResolvedValue({
       intentKey: 'orders-1',
       status: 'aborted',
       outcome: 'not_submitted',
@@ -94,7 +95,7 @@ describe('useSellpiaOrderTransmission', () => {
     });
   });
 
-  it('invalidates freshness and history after an explicit Sellpia transmission request', async () => {
+  it('does not invalidate inventory state after an explicit Sellpia transmission request', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     const onTransmissionRequested = vi.fn();
@@ -112,8 +113,8 @@ describe('useSellpiaOrderTransmission', () => {
     expect(onTransmissionRequested).toHaveBeenCalledWith(
       expect.objectContaining({ transmissionRequestedAt: expect.any(Number) }),
     );
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.inventory.freshness() });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.inventory.history() });
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(freshness.requestRefresh).not.toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalledWith('셀피아 전송 요청됨 — 키드키즈');
   });
 
@@ -122,9 +123,8 @@ describe('useSellpiaOrderTransmission', () => {
     let finishFinalization!: (value: {
       intentKey: string;
       status: 'finalized';
-      finalizedGeneration: string;
     }) => void;
-    freshness.finalizeOrderTransmissionIntent.mockImplementation(
+    transmissions.finalizeOrderTransmissionIntent.mockImplementation(
       () => new Promise((resolve) => {
         finishFinalization = resolve;
       }),
@@ -145,7 +145,6 @@ describe('useSellpiaOrderTransmission', () => {
     finishFinalization({
       intentKey: 'orders-1',
       status: 'finalized',
-      finalizedGeneration: '5',
     });
     await act(async () => {
       await expect(transmission).resolves.toBe(true);
@@ -153,9 +152,9 @@ describe('useSellpiaOrderTransmission', () => {
     expect(result.current.settlingId).toBeNull();
   });
 
-  it('blocks the extension submit and explains why when intent preparation fails', async () => {
+  it('submits through Sellpia even when inventory freshness is unavailable', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    freshness.prepareOrderTransmissionIntent.mockRejectedValue(new Error('offline'));
+    freshness.requestRefresh.mockRejectedValue(new Error('offline'));
     const onTransmissionRequested = vi.fn();
     const { result } = renderHook(
       () => useSellpiaOrderTransmission({ onTransmissionRequested }),
@@ -167,17 +166,16 @@ describe('useSellpiaOrderTransmission', () => {
       transmitted = await result.current.transmit(generatedFile());
     });
 
-    expect(transmitted).toBe(false);
-    expect(extension.sendOrderFileToSellpiaViaExtension).not.toHaveBeenCalled();
-    expect(onTransmissionRequested).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith(
-      '전송 준비 상태 저장에 실패해 셀피아 전송을 시작하지 않았습니다.',
-    );
+    expect(transmitted).toBe(true);
+    expect(extension.sendOrderFileToSellpiaViaExtension).toHaveBeenCalledOnce();
+    expect(onTransmissionRequested).toHaveBeenCalledOnce();
+    expect(transmissions.prepareOrderTransmissionIntent).toHaveBeenCalledOnce();
+    expect(freshness.requestRefresh).not.toHaveBeenCalled();
   });
 
   it('does not resubmit an unresolved prepared intent and asks for verification', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    freshness.prepareOrderTransmissionIntent.mockResolvedValue({
+    transmissions.prepareOrderTransmissionIntent.mockResolvedValue({
       intentKey: 'orders-1',
       disposition: 'already_prepared',
     });
@@ -195,13 +193,7 @@ describe('useSellpiaOrderTransmission', () => {
     expect(onTransmissionRequested).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith(
       '이전 셀피아 전송 결과 확인 필요 — 셀피아 주문 내역을 확인한 뒤 처리하세요.',
-      expect.objectContaining({
-        action: expect.objectContaining({ label: '전송 결과 확인' }),
-      }),
     );
-    const toastOptions = toast.error.mock.calls.at(-1)?.[1];
-    toastOptions.action.onClick();
-    expect(router.push).toHaveBeenCalledWith('/inventory-hub?tab=sellpia-sync');
   });
 
   it('keeps the send successful and warns when local transmission history cannot persist', async () => {
@@ -221,8 +213,8 @@ describe('useSellpiaOrderTransmission', () => {
     });
 
     expect(transmitted).toBe(true);
-    expect(freshness.prepareOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
-    expect(freshness.prepareOrderTransmissionIntent.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(transmissions.prepareOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
+    expect(transmissions.prepareOrderTransmissionIntent.mock.invocationCallOrder[0]).toBeLessThan(
       extension.sendOrderFileToSellpiaViaExtension.mock.invocationCallOrder[0],
     );
     expect(toast.error).not.toHaveBeenCalled();
@@ -231,7 +223,7 @@ describe('useSellpiaOrderTransmission', () => {
     );
   });
 
-  it('offers manual inventory sync when Sellpia rejects the transmission for stock', async () => {
+  it('shows only the Sellpia rejection when stock is insufficient', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     extension.sendOrderFileToSellpiaViaExtension.mockResolvedValue({
       success: false,
@@ -249,20 +241,10 @@ describe('useSellpiaOrderTransmission', () => {
     });
 
     expect(onTransmissionRequested).not.toHaveBeenCalled();
-    expect(freshness.abortOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
+    expect(transmissions.abortOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
     expect(freshness.requestRefresh).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith(
-      '상품코드 K-100의 재고가 부족합니다.',
-      expect.objectContaining({
-        action: expect.objectContaining({ label: '재고 동기화' }),
-      }),
-    );
-    const toastOptions = toast.error.mock.calls.at(-1)?.[1];
-    toastOptions.action.onClick();
-    await waitFor(() => {
-      expect(freshness.requestRefresh).toHaveBeenCalledWith('manual_request');
-    });
+    expect(toast.error).toHaveBeenCalledWith('상품코드 K-100의 재고가 부족합니다.');
   });
 
   it('keeps an unknown extension outcome unresolved and asks for verification', async () => {
@@ -282,20 +264,17 @@ describe('useSellpiaOrderTransmission', () => {
       await expect(result.current.transmit(generatedFile())).resolves.toBe(false);
     });
 
-    expect(freshness.abortOrderTransmissionIntent).not.toHaveBeenCalled();
+    expect(transmissions.abortOrderTransmissionIntent).not.toHaveBeenCalled();
     expect(freshness.requestRefresh).not.toHaveBeenCalled();
     expect(onTransmissionRequested).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith(
       expect.stringContaining('셀피아 전송 결과 확인 필요'),
-      expect.objectContaining({
-        action: expect.objectContaining({ label: '전송 결과 확인' }),
-      }),
     );
   });
 
-  it('warns not to resend when submitted orders cannot finalize freshness', async () => {
+  it('warns not to resend when submitted orders cannot finalize transmission state', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    freshness.finalizeOrderTransmissionIntent.mockRejectedValue(new Error('offline'));
+    transmissions.finalizeOrderTransmissionIntent.mockRejectedValue(new Error('offline'));
     const onTransmissionRequested = vi.fn();
     const { result } = renderHook(
       () => useSellpiaOrderTransmission({ onTransmissionRequested }),
@@ -308,13 +287,13 @@ describe('useSellpiaOrderTransmission', () => {
 
     expect(onTransmissionRequested).toHaveBeenCalledOnce();
     expect(toast.warning).toHaveBeenCalledWith(
-      '셀피아 전송 요청은 완료됐지만 재고 최신화 확정에 실패했습니다. 재전송하지 말고 이전 전송 결과를 확인하세요.',
+      '셀피아 전송 요청은 완료됐지만 전송 상태 저장에 실패했습니다. 재전송하지 말고 이전 전송 결과를 확인하세요.',
     );
   });
 
   it('resends after an operator-confirmed missing submission is reconciled', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    freshness.prepareOrderTransmissionIntent
+    transmissions.prepareOrderTransmissionIntent
       .mockResolvedValueOnce({
         intentKey: 'orders-1',
         disposition: 'already_finalized',
@@ -336,7 +315,7 @@ describe('useSellpiaOrderTransmission', () => {
       )).resolves.toBe(true);
     });
 
-    expect(freshness.reconcileOrderTransmissionIntent).toHaveBeenCalledOnce();
+    expect(transmissions.reconcileOrderTransmissionIntent).toHaveBeenCalledOnce();
     expect(extension.sendOrderFileToSellpiaViaExtension).toHaveBeenCalledOnce();
     expect(toast.success).toHaveBeenCalledWith('셀피아 재전송 요청됨 — 키드키즈');
   });

@@ -40,8 +40,8 @@ freshness derivation, the browser claim lease, publication, and the opaque
 | `syncing` | One user owns a live 90-second claim lease. | Other tabs join and observe. Only the owner may cancel. |
 | `failed` | The requested generation failed after the last verified generation. | Open the freshness drawer, correct the typed failure, and choose **다시 갱신**. |
 
-Exactly 10 minutes is stale. The server owns TTL, generation, lease, settle,
-and confirmation clocks. Public generation values are decimal strings even
+Exactly 10 minutes is stale. The server owns TTL, generation, lease, and
+confirmation clocks. Public generation values are decimal strings even
 though persistence uses `BigInt`.
 
 The previous completed snapshot remains the current stock basis during every
@@ -102,18 +102,14 @@ edit `currentStock` or release a final commitment merely to imitate shipment.
 
 Orders collected from one or many malls do not request a refresh by themselves.
 Before the extension submits a generated file, the server persists an
-organization-scoped idempotent transmission intent. An unresolved intent
-protects that exact file from accidental resubmission and remains visible for
-operator reconciliation; it does not redefine freshness or block inventory or
-order collection. Only `{ success: true, submitted: true }` finalizes the intent
-and schedules an `order_transmission_requested` generation strictly newer than
-every generation visible at finalization. Explicit non-submission aborts that
-intent for a safe manual retry, while an unknown result requires reconciliation
-before retrying the same file. The server waits two minutes for Sellpia to
-settle and coalesces later successful transmissions only while that order
-generation remains pending and non-failed, capped at five minutes from the
-first finalized request. A successful extension request means only that
-transmission was requested; the later Sellpia snapshot is the stock evidence.
+organization-scoped Orders-owned idempotent transmission intent. An unresolved
+intent protects that exact file from accidental resubmission; it does not read,
+request, invalidate, or advance Inventory freshness. Only observed Sellpia
+acceptance finalizes the intent. Explicit confirmed non-submission aborts it for
+a safe retry, while an unknown result requires audited reconciliation. KidItem
+does not pre-check local stock before upload. Sellpia validates the workbook,
+and a rejection is shown with its provider error and no Inventory recovery
+action. Inventory continues on its TTL/manual/purchase-preflight schedule.
 
 Internal operation links return to the screen that owns the action: mall
 collection to `/order-collection`, channel order results to `/orders`, channel
@@ -127,10 +123,9 @@ independent `/stock-ops` route remains analysis-only and owns
 `product-outflow` and `channel-zero`; compatibility ingress does not transfer
 freshness ownership back to it.
 
-Order transmission and freshness recovery render in the existing generated-file
-flow on `/order-collection`. A successful transmission request updates that
-file's recovery state and schedules freshness without replacing the collection
-layout or creating a separate order-sync page.
+Order transmission recovery renders in the existing generated-file flow on
+`/order-collection`. It updates only that file's Orders-owned transmission
+state and does not route the operator to Inventory synchronization.
 
 An identical source artifact is not republished. The first post-order identical hash
 schedules one `same_hash_confirmation` at least three minutes later. The next
@@ -170,7 +165,8 @@ status green.
 | Quality warning | Review missing name/barcode/price, duplicate barcode, 10–30% snapshot churn, and inactive confirmed-recipe references. Warnings are keyed by file hash and do not auto-change recipes. |
 | Another tab owns the lease | Wait and observe. Only `activeSync.canControl` may cancel. Closing the owner tab stops its heartbeat; the claim becomes reclaimable only after server expiry. |
 | Lease lost or expired | Let the current worker stop. After expiry a new tab may claim the pending generation. Never reuse a stale token. |
-| Purchase blocked by `SELLPIA_SYNC_REQUIRED` | The purchase UI joins/requests automatic sync, waits for one fresh generation, and retries the exact submission once with the same idempotency key. |
+| Sellpia order workbook rejected | Show the exact Sellpia error. Correct the workbook/provider-side issue and retry only when the durable transmission fence permits it. Do not run Inventory synchronization as recovery. |
+| Purchase blocked by `SELLPIA_SYNC_REQUIRED` | The purchase UI joins/requests automatic sync, waits for one fresh generation, and retries the exact submission once with the same idempotency key. This purchase rule does not apply to order workbook submission. |
 | Purchase item inactive/reference invalid | Correct the purchase item or confirmed recipe. Do not retry automatically. |
 | External submit is `provider_unknown` | Do not submit again. Inspect the provider outside KidItem, then use explicit `reconcileSubmission` with the authenticated actor and known outcome/reference. |
 
@@ -258,8 +254,8 @@ Stop and report the exact blocker when:
 - a non-Inventory runtime path writes `SellpiaInventorySku.currentStock`;
 - a purchase path bypasses the freshness fence or retries an ambiguous provider
   side effect;
-- a Rocket path writes physical stock, bypasses Inventory commitments, or
-  settles a final order without a newer verified generation;
+- a Rocket path writes physical stock or couples finalized order transmission
+  to an Inventory generation;
 - a required test, scanner, build, migration rehearsal, or server boot fails.
 
 ## Final Report Format
@@ -274,9 +270,9 @@ Collection: automatic/manual; <published|same_hash_verified|same_hash_confirmati
 Artifact: <sanitized file name or download-before-failure>; rows <count>
 Quality: warnings <count>; hard block <yes/no>; previous snapshot preserved <yes/no>
 Lease: owner-only control / heartbeat / expiry-reclaim evidence <executed or test-backed>
-Order settle/coalescing: <executed or test-backed>
+Order transmission independence: <no Inventory read/request/invalidation/action; executed or test-backed>
 Purchase gate/retry/reconcile: <executed or test-backed>; provider calls <count or not invoked>
-Rocket: request/final commitment boundary verified <yes/no>; settlement generation verified <yes/no>; provider submit and physical stock write not invoked
+Rocket: transmission finalization boundary verified <yes/no>; Inventory generation not required <yes/no>; physical stock write not invoked
 Automated gates: <exact commands and result>
 Live Chrome checks: <safe observations only>
 Blockers: <none or exact blocker>
