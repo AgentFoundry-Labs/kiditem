@@ -332,6 +332,33 @@ export default function WingRegistrationConfirmDialog({
             label="WING 카테고리"
             hint="KidItem 고정 카테고리입니다. 카테고리에 필요한 옵션 항목이 아래에 표시됩니다."
           >
+            {/* 카테고리를 추천으로 정했으면 무엇을 근거로 골랐는지 보여 준다.
+                추천은 기존 등록상품 이름과의 유사도라 항상 맞지는 않는다. */}
+            {draft.categoryEvidence && (
+              <div
+                className={cn(
+                  'mb-2 rounded-lg border px-3 py-2 text-xs',
+                  draft.categoryEvidence.applied
+                    ? 'border-amber-200 bg-amber-50 text-amber-900'
+                    : 'border-slate-200 bg-slate-50 text-slate-600',
+                )}
+              >
+                <div className="font-semibold">
+                  {draft.categoryEvidence.applied
+                    ? '기존 등록상품과 비슷해 자동으로 골랐습니다 — 맞는지 확인해 주세요'
+                    : '추천 신뢰도가 낮아 자동 적용하지 않았습니다'}
+                  {` (유사도 ${Math.round(draft.categoryEvidence.score * 100)}%)`}
+                </div>
+                <div className="mt-1">{draft.categoryEvidence.path}</div>
+                {draft.categoryEvidence.basedOn.length > 0 && (
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] opacity-80">
+                    {draft.categoryEvidence.basedOn.map((name) => (
+                      <li key={name}>{name}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             <select
               aria-label="WING 카테고리"
               value={overrides.categoryKey}

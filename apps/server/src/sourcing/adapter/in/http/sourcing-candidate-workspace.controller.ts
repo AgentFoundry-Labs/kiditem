@@ -149,6 +149,23 @@ export class SourcingCandidateWorkspaceController {
     );
   }
 
+  /**
+   * 확장이 WING 폼을 채우다 실패해 제출 자체가 없었던 실행을 닫는다.
+   * `unresolved` 로 두면 실행이 `reconciling` 에 갇혀 재시도·취소가 모두 막힌다.
+   */
+  @Post('candidates/:id/registration/executions/:executionId/not-submitted')
+  markExternalWingRegistrationNotSubmitted(
+    @Param('id') id: string,
+    @Param('executionId') executionId: string,
+    @Body() body: ExternalWingEvidenceDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.markExternalWingRegistrationNotSubmitted(
+      organizationId, id, user.id ?? null, executionId, body.evidence,
+    );
+  }
+
   @Post('preparations/:id/cancel')
   cancelPreparation(
     @Param('id') id: string,

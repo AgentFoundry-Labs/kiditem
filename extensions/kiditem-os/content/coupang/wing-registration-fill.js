@@ -169,33 +169,82 @@
   ];
   const OPTION_GENERATE_SELECTOR = '#generateItems';
 
+  // WING 은 이 열을 `판매자상품코드` 로 부른다(툴팁에만 "업체(셀러)에서 자체적으로
+  // 관리하는 상품코드" 라는 옛 표현이 남아 있다). 옛 이름도 함께 받아 둔다.
+  const VENDOR_ITEM_CODE_LABEL = /판매자\s*상품\s*코드|업체\s*상품\s*코드/;
+  const ORIGINAL_PRICE_LABEL = /^정상가/;
+
+  // 카테고리는 formV2 의 관문이다. 라이브 실측: 카테고리를 고르기 전에는 옵션 입력
+  // 영역도 옵션표도 렌더되지 않아, 뒤따르는 실패가 전부 2차 증상으로만 보고됐다.
+  const CATEGORY_UNSET_ERROR =
+    '등록할 쿠팡 카테고리가 정해지지 않아 옵션 영역이 열리지 않았습니다. WING 등록 확인 화면에서 카테고리를 선택한 뒤 다시 시도해 주세요.';
   const VENDOR_ITEM_CODE_INPUT_SELECTOR = [
+    'input[placeholder*="판매자상품코드"]',
+    'input[aria-label*="판매자상품코드"]',
     'input[placeholder*="업체상품코드"]',
     'input[aria-label*="업체상품코드"]',
     'input[name*="vendorItemCode" i]',
     'input[data-field*="vendorItemCode" i]',
   ].join(',');
 
-  function vendorItemCodeInputs() {
-    const direct = [...document.querySelectorAll(VENDOR_ITEM_CODE_INPUT_SELECTOR)]
-      .filter((input) => input.offsetParent !== null);
-    if (direct.length > 0) return direct;
-
-    // 일부 formV2 버전은 placeholder/name 없이 옵션 표의 열 위치로만 필드를 구분한다.
+  /**
+   * 옵션표에서 특정 열의 본문 입력칸을 찾는다.
+   *
+   * ⭐ 라이브 실측(formV2, 2026-07): 이 표는 **헤더 셀 수와 본문 셀 수가 다르다.**
+   *    - 헤더 `.option-pane-table-cell` 16개 중 4개가 다른 헤더 셀 **안에 중첩**돼 있다
+   *      (옵션명 2열 묶음, 자동가격조정 3열 묶음).
+   *    - 중첩을 걷어낸 잎 헤더는 14개인데 본문 행은 13셀이다. 자동가격조정 그룹이
+   *      헤더에서는 3열, 본문에서는 2셀로 렌더되기 때문이다.
+   *    그래서 `headers.findIndex()` 로 얻은 인덱스를 본문 셀에 그대로 쓰면 어긋난다.
+   *    실측에서 판매자상품코드는 헤더 인덱스 12로 계산되지만 본문의 실제 위치는 9라,
+   *    `cells[12]` 는 입력칸이 없는 '삭제' 셀이었고 값이 영영 채워지지 않았다.
+   *
+   *    본문 셀과 헤더 셀은 같은 열이면 화면상 가로 범위가 겹친다. 인덱스 대신
+   *    가로 위치로 맞추면 중첩·병합 구조와 무관하게 정확히 한 셀만 골라낸다.
+   */
+  function optionColumnInputs(labelPattern) {
     const root = document.querySelector(OPTION_ROOT_SELECTOR);
     if (!root) return [];
     const headers = [...root.querySelectorAll(
       '.option-pane-table-head .option-pane-table-cell, .option-pane-table-head [role="columnheader"]',
     )];
-    const columnIndex = headers.findIndex((header) =>
-      /업체\s*상품\s*코드|판매자\s*상품\s*코드/.test(header.textContent || ''));
-    if (columnIndex < 0) return [];
-    return [...root.querySelectorAll('.option-pane-table-content .option-pane-table-row')]
+    // 다른 헤더 셀을 품고 있는 셀은 열이 아니라 묶음이다.
+    const leafHeaders = headers.filter(
+      (header) => !headers.some((other) => other !== header && header.contains(other)),
+    );
+    // 헤더 셀에는 라벨 뒤에 긴 툴팁 설명이 붙어 있고, 그 설명이 다른 열의 이름을
+    // 품기도 한다(정상가 툴팁에 "공식판매처 판매가"가 들어있다). 그래서 라벨로
+    // '시작하는' 헤더를 먼저 고르고, 없을 때만 포함 검사로 물러난다.
+    const labelled = leafHeaders.filter((header) =>
+      labelPattern.test((header.textContent || '').trim().slice(0, 20)),
+    );
+    const target = labelled[0]
+      || leafHeaders.find((header) => labelPattern.test(header.textContent || ''));
+    if (!target) return [];
+    const headerRect = target.getBoundingClientRect();
+    if (!(headerRect.width > 0)) return [];
+
+    const rows = [...root.querySelectorAll('.option-pane-table-row')]
+      .filter((row) => !row.closest('.option-pane-table-head'));
+    return rows
       .map((row) => {
-        const cells = [...row.querySelectorAll('.option-pane-table-cell, [role="cell"]')];
-        return cells[columnIndex]?.querySelector('input') || null;
+        const cell = [...row.querySelectorAll('.option-pane-table-cell, [role="cell"]')]
+          .find((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            if (!(rect.width > 0)) return false;
+            const center = rect.left + rect.width / 2;
+            return center >= headerRect.left && center <= headerRect.right;
+          });
+        return cell?.querySelector('input[type="text"], input:not([type])') || null;
       })
       .filter(Boolean);
+  }
+
+  function vendorItemCodeInputs() {
+    const direct = [...document.querySelectorAll(VENDOR_ITEM_CODE_INPUT_SELECTOR)]
+      .filter((input) => input.offsetParent !== null);
+    if (direct.length > 0) return direct;
+    return optionColumnInputs(VENDOR_ITEM_CODE_LABEL);
   }
 
   async function fillVendorItemCode(value, log = () => {}) {
@@ -950,22 +999,38 @@
       : [...root.querySelectorAll('.option-creation-input-group')];
   }
 
+  /** 옵션 입력 영역에 실제로 렌더된 카테고리 속성 이름들. */
+  function optionAttributeNames() {
+    return optionCreationRows()
+      .map((row) => normText(row.querySelector?.('.attribute-type')?.textContent))
+      .filter(Boolean);
+  }
+
+  /**
+   * 페이로드의 옵션 종류에 해당하는 속성 행을 찾는다.
+   *
+   * ⚠️ 예전에는 이름이 하나도 안 맞으면 `rows[0]` 으로 떨어졌다. 카테고리마다 필수
+   *    속성이 달라서(물총은 색상/수량이지만 다른 카테고리는 아니다) 그 폴백은 색상값을
+   *    엉뚱한 속성에 조용히 써 넣었다. 못 찾으면 null 을 돌려주고 호출부가 어떤 속성이
+   *    필요한지 이름을 밝혀 실패하게 한다.
+   */
   function optionCreationRow(optionType, placeholder) {
     const type = normText(optionType);
     const rows = optionCreationRows();
-    return (
-      rows.find((row) =>
-        normText(row.querySelector?.('.attribute-type')?.textContent) === type,
-      ) ||
-      rows.find((row) =>
-        [...row.querySelectorAll('input')].some(
-          (input) => normText(input.value) === type,
-        ),
-      ) ||
-      rows.find((row) => row.querySelector(`[placeholder="${placeholder}"]`)) ||
-      rows[0] ||
-      null
+    const byName = rows.find(
+      (row) => normText(row.querySelector?.('.attribute-type')?.textContent) === type,
     );
+    if (byName) return byName;
+    const byValue = rows.find((row) =>
+      [...row.querySelectorAll('input')].some((input) => normText(input.value) === type),
+    );
+    if (byValue) return byValue;
+    // placeholder 는 종류를 특정하지 못한다('옵션값 입력' 은 여러 속성이 공유한다).
+    // 그 placeholder 를 가진 행이 딱 하나일 때만 근거로 삼는다.
+    const byPlaceholderRows = rows.filter((row) =>
+      row.querySelector(`[placeholder="${placeholder}"]`),
+    );
+    return byPlaceholderRows.length === 1 ? byPlaceholderRows[0] : null;
   }
 
   function dispatchEnter(el) {
@@ -1370,9 +1435,20 @@
 
 
     // 4) 카테고리: "[코드] 대>중>소" → leaf 로 검색해 전체 경로 제안 클릭
+    //
+    // ⭐ 카테고리는 이 폼의 관문이다. 라이브 실측(formV2, 2026-07): 카테고리를 고르기
+    //    전에는 옵션 입력 영역(`.option-content`/`.dynamic-option-form-pane`/
+    //    `.option-pane-table-head`)이 **아예 렌더되지 않는다**. 제조사 칸도 마찬가지다.
+    //    예전에는 categoryCell 이 비면 이 블록을 조용히 건너뛰어서, 뒤따르는 옵션·
+    //    판매자상품코드 실패가 "왜 실패했는지 알 수 없는" 2차 증상으로만 보고됐다.
+    //    여기서 명확히 끊는다.
     const pathText = String(product.categoryCell || '').replace(/^\[\d+\]\s*/, '').trim();
     const leaf = (pathText.split('>').pop() || '').trim();
     const catInput = byPlaceholder('카테고리명 입력');
+    // 카테고리가 선택되지 않으면 뒤따르는 옵션·판매자상품코드 실패는 전부 2차 증상이다.
+    // 그 사실을 들고 다니다가 실패 메시지를 1차 원인으로 바꿔 준다.
+    const categoryUnset = !leaf;
+    if (categoryUnset) log('categoryMissing');
     if (catInput && leaf) {
       await setWingSearchValue(catInput, leaf);
       const opt = await waitFor(() => elByExactText(pathText), { timeout: 8000 });
@@ -1418,11 +1494,24 @@
       );
       if (!creation) {
         log('optionCreationUnavailable');
-        registrationError =
-          '쿠팡 WING에서 선택한 카테고리 속성의 옵션 입력 영역을 찾지 못했습니다. WING 화면 구조가 변경되었거나 아직 로딩 중일 수 있으니 새로고침한 뒤 다시 시도해 주세요.';
+        registrationError = categoryUnset
+          ? CATEGORY_UNSET_ERROR
+          : '쿠팡 WING에서 선택한 카테고리 속성의 옵션 입력 영역을 찾지 못했습니다. WING 화면 구조가 변경되었거나 아직 로딩 중일 수 있으니 새로고침한 뒤 다시 시도해 주세요.';
       } else {
-        let optionsApplied = true;
-        for (const opt of purchaseOptions) {
+        // 카테고리마다 필수 옵션 속성이 다르다(라이브 실측: 물총 = 색상+수량).
+        // 페이로드는 아직 고정 프리셋이라 카테고리가 바뀌면 이름이 어긋난다.
+        // 어긋난 채로 밀어 넣으면 값이 엉뚱한 속성에 들어가므로 먼저 대조한다.
+        const attributeNames = optionAttributeNames();
+        const requested = purchaseOptions.map((opt) => normText(opt.type));
+        const unmatched = requested.filter((type) => !attributeNames.includes(type));
+        if (attributeNames.length > 0 && unmatched.length === requested.length) {
+          log('optionAttributeMismatch:' + attributeNames.join('/'));
+          registrationError =
+            `이 카테고리의 필수 옵션은 ${attributeNames.join(', ')} 인데 준비된 옵션은 `
+            + `${requested.join(', ')} 입니다. WING 등록 확인 화면에서 옵션을 맞춰 주세요.`;
+        }
+        let optionsApplied = !registrationError;
+        for (const opt of registrationError ? [] : purchaseOptions) {
           const isQuantity = String(opt.type || '').includes('수량');
           const isUnitWeight = String(opt.type || '').includes('중량');
           const placeholder = isQuantity || isUnitWeight ? '숫자만 입력' : '옵션값 입력';
@@ -1453,8 +1542,11 @@
     //      쿠팡 채널 데이터를 조회하므로, 입력칸을 못 찾으면 연결이 끊긴 상품을 만들지 않는다.
     if (variant?.vendorItemCode && !registrationError) {
       if (!(await fillVendorItemCode(variant.vendorItemCode, log))) {
-        registrationError =
-          '쿠팡 WING 옵션의 업체상품코드 입력칸을 찾거나 값을 적용하지 못했습니다.';
+        // 이 칸은 옵션표 안에 있다. 카테고리가 없으면 옵션표 자체가 렌더되지 않으므로
+        // "입력칸을 못 찾았다" 가 아니라 카테고리를 원인으로 보고한다.
+        registrationError = categoryUnset
+          ? CATEGORY_UNSET_ERROR
+          : '쿠팡 WING 옵션표의 판매자상품코드 입력칸을 찾거나 값을 적용하지 못했습니다.';
       }
     }
 
@@ -1480,6 +1572,18 @@
             registrationError =
               '쿠팡 WING 옵션 판매가 일괄입력을 완료하지 못했습니다.';
           }
+        }
+        // 정상가는 일괄입력 버튼이 없다(라이브 실측: 일괄입력은 판매가·재고수량 둘뿐).
+        // 그래서 옵션 행의 정상가 칸에 직접 쓴다. 비워 두면 할인율 기준가가 없어
+        // 고객 화면에 할인 표기가 사라지고, 모달에서 받은 정상가가 버려진다.
+        if (!registrationError && Number(variant.origPrice) > 0) {
+          const origInputs = optionColumnInputs(ORIGINAL_PRICE_LABEL);
+          for (const input of origInputs) setReactValue(input, String(variant.origPrice));
+          const written = origInputs.length > 0
+            && origInputs.every(
+              (input) => String(input.value || '').replace(/[^\d]/g, '') === String(variant.origPrice),
+            );
+          log(written ? 'origPrice:' + variant.origPrice : 'origPriceFailed');
         }
         // 판매가 저장 뒤 표가 다시 그려지면서 선택이 풀릴 수 있어 재고 전에 다시 확인한다.
         if (!registrationError) await selectAllOptionRows(log);

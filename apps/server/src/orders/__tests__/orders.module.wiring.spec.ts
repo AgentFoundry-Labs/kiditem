@@ -7,16 +7,25 @@ import { CoupangDirectOrderCollectionService } from '../application/service/coup
 import { CoupangDirectOrderCollectionTransactionAdapter } from '../adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from '../application/port/out/transaction/coupang-direct-order-collection.transaction.port';
+import { SellpiaOrderTransmissionController } from '../controllers/sellpia-order-transmission.controller';
+import { SellpiaOrderTransmissionService } from '../application/service/sellpia-order-transmission.service';
+import { SellpiaOrderTransmissionRepositoryAdapter } from '../adapter/out/repository/sellpia-order-transmission.repository.adapter';
+import { SELLPIA_ORDER_TRANSMISSION_PORT } from '../application/port/in/sellpia-order-transmission.port';
+import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-order-transmission.repository.port';
 
 describe('OrdersModule owner wiring', () => {
   it('binds Coupang PA collection through Orders -> Supply -> Inventory', () => {
     const imports: unknown[] = Reflect.getMetadata('imports', OrdersModule) ?? [];
+    const controllers: unknown[] = Reflect.getMetadata('controllers', OrdersModule) ?? [];
     const providers: unknown[] = Reflect.getMetadata('providers', OrdersModule) ?? [];
 
     expect(imports).toContain(PrismaModule);
     expect(imports).toContain(SupplyModule);
+    expect(controllers).toContain(SellpiaOrderTransmissionController);
     expect(providers).toContain(CoupangDirectOrderCollectionService);
     expect(providers).toContain(CoupangDirectOrderCollectionTransactionAdapter);
+    expect(providers).toContain(SellpiaOrderTransmissionService);
+    expect(providers).toContain(SellpiaOrderTransmissionRepositoryAdapter);
     expect(providers).toContainEqual({
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,
@@ -24,6 +33,14 @@ describe('OrdersModule owner wiring', () => {
     expect(providers).toContainEqual({
       provide: COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT,
       useExisting: CoupangDirectOrderCollectionTransactionAdapter,
+    });
+    expect(providers).toContainEqual({
+      provide: SELLPIA_ORDER_TRANSMISSION_PORT,
+      useExisting: SellpiaOrderTransmissionService,
+    });
+    expect(providers).toContainEqual({
+      provide: SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT,
+      useExisting: SellpiaOrderTransmissionRepositoryAdapter,
     });
   });
 });

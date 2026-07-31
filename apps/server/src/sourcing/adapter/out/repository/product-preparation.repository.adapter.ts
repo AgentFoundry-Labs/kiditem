@@ -18,6 +18,7 @@ import type {
   ProductPreparationClaimResult,
   ProductPreparationDraftResult,
   ProductPreparationRepositoryPort,
+  ExternalRegistrationClosedResult,
   ExternalRegistrationExecutionResult,
   PrepareExternalRegistrationExecutionInput,
   ResolveProductPreparationSelections,
@@ -494,6 +495,12 @@ export class ProductPreparationRepositoryAdapter
                 expectedProviderAccountId,
                 nextRequestHash: frozen.hash,
               })
+              || canSupersedeFailedExternalExecution({
+                preparation: active,
+                execution,
+                requestedByUserId: input.requestedByUserId,
+                expectedProviderAccountId,
+              })
               || input.providerAbsenceVerified === true
                 && canRestartVerifiedMissingExternalExecution({
                   preparation: active,
@@ -833,6 +840,116 @@ export class ProductPreparationRepositoryAdapter
         where: { id: current.id, organizationId: input.organizationId },
       });
       return externalExecutionResult(updated);
+    });
+  }
+
+  /**
+   * 마켓에 제출조차 되지 않은 외부 등록을 확정 실패로 닫아 재시도를 열어 준다.
+   *
+   * 라이브 사례: 확장이 옵션 폼을 채우다 실패하자 웹이 `unresolved` 로 보고했고,
+   * 실행이 `reconciling` 에 갇혔다. 그 상태에서는 start(재시도)·confirm(등록상품ID
+   * 제출)·cancel(준비 취소)이 전부 막혀 해당 수집상품이 영구히 등록 불가가 됐다.
+   * 제출 전 실패는 중복 등록 위험이 없으므로 `failed` 로 닫는 것이 맞다.
+   *
+   * 공급자 식별자가 하나라도 남아 있으면 거부한다 — 기록된 성공은 어떤 호출로도
+   * 실패가 될 수 없다.
+   */
+  async markExternalExecutionNotSubmitted(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+    executionId: string;
+    requestedByUserId: string | null;
+    evidence: unknown;
+  }): Promise<ExternalRegistrationClosedResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const identity = await tx.productRegistrationExecution.findFirst({
+        where: {
+          id: input.executionId,
+          organizationId: input.organizationId,
+          executionKind: 'external_wing',
+          requestedByUserId: input.requestedByUserId,
+          productPreparation: {
+            sourceCandidateId: input.sourceCandidateId,
+            organizationId: input.organizationId,
+          },
+        },
+        select: { id: true, productPreparationId: true },
+      });
+      if (!identity) throw new NotFoundException('External registration execution not found.');
+      await lockCandidate(tx, input.organizationId, input.sourceCandidateId);
+      await lockPreparation(tx, input.organizationId, identity.productPreparationId);
+      await lockExecution(tx, input.organizationId, identity.id);
+      const current = await tx.productRegistrationExecution.findFirst({
+        where: {
+          id: identity.id,
+          organizationId: input.organizationId,
+          executionKind: 'external_wing',
+          requestedByUserId: input.requestedByUserId,
+          productPreparationId: identity.productPreparationId,
+        },
+      });
+      if (!current) throw new NotFoundException('External registration execution not found.');
+      const closed = (): ExternalRegistrationClosedResult => ({
+        executionId: current.id,
+        preparationId: current.productPreparationId,
+        status: 'failed',
+        providerOutcome: 'definitive_failure',
+      });
+      if (current.status === 'failed') return closed();
+      if (!['prepared', 'executing', 'reconciling'].includes(current.status)) {
+        throw new ConflictException(
+          'Only a prepared or started external registration may be closed as not submitted.',
+        );
+      }
+      if (
+        current.providerOutcome === 'succeeded'
+        || current.providerSubmissionId !== null
+        || current.externalListingId !== null
+        || current.resultJson !== null
+      ) {
+        throw new ConflictException(
+          'Recorded provider identity cannot be closed as not submitted.',
+        );
+      }
+      const evidence = JSON.stringify(input.evidence ?? null).slice(0, 4_000);
+      const changed = await tx.productRegistrationExecution.updateMany({
+        where: {
+          id: current.id,
+          organizationId: input.organizationId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+          providerSubmissionId: null,
+          externalListingId: null,
+          resultJson: { equals: Prisma.DbNull },
+        },
+        data: {
+          status: 'failed',
+          providerOutcome: 'definitive_failure',
+          lastErrorMessage: evidence,
+          leaseToken: null,
+          leaseClaimedAt: null,
+        },
+      });
+      if (changed.count !== 1) {
+        throw new ConflictException('External registration changed while it was being closed.');
+      }
+      // 준비도 함께 풀어 준다. `submitting` 으로 남으면 취소도 재시도도 막힌다.
+      await tx.productPreparation.updateMany({
+        where: {
+          id: identity.productPreparationId,
+          organizationId: input.organizationId,
+          sourceCandidateId: input.sourceCandidateId,
+          isDeleted: false,
+          providerSubmissionId: null,
+          registrationResult: { equals: Prisma.DbNull },
+        },
+        data: {
+          status: 'failed',
+          providerOutcome: 'definitive_failure',
+          submissionLeaseToken: null,
+          submissionLeaseClaimedAt: null,
+        },
+      });
+      return closed();
     });
   }
 
@@ -1559,6 +1676,46 @@ function canRestartVerifiedMissingExternalExecution(input: {
     && execution.completedAt === null
     && execution.submissionPayloadJson !== null
     && execution.submissionPayloadHash === execution.requestHash
+    && execution.requestedByUserId === input.requestedByUserId
+    && execution.expectedProviderAccountId === input.expectedProviderAccountId;
+}
+
+/**
+ * 마켓에 아무것도 제출되지 않은 채 확정 실패로 닫힌 외부 등록은 새 시도가 이어받는다.
+ *
+ * `markExternalExecutionNotSubmitted` 가 만드는 상태다. 확장이 WING 폼을 채우다
+ * 실패하면 제출 단계에 닿지도 못한 것이라 재시도가 안전한데, 이 경로가 없으면
+ * 준비가 `failed` 로 남아 `prepare` 가 "이미 활성 준비가 있다"로 막아버린다.
+ * (라이브 사례: reconciling 을 풀었더니 곧바로 여기서 다시 막혔다)
+ *
+ * `startedAt` 은 비어 있지 않다 — start 까지는 갔다가 채우기에서 멈춘 것이기
+ * 때문이다. 중복 등록을 막는 실제 근거는 **공급자 식별자가 하나도 없다**는 것이고,
+ * 그 조건은 아래에서 전부 확인한다.
+ */
+function canSupersedeFailedExternalExecution(input: {
+  preparation: ProductPreparation;
+  execution: ProductRegistrationExecution;
+  requestedByUserId: string | null;
+  expectedProviderAccountId: string;
+}): boolean {
+  const { preparation, execution } = input;
+  return preparation.status === 'failed'
+    && preparation.providerOutcome === 'definitive_failure'
+    && preparation.providerSubmissionId === null
+    && preparation.registrationResult === null
+    && preparation.channelListingId === null
+    && preparation.submissionLeaseToken === null
+    && preparation.submissionLeaseClaimedAt === null
+    && preparation.approvedByUserId === input.requestedByUserId
+    && execution.executionKind === 'external_wing'
+    && execution.status === 'failed'
+    && execution.providerOutcome === 'definitive_failure'
+    && execution.providerSubmissionId === null
+    && execution.externalListingId === null
+    && execution.channelListingId === null
+    && execution.resultJson === null
+    && execution.leaseToken === null
+    && execution.leaseClaimedAt === null
     && execution.requestedByUserId === input.requestedByUserId
     && execution.expectedProviderAccountId === input.expectedProviderAccountId;
 }

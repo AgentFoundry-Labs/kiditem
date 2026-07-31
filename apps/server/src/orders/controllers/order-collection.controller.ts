@@ -2,9 +2,11 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Header,
   Inject,
   Post,
+  Query,
   Req,
   Res,
   StreamableFile,
@@ -22,11 +24,17 @@ import {
   type KkomangseConvertInput,
   type OnchannelConvertInput,
   type KidkidsConvertInput,
+  type HaebeopConvertInput,
 } from '../services/order-collection.service';
 import {
   CoupangDirectshipService,
 } from '../coupang-directship/coupang-directship.service';
-import type { CoupangDirectOrderCollectionRequest } from '@kiditem/shared/coupang-direct-order';
+import {
+  type CoupangDirectOrderCollectionRequest,
+  type CoupangDirectPoSnapshotResponse,
+  SaveCoupangDirectPoSnapshotRequestSchema,
+} from '@kiditem/shared/coupang-direct-order';
+import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../auth/auth.types';
@@ -53,7 +61,30 @@ export class OrderCollectionController {
     private readonly coupangDirectshipService: CoupangDirectshipService,
     @Inject(COUPANG_DIRECT_ORDER_COLLECTION_PORT)
     private readonly coupangDirectOrderCollection: CoupangDirectOrderCollectionPort,
+    private readonly coupangDirectPoSnapshot: CoupangDirectPoSnapshotService,
   ) {}
+
+  // 입고예정일 달력이 즉시 뜨도록 마지막 수집분을 계정 범위로 보관/조회한다.
+  @Get('coupang-directship/snapshot')
+  async readCoupangDirectSnapshot(
+    @Query('channelAccountId') channelAccountId: string,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<CoupangDirectPoSnapshotResponse> {
+    return this.coupangDirectPoSnapshot.read(organizationId, channelAccountId);
+  }
+
+  @Post('coupang-directship/snapshot')
+  async saveCoupangDirectSnapshot(
+    @Body() body: unknown,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<CoupangDirectPoSnapshotResponse> {
+    const request = SaveCoupangDirectPoSnapshotRequestSchema.parse(body);
+    return this.coupangDirectPoSnapshot.replace(
+      organizationId,
+      request.channelAccountId,
+      request.entries,
+    );
+  }
 
   @Post('coupang-directship/convert')
   @Header('Access-Control-Expose-Headers', [
@@ -235,6 +266,23 @@ export class OrderCollectionController {
     @Res({ passthrough: true }) response: Response,
   ): StreamableFile {
     const result = this.orderCollectionService.convertKidkidsOrders(body);
+    this.setConversionHeaders(result, response);
+    return new StreamableFile(result.buffer);
+  }
+
+  @Post('haebeop/convert')
+  @Header('Access-Control-Expose-Headers', [
+    'Content-Disposition',
+    'X-Order-Collection-Source-Rows',
+    'X-Order-Collection-Product-Rows',
+    'X-Order-Collection-Output-Rows',
+    'X-Order-Collection-Skipped-Rows',
+  ].join(', '))
+  convertHaebeop(
+    @Body() body: HaebeopConvertInput,
+    @Res({ passthrough: true }) response: Response,
+  ): StreamableFile {
+    const result = this.orderCollectionService.convertHaebeopOrders(body);
     this.setConversionHeaders(result, response);
     return new StreamableFile(result.buffer);
   }

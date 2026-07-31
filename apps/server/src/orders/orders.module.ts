@@ -16,12 +16,18 @@ import { OrderCollectionMallAccountController } from './controllers/order-collec
 import { OrderCollectionService } from './services/order-collection.service';
 import { OrderCollectionMallAccountService } from './services/order-collection-mall-account.service';
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
+import { CoupangDirectPoSnapshotService } from './services/coupang-direct-po-snapshot.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
 import { CoupangDirectOrderCollectionService } from './application/service/coupang-direct-order-collection.service';
 import { CoupangDirectOrderCollectionTransactionAdapter } from './adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from './application/port/in/coupang-direct-order-collection.port';
 import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/port/out/transaction/coupang-direct-order-collection.transaction.port';
+import { SellpiaOrderTransmissionController } from './controllers/sellpia-order-transmission.controller';
+import { SellpiaOrderTransmissionService } from './application/service/sellpia-order-transmission.service';
+import { SellpiaOrderTransmissionRepositoryAdapter } from './adapter/out/repository/sellpia-order-transmission.repository.adapter';
+import { SELLPIA_ORDER_TRANSMISSION_PORT } from './application/port/in/sellpia-order-transmission.port';
+import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from './application/port/out/repository/sellpia-order-transmission.repository.port';
 
 @Module({
   imports: [ChannelsModule, PrismaModule, SupplyModule],
@@ -33,11 +39,13 @@ import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/
     CsController,
     ReviewsController,
     ReturnTransfersController,
+    SellpiaOrderTransmissionController,
   ],
   providers: [
     OrdersService,
     OrderCollectionService,
     OrderCollectionMallAccountService,
+    CoupangDirectPoSnapshotService,
     CoupangDirectshipService,
     ReturnsService,
     CsService,
@@ -46,6 +54,8 @@ import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/
     ReturnTransfersService,
     CoupangDirectOrderCollectionService,
     CoupangDirectOrderCollectionTransactionAdapter,
+    SellpiaOrderTransmissionService,
+    SellpiaOrderTransmissionRepositoryAdapter,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,
@@ -53,6 +63,14 @@ import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT,
       useExisting: CoupangDirectOrderCollectionTransactionAdapter,
+    },
+    {
+      provide: SELLPIA_ORDER_TRANSMISSION_PORT,
+      useExisting: SellpiaOrderTransmissionService,
+    },
+    {
+      provide: SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT,
+      useExisting: SellpiaOrderTransmissionRepositoryAdapter,
     },
   ],
 })

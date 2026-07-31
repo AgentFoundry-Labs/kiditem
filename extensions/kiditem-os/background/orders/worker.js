@@ -213,6 +213,14 @@ const TEACHERVILLE_ORDER_URL = "https://shop.teacherville.co.kr/selleradmin/orde
 const TEACHERVILLE_TAB_MATCHES = ["https://shop.teacherville.co.kr/*"];
 const ART09_ORDER_URL = "https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1";
 const ART09_TAB_MATCHES = ["https://zzogzzog1.cafe24.com/*"];
+
+// 해법몰(제니마켓 mallseller) 입점업체 관리자 — 주문건수목록.
+// ⭐엑셀 다운로드(basket_excel.php)는 암호 ZIP 이라 자동화가 어렵지만, 주문 상세 팝업
+// (pop_order_info.php)이 수취인·주소·연락처·상품·금액을 모두 주므로 다운로드 없이 수집한다.
+const HAEBEOP_ORDER_URL = "https://mallseller.genimarket.co.kr/mall/order/basket_list.php";
+const HAEBEOP_TAB_MATCHES = ["https://mallseller.genimarket.co.kr/*"];
+// 목록 검색의 "협력사" 기본값(우리 공급사명). 고객사(search_shop_name)와 혼동 주의.
+const HAEBEOP_DEFAULT_VENDOR = "거영아이앤디";
 const ICECREAM_DELIVERY_HEADERS = [
   "No",
   "주문번호",
@@ -629,6 +637,15 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.action === "uploadKidkidsTracking") {
+    uploadKidkidsTracking({ rows: Array.isArray(msg.rows) ? msg.rows : [] })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({ success: false, error: error?.message || "키드키즈 송장 업로드 실패" });
+      });
+    return true;
+  }
+
   if (msg?.action === "collectDomeggookOrders") {
     return respond(orderCollectionLifecycle.run(
       msg,
@@ -658,7 +675,18 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(orderCollectionLifecycle.run(
       msg,
       KidItemOrderCollectionLifecycle.createIdentity("kidkids", msg.date),
-      (collection) => collectKidkidsOrders(msg.date, collection),
+      (collection) => collectKidkidsOrders(msg.date, msg.planDate, collection),
+    ));
+  }
+
+  if (msg?.action === "collectHaebeopOrders") {
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("haebub-mall", msg.date),
+      (collection) => collectHaebeopOrders(
+        { date: msg.date, fromDate: msg.fromDate, toDate: msg.toDate, vendor: msg.vendor },
+        collection,
+      ),
     ));
   }
 
@@ -1734,9 +1762,9 @@ async function scrapeOnchannelOrders(dateFilter) {
   }
 }
 
-// ── 키드키즈(kidkids) 주문 수집: 출고관리 목록(logis_index) + 주문서(logis_down5) 스크랩 ──
-// 목록 CheckBox2[delivery_plan_date] 속성으로 출고예정일 필터 → od별 발주서01(logis_down5) POST
-// (단일 od 도 주문 전체품목 반환) → om 기준 그룹핑. 가격·우편번호는 발주서에만 있어 필수 단계.
+// ── 키드키즈(kidkids) 주문 수집: 출고관리 목록(logis_index) → (planDate 시)출고예정등록 → 발주서02(logis_down4) ──
+// 목록을 헤더 기준으로 읽어 od(CheckBox2)를 앵커 없이 모으고, planDate 가 오면 출고예정 미지정 주문에
+// 출고예정일을 지정(mode=ain)한 뒤 발주서02(logis_down4)를 배치 조회해 주소·우편번호·공급단가까지 확보한다.
 async function findOrCreateKidkidsTab() {
   const tabs = await chrome.tabs.query({ url: KIDKIDS_TAB_MATCHES });
   const mgmtTab = tabs.find((tab) => (tab.url || "").includes("/logis/management.htm"));
@@ -1749,7 +1777,7 @@ async function findOrCreateKidkidsTab() {
   return { tab, created: true };
 }
 
-async function collectKidkidsOrders(dateFilter, collection) {
+async function collectKidkidsOrders(dateFilter, planDate, collection) {
   const { tab, created } = await findOrCreateKidkidsTab();
   if (!tab?.id) return { success: false, error: "키드키즈(partner.kidkids.net) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
@@ -1764,7 +1792,8 @@ async function collectKidkidsOrders(dateFilter, collection) {
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: scrapeKidkidsOrders,
-        args: [dateFilter || ""], // "YYYY-MM-DD" 면 그 출고예정일만 (없으면 전체)
+        // dateFilter: "YYYY-MM-DD" 면 그 주문일만(없으면 전체). planDate: 있으면 출고예정 미지정 주문에 출고예정일 지정.
+        args: [dateFilter || "", planDate || ""],
       }),
       180000,
       "키드키즈 주문 수집 시간이 초과되었습니다.",
@@ -1786,6 +1815,270 @@ async function collectKidkidsOrders(dateFilter, collection) {
         /* 이미 닫힘 — 무시 */
       }
     }
+  }
+}
+
+// ── 해법몰(genimarket mallseller) 주문 수집: 목록(basket_list) + 주문상세(pop_order_info) 스크랩 ──
+// ⭐다운로드 없이 수집한다. 엑셀 다운로드(basket_excel.php)는 암호 ZIP 을 요구해 자동화가 어렵지만,
+// 주문 상세 팝업이 수취인·주소·우편번호·연락처·상품·금액을 전부 담고 있어 그걸 읽는다.
+// 검색 조건: search_ord_status=OY(결제완료), search_mall_name=협력사(우리 공급사명).
+// ⚠️search_shop_name 은 "고객사"라 협력사명을 넣으면 0건이 된다.
+// 상세에 없는 값(공급단가·제조사)은 빈칸으로 남고, 백엔드 변환기가 고정값 컬럼을 채운다.
+async function findOrCreateHaebeopTab() {
+  const tabs = await chrome.tabs.query({ url: HAEBEOP_TAB_MATCHES });
+  if (tabs[0]?.id) {
+    if (!(tabs[0].url || "").includes("/mall/order/")) {
+      await chrome.tabs.update(tabs[0].id, { url: HAEBEOP_ORDER_URL }); // 백그라운드
+      return { tab: await chrome.tabs.get(tabs[0].id), created: false };
+    }
+    return { tab: tabs[0], created: false }; // 기존 주문 화면 재사용
+  }
+  const tab = await chrome.tabs.create({ url: HAEBEOP_ORDER_URL, active: false });
+  return { tab, created: true };
+}
+
+async function collectHaebeopOrders(options, collection) {
+  const { tab, created } = await findOrCreateHaebeopTab();
+  if (!tab?.id) return { success: false, error: "해법몰(mallseller.genimarket.co.kr) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
+  // 주문마다 상세를 받으므로 길어질 수 있다. MV3 유휴 종료(=port closed) 방지 keepalive.
+  const keepAlive = setInterval(() => {
+    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
+  }, 20000);
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: scrapeHaebeopOrders,
+        args: [{
+          date: options?.date || "",
+          fromDate: options?.fromDate || "",
+          toDate: options?.toDate || "",
+          vendor: options?.vendor || HAEBEOP_DEFAULT_VENDOR,
+        }],
+      }),
+      180000,
+      "해법몰 주문 수집 시간이 초과되었습니다.",
+    );
+    const result = injected[0]?.result ?? { success: false, error: "해법몰 화면에 접근하지 못했습니다." };
+    if (result && result.loginRequired) { keepOpen = created; return mallAccessErrorResult("해법몰"); }
+    return result;
+  } catch (e) {
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("해법몰"); }
+    return mallGenericErrorResult("해법몰", e);
+  } finally {
+    clearInterval(keepAlive);
+    if (created && tab.id && !keepOpen) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+// mallseller.genimarket.co.kr 페이지 컨텍스트: 목록 POST → orderid 수집 → 주문상세 GET → 주문 객체.
+async function scrapeHaebeopOrders(options) {
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const num = (s) => Number(String(s || "").replace(/[^0-9.-]/g, "")) || 0;
+  try {
+    if (/login/i.test(location.href) || document.querySelector('input[type="password"]')) {
+      return { success: false, loginRequired: true };
+    }
+    const vendor = options?.vendor || "";
+    // 발주일 범위: fromDate~toDate, 없으면 date 하루, 그것도 없으면 오늘.
+    const today = (() => { const d = new Date(); const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })();
+    const from = options?.fromDate || options?.date || today;
+    const to = options?.toDate || options?.date || today;
+
+    // 1) 목록 검색 (결제완료 = OY). 페이지 링크가 있는 만큼 모두 읽어야 주문을 조용히 누락하지 않는다.
+    const listRows = [];
+    const queuedPages = [1];
+    const fetchedPages = new Set();
+    const MAX_LIST_PAGES = 100;
+    while (queuedPages.length) {
+      const page = queuedPages.shift();
+      if (!page || fetchedPages.has(page)) continue;
+      if (fetchedPages.size >= MAX_LIST_PAGES) {
+        return { success: false, error: "해법몰 목록 페이지가 100페이지를 초과했습니다. 조회 조건을 좁혀 다시 시도하세요." };
+      }
+      fetchedPages.add(page);
+      const body = new URLSearchParams();
+      body.set("search_on", "ture");         // 사이트 원본 오타 그대로 보내야 검색이 걸린다
+      body.set("page", String(page));
+      body.set("s_status", "");
+      body.set("search_ord_status", "OY");   // 결제완료
+      body.set("str_date", from);
+      body.set("end_date", to);
+      body.set("search_shop_name", "");      // 고객사(비움)
+      body.set("search_mall_name", vendor);  // 협력사
+      body.set("searchopt", "prdcode");
+      body.set("searchkey", "");
+      body.set("s_member_grp", "");
+      body.set("search_orderid", "");
+      const listRes = await fetch("/mall/order/basket_list.php", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+      if (!listRes.ok) return { success: false, error: "해법몰 목록 조회 실패 (페이지 " + page + ", HTTP " + listRes.status + ")" };
+      const listHtml = new TextDecoder("utf-8").decode(await listRes.arrayBuffer());
+      if (/login|로그인/i.test(String(listRes.url || ""))) return { success: false, loginRequired: true };
+      const ldoc = new DOMParser().parseFromString(listHtml, "text/html");
+      if (ldoc.querySelector('input[type="password"]')) return { success: false, loginRequired: true };
+
+      // 목록 행: 선택 체크박스(select_checkbox)를 가진 tr.
+      // ⚠️hidden orderid/idx 는 행 단위로 격리돼 있지 않다(중첩 테이블 하나에 전 행의 hidden 이 모여 있어
+      // tr.querySelector 로는 잡히지 않는다). 그래서 주문번호는 목록 셀에서 읽는다.
+      // 셀 구성: [선택][주문날짜][주문번호][주문자명][그룹][상품명][주문방법][은행/입금자][기능]
+      for (const cb of ldoc.querySelectorAll('input[name="select_checkbox"]')) {
+        let tr = cb;
+        while (tr && tr.tagName !== "TR") tr = tr.parentElement;
+        if (!tr) continue;
+        const c = [...tr.cells].map((td) => norm(td.textContent));
+        const orderid = (c[2] || "").replace(/[^0-9]/g, "");
+        if (!orderid) continue;
+        listRows.push({
+          orderid,
+          orderDate: c[1] || "",   // 2026-07-31 19:54:20
+          ordName: c[3] || "",     // 주문자명
+          group: c[4] || "",       // 그룹(일반 등)
+          listProduct: c[5] || "",
+          payMethod: c[6] || "",   // 주문방법 ("신 + 포") — 셀피아 양식의 결제방법 표기와 같다
+        });
+      }
+      for (const link of ldoc.querySelectorAll('a[href]')) {
+        const href = link.getAttribute('href') || '';
+        const nextPage = Number(new URL(href, location.href).searchParams.get('page'));
+        if (Number.isInteger(nextPage) && nextPage > 0 && !fetchedPages.has(nextPage)) {
+          queuedPages.push(nextPage);
+        }
+      }
+    }
+    if (!listRows.length) return { success: true, orders: [], count: 0 }; // 결제완료 신규 없음(정상)
+
+    // 2) 주문 상세 파서 — 한 orderid 안에 여러 상품(basket)이 올 수 있다.
+    const parseDetail = (html) => {
+      const d = new DOMParser().parseFromString(html, "text/html");
+      const val = (n) => { const e = d.querySelector(`[name="${n}"]`); return e ? norm(e.value) : ""; };
+      // 상품행: select_basket_no 체크박스가 있는 tr = [_, 업체명, _, 상품명, 수량, 판매단가, 금액, 운송장, 상태, ...]
+      const items = [];
+      for (const cb of d.querySelectorAll('input[name="select_basket_no"]')) {
+        let tr = cb;
+        while (tr && tr.tagName !== "TR") tr = tr.parentElement;
+        if (!tr) continue;
+        const c = [...tr.cells].map((x) => norm(x.textContent));
+        items.push({
+          basket: norm(cb.value), vendor: c[1] || "", name: c[3] || "",
+          qty: num(c[4]), unit: num(c[5]), sum: num(c[6]),
+          invoice: c[7] === "-" ? "" : (c[7] || ""), status: c[8] || "",
+        });
+      }
+      // 결제방법: 라벨 셀 다음 셀
+      let payMethod = "";
+      for (const tr of d.querySelectorAll("tr")) {
+        const c = [...tr.cells];
+        for (let i = 0; i + 1 < c.length; i += 1) {
+          if (norm(c[i].textContent) === "결제방법" && !payMethod) payMethod = norm(c[i + 1].textContent);
+        }
+      }
+      // 배송비 = 총결제금액 - 상품금액 합계 (상세에 배송비 단독 필드가 없다)
+      const total = num(val("total_price"));
+      const itemsSum = items.reduce((s, it) => s + it.sum, 0);
+      const shipFee = Math.max(0, total - itemsSum);
+      return {
+        items, payMethod, total, shipFee,
+        prdcode: val("prdcode"),
+        sendId: val("send_id"), sendName: val("send_name"), sendEmail: val("send_email"),
+        sendTel: val("send_tphone"), sendMobile: val("send_hphone"),
+        sendPost: val("send_post"), sendAddr: val("send_address"),
+        recvName: val("rece_name"), recvEmail: val("rece_email"),
+        recvTel: val("rece_tphone"), recvMobile: val("rece_hphone"),
+        recvPost: val("rece_post"), recvAddr: val("rece_address"),
+        demand: val("demand"), memo: val("descript"),
+      };
+    };
+
+    // 3) orderid 별로 한 번만 상세를 받는다(같은 주문의 여러 상품이 목록에 각각 행으로 나온다).
+    const detailByOrder = new Map();
+    const detailFailures = new Map();
+    const orderIds = [...new Set(listRows.map((r) => r.orderid))];
+    const CONCURRENCY = 4;
+    for (let i = 0; i < orderIds.length; i += CONCURRENCY) {
+      await Promise.all(orderIds.slice(i, i + CONCURRENCY).map(async (oid) => {
+        try {
+          const res = await fetch("/mall/order/pop_order_info.php?orderid=" + encodeURIComponent(oid), {
+            credentials: "include",
+          });
+          if (!res.ok) {
+            detailFailures.set(oid, "HTTP " + res.status);
+            return;
+          }
+          const html = new TextDecoder("utf-8").decode(await res.arrayBuffer());
+          detailByOrder.set(oid, parseDetail(html));
+        } catch (error) {
+          detailFailures.set(oid, String((error && error.message) || error || "네트워크 오류"));
+        }
+      }));
+    }
+    if (detailFailures.size) {
+      const failures = orderIds
+        .filter((oid) => detailFailures.has(oid))
+        .map((oid) => oid + " (" + detailFailures.get(oid) + ")");
+      return { success: false, error: "해법몰 주문 상세 조회 실패: " + failures.join(", ") };
+    }
+
+    // 4) 주문 단위로 펼친다. 목록은 "어떤 주문이 결제완료인가"만 알려주고, 상품·금액·주소는 상세에서 온다.
+    //    상세 상품행(basket)이 곧 셀피아 한 행이며 등록번호가 된다. 한 주문에 여러 상품이면 여러 행.
+    //    같은 주문이 목록에 여러 번 나와도 상세는 한 번만 펼친다.
+    const orders = [];
+    const expanded = new Set();
+    for (const r of listRows) {
+      if (expanded.has(r.orderid)) continue;
+      expanded.add(r.orderid);
+      const d = detailByOrder.get(r.orderid);
+      if (!d) return { success: false, error: "해법몰 주문 상세 조회 실패: " + r.orderid };
+      // 결제완료 상태의 상품행만(목록 검색 조건과 같은 의미). 상태를 못 읽으면 전부 포함한다.
+      const paid = d.items.filter((it) => !it.status || it.status.includes("결제완료"));
+      const targets = paid.length ? paid : d.items;
+      targets.forEach((item, i) => {
+        orders.push({
+          orderNo: r.orderid,
+          regNo: item.basket,                 // 등록번호 = 장바구니 번호
+          vendor: item.vendor || vendor,
+          productName: item.name,
+          productCode: d.prdcode,
+          option: "",
+          qty: item.qty,
+          sellPrice: item.unit,
+          sellAmount: item.sum,
+          shipFee: i === 0 ? d.shipFee : 0,   // 배송비는 주문당 1회(첫 상품행)
+          payMethod: r.payMethod || d.payMethod,
+          orderDate: r.orderDate,
+          invoice: item.invoice,
+          ordName: d.sendName || r.ordName,
+          group: r.group,
+          ordId: d.sendId,
+          ordEmail: d.sendEmail,
+          ordTel: d.sendTel,
+          ordMobile: d.sendMobile,
+          ordPost: d.sendPost,
+          ordAddr: d.sendAddr,
+          recvName: d.recvName,
+          recvTel: d.recvTel,
+          recvMobile: d.recvMobile,
+          recvPost: d.recvPost,
+          recvAddr: d.recvAddr,
+          demand: d.demand,
+          memo: d.memo,
+          status: item.status || "결제완료",
+        });
+      });
+    }
+    return { success: true, orders, count: orders.length, detailCount: detailByOrder.size };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
   }
 }
 
@@ -3160,8 +3453,18 @@ async function scrapeAlwayzOrders() {
   }
 }
 
-// partner.kidkids.net 페이지 컨텍스트: 목록 HTML fetch → 출고예정일 필터 → od별 발주서 fetch → om 그룹.
-async function scrapeKidkidsOrders(dateFilter) {
+// partner.kidkids.net 페이지 컨텍스트: 목록(logis_index) → (planDate 시)출고예정등록 → 발주서02(logis_down4) 스크랩.
+//
+// ⚠️예전 방식(앵커 href + delivery_plan_date 필터)은 "출고예정일 미지정" 신규 주문을 통째로 놓쳤다.
+// 신규 주문은 (1) CheckBox2 의 delivery_plan_date 가 비어 있고 (2) 상품명 링크(logis_down.htm)가
+// "출고예정일을 입력하지 않았습니다" alert 로 대체돼, 두 조건 모두에서 걸러졌기 때문이다.
+// 이제 목록을 헤더 기준으로 읽어 od(CheckBox2.value) 를 앵커 없이 모으고, planDate 가 오면 출고예정
+// 미지정 주문에 한해 출고예정등록(go_plandate 재현: mode=ain)으로 출고예정일을 지정한 뒤, 발주서02
+// (logis_down4.htm)를 mul_id 배치로 받아 주소·우편번호·공급단가까지 한 번에 확보한다.
+//   · 발주서01 = logis_down5.htm (예전 사용, 3테이블·상품표 2회 렌더)
+//   · 발주서02 = logis_down4.htm (단일 평면표: 주문×품목 1행, 우편번호/주소/공급단가/배송단가 포함)
+//   · 조인 키 = 발주서02 "키코드" 열 == CheckBox2.value(od)
+async function scrapeKidkidsOrders(dateFilter, planDate) {
   const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
   const num = (s) => Number(String(s || "").replace(/[^0-9.-]/g, "")) || 0;
   const isAuthenticationGateUrl = (value) => {
@@ -3171,6 +3474,9 @@ async function scrapeKidkidsOrders(dateFilter) {
       /\/security\/verify_user\.htm(?:[?#]|$)/.test(normalized)
     );
   };
+  // 헤더 행에서 라벨을 포함하는 열 인덱스를 찾는다(고정 인덱스 대신 헤더 기준 → 컬럼 이동에 견고).
+  const colFinder = (headerRow) => (label) =>
+    headerRow ? [...headerRow.cells].findIndex((c) => norm(c.textContent).includes(label)) : -1;
   try {
     // 키드키즈는 로그인 직후 별도 본인확인 화면으로 이동할 수 있다. 이 화면은
     // 주문 목록이 아니므로 0건 성공으로 처리하지 않고 운영자 확인을 요청한다.
@@ -3186,110 +3492,203 @@ async function scrapeKidkidsOrders(dateFilter) {
     // 미로그인이면 logis_index 요청이 로그인 페이지(partnerLogin/partner_login)로 리다이렉트되어
     // CheckBox2 행이 하나도 없다. 이걸 "주문 0건"과 구분하지 못하면 프론트가 "출고예정일 미지정"으로
     // 잘못 안내한다. 로그인 리다이렉트/비밀번호 폼을 감지해 명시적으로 로그인 필요를 신호한다.
-    if (!ldoc.querySelector('input[name="CheckBox2"]')) {
+    const firstCb = ldoc.querySelector('input[name="CheckBox2"]');
+    if (!firstCb) {
       const looksLikeLogin =
         isAuthenticationGateUrl(finalUrl) ||
         Boolean(ldoc.querySelector('input[type="password"]'));
       if (looksLikeLogin) return { success: false, loginRequired: true };
+      return { success: true, orders: [], count: 0 }; // 로그인 상태의 빈 목록 = 정상 0건
     }
-    const seen = [];
-    for (const cb of ldoc.querySelectorAll('input[name="CheckBox2"]')) {
-      const dpd = cb.getAttribute("delivery_plan_date") || "";
-      if (!dpd) continue; // 출고예정일 미지정 = 주문서 조회 불가
-      if (dateFilter && !dpd.startsWith(dateFilter)) continue; // 그 출고예정일만
+
+    // CheckBox2 가 있는 목록 테이블 + 헤더 컬럼 매핑.
+    let table = firstCb;
+    while (table && table.tagName !== "TABLE") table = table.parentElement;
+    if (!table) return { success: true, orders: [], count: 0 };
+    const rows = [...table.rows];
+    const headerRow = rows.find((r) => [...r.cells].some((c) => /상품명/.test(c.textContent)));
+    const lc = colFinder(headerRow);
+    const li = {
+      ordName: lc("주문자명"),
+      product: lc("상품명"),
+      qty: lc("수량"),
+      tel: lc("전화"),
+      mobile: lc("휴대폰"),
+      orderDate: lc("주문일"),
+      orderNo: lc("주문번호"),
+      planDate: lc("출고예정일"),
+    };
+
+    // 목록 행 파싱(앵커 비의존). dateFilter 주면 주문일 기준 그날만.
+    const listRows = [];
+    for (const cb of table.querySelectorAll('input[name="CheckBox2"]')) {
       let tr = cb;
       while (tr && tr.tagName !== "TR") tr = tr.parentElement;
       if (!tr) continue;
-      const a = tr.querySelector('a[href*="logis_down.htm"]');
-      if (!a) continue;
-      const href = a.getAttribute("href") || "";
-      const om = (href.match(/om=(\d+)/) || [])[1] || "";
-      const ordName = norm(a.textContent); // 주문자명(유치원) = 앵커 텍스트
-      const cells = [...tr.querySelectorAll("td")].map((td) => norm(td.textContent));
-      const orderDate = cells.find((c) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(c)) || "";
-      seen.push({ od: cb.value, om, ordName, orderDate });
+      const cells = [...tr.cells];
+      const cell = (i) => (i >= 0 && cells[i] ? norm(cells[i].textContent) : "");
+      const orderDate = cell(li.orderDate); // "2026-07-31 15:56:29"
+      if (dateFilter && orderDate && !orderDate.startsWith(dateFilter)) continue;
+      listRows.push({
+        od: cb.value,
+        orderNo: cell(li.orderNo) || cb.value, // 다품목 그룹 키(=om proxy)
+        ordName: cell(li.ordName), // 주문자명(유치원) — 발주서02 "이름"보다 풀네임
+        orderDate,
+        listProduct: cell(li.product),
+        listQty: num(cell(li.qty)),
+        tel: cell(li.tel),
+        mobile: cell(li.mobile),
+        dpd: cb.getAttribute("delivery_plan_date") || cell(li.planDate),
+      });
     }
-    if (!seen.length) {
-      return { success: true, orders: [], count: 0 }; // 해당 출고예정일 주문 없음 (정상)
+    if (!listRows.length) {
+      return { success: true, orders: [], count: 0 }; // 필터 결과 0건 (정상)
     }
 
-    // 발주서01(logis_down5) 파서: 첫 공급단가 테이블 품목 + 받는사람 정보. (상품표 2회 렌더 → 첫 것만)
-    const parseDown = (html) => {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const items = [];
-      let name = "";
-      let addr = "";
-      let tel = "";
-      let mobile = "";
-      let msg = "";
-      let done = false;
-      for (const t of doc.querySelectorAll("table")) {
-        const trs = [...t.rows];
-        const isHdr = trs.some((tr) => [...tr.cells].map((c) => norm(c.textContent)).join("|").includes("공급단가"));
-        if (isHdr && !done) {
-          for (const tr of trs) {
-            const c = [...tr.cells].map((x) => norm(x.textContent));
-            if (c.length >= 6 && /^\d{4,}$/.test(c[0]) && c[1]) {
-              items.push({ name: c[1], qty: num(c[2]), unit: num(c[4]), sum: num(c[5]) });
-            }
-          }
-          if (items.length) done = true;
-        }
-        for (const tr of trs) {
-          const c = [...tr.cells].map((x) => norm(x.textContent));
-          for (let i = 0; i + 1 < c.length; i++) {
-            if (c[i] === "받는 사람 이름" && !name) name = c[i + 1];
-            if (c[i] === "받는 사람 주소" && !addr) addr = c[i + 1];
-            if (c[i] === "전화" && !tel) tel = c[i + 1];
-            if (c[i] === "휴대폰" && !mobile) mobile = c[i + 1];
-            if (c[i] === "배송 요청사항" && !msg) msg = c[i + 1];
-          }
+    // 2) 출고예정등록(선택): planDate 가 오면 출고예정일 미지정 주문에 한해 mode=ain 으로 지정.
+    //    이미 예정일이 있는 주문은 건드리지 않는다(재확인 alert·실주문 예정일 변경 방지). 되돌리기
+    //    가능한 soft 상태 지정이며, 발송완료(mode=aan)와는 다르다.
+    let planned = 0;
+    if (planDate) {
+      const targets = listRows.filter((r) => !r.dpd).map((r) => r.od);
+      if (targets.length) {
+        try {
+          const body = new URLSearchParams();
+          body.set("from_logis_index", "Y");
+          body.set("mode", "ain");
+          body.set("delivery_dt", planDate);
+          body.set("mul_id", "|" + targets.join("|"));
+          const pr = await fetch("/sales/sales_process.htm", {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: body.toString(),
+          });
+          if (pr.ok) planned = targets.length;
+        } catch {
+          /* 출고예정등록 실패해도 발주서02 는 미지정 주문도 반환하므로 수집은 진행 */
         }
       }
-      return { items, name, addr, tel, mobile, msg };
+    }
+
+    // 3) 주문번호(om proxy) 기준 대표 od 하나씩 → 발주서02 배치 조회(mul_id 파이프).
+    const byOrderNo = new Map();
+    for (const r of listRows) if (!byOrderNo.has(r.orderNo)) byOrderNo.set(r.orderNo, r);
+    const reps = [...byOrderNo.values()];
+
+    // 발주서02(logis_down4) 파서: 단일 평면표. 헤더행 + (주문×품목)당 데이터행.
+    const parseDown4 = (html) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const t = doc.querySelector("table");
+      if (!t) return [];
+      const trs = [...t.rows];
+      const hdr = trs.find((r) => [...r.cells].some((c) => /상품명/.test(c.textContent)));
+      if (!hdr) return [];
+      const hc = colFinder(hdr);
+      const ci = {
+        name: hc("이름"), tel: hc("전화"), mobile: hc("휴대폰"), zip: hc("우편번호"), addr: hc("주소"),
+        product: hc("상품명"), option: hc("옵션"), qty: hc("수량"), unit: hc("공급단가"), sum: hc("합계"),
+        msg: hc("배송요청"), key: hc("키코드"),
+      };
+      const out = [];
+      for (const r of trs) {
+        if (r === hdr) continue;
+        const cells = [...r.cells];
+        const get = (i) => (i >= 0 && cells[i] ? norm(cells[i].textContent) : "");
+        const key = get(ci.key);
+        const product = get(ci.product);
+        if (!key || !product) continue;
+        out.push({
+          key, product, option: get(ci.option), qty: num(get(ci.qty)),
+          unit: num(get(ci.unit)), sum: num(get(ci.sum)),
+          zip: get(ci.zip), addr: get(ci.addr), tel: get(ci.tel), mobile: get(ci.mobile), msg: get(ci.msg),
+        });
+      }
+      return out;
     };
 
-    // 2) od별 발주서 fetch → om 기준 그룹핑 (첫 od 품목 = 주문 전체품목).
-    const byOm = new Map();
-    const CONCURRENCY = 4;
-    for (let i = 0; i < seen.length; i += CONCURRENCY) {
-      await Promise.all(
-        seen.slice(i, i + CONCURRENCY).map(async (o) => {
-          if (byOm.has(o.om)) return; // 다품목: 이미 다른 od 로 전체 수집됨
-          try {
-            const body = new URLSearchParams();
-            body.set("from_logis_index", "Y");
-            body.set("mul_id", "|" + o.od);
-            body.set("mode", "");
-            const res = await fetch("/logis/logis_down5.htm", {
-              method: "POST",
-              credentials: "include",
-              headers: { "content-type": "application/x-www-form-urlencoded" },
-              body: body.toString(),
-            });
-            const buf = await res.arrayBuffer();
-            const html = new TextDecoder("euc-kr").decode(buf); // 발주서 = euc-kr
-            const d = parseDown(html);
-            if (!d.items.length) return;
-            byOm.set(o.om, {
-              om: o.om,
-              ordName: o.ordName,
-              orderDate: o.orderDate,
-              recvName: d.name,
-              recvAddr: d.addr,
-              recvTel: d.tel,
-              recvMobile: d.mobile,
-              recvMsg: d.msg,
-              items: d.items,
-            });
-          } catch {
-            /* 개별 주문서 실패 — 스킵 */
-          }
-        }),
-      );
+    // 발주서02 는 mul_id 파이프로 여러 주문을 한 번에 반환한다. URL 길이 방어 위해 80건씩 청크.
+    const down4Rows = [];
+    const CHUNK = 80;
+    for (let i = 0; i < reps.length; i += CHUNK) {
+      const ids = reps.slice(i, i + CHUNK).map((r) => r.od);
+      try {
+        const body = new URLSearchParams();
+        body.set("from_logis_index", "Y");
+        body.set("mul_id", "|" + ids.join("|"));
+        body.set("mode", "xls_down");
+        const res = await fetch("/logis/logis_down4.htm", {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+        });
+        const html = new TextDecoder("euc-kr").decode(await res.arrayBuffer()); // 발주서 = euc-kr
+        down4Rows.push(...parseDown4(html));
+      } catch {
+        /* 청크 실패 — 스킵 */
+      }
     }
-    const orders = [...byOm.values()];
-    return { success: true, orders, count: orders.length };
+
+    // 4) 키코드(od) 기준으로 발주서02 행을 묶고, 목록과 조인.
+    const itemsByKey = new Map();
+    const seenByKey = new Map(); // 다품목 om 확장으로 인한 동일 품목 중복 방지
+    const recvByKey = new Map();
+    for (const row of down4Rows) {
+      if (!itemsByKey.has(row.key)) {
+        itemsByKey.set(row.key, []);
+        seenByKey.set(row.key, new Set());
+      }
+      const dedupeKey = [row.product, row.option, row.qty, row.unit].join("|");
+      const seen = seenByKey.get(row.key);
+      if (!seen.has(dedupeKey)) {
+        seen.add(dedupeKey);
+        itemsByKey.get(row.key).push(row);
+      }
+      if (!recvByKey.has(row.key)) recvByKey.set(row.key, row);
+    }
+
+    const orders = [];
+    for (const rep of reps) {
+      const rows4 = itemsByKey.get(rep.od) || [];
+      const recv = recvByKey.get(rep.od);
+      // 발주서02 상품명은 끝에 "[수량]"을 붙인다(예: "...(1BOX/12개)[3]"). 셀피아 상품명·매칭에는
+      // 이 꼬리표가 없어야 하므로, 그 품목의 수량과 정확히 일치하는 끝 대괄호만 떼어낸다
+      // (정품명에 든 대괄호나 "[키드아이템]" 접두는 보존).
+      const stripQtyTag = (nameStr, qty) =>
+        String(nameStr || "").replace(new RegExp("\\[\\s*" + qty + "\\s*\\]\\s*$"), "").trim();
+      // 발주서02 가 비면(예외) 목록 정보라도 채워 누락을 막는다(가격은 0).
+      const items = rows4.length
+        ? rows4.map((it) => {
+            const base = stripQtyTag(it.product, it.qty);
+            return {
+              name: it.option ? `${base} ${it.option}`.trim() : base,
+              qty: it.qty,
+              unit: it.unit,
+              sum: it.sum,
+            };
+          })
+        : rep.listProduct
+          ? [{ name: rep.listProduct, qty: rep.listQty, unit: 0, sum: 0 }]
+          : [];
+      if (!items.length) continue;
+      const zip = recv ? recv.zip : "";
+      const addr = recv ? recv.addr : "";
+      orders.push({
+        om: rep.orderNo,
+        // 셀피아 양식의 "이름"은 발주서02 "이름"(짧은 기관명, 예: 풍산초)을 쓴다. 목록 주문자명
+        // (풍산초 병설유치원)이 아니다. 발주서02 이름이 없을 때만 목록 주문자명으로 보완한다.
+        ordName: (recv && recv.name) || rep.ordName,
+        orderDate: rep.orderDate,
+        recvName: (recv && recv.name) || rep.ordName,
+        recvAddr: [zip, addr].filter(Boolean).join(" "), // 변환기가 "우편번호 주소" 접두로 zip 분리
+        recvTel: (recv && recv.tel) || rep.tel,
+        recvMobile: (recv && recv.mobile) || rep.mobile,
+        recvMsg: recv ? recv.msg : "",
+        items,
+      });
+    }
+    return { success: true, orders, count: orders.length, planned };
   } catch (e) {
     return { success: false, error: String((e && e.message) || e) };
   }
@@ -4684,6 +5083,7 @@ async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
     kidkids: KIDKIDS_ORDER_URL,
     boribori: BORIBORI_ORDER_URL,
     art09: ART09_ORDER_URL,
+    "haebub-mall": HAEBEOP_ORDER_URL,
     "icecream-mall": ICECREAM_MALL_URL,
     "teacher-mall": TEACHERVILLE_ORDER_URL,
     "gs-shop": GSSHOP_ORDER_URL,
@@ -5998,6 +6398,144 @@ async function scrapeOnchUpload(rows) {
   }
 }
 
+// ── 키드키즈(kidkids) 송장 등록(발송처리) ──
+// 수집의 역방향. 셀피아 채번 송장(주문번호↔송장)을 출고관리 목록에 주입해 출고완료 처리한다.
+// 조작자 흐름: 주문번호로 행을 찾아 CJ대한통운 아래 입력칸(deliveryTxt_{od})에 송장 주입 → 출고선택
+// (CheckBox) 체크 → 하단 "출고 완료 등록"(go_reg). go_reg 재현: POST /sales/sales_process.htm
+// mode=aan, mul_id=|ods, delivery_no=|송장. ⚠️출고완료는 되돌리기 어려운 파괴적 동작이므로 웹에서
+// 명시적 확인(confirm) 후에만 이 액션이 호출되어야 한다.
+async function uploadKidkidsTracking(options = {}) {
+  const rows = Array.isArray(options.rows) ? options.rows : [];
+  if (rows.length === 0) return { success: false, error: "키드키즈 송장이 없습니다." };
+  const { tab, created } = await findOrCreateKidkidsTab();
+  if (!tab?.id) return { success: false, error: "키드키즈(partner.kidkids.net) 탭을 열 수 없습니다." };
+  // 파괴적(출고완료 확정) → 사용자 화면을 앞으로.
+  await interactiveTabs.focusTab(tab.id, INTERACTIVE_TAB_REASONS.TRACKING_MUTATION);
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: scrapeKidkidsTrackingUpload,
+        args: [rows],
+      }),
+      120000,
+      "키드키즈 송장 업로드 시간이 초과되었습니다.",
+    );
+    const result = injected[0]?.result ?? { success: false, error: "키드키즈 화면에 접근하지 못했습니다." };
+    if (result && result.loginRequired) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
+    if (!result.success) keepOpen = true; // 실패 시 사용자가 확인하도록 탭 유지
+    return result;
+  } catch (e) {
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
+    return mallGenericErrorResult("키드키즈", e);
+  } finally {
+    if (created && tab.id && !keepOpen) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+// partner.kidkids.net 페이지 컨텍스트: 목록에서 주문번호→출고선택 CheckBox(od) 매핑 → 송장 주입/체크
+// → go_reg 재현(POST /sales/sales_process.htm mode=aan). rows=[{orderNo, invNo, courier?}].
+async function scrapeKidkidsTrackingUpload(rows) {
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+  try {
+    if (/login|partnerlogin|partner_login/i.test(location.href) || document.querySelector('input[type="password"]')) {
+      return { success: false, loginRequired: true };
+    }
+    // 출고선택(CheckBox)이 있는 목록 테이블 + 주문번호 컬럼 인덱스.
+    const firstCb = document.querySelector('input[name="CheckBox"]');
+    if (!firstCb) return { success: false, error: "출고관리 목록을 찾지 못했습니다. (로그인/화면 확인)" };
+    let table = firstCb;
+    while (table && table.tagName !== "TABLE") table = table.parentElement;
+    if (!table) return { success: false, error: "출고관리 목록 테이블을 찾지 못했습니다." };
+    const trs = [...table.rows];
+    const hdr = trs.find((r) => [...r.cells].some((c) => /주문번호/.test(c.textContent)));
+    const orderNoCol = hdr ? [...hdr.cells].findIndex((c) => norm(c.textContent).includes("주문번호")) : -1;
+
+    // 주문번호 → { cb(출고선택), od } 매핑.
+    const byOrderNo = {};
+    for (const cb of table.querySelectorAll('input[name="CheckBox"]')) {
+      let tr = cb;
+      while (tr && tr.tagName !== "TR") tr = tr.parentElement;
+      if (!tr) continue;
+      const ono = orderNoCol >= 0 ? norm(tr.cells[orderNoCol]?.textContent) : "";
+      if (ono && !byOrderNo[ono]) byOrderNo[ono] = { cb, od: cb.value, tr };
+    }
+
+    // 택배사(CJ대한통운) select 옵션값 확정 — 하드코딩 대신 옵션 텍스트에서 찾는다.
+    const resolveCourierValue = (tr, courierText) => {
+      const sel = tr && tr.querySelector('select[name="logis_company_id"]');
+      if (!sel) return { sel: null, value: "" };
+      const want = String(courierText || "CJ대한통운").replace(/\s+/g, "");
+      const opt = [...sel.options].find((o) => norm(o.textContent).replace(/\s+/g, "").includes(want));
+      return { sel, value: opt ? opt.value : "" };
+    };
+
+    const targets = [];
+    const results = [];
+    for (const r of rows) {
+      const ono = String(r.orderNo || r.ordNo || "").trim();
+      const inv = String(r.invNo || r.trackingNo || "").trim();
+      if (!ono || !inv) { results.push({ orderNo: ono, ok: false, reason: "주문번호/송장 없음" }); continue; }
+      const hit = byOrderNo[ono];
+      if (!hit) { results.push({ orderNo: ono, ok: false, reason: "목록에 없음(이미 발송/기간 밖)" }); continue; }
+      // CJ대한통운 아래 송장 입력칸(deliveryTxt_{od})에 주입.
+      const input = document.querySelector(`[name="deliveryTxt_${hit.od}"], #deli_no_${hit.od}`);
+      if (!input) { results.push({ orderNo: ono, ok: false, reason: "송장 입력칸 없음" }); continue; }
+      input.value = inv;
+      // 택배사 select = CJ대한통운.
+      const { sel, value } = resolveCourierValue(hit.tr, r.courier);
+      if (sel && value) sel.value = value;
+      // 출고선택 체크.
+      hit.cb.checked = true;
+      targets.push({ od: hit.od, inv, courierValue: value });
+      results.push({ orderNo: ono, ok: true, reason: "" });
+    }
+
+    if (!targets.length) {
+      return {
+        success: false,
+        submitted: false,
+        total: rows.length,
+        okCount: 0,
+        listSize: Object.keys(byOrderNo).length,
+        results: results.slice(0, 60),
+        error: "주입 가능한 주문이 없습니다.",
+      };
+    }
+
+    // go_reg 재현: 출고완료(발송처리) 확정 POST. 서버는 |파이프 조인 mul_id/delivery_no 를 읽는다.
+    const body = new URLSearchParams();
+    body.set("from_logis_index", "Y");
+    body.set("mode", "aan");
+    body.set("mul_id", "|" + targets.map((t) => t.od).join("|"));
+    body.set("delivery_no", "|" + targets.map((t) => t.inv).join("|"));
+    const courierValue = targets.find((t) => t.courierValue)?.courierValue;
+    if (courierValue) body.set("logis_company_id", String(courierValue));
+    const res = await fetch("/sales/sales_process.htm", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    // hiddenFrame 제출과 달리 직접 POST 는 응답을 받는다. 다만 키드키즈는 성공 시 목록 HTML 을 반환할
+    // 뿐 명확한 성공 코드가 없어, HTTP ok 를 "제출됨"으로만 보고한다(실제 반영은 목록 재조회로 확인 권장).
+    return {
+      success: res.ok,
+      submitted: res.ok,
+      total: rows.length,
+      okCount: res.ok ? targets.length : 0,
+      listSize: Object.keys(byOrderNo).length,
+      results: results.slice(0, 60),
+    };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
 async function uploadDomeggookTracking(options = {}) {
   const fileBase64 = typeof options.fileBase64 === "string" ? options.fileBase64 : "";
   const fileName = typeof options.fileName === "string" ? options.fileName : "도매꾹_송장.xls";
@@ -6155,6 +6693,8 @@ KidItemDomains.register({
     sellpiaScopedAutoInvoiceV1: true,
     uploadDomeggookTracking: true,
     uploadOnchTracking: true,
+    uploadKidkidsTracking: true,
+    collectHaebeopOrders: true,
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,
   },

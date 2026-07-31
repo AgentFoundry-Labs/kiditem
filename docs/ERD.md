@@ -30,8 +30,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Channels](erd/channels.md) | 23 |
 | [Core](erd/core.md) | 15 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 14 |
-| [Orders](erd/orders.md) | 11 |
+| [Inventory](erd/inventory.md) | 12 |
+| [Orders](erd/orders.md) | 13 |
 | [Sourcing](erd/sourcing.md) | 12 |
 | [Supply](erd/supply.md) | 10 |
 | [System](erd/system.md) | 9 |
@@ -135,8 +135,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ReturnTransfer | Inventory | `return_transfers` | - |
 | SellpiaInventorySku | Inventory | `sellpia_inventory_skus` | One physical Sellpia product-code row and its latest imported current stock. |
 | SellpiaInventoryState | Inventory | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
-| SellpiaOrderTransmissionIntent | Inventory | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission and its post-submit inventory generation. |
-| SellpiaOrderTransmissionIntentReconciliation | Inventory | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | SellpiaReceiptUploadBatch | Inventory | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | Inventory | `stock_audits` | - |
 | StockTransfer | Inventory | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates SellpiaInventorySku.currentStock. |
@@ -148,6 +146,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | OrderReturn | Orders | `order_returns` | 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class. |
 | OrderReturnLineItem | Orders | `order_return_line_items` | 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. return FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | Review | Orders | `reviews` | 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을 |
+| SellpiaOrderTransmissionIntent | Orders | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
+| SellpiaOrderTransmissionIntentReconciliation | Orders | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | Settlement | Orders | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 | Shipment | Orders | `shipments` | - |
 | ShipmentItem | Orders | `shipment_items` | Order-line shipment detail. |

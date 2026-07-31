@@ -3,8 +3,8 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from '@/lib/extension-bridge';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 
 export type WingCatalogSortKey = 'sales' | 'revenue' | 'views' | 'conversion' | 'reviews';
 
@@ -102,6 +102,7 @@ export async function searchWingCatalogProducts(input: {
   }
 
   const runId = await issueBrowserCollectionRunId(input.runId);
+
   const response = await sendToExtension<WingCatalogSearchResponse>(extensionId, {
     action: 'searchWingCatalogProducts',
     keyword,

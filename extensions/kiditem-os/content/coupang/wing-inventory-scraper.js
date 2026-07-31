@@ -115,6 +115,7 @@
         primaryImageUrl: collector.normalizeImageUrl(
           image?.getAttribute("src") || image?.src || "",
         ),
+        saleStatus: collector.saleStatusFromText(row.innerText || row.textContent || ""),
       };
     }).filter((record) => record.externalProductId);
 

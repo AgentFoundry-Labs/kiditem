@@ -105,6 +105,7 @@ export function isBrowserCollectableMall(account: OrderCollectionMallAccount): b
   if (account.key === 'teacher-mall') return true;
   if (account.key === 'coupang-direct') return true;
   if (account.key === 'art09') return true;
+  if (account.key === 'haebub-mall') return true;
   return account.key === ICECREAM_MALL_KEY && account.configured && account.enabled;
 }
 

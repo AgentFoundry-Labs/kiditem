@@ -27,22 +27,27 @@ manage local generated-file history.
   for operator convenience only.
 - Before invoking the irreversible Sellpia extension submit, durably prepare
   the backend key `rocket-final-order:{sourceImportRunId}:{transport}`; the
-  generated file uses that stable key as its ID. If preparation fails or returns
-  `already_prepared` or `already_finalized`, do not invoke the extension unless
-  an owner/admin explicitly confirms in the UI that Sellpia did not receive the
-  file. That recovery records an audited `not_submitted` reconciliation, reopens
-  the same stable intent key, and prepares it again before one retry. Without
-  that explicit confirmation, an `already_prepared` file remains blocked for
-  operator verification and an already-finalized file remains idempotent.
+  generated file uses that stable key as its ID. If preparation fails, do not
+  invoke the extension. When preparation returns `already_prepared` and the
+  local file has no submission marker, invoke the extension again and rely on
+  Sellpia's order-level duplicate validation; the unresolved intent must not
+  hard-block retry. A local submission marker recovers an `already_prepared`
+  intent by finalizing it without resubmission, and an `already_finalized` file
+  remains idempotent. An owner/admin-confirmed retry of a locally submitted or
+  finalized file records an audited `not_submitted` reconciliation, reopens the
+  same stable intent key, and prepares it again before one retry.
   `{ submitted: true }` is valid only after the extension observes Sellpia
-  upload evidence such as newly accepted pending rows. It immediately finalizes
-  a strictly newer freshness generation before local
-  `transmissionRequestedAt` persistence and freshness/history invalidation.
+  upload evidence such as newly accepted pending rows. It finalizes only the
+  Orders-owned transmission intent before local `transmissionRequestedAt`
+  persistence.
   Only explicit `{ submitted: false }` aborts the intent for safe retry;
-  extension errors and tab crashes remain unresolved for operator verification
-  but do not block other collection or inventory synchronization. An explicit
-  Sellpia rejection displays the provider message and may offer manual inventory
-  synchronization; it never automatically refreshes or resubmits.
+  extension errors and tab crashes leave the intent prepared, but a later retry
+  is allowed and Sellpia rejects already-received orders. They do not block
+  other collection or inventory synchronization. An explicit
+  Sellpia rejection displays the provider message exactly and offers no
+  Inventory synchronization action. The browser submission flow does not read
+  freshness, pre-check local stock, invalidate Inventory queries, request a
+  refresh, or automatically resubmit; Sellpia validates stock from the workbook.
   Normalize legacy `sentAt` while reading only; new writes use
   `transmissionRequestedAt`.
 - Mall account reads/writes go through route-local API helpers.
@@ -67,15 +72,16 @@ manage local generated-file history.
 - For PA, server `SourceImportRun` and `Order` rows are durable truth; local
   generated-file history is only a convenience cache.
 - Rocket workflow completion requires all matched transport intents to be
-  finalized and a newer verified Sellpia generation; collection alone does not
-  complete or subtract stock.
+  finalized; collection alone does not complete or subtract stock, and
+  completion does not wait for Inventory synchronization.
 - Do not expose unmasked personal data in preview tables unless backend and
   route policy explicitly allow it.
 - Keep extension capabilities aligned with `extensions/order-collector`.
 - Require `sellpiaOrderFileUploadEvidenceV1` before sending an order file. Do
   not label a click without upload evidence as accepted or completed, auto-resend it,
-  debounce refresh requests in the client, mutate stock locally, or infer
-  freshness. The server owns transmission settle/coalescing policy.
+  mutate stock locally, infer freshness, or couple order submission to
+  Inventory state or actions. The Orders API owns durable transmission state
+  and audit independently; Sellpia owns order-level duplicate validation.
 
 ## Verification
 

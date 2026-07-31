@@ -4,9 +4,7 @@ import { isChannelListingOnSale } from './channel-listing-sale-status';
 describe('isChannelListingOnSale', () => {
   it.each([
     'active',
-    'APPROVED',
     'ON_SALE',
-    '승인완료',
     '활성',
     '판매중',
   ])('recognizes %s as an on-sale channel status', (status) => {
@@ -15,6 +13,8 @@ describe('isChannelListingOnSale', () => {
 
   it.each([
     null,
+    'APPROVED',
+    '승인완료',
     '승인반려',
     '비활성',
     '단종',

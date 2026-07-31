@@ -99,6 +99,64 @@ export async function uploadOnchTrackingViaExtension(rows: SellpiaTrackingRow[])
   };
 }
 
+export interface KidkidsTrackingUploadResultRow {
+  orderNo: string;
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * ⚠️파괴적: 확장이 키드키즈 출고관리 목록에서 주문번호로 행을 찾아 CJ대한통운 아래 입력칸에 송장을
+ * 주입하고 출고선택 후 출고완료(발송처리, go_reg = mode=aan)로 확정한다. 프론트가 사용자 확인 후에만 호출.
+ * ⚠️조인 주의: 셀피아 송장 ordNo(판매처주문번호)와 키드키즈 목록 주문번호가 일치해야 매칭된다.
+ */
+export async function uploadKidkidsTrackingViaExtension(rows: SellpiaTrackingRow[]): Promise<{
+  total: number;
+  okCount: number;
+  listSize: number;
+  submitted: boolean;
+  results: KidkidsTrackingUploadResultRow[];
+}> {
+  const extensionId = await detectOrderCollectionExtensionId();
+  if (!extensionId) {
+    throw new Error('주문수집 확장프로그램이 필요합니다. partner.kidkids.net 로그인 후 다시 시도하세요.');
+  }
+  const payload = rows.map((row) => ({
+    orderNo: row.ordNo,
+    invNo: row.invNo,
+    courier: COURIER_NAME[row.courier] ?? 'CJ대한통운', // 확장은 택배사 이름으로 select 옵션을 찾는다
+  }));
+  const res = await sendToExtension<{
+    success?: boolean;
+    submitted?: boolean;
+    total?: number;
+    okCount?: number;
+    listSize?: number;
+    results?: KidkidsTrackingUploadResultRow[];
+    error?: string;
+  }>(extensionId, { action: 'uploadKidkidsTracking', rows: payload }, 130000);
+  if (!res?.success) throw new Error(res?.error ?? '키드키즈 송장 업로드에 실패했습니다.');
+  return {
+    total: res.total ?? rows.length,
+    okCount: res.okCount ?? 0,
+    listSize: res.listSize ?? 0,
+    submitted: res.submitted === true,
+    results: Array.isArray(res.results) ? res.results : [],
+  };
+}
+
+export interface IcecreamUploadResult {
+  success: boolean;
+  injected?: boolean;
+  needsAuth?: boolean;
+  message?: string;
+  error?: string;
+}
+
+// 아이스크림몰 출고완료 업로드는 네이티브 파일 다이얼로그를 거쳐야 해 확장 자동화가 불가능하다.
+// 파일만 만들어 주고 업로드는 화면의 [파일선택]으로 사람이 올린다(order-tracking-actions 참조).
+// 예전 uploadIcecreamTrackingViaExtension 브리지는 실제 등록으로 이어지지 않아 제거했다.
+
 async function blobToBase64(blob: Blob): Promise<string> {
   const buf = new Uint8Array(await blob.arrayBuffer());
   let bin = '';
@@ -154,6 +212,7 @@ const SELLPIA_PROVIDER_BY_MALL: Record<string, string[]> = {
   'coupang-direct': ['쿠팡-직배송', '쿠팡직배송'],
   'gs-shop': ['gs샵'],
   kidkids: ['키드키즈'], // 아직 셀피아 송장 미확인(발송 시 매핑)
+  'haebub-mall': ['해법몰'], // 아직 셀피아 송장 미확인(발송 시 판매처명 확인 필요)
   always: ['올웨이즈', '이레빗'],
 };
 
@@ -249,7 +308,7 @@ export async function collectSellpiaDeliTrackingFromExtension(options?: {
   const extensionId = options?.run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에 로드하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
+      '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os를 Chrome에 로드하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
     );
   }
   const res = await sendToExtension<SellpiaTrackingResponse>(

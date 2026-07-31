@@ -31,7 +31,6 @@ function listingInclude(organizationId: string) {
       select: { id: true, code: true, name: true, imageUrls: true },
     },
     options: {
-      where: { organizationId, isActive: true },
       orderBy: [{ updatedAt: 'desc' as const }, { id: 'asc' as const }],
       include: {
         productVariant: {
@@ -477,14 +476,12 @@ function matchingListingWhere(
 ): Prisma.ChannelListingWhereInput {
   return {
     organizationId,
-    isActive: true,
     OR: [
       { lastImportRun: { is: completedCatalogRunWhere(organizationId) } },
       {
         options: {
           some: {
             organizationId,
-            isActive: true,
             rawJson: {
               path: ['source'],
               equals: PUBLISHED_BROWSER_CATALOG_SOURCE,
@@ -530,6 +527,7 @@ function toProductQueueRow(listing: ListingRow): ChannelProductMatchingQueueRow 
       externalId: listing.externalId,
       displayName: listing.displayName,
       status: listing.status,
+      saleStatus: saleStatusFromListing(listing),
       masterProductId: listing.masterProductId,
       channelImageUrl: null,
       updatedAt: listing.updatedAt,
@@ -610,6 +608,41 @@ function optionIdentity(option: OptionRow) {
     productVariantId: option.productVariantId,
     updatedAt: option.updatedAt,
   };
+}
+
+function saleStatusFromListing(listing: ListingRow): string | null {
+  const raw = asRecord(listing.rawJson);
+  const rawStatus = firstString(raw, [
+    'saleStatus',
+    'salesStatus',
+    'sale_status',
+    '판매상태',
+  ]);
+  if (rawStatus) return rawStatus;
+
+  const optionSaleStatus = listing.options
+    .map((option) => option.status)
+    .find((status) => isExplicitOnSaleStatus(status));
+  if (optionSaleStatus) return optionSaleStatus;
+
+  return isKoreanSaleListingStatus(listing.status) ? listing.status : null;
+}
+
+function isExplicitOnSaleStatus(status: string | null | undefined): boolean {
+  const normalized = status?.trim().toLocaleLowerCase();
+  return normalized === 'on_sale'
+    || normalized === 'selling'
+    || normalized === 'sale'
+    || normalized === '판매중'
+    || normalized === '판매 중'
+    || normalized === '활성';
+}
+
+function isKoreanSaleListingStatus(status: string | null | undefined): boolean {
+  const normalized = status?.trim();
+  return normalized === '판매중'
+    || normalized === '판매 중'
+    || normalized === '활성';
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

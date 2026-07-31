@@ -395,8 +395,6 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
 | Organization | organization | referenced by external | Inventory | SellpiaInventorySku |
 | Organization | organization | referenced by external | Inventory | SellpiaInventoryState |
-| Organization | organization | referenced by external | Inventory | SellpiaOrderTransmissionIntent |
-| Organization | organization | referenced by external | Inventory | SellpiaOrderTransmissionIntentReconciliation |
 | Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
 | Organization | organization | referenced by external | Inventory | StockAudit |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
@@ -408,6 +406,8 @@ erDiagram
 | Organization | organization | referenced by external | Orders | OrderReturn |
 | Organization | organization | referenced by external | Orders | OrderReturnLineItem |
 | Organization | organization | referenced by external | Orders | Review |
+| Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntent |
+| Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | Organization | organization | referenced by external | Orders | Settlement |
 | Organization | organization | referenced by external | Orders | Shipment |
 | Organization | organization | referenced by external | Orders | ShipmentItem |
@@ -466,10 +466,10 @@ erDiagram
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
 | User | createdByUser | referenced by external | AI | ProductPreparation |
 | User | creator | referenced by external | Inventory | InventoryCommitment |
-| User | creator | referenced by external | Inventory | SellpiaOrderTransmissionIntent |
+| User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
-| User | reconciler | referenced by external | Inventory | SellpiaOrderTransmissionIntentReconciliation |
+| User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | releaser | referenced by external | Inventory | InventoryCommitment |

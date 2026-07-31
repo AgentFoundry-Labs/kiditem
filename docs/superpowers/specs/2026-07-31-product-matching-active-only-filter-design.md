@@ -11,10 +11,11 @@ not inspect KidItem `MasterProduct` activity or Sellpia inventory activity.
 
 Add a `판매중 상품만` checkbox beside the existing search and matching-status
 filters. It is checked on first entry. While checked, only rows whose provider
-status represents an on-sale listing appear. The accepted values cover the
-normalized API state (`active`, `APPROVED`, `ON_SALE`) and imported Korean
-catalog states (`승인완료`, `활성`, `판매중`). Unchecking it includes listings in
-all statuses.
+sale status explicitly represents an on-sale listing appear. `승인완료` and
+`APPROVED` are approval states, not sale states, and must not make a listing
+pass this filter. Accepted on-sale values are the sale-state forms such as
+`판매중`, `판매 중`, `ON_SALE`, `selling`, `sale`, `active`, and `true`.
+Unchecking it includes listings in all statuses.
 
 The checkbox combines with account, search, and matching-status filters before
 pagination. Changing it resets the page to 1. `필터 초기화` restores the checked
@@ -22,9 +23,14 @@ default.
 
 ## URL And Data Flow
 
-The existing mapping response already includes `listing.status`, so filtering
-is performed in the route without a backend or shared-contract change. The
-default checked state is represented by the absence of a query parameter.
+The mapping response exposes `listing.saleStatus` separately from
+`listing.status`. Browser catalog discovery preserves the visible Wing row sale
+status and catalog publication stores it in the listing raw payload. Matching
+queue reads prefer that explicit sale status. `listing.status` remains the
+provider approval/listing lifecycle status and is not used by the active-only
+filter.
+
+The default checked state is represented by the absence of a query parameter.
 Unchecking writes `activeOnly=false`; loading that URL restores the unchecked
 state. Back/forward navigation updates the checkbox and visible rows.
 
@@ -39,10 +45,15 @@ make the two views disagree.
 Route tests cover the checked default, exclusion of non-active listings,
 unchecked inclusion, URL restoration, page reset, and filter reset. Run the
 focused product-hub test suite followed by the required frontend build and full
-Vitest suite.
+Vitest suite. Shared, server, and extension tests cover preserving discovery
+`saleStatus`, carrying it through catalog publication, and refusing to confuse
+approval-only statuses with on-sale statuses.
 
 ## Scope
 
-Only the product-matching route, its progress display, and durable tests change.
-No channel import, matching decision, recipe automation mutation, API, or
-persistence behavior changes.
+The product-matching route, its progress display, the matching queue contract,
+Wing browser catalog discovery, catalog publication, and durable tests change.
+No matching decision, recipe automation mutation, or manual identity-link
+behavior changes. Existing catalog rows collected before `saleStatus` was
+preserved may need a fresh Wing catalog collection before the checked filter can
+show the true current selling count.

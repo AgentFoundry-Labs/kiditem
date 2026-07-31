@@ -58,7 +58,7 @@ export async function collectSellpiaInventory({
     const compatibleExtensionId = await detectOrderCollectionExtensionId(1_200, null);
     if (compatibleExtensionId) {
       throw new SellpiaInventoryExtensionError(
-        'Sellpia 재고 수집을 지원하는 최신 확장프로그램이 필요합니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
+        'Sellpia 재고 수집을 지원하는 최신 확장프로그램이 필요합니다. Chrome 확장 관리에서 extensions/kiditem-os 를 새로고침해주세요.',
         'extension_outdated',
         'sellpia_network_failed',
       );

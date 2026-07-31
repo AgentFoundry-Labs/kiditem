@@ -111,6 +111,7 @@ export const ChannelProductMatchingQueueRowSchema = z.object({
     externalId: z.string().min(1),
     displayName: z.string().nullable(),
     status: z.string().nullable(),
+    saleStatus: z.string().nullable(),
     masterProductId: z.string().uuid().nullable(),
     channelImageUrl: DisplayImageUrlSchema,
     updatedAt: zIsoDate,

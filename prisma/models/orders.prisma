@@ -1,6 +1,53 @@
 // orders.prisma — Orders domain
 
 /// @namespace Orders
+/// @describe Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness.
+model SellpiaOrderTransmissionIntent {
+  id                  String    @id @default(uuid()) @db.Uuid
+  organizationId      String    @map("organization_id") @db.Uuid
+  intentKey           String    @map("intent_key") @db.VarChar(500)
+  status              String    @default("prepared")
+  createdBy           String    @map("created_by") @db.Uuid
+  preparedAt          DateTime  @default(now()) @map("prepared_at") @db.Timestamptz
+  finalizedAt         DateTime? @map("finalized_at") @db.Timestamptz
+  abortedAt           DateTime? @map("aborted_at") @db.Timestamptz
+  finalizedGeneration BigInt?   @map("finalized_generation") @db.BigInt
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization                                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator         User                                           @relation("SellpiaOrderTransmissionIntentCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  reconciliations SellpiaOrderTransmissionIntentReconciliation[]
+
+  @@unique([organizationId, intentKey], map: "sellpia_order_transmission_intents_org_key")
+  @@unique([id, organizationId])
+  @@index([organizationId, status])
+  @@index([createdBy])
+  @@map("sellpia_order_transmission_intents")
+}
+
+/// @namespace Orders
+/// @describe Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome.
+model SellpiaOrderTransmissionIntentReconciliation {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  intentId       String   @map("intent_id") @db.Uuid
+  reconciledBy   String   @map("reconciled_by") @db.Uuid
+  reconciledAt   DateTime @default(now()) @map("reconciled_at") @db.Timestamptz
+  note           String   @db.VarChar(500)
+  outcome        String   @db.VarChar(32)
+
+  organization Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  intent       SellpiaOrderTransmissionIntent @relation(fields: [intentId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  reconciler   User                           @relation("SellpiaOrderTransmissionIntentReconciler", fields: [reconciledBy], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, reconciledAt])
+  @@index([intentId])
+  @@index([reconciledBy])
+  @@map("sellpia_order_transmission_intent_reconciliations")
+}
+
+/// @namespace Orders
 /// @describe 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem.
 model Order {
   id                String  @id @default(uuid()) @db.Uuid

@@ -21,8 +21,6 @@ import {
   SellpiaInventoryHeartbeatRequestDto,
   SellpiaInventoryRefreshRequestDto,
   SellpiaInventorySourceBindingRequestDto,
-  SellpiaOrderTransmissionIntentRequestDto,
-  SellpiaOrderTransmissionIntentReconcileRequestDto,
 } from './dto';
 import type { AuthUser } from '../../../../auth/auth.types';
 
@@ -39,17 +37,6 @@ export class SellpiaInventoryFreshnessController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.freshness.getState({ organizationId, userId: user.id });
-  }
-
-  @Get('order-transmission-intents/unresolved')
-  listUnresolvedOrderTransmissionIntents(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.freshness.listUnresolvedOrderTransmissionIntents({
-      organizationId,
-      userId: user.id,
-    });
   }
 
   @Post('source-binding')
@@ -78,61 +65,6 @@ export class SellpiaInventoryFreshnessController {
       organizationId,
       userId: user.id,
       reason: dto.reason,
-    });
-  }
-
-  @Post('order-transmission-intents/prepare')
-  prepareOrderTransmissionIntent(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Body() dto: SellpiaOrderTransmissionIntentRequestDto,
-  ) {
-    return this.freshness.prepareOrderTransmissionIntent({
-      organizationId,
-      userId: user.id,
-      intentKey: dto.intentKey,
-    });
-  }
-
-  @Post('order-transmission-intents/finalize')
-  finalizeOrderTransmissionIntent(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Body() dto: SellpiaOrderTransmissionIntentRequestDto,
-  ) {
-    return this.freshness.finalizeOrderTransmissionIntent({
-      organizationId,
-      userId: user.id,
-      intentKey: dto.intentKey,
-    });
-  }
-
-  @Post('order-transmission-intents/abort')
-  abortOrderTransmissionIntent(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Body() dto: SellpiaOrderTransmissionIntentRequestDto,
-  ) {
-    return this.freshness.abortOrderTransmissionIntent({
-      organizationId,
-      userId: user.id,
-      intentKey: dto.intentKey,
-    });
-  }
-
-  @Post('order-transmission-intents/reconcile')
-  @Roles('owner', 'admin')
-  reconcileOrderTransmissionIntent(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Body() dto: SellpiaOrderTransmissionIntentReconcileRequestDto,
-  ) {
-    return this.freshness.reconcileOrderTransmissionIntent({
-      organizationId,
-      userId: user.id,
-      intentKey: dto.intentKey,
-      outcome: dto.outcome,
-      note: dto.note,
     });
   }
 

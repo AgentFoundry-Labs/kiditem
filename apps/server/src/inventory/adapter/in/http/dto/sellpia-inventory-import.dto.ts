@@ -24,6 +24,7 @@ export class SellpiaInventoryImportDto {
   @IsIn([
     'initial_snapshot',
     'ttl_expired',
+    // Accepted only to finish a legacy already-claimed generation.
     'order_transmission_requested',
     'same_hash_confirmation',
     'purchase_preflight',

@@ -36,7 +36,6 @@ import {
   SELLPIA_INVENTORY_IMPORT_PORT,
   SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
   SELLPIA_INVENTORY_FRESHNESS_PORT,
-  SELLPIA_INVENTORY_REFRESH_REQUEST_PORT,
   SELLPIA_INVENTORY_SKU_READ_PORT,
   SELLPIA_RECEIPT_BATCH_PORT,
 } from './application/port/in/stock';
@@ -123,7 +122,6 @@ const APPLICATION_PORT_BINDINGS = [
   { provide: INVENTORY_SKU_SNAPSHOT_LIST_PORT, useExisting: InventorySkuSnapshotListService },
   { provide: SELLPIA_INVENTORY_IMPORT_PORT, useExisting: SellpiaInventoryImportService },
   { provide: SELLPIA_INVENTORY_FRESHNESS_PORT, useExisting: SellpiaInventoryFreshnessService },
-  { provide: SELLPIA_INVENTORY_REFRESH_REQUEST_PORT, useExisting: SellpiaInventoryFreshnessService },
   { provide: SELLPIA_INVENTORY_FRESHNESS_GATE_PORT, useExisting: SellpiaInventoryFreshnessService },
   { provide: INVENTORY_AVAILABILITY_PORT, useExisting: InventoryCommitmentService },
   { provide: INVENTORY_COMMITMENT_PORT, useExisting: InventoryCommitmentService },
@@ -189,7 +187,6 @@ const APPLICATION_PORT_BINDINGS = [
   ],
   exports: [
     SELLPIA_INVENTORY_SKU_READ_PORT,
-    SELLPIA_INVENTORY_REFRESH_REQUEST_PORT,
     SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
     INVENTORY_AVAILABILITY_PORT,
     INVENTORY_COMMITMENT_PORT,

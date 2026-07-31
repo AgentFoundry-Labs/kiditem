@@ -184,8 +184,8 @@ test('uses a stable lexical JSON representation and SHA-256 checksum', async () 
 test('derives catalog manifest pages from the exact total count', async () => {
   const helper = loadHelper();
   const records = [
-    { externalProductId: 'p-1', registeredName: '첫 상품', primaryImageUrl: '//image.coupangcdn.com/a.jpg' },
-    { externalProductId: 'p-2', registeredName: '둘째 상품', primaryImageUrl: null },
+    { externalProductId: 'p-1', registeredName: '첫 상품', primaryImageUrl: '//image.coupangcdn.com/a.jpg', saleStatus: '판매중' },
+    { externalProductId: 'p-2', registeredName: '둘째 상품', primaryImageUrl: null, saleStatus: '판매중지' },
   ];
   const items = helper.buildDiscoveryItems(records, 1, 50);
   const manifest = await helper.buildManifest({ totalItems: 1228, pageSize: 50, firstPageItems: items });
@@ -198,12 +198,22 @@ test('derives catalog manifest pages from the exact total count', async () => {
       externalProductId: 'p-1',
       registeredName: '첫 상품',
       primaryImageUrl: 'https://image.coupangcdn.com/a.jpg',
+      saleStatus: '판매중',
     },
     {
       ordinal: 1,
       externalProductId: 'p-2',
       registeredName: '둘째 상품',
       primaryImageUrl: null,
+      saleStatus: '판매중지',
     },
   ]);
+});
+
+test('extracts Wing sale status from inventory row text without confusing approval status', () => {
+  const helper = loadHelper();
+
+  assert.equal(helper.saleStatusFromText('상품명\n판매상태\n판매중\n승인상태\n승인완료'), '판매중');
+  assert.equal(helper.saleStatusFromText('상품명\n판매상태\n판매중지\n승인상태\n승인완료'), '판매중지');
+  assert.equal(helper.saleStatusFromText('상품명\n승인상태\n승인완료'), null);
 });

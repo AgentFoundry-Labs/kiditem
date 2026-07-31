@@ -47,7 +47,7 @@ describe('SourcingPlaywrightRuntimeHandler', () => {
     vi.unstubAllGlobals();
   });
 
-  it('executes sourcing scrape_url with the Sourcing-owned 1688 model extractor before legacy product-scraper scripts', async () => {
+  it('executes sourcing scrape_url with the Sourcing-owned 1688 model extractor before unified extension fallback scripts', async () => {
     const evaluate = vi.fn()
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
@@ -342,7 +342,7 @@ describe('sourcing Playwright runtime helpers', () => {
     expect(detectSourcingPlatform('http://127.0.0.1:3000/?next=1688.com')).toBeNull();
   });
 
-  it('normalizes product-scraper output for the finalized bridge', () => {
+  it('normalizes unified sourcing extractor output for the finalized bridge', () => {
     expect(
       normalizeScrapedData('https://detail.1688.com/offer/1.html', '1688', {
         title: '아동용 스니커즈',

@@ -535,16 +535,20 @@ async function loadExtractorScripts(platform: '1688' | 'ALIBABA'): Promise<Extra
 }
 
 function resolveExtractorDir(): string {
-  const candidates = [
-    resolve(process.cwd(), 'extensions/product-scraper/extractors'),
-    resolve(process.cwd(), '../../extensions/product-scraper/extractors'),
-    resolve(__dirname, '../../../../../../../extensions/product-scraper/extractors'),
+  // 주문수집/쿠팡/소싱 확장 3개를 `extensions/kiditem-os` 하나로 합치면서 소싱
+  // 추출기가 `content/sourcing/extractors` 로 옮겨졌다. 옛 경로도 함께 남겨 두어
+  // 아직 병합 전 체크아웃에서 돌리는 환경이 깨지지 않게 한다.
+  const relatives = [
+    'extensions/kiditem-os/content/sourcing/extractors',
+    'extensions/product-scraper/extractors',
   ];
+  const roots = [process.cwd(), resolve(process.cwd(), '../..'), resolve(__dirname, '../../../../../../..')];
+  const candidates = roots.flatMap((root) => relatives.map((relative) => resolve(root, relative)));
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) {
     throw new AgentOsRuntimeError(
       'sourcing_extractors_missing',
-      `Cannot find product-scraper extractors. Checked: ${candidates.join(', ')}`,
+      `Cannot find sourcing extractors. Checked: ${candidates.join(', ')}`,
     );
   }
   return found;

@@ -206,11 +206,14 @@ export function createBrowserMallCollector({
       './kidkids-orders-api'
     );
     await ensureMallLogin('kidkids', run);
+    // 발주서02는 출고예정등록 없이도 전체 데이터를 반환하므로 수집은 읽기 전용으로 둔다(planDate 미전달).
+    // 출고예정일 지정은 조작자가 출고관리 화면에서 직접 한다(그쪽이 몰이 제안한 출고일로 등록). 확장은
+    // planDate 를 받으면 미지정 주문에 한해 출고예정등록도 할 수 있으나, 실주문 상태변경이라 기본은 끈다.
     const orders = await collectKidkidsOrdersFromExtension(undefined, run);
     if (orders.length === 0) {
       toastNoNewOrders(
         '키드키즈',
-        '출고관리에서 출고예정일을 먼저 지정하세요. 이미 출고처리한 주문은 목록에서 빠집니다.',
+        '이미 출고처리한 주문은 출고관리 목록에서 빠집니다.',
       );
       return 0;
     }
@@ -227,6 +230,39 @@ export function createBrowserMallCollector({
       collectedRows: rows,
       mallKey: 'kidkids',
       mallName: '키드키즈',
+    });
+    return rows;
+  };
+
+  const generateHaebeopSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
+    const { collectHaebeopOrdersFromExtension, convertHaebeopToSellpiaFile } = await import(
+      './haebeop-orders-api'
+    );
+    await ensureMallLogin('haebub-mall', run);
+    // 해법몰은 엑셀 다운로드가 암호 ZIP 이라, 주문 상세 팝업을 읽어 다운로드 없이 수집한다.
+    const orders = await collectHaebeopOrdersFromExtension({ date: collectionDateOf(run) }, run);
+    if (orders.length === 0) {
+      toastNoNewOrders('해법몰', `발주일 ${collectionDateOf(run)} · 결제완료 기준`);
+      return 0;
+    }
+    const result = await convertHaebeopToSellpiaFile(orders, { download: false });
+    const rows = result.outputRows ?? 0;
+    const convertedAt = Date.now();
+    addBrowserGeneratedFile({
+      ...result,
+      // 해법몰은 택배비가 별도 행이 아니라 같은 행의 컬럼이라 "출력행 - 상품행" 주문수 추정이
+      // 0 이 된다. 주문번호를 직접 넘겨 몰 카드 집계와 셀피아 대조가 실주문 기준으로 돌게 한다.
+      orderNumbers: [...new Set(
+        orders.map((order) => String(order.orderNo ?? '').trim()).filter(Boolean),
+      )],
+      id: `${convertedAt}-haebub-mall-browser`,
+      sourceName: `해법몰 주문 (${formatNumber(orders.length)}건)`,
+      convertedAt,
+      collectionDate: collectionDateOf(run),
+      collectionMode: 'browser',
+      collectedRows: rows,
+      mallKey: 'haebub-mall',
+      mallName: '해법몰',
     });
     return rows;
   };
@@ -623,6 +659,7 @@ export function createBrowserMallCollector({
     }
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'art09') return resultFor(await generateArt09Csv(resolvedRun), today);
+    if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
     if (!isBrowserCollectableMall(account)) {
       throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
     }

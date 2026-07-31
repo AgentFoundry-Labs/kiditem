@@ -79,6 +79,20 @@ describe('ChannelProductMatchingRepositoryAdapter candidate search', () => {
 });
 
 describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
+  it('does not use record lifecycle state to omit channel products or options from the matching queue', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      channelListing: { findMany },
+    } as never);
+
+    await repository.listQueue(organizationId, {});
+
+    const query = findMany.mock.calls[0]![0];
+    expect(query.where).not.toHaveProperty('isActive');
+    expect(JSON.stringify(query.where)).not.toContain('"isActive":true');
+    expect(query.include.options).not.toHaveProperty('where');
+  });
+
   it('counts direct links independently from linked-variant recipe readiness', async () => {
     const repository = new ChannelProductMatchingRepositoryAdapter({
       channelListing: {
@@ -118,9 +132,53 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
       },
     });
     expect(queue.products[1]).toMatchObject({
-      listing: { channelImageUrl: null },
+      listing: { channelImageUrl: null, saleStatus: null },
       linkedProduct: { displayImageUrl: 'https://cdn.example.com/operator.jpg' },
     });
+  });
+
+  it('exposes explicit marketplace sale status separately from approval status', async () => {
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      channelListing: {
+        findMany: vi.fn().mockResolvedValue([
+          listing({
+            masterProductId: null,
+            masterProduct: null,
+            status: '승인완료',
+            rawJson: {},
+            options: [unlinkedOption({ status: 'NEW' })],
+          }),
+          listing({
+            masterProductId: null,
+            masterProduct: null,
+            externalId: 'external-sale',
+            status: '승인완료',
+            rawJson: { saleStatus: '판매중' },
+            options: [unlinkedOption({ status: 'NEW' })],
+          }),
+          listing({
+            masterProductId: null,
+            masterProduct: null,
+            externalId: 'external-workbook-sale',
+            status: '승인완료',
+            rawJson: {},
+            options: [unlinkedOption({ status: '판매중' })],
+          }),
+        ]),
+      },
+    } as never);
+
+    const queue = await repository.listQueue(organizationId, {});
+
+    expect(queue.products.map((row) => ({
+      externalId: row.listing.externalId,
+      status: row.listing.status,
+      saleStatus: row.listing.saleStatus,
+    }))).toEqual([
+      { externalId: 'external-unlinked', status: '승인완료', saleStatus: null },
+      { externalId: 'external-sale', status: '승인완료', saleStatus: '판매중' },
+      { externalId: 'external-workbook-sale', status: '승인완료', saleStatus: '판매중' },
+    ]);
   });
 });
 
@@ -128,6 +186,9 @@ function listing({
   masterProductId,
   masterProduct,
   options,
+  externalId,
+  rawJson,
+  status,
 }: {
   masterProductId: string | null;
   masterProduct: {
@@ -137,12 +198,16 @@ function listing({
     imageUrls: string[];
   } | null;
   options: OptionFixture[];
+  externalId?: string;
+  rawJson?: Record<string, unknown>;
+  status?: string | null;
 }) {
   return {
     id: `listing-${masterProductId ?? 'unlinked'}`,
-    externalId: `external-${masterProductId ?? 'unlinked'}`,
+    externalId: externalId ?? `external-${masterProductId ?? 'unlinked'}`,
     displayName: 'Channel listing',
-    status: 'active',
+    status: status ?? 'active',
+    rawJson: rawJson ?? null,
     masterProductId,
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelAccount: { id: 'account-1', channel: 'coupang', name: 'Wing' },
@@ -151,13 +216,14 @@ function listing({
   };
 }
 
-function unlinkedOption() {
+function unlinkedOption(overrides: { status?: string | null } = {}) {
   return {
     id: 'option-unlinked',
     externalOptionId: 'option-unlinked',
     itemName: 'Unlinked option',
     sellerSku: null,
     barcode: null,
+    status: overrides.status ?? null,
     productVariantId: null,
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     productVariant: null,

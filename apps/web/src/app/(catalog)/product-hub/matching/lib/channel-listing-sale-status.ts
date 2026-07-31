@@ -1,9 +1,11 @@
 const ON_SALE_CHANNEL_STATUSES = new Set([
   'active',
-  'approved',
   'on_sale',
-  '승인완료',
+  'sale',
+  'selling',
+  'true',
   '활성',
+  '판매 중',
   '판매중',
 ]);
 
