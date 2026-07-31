@@ -29,10 +29,12 @@ not what an operator does to it. Inventory operations live in
 - Its refresh action schedules the shared Sellpia synchronization. The global
   coordinator owns both inventory and depletion collection; this analysis
   component must not run a second product-profit collector.
-- Every matched destination renders its nullable stored
-  `MasterProduct.abcGrade`; shared SKUs may therefore show multiple destination
-  grades. Filters and summaries use those same values and keep unclassified
-  destinations separate from C.
+- Every matched destination renders its stored grade plus current ABC lifecycle
+  snapshot with the shared compact badge; shared SKUs may show multiple states.
+  A/B/C, NEW, PROVISIONAL, loss, zero-value, data-quality, and unpublished
+  filters use destination snapshots without treating any of them as C.
+  This is display/filter context only: never alter depletion, stock, or reorder
+  formulas and keep policy/profit explanation in Product Management.
 - Destination images are read-only active Coupang catalog media selected for
   the matched option/product. Do not copy the URL into Inventory or use AI
   thumbnail quality grades as product ABC.

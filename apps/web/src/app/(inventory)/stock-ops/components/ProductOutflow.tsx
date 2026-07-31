@@ -18,7 +18,7 @@ const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
 
 // 정렬 키: 고정 지표('avg2m'|'currentStock') 또는 특정 연월("YYYY-MM").
 type SortKey = 'avg2m' | 'currentStock' | string;
-type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C' | 'unclassified';
+type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C' | 'NEW' | 'PROVISIONAL' | 'LOSS' | 'ZERO_VALUE' | 'DATA_QUALITY' | 'unclassified';
 
 export default function ProductOutflow() {
   const [search, setSearch] = useState('');
@@ -134,6 +134,11 @@ function ProductOutflowTable({
     chips.push({ key: 'A', label: 'A등급', count: summary.abcCounts.A, tone: 'emerald' });
     chips.push({ key: 'B', label: 'B등급', count: summary.abcCounts.B, tone: 'sky' });
     chips.push({ key: 'C', label: 'C등급', count: summary.abcCounts.C, tone: 'slate' });
+    chips.push({ key: 'NEW', label: '신상품', count: summary.abcLifecycleCounts.NEW, tone: 'sky' });
+    chips.push({ key: 'PROVISIONAL', label: '예비 등급', count: summary.abcLifecycleCounts.PROVISIONAL, tone: 'violet' });
+    chips.push({ key: 'LOSS', label: '손실', count: summary.abcRiskCounts.loss, tone: 'rose' });
+    chips.push({ key: 'ZERO_VALUE', label: '가치 0', count: summary.abcRiskCounts.zeroValue, tone: 'amber' });
+    chips.push({ key: 'DATA_QUALITY', label: '데이터 확인', count: summary.abcRiskCounts.dataQuality, tone: 'orange' });
     chips.push({ key: 'unclassified', label: '미분류', count: summary.unclassifiedProductCount, tone: 'slate' });
     return chips;
   }, [summary, hasStock]);
@@ -156,9 +161,28 @@ function ProductOutflowTable({
     else if (filter === 'A' || filter === 'B' || filter === 'C') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
         && p.inventoryResolution.destinations.some((destination) => destination.abcGrade === filter));
+    } else if (filter === 'NEW' || filter === 'PROVISIONAL') {
+      list = list.filter((p) => p.inventoryResolution.status === 'matched'
+        && p.inventoryResolution.destinations.some(
+          (destination) => destination.abcEvaluation?.lifecycleStage === filter,
+        ));
+    } else if (filter === 'LOSS' || filter === 'ZERO_VALUE') {
+      list = list.filter((p) => p.inventoryResolution.status === 'matched'
+        && p.inventoryResolution.destinations.some((destination) => {
+          const evaluation = destination.abcEvaluation;
+          return evaluation?.riskFlags.includes(filter)
+            || (filter === 'LOSS' && (evaluation?.grossProfit ?? 0) < 0)
+            || (filter === 'ZERO_VALUE' && evaluation?.grossProfit === 0);
+        }));
+    } else if (filter === 'DATA_QUALITY') {
+      list = list.filter((p) => p.inventoryResolution.status === 'matched'
+        && p.inventoryResolution.destinations.some((destination) => {
+          const evaluation = destination.abcEvaluation;
+          return evaluation !== null && evaluation.eligibilityReason !== 'ELIGIBLE';
+        }));
     } else if (filter === 'unclassified') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.destinations.some((destination) => destination.abcGrade === null));
+        && p.inventoryResolution.destinations.some((destination) => destination.abcEvaluation === null));
     }
 
     const vms: RowVM[] = list.map((row) => {
@@ -212,6 +236,7 @@ function ProductOutflowTable({
                     : c.tone === 'orange' ? 'bg-orange-500 text-white ring-orange-500'
                     : c.tone === 'emerald' ? 'bg-emerald-600 text-white ring-emerald-600'
                     : c.tone === 'sky' ? 'bg-sky-600 text-white ring-sky-600'
+                    : c.tone === 'violet' ? 'bg-violet-600 text-white ring-violet-600'
                     : 'bg-slate-900 text-white ring-slate-900'
                   : 'bg-white text-slate-500 ring-slate-200 hover:bg-slate-50',
               )}

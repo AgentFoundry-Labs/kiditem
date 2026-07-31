@@ -4,18 +4,11 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Package } from 'lucide-react';
 import type { SellpiaProductDestination } from '@kiditem/shared/dashboard';
-import { cn } from '@/lib/utils';
+import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 
 export type ProductOutflowDestinationsProps = {
   destinations: SellpiaProductDestination[];
 };
-
-const ABC_STYLE = {
-  A: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  B: 'bg-sky-50 text-sky-700 ring-sky-200',
-  C: 'bg-slate-100 text-slate-600 ring-slate-200',
-  unclassified: 'bg-amber-50 text-amber-700 ring-amber-200',
-} as const;
 
 export function ProductOutflowDestinations({
   destinations,
@@ -42,8 +35,9 @@ export function ProductOutflowDestinations({
         return (
           <Link
             key={destination.productVariantId}
-            href={`/product-hub/${destination.masterProductId}`}
-            aria-label={alt}
+          href={`/product-hub/${destination.masterProductId}`}
+          aria-label={alt}
+          title={destinationTitle(destination)}
             className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-violet-700 hover:underline"
           >
             {showImage ? (
@@ -68,14 +62,7 @@ export function ProductOutflowDestinations({
             )}
             <span className="min-w-0">
               <span className="block truncate">{alt}</span>
-              <span
-                className={cn(
-                  'mt-0.5 inline-flex rounded px-1 py-px text-[10px] font-bold leading-none ring-1',
-                  ABC_STYLE[destination.abcGrade ?? 'unclassified'],
-                )}
-              >
-                {destination.abcGrade ? `${destination.abcGrade}등급` : '미분류'}
-              </span>
+              <span className="mt-0.5 block"><ProductAbcBadge grade={destination.abcGrade} evaluation={destination.abcEvaluation} compact /></span>
             </span>
           </Link>
         );
@@ -85,4 +72,16 @@ export function ProductOutflowDestinations({
       ) : null}
     </div>
   );
+}
+
+function destinationTitle(destination: SellpiaProductDestination): string {
+  const identity = `${destination.masterProductName} · ${destination.productVariantName}`;
+  const evaluation = destination.abcEvaluation;
+  if (!evaluation) return `${identity} · ABC 평가 미발행`;
+  const stage = evaluation.lifecycleStage === 'NEW'
+    ? '신상품 관찰 중'
+    : evaluation.lifecycleStage === 'PROVISIONAL'
+      ? '예비 등급'
+      : '정식 평가';
+  return `${identity} · 매출총이익 기준 · ${stage} · 관찰 ${evaluation.observedCompleteMonths}개월`;
 }

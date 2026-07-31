@@ -73,6 +73,8 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
       deadStockCount: 0,
       anomalyCount: 0,
       abcCounts: { A: 0, B: 0, C: 0 },
+      abcLifecycleCounts: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 0 },
+      abcRiskCounts: { loss: 0, zeroValue: 0, dataQuality: 0 },
       classifiedProductCount: 0,
       unclassifiedProductCount: 0,
       leadTimeMonths: 1,
@@ -229,6 +231,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
               productVariantName: '기본 옵션',
               unitsPerVariant: 1,
               abcGrade: 'A',
+              abcEvaluation: abcEvaluation({ abcGrade: 'A' }),
               displayImage: null,
             }],
           },
@@ -275,6 +278,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
               productVariantName: '기본 옵션',
               unitsPerVariant: 1,
               abcGrade: null,
+              abcEvaluation: null,
               displayImage: null,
             }],
           },
@@ -300,6 +304,8 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
       deadStockCount: 1,
       anomalyCount: 1,
       abcCounts: { A: 1, B: 0, C: 0 },
+      abcLifecycleCounts: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 1 },
+      abcRiskCounts: { loss: 0, zeroValue: 0, dataQuality: 0 },
       classifiedProductCount: 1,
       unclassifiedProductCount: 1,
       leadTimeMonths: 1,
@@ -337,4 +343,139 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     await waitFor(() => expect(screen.queryByText('발주 대상 상품')).not.toBeInTheDocument());
     expect(screen.getByText('이상치 재고 상품')).toBeInTheDocument();
   });
+
+  it('filters linked SKU rows by lifecycle and risk without treating loss as C', async () => {
+    productSalesApi.fetch.mockResolvedValueOnce(abcSummary());
+    renderProductOutflow();
+
+    expect(await screen.findByText('신상품 SKU')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /신상품\s*1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /예비 등급\s*1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /손실\s*1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /데이터 확인\s*1/ })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '매출총이익' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '기여도' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /신상품\s*1/ }));
+    await waitFor(() => expect(screen.queryByText('공식 C SKU')).not.toBeInTheDocument());
+    expect(screen.getByText('신상품 SKU')).toBeInTheDocument();
+    expect(screen.queryByText('손실 SKU')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /손실\s*1/ }));
+    await waitFor(() => expect(screen.queryByText('신상품 SKU')).not.toBeInTheDocument());
+    expect(screen.getByText('손실 SKU')).toBeInTheDocument();
+    expect(screen.queryByText('공식 C SKU')).not.toBeInTheDocument();
+  });
 });
+
+function abcSummary() {
+  const calculatedAt = '2026-08-01T00:00:00.000Z';
+  return {
+    range: { from: '2026-05', to: '2026-06' },
+    months: ['2026-05', '2026-06'],
+    completeMonths: ['2026-05', '2026-06'],
+    products: [
+      outflowRow('official-a', '공식 A SKU', 'A', abcEvaluation({ abcGrade: 'A' })),
+      outflowRow('official-c', '공식 C SKU', 'C', abcEvaluation({ abcGrade: 'C' })),
+      outflowRow('new', '신상품 SKU', null, abcEvaluation({ lifecycleStage: 'NEW', confidence: 'LOW', observedCompleteMonths: 2, riskFlags: ['LIMITED_HISTORY'] })),
+      outflowRow('provisional', '예비 등급 SKU', null, abcEvaluation({ lifecycleStage: 'PROVISIONAL', confidence: 'LOW', observedCompleteMonths: 4, provisionalGrade: 'B', riskFlags: ['LIMITED_HISTORY'] })),
+      outflowRow('loss', '손실 SKU', null, abcEvaluation({ riskFlags: ['LOSS'], grossProfit: -1 })),
+      outflowRow('zero', '가치 0 SKU', null, abcEvaluation({ riskFlags: ['ZERO_VALUE'], grossProfit: 0 })),
+      outflowRow('missing-cost', '원가 누락 SKU', null, abcEvaluation({ eligibilityReason: 'MISSING_COST', grossCost: null, grossProfit: null })),
+      outflowRow('unclassified', '미분류 SKU', null, null),
+    ],
+    productCount: 8,
+    totalQty: 16,
+    lastCapturedAt: calculatedAt,
+    hasData: true,
+    hasStock: true,
+    stockCapturedAt: calculatedAt,
+    stockGeneration: '13',
+    inventoryResolutionCounts: { matchedSalesRows: 8, mappingRequiredSalesRows: 0, matchedSkus: 8, unlinkedSkus: 0 },
+    reorderCount: 0,
+    deadStockCount: 0,
+    anomalyCount: 0,
+    abcCounts: { A: 1, B: 0, C: 1 },
+    abcLifecycleCounts: { NEW: 1, PROVISIONAL: 1, ESTABLISHED: 5 },
+    abcRiskCounts: { loss: 1, zeroValue: 1, dataQuality: 1 },
+    classifiedProductCount: 2,
+    unclassifiedProductCount: 1,
+    leadTimeMonths: 1,
+  };
+}
+
+function outflowRow(
+  suffix: string,
+  productName: string,
+  abcGrade: 'A' | 'B' | 'C' | null,
+  abcEvaluationValue: ReturnType<typeof abcEvaluation> | null,
+) {
+  return {
+    productCode: `SKU-${suffix}`,
+    optionCode: '',
+    productName,
+    optionName: null,
+    providerName: '공급처',
+    salePrice: 1_000,
+    buyPrice: 500,
+    barcode: suffix,
+    monthly: [{ yearMonth: '2026-05', orderQty: 1 }, { yearMonth: '2026-06', orderQty: 1 }],
+    qty1m: 1,
+    qty2m: 2,
+    avg2m: 1,
+    totalQty: 2,
+    trend: 'flat',
+    deadStock: false,
+    deadStockReason: null,
+    seasonTag: null,
+    anomaly: false,
+    anomalyReason: null,
+    inventoryResolution: {
+      status: 'matched',
+      sellpiaInventorySkuId: `inventory-${suffix}`,
+      currentStock: 10,
+      activeCommitmentQuantity: 0,
+      availableStock: 10,
+      salesRowCount: 1,
+      destinations: [{
+        masterProductId: `master-${suffix}`,
+        masterProductCode: `MP-${suffix}`,
+        masterProductName: `${productName} 운영 상품`,
+        productVariantId: `variant-${suffix}`,
+        productVariantCode: `PV-${suffix}`,
+        productVariantName: '기본 옵션',
+        unitsPerVariant: 1,
+        abcGrade,
+        abcEvaluation: abcEvaluationValue,
+        displayImage: null,
+      }],
+    },
+    monthsOfAvailableStockLeft: 10,
+    reorderPoint: 0,
+    needsReorder: false,
+  };
+}
+
+function abcEvaluation(overrides = {}) {
+  return {
+    abcGrade: null,
+    provisionalGrade: null,
+    lifecycleStage: 'ESTABLISHED',
+    confidence: 'HIGH',
+    eligibilityReason: 'ELIGIBLE',
+    riskFlags: [],
+    observedCompleteMonths: 12,
+    observationStartMonth: '2025-08',
+    periodMetricValue: 100,
+    rankingValue: 100,
+    grossRevenue: 200,
+    grossCost: 100,
+    grossProfit: 100,
+    grossMarginRate: 50,
+    contributionRate: 70,
+    cumulativeContributionRate: 70,
+    calculatedAt: '2026-08-01T00:00:00.000Z',
+    sourceCapturedAt: '2026-07-31T00:00:00.000Z',
+    ...overrides,
+  };
+}
