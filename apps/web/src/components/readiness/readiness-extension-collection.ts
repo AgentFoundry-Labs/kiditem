@@ -70,8 +70,11 @@ export async function assertCompatibleCoupangCollectionExtension(
     !ping.capabilities?.browserCollectionSessions ||
     !isVersionAtLeast(ping.version, COUPANG_COLLECTION_EXTENSION_MIN_VERSION)
   ) {
+    const installedVersion = ping?.version
+      ? `설치 ${ping.version}, `
+      : '';
     throw new Error(
-      `KIDITEM 쿠팡 확장프로그램 ${COUPANG_COLLECTION_EXTENSION_MIN_VERSION}+가 필요합니다. chrome://extensions에서 새로고침해 주세요.`,
+      `KIDITEM 쿠팡 확장프로그램 버전이 오래되었습니다. (${installedVersion}필요 ${COUPANG_COLLECTION_EXTENSION_MIN_VERSION}+) chrome://extensions에서 새로고침해 주세요.`,
     );
   }
 }

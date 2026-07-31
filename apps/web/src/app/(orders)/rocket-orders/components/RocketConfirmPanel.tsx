@@ -19,7 +19,10 @@ import {
 import { toast } from "sonner";
 import { cn, formatKRW, formatNumber } from "@/lib/utils";
 import {
-  rocketReviewedQuantity,
+  clearCoupangCookiesViaExtension,
+  isCoupangCookieBloatMessage,
+} from "@/lib/coupang-cookie-recovery";
+import {
   rocketReviewedQuantityLimit,
   useRocketPurchaseWorkflow,
 } from "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow";
@@ -48,6 +51,75 @@ function componentQuantityValues(row: RocketPurchasePreviewRow): string {
     )
     .join(" / ");
 }
+
+/**
+ * 이 발주 한 건만 놓고 현재 재고로 몇 개까지 댈 수 있는지.
+ *
+ * 서버의 `maxQuantity` 는 한 미리보기 안에서 같은 SKU 를 나눠 쓰는 행들에 재고를 순서대로
+ * 배분한 값이라 엑셀 대상(거래처확인요청) 행에서만 의미가 있다. 표시용 `all_rows` 스코프는
+ * 이미 발주확정·거래명세서확인까지 포함하므로, 그 배분값을 그대로 쓰면 앞선 과거 발주가
+ * 재고를 다 먹어 뒤 날짜가 전부 0 으로 보인다. 참고 행은 배분 없이 단독으로 계산한다.
+ */
+function standaloneCapacity(row: RocketPurchasePreviewRow): number {
+  if (row.components.length === 0) return 0;
+  const perComponent = row.components.map((component) =>
+    component.quantity > 0
+      ? Math.floor(component.currentStock / component.quantity)
+      : 0,
+  );
+  return Math.max(0, Math.min(row.orderQuantity, ...perComponent));
+}
+
+/**
+ * 이 행에서 확정할 수 있는 최대 수량.
+ *
+ * 거래처확인요청 행은 서버가 SKU 경합까지 배분한 `maxQuantity` 가 유일한 근거다.
+ * 표시용 행은 그 배분에서 굶어 0 이 나오므로 현재 재고 단독 여력을 쓴다.
+ * `insufficient_capacity` 는 부분 확정이 금지된 상태라 항상 0 이다.
+ */
+function rowQuantityLimit(
+  row: RocketPurchasePreviewRow,
+  reviewable: boolean,
+): number {
+  // 부분 확정 금지는 엑셀에 실리는 행에만 걸린다. 표시용 행의 `insufficient_capacity` 는
+  // 선행 발주가 재고를 먼저 가져간 배분의 산물이라 이 행의 실제 여력을 뜻하지 않는다.
+  if (reviewable) {
+    return row.reason === "insufficient_capacity"
+      ? 0
+      : rocketReviewedQuantityLimit(row);
+  }
+  return standaloneCapacity(row);
+}
+
+/**
+ * 확정 수량 기본값. 조작한 값이 있으면 그 값이 이긴다.
+ *
+ * 전량 아니면 0 이다. 재고가 발주 수량을 다 채우지 못하면 부분 확정하지 않고 0 으로 둔다.
+ * 엑셀에 실리는 행의 `insufficient_capacity` 정책과 같은 규칙이라, 표시와 정책이 어긋나지
+ * 않는다. 부분 납품이 필요하면 조작자가 직접 수량을 넣는다.
+ */
+function rowQuantity(
+  row: RocketPurchasePreviewRow,
+  editedQuantity: number | undefined,
+  reviewable: boolean,
+): number {
+  if (reviewable && row.reason === "insufficient_capacity") return 0;
+  const edited = editedQuantity ?? row.editedQuantity;
+  if (edited !== null && edited !== undefined) return edited;
+  if (reviewable) return row.recommendedQuantity;
+  return rowQuantityLimit(row, reviewable) >= row.orderQuantity
+    ? row.orderQuantity
+    : 0;
+}
+
+/** 미리보기 표를 좁혀 보는 분류. 재고를 못 붙였거나 확정이 0 인 행만 골라내기 위한 것. */
+type RowFilter = "all" | "unmatched" | "zero";
+
+const ROW_FILTERS: { key: RowFilter; label: string }[] = [
+  { key: "all", label: "전체" },
+  { key: "unmatched", label: "재고 불일치" },
+  { key: "zero", label: "확정재고 0" },
+];
 
 function isRowReviewBlocked(
   reason: RocketPurchasePreviewRow["reason"],
@@ -78,9 +150,36 @@ export function RocketConfirmPanel({
   const [editingRecipePoLineId, setEditingRecipePoLineId] = useState<
     string | null
   >(null);
-  const [bulkShortageReason, setBulkShortageReason] = useState<
-    RocketShortageReason | ""
-  >("");
+  const [clearingCookies, setClearingCookies] = useState(false);
+  const [rowFilter, setRowFilter] = useState<RowFilter>("all");
+
+  // ⚠️ 파괴적: supplier 쿠키를 지우면 `.coupang.com` 공용 쿠키까지 걸려 WING·로켓에서 모두
+  // 로그아웃된다. 그래서 실행 전에 그 영향 범위를 그대로 알리고 확인을 받는다.
+  async function handleClearCoupangCookies() {
+    if (clearingCookies) return;
+    const confirmed = window.confirm(
+      '쿠팡 쿠키를 정리할까요?\n\n'
+        + 'supplier.coupang.com 쿠키를 지웁니다. 공용 쿠키가 함께 지워져 '
+        + 'WING·로켓 등 모든 쿠팡 사이트에서 로그아웃됩니다. 정리 후 다시 로그인해야 합니다.',
+    );
+    if (!confirmed) return;
+    setClearingCookies(true);
+    const toastId = toast.loading('쿠팡 쿠키 정리 중…');
+    try {
+      const cleared = await clearCoupangCookiesViaExtension();
+      toast.success(
+        `쿠팡 쿠키 ${formatNumber(cleared)}개를 정리했습니다. 쿠팡에 다시 로그인한 뒤 수집해주세요.`,
+        { id: toastId },
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : '쿠팡 쿠키 정리에 실패했습니다.',
+        { id: toastId },
+      );
+    } finally {
+      setClearingCookies(false);
+    }
+  }
 
   useEffect(() => {
     setEditingRecipePoLineId(null);
@@ -89,7 +188,9 @@ export function RocketConfirmPanel({
     editedQuantities,
     setReviewedQuantity,
     preview,
+    displayPreview,
     sourceRows,
+    collectionRows,
     previewDirty,
     setPreviewDirty,
     shortageReasons,
@@ -115,16 +216,66 @@ export function RocketConfirmPanel({
     onActivity,
   });
 
+  // 매입단가는 검토 대상 밖 행에도 필요하므로 수집본 전체에서 찾고, 없으면 검토 행으로 보완한다.
   const sourceByLineId = useMemo(
-    () => new Map(sourceRows.map((row) => [row.poLineId, row])),
+    () =>
+      new Map(
+        [...(collectionRows ?? []), ...sourceRows].map((row) => [
+          row.poLineId,
+          row,
+        ]),
+      ),
+    [collectionRows, sourceRows],
+  );
+  // 표에는 선택한 날짜의 발주를 상태와 무관하게 모두 보여준다(달력 건수와 맞추기 위함).
+  // 수량 입력·엑셀 대상은 거래처확인요청 행(sourceRows)만이며, 그 외는 재고 참고용이다.
+  const reviewableLineIds = useMemo(
+    () => new Set(sourceRows.map(({ poLineId }) => poLineId)),
     [sourceRows],
   );
-  const allRows = preview?.rows ?? [];
+  const allRows = displayPreview?.rows ?? preview?.rows ?? [];
   const rows = allRows;
+  // 분류는 보기만 좁힌다. 합계·부족 행 일괄 적용은 항상 전체 행을 기준으로 둔다.
+  const filterCounts = {
+    all: rows.length,
+    unmatched: rows.filter((row) => row.components.length === 0).length,
+    zero: rows.filter(
+      (row) =>
+        rowQuantity(
+          row,
+          editedQuantities[row.poLineId],
+          reviewableLineIds.has(row.poLineId),
+        ) === 0,
+    ).length,
+  } satisfies Record<RowFilter, number>;
+  const visibleRows =
+    rowFilter === "unmatched"
+      ? rows.filter((row) => row.components.length === 0)
+      : rowFilter === "zero"
+        ? rows.filter(
+            (row) =>
+              rowQuantity(
+                row,
+                editedQuantities[row.poLineId],
+                reviewableLineIds.has(row.poLineId),
+              ) === 0,
+          )
+        : rows;
   const poCount = new Set(rows.map((row) => row.poNumber)).size;
   const previewDates = [
     ...new Set(rows.map((row) => row.plannedDeliveryDate)),
   ].sort();
+  /**
+   * 고른 날짜와 지금 들고 있는 수집본의 날짜가 다른 구간.
+   *
+   * 이때 옛 행을 그대로 그리면 두 가지가 나쁘다. 요청하지 않은 날짜의 발주를 잠깐 보여주고,
+   * 수백 행을 한 번 더 렌더하느라 정작 요청이 늦게 나간다(307행이면 클릭 후 약 0.9초).
+   * 그래서 이 구간에는 행을 그리지 않는다.
+   */
+  const awaitingSelectedDate =
+    Boolean(selectedDate) &&
+    previewDates.length > 0 &&
+    !previewDates.includes(selectedDate);
   const previewRangeLabel =
     previewDates.length === 0
       ? `${from} ~ ${to}`
@@ -132,19 +283,39 @@ export function RocketConfirmPanel({
         ? previewDates[0]!
         : `수집본 전체 ${previewDates[0]} ~ ${previewDates.at(-1)}`;
   const eligibleShortageLineIds = rows.flatMap((row) => {
-    const quantity = rocketReviewedQuantity(
+    const quantity = rowQuantity(
       row,
       editedQuantities[row.poLineId],
+      reviewableLineIds.has(row.poLineId),
     );
     return !isRowReviewBlocked(row.reason) && quantity < row.orderQuantity
       ? [row.poLineId]
       : [];
   });
+  // 부족 행은 사유가 있어야 엑셀이 열린다. 매번 고르게 하지 않고 기본 사유를 미리 넣어 둔다.
+  // 이미 값이 있는 행은 건드리지 않으므로 조작자가 고른 사유를 덮어쓰지 않는다.
+  const shortageSeedKey = eligibleShortageLineIds.join("|");
+  useEffect(() => {
+    if (eligibleShortageLineIds.length === 0) return;
+    setShortageReasons((current) => {
+      const missing = eligibleShortageLineIds.filter((id) => !current[id]);
+      if (missing.length === 0) return current;
+      return {
+        ...current,
+        ...Object.fromEntries(
+          missing.map((id) => [id, ROCKET_SHORTAGE_REASONS[0]]),
+        ),
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shortageSeedKey]);
+
   const confirmTotals = rows.reduce(
     (acc, row) => {
-      const quantity = rocketReviewedQuantity(
+      const quantity = rowQuantity(
         row,
         editedQuantities[row.poLineId],
+        reviewableLineIds.has(row.poLineId),
       );
       const unitPrice =
         sourceByLineId.get(row.poLineId)?.confirmation?.purchasePrice ?? 0;
@@ -152,9 +323,12 @@ export function RocketConfirmPanel({
         qty: acc.qty + quantity,
         amount: acc.amount + unitPrice * quantity,
         short: acc.short + (quantity < row.orderQuantity ? 1 : 0),
+        // 일별 목록을 흡수했으므로 발주 원본 수량·금액도 여기서 같이 보여준다.
+        orderQty: acc.orderQty + row.orderQuantity,
+        orderAmount: acc.orderAmount + unitPrice * row.orderQuantity,
       };
     },
-    { qty: 0, amount: 0, short: 0 },
+    { qty: 0, amount: 0, short: 0, orderQty: 0, orderAmount: 0 },
   );
   const matchRows: RocketMatchStatusRow[] = rows.map((row) => ({
     poLineId: row.poLineId,
@@ -171,6 +345,21 @@ export function RocketConfirmPanel({
     isRocketWorkbookBlockingReason(row.reason),
   );
   const busy = loading || exporting;
+  /**
+   * 엑셀은 "거래처확인요청 발주에 납품 가능 수량을 회신"하는 파일이다. 그래서 그 상태의
+   * 발주가 없으면 만들 게 없어 버튼이 잠긴다. 이유를 적어두지 않으면 고장으로 보인다.
+   */
+  const exportBlockReason = canExport
+    ? null
+    : !preview
+      ? "수집본을 불러오는 중입니다."
+      : preview.rows.length === 0
+        ? "거래처확인요청 상태의 발주가 없어 회신할 내용이 없습니다."
+        : hasBlockingRows
+          ? "상품·재고 연결이 필요한 행이 남아 있습니다."
+          : previewDirty
+            ? "수량을 바꿨습니다. 다시 검증해주세요."
+            : "검토가 끝나지 않은 행이 있습니다.";
 
   function handleExplorerDateSelection(
     _date: string | null,
@@ -188,25 +377,13 @@ export function RocketConfirmPanel({
     await recalculate();
   }
 
-  function applyBulkShortageReason() {
-    if (!bulkShortageReason) return;
-    if (eligibleShortageLineIds.length === 0) return;
-    setShortageReasons((current) => ({
-      ...current,
-      ...Object.fromEntries(
-        eligibleShortageLineIds.map((poLineId) => [
-          poLineId,
-          bulkShortageReason,
-        ]),
-      ),
-    }));
-    setPreviewDirty(true);
-  }
-
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
     const bounded = Math.max(
       0,
-      Math.min(rocketReviewedQuantityLimit(row), quantity),
+      Math.min(
+        rowQuantityLimit(row, reviewableLineIds.has(row.poLineId)),
+        quantity,
+      ),
     );
     setReviewedQuantity(row.poLineId, bounded);
     setShortageReasons((current) => {
@@ -322,6 +499,20 @@ export function RocketConfirmPanel({
           className="rounded-xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-700"
         >
           {error}
+          {/* 쿠키 과다(HTTP 400)는 재시도로 안 풀리고 쿠키를 비워야 복구된다. 그 자리에서 바로 조치. */}
+          {isCoupangCookieBloatMessage(error) ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => void handleClearCoupangCookies()}
+                disabled={clearingCookies}
+                className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              >
+                {clearingCookies ? <Loader2 size={13} className="animate-spin" /> : null}
+                쿠팡 쿠키 정리
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {collectionWarning ? (
@@ -346,40 +537,16 @@ export function RocketConfirmPanel({
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <select
-                  aria-label="전체 납품부족사유"
-                  value={bulkShortageReason}
-                  disabled={busy || eligibleShortageLineIds.length === 0}
-                  onChange={(event) =>
-                    setBulkShortageReason(
-                      event.target.value as RocketShortageReason | "",
-                    )
-                  }
-                  className="max-w-[260px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs disabled:opacity-50"
-                >
-                  <option value="">전체 사유 선택</option>
-                  {ROCKET_SHORTAGE_REASONS.map((reason) => (
-                    <option key={reason} value={reason}>
-                      {reason}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={applyBulkShortageReason}
-                  disabled={
-                    busy ||
-                    !bulkShortageReason ||
-                    eligibleShortageLineIds.length === 0
-                  }
-                  className="whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
-                >
-                  부족 행 전체 적용
-                </button>
-              </div>
               <span className="text-xs text-slate-500">
-                엑셀{" "}
+                발주{" "}
+                <b className="tabular-nums text-slate-900">
+                  {formatNumber(confirmTotals.orderQty)}
+                </b>
+                개 ·{" "}
+                <b className="tabular-nums text-slate-900">
+                  {formatKRW(confirmTotals.orderAmount)}
+                </b>
+                원 / 확정{" "}
                 <b className="tabular-nums text-slate-900">
                   {formatNumber(confirmTotals.qty)}
                 </b>
@@ -424,6 +591,7 @@ export function RocketConfirmPanel({
                 type="button"
                 onClick={() => void handleExport()}
                 disabled={!canExport || busy}
+                title={exportBlockReason ?? undefined}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800",
                   (!canExport || busy) && "pointer-events-none opacity-60",
@@ -436,15 +604,42 @@ export function RocketConfirmPanel({
                 )}
                 쿠팡 엑셀 다운로드
               </button>
+              {exportBlockReason ? (
+                <p className="w-full text-right text-xs text-amber-700">
+                  엑셀 다운로드 불가 — {exportBlockReason}
+                </p>
+              ) : null}
             </div>
           </div>
 
-          <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-2 text-xs text-slate-500">
-            Sellpia 원재고는 물리 재고입니다. 납품가능은 구성수량과 같은
-            수집본의 선행 발주 배정을 반영한 해당 행의 최대 수량입니다.
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-100 bg-slate-50/70 px-5 py-2 text-xs text-slate-500">
+            <div className="flex items-center gap-1">
+              {ROW_FILTERS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={rowFilter === key}
+                  onClick={() => setRowFilter(key)}
+                  className={cn(
+                    "rounded-md border px-2 py-1 font-medium",
+                    rowFilter === key
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-300 bg-white text-slate-600 hover:bg-slate-100",
+                  )}
+                >
+                  {label} {formatNumber(filterCounts[key])}
+                </button>
+              ))}
+            </div>
+            <p className="min-w-[280px] flex-1">
+              Sellpia 원재고는 물리 재고입니다. 납품가능은 거래처확인요청 행이면
+              구성수량과 같은 수집본의 선행 발주 배정까지 반영한 최대 수량이고,
+              이미 진행된 발주 행이면 현재 재고만으로 계산한 참고값입니다. 확정재고는
+              전량 아니면 0 이며, 부분 납품은 직접 수량을 넣어야 합니다.
+            </p>
           </div>
 
-          <div className="max-h-[460px] overflow-auto">
+          <div className="max-h-[calc(100vh-320px)] min-h-[460px] overflow-auto">
             <table className="min-w-[980px] text-sm">
               <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
                 <tr>
@@ -456,13 +651,17 @@ export function RocketConfirmPanel({
                   </th>
                   <th className="px-3 py-2 text-right font-semibold">발주</th>
                   <th className="px-3 py-2 text-right font-semibold">
+                    발주금액
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
                     Sellpia 원재고
                   </th>
+                  <th className="px-3 py-2 text-right font-semibold">구성</th>
                   <th className="px-3 py-2 text-right font-semibold">
                     납품가능
                   </th>
                   <th className="px-3 py-2 text-right font-semibold">
-                    엑셀 수량
+                    확정재고
                   </th>
                   <th className="px-3 py-2 text-left font-semibold">
                     납품부족사유
@@ -470,11 +669,23 @@ export function RocketConfirmPanel({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
+                {awaitingSelectedDate ? (
+                  <tr>
+                    <td
+                      colSpan={9}
+                      className="px-3 py-10 text-center text-sm text-slate-400"
+                    >
+                      {selectedDate} 발주를 불러오는 중입니다…
+                    </td>
+                  </tr>
+                ) : null}
+                {(awaitingSelectedDate ? [] : visibleRows).map((row) => {
                   const source = sourceByLineId.get(row.poLineId);
-                  const quantity = rocketReviewedQuantity(
+                  const reviewable = reviewableLineIds.has(row.poLineId);
+                  const quantity = rowQuantity(
                     row,
                     editedQuantities[row.poLineId],
+                    reviewable,
                   );
                   const short = quantity < row.orderQuantity;
                   const blocking = isRowReviewBlocked(row.reason);
@@ -492,8 +703,32 @@ export function RocketConfirmPanel({
                             : short && "bg-amber-50/40",
                         )}
                       >
-                        <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-slate-500">
-                          {row.poNumber}
+                        {/* 별도 일별 목록을 없애고 그 PO 정보(센터·입고유형·상태·발주일시)를 여기로 흡수했다. */}
+                        <td className="whitespace-nowrap px-3 py-1.5 text-[11px] text-slate-500">
+                          <div className="font-mono">{row.poNumber}</div>
+                          {source?.confirmation ? (
+                            <>
+                              <div className="text-slate-400">
+                                {source.confirmation.center}
+                                {source.confirmation.inboundType
+                                  ? ` · ${source.confirmation.inboundType}`
+                                  : ""}
+                              </div>
+                              <div className="text-slate-400">
+                                {source.confirmation.poRegisteredAt?.slice(0, 16)}
+                              </div>
+                              <span
+                                className={cn(
+                                  "mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                                  reviewable
+                                    ? "bg-amber-50 text-amber-700"
+                                    : "bg-slate-100 text-slate-500",
+                                )}
+                              >
+                                {source.confirmation.poStatus}
+                              </span>
+                            </>
+                          ) : null}
                         </td>
                         <td className="max-w-[260px] px-3 py-1.5">
                           <div className="truncate text-slate-700">
@@ -505,6 +740,24 @@ export function RocketConfirmPanel({
                           </div>
                           <div className="font-mono text-[10px] text-slate-400">
                             {source?.barcode || "—"}
+                          </div>
+                          {/* 어떤 Sellpia 상품에 붙었는지를 상품명 바로 밑에서 확인한다. */}
+                          <div
+                            className={cn(
+                              "truncate text-[11px]",
+                              row.components.length === 0
+                                ? "font-semibold text-rose-600"
+                                : "text-slate-500",
+                            )}
+                            title={
+                              row.components.length === 0
+                                ? undefined
+                                : componentValues(row)
+                            }
+                          >
+                            {row.components.length === 0
+                              ? "Sellpia 미매칭"
+                              : componentValues(row)}
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-1.5">
                             <span
@@ -557,29 +810,79 @@ export function RocketConfirmPanel({
                         <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
                           {formatNumber(row.orderQuantity)}
                         </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">
-                          <div>{componentValues(row)}</div>
-                          <div className="text-[10px] text-slate-400">
-                            {componentQuantityValues(row)}
-                          </div>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-slate-500">
+                          {source?.confirmation
+                            ? `${formatKRW(source.confirmation.purchasePrice * row.orderQuantity)}원`
+                            : "—"}
                         </td>
+                        {/* 상품명은 왼쪽 칸으로 옮겼으므로 여기는 실제 재고 숫자만 본다. */}
+                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
+                          {row.components.length === 0 ? (
+                            <span className="text-slate-300">—</span>
+                          ) : (
+                            row.components.map((component) => (
+                              <div key={component.sellpiaInventorySkuId}>
+                                <span className="text-sm font-semibold">
+                                  {formatNumber(component.currentStock)}
+                                </span>
+                                {component.optionName ? (
+                                  <span className="ml-1.5 text-[10px] text-slate-400">
+                                    {component.optionName}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ))
+                          )}
+                        </td>
+                        {/* 구성 배수는 원재고와 섞이지 않도록 자체 열로 둔다. */}
+                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">
+                          {row.components.length === 0 ? (
+                            <span className="text-slate-300">—</span>
+                          ) : (
+                            row.components.map((component) => (
+                              <div key={component.sellpiaInventorySkuId}>
+                                ×{formatNumber(component.quantity)}
+                              </div>
+                            ))
+                          )}
+                        </td>
+                        {/*
+                          이번에 결정할 행(거래처확인요청)은 서버가 SKU 경합까지 반영해 배분한
+                          maxQuantity 가 확정재고의 근거다. 그 외 행은 이미 지나간 발주라
+                          배분 대상이 아니므로 현재 재고 단독 기준 여력을 참고용으로 보여준다.
+                        */}
                         <td
-                          aria-label={`${row.poNumber} 납품가능 ${row.maxQuantity}개`}
+                          aria-label={
+                            reviewable
+                              ? `${row.poNumber} 납품가능 ${row.maxQuantity}개`
+                              : `${row.poNumber} 납품가능 참고 ${standaloneCapacity(row)}개`
+                          }
+                          title={
+                            reviewable
+                              ? undefined
+                              : "이미 진행된 발주라 참고용입니다. 현재 재고만으로 계산한 값이며 이번 납품 판단 대상이 아닙니다."
+                          }
                           className={cn(
                             "px-3 py-1.5 text-right font-semibold tabular-nums",
-                            row.maxQuantity < row.orderQuantity
-                              ? "text-amber-700"
-                              : "text-slate-700",
+                            !reviewable
+                              ? "text-slate-400"
+                              : row.maxQuantity < row.orderQuantity
+                                ? "text-amber-700"
+                                : "text-slate-700",
                           )}
                         >
-                          {formatNumber(row.maxQuantity)}
+                          {formatNumber(
+                            reviewable
+                              ? row.maxQuantity
+                              : standaloneCapacity(row),
+                          )}
                         </td>
                         <td className="px-3 py-1.5 text-right">
                           <input
-                            aria-label={`${row.poNumber} 엑셀 수량`}
+                            aria-label={`${row.poNumber} 확정재고`}
                             type="number"
                             min={0}
-                            max={rocketReviewedQuantityLimit(row)}
+                            max={rowQuantityLimit(row, reviewable)}
                             value={quantity}
                             disabled={
                               blocking || row.reason === "insufficient_capacity"
@@ -595,39 +898,47 @@ export function RocketConfirmPanel({
                             )}
                           />
                         </td>
+                        {/*
+                          사유 목록은 20개짜리라 모든 행에 select 를 깔면 옵션이 수천 개가 되어
+                          날짜를 바꿀 때마다 렌더가 눈에 띄게 밀린다. 사유를 고를 수 있는 행에만
+                          select 를 그리고, 나머지는 텍스트로 대신한다.
+                        */}
                         <td className="px-3 py-1.5">
-                          <select
-                            aria-label={`${row.poNumber} 납품부족사유`}
-                            value={shortageReasons[row.poLineId] ?? ""}
-                            disabled={blocking || !short}
-                            onChange={(event) => {
-                              setShortageReasons((current) => ({
-                                ...current,
-                                [row.poLineId]: event.target
-                                  .value as RocketShortageReason,
-                              }));
-                              setPreviewDirty(true);
-                            }}
-                            className={cn(
-                              "w-full max-w-[280px] rounded-md border border-slate-200 px-2 py-1 text-xs",
-                              !short && "bg-slate-50 text-slate-300",
-                            )}
-                          >
-                            <option value="">
-                              {short ? "사유 선택" : "—"}
-                            </option>
-                            {ROCKET_SHORTAGE_REASONS.map((reason) => (
-                              <option key={reason} value={reason}>
-                                {reason}
-                              </option>
-                            ))}
-                          </select>
+                          {short && !blocking ? (
+                            <select
+                              aria-label={`${row.poNumber} 납품부족사유`}
+                              value={shortageReasons[row.poLineId] ?? ""}
+                              onChange={(event) => {
+                                setShortageReasons((current) => ({
+                                  ...current,
+                                  [row.poLineId]: event.target
+                                    .value as RocketShortageReason,
+                                }));
+                                setPreviewDirty(true);
+                              }}
+                              className="w-full max-w-[280px] rounded-md border border-slate-200 px-2 py-1 text-xs"
+                            >
+                              <option value="">사유 선택</option>
+                              {ROCKET_SHORTAGE_REASONS.map((reason) => (
+                                <option key={reason} value={reason}>
+                                  {reason}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span
+                              aria-label={`${row.poNumber} 납품부족사유`}
+                              className="block w-full max-w-[280px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-300"
+                            >
+                              —
+                            </span>
+                          )}
                         </td>
                       </tr>
                       {editingRecipePoLineId === row.poLineId &&
                       row.masterProductId && row.productVariantId ? (
                         <tr className="border-t border-purple-100 bg-purple-50/30">
-                          <td colSpan={7} className="px-3 py-3">
+                          <td colSpan={9} className="px-3 py-3">
                             <RocketInlineRecipeEditor
                               masterProductId={row.masterProductId}
                               productVariantId={row.productVariantId}

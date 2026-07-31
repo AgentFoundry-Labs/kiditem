@@ -6,6 +6,7 @@
   const PO_BOOTSTRAP_URL = "https://supplier.coupang.com/scm/purchase/order/list";
   const PO_READY_PATH_PREFIX = "/po-web/purchase/order";
   const SESSION_ERROR_CODE = "coupang_po_session_required";
+  const COOKIE_BLOAT_ERROR_CODE = "coupang_cookie_bloat";
 
   function isReadyPoUrl(value) {
     try {
@@ -27,11 +28,37 @@
     };
   }
 
-  function preparationError(tab, created) {
-    return { success: false, result: sessionError(), tab, created };
+  // supplier.coupang.com 은 쿠키가 누적되면 요청 헤더가 커져 HTTP 400 을 돌려준다.
+  // 이때는 재시도해도 쿠키가 그대로라 안 풀리므로, 로그인 안내가 아니라 쿠키 정리를 안내해야 한다.
+  function cookieBloatError() {
+    return {
+      success: false,
+      errorCode: COOKIE_BLOAT_ERROR_CODE,
+      error:
+        "쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 조회하세요.",
+    };
+  }
+
+  function preparationError(tab, created, result) {
+    return { success: false, result: result ?? sessionError(), tab, created };
   }
 
   function create({ chrome: chromeApi, attachOrderCollectionTab, waitForTabReady }) {
+    // 400 응답은 탭 URL 이 그대로라 본문으로만 구분된다("HTTP Status 400 – Bad Request").
+    async function isCookieBloatTab(tabId) {
+      if (!tabId || !chromeApi.scripting?.executeScript) return false;
+      try {
+        const injected = await chromeApi.scripting.executeScript({
+          target: { tabId },
+          func: () => String(document.body?.innerText || "").slice(0, 400),
+        });
+        const text = injected?.[0]?.result || "";
+        return /HTTP Status 400|Bad Request/i.test(text);
+      } catch {
+        return false;
+      }
+    }
+
     async function prepare(collection, forceNew) {
       let tab;
       let created = false;
@@ -57,7 +84,14 @@
         return preparationError(tab, created);
       }
       if (!isReadyPoUrl(currentTab?.url)) {
-        return preparationError(currentTab || tab, created);
+        // PO 화면으로 못 넘어간 이유가 쿠키 과다(HTTP 400)인지 확인한다. 로그인 문제로
+        // 잘못 안내하면 운영자가 재로그인만 반복하게 되고 실제로는 풀리지 않는다.
+        const bloated = await isCookieBloatTab(tab.id);
+        return preparationError(
+          currentTab || tab,
+          created,
+          bloated ? cookieBloatError() : undefined,
+        );
       }
 
       return { success: true, tab: currentTab, created };
@@ -87,6 +121,8 @@
       let prepared = await prepare(collection, false);
       if (!prepared.success) {
         if (prepared.tab?.id) await release(collection, prepared);
+        // 쿠키 과다는 새 탭을 열어도 같은 쿠키가 실려 그대로 400 이다. 한 번 더 기다리게 하지 않는다.
+        if (prepared.result?.errorCode === COOKIE_BLOAT_ERROR_CODE) return prepared.result;
         prepared = await prepare(collection, true);
         if (!prepared.success) return prepared.result;
         return executePrepared(collection, prepared, execute, true);

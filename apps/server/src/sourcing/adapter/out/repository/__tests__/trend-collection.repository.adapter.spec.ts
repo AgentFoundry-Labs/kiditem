@@ -1,8 +1,49 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 import { TrendCollectionRepositoryAdapter } from '../trend-collection.repository.adapter';
 
 describe('TrendCollectionRepositoryAdapter', () => {
+  it('writes Naver keyword snapshots in bounded transactions with an explicit timeout', async () => {
+    const upsert = vi.fn(async () => ({}));
+    const batchSizes: number[] = [];
+    const transaction = vi.fn(async (
+      operation: (tx: {
+        naverKeywordDailySnapshot: { upsert: typeof upsert };
+      }) => Promise<void>,
+      options: { maxWait: number; timeout: number },
+    ) => {
+      const before = upsert.mock.calls.length;
+      await operation({ naverKeywordDailySnapshot: { upsert } });
+      batchSizes.push(upsert.mock.calls.length - before);
+      expect(options).toEqual({ maxWait: 10_000, timeout: 30_000 });
+    });
+    const prisma = { $transaction: transaction } as unknown as PrismaService;
+    const adapter = new TrendCollectionRepositoryAdapter(prisma);
+    const businessDate = new Date('2026-07-29T00:00:00.000Z');
+    const capturedAt = new Date('2026-07-29T02:00:00.000Z');
+
+    const saved = await adapter.upsertNaverKeywordSnapshots(
+      Array.from({ length: 25 }, (_, index) => ({
+        organizationId: 'organization-1',
+        keyword: `키워드-${index + 1}`,
+        businessDate,
+        monthlyTotalSearchCount: index + 1,
+        monthlyPcSearchCount: null,
+        monthlyMobileSearchCount: null,
+        competitionIndex: null,
+        averageAdRank: null,
+        trendRatio: null,
+        trendDelta: null,
+        capturedAt,
+      })),
+    );
+
+    expect(saved).toBe(25);
+    expect(transaction).toHaveBeenCalledTimes(3);
+    expect(batchSizes).toEqual([10, 10, 5]);
+    expect(upsert).toHaveBeenCalledTimes(25);
+  });
+
   it('replaces a complete Naver board-date scope and rejects a stale replacement', async () => {
     const businessDate = new Date('2026-07-14T00:00:00.000Z');
     const stored = [

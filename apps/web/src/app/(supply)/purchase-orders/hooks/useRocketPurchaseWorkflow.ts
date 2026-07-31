@@ -131,6 +131,22 @@ function previewForDeliveryDate(
   };
 }
 
+/**
+ * 재계산 결과(검토 대상만)를 표시본에 덮어쓴다. 검토 대상이 아닌 행은 그대로 남겨
+ * "42건인데 표가 5행"으로 다시 줄어드는 일이 없게 한다.
+ */
+function mergeDisplayPreview(
+  base: RocketPurchasePreviewReadyResponse | null,
+  refreshed: RocketPurchasePreviewReadyResponse,
+): RocketPurchasePreviewReadyResponse {
+  if (!base) return refreshed;
+  const byLineId = new Map(refreshed.rows.map((row) => [row.poLineId, row]));
+  return {
+    ...refreshed,
+    rows: base.rows.map((row) => byLineId.get(row.poLineId) ?? row),
+  };
+}
+
 function reconcileShortageReasons(
   current: Record<string, RocketShortageReason>,
   preview: RocketPurchasePreviewReadyResponse,
@@ -205,6 +221,12 @@ export function useRocketPurchaseWorkflow({
     () => new Set(),
   );
   const [preview, setPreview] = useState<RocketPurchasePreviewReadyResponse | null>(null);
+  /**
+   * 화면 표시용 전체 행. `preview` 는 거래처확인요청(엑셀 대상)만 담아 내보내기 게이트를
+   * 그대로 지키고, 표에는 선택한 날짜의 발주를 상태와 무관하게 모두 보여준다.
+   * 달력이 42건이라고 알려줬는데 표가 비어 보이던 문제를 없애기 위한 분리다.
+   */
+  const [displayPreview, setDisplayPreview] = useState<RocketPurchasePreviewReadyResponse | null>(null);
   const [pendingCheckpoint, setPendingCheckpoint] = useState<
     RocketPurchasePreviewFreshnessPendingResponse | null
   >(null);
@@ -221,6 +243,19 @@ export function useRocketPurchaseWorkflow({
   const [collecting, setCollecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestGenerationRef = useRef(0);
+  /**
+   * 같은 수집본 안에서 날짜만 바꿀 때 재사용하는 원본.
+   *
+   * 수집본과 전체 미리보기는 날짜와 무관한 값인데, 날짜를 누를 때마다 1,900행짜리 수집본을
+   * 다시 받고 그 전량을 다시 서버로 보내 계산하고 있었다. 계정/수집본이 그대로면 이미 받은
+   * 결과를 날짜로 다시 자르기만 한다. 재고를 다시 봐야 하는 경로(수집·재계산·재검증)는
+   * 이 캐시를 비워 항상 서버를 다시 탄다.
+   */
+  const loadedSourceRef = useRef<{
+    key: string;
+    saved: Awaited<ReturnType<typeof loadSavedRocketCollection>>;
+    complete: RocketPurchasePreviewReadyResponse;
+  } | null>(null);
   const activeWaiterRef = useRef<AbortController | null>(null);
   const collectionPromiseRef = useRef<Promise<void> | null>(null);
 
@@ -231,6 +266,7 @@ export function useRocketPurchaseWorkflow({
     setEditedQuantities({});
     setOperatorEditedLineIds(new Set());
     setPreview(null);
+    setDisplayPreview(null);
     setPendingCheckpoint(null);
     setStage('idle');
     setPreviewDirty(false);
@@ -328,15 +364,31 @@ export function useRocketPurchaseWorkflow({
       setLoading(true);
       setError(null);
       setPreview(null);
+      setDisplayPreview(null);
       setPendingCheckpoint(null);
       setStage('calculating');
       onActivity?.({ status: 'started', message: '저장된 로켓 PO 수집본을 불러오는 중입니다.' });
+      // 날짜/계정이 바뀌어 이 실행이 밀려나면 결과는 버리지만, 시작 기록은 반드시 닫아야 한다.
+      // 닫지 않으면 활동 패널에 "불러오는 중"이 영원히 남아 멈춘 것처럼 보인다.
+      const supersededDuringLoad = () => {
+        if (!cancelled && generation === requestGenerationRef.current) return false;
+        onActivity?.({
+          status: 'succeeded',
+          message: '이전 수집본 불러오기를 최신 요청으로 대체했습니다.',
+        });
+        return true;
+      };
       try {
-        const saved = await loadSavedRocketCollection({
+        // 계정/수집본이 그대로면 날짜만 바뀐 것이므로 서버를 다시 타지 않는다.
+        const cacheKey = `${channelAccountId}:${savedSourceImportRunId}`;
+        const cached = loadedSourceRef.current?.key === cacheKey
+          ? loadedSourceRef.current
+          : null;
+        const saved = cached?.saved ?? await loadSavedRocketCollection({
           channelAccountId,
           sourceImportRunId: savedSourceImportRunId,
         });
-        if (cancelled || generation !== requestGenerationRef.current) return;
+        if (supersededDuringLoad()) return;
         const reviewRows = rowsForDeliveryDate(
           confirmationRequestedRows(saved.rows),
           selectedDeliveryDate,
@@ -353,21 +405,30 @@ export function useRocketPurchaseWorkflow({
         });
         setSourceRows(reviewRows);
         setCollectionRows(saved.rows);
-        const completeResult = await previewWithFreshnessRecovery({
+        const completeResult = cached?.complete ?? await previewWithFreshnessRecovery({
           request: {
           channelAccountId,
           collection: saved.collection,
           rows: saved.rows,
           editedQuantities: {},
           clampEditedQuantities: true,
-          previewScope: 'confirmation_requested',
+          // 표에는 선택한 날짜의 발주를 상태와 무관하게 모두 보여준다. 엑셀 대상은 아래에서
+          // 거래처확인요청 행만 추려 `preview` 로 넘기므로 내보내기 범위는 그대로다.
+          previewScope: 'all_rows',
           },
           generation,
           controller,
           notifyCatalogSaved: false,
         });
-        if (cancelled || generation !== requestGenerationRef.current) return;
-        const result = previewForDeliveryDate(completeResult, selectedDeliveryDate);
+        if (supersededDuringLoad()) return;
+        loadedSourceRef.current = { key: cacheKey, saved, complete: completeResult };
+        const dateScoped = previewForDeliveryDate(completeResult, selectedDeliveryDate);
+        setDisplayPreview(dateScoped);
+        const reviewLineIds = new Set(reviewRows.map(({ poLineId }) => poLineId));
+        const result = {
+          ...dateScoped,
+          rows: dateScoped.rows.filter(({ poLineId }) => reviewLineIds.has(poLineId)),
+        };
         const effectiveEdits = visibleReviewQuantities(result);
         setEditedQuantities(effectiveEdits);
         setOperatorEditedLineIds(new Set());
@@ -383,7 +444,7 @@ export function useRocketPurchaseWorkflow({
         setStage('ready');
         onActivity?.({ status: 'succeeded', message: '저장된 로켓 PO를 최신 재고 기준으로 다시 계산했습니다.' });
       } catch (cause) {
-        if (cancelled || generation !== requestGenerationRef.current) return;
+        if (supersededDuringLoad()) return;
         setStage(stageForRecoveryFailure(cause));
         const message = recoveryErrorMessage(cause, '저장된 로켓 PO를 불러오지 못했습니다.');
         setError(message);
@@ -410,6 +471,8 @@ export function useRocketPurchaseWorkflow({
   ]);
 
   const performRecalculation = async () => {
+    // 새 수집본이 생기므로 날짜 전환용 캐시는 버린다.
+    loadedSourceRef.current = null;
     const generation = requestGenerationRef.current;
     // This controller intentionally outlives the route. A client-side route
     // transition must not cancel collection persistence.
@@ -508,6 +571,7 @@ export function useRocketPurchaseWorkflow({
         effectiveEdits,
       ));
       setPreview(result);
+      setDisplayPreview((current) => mergeDisplayPreview(current, result));
       setPendingCheckpoint(null);
       setStage('ready');
       onActivity?.({
@@ -554,6 +618,8 @@ export function useRocketPurchaseWorkflow({
 
   const revalidateEditedQuantities = async () => {
     if (!collectionRun || sourceRows.length === 0 || collectionRows.length === 0) return;
+    // 재고 기준이 갱신되므로 날짜 전환용 캐시는 버린다.
+    loadedSourceRef.current = null;
     const generation = requestGenerationRef.current;
     const controller = beginWaiter();
     setLoading(true);
@@ -583,6 +649,7 @@ export function useRocketPurchaseWorkflow({
       const effectiveEdits = visibleReviewQuantities(result);
       const currentLineIds = new Set(result.rows.map(({ poLineId }) => poLineId));
       setPreview(result);
+      setDisplayPreview((current) => mergeDisplayPreview(current, result));
       setEditedQuantities(effectiveEdits);
       setOperatorEditedLineIds((current) => new Set(
         [...current].filter((poLineId) => currentLineIds.has(poLineId)),
@@ -697,6 +764,7 @@ export function useRocketPurchaseWorkflow({
         freshQuantities,
       );
       setPreview(freshPreview);
+      setDisplayPreview((current) => mergeDisplayPreview(current, freshPreview));
       setEditedQuantities(freshQuantities);
       setValidatedEditFingerprint(editFingerprint(freshQuantities));
       setPreviewDirty(false);
@@ -745,9 +813,13 @@ export function useRocketPurchaseWorkflow({
     editedQuantities,
     setReviewedQuantity,
     preview,
+    /** 표에 그릴 전체 행(선택 날짜의 모든 상태). 엑셀 게이트는 `preview` 가 담당한다. */
+    displayPreview,
     pendingCheckpoint,
     stage,
     sourceRows,
+    /** 선택 날짜의 전체 수집 행. 매입단가처럼 검토 대상 밖 행에도 필요한 값을 여기서 읽는다. */
+    collectionRows,
     previewDirty,
     setPreviewDirty,
     collectionRun,

@@ -74,11 +74,12 @@ describe('1688 trend Chrome extension bridge', () => {
   });
 
   it('waits past the extension auth-token refresh window so the login reason reaches the operator', async () => {
-    // 확장은 run 을 만들기 전에 최대 10초(AUTH_REFRESH_TIMEOUT_MS)까지 KidItem
+    // 확장은 run 을 만들기 전에 최대 10초(AUTH_RESYNC_TIMEOUT_MS)까지 KidItem
     // 토큰을 기다린다. 웹이 그보다 먼저 끊으면 "로그인 후 다시 시도" 라는 실제
     // 사유가 버려지고 원인 불명의 "응답 시간 초과"만 남는다.
+    // 상수명은 #442 에서 refresh -> resync 로 개명됐다(값·동작은 동일).
     const extensionAuthRefreshTimeoutMs = Number(
-      /DEFAULT_AUTH_REFRESH_TIMEOUT_MS\s*=\s*([\d_]+)/
+      /DEFAULT_AUTH_RESYNC_TIMEOUT_MS\s*=\s*([\d_]+)/
         .exec(
           fs.readFileSync(
             path.resolve('../../extensions/product-scraper/environment-context.js'),
