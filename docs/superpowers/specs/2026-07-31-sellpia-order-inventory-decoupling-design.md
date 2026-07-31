@@ -20,8 +20,10 @@ KidItem's local snapshot even though Sellpia validates workbook stock itself.
 - Before the irreversible browser submission, Orders durably prepares the
   stable workbook intent key.
 - Sellpia acceptance finalizes only that intent. Explicit confirmed
-  non-submission aborts it; ambiguous outcomes require audited owner/admin
-  reconciliation.
+  non-submission aborts it. An ambiguous outcome leaves the intent prepared;
+  a later attempt may submit the workbook again and relies on Sellpia's
+  order-level duplicate validation. Audited owner/admin reconciliation remains
+  required only to reopen a locally submitted or finalized intent.
 - Provider rejection displays the exact Sellpia error. It offers no Inventory
   action and triggers no automatic retry.
 - Order submission never reads freshness, pre-checks local stock, requests or
@@ -53,6 +55,8 @@ Tests must prove that:
 - a provider stock rejection exposes only the provider error and no Inventory
   synchronization action;
 - durable prepare/finalize idempotency remains organization- and actor-fenced;
+- an unresolved prepared intent without a local submission marker can retry
+  through Sellpia duplicate validation;
 - finalization leaves Inventory generations unchanged;
 - Rocket progress completes after every expected intent is finalized; and
 - Inventory public routes and policy cannot accept an order-transmission

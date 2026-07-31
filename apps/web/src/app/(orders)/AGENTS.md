@@ -63,8 +63,9 @@ React Query + apiClient
   upload evidence and remains a transmission request rather than final order
   registration. The web app durably prepares an
   organization-scoped intent keyed by Rocket workbook export and transport
-  before invoking that irreversible submit and
-  blocks submission if preparation fails or the same intent is unresolved.
+  before invoking that irreversible submit. Preparation failure blocks the
+  submit, but an unresolved `already_prepared` intent without a local submission
+  marker may be sent again because Sellpia owns order-level duplicate validation.
   `{ success: true, submitted: true }` finalizes only the Orders-owned intent;
   only explicit confirmed non-submission aborts it. Raw mall collection and
   workbook submission do not read, schedule, invalidate, or mutate Inventory.

@@ -175,17 +175,18 @@ describe('transmitSellpiaOrder', () => {
     expect(store.markTransmissionRequested).not.toHaveBeenCalled();
   });
 
-  it('does not resubmit an already prepared intent and asks for operator verification', async () => {
+  it('resubmits an unresolved already prepared intent and relies on Sellpia duplicate validation', async () => {
     transmissions.prepareOrderTransmissionIntent.mockResolvedValue({
       intentKey: 'orders-1',
       disposition: 'already_prepared',
     });
 
-    await expect(transmitSellpiaOrder(input())).rejects.toBeInstanceOf(
-      SellpiaOrderTransmissionResolutionRequiredError,
-    );
-    expect(extension.sendSellpiaOrders).not.toHaveBeenCalled();
-    expect(transmissions.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();
+    await expect(transmitSellpiaOrder(input())).resolves.toMatchObject({
+      status: 'transmission_requested',
+      file: { transmissionRequestedAt: 1_721_000_000_000 },
+    });
+    expect(extension.sendSellpiaOrders).toHaveBeenCalledOnce();
+    expect(transmissions.finalizeOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
   });
 
   it('recovers a known submitted intent by finalizing without resubmitting', async () => {
