@@ -21,6 +21,11 @@ import type {
 } from '../../../application/port/out/repository/trend-collection.repository.port';
 
 const DEFAULT_TREND_SEED_SOURCES = ['naver', 'shorts', '1688'];
+const NAVER_KEYWORD_UPSERT_BATCH_SIZE = 10;
+const TREND_SNAPSHOT_TRANSACTION_OPTIONS = {
+  maxWait: 10_000,
+  timeout: 30_000,
+} as const;
 
 // PostgreSQL int4 상한. 유튜브 조회수는 21억을 넘을 수 있어 clamp 하지 않으면
 // 배치 $transaction 전체가 'value out of range for type integer' 로 롤백된다.
@@ -100,51 +105,59 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
 
   async upsertNaverKeywordSnapshots(rows: NaverKeywordSnapshotUpsert[]): Promise<number> {
     if (rows.length === 0) return 0;
-    await this.prisma.$transaction(
-      rows.map((row) =>
-        this.prisma.naverKeywordDailySnapshot.upsert({
-          where: {
-            organizationId_keyword_businessDate: {
+
+    // 최대 60개 키워드를 기본 5초 트랜잭션 하나에 넣으면 배포 DB의
+    // 왕복 지연만으로도 만료될 수 있다. upsert는 일자별 unique key 기준으로
+    // 멱등이므로 작은 배치로 나눠 재시도 가능한 상태를 유지한다.
+    for (let offset = 0; offset < rows.length; offset += NAVER_KEYWORD_UPSERT_BATCH_SIZE) {
+      const batch = rows.slice(offset, offset + NAVER_KEYWORD_UPSERT_BATCH_SIZE);
+      await this.prisma.$transaction(async (tx) => {
+        for (const row of batch) {
+          await tx.naverKeywordDailySnapshot.upsert({
+            where: {
+              organizationId_keyword_businessDate: {
+                organizationId: row.organizationId,
+                keyword: row.keyword,
+                businessDate: row.businessDate,
+              },
+            },
+            create: {
               organizationId: row.organizationId,
               keyword: row.keyword,
               businessDate: row.businessDate,
+              monthlyTotalSearchCount: row.monthlyTotalSearchCount,
+              monthlyPcSearchCount: row.monthlyPcSearchCount,
+              monthlyMobileSearchCount: row.monthlyMobileSearchCount,
+              competitionIndex: row.competitionIndex,
+              averageAdRank: row.averageAdRank,
+              trendRatio: row.trendRatio,
+              trendDelta: row.trendDelta,
+              capturedAt: row.capturedAt,
             },
-          },
-          create: {
-            organizationId: row.organizationId,
-            keyword: row.keyword,
-            businessDate: row.businessDate,
-            monthlyTotalSearchCount: row.monthlyTotalSearchCount,
-            monthlyPcSearchCount: row.monthlyPcSearchCount,
-            monthlyMobileSearchCount: row.monthlyMobileSearchCount,
-            competitionIndex: row.competitionIndex,
-            averageAdRank: row.averageAdRank,
-            trendRatio: row.trendRatio,
-            trendDelta: row.trendDelta,
-            capturedAt: row.capturedAt,
-          },
-          // 같은 businessDate 재수집에서 검색광고/트렌드 응답이 이 키워드를 누락하면
-          // row 값이 null 로 초기화된다. 이미 저장된 실측 값을 null 로 덮지 않도록
-          // 들어온 값이 non-null 일 때만 갱신한다(coalesce). capturedAt 은 항상 갱신.
-          update: {
-            ...(row.monthlyTotalSearchCount != null
-              ? { monthlyTotalSearchCount: row.monthlyTotalSearchCount }
-              : {}),
-            ...(row.monthlyPcSearchCount != null
-              ? { monthlyPcSearchCount: row.monthlyPcSearchCount }
-              : {}),
-            ...(row.monthlyMobileSearchCount != null
-              ? { monthlyMobileSearchCount: row.monthlyMobileSearchCount }
-              : {}),
-            ...(row.competitionIndex != null ? { competitionIndex: row.competitionIndex } : {}),
-            ...(row.averageAdRank != null ? { averageAdRank: row.averageAdRank } : {}),
-            ...(row.trendRatio != null ? { trendRatio: row.trendRatio } : {}),
-            ...(row.trendDelta != null ? { trendDelta: row.trendDelta } : {}),
-            capturedAt: row.capturedAt,
-          },
-        }),
-      ),
-    );
+            // 같은 businessDate 재수집에서 검색광고/트렌드 응답이 이 키워드를 누락하면
+            // row 값이 null 로 초기화된다. 이미 저장된 실측 값을 null 로 덮지 않도록
+            // 들어온 값이 non-null 일 때만 갱신한다(coalesce). capturedAt 은 항상 갱신.
+            update: {
+              ...(row.monthlyTotalSearchCount != null
+                ? { monthlyTotalSearchCount: row.monthlyTotalSearchCount }
+                : {}),
+              ...(row.monthlyPcSearchCount != null
+                ? { monthlyPcSearchCount: row.monthlyPcSearchCount }
+                : {}),
+              ...(row.monthlyMobileSearchCount != null
+                ? { monthlyMobileSearchCount: row.monthlyMobileSearchCount }
+                : {}),
+              ...(row.competitionIndex != null ? { competitionIndex: row.competitionIndex } : {}),
+              ...(row.averageAdRank != null ? { averageAdRank: row.averageAdRank } : {}),
+              ...(row.trendRatio != null ? { trendRatio: row.trendRatio } : {}),
+              ...(row.trendDelta != null ? { trendDelta: row.trendDelta } : {}),
+              capturedAt: row.capturedAt,
+            },
+          });
+        }
+      }, TREND_SNAPSHOT_TRANSACTION_OPTIONS);
+    }
+
     return rows.length;
   }
 

@@ -4,12 +4,20 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const formSource = await readFile(
-  new URL('../../coupang-ads-scraper/content/wing-registration-fill.js', import.meta.url), 'utf8',
+  new URL('../../kiditem-os/content/coupang/wing-registration-fill.js', import.meta.url), 'utf8',
 );
 const workerSource = await readFile(
-  new URL('../../coupang-ads-scraper/background/service-worker.js', import.meta.url), 'utf8',
+  new URL('../../kiditem-os/background/coupang/worker.js', import.meta.url), 'utf8',
 );
 const FORM_URL = 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2';
+
+function extractRegisterToWingForm() {
+  const normalizedWorkerSource = workerSource.replace(/\r\n?/g, '\n');
+  const start = normalizedWorkerSource.indexOf('async function registerToWingForm(message)');
+  const end = normalizedWorkerSource.indexOf('\n}\n\n/**', start) + 2;
+  assert.ok(start >= 0 && end > start, 'registerToWingForm source must be extractable');
+  return normalizedWorkerSource.slice(start, end);
+}
 
 test('routes category search text only from the sender Wing tab to trusted browser input', () => {
   assert.match(workerSource, /msg\.action === "inputWingCategorySearch"/);
@@ -115,9 +123,6 @@ test('mismatched WING identity stops before any form mutation, upload, or submit
 });
 
 test('worker response exposes verified fill evidence at the top level', async () => {
-  const start = workerSource.indexOf('async function registerToWingForm(message)');
-  const end = workerSource.indexOf('\n}\n\n/**', start) + 2;
-  assert.ok(start >= 0 && end > start, 'registerToWingForm source must be extractable');
   const sent = [];
   const context = vm.createContext({
     INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
@@ -142,7 +147,7 @@ test('worker response exposes verified fill evidence at the top level', async ()
     },
     setTimeout(callback) { callback(); return 0; },
   });
-  vm.runInContext(workerSource.slice(start, end), context, { filename: 'service-worker.registerToWingForm.js' });
+  vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
@@ -156,8 +161,6 @@ test('worker response exposes verified fill evidence at the top level', async ()
 });
 
 test('manual form fill does not require an execution id before any provider submission', async () => {
-  const start = workerSource.indexOf('async function registerToWingForm(message)');
-  const end = workerSource.indexOf('\n}\n\n/**', start) + 2;
   const context = vm.createContext({
     INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
     interactiveTabs: { createTab: async () => ({ id: 18 }) },
@@ -178,7 +181,7 @@ test('manual form fill does not require an execution id before any provider subm
     },
     setTimeout(callback) { callback(); return 0; },
   });
-  vm.runInContext(workerSource.slice(start, end), context, { filename: 'service-worker.registerToWingForm.js' });
+  vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
@@ -191,8 +194,6 @@ test('manual form fill does not require an execution id before any provider subm
 });
 
 test('bootstraps the Wing runtime before navigation and form fill', async () => {
-  const start = workerSource.indexOf('async function registerToWingForm(message)');
-  const end = workerSource.indexOf('\n}\n\n/**', start) + 2;
   const order = [];
   const context = vm.createContext({
     INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
@@ -236,7 +237,7 @@ test('bootstraps the Wing runtime before navigation and form fill', async () => 
     },
     setTimeout(callback) { callback(); return 0; },
   });
-  vm.runInContext(workerSource.slice(start, end), context, { filename: 'service-worker.registerToWingForm.js' });
+  vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
@@ -256,8 +257,6 @@ test('bootstraps the Wing runtime before navigation and form fill', async () => 
 });
 
 test('does not mutate the Wing DOM when main-world compatibility cannot be established', async () => {
-  const start = workerSource.indexOf('async function registerToWingForm(message)');
-  const end = workerSource.indexOf('\n}\n\n/**', start) + 2;
   let fillCalls = 0;
   const context = vm.createContext({
     INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
@@ -277,7 +276,7 @@ test('does not mutate the Wing DOM when main-world compatibility cannot be estab
     },
     setTimeout(callback) { callback(); return 0; },
   });
-  vm.runInContext(workerSource.slice(start, end), context, { filename: 'service-worker.registerToWingForm.js' });
+  vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
@@ -291,8 +290,6 @@ test('does not mutate the Wing DOM when main-world compatibility cannot be estab
 });
 
 test('does not navigate or fill when the early Wing runtime bootstrap fails', async () => {
-  const start = workerSource.indexOf('async function registerToWingForm(message)');
-  const end = workerSource.indexOf('\n}\n\n/**', start) + 2;
   let ensureCalls = 0;
   let fillCalls = 0;
   const context = vm.createContext({
@@ -316,7 +313,7 @@ test('does not navigate or fill when the early Wing runtime bootstrap fails', as
     },
     setTimeout(callback) { callback(); return 0; },
   });
-  vm.runInContext(workerSource.slice(start, end), context, { filename: 'service-worker.registerToWingForm.js' });
+  vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },

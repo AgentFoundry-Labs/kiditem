@@ -7,10 +7,10 @@ import vm from 'node:vm';
 
 const extensionRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../coupang-ads-scraper',
+  '../kiditem-os',
 );
 const collectorPath = path.join(extensionRoot, 'shared/coupang-catalog-collector.js');
-const serviceWorkerPath = path.join(extensionRoot, 'background/service-worker.js');
+const serviceWorkerPath = path.join(extensionRoot, 'background/coupang/worker.js');
 
 function loadCollector() {
   const context = { TextEncoder, URL, crypto };
@@ -28,7 +28,13 @@ function loadCollector() {
 test('pins the service worker import cache key to the collector contract revision', () => {
   const collector = loadCollector();
   const serviceWorker = fs.readFileSync(serviceWorkerPath, 'utf8');
-  const importRevision = serviceWorker.match(
+  // 확장 병합 후 importScripts 는 통합 서비스워커가 소유한다. 캐시 무효화용
+  // revision 과 도메인 워커의 계약 검사가 어긋나면 낡은 수집기가 실린다.
+  const entrySource = fs.readFileSync(
+    path.join(extensionRoot, 'background/service-worker.js'),
+    'utf8',
+  );
+  const importRevision = entrySource.match(
     /coupang-catalog-collector\.js\?revision=(\d+)/,
   )?.[1];
 

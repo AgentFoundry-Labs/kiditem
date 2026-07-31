@@ -37,9 +37,10 @@ const REASON_PRIORITY: Record<ChannelMatchCandidateReason, number> = {
   existing_identity: 0,
   exact_code: 1,
   unique_barcode: 2,
-  exact_normalized_name: 3,
-  ai_suggestion: 4,
-  manual_search: 5,
+  confirmed_manual_match_alias: 3,
+  exact_normalized_name: 4,
+  ai_suggestion: 5,
+  manual_search: 6,
 };
 
 export function rankChannelVariantCandidates(

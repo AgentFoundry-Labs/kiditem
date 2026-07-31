@@ -58,11 +58,13 @@ export function ProductOptionsWorkspace({ headingLevel = 2 }: { headingLevel?: 1
         linkStatus={state.linkStatus}
         search={state.search}
         stockStatus={state.stockStatus}
+        includeOutOfStock={state.stockStatus !== 'in_stock'}
         onActiveStatusChange={state.setActiveStatus}
         onLinkStatusChange={state.setLinkStatus}
         onSearchChange={state.setSearch}
         onSearchSubmit={state.handleSearch}
         onStockStatusChange={state.setStockStatus}
+        onIncludeOutOfStockChange={(include) => state.setStockStatus(include ? 'all' : 'in_stock')}
       />
 
       {state.data ? (
@@ -122,7 +124,7 @@ export function useSellpiaInventorySkuPageState() {
   const [search, setSearch] = useState(urlSearch);
   const pageParam = Number(searchParams.get('page'));
   const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
-  const stockStatus = parseValue(searchParams.get('stockStatus'), ['all', 'in_stock', 'out_of_stock'] as const, 'all');
+  const stockStatus = parseValue(searchParams.get('stockStatus'), ['all', 'in_stock', 'out_of_stock'] as const, 'in_stock');
   const activeStatus = parseValue(searchParams.get('activeStatus'), ['all', 'active', 'inactive'] as const, 'all');
   const linkStatus = parseValue(searchParams.get('linkStatus'), ['all', 'linked', 'unlinked'] as const, 'all');
 

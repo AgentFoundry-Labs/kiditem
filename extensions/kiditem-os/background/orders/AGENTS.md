@@ -1,0 +1,173 @@
+Consult this document first instead of relying on memorized knowledge.
+
+# orders — Marketplace Order Collection Domain
+
+This domain collects supported marketplace orders from authenticated admin
+pages and sends structured rows or export files to the web app for NestJS
+conversion.
+
+## Owned Surfaces
+
+- Icecream Mall PO delivery inquiry grid capture.
+- Coupang supplier ASN visible-row Label/statement download triggers.
+- Coupang shipment cookie remediation: on a supplier.coupang.com `400 Bad
+  Request` (accumulated cookies overflow the request header), collectors
+  surface `errorCode: coupang_cookie_bloat`, and `clearCoupangCookies` removes
+  the cookies applying to supplier.coupang.com so the operator can re-login.
+- Supported marketplace order export capture, including Kakao Shopping Seller.
+- Coupang Rocket purchase-order list/detail collection for purchase quantity
+  previews and confirmation-workbook evidence.
+- Sellpia tracking/upload, read-only sales/profit cache, option-inventory
+  snapshot, and manual-match alias plus explicit `item_count` evidence.
+- Domeggook and Onchannel tracking registration initiated from the KidItem
+  order-collection page.
+- KidItem local, office, and staging extension-id discovery for order operations
+  only.
+- Versioned order-collection failure evidence for operator recovery.
+
+## Browser Boundary
+
+- Resolve the KidItem environment from the verified external sender origin and
+  bind every run, status lookup, cancellation, tab, alarm, and callback to that
+  environment. Local, office, and staging may run concurrently in one installed
+  copy.
+- A supported marketplace collector may read a marketplace session token only
+  transiently when that marketplace's export API requires it. Use the token only
+  for same-marketplace origin requests, keep it in function scope, and never
+  include it in extension responses to KidItem.
+- Extension responses to the web app and backend carry only export artifacts,
+  structured order data, and non-secret metadata such as `xlsxBase64`,
+  `csvBase64`, file names, counts, and rows. Backend conversion, analysis, and
+  auth remain owned by the KidItem web app and NestJS API; marketplace tokens
+  must never be sent to KidItem.
+- Destructive marketplace actions such as tracking registration require an
+  explicit confirmation in the KidItem web page before the allowlisted action
+  is sent to the extension.
+- The `cookies` permission backs only `clearCoupangCookies`, the
+  supplier.coupang.com 400-recovery action. It is destructive — clearing the
+  shared `.coupang.com` cookies signs the operator out of every Coupang portal
+  (supplier/WING/Rocket), so it requires an explicit KidItem web-page
+  confirmation that states that blast radius. Use `chrome.cookies` only to
+  remove cookies by name/path; never read, return, forward, or store cookie
+  values. The permission spans all `host_permissions` origins, but only
+  supplier.coupang.com cookies may be touched.
+## Collection Failure Contract
+
+- Advertise `orderCollectionFailureEvidenceV1` only when every automatic mall
+  failure leaving the common lifecycle includes versioned evidence with
+  `provider`, `action`, `code`, `retryable`, and `operatorAction`.
+- Keep the stable codes `login_required`, `operator_action_required`,
+  `provider_contract_changed`, `network_failed`, and `unknown_failure`.
+  Marketplace text remains display detail, not program control flow in the web
+  app. GS Shop SMS verification uses `complete_sms_auth`; ordinary login uses
+  `complete_login`.
+- The web app must distinguish a pinging but incompatible extension from a
+  missing extension and show the loaded version plus missing capabilities.
+
+## Sellpia Inventory Contract
+
+- Advertise `collectSellpiaInventoryJsonV1` only for the hardened inactive-tab,
+  managed-lifecycle JSON collector. The web app must reject an older unpacked
+  extension and request a reload instead of falling back to an Excel collector.
+- `collectSellpiaInventory` runs only against the inactive
+  `https://kiditem.sellpia.com/product_list_total.html` page and posts the fixed
+  `mode=soldout_manager`, `soldout_include=Y`, and `limit=0` full-snapshot
+  request to `/product_search.ajax.html`. The existing
+  `https://*.sellpia.com/*` host permission covers this authenticated
+  same-origin request.
+- Reuse requires an exact matching tab with `active === false`. If every match
+  is active, create a separate inactive managed tab; never execute the download
+  request in the user's foreground tab.
+- The `inventory.sellpia` lifecycle requires a valid caller run ID and forces
+  deferred terminal handling even when an untrusted message omits or falsifies
+  `deferTerminal`. Successful collection stays running until import
+  finalization.
+- Attach extension-created tabs to the run as owned immediately after creation,
+  before readiness checks or page execution, so restart and cancellation can
+  reclaim them.
+- Accept only a bounded, non-empty response of at most 20,000 rows. Every row
+  must have a valid product/option identity and bounded stock/price integers;
+  duplicate identities, partial rows, invalid JSON, and oversized responses
+  fail the run.
+- Return only the versioned normalized snapshot fields required by Inventory,
+  sorted by product-option identity with an exact `rowCount`. Never return the
+  raw Sellpia response, response headers, cookies, or credentials.
+- Only login attention retains an extension-created inactive Sellpia tab for
+  the explicit generic open action. Never return cookies, credentials, response
+  headers, DOM text, or raw error/response bodies.
+
+## Rocket Purchase-Order Collection Contract
+
+- Summary and detail collection share `background/coupang-po-session.js`. A
+  generic Supplier Hub dashboard tab is never a valid PO execution context;
+  create an inactive managed `/scm/purchase/order/list` bootstrap tab and wait
+  for the final `/po-web/purchase/order/*` route before calling PO APIs.
+- A structured `coupang_po_session_required` result may trigger exactly one
+  fresh managed-tab retry. Do not loop, return raw redirects, or surface the
+  browser's generic `Failed to fetch` as the operator error.
+- `collectRocketPoRows` delegates to the extracted
+  `background/rocket-po-collection.js` collector. Keep marketplace DOM/API
+  knowledge out of the service-worker dispatcher.
+- Advertise `collectRocketPoRowsEvidenceV1` only when the response includes the
+  complete evidence object below. The web app must reject and ask the operator
+  to reload an older unpacked extension instead of treating its legacy rows as
+  preview input.
+- The web app creates the collection `runId`; the extension must echo that exact
+  ID with structured evidence for list pages read, detail PO count, failed PO
+  numbers, and truncation.
+- Collect every provider-reported list page and every PO detail in the requested
+  range with bounded detail concurrency. A page/detail failure or an empty
+  detail response is incomplete evidence and must block preview publication in
+  the backend; never silently truncate a complete provider result.
+- Advertise `collectRocketPoRowsConfirmationV1` only when every publishable row
+  also carries the allowlisted official-workbook fields collected from the
+  authenticated Rocket list/detail response. Do not synthesize missing fields
+  from display text or let the web app confirm without them.
+- Use the non-display Rocket `vendorId` as identity. Missing or mixed vendor IDs
+  return no publishable rows; never fall back to vendor names or display text.
+- Every detail line carries a deterministic `poLineId` so collection retries
+  can be hashed and compared independently of row order.
+- This capability collects evidence only. It must not confirm a Rocket PO,
+  submit quantities, reserve stock, or mutate Sellpia inventory.
+
+## Sellpia Manual-Match Contract
+
+- `collectSellpiaManualMatchV1` uses a managed inactive
+  `product_manual_match.html` tab; its port variant keeps the worker alive.
+- Accept sorted, unique active SKU codes and search by `product_code`. Publish
+  only exact-code rows having an explicit `match_title`; never infer an alias.
+- Trust only explicit positive `item_count`; title disagreement requires backend
+  review. Bound each request but not the whole cancellable scan.
+- Return only bounded code, alias, count, type, and evidence count. Never expose
+  raw responses, secrets, customer/order data, or `match_md5`.
+- Collection is read-only; no Sellpia matching or inventory/order mutation.
+
+## Sellpia Order-File Upload Contract
+
+- Advertise `sellpiaOrderFileUploadEvidenceV1` only when the worker waits for
+  Sellpia upload evidence after `#btn_om_upload` instead of treating the click
+  itself as success. The web app must ask the operator to reload an older
+  extension that lacks this capability.
+- Pre-click validation failures return `not_submitted`. Once the upload button
+  has been clicked, a missing response, Sellpia rejection dialog, timeout, or
+  tab loss is uncertain unless newly accepted pending rows are observed.
+- An uncertain submit must be resolved by reading Sellpia itself instead of
+  asking the operator. Look the transmitted order numbers up in the
+  `order_collect` pending list and then `order_stockmatch`, matching order
+  number and capturing the recipient as evidence. That lookup is read-only: it
+  may click only the stockmatch search button and must not register, merge,
+  match stock, or number invoices. All targets found becomes `submitted` with
+  `verifiedBySellpiaLookup`; none found becomes `not_submitted` so the file can
+  be resent safely; a partial match stays `unknown` because resending would
+  duplicate orders. Without target order numbers there is no verdict.
+- A successful response includes bounded non-secret accepted/pending row counts.
+  It never claims that `#save_b` registration or inventory matching completed.
+
+## Verification
+
+In addition to the parent verification, run:
+
+```bash
+node --test extensions/tests/order-collector-*.test.mjs
+node --check extensions/kiditem-os/background/orders/worker.js
+```

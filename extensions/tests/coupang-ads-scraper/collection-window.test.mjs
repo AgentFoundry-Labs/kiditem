@@ -11,7 +11,7 @@ const repoRoot = path.resolve(
 );
 const helperPath = path.join(
   repoRoot,
-  'extensions/coupang-ads-scraper/background/collection-window.js',
+  'extensions/kiditem-os/background/coupang/collection-window.js',
 );
 
 function createFakeChrome(initialStorage = {}, messageResponses = []) {
@@ -1397,6 +1397,103 @@ test('ad sync replaces its owned tab when it disappears before the content comma
   assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
 });
 
+test('daily ads replace the owned tab when it disappears after navigation but before load confirmation', async () => {
+  const fake = createFakeChrome({}, [
+    {
+      success: true,
+      type: 'coupang_ads_daily',
+      count: 1,
+    },
+    {
+      success: true,
+      type: 'coupang_ads_daily',
+      count: 1,
+    },
+  ]);
+  const attachedTabs = [];
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab(runId, tab) {
+      attachedTabs.push([runId, structuredClone(tab)]);
+      return { status: 'running' };
+    },
+    async cancel(runId) {
+      sessionCalls.push(['cancel', runId]);
+    },
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return { status: 'running', attempt: 1 };
+    },
+    async progress(runId, progress) {
+      sessionCalls.push(['progress', runId, progress]);
+    },
+    async requireAttention() {},
+    async succeed(runId) {
+      sessionCalls.push(['succeed', runId]);
+    },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+  const secondTargetUrl =
+    'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-07-28';
+  const realUpdate = fake.chrome.tabs.update;
+  let closedBeforeLoadConfirmation = false;
+  fake.chrome.tabs.update = (tabId, properties, callback) => {
+    realUpdate(tabId, properties, callback);
+    if (
+      properties.url === secondTargetUrl &&
+      !closedBeforeLoadConfirmation
+    ) {
+      closedBeforeLoadConfirmation = true;
+      queueMicrotask(() => {
+        const closedTab = fake.tabs.get(tabId);
+        fake.tabs.delete(tabId);
+        if (closedTab) fake.windows.delete(closedTab.windowId);
+      });
+    }
+  };
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'dashboard.coupang_ads',
+    runId: 'run-load-confirmation-tab-recovery',
+    startedAt: 1,
+    targets: [
+      {
+        id: 'ads-day-1',
+        label: '광고 성과 7월 27일',
+        url: 'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-07-27',
+      },
+      {
+        id: 'ads-day-2',
+        label: '광고 성과 7월 28일',
+        url: secondTargetUrl,
+      },
+    ],
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.completed, 2);
+  assert.equal(result.failed, 0);
+  assert.equal(fake.calls.windowsCreate.length, 2);
+  assert.equal(attachedTabs.length, 2);
+  assert.notEqual(attachedTabs[1][1].tabId, attachedTabs[0][1].tabId);
+  assert.ok(
+    sessionCalls.some(
+      ([name, runId]) =>
+        name === 'succeed' &&
+        runId === 'run-load-confirmation-tab-recovery',
+    ),
+  );
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+});
+
 for (const scenario of [
   {
     producer: 'advertising.ad_sync',
@@ -2749,7 +2846,7 @@ test('content-script timeout matches the 30 minute web collection budget', () =>
     /contentScriptTimeoutMs[\s\S]*?:\s*CONTENT_SCRIPT_TIMEOUT_MS/,
   );
   assert.match(helperSource, /sendTabMessage\(tabId, message, timeoutMs\s*=\s*contentScriptTimeoutMs\)/);
-  assert.match(helperSource, /let tab\s*=\s*await navigate/);
+  assert.match(helperSource, /const tab\s*=\s*await navigate/);
   assert.match(
     helperSource,
     /MIN_PROGRESSING_RESUME_ATTEMPTS\s*=\s*2_000/,

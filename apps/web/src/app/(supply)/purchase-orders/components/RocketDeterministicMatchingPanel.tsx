@@ -32,6 +32,16 @@ export function RocketDeterministicMatchingPanel({
   }, [latestAutomation, preview]);
 
   const data = preview.data;
+  const currentStatus = data ? productStatusCounts(data.productGroups) : null;
+  const latestMatched = latestAutomation
+    ? Math.max(
+        0,
+        latestAutomation.evaluatedProducts
+          - latestAutomation.quantityReviewProducts
+          - latestAutomation.operatorReviewProducts
+          - latestAutomation.blockedProducts,
+      )
+    : 0;
 
   return (
     <section
@@ -53,12 +63,13 @@ export function RocketDeterministicMatchingPanel({
           className="mt-3 rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm text-slate-700"
         >
           <p className="font-bold text-purple-800">
-            자동 적용 상품 {formatNumber(latestAutomation.appliedProducts)}개
-            {' · '}운영 옵션 {formatNumber(latestAutomation.affectedOptions)}개
+            매칭 완료 {formatNumber(latestMatched)}개
+            {' · '}매칭 수량 검토 {formatNumber(latestAutomation.quantityReviewProducts)}개
           </p>
           <p className="mt-0.5 text-xs text-slate-600">
-            운영자 검토 {formatNumber(latestAutomation.operatorReviewProducts)}개
-            {' · '}연결·매칭 필요 {formatNumber(latestAutomation.blockedProducts)}개
+            미매칭 상품 {formatNumber(
+              latestAutomation.operatorReviewProducts + latestAutomation.blockedProducts,
+            )}개
           </p>
         </div>
       ) : null}
@@ -67,31 +78,25 @@ export function RocketDeterministicMatchingPanel({
         <p className="mt-3 inline-flex items-center gap-2 text-sm text-slate-500">
           <Loader2 size={14} className="animate-spin" /> 매칭 근거 계산 중
         </p>
-      ) : data ? (
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      ) : data && currentStatus ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
           <Metric
             channelAccountId={channelAccountId}
-            status="auto_apply"
-            label="자동 적용 가능"
-            value={data.summary.autoApplyProducts}
+            status="matched"
+            label="매칭 완료"
+            value={currentStatus.matched}
           />
           <Metric
             channelAccountId={channelAccountId}
-            status="operator_review"
-            label="운영자 검토"
-            value={data.summary.operatorReviewProducts}
+            status="quantity_review"
+            label="매칭 수량 검토"
+            value={currentStatus.quantityReview}
           />
           <Metric
             channelAccountId={channelAccountId}
-            status="blocked"
-            label="연결·매칭 필요"
-            value={data.summary.blockedProducts}
-          />
-          <Metric
-            channelAccountId={channelAccountId}
-            status="already_configured"
-            label="구성 완료"
-            value={data.summary.alreadyConfiguredProducts}
+            status="unmatched"
+            label="미매칭 상품"
+            value={currentStatus.unmatched}
           />
         </div>
       ) : null}
@@ -104,9 +109,24 @@ export function RocketDeterministicMatchingPanel({
   );
 }
 
+function productStatusCounts(
+  groups: Array<{ decision: 'auto_apply' | 'quantity_review' | 'operator_review' | 'blocked' | 'already_configured' }>,
+) {
+  return groups.reduce((counts, group) => {
+    if (group.decision === 'auto_apply' || group.decision === 'already_configured') {
+      counts.matched += 1;
+    } else if (group.decision === 'quantity_review') {
+      counts.quantityReview += 1;
+    } else {
+      counts.unmatched += 1;
+    }
+    return counts;
+  }, { matched: 0, quantityReview: 0, unmatched: 0 });
+}
+
 function Metric({ channelAccountId, status, label, value }: {
   channelAccountId: string;
-  status: 'auto_apply' | 'operator_review' | 'blocked' | 'already_configured';
+  status: 'matched' | 'quantity_review' | 'unmatched';
   label: string;
   value: number;
 }) {

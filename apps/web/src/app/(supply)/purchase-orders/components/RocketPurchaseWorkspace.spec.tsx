@@ -85,12 +85,12 @@ describe('RocketPurchaseWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
-    expect(await screen.findByRole('spinbutton', { name: '1001 엑셀 수량' }))
+    expect(await screen.findByRole('spinbutton', { name: '1001 확정재고' }))
       .toHaveValue(2);
     expect(screen.getByText(/셀피아 재고 갱신 중/)).toBeInTheDocument();
 
     inventoryState.resolve(freshnessState({ status: 'fresh', verifiedGeneration: '12' }));
-    await waitFor(() => expect(screen.getByRole('spinbutton', { name: '1001 엑셀 수량' }))
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: '1001 확정재고' }))
       .toHaveValue(3));
     expect(screen.queryByText(/셀피아 재고 갱신 중/)).not.toBeInTheDocument();
   });
@@ -124,10 +124,10 @@ describe('RocketPurchaseWorkspace', () => {
       to: TO,
     });
     expect(screen.getByRole('columnheader', { name: '현재고' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: '엑셀 수량' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '확정재고' })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '약정' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '가용재고' })).not.toBeInTheDocument();
-    expect(screen.getByRole('spinbutton', { name: '1001 엑셀 수량' })).toHaveValue(3);
+    expect(screen.getByRole('spinbutton', { name: '1001 확정재고' })).toHaveValue(3);
     expect(screen.getByText('결정적 매칭 패널')).toBeInTheDocument();
   });
 
@@ -146,7 +146,7 @@ describe('RocketPurchaseWorkspace', () => {
 
     renderWorkspace(SOURCE_RUN_ID);
 
-    expect(await screen.findByRole('spinbutton', { name: '1001 엑셀 수량' })).toBeEnabled();
+    expect(await screen.findByRole('spinbutton', { name: '1001 확정재고' })).toBeEnabled();
     expect(loadSavedRocketCollection).toHaveBeenCalledWith({
       channelAccountId: ACCOUNT_ID,
       sourceImportRunId: SOURCE_RUN_ID,
@@ -170,7 +170,7 @@ describe('RocketPurchaseWorkspace', () => {
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
     expect(await screen.findByText('상품 매칭 필요')).toBeInTheDocument();
-    expect(screen.getByRole('spinbutton', { name: '1001 엑셀 수량' })).toBeDisabled();
+    expect(screen.getByRole('spinbutton', { name: '1001 확정재고' })).toBeDisabled();
   });
 
   it('clamps edited workbook quantities and requires whole-preview revalidation', async () => {
@@ -190,7 +190,7 @@ describe('RocketPurchaseWorkspace', () => {
     const user = userEvent.setup();
     renderWorkspace();
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
-    const quantity = await screen.findByRole('spinbutton', { name: '1001 엑셀 수량' });
+    const quantity = await screen.findByRole('spinbutton', { name: '1001 확정재고' });
 
     fireEvent.change(quantity, { target: { value: '9' } });
     expect(quantity).toHaveValue(3);
@@ -398,6 +398,7 @@ function catalogPublication(rowCount: number): RocketPoCatalogPublication {
       appliedProducts: 0,
       appliedVariants: 0,
       affectedOptions: 0,
+      quantityReviewProducts: 0,
       operatorReviewProducts: 0,
       blockedProducts: 0,
       alreadyConfiguredProducts: 0,

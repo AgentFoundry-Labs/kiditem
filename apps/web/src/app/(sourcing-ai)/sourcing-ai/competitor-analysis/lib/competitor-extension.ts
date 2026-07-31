@@ -3,8 +3,12 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from "@/lib/extension-bridge";
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
+import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
-export const COMPETITOR_EXTENSION_MIN_VERSION = "1.2.33";
+// 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
+// 기능 판정은 아래 ping capability 가 하고, 버전은 병합 이전 설치만 걸러낸다.
+export const COMPETITOR_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
 
 export type CompetitorExtensionGate =
   | { status: "ready"; extensionId: string; version: string }
@@ -88,9 +92,10 @@ export async function runCompetitorCollection(
   extensionId: string,
   runId?: string,
 ): Promise<CompetitorCollectionRun> {
+  const collectionRunId = await issueBrowserCollectionRunId(runId);
   const response = await sendToExtension<CompetitorCollectionRun>(extensionId, {
     action: "runCoupangKeywordRankCheck",
-    ...(runId ? { runId } : {}),
+    runId: collectionRunId,
   });
   if (!response?.success) {
     throw new Error(
@@ -116,12 +121,13 @@ export async function runCompetitorSellerCollection(
   sellerId: string,
   runId?: string,
 ): Promise<CompetitorCollectionRun> {
+  const collectionRunId = await issueBrowserCollectionRunId(runId);
   const response = await sendToExtension<CompetitorCollectionRun>(
     extensionId,
     {
       action: "runCoupangCompetitorSellerCatalog",
       sellerId,
-      ...(runId ? { runId } : {}),
+      runId: collectionRunId,
     },
     30_000,
   );

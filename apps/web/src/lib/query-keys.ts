@@ -115,6 +115,7 @@ export const queryKeys = {
     products: (period?: string) => [...queryKeys.ads.all, 'products', period] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
     campaignSyncStatus: () => [...queryKeys.ads.all, 'campaign-sync-status'] as const,
+    keywords: (period?: string) => [...queryKeys.ads.all, 'keywords', period] as const,
     campaignProducts: (channelAccountId: string, campaignIdentity: string, period?: string) =>
       [...queryKeys.ads.all, 'campaigns', channelAccountId, campaignIdentity, period] as const,
     trends: (period?: string | number) => [...queryKeys.ads.all, 'trends', period] as const,
@@ -176,6 +177,8 @@ export const queryKeys = {
   reviews: {
     all: ['reviews'] as const,
     list: (params: Record<string, string>) => [...queryKeys.reviews.all, 'list', params] as const,
+    /** 개별 상품평 원문 목록(`/api/reviews/items`). 집계 list 와 캐시를 나눈다. */
+    items: (params: Record<string, string>) => [...queryKeys.reviews.all, 'items', params] as const,
   },
   salesAnalysis: {
     all: ['salesAnalysis'] as const,
@@ -224,6 +227,8 @@ export const queryKeys = {
       [...queryKeys.channelProductMappings.all, 'recipe-suggestion', channelListingOptionId] as const,
     recipeAutomationPreview: (channelAccountId: string) =>
       [...queryKeys.channelProductMappings.all, 'recipe-automation-preview', channelAccountId] as const,
+    sellpiaManualMatchTargets: () =>
+      [...queryKeys.channelProductMappings.all, 'sellpia-manual-match-targets'] as const,
   },
   channelSkuAvailability: {
     all: ['channelSkuAvailability'] as const,

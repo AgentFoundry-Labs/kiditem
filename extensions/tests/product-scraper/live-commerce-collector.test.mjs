@@ -4,9 +4,9 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 
-const sourcePath = path.resolve('extensions/product-scraper/live-commerce-collector.js');
+const sourcePath = path.resolve('extensions/kiditem-os/background/sourcing/live-commerce-collector.js');
 const source = fs.readFileSync(sourcePath, 'utf8');
-const sessionPath = path.resolve('extensions/product-scraper/collection-session.js');
+const sessionPath = path.resolve('extensions/kiditem-os/background/collection-session.js');
 const sessionSource = fs.readFileSync(sessionPath, 'utf8');
 
 function loadCollectorModule() {

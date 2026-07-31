@@ -2,6 +2,7 @@ import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inve
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 
 export type PurchaseOrderItem = {
   id: string;
@@ -148,7 +149,7 @@ export const purchaseOrdersApi = {
 };
 
 export function createPurchaseOrderSubmissionIdempotencyKey(): string {
-  return globalThis.crypto.randomUUID();
+  return createSecureRandomUuid();
 }
 
 type FreshnessRecoveryDependencies = {

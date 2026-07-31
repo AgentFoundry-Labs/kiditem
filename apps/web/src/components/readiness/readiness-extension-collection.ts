@@ -6,6 +6,7 @@ import {
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { syncBrowserCollectionAlert } from '@/lib/browser-collection-session';
 import { sendToExtension } from '@/lib/extension-bridge';
+import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
 export const READINESS_COLLECTION_PRODUCERS = {
   wing_sales: 'dashboard.wing_sales',
@@ -13,7 +14,9 @@ export const READINESS_COLLECTION_PRODUCERS = {
   coupang_products: 'channels.coupang_catalog',
   wing_kpi: 'advertising.wing_rank',
 } as const satisfies Record<string, BrowserCollectionProducer>;
-export const COUPANG_COLLECTION_EXTENSION_MIN_VERSION = '1.2.102';
+// 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
+// 기능 판정은 아래 ping capability 가 하고, 버전은 병합 이전 설치만 걸러낸다.
+export const COUPANG_COLLECTION_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
 
 const POLL_INTERVAL_MS = 2_000;
 // The extension content-script watchdog is 30 minutes. Keep the web poller
@@ -70,8 +73,11 @@ export async function assertCompatibleCoupangCollectionExtension(
     !ping.capabilities?.browserCollectionSessions ||
     !isVersionAtLeast(ping.version, COUPANG_COLLECTION_EXTENSION_MIN_VERSION)
   ) {
+    const installedVersion = ping?.version
+      ? `설치 ${ping.version}, `
+      : '';
     throw new Error(
-      `KIDITEM 쿠팡 확장프로그램 ${COUPANG_COLLECTION_EXTENSION_MIN_VERSION}+가 필요합니다. chrome://extensions에서 새로고침해 주세요.`,
+      `KIDITEM 쿠팡 확장프로그램 버전이 오래되었습니다. (${installedVersion}필요 ${COUPANG_COLLECTION_EXTENSION_MIN_VERSION}+) chrome://extensions에서 새로고침해 주세요.`,
     );
   }
 }

@@ -4,26 +4,27 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { MERGED_EXTENSION_VERSION } from '../helpers/domain-worker-modules.mjs';
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../..',
 );
-const extensionRoot = path.join(repoRoot, 'extensions/coupang-ads-scraper');
+const extensionRoot = path.join(repoRoot, 'extensions/kiditem-os');
 const worker = fs.readFileSync(
-  path.join(extensionRoot, 'background/service-worker.js'),
+  path.join(extensionRoot, 'background/coupang/worker.js'),
   'utf8',
 );
 const catalog = fs.readFileSync(
-  path.join(extensionRoot, 'background/coupang-catalog-import.js'),
+  path.join(extensionRoot, 'background/coupang/coupang-catalog-import.js'),
   'utf8',
 );
 const collectionWindowSource = fs.readFileSync(
-  path.join(extensionRoot, 'background/collection-window.js'),
+  path.join(extensionRoot, 'background/coupang/collection-window.js'),
   'utf8',
 );
 const collectionRunsSource = fs.readFileSync(
-  path.join(extensionRoot, 'background/collection-runs.js'),
+  path.join(extensionRoot, 'background/coupang/collection-runs.js'),
   'utf8',
 );
 const manifest = JSON.parse(
@@ -47,28 +48,46 @@ function functionSource(name, nextName) {
   return worker.slice(start, end >= 0 ? end : undefined);
 }
 
+// 확장 병합 후 의존 모듈 로드는 통합 서비스워커가, 도메인 공용 전역은
+// worker-globals.js 가 소유한다.
 test('loads the canonical session manager and focus owners before collector runtimes', () => {
-  const collectionSession = worker.indexOf('"collection-session.js"');
-  const collectionWindow = worker.indexOf('"collection-window.js"');
-  const interactiveTabs = worker.indexOf('"interactive-tabs.js"');
-  const catalogRuntime = worker.indexOf('"coupang-catalog-import.js"');
+  const entry = fs.readFileSync(
+    path.join(extensionRoot, 'background/service-worker.js'),
+    'utf8',
+  );
+  const at = (file) => entry.indexOf(`"${file}"`);
 
-  assert.ok(collectionSession >= 0);
-  assert.ok(collectionWindow > collectionSession);
-  assert.ok(interactiveTabs > collectionWindow);
-  assert.ok(catalogRuntime > interactiveTabs);
-  assert.match(worker, /storageKey:\s*["']kiditem_collection_sessions["']/);
+  assert.ok(at('collection-session.js') >= 0);
+  assert.ok(at('interactive-tabs.js') > at('collection-session.js'));
+  assert.ok(at('worker-globals.js') > at('interactive-tabs.js'));
+  assert.ok(at('coupang/collection-window.js') > at('worker-globals.js'));
+  assert.ok(at('coupang/coupang-catalog-import.js') > at('coupang/collection-window.js'));
+  assert.ok(at('coupang/worker.js') > at('coupang/coupang-catalog-import.js'));
+  assert.doesNotMatch(worker, /^importScripts\(/m);
+
+  const globals = fs.readFileSync(
+    path.join(extensionRoot, 'background/worker-globals.js'),
+    'utf8',
+  );
+  assert.match(globals, /storageKey:\s*["']kiditem_collection_sessions["']/);
   assert.match(
-    worker,
+    globals,
     /const KIDITEM_WEB_URL_PATTERNS = \[[\s\S]*?["']http:\/\/localhost:3000\/\*["'][\s\S]*?["']http:\/\/kiditem-office\/\*["'][\s\S]*?["']https:\/\/staging\.merchon\.org\/\*["'][\s\S]*?\]/,
   );
-  assert.match(worker, /environmentContext,\s*\n\s*\}\);/);
+  // 쿠팡 도메인은 requiresAuth 가 달라 자기 환경 컨텍스트를 따로 만든다.
+  assert.match(worker, /const adsEnvironmentContext = KidItemEnvironmentContext\.create\(/);
 });
 
+// 세 도메인 워커가 각자 응답하면 같은 메시지에 경쟁 응답이 된다. 공통 액션은
+// external-dispatch.js 만 처리하고, 쿠팡 워커는 자기 액션만 남긴다.
 test('handles generic collection controls before producer actions', () => {
-  const genericControl = worker.indexOf('msg.action === "listCollectionSessions"');
-  const scrapeTargets = worker.indexOf('msg.action === "scrapeTargets"');
-  assert.ok(genericControl >= 0 && genericControl < scrapeTargets);
+  const dispatchSource = fs.readFileSync(
+    path.join(extensionRoot, 'background/external-dispatch.js'),
+    'utf8',
+  );
+  assert.ok(worker.indexOf('msg.action === "scrapeTargets"') >= 0);
+  assert.match(worker, /KidItemDomains\.register\(/);
+  assert.match(worker, /producerPrefixes:\s*\["advertising",\s*"channels",\s*"dashboard"\]/);
   for (const action of [
     'listCollectionSessions',
     'getCollectionSession',
@@ -76,15 +95,21 @@ test('handles generic collection controls before producer actions', () => {
     'openCollectionAttentionTab',
     'restartCollectionSession',
   ]) {
-    assert.match(worker, new RegExp(`msg\\.action === ["']${action}["']`));
+    assert.match(dispatchSource, new RegExp(`["']${action}["']`));
+    assert.doesNotMatch(worker, new RegExp(`msg\\.action === ["']${action}["']`));
   }
   assert.match(collectionRunsSource, /restartStrategy !== ["']extension["']/);
   assert.match(collectionRunsSource, /reason:\s*["']manual_confirmation["']/);
   assert.match(collectionRunsSource, /forceRestart:\s*true/);
   assert.match(collectionRunsSource, /options\.restartCatalog/);
+  // 취소 구현은 그대로 쿠팡 도메인이 갖고, 레지스트리를 통해 dispatch 가 부른다.
   assert.match(
     worker,
-    /collectionRuns\s*\.\s*cancel\(msg\.runId, environmentId\)[\s\S]*collectionSessions\.getOwned\(msg\.runId, environmentId\)/,
+    /cancelCollectionSession:[\s\S]*collectionRuns\s*\n?\s*\.cancel\(runId, environmentId\)[\s\S]*collectionSessions\.getOwned\(runId, environmentId\)/,
+  );
+  assert.match(
+    worker,
+    /restartCollectionSession:[\s\S]*collectionRuns\.restart\(runId, environmentId\)/,
   );
 });
 
@@ -119,7 +144,7 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /unsupported collection producer/i);
-  assert.equal(manifest.version, '1.2.103');
+  assert.equal(manifest.version, MERGED_EXTENSION_VERSION);
   assert.match(worker, /wingFormPortV1:\s*true/);
   assert.match(worker, /kiditem-wing-form-v1/);
   assert.match(
@@ -128,8 +153,13 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   );
   assert.match(
     worker,
-    /onConnectExternal[\s\S]*port\.name === WING_FORM_PORT_NAME[\s\S]*handleWingFormPort\(port\)/,
+    /externalPorts:[\s\S]*WING_FORM_PORT_NAME[\s\S]*handleWingFormPort\(port\)/,
   );
+  const dispatchSource = fs.readFileSync(
+    path.join(extensionRoot, 'background/external-dispatch.js'),
+    'utf8',
+  );
+  assert.match(dispatchSource, /onConnectExternal\?\.addListener\(handlePort\)/);
 });
 
 test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {

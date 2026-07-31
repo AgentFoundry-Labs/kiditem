@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   KIDITEM_EXTENSION_ID_KEY,
   KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
+  KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME,
   KIDITEM_SOURCING_EXTENSION_ID_KEY,
   detectExtensionId,
   detectWingFormExtensionId,
   detectOrderCollectionExtensionId,
   detectOrderCollectionExtensionRuntime,
   detectSourcingExtensionId,
+  collectSellpiaManualMatch,
   sendToExtensionViaPort,
 } from '../extension-bridge';
 
@@ -212,5 +214,126 @@ describe('durable extension command port', () => {
       name: 'kiditem-wing-form-v1',
     });
     expect(disconnect).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Sellpia manual-match extension command', () => {
+  it('uses the durable manual-match port and validates the reply', async () => {
+    const runId = '11111111-1111-4111-8111-111111111111';
+    const messageListeners: Array<(message: unknown) => void> = [];
+    const disconnect = vi.fn();
+    const postMessage = vi.fn((message: unknown) => {
+      if ((message as { action?: string }).action !== 'collectSellpiaManualMatch') return;
+      queueMicrotask(() => messageListeners.forEach((listener) => listener({
+        success: true,
+        runId,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        snapshot: {
+          source: 'sellpia_product_manual_match',
+          version: 1,
+          targetCount: 2,
+          targetCodes: ['18', '634-1'],
+          rowCount: 1,
+          rows: [{
+            productCode: '634-1',
+            aliasTitle: '샤이니무지개칼라링(12개입)',
+            itemCount: 12,
+            matchedType: 'M',
+            evidenceCount: 1,
+          }],
+        },
+      })));
+    });
+    const connect = vi.fn(() => ({
+      postMessage,
+      disconnect,
+      onMessage: {
+        addListener: (listener: (message: unknown) => void) => messageListeners.push(listener),
+        removeListener: vi.fn(),
+      },
+      onDisconnect: {
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      },
+    }));
+    Object.defineProperty(window, 'chrome', {
+      configurable: true,
+      value: { runtime: { lastError: undefined, connect } },
+    });
+
+    await expect(collectSellpiaManualMatch(
+      'order-extension',
+      runId,
+      ['18', '634-1'],
+    )).resolves.toMatchObject({ success: true, runId });
+    expect(connect).toHaveBeenCalledWith('order-extension', {
+      name: KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME,
+    });
+    expect(postMessage).toHaveBeenCalledWith({
+      action: 'collectSellpiaManualMatch',
+      runId,
+      targetCodes: ['18', '634-1'],
+    });
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a bounded manual-match scan alive without a fixed total timeout', async () => {
+    vi.useFakeTimers();
+    const runId = '11111111-1111-4111-8111-111111111111';
+    const messageListeners: Array<(message: unknown) => void> = [];
+    const postMessage = vi.fn();
+    const disconnect = vi.fn();
+    Object.defineProperty(window, 'chrome', {
+      configurable: true,
+      value: {
+        runtime: {
+          lastError: undefined,
+          connect: vi.fn(() => ({
+            postMessage,
+            disconnect,
+            onMessage: {
+              addListener: (listener: (message: unknown) => void) =>
+                messageListeners.push(listener),
+              removeListener: vi.fn(),
+            },
+            onDisconnect: {
+              addListener: vi.fn(),
+              removeListener: vi.fn(),
+            },
+          })),
+        },
+      },
+    });
+
+    const pending = collectSellpiaManualMatch('order-extension', runId, []);
+    expect(postMessage).toHaveBeenNthCalledWith(1, {
+      action: 'collectSellpiaManualMatch',
+      runId,
+      targetCodes: [],
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(postMessage).toHaveBeenNthCalledWith(2, {
+      action: 'keepAlive',
+      runId,
+    });
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(postMessage.mock.calls.length).toBeGreaterThan(2);
+    messageListeners.forEach((listener) => listener({
+      success: true,
+      runId,
+      sourceOrigin: 'https://kiditem.sellpia.com',
+      snapshot: {
+        source: 'sellpia_product_manual_match',
+        version: 1,
+        targetCount: 0,
+        targetCodes: [],
+        rowCount: 0,
+        rows: [],
+      },
+    }));
+
+    await expect(pending).resolves.toMatchObject({ success: true, runId });
+    expect(disconnect).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 });

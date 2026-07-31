@@ -159,6 +159,78 @@ export const AdProductSnapshotSchema = z.object({
 });
 export type AdProductSnapshot = z.infer<typeof AdProductSnapshotSchema>;
 
+// ───── Keyword grain ─────
+//
+// The Coupang ad centre "키워드 보기" modal is backed by two provider calls:
+// `POST /marketing/cmg-api/tableMetric` with `tableType='keyword'` (metrics per
+// keyword for one ad) and `GET /marketing/tetris-api/ad/keywords/{adId}`
+// (manually registered keywords with their audit state and bid). A keyword that
+// only appears in the metric table is smart-targeting inventory Coupang matched
+// on its own — the advertiser never registered it.
+
+/** How a keyword became attached to an ad. */
+export const AdKeywordOriginSchema = z.enum(['registered', 'smart_targeting']);
+export type AdKeywordOrigin = z.infer<typeof AdKeywordOriginSchema>;
+
+/** Relevance verdict produced by the keyword agent. `null` = not judged yet. */
+export const AdKeywordRelevanceSchema = z.enum([
+  'relevant',
+  'loose',
+  'irrelevant',
+]);
+export type AdKeywordRelevance = z.infer<typeof AdKeywordRelevanceSchema>;
+
+export const AdKeywordSnapshotSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  campaignIdentity: z.string().nullable(),
+  campaignId: z.string().nullable(),
+  campaignName: z.string().nullable(),
+  adGroup: z.string().nullable(),
+  keyword: z.string(),
+  origin: AdKeywordOriginSchema,
+  /** Provider audit state for registered keywords ("승인" / "검수중" / …). */
+  status: z.string().nullable(),
+  onOff: z.string().nullable(),
+  currentBid: z.number().int().nullable(),
+  /** Advertised option this keyword is attached to. */
+  externalOptionId: z.string().nullable(),
+  productName: z.string().nullable(),
+  listing: AdListingSummarySchema.nullable(),
+  period: z.string(),
+  metrics: AdMetricsSchema,
+  relevance: AdKeywordRelevanceSchema.nullable(),
+  relevanceReason: z.string().nullable(),
+});
+export type AdKeywordSnapshot = z.infer<typeof AdKeywordSnapshotSchema>;
+
+/** One advertised product with its keyword footprint rolled up. */
+export const AdKeywordProductSummarySchema = z.object({
+  externalOptionId: z.string(),
+  productName: z.string().nullable(),
+  campaignId: z.string().nullable(),
+  campaignName: z.string().nullable(),
+  listing: AdListingSummarySchema.nullable(),
+  keywordCount: z.number().int(),
+  registeredCount: z.number().int(),
+  smartTargetingCount: z.number().int(),
+  /** Keywords that drew at least one impression in the period. */
+  servingCount: z.number().int(),
+  irrelevantCount: z.number().int(),
+  unjudgedCount: z.number().int(),
+  metrics: AdMetricsSchema,
+});
+export type AdKeywordProductSummary = z.infer<
+  typeof AdKeywordProductSummarySchema
+>;
+
+export const AdKeywordsDataSchema = z.object({
+  period: z.string(),
+  collectedAt: z.string().nullable(),
+  products: z.array(AdKeywordProductSummarySchema),
+  keywords: z.array(AdKeywordSnapshotSchema),
+});
+export type AdKeywordsData = z.infer<typeof AdKeywordsDataSchema>;
+
 // Account-level period summary derived from `ChannelAccountDailyKpiSnapshot`
 // (`source='coupang_ads'`, `kpiType='coupang_ads_daily'`). Surfaces real ad
 // totals from the Coupang ads dashboard when per-listing ad attribution is

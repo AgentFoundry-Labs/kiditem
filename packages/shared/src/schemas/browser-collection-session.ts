@@ -7,6 +7,7 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'dashboard.coupang_products',
   'dashboard.wing_kpi',
   'advertising.ad_sync',
+  'advertising.ad_keyword',
   'advertising.scrape_targets',
   'advertising.wing_rank',
   'advertising.keyword_rank',
@@ -18,6 +19,7 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'sourcing.tiktok_cc_trend',
   'orders.mall',
   'inventory.sellpia',
+  'orders.sellpia_manual_match',
 ] as const;
 
 export const BROWSER_COLLECTION_STATES = [
@@ -55,6 +57,9 @@ export const BrowserCollectionAttentionReasonSchema = z.enum(
   BROWSER_COLLECTION_ATTENTION_REASONS,
 );
 export const BrowserCollectionRunIdSchema = z.string().uuid();
+export const BrowserCollectionRunIssueResponseSchema = z.object({
+  runId: BrowserCollectionRunIdSchema,
+}).strict();
 
 const InputValueSchema = z.union([
   z.string().max(500),
@@ -201,4 +206,7 @@ export type BrowserCollectionSessionView = z.infer<
 >;
 export type BrowserCollectionCommand = z.infer<
   typeof BrowserCollectionCommandSchema
+>;
+export type BrowserCollectionRunIssueResponse = z.infer<
+  typeof BrowserCollectionRunIssueResponseSchema
 >;

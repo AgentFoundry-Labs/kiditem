@@ -82,6 +82,7 @@ export function buildMockAdCampaignRepo(): MockAdCampaignRepo {
     findLatestCompleteCampaignSweeps: vi.fn(),
     findAccountlessSyncCampaignSweep: vi.fn(),
     findProductTargetRollups: vi.fn(),
+    findKeywordTargetRollups: vi.fn(),
     findAdTrendDailyRows: vi.fn(),
     findGradeBudgetTotals: vi.fn(),
   };
@@ -96,6 +97,7 @@ export function buildMockAdActionRepo(): MockAdActionRepo {
     findAdActionsForReview: vi.fn(),
     findLatestTargetRows: vi.fn(),
     findExistingInflightActions: vi.fn(),
+    findOpenKeywordRelevanceActions: vi.fn().mockResolvedValue([]),
     createAdActionsFromCandidates: vi.fn(),
     approveAdActions: vi.fn(),
     rejectAdActions: vi.fn(),

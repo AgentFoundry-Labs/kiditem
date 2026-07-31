@@ -53,6 +53,8 @@ export const CoupangDirectPurchaseOrderSchema = z.object({
   transport: CoupangDirectTransportSchema,
   edd: optionalDisplayDate,
   reg: z.string().trim().min(1),
+  // 발주유형이 긴급인지(쿠팡 purchaseOrderType = URGENT). 구버전 확장은 안 보내므로 선택값.
+  urgent: z.boolean().optional(),
   items: z.array(CoupangDirectOrderItemSchema),
 }).strict();
 export type CoupangDirectPurchaseOrder = z.infer<

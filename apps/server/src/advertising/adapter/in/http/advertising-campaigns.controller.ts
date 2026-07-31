@@ -40,6 +40,23 @@ export class AdvertisingCampaignsController {
     );
   }
 
+  @Get('keywords')
+  getKeywords(
+    @Query() query: AdProductQueryDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.adCampaignsService.getKeywords(
+      query.period ?? '14d',
+      organizationId,
+      query.channelAccountId && query.campaignIdentity
+        ? {
+            channelAccountId: query.channelAccountId,
+            campaignIdentity: query.campaignIdentity,
+          }
+        : undefined,
+    );
+  }
+
   @Get('campaigns/trends')
   getTrends(@Query() query: TrendsQueryDto, @CurrentOrganization() organizationId: string) {
     const dateRange =

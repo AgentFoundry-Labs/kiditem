@@ -5,6 +5,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
 import type {
   AdActionQuery,
@@ -12,10 +13,13 @@ import type {
   AdActionReviewResult,
   AdActionUpdatePatch,
   ExistingAdActionDedupRow,
+  OpenKeywordRelevanceActionRow,
   HydratedAdAction,
   LatestTargetRow,
 } from '../../../application/port/out/repository/ad-action.repository.port';
-import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
+
+const OPEN_ACTION_APPROVAL_STATUSES = ['pending_review', 'approved'] as const;
+const OPEN_ACTION_EXECUTE_STATUSES = ['queued', 'running'] as const;
 
 @Injectable()
 export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
@@ -120,6 +124,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             cad.listing_id,
             cad.listing_option_id,
             cad.external_id,
+            cad.external_option_id,
             cad.campaign_id,
             cad.campaign_name,
             cad.keyword,
@@ -130,7 +135,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             cad.revenue,
             cad.impressions,
             cad.clicks,
-            cad.conversions
+            cad.conversions,
+            cad.meta_json
           FROM channel_ad_target_daily_snapshots cad
           WHERE cad.organization_id = ${organizationId}::uuid
             AND cad.channel = 'coupang'
@@ -149,6 +155,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           cl.id                        AS "listingId",
           clo.id                       AS "listingOptionId",
           latest.external_id           AS "externalId",
+          latest.external_option_id    AS "externalOptionId",
           latest.campaign_id           AS "campaignId",
           latest.campaign_name         AS "campaignName",
           latest.keyword,
@@ -162,8 +169,18 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.conversions,
           mp.abc_grade                 AS "abcGrade",
           clo.commission_rate          AS "optionCommissionRate",
-          COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id)
-                                       AS "productName"
+          -- Keyword rows frequently have no listing match (7,432 of 9,266 in
+          -- the live account), but the advertised item name is always stamped
+          -- by ingest. Relevance cannot be judged without a product name, so
+          -- fall back to it after the catalog-derived names.
+          COALESCE(
+            mp.name,
+            cl.display_name,
+            cl.channel_name,
+            cl.external_id,
+            latest.meta_json -> 'advertising.keyword.target' ->> 'productName',
+            latest.meta_json -> 'advertising.campaign.target' ->> 'productName'
+          )                            AS "productName"
         FROM latest
         LEFT JOIN channel_listings cl
               ON cl.id = latest.listing_id
@@ -211,31 +228,94 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     });
   }
 
+  async findOpenKeywordRelevanceActions(
+    organizationId: string,
+  ): Promise<OpenKeywordRelevanceActionRow[]> {
+    return this.prisma.adAction.findMany({
+      where: {
+        organizationId,
+        actionType: 'pause_keyword',
+        approvalStatus: { in: ['pending_review', 'approved'] },
+        executeStatus: { in: ['queued', 'running'] },
+      },
+      select: { targetLabel: true, externalId: true, reason: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async createAdActionsFromCandidates(
     organizationId: string,
     candidates: ActionCandidate[],
   ): Promise<AdAction[]> {
     if (candidates.length === 0) return [];
-    return this.prisma.$transaction(
-      candidates.map((c) =>
-        this.prisma.adAction.create({
+    return this.prisma.$transaction(async (tx) => {
+      const pauseKeywordCandidates = candidates.filter((candidate) =>
+        pauseKeywordActionKey(candidate) !== null);
+
+      const existingPauseKeys = new Set<string>();
+      if (pauseKeywordCandidates.length > 0) {
+        // Prevent two concurrent strategy runs from both seeing "no open action"
+        // and inserting duplicate pause_keyword proposals for the same tenant.
+        await tx.$queryRaw(
+          Prisma.sql`
+            SELECT pg_advisory_xact_lock(
+              hashtext('kiditem_ad_action_pause_keyword'::text),
+              hashtext(${organizationId}::text)
+            )::text AS locked
+          `,
+        );
+
+        const openActions = await tx.adAction.findMany({
+          where: {
+            organizationId,
+            actionType: 'pause_keyword',
+            targetType: 'keyword',
+            approvalStatus: { in: [...OPEN_ACTION_APPROVAL_STATUSES] },
+            executeStatus: { in: [...OPEN_ACTION_EXECUTE_STATUSES] },
+            OR: pauseKeywordCandidates.map((candidate) => ({
+              externalId: candidate.externalId,
+              targetLabel: candidate.targetLabel,
+            })),
+          },
+          select: { externalId: true, targetLabel: true },
+        });
+
+        for (const action of openActions) {
+          const key = pauseKeywordActionKey(action);
+          if (key) existingPauseKeys.add(key);
+        }
+      }
+
+      const seenPauseKeys = new Set<string>();
+      const created: AdAction[] = [];
+      for (const candidate of candidates) {
+        const pauseKey = pauseKeywordActionKey(candidate);
+        if (pauseKey) {
+          if (existingPauseKeys.has(pauseKey) || seenPauseKeys.has(pauseKey)) {
+            continue;
+          }
+          seenPauseKeys.add(pauseKey);
+        }
+        created.push(await tx.adAction.create({
           data: {
             organizationId,
-            listingId: c.listingId,
-            adTargetDailyId: c.adTargetDailyId,
-            actionType: c.actionType,
-            targetType: c.targetType,
-            externalId: c.externalId,
-            targetLabel: c.targetLabel,
-            reason: c.reason,
-            priority: c.priority,
-            currentValue: c.currentValue,
-            proposedValue: c.proposedValue,
-            payload: c.payload as Prisma.InputJsonValue,
+            listingId: candidate.listingId,
+            adTargetDailyId: candidate.adTargetDailyId,
+            actionType: candidate.actionType,
+            targetType: candidate.targetType,
+            externalId: candidate.externalId,
+            targetLabel: candidate.targetLabel,
+            reason: candidate.reason,
+            priority: candidate.priority,
+            currentValue: candidate.currentValue,
+            proposedValue: candidate.proposedValue,
+            payload: candidate.payload as Prisma.InputJsonValue,
           },
-        }),
-      ),
-    );
+        }));
+      }
+
+      return created;
+    });
   }
 
   async approveAdActions(
@@ -462,4 +542,23 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       };
     });
   }
+}
+
+function pauseKeywordActionKey(input: {
+  actionType?: string | null;
+  targetType?: string | null;
+  externalId?: string | null;
+  targetLabel?: string | null;
+}): string | null {
+  if (input.actionType !== undefined && input.actionType !== 'pause_keyword') return null;
+  if (input.targetType !== undefined && input.targetType !== 'keyword') return null;
+  const externalId = normalizeActionKeyPart(input.externalId);
+  const targetLabel = normalizeActionKeyPart(input.targetLabel);
+  if (!externalId && !targetLabel) return null;
+  return `${externalId ?? ''}\u0000${targetLabel ?? ''}`;
+}
+
+function normalizeActionKeyPart(value: string | null | undefined): string | null {
+  const normalized = String(value ?? '').trim();
+  return normalized.length > 0 ? normalized : null;
 }

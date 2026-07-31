@@ -566,7 +566,7 @@ setReactValue(input, value);
 '재고수량 일괄입력' 도 동일
 ```
 
-구현: `extensions/coupang-ads-scraper/content/wing-registration-fill.js` 의 `bulkFillByButton()`.
+구현: `extensions/kiditem-os/content/coupang/wing-registration-fill.js` 의 `bulkFillByButton()`.
 
 ## 6. SKU(옵션) 레벨 필드
 

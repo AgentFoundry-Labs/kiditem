@@ -209,6 +209,44 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(hook.result.current.preview?.rows[0]?.recommendedQuantity).toBe(3);
   });
 
+  it('reuses the loaded source when only the delivery date changes', async () => {
+    // 날짜만 바꾸는 건 같은 수집본을 다시 자르는 일이다. 서버를 다시 타면 1,900행짜리
+    // 수집본을 재다운로드하고 그 전량을 다시 계산하게 되어 클릭이 눈에 띄게 느려진다.
+    const rowA = { ...sourceRow('LINE-A'), plannedDeliveryDate: '2026-07-10' };
+    const rowB = { ...sourceRow('LINE-B'), plannedDeliveryDate: '2026-07-20' };
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [rowA, rowB]);
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases).mockResolvedValue(preview(source, [
+      { ...previewRow('LINE-A', null, 3), plannedDeliveryDate: '2026-07-10' },
+      { ...previewRow('LINE-B', null, 2), plannedDeliveryDate: '2026-07-20' },
+    ]));
+
+    const hook = renderHook(
+      ({ selectedDeliveryDate }) => useRocketPurchaseWorkflow({
+        channelAccountId: ACCOUNT_A,
+        hasConfiguredVendorId: true,
+        from: '2026-07-01',
+        to: '2026-07-31',
+        savedSourceImportRunId: SOURCE_A,
+        selectedDeliveryDate,
+      } as never),
+      { initialProps: { selectedDeliveryDate: '2026-07-10' }, wrapper: queryWrapper() },
+    );
+
+    await waitFor(() => expect(hook.result.current.displayPreview?.rows).toHaveLength(1));
+    expect(hook.result.current.displayPreview?.rows[0]?.poLineId).toBe('LINE-A');
+    expect(loadSavedRocketCollection).toHaveBeenCalledTimes(1);
+    expect(previewRocketPurchases).toHaveBeenCalledTimes(1);
+
+    hook.rerender({ selectedDeliveryDate: '2026-07-20' });
+
+    await waitFor(() => expect(hook.result.current.displayPreview?.rows[0]?.poLineId)
+      .toBe('LINE-B'));
+    // 날짜만 바뀌었으니 서버 왕복은 늘지 않아야 한다.
+    expect(loadSavedRocketCollection).toHaveBeenCalledTimes(1);
+    expect(previewRocketPurchases).toHaveBeenCalledTimes(1);
+  });
+
   it('revalidates the same saved collection without sending an untouched mapping zero', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     source.exportedPoLineIds = ['LINE-A'];
@@ -361,8 +399,9 @@ describe('useRocketPurchaseWorkflow', () => {
       [confirmationRow, completedRow],
     );
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    // 서버는 전체 행을 돌려주고, 훅이 표시본과 검토본으로 나눈다.
     vi.mocked(previewRocketPurchases).mockResolvedValue(
-      preview(source, [previewRow('LINE-A', null, 3)]),
+      preview(source, [previewRow('LINE-A', null, 3), previewRow('LINE-B', null, 5)]),
     );
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
@@ -373,8 +412,14 @@ describe('useRocketPurchaseWorkflow', () => {
 
     expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
       rows: [confirmationRow, completedRow],
-      previewScope: 'confirmation_requested',
+      previewScope: 'all_rows',
     }));
+    // 표에는 발주확정 행까지 모두 보여준다(달력 건수와 어긋나지 않게).
+    expect(hook.result.current.displayPreview?.rows.map(({ poLineId }) => poLineId))
+      .toEqual(['LINE-A', 'LINE-B']);
+    // 엑셀 대상은 거래처확인요청 행만 유지한다.
+    expect(hook.result.current.preview?.rows.map(({ poLineId }) => poLineId))
+      .toEqual(['LINE-A']);
     expect(hook.result.current.sourceRows).toEqual([confirmationRow]);
   });
 
@@ -455,6 +500,44 @@ describe('useRocketPurchaseWorkflow', () => {
     }));
     expect(hook.result.current.editedQuantities['LINE-A']).toBe(0);
     expect(hook.result.current.previewDirty).toBe(false);
+  });
+
+  it('closes the loading activity when a newer date supersedes the load', async () => {
+    // 날짜를 바꾸면 이전 불러오기가 밀려난다. 그때 시작 기록을 닫지 않으면 활동 패널에
+    // "불러오는 중"이 영원히 남아 화면이 멈춘 것처럼 보인다.
+    const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
+    const stale = deferred<RocketPurchasePreviewResponse>();
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
+    vi.mocked(previewRocketPurchases)
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValue(preview(source, [previewRow('LINE-A', null, 3)]));
+    const onActivity = vi.fn();
+    const hook = renderHook(
+      ({ selectedDeliveryDate }) => useRocketPurchaseWorkflow({
+        channelAccountId: ACCOUNT_A,
+        hasConfiguredVendorId: true,
+        from: '2026-07-01',
+        to: '2026-07-31',
+        savedSourceImportRunId: SOURCE_A,
+        selectedDeliveryDate,
+        onActivity,
+      }),
+      { initialProps: { selectedDeliveryDate: '2026-07-28' }, wrapper: queryWrapper() },
+    );
+
+    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(1));
+    hook.rerender({ selectedDeliveryDate: '2026-07-31' });
+    await act(async () => {
+      stale.resolve(preview(source, [previewRow('LINE-A', null, 3)]));
+    });
+
+    await waitFor(() => {
+      const started = onActivity.mock.calls.filter(([a]) => a.status === 'started').length;
+      const settled = onActivity.mock.calls
+        .filter(([a]) => a.status === 'succeeded' || a.status === 'failed').length;
+      // 시작한 만큼 종료 기록이 남아야 "불러오는 중"이 걸려 있지 않다.
+      expect(settled).toBeGreaterThanOrEqual(started);
+    });
   });
 
   it('ignores an old revalidation response after account and source change', async () => {
@@ -789,6 +872,7 @@ function catalogPublication(
       appliedProducts: 0,
       appliedVariants: 0,
       affectedOptions: 0,
+      quantityReviewProducts: 0,
       operatorReviewProducts: 0,
       blockedProducts: 0,
       alreadyConfiguredProducts: 0,

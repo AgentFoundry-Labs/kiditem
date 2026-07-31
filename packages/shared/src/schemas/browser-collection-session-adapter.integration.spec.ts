@@ -6,9 +6,9 @@ import { BrowserCollectionSessionViewSchema } from './browser-collection-session
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const adapterPaths = [
-  'extensions/coupang-ads-scraper/background/collection-session.js',
-  'extensions/product-scraper/collection-session.js',
-  'extensions/order-collector/background/collection-session.js',
+  // The three former extensions are now one loadable root (`kiditem-os`) with
+  // a single generated copy of the shared collection-session adapter.
+  'extensions/kiditem-os/background/collection-session.js',
 ];
 
 function loadManager(relativePath: string) {

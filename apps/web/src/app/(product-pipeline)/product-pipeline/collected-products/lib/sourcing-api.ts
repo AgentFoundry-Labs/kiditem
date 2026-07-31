@@ -847,12 +847,14 @@ export const candidatesApi = {
 
 export async function searchSellpiaInventorySkus(
   query: string,
+  includeOutOfStock = false,
 ): Promise<SellpiaInventorySearchItem[]> {
   const params = new URLSearchParams({
     page: '1',
     limit: '20',
     query: query.trim(),
     activeStatus: 'active',
+    stockStatus: includeOutOfStock ? 'all' : 'in_stock',
   });
   const response = await apiClient.get<{ items: SellpiaInventorySearchItem[] }>(
     `/api/inventory/sellpia-skus?${params.toString()}`,

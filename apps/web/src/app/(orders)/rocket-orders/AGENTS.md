@@ -4,8 +4,13 @@ Consult this document first instead of relying on memorized knowledge.
 
 `app/(orders)/rocket-orders/` owns the independently reachable Rocket
 operations UI from `c9e7caf8`. Keep the `RocketOrdersWorkspace` calendar,
-list, chart, workbook-panel position, and local file-history composition.
+chart, workbook-panel position, and local file-history composition.
 `/rocket-orders` is the only operator-facing Rocket review route.
+
+The separate per-date PO list was absorbed into the preview table, so PO
+identity (center, inbound type, PO status, ordered-at) and ordered amount are
+line-level columns there. Do not reintroduce a second date-scoped order list;
+selecting a calendar date only narrows the preview.
 
 ## State Rules
 
@@ -17,7 +22,7 @@ list, chart, workbook-panel position, and local file-history composition.
   its exact `sourceImportRunId`; never merge rows from separate source runs.
 - Request the saved-PO v2 response profile for export evidence compatibility,
   but treat any legacy repeated snapshots as non-operational history. The
-  calendar, list, and preview use the newest complete source run only.
+  calendar and preview use the newest complete source run only.
 - Load the newest saved source automatically even before a date is selected.
   A date scopes the visible preview and workbook decision to that delivery
   date while the server still validates and allocates against the complete

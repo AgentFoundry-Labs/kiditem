@@ -4,6 +4,7 @@ import {
   safeStorageLength,
   safeStorageSet,
 } from '@/lib/browser-storage';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 
 const UPLOAD_KEY_PREFIX = 'thumbnail-editor-upload:';
 const UPLOAD_RESULT_PREFIX = 'thumbnail-editor-upload-result:';
@@ -30,10 +31,7 @@ export function writeThumbnailEditorUpload(
   imageUrl: string,
   meta?: { productName?: string | null; mode?: 'edit' | 'creative' | null },
 ): string {
-  const key =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const key = createSecureRandomUuid();
 
   safeStorageSet('session', `${UPLOAD_KEY_PREFIX}${key}`, imageUrl);
   rememberThumbnailEditorUpload(key, meta);

@@ -1,12 +1,16 @@
 // apps/server/src/orders/services/reviews.service.ts
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import type {
+  ReviewItem,
+  ReviewItemListResponse,
   ReviewListItem,
   ReviewListResponse,
   ReviewSummary,
 } from '@kiditem/shared/reviews';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListReviewsQueryDto, type ReviewFilter } from '../dto/list-reviews.dto';
+import { ListReviewItemsQueryDto } from '../dto/list-review-items.dto';
 
 const RECENT_DAYS = 30;
 const RECENT_WINDOW_MS = RECENT_DAYS * 24 * 60 * 60 * 1000;
@@ -20,6 +24,15 @@ const NEEDS_ATTENTION_MIN_REVIEWS = 5;
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 50;
 const DEFAULT_FILTER: ReviewFilter = 'all';
+
+// 채널에서 삭제/블라인드된 상품평은 노출 평점에 반영되지 않으므로 집계에서도 뺀다.
+// 크롤링 적재(`ReviewIngestService`)는 두 상태를 버리지 않고 플래그로 보존한다.
+const VISIBLE_REVIEW_WHERE = { isDeleted: false, isBlinded: false } as const;
+
+// 쿠팡은 별점만 남기는 상품평이 대부분이라 "본문 있는 리뷰"가 별도 필터로 필요하다.
+const HAS_CONTENT_WHERE: Prisma.ReviewWhereInput = {
+  OR: [{ content: { not: null } }, { title: { not: null } }],
+};
 
 interface ListingAggregate {
   listingId: string;
@@ -108,10 +121,126 @@ export class ReviewsService {
     } satisfies ReviewListResponse;
   }
 
+  /**
+   * 수집된 상품평 원문 목록. 집계(`list`)와 달리 listing 미매칭 리뷰도 보여준다.
+   * 매칭이 없으면 크롤링 당시 채널 상품명(`itemName`)으로 폴백하므로,
+   * 카탈로그에 없는 상품의 리뷰도 운영자가 읽을 수 있다.
+   */
+  async listItems(
+    organizationId: string,
+    query: ListReviewItemsQueryDto,
+  ): Promise<ReviewItemListResponse> {
+    const page = query.page ?? DEFAULT_PAGE;
+    const limit = query.limit ?? DEFAULT_LIMIT;
+    const where = buildReviewItemWhere(organizationId, query);
+
+    const [total, rows, ratingGroups, withContentCount] = await Promise.all([
+      this.prisma.review.count({ where }),
+      this.prisma.review.findMany({
+        where,
+        orderBy: [{ reviewedAt: 'desc' }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          listingId: true,
+          itemName: true,
+          externalOptionId: true,
+          externalProductId: true,
+          rating: true,
+          title: true,
+          content: true,
+          reviewerName: true,
+          reviewedAt: true,
+          imageCount: true,
+          videoCount: true,
+          listing: {
+            select: {
+              displayName: true,
+              channelName: true,
+              masterProduct: { select: { name: true } },
+            },
+          },
+        },
+      }),
+      // 별점 분포는 별점 필터를 뺀 나머지 조건 기준이라야 탭 카운트가 안 흔들린다.
+      this.prisma.review.groupBy({
+        by: ['rating'],
+        where: buildReviewItemWhere(organizationId, { ...query, rating: undefined }),
+        _count: { _all: true },
+      }),
+      this.prisma.review.count({
+        where: { ...where, ...HAS_CONTENT_WHERE },
+      }),
+    ]);
+
+    const optionNames = await this.loadOptionNames(
+      organizationId,
+      rows.map((row) => row.externalOptionId),
+    );
+
+    const items: ReviewItem[] = rows.map((row) => ({
+      id: row.id,
+      listingId: row.listingId,
+      productName:
+        row.listing?.masterProduct?.name ??
+        row.listing?.displayName ??
+        row.listing?.channelName ??
+        row.itemName ??
+        '-',
+      optionName: row.externalOptionId
+        ? (optionNames.get(row.externalOptionId) ?? null)
+        : null,
+      rating: row.rating,
+      title: row.title,
+      content: row.content,
+      reviewerName: row.reviewerName,
+      reviewedAt: row.reviewedAt.toISOString(),
+      imageCount: row.imageCount,
+      videoCount: row.videoCount,
+      externalProductId: row.externalProductId,
+    } satisfies ReviewItem));
+
+    const ratingCounts: Record<string, number> = {};
+    for (const group of ratingGroups) {
+      ratingCounts[String(group.rating)] = group._count._all;
+    }
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      ratingCounts,
+      withContentCount,
+    } satisfies ReviewItemListResponse;
+  }
+
+  private async loadOptionNames(
+    organizationId: string,
+    externalOptionIds: ReadonlyArray<string | null>,
+  ): Promise<Map<string, string>> {
+    const ids = [
+      ...new Set(externalOptionIds.filter((value): value is string => !!value)),
+    ];
+    if (ids.length === 0) return new Map();
+    const rows = await this.prisma.channelListingOption.findMany({
+      where: { organizationId, externalOptionId: { in: ids } },
+      select: { externalOptionId: true, itemName: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      if (!row.itemName || map.has(row.externalOptionId)) continue;
+      map.set(row.externalOptionId, row.itemName);
+    }
+    return map;
+  }
+
   private async aggregateListings(organizationId: string): Promise<ListingAggregate[]> {
     const rows = await this.prisma.review.groupBy({
       by: ['listingId'],
-      where: { organizationId, listingId: { not: null } },
+      where: { organizationId, listingId: { not: null }, ...VISIBLE_REVIEW_WHERE },
       _count: { _all: true },
       _avg: { rating: true },
       _max: { reviewedAt: true },
@@ -143,6 +272,7 @@ export class ReviewsService {
         organizationId,
         listingId: { in: listingIds },
         reviewedAt: { gte: since },
+        ...VISIBLE_REVIEW_WHERE,
       },
       _count: { _all: true },
     });
@@ -226,6 +356,38 @@ export function computeSummary(aggregates: ReadonlyArray<ListingAggregate>): Rev
     needsResponseCount: needsResponse,
     needsAttentionCount: newListings + needsResponse,
   } satisfies ReviewSummary;
+}
+
+/**
+ * 개별 리뷰 조회 조건. `hasContent` 와 `search` 가 각각 OR 를 쓰므로 최상위 OR
+ * 하나로는 표현할 수 없다. 둘 다 `AND` 배열에 넣어 서로 덮어쓰지 않게 한다.
+ */
+function buildReviewItemWhere(
+  organizationId: string,
+  query: ListReviewItemsQueryDto,
+): Prisma.ReviewWhereInput {
+  const and: Prisma.ReviewWhereInput[] = [];
+  if (query.hasContent === 'true') and.push(HAS_CONTENT_WHERE);
+
+  const search = query.search?.trim();
+  if (search) {
+    and.push({
+      OR: [
+        { content: { contains: search, mode: 'insensitive' } },
+        { title: { contains: search, mode: 'insensitive' } },
+        { itemName: { contains: search, mode: 'insensitive' } },
+        { reviewerName: { contains: search, mode: 'insensitive' } },
+      ],
+    });
+  }
+
+  return {
+    organizationId,
+    ...VISIBLE_REVIEW_WHERE,
+    ...(query.listingId ? { listingId: query.listingId } : {}),
+    ...(query.rating ? { rating: query.rating } : {}),
+    ...(and.length > 0 ? { AND: and } : {}),
+  };
 }
 
 function applyReviewFilter(

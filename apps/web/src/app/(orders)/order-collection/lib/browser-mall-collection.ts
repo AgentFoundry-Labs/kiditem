@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { formatNumber } from '@/lib/utils';
 import {
   collectIcecreamMallRowsFromExtension,
@@ -20,6 +20,17 @@ import {
 import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
 import { addSeenOrderKeys, distinctOrderNumbers, rowKeysOf } from './order-detect';
 import type { CoupangDirectPo, CoupangTransport } from './coupang-directship-api';
+
+/**
+ * 수집할 신규 주문이 없을 때의 안내.
+ *
+ * 몰마다 문구도 심각도도 제각각이었다(키즈노트만 빨간 error, 어떤 몰은 날짜를 붙이고
+ * 어떤 몰은 "신규"를 붙였다). 주문이 없는 건 실패가 아니므로 항상 중립 토스트 하나로
+ * 통일한다. 몰별로 덧붙일 안내가 있으면 `hint` 로만 보탠다.
+ */
+function toastNoNewOrders(mallLabel: string, hint?: string): void {
+  toast(`${mallLabel} 신규 주문이 없습니다.`, hint ? { description: hint } : undefined);
+}
 
 export interface BrowserMallCollectionResult {
   rowCount: number;
@@ -92,7 +103,7 @@ export function createBrowserMallCollector({
       run,
     );
     if (!orders.length) {
-      toast.error('오늘 키즈노트 주문이 없습니다.');
+      toastNoNewOrders('키즈노트');
       return 0;
     }
     const result = await convertKidsnoteToSellpiaFile(orders);
@@ -125,7 +136,7 @@ export function createBrowserMallCollector({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/주문이 없|없습니다/.test(msg)) {
-        toast('오늘 꼬망세 신규 주문이 없습니다.');
+        toastNoNewOrders('꼬망세');
         return 0;
       }
       throw err;
@@ -156,7 +167,7 @@ export function createBrowserMallCollector({
     await ensureMallLogin('domeggook', run);
     const collected = await collectDomeggookCsvFromExtension(collectionDate, run);
     if ('empty' in collected) {
-      toast(`${collectionDate} 도매꾹 주문이 없습니다.`);
+      toastNoNewOrders('도매꾹', `조회일 ${collectionDate}`);
       return 0;
     }
     const { csvBase64, fileName } = collected;
@@ -169,7 +180,7 @@ export function createBrowserMallCollector({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/주문이 없|없습니다/.test(msg)) {
-        toast(`${collectionDate} 도매꾹 주문이 없습니다.`);
+        toastNoNewOrders('도매꾹', `조회일 ${collectionDate}`);
         return 0;
       }
       throw err;
@@ -197,8 +208,9 @@ export function createBrowserMallCollector({
     await ensureMallLogin('kidkids', run);
     const orders = await collectKidkidsOrdersFromExtension(undefined, run);
     if (orders.length === 0) {
-      toast(
-        '출고예정일이 지정된 키드키즈 주문이 없습니다. (출고관리에서 출고예정일을 먼저 지정하세요. 이미 출고처리한 주문은 목록에서 빠집니다.)',
+      toastNoNewOrders(
+        '키드키즈',
+        '출고관리에서 출고예정일을 먼저 지정하세요. 이미 출고처리한 주문은 목록에서 빠집니다.',
       );
       return 0;
     }
@@ -232,7 +244,7 @@ export function createBrowserMallCollector({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/주문이 없|없습니다/.test(msg)) {
-        toast('롯데ON 신규 주문이 없습니다.');
+        toastNoNewOrders('롯데ON');
         return 0;
       }
       throw err;
@@ -260,7 +272,7 @@ export function createBrowserMallCollector({
     await ensureMallLogin('gs-shop', run);
     const collected = await collectGsshopXlsxFromExtension(run);
     if ('empty' in collected) {
-      toast('GS샵 신규 주문이 없습니다.');
+      toastNoNewOrders('GS샵');
       return 0;
     }
     let result: Awaited<ReturnType<typeof convertGsshopToSellpiaFile>>;
@@ -271,7 +283,7 @@ export function createBrowserMallCollector({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/주문이 없|없습니다/.test(msg)) {
-        toast('GS샵 신규 주문이 없습니다.');
+        toastNoNewOrders('GS샵');
         return 0;
       }
       throw err;
@@ -299,7 +311,7 @@ export function createBrowserMallCollector({
     await ensureMallLogin('always', run);
     const collected = await collectAlwayzXlsxFromExtension(run);
     if ('empty' in collected) {
-      toast('올웨이즈 신규 주문이 없습니다.');
+      toastNoNewOrders('올웨이즈');
       return 0;
     }
     let result: Awaited<ReturnType<typeof convertAlwayzToSellpiaFile>>;
@@ -310,7 +322,7 @@ export function createBrowserMallCollector({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/주문이 없|없습니다/.test(msg)) {
-        toast('올웨이즈 신규 주문이 없습니다.');
+        toastNoNewOrders('올웨이즈');
         return 0;
       }
       throw err;
@@ -343,7 +355,7 @@ export function createBrowserMallCollector({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/주문이 없|없습니다/.test(msg)) {
-        toast('출고대기 보리보리 신규 주문이 없습니다.');
+        toastNoNewOrders('보리보리', '결제완료 상태 기준');
         return 0;
       }
       throw err;
@@ -376,7 +388,7 @@ export function createBrowserMallCollector({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/주문이 없|없습니다/.test(msg)) {
-        toast('출고 전 티쳐몰 신규 주문이 없습니다.');
+        toastNoNewOrders('티쳐몰', '출고 전 상태 기준');
         return 0;
       }
       throw err;
@@ -403,7 +415,7 @@ export function createBrowserMallCollector({
     const result = await collectArt09CsvFromExtension({ download: false, run });
     const rows = result.outputRows ?? 0;
     if (rows === 0) {
-      toast('아트공구 수집 대상 주문이 없습니다.');
+      toastNoNewOrders('아트공구');
       return 0;
     }
 
@@ -424,7 +436,10 @@ export function createBrowserMallCollector({
     return orderCount;
   };
 
-  const generateCoupangDirectSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
+  const generateCoupangDirectSellpia = async (
+    run: OrderCollectionExtensionRun,
+    selection: { eddDates: string[] } | null,
+  ): Promise<number> => {
     const {
       COUPANG_TRANSPORT_LABEL,
       collectCoupangDirectFromExtension,
@@ -433,19 +448,48 @@ export function createBrowserMallCollector({
     if (!rocketChannelAccountId) {
       throw new Error('활성 쿠팡 로켓 채널 계정을 먼저 선택해 주세요.');
     }
-    const data = await collectCoupangDirectFromExtension(run);
+    const collectedData = await collectCoupangDirectFromExtension(run);
+    // 달력에서 고른 입고예정일이 있으면 그 발주만 넘긴다. 서버 계약(pos 전량 전달)은
+    // 그대로 두고 목록만 좁히므로 변환·워크북 매칭 로직은 건드리지 않는다.
+    // 달력은 유형을 합쳐 보여주므로 선택한 날짜의 쉽먼트·밀크런을 모두 남긴다.
+    // 파일은 운송유형별로 나뉘어 생성된다(셀피아 양식이 그렇게 나뉜다).
+    const wanted = selection ? new Set(selection.eddDates) : null;
+    const data = wanted
+      ? {
+          ...collectedData,
+          pos: collectedData.pos.filter((po) =>
+            wanted.has(String(po.edd ?? '').slice(0, 10))),
+        }
+      : collectedData;
     const transports: CoupangTransport[] = ['SHIPMENT', 'MILKRUN'];
     let totalOrders = 0;
     let lastId: string | null = null;
+    // 운송유형은 서로 독립이다. 서버는 해당 유형에 발주확정 건이 없으면 예외를 던지므로,
+    // 여기서 잡지 않으면 쉽먼트가 비어 있을 때 밀크런은 시도조차 못 하고 수집이 끝난다.
+    const emptyTransports: string[] = [];
     for (const transport of transports) {
       const matchingPos = data.pos.filter((po) => String(po.transport ?? '').toUpperCase() === transport);
       const label = COUPANG_TRANSPORT_LABEL[transport];
-      const conversion = await convertCoupangDirectToSellpiaFile(data, transport, {
-        channelAccountId: rocketChannelAccountId,
-        download: false,
-        signal: run.signal,
-      });
-      if (!conversion.file) continue;
+      let conversion: Awaited<ReturnType<typeof convertCoupangDirectToSellpiaFile>>;
+      try {
+        conversion = await convertCoupangDirectToSellpiaFile(data, transport, {
+          channelAccountId: rocketChannelAccountId,
+          download: false,
+          signal: run.signal,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        // 서버가 "해당 유형에 발주확정 건 없음"으로 거절한 것은 실패가 아니라 빈 결과다.
+        if (/주문이?\s*없/.test(message)) {
+          emptyTransports.push(label);
+          continue;
+        }
+        throw err;
+      }
+      if (!conversion.file) {
+        emptyTransports.push(label);
+        continue;
+      }
       if (!conversion.transmissionIntentKey) {
         throw new Error('쿠팡 로켓 수집 식별 정보가 없어 파일을 저장하지 않았습니다.');
       }
@@ -477,7 +521,13 @@ export function createBrowserMallCollector({
       lastId = historyItem.id;
     }
     if (data.pos.length === 0) {
-      toast('발주확정 쿠팡직배송 신규 발주가 없습니다.');
+      toastNoNewOrders('쿠팡직배송', '발주확정 상태 기준');
+    } else if (emptyTransports.length > 0) {
+      // 어떤 유형이 왜 안 나왔는지 알려준다. 조용히 건너뛰면 "밀크런은 왜 안 가져오냐"가 된다.
+      toastNoNewOrders(
+        `쿠팡직배송 ${emptyTransports.join('·')}`,
+        '발주확정 상태 기준',
+      );
     }
     if (lastId) setPreviewId(lastId);
     return totalOrders;
@@ -493,7 +543,7 @@ export function createBrowserMallCollector({
     await ensureMallLogin('onch', run);
     const orders = await collectOnchannelOrdersFromExtension(collectionDate, run);
     if (orders.length === 0) {
-      toast('오늘 온채널 신규 주문이 없습니다.');
+      toastNoNewOrders('온채널');
       return 0;
     }
     const result = await convertOnchannelToSellpiaFile(orders);
@@ -521,7 +571,7 @@ export function createBrowserMallCollector({
     // pendingLogin 으로 "로그인 필요"를 안내한다.
     const orders = await collectKakaoOrdersFromExtension(undefined, run);
     if (orders.length === 0) {
-      toast('배송준비중인 카카오 주문이 없습니다.');
+      toastNoNewOrders('카카오', '배송준비중 상태 기준');
       return 0;
     }
     const result = await convertKakaoToSellpiaFile(orders);
@@ -544,13 +594,15 @@ export function createBrowserMallCollector({
   return async function collectBrowserMall(
     account: OrderCollectionMallAccount,
     run?: OrderCollectionExtensionRun,
+    // 쿠팡직배송은 달력에서 고른 입고예정일만 처리한다. 없으면 종전대로 전량.
+    options?: { directship?: { eddDates: string[] } },
   ): Promise<BrowserMallCollectionResult> {
     const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
     if (!extensionId) {
       throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
     }
     const resolvedRun: OrderCollectionExtensionRun = {
-      runId: run?.runId ?? createSecureRandomUuid(),
+      runId: await issueBrowserCollectionRunId(run?.runId),
       extensionId,
       date: run?.date ?? todayYmd(),
       signal: run?.signal,
@@ -566,7 +618,9 @@ export function createBrowserMallCollector({
     if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(resolvedRun), today);
     if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
-    if (account.key === 'coupang-direct') return resultFor(await generateCoupangDirectSellpia(resolvedRun), today);
+    if (account.key === 'coupang-direct') {
+      return resultFor(await generateCoupangDirectSellpia(resolvedRun, options?.directship ?? null), today);
+    }
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'art09') return resultFor(await generateArt09Csv(resolvedRun), today);
     if (!isBrowserCollectableMall(account)) {

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { apiClient } from '@/lib/api-client';
-import { candidatesApi, productsApi } from './sourcing-api';
+import {
+  candidatesApi,
+  productsApi,
+  searchSellpiaInventorySkus,
+} from './sourcing-api';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -110,6 +114,22 @@ describe('sourcing candidate API', () => {
 
     expect(apiClient.get).toHaveBeenCalledWith(
       '/api/sourcing/extension/products?page=1&limit=20&platform=KIDITEM_PRODUCT_REGISTRATION&sort=newest',
+    );
+  });
+
+  it('searches in-stock Sellpia SKUs by default and includes zero stock only on opt-in', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ items: [] });
+
+    await searchSellpiaInventorySkus(' SP-1 ');
+    await searchSellpiaInventorySkus('SP-1', true);
+
+    expect(apiClient.get).toHaveBeenNthCalledWith(
+      1,
+      '/api/inventory/sellpia-skus?page=1&limit=20&query=SP-1&activeStatus=active&stockStatus=in_stock',
+    );
+    expect(apiClient.get).toHaveBeenNthCalledWith(
+      2,
+      '/api/inventory/sellpia-skus?page=1&limit=20&query=SP-1&activeStatus=active&stockStatus=all',
     );
   });
 

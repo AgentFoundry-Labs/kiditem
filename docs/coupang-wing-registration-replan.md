@@ -260,7 +260,7 @@
 
 `spec §3` 대로 속성 정의 API 를 못 찾았다. 다만 시드가 **두 개** 있다:
 
-1. `extensions/coupang-ads-scraper/shared/coupang-catalog-collector.js:146-153` 이 쿠팡 API 의
+1. `extensions/kiditem-os/shared/coupang-catalog-collector.js:146-153` 이 쿠팡 API 의
    `item.attributes` 를 `{type, value}`(= `WingOption` 과 동일 형태)로 정규화해 수집한다.
    현재는 **경쟁/기존상품 읽기(import) 방향**이고 등록(write)과 배선되지 않았다.
 2. **양식 `hidden` 시트**(`spec §9`) — `색상계열` 17종, 사이즈·패턴·소재·핏 열거.
@@ -345,7 +345,7 @@ owner-provided read-port 패턴을 그대로 복제한다.
 | | |
 |---|---|
 | **무엇을** | 확장 실패 판정을 `detailUploadError` 단독에서 **필수 단계 게이트**로 확장. 카테고리 미선택·옵션 0건·판매가 미입력·이미지 0장을 실패로 승격. `steps` 를 웹 응답 타입에 노출 |
-| **어디를** | `extensions/coupang-ads-scraper/content/wing-registration-fill.js`(실패 플래그 + `724-728` 반환부), `background/service-worker.js:773-782`(승계), `apps/web/.../lib/wing-registration-flow.ts:199-205`(응답 타입에 `steps` 추가), `page.tsx:206-222`(실패 단계 노출) |
+| **어디를** | `extensions/kiditem-os/content/coupang/wing-registration-fill.js`(실패 플래그 + `724-728` 반환부), `background/service-worker.js:773-782`(승계), `apps/web/.../lib/wing-registration-flow.ts:199-205`(응답 타입에 `steps` 추가), `page.tsx:206-222`(실패 단계 노출) |
 | **왜** | 이후 모든 단계의 **검증 수단**이다. 이게 없으면 S1~S6 을 고쳐도 고쳐졌는지 알 수 없다. 신규 데이터가 필요 없어 비용이 가장 낮다 |
 | **검증** | `extensions/tests/coupang-ads-scraper/wing-registration-fill.test.mjs` **먼저 복구**(현재 stale 로 9개 전부 cancelled) 후 카테고리/옵션/가격 실패 케이스 추가. `npm run build --workspace=apps/web` |
 | **독립배포** | ✅ |

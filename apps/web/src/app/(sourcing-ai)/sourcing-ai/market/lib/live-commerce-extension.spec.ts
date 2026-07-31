@@ -18,6 +18,12 @@ vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 
+vi.mock('@/lib/browser-collection-session', () => ({
+  issueBrowserCollectionRunId: vi.fn().mockImplementation(
+    async (runId?: string) => runId ?? '11111111-1111-4111-8111-111111111111',
+  ),
+}));
+
 const mockedDetectExtension = vi.mocked(detectSourcingExtensionId);
 const mockedRuntimeAvailable = vi.mocked(isChromeExtensionRuntimeAvailable);
 const mockedSend = vi.mocked(sendToExtension);
@@ -32,7 +38,7 @@ describe('live-commerce Chrome extension bridge', () => {
   it('reports that an older extension must be reloaded before collection', async () => {
     mockedSend.mockResolvedValueOnce({
       success: true,
-      version: '2.2.1',
+      version: '0.9.9',
       capabilities: {
         sourcingLiveCommerceCollector: true,
         browserCollectionSessions: true,
@@ -43,13 +49,13 @@ describe('live-commerce Chrome extension bridge', () => {
       configured: false,
       message: 'chrome://extensions에서 확장 새로고침 필요',
     });
-    expect(LIVE_COMMERCE_EXTENSION_MIN_VERSION).toBe('2.2.2');
+    expect(LIVE_COMMERCE_EXTENSION_MIN_VERSION).toBe('1.0.0');
   });
 
   it('reports readiness when the live-commerce capability is advertised', async () => {
     mockedSend.mockResolvedValueOnce({
       success: true,
-      version: '2.2.2',
+      version: '1.0.2',
       capabilities: {
         sourcingLiveCommerceCollector: true,
         browserCollectionSessions: true,
@@ -66,7 +72,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
-        version: '2.2.2',
+        version: '1.0.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,
@@ -92,7 +98,11 @@ describe('live-commerce Chrome extension bridge', () => {
     expect(mockedSend).toHaveBeenNthCalledWith(
       2,
       'sourcing-extension',
-      { action: 'collectLiveCommerceUrl', url: 'https://live.douyin.com/123456' },
+      {
+        action: 'collectLiveCommerceUrl',
+        runId: '11111111-1111-4111-8111-111111111111',
+        url: 'https://live.douyin.com/123456',
+      },
       90_000,
     );
   });
@@ -100,7 +110,7 @@ describe('live-commerce Chrome extension bridge', () => {
   it('requires the generic browser collection-session capability', async () => {
     mockedSend.mockResolvedValueOnce({
       success: true,
-      version: '2.2.2',
+      version: '1.0.2',
       capabilities: { sourcingLiveCommerceCollector: true },
     });
 
@@ -112,7 +122,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
-        version: '2.2.2',
+        version: '1.0.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,
@@ -136,7 +146,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
-        version: '2.2.2',
+        version: '1.0.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,
@@ -167,7 +177,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
-        version: '2.2.2',
+        version: '1.0.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,

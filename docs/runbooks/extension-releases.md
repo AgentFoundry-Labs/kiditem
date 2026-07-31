@@ -2,24 +2,24 @@
 
 ## Purpose
 
-Package all KidItem Chrome extensions as universal artifacts that support local,
-office, and staging simultaneously, then publish them together in the GitHub Release
+Package the KidItem Chrome extension as a universal artifact that supports
+local, office, and staging simultaneously, then publish it in the GitHub Release
 for the staging deployment tag. Publishing is manual; there is no GitHub
 Actions extension-publishing workflow.
 GitHub Packages/GHCR remains for server images and is not an extension
 distribution channel.
 
-Each extension keeps an independent Chrome manifest version inside the bundle:
+Order collection, Coupang Wing/ads, and product sourcing shipped as three
+separate extensions until they were merged; they are now three domains inside
+one extension with one Chrome manifest version:
 
 | Extension | Source of truth |
 |---|---|
-| Product sourcing | `extensions/product-scraper/manifest.json` |
-| Coupang Wing and ads | `extensions/coupang-ads-scraper/manifest.json` |
-| Order and inventory collection | `extensions/order-collector/manifest.json` |
+| KIDITEM OS (order collection + Coupang + sourcing) | `extensions/kiditem-os/manifest.json` |
 
 Root `VERSION` remains the deployable application release train. The public
 distribution unit is one `staging-v<VERSION>-<date>-<sha>` Release containing
-one ZIP with all three extension directories.
+one ZIP with the extension directory.
 
 ## Universal Environment Contract
 
@@ -74,23 +74,21 @@ npm run extension:release -- pack \
   --deployment-tag staging-v0.1.26-20260725-58dacdef
 ```
 
-This always packages `product-scraper`, `coupang-ads-scraper`, and
-`order-collector`. Use `--output-dir <path>` only when the default ignored
-output root is unsuitable. Per-extension packaging is intentionally unsupported.
+This always packages `kiditem-os`. Use `--output-dir <path>` only when the
+default ignored output root is unsuitable. Per-extension packaging is
+intentionally unsupported.
 
 The default output layout is:
 
 ```text
 output/extensions/bundles/<deployment-tag>/
 ├── unpacked/
-│   ├── product-scraper/
-│   ├── coupang-ads-scraper/
-│   └── order-collector/
+│   └── kiditem-os/
 └── kiditem-scrapers-<deployment-tag>.zip
 ```
 
 The command output records the deployment tag, Git SHA, environments, and the
-manifest version of each contained extension for operator inspection. Only the
+contained extension's manifest version for operator inspection. Only the
 combined ZIP is uploaded as a GitHub Release asset. Verify it before publishing:
 
 ```bash
@@ -140,16 +138,20 @@ command without mutating GitHub.
 
 ## Install Or Update
 
-The GitHub Release ZIP is a bundle of three manual unpacked-extension packages;
-Chrome does not install the ZIP directly.
+The GitHub Release ZIP is a manual unpacked-extension package; Chrome does not
+install the ZIP directly.
 
 1. Open the intended staging deployment Release and download its ZIP.
 2. Test and extract it once into a stable directory. The result contains
-   `product-scraper/`, `coupang-ads-scraper/`, and `order-collector/`.
+   `kiditem-os/`.
 3. Open `chrome://extensions`, enable Developer mode, and choose **Load
-   unpacked** for each of those three directories.
+   unpacked** for that directory.
 4. For an update, replace the directory contents and click **Reload** on the
    existing extension card. Do not leave old and new copies enabled together.
+   Operators upgrading from the pre-merge bundle must remove the three old
+   extensions; leaving them loaded means two extensions answer the same KidItem
+   handshake and the web app may bind to the stale one. Stored auth is not
+   carried over, so re-authenticate each KidItem environment once.
 5. Reload each open KidItem page. Confirm local, office, and staging handshakes
    report the expected extension version and environment-profile capability.
 6. Visit and authenticate each KidItem origin whose profile is needed.
@@ -162,16 +164,14 @@ Run repository checks before publishing:
 ```bash
 npm run check:scripts-inventory
 npm run test:scripts
-node --test extensions/tests/*.test.mjs
-node -e "JSON.parse(require('fs').readFileSync('extensions/product-scraper/manifest.json','utf8'))"
-node -e "JSON.parse(require('fs').readFileSync('extensions/coupang-ads-scraper/manifest.json','utf8'))"
-node -e "JSON.parse(require('fs').readFileSync('extensions/order-collector/manifest.json','utf8'))"
+node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
+node -e "JSON.parse(require('fs').readFileSync('extensions/kiditem-os/manifest.json','utf8'))"
 git diff --check
 ```
 
 Manual acceptance for the released extension:
 
-1. Extract the bundle once and load each of its three extension directories.
+1. Extract the bundle once and load its extension directory.
 2. Open the local, office, and staging KidItem pages in the same Chrome profile.
 3. Confirm all pages discover the same installed extension/version.
 4. Authenticate the profiles and confirm each page reports its own connected

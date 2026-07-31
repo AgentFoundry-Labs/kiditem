@@ -6,6 +6,8 @@ import {
   applyChannelRecipeAutomation,
   getChannelRecipeSuggestion,
   getChannelRecipeAutomationPreview,
+  getSellpiaManualMatchTargets,
+  importSellpiaManualMatchSnapshot,
   listChannelProductCandidates,
   listChannelProductMappings,
   listChannelVariantCandidates,
@@ -81,12 +83,14 @@ describe('channel product matching API', () => {
       summary: {
         products: 0,
         autoApplyProducts: 0,
+        quantityReviewProducts: 0,
         operatorReviewProducts: 0,
         blockedProducts: 0,
         alreadyConfiguredProducts: 0,
         variants: 0,
         affectedOptions: 0,
         autoApply: 0,
+        quantityReview: 0,
         operatorReview: 0,
         blocked: 0,
         alreadyConfigured: 0,
@@ -138,6 +142,54 @@ describe('channel product matching API', () => {
     expect(apiClient.put).toHaveBeenNthCalledWith(2,
       `/api/channels/product-mappings/options/${OPTION_ID}/product-variant`,
       { productVariantId: VARIANT_ID },
+    );
+  });
+
+  it('reads and imports the bounded Sellpia manual-match snapshot', async () => {
+    const snapshot = {
+      source: 'sellpia_product_manual_match' as const,
+      version: 1 as const,
+      targetCount: 1,
+      targetCodes: ['634-1'],
+      rowCount: 1,
+      rows: [{
+        productCode: '634-1',
+        aliasTitle: '샤이니무지개칼라링(12개입)',
+        itemCount: 12,
+        matchedType: 'M' as const,
+        evidenceCount: 1,
+      }],
+    };
+    vi.mocked(apiClient.getParsed).mockResolvedValue({
+      sourceOrigin: 'https://kiditem.sellpia.com',
+      sourcePath: '/product_manual_match.html',
+      version: 1,
+      targetCount: 1,
+      targetCodes: ['634-1'],
+      currentSnapshot: null,
+    });
+    vi.mocked(apiClient.post).mockResolvedValue({
+      status: {
+        targetCount: 1,
+        matchedTargetCount: 1,
+        aliasCount: 1,
+        snapshotHash: 'b'.repeat(64),
+        capturedAt: '2026-07-31T04:00:00.000Z',
+      },
+    });
+
+    await getSellpiaManualMatchTargets();
+    await expect(importSellpiaManualMatchSnapshot(snapshot)).resolves.toMatchObject({
+      status: { aliasCount: 1 },
+    });
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      '/api/channels/product-mappings/sellpia-manual-match/targets',
+      expect.any(Object),
+    );
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/channels/product-mappings/sellpia-manual-match/import',
+      snapshot,
     );
   });
 });

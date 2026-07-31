@@ -63,6 +63,24 @@ describe('CoupangDirectshipService', () => {
     expect(result.fileName).toMatch(/^쿠팡직배송_쉽먼트_\d{8}\.xls$/);
   });
 
+  it('emits a plain single-sheet workbook without the template leftovers', () => {
+    // 원본 템플릿에는 예시 주문 1행과 #REF! 수식 행이 38행까지 남아 있고 시트도 5개였다.
+    // 그대로 내보내면 셀피아에 남의 예시 발주가 함께 등록되므로 템플릿을 쓰지 않는다.
+    const generator = readFileSync(join(__dirname, 'generate.py'), 'utf8');
+
+    expect(generator).toContain('import xlwt');
+    expect(generator).not.toContain('xlutils');
+    expect(generator).toContain('wb.add_sheet("Sheet1")');
+    // 헤더는 0행, 데이터는 1행부터. 제목 행과 색 서식은 넣지 않는다.
+    expect(generator).toContain('ws.write(0, c, title, base)');
+    expect(generator).toMatch(/^R = 1$/m);
+    // 배경색·굵기 없는 기본 서식만 쓴다(주석의 '색' 언급은 대상이 아니므로 easyxf 만 본다).
+    expect(generator).toContain('xlwt.easyxf("font: name 맑은 고딕")');
+    expect(generator).not.toMatch(/easyxf\([^)]*pattern/);
+    // 판매처 주문번호는 YYYYMMDD_0001 네 자리 일련번호.
+    expect(generator).toContain('"%s_%04d"');
+  });
+
   it('returns an actionable error when the Python runtime is unavailable', async () => {
     const { CoupangDirectshipService } = await import('./coupang-directship.service');
     const service = new CoupangDirectshipService();

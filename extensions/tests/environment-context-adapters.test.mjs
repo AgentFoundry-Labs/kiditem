@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const canonicalPath = path.join(repoRoot, 'extensions/shared/environment-context.js');
 const generatedPaths = [
-  'extensions/coupang-ads-scraper/background/environment-context.js',
-  'extensions/product-scraper/environment-context.js',
-  'extensions/order-collector/background/environment-context.js',
+  'extensions/kiditem-os/background/environment-context.js',
+  'extensions/kiditem-os/background/environment-context.js',
+  'extensions/kiditem-os/background/environment-context.js',
 ];
 
 function createHarness({ initialStorage = {}, responses = [200], requiresAuth = true } = {}) {

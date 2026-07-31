@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(
-  new URL('../../coupang-ads-scraper/background/service-worker.js', import.meta.url),
+  new URL('../../kiditem-os/background/coupang/worker.js', import.meta.url),
   'utf8',
 );
 

@@ -17,6 +17,8 @@ describe('ChannelProductMatchingController', () => {
       ['list', '/', RequestMethod.GET],
       ['previewRecipeAutomation', 'recipe-automation/preview', RequestMethod.GET],
       ['applyRecipeAutomation', 'recipe-automation/apply', RequestMethod.POST],
+      ['sellpiaManualMatchTargets', 'sellpia-manual-match/targets', RequestMethod.GET],
+      ['importSellpiaManualMatches', 'sellpia-manual-match/import', RequestMethod.POST],
       ['productCandidates', ':channelListingId/candidates', RequestMethod.GET],
       ['linkProduct', ':channelListingId/master-product', RequestMethod.PUT],
       ['variantCandidates', 'options/:channelListingOptionId/candidates', RequestMethod.GET],
@@ -42,10 +44,12 @@ describe('ChannelProductMatchingController', () => {
     };
     const recipeSuggestions = { suggest: vi.fn() };
     const recipeAutomation = { preview: vi.fn(), apply: vi.fn() };
+    const sellpiaManualMatches = { targets: vi.fn(), import: vi.fn() };
     const controller = new ChannelProductMatchingController(
       service as never,
       recipeSuggestions as never,
       recipeAutomation as never,
+      sellpiaManualMatches as never,
     );
 
     await controller.list(organizationId, {});
@@ -59,6 +63,8 @@ describe('ChannelProductMatchingController', () => {
       channelAccountId,
       proposalVersion: 'a'.repeat(64),
     });
+    await controller.sellpiaManualMatchTargets(organizationId);
+    await controller.importSellpiaManualMatches(organizationId, { source: 'snapshot' });
 
     expect(service.list).toHaveBeenCalledWith(organizationId, {});
     expect(service.productCandidates).toHaveBeenCalledWith(organizationId, listingId, {});
@@ -79,5 +85,10 @@ describe('ChannelProductMatchingController', () => {
       channelAccountId,
       proposalVersion: 'a'.repeat(64),
     });
+    expect(sellpiaManualMatches.targets).toHaveBeenCalledWith(organizationId);
+    expect(sellpiaManualMatches.import).toHaveBeenCalledWith(
+      organizationId,
+      { source: 'snapshot' },
+    );
   });
 });

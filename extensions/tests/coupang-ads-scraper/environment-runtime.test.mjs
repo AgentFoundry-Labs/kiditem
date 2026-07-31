@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const source = await readFile(
   new URL(
-    '../../coupang-ads-scraper/background/environment-runtime.js',
+    '../../kiditem-os/background/coupang/environment-runtime.js',
     import.meta.url,
   ),
   'utf8',

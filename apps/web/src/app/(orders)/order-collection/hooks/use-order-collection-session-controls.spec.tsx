@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   detectExtensionStatus: vi.fn(),
   finalizeSession: vi.fn(),
+  issueRunId: vi.fn(),
   recordMissing: vi.fn(),
   sendControl: vi.fn(),
   syncAlert: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('@/hooks/useBrowserCollectionSession', () => ({
   useBrowserCollectionSession: mocks.useSession,
 }));
 vi.mock('@/lib/browser-collection-session', () => ({
+  issueBrowserCollectionRunId: mocks.issueRunId,
   recordMissingBrowserCollection: mocks.recordMissing,
   sendBrowserCollectionControl: mocks.sendControl,
   syncBrowserCollectionAlert: mocks.syncAlert,
@@ -86,6 +88,7 @@ describe('useOrderCollectionSessionControls', () => {
     vi.clearAllMocks();
     window.history.replaceState({}, '', '/order-collection');
     mocks.useSession.mockReturnValue({ data: null });
+    mocks.issueRunId.mockImplementation(async (existingRunId) => existingRunId ?? RUN_ID);
     mocks.recordMissing.mockImplementation(async (_producer, _identity, runId) => ({ runId }));
     mocks.syncAlert.mockResolvedValue(undefined);
     mocks.updateCache.mockReturnValue(true);

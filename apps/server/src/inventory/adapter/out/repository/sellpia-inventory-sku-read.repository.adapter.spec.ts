@@ -134,7 +134,7 @@ describe('SellpiaInventorySkuReadRepositoryAdapter', () => {
       .toEqual(['sku-1', 'sku-2']);
   });
 
-  it('keeps manual search tenant-scoped and active-only', async () => {
+  it('keeps manual search tenant-scoped, active-only, and in-stock by default', async () => {
     const findMany = vi.fn().mockResolvedValue([
       stagedSku('sku-1', 'SP-1', 'Active result'),
     ]);
@@ -146,8 +146,24 @@ describe('SellpiaInventorySkuReadRepositoryAdapter', () => {
       where: expect.objectContaining({
         organizationId,
         isActive: true,
+        currentStock: { gt: 0 },
       }),
       take: 20,
+    }));
+  });
+
+  it('includes out-of-stock rows only when manual search explicitly opts in', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const repository = new SellpiaInventorySkuReadRepositoryAdapter(prismaWith(findMany));
+
+    await repository.search(organizationId, 'result', 20, {
+      includeOutOfStock: true,
+    });
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.not.objectContaining({
+        currentStock: expect.anything(),
+      }),
     }));
   });
 });

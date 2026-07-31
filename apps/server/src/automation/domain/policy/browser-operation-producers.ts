@@ -35,6 +35,7 @@ const COLLECTION_PRODUCERS = new Map<
   ],
   ['dashboard.wing_kpi', { title: 'Wing 아이템위너 KPI', href: '/dashboard' }],
   ['advertising.ad_sync', { title: '광고 동기화', href: '/ad-ops' }],
+  ['advertising.ad_keyword', { title: '광고 키워드 수집', href: '/ad-ops' }],
   ['advertising.scrape_targets', { title: '광고 데이터 수집', href: '/ad-ops' }],
   [
     'advertising.wing_rank',
@@ -72,6 +73,10 @@ const COLLECTION_PRODUCERS = new Map<
     { title: '틱톡 트렌드 수집', href: '/sourcing-ai/market' },
   ],
   ['orders.mall', { title: '주문 데이터 수집', href: '/order-collection' }],
+  [
+    'orders.sellpia_manual_match',
+    { title: 'Sellpia 상품 매칭', href: '/product-hub/matching' },
+  ],
   [
     'inventory.sellpia',
     {

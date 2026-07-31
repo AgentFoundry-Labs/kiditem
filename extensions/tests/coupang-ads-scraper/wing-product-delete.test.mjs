@@ -16,7 +16,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = await readFile(
-  new URL('../../coupang-ads-scraper/content/wing-product-delete.js', import.meta.url),
+  new URL('../../kiditem-os/content/coupang/wing-product-delete.js', import.meta.url),
   'utf8',
 );
 

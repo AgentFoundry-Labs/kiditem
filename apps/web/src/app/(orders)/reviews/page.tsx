@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MessageSquare, Star, RefreshCw } from 'lucide-react';
 import { ReviewListResponseSchema } from '@kiditem/shared/reviews';
@@ -9,12 +9,18 @@ import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { ReviewTable, type FilterTab } from './components/ReviewTable';
+import { ReviewItemList } from './components/ReviewItemList';
+import { CoupangReviewCollectSection } from './components/CoupangReviewCollectSection';
+
+type ReviewView = 'products' | 'reviews';
 
 const PAGE_SIZE = 50;
 
 export default function ReviewsPage() {
   const [page, setPage] = useState(1);
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [view, setView] = useState<ReviewView>('products');
+  const [selectedListing, setSelectedListing] = useState<{ id: string; name: string } | null>(null);
 
   const queryParams = { page: String(page), limit: String(PAGE_SIZE), filter: activeFilter };
   const { data, isLoading: loading, isFetching, isError, error, refetch } = useQuery({
@@ -26,6 +32,9 @@ export default function ReviewsPage() {
     placeholderData: previousData => previousData,
   });
   const isRefreshing = isFetching && !loading;
+  const handleCollected = useCallback(() => {
+    void refetch();
+  }, [refetch]);
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -64,6 +73,8 @@ export default function ReviewsPage() {
           새로고침
         </button>
       </div>
+
+      <CoupangReviewCollectSection onCollected={handleCollected} />
 
       {isError && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -107,49 +118,90 @@ export default function ReviewsPage() {
       </div>
 
       <div className="flex gap-1 border-b border-slate-200">
-        {filterTabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => {
-              setActiveFilter(tab.key);
-              setPage(1);
+        <button
+          onClick={() => setView('products')}
+          className={cn(
+            'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+            view === 'products'
+              ? 'border-purple-600 text-purple-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700',
+          )}
+        >
+          상품별
+        </button>
+        <button
+          onClick={() => setView('reviews')}
+          className={cn(
+            'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+            view === 'reviews'
+              ? 'border-purple-600 text-purple-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700',
+          )}
+        >
+          리뷰 원문
+        </button>
+      </div>
+
+      {view === 'products' ? (
+        <>
+          <div className="flex gap-1 border-b border-slate-200">
+            {filterTabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => {
+                  setActiveFilter(tab.key);
+                  setPage(1);
+                }}
+                className={cn(
+                  'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2',
+                  activeFilter === tab.key
+                    ? 'border-purple-600 text-purple-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-700',
+                )}
+              >
+                {tab.label}
+                <span
+                  className={cn(
+                    'px-1.5 py-0.5 rounded-full text-[10px] font-medium',
+                    activeFilter === tab.key
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-slate-100 text-slate-500',
+                  )}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <ReviewTable
+            items={items}
+            loading={loading && !data}
+            activeFilter={activeFilter}
+            page={page}
+            total={total}
+            PAGE_SIZE={PAGE_SIZE}
+            onPageChange={setPage}
+            onSelectListing={(listingId, productName) => {
+              setSelectedListing({ id: listingId, name: productName });
+              setView('reviews');
             }}
-            className={cn(
-              'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2',
-              activeFilter === tab.key
-                ? 'border-purple-600 text-purple-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700',
-            )}
-          >
-            {tab.label}
-            <span
-              className={cn(
-                'px-1.5 py-0.5 rounded-full text-[10px] font-medium',
-                activeFilter === tab.key
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-slate-100 text-slate-500',
-              )}
-            >
-              {tab.count}
-            </span>
-          </button>
-        ))}
+          />
+        </>
+      ) : (
+        <ReviewItemList
+          listingId={selectedListing?.id ?? null}
+          listingName={selectedListing?.name ?? null}
+          onClearListing={() => setSelectedListing(null)}
+        />
+      )}
       </div>
 
-      <ReviewTable
-        items={items}
-        loading={loading && !data}
-        activeFilter={activeFilter}
-        page={page}
-        total={total}
-        PAGE_SIZE={PAGE_SIZE}
-        onPageChange={setPage}
-      />
-      </div>
-
-      <p className="text-xs text-slate-400 px-1">
-        주문 수 컬럼은 R3 범위에서 산출하지 않으며, listing × order line item 조인이 추가될 때 별도 PR 로 채웁니다 (현재는 모든 row 가 0).
-      </p>
+      {view === 'products' && (
+        <p className="text-xs text-slate-400 px-1">
+          주문 수 컬럼은 R3 범위에서 산출하지 않으며, listing × order line item 조인이 추가될 때 별도 PR 로 채웁니다 (현재는 모든 row 가 0).
+        </p>
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Database,
+  KeyRound,
   LineChart,
   Loader2,
   Megaphone,
@@ -15,6 +16,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAdKeywordCollect } from '@/app/(advertising)/ad-ops/hooks/useAdKeywordCollect';
 import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
 import { useAdCampaignSyncStatus } from '@/components/readiness/useAdCampaignSyncStatus';
@@ -333,6 +335,69 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
             <>
               <RefreshCw className="h-3.5 w-3.5" />
               광고 동기화
+            </>
+          )}
+        </button>
+      </div>
+      {collectionSession?.data && (
+        <BrowserCollectionRunControls
+          session={collectionSession.data}
+          onWebRestart={(session) => run(session.runId)}
+          className="mx-4 mb-4"
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Standalone keyword collection row.
+ *
+ * Kept separate from `AdSyncRow` because the two collect different things:
+ * the ad sync walks 31 days of campaign/product facts, while this pulls the
+ * keyword table of every advertised product. Keyword collection also runs on
+ * its own — it does not need the 31-day sweep to finish first.
+ */
+export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
+  const { collectionSession, loading, run } = useAdKeywordCollect({ onComplete });
+
+  return (
+    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
+      <div className="flex items-start gap-3 p-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--primary-soft)] text-[var(--primary)]">
+          <KeyRound className="h-5 w-5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+            광고 키워드 수집
+          </h3>
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">
+            전체 캠페인의 광고상품마다 어떤 키워드로 노출 중인지 모아와요
+          </p>
+          <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
+            광고가 많으면 여러 번에 나눠 수집돼요 - 다시 누르면 남은 곳부터 이어서
+          </p>
+        </div>
+
+        <button
+          onClick={() => void run()}
+          disabled={loading}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
+            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
+            'disabled:opacity-60',
+          )}
+        >
+          {loading ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              수집 중…
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-3.5 w-3.5" />
+              키워드 수집
             </>
           )}
         </button>

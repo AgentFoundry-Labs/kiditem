@@ -12,6 +12,7 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import { ChannelProductMatchingService } from '../../../application/service/channel-product-matching.service';
 import { ChannelRecipeSuggestionService } from '../../../application/service/channel-recipe-suggestion.service';
 import { ChannelRecipeAutomationService } from '../../../application/service/channel-recipe-automation.service';
+import { SellpiaManualMatchService } from '../../../application/service/sellpia-manual-match.service';
 import {
   ChannelMatchCandidateQueryDto,
   ChannelProductMatchingQueryDto,
@@ -23,6 +24,7 @@ export class ChannelProductMatchingController {
     private readonly matching: ChannelProductMatchingService,
     private readonly recipeSuggestions: ChannelRecipeSuggestionService,
     private readonly recipeAutomation: ChannelRecipeAutomationService,
+    private readonly sellpiaManualMatches: SellpiaManualMatchService,
   ) {}
 
   @Get()
@@ -47,6 +49,21 @@ export class ChannelProductMatchingController {
     @Body() body: unknown,
   ) {
     return this.recipeAutomation.apply(organizationId, body);
+  }
+
+  @Get('sellpia-manual-match/targets')
+  sellpiaManualMatchTargets(
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.sellpiaManualMatches.targets(organizationId);
+  }
+
+  @Post('sellpia-manual-match/import')
+  importSellpiaManualMatches(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.sellpiaManualMatches.import(organizationId, body);
   }
 
   @Get(':channelListingId/candidates')

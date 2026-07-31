@@ -274,7 +274,8 @@ describe("MallAccountSection", () => {
     expect(workspace).toContain("toast.warning");
     expect(sessionHook).toContain("useBrowserCollectionSession");
     expect(sessionHook).toContain("collectionRun");
-    expect(sessionHook).toContain("createSecureRandomUuid()");
+    expect(sessionHook).toContain("issueBrowserCollectionRunId(existingRunId)");
+    expect(sessionHook).not.toContain("createSecureRandomUuid()");
     expect(sessionHook).not.toContain("globalThis.crypto.randomUUID()");
     expect(sessionHook).toContain("'orders.mall'");
     // 실행 취소/재시도는 몰 카드의 중단·수집 버튼이 담당한다.

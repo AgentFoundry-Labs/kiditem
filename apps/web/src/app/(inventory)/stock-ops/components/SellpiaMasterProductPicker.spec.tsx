@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SellpiaMasterProductPicker from './SellpiaMasterProductPicker';
@@ -52,6 +52,15 @@ describe('SellpiaMasterProductPicker', () => {
     );
 
     await screen.findByText(/SP-1 · 말랑이 · 파랑 · 현재고 8/);
+    expect(listSellpiaInventorySkus).toHaveBeenLastCalledWith(expect.objectContaining({
+      stockStatus: 'in_stock',
+    }));
+    const includeOutOfStock = screen.getByRole('checkbox', { name: '품절상품 포함' });
+    expect(includeOutOfStock).not.toBeChecked();
+    await userEvent.click(includeOutOfStock);
+    await waitFor(() => expect(listSellpiaInventorySkus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ stockStatus: 'all' }),
+    ));
     await userEvent.selectOptions(
       screen.getByLabelText('Sellpia 재고 상품'),
       '00000000-0000-4000-8000-000000000001',

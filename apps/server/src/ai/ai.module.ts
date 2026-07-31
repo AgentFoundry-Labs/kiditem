@@ -36,6 +36,8 @@ import { CatalogDisplayMediaRepositoryAdapter } from './adapter/out/repository/c
 import { AiDirectJobRepositoryAdapter } from './adapter/out/repository/ai-direct-job.repository.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
+import { TEXT_JUDGEMENT_PORT } from './application/port/in/capability/text-judgement.port';
+import { TextJudgementService } from './application/service/text-judgement.service';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ImageEditGeminiMediaAdapter } from './adapter/out/gemini/image-edit-gemini-media.adapter';
@@ -394,6 +396,8 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
       useExisting: ThumbnailWingRepositoryAdapter,
     },
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
+    TextJudgementService,
+    { provide: TEXT_JUDGEMENT_PORT, useExisting: TextJudgementService },
     { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
     { provide: AI_OPERATION_ALERT_PORT, useExisting: AiOperationAlertAdapter },
     {
@@ -416,6 +420,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     { provide: CATALOG_DISPLAY_MEDIA_PORT, useExisting: CatalogDisplayMediaService },
   ],
   exports: [
+    TEXT_JUDGEMENT_PORT,
     PRODUCT_GENERATION_AI_TRIGGER_PORT,
     AI_WORKSPACE_ARCHIVE_PORT,
     AI_GENERATION_CANCELLATION_PORT,

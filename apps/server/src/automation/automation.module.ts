@@ -4,6 +4,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 // adapter/in/http
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
 import { AlertsController } from './adapter/in/http/alerts.controller';
+import { BrowserCollectionRunIdController } from './adapter/in/http/browser-collection-run-id.controller';
 import { MarketplaceAgentsController } from './adapter/in/http/marketplace-agents.controller';
 import { MarketplaceWorkflowsController } from './adapter/in/http/marketplace-workflows.controller';
 import { OperationAlertLifecycleController } from './adapter/in/http/operation-alert-lifecycle.controller';
@@ -30,6 +31,7 @@ import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
 // application/service
 import { ActionBoardService } from './application/service/action-board.service';
 import { AlertsService } from './application/service/alerts.service';
+import { BrowserCollectionRunIdService } from './application/service/browser-collection-run-id.service';
 import { MarketplaceCatalogService } from './application/service/marketplace-catalog.service';
 import { MarketplaceInstallService } from './application/service/marketplace-install.service';
 import { OperationAlertService } from './application/service/operation-alert.service';
@@ -99,6 +101,7 @@ const IN_PORT_BINDINGS = [
     PanelController,
     ActionTaskController,
     AlertsController,
+    BrowserCollectionRunIdController,
     OperationAlertLifecycleController,
     WorkflowTemplatesController,
     WorkflowRunCommandsController,
@@ -119,6 +122,7 @@ const IN_PORT_BINDINGS = [
     // application/service
     ActionBoardService,
     AlertsService,
+    BrowserCollectionRunIdService,
     OperationAlertService,
     MarketplaceCatalogService,
     MarketplaceInstallService,

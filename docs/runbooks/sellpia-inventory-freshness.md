@@ -17,7 +17,7 @@ ledger; that logical hold is not a physical stock write.
   4000 during local verification.
 - The operator is signed in to the intended KidItem organization and to
   `https://kiditem.sellpia.com` in Chrome.
-- `extensions/order-collector` version `0.1.79` or newer is loaded and its ping
+- `extensions/kiditem-os` version `0.1.79` or newer is loaded and its ping
   advertises `collectSellpiaInventoryJsonV1: true`.
 - The organization has confirmed the fixed source binding:
   `https://kiditem.sellpia.com` / `kiditem`. Only an owner or admin can confirm
@@ -161,7 +161,7 @@ status green.
 |---|---|
 | Source binding unconfirmed | Owner/admin confirms only the fixed origin/account in the drawer. Do not insert the state row manually. |
 | `sellpia_login_required` | Sign in to the intended Sellpia account in Chrome, return to KidItem, and choose **다시 갱신**. Do not copy cookies to the server. |
-| Extension absent | Load/re-enable `extensions/order-collector`, confirm it responds, then retry. |
+| Extension absent | Load/re-enable `extensions/kiditem-os`, confirm it responds, then retry. |
 | Extension outdated | Reload/update to version `0.1.79` or newer and confirm `collectSellpiaInventoryJsonV1` before retrying. |
 | `sellpia_download_contract_drift` | Stop automatic use. Inspect the fixed Sellpia JSON endpoint and response shape; update the extension contract with tests before retrying. Do not fall back to a blind click. |
 | `sellpia_invalid_workbook` or HTML response | Automatic flow: confirm the fixed endpoint returned a complete versioned JSON snapshot. Manual recovery: confirm the file is a fresh XLS/XLSX/CSV full option-product export. Retry after login/session recovery. |

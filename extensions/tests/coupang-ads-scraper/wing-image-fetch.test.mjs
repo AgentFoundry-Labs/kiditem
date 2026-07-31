@@ -5,14 +5,14 @@ import vm from "node:vm";
 
 const helperSource = await readFile(
   new URL(
-    "../../coupang-ads-scraper/background/wing-image-fetch.js",
+    "../../kiditem-os/background/coupang/wing-image-fetch.js",
     import.meta.url,
   ),
   "utf8",
 );
 const workerSource = await readFile(
   new URL(
-    "../../coupang-ads-scraper/background/service-worker.js",
+    "../../kiditem-os/background/coupang/worker.js",
     import.meta.url,
   ),
   "utf8",
@@ -65,8 +65,13 @@ const validSender = {
   url: "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2?locale=ko_KR",
 };
 
-test("routes the fallback through an internal runtime listener, not the external web listener", () => {
-  assert.match(workerSource, /"wing-image-fetch\.js"/);
+test("routes the fallback through an internal runtime listener, not the external web listener", async () => {
+  // 확장 병합 후 의존 모듈 로드는 통합 서비스워커가 소유한다.
+  const entrySource = await readFile(
+    new URL("../../kiditem-os/background/service-worker.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(entrySource, /"coupang\/wing-image-fetch\.js"/);
   assert.match(
     workerSource,
     /chrome\.runtime\.onMessage\.addListener\(wingImageFetch\.handleMessage\)/,

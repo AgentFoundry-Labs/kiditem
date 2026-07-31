@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { formatDateTime } from '@/lib/utils';
 import { ProductOptionsWorkspace } from './ProductOptionsWorkspace';
 
 const pushMock = vi.hoisted(() => vi.fn());
@@ -150,7 +151,7 @@ describe('<ProductOptionsWorkspace>', () => {
     expect(screen.getByText('레시피 연결 3개')).toBeInTheDocument();
     expect(screen.getByText('연결 필요 5개')).toBeInTheDocument();
     expect(screen.getByText(
-      /최근 성공 가져오기: 2026\. 7\. 14\. (?:오전|AM) 10:00 · 완료/,
+      `최근 성공 가져오기: ${formatDateTime(data.latestImport.importedAt, { dateStyle: 'medium', timeStyle: 'short' })} · 완료`,
     )).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '레시피 구성 안내' })).toHaveAttribute(
       'href',
@@ -160,8 +161,9 @@ describe('<ProductOptionsWorkspace>', () => {
     expect(screen.queryByRole('button', { name: /수정|삭제|복원/ })).not.toBeInTheDocument();
     expect(vi.mocked(useQuery).mock.calls[0]?.[0].queryKey).toEqual([
       'inventory', 'sellpia-skus',
-      { page: '1', limit: '50', stockStatus: 'all', activeStatus: 'all' },
+      { page: '1', limit: '50', stockStatus: 'in_stock', activeStatus: 'all' },
     ]);
+    expect(screen.getByRole('checkbox', { name: '품절상품 포함' })).not.toBeChecked();
   });
 
   it('queries only the Sellpia inventory owner with URL-authoritative link filters', () => {
@@ -182,6 +184,8 @@ describe('<ProductOptionsWorkspace>', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '미연결' }));
     expect(pushMock).toHaveBeenCalledWith('/product-hub/options?campaign=summer&linkStatus=unlinked&page=1');
+    fireEvent.click(screen.getByRole('checkbox', { name: '품절상품 포함' }));
+    expect(pushMock).toHaveBeenCalledWith('/product-hub/options?campaign=summer&stockStatus=all&page=1');
     fireEvent.click(screen.getByRole('button', { name: '새로고침' }));
     expect(refetchMock).toHaveBeenCalledTimes(1);
   });

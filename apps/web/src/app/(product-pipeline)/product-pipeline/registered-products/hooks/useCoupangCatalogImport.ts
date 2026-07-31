@@ -16,6 +16,7 @@ import {
 import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   getCoupangCatalogBrowserStatus,
   startCoupangCatalogBrowser,
@@ -203,10 +204,7 @@ export function useCoupangCatalogImport(
 }
 
 function makeUuid(): string {
-  if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
-    throw new Error('이 브라우저는 안전한 수집 실행 ID 생성을 지원하지 않습니다.');
-  }
-  return crypto.randomUUID();
+  return createSecureRandomUuid();
 }
 
 function readActiveRun(): ActiveRun | null {

@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 const source = await readFile(
   new URL(
-    "../../coupang-ads-scraper/background/service-worker.js",
+    "../../kiditem-os/background/coupang/worker.js",
     import.meta.url,
   ),
   "utf8",

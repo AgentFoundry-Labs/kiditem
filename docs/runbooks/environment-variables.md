@@ -269,7 +269,7 @@ text/detail/thumbnail/image-edit AI features are enabled.
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
 | `GEMINI_API_KEY` | Gemini text, image, or vision paths are used | Gemini text/media/thumbnail adapters | Missing key returns explicit service errors. |
-| `AI_TEXT_MODEL` | Text transform, detail page prefill, direct detail generation | Text AI/detail page services | No silent fallback. Human-triggered and fixed workflow detail generation use this value. |
+| `AI_TEXT_MODEL` | Text transform, detail page prefill, direct detail generation, advertising keyword relevance judgement | Text AI/detail page services and advertising keyword relevance judge | No silent fallback. Human-triggered and fixed workflow text generation and bounded text judgement use this value. |
 | `AI_IMAGE_MODEL` | Thumbnail/editor image generation, image edit, and detail-page generated images | Thumbnail/image-edit Gemini config and detail-page media adapter | Direct AI provider config. Human-triggered and fixed workflow thumbnail/detail/image-edit media generation use this value. Do not use deprecated preview IDs called out by the config. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Thumbnail/image analysis and detail-page image inference | Thumbnail Gemini config and detail-page media adapter | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_VERIFY_MODEL` | Thumbnail compliance verify path | Thumbnail Gemini config | No silent fallback. |

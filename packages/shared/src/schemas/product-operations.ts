@@ -89,6 +89,7 @@ export type MasterProductOperationsListQuery = z.infer<
 export const ProductRecipeComponentCandidateQuerySchema = z.object({
   search: z.string().trim().min(2).max(200),
   limit: z.number().int().positive().max(50).default(20),
+  stockStatus: z.enum(['in_stock', 'all']).default('in_stock'),
 }).strict();
 export type ProductRecipeComponentCandidateQuery = z.infer<
   typeof ProductRecipeComponentCandidateQuerySchema

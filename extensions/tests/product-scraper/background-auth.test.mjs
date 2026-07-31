@@ -3,23 +3,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
+import {
+  SOURCING_WORKER_MODULES,
+  installExternalDispatch,
+  MERGED_EXTENSION_VERSION,
+} from '../helpers/domain-worker-modules.mjs';
 
-const backgroundPath = path.resolve('extensions/product-scraper/background.js');
+const backgroundPath = path.resolve('extensions/kiditem-os/background/sourcing/worker.js');
 const backgroundSource = fs.readFileSync(backgroundPath, 'utf8');
-const environmentContextPath = path.resolve('extensions/product-scraper/environment-context.js');
+const environmentContextPath = path.resolve('extensions/kiditem-os/background/environment-context.js');
 const environmentContextSource = fs.readFileSync(environmentContextPath, 'utf8');
-const collectionSessionPath = path.resolve('extensions/product-scraper/collection-session.js');
+const collectionSessionPath = path.resolve('extensions/kiditem-os/background/collection-session.js');
 const collectionSessionSource = fs.readFileSync(collectionSessionPath, 'utf8');
-const interactiveTabsPath = path.resolve('extensions/product-scraper/interactive-tabs.js');
+const interactiveTabsPath = path.resolve('extensions/kiditem-os/background/interactive-tabs.js');
 const interactiveTabsSource = fs.readFileSync(interactiveTabsPath, 'utf8');
-const trendCollectorPath = path.resolve('extensions/product-scraper/1688-trend-collector.js');
+const trendCollectorPath = path.resolve('extensions/kiditem-os/background/sourcing/1688-trend-collector.js');
 const trendCollectorSource = fs.readFileSync(trendCollectorPath, 'utf8');
-const liveCommerceCollectorPath = path.resolve('extensions/product-scraper/live-commerce-collector.js');
+const liveCommerceCollectorPath = path.resolve('extensions/kiditem-os/background/sourcing/live-commerce-collector.js');
 const liveCommerceCollectorSource = fs.readFileSync(liveCommerceCollectorPath, 'utf8');
-const tiktokCcCollectorPath = path.resolve('extensions/product-scraper/tiktok-cc-collector.js');
+const tiktokCcCollectorPath = path.resolve('extensions/kiditem-os/background/sourcing/tiktok-cc-collector.js');
 const tiktokCcCollectorSource = fs.readFileSync(tiktokCcCollectorPath, 'utf8');
 const manifest = JSON.parse(
-  fs.readFileSync(path.resolve('extensions/product-scraper/manifest.json'), 'utf8'),
+  fs.readFileSync(path.resolve('extensions/kiditem-os/manifest.json'), 'utf8'),
 );
 
 function createStorage(initial = {}, notify = () => {}) {
@@ -137,38 +142,18 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
   };
 
   vm.createContext(context);
-  context.importScripts = (file) => {
-    if (file === 'environment-context.js') {
-      vm.runInContext(environmentContextSource, context, { filename: environmentContextPath });
-      return;
+  // 소싱 워커는 더 이상 importScripts 를 호출하지 않는다. 통합 서비스워커가
+  // 공용 모듈과 도메인 모듈을 싣고 마지막에 도메인 워커를 싣는 순서를 재현한다.
+  const sourcingRoot = path.dirname(backgroundPath);
+  context.importScripts = (...files) => {
+    for (const file of files) {
+      const filename = path.join(sourcingRoot, file);
+      vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
     }
-    if (file === 'collection-session.js') {
-      vm.runInContext(collectionSessionSource, context, { filename: collectionSessionPath });
-      return;
-    }
-    if (file === 'interactive-tabs.js') {
-      vm.runInContext(interactiveTabsSource, context, { filename: interactiveTabsPath });
-      return;
-    }
-    if (file === '1688-trend-collector.js') {
-      vm.runInContext(trendCollectorSource, context, { filename: trendCollectorPath });
-      return;
-    }
-    if (file === 'live-commerce-collector.js') {
-      vm.runInContext(liveCommerceCollectorSource, context, {
-        filename: liveCommerceCollectorPath,
-      });
-      return;
-    }
-    if (file === 'tiktok-cc-collector.js') {
-      vm.runInContext(tiktokCcCollectorSource, context, {
-        filename: tiktokCcCollectorPath,
-      });
-      return;
-    }
-    assert.fail(`Unexpected background import: ${file}`);
   };
+  context.importScripts(...SOURCING_WORKER_MODULES);
   vm.runInContext(backgroundSource, context, { filename: backgroundPath });
+  installExternalDispatch(context, context.chrome);
 
   return {
     context,
@@ -182,9 +167,16 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
   };
 }
 
-function sendExternal(listener, message, sender = { url: 'http://localhost:3000/product-pipeline/collected-products' }) {
+function sendExternal(listeners, message, sender = { url: 'http://localhost:3000/product-pipeline/collected-products' }) {
+  const all = Array.isArray(listeners) ? listeners : [listeners];
   return new Promise((resolve) => {
-    listener(message, sender, resolve);
+    let settled = false;
+    const sendResponse = (response) => {
+      if (settled) return;
+      settled = true;
+      resolve(response);
+    };
+    for (const listener of all) listener(message, sender, sendResponse);
   });
 }
 
@@ -202,8 +194,9 @@ test('stores the local KidItem session token in its environment profile', async 
     kiditem_sourcing_ingest_token_expires_at: '2026-05-21T12:30:00.000Z',
   });
 
-  assert.equal(env.externalListeners.length, 1);
-  const response = await sendExternal(env.externalListeners[0], {
+  // 통합 확장은 소싱 도메인 리스너와 통합 dispatch 리스너를 함께 등록한다.
+  assert.equal(env.externalListeners.length, 2);
+  const response = await sendExternal(env.externalListeners, {
     action: 'setAuthToken',
     token: 'token-from-web',
   });
@@ -227,7 +220,7 @@ test('clears only the sender environment profile on sign-out', async () => {
     kiditem_sourcing_ingest_token: 'legacy-token',
   });
 
-  const response = await sendExternal(env.externalListeners[0], {
+  const response = await sendExternal(env.externalListeners, {
     action: 'clearAuthToken',
   });
 
@@ -242,7 +235,7 @@ test('clears only the sender environment profile on sign-out', async () => {
 test('advertises the logged-in Chrome trend and live-commerce collector capabilities', async () => {
   const env = loadBackground();
 
-  const response = await sendExternal(env.externalListeners[0], { action: 'ping' });
+  const response = await sendExternal(env.externalListeners, { action: 'ping' });
 
   assert.equal(response?.success, true);
   assert.equal(response?.capabilities?.sourcing1688TrendCollector, true);
@@ -250,40 +243,58 @@ test('advertises the logged-in Chrome trend and live-commerce collector capabili
   assert.equal(response?.capabilities?.sourcingTiktokCcCollector, true);
   assert.equal(response?.capabilities?.browserCollectionSessions, true);
   assert.equal(response?.capabilities?.kiditemEnvironmentProfilesV1, true);
-  assert.equal(manifest.version, '2.3.2');
+  assert.equal(manifest.version, MERGED_EXTENSION_VERSION);
 });
 
 test('manifest connects the office web origin to the host bridge and API permission', () => {
   assert.ok(manifest.externally_connectable.matches.includes('http://kiditem-office/*'));
   assert.ok(manifest.host_permissions.includes('http://kiditem-office/*'));
   const hostBridge = manifest.content_scripts.find((entry) =>
-    entry.js?.includes('host-bridge.js'),
+    entry.js?.some((file) => file.endsWith('host-bridge.js')),
   );
   assert.ok(hostBridge?.matches.includes('http://kiditem-office/*'));
 });
 
-test('loads collection sessions and the interactive focus owner before sourcing collectors', () => {
-  const environmentContext = backgroundSource.indexOf('importScripts("environment-context.js")');
-  const collectionSession = backgroundSource.indexOf('importScripts("collection-session.js")');
-  const interactiveTabs = backgroundSource.indexOf('importScripts("interactive-tabs.js")');
-  const trendCollector = backgroundSource.indexOf('importScripts("1688-trend-collector.js")');
-  const liveCommerceCollector = backgroundSource.indexOf('importScripts("live-commerce-collector.js")');
-  const tiktokCcCollector = backgroundSource.indexOf('importScripts("tiktok-cc-collector.js")');
+// 확장 병합 후 의존 모듈 로드는 통합 서비스워커가 소유한다. 소싱 워커는
+// 최상위에서 이 모듈의 전역을 바로 쓰므로 로드 순서가 뒤집히면 부팅이 깨진다.
+test('통합 서비스워커가 공용 모듈과 소싱 모듈을 소싱 워커보다 먼저 싣는다', () => {
+  const entrySource = fs.readFileSync(
+    path.resolve('extensions/kiditem-os/background/service-worker.js'),
+    'utf8',
+  );
+  const at = (file) => entrySource.indexOf(`"${file}"`);
 
-  assert.ok(environmentContext >= 0);
-  assert.ok(collectionSession > environmentContext);
-  assert.ok(interactiveTabs > collectionSession);
-  assert.ok(trendCollector > interactiveTabs);
-  assert.ok(liveCommerceCollector > trendCollector);
-  assert.ok(tiktokCcCollector > liveCommerceCollector);
-  assert.match(backgroundSource, /KidItemCollectionSession\.create\(/);
-  assert.match(backgroundSource, /storageKey:\s*["']kiditem_collection_sessions["']/);
+  assert.ok(at('domain-registry.js') >= 0);
+  assert.ok(at('environment-context.js') > at('domain-registry.js'));
+  assert.ok(at('collection-session.js') > at('environment-context.js'));
+  assert.ok(at('interactive-tabs.js') > at('collection-session.js'));
+  assert.ok(at('worker-globals.js') > at('interactive-tabs.js'));
+  assert.ok(at('sourcing/1688-trend-collector.js') > at('worker-globals.js'));
+  assert.ok(
+    at('sourcing/live-commerce-collector.js') > at('sourcing/1688-trend-collector.js'),
+  );
+  assert.ok(
+    at('sourcing/tiktok-cc-collector.js') > at('sourcing/live-commerce-collector.js'),
+  );
+  assert.ok(at('sourcing/worker.js') > at('sourcing/tiktok-cc-collector.js'));
+
+  // 세 도메인이 하나의 세션 저장소를 공유하고, 인스턴스는 공용 전역이 소유한다.
+  const globalsSource = fs.readFileSync(
+    path.resolve('extensions/kiditem-os/background/worker-globals.js'),
+    'utf8',
+  );
+  assert.match(globalsSource, /KidItemCollectionSession\.create\(/);
+  assert.match(globalsSource, /storageKey:\s*["']kiditem_collection_sessions["']/);
+  assert.doesNotMatch(backgroundSource, /KidItemCollectionSession\.create\(/);
 });
 
-test('exposes all generic browser collection controls before sourcing actions', () => {
-  const genericList = backgroundSource.indexOf('msg.action === "listCollectionSessions"');
-  const trendStart = backgroundSource.indexOf('msg.action === "start1688TrendCollection"');
-  assert.ok(genericList >= 0 && genericList < trendStart);
+// 세 도메인 워커가 각자 응답하면 같은 메시지에 경쟁 응답이 된다. 공통 액션은
+// external-dispatch.js 만 처리하고, 소싱 워커는 자기 액션만 남긴다.
+test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리한다', () => {
+  const dispatchSource = fs.readFileSync(
+    path.resolve('extensions/kiditem-os/background/external-dispatch.js'),
+    'utf8',
+  );
   for (const action of [
     'listCollectionSessions',
     'getCollectionSession',
@@ -291,8 +302,15 @@ test('exposes all generic browser collection controls before sourcing actions', 
     'openCollectionAttentionTab',
     'restartCollectionSession',
   ]) {
-    assert.match(backgroundSource, new RegExp(`msg\\.action === ["']${action}["']`));
+    assert.match(dispatchSource, new RegExp(`["']${action}["']`), action);
+    assert.doesNotMatch(
+      backgroundSource,
+      new RegExp(`msg\\.action === ["']${action}["']`),
+      action,
+    );
   }
+  assert.doesNotMatch(backgroundSource, /msg\.action === ["']ping["']/);
+  assert.match(backgroundSource, /msg\.action === "start1688TrendCollection"/);
 });
 
 test('accepts a heartbeat port that keeps long 1688 trend runs alive', () => {
@@ -311,12 +329,12 @@ test('accepts a heartbeat port that keeps long 1688 trend runs alive', () => {
 test('rejects invalid 1688 trend collection inputs before opening a tab', async () => {
   const env = loadBackground();
 
-  const empty = await sendExternal(env.externalListeners[0], {
+  const empty = await sendExternal(env.externalListeners, {
     action: 'start1688TrendCollection',
     keywords: [],
     maxResultsPerKeyword: 20,
   });
-  const oversized = await sendExternal(env.externalListeners[0], {
+  const oversized = await sendExternal(env.externalListeners, {
     action: 'start1688TrendCollection',
     keywords: ['문구'],
     maxResultsPerKeyword: 21,
@@ -330,7 +348,7 @@ test('stores staging auth without accepting a client API base', async () => {
   const env = loadBackground();
 
   const response = await sendExternal(
-    env.externalListeners[0],
+    env.externalListeners,
     {
       action: 'setAuthToken',
       apiBase: 'https://staging.merchon.org/api/sourcing/extension',
@@ -351,7 +369,7 @@ test('stores office auth and routes requests to the office API origin', async ()
   const env = loadBackground();
 
   const response = await sendExternal(
-    env.externalListeners[0],
+    env.externalListeners,
     { action: 'setAuthToken', token: 'office-token' },
     { url: 'http://kiditem-office/product-pipeline/collected-products' },
   );
@@ -375,7 +393,7 @@ test('rejects auth tokens sent from non-KidItem web origins', async () => {
   const env = loadBackground();
 
   const response = await sendExternal(
-    env.externalListeners[0],
+    env.externalListeners,
     { action: 'setAuthToken', token: 'token-from-web' },
     { url: 'http://evil.localhost:3000/product-pipeline/collected-products' },
   );
@@ -454,7 +472,7 @@ test('requests web resync and retries once after 401 with a changed token', asyn
     'local',
   );
   await waitForCallCount(env.fetchCalls, 1);
-  await sendExternal(env.externalListeners[0], {
+  await sendExternal(env.externalListeners, {
     action: 'setAuthToken',
     token: 'rotated-token',
   });
@@ -488,7 +506,7 @@ test('coalesces concurrent 401 refresh signals and retries each request once', a
     'local',
   );
   await waitForCallCount(env.fetchCalls, 2);
-  await sendExternal(env.externalListeners[0], {
+  await sendExternal(env.externalListeners, {
     action: 'setAuthToken',
     token: 'rotated-token',
   });

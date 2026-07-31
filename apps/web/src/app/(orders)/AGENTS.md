@@ -41,7 +41,8 @@ React Query + apiClient
   Empty recipes use the Products-owned create-if-empty API; existing recipes use
   Products' complete replacement API with the current recipe as optimistic
   evidence. Neither path edits Sellpia physical stock.
-- `/rocket-orders` keeps the baseline calendar/list composition.
+- `/rocket-orders` keeps the baseline calendar composition. The per-date PO
+  list is absorbed into the preview table; do not re-add a separate one.
   Its calendar and reopened evidence use the account-scoped Supply catalog
   snapshot actions, and it injects `RocketConfirmPanel` through the workspace
   `decisionWorkspace` render prop. The operator flow ends when the reviewed

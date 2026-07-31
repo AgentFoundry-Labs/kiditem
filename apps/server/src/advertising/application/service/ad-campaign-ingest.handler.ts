@@ -57,6 +57,7 @@ import {
 } from '../port/out/repository/channel-scrape.repository.port';
 import {
   CHANNEL_TARGET_DAILY_REPOSITORY_PORT,
+  type AdTargetType,
   type ChannelTargetDailyRepositoryPort,
   type ReplaceAdCampaignDayRejectionCode,
   type UpsertAdTargetDailyInput,
@@ -388,6 +389,9 @@ export class AdCampaignIngestHandler {
             campaignIdentity: stableCampaignScopeIdentity,
             campaignName,
             targets: [...targetDailyInputs.values()],
+            replaceScope: campaignReportReplaceScope([
+              ...targetDailyInputs.values(),
+            ]),
           });
           if (replacement.kind === 'rejected') {
             projectionRejectionCode = replacement.code;
@@ -456,6 +460,26 @@ export class AdCampaignIngestHandler {
 const MAX_POSTGRES_INT = 2147483647;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Grains a single campaign report is authoritative for.
+ *
+ * Campaign rollup rows and product rows are two renderings of the same report
+ * grid, so observing either one makes the report authoritative for both — a
+ * campaign whose last product dropped out must still lose its stale product
+ * rows. Keyword facts come from a different provider surface entirely (the
+ * per-ad keyword table, collected by `ad_keyword`), so this report may only
+ * mark keyword rows stale when it actually produced keyword rows itself.
+ */
+function campaignReportReplaceScope(
+  targets: UpsertAdTargetDailyInput[],
+): AdTargetType[] {
+  const scope: AdTargetType[] = ['campaign', 'product'];
+  if (targets.some((target) => target.targetType === 'keyword')) {
+    scope.push('keyword');
+  }
+  return scope;
+}
 
 function assertValidCampaignSweepMarker(payload: ExtensionSyncDto): void {
   if (payload.campaignSweepComplete !== true) return;

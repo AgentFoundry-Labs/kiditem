@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const helperPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../../../extensions/coupang-ads-scraper/background/collection-window.js',
+  '../../../extensions/kiditem-os/background/coupang/collection-window.js',
 );
 
 function createControlledTimers() {

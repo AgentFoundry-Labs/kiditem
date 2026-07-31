@@ -20,7 +20,7 @@ import {
   shouldAutoOpen,
   type AutoOpenWhen,
 } from './readiness/readiness-modal-model';
-import { ActionCheckCard, AdSyncRow, CompactOkRow, StockSyncRow } from './readiness/ReadinessRows';
+import { ActionCheckCard, AdKeywordRow, AdSyncRow, CompactOkRow, StockSyncRow } from './readiness/ReadinessRows';
 import { readinessCollectionProducer } from './readiness/readiness-extension-collection';
 import { useReadinessCollection } from './readiness/useReadinessCollection';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
@@ -197,6 +197,11 @@ export default function ReadinessModal({
                   />
                 ))}
                 <AdSyncRow
+                  onComplete={() => {
+                    void query.refetch();
+                  }}
+                />
+                <AdKeywordRow
                   onComplete={() => {
                     void query.refetch();
                   }}

@@ -28,6 +28,12 @@ vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 
+vi.mock('@/lib/browser-collection-session', () => ({
+  issueBrowserCollectionRunId: vi.fn().mockImplementation(
+    async (runId?: string) => runId ?? '11111111-1111-4111-8111-111111111111',
+  ),
+}));
+
 const mockedDetectExtensionId = vi.mocked(detectExtensionId);
 const mockedIsChromeExtensionRuntimeAvailable = vi.mocked(isChromeExtensionRuntimeAvailable);
 const mockedSendToExtension = vi.mocked(sendToExtension);
@@ -102,7 +108,7 @@ describe('wing catalog extension helpers', () => {
   });
 
   it('keeps a specific reload guidance for stale extension versions', () => {
-    expect(WING_CATALOG_EXTENSION_MIN_VERSION).toBe('1.2.103');
+    expect(WING_CATALOG_EXTENSION_MIN_VERSION).toBe('1.0.0');
     expect(WING_CATALOG_EXTENSION_RELOAD_REQUIRED).toContain('새로고침');
     expect(WING_CATALOG_EXTENSION_RELOAD_REQUIRED).toContain('chrome://extensions');
   });
@@ -111,7 +117,7 @@ describe('wing catalog extension helpers', () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedSendToExtension.mockResolvedValueOnce({
       success: true,
-      version: '1.2.102',
+      version: '0.9.9',
       capabilities: {
         wingCatalogSearch: true,
         browserCollectionSessions: true,
@@ -138,7 +144,7 @@ describe('wing catalog extension helpers', () => {
     mockedSendToExtension
       .mockResolvedValueOnce({
         success: true,
-        version: '1.2.103',
+        version: '1.0.2',
         capabilities: {
           wingCatalogSearch: true,
           browserCollectionSessions: true,
@@ -155,6 +161,7 @@ describe('wing catalog extension helpers', () => {
       'extension-1',
       {
         action: 'searchWingCatalogProducts',
+        runId: '11111111-1111-4111-8111-111111111111',
         keyword: '슬라임',
         maxPages: 2,
       },
@@ -167,7 +174,7 @@ describe('wing catalog extension helpers', () => {
     mockedSendToExtension
       .mockResolvedValueOnce({
         success: true,
-        version: '1.2.103',
+        version: '1.0.2',
         capabilities: {
           wingCatalogSearch: true,
           browserCollectionSessions: true,

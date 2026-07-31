@@ -18,13 +18,13 @@ change physical `SellpiaInventorySku` stock or central
 - Sign in to the intended KidItem organization.
 - Select an active `ChannelAccount` whose stored `channel` is exactly
   `coupang`.
-- Load `extensions/coupang-ads-scraper` in the same Chrome profile.
+- Load `extensions/kiditem-os` in the same Chrome profile.
 - Keep an authenticated Wing inventory tab open. A human completes login, OTP,
   and account selection; never record credentials, cookies, or session dumps.
 - Start the KidItem API and web app for local use, open
   `http://kiditem-office` for office use, or open
   `https://staging.merchon.org` for staging use.
-- Use the same loaded `extensions/coupang-ads-scraper` directory or universal
+- Use the same loaded `extensions/kiditem-os` directory or universal
   release package for local, office, and staging. The extension resolves the
   environment from the verified KidItem page origin and keeps auth/runs separate.
 
@@ -149,8 +149,8 @@ rtk npm exec --workspace=apps/web vitest -- run 'src/app/(product-pipeline)/prod
 rtk npm run build --workspace=apps/web
 rtk npm run build --workspace=apps/server
 rtk node --test extensions/tests/*.test.mjs
-rtk node --check extensions/coupang-ads-scraper/background/service-worker.js
-rtk git diff --check -- extensions/coupang-ads-scraper
+rtk node --check extensions/kiditem-os/background/coupang/worker.js
+rtk git diff --check -- extensions/kiditem-os
 ```
 
 Manual browser acceptance:

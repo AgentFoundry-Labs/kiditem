@@ -1,9 +1,7 @@
 name: Develop Validation
 
 on:
-  push:
-    branches:
-      - develop
+  workflow_dispatch:
 
 concurrency:
   group: develop-validation-${{ github.ref }}
@@ -40,6 +38,12 @@ jobs:
           npm run build --workspace=packages/templates
           npm run build --workspace=apps/server
           npm run build --workspace=apps/web
+
+      - name: Run web unit tests
+        run: npm exec --workspace=apps/web vitest -- run
+
+      - name: Run extension tests
+        run: node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 
       - name: Test integration runtime helpers
         run: npm exec --workspace=apps/server vitest -- run src/test-helpers/__tests__/postgres-global-setup.spec.ts src/test-helpers/__tests__/real-prisma.spec.ts

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AgentOsModule } from "../agent-os/agent-os.module";
+import { AiModule } from "../ai/ai.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { ProductsModule } from "../products/products.module";
@@ -14,6 +15,7 @@ import { AdvertisingIngestController } from "./adapter/in/http/advertising-inges
 import { AdvertisingOverviewController } from "./adapter/in/http/advertising-overview.controller";
 import { AdvertisingStrategyController } from "./adapter/in/http/advertising-strategy.controller";
 import { AdStrategyAgentController } from "./adapter/in/http/ad-strategy-agent.controller";
+import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
@@ -37,6 +39,7 @@ import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wi
 import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefront.adapter";
 // adapter/out/automation
 import { OperationAlertAdapter } from "./adapter/out/automation/operation-alert.adapter";
+import { KeywordRelevanceJudgeAdapter } from "./adapter/out/ai/keyword-relevance-judge.adapter";
 import { AdIngestTransactionAdapter } from "./adapter/out/repository/ad-ingest-transaction.adapter";
 
 // application/service + handlers
@@ -44,6 +47,7 @@ import { AdvertisingService } from "./application/service/advertising.service";
 import { AdCampaignsService } from "./application/service/ad-campaigns.service";
 import { AdStrategyService } from "./application/service/ad-strategy.service";
 import { AdStrategyAgentService } from "./application/service/ad-strategy-agent.service";
+import { AdKeywordAgentService } from "./application/service/ad-keyword-agent.service";
 import { AdGradeRulesService } from "./application/service/ad-grade-rules.service";
 import { AdBudgetAllocatorService } from "./application/service/ad-budget-allocator.service";
 import { AdExposureService } from "./application/service/ad-exposure.service";
@@ -59,6 +63,7 @@ import { CompetitorTrackingService } from "./application/service/competitor-trac
 import { WingTrackedProductService } from "./application/service/wing-tracked-product.service";
 import { CoupangMomentumReadService } from "./application/service/coupang-momentum-read.service";
 import { AdCampaignIngestHandler } from "./application/service/ad-campaign-ingest.handler";
+import { AdKeywordIngestHandler } from "./application/service/ad-keyword-ingest.handler";
 import { CoupangAdsDailyIngestHandler } from "./application/service/coupang-ads-daily-ingest.handler";
 import { KeywordRankIngestHandler } from "./application/service/keyword-rank-ingest.handler";
 import { WingSalesRankIngestHandler } from "./application/service/wing-sales-rank-ingest.handler";
@@ -85,6 +90,7 @@ import { CHANNEL_TARGET_DAILY_REPOSITORY_PORT } from "./application/port/out/rep
 import { KEYWORD_RANK_REPOSITORY_PORT } from "./application/port/out/repository/keyword-rank.repository.port";
 import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from "./application/port/out/repository/wing-tracked-product.repository.port";
 import { OPERATION_ALERT_PORT } from "./application/port/out/cross-domain/operation-alert.port";
+import { KEYWORD_RELEVANCE_JUDGE_PORT } from "./application/port/out/cross-domain/keyword-relevance-judge.port";
 import { KIDITEM_STOREFRONT_PORT } from "./application/port/out/provider/kiditem-storefront.port";
 import { AD_INGEST_TRANSACTION_PORT } from "./application/port/out/transaction/ad-ingest-transaction.port";
 import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/capability/coupang-momentum-read.port";
@@ -156,6 +162,10 @@ const REPOSITORY_PORT_BINDINGS = [
   { provide: KIDITEM_STOREFRONT_PORT, useExisting: KiditemStorefrontAdapter },
   { provide: OPERATION_ALERT_PORT, useExisting: OperationAlertAdapter },
   {
+    provide: KEYWORD_RELEVANCE_JUDGE_PORT,
+    useExisting: KeywordRelevanceJudgeAdapter,
+  },
+  {
     provide: AD_INGEST_TRANSACTION_PORT,
     useExisting: AdIngestTransactionAdapter,
   },
@@ -165,6 +175,7 @@ const REPOSITORY_PORT_BINDINGS = [
   imports: [
     PrismaModule,
     AgentOsModule,
+    AiModule,
     AutomationModule,
     ChannelsModule,
     ProductsModule,
@@ -179,6 +190,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AdvertisingActionsController,
     AdvertisingExecutionController,
     AdStrategyAgentController,
+    AdKeywordAgentController,
     KeywordRankController,
     CompetitorTrackingController,
     WingTrackedProductController,
@@ -203,12 +215,14 @@ const REPOSITORY_PORT_BINDINGS = [
     KiditemStorefrontAdapter,
     // adapter/out/automation
     OperationAlertAdapter,
+    KeywordRelevanceJudgeAdapter,
     AdIngestTransactionAdapter,
     // application/service
     AdvertisingService,
     AdCampaignsService,
     AdStrategyService,
     AdStrategyAgentService,
+    AdKeywordAgentService,
     AdGradeRulesService,
     AdBudgetAllocatorService,
     AdExposureService,
@@ -225,6 +239,7 @@ const REPOSITORY_PORT_BINDINGS = [
     CoupangMomentumReadService,
     // application/service — ingest handlers
     AdCampaignIngestHandler,
+    AdKeywordIngestHandler,
     CoupangAdsDailyIngestHandler,
     KeywordRankIngestHandler,
     WingSalesRankIngestHandler,

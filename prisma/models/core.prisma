@@ -13,6 +13,8 @@ model Organization {
   memberships                     OrganizationMembership[]
   legalEntities                   LegalEntity[]
   channelAccounts                 ChannelAccount[]
+  sellpiaManualMatchSnapshots     SellpiaManualMatchSnapshot[]
+  sellpiaManualMatchAliases       SellpiaManualMatchAlias[]
   sourceImportRuns                SourceImportRun[]
   rocketPoCatalogSnapshots        RocketPoCatalogSnapshot[]
   rocketPoCatalogLines            RocketPoCatalogLine[]
@@ -94,6 +96,7 @@ model Organization {
   sellpiaInventoryState                         SellpiaInventoryState?
   sellpiaOrderTransmissionIntents               SellpiaOrderTransmissionIntent[]
   sellpiaOrderTransmissionIntentReconciliations SellpiaOrderTransmissionIntentReconciliation[]
+  coupangDirectPoSnapshots                      CoupangDirectPoSnapshot[]
 
   // Logistics
   shipments       Shipment[]

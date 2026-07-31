@@ -88,6 +88,7 @@ const baseWorkflow = {
   editedQuantities: {},
   setReviewedQuantity,
   preview: basePreview,
+  displayPreview: basePreview,
   sourceRows: [
     {
       poLineId: "PO-1:PRODUCT-1:1",
@@ -129,6 +130,14 @@ function renderPanel(options?: {
     ...baseWorkflow,
     ...options?.workflow,
     preview: options?.preview === undefined ? basePreview : options.preview,
+    // 표는 displayPreview 를 그리므로 preview 오버라이드를 그대로 따라가게 한다.
+    // 표시 전용 행(이번 확인 대상이 아닌 과거 발주)을 검증할 때만 따로 지정한다.
+    displayPreview:
+      options?.workflow?.displayPreview !== undefined
+        ? options.workflow.displayPreview
+        : options?.preview === undefined
+          ? basePreview
+          : options.preview,
   } as ReturnType<typeof useRocketPurchaseWorkflow>);
   return render(
     <RocketConfirmPanel
@@ -180,7 +189,7 @@ describe("<RocketConfirmPanel />", () => {
   it("defaults a newly shortened row to the inventory-shortage reason", () => {
     renderPanel();
     fireEvent.change(
-      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+      screen.getByRole("spinbutton", { name: "PO-1 확정재고" }),
       {
         target: { value: "2" },
       },
@@ -225,11 +234,12 @@ describe("<RocketConfirmPanel />", () => {
 
       expect(screen.getByText(label)).toBeInTheDocument();
       expect(
-        screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+        screen.getByRole("spinbutton", { name: "PO-1 확정재고" }),
       ).toBeDisabled();
+      // 사유를 고를 수 없는 행은 select 자체를 그리지 않는다(옵션 수천 개 렌더 방지).
       expect(
-        screen.getByRole("combobox", { name: "PO-1 납품부족사유" }),
-      ).toBeDisabled();
+        screen.queryByRole("combobox", { name: "PO-1 납품부족사유" }),
+      ).not.toBeInTheDocument();
       expect(
         screen.getByRole("link", { name: `${label} 해결` }),
       ).toHaveAttribute(
@@ -248,7 +258,7 @@ describe("<RocketConfirmPanel />", () => {
 
     expect(screen.getByText("재고 구성 필요")).toBeInTheDocument();
     expect(
-      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+      screen.getByRole("spinbutton", { name: "PO-1 확정재고" }),
     ).toBeDisabled();
     expect(
       screen.queryByRole("link", { name: "재고 구성 필요 해결" }),
@@ -281,14 +291,12 @@ describe("<RocketConfirmPanel />", () => {
 
       expect(screen.getByText(label)).toBeInTheDocument();
       expect(
-        screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+        screen.getByRole("spinbutton", { name: "PO-1 확정재고" }),
       ).toBeDisabled();
+      // 사유를 고를 수 없는 행은 select 자체를 그리지 않는다(옵션 수천 개 렌더 방지).
       expect(
-        screen.getByRole("combobox", { name: "PO-1 납품부족사유" }),
-      ).toBeDisabled();
-      expect(
-        screen.getByRole("combobox", { name: "전체 납품부족사유" }),
-      ).toBeDisabled();
+        screen.queryByRole("combobox", { name: "PO-1 납품부족사유" }),
+      ).not.toBeInTheDocument();
       expect(
         screen.queryByRole("link", { name: `${label} 해결` }),
       ).not.toBeInTheDocument();
@@ -300,7 +308,7 @@ describe("<RocketConfirmPanel />", () => {
 
     expect(screen.getByText("구성 완료")).toBeInTheDocument();
     const quantity = screen.getByRole("spinbutton", {
-      name: "PO-1 엑셀 수량",
+      name: "PO-1 확정재고",
     });
     expect(quantity).toHaveValue(0);
     expect(quantity).toHaveAttribute("max", "0");
@@ -315,7 +323,7 @@ describe("<RocketConfirmPanel />", () => {
       screen.getByRole("columnheader", { name: "납품가능" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("columnheader", { name: "엑셀 수량" }),
+      screen.getByRole("columnheader", { name: "확정재고" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("columnheader", { name: "약정" }),
@@ -328,8 +336,14 @@ describe("<RocketConfirmPanel />", () => {
   it("shows the linked Sellpia product and opens inline correction for a configured recipe", () => {
     renderPanel({ preview: previewWithReason("insufficient_capacity") });
 
+    // 매칭된 Sellpia 상품명은 쿠팡 상품명 바로 밑에 붙는다.
     expect(screen.getByText("SP-100 · Sellpia 연결 상품")).toBeInTheDocument();
-    expect(screen.getByText("랜덤 · 현재고 3 · 구성 ×1")).toBeInTheDocument();
+    // 원재고 칸은 재고 숫자와 옵션만, 구성 배수는 자체 열에 있다.
+    expect(screen.getByText("랜덤").parentElement).toHaveTextContent("3랜덤");
+    expect(
+      screen.getByRole("columnheader", { name: "구성" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("×1")).toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole("button", { name: "상품 1 Sellpia 재고 수정" }),
@@ -361,13 +375,161 @@ describe("<RocketConfirmPanel />", () => {
     expect(
       screen.getByRole("columnheader", { name: "Sellpia 원재고" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("랜덤 · 현재고 307 · 구성 ×4")).toBeInTheDocument();
+    expect(screen.getByText("307")).toBeInTheDocument();
+    expect(screen.getByText("×4")).toBeInTheDocument();
     expect(
       screen.getByRole("cell", { name: "PO-1 납품가능 0개" }),
     ).toBeInTheDocument();
   });
 
-  it("applies one shortage reason to every eligible short row", () => {
+  it("marks a row with no Sellpia component as unmatched in red", () => {
+    const preview = previewWithReason("configuration_required");
+    renderPanel({ preview });
+
+    const unmatched = screen.getByText("Sellpia 미매칭");
+    expect(unmatched).toBeInTheDocument();
+    expect(unmatched.className).toContain("text-rose-600");
+  });
+
+  it("narrows the table to unmatched rows and to zero-confirmed rows", () => {
+    const preview = previewWithReason("configuration_required"); // 재고 구성 없음 → 미매칭
+    const matched = {
+      ...basePreview.rows[0]!,
+      poLineId: "PO-3:PRODUCT-3:1",
+      poNumber: "PO-3",
+      productNo: "PRODUCT-3",
+      productName: "상품 3",
+    };
+    renderPanel({
+      preview,
+      workflow: {
+        displayPreview: { ...preview, rows: [...preview.rows, matched] },
+        sourceRows: [],
+      },
+    });
+
+    // 기본은 전체가 보인다.
+    expect(screen.getByText("상품 3")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^재고 불일치 \d/ }));
+    expect(screen.queryByText("상품 3")).not.toBeInTheDocument();
+    expect(screen.getByText("Sellpia 미매칭")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^확정재고 0 \d/ }));
+    // 상품 3 은 재고 3 · 구성 ×1 · 발주 3 이라 확정이 3 이므로 0 필터에서 빠진다.
+    expect(screen.queryByText("상품 3")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^전체 \d/ }));
+    expect(screen.getByText("상품 3")).toBeInTheDocument();
+  });
+
+  it("zeroes the confirmed quantity when stock cannot cover the whole order", () => {
+    // 전량 아니면 0. 47/48 같은 부분 확정을 기본값으로 만들지 않는다.
+    const preview = previewWithReason("insufficient_capacity");
+    const partial = {
+      ...preview.rows[0]!,
+      poLineId: "PO-7:PRODUCT-7:1",
+      poNumber: "PO-7",
+      productNo: "PRODUCT-7",
+      productName: "상품 7",
+      orderQuantity: 48,
+      maxQuantity: 0,
+      recommendedQuantity: 0,
+      reason: null,
+      components: preview.rows[0]!.components.map((component) => ({
+        ...component,
+        currentStock: 47,
+        quantity: 1,
+      })),
+    };
+    renderPanel({
+      preview,
+      workflow: {
+        displayPreview: { ...preview, rows: [...preview.rows, partial] },
+      },
+    });
+
+    expect(
+      screen.getByRole("spinbutton", { name: "PO-7 확정재고" }),
+    ).toHaveValue(0);
+    // 근거는 계속 보여준다: 발주 48 중 47 만 댈 수 있다.
+    expect(
+      screen.getByRole("cell", { name: "PO-7 납품가능 참고 47개" }),
+    ).toBeInTheDocument();
+  });
+
+  it("prefills the confirmed quantity when stock covers the order", () => {
+    // 재고가 충분하면 조작자가 숫자를 다시 타이핑하지 않아도 되게 미리 채운다.
+    const preview = previewWithReason("insufficient_capacity");
+    const plentiful = {
+      ...preview.rows[0]!,
+      poLineId: "PO-8:PRODUCT-8:1",
+      poNumber: "PO-8",
+      productNo: "PRODUCT-8",
+      productName: "상품 8",
+      orderQuantity: 24,
+      maxQuantity: 0,
+      recommendedQuantity: 0,
+      reason: null,
+      components: preview.rows[0]!.components.map((component) => ({
+        ...component,
+        currentStock: 63,
+        quantity: 1,
+      })),
+    };
+    renderPanel({
+      preview,
+      workflow: {
+        displayPreview: { ...preview, rows: [...preview.rows, plentiful] },
+      },
+    });
+
+    expect(
+      screen.getByRole("spinbutton", { name: "PO-8 확정재고" }),
+    ).toHaveValue(24);
+  });
+
+  it("keeps an insufficient-capacity row at zero even with stock on hand", () => {
+    // 부분 확정이 금지된 상태라 재고가 남아 있어도 0 이어야 한다.
+    renderPanel({ preview: previewWithReason("insufficient_capacity") });
+
+    expect(
+      screen.getByRole("spinbutton", { name: "PO-1 확정재고" }),
+    ).toHaveValue(0);
+  });
+
+  it("shows standalone stock capacity for rows outside this confirmation round", () => {
+    // 표시용 스코프는 이미 지나간 발주까지 담고, 서버는 그 행들에도 재고를 순서대로 배분해
+    // maxQuantity 를 0 으로 만든다. 참고 행은 배분이 아니라 현재 재고 단독으로 계산해야
+    // 날짜별 목록이 전부 0 으로 보이지 않는다.
+    const preview = previewWithReason("insufficient_capacity");
+    const starved = {
+      ...preview.rows[0]!,
+      poLineId: "PO-9:PRODUCT-9:1",
+      poNumber: "PO-9",
+      productNo: "PRODUCT-9",
+      productName: "상품 9",
+      orderQuantity: 18,
+      maxQuantity: 0,
+      recommendedQuantity: 0,
+      components: preview.rows[0]!.components.map((component) => ({
+        ...component,
+        currentStock: 307,
+        quantity: 4,
+      })),
+    };
+    renderPanel({
+      preview,
+      workflow: { displayPreview: { ...preview, rows: [...preview.rows, starved] } },
+    });
+
+    // 18 = min(발주 18, floor(307 / 4)). 배분값 0 이 아니라 단독 여력이 나와야 한다.
+    expect(
+      screen.getByRole("cell", { name: "PO-9 납품가능 참고 18개" }),
+    ).toBeInTheDocument();
+  });
+
+  it("seeds every short row with the default shortage reason", () => {
     const secondRow = {
       ...previewWithReason("insufficient_capacity").rows[0]!,
       poLineId: "PO-2:PRODUCT-2:1",
@@ -381,15 +543,22 @@ describe("<RocketConfirmPanel />", () => {
         ...previewWithReason("insufficient_capacity"),
         rows: [previewWithReason("insufficient_capacity").rows[0]!, secondRow],
       },
+      // 납품부족사유는 엑셀에 실리는 거래처확인요청 행에만 의미가 있으므로 둘 다 검토 대상으로 둔다.
+      workflow: {
+        sourceRows: [
+          baseWorkflow.sourceRows[0]!,
+          { ...baseWorkflow.sourceRows[0]!, poLineId: "PO-2:PRODUCT-2:1", poNumber: "PO-2" },
+        ],
+      },
     });
 
-    fireEvent.change(
-      screen.getByRole("combobox", { name: "전체 납품부족사유" }),
-      {
-        target: { value: "협력사 재고부족 - 수요예측 오류" },
-      },
-    );
-    fireEvent.click(screen.getByRole("button", { name: "부족 행 전체 적용" }));
+    // 일괄 적용 UI 는 없앴다. 부족 행은 기본 사유가 자동으로 채워진다.
+    expect(
+      screen.queryByRole("combobox", { name: "전체 납품부족사유" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "부족 행 전체 적용" }),
+    ).not.toBeInTheDocument();
 
     const updateReasons = setShortageReasons.mock.calls.at(-1)?.[0] as (
       current: Record<string, string>,
@@ -399,7 +568,6 @@ describe("<RocketConfirmPanel />", () => {
       "PO-1:PRODUCT-1:1": "협력사 재고부족 - 수요예측 오류",
       "PO-2:PRODUCT-2:1": "협력사 재고부족 - 수요예측 오류",
     });
-    expect(setPreviewDirty).toHaveBeenCalledWith(true);
   });
 
   it("recalculates the same saved preview after mapping is reflected", () => {
@@ -505,10 +673,10 @@ describe("<RocketConfirmPanel />", () => {
     renderPanel({ preview: twoRows });
 
     expect(
-      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+      screen.getByRole("spinbutton", { name: "PO-1 확정재고" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("spinbutton", { name: "PO-2 엑셀 수량" }),
+      screen.getByRole("spinbutton", { name: "PO-2 확정재고" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("이미 제출")).toBeNull();
   });
@@ -531,7 +699,7 @@ describe("<RocketConfirmPanel />", () => {
     renderPanel();
 
     expect(
-      screen.getByRole("spinbutton", { name: "PO-1 엑셀 수량" }),
+      screen.getByRole("spinbutton", { name: "PO-1 확정재고" }),
     ).toBeEnabled();
     expect(screen.queryByText(/쿠팡 업로드·발주확정 대기/)).toBeNull();
     expect(screen.queryByRole("button", { name: "동일 파일 다시 다운로드" })).toBeNull();

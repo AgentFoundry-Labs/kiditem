@@ -86,7 +86,7 @@ describe('generateActionTaskSeeds', () => {
       }),
       expect.objectContaining({
         taskKey: 'h-mapping-attention',
-        href: '/product-hub/matching?status=needs_review',
+        href: '/product-hub/matching?status=unmatched',
       }),
     ]));
     expect(seeds.find((seed) => seed.taskKey === 'h-zero-stock')?.apiCall).toBeUndefined();

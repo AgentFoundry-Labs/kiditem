@@ -7,10 +7,12 @@ import { toast } from 'sonner';
 import { useAuthSession } from '@/components/providers/AuthProvider';
 import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
-import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
+import {
+  issueBrowserCollectionRunId,
+  recordMissingBrowserCollection,
+} from '@/lib/browser-collection-session';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 
 const AD_SYNC_CHECK: ReadinessCheck = {
   key: 'ad_sync',
@@ -65,7 +67,7 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         return;
       }
 
-      const nextRunId = requestedRunId ?? createSecureRandomUuid();
+      const nextRunId = await issueBrowserCollectionRunId(requestedRunId);
       setRunId(nextRunId);
       const session = await runReadinessExtensionCollection({
         check: AD_SYNC_CHECK,

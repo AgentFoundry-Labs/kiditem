@@ -8,11 +8,8 @@ const repoRoot = process.cwd();
 const scriptPath = join(repoRoot, "scripts/manage-extension-release.mjs");
 const deploymentTag = "staging-v0.1.26-20260725-58dacdef";
 const bundleFileName = `kiditem-scrapers-${deploymentTag}.zip`;
-const supportedExtensions = [
-  "product-scraper",
-  "coupang-ads-scraper",
-  "order-collector",
-] as const;
+// 주문수집/쿠팡/소싱 세 확장을 kiditem-os 하나로 합쳤다.
+const supportedExtensions = ["kiditem-os"] as const;
 const temporaryDirectories: string[] = [];
 
 function extensionVersion(extension: string): string {
@@ -176,7 +173,7 @@ describe("deployment-scoped extension release management", () => {
   it("rejects the removed per-extension release argument", () => {
     const result = run("pack", temporaryDirectory(), [
       "--extension",
-      "product-scraper",
+      "kiditem-os",
     ]);
 
     expect(result.status).toBe(1);

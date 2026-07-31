@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workerSource = readFileSync(path.join(
   repoRoot,
-  'extensions/order-collector/background/service-worker.js',
+  'extensions/kiditem-os/background/orders/worker.js',
 ), 'utf8');
 
 function extractAsyncFunction(name) {

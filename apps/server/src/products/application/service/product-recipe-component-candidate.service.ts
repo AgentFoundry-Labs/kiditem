@@ -32,6 +32,7 @@ export class ProductRecipeComponentCandidateService {
       organizationId,
       parsed.data.search,
       parsed.data.limit,
+      { includeOutOfStock: parsed.data.stockStatus === 'all' },
     );
     return ProductRecipeComponentCandidateListResponseSchema.parse({
       items: rows

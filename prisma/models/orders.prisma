@@ -307,6 +307,10 @@ model CSRecord {
 }
 
 /// @namespace Orders
+/// @describe 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을
+/// 확장이 크롤링해 적재하며 `externalReviewId` 로 재수집 멱등성을 보장한다.
+/// `listingId` 는 `externalOptionId`(쿠팡 vendorItemId) → `ChannelListingOption` 매칭 결과이며
+/// 매칭 실패 시 null(미연결 리뷰)로 남는다.
 model Review {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid
@@ -314,16 +318,77 @@ model Review {
 
   platform     String  @default("coupang")
   rating       Int
+  title        String?
   content      String?
   reviewerName String? @map("reviewer_name")
 
+  /// 채널 원본 리뷰 식별자(쿠팡 reviewId). 재수집 중복 방지 키.
+  externalReviewId String? @map("external_review_id")
+  /// 리뷰 대상 채널 옵션 식별자(쿠팡 vendorItemId = 옵션ID). listing 매칭 키.
+  externalOptionId String? @map("external_option_id")
+  /// 채널 노출 상품 식별자(쿠팡 productId = 노출상품ID).
+  externalProductId String? @map("external_product_id")
+  /// 수집 시점 채널 노출 상품명. listing 미매칭 리뷰의 표시 폴백.
+  itemName String? @map("item_name")
+
+  imageCount Int @default(0) @map("image_count")
+  videoCount Int @default(0) @map("video_count")
+
+  /// 채널에서 삭제/블라인드 처리된 리뷰. 집계에서 제외한다.
+  isDeleted Boolean @default(false) @map("is_deleted")
+  isBlinded Boolean @default(false) @map("is_blinded")
+
   reviewedAt DateTime @default(now()) @map("reviewed_at") @db.Timestamptz
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
+  @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_key")
   @@index([organizationId])
   @@index([listingId])
+  @@index([organizationId, reviewedAt])
+  @@index([organizationId, externalOptionId])
   @@map("reviews")
+}
+
+/// @namespace Orders
+/// @describe 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록
+/// 마지막 수집분을 보관한다. 조회 편의용 캐시이며 주문 진실은 Order/OrderLineItem 이 갖는다.
+model CoupangDirectPoSnapshot {
+  id               String @id @default(uuid()) @db.Uuid
+  organizationId   String @map("organization_id") @db.Uuid
+  channelAccountId String @map("channel_account_id") @db.Uuid
+
+  /// 쿠팡 발주번호(purchaseOrderSeq)
+  purchaseOrderSeq String @map("purchase_order_seq") @db.VarChar(40)
+
+  centerName String  @map("center_name")
+  /// SHIPMENT | MILKRUN
+  transport  String
+  /// 입고예정일(KST, YYYY-MM-DD). 달력의 그룹 키다.
+  deliveryDate String? @map("delivery_date") @db.VarChar(10)
+  /// 발주일(KST, YYYY-MM-DD)
+  orderedDate  String? @map("ordered_date") @db.VarChar(10)
+  /// 발주유형이 긴급(purchaseOrderType = URGENT)인지
+  isUrgent   Boolean @default(false) @map("is_urgent")
+
+  skuCount      Int @default(0) @map("sku_count")
+  orderQuantity Int @default(0) @map("order_quantity")
+  orderAmount   Int @default(0) @map("order_amount")
+
+  /// 품목 원본(바코드·상품명·수량·금액). 엑셀 생성은 수집 시 새로 받은 값을 쓴다.
+  itemsJson Json? @map("items_json")
+
+  collectedAt DateTime @default(now()) @map("collected_at") @db.Timestamptz
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, channelAccountId, purchaseOrderSeq], map: "coupang_direct_po_snapshots_org_account_seq_key")
+  @@index([organizationId])
+  @@index([organizationId, channelAccountId, deliveryDate])
+  @@map("coupang_direct_po_snapshots")
 }

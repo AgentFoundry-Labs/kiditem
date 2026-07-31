@@ -4,7 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
 
-const workerPath = new URL('../order-collector/background/service-worker.js', import.meta.url);
+const workerPath = new URL('../kiditem-os/background/orders/worker.js', import.meta.url);
 const workerSource = readFileSync(workerPath, 'utf8');
 const functionStart = workerSource.indexOf('async function scrapeCoupangShipmentDateSummary');
 const functionEnd = workerSource.indexOf('\n// ── 원클릭 자동 수집:', functionStart);

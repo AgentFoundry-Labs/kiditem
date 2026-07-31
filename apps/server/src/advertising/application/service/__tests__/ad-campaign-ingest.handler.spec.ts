@@ -976,4 +976,39 @@ describe('AdCampaignIngestHandler business dates', () => {
       dailyProjectionSkipped: true,
     });
   });
+  it('leaves keyword-grain rows out of the campaign report replacement scope', async () => {
+    // The report grid renders campaign and product grain only. Keyword facts
+    // are collected separately by `ad_keyword` against the same campaign and
+    // day, so this replacement must not be allowed to delete them.
+    await handler.execute(
+      {
+        type: 'ad_campaign',
+        campaignReportScope: 'single_campaign_authoritative',
+        dashboardOnOff: 'ON',
+        campaignName: 'Scoped campaign',
+        dateFrom: '2026-07-30',
+        dateTo: '2026-07-30',
+        normalizedRows: [
+          {
+            pageType: 'product',
+            campaignName: 'Scoped campaign',
+            campaignId: 'campaign-scope',
+            vendorItemId: 'vendor-item-1',
+            spend: '1000',
+            revenue: '2000',
+            impressions: '10',
+            clicks: '1',
+            conversions: '0',
+            orders: '0',
+            _observedMetrics: observedMetrics,
+          },
+        ],
+      },
+      'organization-1',
+      map,
+    );
+
+    const replacement = targetDailyRepo.replaceCampaignDay.mock.calls[0][0];
+    expect(replacement.replaceScope).toEqual(['campaign', 'product']);
+  });
 });

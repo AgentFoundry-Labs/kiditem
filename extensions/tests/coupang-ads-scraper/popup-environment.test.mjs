@@ -3,11 +3,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const popup = await readFile(
-  new URL('../../coupang-ads-scraper/popup/popup.js', import.meta.url),
+  new URL('../../kiditem-os/popup/popup.js', import.meta.url),
   'utf8',
 );
 const html = await readFile(
-  new URL('../../coupang-ads-scraper/popup/popup.html', import.meta.url),
+  new URL('../../kiditem-os/popup/popup.html', import.meta.url),
   'utf8',
 );
 
