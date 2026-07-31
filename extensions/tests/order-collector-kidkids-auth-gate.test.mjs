@@ -15,7 +15,7 @@ const source = fs.readFileSync(
 );
 
 function loadScraper({ pageUrl, responseUrl }) {
-  const start = source.indexOf("async function scrapeKidkidsOrders(dateFilter)");
+  const start = source.indexOf("async function scrapeKidkidsOrders(");
   const end = source.indexOf(
     "// ── 도매꾹(domeggook) 주문 수집",
     start,

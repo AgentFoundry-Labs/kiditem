@@ -190,17 +190,41 @@ describe('transmitSellpiaOrder', () => {
     expect(invalidateFreshnessHistory).not.toHaveBeenCalled();
   });
 
-  it('does not resubmit an already prepared intent and asks for operator verification', async () => {
+  it('blocks a fixed-intent (Rocket) already-prepared file for operator verification', async () => {
+    const transmissionIntentKey = 'rocket-workbook:export-1:shipment';
     freshness.prepareOrderTransmissionIntent.mockResolvedValue({
-      intentKey: 'orders-1',
+      intentKey: transmissionIntentKey,
       disposition: 'already_prepared',
     });
 
-    await expect(transmitSellpiaOrder(input())).rejects.toBeInstanceOf(
-      SellpiaOrderTransmissionResolutionRequiredError,
-    );
+    await expect(
+      transmitSellpiaOrder({
+        ...input(),
+        file: { ...generatedFile(), transmissionIntentKey },
+      }),
+    ).rejects.toBeInstanceOf(SellpiaOrderTransmissionResolutionRequiredError);
     expect(extension.sendSellpiaOrders).not.toHaveBeenCalled();
     expect(freshness.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();
+    expect(freshness.reconcileOrderTransmissionIntent).not.toHaveBeenCalled();
+  });
+
+  it('auto-recovers a simple-mall already-prepared file by reconciling and resending', async () => {
+    // 일반 몰 파일(고정 intent 키 없음)은 미해결 준비 상태를 조작자에게 묻지 않고 자동 정리 후 재전송한다.
+    freshness.prepareOrderTransmissionIntent
+      .mockResolvedValueOnce({ intentKey: 'orders-1', disposition: 'already_prepared' })
+      .mockResolvedValueOnce({ intentKey: 'orders-1', disposition: 'prepared' });
+
+    const result = await transmitSellpiaOrder(input());
+
+    expect(result).toMatchObject({ status: 'transmission_requested' });
+    expect(freshness.reconcileOrderTransmissionIntent).toHaveBeenCalledWith({
+      intentKey: 'orders-1',
+      outcome: 'not_submitted',
+      note: expect.stringContaining('자동'),
+    });
+    expect(freshness.prepareOrderTransmissionIntent).toHaveBeenCalledTimes(2);
+    expect(extension.sendSellpiaOrders).toHaveBeenCalledOnce();
+    expect(freshness.finalizeOrderTransmissionIntent).toHaveBeenCalledOnce();
   });
 
   it('recovers a known submitted intent by finalizing without resubmitting', async () => {

@@ -175,10 +175,10 @@ describe('useSellpiaOrderTransmission', () => {
     );
   });
 
-  it('does not resubmit an unresolved prepared intent and asks for verification', async () => {
+  it('blocks a fixed-intent (Rocket) unresolved prepared intent and asks for verification', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     freshness.prepareOrderTransmissionIntent.mockResolvedValue({
-      intentKey: 'orders-1',
+      intentKey: 'rocket-workbook:export-1:shipment',
       disposition: 'already_prepared',
     });
     const onTransmissionRequested = vi.fn();
@@ -188,7 +188,13 @@ describe('useSellpiaOrderTransmission', () => {
     );
 
     await act(async () => {
-      await expect(result.current.transmit(generatedFile())).resolves.toBe(false);
+      // 고정 intent 키(로켓/직배송)만 하드 블록으로 남는다. 일반 몰 파일은 자동 복구된다.
+      await expect(
+        result.current.transmit({
+          ...generatedFile(),
+          transmissionIntentKey: 'rocket-workbook:export-1:shipment',
+        }),
+      ).resolves.toBe(false);
     });
 
     expect(extension.sendOrderFileToSellpiaViaExtension).not.toHaveBeenCalled();

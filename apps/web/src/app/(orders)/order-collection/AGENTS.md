@@ -27,13 +27,21 @@ manage local generated-file history.
   for operator convenience only.
 - Before invoking the irreversible Sellpia extension submit, durably prepare
   the backend key `rocket-final-order:{sourceImportRunId}:{transport}`; the
-  generated file uses that stable key as its ID. If preparation fails or returns
-  `already_prepared` or `already_finalized`, do not invoke the extension unless
-  an owner/admin explicitly confirms in the UI that Sellpia did not receive the
-  file. That recovery records an audited `not_submitted` reconciliation, reopens
-  the same stable intent key, and prepares it again before one retry. Without
-  that explicit confirmation, an `already_prepared` file remains blocked for
-  operator verification and an already-finalized file remains idempotent.
+  generated file uses that stable key as its ID. The hard `already_prepared`
+  block applies only to files that carry a backend-issued stable
+  `transmissionIntentKey` (Rocket/Coupang-directship irreversible orders). For
+  those, if preparation fails or returns `already_prepared` or
+  `already_finalized`, do not invoke the extension unless an owner/admin
+  explicitly confirms in the UI that Sellpia did not receive the file; that
+  recovery records an audited `not_submitted` reconciliation, reopens the same
+  stable intent key, and prepares it again before one retry, and without the
+  confirmation the file stays blocked for operator verification. Simple mall
+  files (KidKids and peers) key the intent by their unique generated file id, so
+  a stray `already_prepared` there only means a prior attempt ended without a
+  submission marker; the transmitter auto-records the `not_submitted`
+  reconciliation, re-prepares, and resends without prompting, and the
+  extension's own Sellpia order-history match is the duplicate safeguard. An
+  already-finalized intent remains idempotent for every file.
   `{ submitted: true }` is valid only after the extension observes Sellpia
   upload evidence such as newly accepted pending rows. It immediately finalizes
   a strictly newer freshness generation before local
