@@ -87,7 +87,10 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).not.toContain("['week', '주 달력']");
     expect(operationsSource).toContain("['month', '월 달력']");
     expect(operationsSource).toContain("['chart', '차트']");
-    expect(operationsSource).toContain('selectedDay &&');
+    // 일별 발주 목록은 미리보기 표로 흡수했다(센터·입고유형·상태·발주일시·금액까지).
+    // 날짜 선택은 이제 목록이 아니라 미리보기 범위만 좁힌다.
+    expect(operationsSource).not.toContain('renderSelectedOrderList');
+    expect(operationsSource).not.toContain('rocket-po-table-scroll');
     expect(operationsSource).not.toContain('visibleDates.map');
     expect(operationsSource).not.toContain('RocketConfirmFileList');
     // supply 워크스페이스는 로켓 탭을 더 이상 소유하지 않는다.

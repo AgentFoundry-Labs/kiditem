@@ -144,9 +144,9 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   }
 });
 
-test('order collector manifest publishes normalized failure evidence and scoped Sellpia invoice selection at version 0.1.94', () => {
+test('order collector manifest publishes normalized failure evidence and scoped Sellpia invoice selection at version 0.1.95', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.94');
+  assert.equal(manifest.version, '0.1.95');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
   const worker = readFileSync(workerPath, 'utf8');

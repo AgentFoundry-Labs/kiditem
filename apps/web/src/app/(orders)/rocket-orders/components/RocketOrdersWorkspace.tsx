@@ -118,7 +118,6 @@ export function RocketOrdersWorkspace({
   } = viewState;
   const selectedDay = viewState.date || null;
   // 발주 행 키는 `${sourceImportRunId}:${poNumber}` 문자열이다.
-  const [openPo, setOpenPo] = useState<string | null>(null);
   // 로켓 채널 계정: '발주 미리보기' 카드는 제거했지만, 달력·발주목록·차트가 쓰는 계정 선택은
   // RocketAccountBootstrap 이 익스텐션에서 확보한 내부 로켓 식별자를 유지한다.
   const [selectedRocketAccountName, setSelectedRocketAccountName] = useState('');
@@ -142,7 +141,6 @@ export function RocketOrdersWorkspace({
     setSelectedRocketAccountName(account?.name ?? '');
     setHasConfiguredVendorId(Boolean(account?.vendorId?.trim()));
     setSelectedSourceImportRunId(null);
-    setOpenPo(null);
   }, [setViewState]);
 
   const handleRocketAccountSelection = useCallback((accountId: string) => {
@@ -150,7 +148,6 @@ export function RocketOrdersWorkspace({
       ? current
       : { ...current, account: accountId, date: current.account ? '' : current.date });
     setSelectedSourceImportRunId(null);
-    setOpenPo(null);
   }, [setViewState]);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -237,7 +234,6 @@ export function RocketOrdersWorkspace({
     onSelectDate: (date: string | null, sourceRunCount: number) => void,
   ) {
     setViewState((current) => ({ ...current, date: date ?? '' }));
-    setOpenPo(null);
     const rowsForDate = date
       ? latestOrders.filter(({ plannedDeliveryDate }) => plannedDeliveryDate === date)
       : [];
@@ -255,7 +251,6 @@ export function RocketOrdersWorkspace({
       date: '',
       view: 'month',
     }));
-    setOpenPo(null);
     onSelectDate(null, 0);
   }
   function onShiftMonth(
@@ -264,7 +259,6 @@ export function RocketOrdersWorkspace({
   ) {
     const b = shiftMonthBounds(from, delta);
     setViewState((current) => ({ ...current, from: b.start, to: b.end, date: '' }));
-    setOpenPo(null);
     onSelectDate(null, 0);
   }
 
@@ -304,7 +298,6 @@ export function RocketOrdersWorkspace({
             value={from}
             onChange={(e) => {
               setViewState((current) => ({ ...current, from: e.target.value, date: '' }));
-              setOpenPo(null);
               onSelectDate(null, 0);
             }}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
@@ -316,7 +309,6 @@ export function RocketOrdersWorkspace({
             value={to}
             onChange={(e) => {
               setViewState((current) => ({ ...current, to: e.target.value, date: '' }));
-              setOpenPo(null);
               onSelectDate(null, 0);
             }}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
@@ -333,7 +325,6 @@ export function RocketOrdersWorkspace({
             value={status}
             onChange={(e) => {
               setViewState((current) => ({ ...current, status: e.target.value, date: '' }));
-              setOpenPo(null);
               onSelectDate(null, 0);
             }}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
@@ -430,105 +421,8 @@ export function RocketOrdersWorkspace({
         </div>
 
         <p className="px-1 text-xs text-slate-400">
-          날짜를 선택하면 해당 날짜의 발주 목록이 아래에 표시됩니다.
+          날짜를 선택하면 아래 미리보기가 해당 날짜의 발주로 좁혀집니다.
         </p>
-      </div>
-    );
-  }
-
-  function renderPoRow(po: RocketSavedPoSummary) {
-    const poKey = `${po.sourceImportRunId}:${po.poNumber}`;
-    const open = openPo === poKey;
-    const isNew = po.status === '거래명세서확인요청'
-      || po.status === '거래처확인요청';
-    return (
-      <Fragment key={poKey}>
-        <div
-          className={cn(
-            'grid cursor-pointer grid-cols-[110px_minmax(0,1fr)_88px_120px_130px] items-center gap-2 border-b border-slate-100 px-4 py-2.5 text-sm hover:bg-slate-50',
-            open && 'bg-purple-50/50',
-          )}
-          onClick={() => setOpenPo(open ? null : poKey)}
-        >
-          <div className="flex items-center gap-1 font-mono text-[11px] text-slate-500">
-            {open ? (
-              <ChevronDown size={13} className="flex-none text-purple-500" />
-            ) : (
-              <ChevronRight size={13} className="flex-none text-slate-400" />
-            )}
-            {po.poNumber}
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-slate-800">
-              {po.firstProductName || '—'}
-              {po.skuCount > 1 && <span className="text-slate-400"> 외 {po.skuCount - 1}종</span>}
-            </div>
-            <div className="text-[11px] text-slate-400">
-              {po.centerName}
-              {po.inboundType && ` · ${po.inboundType}`}
-              {po.orderedAt && ` · 발주 ${po.orderedAt}`}
-            </div>
-          </div>
-          <div className="text-right tabular-nums text-slate-600">{formatNumber(po.orderQuantity)}개</div>
-          <div className="text-right font-semibold tabular-nums text-slate-800">{formatKRW(po.orderAmount)}원</div>
-          <div className="text-center">
-            <span
-              className={cn(
-                'rounded-full px-2.5 py-1 text-[11px] font-medium',
-                isNew ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500',
-              )}
-            >
-              {po.status}
-            </span>
-          </div>
-        </div>
-        {open && (
-          <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-3 pl-9">
-            <span className="text-[11px] text-slate-400">
-              품목 {formatNumber(po.skuCount)}종 · 최신 수집 {po.collectedAt.slice(0, 19).replace('T', ' ')}
-            </span>
-          </div>
-        )}
-      </Fragment>
-    );
-  }
-
-  function renderSelectedOrderList() {
-    if (!selectedDay) return null;
-    const dayPos = byDate.get(selectedDay) ?? [];
-    if (!dayPos.length) {
-      return (
-        <div className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center">
-          <p className="text-sm font-medium text-slate-600">{selectedDay} 발주 목록이 없습니다.</p>
-          <p className="mt-1 text-xs text-slate-400">
-            저장된 발주만 있는 날짜라면 아래 납품 판단에서 내용을 확인할 수 있습니다.
-          </p>
-        </div>
-      );
-    }
-
-    const dow = dowOf(selectedDay);
-    const dayQty = dayPos.reduce((sum, order) => sum + order.orderQuantity, 0);
-    const dayAmount = dayPos.reduce((sum, order) => sum + order.orderAmount, 0);
-    return (
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <span className={cn(dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-700')}>
-              {selectedDay} ({WEEKDAYS[dow]})
-            </span>
-            <span className="text-[11px] font-normal text-slate-400">입고예정 · 선택일 발주</span>
-          </div>
-          <div className="text-xs text-slate-500">
-            {dayPos.length}건 · {formatNumber(dayQty)}개 ·{' '}
-            <b className="text-purple-600">{formatKRW(dayAmount)}</b>원
-          </div>
-        </div>
-        <div data-testid="rocket-po-table-scroll" className="overflow-x-auto">
-          <div className="min-w-[760px]">
-            {dayPos.map(renderPoRow)}
-          </div>
-        </div>
       </div>
     );
   }
@@ -569,9 +463,6 @@ export function RocketOrdersWorkspace({
         onOrdersChanged: () => void refetch(),
         renderOrderExplorer,
       })}
-
-      {/* 날짜를 선택한 경우에만 해당 날짜의 발주 목록을 표시한다. */}
-      {selectedDay && renderSelectedOrderList()}
 
     </div>
   );

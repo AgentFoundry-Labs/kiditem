@@ -160,12 +160,10 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     vi.clearAllMocks();
   });
 
-  it('shows only the selected date orders and synchronizes the saved preview date', () => {
+  it('synchronizes the saved preview date with the selected calendar day', () => {
+    // 일별 발주 목록은 미리보기 표로 흡수했으므로, 날짜 선택의 계약은 미리보기 날짜 동기화다.
     const onPreviewDate = vi.fn();
     renderWorkspace({ onSelectDate: onPreviewDate });
-
-    expect(screen.queryByText('18일 주문 상품')).not.toBeInTheDocument();
-    expect(screen.queryByText('19일 주문 상품')).not.toBeInTheDocument();
     // 미래 입고예정일은 보라 배경으로 강조하고, 오늘(2026-07-18)은 보라 배경 + inset ring + '오늘' 마커로 구분한다.
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).toHaveClass('bg-purple-50');
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).toHaveClass('ring-purple-200');
@@ -174,16 +172,12 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
     expect(onPreviewDate).toHaveBeenLastCalledWith('2026-07-18', 1);
-    expect(screen.getByText('18일 주문 상품')).toBeInTheDocument();
-    expect(screen.queryByText('19일 주문 상품')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-19 발주 1건' }));
     expect(onPreviewDate).toHaveBeenLastCalledWith('2026-07-19', 1);
     // 선택된 미래 날짜는 진한 보라(bg-purple-100) + ring 으로 승격된다.
     expect(screen.getByRole('button', { name: '2026-07-19 발주 1건' })).toHaveClass('bg-purple-100');
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).not.toHaveClass('bg-purple-100');
-    expect(screen.queryByText('18일 주문 상품')).not.toBeInTheDocument();
-    expect(screen.getByText('19일 주문 상품')).toBeInTheDocument();
   });
 
   it('uses month as the only calendar view and keeps chart in the upper workspace', () => {
@@ -197,18 +191,17 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     expect(screen.getByTestId('rocket-orders-chart')).toHaveTextContent('2026-07-18:1:3:12000');
   });
 
-  it('clears the selected list and preview when the date range changes', () => {
+  it('clears the preview date when the date range changes', () => {
     const onPreviewDate = vi.fn();
     renderWorkspace({ onSelectDate: onPreviewDate });
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
-    expect(screen.getByText('18일 주문 상품')).toBeInTheDocument();
+    expect(onPreviewDate).toHaveBeenLastCalledWith('2026-07-18', 1);
 
     fireEvent.change(screen.getByLabelText('입고예정일 시작'), {
       target: { value: '2026-07-20' },
     });
     expect(onPreviewDate).toHaveBeenLastCalledWith(null, 0);
-    expect(screen.queryByText('18일 주문 상품')).not.toBeInTheDocument();
   });
 
   it('does not stack a skeleton above an already populated calendar', () => {
@@ -335,14 +328,6 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
 
     expect(latestContext?.selectedDateSourceRunCount).toBe(0);
     expect(latestContext?.selectedSourceImportRunId).toBe(sourceImportRunId);
-  });
-
-  it('keeps wide purchase rows scrollable instead of clipping or overlapping text', () => {
-    renderWorkspace();
-
-    fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
-
-    expect(screen.getByTestId('rocket-po-table-scroll')).toHaveClass('overflow-x-auto');
   });
 
   it('clears the previous source while switching Rocket accounts', () => {

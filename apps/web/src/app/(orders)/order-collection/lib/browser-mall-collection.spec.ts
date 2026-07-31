@@ -145,6 +145,23 @@ describe('createBrowserMallCollector', () => {
     );
   });
 
+  it('announces "no new orders" the same way for every mall', () => {
+    // 몰마다 문구도 심각도도 달랐다(키즈노트만 빨간 error, 어떤 몰은 날짜를, 어떤 몰은
+    // 상태명을 문장에 섞었다). 주문이 없는 건 실패가 아니므로 한 헬퍼만 쓰게 고정한다.
+    const source = readFileSync(
+      path.resolve(import.meta.dirname, 'browser-mall-collection.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain('function toastNoNewOrders(');
+    // 헬퍼 안의 한 곳에서만 문구를 만든다.
+    expect(source.match(/신규 주문이 없습니다/g)).toHaveLength(1);
+    // 주문 없음을 오류로 알리지 않는다.
+    expect(source).not.toMatch(/toast\.(error|warning)\([^)]*주문[^)]*없/);
+    // 모든 몰 분기가 헬퍼를 거친다.
+    expect((source.match(/toastNoNewOrders\(/g) ?? []).length).toBeGreaterThanOrEqual(13);
+  });
+
   it('derives every generated-file collection date from the resolved run', () => {
     const source = readFileSync(
       path.resolve(import.meta.dirname, 'browser-mall-collection.ts'),

@@ -274,7 +274,7 @@ export function RocketPurchaseWorkspace({
                 <th className="px-3 py-2">납품예정일</th>
                 <th className="px-3 py-2 text-right">현재고</th>
                 <th className="px-3 py-2">발주수량</th>
-                <th className="px-3 py-2">엑셀 수량</th>
+                <th className="px-3 py-2">확정재고</th>
                 <th className="px-3 py-2">납품부족사유</th>
                 <th className="px-3 py-2">상태</th>
               </tr>
@@ -289,7 +289,7 @@ export function RocketPurchaseWorkspace({
                   <td className="whitespace-nowrap px-3 py-2">{row.orderQuantity}</td>
                   <td className="px-3 py-2">
                     <input
-                      aria-label={`${row.poNumber} 엑셀 수량`}
+                      aria-label={`${row.poNumber} 확정재고`}
                       type="number"
                       min={0}
                       max={rocketReviewedQuantityLimit(row)}
