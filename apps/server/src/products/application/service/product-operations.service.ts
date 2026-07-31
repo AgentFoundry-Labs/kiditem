@@ -340,8 +340,17 @@ function summarizeProducts(
     const abcGrade = product.abcGrade;
     if (abcGrade === 'A' || abcGrade === 'B' || abcGrade === 'C') {
       counts.abcGradeCounts[abcGrade] += 1;
-    } else {
+    } else if (product.abcEvaluation === null) {
       counts.abcGradeCounts.unclassified += 1;
+    }
+    const evaluation = product.abcEvaluation;
+    if (evaluation) {
+      counts.abcLifecycleCounts[evaluation.lifecycleStage] += 1;
+      if (evaluation.riskFlags.includes('LOSS')) counts.abcRiskCounts.loss += 1;
+      if (evaluation.riskFlags.includes('ZERO_VALUE')) counts.abcRiskCounts.zeroValue += 1;
+      if (evaluation.eligibilityReason !== 'ELIGIBLE') {
+        counts.abcRiskCounts.dataQuality += 1;
+      }
     }
     counts.channelConnectionCounts[
       product.channelCount > 0 ? 'connected' : 'unconnected'
@@ -360,6 +369,8 @@ function summarizeProducts(
     return counts;
   }, {
     abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 0 },
+    abcLifecycleCounts: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 0 },
+    abcRiskCounts: { loss: 0, zeroValue: 0, dataQuality: 0 },
     channelConnectionCounts: { connected: 0, unconnected: 0 },
     inventoryStatusCounts: {
       sellable: 0,

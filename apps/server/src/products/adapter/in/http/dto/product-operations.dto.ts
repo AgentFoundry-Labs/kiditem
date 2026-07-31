@@ -58,6 +58,14 @@ export class ProductOperationsListQueryDto {
   @IsIn(['A', 'B', 'C', 'unclassified'])
   abcGrade?: 'A' | 'B' | 'C' | 'unclassified';
 
+  @IsOptional()
+  @IsIn(['NEW', 'PROVISIONAL', 'ESTABLISHED'])
+  abcStage?: 'NEW' | 'PROVISIONAL' | 'ESTABLISHED';
+
+  @IsOptional()
+  @IsIn(['LOSS', 'ZERO_VALUE', 'DATA_QUALITY'])
+  abcRisk?: 'LOSS' | 'ZERO_VALUE' | 'DATA_QUALITY';
+
   @IsIn(AD_STATUSES)
   adStatus: (typeof AD_STATUSES)[number] = 'all';
 }

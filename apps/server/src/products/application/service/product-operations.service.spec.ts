@@ -487,6 +487,7 @@ function rawProduct() {
     tags: [],
     imageUrls: [],
     abcGrade: null,
+    abcEvaluation: null,
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,

@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
-import { ProductAbcGradeSchema } from './product-abc.js';
+import {
+  MasterProductAbcEvaluationSchema,
+  ProductAbcGradeSchema,
+} from './product-abc.js';
 
 // ─── Shared building blocks ───────────────────────────────────────────────
 
@@ -476,6 +479,7 @@ export const SellpiaProductDestinationSchema = z.object({
   productVariantName: z.string().min(1),
   unitsPerVariant: z.number().int().positive(),
   abcGrade: ProductAbcGradeSchema.nullable(),
+  abcEvaluation: MasterProductAbcEvaluationSchema.nullable(),
   displayImage: SellpiaProductDestinationDisplayImageSchema.nullable(),
 }).strict();
 
@@ -568,6 +572,16 @@ export const SellpiaProductSalesSummarySchema = z.object({
     A: z.number().int().nonnegative(),
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
+  }).strict(),
+  abcLifecycleCounts: z.object({
+    NEW: z.number().int().nonnegative(),
+    PROVISIONAL: z.number().int().nonnegative(),
+    ESTABLISHED: z.number().int().nonnegative(),
+  }).strict(),
+  abcRiskCounts: z.object({
+    loss: z.number().int().nonnegative(),
+    zeroValue: z.number().int().nonnegative(),
+    dataQuality: z.number().int().nonnegative(),
   }).strict(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),

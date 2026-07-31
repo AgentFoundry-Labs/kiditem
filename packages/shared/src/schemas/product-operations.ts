@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
-import { ProductAbcGradeSchema } from './product-abc.js';
+import {
+  MasterProductAbcEvaluationSchema,
+  MasterProductAbcLifecycleStageSchema,
+  ProductAbcGradeSchema,
+} from './product-abc.js';
 
 export const ProductInventoryStatusSchema = z.enum([
   'sellable',
@@ -71,6 +75,15 @@ export type ProductOperationsAbcGradeFilter = z.infer<
   typeof ProductOperationsAbcGradeFilterSchema
 >;
 
+export const ProductOperationsAbcRiskFilterSchema = z.enum([
+  'LOSS',
+  'ZERO_VALUE',
+  'DATA_QUALITY',
+]);
+export type ProductOperationsAbcRiskFilter = z.infer<
+  typeof ProductOperationsAbcRiskFilterSchema
+>;
+
 export const MasterProductOperationsListQuerySchema = z.object({
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().max(100).default(50),
@@ -80,6 +93,8 @@ export const MasterProductOperationsListQuerySchema = z.object({
   activeStatus: ProductOperationsActiveStatusSchema.default('all'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
   abcGrade: ProductOperationsAbcGradeFilterSchema.optional(),
+  abcStage: MasterProductAbcLifecycleStageSchema.optional(),
+  abcRisk: ProductOperationsAbcRiskFilterSchema.optional(),
   adStatus: ProductOperationsAdStatusSchema.default('all'),
 }).strict();
 export type MasterProductOperationsListQuery = z.infer<
@@ -147,6 +162,7 @@ export const MasterProductOperationsMetadataSchema = z.object({
   imageUrls: z.array(z.string().min(1)),
   displayImageUrls: z.array(z.string().min(1)),
   abcGrade: ProductAbcGradeSchema.nullable(),
+  abcEvaluation: MasterProductAbcEvaluationSchema.nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
@@ -201,6 +217,16 @@ export const ProductOperationsListSummarySchema = z.object({
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
     unclassified: z.number().int().nonnegative(),
+  }).strict(),
+  abcLifecycleCounts: z.object({
+    NEW: z.number().int().nonnegative(),
+    PROVISIONAL: z.number().int().nonnegative(),
+    ESTABLISHED: z.number().int().nonnegative(),
+  }).strict(),
+  abcRiskCounts: z.object({
+    loss: z.number().int().nonnegative(),
+    zeroValue: z.number().int().nonnegative(),
+    dataQuality: z.number().int().nonnegative(),
   }).strict(),
   channelConnectionCounts: z.object({
     connected: z.number().int().nonnegative(),

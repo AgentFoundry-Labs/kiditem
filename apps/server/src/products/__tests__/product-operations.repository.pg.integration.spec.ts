@@ -353,6 +353,55 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(unclassifiedPage.items.map((item) => item.id)).toEqual([unclassified.id]);
   });
 
+  it('hydrates lifecycle evaluations and keeps stage, risk, and unpublished filters distinct', async () => {
+    const official = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-OFFICIAL', name: 'Official' });
+    const fresh = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-NEW', name: 'New' });
+    const provisional = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-PROVISIONAL', name: 'Provisional' });
+    const loss = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-LOSS', name: 'Loss' });
+    const zero = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-ZERO', name: 'Zero' });
+    const dataQuality = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-DATA', name: 'Data quality' });
+    const legacy = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-LEGACY', name: 'Legacy' });
+    const foreign = await service.createProduct(OTHER_ORGANIZATION_ID, OTHER_USER_ID, { code: 'ABC-FOREIGN', name: 'Foreign' });
+    await prisma.masterProduct.update({ where: { id: official.id }, data: { abcGrade: 'A' } });
+    const calculatedAt = new Date('2026-07-24T00:00:00.000Z');
+    await prisma.masterProductAbcEvaluation.createMany({
+      data: [
+        evaluationRow(official.id, 'ESTABLISHED', 'ELIGIBLE', [], 12, calculatedAt),
+        evaluationRow(fresh.id, 'NEW', 'ELIGIBLE', ['LIMITED_HISTORY'], 2, calculatedAt),
+        evaluationRow(provisional.id, 'PROVISIONAL', 'ELIGIBLE', ['LIMITED_HISTORY'], 4, calculatedAt, 'B'),
+        evaluationRow(loss.id, 'ESTABLISHED', 'ELIGIBLE', ['LOSS'], 12, calculatedAt),
+        evaluationRow(zero.id, 'ESTABLISHED', 'ELIGIBLE', ['ZERO_VALUE'], 12, calculatedAt),
+        evaluationRow(dataQuality.id, 'ESTABLISHED', 'MISSING_COST', [], 12, calculatedAt),
+        evaluationRow(foreign.id, 'ESTABLISHED', 'ELIGIBLE', [], 12, calculatedAt, null, OTHER_ORGANIZATION_ID),
+      ],
+    });
+
+    const all = await service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30 });
+    expect(all.total).toBe(7);
+    expect(all.items.find((item) => item.id === fresh.id)).toMatchObject({
+      abcGrade: null,
+      abcEvaluation: { lifecycleStage: 'NEW', observedCompleteMonths: 2 },
+    });
+    expect(all.summary).toMatchObject({
+      abcGradeCounts: { A: 1, B: 0, C: 0, unclassified: 1 },
+      abcLifecycleCounts: { NEW: 1, PROVISIONAL: 1, ESTABLISHED: 4 },
+      abcRiskCounts: { loss: 1, zeroValue: 1, dataQuality: 1 },
+    });
+
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcStage: 'NEW' }))
+      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: fresh.id })] });
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcStage: 'PROVISIONAL' }))
+      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: provisional.id })] });
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcRisk: 'LOSS' }))
+      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: loss.id })] });
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcRisk: 'ZERO_VALUE' }))
+      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: zero.id })] });
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcRisk: 'DATA_QUALITY' }))
+      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: dataQuality.id })] });
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcGrade: 'unclassified' }))
+      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: legacy.id })] });
+  });
+
   it('allows organization-local codes and rejects organization-local variant collisions', async () => {
     await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'KI-SHARED',
@@ -750,6 +799,30 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     return prisma.sellpiaInventorySku.create({
       data: { organizationId, code, name: code, currentStock, isActive },
     });
+  }
+
+  function evaluationRow(
+    masterProductId: string,
+    lifecycleStage: 'NEW' | 'PROVISIONAL' | 'ESTABLISHED',
+    eligibilityReason: 'ELIGIBLE' | 'MISSING_COST',
+    riskFlags: Array<'LOSS' | 'ZERO_VALUE' | 'LIMITED_HISTORY'>,
+    observedCompleteMonths: number,
+    calculatedAt: Date,
+    provisionalGrade: 'A' | 'B' | 'C' | null = null,
+    organizationId = TEST_ORGANIZATION_ID,
+  ) {
+    return {
+      organizationId,
+      masterProductId,
+      provisionalGrade,
+      lifecycleStage,
+      confidence: observedCompleteMonths >= 12 ? 'HIGH' : observedCompleteMonths >= 6 ? 'MEDIUM' : 'LOW',
+      eligibilityReason,
+      riskFlags,
+      observedCompleteMonths,
+      observationStartMonth: '2025-07',
+      calculatedAt,
+    };
   }
 
   async function attachCatalogPrimaryImage(

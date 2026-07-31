@@ -14,6 +14,7 @@ import {
   resolveSellpiaProductInventoryRows,
   type SellpiaProductInventoryProjectionInput,
 } from './sellpia-product-inventory-projection';
+import type { MasterProductAbcEvaluation } from '@kiditem/shared/product-abc';
 
 @Injectable()
 export class SellpiaProductInventoryReader {
@@ -69,6 +70,7 @@ export class SellpiaProductInventoryReader {
                   code: true,
                   name: true,
                   abcGrade: true,
+                  abcEvaluation: true,
                   originChannelListingId: true,
                 },
               },
@@ -154,11 +156,100 @@ export class SellpiaProductInventoryReader {
           || row.productVariant.masterProduct.abcGrade === 'C'
             ? row.productVariant.masterProduct.abcGrade
             : null,
+        abcEvaluation: toAbcEvaluation(
+          row.productVariant.masterProduct.abcEvaluation,
+          row.productVariant.masterProduct.abcGrade,
+        ),
         displayImage: mediaByVariantId.get(row.productVariant.id) ?? null,
       })),
     });
     return { availability, projection };
   }
+}
+
+function toAbcEvaluation(
+  row: {
+    provisionalGrade: string | null;
+    lifecycleStage: string;
+    confidence: string;
+    eligibilityReason: string;
+    riskFlags: string[];
+    observedCompleteMonths: number;
+    observationStartMonth: string | null;
+    periodMetricValue: { toNumber(): number } | null;
+    rankingValue: { toNumber(): number } | null;
+    grossRevenue: number | null;
+    grossCost: number | null;
+    grossProfit: number | null;
+    grossMarginRate: { toNumber(): number } | null;
+    contributionRate: { toNumber(): number } | null;
+    cumulativeContributionRate: { toNumber(): number } | null;
+    calculatedAt: Date;
+    sourceCapturedAt: Date | null;
+  } | null,
+  abcGrade: string | null,
+): MasterProductAbcEvaluation | null {
+  const riskFlags = row?.riskFlags.filter(isRiskFlag) ?? [];
+  if (!row
+    || !isLifecycleStage(row.lifecycleStage)
+    || !isConfidence(row.confidence)
+    || !isEligibilityReason(row.eligibilityReason)
+    || riskFlags.length !== row.riskFlags.length) return null;
+  return {
+    abcGrade: productAbcGrade(abcGrade),
+    provisionalGrade: productAbcGrade(row.provisionalGrade),
+    lifecycleStage: row.lifecycleStage,
+    confidence: row.confidence,
+    eligibilityReason: row.eligibilityReason,
+    riskFlags,
+    observedCompleteMonths: row.observedCompleteMonths,
+    observationStartMonth: row.observationStartMonth,
+    periodMetricValue: decimalToFinite(row.periodMetricValue),
+    rankingValue: decimalToFinite(row.rankingValue),
+    grossRevenue: row.grossRevenue,
+    grossCost: row.grossCost,
+    grossProfit: row.grossProfit,
+    grossMarginRate: decimalToFinite(row.grossMarginRate),
+    contributionRate: decimalToFinite(row.contributionRate),
+    cumulativeContributionRate: decimalToFinite(row.cumulativeContributionRate),
+    calculatedAt: row.calculatedAt,
+    sourceCapturedAt: row.sourceCapturedAt,
+  } satisfies MasterProductAbcEvaluation;
+}
+
+function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
+  return value === 'A' || value === 'B' || value === 'C' ? value : null;
+}
+
+function decimalToFinite(value: { toNumber(): number } | null): number | null {
+  if (value === null) return null;
+  const number = value.toNumber();
+  return Number.isFinite(number) ? number : null;
+}
+
+function isLifecycleStage(value: string): value is MasterProductAbcEvaluation['lifecycleStage'] {
+  return value === 'NEW' || value === 'PROVISIONAL' || value === 'ESTABLISHED';
+}
+
+function isConfidence(value: string): value is MasterProductAbcEvaluation['confidence'] {
+  return value === 'LOW' || value === 'MEDIUM' || value === 'HIGH';
+}
+
+function isEligibilityReason(
+  value: string,
+): value is MasterProductAbcEvaluation['eligibilityReason'] {
+  return value === 'ELIGIBLE'
+    || value === 'INACTIVE_PRODUCT'
+    || value === 'MISSING_RECIPE'
+    || value === 'SHARED_SKU'
+    || value === 'INACTIVE_SKU'
+    || value === 'INCOMPLETE_MONTHS'
+    || value === 'MISSING_COST'
+    || value === 'NO_OBSERVATION';
+}
+
+function isRiskFlag(value: string): value is MasterProductAbcEvaluation['riskFlags'][number] {
+  return value === 'LOSS' || value === 'ZERO_VALUE' || value === 'LIMITED_HISTORY';
 }
 
 type DestinationOptionTarget = CatalogDisplayMediaTarget & {

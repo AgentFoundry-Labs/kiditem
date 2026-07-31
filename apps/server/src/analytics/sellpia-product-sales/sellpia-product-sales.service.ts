@@ -306,25 +306,6 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       } satisfies SellpiaProductSalesRow;
     });
     products.sort((x, y) => y.avg2m - x.avg2m || y.totalQty - x.totalQty);
-    const matchesDestinationGrade = (
-      product: SellpiaProductSalesRow,
-      grade: 'A' | 'B' | 'C' | null,
-    ) => product.inventoryResolution.status === 'matched'
-      && product.inventoryResolution.destinations.some(
-        (destination) => destination.abcGrade === grade,
-      );
-    const abcCounts = {
-      A: products.filter((product) => matchesDestinationGrade(product, 'A')).length,
-      B: products.filter((product) => matchesDestinationGrade(product, 'B')).length,
-      C: products.filter((product) => matchesDestinationGrade(product, 'C')).length,
-    };
-    const classifiedProductCount = products.filter((product) =>
-      matchesDestinationGrade(product, 'A')
-      || matchesDestinationGrade(product, 'B')
-      || matchesDestinationGrade(product, 'C')).length;
-    const unclassifiedProductCount = products.filter((product) =>
-      matchesDestinationGrade(product, null)).length;
-
     return {
       range: { from: months[0] ?? cutoffYm, to: months[months.length - 1] ?? currentYm },
       months,
@@ -347,9 +328,11 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       reorderCount: inventoryProjection.summary.reorderCount,
       deadStockCount: inventoryProjection.summary.deadStockCount,
       anomalyCount,
-      abcCounts,
-      classifiedProductCount,
-      unclassifiedProductCount,
+      abcCounts: inventoryProjection.summary.abcCounts,
+      abcLifecycleCounts: inventoryProjection.summary.abcLifecycleCounts,
+      abcRiskCounts: inventoryProjection.summary.abcRiskCounts,
+      classifiedProductCount: inventoryProjection.summary.classifiedProductCount,
+      unclassifiedProductCount: inventoryProjection.summary.unclassifiedProductCount,
       leadTimeMonths: LEAD_TIME_MONTHS,
     } satisfies SellpiaProductSalesSummary;
   }

@@ -95,6 +95,38 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
       status: 'matched', currentStock: 10, destinations: [{ displayImage: null }],
     });
   });
+
+  it('projects the stored lifecycle evaluation beside the official nullable grade', async () => {
+    const skuId = '11111111-1111-4111-8111-111111111111';
+    const row = variant();
+    row.masterProduct.abcGrade = null;
+    row.masterProduct.abcEvaluation = evaluationRow();
+    const reader = new SellpiaProductInventoryReader({
+      sellpiaInventorySku: { findMany: vi.fn(async () => [{ id: skuId, code: 'SKU-1', barcode: null, isActive: true }]) },
+      productVariantComponent: { findMany: vi.fn(async () => [{ sellpiaInventorySkuId: skuId, quantity: 1, productVariant: row }]) },
+    } as never, {
+      findBySkuIds: vi.fn(async () => ({
+        snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
+        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, activeCommitmentQuantity: 0, availableStock: 10, isActive: true, generation: '1' }],
+      })),
+    } as never, { findDisplayMedia: vi.fn(async () => new Map()) });
+
+    const result = await reader.project('org-1', [{
+      key: 'SKU-1', evidence: { productCode: 'SKU-1', optionCode: '', barcode: null }, completeMonthly: [],
+    }]);
+
+    expect(result.projection.byProductKey.get('SKU-1')?.inventoryResolution).toMatchObject({
+      status: 'matched',
+      destinations: [{
+        abcGrade: null,
+        abcEvaluation: {
+          lifecycleStage: 'PROVISIONAL',
+          provisionalGrade: 'B',
+          rankingValue: 120,
+        },
+      }],
+    });
+  });
 });
 
 function variant() {
@@ -102,6 +134,7 @@ function variant() {
     id: 'variant-1', code: 'VAR-1', name: 'Variant',
     masterProduct: {
       id: 'master-1', code: 'MASTER-1', name: 'Master', abcGrade: 'B',
+      abcEvaluation: null,
       originChannelListingId: 'listing-origin',
     },
     channelListingOptions: [
@@ -109,6 +142,29 @@ function variant() {
       option('listing-origin', 'option-origin', 'A', false),
       option('listing-naver', 'option-naver', 'C', false, 'naver'),
     ],
+  };
+}
+
+function evaluationRow() {
+  const decimal = (value: number) => ({ toNumber: () => value });
+  return {
+    provisionalGrade: 'B',
+    lifecycleStage: 'PROVISIONAL',
+    confidence: 'LOW',
+    eligibilityReason: 'ELIGIBLE',
+    riskFlags: ['LIMITED_HISTORY'],
+    observedCompleteMonths: 4,
+    observationStartMonth: '2026-03',
+    periodMetricValue: decimal(40),
+    rankingValue: decimal(120),
+    grossRevenue: 100,
+    grossCost: 60,
+    grossProfit: 40,
+    grossMarginRate: decimal(40),
+    contributionRate: null,
+    cumulativeContributionRate: null,
+    calculatedAt: new Date('2026-07-18T00:00:00.000Z'),
+    sourceCapturedAt: new Date('2026-07-17T00:00:00.000Z'),
   };
 }
 

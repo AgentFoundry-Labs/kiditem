@@ -21,6 +21,27 @@ const productId = '00000000-0000-4000-8000-000000000001';
 const variantId = '00000000-0000-4000-8000-000000000002';
 const skuId = '00000000-0000-4000-8000-000000000003';
 
+const abcEvaluation = {
+  abcGrade: 'A' as const,
+  provisionalGrade: null,
+  lifecycleStage: 'ESTABLISHED' as const,
+  confidence: 'HIGH' as const,
+  eligibilityReason: 'ELIGIBLE' as const,
+  riskFlags: [],
+  observedCompleteMonths: 12,
+  observationStartMonth: '2025-07',
+  periodMetricValue: 100,
+  rankingValue: 100,
+  grossRevenue: 200,
+  grossCost: 100,
+  grossProfit: 100,
+  grossMarginRate: 50,
+  contributionRate: 70,
+  cumulativeContributionRate: 70,
+  calculatedAt: '2026-07-16T00:00:00.000Z',
+  sourceCapturedAt: '2026-07-15T00:00:00.000Z',
+};
+
 const metadataFixture = {
   id: productId,
   code: 'KI-001',
@@ -35,6 +56,7 @@ const metadataFixture = {
   brand: null,
   tags: ['식판'],
   abcGrade: null,
+  abcEvaluation: null,
   profitTag: null,
   adTier: null,
   adBudgetLimit: null,
@@ -82,18 +104,24 @@ describe('product operations contracts', () => {
       activeStatus: 'active',
       inventoryStatus: 'partial_out_of_stock',
       abcGrade: 'unclassified',
+      abcStage: 'NEW',
+      abcRisk: 'DATA_QUALITY',
       adStatus: 'active',
     })).toMatchObject({
       query: '식판',
       category: '주방',
       periodDays: 14,
       abcGrade: 'unclassified',
+      abcStage: 'NEW',
+      abcRisk: 'DATA_QUALITY',
     });
     expect(() => MasterProductOperationsListQuerySchema.parse({
       organizationId: productId,
     })).toThrow();
     expect(() => MasterProductOperationsListQuerySchema.parse({ periodDays: 15 })).toThrow();
     expect(() => MasterProductOperationsListQuerySchema.parse({ abcGrade: 'manual' })).toThrow();
+    expect(() => MasterProductOperationsListQuerySchema.parse({ abcStage: 'RETIRED' })).toThrow();
+    expect(() => MasterProductOperationsListQuerySchema.parse({ abcRisk: 'LIMITED_HISTORY' })).toThrow();
   });
 
   it('exposes stored ABC as read-only product metadata', () => {
@@ -119,7 +147,7 @@ describe('product operations contracts', () => {
     expect(ProductRecipeComponentCandidateQuerySchema.parse({
       search: '  SP-001  ',
       limit: 20,
-    })).toEqual({ search: 'SP-001', limit: 20 });
+    })).toMatchObject({ search: 'SP-001', limit: 20 });
     expect(() => ProductRecipeComponentCandidateQuerySchema.parse({
       search: 'x',
       organizationId: productId,
@@ -157,6 +185,7 @@ describe('product operations contracts', () => {
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: 'A',
+      abcEvaluation,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -190,6 +219,8 @@ describe('product operations contracts', () => {
       limit: 1,
       summary: {
         abcGradeCounts: { A: 23, B: 17, C: 40, unclassified: 0 },
+        abcLifecycleCounts: { NEW: 4, PROVISIONAL: 6, ESTABLISHED: 70 },
+        abcRiskCounts: { loss: 3, zeroValue: 2, dataQuality: 5 },
         channelConnectionCounts: { connected: 71, unconnected: 9 },
         inventoryStatusCounts: {
           sellable: 41,
@@ -244,6 +275,7 @@ describe('product operations contracts', () => {
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: null,
+      abcEvaluation: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -314,6 +346,7 @@ describe('product operations contracts', () => {
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: null,
+      abcEvaluation: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,

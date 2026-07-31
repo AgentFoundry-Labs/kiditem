@@ -65,6 +65,11 @@ export function projectSellpiaProductInventory(input: {
     mappingRequiredSalesRows: number;
     matchedSkus: number;
     unlinkedSkus: number;
+    abcCounts: { A: number; B: number; C: number };
+    abcLifecycleCounts: { NEW: number; PROVISIONAL: number; ESTABLISHED: number };
+    abcRiskCounts: { loss: number; zeroValue: number; dataQuality: number };
+    classifiedProductCount: number;
+    unclassifiedProductCount: number;
   };
 } {
   const byProductKey = new Map<string, SellpiaProductInventoryMetrics>();
@@ -81,6 +86,7 @@ export function projectSellpiaProductInventory(input: {
         mappingRequiredSalesRows: 0,
         matchedSkus: 0,
         unlinkedSkus: 0,
+        ...summarizeDestinationAbc(input.destinations),
       },
     };
   }
@@ -169,6 +175,7 @@ export function projectSellpiaProductInventory(input: {
       mappingRequiredSalesRows,
       matchedSkus: groups.size,
       unlinkedSkus,
+      ...summarizeDestinationAbc(input.destinations),
     },
   };
 }
@@ -218,6 +225,7 @@ function groupDestinations(
       productVariantName: row.productVariantName,
       unitsPerVariant: row.unitsPerVariant,
       abcGrade: row.abcGrade,
+      abcEvaluation: row.abcEvaluation,
       displayImage: row.displayImage,
     });
     grouped.set(row.sellpiaInventorySkuId, byVariant);
@@ -229,4 +237,43 @@ function groupDestinations(
       || left.productVariantCode.localeCompare(right.productVariantCode)
       || left.productVariantId.localeCompare(right.productVariantId)),
   ]));
+}
+
+function summarizeDestinationAbc(
+  destinations: readonly SellpiaProductDestinationRow[],
+): {
+  abcCounts: { A: number; B: number; C: number };
+  abcLifecycleCounts: { NEW: number; PROVISIONAL: number; ESTABLISHED: number };
+  abcRiskCounts: { loss: number; zeroValue: number; dataQuality: number };
+  classifiedProductCount: number;
+  unclassifiedProductCount: number;
+} {
+  const byMasterProduct = new Map<string, SellpiaProductDestinationRow>();
+  for (const destination of destinations) {
+    if (!byMasterProduct.has(destination.masterProductId)) {
+      byMasterProduct.set(destination.masterProductId, destination);
+    }
+  }
+  const summary = {
+    abcCounts: { A: 0, B: 0, C: 0 },
+    abcLifecycleCounts: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 0 },
+    abcRiskCounts: { loss: 0, zeroValue: 0, dataQuality: 0 },
+    classifiedProductCount: 0,
+    unclassifiedProductCount: 0,
+  };
+  for (const destination of byMasterProduct.values()) {
+    if (destination.abcGrade) {
+      summary.abcCounts[destination.abcGrade] += 1;
+      summary.classifiedProductCount += 1;
+    } else if (destination.abcEvaluation === null) {
+      summary.unclassifiedProductCount += 1;
+    }
+    const evaluation = destination.abcEvaluation;
+    if (!evaluation) continue;
+    summary.abcLifecycleCounts[evaluation.lifecycleStage] += 1;
+    if (evaluation.riskFlags.includes('LOSS')) summary.abcRiskCounts.loss += 1;
+    if (evaluation.riskFlags.includes('ZERO_VALUE')) summary.abcRiskCounts.zeroValue += 1;
+    if (evaluation.eligibilityReason !== 'ELIGIBLE') summary.abcRiskCounts.dataQuality += 1;
+  }
+  return summary;
 }

@@ -363,7 +363,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
     expect(out.reorderCount).toBe(1);
   });
 
-  it('destination의 저장 등급을 실제 필터 결과인 판매 행 기준으로 집계한다', async () => {
+  it('destination의 저장 등급을 중복 연결 없이 운영상품 기준으로 집계한다', async () => {
     const {
       service,
       findMany,
@@ -391,7 +391,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
 
     const out = await service.getSummary(ORGANIZATION_ID);
 
-    expect(out.abcCounts).toEqual({ A: 2, B: 0, C: 1 });
+    expect(out.abcCounts).toEqual({ A: 1, B: 0, C: 1 });
     expect(out.classifiedProductCount).toBe(2);
     expect(out.unclassifiedProductCount).toBe(1);
     expect(out.products.flatMap((product) =>
@@ -516,6 +516,7 @@ function destinationRow(
         code: masterProductId,
         name: masterProductId,
         abcGrade,
+        abcEvaluation: null,
         originChannelListingId: null,
       },
       channelListingOptions: [],

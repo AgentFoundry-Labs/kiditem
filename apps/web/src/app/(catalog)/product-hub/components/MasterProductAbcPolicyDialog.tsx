@@ -36,7 +36,11 @@ export function MasterProductAbcPolicyDialog({ open, onOpenChange }: {
   useEffect(() => {
     if (policyQuery.data) {
       const { lastCalculatedAt: _lastCalculatedAt, sourceCapturedAt: _sourceCapturedAt, ...policy } = policyQuery.data;
-      setDraft(policy);
+      setDraft({
+        ...policy,
+        minProvisionalMonths: policy.minProvisionalMonths ?? 3,
+        minClassifiedMonths: policy.minClassifiedMonths ?? 6,
+      });
     }
   }, [policyQuery.data]);
   const invalidateDependentReads = async () => {
