@@ -173,7 +173,7 @@ describe('useSellpiaOrderTransmission', () => {
     expect(freshness.requestRefresh).not.toHaveBeenCalled();
   });
 
-  it('does not resubmit an unresolved prepared intent and asks for verification', async () => {
+  it('resubmits an unresolved prepared intent without showing the previous-result warning', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     transmissions.prepareOrderTransmissionIntent.mockResolvedValue({
       intentKey: 'orders-1',
@@ -186,14 +186,13 @@ describe('useSellpiaOrderTransmission', () => {
     );
 
     await act(async () => {
-      await expect(result.current.transmit(generatedFile())).resolves.toBe(false);
+      await expect(result.current.transmit(generatedFile())).resolves.toBe(true);
     });
 
-    expect(extension.sendOrderFileToSellpiaViaExtension).not.toHaveBeenCalled();
-    expect(onTransmissionRequested).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith(
-      '이전 셀피아 전송 결과 확인 필요 — 셀피아 주문 내역을 확인한 뒤 처리하세요.',
-    );
+    expect(extension.sendOrderFileToSellpiaViaExtension).toHaveBeenCalledOnce();
+    expect(transmissions.finalizeOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
+    expect(onTransmissionRequested).toHaveBeenCalledOnce();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('keeps the send successful and warns when local transmission history cannot persist', async () => {

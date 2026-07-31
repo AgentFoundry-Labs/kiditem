@@ -84,15 +84,9 @@ export async function transmitSellpiaOrder(
   }
 
   const hasLocalSubmissionMarker = input.file.transmissionRequestedAt !== undefined;
-  if (preparation.disposition === 'already_prepared' && !hasLocalSubmissionMarker) {
-    throw new SellpiaOrderTransmissionResolutionRequiredError(
-      '이전 셀피아 전송 결과 확인 필요 — 셀피아 주문 내역을 확인한 뒤 처리하세요.',
-    );
-  }
-
   let submittedShopName = shopName;
   let finalizationWarning = false;
-  if (preparation.disposition === 'already_prepared') {
+  if (preparation.disposition === 'already_prepared' && hasLocalSubmissionMarker) {
     finalizationWarning = !await finalizeWithRetry(input, intentKey);
   } else if (preparation.disposition !== 'already_finalized') {
     const extensionResult = await input.extension.sendSellpiaOrders({

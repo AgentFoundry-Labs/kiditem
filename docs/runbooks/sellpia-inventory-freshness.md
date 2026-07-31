@@ -165,7 +165,7 @@ status green.
 | Quality warning | Review missing name/barcode/price, duplicate barcode, 10–30% snapshot churn, and inactive confirmed-recipe references. Warnings are keyed by file hash and do not auto-change recipes. |
 | Another tab owns the lease | Wait and observe. Only `activeSync.canControl` may cancel. Closing the owner tab stops its heartbeat; the claim becomes reclaimable only after server expiry. |
 | Lease lost or expired | Let the current worker stop. After expiry a new tab may claim the pending generation. Never reuse a stale token. |
-| Sellpia order workbook rejected | Show the exact Sellpia error. Correct the workbook/provider-side issue and retry only when the durable transmission fence permits it. Do not run Inventory synchronization as recovery. |
+| Sellpia order workbook rejected | Show the exact Sellpia error. Correct the workbook/provider-side issue and retry; Sellpia performs order-level duplicate validation. Do not run Inventory synchronization as recovery. |
 | Purchase blocked by `SELLPIA_SYNC_REQUIRED` | The purchase UI joins/requests automatic sync, waits for one fresh generation, and retries the exact submission once with the same idempotency key. This purchase rule does not apply to order workbook submission. |
 | Purchase item inactive/reference invalid | Correct the purchase item or confirmed recipe. Do not retry automatically. |
 | External submit is `provider_unknown` | Do not submit again. Inspect the provider outside KidItem, then use explicit `reconcileSubmission` with the authenticated actor and known outcome/reference. |
