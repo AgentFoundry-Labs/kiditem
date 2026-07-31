@@ -681,6 +681,58 @@ describe("<RocketConfirmPanel />", () => {
     expect(screen.queryByText("이미 제출")).toBeNull();
   });
 
+  it("orders preview rows by unmatched, shortage review, then confirmed", () => {
+    const confirmed = {
+      ...basePreview.rows[0]!,
+      poLineId: "PO-CONFIRMED:PRODUCT-1:1",
+      poNumber: "PO-CONFIRMED",
+      productName: "확정 상품",
+    };
+    const shortage = {
+      ...basePreview.rows[0]!,
+      poLineId: "PO-SHORTAGE:PRODUCT-2:1",
+      poNumber: "PO-SHORTAGE",
+      productNo: "PRODUCT-2",
+      productName: "재고 부족 상품",
+      recommendedQuantity: 0,
+      maxQuantity: 0,
+      reason: "insufficient_capacity" as const,
+      components: basePreview.rows[0]!.components.map((component) => ({
+        ...component,
+        currentStock: 1,
+      })),
+    };
+    const unmatched = {
+      ...basePreview.rows[0]!,
+      poLineId: "PO-UNMATCHED:PRODUCT-3:1",
+      poNumber: "PO-UNMATCHED",
+      productNo: "PRODUCT-3",
+      productName: "재고 연결 필요 상품",
+      recommendedQuantity: 0,
+      maxQuantity: 0,
+      reason: "configuration_required" as const,
+      components: [],
+    };
+
+    renderPanel({
+      preview: {
+        ...basePreview,
+        rows: [confirmed, shortage, unmatched],
+      },
+      workflow: { sourceRows: [] },
+    });
+
+    expect(
+      screen
+        .getAllByRole("spinbutton")
+        .map((input) => input.getAttribute("aria-label")),
+    ).toEqual([
+      "PO-UNMATCHED 확정재고",
+      "PO-SHORTAGE 확정재고",
+      "PO-CONFIRMED 확정재고",
+    ]);
+  });
+
   it("hides the candidate picker once a collection is chosen", () => {
     renderPanel({
       preview: null,
