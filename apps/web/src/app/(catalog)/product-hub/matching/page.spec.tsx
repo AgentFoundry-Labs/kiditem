@@ -229,6 +229,7 @@ describe('/product-hub/matching', () => {
     expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).toBeChecked();
     expect(screen.getByText('채널 우산')).toBeInTheDocument();
     expect(screen.queryByText('판매 중지 우산')).not.toBeInTheDocument();
+    expect(screen.getByText('coupang · 상품 1개')).toBeInTheDocument();
     expect(screen.getByText(new RegExp(`집계 대상 ${LISTING_ID}`))).toBeInTheDocument();
   });
 
@@ -241,6 +242,7 @@ describe('/product-hub/matching', () => {
 
     expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).not.toBeChecked();
     expect(screen.getByText('판매 중지 우산')).toBeInTheDocument();
+    expect(screen.getByText('coupang · 상품 2개')).toBeInTheDocument();
     expect(screen.getByText(/집계 대상 전체/)).toBeInTheDocument();
     expect(navigation.replace).toHaveBeenLastCalledWith(
       '/product-hub/matching?activeOnly=false&page=1',

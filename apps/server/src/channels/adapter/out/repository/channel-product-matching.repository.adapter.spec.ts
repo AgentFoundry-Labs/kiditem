@@ -79,6 +79,20 @@ describe('ChannelProductMatchingRepositoryAdapter candidate search', () => {
 });
 
 describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
+  it('does not use record lifecycle state to omit channel products or options from the matching queue', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      channelListing: { findMany },
+    } as never);
+
+    await repository.listQueue(organizationId, {});
+
+    const query = findMany.mock.calls[0]![0];
+    expect(query.where).not.toHaveProperty('isActive');
+    expect(JSON.stringify(query.where)).not.toContain('"isActive":true');
+    expect(query.include.options).not.toHaveProperty('where');
+  });
+
   it('counts direct links independently from linked-variant recipe readiness', async () => {
     const repository = new ChannelProductMatchingRepositoryAdapter({
       channelListing: {

@@ -133,13 +133,21 @@ export default function MatchingPage() {
     selectedAccountIdSet.has(row.channelAccount.id)), [data?.products, selectedAccountIdSet]);
   const selectedOptions = useMemo(() => (data?.options ?? []).filter((row) =>
     selectedAccountIdSet.has(row.channelAccount.id)), [data?.options, selectedAccountIdSet]);
-  const onSaleListingIdSet = useMemo(() => new Set(selectedProducts
+  const onSaleListingIdSet = useMemo(() => new Set((data?.products ?? [])
     .filter((row) => isChannelListingOnSale(row.listing.saleStatus))
-    .map((row) => row.listing.id)), [selectedProducts]);
+    .map((row) => row.listing.id)), [data?.products]);
   const onSaleListingIds = useMemo(
     () => [...onSaleListingIdSet].sort(),
     [onSaleListingIdSet],
   );
+  const visibleProductCountByAccountId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of data?.products ?? []) {
+      if (activeOnly && !onSaleListingIdSet.has(row.listing.id)) continue;
+      counts.set(row.channelAccount.id, (counts.get(row.channelAccount.id) ?? 0) + 1);
+    }
+    return counts;
+  }, [activeOnly, data?.products, onSaleListingIdSet]);
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
   const optionsByListingId = useMemo(() => {
     const grouped = new Map<string, ChannelOptionMatchingQueueRow[]>();
@@ -233,8 +241,7 @@ export default function MatchingPage() {
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {channelAccounts.map((account) => {
               const checked = selectedAccountIdSet.has(account.id);
-              const productCount = (data?.products ?? []).filter((row) =>
-                row.channelAccount.id === account.id).length;
+              const productCount = visibleProductCountByAccountId.get(account.id) ?? 0;
               return (
                 <label
                   key={account.id}
