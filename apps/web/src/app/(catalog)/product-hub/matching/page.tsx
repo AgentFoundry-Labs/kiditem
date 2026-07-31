@@ -40,7 +40,9 @@ export default function MatchingPage() {
   const selectedAccountParam = searchParams.get('accounts');
   const legacySelectedAccountId = searchParams.get('channelAccountId') ?? '';
   const urlStatus = normalizedOperatorStatus(searchParams.get('status'));
+  const urlActiveOnly = searchParams.get('activeOnly') !== 'false';
   const [status, setStatus] = useState(urlStatus);
+  const [activeOnly, setActiveOnly] = useState(urlActiveOnly);
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
   const initialSearch = searchParams.get('search')?.trim() ?? '';
   const focusOptionId = searchParams.get('focusOptionId') ?? undefined;
@@ -105,6 +107,7 @@ export default function MatchingPage() {
       setDebouncedSearch(nextSearch);
     }
     setStatus(urlStatus);
+    setActiveOnly(urlActiveOnly);
   }, [searchParams.toString()]);
 
   const mappingsQuery = useChannelProductMappings({
@@ -140,13 +143,14 @@ export default function MatchingPage() {
     return grouped;
   }, [selectedOptions]);
   const filteredProducts = useMemo(() => selectedProducts.filter((row) => {
+    if (activeOnly && row.listing.status !== 'active') return false;
     if (status === 'all') return true;
     return operatorMatchingStatus(productMatchingDecision(
         row,
         optionsByListingId.get(row.listing.id) ?? [],
         automationGroupsByListingId.get(row.listing.id),
       )) === status;
-  }), [automationGroupsByListingId, optionsByListingId, selectedProducts, status]);
+  }), [activeOnly, automationGroupsByListingId, optionsByListingId, selectedProducts, status]);
   const pageRows = filteredProducts.slice((page - 1) * 50, page * 50);
   const pageListingIds = new Set(pageRows.map((row) => row.listing.id));
   const pageOptions = selectedOptions.filter((row) => pageListingIds.has(row.listing.id));
@@ -173,8 +177,10 @@ export default function MatchingPage() {
     setSearchText('');
     setDebouncedSearch('');
     setStatus('all');
+    setActiveOnly(true);
     updateUrl({
       accounts: null,
+      activeOnly: null,
       channelAccountId: null,
       search: null,
       status: null,
@@ -256,6 +262,19 @@ export default function MatchingPage() {
           <fieldset className="space-y-1.5">
             <legend className="text-xs font-semibold text-slate-600">상품·재고 상태</legend>
             <div className="flex flex-wrap gap-2">
+              <label className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-xs font-bold ${activeOnly ? 'border-purple-200 bg-purple-50 text-purple-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                <input
+                  type="checkbox"
+                  checked={activeOnly}
+                  onChange={(event) => {
+                    const nextActiveOnly = event.target.checked;
+                    setActiveOnly(nextActiveOnly);
+                    updateUrl({ activeOnly: nextActiveOnly ? null : 'false' });
+                  }}
+                  className="h-4 w-4 rounded border-slate-300 accent-purple-600"
+                />
+                판매중 상품만
+              </label>
               {STATUS_OPTIONS.map(([value, label]) => (
                 <label key={value} className="cursor-pointer">
                   <input
@@ -277,7 +296,7 @@ export default function MatchingPage() {
             </div>
           </fieldset>
         </div>
-        {(selectedAccountIds.length !== channelAccounts.length || status !== 'all' || searchText.trim()) ? (
+        {(selectedAccountIds.length !== channelAccounts.length || !activeOnly || status !== 'all' || searchText.trim()) ? (
           <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800">
             <X size={13} /> 필터 초기화
           </button>

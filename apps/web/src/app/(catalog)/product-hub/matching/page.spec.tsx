@@ -93,7 +93,7 @@ function account(overrides: Partial<ChannelAccountListItem> = {}): ChannelAccoun
 
 function mockQueries(accounts: ChannelAccountListItem[] = [account()]) {
   vi.mocked(useChannelAccounts).mockReturnValue({ data: accounts, isLoading: false, error: null } as unknown as ReturnType<typeof useChannelAccounts>);
-  vi.mocked(useChannelProductMappings).mockReturnValue({ data: response, isLoading: false, isFetching: false, error: null, refetch } as unknown as ReturnType<typeof useChannelProductMappings>);
+  mockMappingResponse(response);
   vi.mocked(useChannelRecipeAutomationPreviews).mockReturnValue([{
     data: {
       channelAccountId: ACCOUNT_ID,
@@ -122,6 +122,31 @@ function mockQueries(accounts: ChannelAccountListItem[] = [account()]) {
     error: null,
     refetch: vi.fn(),
   }] as unknown as ReturnType<typeof useChannelRecipeAutomationPreviews>);
+}
+
+function mockMappingResponse(data: ChannelProductMatchingQueueResponse) {
+  vi.mocked(useChannelProductMappings).mockReturnValue({ data, isLoading: false, isFetching: false, error: null, refetch } as unknown as ReturnType<typeof useChannelProductMappings>);
+}
+
+function responseWithInactiveProduct(): ChannelProductMatchingQueueResponse {
+  return {
+    ...response,
+    products: [
+      ...response.products,
+      {
+        ...response.products[0]!,
+        listing: {
+          ...response.products[0]!.listing,
+          id: '99999999-9999-4999-8999-999999999999',
+          externalId: 'listing-inactive',
+          displayName: '판매 중지 우산',
+          status: 'inactive',
+        },
+        optionCount: 0,
+        linkedOptionCount: 0,
+      },
+    ],
+  };
 }
 
 function recipePreview(input: {
@@ -177,6 +202,46 @@ describe('/product-hub/matching', () => {
     navigation.params = new URLSearchParams('channelAccountId=55555555-5555-4555-8555-555555555555&search=%20KI-1%20');
     render(<MatchingPage />);
     expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0]).toEqual(expect.objectContaining({ search: 'KI-1' }));
+  });
+
+  it('checks the active-only filter by default and hides inactive channel listings', () => {
+    mockMappingResponse(responseWithInactiveProduct());
+
+    render(<MatchingPage />);
+
+    expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).toBeChecked();
+    expect(screen.getByText('채널 우산')).toBeInTheDocument();
+    expect(screen.queryByText('판매 중지 우산')).not.toBeInTheDocument();
+  });
+
+  it('shows inactive channel listings when the active-only filter is unchecked', async () => {
+    mockMappingResponse(responseWithInactiveProduct());
+    const user = userEvent.setup();
+    render(<MatchingPage />);
+
+    await user.click(screen.getByRole('checkbox', { name: '판매중 상품만' }));
+
+    expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).not.toBeChecked();
+    expect(screen.getByText('판매 중지 우산')).toBeInTheDocument();
+    expect(navigation.replace).toHaveBeenLastCalledWith(
+      '/product-hub/matching?activeOnly=false&page=1',
+    );
+  });
+
+  it('restores an unchecked active-only filter from the URL and resets it', async () => {
+    navigation.params = new URLSearchParams('activeOnly=false');
+    mockMappingResponse(responseWithInactiveProduct());
+    const user = userEvent.setup();
+    render(<MatchingPage />);
+
+    expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).not.toBeChecked();
+    expect(screen.getByText('판매 중지 우산')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '필터 초기화' }));
+
+    expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).toBeChecked();
+    expect(screen.queryByText('판매 중지 우산')).not.toBeInTheDocument();
+    expect(navigation.replace).toHaveBeenLastCalledWith('/product-hub/matching?page=1');
   });
 
   it('restores the exact Rocket option focus from the URL', () => {
