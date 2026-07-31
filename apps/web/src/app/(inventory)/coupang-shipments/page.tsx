@@ -5,6 +5,7 @@ import { Download, ExternalLink, Loader2, PackageCheck, RefreshCw, Trash2 } from
 import { toast } from 'sonner';
 import { downloadBlob } from '@/lib/browser-download';
 import { formatNumber } from '@/lib/utils';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   COUPANG_SHIPMENT_PAGE_URL,
   displayKind,
@@ -87,7 +88,7 @@ export default function CoupangShipmentsPage() {
 
   const notify = useCallback((status: ShipmentNotificationStatus, message: string) => {
     setNotifications((prev) =>
-      [{ id: crypto.randomUUID(), status, message, at: Date.now() }, ...prev].slice(0, 30),
+      [{ id: createSecureRandomUuid(), status, message, at: Date.now() }, ...prev].slice(0, 30),
     );
   }, []);
 

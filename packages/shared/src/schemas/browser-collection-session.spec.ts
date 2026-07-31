@@ -3,6 +3,7 @@ import {
   BrowserCollectionAttentionReasonSchema,
   BrowserCollectionCommandSchema,
   BrowserCollectionProducerSchema,
+  BrowserCollectionRunIssueResponseSchema,
   BrowserCollectionSessionViewSchema,
   BrowserCollectionStateSchema,
 } from './browser-collection-session';
@@ -20,6 +21,7 @@ const PRODUCERS = [
   'dashboard.coupang_products',
   'dashboard.wing_kpi',
   'advertising.ad_sync',
+  'advertising.ad_keyword',
   'advertising.scrape_targets',
   'advertising.wing_rank',
   'advertising.keyword_rank',
@@ -28,7 +30,9 @@ const PRODUCERS = [
   'sourcing.wing_catalog',
   'sourcing.1688_trend',
   'sourcing.live_commerce',
+  'sourcing.tiktok_cc_trend',
   'orders.mall',
+  'orders.sellpia_manual_match',
   'inventory.sellpia',
 ] as const;
 
@@ -76,6 +80,15 @@ const createSession = () => ({
 });
 
 describe('BrowserCollectionSessionViewSchema', () => {
+  it('accepts only a strict server-issued run ID response', () => {
+    expect(BrowserCollectionRunIssueResponseSchema.parse({ runId: RUN_ID }))
+      .toEqual({ runId: RUN_ID });
+    expect(() => BrowserCollectionRunIssueResponseSchema.parse({
+      runId: RUN_ID,
+      organizationId: 'organization-a',
+    })).toThrow();
+  });
+
   it('accepts a personal browser collection attention view without tab identity', () => {
     const parsed = BrowserCollectionSessionViewSchema.parse({
       ...createSession(),

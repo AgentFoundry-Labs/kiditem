@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, Search, Store, X } from 'lucide-react';
+import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
 import { cn } from '@/lib/utils';
 import { WING_CATEGORY_DEFINITIONS } from '../../lib/wing-category-presets';
 import {
@@ -43,7 +44,10 @@ export default function WingRegistrationConfirmDialog({
     channelAccountId: string,
     sellpiaSelection: WingSellpiaSelection,
   ) => void;
-  onSearchSellpia?: (query: string) => Promise<WingSellpiaSkuOption[]>;
+  onSearchSellpia?: (
+    query: string,
+    includeOutOfStock: boolean,
+  ) => Promise<WingSellpiaSkuOption[]>;
 }) {
   const [overrides, setOverrides] = useState<WingRegistrationOverrides | null>(null);
   const [channelAccountId, setChannelAccountId] = useState('');
@@ -53,6 +57,7 @@ export default function WingRegistrationConfirmDialog({
   const [sellpiaSearchResults, setSellpiaSearchResults] = useState<WingSellpiaSkuOption[]>([]);
   const [sellpiaSearchError, setSellpiaSearchError] = useState<string | null>(null);
   const [isSearchingSellpia, setIsSearchingSellpia] = useState(false);
+  const [includeOutOfStock, setIncludeOutOfStock] = useState(false);
   // ⚠️ 기본값은 반드시 OFF. 켜야만 확장이 WING 의 '상품등록' 버튼까지 누른다.
   const [autoSubmit, setAutoSubmit] = useState(false);
 
@@ -69,6 +74,7 @@ export default function WingRegistrationConfirmDialog({
     setSellpiaSearchResults(draft?.sellpiaMatchPreview.proposals ?? []);
     setSellpiaSearchError(null);
     setIsSearchingSellpia(false);
+    setIncludeOutOfStock(false);
     setAutoSubmit(false);
   }, [draft]);
 
@@ -110,7 +116,7 @@ export default function WingRegistrationConfirmDialog({
     setIsSearchingSellpia(true);
     setSellpiaSearchError(null);
     try {
-      const results = await onSearchSellpia(query);
+      const results = await onSearchSellpia(query, includeOutOfStock);
       setSellpiaSearchResults(results);
       if (results.length === 0) setSellpiaSearchError('검색 결과가 없습니다.');
     } catch (error) {
@@ -285,6 +291,11 @@ export default function WingRegistrationConfirmDialog({
                     검색
                   </button>
                 </form>
+                <SellpiaOutOfStockToggle
+                  checked={includeOutOfStock}
+                  onCheckedChange={setIncludeOutOfStock}
+                  className="mt-2"
+                />
                 {sellpiaSearchError && (
                   <p className="mt-2 text-[11px] font-bold text-rose-600">{sellpiaSearchError}</p>
                 )}

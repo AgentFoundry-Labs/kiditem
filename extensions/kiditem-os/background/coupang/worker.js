@@ -167,19 +167,6 @@ function handleWingFormPort(port) {
   });
 }
 
-chrome.runtime.onConnectExternal.addListener((port) => {
-  const senderEnvironment = adsEnvironmentContext.resolveSender(port.sender);
-  if (!senderEnvironment) {
-    port.disconnect();
-    return;
-  }
-  if (port.name === WING_FORM_PORT_NAME) {
-    handleWingFormPort(port);
-    return;
-  }
-  port.disconnect();
-});
-
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
   cleanupStorage();
@@ -4708,6 +4695,9 @@ collectionRuns.recover().catch((error) => {
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
   producerPrefixes: ["advertising", "channels", "dashboard"],
+  externalPorts: {
+    [WING_FORM_PORT_NAME]: (port) => handleWingFormPort(port),
+  },
   capabilities: {
     wingCatalogSearch: true,
     wingCatalogSearchSource: "wing-pre-matching",

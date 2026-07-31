@@ -3,6 +3,7 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import type { LiveCommerceSource } from './live-commerce-api';
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
@@ -120,12 +121,13 @@ export async function collectLiveCommerceFromChrome(
       '중국 라이브 수집 기능이 없는 확장 버전입니다. chrome://extensions에서 확장프로그램을 새로고침해주세요.',
     );
   }
+  const collectionRunId = await issueBrowserCollectionRunId(runId);
   const result = await sendToExtension<ExtensionResponse>(
     extensionId,
     {
       action: 'collectLiveCommerceUrl',
       url: normalized,
-      ...(runId ? { runId } : {}),
+      runId: collectionRunId,
     },
     REQUEST_TIMEOUT_MS,
   );

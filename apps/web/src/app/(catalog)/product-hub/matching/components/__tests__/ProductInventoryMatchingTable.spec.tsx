@@ -40,9 +40,9 @@ describe('<ProductInventoryMatchingTable>', () => {
 
     expect(screen.getByText('채널 우산')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: '채널 우산 상품 이미지' })).toHaveAttribute('src', 'https://cdn.example.com/channel-umbrella.jpg');
-    expect(screen.getByRole('img', { name: '키즈 우산 상품 이미지' })).toHaveAttribute('src', 'https://cdn.example.com/kiditem-umbrella.jpg');
+    expect(screen.queryByRole('img', { name: '키즈 우산 상품 이미지' })).not.toBeInTheDocument();
     expect(screen.getByText('옵션 2개')).toBeInTheDocument();
-    expect(screen.getByText('운영자 검토')).toBeInTheDocument();
+    expect(screen.getByText('미매칭 상품')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '운영 상품 연결' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '운영 옵션 연결' })).not.toBeInTheDocument();
 
@@ -82,6 +82,29 @@ describe('<ProductInventoryMatchingTable>', () => {
 
     await user.click(screen.getByRole('button', { name: '상품별 확인' }));
     expect(screen.getByText('자동 매칭 가능 · 고신뢰 상품명 일치 · 수량 2')).toBeInTheDocument();
+  });
+
+  it('keeps a confirmed product with unresolved quantity out of the unmatched state', async () => {
+    const user = userEvent.setup();
+    render(
+      <ProductInventoryMatchingTable
+        products={[product()]}
+        options={[option(OPTION_A, '18개입', VARIANT_ID)]}
+        productGroups={[{ ...group(), decision: 'quantity_review' }]}
+        automationItemsByOptionId={new Map([[OPTION_A, {
+          ...automationItem(),
+          decision: 'quantity_review',
+        }]])}
+        onEditProduct={vi.fn()}
+        onEditVariant={vi.fn()}
+        onShowRecipeSuggestion={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('매칭 수량 검토')).toBeInTheDocument();
+    expect(screen.queryByText('미매칭 상품')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '상품별 확인' }));
+    expect(screen.getByText('매칭 수량 검토 · 상품 연결 완료')).toBeInTheDocument();
   });
 
   it('auto-expands and highlights the exact option requested by the Rocket preview', () => {

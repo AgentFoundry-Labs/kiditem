@@ -15,6 +15,14 @@ import {
   type LinkChannelListingProductInput,
 } from '@kiditem/shared/channel-product-matching';
 import { CoupangWingCatalogImportResponseSchema, type CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
+import {
+  SellpiaManualMatchImportResponseSchema,
+  SellpiaManualMatchSnapshotSchema,
+  SellpiaManualMatchTargetsResponseSchema,
+  type SellpiaManualMatchImportResponse,
+  type SellpiaManualMatchSnapshot,
+  type SellpiaManualMatchTargetsResponse,
+} from '@kiditem/shared/sellpia-manual-match';
 import { apiClient } from '@/lib/api-client';
 export {
   applyChannelRecipeAutomation,
@@ -39,6 +47,23 @@ export function listChannelProductMappings(params: {
     `/api/channels/product-mappings${suffix}`,
     ChannelProductMatchingQueueResponseSchema,
   );
+}
+
+export function getSellpiaManualMatchTargets(): Promise<SellpiaManualMatchTargetsResponse> {
+  return apiClient.getParsed(
+    '/api/channels/product-mappings/sellpia-manual-match/targets',
+    SellpiaManualMatchTargetsResponseSchema,
+  );
+}
+
+export async function importSellpiaManualMatchSnapshot(
+  snapshot: SellpiaManualMatchSnapshot,
+): Promise<SellpiaManualMatchImportResponse> {
+  const response = await apiClient.post<unknown>(
+    '/api/channels/product-mappings/sellpia-manual-match/import',
+    SellpiaManualMatchSnapshotSchema.parse(snapshot),
+  );
+  return SellpiaManualMatchImportResponseSchema.parse(response);
 }
 
 export function listChannelProductCandidates(

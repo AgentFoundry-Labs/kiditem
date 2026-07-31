@@ -153,8 +153,13 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   );
   assert.match(
     worker,
-    /onConnectExternal[\s\S]*port\.name === WING_FORM_PORT_NAME[\s\S]*handleWingFormPort\(port\)/,
+    /externalPorts:[\s\S]*WING_FORM_PORT_NAME[\s\S]*handleWingFormPort\(port\)/,
   );
+  const dispatchSource = fs.readFileSync(
+    path.join(extensionRoot, 'background/external-dispatch.js'),
+    'utf8',
+  );
+  assert.match(dispatchSource, /onConnectExternal\?\.addListener\(handlePort\)/);
 });
 
 test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {

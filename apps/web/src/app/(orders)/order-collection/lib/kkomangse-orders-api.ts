@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
@@ -29,7 +29,7 @@ export async function collectKkomangseXlsxFromExtension(run?: OrderCollectionExt
     {
       action: 'collectKkomangseOrders',
       date: run?.date,
-      runId: run?.runId ?? createSecureRandomUuid(),
+      runId: await issueBrowserCollectionRunId(run?.runId),
     },
     90000,
   );

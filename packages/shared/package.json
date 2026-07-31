@@ -165,6 +165,11 @@
       "import": "./dist/sellpia-inventory-freshness.js",
       "require": "./dist/sellpia-inventory-freshness.cjs"
     },
+    "./sellpia-manual-match": {
+      "types": "./dist/sellpia-manual-match.d.ts",
+      "import": "./dist/sellpia-manual-match.js",
+      "require": "./dist/sellpia-manual-match.cjs"
+    },
     "./rocket-purchase-preview": {
       "types": "./dist/rocket-purchase-preview.d.ts",
       "import": "./dist/rocket-purchase-preview.js",
@@ -347,6 +352,9 @@
       ],
       "sellpia-inventory-freshness": [
         "dist/sellpia-inventory-freshness.d.ts"
+      ],
+      "sellpia-manual-match": [
+        "dist/sellpia-manual-match.d.ts"
       ],
       "rocket-purchase-preview": [
         "dist/rocket-purchase-preview.d.ts"

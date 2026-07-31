@@ -125,7 +125,17 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
+const RUN_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function validateRequiredRunId(value) {
+  return typeof value === "string" && RUN_ID_PATTERN.test(value);
+}
+
 function validateTrendStartMessage(msg) {
+  if (!validateRequiredRunId(msg?.runId)) {
+    return { ok: false, error: "server-issued runId is required" };
+  }
   if (!Array.isArray(msg?.keywords) || msg.keywords.length < 1 || msg.keywords.length > 20) {
     return { ok: false, error: "keywords must contain 1 to 20 strings" };
   }
@@ -147,7 +157,7 @@ function validateTrendStartMessage(msg) {
   if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 20) {
     return { ok: false, error: "maxResultsPerKeyword must be an integer from 1 to 20" };
   }
-  return { ok: true, keywords, maxResultsPerKeyword: requestedLimit };
+  return { ok: true, runId: msg.runId, keywords, maxResultsPerKeyword: requestedLimit };
 }
 
 function validateOptionalRunId(value) {
@@ -156,6 +166,9 @@ function validateOptionalRunId(value) {
 }
 
 function validateTiktokCcStartMessage(msg) {
+  if (!validateRequiredRunId(msg?.runId)) {
+    return { ok: false, error: "server-issued runId is required" };
+  }
   const options = {};
   if (msg.maxItems !== undefined) {
     if (!Number.isInteger(msg.maxItems) || msg.maxItems < 1 || msg.maxItems > 500) {
@@ -169,7 +182,7 @@ function validateTiktokCcStartMessage(msg) {
     }
     options.region = msg.region;
   }
-  return { ok: true, options };
+  return { ok: true, runId: msg.runId, options };
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -212,7 +225,12 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       return;
     }
     trendCollector
-      .start(validated.keywords, validated.maxResultsPerKeyword, environmentId)
+      .start(
+        validated.keywords,
+        validated.maxResultsPerKeyword,
+        environmentId,
+        validated.runId,
+      )
       .then(sendResponse);
     return true;
   }
@@ -241,7 +259,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, error: validated.error });
       return;
     }
-    tiktokCcCollector.start(validated.options, environmentId).then(sendResponse);
+    tiktokCcCollector
+      .start(validated.options, environmentId, validated.runId)
+      .then(sendResponse);
     return true;
   }
 
@@ -264,8 +284,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "collectLiveCommerceUrl") {
-    if (!validateOptionalRunId(msg.runId)) {
-      sendResponse({ success: false, error: "invalid runId" });
+    if (!validateRequiredRunId(msg.runId)) {
+      sendResponse({ success: false, error: "server-issued runId is required" });
       return;
     }
     return respond(liveCommerceCollector.collect(msg.url, msg.runId, environmentId));

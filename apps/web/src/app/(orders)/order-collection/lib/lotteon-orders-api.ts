@@ -1,4 +1,4 @@
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
@@ -30,7 +30,7 @@ export async function collectLotteonXlsxFromExtension(run?: OrderCollectionExten
     {
       action: 'collectLotteonOrders',
       date: run?.date,
-      runId: run?.runId ?? createSecureRandomUuid(),
+      runId: await issueBrowserCollectionRunId(run?.runId),
     },
     120000,
   );

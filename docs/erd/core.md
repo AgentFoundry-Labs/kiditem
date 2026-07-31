@@ -378,6 +378,8 @@ erDiagram
 | Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
 | Organization | organization | referenced by external | Channels | RocketPurchaseOrder |
 | Organization | organization | referenced by external | Channels | RocketSupplyDailySnapshot |
+| Organization | organization | referenced by external | Channels | SellpiaManualMatchAlias |
+| Organization | organization | referenced by external | Channels | SellpiaManualMatchSnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaProductMonthlySales |
 | Organization | organization | referenced by external | Channels | SellpiaSalesDailySnapshot |
 | Organization | organization | referenced by external | Finance | GradeHistory |
@@ -399,6 +401,7 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | StockAudit |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
 | Organization | organization | referenced by external | Inventory | Warehouse |
+| Organization | organization | referenced by external | Orders | CoupangDirectPoSnapshot |
 | Organization | organization | referenced by external | Orders | CSRecord |
 | Organization | organization | referenced by external | Orders | Order |
 | Organization | organization | referenced by external | Orders | OrderLineItem |

@@ -65,4 +65,20 @@ describe('browser operation producer policy', () => {
       href: `/order-collection?collectionRun=${runId}`,
     });
   });
+
+  it('routes Sellpia manual matching to the product matching center', () => {
+    const runId = '55555555-5555-4555-8555-555555555555';
+
+    expect(
+      resolveBrowserOperationProducer({
+        operationKey: `browser-collection:${runId}`,
+        type: 'browser_collection',
+        sourceType: 'browser_collection_session',
+        sourceId: 'orders.sellpia_manual_match',
+      }),
+    ).toEqual({
+      title: 'Sellpia 상품 매칭',
+      href: `/product-hub/matching?collectionRun=${runId}`,
+    });
+  });
 });

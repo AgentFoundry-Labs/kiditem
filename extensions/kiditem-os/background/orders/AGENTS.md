@@ -2,11 +2,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 # orders — Marketplace Order Collection Domain
 
-`extensions/kiditem-os/background/orders/` automates supported marketplace order collection
-from admin pages that are already open in the user's Chrome profile. It may
-read visible order tables, trigger marketplace export UI, or call supported
-marketplace export APIs from the user's active page session, then sends
-structured rows or export files back to the KidItem web app for NestJS
+This domain collects supported marketplace orders from authenticated admin
+pages and sends structured rows or export files to the web app for NestJS
 conversion.
 
 ## Owned Surfaces
@@ -20,12 +17,8 @@ conversion.
 - Supported marketplace order export capture, including Kakao Shopping Seller.
 - Coupang Rocket purchase-order list/detail collection for purchase quantity
   previews and confirmation-workbook evidence.
-- Sellpia delivery-tracking lookup and order-file upload.
-- Sellpia 판매현황(sale_summary) 몰별·일별 매출 조회(읽기 전용) + `chrome.alarms`
-  매일 자동수집 캐시(웹앱이 백엔드로 flush).
-- Sellpia 상품별 이익현황(stat_prd_profit) 상품×월별 소진(판매수량) 조회(읽기 전용).
-- Sellpia option-product inventory full-snapshot collection from the fixed
-  authenticated `kiditem.sellpia.com` product-search JSON contract.
+- Sellpia tracking/upload, read-only sales/profit cache, option-inventory
+  snapshot, and manual-match alias plus explicit `item_count` evidence.
 - Domeggook and Onchannel tracking registration initiated from the KidItem
   order-collection page.
 - KidItem local, office, and staging extension-id discovery for order operations
@@ -38,9 +31,6 @@ conversion.
   bind every run, status lookup, cancellation, tab, alarm, and callback to that
   environment. Local, office, and staging may run concurrently in one installed
   copy.
-- Host permissions stay exact to the supported marketplace origins.
-- Do not persist, log, return, forward, commit, or store marketplace session
-  tokens, cookies, passwords, or browser credential-store values.
 - A supported marketplace collector may read a marketplace session token only
   transiently when that marketplace's export API requires it. Use the token only
   for same-marketplace origin requests, keep it in function scope, and never
@@ -61,9 +51,6 @@ conversion.
   remove cookies by name/path; never read, return, forward, or store cookie
   values. The permission spans all `host_permissions` origins, but only
   supplier.coupang.com cookies may be touched.
-- Do not send `organizationId`; backend auth/session scope owns organization
-  context.
-
 ## Collection Failure Contract
 
 - Advertise `orderCollectionFailureEvidenceV1` only when every automatic mall
@@ -143,6 +130,18 @@ conversion.
 - This capability collects evidence only. It must not confirm a Rocket PO,
   submit quantities, reserve stock, or mutate Sellpia inventory.
 
+## Sellpia Manual-Match Contract
+
+- `collectSellpiaManualMatchV1` uses a managed inactive
+  `product_manual_match.html` tab; its port variant keeps the worker alive.
+- Accept sorted, unique active SKU codes and search by `product_code`. Publish
+  only exact-code rows having an explicit `match_title`; never infer an alias.
+- Trust only explicit positive `item_count`; title disagreement requires backend
+  review. Bound each request but not the whole cancellable scan.
+- Return only bounded code, alias, count, type, and evidence count. Never expose
+  raw responses, secrets, customer/order data, or `match_md5`.
+- Collection is read-only; no Sellpia matching or inventory/order mutation.
+
 ## Sellpia Order-File Upload Contract
 
 - Advertise `sellpiaOrderFileUploadEvidenceV1` only when the worker waits for
@@ -166,8 +165,7 @@ conversion.
 
 ## Verification
 
-Inherits [`extensions/kiditem-os/AGENTS.md`](../../AGENTS.md#verification). The
-order-collection tests are the narrow gate for this domain:
+In addition to the parent verification, run:
 
 ```bash
 node --test extensions/tests/order-collector-*.test.mjs

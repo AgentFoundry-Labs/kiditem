@@ -386,7 +386,7 @@
       return Math.max(1, Math.min(MAX_ITEMS_DEFAULT, value));
     }
 
-    async function start(startOptions, environmentId) {
+    async function start(startOptions, environmentId, requestedRunId) {
       const opts = startOptions || {};
       const activeRun = activeRuns.get(environmentId);
       if (activeRun && activeRun.status.status === "running") {
@@ -419,7 +419,7 @@
       const regionOverride = sanitizeRegion(opts.region);
       const collectionTargets = buildCollectionTargets(targets);
 
-      const runId = createRunId();
+      const runId = requestedRunId || createRunId();
       const startedAt = now().toISOString();
       const run = {
         environmentId,

@@ -20,9 +20,21 @@ import {
   type ChannelRecipeAutomationContext,
 } from '../port/out/repository/channel-recipe-automation-context.repository.port';
 import {
+  SELLPIA_MANUAL_MATCH_REPOSITORY_PORT,
+  type SellpiaManualMatchRepositoryPort,
+} from '../port/out/repository/sellpia-manual-match.repository.port';
+import {
   CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT,
   type ChannelRecipeSuggestionContextRepositoryPort,
 } from '../port/out/repository/channel-recipe-suggestion-context.repository.port';
+import { normalizeSellpiaManualMatchAlias } from '../../domain/sellpia-manual-match-alias';
+
+const EMPTY_MANUAL_MATCH_READER: Pick<
+  SellpiaManualMatchRepositoryPort,
+  'findByNormalizedAliases'
+> = {
+  findByNormalizedAliases: async () => [],
+};
 
 @Injectable()
 export class ChannelRecipeSuggestionService {
@@ -31,6 +43,11 @@ export class ChannelRecipeSuggestionService {
     private readonly contextRepository: ChannelRecipeSuggestionContextRepositoryPort,
     @Inject(SELLPIA_RECIPE_EVIDENCE_PORT)
     private readonly evidence: SellpiaRecipeEvidencePort,
+    @Inject(SELLPIA_MANUAL_MATCH_REPOSITORY_PORT)
+    private readonly manualMatches: Pick<
+      SellpiaManualMatchRepositoryPort,
+      'findByNormalizedAliases'
+    > = EMPTY_MANUAL_MATCH_READER,
   ) {}
 
   async suggest(
@@ -111,13 +128,28 @@ export class ChannelRecipeSuggestionService {
       normalizePhysicalBarcode(option.barcode)));
     const nameValues = distinct(allOptions.map((option) =>
       normalizeRecipeIdentityText(option.listingName)));
-    const [skusByCode, skusByBarcode, skusByName, activeMatchingSkus] = await Promise.all([
+    const manualAliasCandidates = manualMatchAliasCandidates(allOptions);
+    const [
+      skusByCode,
+      skusByBarcode,
+      skusByName,
+      activeMatchingSkus,
+      manualMatchRows,
+    ] = await Promise.all([
       this.evidence.findByCodes(organizationId, codeValues),
       this.evidence.findByNormalizedBarcodes(organizationId, barcodeValues),
       this.evidence.findByNormalizedNames(organizationId, nameValues),
       this.evidence.listActiveForMatching(organizationId),
+      this.manualMatches.findByNormalizedAliases(
+        organizationId,
+        manualAliasCandidates.map((candidate) => candidate.normalizedValue),
+      ),
     ]);
     const matchingNameIndex = createChannelRecipeNameIndex(activeMatchingSkus);
+    const activeMatchingSkuById = new Map(activeMatchingSkus.map((sku) => [
+      sku.sellpiaInventorySkuId,
+      sku,
+    ]));
 
     return contexts.map((context) => {
       const codeEvidence = context.allLinkedOptions.flatMap((option) => [
@@ -158,6 +190,21 @@ export class ChannelRecipeSuggestionService {
         context.allLinkedOptions,
         matchingNameIndex,
       );
+      const contextManualAliasCandidates = manualMatchAliasCandidates(
+        context.allLinkedOptions,
+      );
+      const manualMatchEvidence = contextManualAliasCandidates.flatMap((candidate) =>
+        manualMatchRows
+          .filter((row) => row.normalizedAlias === candidate.normalizedValue)
+          .flatMap((row) => {
+            const sku = activeMatchingSkuById.get(row.sellpiaInventorySkuId);
+            return sku ? [{
+              channelValue: candidate.channelValue,
+              normalizedValue: candidate.normalizedValue,
+              quantity: row.itemCount,
+              sku,
+            }] : [];
+          }));
       return ChannelRecipeSuggestionResponseSchema.parse(classifyChannelRecipeSuggestion({
         channelListingOptionId: context.selectedChannelListingOptionIds[0]!,
         productVariantId: context.productVariantId,
@@ -169,9 +216,34 @@ export class ChannelRecipeSuggestionService {
         nameOptionEvidence,
         nameEvidence,
         similarityEvidence,
+        manualMatchEvidence,
       }));
     });
   }
+}
+
+function manualMatchAliasCandidates(
+  options: ChannelRecipeAutomationContext['allLinkedOptions'],
+): Array<{ channelValue: string; normalizedValue: string }> {
+  const byNormalizedValue = new Map<string, string>();
+  for (const option of options) {
+    const listingName = option.listingName?.trim() || null;
+    const itemName = option.itemName?.trim() || null;
+    const values = [
+      listingName,
+      itemName,
+      listingName && itemName ? `${listingName}:${itemName}` : null,
+    ];
+    for (const channelValue of values) {
+      if (!channelValue) continue;
+      const normalizedValue = normalizeSellpiaManualMatchAlias(channelValue);
+      if (!normalizedValue || byNormalizedValue.has(normalizedValue)) continue;
+      byNormalizedValue.set(normalizedValue, channelValue);
+    }
+  }
+  return [...byNormalizedValue.entries()]
+    .map(([normalizedValue, channelValue]) => ({ channelValue, normalizedValue }))
+    .sort((left, right) => left.normalizedValue.localeCompare(right.normalizedValue));
 }
 
 type RecipeSuggestionContext = Omit<

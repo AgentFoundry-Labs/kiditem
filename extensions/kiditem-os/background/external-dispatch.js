@@ -106,11 +106,26 @@
       return true;
     }
 
-    function install() {
-      chromeApi.runtime.onMessageExternal.addListener(handleMessage);
+    function handlePort(port) {
+      const senderEnvironment = environmentContext.resolveSender(port?.sender);
+      const handler = domains.forExternalPort(port?.name);
+      if (!senderEnvironment || !handler) {
+        port?.disconnect();
+        return;
+      }
+      try {
+        handler(port, senderEnvironment);
+      } catch {
+        port.disconnect();
+      }
     }
 
-    return Object.freeze({ handleMessage, install });
+    function install() {
+      chromeApi.runtime.onMessageExternal.addListener(handleMessage);
+      chromeApi.runtime.onConnectExternal?.addListener(handlePort);
+    }
+
+    return Object.freeze({ handleMessage, handlePort, install });
   }
 
   root.KidItemExternalDispatch = Object.freeze({ create, SESSION_ACTIONS });

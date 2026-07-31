@@ -13,6 +13,7 @@ import type { RocketPurchasePreviewComponent } from "@kiditem/shared/rocket-purc
 import { apiClient } from "@/lib/api-client";
 import { friendlyError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
+import { SellpiaOutOfStockToggle } from "@/components/SellpiaOutOfStockToggle";
 import { toast } from "sonner";
 
 type RecipeDraft = Pick<
@@ -39,6 +40,7 @@ export function RocketInlineRecipeEditor({
 }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [includeOutOfStock, setIncludeOutOfStock] = useState(false);
   const hasExistingRecipe = existingComponents.length > 0;
   const [draft, setDraft] = useState<RecipeDraft[]>(() =>
     existingComponents.map((component) => ({
@@ -56,8 +58,9 @@ export function RocketInlineRecipeEditor({
       new URLSearchParams({
         search: search.trim(),
         limit: "20",
+        stockStatus: includeOutOfStock ? "all" : "in_stock",
       }),
-    [search],
+    [includeOutOfStock, search],
   );
   const candidateKeyParams = useMemo(
     () => Object.fromEntries(candidateParams.entries()),
@@ -252,6 +255,11 @@ export function RocketInlineRecipeEditor({
               className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-800"
             />
           </label>
+          <SellpiaOutOfStockToggle
+            checked={includeOutOfStock}
+            onCheckedChange={setIncludeOutOfStock}
+            className="mt-2"
+          />
           <div className="mt-2 max-h-48 space-y-1.5 overflow-y-auto">
             {search.trim().length < 2 ? (
               <p className="px-2 py-3 text-xs text-slate-500">

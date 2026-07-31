@@ -6,6 +6,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 // adapter/in/http
 import { ActionTaskController } from '../adapter/in/http/action-task.controller';
 import { AlertsController } from '../adapter/in/http/alerts.controller';
+import { BrowserCollectionRunIdController } from '../adapter/in/http/browser-collection-run-id.controller';
 import { MarketplaceAgentsController } from '../adapter/in/http/marketplace-agents.controller';
 import { MarketplaceWorkflowsController } from '../adapter/in/http/marketplace-workflows.controller';
 import { OperationAlertLifecycleController } from '../adapter/in/http/operation-alert-lifecycle.controller';
@@ -32,6 +33,7 @@ import { PanelSseService } from '../adapter/out/panel-event/panel-sse.service';
 // application/service
 import { ActionBoardService } from '../application/service/action-board.service';
 import { AlertsService } from '../application/service/alerts.service';
+import { BrowserCollectionRunIdService } from '../application/service/browser-collection-run-id.service';
 import { MarketplaceCatalogService } from '../application/service/marketplace-catalog.service';
 import { MarketplaceInstallService } from '../application/service/marketplace-install.service';
 import { OperationAlertService } from '../application/service/operation-alert.service';
@@ -90,6 +92,7 @@ describe('AutomationModule capability wiring', () => {
         PanelController,
         ActionTaskController,
         AlertsController,
+        BrowserCollectionRunIdController,
         OperationAlertLifecycleController,
         WorkflowRunCommandsController,
         WorkflowRunDetailsController,
@@ -122,6 +125,7 @@ describe('AutomationModule capability wiring', () => {
     for (const cls of [
       ActionBoardService,
       AlertsService,
+      BrowserCollectionRunIdService,
       OperationAlertService,
       MarketplaceCatalogService,
       MarketplaceInstallService,
@@ -164,6 +168,9 @@ describe('AutomationModule capability wiring', () => {
   it('keeps the public /api route prefixes', () => {
     expect(Reflect.getMetadata(PATH_KEY, ActionTaskController)).toBe('action-tasks');
     expect(Reflect.getMetadata(PATH_KEY, AlertsController)).toBe('alerts');
+    expect(Reflect.getMetadata(PATH_KEY, BrowserCollectionRunIdController)).toBe(
+      'browser-collection-runs',
+    );
     expect(Reflect.getMetadata(PATH_KEY, MarketplaceAgentsController)).toBe(
       'marketplace/agents',
     );

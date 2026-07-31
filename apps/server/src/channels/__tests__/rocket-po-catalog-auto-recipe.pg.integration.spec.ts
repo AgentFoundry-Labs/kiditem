@@ -129,6 +129,7 @@ describe('Rocket PO catalog automatic recipe (PG integration)', () => {
         appliedProducts: 0,
         appliedVariants: 0,
         affectedOptions: 0,
+        quantityReviewProducts: 0,
         operatorReviewProducts: 0,
         blockedProducts: 0,
         alreadyConfiguredProducts: 0,

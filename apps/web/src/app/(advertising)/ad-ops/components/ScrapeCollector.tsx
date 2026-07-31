@@ -11,10 +11,12 @@ import { useAuthSession } from '@/components/providers/AuthProvider';
 import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
-import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
+import {
+  issueBrowserCollectionRunId,
+  recordMissingBrowserCollection,
+} from '@/lib/browser-collection-session';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { cn, formatDateTime } from '@/lib/utils';
 
 interface ScrapeTarget {
@@ -128,7 +130,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
     }
 
     try {
-      const nextRunId = requestedRunId ?? createSecureRandomUuid();
+      const nextRunId = await issueBrowserCollectionRunId(requestedRunId);
       setRunId(nextRunId);
       const check: ReadinessCheck = {
         key: producer === 'advertising.ad_sync' ? 'ad_sync' : 'scrape_targets',

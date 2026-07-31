@@ -39,6 +39,7 @@ importScripts(
   "orders/collection-failure.js",
   "orders/order-collection-lifecycle.js",
   "orders/sellpia-inventory.js",
+  "orders/sellpia-manual-match.js",
   "orders/sellpia-post-processing.js",
   "orders/coupang-po-session.js",
   "orders/rocket-po-collection.js",

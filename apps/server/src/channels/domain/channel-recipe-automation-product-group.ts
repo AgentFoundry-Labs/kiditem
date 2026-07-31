@@ -61,6 +61,7 @@ function groupDecision(
 ): ChannelRecipeAutomationItem['decision'] {
   if (decisions.includes('blocked')) return 'blocked';
   if (decisions.includes('operator_review')) return 'operator_review';
+  if (decisions.includes('quantity_review')) return 'quantity_review';
   if (decisions.includes('auto_apply')) return 'auto_apply';
   return 'already_configured';
 }

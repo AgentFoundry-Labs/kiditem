@@ -1,4 +1,4 @@
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { resolveMallKeyFromSellpiaProvider } from './icecream-tracking-api';
 import { resolveOrderCollectionMallKey } from './order-collection-malls';
@@ -55,7 +55,7 @@ export async function collectSellpiaOrderSnapshot(): Promise<{
   }
   const response = await sendToExtension<SellpiaOrderSnapshotResponse>(
     extensionId,
-    { action: 'collectSellpiaOrderSnapshot', runId: createSecureRandomUuid() },
+    { action: 'collectSellpiaOrderSnapshot', runId: await issueBrowserCollectionRunId() },
     180000, // 셀피아 화면 2개를 조회한다
   );
   if (!response?.success || !Array.isArray(response.rows)) {

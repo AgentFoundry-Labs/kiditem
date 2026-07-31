@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   useChannelAccounts,
   useChannelProductMappings,
-  useChannelRecipeAutomationPreview,
+  useChannelRecipeAutomationPreviews,
 } from './hooks/useChannelSkuMappings';
 import MatchingPage from './page';
 import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
@@ -20,12 +20,12 @@ vi.mock('next/navigation', () => ({
 vi.mock('./hooks/useChannelSkuMappings', () => ({
   useChannelAccounts: vi.fn(),
   useChannelProductMappings: vi.fn(),
-  useChannelRecipeAutomationPreview: vi.fn(),
+  useChannelRecipeAutomationPreviews: vi.fn(),
 }));
 
 vi.mock('./components/RecipeAutomationPanel', () => ({
-  RecipeAutomationPanel: ({ channelAccountId }: { channelAccountId: string }) => (
-    <div>자동 매칭 패널 {channelAccountId}</div>
+  RecipeAutomationPanel: ({ channelAccountIds }: { channelAccountIds: string[] }) => (
+    <div>자동 매칭 패널 {channelAccountIds.join(',')}</div>
   ),
 }));
 
@@ -94,7 +94,7 @@ function account(overrides: Partial<ChannelAccountListItem> = {}): ChannelAccoun
 function mockQueries(accounts: ChannelAccountListItem[] = [account()]) {
   vi.mocked(useChannelAccounts).mockReturnValue({ data: accounts, isLoading: false, error: null } as unknown as ReturnType<typeof useChannelAccounts>);
   vi.mocked(useChannelProductMappings).mockReturnValue({ data: response, isLoading: false, isFetching: false, error: null, refetch } as unknown as ReturnType<typeof useChannelProductMappings>);
-  vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue({
+  vi.mocked(useChannelRecipeAutomationPreviews).mockReturnValue([{
     data: {
       channelAccountId: ACCOUNT_ID,
       proposalVersion: 'a'.repeat(64),
@@ -102,12 +102,14 @@ function mockQueries(accounts: ChannelAccountListItem[] = [account()]) {
       summary: {
         products: 1,
         autoApplyProducts: 0,
+        quantityReviewProducts: 0,
         operatorReviewProducts: 0,
         blockedProducts: 1,
         alreadyConfiguredProducts: 0,
         variants: 0,
         affectedOptions: 0,
         autoApply: 0,
+        quantityReview: 0,
         operatorReview: 0,
         blocked: 0,
         alreadyConfigured: 0,
@@ -119,11 +121,11 @@ function mockQueries(accounts: ChannelAccountListItem[] = [account()]) {
     isFetching: false,
     error: null,
     refetch: vi.fn(),
-  } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>);
+  }] as unknown as ReturnType<typeof useChannelRecipeAutomationPreviews>);
 }
 
 function recipePreview(input: {
-  decision: 'auto_apply' | 'operator_review' | 'blocked' | 'already_configured';
+  decision: 'auto_apply' | 'quantity_review' | 'operator_review' | 'blocked' | 'already_configured';
   masterProductId: string | null;
 }) {
   return {
@@ -134,12 +136,14 @@ function recipePreview(input: {
       summary: {
         products: 1,
         autoApplyProducts: input.decision === 'auto_apply' ? 1 : 0,
+        quantityReviewProducts: input.decision === 'quantity_review' ? 1 : 0,
         operatorReviewProducts: input.decision === 'operator_review' ? 1 : 0,
         blockedProducts: input.decision === 'blocked' ? 1 : 0,
         alreadyConfiguredProducts: input.decision === 'already_configured' ? 1 : 0,
         variants: 0,
         affectedOptions: response.options.length,
         autoApply: 0,
+        quantityReview: 0,
         operatorReview: 0,
         blocked: 0,
         alreadyConfigured: 0,
@@ -158,7 +162,7 @@ function recipePreview(input: {
     isFetching: false,
     error: null,
     refetch: vi.fn(),
-  } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>;
+  } as unknown as ReturnType<typeof useChannelRecipeAutomationPreviews>[number];
 }
 
 describe('/product-hub/matching', () => {
@@ -189,25 +193,29 @@ describe('/product-hub/matching', () => {
 
   it('restores a product-level operator review queue from the URL', () => {
     navigation.params = new URLSearchParams(`channelAccountId=${ACCOUNT_ID}&status=operator_review&search=SP-1`);
-    vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue(recipePreview({
+    vi.mocked(useChannelRecipeAutomationPreviews).mockReturnValue([recipePreview({
       decision: 'operator_review',
       masterProductId: null,
-    }));
+    })]);
     render(<MatchingPage />);
     expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0]).toEqual(expect.objectContaining({ search: 'SP-1' }));
-    expect(screen.getByRole('combobox', { name: '상품·재고 상태' })).toHaveValue('operator_review');
-    expect(screen.getAllByText('운영자 검토')).toHaveLength(2);
+    expect(screen.getByRole('radio', { name: '미매칭 상품' })).toBeChecked();
+    expect(screen.getAllByText('미매칭 상품')).toHaveLength(2);
     expect(screen.getByText('채널 우산')).toBeInTheDocument();
   });
 
   it('resets URL page state when account, status, or search changes', async () => {
     const user = userEvent.setup();
-    navigation.params = new URLSearchParams('channelAccountId=55555555-5555-4555-8555-555555555555&status=all&search=old&page=4');
+    mockQueries([
+      account(),
+      account({ id: '88888888-8888-4888-8888-888888888888', channel: 'rocket', name: 'Rocket' }),
+    ]);
+    navigation.params = new URLSearchParams('status=all&search=old&page=4');
     render(<MatchingPage />);
-    await user.selectOptions(screen.getByRole('combobox', { name: '채널 계정' }), '55555555-5555-4555-8555-555555555555');
+    await user.click(screen.getByRole('checkbox', { name: '채널 계정 Rocket' }));
     expect(navigation.replace).toHaveBeenLastCalledWith(expect.stringContaining('page=1'));
     navigation.replace.mockClear();
-    await user.selectOptions(screen.getByRole('combobox', { name: '상품·재고 상태' }), 'operator_review');
+    await user.click(screen.getByRole('radio', { name: '미매칭 상품' }));
     expect(navigation.replace).toHaveBeenLastCalledWith(expect.stringContaining('page=1'));
     navigation.replace.mockClear();
     await user.type(screen.getByLabelText('채널 상품·옵션 검색'), ' next');
@@ -219,7 +227,8 @@ describe('/product-hub/matching', () => {
     const { container } = render(<MatchingPage />);
     expect(container.querySelector('main')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '상품 매칭 센터' })).toBeInTheDocument();
-    expect(screen.getByText('상품 한 행에서 운영 상품, 하위 옵션, Sellpia 재고 연결 상태를 함께 확인하고 처리합니다.')).toBeInTheDocument();
+    expect(screen.queryByText('상품 한 행에서 운영 상품, 하위 옵션, Sellpia 재고 연결 상태를 함께 확인하고 처리합니다.')).not.toBeInTheDocument();
+    expect(screen.queryByText('계정 체크 항목을 조합해 여러 채널을 한 표에서 비교합니다.')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: '매칭 단계' })).not.toBeInTheDocument();
   });
 
@@ -264,7 +273,7 @@ describe('/product-hub/matching', () => {
       error: null,
       refetch,
     } as unknown as ReturnType<typeof useChannelProductMappings>);
-    vi.mocked(useChannelRecipeAutomationPreview).mockReturnValue({
+    vi.mocked(useChannelRecipeAutomationPreviews).mockReturnValue([{
       data: {
         channelAccountId: ACCOUNT_ID,
         proposalVersion: 'a'.repeat(64),
@@ -272,12 +281,14 @@ describe('/product-hub/matching', () => {
         summary: {
           products: 1,
           autoApplyProducts: 1,
+          quantityReviewProducts: 0,
           operatorReviewProducts: 0,
           blockedProducts: 0,
           alreadyConfiguredProducts: 0,
           variants: 1,
           affectedOptions: 1,
           autoApply: 1,
+          quantityReview: 0,
           operatorReview: 0,
           blocked: 0,
           alreadyConfigured: 0,
@@ -306,21 +317,20 @@ describe('/product-hub/matching', () => {
       isFetching: false,
       error: null,
       refetch: vi.fn(),
-    } as unknown as ReturnType<typeof useChannelRecipeAutomationPreview>);
+    }] as unknown as ReturnType<typeof useChannelRecipeAutomationPreviews>);
 
     render(<MatchingPage />);
-    expect(screen.getByRole('combobox', { name: '상품·재고 상태' })).toHaveValue('auto_apply');
-    expect(screen.getAllByText('자동 매칭 가능')).toHaveLength(2);
+    expect(screen.getByRole('radio', { name: '매칭 완료' })).toBeChecked();
+    expect(screen.getAllByText('매칭 완료')).toHaveLength(2);
     await userEvent.click(screen.getByRole('button', { name: '상품별 확인' }));
     expect(screen.getByText('자동 매칭 가능 · 상품코드 정확 일치 · 수량 1')).toBeInTheDocument();
     expect(screen.getByText('option-unready')).toBeInTheDocument();
   });
 
-  it('refreshes by refetching and debounces trimmed search without any automatic mutation', async () => {
+  it('omits manual refresh and debounces trimmed search without any automatic mutation', async () => {
     vi.useFakeTimers();
     render(<MatchingPage />);
-    fireEvent.click(screen.getByRole('button', { name: '새로고침' }));
-    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: '새로고침' })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('채널 상품·옵션 검색'), { target: { value: '  KI-1  ' } });
     expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0]).toEqual(expect.objectContaining({ search: '' }));
@@ -334,14 +344,16 @@ describe('/product-hub/matching', () => {
       account(),
       account({ id: '99999999-9999-4999-8999-999999999999', channel: 'smartstore', name: 'Smartstore' }),
     ]);
+    navigation.params = new URLSearchParams(`accounts=${ACCOUNT_ID}`);
     const user = userEvent.setup();
     render(<MatchingPage />);
-    expect(screen.queryByRole('option', { name: 'Smartstore' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: '채널 계정 Smartstore' })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '채널 계정 Wing' })).toBeChecked();
     await user.click(screen.getByRole('button', { name: '쿠팡 Wing 상품 엑셀 가져오기' }));
     expect(screen.getByText('Wing 가져오기: Wing')).toBeInTheDocument();
   });
 
-  it('selects Coupang Wing before an otherwise primary Rocket account', () => {
+  it('shows all supported accounts as an always-visible checklist instead of a dropdown', () => {
     const wingAccountId = '77777777-7777-4777-8777-777777777777';
     mockQueries([
       account({
@@ -360,9 +372,11 @@ describe('/product-hub/matching', () => {
 
     render(<MatchingPage />);
 
-    expect(screen.getByRole('combobox', { name: '채널 계정' })).toHaveValue(wingAccountId);
+    expect(screen.queryByRole('combobox', { name: '채널 계정' })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '채널 계정 Coupang Wing' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '채널 계정 Coupang Rocket' })).toBeChecked();
     expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0])
-      .toEqual(expect.objectContaining({ channelAccountId: wingAccountId }));
+      .toEqual(expect.objectContaining({ enabled: true }));
   });
 
   it('does not collide account or mapping errors with empty-success states', () => {

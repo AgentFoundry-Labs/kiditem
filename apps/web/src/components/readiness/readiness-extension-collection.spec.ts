@@ -78,6 +78,7 @@ vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
     typeof import('@/lib/browser-collection-session')
   >()),
   recordMissingBrowserCollection: vi.fn(),
+  issueBrowserCollectionRunId: vi.fn().mockResolvedValue(RUN_ID),
   syncBrowserCollectionAlert: vi.fn(),
 }));
 

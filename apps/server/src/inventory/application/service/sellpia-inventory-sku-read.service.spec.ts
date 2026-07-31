@@ -31,10 +31,14 @@ describe('SellpiaInventorySkuReadService', () => {
     const service = new SellpiaInventorySkuReadService(repository);
 
     await expect(service.search(organizationId, '   ', 500)).resolves.toEqual([]);
-    await service.search(organizationId, ' product ', 500);
+    await service.search(organizationId, ' product ', 500, {
+      includeOutOfStock: true,
+    });
 
     expect(repository.search).toHaveBeenCalledOnce();
-    expect(repository.search).toHaveBeenCalledWith(organizationId, 'product', 100);
+    expect(repository.search).toHaveBeenCalledWith(organizationId, 'product', 100, {
+      includeOutOfStock: true,
+    });
   });
 
   it('deduplicates normalized names and skips an empty normalized-name read', async () => {

@@ -73,4 +73,7 @@ export class ProductRecipeComponentCandidateQueryDto {
   @IsPositive()
   @Max(50)
   limit = 20;
+
+  @IsIn(['in_stock', 'all'])
+  stockStatus: 'in_stock' | 'all' = 'in_stock';
 }

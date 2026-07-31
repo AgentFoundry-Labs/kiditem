@@ -50,7 +50,25 @@ describe('ProductRecipeComponentCandidateService', () => {
         currentStock: 8,
       }],
     });
-    expect(inventory.search).toHaveBeenCalledWith(organizationId, 'SP-001', 20);
+    expect(inventory.search).toHaveBeenCalledWith(organizationId, 'SP-001', 20, {
+      includeOutOfStock: false,
+    });
+  });
+
+  it('passes an explicit out-of-stock opt-in to Inventory search', async () => {
+    const inventory = makeInventory();
+    inventory.search.mockResolvedValueOnce([]);
+    const service = new ProductRecipeComponentCandidateService(inventory);
+
+    await service.search(organizationId, {
+      search: 'SP-001',
+      limit: 20,
+      stockStatus: 'all',
+    });
+
+    expect(inventory.search).toHaveBeenCalledWith(organizationId, 'SP-001', 20, {
+      includeOutOfStock: true,
+    });
   });
 
   it('rejects unbounded or tenant-bearing candidate queries before Inventory reads', async () => {
