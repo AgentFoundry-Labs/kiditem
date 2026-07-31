@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { formatDateTime } from '@/lib/utils';
 import { ProductOptionsWorkspace } from './ProductOptionsWorkspace';
 
 const pushMock = vi.hoisted(() => vi.fn());
@@ -150,7 +151,7 @@ describe('<ProductOptionsWorkspace>', () => {
     expect(screen.getByText('레시피 연결 3개')).toBeInTheDocument();
     expect(screen.getByText('연결 필요 5개')).toBeInTheDocument();
     expect(screen.getByText(
-      /최근 성공 가져오기: 2026\. 7\. 14\. (?:오전|AM) 10:00 · 완료/,
+      `최근 성공 가져오기: ${formatDateTime(data.latestImport.importedAt, { dateStyle: 'medium', timeStyle: 'short' })} · 완료`,
     )).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '레시피 구성 안내' })).toHaveAttribute(
       'href',
