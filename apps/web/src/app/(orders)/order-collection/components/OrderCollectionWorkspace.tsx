@@ -6,6 +6,7 @@ import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
+import { useAuth } from '@/hooks/useAuth';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
@@ -74,12 +75,17 @@ const COLLECT_ALL_CONCURRENCY = 4;
 import { CoupangDirectCalendarModal } from './CoupangDirectCalendarModal';
 import type { CoupangDirectPo } from '../lib/coupang-directship-api';
 import {
+  createCoupangDirectPoMemoryCache,
   readCachedDirectshipPos,
+  readMemoryCachedDirectshipPos,
   writeCachedDirectshipPos,
+  writeMemoryCachedDirectshipPos,
+  type CoupangDirectPoCacheScope,
 } from '../lib/coupang-directship-po-cache';
 
 export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const showConfirm = useStore((store) => store.showConfirm);
   const historyRef = useRef<ConversionHistoryItem[]>([]);
   // 쿠팡직배송은 바로 수집하지 않고 입고예정일 달력에서 처리할 날짜를 먼저 고른다.
@@ -91,13 +97,7 @@ export function OrderCollectionWorkspace() {
   } | null>(null);
   // 한 번 불러온 발주 목록은 들고 있는다. 달력을 다시 열 때 로딩을 보지 않게 하려는 것으로,
   // 여는 즉시 캐시를 그리고 뒤에서 조용히 새로 받아 갱신한다.
-  const directshipPosRef = useRef<CoupangDirectPo[] | null>(null);
-  const cachedDirectshipPos = (): CoupangDirectPo[] => {
-    if (directshipPosRef.current) return directshipPosRef.current;
-    const stored = readCachedDirectshipPos()?.pos ?? [];
-    directshipPosRef.current = stored;
-    return stored;
-  };
+  const directshipPosRef = useRef(createCoupangDirectPoMemoryCache());
   const sellpiaTransmissionQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [generatedFileActionLock] = useState(createGeneratedFileActionLock);
   const [state, setState] = useState<ConversionState>('idle');
@@ -131,6 +131,21 @@ export function OrderCollectionWorkspace() {
   const selectedRocketAccount = rocketAccounts.find(
     ({ id }) => id === selectedRocketAccountId,
   ) ?? rocketAccounts[0] ?? null;
+  const directshipCacheScope = useMemo<CoupangDirectPoCacheScope | null>(() => {
+    if (!user?.organizationId || !selectedRocketAccount?.id) return null;
+    return {
+      organizationId: user.organizationId,
+      channelAccountId: selectedRocketAccount.id,
+    };
+  }, [selectedRocketAccount?.id, user?.organizationId]);
+  const cachedDirectshipPos = (): CoupangDirectPo[] => {
+    if (!directshipCacheScope) return [];
+    const memory = readMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope);
+    if (memory) return memory;
+    const stored = readCachedDirectshipPos(directshipCacheScope)?.pos ?? [];
+    writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, stored);
+    return stored;
+  };
   const sessionControls = useOrderCollectionSessionControls(mallAccounts);
   const collectionSession = sessionControls.session;
   // 수집 조치 안내(로그인/세션 필요 등)는 몰 카드 위 배너 대신 알림(토스트)으로만 띄운다.
@@ -498,8 +513,10 @@ export function OrderCollectionWorkspace() {
         '../lib/coupang-directship-api'
       );
       const data = await collectCoupangDirectFromExtension(run);
-      directshipPosRef.current = data.pos;
-      writeCachedDirectshipPos(data.pos);
+      if (directshipCacheScope) {
+        writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, data.pos);
+        writeCachedDirectshipPos(directshipCacheScope, data.pos);
+      }
       setDirectshipModal((cur) => (cur ? { ...cur, run, pos: data.pos, loading: false } : cur));
     } catch (err) {
       const message = err instanceof Error ? err.message : '쿠팡 발주를 불러오지 못했습니다.';

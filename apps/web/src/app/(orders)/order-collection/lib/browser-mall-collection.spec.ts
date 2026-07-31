@@ -284,4 +284,79 @@ describe('createBrowserMallCollector', () => {
       transmissionIntentKey: intentKey,
     }));
   });
+
+  it('keeps a directship date selection isolated while another mall collects concurrently', async () => {
+    let releaseCoupang!: () => void;
+    const coupangStarted = new Promise<void>((resolve) => {
+      mocks.collectCoupang.mockImplementation(async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseCoupang = release;
+        });
+        return {
+          pos: [
+            { seq: 'PO-SELECTED', transport: 'SHIPMENT', edd: '2026-07-30' },
+            { seq: 'PO-OTHER', transport: 'SHIPMENT', edd: '2026-07-31' },
+          ],
+          centers: {},
+        };
+      });
+    });
+    mocks.convertCoupang.mockImplementation(async (
+      _data: { pos: Array<{ seq: string }> },
+      transport: string,
+    ) => {
+      if (transport === 'MILKRUN') {
+        return {
+          file: null,
+          outputRows: 0,
+          workbookMatchedRows: 0,
+          workbookUnmatchedRows: 0,
+          importRunId: null,
+          rocketWorkbookExportId: null,
+          transmissionIntentKey: null,
+        };
+      }
+      return {
+        file: {
+          fileName: 'shipment.xls',
+          blob: new Blob(['shipment']),
+          previewRows: [],
+          sourceRows: 1,
+          productRows: 1,
+          outputRows: 1,
+          skippedRows: 0,
+        },
+        outputRows: 1,
+        workbookMatchedRows: 1,
+        workbookUnmatchedRows: 0,
+        importRunId: '66666666-6666-4666-8666-666666666666',
+        rocketWorkbookExportId: null,
+        transmissionIntentKey: 'rocket-final-order:66666666-6666-4666-8666-666666666666:shipment',
+      };
+    });
+    mocks.ensureLogin.mockResolvedValue({ success: true });
+    const collector = createBrowserMallCollector({
+      mallAccounts: [ACCOUNT],
+      rocketChannelAccountId: '44444444-4444-4444-8444-444444444444',
+      addGeneratedFile: vi.fn(),
+      setPreviewId: vi.fn(),
+    });
+
+    const directship = collector({
+      ...ACCOUNT,
+      key: 'coupang-direct',
+      name: '쿠팡직배송',
+    }, { ...RUN, date: '2026-07-23' }, { directship: { eddDates: ['2026-07-30'] } });
+    await coupangStarted;
+    const kidsnote = collector(ACCOUNT, { ...RUN, runId: '22222222-2222-4222-8222-222222222222' });
+    releaseCoupang();
+
+    await Promise.all([directship, kidsnote]);
+
+    expect(mocks.convertCoupang).toHaveBeenCalled();
+    for (const [data] of mocks.convertCoupang.mock.calls) {
+      expect(data.pos.map((po: { seq: string }) => po.seq)).toEqual(['PO-SELECTED']);
+    }
+  });
 });

@@ -88,6 +88,10 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - The judgement is a language call through AI's `TEXT_JUDGEMENT_PORT`, wrapped
   by advertising's `KEYWORD_RELEVANCE_JUDGE_PORT` seam. `AD_KEYWORD_RELEVANCE_MODEL`
   must be set; there is no fallback model.
+- Keyword relevance judgement is a scoped exception to the root rule that LLM
+  judgement starts from Agent OS. This path is a bounded direct-AI capability:
+  fixed prompt/schema/model, no autonomous tool use or planning, and output
+  only becomes human-reviewed `AdAction` proposals.
 - The model only proposes. `toKeywordPauseCandidates` rejects unknown refs,
   drifted keywords, missing rationale, and keywords that converted; survivors
   become `pause_keyword` AdActions in `pending_review` and still require human

@@ -51,9 +51,6 @@ export function createBrowserMallCollector({
   addGeneratedFile,
   setPreviewId,
 }: BrowserMallCollectorOptions) {
-  // collectBrowserMall 호출마다 세팅되는 직배송 날짜 선택(달력 모달에서 전달).
-  let directshipSelection: { eddDates: string[] } | null = null;
-
   const addBrowserGeneratedFile = (historyItem: ConversionHistoryItem) => {
     addGeneratedFile(historyItem);
     setPreviewId(historyItem.id);
@@ -439,7 +436,10 @@ export function createBrowserMallCollector({
     return orderCount;
   };
 
-  const generateCoupangDirectSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
+  const generateCoupangDirectSellpia = async (
+    run: OrderCollectionExtensionRun,
+    selection: { eddDates: string[] } | null,
+  ): Promise<number> => {
     const {
       COUPANG_TRANSPORT_LABEL,
       collectCoupangDirectFromExtension,
@@ -449,7 +449,6 @@ export function createBrowserMallCollector({
       throw new Error('활성 쿠팡 로켓 채널 계정을 먼저 선택해 주세요.');
     }
     const collectedData = await collectCoupangDirectFromExtension(run);
-    const selection = directshipSelection;
     // 달력에서 고른 입고예정일이 있으면 그 발주만 넘긴다. 서버 계약(pos 전량 전달)은
     // 그대로 두고 목록만 좁히므로 변환·워크북 매칭 로직은 건드리지 않는다.
     // 달력은 유형을 합쳐 보여주므로 선택한 날짜의 쉽먼트·밀크런을 모두 남긴다.
@@ -598,7 +597,6 @@ export function createBrowserMallCollector({
     // 쿠팡직배송은 달력에서 고른 입고예정일만 처리한다. 없으면 종전대로 전량.
     options?: { directship?: { eddDates: string[] } },
   ): Promise<BrowserMallCollectionResult> {
-    directshipSelection = options?.directship ?? null;
     const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
     if (!extensionId) {
       throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
@@ -620,7 +618,9 @@ export function createBrowserMallCollector({
     if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(resolvedRun), today);
     if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
-    if (account.key === 'coupang-direct') return resultFor(await generateCoupangDirectSellpia(resolvedRun), today);
+    if (account.key === 'coupang-direct') {
+      return resultFor(await generateCoupangDirectSellpia(resolvedRun, options?.directship ?? null), today);
+    }
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'art09') return resultFor(await generateArt09Csv(resolvedRun), today);
     if (!isBrowserCollectableMall(account)) {

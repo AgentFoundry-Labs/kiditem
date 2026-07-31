@@ -18,6 +18,9 @@ import type {
 } from '../../../application/port/out/repository/ad-action.repository.port';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 
+const OPEN_ACTION_APPROVAL_STATUSES = ['pending_review', 'approved'] as const;
+const OPEN_ACTION_EXECUTE_STATUSES = ['queued', 'running'] as const;
+
 @Injectable()
 export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   constructor(
@@ -245,26 +248,74 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     candidates: ActionCandidate[],
   ): Promise<AdAction[]> {
     if (candidates.length === 0) return [];
-    return this.prisma.$transaction(
-      candidates.map((c) =>
-        this.prisma.adAction.create({
+    return this.prisma.$transaction(async (tx) => {
+      const pauseKeywordCandidates = candidates.filter((candidate) =>
+        pauseKeywordActionKey(candidate) !== null);
+
+      const existingPauseKeys = new Set<string>();
+      if (pauseKeywordCandidates.length > 0) {
+        // Prevent two concurrent strategy runs from both seeing "no open action"
+        // and inserting duplicate pause_keyword proposals for the same tenant.
+        await tx.$queryRaw(
+          Prisma.sql`
+            SELECT pg_advisory_xact_lock(
+              hashtext('kiditem_ad_action_pause_keyword'::text),
+              hashtext(${organizationId}::text)
+            )
+          `,
+        );
+
+        const openActions = await tx.adAction.findMany({
+          where: {
+            organizationId,
+            actionType: 'pause_keyword',
+            targetType: 'keyword',
+            approvalStatus: { in: [...OPEN_ACTION_APPROVAL_STATUSES] },
+            executeStatus: { in: [...OPEN_ACTION_EXECUTE_STATUSES] },
+            OR: pauseKeywordCandidates.map((candidate) => ({
+              externalId: candidate.externalId,
+              targetLabel: candidate.targetLabel,
+            })),
+          },
+          select: { externalId: true, targetLabel: true },
+        });
+
+        for (const action of openActions) {
+          const key = pauseKeywordActionKey(action);
+          if (key) existingPauseKeys.add(key);
+        }
+      }
+
+      const seenPauseKeys = new Set<string>();
+      const created: AdAction[] = [];
+      for (const candidate of candidates) {
+        const pauseKey = pauseKeywordActionKey(candidate);
+        if (pauseKey) {
+          if (existingPauseKeys.has(pauseKey) || seenPauseKeys.has(pauseKey)) {
+            continue;
+          }
+          seenPauseKeys.add(pauseKey);
+        }
+        created.push(await tx.adAction.create({
           data: {
             organizationId,
-            listingId: c.listingId,
-            adTargetDailyId: c.adTargetDailyId,
-            actionType: c.actionType,
-            targetType: c.targetType,
-            externalId: c.externalId,
-            targetLabel: c.targetLabel,
-            reason: c.reason,
-            priority: c.priority,
-            currentValue: c.currentValue,
-            proposedValue: c.proposedValue,
-            payload: c.payload as Prisma.InputJsonValue,
+            listingId: candidate.listingId,
+            adTargetDailyId: candidate.adTargetDailyId,
+            actionType: candidate.actionType,
+            targetType: candidate.targetType,
+            externalId: candidate.externalId,
+            targetLabel: candidate.targetLabel,
+            reason: candidate.reason,
+            priority: candidate.priority,
+            currentValue: candidate.currentValue,
+            proposedValue: candidate.proposedValue,
+            payload: candidate.payload as Prisma.InputJsonValue,
           },
-        }),
-      ),
-    );
+        }));
+      }
+
+      return created;
+    });
   }
 
   async approveAdActions(
@@ -491,4 +542,23 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       };
     });
   }
+}
+
+function pauseKeywordActionKey(input: {
+  actionType?: string | null;
+  targetType?: string | null;
+  externalId?: string | null;
+  targetLabel?: string | null;
+}): string | null {
+  if (input.actionType !== undefined && input.actionType !== 'pause_keyword') return null;
+  if (input.targetType !== undefined && input.targetType !== 'keyword') return null;
+  const externalId = normalizeActionKeyPart(input.externalId);
+  const targetLabel = normalizeActionKeyPart(input.targetLabel);
+  if (!externalId && !targetLabel) return null;
+  return `${externalId ?? ''}\u0000${targetLabel ?? ''}`;
+}
+
+function normalizeActionKeyPart(value: string | null | undefined): string | null {
+  const normalized = String(value ?? '').trim();
+  return normalized.length > 0 ? normalized : null;
 }
