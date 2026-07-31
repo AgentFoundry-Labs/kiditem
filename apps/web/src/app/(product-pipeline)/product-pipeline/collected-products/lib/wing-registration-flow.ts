@@ -12,7 +12,13 @@ import { buildGenerationHistoryHtml } from '../../_shared/lib/generated-detail-h
 import {
   renderCandidateDetailImageOnServer,
 } from './detail-page-image-api';
-import { candidatesApi, productsApi, type ProductDetailResponse } from './sourcing-api';
+import {
+  candidatesApi,
+  productsApi,
+  type ExternalWingSellpiaMatchPreview,
+  type ProductDetailResponse,
+  type SellpiaInventorySearchItem,
+} from './sourcing-api';
 import { resolveWingCategories } from './wing-category-resolution';
 import {
   getWingCategoryDefinition,
@@ -415,7 +421,7 @@ export interface WingSubmissionResult {
   evidence?: Record<string, unknown>;
 }
 
-/** 브라우저가 등록 완료와 상품 ID를 관찰했는지. 최종 확정은 서버 provider 조회가 맡는다. */
+/** 브라우저가 등록 완료와 상품 ID를 관찰했는지. 서버는 WING 계정 증거를 대조한다. */
 export function isConfirmedWingRegistration(
   submission: WingSubmissionResult | undefined,
 ): submission is WingSubmissionResult & { externalListingId: string } {
@@ -478,11 +484,23 @@ export interface WingRegistrationDraft {
   channelAccountId: string;
   /** 모달에서 명시적으로 선택할 수 있는 활성 쿠팡 WING 계정. */
   channelAccounts?: WingChannelAccountOption[];
+  /** 등록 전 서버가 계산한 Sellpia SKU 후보. 최종 제출 시 선택 ID를 다시 검증한다. */
+  sellpiaMatchPreview: WingSellpiaMatchPreview;
   /** 렌더된 상세설명 이미지 URL(이 경로의 필수값). */
   detailImageUrl: string;
   /** 기존 ProductPreparation 검토 입력. 카테고리 저장 시 함께 보존한다. */
   registrationInput: Record<string, unknown>;
 }
+
+export type WingSellpiaSkuOption = SellpiaInventorySearchItem & {
+  recommendedQuantity?: number | null;
+};
+
+export type WingSellpiaSelection = SellpiaInventorySearchItem & {
+  quantity: number;
+};
+
+export type WingSellpiaMatchPreview = ExternalWingSellpiaMatchPreview;
 
 export type WingRegistrationPreparationResult =
   | { status: 'ready'; draft: WingRegistrationDraft }
@@ -661,11 +679,14 @@ export async function prepareWingRegistration(
 
   // 등록 성공 시 ChannelListing 을 만들 계정을 미리 확정한다. 활성 쿠팡 Wing 계정이
   // 없으면 WING 탭을 열기 전에 멈춘다 — 등록만 되고 우리 목록에 못 올리는 상태를 막는다.
-  const accountSelection = await resolveWingChannelAccount(
-    detail.productPreparation?.channelAccountId ?? null,
-  );
-
   const product = candidateToWingProduct(detail, defaults, categoryCell, detailImageUrl);
+  const [accountSelection, sellpiaMatchPreview] = await Promise.all([
+    resolveWingChannelAccount(detail.productPreparation?.channelAccountId ?? null),
+    candidatesApi.previewExternalWingRegistrationMatch(candidateId, {
+      listingName: product.sellerProductName ?? product.productName ?? detail.name,
+      itemName: product.productName,
+    }),
+  ]);
   return {
     status: 'ready',
     draft: {
@@ -676,6 +697,7 @@ export async function prepareWingRegistration(
       extensionId,
       channelAccountId: accountSelection.channelAccountId,
       channelAccounts: accountSelection.channelAccounts,
+      sellpiaMatchPreview,
       detailImageUrl,
       registrationInput: { ...(detail.productPreparation?.registrationInput ?? {}) },
     },
@@ -733,24 +755,35 @@ export async function submitWingRegistration(
    */
   autoSubmit = false,
   channelAccountId = draft.channelAccountId,
+  sellpiaSelection: WingSellpiaSelection | null = draft.sellpiaMatchPreview.sellpiaMatch,
 ): Promise<WingSingleRegistrationResult> {
   const errors = validateWingRegistrationOverrides(overrides);
   if (errors.length > 0) throw new Error(errors.join(' '));
-  const product = applyWingRegistrationOverrides(draft.product, overrides);
+  let product = applyWingRegistrationOverrides(draft.product, overrides);
   const availableAccounts = draft.channelAccounts ?? (
     draft.channelAccountId ? [{ id: draft.channelAccountId, name: '' }] : []
   );
   if (!channelAccountId || !availableAccounts.some((account) => account.id === channelAccountId)) {
     throw new Error('등록할 쿠팡 WING 계정을 선택하세요.');
   }
+  if (!sellpiaSelection) {
+    throw new Error('등록할 셀피아 상품을 먼저 연결하세요.');
+  }
+  if (!Number.isSafeInteger(sellpiaSelection.quantity) || sellpiaSelection.quantity <= 0) {
+    throw new Error('판매 1개당 셀피아 차감수량은 1 이상의 정수여야 합니다.');
+  }
   // 판매가 0 은 WING 탭을 열기 전에 막는다. 모달 검증이 이미 걸러내지만,
   // 확장으로 나가는 마지막 지점이라 방어적으로 한 번 더 확인한다.
   requireSalePrice(product.variants[0]?.salePrice ?? 0, product.productName);
-  let execution: { executionId: string; expectedVendorId: string } | null = null;
+  let execution: Awaited<ReturnType<
+    typeof candidatesApi.prepareExternalWingRegistration
+  >> | null = null;
   try {
     const request = {
       channelAccountId,
       displayName: product.productName,
+      sellpiaInventorySkuId: sellpiaSelection.sellpiaInventorySkuId,
+      sellpiaQuantity: sellpiaSelection.quantity,
       registrationInput: {
         ...draft.registrationInput,
         source: 'coupang-wing-extension',
@@ -767,6 +800,24 @@ export async function submitWingRegistration(
       ...request,
       idempotencyKey: draft.idempotencyKey,
     });
+    product = {
+      ...product,
+      variants: product.variants.map((variant, index) => index === 0
+        ? { ...variant, vendorItemCode: execution!.sellpiaMatch.code }
+        : variant),
+    };
+    if (execution.existingListing) {
+      return {
+        detailImage: { status: 'rendered', imageUrl: draft.detailImageUrl },
+        submission: {
+          attempted: true,
+          ok: true,
+          status: 'registered',
+          externalListingId: execution.existingListing.externalListingId,
+          executionId: execution.executionId,
+        },
+      };
+    }
     // 폼만 채우는 기본 경로는 아직 마켓 부작용이 없다. 사용자가 WING 에서
     // 실제 등록한 뒤 등록상품ID를 확인할 때 서버가 실행을 시작한다.
     if (autoSubmit === true) {

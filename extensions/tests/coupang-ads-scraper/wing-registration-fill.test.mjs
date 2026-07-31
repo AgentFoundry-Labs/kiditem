@@ -616,6 +616,7 @@ function createOptionAndNoticeHarness({
   optionCreationMode = 'legacy',
   generatedRowCount = 0,
   dynamicRequiredOptionTypes = ['색상', '수량'],
+  vendorCodeInputAvailable = true,
 } = {}) {
   let listener = null;
   const events = [];
@@ -745,17 +746,20 @@ function createOptionAndNoticeHarness({
 
   const buttons = [makeBulkButton('판매가 일괄입력'), makeBulkButton('재고수량 일괄입력')];
   const categoryInput = {};
+  let vendorCodeInput = null;
   const document = {
     body: { innerText: '' },
     querySelector(selector) {
       if (selector.includes('placeholder="카테고리명 입력"')) return categoryInput;
       if (selector === '.option-content') return optionRoot;
       if (selector === '.notice-category-option-section') return noticeSection;
+      if (selector.includes('업체상품코드')) return vendorCodeInput;
       return null;
     },
     querySelectorAll(selector) {
       if (selector === 'button') return buttons;
       if (selector === 'input[type="number"]') return numberInputs;
+      if (selector.includes('업체상품코드')) return vendorCodeInput ? [vendorCodeInput] : [];
       return [];
     },
   };
@@ -782,6 +786,16 @@ function createOptionAndNoticeHarness({
       this._value = String(next);
     },
   });
+  if (vendorCodeInputAvailable) {
+    vendorCodeInput = Object.assign(Object.create(FakeInput.prototype), {
+      tagName: 'INPUT',
+      placeholder: '업체상품코드 입력',
+      offsetParent: {},
+      dispatchEvent(event) {
+        events.push(`vendorCode:${event.type}`);
+      },
+    });
+  }
   const dynamicAppliedOptions = new Map();
   const makeOptionInput = (optionType, placeholder) => {
     const input = Object.create(FakeInput.prototype);
@@ -916,10 +930,29 @@ function createOptionAndNoticeHarness({
     noticeRows,
     getNoticeCategory: () => noticeCurrent,
     getBulkValues: () => numberInputs.map((input) => input.value),
+    getVendorCode: () => vendorCodeInput?.value ?? '',
   };
 }
 
 const VARIANT = { purchaseOptions: [], salePrice: 4000, stock: 999 };
+
+test('fills the real Sellpia SKU into the WING vendor item code before registration', async () => {
+  const harness = createOptionAndNoticeHarness();
+  const result = await harness.fill({ ...VARIANT, vendorItemCode: '10451-1' });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(harness.getVendorCode(), '10451-1');
+  assert.ok(result.steps.includes('vendorItemCode:10451-1'));
+});
+
+test('fails closed when a verified Sellpia code cannot be written to the WING form', async () => {
+  const harness = createOptionAndNoticeHarness({ vendorCodeInputAvailable: false });
+  const result = await harness.fill({ ...VARIANT, vendorItemCode: '10451-1' });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /업체상품코드/);
+  assert.ok(result.steps.includes('vendorItemCodeFailed'));
+});
 
 test('selects the option rows before running either bulk fill', async () => {
   const harness = createOptionAndNoticeHarness();

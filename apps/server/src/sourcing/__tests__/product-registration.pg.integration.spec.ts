@@ -729,6 +729,92 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     expect(observation).toBe('blocked');
   });
 
+  it('cancels an unstarted external WING intent before a candidate terminal transition', async () => {
+    const prepared = await repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+    const cancelledAt = new Date('2026-07-30T12:00:00.000Z');
+
+    const cancelled = await candidateRepository.runInTransaction(async (transaction) => {
+      await candidateRepository.lockCandidate(transaction, {
+        id: candidateId,
+        organizationId: TEST_ORGANIZATION_ID,
+      });
+      const count = await repository.cancelUnstartedExternalRegistrationIntents(
+        transaction,
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceCandidateId: candidateId,
+          cancelledAt,
+        },
+      );
+      await repository.assertCandidateTerminalTransitionAllowed(transaction, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidateId,
+      });
+      return count;
+    });
+
+    expect(cancelled).toBe(1);
+    await expect(prisma.productPreparation.findUniqueOrThrow({
+      where: { id: prepared.preparationId },
+      select: { status: true, isDeleted: true, deletedAt: true },
+    })).resolves.toEqual({ status: 'cancelled', isDeleted: true, deletedAt: cancelledAt });
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: { status: true, completedAt: true },
+    })).resolves.toEqual({ status: 'cancelled', completedAt: cancelledAt });
+  });
+
+  it('keeps a started external WING execution as a candidate deletion blocker', async () => {
+    const prepared = await repository.prepareExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+    await repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+
+    await expect(candidateRepository.runInTransaction(async (transaction) => {
+      await candidateRepository.lockCandidate(transaction, {
+        id: candidateId,
+        organizationId: TEST_ORGANIZATION_ID,
+      });
+      const cancelled = await repository.cancelUnstartedExternalRegistrationIntents(
+        transaction,
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceCandidateId: candidateId,
+          cancelledAt: new Date('2026-07-30T12:00:00.000Z'),
+        },
+      );
+      expect(cancelled).toBe(0);
+      return repository.assertCandidateTerminalTransitionAllowed(transaction, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidateId,
+      });
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: { status: true, providerOutcome: true },
+    })).resolves.toEqual({ status: 'executing', providerOutcome: 'uncertain' });
+  });
+
   it('durably prepares, starts, reconciles, and finalizes one external WING execution', async () => {
     const idempotencyKey = randomUUID();
     const prepared = await repository.prepareExternalExecution({
@@ -1078,7 +1164,75 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('still blocks a changed-payload attempt once the existing external execution has started', async () => {
+  it('restarts a reconciled unknown WING attempt only after the channel absence was verified', async () => {
+    const base = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+    };
+    const stale = await repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections);
+    await repository.startExternalExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: stale.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    await repository.markExternalExecutionUnresolved({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: stale.executionId,
+      requestedByUserId: TEST_USER_ID,
+      evidence: { reason: 'browser_timeout' },
+    });
+
+    await expect(repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    }, ensureWorkspace, resolveSelections)).resolves.toMatchObject({
+      executionId: stale.executionId,
+      status: 'reconciling',
+      providerOutcome: 'uncertain',
+    });
+
+    const fresh = await repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+      providerAbsenceVerified: true,
+    }, ensureWorkspace, resolveSelections);
+
+    expect(fresh).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
+    expect(fresh.executionId).not.toBe(stale.executionId);
+    expect(fresh.preparationId).not.toBe(stale.preparationId);
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: stale.executionId },
+      select: { status: true, providerOutcome: true, completedAt: true, leaseToken: true },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      providerOutcome: 'uncertain',
+      completedAt: expect.any(Date),
+      leaseToken: null,
+    });
+    await expect(prisma.productPreparation.findUniqueOrThrow({
+      where: { id: stale.preparationId },
+      select: { status: true, providerOutcome: true, isDeleted: true },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      providerOutcome: 'uncertain',
+      isDeleted: true,
+    });
+  });
+
+  it('restarts a started unknown attempt only after the channel absence was verified', async () => {
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
@@ -1091,8 +1245,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
     }, ensureWorkspace, resolveSelections);
-    // Once started, the execution is uncertain (may have reached Coupang); a
-    // changed-payload retry must never silently replace it.
+    // Without a fresh provider lookup, a started execution remains protected.
     await repository.startExternalExecution({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
@@ -1106,6 +1259,17 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       registrationInput: { wingProduct: { productName: 'Changed after start' } },
       idempotencyKey: randomUUID(),
     }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+
+    const fresh = await repository.prepareExternalExecution({
+      ...base,
+      displayName: 'Changed after verified absence',
+      registrationInput: { wingProduct: { productName: 'Changed after verified absence' } },
+      idempotencyKey: randomUUID(),
+      providerAbsenceVerified: true,
+    }, ensureWorkspace, resolveSelections);
+
+    expect(fresh).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
+    expect(fresh.executionId).not.toBe(prepared.executionId);
   });
 
   it('serializes start behind a concurrent supersede and never resurrects the stale execution', async () => {

@@ -132,14 +132,18 @@ function setup(overrides: {
     ...overrides.repository,
   } as ProductPreparationRepositoryPort;
   const channel = {
-    assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' }),
-    verifyExternalRegistration: vi.fn().mockResolvedValue({
-      channel: 'coupang',
-      vendorId: 'A00012345',
-      externalListingId: '427011919',
-      status: 'APPROVED',
-      rawResult: { code: 'SUCCESS' },
+    preflightExternalRegistration: vi.fn().mockResolvedValue({
+      sellpiaMatch: {
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+        code: '10451-1',
+        name: '3500꿀사과슬랑이',
+        optionName: null,
+        currentStock: 13,
+        quantity: 1,
+      },
+      existingListing: null,
     }),
+    assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' }),
     reconcile: vi.fn().mockResolvedValue(null),
     submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
       await beforeProviderCreate();
@@ -203,8 +207,14 @@ describe('ProductRegistrationService', () => {
 
     await expect(service.prepareExternalWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
       channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { listingPayload: { items: [{ itemName: 'Kids rain boots' }] } },
+      displayName: '꿀사과슬랑이',
+      registrationInput: {
+        wingProduct: {
+          productName: '꿀사과슬랑이 1p',
+          sellerProductName: '꿀사과슬랑이',
+          variants: [{ stock: 999 }],
+        },
+      },
       idempotencyKey: '33333333-3333-4333-8333-333333333333',
     })).resolves.toEqual(expect.objectContaining({
       executionId: 'execution-1',
@@ -213,7 +223,11 @@ describe('ProductRegistrationService', () => {
     await service.startExternalWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, 'execution-1');
 
     expect(prepareExternalExecution).toHaveBeenCalledWith(
-      expect.objectContaining({ organizationId: ORG_ID, sourceCandidateId: CANDIDATE_ID }),
+      expect.objectContaining({
+        organizationId: ORG_ID,
+        sourceCandidateId: CANDIDATE_ID,
+        providerAbsenceVerified: false,
+      }),
       expect.any(Function),
       expect.any(Function),
     );
@@ -224,6 +238,86 @@ describe('ProductRegistrationService', () => {
       executionId: 'execution-1',
     }));
     expect(repository.createOrGetActiveDraft).not.toHaveBeenCalled();
+  });
+
+  it('freezes the verified Sellpia match and its real code into the WING vendor item code', async () => {
+    const prepareExternalExecution = vi.fn().mockResolvedValue({
+      executionId: 'execution-1',
+      preparationId: PREPARATION_ID,
+      requestHash: 'hash-1',
+      status: 'prepared',
+      expectedProviderAccountId: 'A00012345',
+    });
+    const preflightExternalRegistration = vi.fn().mockResolvedValue({
+      sellpiaMatch: {
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+        code: '10451-1',
+        name: '3500꿀사과슬랑이',
+        optionName: null,
+        currentStock: 13,
+        quantity: 1,
+      },
+      existingListing: {
+        externalListingId: '427011919',
+        displayName: '꿀사과슬랑이',
+        status: 'APPROVED',
+      },
+    });
+    const { service } = setup({
+      repository: { prepareExternalExecution } as never,
+      channel: { preflightExternalRegistration },
+    });
+
+    await expect(service.prepareExternalWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      channelAccountId: ACCOUNT_ID,
+      displayName: '꿀사과슬랑이',
+      registrationInput: {
+        wingProduct: {
+          productName: '꿀사과슬랑이 1p',
+          sellerProductName: '꿀사과슬랑이',
+          variants: [{ stock: 999, vendorItemCode: 'client-controlled-value' }],
+        },
+      },
+      idempotencyKey: '33333333-3333-4333-8333-333333333333',
+    })).resolves.toMatchObject({
+      sellpiaMatch: { code: '10451-1' },
+      existingListing: { externalListingId: '427011919' },
+    });
+
+    expect(preflightExternalRegistration).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      channelAccountId: ACCOUNT_ID,
+      sourceCandidateId: CANDIDATE_ID,
+      listingName: '꿀사과슬랑이',
+      itemName: '꿀사과슬랑이 1p',
+    });
+    expect(prepareExternalExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAbsenceVerified: false,
+        registrationInput: expect.objectContaining({
+          sellpiaMatch: expect.objectContaining({ code: '10451-1' }),
+          existingChannelListing: {
+            externalListingId: '427011919',
+            displayName: '꿀사과슬랑이',
+            status: 'APPROVED',
+          },
+          wingProduct: expect.objectContaining({
+            variants: [expect.objectContaining({ vendorItemCode: '10451-1' })],
+          }),
+        }),
+      }),
+      expect.any(Function),
+      expect.any(Function),
+    );
+    const frozenInput = prepareExternalExecution.mock.calls[0]?.[0]
+      .registrationInput as Record<string, unknown>;
+    expect(frozenInput.sellpiaMatch).toEqual({
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+      code: '10451-1',
+      name: '3500꿀사과슬랑이',
+      optionName: null,
+      quantity: 1,
+    });
   });
 
   it('creates an account-scoped draft and atomically resolves the candidate workspace', async () => {
@@ -585,9 +679,9 @@ describe('ProductRegistrationService', () => {
     });
   });
 
-  it('validates the persisted Wing account before accepting external confirmation', async () => {
+  it('accepts matching WING extension evidence without calling the Coupang Open API', async () => {
     const assertExternalRegistrationAccount = vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' });
-    const { service, repository, channel } = setup({
+    const { service, repository } = setup({
       channel: { assertExternalRegistrationAccount },
     });
 
@@ -601,16 +695,20 @@ describe('ProductRegistrationService', () => {
       organizationId: ORG_ID,
       channelAccountId: ACCOUNT_ID,
     });
-    expect(channel.verifyExternalRegistration).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      channelAccountId: ACCOUNT_ID,
-      externalListingId: '427011919',
-    });
     expect(repository.recordProviderResult).toHaveBeenCalledWith(
       ORG_ID,
       PREPARATION_ID,
       '33333333-3333-4333-8333-333333333333',
-      expect.objectContaining({ channel: 'coupang' }),
+      expect.objectContaining({
+        channel: 'coupang',
+        rawResult: expect.objectContaining({
+          source: 'coupang-wing-extension',
+          evidence: {
+            wingVendorId: 'A00012345',
+            wingIdentitySource: 'dom:data-vendor-id',
+          },
+        }),
+      }),
     );
   });
 
@@ -644,14 +742,52 @@ describe('ProductRegistrationService', () => {
     });
   });
 
-  it('treats browser WING evidence as diagnostic after independent provider verification', async () => {
-    const { service, repository, channel } = setup();
+  it('rejects completion when WING extension evidence belongs to another vendor', async () => {
+    const { service, repository } = setup();
     await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
       executionId: 'execution-1', externalListingId: '427011919',
       evidence: { wingVendorId: 'B00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    })).rejects.toThrow('does not match the prepared registration');
+    expect(repository.recordProviderResult).not.toHaveBeenCalled();
+  });
+
+  it('rejects completion without deterministic WING extension evidence', async () => {
+    const { service, repository } = setup();
+    await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1', externalListingId: '427011919',
+    })).rejects.toThrow('WING extension evidence is required');
+    expect(repository.recordProviderResult).not.toHaveBeenCalled();
+  });
+
+  it('completes a server-frozen synced listing match without browser evidence', async () => {
+    const loadFrozenSubmission = vi.fn().mockResolvedValue(frozenSubmission({
+      submissionPayloadJson: {
+        channelAccountId: ACCOUNT_ID,
+        displayName: 'Kids rain boots',
+        registrationInput: {
+          existingChannelListing: {
+            externalListingId: '427011919',
+            displayName: 'Kids rain boots',
+            status: 'APPROVED',
+          },
+        },
+      },
+    }));
+    const { service, repository } = setup({
+      repository: { loadFrozenSubmission } as never,
+    });
+
+    await expect(service.confirmExternalRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      executionId: 'execution-1', externalListingId: '427011919',
     })).resolves.toMatchObject({ status: 'registered' });
-    expect(channel.verifyExternalRegistration).toHaveBeenCalled();
-    expect(repository.recordProviderResult).toHaveBeenCalled();
+    expect(repository.recordProviderResult).toHaveBeenCalledWith(
+      ORG_ID,
+      PREPARATION_ID,
+      '33333333-3333-4333-8333-333333333333',
+      expect.objectContaining({
+        rawResult: expect.objectContaining({ source: 'synced-channel-listing' }),
+      }),
+    );
   });
 
   it('rejects completion when the persisted WING vendor changed after preparation', async () => {

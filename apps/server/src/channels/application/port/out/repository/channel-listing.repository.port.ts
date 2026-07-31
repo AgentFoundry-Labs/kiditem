@@ -172,6 +172,15 @@ export interface MarketplaceRegistrationRepositoryPort {
     organizationId: string;
     channelAccountId: string;
   }): Promise<{ channel: string; vendorId: string | null; externalAccountId: string | null }>;
+  findExistingActiveListingBySellerSku(input: {
+    organizationId: string;
+    channelAccountId: string;
+    sellerSku: string;
+  }): Promise<{
+    externalListingId: string;
+    displayName: string;
+    status: string | null;
+  } | null>;
   preflightExactProductLinks(input: {
     organizationId: string;
     masterProductId?: string;

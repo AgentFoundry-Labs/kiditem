@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { AlertTriangle, Loader2, Store, X } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { AlertTriangle, CheckCircle2, Loader2, Search, Store, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WING_CATEGORY_DEFINITIONS } from '../../lib/wing-category-presets';
 import {
@@ -9,6 +9,8 @@ import {
   WING_DISPLAY_NAME_MAX,
   type WingRegistrationDraft,
   type WingRegistrationOverrides,
+  type WingSellpiaSelection,
+  type WingSellpiaSkuOption,
 } from '../../lib/wing-registration-flow';
 
 /**
@@ -27,6 +29,7 @@ export default function WingRegistrationConfirmDialog({
   submissionError,
   onCancel,
   onConfirm,
+  onSearchSellpia,
 }: {
   /** `prepareWingRegistration()` 결과. `null` 이면 모달을 닫아 둔다. */
   draft: WingRegistrationDraft | null;
@@ -38,10 +41,18 @@ export default function WingRegistrationConfirmDialog({
     overrides: WingRegistrationOverrides,
     autoSubmit: boolean,
     channelAccountId: string,
+    sellpiaSelection: WingSellpiaSelection,
   ) => void;
+  onSearchSellpia?: (query: string) => Promise<WingSellpiaSkuOption[]>;
 }) {
   const [overrides, setOverrides] = useState<WingRegistrationOverrides | null>(null);
   const [channelAccountId, setChannelAccountId] = useState('');
+  const [sellpiaSelection, setSellpiaSelection] = useState<WingSellpiaSelection | null>(null);
+  const [showSellpiaSearch, setShowSellpiaSearch] = useState(false);
+  const [sellpiaSearchQuery, setSellpiaSearchQuery] = useState('');
+  const [sellpiaSearchResults, setSellpiaSearchResults] = useState<WingSellpiaSkuOption[]>([]);
+  const [sellpiaSearchError, setSellpiaSearchError] = useState<string | null>(null);
+  const [isSearchingSellpia, setIsSearchingSellpia] = useState(false);
   // ⚠️ 기본값은 반드시 OFF. 켜야만 확장이 WING 의 '상품등록' 버튼까지 누른다.
   const [autoSubmit, setAutoSubmit] = useState(false);
 
@@ -52,6 +63,12 @@ export default function WingRegistrationConfirmDialog({
   useEffect(() => {
     setOverrides(draft ? { ...draft.overrides } : null);
     setChannelAccountId(draft?.channelAccountId ?? '');
+    setSellpiaSelection(draft?.sellpiaMatchPreview.sellpiaMatch ?? null);
+    setShowSellpiaSearch(draft?.sellpiaMatchPreview.status !== 'matched');
+    setSellpiaSearchQuery('');
+    setSellpiaSearchResults(draft?.sellpiaMatchPreview.proposals ?? []);
+    setSellpiaSearchError(null);
+    setIsSearchingSellpia(false);
     setAutoSubmit(false);
   }, [draft]);
 
@@ -60,6 +77,10 @@ export default function WingRegistrationConfirmDialog({
   const errors = [
     ...validateWingRegistrationOverrides(overrides),
     ...(!channelAccountId ? ['쿠팡 WING 계정을 선택하세요.'] : []),
+    ...(!sellpiaSelection ? ['셀피아 상품을 연결하세요.'] : []),
+    ...(sellpiaSelection && (
+      !Number.isSafeInteger(sellpiaSelection.quantity) || sellpiaSelection.quantity <= 0
+    ) ? ['판매 1개당 셀피아 차감수량은 1 이상의 정수여야 합니다.'] : []),
   ];
   const nameLength = overrides.productName.trim().length;
   const nameOverLimit = nameLength > WING_DISPLAY_NAME_MAX;
@@ -77,6 +98,40 @@ export default function WingRegistrationConfirmDialog({
   const toNumber = (value: string): number => {
     const parsed = Number(value.replace(/[^\d-]/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const searchSellpia = async (event: FormEvent) => {
+    event.preventDefault();
+    const query = sellpiaSearchQuery.trim();
+    if (!query) {
+      setSellpiaSearchError('셀피아 상품명이나 코드를 입력하세요.');
+      return;
+    }
+    if (!onSearchSellpia) return;
+    setIsSearchingSellpia(true);
+    setSellpiaSearchError(null);
+    try {
+      const results = await onSearchSellpia(query);
+      setSellpiaSearchResults(results);
+      if (results.length === 0) setSellpiaSearchError('검색 결과가 없습니다.');
+    } catch (error) {
+      setSellpiaSearchError(
+        error instanceof Error ? error.message : '셀피아 재고 검색에 실패했습니다.',
+      );
+    } finally {
+      setIsSearchingSellpia(false);
+    }
+  };
+  const selectSellpia = (sku: WingSellpiaSkuOption) => {
+    setSellpiaSelection({
+      sellpiaInventorySkuId: sku.sellpiaInventorySkuId,
+      code: sku.code,
+      name: sku.name,
+      optionName: sku.optionName,
+      currentStock: sku.currentStock,
+      quantity: sku.recommendedQuantity ?? 1,
+    });
+    setShowSellpiaSearch(false);
+    setSellpiaSearchError(null);
   };
 
   return (
@@ -140,6 +195,127 @@ export default function WingRegistrationConfirmDialog({
               ))}
             </select>
           </Field>
+
+          <section
+            aria-label="셀피아 상품 매칭"
+            className={cn(
+              'rounded-xl border p-4',
+              sellpiaSelection
+                ? 'border-emerald-200 bg-emerald-50/60'
+                : 'border-amber-200 bg-amber-50/70',
+            )}
+          >
+            {sellpiaSelection ? (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 text-[12px] font-black text-emerald-700">
+                      <CheckCircle2 size={15} />
+                      셀피아 매칭 완료
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span className="rounded bg-white px-2 py-1 font-mono text-[12px] font-black text-slate-900 shadow-sm">
+                        {sellpiaSelection.code}
+                      </span>
+                      <span className="text-sm font-black text-slate-900">
+                        {sellpiaSelection.name}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 text-[11px] font-bold text-slate-500">
+                      {sellpiaSelection.optionName && <span>옵션 {sellpiaSelection.optionName}</span>}
+                      <span>현재고 {sellpiaSelection.currentStock}개</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSellpiaSearch((value) => !value)}
+                    disabled={isSubmitting}
+                    className="shrink-0 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-black text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                  >
+                    다른 상품 선택
+                  </button>
+                </div>
+                <label className="mt-3 block text-[11px] font-black text-slate-700">
+                  판매 1개당 셀피아 차감수량
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    aria-label="판매 1개당 셀피아 차감수량"
+                    value={sellpiaSelection.quantity}
+                    onChange={(event) => setSellpiaSelection((current) => current
+                      ? { ...current, quantity: Number(event.target.value) }
+                      : current)}
+                    className="ml-2 h-8 w-20 rounded-md border border-emerald-200 bg-white px-2 text-sm font-black text-slate-900 outline-none focus:border-emerald-500"
+                  />
+                </label>
+              </>
+            ) : (
+              <div className="flex items-start gap-2 text-amber-800">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-[12px] font-black">셀피아 상품을 연결하세요.</p>
+                  <p className="mt-1 text-[11px] font-semibold leading-5">
+                    {draft.sellpiaMatchPreview.reason}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {showSellpiaSearch && (
+              <div className="mt-3 border-t border-amber-200/80 pt-3">
+                <form onSubmit={searchSellpia} className="flex gap-2">
+                  <input
+                    type="search"
+                    aria-label="셀피아 재고 검색"
+                    value={sellpiaSearchQuery}
+                    onChange={(event) => setSellpiaSearchQuery(event.target.value)}
+                    placeholder="상품명 또는 셀피아 코드"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-orange-400"
+                  />
+                  <button
+                    type="submit"
+                    aria-label="셀피아 검색"
+                    disabled={isSearchingSellpia || !onSearchSellpia}
+                    className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-slate-800 px-3 text-[12px] font-black text-white hover:bg-slate-900 disabled:opacity-50"
+                  >
+                    {isSearchingSellpia
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Search size={14} />}
+                    검색
+                  </button>
+                </form>
+                {sellpiaSearchError && (
+                  <p className="mt-2 text-[11px] font-bold text-rose-600">{sellpiaSearchError}</p>
+                )}
+                {sellpiaSearchResults.length > 0 && (
+                  <div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto">
+                    {sellpiaSearchResults.map((sku) => (
+                      <button
+                        key={sku.sellpiaInventorySkuId}
+                        type="button"
+                        aria-label={`${sku.code} ${sku.name} 선택`}
+                        onClick={() => selectSellpia(sku)}
+                        className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left hover:border-orange-300 hover:bg-orange-50"
+                      >
+                        <span className="min-w-0">
+                          <span className="block font-mono text-[11px] font-black text-slate-600">
+                            {sku.code}
+                          </span>
+                          <span className="block truncate text-[12px] font-black text-slate-900">
+                            {sku.name}{sku.optionName ? ` · ${sku.optionName}` : ''}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-[11px] font-bold text-slate-500">
+                          현재고 {sku.currentStock}개
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
 
           <Field
             label="WING 카테고리"
@@ -319,7 +495,8 @@ export default function WingRegistrationConfirmDialog({
             </button>
             <button
               type="button"
-              onClick={() => onConfirm(overrides, autoSubmit, channelAccountId)}
+              onClick={() => sellpiaSelection
+                && onConfirm(overrides, autoSubmit, channelAccountId, sellpiaSelection)}
               disabled={isSubmitting || errors.length > 0}
               className={cn(
                 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-50',

@@ -125,6 +125,26 @@ describe('StorageService', () => {
       expect(cmd.CacheControl).toBe('public, max-age=31536000, immutable');
       expect(url).toBe('http://localhost:9000/kiditem/images/a.png');
     });
+
+    it('빈 메시지의 저장소 연결 오류를 사용자에게 설명 가능한 503으로 바꾼다', async () => {
+      const connectionError = Object.assign(
+        new AggregateError([
+          Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:9000'), {
+            code: 'ECONNREFUSED',
+          }),
+        ]),
+        { code: 'ECONNREFUSED' },
+      );
+      mockSend.mockRejectedValueOnce(connectionError);
+      const service = new StorageService();
+
+      await expect(
+        service.save('images/a.png', Buffer.from('hello'), 'image/png'),
+      ).rejects.toMatchObject({
+        status: 503,
+        message: '이미지 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      });
+    });
   });
 
   describe('copy', () => {

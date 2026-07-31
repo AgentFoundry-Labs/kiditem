@@ -63,8 +63,24 @@ vi.mock('./sourcing-api', async (importOriginal) => {
     },
     candidatesApi: {
       ...actual.candidatesApi,
+      previewExternalWingRegistrationMatch: vi.fn().mockResolvedValue({
+        status: 'matched',
+        reason: 'one match',
+        sellpiaMatch: {
+          sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+          code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
+          currentStock: 13, quantity: 1,
+        },
+        proposals: [],
+      }),
       prepareExternalWingRegistration: vi.fn().mockResolvedValue({
         executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345',
+        sellpiaMatch: {
+          sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+          code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
+          currentStock: 13, quantity: 1,
+        },
+        existingListing: null,
       }),
       startExternalWingRegistration: vi.fn().mockResolvedValue({ status: 'executing' }),
       markExternalWingRegistrationUnresolved: vi.fn().mockResolvedValue({ status: 'reconciling' }),
@@ -82,6 +98,7 @@ vi.mock('./wing-category-resolution', async (importOriginal) => {
 
 beforeEach(() => {
   vi.mocked(sendToExtensionViaPort).mockReset();
+  vi.mocked(candidatesApi.previewExternalWingRegistrationMatch).mockClear();
   vi.mocked(candidatesApi.prepareExternalWingRegistration).mockClear();
   vi.mocked(candidatesApi.startExternalWingRegistration).mockClear();
   vi.mocked(candidatesApi.markExternalWingRegistrationUnresolved).mockClear();
@@ -99,6 +116,20 @@ afterEach(() => {
 });
 
 const SOURCE_IMAGE = 'https://cbu01.alicdn.com/img/original-source.jpg';
+
+const PREPARED_WING_RESPONSE = {
+  executionId: '33333333-3333-4333-8333-333333333333',
+  expectedVendorId: 'A00012345',
+  sellpiaMatch: {
+    sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+    code: '10451-1',
+    name: '3500꿀사과슬랑이',
+    optionName: null,
+    currentStock: 13,
+    quantity: 1,
+  },
+  existingListing: null,
+};
 
 const basics = (overrides: Partial<ProductBasics> = {}): ProductBasics => ({
   name: '딸깍이 키링',
@@ -824,6 +855,12 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
       overrides: buildWingRegistrationOverrides(product()),
       extensionId: 'ext-1',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
+      sellpiaMatchPreview: {
+        status: 'matched' as const,
+        reason: 'one match',
+        sellpiaMatch: PREPARED_WING_RESPONSE.sellpiaMatch,
+        proposals: [],
+      },
       detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
       registrationInput: { salePrice: 2200, category: '키링' },
     };
@@ -843,6 +880,12 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
       overrides: buildWingRegistrationOverrides(product()),
       extensionId: 'ext-1',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
+      sellpiaMatchPreview: {
+        status: 'matched' as const,
+        reason: 'one match',
+        sellpiaMatch: PREPARED_WING_RESPONSE.sellpiaMatch,
+        proposals: [],
+      },
       detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
       registrationInput: { salePrice: 2200, category: '키링' },
     };
@@ -865,6 +908,8 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(candidatesApi.prepareExternalWingRegistration).toHaveBeenCalledWith(
       'candidate-1',
       expect.objectContaining({
+        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        sellpiaQuantity: 1,
         registrationInput: expect.objectContaining({
           salePrice: 2200,
           category: '키링',
@@ -886,17 +931,82 @@ describe('external WING pre-intent choreography', () => {
     idempotencyKey: '33333333-3333-4333-8333-333333333333',
     extensionId: 'extension-1',
     channelAccountId: 'account-1',
+    sellpiaMatchPreview: {
+      status: 'matched' as const,
+      reason: 'one match',
+      sellpiaMatch: PREPARED_WING_RESPONSE.sellpiaMatch,
+      proposals: [],
+    },
     detailImageUrl: 'http://localhost:9000/detail.jpg',
     registrationInput: {},
     product: registrationProduct,
     overrides: buildWingRegistrationOverrides(registrationProduct),
   };
 
+  it('sends the server-verified real Sellpia code as the WING vendor item code', async () => {
+    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockResolvedValue({
+      executionId: '33333333-3333-4333-8333-333333333333',
+      expectedVendorId: 'A00012345',
+      sellpiaMatch: {
+        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        code: '10451-1',
+        name: '3500꿀사과슬랑이',
+        optionName: null,
+        currentStock: 13,
+        quantity: 1,
+      },
+      existingListing: null,
+    } as never);
+    vi.mocked(sendToExtensionViaPort).mockResolvedValue({
+      ok: true,
+      submission: { attempted: false },
+    });
+
+    await submitWingRegistration(draft, draft.overrides, false);
+
+    const message = vi.mocked(sendToExtensionViaPort).mock.calls[0]?.[2] as {
+      product: WingProduct;
+    };
+    expect(message.product.variants[0]?.vendorItemCode).toBe('10451-1');
+  });
+
+  it('returns an existing Coupang listing for canonical confirmation without opening the extension', async () => {
+    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockResolvedValue({
+      executionId: '33333333-3333-4333-8333-333333333333',
+      expectedVendorId: 'A00012345',
+      sellpiaMatch: {
+        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        code: '10451-1',
+        name: '3500꿀사과슬랑이',
+        optionName: null,
+        currentStock: 13,
+        quantity: 1,
+      },
+      existingListing: {
+        externalListingId: '427011919',
+        displayName: '꿀사과슬랑이',
+        status: 'APPROVED',
+      },
+    } as never);
+
+    await expect(submitWingRegistration(draft, draft.overrides, false)).resolves.toMatchObject({
+      submission: {
+        attempted: true,
+        ok: true,
+        status: 'registered',
+        externalListingId: '427011919',
+        executionId: '33333333-3333-4333-8333-333333333333',
+      },
+    });
+    expect(sendToExtensionViaPort).not.toHaveBeenCalled();
+    expect(candidatesApi.startExternalWingRegistration).not.toHaveBeenCalled();
+  });
+
   it('orders prepare, start, extension, then reconciles an unknown outcome with extension evidence', async () => {
     const order: string[] = [];
     vi.mocked(candidatesApi.prepareExternalWingRegistration).mockImplementation(async () => {
       order.push('prepare');
-      return { executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345' } as never;
+      return PREPARED_WING_RESPONSE as never;
     });
     vi.mocked(candidatesApi.startExternalWingRegistration).mockImplementation(async () => {
       order.push('start');
@@ -926,7 +1036,7 @@ describe('external WING pre-intent choreography', () => {
     const order: string[] = [];
     vi.mocked(candidatesApi.prepareExternalWingRegistration).mockImplementation(async () => {
       order.push('prepare');
-      return { executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345' } as never;
+      return PREPARED_WING_RESPONSE as never;
     });
     vi.mocked(candidatesApi.startExternalWingRegistration).mockImplementation(async () => {
       order.push('start');
@@ -973,7 +1083,7 @@ describe('external WING pre-intent choreography', () => {
   it('reuses the modal draft idempotency key across a retry after prepare fails', async () => {
     vi.mocked(candidatesApi.prepareExternalWingRegistration)
       .mockRejectedValueOnce(new Error('prepare response lost'))
-      .mockResolvedValueOnce({ executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345' } as never);
+      .mockResolvedValueOnce(PREPARED_WING_RESPONSE as never);
     vi.mocked(sendToExtensionViaPort).mockResolvedValue({
       ok: true,
       submission: { attempted: false },
