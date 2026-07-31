@@ -2,6 +2,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import type {
   AdCampaignSyncStatus,
   AdCampaignSnapshot,
+  AdKeywordProductSummary,
+  AdKeywordSnapshot,
+  AdKeywordsData,
   AdProductSnapshot,
   AdTrendsData,
 } from '@kiditem/shared/advertising';
@@ -11,10 +14,15 @@ import { aggregateDailyAdRows } from '../../domain/ad-trend';
 import {
   toAdCampaignSnapshot,
   toMetadataOnlyAdCampaignSnapshot,
+  toAdKeywordSnapshot,
   toAdProductSnapshot,
   toAdTrendsData,
 } from '../../mapper/ad-campaign.mapper';
-import { periodBounds, type AdPeriod } from '../../domain/ad-metrics';
+import {
+  buildAdMetrics,
+  periodBounds,
+  type AdPeriod,
+} from '../../domain/ad-metrics';
 import {
   AD_CAMPAIGN_REPOSITORY_PORT,
   type AdCampaignRepositoryPort,
@@ -27,6 +35,10 @@ import {
   AD_ACCOUNT_KPI_REPOSITORY_PORT,
   type AdAccountKpiRepositoryPort,
 } from '../port/out/repository/ad-account-kpi.repository.port';
+import {
+  AD_ACTION_REPOSITORY_PORT,
+  type AdActionRepositoryPort,
+} from '../port/out/repository/ad-action.repository.port';
 
 @Injectable()
 export class AdCampaignsService {
@@ -37,6 +49,8 @@ export class AdCampaignsService {
     private readonly listingRepo: AdListingRepositoryPort,
     @Inject(AD_ACCOUNT_KPI_REPOSITORY_PORT)
     private readonly accountKpiRepo: AdAccountKpiRepositoryPort,
+    @Inject(AD_ACTION_REPOSITORY_PORT)
+    private readonly actionRepo: AdActionRepositoryPort,
     private readonly adConfigService: AdConfigService,
   ) {
     void this.adConfigService; // injected so future config-aware filters land without DI churn
@@ -251,6 +265,80 @@ export class AdCampaignsService {
   }
 
   /**
+   * Keyword-grain ad rows plus the per-product rollup the ad-ops keyword view
+   * reads.
+   *
+   * A keyword can serve several advertised options in one ad group. Those rows
+   * lose their option link during ingest (they are no longer attributable to
+   * one product), so they still appear in `keywords` but contribute to no
+   * product summary — the product footprint must not claim a keyword it does
+   * not exclusively own.
+   */
+  async getKeywords(
+    period: AdPeriod,
+    organizationId: string,
+    campaign?: {
+      channelAccountId: string;
+      campaignIdentity: string;
+    },
+  ): Promise<AdKeywordsData> {
+    const [rollups, openActions] = await Promise.all([
+      this.campaignRepo.findKeywordTargetRollups(organizationId, period, campaign),
+      this.actionRepo.findOpenKeywordRelevanceActions(organizationId),
+    ]);
+    if (rollups.length === 0) {
+      return { period, collectedAt: null, products: [], keywords: [] };
+    }
+    // An open `pause_keyword` proposal is the agent's verdict awaiting
+    // approval. Keyed by keyword text plus the advertised option so the same
+    // keyword on another product is not marked by proxy.
+    const relevanceByKey = new Map(
+      openActions.map((action) => [
+        `${action.externalId ?? ''}::${action.targetLabel}`,
+        action.reason,
+      ]),
+    );
+
+    const listingIds = Array.from(
+      new Set(
+        rollups
+          .map((rollup) => rollup.listingId)
+          .filter((id): id is string => id != null),
+      ),
+    );
+    const listingMap =
+      listingIds.length > 0
+        ? await this.listingRepo.findScopedAdListings(organizationId, listingIds)
+        : new Map();
+
+    const keywords = rollups.map((rollup) => {
+      const reason = relevanceByKey.get(
+        `${rollup.externalOptionId ?? ''}::${rollup.keyword}`,
+      );
+      return toAdKeywordSnapshot(
+        rollup,
+        rollup.listingId ? listingMap.get(rollup.listingId) ?? null : null,
+        period,
+        reason
+          ? { verdict: 'irrelevant', reason }
+          : { verdict: null, reason: null },
+      );
+    });
+    const collectedAt = rollups.reduce<Date | null>(
+      (latest, rollup) =>
+        !latest || rollup.lastObservedAt > latest ? rollup.lastObservedAt : latest,
+      null,
+    );
+
+    return {
+      period,
+      collectedAt: collectedAt ? collectedAt.toISOString() : null,
+      products: rollUpKeywordsByProduct(keywords),
+      keywords,
+    } satisfies AdKeywordsData;
+  }
+
+  /**
    * Daily ad trend from `ChannelListingDailySnapshot` aggregated by
    * `businessDate` over the requested window. ABC grade budget is computed
    * by joining each daily row to its listing's master grade.
@@ -309,5 +397,65 @@ function isExactThirtyOneDayWindow(
     fromDate.toISOString().slice(0, 10) === from &&
     toDate.toISOString().slice(0, 10) === to &&
     (toDate.getTime() - fromDate.getTime()) / 86_400_000 + 1 === 31
+  );
+}
+
+/**
+ * Group keyword rows into the per-product footprint the keyword view shows:
+ * how many keywords a product is running, how many of those Coupang matched on
+ * its own, how many actually served, and how many the agent flagged.
+ *
+ * Only keywords that belong to exactly one advertised option are counted. A
+ * keyword shared across options arrives with no option link (see
+ * `AdKeywordIngestHandler`) and is deliberately excluded rather than being
+ * attributed to an arbitrary product.
+ */
+function rollUpKeywordsByProduct(
+  keywords: AdKeywordSnapshot[],
+): AdKeywordProductSummary[] {
+  const byOption = new Map<string, AdKeywordSnapshot[]>();
+  for (const keyword of keywords) {
+    if (!keyword.externalOptionId) continue;
+    const bucket = byOption.get(keyword.externalOptionId);
+    if (bucket) bucket.push(keyword);
+    else byOption.set(keyword.externalOptionId, [keyword]);
+  }
+
+  const summaries = [...byOption.entries()].map(([externalOptionId, rows]) => {
+    const head = rows[0];
+    const totals = rows.reduce(
+      (acc, row) => ({
+        spend: acc.spend + row.metrics.spend,
+        revenue: acc.revenue + row.metrics.revenue,
+        impressions: acc.impressions + row.metrics.impressions,
+        clicks: acc.clicks + row.metrics.clicks,
+        conversions: acc.conversions + row.metrics.conversions,
+      }),
+      { spend: 0, revenue: 0, impressions: 0, clicks: 0, conversions: 0 },
+    );
+    return {
+      externalOptionId,
+      productName: rows.find((row) => row.productName)?.productName ?? null,
+      campaignId: head.campaignId,
+      campaignName: head.campaignName,
+      listing: rows.find((row) => row.listing)?.listing ?? null,
+      keywordCount: rows.length,
+      registeredCount: rows.filter((row) => row.origin === 'registered').length,
+      smartTargetingCount: rows.filter(
+        (row) => row.origin === 'smart_targeting',
+      ).length,
+      servingCount: rows.filter((row) => row.metrics.impressions > 0).length,
+      irrelevantCount: rows.filter((row) => row.relevance === 'irrelevant')
+        .length,
+      unjudgedCount: rows.filter((row) => row.relevance === null).length,
+      metrics: buildAdMetrics(totals),
+    } satisfies AdKeywordProductSummary;
+  });
+
+  return summaries.sort(
+    (a, b) =>
+      b.metrics.spend - a.metrics.spend ||
+      b.keywordCount - a.keywordCount ||
+      a.externalOptionId.localeCompare(b.externalOptionId),
   );
 }

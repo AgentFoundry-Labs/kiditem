@@ -39,6 +39,7 @@ import {
   type ChannelScrapeRepositoryPort,
 } from "../port/out/repository/channel-scrape.repository.port";
 import { AdCampaignIngestHandler } from "./ad-campaign-ingest.handler";
+import { AdKeywordIngestHandler } from "./ad-keyword-ingest.handler";
 import { CoupangAdsDailyIngestHandler } from "./coupang-ads-daily-ingest.handler";
 import { KeywordRankIngestHandler } from "./keyword-rank-ingest.handler";
 import { RawScrapeIngestHandler } from "./raw-scrape-ingest.handler";
@@ -63,6 +64,7 @@ export class AdSyncService {
     @Inject(CHANNEL_SCRAPE_REPOSITORY_PORT)
     private readonly scrapeRepo: ChannelScrapeRepositoryPort,
     private readonly adCampaignHandler: AdCampaignIngestHandler,
+    private readonly adKeywordHandler: AdKeywordIngestHandler,
     private readonly rawScrapeHandler: RawScrapeIngestHandler,
     private readonly trafficHandler: TrafficIngestHandler,
     private readonly coupangAdsDailyHandler: CoupangAdsDailyIngestHandler,
@@ -82,6 +84,8 @@ export class AdSyncService {
       switch (payload.type) {
         case "ad_campaign":
           return this.adCampaignHandler.execute(payload, organizationId, map);
+        case "ad_keyword":
+          return this.adKeywordHandler.execute(payload, organizationId, map);
         case "raw_scrape":
           return this.rawScrapeHandler.execute(payload, organizationId, map);
         case "traffic":

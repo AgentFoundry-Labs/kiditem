@@ -14,11 +14,9 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const supportedExtensions = [
-  "product-scraper",
-  "coupang-ads-scraper",
-  "order-collector",
-];
+// 주문수집/쿠팡/소싱 세 확장을 kiditem-os 하나로 합쳤다. 번들은 여전히 배포
+// 단위 하나지만, 안에 든 로드 가능한 확장 디렉터리는 이제 하나뿐이다.
+const supportedExtensions = ["kiditem-os"];
 const environmentProfiles = ["local", "office", "staging"];
 
 function parseArgs(argv) {

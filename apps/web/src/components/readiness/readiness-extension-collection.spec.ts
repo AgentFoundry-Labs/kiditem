@@ -14,6 +14,7 @@ import {
   syncBrowserCollectionAlert,
 } from '@/lib/browser-collection-session';
 import {
+  assertCompatibleCoupangCollectionExtension,
   COUPANG_COLLECTION_EXTENSION_MIN_VERSION,
   READINESS_COLLECTION_PRODUCERS,
   readinessCollectionTimeoutMs,
@@ -310,11 +311,14 @@ describe('readiness extension collection', () => {
     expect(result.current.pendingKey).toBeNull();
   });
 
-  it('rejects an extension from before the stale attention cancellation fix', async () => {
+  it('rejects an extension installed before the three extensions merged', async () => {
+    // The merged extension restarted at 1.0.0, so a pre-merge install reads as
+    // a lower version even though its number looks bigger under the old
+    // per-extension lines.
     vi.mocked(sendToExtension).mockResolvedValueOnce({
       success: false,
       error: 'old worker reached scrapeTargets',
-      version: '1.2.71',
+      version: '0.9.9',
       capabilities: { browserCollectionSessions: true },
     });
 
@@ -326,9 +330,39 @@ describe('readiness extension collection', () => {
         runId: RUN_ID,
         accessToken: 'kiditem-access-token',
       }),
-    ).rejects.toThrow(/1\.2\.72|새로고침/);
-    expect(COUPANG_COLLECTION_EXTENSION_MIN_VERSION).toBe('1.2.102');
+    ).rejects.toThrow(/새로고침/);
+    expect(COUPANG_COLLECTION_EXTENSION_MIN_VERSION).toBe('1.0.0');
     expect(sendToExtension).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts the merged extension and gates features on capabilities instead', async () => {
+    // Regression: every gate still held its pre-merge floor (1.2.x / 2.x), so a
+    // correctly installed 1.0.x extension was reported as outdated and every
+    // collection button refused to run.
+    vi.mocked(sendToExtension).mockResolvedValueOnce({
+      success: true,
+      version: '1.0.2',
+      capabilities: { browserCollectionSessions: false },
+    });
+
+    await expect(
+      runReadinessExtensionCollection({
+        check: check('wing_sales'),
+        producer: 'dashboard.wing_sales',
+        extensionId: 'coupang-extension',
+        runId: RUN_ID,
+        accessToken: 'kiditem-access-token',
+      }),
+    ).rejects.toThrow(/새로고침/);
+
+    vi.mocked(sendToExtension).mockResolvedValue({
+      success: true,
+      version: '1.0.2',
+      capabilities: { browserCollectionSessions: true },
+    });
+    await expect(
+      assertCompatibleCoupangCollectionExtension('coupang-extension'),
+    ).resolves.toBeUndefined();
   });
 
   it('rejects the stale Wing rank worker before starting its batch', async () => {
@@ -788,7 +822,7 @@ describe('readiness extension collection', () => {
     expect(scrapeCollectorSource).toContain("'advertising.scrape_targets'");
     expect(scrapeCollectorSource).toContain('BrowserCollectionRunControls');
     expect(competitorExtensionSource).toContain(
-      'COMPETITOR_EXTENSION_MIN_VERSION = "1.2.33"',
+      'COMPETITOR_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION',
     );
     expect(competitorExtensionSource).toContain('browserCollectionSessions');
     expect(competitorPageSource).toContain('useBrowserCollectionSession');

@@ -241,6 +241,24 @@ export class ChannelTargetDailyRepositoryAdapter
       desiredKeys.add(target.targetKey);
     }
 
+    // Grains this call owns. A producer must never mark another producer's
+    // grain stale: the campaign sweep reads the report grid (campaign/product)
+    // while keyword collection reads the per-ad keyword table, and they run
+    // independently against the same campaign/date.
+    const replaceScope = input.replaceScope;
+    if (replaceScope) {
+      if (replaceScope.length === 0) {
+        throw new Error('replaceCampaignDay: replaceScope must not be empty');
+      }
+      for (const target of normalizedTargets) {
+        if (!replaceScope.includes(target.targetType)) {
+          throw new Error(
+            `replaceCampaignDay: target type '${target.targetType}' is outside the replacement scope`,
+          );
+        }
+      }
+    }
+
     return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       const lockScope = [
         input.organizationId,
@@ -273,6 +291,13 @@ export class ChannelTargetDailyRepositoryAdapter
           AND target.business_date = ${input.businessDate}::date
           AND target.campaign_identity = ${campaignIdentity}
           AND starts_with(target.target_key, ${expectedPrefix})
+          ${
+            replaceScope
+              ? Prisma.sql`AND target.target_type IN (${Prisma.join(
+                  replaceScope.map((grain) => Prisma.sql`${grain}`),
+                )})`
+              : Prisma.empty
+          }
         FOR UPDATE OF target
       `);
       const candidateIds = rows.map((row) => row.id);

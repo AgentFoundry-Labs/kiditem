@@ -6,12 +6,12 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const backgroundRoot = path.join(repoRoot, 'extensions/order-collector/background');
+const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
 const collectorPath = path.join(backgroundRoot, 'sellpia-inventory.js');
-const collectionSessionPath = path.join(backgroundRoot, 'collection-session.js');
+const collectionSessionPath = path.join(repoRoot, 'extensions/kiditem-os/background/collection-session.js');
 const lifecyclePath = path.join(backgroundRoot, 'order-collection-lifecycle.js');
-const workerPath = path.join(backgroundRoot, 'service-worker.js');
-const manifestPath = path.join(repoRoot, 'extensions/order-collector/manifest.json');
+const workerPath = path.join(backgroundRoot, 'worker.js');
+const manifestPath = path.join(repoRoot, 'extensions/kiditem-os/manifest.json');
 const RUN_ID = '0d7f4724-7d5b-4fea-80e3-184dd66884eb';
 const PAGE_URL = 'https://kiditem.sellpia.com/product_list_total.html';
 const SNAPSHOT_URL = 'https://kiditem.sellpia.com/product_search.ajax.html';
@@ -292,7 +292,12 @@ test('declares the JSON capability, fixed endpoint, full-snapshot fields, and no
   const worker = sourceOrFail(workerPath);
 
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
-  assert.match(worker, /importScripts\([\s\S]*["']sellpia-inventory\.js["']/);
+  // 확장 병합 후 의존 모듈 로드는 통합 서비스워커가 소유한다.
+  const entrySource = sourceOrFail(
+    path.join(repoRoot, 'extensions/kiditem-os/background/service-worker.js'),
+  );
+  assert.match(entrySource, /importScripts\([\s\S]*["']orders\/sellpia-inventory\.js["']/);
+  assert.doesNotMatch(worker, /^importScripts\(/m);
   assert.match(worker, /collectSellpiaInventoryJsonV1:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaInventoryV2:\s*true/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);

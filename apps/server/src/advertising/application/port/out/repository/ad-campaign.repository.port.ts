@@ -99,6 +99,36 @@ export interface ProductTargetRollup {
   orders: number;
 }
 
+/**
+ * Keyword-grain rollup over the period. `currentBid` / `status` / `origin`
+ * come from the most recent day observed for that keyword, while metrics are
+ * summed — a bid changed mid-period should read as its current value, not a
+ * meaningless average.
+ */
+export interface KeywordTargetRollup {
+  targetKey: string;
+  channelAccountId: string;
+  campaignIdentity: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  adGroup: string | null;
+  keyword: string;
+  listingId: string | null;
+  listingOptionId: string | null;
+  externalOptionId: string | null;
+  status: string | null;
+  onOff: string | null;
+  currentBid: number | null;
+  metaJson: unknown | null;
+  lastObservedAt: Date;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  orders: number;
+}
+
 export interface AdTrendDailyRow {
   businessDate: Date;
   adSpend: number;
@@ -151,6 +181,16 @@ export interface AdCampaignRepositoryPort {
       campaignIdentity: string;
     },
   ): Promise<ProductTargetRollup[]>;
+
+  /** Keyword-grain rollups for the period, newest observation first. */
+  findKeywordTargetRollups(
+    organizationId: string,
+    period: AdPeriod,
+    campaign?: {
+      channelAccountId: string;
+      campaignIdentity: string;
+    },
+  ): Promise<KeywordTargetRollup[]>;
 
   /** Raw per-(listing, businessDate) rows for an inclusive trend range. */
   findAdTrendDailyRows(

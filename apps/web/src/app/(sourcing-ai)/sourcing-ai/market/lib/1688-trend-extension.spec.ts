@@ -82,7 +82,7 @@ describe('1688 trend Chrome extension bridge', () => {
       /DEFAULT_AUTH_RESYNC_TIMEOUT_MS\s*=\s*([\d_]+)/
         .exec(
           fs.readFileSync(
-            path.resolve('../../extensions/product-scraper/environment-context.js'),
+            path.resolve('../../extensions/kiditem-os/background/environment-context.js'),
             'utf8',
           ),
         )?.[1]

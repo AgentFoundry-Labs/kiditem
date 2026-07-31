@@ -7,7 +7,7 @@ import vm from 'node:vm';
 
 const helperPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../coupang-ads-scraper/shared/coupang-catalog-collector.js',
+  '../kiditem-os/shared/coupang-catalog-collector.js',
 );
 
 function loadHelper() {

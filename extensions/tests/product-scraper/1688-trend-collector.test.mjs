@@ -5,9 +5,9 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
-const collectorPath = path.resolve('extensions/product-scraper/1688-trend-collector.js');
+const collectorPath = path.resolve('extensions/kiditem-os/background/sourcing/1688-trend-collector.js');
 const collectorSource = fs.readFileSync(collectorPath, 'utf8');
-const sessionPath = path.resolve('extensions/product-scraper/collection-session.js');
+const sessionPath = path.resolve('extensions/kiditem-os/background/collection-session.js');
 const sessionSource = fs.readFileSync(sessionPath, 'utf8');
 
 function createFakeChrome(sendMessageImpl) {

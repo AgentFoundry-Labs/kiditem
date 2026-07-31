@@ -6,14 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 const extensionRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../coupang-ads-scraper',
+  '../kiditem-os',
 );
 
-const workerPath = path.join(extensionRoot, 'background/service-worker.js');
-const runtimePath = path.join(extensionRoot, 'background/coupang-catalog-import.js');
+const workerPath = path.join(extensionRoot, 'background/coupang/worker.js');
+const runtimePath = path.join(extensionRoot, 'background/coupang/coupang-catalog-import.js');
 const inventoryContentPath = path.join(
   extensionRoot,
-  'content/wing-inventory-scraper.js',
+  'content/coupang/wing-inventory-scraper.js',
 );
 
 test('service worker exposes the resumable Coupang catalog import actions', () => {

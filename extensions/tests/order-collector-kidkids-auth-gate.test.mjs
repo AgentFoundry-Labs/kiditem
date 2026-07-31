@@ -10,7 +10,7 @@ const repoRoot = path.resolve(
   "../..",
 );
 const source = fs.readFileSync(
-  path.join(repoRoot, "extensions/order-collector/background/service-worker.js"),
+  path.join(repoRoot, "extensions/kiditem-os/background/orders/worker.js"),
   "utf8",
 );
 

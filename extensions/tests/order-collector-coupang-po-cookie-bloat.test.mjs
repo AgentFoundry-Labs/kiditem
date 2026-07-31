@@ -6,7 +6,7 @@ import vm from 'node:vm';
 // coupang-po-session.js 는 IIFE 로 전역에 등록되므로 그 전역을 흉내내서 로드한다.
 function loadSession() {
   const source = readFileSync(
-    new URL('../order-collector/background/coupang-po-session.js', import.meta.url),
+    new URL('../kiditem-os/background/orders/coupang-po-session.js', import.meta.url),
     'utf8',
   );
   const sandbox = { console };

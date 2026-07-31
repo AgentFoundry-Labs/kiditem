@@ -12,6 +12,7 @@ import type {
   AdActionReviewResult,
   AdActionUpdatePatch,
   ExistingAdActionDedupRow,
+  OpenKeywordRelevanceActionRow,
   HydratedAdAction,
   LatestTargetRow,
 } from '../../../application/port/out/repository/ad-action.repository.port';
@@ -120,6 +121,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             cad.listing_id,
             cad.listing_option_id,
             cad.external_id,
+            cad.external_option_id,
             cad.campaign_id,
             cad.campaign_name,
             cad.keyword,
@@ -130,7 +132,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             cad.revenue,
             cad.impressions,
             cad.clicks,
-            cad.conversions
+            cad.conversions,
+            cad.meta_json
           FROM channel_ad_target_daily_snapshots cad
           WHERE cad.organization_id = ${organizationId}::uuid
             AND cad.channel = 'coupang'
@@ -149,6 +152,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           cl.id                        AS "listingId",
           clo.id                       AS "listingOptionId",
           latest.external_id           AS "externalId",
+          latest.external_option_id    AS "externalOptionId",
           latest.campaign_id           AS "campaignId",
           latest.campaign_name         AS "campaignName",
           latest.keyword,
@@ -162,8 +166,18 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.conversions,
           mp.abc_grade                 AS "abcGrade",
           clo.commission_rate          AS "optionCommissionRate",
-          COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id)
-                                       AS "productName"
+          -- Keyword rows frequently have no listing match (7,432 of 9,266 in
+          -- the live account), but the advertised item name is always stamped
+          -- by ingest. Relevance cannot be judged without a product name, so
+          -- fall back to it after the catalog-derived names.
+          COALESCE(
+            mp.name,
+            cl.display_name,
+            cl.channel_name,
+            cl.external_id,
+            latest.meta_json -> 'advertising.keyword.target' ->> 'productName',
+            latest.meta_json -> 'advertising.campaign.target' ->> 'productName'
+          )                            AS "productName"
         FROM latest
         LEFT JOIN channel_listings cl
               ON cl.id = latest.listing_id
@@ -208,6 +222,21 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         currentValue: true,
         proposedValue: true,
       },
+    });
+  }
+
+  async findOpenKeywordRelevanceActions(
+    organizationId: string,
+  ): Promise<OpenKeywordRelevanceActionRow[]> {
+    return this.prisma.adAction.findMany({
+      where: {
+        organizationId,
+        actionType: 'pause_keyword',
+        approvalStatus: { in: ['pending_review', 'approved'] },
+        executeStatus: { in: ['queued', 'running'] },
+      },
+      select: { targetLabel: true, externalId: true, reason: true },
+      orderBy: { createdAt: 'desc' },
     });
   }
 

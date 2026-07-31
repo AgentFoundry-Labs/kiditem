@@ -7,7 +7,7 @@ import vm from 'node:vm';
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const worker = readFileSync(
-  path.join(testDir, '../order-collector/background/service-worker.js'),
+  path.join(testDir, '../kiditem-os/background/orders/worker.js'),
   'utf8',
 );
 

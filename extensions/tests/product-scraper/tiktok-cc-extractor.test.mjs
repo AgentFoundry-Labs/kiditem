@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 
-const sourcePath = path.resolve('extensions/product-scraper/tiktok-cc-extractor.js');
+const sourcePath = path.resolve('extensions/kiditem-os/content/sourcing/tiktok-cc-extractor.js');
 const source = fs.readFileSync(sourcePath, 'utf8');
 
 function loadExtractor() {

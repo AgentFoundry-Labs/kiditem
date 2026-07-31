@@ -7,6 +7,7 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'dashboard.coupang_products',
   'dashboard.wing_kpi',
   'advertising.ad_sync',
+  'advertising.ad_keyword',
   'advertising.scrape_targets',
   'advertising.wing_rank',
   'advertising.keyword_rank',

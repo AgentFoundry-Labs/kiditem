@@ -4,6 +4,7 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
 type ExtensionResponse = {
   success?: boolean;
@@ -13,7 +14,9 @@ type ExtensionResponse = {
   capabilities?: Record<string, unknown>;
 };
 
-export const COUPANG_CATALOG_EXTENSION_MIN_VERSION = '1.2.32';
+// 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
+// 기능 판정은 아래 ping capability 가 하고, 버전은 병합 이전 설치만 걸러낸다.
+export const COUPANG_CATALOG_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
 
 export const COUPANG_CATALOG_EXTENSION_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램을 설치하고 새로고침한 뒤 다시 시도하세요.';

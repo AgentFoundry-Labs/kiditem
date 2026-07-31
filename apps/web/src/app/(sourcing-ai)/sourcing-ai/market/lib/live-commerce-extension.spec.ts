@@ -32,7 +32,7 @@ describe('live-commerce Chrome extension bridge', () => {
   it('reports that an older extension must be reloaded before collection', async () => {
     mockedSend.mockResolvedValueOnce({
       success: true,
-      version: '2.2.1',
+      version: '0.9.9',
       capabilities: {
         sourcingLiveCommerceCollector: true,
         browserCollectionSessions: true,
@@ -43,13 +43,13 @@ describe('live-commerce Chrome extension bridge', () => {
       configured: false,
       message: 'chrome://extensions에서 확장 새로고침 필요',
     });
-    expect(LIVE_COMMERCE_EXTENSION_MIN_VERSION).toBe('2.2.2');
+    expect(LIVE_COMMERCE_EXTENSION_MIN_VERSION).toBe('1.0.0');
   });
 
   it('reports readiness when the live-commerce capability is advertised', async () => {
     mockedSend.mockResolvedValueOnce({
       success: true,
-      version: '2.2.2',
+      version: '1.0.2',
       capabilities: {
         sourcingLiveCommerceCollector: true,
         browserCollectionSessions: true,
@@ -66,7 +66,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
-        version: '2.2.2',
+        version: '1.0.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,
@@ -100,7 +100,7 @@ describe('live-commerce Chrome extension bridge', () => {
   it('requires the generic browser collection-session capability', async () => {
     mockedSend.mockResolvedValueOnce({
       success: true,
-      version: '2.2.2',
+      version: '1.0.2',
       capabilities: { sourcingLiveCommerceCollector: true },
     });
 
@@ -112,7 +112,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
-        version: '2.2.2',
+        version: '1.0.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,
@@ -136,7 +136,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
-        version: '2.2.2',
+        version: '1.0.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,
@@ -167,7 +167,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
-        version: '2.2.2',
+        version: '1.0.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,

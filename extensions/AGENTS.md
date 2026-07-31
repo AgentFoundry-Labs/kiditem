@@ -2,50 +2,39 @@ Consult this document first instead of relying on memorized knowledge.
 
 # extensions — Chrome Extensions
 
-`extensions/` owns Chrome Manifest V3 browser extensions that collect
-marketplace data and send it to KidItem NestJS APIs. Read the
-extension-specific guide before editing a concrete extension.
+`extensions/` owns the KidItem Chrome Manifest V3 extension that collects
+marketplace data and sends it to KidItem NestJS APIs.
+
+There is exactly one loadable extension, `kiditem-os/`. Order collection,
+Coupang Wing/ad-center, and sourcing used to ship as three separate extensions
+that operators installed and reloaded independently; they are now three domains
+inside one extension. Do not reintroduce a second loadable extension root.
 
 ## Scoped Guides
 
 | Path | Focus |
 |---|---|
-| [`product-scraper/AGENTS.md`](product-scraper/AGENTS.md) | Alibaba/1688 sourcing ingest |
-| [`coupang-ads-scraper/AGENTS.md`](coupang-ads-scraper/AGENTS.md) | Coupang Wing and ad-center operations |
-| [`order-collector/AGENTS.md`](order-collector/AGENTS.md) | Marketplace order collection helpers |
+| [`kiditem-os/AGENTS.md`](kiditem-os/AGENTS.md) | Extension rules: layout, single-worker constraints, browser boundary |
+| [`kiditem-os/background/orders/AGENTS.md`](kiditem-os/background/orders/AGENTS.md) | Marketplace order collection helpers |
+| [`kiditem-os/background/coupang/AGENTS.md`](kiditem-os/background/coupang/AGENTS.md) | Coupang Wing and ad-center operations |
+| [`kiditem-os/background/sourcing/AGENTS.md`](kiditem-os/background/sourcing/AGENTS.md) | Alibaba/1688 sourcing ingest |
 
-## Common Rules
+## Shared Adapters
 
-- Use Chrome Manifest V3. Do not add MV2 APIs or persistent background
-  assumptions.
-- Keep host permissions minimal and exact. Explain new hosts in the scoped
-  extension guide.
-- Do not commit tokens, cookies, account credentials, or copied marketplace
-  session data.
-- `chrome.storage.local` may store runtime tokens and progress state only.
-- Treat popup, content script, page bridge, and external web messages as
-  untrusted input.
-- Validate message `type` / `action` values before triggering tabs, fetches, or
-  marketplace actions.
-- Page-world bridge scripts must never receive KidItem auth tokens or backend
-  URLs with secrets.
-- Do not place committed `_`-prefixed files or directories such as `__tests__`
-  inside a loadable extension root. Chrome treats them as reserved system names
-  and rejects unpacked extension loading.
-- Backend calls go through NestJS HTTP APIs. Never add direct DB access or
-  Supabase client logic.
-- Do not send client-provided `organizationId`; backend auth/session scope owns
-  organization context.
-- Each extension source must support the committed local, office, and staging
-  KidItem origins in one installed copy. Keep environment-specific auth and run
-  state isolated by the verified external sender origin; do not generate or
-  maintain environment-specific extension variants.
+`shared/collection-session.js` and `shared/environment-context.js` are the
+canonical copies. They live outside the extension root because Chrome only loads
+files under it, so `scripts/sync-collection-session-adapters.mjs` copies them
+into `kiditem-os/background/`. Edit the canonical file, then rerun the script.
+
+Node tests live in `tests/`, outside the extension root: Chrome rejects unpacked
+roots containing `_`-prefixed paths such as `__tests__`.
 
 ## Verification
 
 ```bash
-node -e "JSON.parse(require('fs').readFileSync('extensions/product-scraper/manifest.json','utf8'))"
-node -e "JSON.parse(require('fs').readFileSync('extensions/coupang-ads-scraper/manifest.json','utf8'))"
-node -e "JSON.parse(require('fs').readFileSync('extensions/order-collector/manifest.json','utf8'))"
+node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
+node extensions/scripts/sync-collection-session-adapters.mjs --check
+node --check extensions/kiditem-os/background/service-worker.js
+node -e "JSON.parse(require('fs').readFileSync('extensions/kiditem-os/manifest.json','utf8'))"
 git diff --check -- extensions
 ```

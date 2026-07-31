@@ -4,10 +4,15 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import {
+  ORDERS_WORKER_MODULES,
+  dispatchExternalMessage,
+  installExternalDispatch,
+} from './helpers/domain-worker-modules.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const backgroundRoot = path.join(repoRoot, 'extensions/order-collector/background');
-const workerPath = path.join(backgroundRoot, 'service-worker.js');
+const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
+const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
   ['collectSellpiaDeliTracking', 'collectSellpiaDeliTracking', 'sellpia', { startDate: '2026-07-14', endDate: '2026-07-15' }],
   ['collectIcecreamMallOrders', 'collectIcecreamMallOrders', 'icecream-mall', { date: '2026-07-15' }],
@@ -41,7 +46,7 @@ function createFakeChrome() {
     windowsUpdate: [],
   };
   let nextTabId = 100;
-  let externalMessageListener = null;
+  const externalMessageListeners = [];
   const chrome = {
     runtime: {
       lastError: null,
@@ -50,7 +55,7 @@ function createFakeChrome() {
       onStartup: { addListener() {} },
       onMessageExternal: {
         addListener(listener) {
-          externalMessageListener = listener;
+          externalMessageListeners.push(listener);
         },
       },
     },
@@ -97,7 +102,7 @@ function createFakeChrome() {
     calls,
     chrome,
     storage,
-    getExternalMessageListener: () => externalMessageListener,
+    getExternalMessageListeners: () => externalMessageListeners,
   };
 }
 
@@ -128,18 +133,17 @@ function loadWorker() {
     },
   };
   context = vm.createContext(sandbox);
+  // 도메인 워커는 더 이상 importScripts 를 호출하지 않는다. 통합 서비스워커와
+  // 같은 순서로 의존 모듈을 먼저 싣고, 워커를 실행한 뒤 통합 dispatch 를 건다.
+  context.importScripts(...ORDERS_WORKER_MODULES);
   vm.runInContext(readFileSync(workerPath, 'utf8'), context, { filename: workerPath });
-  return { ...fake, context, externalMessageListener: fake.getExternalMessageListener() };
+  installExternalDispatch(context, fake.chrome);
+  return { ...fake, context, externalMessageListeners: fake.getExternalMessageListeners() };
 }
 
-function dispatch(listener, message) {
-  return new Promise((resolve) => {
-    const keepAlive = listener(
-      message,
-      { url: 'http://localhost:3000/order-collection' },
-      resolve,
-    );
-    assert.equal(keepAlive, true);
+function dispatch(listeners, message) {
+  return dispatchExternalMessage(listeners, message, {
+    url: 'http://localhost:3000/order-collection',
   });
 }
 
@@ -169,7 +173,7 @@ test('all automatic order actions publish safe orders.mall sessions from inactiv
 
   for (const [index, [action, , mallKey, input]] of AUTOMATIC_ACTIONS.entries()) {
     const runId = uuid(index + 1);
-    const response = await dispatch(runtime.externalMessageListener, {
+    const response = await dispatch(runtime.externalMessageListeners, {
       action,
       ...input,
       runId,
@@ -221,7 +225,7 @@ test('every automatic mall access failure requires personal attention without fo
   }
 
   for (const [index, [action, , , input]] of AUTOMATIC_ACTIONS.entries()) {
-    const response = await dispatch(runtime.externalMessageListener, {
+    const response = await dispatch(runtime.externalMessageListeners, {
       action,
       ...input,
       runId: uuid(index + 100),
@@ -252,8 +256,8 @@ test('web restart keeps the run, closes the old attention tab, and increments it
     runId,
   };
 
-  const attention = await dispatch(runtime.externalMessageListener, message);
-  const restarted = await dispatch(runtime.externalMessageListener, message);
+  const attention = await dispatch(runtime.externalMessageListeners, message);
+  const restarted = await dispatch(runtime.externalMessageListeners, message);
 
   assert.equal(attention.runId, runId);
   assert.equal(attention.collectionSession.status, 'attention_required');
@@ -284,8 +288,8 @@ test('web restart preserves an existing user marketplace tab while replacing its
     runId,
   };
 
-  await dispatch(runtime.externalMessageListener, message);
-  const restarted = await dispatch(runtime.externalMessageListener, message);
+  await dispatch(runtime.externalMessageListeners, message);
+  const restarted = await dispatch(runtime.externalMessageListeners, message);
 
   assert.equal(restarted.collectionSession.attempt, 2);
   assert.deepEqual(runtime.calls.tabsRemove, []);
@@ -313,7 +317,7 @@ test('cancelling a deferred order run closes its tab and fences late completion'
     return { success: true, orders: [{ orderNo: 'must-not-reach-web' }] };
   };
   const runId = uuid(778);
-  const pending = dispatch(runtime.externalMessageListener, {
+  const pending = dispatch(runtime.externalMessageListeners, {
     action: 'collectKidsnoteOrders',
     from: '2026-07-15',
     to: '2026-07-15',
@@ -321,7 +325,7 @@ test('cancelling a deferred order run closes its tab and fences late completion'
   });
   await attached;
 
-  const cancelled = await dispatch(runtime.externalMessageListener, {
+  const cancelled = await dispatch(runtime.externalMessageListeners, {
     action: 'cancelCollectionSession',
     runId,
   });
@@ -355,7 +359,7 @@ test('cancelling a run on a user-owned tab preserves the tab but discards late d
     return { success: true, orders: [{ orderNo: 'must-not-reach-web' }] };
   };
   const runId = uuid(780);
-  const pending = dispatch(runtime.externalMessageListener, {
+  const pending = dispatch(runtime.externalMessageListeners, {
     action: 'collectKidsnoteOrders',
     from: '2026-07-15',
     to: '2026-07-15',
@@ -363,7 +367,7 @@ test('cancelling a run on a user-owned tab preserves the tab but discards late d
   });
   await attached;
 
-  await dispatch(runtime.externalMessageListener, {
+  await dispatch(runtime.externalMessageListeners, {
     action: 'cancelCollectionSession',
     runId,
   });
@@ -399,7 +403,7 @@ test('cancelling before an owned tab attaches closes the late orphan tab', async
     return { success: true, orders: [{ orderNo: 'must-not-reach-web' }] };
   };
   const runId = uuid(781);
-  const pending = dispatch(runtime.externalMessageListener, {
+  const pending = dispatch(runtime.externalMessageListeners, {
     action: 'collectKidsnoteOrders',
     from: '2026-07-15',
     to: '2026-07-15',
@@ -407,7 +411,7 @@ test('cancelling before an owned tab attaches closes the late orphan tab', async
   });
   await started;
 
-  await dispatch(runtime.externalMessageListener, {
+  await dispatch(runtime.externalMessageListeners, {
     action: 'cancelCollectionSession',
     runId,
   });
@@ -428,7 +432,7 @@ test('hostile date-shaped input cannot enter persisted order identity', async ()
   }));
   const runId = uuid(782);
 
-  const response = await dispatch(runtime.externalMessageListener, {
+  const response = await dispatch(runtime.externalMessageListeners, {
     action: 'collectKkomangseOrders',
     date: '010-password-secret',
     runId,
@@ -453,7 +457,7 @@ test('web-finalized order runs stay active through conversion and then succeed',
   }));
   const runId = uuid(783);
 
-  const collected = await dispatch(runtime.externalMessageListener, {
+  const collected = await dispatch(runtime.externalMessageListeners, {
     action: 'collectCoupangDirectOrders',
     date: '2026-07-15',
     runId,
@@ -463,7 +467,7 @@ test('web-finalized order runs stay active through conversion and then succeed',
   assert.equal(collected.collectionSession.status, 'running');
   assert.equal(collected.collectionSession.progress.label, '브라우저 수집 완료 · 파일 생성 중');
 
-  const finalized = await dispatch(runtime.externalMessageListener, {
+  const finalized = await dispatch(runtime.externalMessageListeners, {
     action: 'finalizeCollectionSession',
     runId,
     status: 'succeeded',
@@ -482,13 +486,13 @@ test('web-finalized order failures remain personal session failures', async () =
     centers: {},
   }));
   const runId = uuid(784);
-  await dispatch(runtime.externalMessageListener, {
+  await dispatch(runtime.externalMessageListeners, {
     action: 'collectCoupangDirectOrders',
     runId,
     deferTerminal: true,
   });
 
-  const finalized = await dispatch(runtime.externalMessageListener, {
+  const finalized = await dispatch(runtime.externalMessageListeners, {
     action: 'finalizeCollectionSession',
     runId,
     status: 'failed',

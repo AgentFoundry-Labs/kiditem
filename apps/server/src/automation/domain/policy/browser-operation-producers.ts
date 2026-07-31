@@ -35,6 +35,7 @@ const COLLECTION_PRODUCERS = new Map<
   ],
   ['dashboard.wing_kpi', { title: 'Wing 아이템위너 KPI', href: '/dashboard' }],
   ['advertising.ad_sync', { title: '광고 동기화', href: '/ad-ops' }],
+  ['advertising.ad_keyword', { title: '광고 키워드 수집', href: '/ad-ops' }],
   ['advertising.scrape_targets', { title: '광고 데이터 수집', href: '/ad-ops' }],
   [
     'advertising.wing_rank',

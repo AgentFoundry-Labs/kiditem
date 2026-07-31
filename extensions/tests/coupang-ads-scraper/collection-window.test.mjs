@@ -11,7 +11,7 @@ const repoRoot = path.resolve(
 );
 const helperPath = path.join(
   repoRoot,
-  'extensions/coupang-ads-scraper/background/collection-window.js',
+  'extensions/kiditem-os/background/coupang/collection-window.js',
 );
 
 function createFakeChrome(initialStorage = {}, messageResponses = []) {

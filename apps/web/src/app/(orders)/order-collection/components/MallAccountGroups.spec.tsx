@@ -72,6 +72,41 @@ describe('MallAccountGroups', () => {
     expect(onCollectMall).toHaveBeenCalledWith(collectable);
   });
 
+  it('separates the collect button from the card-area calendar', async () => {
+    // 수집 버튼은 달력을 띄우지 않고 곧바로 수집한다. 달력은 카드 영역 클릭에서만 열린다.
+    const user = userEvent.setup();
+    const collectable = account('kakao', { name: '카카오', configured: false });
+    const onCollectMall = vi.fn();
+    const onOpenCalendar = vi.fn();
+
+    render(
+      <MallAccountGroups
+        accounts={[collectable]}
+        stats={new Map()}
+        selectedMall={null}
+        settingsOpen={false}
+        collectingKeys={new Set()}
+        cancellingKeys={new Set()}
+        autoDetect={false}
+        autoNextRunAt={null}
+        autoRunning={false}
+        onOpenSettings={vi.fn()}
+        onCollectMall={onCollectMall}
+        onOpenCalendar={onOpenCalendar}
+        onCancelMall={vi.fn()}
+        onUploadTracking={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '카카오 수집' }));
+    expect(onCollectMall).toHaveBeenCalledWith(collectable);
+    expect(onOpenCalendar).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('article', { name: '카카오 계정 카드' }));
+    expect(onOpenCalendar).toHaveBeenCalledWith(collectable);
+    expect(onCollectMall).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps another mall collection button enabled while one mall is collecting', async () => {
     const user = userEvent.setup();
     const kidsnote = account('kidsnote', { name: '키즈노트' });

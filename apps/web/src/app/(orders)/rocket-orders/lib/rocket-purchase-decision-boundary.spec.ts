@@ -51,7 +51,7 @@ describe('Rocket purchase decision boundary', () => {
     ), 'utf8');
     const extensionSource = readFileSync(resolve(
       webRoot,
-      '../../extensions/order-collector/background/service-worker.js',
+      '../../extensions/kiditem-os/background/orders/worker.js',
     ), 'utf8');
     const canonicalWorkbookSource = `${confirmPanelSource}\n${previewWorkflowSource}`;
 

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const helperPath = path.join(
   repoRoot,
-  'extensions/order-collector/background/collection-failure.js',
+  'extensions/kiditem-os/background/orders/collection-failure.js',
 );
 
 function loadHelper() {

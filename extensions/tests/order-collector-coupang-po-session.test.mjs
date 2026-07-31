@@ -6,9 +6,9 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const backgroundRoot = path.join(repoRoot, 'extensions/order-collector/background');
+const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
 const sessionModulePath = path.join(backgroundRoot, 'coupang-po-session.js');
-const workerPath = path.join(backgroundRoot, 'service-worker.js');
+const workerPath = path.join(backgroundRoot, 'worker.js');
 const rocketModulePath = path.join(backgroundRoot, 'rocket-po-collection.js');
 const BOOTSTRAP_URL = 'https://supplier.coupang.com/scm/purchase/order/list';
 
@@ -208,7 +208,16 @@ test('Rocket summary and detail collection share the extracted PO session bounda
   const workerSource = readFileSync(workerPath, 'utf8');
   const rocketSource = readFileSync(rocketModulePath, 'utf8');
 
-  assert.match(workerSource, /importScripts\([\s\S]*coupang-po-session\.js[\s\S]*rocket-po-collection\.js/);
+  // 확장 병합 후 의존 모듈 로드는 통합 서비스워커가 소유한다.
+  const entrySource = readFileSync(
+    path.join(repoRoot, 'extensions/kiditem-os/background/service-worker.js'),
+    'utf8',
+  );
+  assert.match(
+    entrySource,
+    /importScripts\([\s\S]*orders\/coupang-po-session\.js[\s\S]*orders\/rocket-po-collection\.js/,
+  );
+  assert.doesNotMatch(workerSource, /^importScripts\(/m);
   assert.match(workerSource, /KidItemCoupangPoSession\.create/);
   assert.match(rocketSource, /coupangPoSession\.run/);
   assert.match(rocketSource, /world:\s*["']MAIN["']/);

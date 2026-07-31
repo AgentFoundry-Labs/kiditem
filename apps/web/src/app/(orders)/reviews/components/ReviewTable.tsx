@@ -21,9 +21,11 @@ interface Props {
   total: number;
   PAGE_SIZE: number;
   onPageChange: (p: number) => void;
+  /** 행을 누르면 그 상품의 리뷰 원문 목록으로 넘어간다. */
+  onSelectListing?: (listingId: string, productName: string) => void;
 }
 
-export function ReviewTable({ items, loading, activeFilter, page, total, PAGE_SIZE, onPageChange }: Props) {
+export function ReviewTable({ items, loading, activeFilter, page, total, PAGE_SIZE, onPageChange, onSelectListing }: Props) {
   if (loading) {
     return (
       <div className="animate-pulse space-y-2 py-4">
@@ -64,13 +66,15 @@ export function ReviewTable({ items, loading, activeFilter, page, total, PAGE_SI
               return (
                 <tr
                   key={d.listingId}
-                  className={
+                  onClick={() => onSelectListing?.(d.listingId, d.productName)}
+                  className={cn(
                     status === 'low-rating'
                       ? 'bg-red-50/30'
                       : status === 'insufficient'
                         ? 'bg-orange-50/30'
-                        : ''
-                  }
+                        : '',
+                    onSelectListing && 'cursor-pointer hover:bg-purple-50/50',
+                  )}
                 >
                   <td>
                     <span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(d.grade))}>

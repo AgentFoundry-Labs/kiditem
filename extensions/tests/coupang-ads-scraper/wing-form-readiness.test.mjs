@@ -4,7 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = await readFile(
-  new URL('../../coupang-ads-scraper/background/wing-form-readiness.js', import.meta.url),
+  new URL('../../kiditem-os/background/coupang/wing-form-readiness.js', import.meta.url),
   'utf8',
 );
 

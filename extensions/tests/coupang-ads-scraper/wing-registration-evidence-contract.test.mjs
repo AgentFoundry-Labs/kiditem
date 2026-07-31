@@ -4,10 +4,10 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const formSource = await readFile(
-  new URL('../../coupang-ads-scraper/content/wing-registration-fill.js', import.meta.url), 'utf8',
+  new URL('../../kiditem-os/content/coupang/wing-registration-fill.js', import.meta.url), 'utf8',
 );
 const workerSource = await readFile(
-  new URL('../../coupang-ads-scraper/background/service-worker.js', import.meta.url), 'utf8',
+  new URL('../../kiditem-os/background/coupang/worker.js', import.meta.url), 'utf8',
 );
 const FORM_URL = 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2';
 

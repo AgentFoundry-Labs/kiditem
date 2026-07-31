@@ -94,6 +94,7 @@ model Organization {
   sellpiaInventoryState                         SellpiaInventoryState?
   sellpiaOrderTransmissionIntents               SellpiaOrderTransmissionIntent[]
   sellpiaOrderTransmissionIntentReconciliations SellpiaOrderTransmissionIntentReconciliation[]
+  coupangDirectPoSnapshots                      CoupangDirectPoSnapshot[]
 
   // Logistics
   shipments       Shipment[]

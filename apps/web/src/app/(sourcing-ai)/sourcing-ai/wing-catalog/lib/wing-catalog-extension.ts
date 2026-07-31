@@ -3,6 +3,7 @@ import {
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
 export type WingCatalogSortKey = 'sales' | 'revenue' | 'views' | 'conversion' | 'reviews';
 
@@ -67,7 +68,9 @@ interface KidItemExtensionPingResponse {
   };
 }
 
-export const WING_CATALOG_EXTENSION_MIN_VERSION = '1.2.103';
+// 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
+// 기능 판정은 아래 ping capability 가 하고, 버전은 병합 이전 설치만 걸러낸다.
+export const WING_CATALOG_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
 export const WING_CATALOG_EXTENSION_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램을 설치/새로고침한 뒤 다시 실행하세요.';
 export const WING_CATALOG_CHROME_REQUIRED =

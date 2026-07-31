@@ -62,7 +62,7 @@ class FakeInput {
 
 test("art09 automatic login fills the Cafe24 shop ID and supplier ID separately", () => {
   const source = readFileSync(
-    new URL("../order-collector/background/service-worker.js", import.meta.url),
+    new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
     "utf8",
   );
   const shopId = new FakeInput({ id: "mallId", name: "mallId", label: "아이디" });
@@ -129,7 +129,7 @@ test("art09 automatic login fills the Cafe24 shop ID and supplier ID separately"
 
 test("a login tab stays open without stealing focus when automatic login needs attention", async () => {
   const source = readFileSync(
-    new URL("../order-collector/background/service-worker.js", import.meta.url),
+    new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
     "utf8",
   );
   const calls = { attached: [], detached: [], removed: [] };
@@ -199,7 +199,7 @@ test("a login tab stays open without stealing focus when automatic login needs a
 
 test("login preflight runs inside the matching order collection lifecycle", async () => {
   const source = readFileSync(
-    new URL("../order-collector/background/service-worker.js", import.meta.url),
+    new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
     "utf8",
   );
   const calls = [];
@@ -243,7 +243,7 @@ test("login preflight runs inside the matching order collection lifecycle", asyn
 
 test("art09 collection ignores visible orders outside the 배송준비전 state", async () => {
   const source = readFileSync(
-    new URL("../order-collector/background/service-worker.js", import.meta.url),
+    new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
     "utf8",
   );
   const cells = (values) => values.map((value) => ({ innerText: value, textContent: value }));
@@ -301,7 +301,7 @@ test("art09 collection ignores visible orders outside the 배송준비전 state"
 
 test("art09 collection requires an actual order row from the requested date", async () => {
   const source = readFileSync(
-    new URL("../order-collector/background/service-worker.js", import.meta.url),
+    new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
     "utf8",
   );
   const cells = (values) => values.map((value) => ({ innerText: value, textContent: value }));

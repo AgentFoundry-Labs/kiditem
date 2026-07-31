@@ -7,32 +7,22 @@ const extensionsRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
 );
+// 주문수집/쿠팡/소싱 확장을 kiditem-os 하나로 합치면서 도메인별 사본이
+// 사라졌다. 정본은 여전히 `shared/` 이고, 로드 가능한 확장 루트 안에 사본
+// 하나만 둔다(확장 루트 밖 파일은 Chrome 이 싣지 못한다).
 const adapterGroups = [
   {
     name: 'collection session',
     canonicalPath: path.join(extensionsRoot, 'shared/collection-session.js'),
     generatedPaths: [
-      path.join(
-        extensionsRoot,
-        'coupang-ads-scraper/background/collection-session.js',
-      ),
-      path.join(extensionsRoot, 'product-scraper/collection-session.js'),
-      path.join(extensionsRoot, 'order-collector/background/collection-session.js'),
+      path.join(extensionsRoot, 'kiditem-os/background/collection-session.js'),
     ],
   },
   {
     name: 'environment context',
     canonicalPath: path.join(extensionsRoot, 'shared/environment-context.js'),
     generatedPaths: [
-      path.join(
-        extensionsRoot,
-        'coupang-ads-scraper/background/environment-context.js',
-      ),
-      path.join(extensionsRoot, 'product-scraper/environment-context.js'),
-      path.join(
-        extensionsRoot,
-        'order-collector/background/environment-context.js',
-      ),
+      path.join(extensionsRoot, 'kiditem-os/background/environment-context.js'),
     ],
   },
 ];

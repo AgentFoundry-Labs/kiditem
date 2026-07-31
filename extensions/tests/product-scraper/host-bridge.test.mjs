@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 
-const bridgePath = path.resolve('extensions/product-scraper/host-bridge.js');
+const bridgePath = path.resolve('extensions/kiditem-os/content/host-bridge.js');
 const bridgeSource = fs.readFileSync(bridgePath, 'utf8');
 
 test('opens a heartbeat port and pings often enough for MV3 long-running collection', () => {
@@ -34,6 +34,7 @@ test('opens a heartbeat port and pings often enough for MV3 long-running collect
     clearInterval: () => {},
     console,
     localStorage: {
+      getItem: (key) => (storage.has(key) ? storage.get(key) : null),
       setItem: (key, value) => storage.set(key, value),
     },
     setInterval(fn, delay) {
@@ -58,6 +59,14 @@ test('opens a heartbeat port and pings often enough for MV3 long-running collect
   assert.equal(intervals.length, 1);
   assert.equal(intervals[0].delay, 20_000);
   assert.equal(disconnectListeners.length, 1);
-  assert.equal(storage.get('kiditem-sourcing-ext-id'), 'product-scraper-extension');
+  // 확장 하나가 세 도메인을 모두 담당하므로 세 핸드셰이크 채널 전부에 같은
+  // 확장 ID 로 답해야 웹앱의 detect* 세 함수가 같은 확장을 가리킨다.
+  for (const key of [
+    'kiditem-ext-id',
+    'kiditem-order-ext-id',
+    'kiditem-sourcing-ext-id',
+  ]) {
+    assert.equal(storage.get(key), 'product-scraper-extension', key);
+  }
   assert.equal(windowListeners.some((entry) => entry.type === 'message'), true);
 });

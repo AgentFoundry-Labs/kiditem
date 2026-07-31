@@ -1,0 +1,256 @@
+{
+  "manifest_version": 3,
+  "name": "KIDITEM OS",
+  "description": "주문수집·쿠팡 Wing/광고센터·소싱(Alibaba/1688/틱톡) 자동화를 하나로 묶어 KIDITEM OS 대시보드에 연동합니다.",
+  "version": "1.0.2",
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "cookies",
+    "debugger",
+    "scripting",
+    "sidePanel",
+    "storage",
+    "tabs"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:3000/*",
+      "http://kiditem-office/*",
+      "https://staging.merchon.org/*"
+    ]
+  },
+  "host_permissions": [
+    "https://wing.coupang.com/*",
+    "https://www.coupang.com/*",
+    "https://shop.coupang.com/*",
+    "https://advertising.coupang.com/*",
+    "https://supplier.coupang.com/*",
+    "https://*.i-screammall.co.kr/*",
+    "https://*.i-screammedia.com/*",
+    "https://*.i-screammedia.co.kr/*",
+    "https://*.sellpia.com/*",
+    "https://shop.kidsnote.com/*",
+    "https://nstore.edupre.co.kr/*",
+    "https://www.onch3.co.kr/*",
+    "https://domeggook.com/*",
+    "https://*.domeggook.com/*",
+    "https://partner.kidkids.net/*",
+    "https://www.kidkids.net/*",
+    "https://store.lotteon.com/*",
+    "https://soapi.lotteon.com/*",
+    "https://partners.gsshop.com/*",
+    "https://alwayzseller.ilevit.com/*",
+    "https://alwayz-seller-back.ilevit.com/*",
+    "https://seller-club.co.kr/*",
+    "https://shop.teacherville.co.kr/*",
+    "https://zzogzzog1.cafe24.com/*",
+    "https://shopping-seller.kakao.com/*",
+    "https://www.alibaba.com/*",
+    "https://korean.alibaba.com/*",
+    "https://*.alibaba.com/*",
+    "https://*.1688.com/*",
+    "https://*.douyin.com/*",
+    "https://*.jinritemai.com/*",
+    "https://ads.tiktok.com/*",
+    "https://itemcdn.tmall.com/*",
+    "http://localhost:3000/*",
+    "http://localhost:4000/*",
+    "http://127.0.0.1:4000/*",
+    "http://kiditem-office/*",
+    "https://staging.merchon.org/*",
+    "http://localhost:9000/*",
+    "http://kiditem-office:9000/*",
+    "https://gheoobctiarluauprvro.storage.supabase.co/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2*"
+      ],
+      "js": [
+        "background/coupang/wing-form-runtime-compat.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://wing.coupang.com/*"
+      ],
+      "js": [
+        "utils/dom.js",
+        "content/coupang/wing-unified.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://wing.coupang.com/*"
+      ],
+      "js": [
+        "content/coupang/wing-thumbnail-register.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://wing.coupang.com/vendor-inventory/list*"
+      ],
+      "js": [
+        "shared/coupang-catalog-collector.js",
+        "content/coupang/wing-inventory-scraper.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://wing.coupang.com/vendor-inventory/list*"
+      ],
+      "js": [
+        "content/coupang/wing-product-edit.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://wing.coupang.com/vendor-inventory/list*",
+        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list*"
+      ],
+      "js": [
+        "shared/wing-account-identity.js",
+        "content/coupang/wing-product-delete.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2*"
+      ],
+      "js": [
+        "shared/wing-account-identity.js",
+        "content/coupang/wing-registration-fill.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list*"
+      ],
+      "js": [
+        "shared/coupang-catalog-collector.js",
+        "content/coupang/wing-inventory-scraper.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://advertising.coupang.com/*"
+      ],
+      "js": [
+        "utils/dom.js",
+        "content/coupang/ads-report.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.alibaba.com/*",
+        "https://korean.alibaba.com/*",
+        "https://*.alibaba.com/*",
+        "https://*.1688.com/*"
+      ],
+      "js": [
+        "content/sourcing/extractors/common.js",
+        "content/sourcing/extractors/alibaba.js",
+        "content/sourcing/extractors/1688.js",
+        "content/sourcing/content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.alibaba.com/*",
+        "https://korean.alibaba.com/*",
+        "https://*.alibaba.com/*"
+      ],
+      "js": [
+        "content/sourcing/extractors/page-bridge.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.1688.com/*"
+      ],
+      "js": [
+        "content/sourcing/extractors/1688-bridge.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.1688.com/*",
+        "https://*.douyin.com/*"
+      ],
+      "js": [
+        "content/sourcing/live-commerce-extractor.js",
+        "content/sourcing/live-commerce-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://ads.tiktok.com/*"
+      ],
+      "js": [
+        "content/sourcing/tiktok-cc-extractor.js",
+        "content/sourcing/tiktok-cc-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://ads.tiktok.com/*"
+      ],
+      "js": [
+        "content/sourcing/tiktok-cc-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "http://kiditem-office/*",
+        "https://staging.merchon.org/*"
+      ],
+      "js": [
+        "content/host-bridge.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "side_panel": {
+    "default_path": "popup/popup.html"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

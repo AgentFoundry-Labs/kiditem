@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const lifecyclePath = path.join(
   repoRoot,
-  'extensions/order-collector/background/order-collection-lifecycle.js',
+  'extensions/kiditem-os/background/orders/order-collection-lifecycle.js',
 );
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 

@@ -58,6 +58,8 @@ interface MallAccountSectionProps {
   onRefresh: () => void;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
   onCollectMall: (account: OrderCollectionMallAccount) => void;
+  /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). */
+  onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
   onCancelMall: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
   onToggleAutoDetect: () => void;
@@ -107,6 +109,7 @@ export function MallAccountSection({
   onRefresh,
   onOpenSettings,
   onCollectMall,
+  onOpenCalendar,
   onCancelMall,
   onUploadTracking,
   onToggleAutoDetect,
@@ -264,6 +267,7 @@ export function MallAccountSection({
               autoRunning={autoRunning}
               onOpenSettings={onOpenSettings}
               onCollectMall={onCollectMall}
+        onOpenCalendar={onOpenCalendar}
               onCancelMall={onCancelMall}
               onUploadTracking={onUploadTracking}
             />
