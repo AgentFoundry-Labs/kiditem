@@ -30,6 +30,7 @@ const AUTOMATIC_ACTIONS = [
   ['collectBoriboriOrders', 'collectBoriboriOrders', 'boribori', { date: '2026-07-15' }],
   ['collectTeachervilleOrders', 'collectTeachervilleOrders', 'teacher-mall', { date: '2026-07-15' }],
   ['collectArt09Orders', 'collectArt09Orders', 'art09', { date: '2026-07-15' }],
+  ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
   ['collectCoupangDirectOrders', 'collectCoupangDirectOrders', 'coupang-direct', { date: '2026-07-15' }],
 ];
 
@@ -106,7 +107,7 @@ function createFakeChrome() {
   };
 }
 
-function loadWorker() {
+function loadWorker(globals = {}) {
   const fake = createFakeChrome();
   let context;
   const sandbox = {
@@ -125,6 +126,7 @@ function loadWorker() {
     clearTimeout,
     structuredClone,
     chrome: fake.chrome,
+    ...globals,
     importScripts(...relativePaths) {
       for (const relativePath of relativePaths) {
         const filename = path.join(backgroundRoot, relativePath);
@@ -139,6 +141,92 @@ function loadWorker() {
   vm.runInContext(readFileSync(workerPath, 'utf8'), context, { filename: workerPath });
   installExternalDispatch(context, fake.chrome);
   return { ...fake, context, externalMessageListeners: fake.getExternalMessageListeners() };
+}
+
+function textResponse(text, { ok = true, status = 200, url = 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' } = {}) {
+  return {
+    ok,
+    status,
+    url,
+    async arrayBuffer() {
+      return new TextEncoder().encode(text).buffer;
+    },
+  };
+}
+
+function rowCheckbox(cells) {
+  const row = {
+    tagName: 'TR',
+    cells: cells.map((textContent) => ({ textContent })),
+  };
+  return { tagName: 'INPUT', parentElement: row };
+}
+
+function haebeopListDocument(rows, pages = []) {
+  return {
+    querySelector(selector) {
+      return selector === 'input[type="password"]' ? null : null;
+    },
+    querySelectorAll(selector) {
+      if (selector === 'input[name="select_checkbox"]') {
+        return rows.map(({ orderId, product = '해법 상품' }) => rowCheckbox([
+          '',
+          '2026-07-31 12:00:00',
+          orderId,
+          '주문자',
+          '일반',
+          product,
+          '카드',
+        ]));
+      }
+      if (selector === 'a[href]') {
+        return pages.map((page) => ({
+          getAttribute(name) {
+            return name === 'href' ? `/mall/order/basket_list.php?page=${page}` : null;
+          },
+        }));
+      }
+      return [];
+    },
+  };
+}
+
+function haebeopDetailDocument(orderId) {
+  const item = rowCheckbox([
+    '',
+    '공급사',
+    '',
+    `상품 ${orderId}`,
+    '2',
+    '5,000',
+    '10,000',
+    '-',
+    '결제완료',
+  ]);
+  return {
+    querySelector(selector) {
+      const field = /^\[name="(.+)"\]$/.exec(selector)?.[1];
+      const values = {
+        total_price: '12,000',
+        send_name: '주문자',
+        rece_name: '수취인',
+      };
+      return field && field in values ? { value: values[field] } : null;
+    },
+    querySelectorAll(selector) {
+      if (selector === 'input[name="select_basket_no"]') return [item];
+      if (selector === 'tr') return [];
+      return [];
+    },
+  };
+}
+
+function createHaebeopDomParser(documents) {
+  return class {
+    parseFromString(html) {
+      return documents.get(html);
+    }
+  };
 }
 
 function dispatch(listeners, message) {
@@ -158,6 +246,69 @@ function installCollectorResult(runtime, functionName, resultFactory) {
     return resultFactory();
   };
 }
+
+test('Haebeop collects every marketplace list page before expanding order details', async () => {
+  const documents = new Map([
+    ['list:1', haebeopListDocument([{ orderId: '1001' }], [1, 2])],
+    ['list:2', haebeopListDocument([{ orderId: '1002' }], [1, 2])],
+    ['detail:1001', haebeopDetailDocument('1001')],
+    ['detail:1002', haebeopDetailDocument('1002')],
+  ]);
+  const listPages = [];
+  const runtime = loadWorker({
+    DOMParser: createHaebeopDomParser(documents),
+    document: { querySelector: () => null },
+    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
+    async fetch(url, init = {}) {
+      if (url === '/mall/order/basket_list.php') {
+        const page = new URLSearchParams(init.body).get('page') || '1';
+        listPages.push(page);
+        return textResponse(`list:${page}`);
+      }
+      const orderId = new URL(url, 'https://mallseller.genimarket.co.kr').searchParams.get('orderid');
+      return textResponse(`detail:${orderId}`);
+    },
+  });
+
+  const result = await runtime.context.scrapeHaebeopOrders({
+    date: '2026-07-31',
+    vendor: '공급사',
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.orders.map((order) => order.orderNo))),
+    ['1001', '1002'],
+  );
+  assert.deepEqual(listPages, ['1', '2']);
+});
+
+test('Haebeop fails collection instead of producing a zero-value order when detail loading fails', async () => {
+  const documents = new Map([
+    ['list:1', haebeopListDocument([{ orderId: '1001' }])],
+  ]);
+  const runtime = loadWorker({
+    DOMParser: createHaebeopDomParser(documents),
+    document: { querySelector: () => null },
+    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
+    async fetch(url, init = {}) {
+      if (url === '/mall/order/basket_list.php') {
+        return textResponse(`list:${new URLSearchParams(init.body).get('page') || '1'}`);
+      }
+      return textResponse('', { ok: false, status: 503 });
+    },
+  });
+
+  const result = await runtime.context.scrapeHaebeopOrders({ date: '2026-07-31' });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result)),
+    {
+      success: false,
+      error: '해법몰 주문 상세 조회 실패: 1001 (HTTP 503)',
+    },
+  );
+});
 
 test('all automatic order actions publish safe orders.mall sessions from inactive tabs', async () => {
   const runtime = loadWorker();

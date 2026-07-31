@@ -24,6 +24,7 @@ import {
   type KkomangseConvertInput,
   type OnchannelConvertInput,
   type KidkidsConvertInput,
+  type HaebeopConvertInput,
 } from '../services/order-collection.service';
 import {
   CoupangDirectshipService,
@@ -265,6 +266,23 @@ export class OrderCollectionController {
     @Res({ passthrough: true }) response: Response,
   ): StreamableFile {
     const result = this.orderCollectionService.convertKidkidsOrders(body);
+    this.setConversionHeaders(result, response);
+    return new StreamableFile(result.buffer);
+  }
+
+  @Post('haebeop/convert')
+  @Header('Access-Control-Expose-Headers', [
+    'Content-Disposition',
+    'X-Order-Collection-Source-Rows',
+    'X-Order-Collection-Product-Rows',
+    'X-Order-Collection-Output-Rows',
+    'X-Order-Collection-Skipped-Rows',
+  ].join(', '))
+  convertHaebeop(
+    @Body() body: HaebeopConvertInput,
+    @Res({ passthrough: true }) response: Response,
+  ): StreamableFile {
+    const result = this.orderCollectionService.convertHaebeopOrders(body);
     this.setConversionHeaders(result, response);
     return new StreamableFile(result.buffer);
   }
