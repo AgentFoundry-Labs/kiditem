@@ -1,4 +1,8 @@
-import type { MasterProductAbcPolicyResponse, ProductAbcGrade } from '@kiditem/shared/product-abc';
+import type {
+  MasterProductAbcEvaluation,
+  MasterProductAbcPolicyResponse,
+  ProductAbcGrade,
+} from '@kiditem/shared/product-abc';
 
 export const MASTER_PRODUCT_ABC_REPOSITORY_PORT = Symbol(
   'MASTER_PRODUCT_ABC_REPOSITORY_PORT',
@@ -15,6 +19,7 @@ export interface MasterProductAbcRepositoryPort {
     policy: MasterProductAbcPolicyRecord;
     sourceCapturedAt: Date | null;
     grades: ReadonlyMap<string, ProductAbcGrade | null>;
+    evaluations?: ReadonlyMap<string, MasterProductAbcEvaluation>;
     metricValues: ReadonlyMap<string, number | null>;
     allowPolicyReplacement?: boolean;
   }): Promise<{ changedProductCount: number; policy: MasterProductAbcPolicyRecord; stale: boolean }>;

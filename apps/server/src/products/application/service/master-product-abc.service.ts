@@ -20,6 +20,8 @@ const DEFAULT_POLICY: MasterProductAbcPolicyRecord = {
   periodDays: 30,
   aCumulativeThreshold: 70,
   bCumulativeThreshold: 90,
+  minProvisionalMonths: 3,
+  minClassifiedMonths: 6,
   revision: 0,
   lastCalculatedAt: null,
   sourceCapturedAt: null,
@@ -98,6 +100,7 @@ export class MasterProductAbcService {
     const gradeItems = [...grades.entries()].map(([masterProductId, abcGrade]) => ({
       masterProductId,
       abcGrade,
+      evaluation: null,
     }));
     return {
       policy: published.policy,

@@ -28,7 +28,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 23 |
-| [Core](erd/core.md) | 15 |
+| [Core](erd/core.md) | 16 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 12 |
 | [Orders](erd/orders.md) | 13 |
@@ -114,6 +114,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelListingOption | Core | `channel_listing_options` | One sellable SKU under a channel listing. |
 | LegalEntity | Core | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | Core | `master_products` | KidItem-operated product identity and product-level operating metadata. |
+| MasterProductAbcEvaluation | Core | `master_product_abc_evaluations` | Current Products-owned automatic ABC lifecycle and profit-evidence snapshot for one MasterProduct. |
 | MasterProductAbcGradeHistory | Core | `master_product_abc_grade_histories` | Immutable publication history for automatic MasterProduct ABC grade changes. |
 | MasterProductAbcPolicy | Core | `master_product_abc_policies` | Organization-owned automatic MasterProduct ABC calculation policy. |
 | Organization | Core | `organizations` | - |
@@ -1478,6 +1479,28 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  MasterProductAbcEvaluation {
+    String id PK
+    String organizationId FK
+    String masterProductId FK
+    String provisionalGrade
+    String lifecycleStage
+    String confidence
+    String eligibilityReason
+    StringArray riskFlags
+    Int observedCompleteMonths
+    String observationStartMonth
+    Decimal periodMetricValue
+    Decimal rankingValue
+    Int grossRevenue
+    Int grossCost
+    Int grossProfit
+    Decimal grossMarginRate
+    Decimal contributionRate
+    Decimal cumulativeContributionRate
+    DateTime calculatedAt
+    DateTime sourceCapturedAt
+  }
   MasterProductAbcGradeHistory {
     String id PK
     String organizationId FK
@@ -1496,6 +1519,8 @@ erDiagram
     Int periodDays
     Int aCumulativeThreshold
     Int bCumulativeThreshold
+    Int minProvisionalMonths
+    Int minClassifiedMonths
     Int revision
     DateTime lastCalculatedAt
     DateTime sourceCapturedAt
@@ -2789,6 +2814,7 @@ erDiagram
   InventoryCommitment ||--o{ InventoryCommitmentAllocation : "commitment"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
+  MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
   MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
   MasterProduct ||--o{ ProcessingCost : "master"
   MasterProduct ||--o{ ProductVariant : "masterProduct"
@@ -2865,6 +2891,7 @@ erDiagram
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
   Organization ||--o{ ManualLedger : "organization"
   Organization ||--o{ MasterProduct : "organization"
+  Organization ||--o{ MasterProductAbcEvaluation : "organization"
   Organization ||--o{ MasterProductAbcGradeHistory : "organization"
   Organization ||--|| MasterProductAbcPolicy : "organization"
   Organization ||--o{ NaverKeywordDailySnapshot : "organization"

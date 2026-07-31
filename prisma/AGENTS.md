@@ -91,6 +91,8 @@ reusable sellable unit, `ProductVariantComponent` is the only component recipe,
 and `SellpiaInventorySku` is the sole physical Sellpia stock owner. Never put
 `currentStock`, source prices, barcode, raw import payload, or import provenance
 back on `MasterProduct`, and never restore channel-owned component recipes.
+`MasterProductAbcEvaluation` is the Products-owned one-to-one explanation
+snapshot; the only writable official ABC grade remains `MasterProduct.abcGrade`.
 
 All relations among these models are organization-fenced with composite
 `[id, organizationId]` references. Nullable channel product/variant links mean

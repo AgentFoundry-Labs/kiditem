@@ -26,7 +26,7 @@ compatibility CRUD. It never owns physical stock.
 ## Final Owners
 
 - KidItem product metadata: Products `MasterProduct`.
-- Automatic product ABC policy, grade publication, and grade history: Products.
+- Automatic product ABC policy, current evaluation snapshot, grade publication, and grade history: Products.
 - Reusable sellable units and component recipes: Products `ProductVariant` and
   `ProductVariantComponent`.
 - Sellpia physical identity and imported quantity: Inventory

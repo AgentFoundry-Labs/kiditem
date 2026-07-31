@@ -26,7 +26,17 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
   it('publishes only changed organization-scoped grades and writes nullable history once', async () => {
     const own = await prisma.masterProduct.create({ data: { organizationId: TEST_ORGANIZATION_ID, code: `ABC-${randomUUID()}`, name: 'Own' } });
     const foreign = await prisma.masterProduct.create({ data: { organizationId: OTHER_ORGANIZATION_ID, code: `ABC-${randomUUID()}`, name: 'Foreign' } });
-    const policy = { metric: 'SALES_QUANTITY' as const, periodDays: 30 as const, aCumulativeThreshold: 70, bCumulativeThreshold: 90, lastCalculatedAt: null, sourceCapturedAt: null, revision: 0 };
+    const policy = {
+      metric: 'SALES_QUANTITY' as const,
+      periodDays: 30 as const,
+      aCumulativeThreshold: 70,
+      bCumulativeThreshold: 90,
+      minProvisionalMonths: 3,
+      minClassifiedMonths: 6,
+      lastCalculatedAt: null,
+      sourceCapturedAt: null,
+      revision: 0,
+    };
 
     const first = await repository.publishGrades({
       organizationId: TEST_ORGANIZATION_ID,
@@ -70,6 +80,7 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
       .resolves.toEqual([expect.objectContaining({ masterProductId: own.id, oldGrade: null, newGrade: 'A' })]);
     await expect(repository.findPolicy(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
       metric: 'SALES_AMOUNT', periodDays: 90,
+      minProvisionalMonths: 3, minClassifiedMonths: 6,
     });
   });
 
@@ -86,6 +97,8 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
       periodDays: 30 as const,
       aCumulativeThreshold: 70,
       bCumulativeThreshold: 90,
+      minProvisionalMonths: 3,
+      minClassifiedMonths: 6,
       lastCalculatedAt: null,
       sourceCapturedAt: null,
       revision: 0,
@@ -108,5 +121,36 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
     await expect(prisma.masterProductAbcGradeHistory.count({
       where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: product.id },
     })).resolves.toBe(1);
+  });
+
+  it('keeps exactly one current lifecycle evaluation on its organization-fenced product', async () => {
+    const own = await prisma.masterProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: `ABC-EVAL-${randomUUID()}`, name: 'Own evaluation' },
+    });
+    const foreign = await prisma.masterProduct.create({
+      data: { organizationId: OTHER_ORGANIZATION_ID, code: `ABC-EVAL-${randomUUID()}`, name: 'Foreign evaluation' },
+    });
+    const evaluation = {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterProductId: own.id,
+      lifecycleStage: 'NEW',
+      confidence: 'LOW',
+      eligibilityReason: 'NO_OBSERVATION',
+      riskFlags: ['LIMITED_HISTORY'],
+      observedCompleteMonths: 0,
+      calculatedAt: new Date('2026-07-24T00:00:00Z'),
+    };
+
+    await prisma.masterProductAbcEvaluation.create({ data: evaluation });
+    await expect(prisma.masterProductAbcEvaluation.create({ data: evaluation })).rejects.toThrow();
+    await expect(prisma.masterProductAbcEvaluation.create({
+      data: { ...evaluation, masterProductId: foreign.id },
+    })).rejects.toThrow();
+    await expect(prisma.masterProduct.findUniqueOrThrow({
+      where: { id: own.id },
+      include: { abcEvaluation: true },
+    })).resolves.toMatchObject({
+      abcEvaluation: { lifecycleStage: 'NEW', eligibilityReason: 'NO_OBSERVATION' },
+    });
   });
 });

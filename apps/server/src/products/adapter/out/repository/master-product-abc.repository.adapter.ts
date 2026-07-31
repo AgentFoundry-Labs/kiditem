@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
+import type { MasterProductAbcEvaluation, ProductAbcGrade } from '@kiditem/shared/product-abc';
 import type {
   MasterProductAbcPolicyRecord,
   MasterProductAbcRepositoryPort,
@@ -21,6 +21,7 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
     policy: MasterProductAbcPolicyRecord;
     sourceCapturedAt: Date | null;
     grades: ReadonlyMap<string, ProductAbcGrade | null>;
+    evaluations?: ReadonlyMap<string, MasterProductAbcEvaluation>;
     metricValues: ReadonlyMap<string, number | null>;
     allowPolicyReplacement?: boolean;
   }) {
@@ -96,6 +97,8 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
           periodDays: input.policy.periodDays,
           aCumulativeThreshold: input.policy.aCumulativeThreshold,
           bCumulativeThreshold: input.policy.bCumulativeThreshold,
+          minProvisionalMonths: input.policy.minProvisionalMonths,
+          minClassifiedMonths: input.policy.minClassifiedMonths,
           revision: 1,
           lastCalculatedAt: calculatedAt,
           sourceCapturedAt: input.sourceCapturedAt,
@@ -105,6 +108,8 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
           periodDays: input.policy.periodDays,
           aCumulativeThreshold: input.policy.aCumulativeThreshold,
           bCumulativeThreshold: input.policy.bCumulativeThreshold,
+          minProvisionalMonths: input.policy.minProvisionalMonths,
+          minClassifiedMonths: input.policy.minClassifiedMonths,
           revision: { increment: 1 },
           lastCalculatedAt: calculatedAt,
           sourceCapturedAt: input.sourceCapturedAt,
@@ -121,17 +126,22 @@ function samePolicyConfig(
     periodDays: number;
     aCumulativeThreshold: number;
     bCumulativeThreshold: number;
+    minProvisionalMonths: number;
+    minClassifiedMonths: number;
   },
   candidate: MasterProductAbcPolicyRecord,
 ): boolean {
   return persisted.metric === candidate.metric
     && persisted.periodDays === candidate.periodDays
     && persisted.aCumulativeThreshold === candidate.aCumulativeThreshold
-    && persisted.bCumulativeThreshold === candidate.bCumulativeThreshold;
+    && persisted.bCumulativeThreshold === candidate.bCumulativeThreshold
+    && persisted.minProvisionalMonths === candidate.minProvisionalMonths
+    && persisted.minClassifiedMonths === candidate.minClassifiedMonths;
 }
 
 function toPolicy(row: {
   metric: string; periodDays: number; aCumulativeThreshold: number; bCumulativeThreshold: number;
+  minProvisionalMonths: number; minClassifiedMonths: number;
   revision: number;
   lastCalculatedAt: Date | null; sourceCapturedAt: Date | null;
 }): MasterProductAbcPolicyRecord {
@@ -140,6 +150,8 @@ function toPolicy(row: {
     periodDays: row.periodDays as MasterProductAbcPolicyRecord['periodDays'],
     aCumulativeThreshold: row.aCumulativeThreshold,
     bCumulativeThreshold: row.bCumulativeThreshold,
+    minProvisionalMonths: row.minProvisionalMonths,
+    minClassifiedMonths: row.minClassifiedMonths,
     revision: row.revision,
     lastCalculatedAt: row.lastCalculatedAt,
     sourceCapturedAt: row.sourceCapturedAt,
