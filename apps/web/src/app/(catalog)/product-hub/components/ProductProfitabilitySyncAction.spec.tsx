@@ -20,9 +20,6 @@ describe('ProductProfitabilitySyncAction', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '수익성 데이터 갱신' }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith(
-      'manual_request',
-      'full',
-    ));
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('full'));
   });
 });

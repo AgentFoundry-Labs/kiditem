@@ -1,12 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { PanelItemRow } from '../PanelItemRow';
 import type { PanelItem } from '@kiditem/shared/panel';
-
-// next/navigation mock
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}));
 
 const makeRunItem = (overrides = {}): PanelItem => ({
   kind: 'run',
@@ -52,17 +47,33 @@ const makeAlertItem = (overrides = {}): PanelItem => ({
 });
 
 describe('PanelItemRow', () => {
-  it('routes kind=run to run renderer (renders button with title)', () => {
+  it('renders a run in the common notification row with local hide control', () => {
     render(<PanelItemRow item={makeRunItem()} />);
-    expect(screen.getByRole('button', { name: '워크플로우 실행' })).toBeInTheDocument();
+
+    expect(screen.getByRole('link', { name: '이동' })).toHaveAttribute('href', '/workflows');
     expect(screen.getByText('워크플로우 실행')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '워크플로우 화면에서 숨기기' })).toBeInTheDocument();
+    expect(screen.getByLabelText('상태: 진행 중')).toBeInTheDocument();
+    expect(screen.getByText('워크플로우')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '워크플로우 화면에서 숨기기' }))
+      .toBeInTheDocument();
   });
 
-  it('routes kind=alert to alert renderer (renders alert title)', () => {
+  it('renders an OperationRun panel source through the common row contract', () => {
+    render(<PanelItemRow item={makeRunItem({ source: 'operation', subtitle: '실행 중' })} />);
+
+    expect(screen.getByText('실행 중')).toBeInTheDocument();
+  });
+
+  it('does not offer local hiding for a terminal run', () => {
+    render(<PanelItemRow item={makeRunItem({ status: 'succeeded' })} />);
+
+    expect(screen.queryByRole('button', { name: '워크플로우 화면에서 숨기기' }))
+      .not.toBeInTheDocument();
+  });
+
+  it('routes kind=alert to the alert renderer', () => {
     render(<PanelItemRow item={makeAlertItem()} />);
     expect(screen.getByText('규칙 위반 감지')).toBeInTheDocument();
-    // "할 일로 만들기" button present when actionTaskId=null
     expect(screen.getByRole('button', { name: '할 일로 만들기' })).toBeInTheDocument();
   });
 });

@@ -536,14 +536,10 @@ async function loadExtractorScripts(platform: '1688' | 'ALIBABA'): Promise<Extra
 
 function resolveExtractorDir(): string {
   // 주문수집/쿠팡/소싱 확장 3개를 `extensions/kiditem-os` 하나로 합치면서 소싱
-  // 추출기가 `content/sourcing/extractors` 로 옮겨졌다. 옛 경로도 함께 남겨 두어
-  // 아직 병합 전 체크아웃에서 돌리는 환경이 깨지지 않게 한다.
-  const relatives = [
-    'extensions/kiditem-os/content/sourcing/extractors',
-    'extensions/product-scraper/extractors',
-  ];
+  // 추출기가 `content/sourcing/extractors` 로 옮겨졌다. 통합 이후에는 이 경로만 사용한다.
+  const relative = 'extensions/kiditem-os/content/sourcing/extractors';
   const roots = [process.cwd(), resolve(process.cwd(), '../..'), resolve(__dirname, '../../../../../../..')];
-  const candidates = roots.flatMap((root) => relatives.map((relative) => resolve(root, relative)));
+  const candidates = roots.map((root) => resolve(root, relative));
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) {
     throw new AgentOsRuntimeError(

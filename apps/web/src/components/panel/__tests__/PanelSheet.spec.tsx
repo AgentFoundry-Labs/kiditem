@@ -81,7 +81,7 @@ function seedStore(items: PanelItem[]) {
   usePanelStore.setState({ byId, isOpen: true, connectionStatus: 'connected' });
 }
 
-describe('PanelSheet my/attention/team split', () => {
+describe('PanelSheet unified notification list', () => {
   beforeEach(() => {
     mockApiPost.mockClear();
     mockRecoverStalePanelOperations.mockClear();
@@ -97,48 +97,27 @@ describe('PanelSheet my/attention/team split', () => {
     usePanelStore.setState({ byId: {}, isOpen: false });
   });
 
-  it('workflow run with my actorUserId → 내 작업 section', () => {
-    seedStore([makeRunItem('wf-1', MY_USER_ID)]);
+  it('renders run and alert items in one list without dedicated work sections', () => {
+    seedStore([
+      makeRunItem('wf-1', MY_USER_ID),
+      makeRunItem('wf-2', OTHER_USER_ID, 'succeeded'),
+      makeAlertItem('alert-1'),
+    ]);
     render(<PanelSheet />);
-    expect(screen.getByText('내 작업')).toBeInTheDocument();
+
     expect(screen.getByText('워크플로우 wf-1')).toBeInTheDocument();
-    // 팀 section is hidden when empty
-    expect(screen.queryByText('팀')).not.toBeInTheDocument();
-  });
-
-  it('workflow run with other actorUserId → 팀 작업 section', () => {
-    seedStore([makeRunItem('wf-2', OTHER_USER_ID, 'succeeded')]);
-    render(<PanelSheet />);
-    expect(screen.getByText('팀 작업')).toBeInTheDocument();
     expect(screen.getByText('워크플로우 wf-2')).toBeInTheDocument();
-  });
-
-  it('system alert with actorUserId null → 조직 알림 section', () => {
-    seedStore([makeAlertItem('alert-1')]);
-    render(<PanelSheet />);
-    expect(screen.getByText('조직 알림')).toBeInTheDocument();
     expect(screen.getByText('알림 alert-1')).toBeInTheDocument();
+    expect(screen.queryByText('내 작업')).not.toBeInTheDocument();
+    expect(screen.queryByText('조직 알림')).not.toBeInTheDocument();
     expect(screen.queryByText('팀 작업')).not.toBeInTheDocument();
   });
 
-  it('내 작업 0건 → empty state placeholder shown', () => {
-    // Only an attention alert item — my section should show empty placeholder
-    seedStore([makeAlertItem('alert-2')]);
+  it('shows one empty state when no notifications exist', () => {
+    seedStore([]);
     render(<PanelSheet />);
-    expect(screen.getByText('진행 중인 내 작업이 없습니다')).toBeInTheDocument();
-  });
 
-  it('조직 알림 0건 → empty state placeholder shown', () => {
-    seedStore([makeRunItem('wf-3', MY_USER_ID)]);
-    render(<PanelSheet />);
-    expect(screen.getByText('조직 알림')).toBeInTheDocument();
-    expect(screen.getByText('조직 알림이 없습니다')).toBeInTheDocument();
-  });
-
-  it('팀 0건 → 팀 header not rendered', () => {
-    seedStore([makeRunItem('wf-4', MY_USER_ID)]);
-    render(<PanelSheet />);
-    expect(screen.queryByText('팀 작업')).not.toBeInTheDocument();
+    expect(screen.getByText('표시할 알림이 없습니다')).toBeInTheDocument();
   });
 });
 

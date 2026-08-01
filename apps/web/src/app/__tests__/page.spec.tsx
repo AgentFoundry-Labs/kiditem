@@ -256,8 +256,8 @@ describe('Dashboard page (RTL)', () => {
 
     renderPage();
     expect(await screen.findByText('시장분석')).toBeInTheDocument();
-    expect(screen.getByText('몰 주문수집 (전체수집)')).toBeInTheDocument();
-    expect(screen.getByText('금일 쿠팡 쉽먼트 다운')).toBeInTheDocument();
+    expect(screen.getByText('몰 주문수집')).toBeInTheDocument();
+    expect(screen.getByText('쿠팡 쉽먼트')).toBeInTheDocument();
   });
 
   it('T6: pipeline-stats endpoint is NOT called', async () => {

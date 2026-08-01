@@ -13,6 +13,7 @@ Browser
   -> PostgreSQL 17 (Prisma v7)
 
 apps/server
+  -> operations control plane (catalog, schedule, run ledger, dispatch)
   -> Coupang Wing / channel providers
   -> Gemini / image providers
   -> Chromium detail-page image rendering
@@ -26,6 +27,52 @@ Company Chrome extension
 
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
+
+### Operation Control Plane And Manual Action Parity
+
+`apps/server/src/operations` is the platform control plane for operational
+work that needs a durable server-side run envelope: schedules, Agent OS tools,
+and Operation-backed manual actions. Operations owns the code-owned catalog,
+organization-scoped schedules, top-level `OperationRun` ledger, engine
+dispatch, and browser-runtime leases; it does not write canonical business
+rows.
+
+Manual browser work has a stricter UI parity rule. The dashboard Agent OS
+button and its individual domain-screen button call the same shared frontend
+action. The trigger surface may differ, but extension command, account/date
+defaults, empty-vs-login classification, persistence, generated artifacts, and
+browser-session alerts do not. A dashboard button must not replace an existing
+screen action with a count-only Operation handler.
+
+```text
+dashboard button ─┐
+                  ├─> shared manual action -> extension + owner API/sink
+domain button ────┘
+
+schedule / agent-os -> operations
+                       -> owner incoming capability
+                       -> automation workflow port | agent-os runner port
+                          | ai direct-job port
+
+automation -X-> agent-os
+```
+
+Trend collection and Sellpia refresh are Operation-backed shared manual
+actions because their durable result already lives behind owner APIs. Order
+collection, Coupang shipment-summary lookup, and Rocket PO collection keep
+their existing browser action contracts so dashboard execution preserves the
+same generated files, saved summaries/catalogs, and operator-facing results as
+their screens. Scheduled variants may use Operations, but they do not redefine
+manual-button behavior or browser-local artifact ownership.
+
+Business owners register handlers and retain their own result sinks.
+`OperationAlert` remains a personal notification projection, not the source of
+truth for an operation run. Browser runtime attempts are fenced by an
+`attemptToken` so stale extension reports cannot change a newer attempt.
+The global notification sheet is one chronological list: Alert rows and run
+projections share the same compact row presentation, with no separate Agent OS
+or `내 작업` card section. Manual shipment and Rocket actions publish distinct
+browser collection producers so their titles and return links remain stable.
 
 ## Monorepo Shape
 
@@ -132,6 +179,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements, and the read-only contribution-profit evidence port consumed by Products' automatic ABC evaluation. |
 | `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku reads, purchase freshness gate, and record-only transfer/picking/receipt capabilities. |
 | `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, return-transfer operations, and durable Sellpia workbook submission idempotency/audit. |
+| `apps/server/src/operations` | Platform | Code-owned operation catalog, schedules, top-level run ledger, engine dispatch, and browser-runtime leases. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
@@ -162,6 +210,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
 | `apps/server/src/automation` | Hexagonal | port/adapter lanes complete; 6 outgoing repository ports + `OPERATION_ALERT_PORT` owner-side incoming port published from `application/port/in/` for cross-domain producers; architecture + module wiring specs freeze invariants; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework. |
+| `apps/server/src/operations` | Hexagonal | code-owned operation definitions, run/schedule repository ports, native-runtime ports, dispatcher, server queue worker, and browser lease APIs; canonical business writes remain in owner incoming capabilities. |
 | `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus an Inventory-owned read-port bridge. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
 | `apps/server/src/chat` | Flat | controller/service/Claude CLI adapter. |
@@ -758,6 +807,12 @@ live under `apps/server/src/agent-os/`; schema ownership is documented in
   LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may call
   deterministic workflows through automation-owned incoming ports or registered
   workflow capabilities.
+
+Agent OS remains the dashboard's top-level operational interface and its
+autonomous reasoning runtime. It does not make every operation an `AgentRun`:
+deterministic workflows, direct AI jobs, and browser tasks retain their native
+engines while their top-level execution is recorded by the Operations control
+plane.
 
 ## Verification Baseline
 

@@ -34,7 +34,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Orders](erd/orders.md) | 13 |
 | [Sourcing](erd/sourcing.md) | 12 |
 | [Supply](erd/supply.md) | 10 |
-| [System](erd/system.md) | 9 |
+| [System](erd/system.md) | 11 |
 
 ## Model Index
 
@@ -184,6 +184,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | FeatureGate | System | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | System | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
 | MigrationCheckpoint | System | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
+| OperationRun | System | `operation_runs` | Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work. |
+| OperationSchedule | System | `operation_schedules` | Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled. |
 | SystemSetting | System | `system_settings` | - |
 
 ## Mermaid ER Diagram
@@ -1592,6 +1594,54 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  OperationRun {
+    String id PK
+    String organizationId FK
+    String operationKey
+    Int definitionVersion
+    String ownerDomain
+    String title
+    String engineType
+    String status
+    String triggerSource
+    String requestedByUserId FK
+    String parentRunId FK
+    String scheduleId FK
+    String idempotencyKey
+    Json input
+    Json result
+    Float progress
+    String nativeRunType
+    String nativeRunId
+    Int attempts
+    Int maxAttempts
+    String claimedBy
+    String attemptToken
+    DateTime claimedAt
+    DateTime leaseExpiresAt
+    DateTime scheduledFor
+    String errorCode
+    String errorMessage
+    DateTime startedAt
+    DateTime finishedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  OperationSchedule {
+    String id PK
+    String organizationId FK
+    String operationKey
+    String cronExpression
+    String timeZone
+    String misfirePolicy
+    Json input
+    Boolean enabled
+    DateTime nextRunAt
+    DateTime lastScheduledFor
+    String createdByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
   Order {
     String id PK
     String organizationId FK
@@ -2850,6 +2900,8 @@ erDiagram
   MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
+  OperationRun o|--o{ OperationRun : "parentRun"
+  OperationSchedule o|--o{ OperationRun : "schedule"
   Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
   Order o|--o{ OrderReturn : "order"
@@ -2928,6 +2980,8 @@ erDiagram
   Organization ||--o{ MasterProductAbcGradeHistory : "organization"
   Organization ||--o{ NaverKeywordDailySnapshot : "organization"
   Organization ||--o{ NaverPopularKeywordDailySnapshot : "organization"
+  Organization ||--o{ OperationRun : "organization"
+  Organization ||--o{ OperationSchedule : "organization"
   Organization ||--o{ Order : "organization"
   Organization ||--o{ OrderLineItem : "organization"
   Organization ||--o{ OrderReturn : "organization"
@@ -3071,6 +3125,8 @@ erDiagram
   User ||--o{ InventoryCommitment : "creator"
   User o|--o{ InventoryCommitment : "releaser"
   User o|--o{ InventoryCommitment : "settler"
+  User o|--o{ OperationRun : "requestedBy"
+  User o|--o{ OperationSchedule : "createdBy"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
   User o|--o{ ProductPreparation : "approvedByUser"

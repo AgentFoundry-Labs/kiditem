@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  detectOrderCollectionExtensionId,
+  detectOrderCollectionExtensionRuntime,
   sendToExtension,
 } from '@/lib/extension-bridge';
 import {
@@ -11,20 +11,24 @@ import {
 } from './coupang-shipment-extension';
 
 vi.mock('@/lib/extension-bridge', () => ({
-  detectOrderCollectionExtensionId: vi.fn(),
+  detectOrderCollectionExtensionRuntime: vi.fn(),
   sendToExtension: vi.fn(),
 }));
 
-const mockedDetectExtension = vi.mocked(detectOrderCollectionExtensionId);
+const mockedDetectExtension = vi.mocked(detectOrderCollectionExtensionRuntime);
 const mockedSendToExtension = vi.mocked(sendToExtension);
 
 describe('collectCoupangShipmentDateSummaryViaExtension', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedDetectExtension.mockResolvedValue({
+      status: 'ready',
+      extensionId: 'order-collector',
+      version: '0.1.95',
+    });
   });
 
   it('accepts only the validated date-summary capability and complete evidence', async () => {
-    mockedDetectExtension.mockResolvedValueOnce('order-collector');
     mockedSendToExtension.mockResolvedValueOnce({
       success: true,
       scannedPages: 2,
@@ -41,14 +45,20 @@ describe('collectCoupangShipmentDateSummaryViaExtension', () => {
     ]);
     expect(mockedDetectExtension).toHaveBeenCalledWith(
       1200,
-      'collectCoupangShipmentDateSummaryValidatedV1',
+      [
+        'collectCoupangShipmentDateSummaryValidatedV1',
+        'coupangShipmentSummaryCollectionSessionV1',
+      ],
     );
   });
 
   it('rejects a stale extension with explicit reload guidance', async () => {
-    mockedDetectExtension
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('legacy-order-collector');
+    mockedDetectExtension.mockResolvedValueOnce({
+      status: 'incompatible',
+      extensionId: 'legacy-order-collector',
+      version: '0.1.94',
+      missingCapabilities: ['coupangShipmentSummaryCollectionSessionV1'],
+    });
 
     await expect(collectCoupangShipmentDateSummaryViaExtension())
       .rejects.toThrow('이전 버전');
@@ -56,7 +66,6 @@ describe('collectCoupangShipmentDateSummaryViaExtension', () => {
   });
 
   it('preserves the structured Supplier Hub session error', async () => {
-    mockedDetectExtension.mockResolvedValueOnce('order-collector');
     mockedSendToExtension.mockResolvedValueOnce({
       success: false,
       errorCode: COUPANG_SHIPMENT_SESSION_REQUIRED_CODE,
@@ -74,7 +83,6 @@ describe('collectCoupangShipmentDateSummaryViaExtension', () => {
   });
 
   it('rejects rows that disappear during extension response parsing', async () => {
-    mockedDetectExtension.mockResolvedValueOnce('order-collector');
     mockedSendToExtension.mockResolvedValueOnce({
       success: true,
       scannedPages: 1,
@@ -91,7 +99,6 @@ describe('collectCoupangShipmentDateSummaryViaExtension', () => {
   });
 
   it('keeps a validated empty parcel table distinct from an auth failure', async () => {
-    mockedDetectExtension.mockResolvedValueOnce('order-collector');
     mockedSendToExtension.mockResolvedValueOnce({
       success: true,
       scannedPages: 1,

@@ -18,6 +18,8 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'sourcing.live_commerce',
   'sourcing.tiktok_cc_trend',
   'orders.mall',
+  'orders.coupang_shipment_summary',
+  'orders.coupang_rocket_po',
   'inventory.sellpia',
   'orders.sellpia_manual_match',
 ] as const;

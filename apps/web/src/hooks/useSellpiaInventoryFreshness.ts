@@ -8,8 +8,10 @@ import type {
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import { ZodError } from 'zod';
 import { isApiError } from '@/lib/api-error';
+import { startSellpiaInventoryRefreshAction } from '@/lib/manual-operation-actions';
 import { queryKeys } from '@/lib/query-keys';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
+import type { ManualOperationSourceSurface } from '@/lib/manual-operation-actions';
 
 export const SELLPIA_ACTIVE_POLL_MS = 15_000;
 export const SELLPIA_IDLE_POLL_MS = 60_000;
@@ -39,7 +41,13 @@ export function shouldRetrySellpiaFreshness(
   return error.status === 502 || error.status === 503 || error.status === 504;
 }
 
-export function useSellpiaInventoryFreshness({ enabled }: { enabled: boolean }) {
+export function useSellpiaInventoryFreshness({
+  enabled,
+  sourceSurface = 'domain_screen',
+}: {
+  enabled: boolean;
+  sourceSurface?: ManualOperationSourceSurface;
+}) {
   const queryClient = useQueryClient();
   const freshness = useQuery({
     queryKey: queryKeys.inventory.freshness(),
@@ -61,13 +69,21 @@ export function useSellpiaInventoryFreshness({ enabled }: { enabled: boolean }) 
   }, [queryClient]);
 
   const requestRefresh = useCallback(async (
-    reason: 'manual_request' | 'retry',
     scope: SellpiaSyncScope = 'inventory',
   ) => {
-    const state = await sellpiaInventoryFreshnessApi.requestRefresh(reason, scope);
+    const latestState = await queryClient.fetchQuery({
+      queryKey: queryKeys.inventory.freshness(),
+      queryFn: sellpiaInventoryFreshnessApi.getState,
+      staleTime: 0,
+    });
+    const run = await startSellpiaInventoryRefreshAction({
+      sourceSurface,
+      reason: latestState.status === 'failed' ? 'retry' : 'manual_request',
+      scope,
+    });
     await invalidateFreshness();
-    return state;
-  }, [invalidateFreshness]);
+    return run;
+  }, [invalidateFreshness, queryClient, sourceSurface]);
 
   return {
     state: freshness.data ?? null,

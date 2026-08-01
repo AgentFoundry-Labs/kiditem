@@ -3,13 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ArchiveX, Bell, EyeOff, RotateCcw, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
-import { useAuth } from '@/hooks/useAuth';
 import { isActivePanelItem, usePanelStore } from './lib/panel-store';
 import { recoverStalePanelOperations } from './lib/panel-recovery';
 import { PanelItemRow } from './PanelItemRow';
 import type { PanelItem } from '@kiditem/shared/panel';
-import { toast } from 'sonner';
 
 export function PanelSheet() {
   const [isClearing, setIsClearing] = useState(false);
@@ -24,11 +23,6 @@ export function PanelSheet() {
   const recoveryLastRunRef = useRef(0);
   const recoveryInFlightRef = useRef(false);
 
-  const { user } = useAuth();
-  const currentUserId = user?.id ?? null;
-
-  // byId ref만 의존하면 안정적 — Object.values()를 selector 안에서 호출하면
-  // 매 렌더 새 배열 레퍼런스로 infinite loop (useSyncExternalStore getSnapshot 경고).
   const { active, recent, runningCount } = useMemo(
     () => partitionByStatus(Object.values(byId)),
     [byId],
@@ -41,29 +35,19 @@ export function PanelSheet() {
     () => active.filter((item) => item.kind === 'run'),
     [active],
   );
+  const visibleItems = [...active, ...recent];
   const hiddenRunCount = Object.keys(hiddenRunIds).length;
-
-  const { myItems, attentionItems, teamItems } = useMemo(
-    () => partitionPanelItems([...active, ...recent], currentUserId),
-    [active, recent, currentUserId],
-  );
 
   useEffect(() => {
     if (!isOpen) return;
     const now = Date.now();
-    if (recoveryInFlightRef.current || now - recoveryLastRunRef.current < 30_000) {
-      return;
-    }
+    if (recoveryInFlightRef.current || now - recoveryLastRunRef.current < 30_000) return;
     recoveryInFlightRef.current = true;
     recoveryLastRunRef.current = now;
     const afterSeq = usePanelStore.getState().lastSeq;
     void recoverStalePanelOperations(afterSeq)
-      .then((items) => {
-        usePanelStore.getState().handleSnapshot(items, true);
-      })
-      .catch((err) => {
-        console.warn('[panel] stale operation recovery failed', err);
-      })
+      .then((items) => usePanelStore.getState().handleSnapshot(items, true))
+      .catch((err) => console.warn('[panel] stale operation recovery failed', err))
       .finally(() => {
         recoveryInFlightRef.current = false;
       });
@@ -109,16 +93,16 @@ export function PanelSheet() {
     <Dialog.Root open={isOpen} onOpenChange={setOpen}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/10" />
-        <Dialog.Content className="fixed right-0 top-0 z-[110] h-full w-96 bg-white border-l border-slate-200 shadow-xl flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-200">
-            <Dialog.Title className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <Bell className="w-4 h-4 text-slate-500" />
+        <Dialog.Content className="fixed right-0 top-0 z-[110] flex h-full w-96 flex-col border-l border-slate-200 bg-white shadow-xl">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3.5">
+            <Dialog.Title className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Bell className="h-4 w-4 text-slate-500" />
               알림
             </Dialog.Title>
             <div className="flex items-center gap-1.5">
               {runningCount > 0 && (
-                <span className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full">
-                  <span className="w-1 h-1 bg-violet-500 rounded-full animate-pulse" />
+                <span className="flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                  <span className="h-1 w-1 animate-pulse rounded-full bg-violet-500" />
                   {runningCount} 진행
                 </span>
               )}
@@ -131,7 +115,7 @@ export function PanelSheet() {
                   title="완료 알림 정리"
                   className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <ArchiveX className="w-3 h-3" />
+                  <ArchiveX className="h-3 w-3" />
                   완료 정리
                 </button>
               )}
@@ -143,7 +127,7 @@ export function PanelSheet() {
                   title="실제 실행은 중단하지 않고 이 브라우저의 알림 화면에서만 숨깁니다"
                   className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                 >
-                  <EyeOff className="w-3 h-3" />
+                  <EyeOff className="h-3 w-3" />
                   진행 정리
                 </button>
               )}
@@ -155,7 +139,7 @@ export function PanelSheet() {
                   title="숨긴 워크플로우 다시 표시"
                   className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                 >
-                  <RotateCcw className="w-3 h-3" />
+                  <RotateCcw className="h-3 w-3" />
                   복원
                 </button>
               )}
@@ -165,16 +149,16 @@ export function PanelSheet() {
                 onClick={() => setOpen(false)}
                 className="p-1 text-slate-400 hover:text-slate-600"
               >
-                <X className="w-4 h-4" />
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>
           <Dialog.Description className="sr-only">
-            진행 중인 작업과 최근 알림을 확인하고 정리합니다.
+            진행 중인 작업과 최근 알림을 한 목록에서 확인하고 정리합니다.
           </Dialog.Description>
 
           {connectionStatus !== 'connected' && (
-            <div className="px-4 py-1.5 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
+            <div className="border-b border-amber-100 bg-amber-50 px-4 py-1.5 text-xs text-amber-700">
               {connectionStatus === 'connecting' && '연결 중...'}
               {connectionStatus === 'disconnected' && '연결 끊김 — 재시도 중'}
               {connectionStatus === 'polling_fallback' && '폴링 모드'}
@@ -182,38 +166,11 @@ export function PanelSheet() {
           )}
 
           <div className="flex-1 overflow-y-auto">
-            {/* 내 작업 section */}
-            <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-              내 작업
-            </div>
-            {myItems.length > 0
-              ? myItems.map((i) => <PanelItemRow key={i.id} item={i} />)
-              : (
-                <div className="px-4 py-6 text-center text-sm text-slate-400">
-                  진행 중인 내 작업이 없습니다
-                </div>
-              )}
-
-            {/* 조직 알림 section — 조직/시스템 알림을 팀 작업과 분리 */}
-            <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-              조직 알림
-            </div>
-            {attentionItems.length > 0
-              ? attentionItems.map((i) => <PanelItemRow key={i.id} item={i} />)
-              : (
-                <div className="px-4 py-6 text-center text-sm text-slate-400">
-                  조직 알림이 없습니다
-                </div>
-              )}
-
-            {/* 팀 작업 section — empty 시 헤더도 숨김 */}
-            {teamItems.length > 0 && (
-              <>
-                <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-                  팀 작업
-                </div>
-                {teamItems.map((i) => <PanelItemRow key={i.id} item={i} />)}
-              </>
+            {visibleItems.map((item) => <PanelItemRow key={item.id} item={item} />)}
+            {visibleItems.length === 0 && (
+              <div className="px-4 py-8 text-center text-sm text-slate-400">
+                표시할 알림이 없습니다
+              </div>
             )}
           </div>
         </Dialog.Content>
@@ -234,7 +191,6 @@ function partitionByStatus(items: PanelItem[]) {
       recent.push(item);
     }
   }
-  // 시간 역순
   active.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   recent.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return { active, recent, runningCount };
@@ -242,24 +198,4 @@ function partitionByStatus(items: PanelItem[]) {
 
 function isDismissablePanelAlert(item: PanelItem) {
   return item.kind === 'alert' && !isActivePanelItem(item);
-}
-
-function partitionPanelItems(items: PanelItem[], currentUserId: string | null) {
-  const myItems: PanelItem[] = [];
-  const attentionItems: PanelItem[] = [];
-  const teamItems: PanelItem[] = [];
-  for (const item of items) {
-    if (currentUserId !== null && item.actorUserId === currentUserId) {
-      myItems.push(item);
-    } else if (isAttentionPanelItem(item)) {
-      attentionItems.push(item);
-    } else {
-      teamItems.push(item);
-    }
-  }
-  return { myItems, attentionItems, teamItems };
-}
-
-function isAttentionPanelItem(item: PanelItem) {
-  return item.kind === 'alert' && item.actorUserId === null;
 }

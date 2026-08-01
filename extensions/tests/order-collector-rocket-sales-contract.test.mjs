@@ -37,6 +37,9 @@ function loadWorker(overrides = {}) {
     clearTimeout,
     structuredClone,
     crypto: { randomUUID: () => RUN_ID },
+    fetch: async () => {
+      throw new Error('Unexpected fetch in Rocket worker test');
+    },
     chrome: {
       runtime: {
         onInstalled: { addListener() {} },

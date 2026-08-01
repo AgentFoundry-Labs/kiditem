@@ -30,7 +30,6 @@ import {
   fetchNaverKeywordTrends,
   fetchPopularKeywordBoards,
   fetchTrendSeeds,
-  type TrendCollectResult,
 } from '../lib/toy-trend-api';
 import { ToyCategoryControls } from './ToyCategoryControls';
 import { SelectedKeywordQueue, ToyKeywordMap, ToyKeywordTable } from './ToyKeywordViews';
@@ -62,7 +61,6 @@ export function ToyCategorySourcingPage() {
   const [view, setView] = useState<ResultView>('map');
   const [detailed, setDetailed] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [lastResult, setLastResult] = useState<TrendCollectResult | null>(null);
   const [manualRefreshing, setManualRefreshing] = useState(false);
 
   const popularQuery = useQuery({
@@ -112,21 +110,18 @@ export function ToyCategorySourcingPage() {
   const latestBusinessDate = keywordQuery.data?.keywords
     .map((keyword) => keyword.latest.businessDate)
     .sort()
-    .at(-1) ?? lastResult?.businessDate ?? null;
+    .at(-1) ?? null;
   const isLoading = popularQuery.isLoading || keywordQuery.isLoading || seedsQuery.isLoading;
   const queryError = popularQuery.error ?? keywordQuery.error ?? seedsQuery.error;
   const filtersDirty = JSON.stringify(draftFilters) !== JSON.stringify(appliedFilters);
 
   const collectMutation = useMutation({
     mutationFn: collectNaverTrend,
-    onSuccess: async (result) => {
-      setLastResult(result);
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trend() });
-      const naver = result.results.find((item) => item.source === 'naver');
-      if (naver?.ok) toast.success(`네이버 수집 완료 · ${formatNumber(naver.collected)}건 저장`);
-      else toast.warning(naver?.error ?? '네이버 수집은 완료됐지만 일부 데이터가 실패했습니다.');
+      toast.success('네이버 트렌드 수집을 시작했습니다. 완료되면 저장된 스냅샷이 갱신됩니다.');
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : '네이버 수집에 실패했습니다.'),
+    onError: (error) => toast.error(error instanceof Error ? error.message : '네이버 수집을 시작하지 못했습니다.'),
   });
 
   function toggleKeyword(keywordId: string) {
@@ -252,10 +247,6 @@ export function ToyCategorySourcingPage() {
           <b>출처:</b> 월·PC·모바일 검색량과 경쟁은 네이버 SearchAd, 검색지수·변화와 완구 인기순위는 네이버 DataLab입니다.
           현재 실제 수집 경로가 없는 <b>상품수는 표시하거나 추정하지 않습니다.</b>
         </div>
-
-        {lastResult && (
-          <CollectionResult result={lastResult} />
-        )}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard icon={Sparkles} label="조건 결과" value={isLoading ? '…' : `${formatNumber(visibleKeywords.length)}개`} caption="완구 후보" tone="purple" />
@@ -396,20 +387,6 @@ function MetricCard({
         </div>
       </div>
     </article>
-  );
-}
-
-function CollectionResult({ result }: { result: TrendCollectResult }) {
-  const naver = result.results.find((item) => item.source === 'naver');
-  if (!naver) return null;
-  return (
-    <div className={cn(
-      'rounded-xl border px-4 py-3 text-xs font-bold',
-      naver.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900',
-    )}>
-      최근 네이버 수집 {result.businessDate} · {formatNumber(naver.collected)}건 저장
-      {naver.error ? ` · ${naver.error}` : ''}
-    </div>
   );
 }
 

@@ -20,6 +20,9 @@ describe('Panel integration', () => {
       workflowRun: {
         findMany: vi.fn().mockResolvedValue([]),
       },
+      operationRun: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
     };
     moduleRef = await Test.createTestingModule({
       imports: [EventEmitterModule.forRoot()],

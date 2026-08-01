@@ -13,16 +13,11 @@ here affect every route.
 - Auth session state, cross-tab/extension synchronization, absolute expiry, and
   signed-out redirect ownership
 - React Query devtools lazy loading policy
-- One authenticated Sellpia synchronization coordinator. An explicit `full`
-  request collects and stores both the physical inventory snapshot and
-  product-level profit evidence before it completes the inventory generation;
-  the explicit `inventory` request only collects physical stock. TTL and
-  post-order evidence refreshes remain inventory-only to avoid scraping the
-  product-profit report every 10 minutes. It deduplicates claims with
-  the Web Locks API plus an in-memory guard keyed by the same local lock name,
-  heartbeats only its claim, and leaves unmounted/tab-closed leases to expire
-  without cancellation. Claim attempts retry on each authenticated freshness
-  poll even when React Query structurally shares the state object.
+- Sellpia freshness projection. `SellpiaInventorySyncProvider` only keeps
+  freshness query state warm; server-issued OperationRuns and the extension
+  browser runtime own claim, scoped collection, upload, heartbeat, and
+  finalization. `inventory` collects only physical stock; `full` additionally
+  stores product-profit evidence before completing the inventory generation.
 
 ## State Rules
 
@@ -34,10 +29,9 @@ here affect every route.
   toast with `meta: { suppressGlobalErrorToast: true }`.
 - `installQueryClientErrorHandler()` exists so HMR-created QueryClient
   instances receive the current global handler.
-- `SellpiaInventorySyncProvider` is a background coordinator only. It renders
-  no freshness drawer, status entry, or manual-import UI; explicit Sellpia sync
-  buttons call the shared freshness hook and the coordinator performs the
-  requested collection scope.
+- `SellpiaInventorySyncProvider` is a projection only. It renders no freshness
+  drawer, status entry, or manual-import UI; explicit Sellpia sync buttons call
+  the shared operation hook and terminal state comes from OperationRun.
 
 ## Boundary Rules
 
@@ -46,11 +40,9 @@ here affect every route.
 - Do not add route-specific query defaults here.
 - Do not show generic global error toasts for transient dev fetch/chunk failures
   or handled auth-required errors.
-- `BrowserCollectionProvider` excludes `inventory.sellpia`; only the claimant
-  coordinator may upload/finalize/cancel that run or own its operation alert.
-- Sellpia Operation Alerts carry monotonic ordering metadata on every
-  transition and are best-effort observability; alert transport failure never
-  changes inventory success or failure.
+- `BrowserCollectionProvider` excludes `inventory.sellpia`; only the extension
+  browser runtime may upload/finalize/cancel that run. OperationRun is the
+  terminal audit record; legacy Operation Alerts remain projection-only.
 
 ## Verification
 

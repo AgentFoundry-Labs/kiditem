@@ -49,9 +49,8 @@ React Query + apiClient
   The only recipe mutation here is the explicit version-fenced command that
   creates an empty central recipe as one active Sellpia SKU with a backend-
   verified positive integer quantity.
-- The automatic command refreshes Sellpia evidence once, then independently
-  applies safe children for every selected account while unresolved siblings
-  remain review/blocked; confirmed links and recipes stay untouched.
+- The command refreshes Sellpia evidence once and applies safe children per
+  account; unresolved siblings stay blocked and confirmed data stays untouched.
 - Recipe evidence must uniquely select one SKU by name-checked exact
   code/barcode, exact normalized identity, high-confidence name, or an exact
   current Sellpia manual-match alias. `18개입`/`5개 묶음` are quantity candidates;

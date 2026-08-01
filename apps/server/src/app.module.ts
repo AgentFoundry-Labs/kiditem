@@ -21,6 +21,7 @@ import { ChannelsModule } from './channels/channels.module';
 import { AiModule } from './ai/ai.module';
 import { FinanceModule } from './finance/finance.module';
 import { RulesModule } from './rules/rules.module';
+import { OperationsModule } from './operations/operations.module';
 import { AgentOsModule } from './agent-os/agent-os.module';
 import { AutomationModule } from './automation/automation.module';
 import { OperationCancellationModule } from './operation-cancellation/operation-cancellation.module';
@@ -58,6 +59,7 @@ import { RebuildReadinessGuard } from './readiness/rebuild-readiness.guard';
     AiModule,
     FinanceModule,
     RulesModule,
+    OperationsModule,
     AgentOsModule,
     AutomationModule,
     OperationCancellationModule,

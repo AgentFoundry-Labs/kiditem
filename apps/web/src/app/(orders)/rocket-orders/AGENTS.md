@@ -16,6 +16,12 @@ selecting a calendar date only narrows the preview.
 
 - The selected Rocket `ChannelAccount` scopes every catalog list, saved-source
   load and preview request.
+- Manual extension collection and catalog publication go through
+  `collectAndPersistRocketPurchaseOrders`. The preserved Rocket button and the
+  dashboard button share that action; the screen alone continues with its
+  existing preview-state projection after the shared save succeeds. Manual
+  collection publishes the `orders.coupang_rocket_po` browser session so it is
+  not mislabeled as generic mall order collection.
 - If several active Rocket accounts exist, require an explicit compact account
   choice. Changing the account clears the selected source/preview.
 - Calendar and PO summaries come from `listSavedRocketPos`. Reopen evidence by

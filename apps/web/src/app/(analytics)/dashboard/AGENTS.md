@@ -19,6 +19,10 @@ sales, ads, inventory, trends, health, action tasks, and chart panels.
   read-model responsibility.
 - Dashboard action task widgets may read and execute explicit backend action
   endpoints, but action-board workflow ownership remains in automation.
+- Agent OS department buttons that mirror an existing operational screen call
+  that screen's promoted shared action. Trigger surface is the only intended
+  difference; extension command, defaults, persistence, artifacts, and browser
+  collection alerts stay identical.
 - ABC cards, calculation-status/source freshness, contribution-profit totals,
   fixed-formula context, and Top Products render Products' stored evaluation
   snapshot. Never rebuild contribution profit locally. `INSUFFICIENT_EVIDENCE`,
@@ -30,5 +34,8 @@ sales, ads, inventory, trends, health, action tasks, and chart panels.
 - Do not recompute dashboard totals from product/order/ad raw endpoints in the
   browser.
 - Do not add dashboard-local stores for data that React Query already owns.
+- Do not replace an existing browser action with a dashboard-only count/status
+  Operation handler or add a generic Operations panel. Keep the `Agent OS`
+  tab name and composition unchanged.
 - New dashboard metrics require checking backend dashboard schemas and this
   route rendering together.

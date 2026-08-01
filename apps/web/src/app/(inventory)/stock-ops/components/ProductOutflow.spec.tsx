@@ -36,7 +36,7 @@ describe('ProductOutflow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     productSalesApi.fetch.mockResolvedValue(summary(false));
-    requestRefresh.mockResolvedValue({ status: 'refresh_required', syncNotBefore: null });
+    requestRefresh.mockResolvedValue({ id: 'operation-run-1' });
     freshness.state = {
       status: 'refresh_required',
       lastVerifiedAt: '2026-08-01T00:30:00.000Z',
@@ -44,19 +44,19 @@ describe('ProductOutflow', () => {
     };
   });
 
-  it('requests inventory-only refresh from product outflow', async () => {
+  it('requests the inventory-only operation from product outflow', async () => {
     renderProductOutflow();
 
     fireEvent.click(screen.getByRole('button', { name: '셀피아 재고 동기화' }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request', 'inventory'));
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('inventory'));
     expect(screen.getByRole('button', { name: '셀피아 재고 동기화' })).toHaveAttribute(
       'title',
       expect.stringContaining('현재고만 동기화'),
     );
   });
 
-  it('uses the retry reason while keeping the inventory-only scope', async () => {
+  it('keeps failed inventory refreshes on the inventory-only operation scope', async () => {
     freshness.state = {
       status: 'failed',
       lastVerifiedAt: '2026-08-01T00:30:00.000Z',
@@ -66,10 +66,10 @@ describe('ProductOutflow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '셀피아 재고 동기화' }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('retry', 'inventory'));
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('inventory'));
   });
 
-  it('shows automatic ABC statuses and filters the linked product rows by that status', async () => {
+  it('shows automatic ABC statuses and filters linked products by calculation status', async () => {
     productSalesApi.fetch.mockResolvedValueOnce(summary(true));
     renderProductOutflow();
 

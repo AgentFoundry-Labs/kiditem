@@ -434,7 +434,7 @@ export function StockSyncRow() {
   const run = async () => {
     setRequesting(true);
     try {
-      await requestRefresh('manual_request', 'inventory');
+      await requestRefresh('inventory');
       toast.success('셀피아 재고 동기화를 시작했습니다.');
     } catch {
       toast.error('셀피아 재고 동기화 요청에 실패했습니다.');

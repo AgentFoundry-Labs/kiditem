@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   detectExtensionStatus: vi.fn(),
   finalizeSession: vi.fn(),
+  findSession: vi.fn(),
   issueRunId: vi.fn(),
   recordMissing: vi.fn(),
   sendControl: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('@/hooks/useBrowserCollectionSession', () => ({
   useBrowserCollectionSession: mocks.useSession,
 }));
 vi.mock('@/lib/browser-collection-session', () => ({
+  findBrowserCollectionSession: mocks.findSession,
   issueBrowserCollectionRunId: mocks.issueRunId,
   recordMissingBrowserCollection: mocks.recordMissing,
   sendBrowserCollectionControl: mocks.sendControl,
@@ -90,6 +92,7 @@ describe('useOrderCollectionSessionControls', () => {
     mocks.useSession.mockReturnValue({ data: null });
     mocks.issueRunId.mockImplementation(async (existingRunId) => existingRunId ?? RUN_ID);
     mocks.recordMissing.mockImplementation(async (_producer, _identity, runId) => ({ runId }));
+    mocks.findSession.mockResolvedValue(null);
     mocks.syncAlert.mockResolvedValue(undefined);
     mocks.updateCache.mockReturnValue(true);
   });
@@ -258,6 +261,23 @@ describe('useOrderCollectionSessionControls', () => {
     );
     expect(mocks.updateCache).toHaveBeenCalledWith(expect.anything(), failed);
     expect(mocks.syncAlert).toHaveBeenCalledWith(failed);
+  });
+
+  it('synchronizes an extension attention session on demand', async () => {
+    const attention = attentionSession('kidsnote');
+    mocks.findSession.mockResolvedValue(attention);
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.syncRun(RUN_ID);
+    });
+
+    expect(mocks.findSession).toHaveBeenCalledWith(RUN_ID);
+    expect(mocks.updateCache).toHaveBeenCalledWith(expect.anything(), attention);
+    expect(mocks.syncAlert).toHaveBeenCalledWith(attention);
   });
 
   it('keeps cancellation successful when personal-alert syncing is temporarily unavailable', async () => {

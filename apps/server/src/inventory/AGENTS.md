@@ -39,6 +39,10 @@ inventory/
 - Sellpia import-run history: `GET /api/inventory/sellpia-sync/import-runs`
 - Sellpia freshness state and browser leases:
   `/api/inventory/sellpia-freshness/*`
+- `inventory.refresh_sellpia_snapshot` owns both explicit collection scopes:
+  `inventory` refreshes only the physical snapshot, while `full` additionally
+  requires authoritative product-profit ingest before snapshot publication.
+  Missing scope defaults to `inventory` for schedules and legacy callers.
 - An expired Sellpia browser lease is terminalized as
   `sellpia_background_timeout`; it must not be reclaimed automatically. A new
   generation may be claimed only after an explicit operator `retry` request.

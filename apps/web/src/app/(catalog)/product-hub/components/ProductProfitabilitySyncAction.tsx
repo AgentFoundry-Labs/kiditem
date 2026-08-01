@@ -17,7 +17,7 @@ export function ProductProfitabilitySyncAction() {
   const requestFullSync = async () => {
     setRequesting(true);
     try {
-      await requestRefresh('manual_request', 'full');
+      await requestRefresh('full');
       toast.success('상품별 이익현황 수집을 요청했습니다. 완료되면 ABC 등급이 자동 계산됩니다.');
     } catch {
       toast.error('수익성 데이터 갱신 요청에 실패했습니다.');

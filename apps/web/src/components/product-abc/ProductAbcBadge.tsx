@@ -61,7 +61,7 @@ export function ProductAbcBadge({
           {secondary}
         </span>
       ) : null}
-      {showConfidence && evaluation?.reliability !== null ? (
+      {showConfidence && evaluation?.reliability != null ? (
         <span className={cn('text-[11px] font-medium text-[var(--text-secondary)]', compact && 'text-[10px]')}>
           신뢰도 {Math.round(evaluation.reliability * 100)}%
         </span>

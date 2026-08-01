@@ -197,6 +197,86 @@ model Alert {
 }
 
 /// @namespace System
+/// @describe Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work.
+model OperationRun {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  operationKey      String    @map("operation_key")
+  definitionVersion Int       @map("definition_version")
+  ownerDomain       String    @map("owner_domain")
+  title             String
+  engineType        String    @map("engine_type")
+  status            String    @default("queued")
+  triggerSource     String    @map("trigger_source")
+  requestedByUserId String?   @map("requested_by_user_id") @db.Uuid
+  parentRunId       String?   @map("parent_run_id") @db.Uuid
+  scheduleId        String?   @map("schedule_id") @db.Uuid
+  idempotencyKey    String?   @map("idempotency_key")
+  input             Json      @default("{}") @db.JsonB
+  result            Json?     @db.JsonB
+  progress          Float?
+  nativeRunType     String?   @map("native_run_type")
+  nativeRunId       String?   @map("native_run_id")
+  attempts          Int       @default(0)
+  maxAttempts       Int       @default(3) @map("max_attempts")
+  claimedBy         String?   @map("claimed_by")
+  attemptToken      String?   @map("attempt_token") @db.Uuid
+  claimedAt         DateTime? @map("claimed_at") @db.Timestamptz
+  leaseExpiresAt    DateTime? @map("lease_expires_at") @db.Timestamptz
+  scheduledFor      DateTime? @map("scheduled_for") @db.Timestamptz
+  errorCode         String?   @map("error_code")
+  errorMessage      String?   @map("error_message")
+  startedAt         DateTime? @map("started_at") @db.Timestamptz
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy  User?              @relation("OperationRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  parentRun    OperationRun?      @relation("OperationRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
+  childRuns    OperationRun[]     @relation("OperationRunHierarchy")
+  schedule     OperationSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  @@unique([id, organizationId], map: "operation_runs_id_org_key")
+  @@unique([organizationId, operationKey, idempotencyKey], map: "operation_runs_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
+  @@index([organizationId, status, createdAt])
+  @@index([status, scheduledFor])
+  @@index([status, leaseExpiresAt])
+  @@index([parentRunId])
+  @@index([scheduleId])
+  @@index([requestedByUserId])
+  @@index([organizationId, nativeRunType, nativeRunId])
+  @@map("operation_runs")
+}
+
+/// @namespace System
+/// @describe Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled.
+model OperationSchedule {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  operationKey     String    @map("operation_key")
+  cronExpression   String    @map("cron_expression")
+  timeZone         String    @default("Asia/Seoul") @map("time_zone")
+  misfirePolicy    String    @default("catch_up_once") @map("misfire_policy")
+  input            Json      @default("{}") @db.JsonB
+  enabled          Boolean   @default(false)
+  nextRunAt        DateTime? @map("next_run_at") @db.Timestamptz
+  lastScheduledFor DateTime? @map("last_scheduled_for") @db.Timestamptz
+  createdByUserId  String?   @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?          @relation("OperationScheduleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  runs         OperationRun[]
+
+  @@unique([organizationId, operationKey], map: "operation_schedules_org_operation_key")
+  @@index([enabled, nextRunAt])
+  @@index([createdByUserId])
+  @@map("operation_schedules")
+}
+
+/// @namespace System
 model SystemSetting {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid

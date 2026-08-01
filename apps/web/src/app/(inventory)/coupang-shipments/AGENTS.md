@@ -16,6 +16,11 @@ integration, generated shipment files, and browser download/print helpers.
 - Keep file parsing and projection helpers pure and covered by focused tests.
 - Use `apiClient` for backend shipment APIs and extension bridge helpers for
   browser-side collection.
+- Manual date-summary lookup and verified persistence go through
+  `@/lib/coupang-shipment-summary-action`. The shipment screen and dashboard
+  call the same action and render their existing UI around its result. The
+  action owns the deferred `orders.coupang_shipment_summary` browser session
+  and closes it only after server read-back verification.
 - Blob/download behavior may use browser APIs; durable shipment data remains
   backend-owned.
 
@@ -25,6 +30,8 @@ integration, generated shipment files, and browser download/print helpers.
 - Do not store shipment source-of-truth state only in browser storage.
 - Extension behavior must stay aligned with `extensions/order-collector` or the
   relevant Coupang extension guide.
+- Do not replace manual date-summary lookup with a count-only dashboard or
+  Operation result path.
 
 ## Verification
 

@@ -3,6 +3,7 @@ import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { formatNumber } from '@/lib/utils';
 import {
   collectIcecreamMallRowsFromExtension,
+  createOrderCollectionExtensionError,
   detectOrderCollectionSessionExtension,
   ensureMallLoggedInViaExtension,
   type OrderCollectionExtensionRun,
@@ -14,6 +15,7 @@ import {
 import {
   ICECREAM_MALL_KEY,
   isBrowserCollectableMall,
+  isNoNewOrdersMessage,
   todayYmd,
   type ConversionHistoryItem,
 } from './order-collection-page-model';
@@ -51,6 +53,9 @@ export function createBrowserMallCollector({
   addGeneratedFile,
   setPreviewId,
 }: BrowserMallCollectorOptions) {
+  const currentMallAccountByKey = new Map(
+    mallAccounts.map((account) => [account.key, account]),
+  );
   const addBrowserGeneratedFile = (historyItem: ConversionHistoryItem) => {
     addGeneratedFile(historyItem);
     setPreviewId(historyItem.id);
@@ -60,7 +65,7 @@ export function createBrowserMallCollector({
     mallKey: string,
   ): Promise<{ loginId: string; supplierLoginId?: string; password: string } | null> => {
     try {
-      const account = mallAccounts.find((a) => a.key === mallKey);
+      const account = currentMallAccountByKey.get(mallKey);
       if (!account?.loginId || !account.hasPassword) return null;
       const { password } = await orderMallAccountApi.password(mallKey);
       return password
@@ -83,7 +88,10 @@ export function createBrowserMallCollector({
     if (!credentials) return;
     const result = await ensureMallLoggedInViaExtension(mallKey, credentials, run);
     if (!result.success) {
-      throw new Error(result.error ?? `${mallKey} 로그인을 완료하지 못했습니다.`);
+      throw createOrderCollectionExtensionError(
+        result,
+        `${mallKey} 로그인을 완료하지 못했습니다.`,
+      );
     }
   };
 
@@ -135,7 +143,7 @@ export function createBrowserMallCollector({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('꼬망세');
         return 0;
       }
@@ -179,7 +187,7 @@ export function createBrowserMallCollector({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('도매꾹', `조회일 ${collectionDate}`);
         return 0;
       }
@@ -279,7 +287,7 @@ export function createBrowserMallCollector({
       result = await convertLotteonToSellpiaFile(xlsxBase64, fileName, { download: false });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('롯데ON');
         return 0;
       }
@@ -318,7 +326,7 @@ export function createBrowserMallCollector({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('GS샵');
         return 0;
       }
@@ -357,7 +365,7 @@ export function createBrowserMallCollector({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('올웨이즈');
         return 0;
       }
@@ -384,13 +392,18 @@ export function createBrowserMallCollector({
       './boribori-orders-api'
     );
     await ensureMallLogin('boribori', run);
-    const { xlsxBase64, fileName } = await collectBoriboriXlsxFromExtension({ run });
+    const collected = await collectBoriboriXlsxFromExtension({ run });
+    if ('empty' in collected) {
+      toastNoNewOrders('보리보리', '결제완료 상태 기준');
+      return 0;
+    }
+    const { xlsxBase64, fileName } = collected;
     let result: Awaited<ReturnType<typeof convertBoriboriToSellpiaFile>>;
     try {
       result = await convertBoriboriToSellpiaFile(xlsxBase64, fileName, { download: false });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('보리보리', '결제완료 상태 기준');
         return 0;
       }
@@ -417,13 +430,18 @@ export function createBrowserMallCollector({
       './teacherville-orders-api'
     );
     await ensureMallLogin('teacher-mall', run);
-    const { xlsxBase64, fileName } = await collectTeachervilleXlsxFromExtension(run);
+    const collected = await collectTeachervilleXlsxFromExtension(run);
+    if ('empty' in collected) {
+      toastNoNewOrders('티쳐몰', '출고 전 상태 기준');
+      return 0;
+    }
+    const { xlsxBase64, fileName } = collected;
     let result: Awaited<ReturnType<typeof convertTeachervilleToSellpiaFile>>;
     try {
       result = await convertTeachervilleToSellpiaFile(xlsxBase64, fileName, { download: false });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('티쳐몰', '출고 전 상태 기준');
         return 0;
       }
@@ -633,6 +651,10 @@ export function createBrowserMallCollector({
     // 쿠팡직배송은 달력에서 고른 입고예정일만 처리한다. 없으면 종전대로 전량.
     options?: { directship?: { eddDates: string[] } },
   ): Promise<BrowserMallCollectionResult> {
+    // Dashboard execution refreshes the account list immediately before a
+    // batch. Keep login preflight on that same fresh account snapshot instead
+    // of the list captured when this collector was first rendered.
+    currentMallAccountByKey.set(account.key, account);
     const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
     if (!extensionId) {
       throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');

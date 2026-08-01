@@ -47,6 +47,18 @@ describe('Coupang direct order mapper', () => {
     expect(canonicalCoupangDirectOrderHash(request))
       .toBe(canonicalCoupangDirectOrderHash(reordered));
   });
+
+  it('treats the extension date-only registration value as KST midnight', () => {
+    const request = input();
+    request.pos[0]!.reg = '2026-08-01';
+
+    const mapped = mapCoupangDirectOrder(
+      request.pos[0]!,
+      request.centers[request.pos[0]!.center],
+    );
+
+    expect(mapped.orderedAt.toISOString()).toBe('2026-07-31T15:00:00.000Z');
+  });
 });
 
 function input() {

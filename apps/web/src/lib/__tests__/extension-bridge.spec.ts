@@ -170,6 +170,62 @@ describe('universal extension discovery', () => {
       version: '0.1.86',
     });
   });
+
+  it('selects a compatible handshake extension when the cached copy is stale', async () => {
+    window.localStorage.setItem(
+      KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
+      'stale-order-extension',
+    );
+    Object.defineProperty(window, 'chrome', {
+      configurable: true,
+      value: {
+        runtime: {
+          lastError: undefined,
+          sendMessage: (
+            id: string,
+            _message: unknown,
+            callback: (value: PingResponse) => void,
+          ) => callback(id === 'current-order-extension'
+            ? {
+                success: true,
+                version: '0.1.87',
+                capabilities: {
+                  kiditemEnvironmentProfilesV1: true,
+                  coupangRocketPoCollectionSessionV1: true,
+                },
+              }
+            : {
+                success: true,
+                version: '0.1.86',
+                capabilities: { kiditemEnvironmentProfilesV1: true },
+              }),
+        },
+      },
+    });
+    const postMessage = vi.spyOn(window, 'postMessage').mockImplementation((message) => {
+      if ((message as { type?: string }).type !== 'kiditem:request-order-ext-id') return;
+      queueMicrotask(() => {
+        for (const extensionId of ['stale-order-extension', 'current-order-extension']) {
+          window.dispatchEvent(new MessageEvent('message', {
+            data: { type: 'kiditem:order-ext-id', extensionId },
+            origin: window.location.origin,
+            source: window,
+          }));
+        }
+      });
+    });
+
+    await expect(detectOrderCollectionExtensionRuntime(10, [
+      'coupangRocketPoCollectionSessionV1',
+    ])).resolves.toEqual({
+      status: 'ready',
+      extensionId: 'current-order-extension',
+      version: '0.1.87',
+    });
+    expect(window.localStorage.getItem(KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY))
+      .toBe('current-order-extension');
+    postMessage.mockRestore();
+  });
 });
 describe('durable extension command port', () => {
   it('keeps the port open until the Wing form command returns', async () => {

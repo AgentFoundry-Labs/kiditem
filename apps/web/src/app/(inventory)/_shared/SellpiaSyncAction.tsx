@@ -5,10 +5,6 @@ import { Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
 import { cn, timeAgo } from '@/lib/utils';
-import {
-  classifySellpiaStockSync,
-  describeSellpiaStockSync,
-} from './sellpia-sync-outcome';
 
 const STOCK_FRESHNESS_META: Record<string, { label: string; className: string }> = {
   fresh: { label: '최신', className: 'bg-emerald-100 text-emerald-700' },
@@ -30,15 +26,10 @@ export function SellpiaSyncAction({ compact = false, showStatus = false }: {
   const runSync = async () => {
     setRequesting(true);
     try {
-      const requested = await requestRefresh(
-        state?.status === 'failed' ? 'retry' : 'manual_request',
-        'inventory',
-      );
-      const notice = describeSellpiaStockSync(classifySellpiaStockSync(requested));
-      if (notice.tone === 'error') toast.error(notice.message);
-      else toast.success(notice.message);
+      await requestRefresh('inventory');
+      toast.success('셀피아 재고 동기화를 시작했습니다.');
     } catch {
-      toast.error(describeSellpiaStockSync({ kind: 'request_failed' }).message);
+      toast.error('셀피아 동기화를 시작하지 못했습니다.');
     } finally {
       setRequesting(false);
     }

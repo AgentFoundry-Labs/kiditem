@@ -69,6 +69,7 @@ export async function collectKidsnoteOrdersFromExtension(
       status,
       withDetail,
       runId: await issueBrowserCollectionRunId(run?.runId),
+      deferTerminal: Boolean(run?.runId),
     },
     withDetail ? 200000 : 90000,
   );

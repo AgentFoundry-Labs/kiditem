@@ -47,6 +47,7 @@ export async function collectKakaoOrdersFromExtension(date?: string, run?: Order
       action: 'collectKakaoOrders',
       date: date ?? run?.date,
       runId: await issueBrowserCollectionRunId(run?.runId),
+      deferTerminal: Boolean(run?.runId),
     }, // "YYYY-MM-DD" 면 그날 결제분만
     130000,
   );
