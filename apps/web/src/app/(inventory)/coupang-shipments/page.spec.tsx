@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CoupangShipmentsPage from './page';
 import {
@@ -6,6 +6,7 @@ import {
   loadCoupangShipmentServerFiles,
 } from './lib/coupang-shipment-api';
 import { loadCoupangShipmentFiles } from './lib/coupang-shipment-store';
+import { operationsApi } from '@/lib/operations-api';
 
 const replaceMock = vi.hoisted(() => vi.fn());
 const navigation = vi.hoisted(() => ({
@@ -17,6 +18,15 @@ vi.mock('next/navigation', () => ({
   usePathname: () => navigation.pathname,
   useRouter: () => ({ replace: replaceMock }),
   useSearchParams: () => navigation.params,
+}));
+
+vi.mock('@/hooks/useOperationRun', () => ({
+  isTerminalOperationStatus: vi.fn(() => false),
+  useOperationRun: vi.fn(() => ({ data: undefined })),
+}));
+
+vi.mock('@/lib/operations-api', () => ({
+  operationsApi: { start: vi.fn() },
 }));
 
 vi.mock('./lib/coupang-shipment-api', () => ({
@@ -47,6 +57,7 @@ describe('<CoupangShipmentsPage /> calendar view persistence', () => {
     sessionStorage.clear();
     navigation.params = new URLSearchParams();
     replaceMock.mockReset();
+    vi.mocked(operationsApi.start).mockReset();
     vi.mocked(loadCoupangShipmentFiles).mockResolvedValue([]);
     vi.mocked(loadCoupangShipmentServerFiles).mockResolvedValue({ days: [] });
     vi.mocked(loadCoupangShipmentDateSummary).mockResolvedValue({
@@ -84,6 +95,26 @@ describe('<CoupangShipmentsPage /> calendar view persistence', () => {
         && href.startsWith('/coupang-shipments?')
         && href.includes('month=2026-06')
         && href.includes('date=2026-06-20'))).toBe(true);
+    });
+  });
+
+  it('starts the same shipment-summary operation as the dashboard action', async () => {
+    vi.mocked(operationsApi.start).mockResolvedValue({
+      id: '11111111-1111-1111-1111-111111111111',
+    } as never);
+    render(<CoupangShipmentsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '다시 조회' }));
+
+    await waitFor(() => {
+      expect(operationsApi.start).toHaveBeenCalledWith(
+        'inventory.collect_coupang_shipment_summary',
+        expect.objectContaining({
+          sourceSurface: 'domain_screen',
+          input: {},
+          idempotencyKey: expect.stringMatching(/^coupang-shipments:summary:/),
+        }),
+      );
     });
   });
 });
