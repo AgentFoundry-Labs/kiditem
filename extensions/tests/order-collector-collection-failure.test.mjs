@@ -55,6 +55,11 @@ test('normalizes provider failures into stable operator evidence', () => {
       expected: ['provider_contract_changed', false, null],
     },
     {
+      provider: 'domeggook',
+      value: { success: false, error: '엑셀다운로드 버튼을 찾지 못했습니다. (로그인/화면 확인)' },
+      expected: ['login_required', true, 'complete_login'],
+    },
+    {
       provider: 'icecream-mall',
       value: { success: false, error: '로그인 후 화면으로 넘어가지 않았습니다.' },
       expected: ['provider_contract_changed', false, null],

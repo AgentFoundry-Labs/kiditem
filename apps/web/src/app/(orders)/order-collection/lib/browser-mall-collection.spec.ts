@@ -121,6 +121,24 @@ describe('createBrowserMallCollector', () => {
     );
   });
 
+  it('uses the refreshed account credentials supplied at execution time', async () => {
+    mocks.ensureLogin.mockResolvedValue({ success: true });
+    const collector = createBrowserMallCollector({
+      mallAccounts: [{ ...ACCOUNT, loginId: 'stale-operator' }],
+      rocketChannelAccountId: null,
+      addGeneratedFile: vi.fn(),
+      setPreviewId: vi.fn(),
+    });
+
+    await collector({ ...ACCOUNT, loginId: 'fresh-operator' }, RUN);
+
+    expect(mocks.ensureLogin).toHaveBeenCalledWith(
+      'kidsnote',
+      { loginId: 'fresh-operator', password: 'secret' },
+      expect.objectContaining(RUN),
+    );
+  });
+
   it('passes both IDs from the single art09 account to the login preflight', async () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
     const art09Account: OrderCollectionMallAccount = {
@@ -176,6 +194,31 @@ describe('createBrowserMallCollector', () => {
 
     expect(source.match(/todayYmd\(\)/g)).toHaveLength(1);
     expect(source).toContain('function collectionDateOf(');
+  });
+
+  it('defers every managed mall session until web conversion finishes', () => {
+    const apiFiles = [
+      'order-collection-extension.ts',
+      'kidsnote-orders-api.ts',
+      'kkomangse-orders-api.ts',
+      'onchannel-orders-api.ts',
+      'domeggook-orders-api.ts',
+      'kidkids-orders-api.ts',
+      'lotteon-orders-api.ts',
+      'gsshop-orders-api.ts',
+      'alwayz-orders-api.ts',
+      'kakao-orders-api.ts',
+      'boribori-orders-api.ts',
+      'teacherville-orders-api.ts',
+      'haebeop-orders-api.ts',
+      'art09-orders-api.ts',
+      'coupang-directship-api.ts',
+    ];
+
+    for (const apiFile of apiFiles) {
+      const source = readFileSync(path.resolve(import.meta.dirname, apiFile), 'utf8');
+      expect(source, apiFile).toMatch(/deferTerminal:\s*Boolean\([^)]*run\?\.runId\)/);
+    }
   });
 
   it('still collects MILKRUN when SHIPMENT has no confirmed orders', async () => {

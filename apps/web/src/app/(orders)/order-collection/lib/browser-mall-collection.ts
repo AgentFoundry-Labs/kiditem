@@ -53,6 +53,9 @@ export function createBrowserMallCollector({
   addGeneratedFile,
   setPreviewId,
 }: BrowserMallCollectorOptions) {
+  const currentMallAccountByKey = new Map(
+    mallAccounts.map((account) => [account.key, account]),
+  );
   const addBrowserGeneratedFile = (historyItem: ConversionHistoryItem) => {
     addGeneratedFile(historyItem);
     setPreviewId(historyItem.id);
@@ -62,7 +65,7 @@ export function createBrowserMallCollector({
     mallKey: string,
   ): Promise<{ loginId: string; supplierLoginId?: string; password: string } | null> => {
     try {
-      const account = mallAccounts.find((a) => a.key === mallKey);
+      const account = currentMallAccountByKey.get(mallKey);
       if (!account?.loginId || !account.hasPassword) return null;
       const { password } = await orderMallAccountApi.password(mallKey);
       return password
@@ -648,6 +651,10 @@ export function createBrowserMallCollector({
     // 쿠팡직배송은 달력에서 고른 입고예정일만 처리한다. 없으면 종전대로 전량.
     options?: { directship?: { eddDates: string[] } },
   ): Promise<BrowserMallCollectionResult> {
+    // Dashboard execution refreshes the account list immediately before a
+    // batch. Keep login preflight on that same fresh account snapshot instead
+    // of the list captured when this collector was first rendered.
+    currentMallAccountByKey.set(account.key, account);
     const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
     if (!extensionId) {
       throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');

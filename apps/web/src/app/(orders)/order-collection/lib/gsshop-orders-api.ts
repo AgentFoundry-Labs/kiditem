@@ -38,6 +38,7 @@ export async function collectGsshopXlsxFromExtension(run?: OrderCollectionExtens
       action: 'collectGsshopOrders',
       date: run?.date,
       runId: await issueBrowserCollectionRunId(run?.runId),
+      deferTerminal: Boolean(run?.runId),
     },
     150000, // GS 는 조회+상세 fetch 후 클라이언트 엑셀 조립이라 넉넉히
   );

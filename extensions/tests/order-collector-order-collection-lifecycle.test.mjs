@@ -98,6 +98,34 @@ test('attaches normalized evidence when a collector throws', async () => {
   assert.equal(result.failure.provider, 'boribori');
 });
 
+test('promotes normalized login evidence to attention before terminal failure', async () => {
+  const lifecycleModule = loadLifecycle();
+  const lifecycle = lifecycleModule.create({
+    sessions: createSessions(),
+    producer: 'orders.mall',
+    normalizeFailure(provider, value) {
+      return {
+        version: 1,
+        provider,
+        action: 'collect_orders',
+        code: /로그인/.test(value.error) ? 'login_required' : 'unknown_failure',
+        retryable: true,
+        operatorAction: 'complete_login',
+      };
+    },
+  });
+
+  const result = await lifecycle.run(
+    { runId: RUN_ID, environmentId: 'local' },
+    lifecycleModule.createIdentity('onch', '2026-08-01'),
+    async () => ({ success: false, error: '온채널 로그인을 확인하세요.' }),
+  );
+
+  assert.equal(result.collectionSession.status, 'attention_required');
+  assert.equal(result.collectionSession.attention.reason, 'marketplace_login');
+  assert.equal(result.failure.code, 'login_required');
+});
+
 test('accepts the office environment owner', async () => {
   const lifecycleModule = loadLifecycle();
   const lifecycle = lifecycleModule.create({

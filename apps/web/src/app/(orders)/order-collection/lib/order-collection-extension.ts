@@ -154,6 +154,7 @@ export async function collectIcecreamMallRowsFromExtension(
     date,
     credentials,
     runId,
+    deferTerminal: Boolean(run?.runId),
   }, 90000);
 
   if (!response?.success || !response.headers || !response.rows) {
@@ -217,6 +218,7 @@ export async function ensureMallLoggedInViaExtension(
         credentials,
         runId,
         date: run?.date ?? null,
+        deferTerminal: Boolean(run?.runId),
       },
       45000,
     );

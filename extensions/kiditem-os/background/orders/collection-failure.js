@@ -51,7 +51,7 @@
       retryable = true;
     } else if (
       value?.pendingLogin === true
-      || /로그인이? (?:필요|만료)|로그인을? (?:확인|완료)|로그인 후 다시|세션이? (?:없|만료)|cannot access contents|frame with id|no frame with id|frame was removed|cannot be scripted|must request permission|receiving end does not exist|no tab with id/i.test(message)
+      || /로그인(?:이|을)?\s*(?:필요|만료|확인|완료|\/)|로그인 후 다시|세션이? (?:없|만료)|cannot access contents|frame with id|no frame with id|frame was removed|cannot be scripted|must request permission|receiving end does not exist|no tab with id/i.test(message)
     ) {
       code = "login_required";
       retryable = true;

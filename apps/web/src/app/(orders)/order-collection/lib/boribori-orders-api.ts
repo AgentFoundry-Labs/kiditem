@@ -39,6 +39,7 @@ export async function collectBoriboriXlsxFromExtension(options?: {
       date: options?.run?.date,
       password: options?.password ?? '',
       runId: await issueBrowserCollectionRunId(options?.run?.runId),
+      deferTerminal: Boolean(options?.run?.runId),
     },
     130000,
   );

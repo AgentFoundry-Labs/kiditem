@@ -85,6 +85,7 @@ export function useAllMarketplaceOrderCollection({
     finalizeRun,
     prepareRun,
     releaseRun,
+    syncRun,
   } = sessionControls;
   const collectBrowserMall = useMemo(
     () => createBrowserMallCollector({
@@ -132,6 +133,14 @@ export function useAllMarketplaceOrderCollection({
           ? failureKind
           : null;
         const noNewOrders = !activeRun?.signal?.aborted && failureKind === 'empty';
+        if (activeRun && attentionKind) {
+          await syncRun(activeRun.runId).catch((syncError) => {
+            console.warn(
+              '[order-collection] failed to sync attention session',
+              syncError,
+            );
+          });
+        }
         if (activeRun && !attentionKind) {
           await finalizeRun(
             activeRun,
@@ -168,6 +177,7 @@ export function useAllMarketplaceOrderCollection({
       markCollecting,
       prepareRun,
       releaseRun,
+      syncRun,
     ],
   );
 
@@ -191,8 +201,10 @@ export function useAllMarketplaceOrderCollection({
     return { successCount, failedCount };
   }, [collectAccount]);
 
-  const collectAll = useCallback((): Promise<MarketplaceOrderCollectionBatchResult> => (
-    collectAccounts(mallAccounts.filter(
+  const collectAll = useCallback((
+    sourceAccounts: OrderCollectionMallAccount[] = mallAccounts,
+  ): Promise<MarketplaceOrderCollectionBatchResult> => (
+    collectAccounts(sourceAccounts.filter(
       (account) => account.enabled && isBrowserCollectableMall(account),
     ))
   ), [collectAccounts, mallAccounts]);
@@ -221,6 +233,8 @@ export function usePersistedAllMarketplaceOrderCollection({
     queryFn: orderMallAccountApi.list,
     meta: { suppressGlobalErrorToast: true },
   });
+  const mallAccountsLoading = mallAccountsQuery.isLoading;
+  const refetchMallAccounts = mallAccountsQuery.refetch;
   const mallAccounts = mallAccountsQuery.data ?? EMPTY_MALL_ACCOUNTS;
   const addGeneratedFile = useCallback((historyItem: ConversionHistoryItem) => {
     generatedFileWriteQueueRef.current = generatedFileWriteQueueRef.current
@@ -241,7 +255,6 @@ export function usePersistedAllMarketplaceOrderCollection({
   }, []);
   const {
     collectAll,
-    collectableAccountCount,
     sessionControls,
   } = useAllMarketplaceOrderCollection({
     mallAccounts,
@@ -265,14 +278,22 @@ export function usePersistedAllMarketplaceOrderCollection({
   }, [sessionControls.session]);
 
   const collectAllOrders = useCallback(async () => {
-    if (mallAccountsQuery.isLoading) {
+    if (mallAccountsLoading) {
       throw new Error('몰 계정을 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
     }
-    if (collectableAccountCount === 0) {
+    const latestAccountsQuery = await refetchMallAccounts();
+    if (latestAccountsQuery.isError) {
+      throw latestAccountsQuery.error;
+    }
+    const latestAccounts = latestAccountsQuery.data ?? EMPTY_MALL_ACCOUNTS;
+    const latestCollectableAccountCount = latestAccounts.filter(
+      (account) => account.enabled && isBrowserCollectableMall(account),
+    ).length;
+    if (latestCollectableAccountCount === 0) {
       throw new Error('현재 자동 수집 가능한 몰 계정이 없습니다.');
     }
 
-    const { successCount, failedCount } = await collectAll();
+    const { successCount, failedCount } = await collectAll(latestAccounts);
     await generatedFileWriteQueueRef.current;
     if (failedCount > 0) {
       toast.warning(
@@ -302,7 +323,7 @@ export function usePersistedAllMarketplaceOrderCollection({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '셀피아 대조에 실패했습니다.');
     }
-  }, [collectAll, collectableAccountCount, mallAccountsQuery.isLoading]);
+  }, [collectAll, mallAccountsLoading, refetchMallAccounts]);
 
   return { collectAllOrders };
 }

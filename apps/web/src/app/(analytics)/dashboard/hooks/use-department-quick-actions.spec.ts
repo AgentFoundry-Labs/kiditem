@@ -30,6 +30,9 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     expect(dashboard).toContain('useSellpiaInventoryFreshness');
     expect(dashboard).toContain("sourceSurface: 'dashboard'");
     expect(sharedOrderAction).toContain('useAllMarketplaceOrderCollection');
+    expect(sharedOrderAction).toContain('await refetchMallAccounts()');
+    expect(sharedOrderAction).toContain('collectAll(latestAccounts)');
+    expect(sharedOrderAction).toContain('await syncRun(activeRun.runId)');
     expect(orderScreen).toContain('useAllMarketplaceOrderCollection');
 
     for (const [sharedAction, domainSource] of [

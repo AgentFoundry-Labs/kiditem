@@ -37,6 +37,7 @@ export async function collectTeachervilleXlsxFromExtension(
       action: 'collectTeachervilleOrders',
       date: run?.date,
       runId: await issueBrowserCollectionRunId(run?.runId),
+      deferTerminal: Boolean(run?.runId),
     },
     130000,
   );

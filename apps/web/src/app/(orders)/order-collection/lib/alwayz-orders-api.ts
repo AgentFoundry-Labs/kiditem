@@ -38,6 +38,7 @@ export async function collectAlwayzXlsxFromExtension(run?: OrderCollectionExtens
       action: 'collectAlwayzOrders',
       date: run?.date,
       runId: await issueBrowserCollectionRunId(run?.runId),
+      deferTerminal: Boolean(run?.runId),
     },
     130000, // 엑셀추출(클라이언트 조립)이라 넉넉히
   );
