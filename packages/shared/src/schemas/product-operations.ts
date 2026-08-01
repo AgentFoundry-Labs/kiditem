@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 import {
-  MasterProductAbcEvaluationSchema,
-  MasterProductAbcLifecycleStageSchema,
+  ProductAbcCalculationStatusSchema,
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaSummarySchema,
   ProductAbcGradeSchema,
 } from './product-abc.js';
 
@@ -75,13 +76,10 @@ export type ProductOperationsAbcGradeFilter = z.infer<
   typeof ProductOperationsAbcGradeFilterSchema
 >;
 
-export const ProductOperationsAbcRiskFilterSchema = z.enum([
-  'LOSS',
-  'ZERO_VALUE',
-  'DATA_QUALITY',
-]);
-export type ProductOperationsAbcRiskFilter = z.infer<
-  typeof ProductOperationsAbcRiskFilterSchema
+export const ProductOperationsAbcCalculationStatusFilterSchema =
+  ProductAbcCalculationStatusSchema;
+export type ProductOperationsAbcCalculationStatusFilter = z.infer<
+  typeof ProductOperationsAbcCalculationStatusFilterSchema
 >;
 
 export const MasterProductOperationsListQuerySchema = z.object({
@@ -93,8 +91,7 @@ export const MasterProductOperationsListQuerySchema = z.object({
   activeStatus: ProductOperationsActiveStatusSchema.default('all'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
   abcGrade: ProductOperationsAbcGradeFilterSchema.optional(),
-  abcStage: MasterProductAbcLifecycleStageSchema.optional(),
-  abcRisk: ProductOperationsAbcRiskFilterSchema.optional(),
+  abcCalculationStatus: ProductOperationsAbcCalculationStatusFilterSchema.optional(),
   adStatus: ProductOperationsAdStatusSchema.default('all'),
 }).strict();
 export type MasterProductOperationsListQuery = z.infer<
@@ -162,7 +159,7 @@ export const MasterProductOperationsMetadataSchema = z.object({
   imageUrls: z.array(z.string().min(1)),
   displayImageUrls: z.array(z.string().min(1)),
   abcGrade: ProductAbcGradeSchema.nullable(),
-  abcEvaluation: MasterProductAbcEvaluationSchema.nullable(),
+  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
@@ -206,6 +203,8 @@ export const MasterProductOperationsListItemSchema =
     salesAmount: z.number().int().nonnegative().nullable(),
     adSpend: z.number().int().nonnegative().nullable(),
     profit: z.number().int().nullable(),
+    contributionProfitVelocity30: z.number().finite().nullable(),
+    contributionMargin: z.number().finite().nullable(),
   });
 export type MasterProductOperationsListItem = z.infer<
   typeof MasterProductOperationsListItemSchema
@@ -218,16 +217,27 @@ export const ProductOperationsListSummarySchema = z.object({
     C: z.number().int().nonnegative(),
     unclassified: z.number().int().nonnegative(),
   }).strict(),
-  abcLifecycleCounts: z.object({
-    NEW: z.number().int().nonnegative(),
-    PROVISIONAL: z.number().int().nonnegative(),
-    ESTABLISHED: z.number().int().nonnegative(),
+  abcStatusCounts: z.object({
+    READY: z.number().int().nonnegative(),
+    INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
+    SOURCE_UNMAPPED: z.number().int().nonnegative(),
+    CALIBRATION_PENDING: z.number().int().nonnegative(),
+    RECALCULATING: z.number().int().nonnegative(),
+    SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
+    AD_SOURCE_STALE: z.number().int().nonnegative(),
+    CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
-  abcRiskCounts: z.object({
-    loss: z.number().int().nonnegative(),
-    zeroValue: z.number().int().nonnegative(),
-    dataQuality: z.number().int().nonnegative(),
+  abcContributionProfitByGrade: z.object({
+    A: z.number().int(),
+    B: z.number().int(),
+    C: z.number().int(),
   }).strict(),
+  abcContributionProfitShareByGrade: z.object({
+    A: z.number().finite(),
+    B: z.number().finite(),
+    C: z.number().finite(),
+  }).strict(),
+  abcFormula: ProductAbcFormulaSummarySchema.nullable(),
   channelConnectionCounts: z.object({
     connected: z.number().int().nonnegative(),
     unconnected: z.number().int().nonnegative(),

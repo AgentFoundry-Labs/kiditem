@@ -784,12 +784,14 @@ model SellpiaProductMonthlySales {
   optionCode  String @map("option_code") // 옵션코드
   yearMonth   String @map("year_month") // "YYYY-MM" (KST 캘린더 월)
 
-  orderQty    Int @default(0) @map("order_qty") // 월 판매수량 = 재고 소진량
-  orderAmount Int @default(0) @map("order_amount") // 월 판매금액
-  inQty       Int @default(0) @map("in_qty") // 월 매입수량
-  inAmount    Int @default(0) @map("in_amount") // 월 매입금액
-  costBasis   String @default("UNKNOWN") @map("cost_basis") // 원가 기준: ORDER_TIME_SUPPLY_COST만 매출총이익 ABC에 사용
-  vatIncluded Boolean? @map("vat_included") // 공급가 VAT 포함 여부; 원가 출처가 명시된 수집만 true
+  orderQty          Int       @default(0) @map("order_qty") // 월 판매수량 = 재고 소진량
+  orderAmount       Int       @default(0) @map("order_amount") // 월 판매금액
+  inQty             Int       @default(0) @map("in_qty") // 월 매입수량
+  inAmount          Int       @default(0) @map("in_amount") // 월 매입금액
+  costBasis         String    @default("UNKNOWN") @map("cost_basis") // 원가 기준: ORDER_TIME_SUPPLY_COST만 매출총이익 ABC에 사용
+  vatIncluded       Boolean?  @map("vat_included") // 공급가 VAT 포함 여부; 원가 출처가 명시된 수집만 true
+  coverageStartDate DateTime? @map("coverage_start_date") @db.Date // 요청 범위와 해당 월의 실제 교집합 시작일
+  coverageEndDate   DateTime? @map("coverage_end_date") @db.Date // 요청 범위와 해당 월의 실제 교집합 종료일
 
   // 상품 메타 (최신 스냅샷)
   productName  String  @map("product_name")

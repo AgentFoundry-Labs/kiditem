@@ -201,9 +201,9 @@ Source readiness is coverage-based, not a loose age threshold. Sellpia is ready 
 
 ### Step 1: Write the failing contract tests
 
-- [ ] Replace the old ABC schema tests with assertions for grade, calculation status, formula version, source freshness, component breakdown, exact evaluation metrics, and grade history. Explicitly reject `metric`, `periodDays`, cumulative share thresholds, lifecycle, provisional grade, and criteria-selection requests.
-- [ ] Add sync-scope tests that require `scope: 'full' | 'inventory'` on requests, claims, active status, and last-attempt summaries.
-- [ ] Add the Node schema contract test requiring:
+- [x] Replace the old ABC schema tests with assertions for grade, calculation status, formula version, source freshness, component breakdown, exact evaluation metrics, and grade history. Explicitly reject `metric`, `periodDays`, cumulative share thresholds, lifecycle, provisional grade, and criteria-selection requests.
+- [x] Add sync-scope tests that require `scope: 'full' | 'inventory'` on requests, claims, active status, and last-attempt summaries.
+- [x] Add the Node schema contract test requiring:
   - exact coverage dates on `SellpiaProductMonthlySales`;
   - organization-owned immutable `MasterProductAbcFormulaVersion` rows plus one `MasterProductAbcFormulaState` current-version pointer per organization;
   - one current `MasterProductAbcEvaluation` per product plus append-only grade history;
@@ -221,7 +221,7 @@ Source readiness is coverage-based, not a loose age threshold. Sellpia is ready 
 
 ### Step 2: Define the new focused shared schemas
 
-- [ ] Rewrite `product-abc.ts` around these strict types:
+- [x] Rewrite `product-abc.ts` around these strict types:
 
   ```ts
   export const ProductAbcGradeSchema = z.enum(['A', 'B', 'C']);
@@ -244,19 +244,19 @@ Source readiness is coverage-based, not a loose age threshold. Sellpia is ready 
   ]);
   ```
 
-- [ ] Define `ProductAbcEvaluationSchema` with nullable grade, status, adjusted/raw score, reliability, weighted contribution profit, 30-day profit velocity, weighted contribution margin, loss recurrence, paid-order count, observation days, formula key/version, calculation-code checksum, formula checksum, source coverage/freshness, all cost components, calculated timestamp, and nullable status detail.
-- [ ] Define a read-only formula summary containing `formulaKey`, `version`, calculation-code checksum, formula checksum, `activatedAt`, `halfLifeDays`, three weights, two shrink constants, two grade cutoffs, knot values, training interval, sample/fold counts, and calibration metrics. Do not add update/selection DTOs to public product APIs.
-- [ ] Replace Product Operations and Dashboard lifecycle/risk fields with status counts, grade counts, grade contribution-profit amounts/shares, formula summary, and freshness timestamps. Keep Product Outflow's compact projection limited to grade, status, profit velocity, margin, freshness, and product-detail link identity.
-- [ ] Add `SellpiaSyncScopeSchema` and make scope required in the shared request/claim/last-attempt DTOs. Keep automated inventory freshness reasons mapped to the inventory scope by the backend rather than trusting a browser default.
+- [x] Define `ProductAbcEvaluationSchema` with nullable grade, status, adjusted/raw score, reliability, weighted contribution profit, 30-day profit velocity, weighted contribution margin, loss recurrence, paid-order count, observation days, formula key/version, calculation-code checksum, formula checksum, source coverage/freshness, all cost components, calculated timestamp, and nullable status detail.
+- [x] Define a read-only formula summary containing `formulaKey`, `version`, calculation-code checksum, formula checksum, `activatedAt`, `halfLifeDays`, three weights, two shrink constants, two grade cutoffs, knot values, training interval, sample/fold counts, and calibration metrics. Do not add update/selection DTOs to public product APIs.
+- [x] Replace Product Operations and Dashboard lifecycle/risk fields with status counts, grade counts, grade contribution-profit amounts/shares, formula summary, and freshness timestamps. Keep Product Outflow's compact projection limited to grade, status, profit velocity, margin, freshness, and product-detail link identity.
+- [x] Add `SellpiaSyncScopeSchema` and make scope required in the shared request/claim/last-attempt DTOs. Keep automated inventory freshness reasons mapped to the inventory scope by the backend rather than trusting a browser default.
 
 ### Step 3: Replace the Prisma models
 
-- [ ] Add nullable `coverageStartDate DateTime? @db.Date` and `coverageEndDate DateTime? @db.Date` to `SellpiaProductMonthlySales` for safe expansion over old rows. New-ingest shared/service tests require both fields and `coverageStartDate <= coverageEndDate`; Finance treats a legacy null bound as stale evidence. Task 10 backfills or removes unreconstructable rows before declaring rollout ready.
-- [ ] Replace `MasterProductAbcPolicy` with immutable `MasterProductAbcFormulaVersion` rows containing organization, `formulaKey` (`ABC_V1`), integer version, calculation-code checksum, canonical JSON formula, formula checksum, training bounds, sample/fold counts, calibration metrics JSON, first-activation timestamp, and audit timestamps. Enforce unique `(organizationId, formulaKey, version)` and `(organizationId, formulaChecksum)`.
-- [ ] Add `MasterProductAbcFormulaState` with unique `organizationId`, nullable active formula-version relation fenced by `(activeFormulaVersionId, organizationId)`, activation timestamp, and revision. This Prisma-owned pointer enforces at most one active version per organization without a partial SQL index.
-- [ ] Rewrite `MasterProductAbcEvaluation` to store nullable grade, status, formula-version relation, raw/adjusted score, reliability, raw and normalized metrics, weighted revenue/cost/ad spend/contribution profit, observation facts, source freshness, cost-components JSON, status detail/error, run token, and calculation timestamp. Preserve unique `(organizationId, masterProductId)` and organization-fenced relations.
-- [ ] Rewrite `MasterProductAbcGradeHistory` to append the evaluation's grade/status/formula version, score, contribution profit, margin, reason, and calculation timestamp. Remove old metric/period/lifecycle columns.
-- [ ] Add `requestedSyncScope`, `activeSyncScope`, and `lastAttemptSyncScope` to `SellpiaInventoryState`; use nullable active/attempt fields and default requested scope to `inventory` for existing rows.
+- [x] Add nullable `coverageStartDate DateTime? @db.Date` and `coverageEndDate DateTime? @db.Date` to `SellpiaProductMonthlySales` for safe expansion over old rows. New-ingest shared/service tests require both fields and `coverageStartDate <= coverageEndDate`; Finance treats a legacy null bound as stale evidence. Task 10 backfills or removes unreconstructable rows before declaring rollout ready.
+- [x] Replace `MasterProductAbcPolicy` with immutable `MasterProductAbcFormulaVersion` rows containing organization, `formulaKey` (`ABC_V1`), integer version, calculation-code checksum, canonical JSON formula, formula checksum, training bounds, sample/fold counts, calibration metrics JSON, first-activation timestamp, and audit timestamps. Enforce unique `(organizationId, formulaKey, version)` and `(organizationId, formulaChecksum)`.
+- [x] Add `MasterProductAbcFormulaState` with unique `organizationId`, nullable active formula-version relation fenced by `(activeFormulaVersionId, organizationId)`, activation timestamp, and revision. This Prisma-owned pointer enforces at most one active version per organization without a partial SQL index.
+- [x] Rewrite `MasterProductAbcEvaluation` to store nullable grade, status, formula-version relation, raw/adjusted score, reliability, raw and normalized metrics, weighted revenue/cost/ad spend/contribution profit, observation facts, source freshness, cost-components JSON, status detail/error, run token, and calculation timestamp. Preserve unique `(organizationId, masterProductId)` and organization-fenced relations.
+- [x] Rewrite `MasterProductAbcGradeHistory` to append the evaluation's grade/status/formula version, score, contribution profit, margin, reason, and calculation timestamp. Remove old metric/period/lifecycle columns.
+- [x] Add `requestedSyncScope`, `activeSyncScope`, and `lastAttemptSyncScope` to `SellpiaInventoryState`; use nullable active/attempt fields and default requested scope to `inventory` for existing rows.
 - [ ] Run:
 
   ```bash

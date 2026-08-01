@@ -8,6 +8,8 @@ import {
   MasterProductOperationsListItemSchema,
   MasterProductOperationsListQuerySchema,
   MasterProductOperationsListResponseSchema,
+  ProductOperationsAbcCalculationStatusFilterSchema,
+  ProductOperationsListSummarySchema,
   ProductDepletionProjectionSchema,
   ProductInventoryStatusSchema,
   ProductRecipeComponentCandidateListResponseSchema,
@@ -20,27 +22,6 @@ import {
 const productId = '00000000-0000-4000-8000-000000000001';
 const variantId = '00000000-0000-4000-8000-000000000002';
 const skuId = '00000000-0000-4000-8000-000000000003';
-
-const abcEvaluation = {
-  abcGrade: 'A' as const,
-  provisionalGrade: null,
-  lifecycleStage: 'ESTABLISHED' as const,
-  confidence: 'HIGH' as const,
-  eligibilityReason: 'ELIGIBLE' as const,
-  riskFlags: [],
-  observedCompleteMonths: 12,
-  observationStartMonth: '2025-07',
-  periodMetricValue: 100,
-  rankingValue: 100,
-  grossRevenue: 200,
-  grossCost: 100,
-  grossProfit: 100,
-  grossMarginRate: 50,
-  contributionRate: 70,
-  cumulativeContributionRate: 70,
-  calculatedAt: '2026-07-16T00:00:00.000Z',
-  sourceCapturedAt: '2026-07-15T00:00:00.000Z',
-};
 
 const metadataFixture = {
   id: productId,
@@ -66,6 +47,43 @@ const metadataFixture = {
 };
 
 describe('product operations contracts', () => {
+  it('uses calculation status instead of lifecycle/risk filters and exposes profitability summary', () => {
+    expect(ProductOperationsAbcCalculationStatusFilterSchema.parse('AD_SOURCE_STALE')).toBe('AD_SOURCE_STALE');
+    expect(MasterProductOperationsListQuerySchema.parse({
+      abcCalculationStatus: 'READY',
+    }).abcCalculationStatus).toBe('READY');
+    expect(MasterProductOperationsListQuerySchema.safeParse({ abcStage: 'NEW' }).success).toBe(false);
+    expect(MasterProductOperationsListQuerySchema.safeParse({ abcRisk: 'LOSS' }).success).toBe(false);
+    expect(ProductOperationsListSummarySchema.parse({
+      abcGradeCounts: { A: 2, B: 3, C: 1, unclassified: 4 },
+      abcStatusCounts: {
+        READY: 6,
+        INSUFFICIENT_EVIDENCE: 2,
+        SOURCE_UNMAPPED: 1,
+        CALIBRATION_PENDING: 1,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
+      },
+      abcContributionProfitByGrade: { A: 400_000, B: 150_000, C: -30_000 },
+      abcContributionProfitShareByGrade: { A: 0.77, B: 0.29, C: -0.06 },
+      abcFormula: null,
+      channelConnectionCounts: { connected: 4, unconnected: 6 },
+      inventoryStatusCounts: {
+        sellable: 6,
+        partial_out_of_stock: 1,
+        out_of_stock: 1,
+        configuration_required: 1,
+        review_required: 1,
+      },
+      negativeProfitCount: 1,
+      reorderProductCount: 2,
+      depletionCoveredProductCount: 6,
+      sharedDepletionProductCount: 1,
+    }).abcStatusCounts.READY).toBe(6);
+  });
+
   it('requires raw and calculated display image URLs separately', () => {
     const directImageMetadata = {
       ...metadataFixture,
@@ -104,24 +122,22 @@ describe('product operations contracts', () => {
       activeStatus: 'active',
       inventoryStatus: 'partial_out_of_stock',
       abcGrade: 'unclassified',
-      abcStage: 'NEW',
-      abcRisk: 'DATA_QUALITY',
+      abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
       adStatus: 'active',
     })).toMatchObject({
       query: '식판',
       category: '주방',
       periodDays: 14,
       abcGrade: 'unclassified',
-      abcStage: 'NEW',
-      abcRisk: 'DATA_QUALITY',
+      abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
     });
     expect(() => MasterProductOperationsListQuerySchema.parse({
       organizationId: productId,
     })).toThrow();
     expect(() => MasterProductOperationsListQuerySchema.parse({ periodDays: 15 })).toThrow();
     expect(() => MasterProductOperationsListQuerySchema.parse({ abcGrade: 'manual' })).toThrow();
-    expect(() => MasterProductOperationsListQuerySchema.parse({ abcStage: 'RETIRED' })).toThrow();
-    expect(() => MasterProductOperationsListQuerySchema.parse({ abcRisk: 'LIMITED_HISTORY' })).toThrow();
+    expect(() => MasterProductOperationsListQuerySchema.parse({ abcCalculationStatus: 'RETIRED' })).toThrow();
+    expect(() => MasterProductOperationsListQuerySchema.parse({ abcCalculationStatus: 'LIMITED_HISTORY' })).toThrow();
   });
 
   it('exposes stored ABC as read-only product metadata', () => {
@@ -185,7 +201,7 @@ describe('product operations contracts', () => {
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: 'A',
-      abcEvaluation,
+      abcEvaluation: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -209,6 +225,8 @@ describe('product operations contracts', () => {
       salesAmount: null,
       adSpend: null,
       profit: null,
+      contributionProfitVelocity30: null,
+      contributionMargin: null,
     });
     expect(parsed.inventoryUnits).toBe(80);
     expect(parsed.traffic).toBeNull();
@@ -219,8 +237,19 @@ describe('product operations contracts', () => {
       limit: 1,
       summary: {
         abcGradeCounts: { A: 23, B: 17, C: 40, unclassified: 0 },
-        abcLifecycleCounts: { NEW: 4, PROVISIONAL: 6, ESTABLISHED: 70 },
-        abcRiskCounts: { loss: 3, zeroValue: 2, dataQuality: 5 },
+        abcStatusCounts: {
+          READY: 70,
+          INSUFFICIENT_EVIDENCE: 4,
+          SOURCE_UNMAPPED: 2,
+          CALIBRATION_PENDING: 1,
+          RECALCULATING: 1,
+          SELLPIA_SOURCE_STALE: 1,
+          AD_SOURCE_STALE: 1,
+          CALCULATION_ERROR: 0,
+        },
+        abcContributionProfitByGrade: { A: 4_000_000, B: 1_000_000, C: -200_000 },
+        abcContributionProfitShareByGrade: { A: 0.83, B: 0.21, C: -0.04 },
+        abcFormula: null,
         channelConnectionCounts: { connected: 71, unconnected: 9 },
         inventoryStatusCounts: {
           sellable: 41,

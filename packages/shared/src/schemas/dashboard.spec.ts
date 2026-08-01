@@ -15,17 +15,63 @@ describe('dashboard schemas', () => {
     responseShape: 'empty_object' as const,
     explicitEmpty: true as const,
   };
+
+  it('uses stored profitability status, contribution profit, and formula context', () => {
+    expect(DashboardInventorySummarySchema.parse({
+      totalProducts: 5,
+      channelLinkedProducts: 3,
+      channelUnlinkedProducts: 2,
+      gradeCount: { A: 1, B: 2, C: 1 },
+      abcStatusCount: {
+        READY: 4,
+        INSUFFICIENT_EVIDENCE: 1,
+        SOURCE_UNMAPPED: 0,
+        CALIBRATION_PENDING: 0,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
+      },
+      abcContributionProfit: {
+        amountByGrade: { A: 200_000, B: 80_000, C: -20_000 },
+        shareByGrade: { A: 0.77, B: 0.31, C: -0.08 },
+      },
+      abcFormula: null,
+      classifiedProductCount: 4,
+      unclassifiedProductCount: 1,
+      mappingStatusCounts: { matched: 10, unmatched: 1, needsReview: 1 },
+      alerts: [],
+      warnings: {
+        minusProducts: 0,
+        lowProfitProducts: 0,
+        highAdProducts: 0,
+        outOfStockSkus: 4,
+        mappingAttentionSkus: 2,
+      },
+    }).abcStatusCount.READY).toBe(4);
+  });
+
   it('keeps inventory summary channel coverage counts', () => {
     const summary = DashboardInventorySummarySchema.parse({
       totalProducts: 5,
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
-      abcLifecycleCount: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 5 },
-      abcRiskCount: { loss: 0, zeroValue: 0, dataQuality: 0 },
-      abcContext: {
-        metric: 'GROSS_PROFIT', periodDays: 360, lastCalculatedAt: null, sourceCapturedAt: null,
+      abcStatusCount: {
+        READY: 5,
+        INSUFFICIENT_EVIDENCE: 0,
+        SOURCE_UNMAPPED: 0,
+        CALIBRATION_PENDING: 0,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
       },
+      abcContributionProfit: {
+        amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
+        shareByGrade: { A: 0.76, B: 0.30, C: -0.06 },
+      },
+      abcFormula: null,
       classifiedProductCount: 5,
       unclassifiedProductCount: 0,
       mappingStatusCounts: { matched: 10, unmatched: 1, needsReview: 1 },
@@ -54,11 +100,21 @@ describe('dashboard schemas', () => {
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
-      abcLifecycleCount: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 5 },
-      abcRiskCount: { loss: 0, zeroValue: 0, dataQuality: 0 },
-      abcContext: {
-        metric: 'GROSS_PROFIT', periodDays: 360, lastCalculatedAt: null, sourceCapturedAt: null,
+      abcStatusCount: {
+        READY: 5,
+        INSUFFICIENT_EVIDENCE: 0,
+        SOURCE_UNMAPPED: 0,
+        CALIBRATION_PENDING: 0,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
       },
+      abcContributionProfit: {
+        amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
+        shareByGrade: { A: 0.76, B: 0.30, C: -0.06 },
+      },
+      abcFormula: null,
       classifiedProductCount: 5,
       unclassifiedProductCount: 0,
       mappingStatusCounts: { matched: 10, unmatched: 0, needsReview: 0 },

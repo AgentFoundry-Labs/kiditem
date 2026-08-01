@@ -39,6 +39,7 @@ export const SellpiaInventoryCollectionFailureCodeSchema = z.enum(
 export const SellpiaInventoryGenerationSchema = z
   .string()
   .regex(/^(0|[1-9]\d*)$/, 'Generation must be a decimal string');
+export const SellpiaSyncScopeSchema = z.enum(['full', 'inventory']);
 
 const IsoDateTimeStringSchema = z.string().datetime({ offset: true });
 const FixedSellpiaOriginSchema = z.literal('https://kiditem.sellpia.com');
@@ -84,6 +85,7 @@ const SellpiaInventoryActiveSyncViewSchema = z
   .object({
     runId: z.string().uuid(),
     generation: SellpiaInventoryGenerationSchema,
+    scope: SellpiaSyncScopeSchema,
     startedAt: IsoDateTimeStringSchema,
     leaseExpiresAt: IsoDateTimeStringSchema,
     canControl: z.boolean(),
@@ -95,6 +97,7 @@ const SellpiaInventoryLastAttemptViewSchema = z
     attemptedAt: IsoDateTimeStringSchema,
     status: z.enum(['completed', 'failed']),
     trigger: SellpiaInventoryRefreshReasonSchema.nullable(),
+    scope: SellpiaSyncScopeSchema,
     errorCode: SellpiaInventoryCollectionFailureCodeSchema.nullable(),
     errorMessage: z.string().max(300).nullable(),
   })
@@ -110,6 +113,7 @@ export const SellpiaInventoryFreshnessViewSchema = z
     verifiedGeneration: SellpiaInventoryGenerationSchema,
     refreshRequestedAt: IsoDateTimeStringSchema.nullable(),
     refreshReason: SellpiaInventoryRefreshReasonSchema.nullable(),
+    requestedSyncScope: SellpiaSyncScopeSchema,
     syncNotBefore: IsoDateTimeStringSchema.nullable(),
     activeSync: SellpiaInventoryActiveSyncViewSchema.nullable(),
     lastAttempt: SellpiaInventoryLastAttemptViewSchema.nullable(),
@@ -122,6 +126,7 @@ export const SellpiaInventoryRefreshRequestSchema = z
       'manual_request',
       'retry',
     ]),
+    scope: SellpiaSyncScopeSchema,
   })
   .strict();
 
@@ -174,6 +179,7 @@ export type SellpiaInventoryRefreshReason = z.infer<
 export type SellpiaInventoryCollectionFailureCode = z.infer<
   typeof SellpiaInventoryCollectionFailureCodeSchema
 >;
+export type SellpiaSyncScope = z.infer<typeof SellpiaSyncScopeSchema>;
 export type SellpiaInventoryQualityIssue = z.infer<
   typeof SellpiaInventoryQualityIssueSchema
 >;

@@ -2,9 +2,8 @@ import { z } from 'zod';
 import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
 import {
-  MasterProductAbcMetricSchema,
-  MasterProductAbcPeriodDaysSchema,
-  MasterProductAbcEvaluationSchema,
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaSummarySchema,
   ProductAbcGradeSchema,
 } from './product-abc.js';
 
@@ -39,7 +38,7 @@ export const TopProductSchema = z.object({
   name: z.string(),
   organization: z.string(),
   grade: ProductAbcGradeSchema.nullable(),
-  abcEvaluation: MasterProductAbcEvaluationSchema.nullable(),
+  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   revenue: z.number(),
   netProfit: z.number(),
   profitRate: z.number(),
@@ -280,22 +279,29 @@ export const DashboardInventorySummarySchema = z.object({
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
   }).strict(),
-  abcLifecycleCount: z.object({
-    NEW: z.number().int().nonnegative(),
-    PROVISIONAL: z.number().int().nonnegative(),
-    ESTABLISHED: z.number().int().nonnegative(),
+  abcStatusCount: z.object({
+    READY: z.number().int().nonnegative(),
+    INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
+    SOURCE_UNMAPPED: z.number().int().nonnegative(),
+    CALIBRATION_PENDING: z.number().int().nonnegative(),
+    RECALCULATING: z.number().int().nonnegative(),
+    SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
+    AD_SOURCE_STALE: z.number().int().nonnegative(),
+    CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
-  abcRiskCount: z.object({
-    loss: z.number().int().nonnegative(),
-    zeroValue: z.number().int().nonnegative(),
-    dataQuality: z.number().int().nonnegative(),
+  abcContributionProfit: z.object({
+    amountByGrade: z.object({
+      A: z.number().int(),
+      B: z.number().int(),
+      C: z.number().int(),
+    }).strict(),
+    shareByGrade: z.object({
+      A: z.number().finite(),
+      B: z.number().finite(),
+      C: z.number().finite(),
+    }).strict(),
   }).strict(),
-  abcContext: z.object({
-    metric: MasterProductAbcMetricSchema,
-    periodDays: MasterProductAbcPeriodDaysSchema,
-    lastCalculatedAt: zIsoDate.nullable(),
-    sourceCapturedAt: zIsoDate.nullable(),
-  }).strict(),
+  abcFormula: ProductAbcFormulaSummarySchema.nullable(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),
   mappingStatusCounts: z.object({
@@ -498,7 +504,7 @@ export const SellpiaProductDestinationSchema = z.object({
   productVariantName: z.string().min(1),
   unitsPerVariant: z.number().int().positive(),
   abcGrade: ProductAbcGradeSchema.nullable(),
-  abcEvaluation: MasterProductAbcEvaluationSchema.nullable(),
+  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   displayImage: SellpiaProductDestinationDisplayImageSchema.nullable(),
 }).strict();
 
@@ -592,15 +598,20 @@ export const SellpiaProductSalesSummarySchema = z.object({
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
   }).strict(),
-  abcLifecycleCounts: z.object({
-    NEW: z.number().int().nonnegative(),
-    PROVISIONAL: z.number().int().nonnegative(),
-    ESTABLISHED: z.number().int().nonnegative(),
+  abcStatusCounts: z.object({
+    READY: z.number().int().nonnegative(),
+    INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
+    SOURCE_UNMAPPED: z.number().int().nonnegative(),
+    CALIBRATION_PENDING: z.number().int().nonnegative(),
+    RECALCULATING: z.number().int().nonnegative(),
+    SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
+    AD_SOURCE_STALE: z.number().int().nonnegative(),
+    CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
-  abcRiskCounts: z.object({
-    loss: z.number().int().nonnegative(),
-    zeroValue: z.number().int().nonnegative(),
-    dataQuality: z.number().int().nonnegative(),
+  abcContributionProfitByGrade: z.object({
+    A: z.number().int(),
+    B: z.number().int(),
+    C: z.number().int(),
   }).strict(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),
