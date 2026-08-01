@@ -1,6 +1,6 @@
 # Automatic Product Profitability ABC Design
 
-**Date:** 2026-08-01  
+**Date:** 2026-08-01
 **Status:** Approved in conversation; written specification pending review
 
 ## Classification
