@@ -1,11 +1,11 @@
 # Graph Report - schema  (2026-08-01)
 
 ## Corpus Check
-- 13 files · ~28,832 words
+- 13 files · ~29,152 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 3030 nodes · 4919 edges · 141 communities (140 shown, 1 thin omitted)
+- 3065 nodes · 4978 edges · 148 communities (147 shown, 1 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
 - Token cost: 0 input · 0 output
 
@@ -15,147 +15,154 @@
 - AgentOS schema
 - AgentOS schema
 - AI schema
-- Advertising schema
-- AI schema
 - Channels schema
 - Channels schema
 - Sourcing schema
 - Core schema
-- Finance schema
+- AI schema
+- Core schema
+- Supply schema
 - AI schema
 - AgentOS schema
 - Core schema
 - AI schema
-- Supply schema
+- Inventory schema
 - AgentOS schema
 - Channels schema
 - Orders schema
 - AI schema
-- System schema
 - Channels schema
 - Channels schema
 - Channels schema
 - Core schema
 - Inventory schema
-- System schema
-- AgentOS schema
-- Core schema
-- AI schema
-- Inventory schema
-- Supply schema
 - Advertising schema
 - AgentOS schema
-- AgentOS schema
 - Channels schema
-- AI schema
 - Core schema
+- AI schema
+- Supply schema
+- AgentOS schema
+- AgentOS schema
+- System schema
+- AI schema
+- Channels schema
+- Orders schema
 - Orders schema
 - AgentOS schema
 - AI schema
 - AI schema
 - Orders schema
+- System schema
+- Channels schema
+- Channels schema
+- Orders schema
+- Supply schema
+- Sourcing schema
+- Sourcing schema
+- AgentOS schema
+- AI schema
+- System schema
+- Sourcing schema
+- AI schema
+- Sourcing schema
+- System schema
+- Core schema
+- Finance schema
+- Sourcing schema
+- AI schema
+- AI schema
+- AgentOS schema
+- Inventory schema
+- Sourcing schema
+- AgentOS schema
+- Orders schema
+- AI schema
+- Supply schema
+- Channels schema
+- Inventory schema
+- Orders schema
+- Core schema
+- Core schema
+- AI schema
+- AI schema
+- Sourcing schema
+- Sourcing schema
+- Channels schema
+- Orders schema
+- AI schema
+- Orders schema
+- AgentOS schema
+- AgentOS schema
+- AgentOS schema
+- AgentOS schema
+- Orders schema
+- Core schema
+- Inventory schema
+- Supply schema
+- Inventory schema
+- Supply schema
+- AgentOS schema
+- Core schema
+- Core schema
+- AI schema
+- Inventory schema
+- Finance schema
+- Supply schema
+- Orders schema
+- Inventory schema
+- Supply schema
+- AI schema
+- Advertising schema
+- Sourcing schema
+- Core schema
+- Finance schema
+- Channels schema
+- Channels schema
+- Inventory schema
+- Channels schema
+- Inventory schema
+- Finance schema
+- System schema
+- Advertising schema
+- Finance schema
+- Core schema
+- AI schema
 - Supply schema
 - Channels schema
 - Channels schema
-- Channels schema
+- AI schema
+- Inventory schema
 - Orders schema
+- Core schema
+- Channels schema
+- Inventory schema
+- Supply schema
 - Sourcing schema
+- System schema
+- System schema
+- Orders schema
 - Sourcing schema
 - Advertising schema
-- AgentOS schema
-- AI schema
-- System schema
-- Sourcing schema
-- AI schema
-- Sourcing schema
-- System schema
-- Finance schema
-- Sourcing schema
-- AI schema
-- AI schema
-- AgentOS schema
-- Inventory schema
-- Sourcing schema
-- Core schema
-- AgentOS schema
-- Orders schema
-- AI schema
-- Supply schema
-- Channels schema
-- Inventory schema
-- Orders schema
-- AI schema
-- AI schema
-- Sourcing schema
-- Sourcing schema
-- Channels schema
-- AI schema
-- Orders schema
-- Core schema
-- AgentOS schema
-- AgentOS schema
-- AgentOS schema
-- AgentOS schema
-- Core schema
-- Core schema
-- Orders schema
-- Inventory schema
-- Supply schema
-- Orders schema
-- Inventory schema
-- Inventory schema
-- Supply schema
-- AgentOS schema
-- AI schema
-- Orders schema
-- Inventory schema
-- Supply schema
-- Channels schema
-- Orders schema
-- Supply schema
-- AI schema
-- Core schema
-- Sourcing schema
-- Core schema
-- Finance schema
-- Inventory schema
-- Channels schema
-- Inventory schema
-- System schema
-- Finance schema
-- Core schema
-- Channels schema
-- AI schema
-- Core schema
-- Supply schema
-- Channels schema
-- Channels schema
-- AI schema
-- Inventory schema
-- Orders schema
-- Channels schema
-- Inventory schema
-- Supply schema
-- Sourcing schema
-- System schema
-- Core schema
-- System schema
-- Orders schema
-- Sourcing schema
 - Channels schema
 - System schema
+- Core schema
+- Advertising schema
 - System schema
 - Core schema
 - Core schema
+- prisma field: ProductPreparation.channelAccountId
 - prisma field: SourcingCandidate.id
+- prisma field: ActionTask.date
 - prisma field: ChannelListingDailySnapshot.businessDate
+- prisma field: Alert.operationKey
 - prisma field: RocketPoCatalogLine.poLineId
 - prisma field: ChannelListingDailySnapshot.id
 
 ## God Nodes (most connected - your core abstractions)
-1. `Database ERD` - 387 edges
-2. `Organization` - 276 edges
-3. `prisma — Shared Schema` - 177 edges
+1. `Database ERD` - 389 edges
+2. `Organization` - 278 edges
+3. `prisma — Shared Schema` - 178 edges
 4. `User` - 89 edges
 5. `ChannelListing` - 88 edges
 6. `AgentRunRequest` - 74 edges
@@ -167,6 +174,10 @@
 12. `ChannelAccount` - 56 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `Database ERD` --mentions_field--> `AdAction.externalId`  [EXTRACTED]
+  docs/ERD.md → prisma/models/advertising.prisma
+- `Database ERD` --mentions_field--> `ScrapeTarget.isActive`  [EXTRACTED]
+  docs/ERD.md → prisma/models/advertising.prisma
 - `Database ERD` --mentions_field--> `AgentToolDefinition.isActive`  [EXTRACTED]
   docs/ERD.md → prisma/models/agents.prisma
 - `Database ERD` --mentions_field--> `AgentArtifact.targetId`  [EXTRACTED]
@@ -179,15 +190,11 @@
   docs/ERD.md → prisma/models/channels.prisma
 - `Database ERD` --mentions_field--> `ChannelScrapeSnapshot.externalOptionId`  [EXTRACTED]
   docs/ERD.md → prisma/models/channels.prisma
-- `Database ERD` --mentions_field--> `ChannelListingDailySnapshot.externalId`  [EXTRACTED]
-  docs/ERD.md → prisma/models/channels.prisma
-- `Database ERD` --mentions_field--> `ChannelListingOptionDailySnapshot.externalId`  [EXTRACTED]
-  docs/ERD.md → prisma/models/channels.prisma
 
 ## Import Cycles
 - None detected.
 
-## Communities (141 total, 1 thin omitted)
+## Communities (148 total, 1 thin omitted)
 
 ### Community 0 - "Channels schema"
 Cohesion: 0.04
@@ -207,35 +214,35 @@ Nodes (43): AgentRun.adapterType, AgentRun.agentInstance, AgentRun.attempt, Agen
 
 ### Community 4 - "AI schema"
 Cohesion: 0.06
-Nodes (43): ProductPreparation.approvedAt, ProductPreparation.approvedByUser, ProductPreparation.approvedByUserId, ProductPreparation.channelAccount, ProductPreparation.channelAccountId, ProductPreparation.channelListing, ProductPreparation.channelListingId, ProductPreparation.createdAt (+35 more)
-
-### Community 5 - "Advertising schema"
-Cohesion: 0.05
-Nodes (41): ExecutionLog.createdAt, ExecutionLog.id, ExecutionLog.level, ExecutionLog.message, ExecutionLog.payloadJson, ExecutionLog.step, ExecutionLog.task, ExecutionLog.taskId (+33 more)
-
-### Community 6 - "AI schema"
-Cohesion: 0.06
 Nodes (41): ThumbnailTracking.appliedAt, ThumbnailTracking.createdAt, ThumbnailTracking.ctrAfter, ThumbnailTracking.ctrBefore, ThumbnailTracking.generation, ThumbnailTracking.generationId, ThumbnailTracking.id, ThumbnailTracking.listing (+33 more)
 
-### Community 7 - "Channels schema"
+### Community 5 - "Channels schema"
 Cohesion: 0.06
 Nodes (40): ChannelAdTargetDailySnapshot.adGroup, ChannelAdTargetDailySnapshot.adRevenue, ChannelAdTargetDailySnapshot.adSpend, ChannelAdTargetDailySnapshot.businessDate, ChannelAdTargetDailySnapshot.campaignId, ChannelAdTargetDailySnapshot.campaignIdentity, ChannelAdTargetDailySnapshot.campaignName, ChannelAdTargetDailySnapshot.channel (+32 more)
 
-### Community 8 - "Channels schema"
+### Community 6 - "Channels schema"
 Cohesion: 0.06
 Nodes (38): CoupangWingTrackedProduct.brandName, CoupangWingTrackedProduct.categoryHierarchy, CoupangWingTrackedProduct.createdAt, CoupangWingTrackedProduct.enabled, CoupangWingTrackedProduct.id, CoupangWingTrackedProduct.imagePath, CoupangWingTrackedProduct.itemId, CoupangWingTrackedProduct.lastCapturedAt (+30 more)
 
-### Community 9 - "Sourcing schema"
+### Community 7 - "Sourcing schema"
 Cohesion: 0.07
 Nodes (36): ProductRegistrationExecution.channelAccount, ProductRegistrationExecution.channelAccountId, ProductRegistrationExecution.channelListing, ProductRegistrationExecution.channelListingId, ProductRegistrationExecution.completedAt, ProductRegistrationExecution.createdAt, ProductRegistrationExecution.executionKind, ProductRegistrationExecution.expectedProviderAccountId (+28 more)
 
-### Community 10 - "Core schema"
-Cohesion: 0.08
-Nodes (35): ChannelListing.lastImportRunId, RocketPurchaseConfirmation.sourceImportRunId, SourceImportRun.attemptToken, SourceImportRun.channelAccount, SourceImportRun.channelAccountId, SourceImportRun.createdAt, SourceImportRun.createdBy, SourceImportRun.errorCode (+27 more)
+### Community 8 - "Core schema"
+Cohesion: 0.09
+Nodes (34): ChannelListing.lastImportRunId, SourceImportRun.attemptToken, SourceImportRun.channelAccount, SourceImportRun.channelAccountId, SourceImportRun.createdAt, SourceImportRun.createdBy, SourceImportRun.errorCode, SourceImportRun.errorMessage (+26 more)
 
-### Community 11 - "Finance schema"
+### Community 9 - "AI schema"
+Cohesion: 0.06
+Nodes (34): ProductPreparation.approvedAt, ProductPreparation.approvedByUser, ProductPreparation.approvedByUserId, ProductPreparation.channelAccount, ProductPreparation.channelListing, ProductPreparation.channelListingId, ProductPreparation.createdAt, ProductPreparation.createdByUser (+26 more)
+
+### Community 10 - "Core schema"
 Cohesion: 0.07
-Nodes (32): Finance, ManualLedger.amount, ManualLedger.category, ManualLedger.counterpart, ManualLedger.createdAt, ManualLedger.createdBy, ManualLedger.date, ManualLedger.description (+24 more)
+Nodes (33): MasterProductAbcEvaluation.adjustedScore, MasterProductAbcEvaluation.advertisingSourceCapturedAt, MasterProductAbcEvaluation.advertisingSourceStatus, MasterProductAbcEvaluation.calculatedAt, MasterProductAbcEvaluation.calculationStatus, MasterProductAbcEvaluation.costComponentsJson, MasterProductAbcEvaluation.firstValidPaidSaleAt, MasterProductAbcEvaluation.formulaVersion (+25 more)
+
+### Community 11 - "Supply schema"
+Cohesion: 0.07
+Nodes (33): RocketPurchaseConfirmation.artifactBytes, RocketPurchaseConfirmation.artifactContentType, RocketPurchaseConfirmation.artifactFileName, RocketPurchaseConfirmation.artifactSha256, RocketPurchaseConfirmation.artifactStoredAt, RocketPurchaseConfirmation.channelAccount, RocketPurchaseConfirmation.channelAccountId, RocketPurchaseConfirmation.completedAt (+25 more)
 
 ### Community 12 - "AI schema"
 Cohesion: 0.09
@@ -253,9 +260,9 @@ Nodes (31): ChannelListing.brand, ChannelListing.category, ChannelListing.channe
 Cohesion: 0.07
 Nodes (31): ContentGeneration.contentType, ContentGeneration.contentWorkspace, ContentGeneration.contentWorkspaceId, ContentGeneration.createdAt, ContentGeneration.deletedAt, ContentGeneration.detailPageArtifact, ContentGeneration.editedHtml, ContentGeneration.editedHtmlSavedAt (+23 more)
 
-### Community 16 - "Supply schema"
-Cohesion: 0.08
-Nodes (31): RocketPurchaseConfirmation.artifactBytes, RocketPurchaseConfirmation.artifactContentType, RocketPurchaseConfirmation.artifactFileName, RocketPurchaseConfirmation.artifactSha256, RocketPurchaseConfirmation.artifactStoredAt, RocketPurchaseConfirmation.channelAccount, RocketPurchaseConfirmation.completedAt, RocketPurchaseConfirmation.confirmedAt (+23 more)
+### Community 16 - "Inventory schema"
+Cohesion: 0.07
+Nodes (31): SellpiaInventoryState.activeGeneration, SellpiaInventoryState.activeSyncLeaseExpiresAt, SellpiaInventoryState.activeSyncOwner, SellpiaInventoryState.activeSyncOwnerUserId, SellpiaInventoryState.activeSyncScope, SellpiaInventoryState.activeSyncStartedAt, SellpiaInventoryState.activeSyncToken, SellpiaInventoryState.createdAt (+23 more)
 
 ### Community 17 - "AgentOS schema"
 Cohesion: 0.08
@@ -273,37 +280,37 @@ Nodes (30): Order.channelAccount, Order.channelAccountId, Order.createdAt, Order
 Cohesion: 0.07
 Nodes (30): ProductPreparation.selectedThumbnailGenerationId, ThumbnailGeneration.attemptCount, ThumbnailGeneration.contentWorkspace, ThumbnailGeneration.contentWorkspaceId, ThumbnailGeneration.createdAt, ThumbnailGeneration.deletedAt, ThumbnailGeneration.editAnalysis, ThumbnailGeneration.errorMessage (+22 more)
 
-### Community 21 - "System schema"
-Cohesion: 0.08
-Nodes (29): Alert.actionTask, Alert.actorUser, Alert.actorUserId, Alert.createdAt, Alert.finishedAt, Alert.href, Alert.id, Alert.isRead (+21 more)
-
-### Community 22 - "Channels schema"
+### Community 21 - "Channels schema"
 Cohesion: 0.08
 Nodes (29): ChannelListingDeletionOperation.authorizationExpiresAt, ChannelListingDeletionOperation.channelAccount, ChannelListingDeletionOperation.channelAccountId, ChannelListingDeletionOperation.channelListing, ChannelListingDeletionOperation.channelListingId, ChannelListingDeletionOperation.completedAt, ChannelListingDeletionOperation.createdAt, ChannelListingDeletionOperation.expectedProviderAccountId (+21 more)
 
-### Community 23 - "Channels schema"
+### Community 22 - "Channels schema"
 Cohesion: 0.08
 Nodes (29): CoupangWingSalesRankDailySnapshot.businessDate, CoupangWingSalesRankDailySnapshot.capturedAt, CoupangWingSalesRankDailySnapshot.categoryHierarchy, CoupangWingSalesRankDailySnapshot.collectedCount, CoupangWingSalesRankDailySnapshot.conversionRate28d, CoupangWingSalesRankDailySnapshot.createdAt, CoupangWingSalesRankDailySnapshot.id, CoupangWingSalesRankDailySnapshot.itemId (+21 more)
 
-### Community 24 - "Channels schema"
+### Community 23 - "Channels schema"
 Cohesion: 0.07
 Nodes (29): RocketPoCatalogLine.barcode, RocketPoCatalogLine.businessDateBasis, RocketPoCatalogLine.center, RocketPoCatalogLine.createdAt, RocketPoCatalogLine.hasConfirmation, RocketPoCatalogLine.id, RocketPoCatalogLine.inboundType, RocketPoCatalogLine.orderQty (+21 more)
 
-### Community 25 - "Core schema"
+### Community 24 - "Core schema"
 Cohesion: 0.08
 Nodes (28): externalOptionId canonical option identity, vendorItemId provider term, ChannelListingOption.attributesJson, ChannelListingOption.commissionRate, ChannelListingOption.costPriceOverride, ChannelListingOption.createdAt, ChannelListingOption.externalOptionId, ChannelListingOption.id (+20 more)
 
-### Community 26 - "Inventory schema"
-Cohesion: 0.07
-Nodes (28): SellpiaInventoryState.activeGeneration, SellpiaInventoryState.activeSyncLeaseExpiresAt, SellpiaInventoryState.activeSyncOwner, SellpiaInventoryState.activeSyncOwnerUserId, SellpiaInventoryState.activeSyncStartedAt, SellpiaInventoryState.activeSyncToken, SellpiaInventoryState.createdAt, SellpiaInventoryState.failedGeneration (+20 more)
-
-### Community 27 - "System schema"
+### Community 25 - "Inventory schema"
 Cohesion: 0.09
-Nodes (27): ActionTask.activityLog, ActionTask.apiCall, ActionTask.assigneeUser, ActionTask.assigneeUserId, ActionTask.createdAt, ActionTask.date, ActionTask.detail, ActionTask.href (+19 more)
+Nodes (28): InventoryCommitment.businessKey, InventoryCommitment.createdAt, InventoryCommitment.createdBy, InventoryCommitment.creator, InventoryCommitment.id, InventoryCommitment.inventoryGeneration, InventoryCommitment.kind, InventoryCommitment.organization (+20 more)
 
-### Community 28 - "AgentOS schema"
+### Community 26 - "Advertising schema"
+Cohesion: 0.08
+Nodes (27): AdAction.actionType, AdAction.adTargetDaily, AdAction.adTargetDailyId, AdAction.afterJson, AdAction.approvalStatus, AdAction.approvedAt, AdAction.beforeJson, AdAction.createdAt (+19 more)
+
+### Community 27 - "AgentOS schema"
 Cohesion: 0.08
 Nodes (27): AgentApprovalRequest.actionSnapshot, AgentApprovalRequest.agentInstance, AgentApprovalRequest.agentInstanceId, AgentApprovalRequest.approver, AgentApprovalRequest.createdAt, AgentApprovalRequest.decidedAt, AgentApprovalRequest.decidedBy, AgentApprovalRequest.decisionReason (+19 more)
+
+### Community 28 - "Channels schema"
+Cohesion: 0.08
+Nodes (27): ChannelAdTargetDailySnapshot.rawSnapshotId, ChannelListingDailySnapshot.rawSnapshotId, ChannelListingOptionDailySnapshot.rawSnapshotId, ChannelScrapeSnapshot.businessDate, ChannelScrapeSnapshot.channel, ChannelScrapeSnapshot.createdAt, ChannelScrapeSnapshot.externalId, ChannelScrapeSnapshot.externalOptionId (+19 more)
 
 ### Community 29 - "Core schema"
 Cohesion: 0.09
@@ -313,177 +320,177 @@ Nodes (27): ChannelListing.masterProductId, MasterProduct.abcGrade, MasterProduc
 Cohesion: 0.08
 Nodes (27): DetailPageImageRenderIntent.attempt, DetailPageImageRenderIntent.claimedAt, DetailPageImageRenderIntent.claimedBy, DetailPageImageRenderIntent.claimedByUserId, DetailPageImageRenderIntent.completedArtifact, DetailPageImageRenderIntent.completedAt, DetailPageImageRenderIntent.createdAt, DetailPageImageRenderIntent.detailPageArtifact (+19 more)
 
-### Community 31 - "Inventory schema"
-Cohesion: 0.10
-Nodes (27): InventoryCommitment.businessKey, InventoryCommitment.createdAt, InventoryCommitment.creator, InventoryCommitment.id, InventoryCommitment.inventoryGeneration, InventoryCommitment.kind, InventoryCommitment.organization, InventoryCommitment.organizationId (+19 more)
-
-### Community 32 - "Supply schema"
+### Community 31 - "Supply schema"
 Cohesion: 0.08
 Nodes (27): PurchaseOrder.createdAt, PurchaseOrder.defectAction, PurchaseOrder.defectNote, PurchaseOrder.defectQty, PurchaseOrder.defectType, PurchaseOrder.expectedDeliveryDate, PurchaseOrder.externalOrderId, PurchaseOrder.externalOrderPlatform (+19 more)
 
-### Community 33 - "Advertising schema"
-Cohesion: 0.08
-Nodes (26): AdAction.actionType, AdAction.adTargetDaily, AdAction.adTargetDailyId, AdAction.afterJson, AdAction.approvalStatus, AdAction.approvedAt, AdAction.beforeJson, AdAction.createdAt (+18 more)
-
-### Community 34 - "AgentOS schema"
+### Community 32 - "AgentOS schema"
 Cohesion: 0.08
 Nodes (26): AgentAuthorizationEvent.action, AgentAuthorizationEvent.actorId, AgentAuthorizationEvent.actorType, AgentAuthorizationEvent.agentInstance, AgentAuthorizationEvent.agentInstanceId, AgentAuthorizationEvent.createdAt, AgentAuthorizationEvent.decidedBy, AgentAuthorizationEvent.decidedByUserId (+18 more)
 
-### Community 35 - "AgentOS schema"
+### Community 33 - "AgentOS schema"
 Cohesion: 0.09
 Nodes (26): AgentInstance.adapterConfig, AgentInstance.adapterType, AgentInstance.createdAt, AgentInstance.icon, AgentInstance.id, AgentInstance.lifecycleStatus, AgentInstance.modelOverride, AgentInstance.name (+18 more)
 
-### Community 36 - "Channels schema"
-Cohesion: 0.09
-Nodes (26): ChannelAdTargetDailySnapshot.rawSnapshotId, ChannelListingDailySnapshot.rawSnapshotId, ChannelScrapeSnapshot.businessDate, ChannelScrapeSnapshot.channel, ChannelScrapeSnapshot.createdAt, ChannelScrapeSnapshot.externalId, ChannelScrapeSnapshot.externalOptionId, ChannelScrapeSnapshot.id (+18 more)
+### Community 34 - "System schema"
+Cohesion: 0.08
+Nodes (26): Alert.actionTask, Alert.actorUser, Alert.actorUserId, Alert.createdAt, Alert.finishedAt, Alert.href, Alert.id, Alert.isRead (+18 more)
 
-### Community 37 - "AI schema"
+### Community 35 - "AI schema"
 Cohesion: 0.09
 Nodes (26): ContentAsset.assetKey, ContentAsset.assetType, ContentAsset.createdAt, ContentAsset.createdByUser, ContentAsset.createdByUserId, ContentAsset.deletedAt, ContentAsset.fileSize, ContentAsset.height (+18 more)
 
-### Community 38 - "Core schema"
+### Community 36 - "Channels schema"
 Cohesion: 0.09
-Nodes (25): MasterProductAbcEvaluation.calculatedAt, MasterProductAbcEvaluation.confidence, MasterProductAbcEvaluation.contributionRate, MasterProductAbcEvaluation.cumulativeContributionRate, MasterProductAbcEvaluation.eligibilityReason, MasterProductAbcEvaluation.grossCost, MasterProductAbcEvaluation.grossMarginRate, MasterProductAbcEvaluation.grossProfit (+17 more)
+Nodes (26): SellpiaProductMonthlySales.barcode, SellpiaProductMonthlySales.buyPrice, SellpiaProductMonthlySales.capturedAt, SellpiaProductMonthlySales.costBasis, SellpiaProductMonthlySales.coverageEndDate, SellpiaProductMonthlySales.coverageStartDate, SellpiaProductMonthlySales.createdAt, SellpiaProductMonthlySales.id (+18 more)
 
-### Community 39 - "Orders schema"
+### Community 37 - "Orders schema"
+Cohesion: 0.10
+Nodes (25): Database ERD, AdAction.targetType, ChannelAdTargetDailySnapshot.externalId, ChannelAdTargetDailySnapshot.externalOptionId, ChannelAdTargetDailySnapshot.listingId, ChannelAdTargetDailySnapshot.listingOptionId, ChannelListingOption.barcode, ChannelListingOption.isActive (+17 more)
+
+### Community 38 - "Orders schema"
 Cohesion: 0.10
 Nodes (25): OrderReturn.channelAccount, OrderReturn.channelAccountId, OrderReturn.completedAt, OrderReturn.createdAt, OrderReturn.enclosePrice, OrderReturn.externalReturnId, OrderReturn.faultBy, OrderReturn.id (+17 more)
 
-### Community 40 - "AgentOS schema"
+### Community 39 - "AgentOS schema"
 Cohesion: 0.09
 Nodes (24): AgentArtifact.agentInstance, AgentArtifact.agentInstanceId, AgentArtifact.artifactType, AgentArtifact.conversation, AgentArtifact.createdAt, AgentArtifact.href, AgentArtifact.id, AgentArtifact.organization (+16 more)
 
-### Community 41 - "AI schema"
+### Community 40 - "AI schema"
 Cohesion: 0.09
 Nodes (24): ContentGeneration.detailPageArtifactId, ContentWorkspace.currentDetailPageArtifactId, DetailPageArtifact.contentWorkspace, DetailPageArtifact.contentWorkspaceId, DetailPageArtifact.createdAt, DetailPageArtifact.createdByUser, DetailPageArtifact.createdByUserId, DetailPageArtifact.currentRevision (+16 more)
 
-### Community 42 - "AI schema"
+### Community 41 - "AI schema"
 Cohesion: 0.11
 Nodes (24): DetailPageImageArtifact.byteLength, DetailPageImageArtifact.contentType, DetailPageImageArtifact.createdAt, DetailPageImageArtifact.createdBy, DetailPageImageArtifact.createdByUserId, DetailPageImageArtifact.id, DetailPageImageArtifact.imageUrl, DetailPageImageArtifact.objectKey (+16 more)
 
-### Community 43 - "Orders schema"
+### Community 42 - "Orders schema"
 Cohesion: 0.10
 Nodes (24): Review.content, Review.createdAt, Review.externalOptionId, Review.externalProductId, Review.externalReviewId, Review.id, Review.imageCount, Review.isBlinded (+16 more)
 
-### Community 44 - "Supply schema"
-Cohesion: 0.10
-Nodes (24): RocketPurchaseConfirmationLine.barcode, RocketPurchaseConfirmationLine.channelListingOption, RocketPurchaseConfirmationLine.channelListingOptionId, RocketPurchaseConfirmationLine.collectedAt, RocketPurchaseConfirmationLine.collectedOrderLineItemId, RocketPurchaseConfirmationLine.confirmation, RocketPurchaseConfirmationLine.confirmationId, RocketPurchaseConfirmationLine.confirmedQuantity (+16 more)
+### Community 43 - "System schema"
+Cohesion: 0.09
+Nodes (23): ActionTask.activityLog, ActionTask.apiCall, ActionTask.assigneeUser, ActionTask.assigneeUserId, ActionTask.createdAt, ActionTask.detail, ActionTask.href, ActionTask.id (+15 more)
 
-### Community 45 - "Channels schema"
-Cohesion: 0.10
-Nodes (24): SellpiaProductMonthlySales.barcode, SellpiaProductMonthlySales.buyPrice, SellpiaProductMonthlySales.capturedAt, SellpiaProductMonthlySales.costBasis, SellpiaProductMonthlySales.createdAt, SellpiaProductMonthlySales.id, SellpiaProductMonthlySales.inAmount, SellpiaProductMonthlySales.inQty (+16 more)
-
-### Community 46 - "Channels schema"
+### Community 44 - "Channels schema"
 Cohesion: 0.11
 Nodes (23): ChannelAccountDailyKpiSnapshot.businessDate, ChannelAccountDailyKpiSnapshot.channel, ChannelAccountDailyKpiSnapshot.channelAccount, ChannelAccountDailyKpiSnapshot.channelAccountId, ChannelAccountDailyKpiSnapshot.createdAt, ChannelAccountDailyKpiSnapshot.firstObservedAt, ChannelAccountDailyKpiSnapshot.id, ChannelAccountDailyKpiSnapshot.kpiType (+15 more)
 
-### Community 47 - "Channels schema"
+### Community 45 - "Channels schema"
 Cohesion: 0.11
 Nodes (23): CoupangKeywordRankDailySnapshot.adRank, CoupangKeywordRankDailySnapshot.businessDate, CoupangKeywordRankDailySnapshot.capturedAt, CoupangKeywordRankDailySnapshot.createdAt, CoupangKeywordRankDailySnapshot.id, CoupangKeywordRankDailySnapshot.itemId, CoupangKeywordRankDailySnapshot.keyword, CoupangKeywordRankDailySnapshot.organicRank (+15 more)
 
-### Community 48 - "Orders schema"
+### Community 46 - "Orders schema"
 Cohesion: 0.11
 Nodes (23): OrderLineItem.createdAt, OrderLineItem.externalBarcode, OrderLineItem.externalLineId, OrderLineItem.id, OrderLineItem.listingOption, OrderLineItem.listingOptionId, OrderLineItem.metadata, OrderLineItem.optionName (+15 more)
 
-### Community 49 - "Sourcing schema"
+### Community 47 - "Supply schema"
+Cohesion: 0.11
+Nodes (23): RocketPurchaseConfirmationLine.barcode, RocketPurchaseConfirmationLine.channelListingOption, RocketPurchaseConfirmationLine.channelListingOptionId, RocketPurchaseConfirmationLine.collectedAt, RocketPurchaseConfirmationLine.collectedOrderLineItemId, RocketPurchaseConfirmationLine.confirmation, RocketPurchaseConfirmationLine.confirmationId, RocketPurchaseConfirmationLine.confirmedQuantity (+15 more)
+
+### Community 48 - "Sourcing schema"
 Cohesion: 0.09
 Nodes (23): SourcingCandidate.category, SourcingCandidate.costCny, SourcingCandidate.createdAt, SourcingCandidate.deletedAt, SourcingCandidate.description, SourcingCandidate.imageUrl, SourcingCandidate.isDeleted, SourcingCandidate.name (+15 more)
 
-### Community 50 - "Sourcing schema"
+### Community 49 - "Sourcing schema"
 Cohesion: 0.11
 Nodes (23): TiktokCreativeTrendDailySnapshot.businessDate, TiktokCreativeTrendDailySnapshot.capturedAt, TiktokCreativeTrendDailySnapshot.createdAt, TiktokCreativeTrendDailySnapshot.entityKey, TiktokCreativeTrendDailySnapshot.growthPct, TiktokCreativeTrendDailySnapshot.id, TiktokCreativeTrendDailySnapshot.industry, TiktokCreativeTrendDailySnapshot.label (+15 more)
 
-### Community 51 - "Advertising schema"
-Cohesion: 0.11
-Nodes (22): Database ERD, Advertising, AdAction.externalId, AdAction.targetType, ChannelAdTargetDailySnapshot.externalId, ChannelAdTargetDailySnapshot.externalOptionId, ChannelAdTargetDailySnapshot.listingId, ChannelAdTargetDailySnapshot.listingOptionId (+14 more)
-
-### Community 52 - "AgentOS schema"
+### Community 50 - "AgentOS schema"
 Cohesion: 0.10
 Nodes (22): AgentCostEvent.agentInstance, AgentCostEvent.agentInstanceId, AgentCostEvent.biller, AgentCostEvent.billingType, AgentCostEvent.cachedInputTokens, AgentCostEvent.costMicros, AgentCostEvent.createdAt, AgentCostEvent.id (+14 more)
 
-### Community 53 - "AI schema"
+### Community 51 - "AI schema"
 Cohesion: 0.11
 Nodes (22): AiDirectJob.attempts, AiDirectJob.claimedAt, AiDirectJob.claimedBy, AiDirectJob.createdAt, AiDirectJob.finishedAt, AiDirectJob.id, AiDirectJob.jobType, AiDirectJob.lastErrorCode (+14 more)
 
-### Community 54 - "System schema"
+### Community 52 - "System schema"
 Cohesion: 0.10
 Nodes (22): BusinessRule.actionType, BusinessRule.active, BusinessRule.autoExecute, BusinessRule.category, BusinessRule.conditions, BusinessRule.createdAt, BusinessRule.description, BusinessRule.displayName (+14 more)
 
-### Community 55 - "Sourcing schema"
+### Community 53 - "Sourcing schema"
 Cohesion: 0.10
 Nodes (22): CandidateImage.candidate, CandidateImage.candidateId, CandidateImage.createdAt, CandidateImage.deletedAt, CandidateImage.fileSize, CandidateImage.height, CandidateImage.id, CandidateImage.isDeleted (+14 more)
 
-### Community 56 - "AI schema"
+### Community 54 - "AI schema"
 Cohesion: 0.10
 Nodes (22): ContentWorkspace.currentDetailPageRevisionId, DetailPageArtifact.currentRevisionId, DetailPageImageRenderIntent.organizationId, DetailPageImageRenderIntent.revisionId, DetailPageRevision.artifact, DetailPageRevision.artifactId, DetailPageRevision.assetUrlMap, DetailPageRevision.contentGeneration (+14 more)
 
-### Community 57 - "Sourcing schema"
+### Community 55 - "Sourcing schema"
 Cohesion: 0.11
 Nodes (22): LiveCommerceBroadcastDailySnapshot.broadcasterId, LiveCommerceBroadcastDailySnapshot.broadcasterName, LiveCommerceBroadcastDailySnapshot.broadcastId, LiveCommerceBroadcastDailySnapshot.businessDate, LiveCommerceBroadcastDailySnapshot.capturedAt, LiveCommerceBroadcastDailySnapshot.coverImageUrl, LiveCommerceBroadcastDailySnapshot.createdAt, LiveCommerceBroadcastDailySnapshot.endedAt (+14 more)
 
-### Community 58 - "System schema"
+### Community 56 - "System schema"
 Cohesion: 0.10
 Nodes (22): Marketplace.adapterType, Marketplace.category, Marketplace.configurableParams, Marketplace.createdAt, Marketplace.description, Marketplace.edgesJson, Marketplace.icon, Marketplace.id (+14 more)
 
-### Community 59 - "Finance schema"
+### Community 57 - "Core schema"
+Cohesion: 0.13
+Nodes (22): MasterProductAbcEvaluation.formulaVersionId, MasterProductAbcFormulaVersion.calculationCodeChecksum, MasterProductAbcFormulaVersion.calibrationMetricsJson, MasterProductAbcFormulaVersion.createdAt, MasterProductAbcFormulaVersion.firstActivatedAt, MasterProductAbcFormulaVersion.foldCount, MasterProductAbcFormulaVersion.formulaChecksum, MasterProductAbcFormulaVersion.formulaJson (+14 more)
+
+### Community 58 - "Finance schema"
 Cohesion: 0.11
 Nodes (22): ProfitLoss.adCost, ProfitLoss.cogs, ProfitLoss.commission, ProfitLoss.createdAt, ProfitLoss.id, ProfitLoss.listing, ProfitLoss.listingId, ProfitLoss.month (+14 more)
 
-### Community 60 - "Sourcing schema"
+### Community 59 - "Sourcing schema"
 Cohesion: 0.11
 Nodes (22): ShortsTrendDailySnapshot.businessDate, ShortsTrendDailySnapshot.capturedAt, ShortsTrendDailySnapshot.channelName, ShortsTrendDailySnapshot.commentCount, ShortsTrendDailySnapshot.createdAt, ShortsTrendDailySnapshot.id, ShortsTrendDailySnapshot.keyword, ShortsTrendDailySnapshot.likeCount (+14 more)
 
-### Community 61 - "AI schema"
+### Community 60 - "AI schema"
 Cohesion: 0.10
 Nodes (22): ThumbnailAnalysis.complianceAnalyzedAt, ThumbnailAnalysis.complianceGrade, ThumbnailAnalysis.complianceScores, ThumbnailAnalysis.contentWorkspace, ThumbnailAnalysis.contentWorkspaceId, ThumbnailAnalysis.createdAt, ThumbnailAnalysis.grade, ThumbnailAnalysis.id (+14 more)
 
-### Community 62 - "AI schema"
+### Community 61 - "AI schema"
 Cohesion: 0.10
 Nodes (22): ThumbnailGenerationInputImage.candidateImage, ThumbnailGenerationInputImage.candidateImageId, ThumbnailGenerationInputImage.createdAt, ThumbnailGenerationInputImage.fileSize, ThumbnailGenerationInputImage.generation, ThumbnailGenerationInputImage.generationId, ThumbnailGenerationInputImage.height, ThumbnailGenerationInputImage.id (+14 more)
 
-### Community 63 - "AgentOS schema"
+### Community 62 - "AgentOS schema"
 Cohesion: 0.12
 Nodes (21): AgentRun.taskSessionId, AgentRunRequest.taskSessionId, AgentTaskSession.adapterType, AgentTaskSession.agentInstance, AgentTaskSession.agentInstanceId, AgentTaskSession.createdAt, AgentTaskSession.id, AgentTaskSession.lastError (+13 more)
 
-### Community 64 - "Inventory schema"
+### Community 63 - "Inventory schema"
 Cohesion: 0.11
 Nodes (21): ReturnTransfer.completedAt, ReturnTransfer.condition, ReturnTransfer.createdAt, ReturnTransfer.disposedQty, ReturnTransfer.id, ReturnTransfer.notes, ReturnTransfer.optionName, ReturnTransfer.orderId (+13 more)
 
-### Community 65 - "Sourcing schema"
+### Community 64 - "Sourcing schema"
 Cohesion: 0.11
 Nodes (21): Sourcing1688HotProductDailySnapshot.businessDate, Sourcing1688HotProductDailySnapshot.capturedAt, Sourcing1688HotProductDailySnapshot.createdAt, Sourcing1688HotProductDailySnapshot.id, Sourcing1688HotProductDailySnapshot.imageUrl, Sourcing1688HotProductDailySnapshot.monthlySales, Sourcing1688HotProductDailySnapshot.offerId, Sourcing1688HotProductDailySnapshot.organization (+13 more)
 
-### Community 66 - "Core schema"
-Cohesion: 0.11
-Nodes (20): AgentApprovalRequest.approverUserId, AgentApprovalRequest.decidedByUserId, AgentApprovalRequest.requestedByUserId, AgentRunRequest.requestedByUserId, InventoryCommitment.createdBy, User.agentInstance, User.avatarUrl, User.createdAt (+12 more)
-
-### Community 67 - "AgentOS schema"
+### Community 65 - "AgentOS schema"
 Cohesion: 0.11
 Nodes (20): AgentRuntimeState.agentInstance, AgentRuntimeState.agentInstanceId, AgentRuntimeState.consecutiveFailureCount, AgentRuntimeState.createdAt, AgentRuntimeState.id, AgentRuntimeState.lastError, AgentRuntimeState.lastHeartbeatAt, AgentRuntimeState.lastRun (+12 more)
 
-### Community 68 - "Orders schema"
+### Community 66 - "Orders schema"
 Cohesion: 0.12
 Nodes (20): CoupangDirectPoSnapshot.centerName, CoupangDirectPoSnapshot.channelAccountId, CoupangDirectPoSnapshot.collectedAt, CoupangDirectPoSnapshot.createdAt, CoupangDirectPoSnapshot.deliveryDate, CoupangDirectPoSnapshot.id, CoupangDirectPoSnapshot.isUrgent, CoupangDirectPoSnapshot.itemsJson (+12 more)
 
-### Community 69 - "AI schema"
+### Community 67 - "AI schema"
 Cohesion: 0.12
 Nodes (20): ProductPreparation.selectedThumbnailGenerationCandidateId, ThumbnailGenerationCandidate.createdAt, ThumbnailGenerationCandidate.filename, ThumbnailGenerationCandidate.fileSize, ThumbnailGenerationCandidate.generation, ThumbnailGenerationCandidate.generationId, ThumbnailGenerationCandidate.height, ThumbnailGenerationCandidate.id (+12 more)
 
-### Community 70 - "Supply schema"
+### Community 68 - "Supply schema"
 Cohesion: 0.12
 Nodes (20): PurchaseOrderSubmissionAttempt.createdAt, PurchaseOrderSubmissionAttempt.errorCode, PurchaseOrderSubmissionAttempt.errorMessage, PurchaseOrderSubmissionAttempt.freshnessGeneration, PurchaseOrderSubmissionAttempt.id, PurchaseOrderSubmissionAttempt.idempotencyKey, PurchaseOrderSubmissionAttempt.organization, PurchaseOrderSubmissionAttempt.organizationId (+12 more)
 
-### Community 71 - "Channels schema"
+### Community 69 - "Channels schema"
 Cohesion: 0.14
 Nodes (20): RocketPoCatalogLine.organizationId, RocketPoCatalogSnapshot.channelAccount, RocketPoCatalogSnapshot.channelAccountId, RocketPoCatalogSnapshot.collectionRunId, RocketPoCatalogSnapshot.createdAt, RocketPoCatalogSnapshot.detailPoCount, RocketPoCatalogSnapshot.id, RocketPoCatalogSnapshot.listPagesRead (+12 more)
 
-### Community 72 - "Inventory schema"
+### Community 70 - "Inventory schema"
 Cohesion: 0.13
 Nodes (20): SellpiaInventorySku.barcode, SellpiaInventorySku.code, SellpiaInventorySku.createdAt, SellpiaInventorySku.currentStock, SellpiaInventorySku.id, SellpiaInventorySku.isActive, SellpiaInventorySku.lastImportRun, SellpiaInventorySku.lastImportRunId (+12 more)
 
-### Community 73 - "Orders schema"
+### Community 71 - "Orders schema"
 Cohesion: 0.12
 Nodes (20): Settlement.actualAmount, Settlement.adjustments, Settlement.commission, Settlement.createdAt, Settlement.difference, Settlement.expectedAmount, Settlement.id, Settlement.notes (+12 more)
+
+### Community 72 - "Core schema"
+Cohesion: 0.11
+Nodes (19): AgentApprovalRequest.approverUserId, AgentApprovalRequest.decidedByUserId, AgentApprovalRequest.requestedByUserId, AgentRunRequest.requestedByUserId, User.agentInstance, User.avatarUrl, User.createdAt, User.email (+11 more)
+
+### Community 73 - "Core schema"
+Cohesion: 0.14
+Nodes (19): ChannelListingOption.productVariantId, ProductVariant.code, ProductVariant.createdAt, ProductVariant.id, ProductVariant.isActive, ProductVariant.isDefault, ProductVariant.masterProduct, ProductVariant.masterProductId (+11 more)
 
 ### Community 74 - "AI schema"
 Cohesion: 0.12
@@ -505,17 +512,17 @@ Nodes (19): NaverKeywordDailySnapshot.averageAdRank, NaverKeywordDailySnapshot.b
 Cohesion: 0.12
 Nodes (19): RocketPurchaseOrder.businessDate, RocketPurchaseOrder.centerName, RocketPurchaseOrder.createdAt, RocketPurchaseOrder.firstSkuName, RocketPurchaseOrder.id, RocketPurchaseOrder.items, RocketPurchaseOrder.orderAmount, RocketPurchaseOrder.orderedAt (+11 more)
 
-### Community 79 - "AI schema"
+### Community 79 - "Orders schema"
+Cohesion: 0.12
+Nodes (19): Shipment.courierCode, Shipment.courierName, Shipment.createdAt, Shipment.deliveredAt, Shipment.deliveryDays, Shipment.id, Shipment.order, Shipment.orderId (+11 more)
+
+### Community 80 - "AI schema"
 Cohesion: 0.11
 Nodes (19): ThumbnailGenerationEvent.actor, ThumbnailGenerationEvent.actorUserId, ThumbnailGenerationEvent.attemptNumber, ThumbnailGenerationEvent.createdAt, ThumbnailGenerationEvent.errorMessage, ThumbnailGenerationEvent.eventType, ThumbnailGenerationEvent.fromPhase, ThumbnailGenerationEvent.fromStatus (+11 more)
 
-### Community 80 - "Orders schema"
+### Community 81 - "Orders schema"
 Cohesion: 0.11
 Nodes (19): UnshippedItem.createdAt, UnshippedItem.delayDays, UnshippedItem.externalSku, UnshippedItem.id, UnshippedItem.isNotified, UnshippedItem.notifiedAt, UnshippedItem.optionName, UnshippedItem.order (+11 more)
-
-### Community 81 - "Core schema"
-Cohesion: 0.12
-Nodes (18): prisma — Shared Schema, LegalEntity.address, LegalEntity.businessNumber, LegalEntity.countryCode, LegalEntity.createdAt, LegalEntity.id, LegalEntity.isPrimary, LegalEntity.metadata (+10 more)
 
 ### Community 82 - "AgentOS schema"
 Cohesion: 0.12
@@ -533,238 +540,266 @@ Nodes (18): AgentRunEvent.agentInstance, AgentRunEvent.agentInstanceId, AgentRun
 Cohesion: 0.12
 Nodes (18): AgentRunRequest.sourceWorkflowRunId, WorkflowRun.completedAt, WorkflowRun.contextData, WorkflowRun.createdAt, WorkflowRun.error, WorkflowRun.id, WorkflowRun.organizationId, WorkflowRun.startedAt (+10 more)
 
-### Community 86 - "Core schema"
-Cohesion: 0.15
-Nodes (18): ChannelAccount.channel, ChannelAccount.config, ChannelAccount.createdAt, ChannelAccount.externalAccountId, ChannelAccount.id, ChannelAccount.isPrimary, ChannelAccount.name, ChannelAccount.organization (+10 more)
-
-### Community 87 - "Core schema"
-Cohesion: 0.15
-Nodes (18): ChannelListingOption.productVariantId, ProductVariant.code, ProductVariant.createdAt, ProductVariant.id, ProductVariant.isActive, ProductVariant.isDefault, ProductVariant.masterProduct, ProductVariant.masterProductId (+10 more)
-
-### Community 88 - "Orders schema"
+### Community 86 - "Orders schema"
 Cohesion: 0.12
 Nodes (18): CSRecord.assignee, CSRecord.content, CSRecord.createdAt, CSRecord.createdBy, CSRecord.csStatus, CSRecord.csType, CSRecord.id, CSRecord.listing (+10 more)
 
-### Community 89 - "Inventory schema"
+### Community 87 - "Core schema"
+Cohesion: 0.12
+Nodes (18): MasterProductAbcGradeHistory.adjustedScore, MasterProductAbcGradeHistory.calculatedAt, MasterProductAbcGradeHistory.calculationStatus, MasterProductAbcGradeHistory.formulaVersion, MasterProductAbcGradeHistory.formulaVersionId, MasterProductAbcGradeHistory.id, MasterProductAbcGradeHistory.masterProduct, MasterProductAbcGradeHistory.masterProductId (+10 more)
+
+### Community 88 - "Inventory schema"
 Cohesion: 0.14
 Nodes (18): PickingItem.organizationId, PickingItem.pickingListId, PickingList.assignedTo, PickingList.completedAt, PickingList.createdAt, PickingList.id, PickingList.listNumber, PickingList.organization (+10 more)
 
-### Community 90 - "Supply schema"
+### Community 89 - "Supply schema"
 Cohesion: 0.13
 Nodes (18): PurchaseOrder.supplierId, Supplier.address, Supplier.contactName, Supplier.createdAt, Supplier.email, Supplier.id, Supplier.leadTimeDays, Supplier.name (+10 more)
 
-### Community 91 - "Orders schema"
-Cohesion: 0.13
-Nodes (18): Shipment.courierCode, Shipment.courierName, Shipment.createdAt, Shipment.deliveredAt, Shipment.deliveryDays, Shipment.id, Shipment.order, Shipment.orderId (+10 more)
-
-### Community 92 - "Inventory schema"
+### Community 90 - "Inventory schema"
 Cohesion: 0.14
-Nodes (18): Shipment.warehouseId, StockTransfer.organizationId, Warehouse.address, Warehouse.code, Warehouse.createdAt, Warehouse.id, Warehouse.isDefault, Warehouse.manager (+10 more)
+Nodes (18): StockTransfer.fromWarehouseId, StockTransfer.organizationId, Warehouse.address, Warehouse.code, Warehouse.createdAt, Warehouse.id, Warehouse.isDefault, Warehouse.manager (+10 more)
 
-### Community 93 - "Inventory schema"
-Cohesion: 0.12
-Nodes (18): StockTransfer.completedAt, StockTransfer.createdAt, StockTransfer.fromWarehouse, StockTransfer.fromWarehouseId, StockTransfer.id, StockTransfer.notes, StockTransfer.optionName, StockTransfer.organization (+10 more)
-
-### Community 94 - "Supply schema"
+### Community 91 - "Supply schema"
 Cohesion: 0.12
 Nodes (18): SupplierPayment.amount, SupplierPayment.createdAt, SupplierPayment.dueDate, SupplierPayment.id, SupplierPayment.notes, SupplierPayment.organization, SupplierPayment.organizationId, SupplierPayment.paidAmount (+10 more)
 
-### Community 95 - "AgentOS schema"
+### Community 92 - "AgentOS schema"
 Cohesion: 0.12
 Nodes (18): WorkflowTemplate.createdAt, WorkflowTemplate.description, WorkflowTemplate.edgesJson, WorkflowTemplate.id, WorkflowTemplate.isActive, WorkflowTemplate.marketplace, WorkflowTemplate.marketplaceId, WorkflowTemplate.module (+10 more)
 
-### Community 96 - "AI schema"
+### Community 93 - "Core schema"
+Cohesion: 0.14
+Nodes (17): prisma — Shared Schema, Core, LegalEntity.address, LegalEntity.businessNumber, LegalEntity.countryCode, LegalEntity.createdAt, LegalEntity.id, LegalEntity.isPrimary (+9 more)
+
+### Community 94 - "Core schema"
+Cohesion: 0.16
+Nodes (17): ChannelAccount.channel, ChannelAccount.config, ChannelAccount.createdAt, ChannelAccount.externalAccountId, ChannelAccount.id, ChannelAccount.isPrimary, ChannelAccount.name, ChannelAccount.organization (+9 more)
+
+### Community 95 - "AI schema"
 Cohesion: 0.14
 Nodes (17): ContentWorkspaceThumbnailSelection.contentAsset, ContentWorkspaceThumbnailSelection.contentAssetId, ContentWorkspaceThumbnailSelection.contentWorkspace, ContentWorkspaceThumbnailSelection.contentWorkspaceId, ContentWorkspaceThumbnailSelection.createdAt, ContentWorkspaceThumbnailSelection.createdByUser, ContentWorkspaceThumbnailSelection.createdByUserId, ContentWorkspaceThumbnailSelection.id (+9 more)
 
-### Community 97 - "Orders schema"
-Cohesion: 0.12
-Nodes (17): OrderReturnLineItem.createdAt, OrderReturnLineItem.externalSku, OrderReturnLineItem.id, OrderReturnLineItem.listingOption, OrderReturnLineItem.listingOptionId, OrderReturnLineItem.metadata, OrderReturnLineItem.optionName, OrderReturnLineItem.orderLineItem (+9 more)
-
-### Community 98 - "Inventory schema"
+### Community 96 - "Inventory schema"
 Cohesion: 0.12
 Nodes (17): PickingItem.createdAt, PickingItem.id, PickingItem.isPicked, PickingItem.isVerified, PickingItem.location, PickingItem.orderId, PickingItem.organization, PickingItem.pickedAt (+9 more)
 
-### Community 99 - "Supply schema"
+### Community 97 - "Finance schema"
+Cohesion: 0.12
+Nodes (17): ProcessingCost.createdAt, ProcessingCost.date, ProcessingCost.id, ProcessingCost.master, ProcessingCost.masterId, ProcessingCost.notes, ProcessingCost.organization, ProcessingCost.organizationId (+9 more)
+
+### Community 98 - "Supply schema"
 Cohesion: 0.15
 Nodes (17): RocketPurchaseConfirmationTransmission.confirmation, RocketPurchaseConfirmationTransmission.confirmationId, RocketPurchaseConfirmationTransmission.createdAt, RocketPurchaseConfirmationTransmission.id, RocketPurchaseConfirmationTransmission.intentKey, RocketPurchaseConfirmationTransmission.matchedLineCount, RocketPurchaseConfirmationTransmission.observedAt, RocketPurchaseConfirmationTransmission.organization (+9 more)
 
-### Community 100 - "Channels schema"
-Cohesion: 0.14
-Nodes (17): SellpiaManualMatchAlias.snapshotId, SellpiaManualMatchSnapshot.aliasCount, SellpiaManualMatchSnapshot.capturedAt, SellpiaManualMatchSnapshot.createdAt, SellpiaManualMatchSnapshot.id, SellpiaManualMatchSnapshot.matchedTargetCount, SellpiaManualMatchSnapshot.organization, SellpiaManualMatchSnapshot.organizationId (+9 more)
-
-### Community 101 - "Orders schema"
+### Community 99 - "Orders schema"
 Cohesion: 0.15
 Nodes (17): SellpiaOrderTransmissionIntent.abortedAt, SellpiaOrderTransmissionIntent.createdAt, SellpiaOrderTransmissionIntent.createdBy, SellpiaOrderTransmissionIntent.creator, SellpiaOrderTransmissionIntent.finalizedAt, SellpiaOrderTransmissionIntent.finalizedGeneration, SellpiaOrderTransmissionIntent.id, SellpiaOrderTransmissionIntent.intentKey (+9 more)
 
-### Community 102 - "Supply schema"
+### Community 100 - "Inventory schema"
+Cohesion: 0.12
+Nodes (17): StockTransfer.completedAt, StockTransfer.createdAt, StockTransfer.fromWarehouse, StockTransfer.id, StockTransfer.notes, StockTransfer.optionName, StockTransfer.organization, StockTransfer.quantity (+9 more)
+
+### Community 101 - "Supply schema"
 Cohesion: 0.15
 Nodes (17): SupplierProduct.createdAt, SupplierProduct.id, SupplierProduct.isPrimary, SupplierProduct.memo, SupplierProduct.minOrderQty, SupplierProduct.organization, SupplierProduct.organizationId, SupplierProduct.sellpiaInventorySku (+9 more)
 
-### Community 103 - "AI schema"
+### Community 102 - "AI schema"
 Cohesion: 0.12
 Nodes (17): Thumbnail.clicks, Thumbnail.createdAt, Thumbnail.ctr, Thumbnail.id, Thumbnail.imageUrl, Thumbnail.impressions, Thumbnail.listing, Thumbnail.listingId (+9 more)
 
-### Community 104 - "Core schema"
+### Community 103 - "Advertising schema"
 Cohesion: 0.13
-Nodes (16): MasterProductAbcPolicy.aCumulativeThreshold, MasterProductAbcPolicy.bCumulativeThreshold, MasterProductAbcPolicy.createdAt, MasterProductAbcPolicy.id, MasterProductAbcPolicy.lastCalculatedAt, MasterProductAbcPolicy.metric, MasterProductAbcPolicy.minClassifiedMonths, MasterProductAbcPolicy.minProvisionalMonths (+8 more)
+Nodes (16): ExecutionTask.action, ExecutionTask.actionId, ExecutionTask.afterJson, ExecutionTask.attempt, ExecutionTask.beforeJson, ExecutionTask.createdAt, ExecutionTask.errorMessage, ExecutionTask.finishedAt (+8 more)
 
-### Community 105 - "Sourcing schema"
+### Community 104 - "Sourcing schema"
 Cohesion: 0.17
 Nodes (16): NaverPopularKeywordDailySnapshot.boardKey, NaverPopularKeywordDailySnapshot.boardLabel, NaverPopularKeywordDailySnapshot.businessDate, NaverPopularKeywordDailySnapshot.capturedAt, NaverPopularKeywordDailySnapshot.cid, NaverPopularKeywordDailySnapshot.createdAt, NaverPopularKeywordDailySnapshot.id, NaverPopularKeywordDailySnapshot.keyword (+8 more)
 
-### Community 106 - "Core schema"
+### Community 105 - "Core schema"
 Cohesion: 0.15
 Nodes (16): OrganizationMembership.createdAt, OrganizationMembership.id, OrganizationMembership.invitedBy, OrganizationMembership.invitedById, OrganizationMembership.joinedAt, OrganizationMembership.lastSelectedAt, OrganizationMembership.organization, OrganizationMembership.organizationId (+8 more)
 
-### Community 107 - "Finance schema"
-Cohesion: 0.13
-Nodes (16): ProcessingCost.createdAt, ProcessingCost.date, ProcessingCost.id, ProcessingCost.master, ProcessingCost.masterId, ProcessingCost.notes, ProcessingCost.organization, ProcessingCost.processType (+8 more)
+### Community 106 - "Finance schema"
+Cohesion: 0.15
+Nodes (16): SalesPlan.actualOrders, SalesPlan.actualProfit, SalesPlan.actualRevenue, SalesPlan.createdAt, SalesPlan.id, SalesPlan.notes, SalesPlan.organization, SalesPlan.organizationId (+8 more)
 
-### Community 108 - "Inventory schema"
+### Community 107 - "Channels schema"
+Cohesion: 0.17
+Nodes (16): SellpiaManualMatchAlias.aliasTitle, SellpiaManualMatchAlias.createdAt, SellpiaManualMatchAlias.evidenceCount, SellpiaManualMatchAlias.id, SellpiaManualMatchAlias.itemCount, SellpiaManualMatchAlias.matchedType, SellpiaManualMatchAlias.normalizedAlias, SellpiaManualMatchAlias.organization (+8 more)
+
+### Community 108 - "Channels schema"
+Cohesion: 0.15
+Nodes (16): SellpiaManualMatchSnapshot.aliasCount, SellpiaManualMatchSnapshot.capturedAt, SellpiaManualMatchSnapshot.createdAt, SellpiaManualMatchSnapshot.id, SellpiaManualMatchSnapshot.matchedTargetCount, SellpiaManualMatchSnapshot.organization, SellpiaManualMatchSnapshot.organizationId, SellpiaManualMatchSnapshot.schemaVersion (+8 more)
+
+### Community 109 - "Inventory schema"
 Cohesion: 0.13
 Nodes (16): SellpiaReceiptUploadBatch.createdAt, SellpiaReceiptUploadBatch.createdBy, SellpiaReceiptUploadBatch.id, SellpiaReceiptUploadBatch.metaJson, SellpiaReceiptUploadBatch.note, SellpiaReceiptUploadBatch.organization, SellpiaReceiptUploadBatch.organizationId, SellpiaReceiptUploadBatch.sourceRef (+8 more)
 
-### Community 109 - "Channels schema"
+### Community 110 - "Channels schema"
 Cohesion: 0.16
 Nodes (16): SellpiaSalesDailySnapshot.businessDate, SellpiaSalesDailySnapshot.capturedAt, SellpiaSalesDailySnapshot.channelGroup, SellpiaSalesDailySnapshot.costKrw, SellpiaSalesDailySnapshot.createdAt, SellpiaSalesDailySnapshot.id, SellpiaSalesDailySnapshot.organization, SellpiaSalesDailySnapshot.organizationId (+8 more)
 
-### Community 110 - "Inventory schema"
+### Community 111 - "Inventory schema"
 Cohesion: 0.15
 Nodes (16): StockAudit.auditedBy, StockAudit.auditNumber, StockAudit.completedAt, StockAudit.createdAt, StockAudit.diffCount, StockAudit.id, StockAudit.items, StockAudit.matchedCount (+8 more)
 
-### Community 111 - "System schema"
+### Community 112 - "Finance schema"
+Cohesion: 0.14
+Nodes (15): Finance, ManualLedger.amount, ManualLedger.category, ManualLedger.counterpart, ManualLedger.createdAt, ManualLedger.createdBy, ManualLedger.date, ManualLedger.description (+7 more)
+
+### Community 113 - "System schema"
 Cohesion: 0.14
 Nodes (15): DataMigrationRun.affectedRows, DataMigrationRun.completedAt, DataMigrationRun.createdAt, DataMigrationRun.details, DataMigrationRun.error, DataMigrationRun.gitSha, DataMigrationRun.migrationId, DataMigrationRun.name (+7 more)
 
-### Community 112 - "Finance schema"
+### Community 114 - "Advertising schema"
+Cohesion: 0.14
+Nodes (15): ExecutionTask.workerId, ExecutionWorker.createdAt, ExecutionWorker.currentPageType, ExecutionWorker.currentTaskRef, ExecutionWorker.currentUrl, ExecutionWorker.id, ExecutionWorker.label, ExecutionWorker.lastHeartbeatAt (+7 more)
+
+### Community 115 - "Finance schema"
 Cohesion: 0.14
 Nodes (15): GradeHistory.calculatedAt, GradeHistory.id, GradeHistory.listing, GradeHistory.listingId, GradeHistory.marginScore, GradeHistory.newGrade, GradeHistory.oldGrade, GradeHistory.organization (+7 more)
 
-### Community 113 - "Core schema"
+### Community 116 - "Core schema"
 Cohesion: 0.16
 Nodes (15): ProductVariantComponent.confirmedAt, ProductVariantComponent.confirmedBy, ProductVariantComponent.createdAt, ProductVariantComponent.id, ProductVariantComponent.organization, ProductVariantComponent.productVariant, ProductVariantComponent.productVariantId, ProductVariantComponent.quantity (+7 more)
 
-### Community 114 - "Channels schema"
-Cohesion: 0.18
-Nodes (15): SellpiaManualMatchAlias.aliasTitle, SellpiaManualMatchAlias.createdAt, SellpiaManualMatchAlias.evidenceCount, SellpiaManualMatchAlias.id, SellpiaManualMatchAlias.itemCount, SellpiaManualMatchAlias.matchedType, SellpiaManualMatchAlias.normalizedAlias, SellpiaManualMatchAlias.organization (+7 more)
-
-### Community 115 - "AI schema"
+### Community 117 - "AI schema"
 Cohesion: 0.14
 Nodes (15): ThumbnailRegistrationAttempt.createdAt, ThumbnailRegistrationAttempt.errorMessage, ThumbnailRegistrationAttempt.externalId, ThumbnailRegistrationAttempt.finishedAt, ThumbnailRegistrationAttempt.generation, ThumbnailRegistrationAttempt.generationId, ThumbnailRegistrationAttempt.id, ThumbnailRegistrationAttempt.organization (+7 more)
 
-### Community 116 - "Core schema"
-Cohesion: 0.18
-Nodes (14): Core, CategoryMapping.coupangCategoryId, CategoryMapping.coupangCategoryName, CategoryMapping.createdAt, CategoryMapping.id, CategoryMapping.internalCategory, CategoryMapping.isActive, CategoryMapping.keywords (+6 more)
-
-### Community 117 - "Supply schema"
+### Community 118 - "Supply schema"
 Cohesion: 0.18
 Nodes (14): Supply, RocketPurchaseConfirmationAllocation.confirmationLine, RocketPurchaseConfirmationAllocation.confirmationLineId, RocketPurchaseConfirmationAllocation.createdAt, RocketPurchaseConfirmationAllocation.id, RocketPurchaseConfirmationAllocation.organization, RocketPurchaseConfirmationAllocation.organizationId, RocketPurchaseConfirmationAllocation.quantity (+6 more)
 
-### Community 118 - "Channels schema"
+### Community 119 - "Channels schema"
 Cohesion: 0.19
 Nodes (14): CoupangKeywordSerpDailySnapshot.businessDate, CoupangKeywordSerpDailySnapshot.capturedAt, CoupangKeywordSerpDailySnapshot.createdAt, CoupangKeywordSerpDailySnapshot.id, CoupangKeywordSerpDailySnapshot.itemCount, CoupangKeywordSerpDailySnapshot.items, CoupangKeywordSerpDailySnapshot.keyword, CoupangKeywordSerpDailySnapshot.organization (+6 more)
 
-### Community 119 - "Channels schema"
+### Community 120 - "Channels schema"
 Cohesion: 0.18
 Nodes (14): RocketSupplyDailySnapshot.businessDate, RocketSupplyDailySnapshot.createdAt, RocketSupplyDailySnapshot.id, RocketSupplyDailySnapshot.itemQty, RocketSupplyDailySnapshot.organization, RocketSupplyDailySnapshot.organizationId, RocketSupplyDailySnapshot.poCount, RocketSupplyDailySnapshot.rawJson (+6 more)
 
-### Community 120 - "AI schema"
+### Community 121 - "AI schema"
 Cohesion: 0.19
 Nodes (13): AI, ContentGenerationAssetUsage.contentAsset, ContentGenerationAssetUsage.contentAssetId, ContentGenerationAssetUsage.contentGeneration, ContentGenerationAssetUsage.contentGenerationId, ContentGenerationAssetUsage.createdAt, ContentGenerationAssetUsage.id, ContentGenerationAssetUsage.organization (+5 more)
 
-### Community 121 - "Inventory schema"
+### Community 122 - "Inventory schema"
 Cohesion: 0.19
 Nodes (13): Inventory, CoupangShipmentDateSummary.boxes, CoupangShipmentDateSummary.capturedAt, CoupangShipmentDateSummary.count, CoupangShipmentDateSummary.createdAt, CoupangShipmentDateSummary.id, CoupangShipmentDateSummary.organization, CoupangShipmentDateSummary.organizationId (+5 more)
 
-### Community 122 - "Orders schema"
-Cohesion: 0.17
-Nodes (13): Orders, SellpiaOrderTransmissionIntentReconciliation.id, SellpiaOrderTransmissionIntentReconciliation.intent, SellpiaOrderTransmissionIntentReconciliation.intentId, SellpiaOrderTransmissionIntentReconciliation.note, SellpiaOrderTransmissionIntentReconciliation.organization, SellpiaOrderTransmissionIntentReconciliation.organizationId, SellpiaOrderTransmissionIntentReconciliation.outcome (+5 more)
+### Community 123 - "Orders schema"
+Cohesion: 0.19
+Nodes (13): Orders, ShipmentItem.createdAt, ShipmentItem.id, ShipmentItem.orderLineItem, ShipmentItem.orderLineItemId, ShipmentItem.organization, ShipmentItem.organizationId, ShipmentItem.quantity (+5 more)
 
-### Community 123 - "Channels schema"
+### Community 124 - "Core schema"
+Cohesion: 0.19
+Nodes (13): CategoryMapping.coupangCategoryId, CategoryMapping.coupangCategoryName, CategoryMapping.createdAt, CategoryMapping.id, CategoryMapping.internalCategory, CategoryMapping.isActive, CategoryMapping.keywords, CategoryMapping.organization (+5 more)
+
+### Community 125 - "Channels schema"
 Cohesion: 0.19
 Nodes (13): CoupangKeywordTracker.createdAt, CoupangKeywordTracker.enabled, CoupangKeywordTracker.id, CoupangKeywordTracker.keyword, CoupangKeywordTracker.lastCapturedAt, CoupangKeywordTracker.maxPages, CoupangKeywordTracker.organization, CoupangKeywordTracker.organizationId (+5 more)
 
-### Community 124 - "Inventory schema"
+### Community 126 - "Inventory schema"
 Cohesion: 0.19
 Nodes (13): InventoryCommitmentAllocation.commitment, InventoryCommitmentAllocation.commitmentId, InventoryCommitmentAllocation.createdAt, InventoryCommitmentAllocation.id, InventoryCommitmentAllocation.organization, InventoryCommitmentAllocation.organizationId, InventoryCommitmentAllocation.quantity, InventoryCommitmentAllocation.sellpiaInventorySku (+5 more)
 
-### Community 125 - "Supply schema"
+### Community 127 - "Supply schema"
 Cohesion: 0.17
 Nodes (13): PurchaseOrderItem.createdAt, PurchaseOrderItem.id, PurchaseOrderItem.order, PurchaseOrderItem.orderId, PurchaseOrderItem.organization, PurchaseOrderItem.organizationId, PurchaseOrderItem.productName, PurchaseOrderItem.quantity (+5 more)
 
-### Community 126 - "Sourcing schema"
+### Community 128 - "Sourcing schema"
 Cohesion: 0.23
 Nodes (12): Sourcing, SourcingWorkspaceSnapshot.businessDate, SourcingWorkspaceSnapshot.createdAt, SourcingWorkspaceSnapshot.id, SourcingWorkspaceSnapshot.organization, SourcingWorkspaceSnapshot.organizationId, SourcingWorkspaceSnapshot.payload, SourcingWorkspaceSnapshot.scope (+4 more)
 
-### Community 127 - "System schema"
+### Community 129 - "System schema"
 Cohesion: 0.18
 Nodes (12): ActivityEvent.createdAt, ActivityEvent.data, ActivityEvent.eventType, ActivityEvent.id, ActivityEvent.objectId, ActivityEvent.objectType, ActivityEvent.organization, ActivityEvent.organizationId (+4 more)
 
-### Community 128 - "Core schema"
-Cohesion: 0.18
-Nodes (12): MasterProductAbcGradeHistory.calculatedAt, MasterProductAbcGradeHistory.id, MasterProductAbcGradeHistory.masterProduct, MasterProductAbcGradeHistory.masterProductId, MasterProductAbcGradeHistory.metric, MasterProductAbcGradeHistory.metricValue, MasterProductAbcGradeHistory.newGrade, MasterProductAbcGradeHistory.oldGrade (+4 more)
-
-### Community 129 - "System schema"
+### Community 130 - "System schema"
 Cohesion: 0.23
 Nodes (12): MigrationCheckpoint.createdAt, MigrationCheckpoint.entityKey, MigrationCheckpoint.error, MigrationCheckpoint.id, MigrationCheckpoint.payload, MigrationCheckpoint.scriptName, MigrationCheckpoint.status, MigrationCheckpoint.stepName (+4 more)
 
-### Community 130 - "Orders schema"
-Cohesion: 0.21
-Nodes (12): ShipmentItem.createdAt, ShipmentItem.id, ShipmentItem.orderLineItem, ShipmentItem.orderLineItemId, ShipmentItem.organization, ShipmentItem.organizationId, ShipmentItem.quantity, ShipmentItem.shipment (+4 more)
+### Community 131 - "Orders schema"
+Cohesion: 0.18
+Nodes (12): SellpiaOrderTransmissionIntentReconciliation.id, SellpiaOrderTransmissionIntentReconciliation.intent, SellpiaOrderTransmissionIntentReconciliation.intentId, SellpiaOrderTransmissionIntentReconciliation.note, SellpiaOrderTransmissionIntentReconciliation.organization, SellpiaOrderTransmissionIntentReconciliation.organizationId, SellpiaOrderTransmissionIntentReconciliation.outcome, SellpiaOrderTransmissionIntentReconciliation.reconciledAt (+4 more)
 
-### Community 131 - "Sourcing schema"
+### Community 132 - "Sourcing schema"
 Cohesion: 0.21
 Nodes (12): TrendSeedKeyword.createdAt, TrendSeedKeyword.enabled, TrendSeedKeyword.id, TrendSeedKeyword.keyword, TrendSeedKeyword.keywordCn, TrendSeedKeyword.organization, TrendSeedKeyword.organizationId, TrendSeedKeyword.sources (+4 more)
 
-### Community 132 - "Channels schema"
+### Community 133 - "Advertising schema"
+Cohesion: 0.20
+Nodes (11): Advertising, ExecutionLog.createdAt, ExecutionLog.id, ExecutionLog.level, ExecutionLog.message, ExecutionLog.payloadJson, ExecutionLog.step, ExecutionLog.task (+3 more)
+
+### Community 134 - "Channels schema"
 Cohesion: 0.24
 Nodes (11): Channels, CoupangRepresentativeKeywordOverride.createdAt, CoupangRepresentativeKeywordOverride.id, CoupangRepresentativeKeywordOverride.keyword, CoupangRepresentativeKeywordOverride.organization, CoupangRepresentativeKeywordOverride.organizationId, CoupangRepresentativeKeywordOverride.updatedAt, CoupangRepresentativeKeywordOverride.vendorItemId (+3 more)
 
-### Community 133 - "System schema"
+### Community 135 - "System schema"
+Cohesion: 0.24
+Nodes (11): System, SystemSetting.createdAt, SystemSetting.id, SystemSetting.key, SystemSetting.organization, SystemSetting.organizationId, SystemSetting.updatedAt, SystemSetting.value (+3 more)
+
+### Community 136 - "Core schema"
+Cohesion: 0.24
+Nodes (11): MasterProductAbcFormulaState.activatedAt, MasterProductAbcFormulaState.activeFormulaVersion, MasterProductAbcFormulaState.activeFormulaVersionId, MasterProductAbcFormulaState.createdAt, MasterProductAbcFormulaState.organization, MasterProductAbcFormulaState.organizationId, MasterProductAbcFormulaState.revision, MasterProductAbcFormulaState.updatedAt (+3 more)
+
+### Community 137 - "Advertising schema"
 Cohesion: 0.20
-Nodes (11): System, FeatureGate.allowedOrganizations, FeatureGate.createdAt, FeatureGate.description, FeatureGate.enabled, FeatureGate.id, FeatureGate.metadata, FeatureGate.name (+3 more)
+Nodes (11): ScrapeTarget.category, ScrapeTarget.createdAt, ScrapeTarget.id, ScrapeTarget.isActive, ScrapeTarget.label, ScrapeTarget.lastScrapedAt, ScrapeTarget.organization, ScrapeTarget.organizationId (+3 more)
 
-### Community 134 - "System schema"
-Cohesion: 0.27
-Nodes (10): SystemSetting.createdAt, SystemSetting.id, SystemSetting.key, SystemSetting.organization, SystemSetting.organizationId, SystemSetting.updatedAt, SystemSetting.value, SystemSetting (+2 more)
+### Community 138 - "System schema"
+Cohesion: 0.22
+Nodes (10): FeatureGate.allowedOrganizations, FeatureGate.createdAt, FeatureGate.description, FeatureGate.enabled, FeatureGate.id, FeatureGate.metadata, FeatureGate.name, FeatureGate.updatedAt (+2 more)
 
-### Community 135 - "Core schema"
+### Community 139 - "Core schema"
 Cohesion: 0.25
 Nodes (9): AuthSession.createdAt, AuthSession.expiresAt, AuthSession.id, AuthSession.revokedAt, AuthSession.tokenHash, AuthSession.user, AuthSession.userId, AuthSession (+1 more)
 
-### Community 136 - "Core schema"
-Cohesion: 0.29
-Nodes (8): Organization.createdAt, Organization.id, Organization.isActive, Organization.name, Organization.slug, Organization.updatedAt, Organization, organizations
+### Community 140 - "Core schema"
+Cohesion: 0.25
+Nodes (9): ManualLedger.organizationId, Organization.createdAt, Organization.id, Organization.isActive, Organization.name, Organization.slug, Organization.updatedAt, Organization (+1 more)
 
-### Community 137 - "prisma field: SourcingCandidate.id"
+### Community 141 - "prisma field: ProductPreparation.channelAccountId"
+Cohesion: 0.25
+Nodes (9): ProductPreparation.channelAccountId, ProductPreparation.id, ProductPreparation.organizationId, ProductPreparation.sourceCandidateId, ProductPreparation.submissionKey, product_preparations, ProductPreparation unique(id, organizationId, channelAccountId), ProductPreparation unique(organizationId, sourceCandidateId, channelAccountId) (+1 more)
+
+### Community 142 - "prisma field: SourcingCandidate.id"
 Cohesion: 0.25
 Nodes (8): SourcingCandidate.id, SourcingCandidate.organizationId, SourcingCandidate.provenanceMasterProductId, SourcingCandidate.sourceUrl, sourcing_candidates, SourcingCandidate unique(id, organizationId), SourcingCandidate unique(organizationId, sourceUrl), SourcingCandidate unique(provenanceMasterProductId, organizationId)
 
-### Community 138 - "prisma field: ChannelListingDailySnapshot.businessDate"
+### Community 143 - "prisma field: ActionTask.date"
+Cohesion: 0.50
+Nodes (4): ActionTask.date, ActionTask.organizationId, ActionTask.taskKey, ActionTask unique(organizationId, taskKey, date)
+
+### Community 144 - "prisma field: ChannelListingDailySnapshot.businessDate"
 Cohesion: 0.50
 Nodes (4): ChannelListingDailySnapshot.businessDate, ChannelListingDailySnapshot.listingId, ChannelListingDailySnapshot.organizationId, ChannelListingDailySnapshot unique(organizationId, listingId, businessDate)
 
-### Community 139 - "prisma field: RocketPoCatalogLine.poLineId"
+### Community 145 - "prisma field: Alert.operationKey"
+Cohesion: 0.67
+Nodes (3): Alert.operationKey, Alert.organizationId, Alert unique(organizationId, operationKey)
+
+### Community 146 - "prisma field: RocketPoCatalogLine.poLineId"
 Cohesion: 0.67
 Nodes (3): RocketPoCatalogLine.poLineId, RocketPoCatalogLine.snapshotId, RocketPoCatalogLine unique(snapshotId, poLineId)
 
 ## Knowledge Gaps
-- **1897 isolated node(s):** `AdAction.actionType`, `AdAction.targetLabel`, `AdAction.reason`, `AdAction.priority`, `AdAction.currentValue` (+1892 more)
+- **1919 isolated node(s):** `AdAction.actionType`, `AdAction.targetLabel`, `AdAction.reason`, `AdAction.priority`, `AdAction.currentValue` (+1914 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **1 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Database ERD` connect `Advertising schema` to `Channels schema`, `Channels schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `Advertising schema`, `AI schema`, `Channels schema`, `Channels schema`, `Sourcing schema`, `Core schema`, `Finance schema`, `AI schema`, `AgentOS schema`, `Core schema`, `AI schema`, `Supply schema`, `AgentOS schema`, `Channels schema`, `Orders schema`, `AI schema`, `System schema`, `Channels schema`, `Channels schema`, `Channels schema`, `Core schema`, `Inventory schema`, `System schema`, `AgentOS schema`, `Core schema`, `AI schema`, `Inventory schema`, `Supply schema`, `Advertising schema`, `AgentOS schema`, `AgentOS schema`, `Channels schema`, `AI schema`, `Core schema`, `Orders schema`, `AgentOS schema`, `AI schema`, `AI schema`, `Orders schema`, `Supply schema`, `Channels schema`, `Channels schema`, `Channels schema`, `Orders schema`, `Sourcing schema`, `Sourcing schema`, `AgentOS schema`, `AI schema`, `System schema`, `Sourcing schema`, `AI schema`, `Sourcing schema`, `System schema`, `Finance schema`, `Sourcing schema`, `AI schema`, `AI schema`, `AgentOS schema`, `Inventory schema`, `Sourcing schema`, `Core schema`, `AgentOS schema`, `Orders schema`, `AI schema`, `Supply schema`, `Channels schema`, `Inventory schema`, `Orders schema`, `AI schema`, `AI schema`, `Sourcing schema`, `Sourcing schema`, `Channels schema`, `AI schema`, `Orders schema`, `Core schema`, `AgentOS schema`, `AgentOS schema`, `AgentOS schema`, `AgentOS schema`, `Core schema`, `Core schema`, `Orders schema`, `Inventory schema`, `Supply schema`, `Orders schema`, `Inventory schema`, `Inventory schema`, `Supply schema`, `AgentOS schema`, `AI schema`, `Orders schema`, `Inventory schema`, `Supply schema`, `Channels schema`, `Orders schema`, `Supply schema`, `AI schema`, `Core schema`, `Sourcing schema`, `Core schema`, `Finance schema`, `Inventory schema`, `Channels schema`, `Inventory schema`, `System schema`, `Finance schema`, `Core schema`, `Channels schema`, `AI schema`, `Core schema`, `Supply schema`, `Channels schema`, `Channels schema`, `AI schema`, `Inventory schema`, `Orders schema`, `Channels schema`, `Inventory schema`, `Supply schema`, `Sourcing schema`, `System schema`, `Core schema`, `System schema`, `Orders schema`, `Sourcing schema`, `Channels schema`, `System schema`, `System schema`, `Core schema`, `Core schema`, `prisma field: SourcingCandidate.id`, `prisma field: ChannelListingDailySnapshot.businessDate`?**
-  _High betweenness centrality (0.506) - this node is a cross-community bridge._
-- **Why does `Organization` connect `Core schema` to `Channels schema`, `Channels schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `Advertising schema`, `AI schema`, `Channels schema`, `Channels schema`, `Sourcing schema`, `Core schema`, `Finance schema`, `AI schema`, `AgentOS schema`, `Core schema`, `AI schema`, `Supply schema`, `AgentOS schema`, `Channels schema`, `Orders schema`, `AI schema`, `System schema`, `Channels schema`, `Channels schema`, `Channels schema`, `Core schema`, `Inventory schema`, `System schema`, `AgentOS schema`, `Core schema`, `AI schema`, `Inventory schema`, `Supply schema`, `Advertising schema`, `AgentOS schema`, `AgentOS schema`, `Channels schema`, `AI schema`, `Core schema`, `Orders schema`, `AgentOS schema`, `AI schema`, `AI schema`, `Orders schema`, `Supply schema`, `Channels schema`, `Channels schema`, `Channels schema`, `Orders schema`, `Sourcing schema`, `Sourcing schema`, `Advertising schema`, `AgentOS schema`, `AI schema`, `System schema`, `Sourcing schema`, `AI schema`, `Sourcing schema`, `Finance schema`, `Sourcing schema`, `AI schema`, `AI schema`, `AgentOS schema`, `Inventory schema`, `Sourcing schema`, `AgentOS schema`, `Orders schema`, `AI schema`, `Supply schema`, `Channels schema`, `Inventory schema`, `Orders schema`, `AI schema`, `AI schema`, `Sourcing schema`, `Sourcing schema`, `Channels schema`, `AI schema`, `Orders schema`, `Core schema`, `AgentOS schema`, `AgentOS schema`, `AgentOS schema`, `Core schema`, `Core schema`, `Orders schema`, `Inventory schema`, `Supply schema`, `Orders schema`, `Inventory schema`, `Inventory schema`, `Supply schema`, `AgentOS schema`, `AI schema`, `Orders schema`, `Inventory schema`, `Supply schema`, `Channels schema`, `Orders schema`, `Supply schema`, `AI schema`, `Core schema`, `Sourcing schema`, `Core schema`, `Finance schema`, `Inventory schema`, `Channels schema`, `Inventory schema`, `Finance schema`, `Core schema`, `Channels schema`, `AI schema`, `Core schema`, `Supply schema`, `Channels schema`, `Channels schema`, `AI schema`, `Inventory schema`, `Orders schema`, `Channels schema`, `Inventory schema`, `Supply schema`, `Sourcing schema`, `System schema`, `Core schema`, `Orders schema`, `Sourcing schema`, `Channels schema`, `System schema`, `prisma field: SourcingCandidate.id`, `prisma field: ChannelListingDailySnapshot.businessDate`?**
-  _High betweenness centrality (0.352) - this node is a cross-community bridge._
-- **Why does `User` connect `Core schema` to `AgentOS schema`, `AI schema`, `Core schema`, `Sourcing schema`, `Core schema`, `AI schema`, `AI schema`, `Supply schema`, `AI schema`, `System schema`, `Channels schema`, `Inventory schema`, `System schema`, `AgentOS schema`, `AI schema`, `Inventory schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `AI schema`, `AI schema`, `Sourcing schema`, `Advertising schema`, `AI schema`, `Supply schema`, `AI schema`, `Core schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `Orders schema`, `Core schema`, `Core schema`, `Orders schema`?**
-  _High betweenness centrality (0.067) - this node is a cross-community bridge._
+- **Why does `Database ERD` connect `Orders schema` to `Channels schema`, `Channels schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `Channels schema`, `Channels schema`, `Sourcing schema`, `Core schema`, `AI schema`, `Core schema`, `Supply schema`, `AI schema`, `AgentOS schema`, `Core schema`, `AI schema`, `Inventory schema`, `AgentOS schema`, `Channels schema`, `Orders schema`, `AI schema`, `Channels schema`, `Channels schema`, `Channels schema`, `Core schema`, `Inventory schema`, `Advertising schema`, `AgentOS schema`, `Channels schema`, `Core schema`, `AI schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `System schema`, `AI schema`, `Channels schema`, `Orders schema`, `AgentOS schema`, `AI schema`, `AI schema`, `Orders schema`, `System schema`, `Channels schema`, `Channels schema`, `Orders schema`, `Supply schema`, `Sourcing schema`, `Sourcing schema`, `AgentOS schema`, `AI schema`, `System schema`, `Sourcing schema`, `AI schema`, `Sourcing schema`, `System schema`, `Core schema`, `Finance schema`, `Sourcing schema`, `AI schema`, `AI schema`, `AgentOS schema`, `Inventory schema`, `Sourcing schema`, `AgentOS schema`, `Orders schema`, `AI schema`, `Supply schema`, `Channels schema`, `Inventory schema`, `Orders schema`, `Core schema`, `Core schema`, `AI schema`, `AI schema`, `Sourcing schema`, `Sourcing schema`, `Channels schema`, `Orders schema`, `AI schema`, `Orders schema`, `AgentOS schema`, `AgentOS schema`, `AgentOS schema`, `AgentOS schema`, `Orders schema`, `Core schema`, `Inventory schema`, `Supply schema`, `Inventory schema`, `Supply schema`, `AgentOS schema`, `Core schema`, `Core schema`, `AI schema`, `Inventory schema`, `Finance schema`, `Supply schema`, `Orders schema`, `Inventory schema`, `Supply schema`, `AI schema`, `Advertising schema`, `Sourcing schema`, `Core schema`, `Finance schema`, `Channels schema`, `Channels schema`, `Inventory schema`, `Channels schema`, `Inventory schema`, `Finance schema`, `System schema`, `Advertising schema`, `Finance schema`, `Core schema`, `AI schema`, `Supply schema`, `Channels schema`, `Channels schema`, `AI schema`, `Inventory schema`, `Orders schema`, `Core schema`, `Channels schema`, `Inventory schema`, `Supply schema`, `Sourcing schema`, `System schema`, `System schema`, `Orders schema`, `Sourcing schema`, `Advertising schema`, `Channels schema`, `System schema`, `Core schema`, `Advertising schema`, `System schema`, `Core schema`, `Core schema`, `prisma field: ProductPreparation.channelAccountId`, `prisma field: SourcingCandidate.id`, `prisma field: ActionTask.date`, `prisma field: ChannelListingDailySnapshot.businessDate`, `prisma field: Alert.operationKey`?**
+  _High betweenness centrality (0.493) - this node is a cross-community bridge._
+- **Why does `Organization` connect `Core schema` to `Channels schema`, `Channels schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `Channels schema`, `Channels schema`, `Sourcing schema`, `Core schema`, `AI schema`, `Core schema`, `Supply schema`, `AI schema`, `AgentOS schema`, `Core schema`, `AI schema`, `Inventory schema`, `AgentOS schema`, `Channels schema`, `Orders schema`, `AI schema`, `Channels schema`, `Channels schema`, `Channels schema`, `Core schema`, `Inventory schema`, `Advertising schema`, `AgentOS schema`, `Channels schema`, `Core schema`, `AI schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `System schema`, `AI schema`, `Channels schema`, `Orders schema`, `Orders schema`, `AgentOS schema`, `AI schema`, `AI schema`, `Orders schema`, `System schema`, `Channels schema`, `Channels schema`, `Orders schema`, `Supply schema`, `Sourcing schema`, `Sourcing schema`, `AgentOS schema`, `AI schema`, `System schema`, `Sourcing schema`, `AI schema`, `Sourcing schema`, `Core schema`, `Finance schema`, `Sourcing schema`, `AI schema`, `AI schema`, `AgentOS schema`, `Inventory schema`, `Sourcing schema`, `AgentOS schema`, `Orders schema`, `AI schema`, `Supply schema`, `Channels schema`, `Inventory schema`, `Orders schema`, `Core schema`, `AI schema`, `AI schema`, `Sourcing schema`, `Sourcing schema`, `Channels schema`, `Orders schema`, `AI schema`, `Orders schema`, `AgentOS schema`, `AgentOS schema`, `AgentOS schema`, `Orders schema`, `Core schema`, `Inventory schema`, `Supply schema`, `Inventory schema`, `Supply schema`, `AgentOS schema`, `Core schema`, `Core schema`, `AI schema`, `Inventory schema`, `Finance schema`, `Supply schema`, `Orders schema`, `Inventory schema`, `Supply schema`, `AI schema`, `Sourcing schema`, `Core schema`, `Finance schema`, `Channels schema`, `Channels schema`, `Inventory schema`, `Channels schema`, `Inventory schema`, `Finance schema`, `Advertising schema`, `Finance schema`, `Core schema`, `AI schema`, `Supply schema`, `Channels schema`, `Channels schema`, `AI schema`, `Inventory schema`, `Orders schema`, `Core schema`, `Channels schema`, `Inventory schema`, `Supply schema`, `Sourcing schema`, `System schema`, `Orders schema`, `Sourcing schema`, `Channels schema`, `System schema`, `Core schema`, `Advertising schema`, `prisma field: ProductPreparation.channelAccountId`, `prisma field: SourcingCandidate.id`, `prisma field: ActionTask.date`, `prisma field: ChannelListingDailySnapshot.businessDate`, `prisma field: Alert.operationKey`?**
+  _High betweenness centrality (0.375) - this node is a cross-community bridge._
+- **Why does `User` connect `Core schema` to `AgentOS schema`, `Orders schema`, `Sourcing schema`, `Core schema`, `AI schema`, `Core schema`, `AI schema`, `Supply schema`, `AI schema`, `Inventory schema`, `AI schema`, `Channels schema`, `Inventory schema`, `AgentOS schema`, `AI schema`, `AgentOS schema`, `AgentOS schema`, `System schema`, `AI schema`, `Orders schema`, `AI schema`, `AI schema`, `System schema`, `Sourcing schema`, `AI schema`, `Supply schema`, `AI schema`, `AgentOS schema`, `AgentOS schema`, `Core schema`, `AI schema`, `Orders schema`, `Core schema`?**
+  _High betweenness centrality (0.059) - this node is a cross-community bridge._
 - **What connects `AdAction.actionType`, `AdAction.targetLabel`, `AdAction.reason` to the rest of the system?**
-  _1897 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _1919 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Channels schema` be split into smaller, more focused modules?**
   _Cohesion score 0.038461538461538464 - nodes in this community are weakly interconnected._
 - **Should `Channels schema` be split into smaller, more focused modules?**

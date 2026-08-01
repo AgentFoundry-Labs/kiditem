@@ -1,115 +1,54 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DashboardInventoryRepositoryAdapter } from '../dashboard-inventory.repository.adapter';
 
-describe('DashboardInventoryRepositoryAdapter listing and physical inventory reads', () => {
-  it('counts operational products for tiles and physical Sellpia SKUs for zero stock', async () => {
+describe('DashboardInventoryRepositoryAdapter', () => {
+  it('reads automatic ABC status, frozen formula, and contribution evidence', async () => {
     const prisma = {
-      masterProduct: {
-        groupBy: vi.fn().mockResolvedValue([]),
-        count: vi.fn().mockResolvedValue(0),
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-      masterProductAbcEvaluation: {
-        groupBy: vi.fn().mockResolvedValue([]),
-        count: vi.fn().mockResolvedValue(0),
-      },
-      masterProductAbcPolicy: {
-        findUnique: vi.fn().mockResolvedValue(null),
-      },
-      sellpiaInventorySku: {
-        count: vi.fn().mockResolvedValue(0),
-      },
-      channelListing: {
-        groupBy: vi.fn().mockResolvedValue([]),
-      },
+      masterProduct: { groupBy: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
+      masterProductAbcEvaluation: { groupBy: vi.fn().mockResolvedValue([]), findMany: vi.fn().mockResolvedValue([]) },
+      masterProductAbcFormulaState: { findUnique: vi.fn().mockResolvedValue(null) },
+      sellpiaInventorySku: { count: vi.fn().mockResolvedValue(0) },
+      channelListing: { groupBy: vi.fn().mockResolvedValue([]) },
+      channelListingOption: { count: vi.fn().mockResolvedValue(0) },
     };
     const repository = new DashboardInventoryRepositoryAdapter(prisma as never);
 
     await repository.countActiveProductsByGrade('org-1');
-    await repository.countActiveProductsByAbcLifecycle('org-1');
-    await repository.countActiveProductsByAbcRisk('org-1');
+    await repository.countActiveProductsByAbcStatus('org-1');
+    await repository.findActiveAbcContributions('org-1');
     await repository.countUnclassifiedActiveProducts('org-1');
-    await repository.findAbcContext('org-1');
+    await repository.findAbcFormula('org-1');
     await repository.countActiveProducts('org-1');
     await repository.countChannelLinkedProducts('org-1');
     await repository.findAGradeReviewCounts('org-1');
     await repository.countOutOfStockMasterProducts('org-1');
 
-    expect(prisma.masterProduct.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ organizationId: 'org-1', isActive: true }),
-      }),
-    );
-    expect(prisma.masterProductAbcEvaluation.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: 'org-1',
-          masterProduct: { is: { organizationId: 'org-1', isActive: true } },
-        }),
-      }),
-    );
-    expect(prisma.masterProductAbcEvaluation.count).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ organizationId: 'org-1' }),
-      }),
-    );
-    expect(prisma.masterProductAbcPolicy.findUnique).toHaveBeenCalledWith({
+    expect(prisma.masterProductAbcEvaluation.groupBy).toHaveBeenCalledWith(expect.objectContaining({
+      by: ['calculationStatus'],
+      where: expect.objectContaining({ organizationId: 'org-1' }),
+    }));
+    expect(prisma.masterProductAbcEvaluation.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ weightedContributionProfit: true }),
+    }));
+    expect(prisma.masterProductAbcFormulaState.findUnique).toHaveBeenCalledWith({
       where: { organizationId: 'org-1' },
-      select: {
-        metric: true,
-        periodDays: true,
-        lastCalculatedAt: true,
-        sourceCapturedAt: true,
-      },
-    });
-    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ organizationId: 'org-1', abcGrade: 'A' }),
-      }),
-    );
-    expect(prisma.masterProduct.count).toHaveBeenCalledWith({
-      where: {
-        organizationId: 'org-1',
-        isActive: true,
-      },
+      include: { activeFormulaVersion: { select: { formulaJson: true } } },
     });
     expect(prisma.masterProduct.count).toHaveBeenCalledWith({
-      where: {
-        organizationId: 'org-1',
-        isActive: true,
-        abcGrade: null,
-        abcEvaluation: { is: null },
-      },
-    });
-    expect(prisma.sellpiaInventorySku.count).toHaveBeenCalledWith({
-      where: {
-        organizationId: 'org-1',
-        isActive: true,
-        currentStock: 0,
-      },
+      where: { organizationId: 'org-1', isActive: true, abcGrade: null },
     });
   });
 
-  it('reads automatic MasterProduct grade history instead of legacy listing history', async () => {
-    const legacyFindMany = vi.fn().mockResolvedValue([]);
-    const automaticFindMany = vi.fn().mockResolvedValue([
-      { oldGrade: null, newGrade: 'A' },
-    ]);
+  it('reads Products-owned grade history only', async () => {
+    const findMany = vi.fn().mockResolvedValue([{ oldGrade: null, newGrade: 'A' }]);
     const repository = new DashboardInventoryRepositoryAdapter({
-      gradeHistory: { findMany: legacyFindMany },
-      masterProductAbcGradeHistory: { findMany: automaticFindMany },
+      masterProductAbcGradeHistory: { findMany },
     } as never);
     const since = new Date('2026-07-17T00:00:00.000Z');
-
     await repository.findGradeHistory('org-1', since);
-
-    expect(automaticFindMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: 'org-1',
-        calculatedAt: { gte: since },
-      },
+    expect(findMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1', calculatedAt: { gte: since } },
       select: { oldGrade: true, newGrade: true },
     });
-    expect(legacyFindMany).not.toHaveBeenCalled();
   });
 });

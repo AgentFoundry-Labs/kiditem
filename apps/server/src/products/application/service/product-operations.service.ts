@@ -336,21 +336,24 @@ function noDirectSales(): ProductDepletionProjection {
 function summarizeProducts(
   products: Array<ReturnType<typeof mapProductOperationsListItem>>,
 ): ProductOperationsListSummary {
-  return products.reduce<ProductOperationsListSummary>((counts, product) => {
+  const counts = products.reduce<ProductOperationsListSummary>((counts, product) => {
     const abcGrade = product.abcGrade;
     if (abcGrade === 'A' || abcGrade === 'B' || abcGrade === 'C') {
       counts.abcGradeCounts[abcGrade] += 1;
-    } else if (product.abcEvaluation === null) {
+    } else {
       counts.abcGradeCounts.unclassified += 1;
     }
     const evaluation = product.abcEvaluation;
     if (evaluation) {
-      counts.abcLifecycleCounts[evaluation.lifecycleStage] += 1;
-      if (evaluation.riskFlags.includes('LOSS')) counts.abcRiskCounts.loss += 1;
-      if (evaluation.riskFlags.includes('ZERO_VALUE')) counts.abcRiskCounts.zeroValue += 1;
-      if (evaluation.eligibilityReason !== 'ELIGIBLE') {
-        counts.abcRiskCounts.dataQuality += 1;
+      counts.abcStatusCounts[evaluation.calculationStatus] += 1;
+      if (abcGrade && evaluation.weightedContributionProfit !== null) {
+        counts.abcContributionProfitByGrade[abcGrade] += Math.round(
+          evaluation.weightedContributionProfit,
+        );
       }
+      if (!counts.abcFormula && evaluation.formula) counts.abcFormula = evaluation.formula;
+    } else {
+      counts.abcStatusCounts.CALIBRATION_PENDING += 1;
     }
     counts.channelConnectionCounts[
       product.channelCount > 0 ? 'connected' : 'unconnected'
@@ -369,8 +372,19 @@ function summarizeProducts(
     return counts;
   }, {
     abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 0 },
-    abcLifecycleCounts: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 0 },
-    abcRiskCounts: { loss: 0, zeroValue: 0, dataQuality: 0 },
+    abcStatusCounts: {
+      READY: 0,
+      INSUFFICIENT_EVIDENCE: 0,
+      SOURCE_UNMAPPED: 0,
+      CALIBRATION_PENDING: 0,
+      RECALCULATING: 0,
+      SELLPIA_SOURCE_STALE: 0,
+      AD_SOURCE_STALE: 0,
+      CALCULATION_ERROR: 0,
+    },
+    abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
+    abcContributionProfitShareByGrade: { A: 0, B: 0, C: 0 },
+    abcFormula: null,
     channelConnectionCounts: { connected: 0, unconnected: 0 },
     inventoryStatusCounts: {
       sellable: 0,
@@ -384,6 +398,15 @@ function summarizeProducts(
     depletionCoveredProductCount: 0,
     sharedDepletionProductCount: 0,
   });
+  const contributionTotal = Object.values(counts.abcContributionProfitByGrade)
+    .reduce((sum, value) => sum + value, 0);
+  if (contributionTotal !== 0) {
+    for (const grade of ['A', 'B', 'C'] as const) {
+      counts.abcContributionProfitShareByGrade[grade] =
+        counts.abcContributionProfitByGrade[grade] / contributionTotal;
+    }
+  }
+  return counts;
 }
 
 function normalizeVariant(

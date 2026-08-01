@@ -14,7 +14,11 @@ import {
   resolveSellpiaProductInventoryRows,
   type SellpiaProductInventoryProjectionInput,
 } from './sellpia-product-inventory-projection';
-import type { MasterProductAbcEvaluation } from '@kiditem/shared/product-abc';
+import {
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaSummarySchema,
+  type ProductAbcEvaluation,
+} from '@kiditem/shared/product-abc';
 
 @Injectable()
 export class SellpiaProductInventoryReader {
@@ -70,7 +74,7 @@ export class SellpiaProductInventoryReader {
                   code: true,
                   name: true,
                   abcGrade: true,
-                  abcEvaluation: true,
+                  abcEvaluation: { include: { formulaVersion: true } },
                   originChannelListingId: true,
                 },
               },
@@ -169,52 +173,76 @@ export class SellpiaProductInventoryReader {
 
 function toAbcEvaluation(
   row: {
-    provisionalGrade: string | null;
-    lifecycleStage: string;
-    confidence: string;
-    eligibilityReason: string;
-    riskFlags: string[];
-    observedCompleteMonths: number;
-    observationStartMonth: string | null;
-    periodMetricValue: { toNumber(): number } | null;
-    rankingValue: { toNumber(): number } | null;
-    grossRevenue: number | null;
-    grossCost: number | null;
-    grossProfit: number | null;
-    grossMarginRate: { toNumber(): number } | null;
-    contributionRate: { toNumber(): number } | null;
-    cumulativeContributionRate: { toNumber(): number } | null;
-    calculatedAt: Date;
-    sourceCapturedAt: Date | null;
+    calculationStatus: string;
+    rawScore: { toNumber(): number } | null;
+    adjustedScore: { toNumber(): number } | null;
+    reliability: { toNumber(): number } | null;
+    weightedRevenue: { toNumber(): number } | null;
+    weightedOrderTimeCogs: { toNumber(): number } | null;
+    weightedAdSpend: { toNumber(): number } | null;
+    weightedContributionProfit: { toNumber(): number } | null;
+    profitVelocity30: { toNumber(): number } | null;
+    weightedContributionMargin: { toNumber(): number } | null;
+    lossRecurrence: { toNumber(): number } | null;
+    paidOrderCount: number;
+    observationDays: number;
+    firstValidPaidSaleAt: Date | null;
+    sourceCoverageStartDate: Date | null;
+    sourceCoverageEndDate: Date | null;
+    sellpiaSourceStatus: string;
+    sellpiaSourceCapturedAt: Date | null;
+    advertisingSourceStatus: string;
+    advertisingSourceCapturedAt: Date | null;
+    costComponentsJson: unknown;
+    statusDetail: string | null;
+    calculatedAt: Date | null;
+    formulaVersion: { formulaJson: unknown } | null;
   } | null,
   abcGrade: string | null,
-): MasterProductAbcEvaluation | null {
-  const riskFlags = row?.riskFlags.filter(isRiskFlag) ?? [];
-  if (!row
-    || !isLifecycleStage(row.lifecycleStage)
-    || !isConfidence(row.confidence)
-    || !isEligibilityReason(row.eligibilityReason)
-    || riskFlags.length !== row.riskFlags.length) return null;
-  return {
+): ProductAbcEvaluation | null {
+  if (!row || !row.costComponentsJson) return null;
+  const cutoff = row.sourceCoverageEndDate ?? row.calculatedAt;
+  if (!cutoff) return null;
+  const formula = row.formulaVersion
+    ? ProductAbcFormulaSummarySchema.safeParse(row.formulaVersion.formulaJson)
+    : null;
+  const parsed = ProductAbcEvaluationSchema.safeParse({
     abcGrade: productAbcGrade(abcGrade),
-    provisionalGrade: productAbcGrade(row.provisionalGrade),
-    lifecycleStage: row.lifecycleStage,
-    confidence: row.confidence,
-    eligibilityReason: row.eligibilityReason,
-    riskFlags,
-    observedCompleteMonths: row.observedCompleteMonths,
-    observationStartMonth: row.observationStartMonth,
-    periodMetricValue: decimalToFinite(row.periodMetricValue),
-    rankingValue: decimalToFinite(row.rankingValue),
-    grossRevenue: row.grossRevenue,
-    grossCost: row.grossCost,
-    grossProfit: row.grossProfit,
-    grossMarginRate: decimalToFinite(row.grossMarginRate),
-    contributionRate: decimalToFinite(row.contributionRate),
-    cumulativeContributionRate: decimalToFinite(row.cumulativeContributionRate),
+    calculationStatus: row.calculationStatus,
+    rawScore: decimalToFinite(row.rawScore),
+    adjustedScore: decimalToFinite(row.adjustedScore),
+    reliability: decimalToFinite(row.reliability),
+    weightedRevenue: decimalToFinite(row.weightedRevenue),
+    weightedOrderTimeCogs: decimalToFinite(row.weightedOrderTimeCogs),
+    weightedAdSpend: decimalToFinite(row.weightedAdSpend),
+    weightedContributionProfit: decimalToFinite(row.weightedContributionProfit),
+    profitVelocity30: decimalToFinite(row.profitVelocity30),
+    weightedContributionMargin: decimalToFinite(row.weightedContributionMargin),
+    lossRecurrence: decimalToFinite(row.lossRecurrence),
+    paidOrderCount: row.paidOrderCount,
+    observationDays: row.observationDays,
+    firstValidPaidSaleAt: row.firstValidPaidSaleAt,
+    formula: formula?.success ? formula.data : null,
+    sourceFreshness: {
+      evaluationCutoffDate: calendarDate(cutoff),
+      sellpia: {
+        status: row.sellpiaSourceStatus,
+        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
+        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        capturedAt: row.sellpiaSourceCapturedAt,
+      },
+      advertising: {
+        status: row.advertisingSourceStatus,
+        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
+        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        capturedAt: row.advertisingSourceCapturedAt,
+      },
+    },
+    costBreakdown: row.costComponentsJson,
+    statusDetail: row.statusDetail,
     calculatedAt: row.calculatedAt,
-    sourceCapturedAt: row.sourceCapturedAt,
-  } satisfies MasterProductAbcEvaluation;
+  });
+  return parsed.success ? parsed.data : null;
 }
 
 function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
@@ -227,29 +255,8 @@ function decimalToFinite(value: { toNumber(): number } | null): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
-function isLifecycleStage(value: string): value is MasterProductAbcEvaluation['lifecycleStage'] {
-  return value === 'NEW' || value === 'PROVISIONAL' || value === 'ESTABLISHED';
-}
-
-function isConfidence(value: string): value is MasterProductAbcEvaluation['confidence'] {
-  return value === 'LOW' || value === 'MEDIUM' || value === 'HIGH';
-}
-
-function isEligibilityReason(
-  value: string,
-): value is MasterProductAbcEvaluation['eligibilityReason'] {
-  return value === 'ELIGIBLE'
-    || value === 'INACTIVE_PRODUCT'
-    || value === 'MISSING_RECIPE'
-    || value === 'SHARED_SKU'
-    || value === 'INACTIVE_SKU'
-    || value === 'INCOMPLETE_MONTHS'
-    || value === 'MISSING_COST'
-    || value === 'NO_OBSERVATION';
-}
-
-function isRiskFlag(value: string): value is MasterProductAbcEvaluation['riskFlags'][number] {
-  return value === 'LOSS' || value === 'ZERO_VALUE' || value === 'LIMITED_HISTORY';
+function calendarDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 type DestinationOptionTarget = CatalogDisplayMediaTarget & {

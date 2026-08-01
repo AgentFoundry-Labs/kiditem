@@ -42,12 +42,12 @@
   hydrated by Products. Link the evidence to
   `/stock-ops?tab=product-outflow`; label shared coverage as `공유 SKU 기준`.
   Do not synthesize an imminent-stock threshold when no policy exists.
-- Filters, period, and page are URL-authoritative; only period refreshes the
-  summary. Product Management owns ABC evidence:
-  `매출총이익 = 결제금액 - 주문 시점 매입금액` (excludes ads, fees, shipping,
-  returns). Dashboard/outflow consume only. `abcGrade`, `abcStage`, and
-  `abcRisk` are exclusive; `unclassified` means no snapshot, not C, and null
-  is `미분류`.
+- Filters, period, and page are URL-authoritative. Products displays Finance's
+  contribution-profit ABC; unconnected variable costs are `0원 · NOT_APPLIED`.
+  Dashboard/outflow consume it.
+  `abcGrade` and `abcCalculationStatus` are exclusive; unclassified is not C.
+- `수익성 데이터 갱신` requests `full` (product-profit then ABC),
+  separately from inventory refresh.
 - Product detail owns manual complete recipe replacement through the focused
   physical Inventory candidate search. Manual variant recipe edits are complete
   atomic replacements: operators select confirmed physical Inventory identities,

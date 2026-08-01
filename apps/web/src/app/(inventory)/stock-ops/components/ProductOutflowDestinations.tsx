@@ -78,10 +78,5 @@ function destinationTitle(destination: SellpiaProductDestination): string {
   const identity = `${destination.masterProductName} · ${destination.productVariantName}`;
   const evaluation = destination.abcEvaluation;
   if (!evaluation) return `${identity} · ABC 평가 미발행`;
-  const stage = evaluation.lifecycleStage === 'NEW'
-    ? '신상품 관찰 중'
-    : evaluation.lifecycleStage === 'PROVISIONAL'
-      ? '예비 등급'
-      : '정식 평가';
-  return `${identity} · 매출총이익 기준 · ${stage} · 관찰 ${evaluation.observedCompleteMonths}개월`;
+  return `${identity} · 수익성 ABC · ${evaluation.calculationStatus} · 유효 주문 ${evaluation.paidOrderCount}건`;
 }

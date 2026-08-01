@@ -11,7 +11,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
       channelListingId: 'listing-origin',
       externalOptionId: 'option-origin',
     }]]));
-    const destinationFindMany = vi.fn(async () => [{
+    const destinationFindMany = vi.fn(async (_input: unknown) => [{
       sellpiaInventorySkuId: skuId,
       quantity: 1,
       productVariant: variant(),
@@ -96,7 +96,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     });
   });
 
-  it('projects the stored lifecycle evaluation beside the official nullable grade', async () => {
+  it('projects the stored automatic evaluation beside the official nullable grade', async () => {
     const skuId = '11111111-1111-4111-8111-111111111111';
     const row = variant();
     row.masterProduct.abcGrade = null;
@@ -120,16 +120,31 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
       destinations: [{
         abcGrade: null,
         abcEvaluation: {
-          lifecycleStage: 'PROVISIONAL',
-          provisionalGrade: 'B',
-          rankingValue: 120,
+          calculationStatus: 'INSUFFICIENT_EVIDENCE',
+          paidOrderCount: 4,
+          sourceFreshness: expect.objectContaining({
+            sellpia: expect.objectContaining({ capturedAt: new Date('2026-07-17T00:00:00.000Z') }),
+          }),
         },
       }],
     });
   });
 });
 
-function variant() {
+function variant(): {
+  id: string;
+  code: string;
+  name: string;
+  masterProduct: {
+    id: string;
+    code: string;
+    name: string;
+    abcGrade: string | null;
+    abcEvaluation: ReturnType<typeof evaluationRow> | null;
+    originChannelListingId: string;
+  };
+  channelListingOptions: ReturnType<typeof option>[];
+} {
   return {
     id: 'variant-1', code: 'VAR-1', name: 'Variant',
     masterProduct: {
@@ -146,25 +161,39 @@ function variant() {
 }
 
 function evaluationRow() {
-  const decimal = (value: number) => ({ toNumber: () => value });
   return {
-    provisionalGrade: 'B',
-    lifecycleStage: 'PROVISIONAL',
-    confidence: 'LOW',
-    eligibilityReason: 'ELIGIBLE',
-    riskFlags: ['LIMITED_HISTORY'],
-    observedCompleteMonths: 4,
-    observationStartMonth: '2026-03',
-    periodMetricValue: decimal(40),
-    rankingValue: decimal(120),
-    grossRevenue: 100,
-    grossCost: 60,
-    grossProfit: 40,
-    grossMarginRate: decimal(40),
-    contributionRate: null,
-    cumulativeContributionRate: null,
+    calculationStatus: 'INSUFFICIENT_EVIDENCE',
+    rawScore: null,
+    adjustedScore: null,
+    reliability: null,
+    weightedRevenue: null,
+    weightedOrderTimeCogs: null,
+    weightedAdSpend: null,
+    weightedContributionProfit: null,
+    profitVelocity30: null,
+    weightedContributionMargin: null,
+    lossRecurrence: null,
+    paidOrderCount: 4,
+    observationDays: 11,
+    firstValidPaidSaleAt: new Date('2026-07-08T00:00:00.000Z'),
+    sourceCoverageStartDate: new Date('2025-06-15T00:00:00.000Z'),
+    sourceCoverageEndDate: new Date('2026-07-17T00:00:00.000Z'),
+    sellpiaSourceStatus: 'READY',
+    sellpiaSourceCapturedAt: new Date('2026-07-17T00:00:00.000Z'),
+    advertisingSourceStatus: 'CONFIRMED_ZERO',
+    advertisingSourceCapturedAt: new Date('2026-07-17T00:00:00.000Z'),
+    costComponentsJson: {
+      recognizedRevenue: { amount: 0, status: 'OBSERVED' },
+      orderTimeCogs: { amount: 0, status: 'OBSERVED' },
+      advertisingSpend: { amount: 0, status: 'CONFIRMED_ZERO' },
+      marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
+      outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' },
+      returnLoss: { amount: 0, status: 'NOT_APPLIED' },
+      otherVariableCost: { amount: 0, status: 'NOT_APPLIED' },
+    },
+    statusDetail: '최초 유효 유료 판매 후 30일 또는 유효 유료 주문 20건이 필요합니다.',
     calculatedAt: new Date('2026-07-18T00:00:00.000Z'),
-    sourceCapturedAt: new Date('2026-07-17T00:00:00.000Z'),
+    formulaVersion: null,
   };
 }
 

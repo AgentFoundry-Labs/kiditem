@@ -481,6 +481,8 @@ erDiagram
     Int inAmount
     String costBasis
     Boolean vatIncluded
+    DateTime coverageStartDate
+    DateTime coverageEndDate
     String productName
     String optionName
     String providerName

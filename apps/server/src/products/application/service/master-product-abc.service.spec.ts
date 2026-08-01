@@ -1,148 +1,112 @@
 import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-
-const modulePath = './master-product-abc.service.js';
-async function serviceModule() { return import(modulePath); }
+import type { ProductAbcFormulaSummary } from '@kiditem/shared/product-abc';
+import { MasterProductAbcService } from './master-product-abc.service';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const productId = '00000000-0000-4000-8000-000000000011';
 
-function policy(overrides = {}) {
+const formula: ProductAbcFormulaSummary = {
+  formulaKey: 'ABC_V1', version: 1,
+  calculationCodeChecksum: 'a'.repeat(64), formulaChecksum: 'b'.repeat(64),
+  activatedAt: new Date('2026-08-01T00:00:00.000Z'),
+  halfLifeDays: 90, weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
+  orderShrinkK: 20, dayShrinkK: 30, cutoffs: { cToB: 40, bToA: 70 },
+  normalizationKnots: {
+    profitVelocity: [{ value: 0, score: 0 }, { value: 100, score: 100 }],
+    contributionMargin: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
+    lossRecurrence: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
+  },
+  trainingRange: { from: '2025-07-01', to: '2026-07-01' },
+  sampleCount: 100, foldCount: 4,
+  calibrationMetrics: { meanSpearmanRankCorrelation: 0.7, meanExplainedVariance: 0.5, gradeChurnRate: 0.1 },
+};
+
+function evidence(overrides = {}) {
+  const start = new Date('2026-06-01T00:00:00.000Z');
+  const end = new Date('2026-06-30T00:00:00.000Z');
   return {
-    metric: 'GROSS_PROFIT' as const,
-    periodDays: 360 as const,
-    aCumulativeThreshold: 70,
-    bCumulativeThreshold: 90,
-    minProvisionalMonths: 3,
-    minClassifiedMonths: 6,
-    lastCalculatedAt: null,
-    sourceCapturedAt: null,
-    revision: 0,
+    masterProductId: productId,
+    asOfDate: new Date('2026-07-31T00:00:00.000Z'),
+    firstValidPaidSaleAt: start,
+    validPaidOrderDates: [start], paidOrderCount: 30, observationDays: 61, eligibilityReached: true,
+    sellpiaStatus: 'READY' as const, adStatus: 'READY' as const,
+    monthlyFacts: [{
+      yearMonth: '2026-06', coverageStartDate: start, coverageEndDate: end, coveredDays: 30,
+      coverageMidpointEpochDay: 0, revenue: 1_000, sellpiaInAmount: 200, adSpend: 100,
+      contributionProfit: 700, negativeCoveredDays: 0, lossGranularity: 'MONTH_INFERRED' as const,
+      sourceProductCodes: ['P-1'], sourceOptionCodes: ['O-1'],
+      costBreakdown: {
+        recognizedRevenue: { amount: 1_000, status: 'OBSERVED' as const },
+        orderTimeCogs: { amount: 200, status: 'OBSERVED' as const },
+        advertisingSpend: { amount: 100, status: 'OBSERVED' as const },
+        marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' as const },
+        outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' as const },
+        returnLoss: { amount: 0, status: 'NOT_APPLIED' as const },
+        otherVariableCost: { amount: 0, status: 'NOT_APPLIED' as const },
+      },
+    }],
     ...overrides,
   };
 }
 
-function evidence(overrides = {}) {
+function repository(overrides = {}) {
   return {
-    masterProductId: productId,
-    periodMetricValue: 100,
-    rankingValue: 100,
-    grossRevenue: 200,
-    grossCost: 100,
-    grossProfit: 100,
-    observedCompleteMonths: 12,
-    observationStartMonth: '2025-07',
-    eligible: true,
-    eligibilityReason: 'ELIGIBLE' as const,
-    riskFlags: [],
+    getFormulaState: vi.fn().mockResolvedValue({ revision: 1, formulaVersionId: 'formula-1', formula }),
+    ensureInitialFormula: vi.fn(),
+    listActiveMasterProductIds: vi.fn().mockResolvedValue([productId]),
+    findCurrentEvaluations: vi.fn().mockResolvedValue(new Map()),
+    publishEvaluations: vi.fn().mockResolvedValue({ changedProductCount: 1, stale: false }),
     ...overrides,
   };
 }
 
 describe('MasterProductAbcService', () => {
-  it('normalizes every automatic calculation to the fixed gross-profit lifecycle policy', async () => {
-    const { MasterProductAbcService } = await serviceModule();
-    const persisted = policy({ metric: 'SALES_AMOUNT' as const, periodDays: 90 as const, revision: 3 });
-    const repository = {
-      findPolicy: vi.fn().mockResolvedValue(persisted),
-      publishGrades: vi.fn().mockResolvedValue({ changedProductCount: 0, policy: persisted, stale: false }),
-    };
-    const metrics = {
-      readMetricSnapshot: vi.fn().mockResolvedValue({ sourceCapturedAt: null, evidence: [] }),
-    };
-    const service = new MasterProductAbcService(repository as never, metrics as never);
+  it('evaluates active products from Finance evidence and publishes with the frozen formula pointer', async () => {
+    const products = repository();
+    const profitability = { readMany: vi.fn().mockResolvedValue([evidence()]) };
+    const service = new MasterProductAbcService(products as never, profitability as never);
+
+    await expect(service.recalculate(organizationId)).resolves.toMatchObject({
+      changedProductCount: 1, classifiedProductCount: 1,
+      grades: [expect.objectContaining({ masterProductId: productId, abcGrade: 'A' })],
+    });
+    expect(profitability.readMany).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId, masterProductIds: [productId], scope: 'ACTIVE_EVALUATION',
+    }));
+    expect(products.publishEvaluations).toHaveBeenCalledWith(expect.objectContaining({
+      expectedFormulaStateRevision: 1, formulaVersionId: 'formula-1', reason: 'AUTOMATIC_PROFITABILITY_RECALCULATION',
+    }));
+  });
+
+  it('creates an initial formula only when calibration has enough historical evidence', async () => {
+    const products = repository({
+      getFormulaState: vi.fn().mockResolvedValue({ revision: 0, formulaVersionId: null, formula: null }),
+    });
+    const profitability = { readMany: vi.fn().mockImplementation(async (input) =>
+      input.scope === 'HISTORICAL_CALIBRATION' ? [] : [evidence()]) };
+    const service = new MasterProductAbcService(products as never, profitability as never);
 
     await service.recalculate(organizationId);
 
-    expect(metrics.readMetricSnapshot).toHaveBeenCalledWith({
-      organizationId,
-      metric: 'GROSS_PROFIT',
-      periodDays: 360,
-    });
-    expect(repository.publishGrades).toHaveBeenCalledWith(expect.objectContaining({
-      policy: expect.objectContaining({
-        metric: 'GROSS_PROFIT', periodDays: 360,
-        aCumulativeThreshold: 70, bCumulativeThreshold: 90,
-        minProvisionalMonths: 3, minClassifiedMonths: 6,
-        revision: 3,
-      }),
-      allowPolicyReplacement: true,
-    }));
+    expect(products.ensureInitialFormula).not.toHaveBeenCalled();
+    expect(products.publishEvaluations).toHaveBeenCalledWith(expect.objectContaining({ formulaVersionId: null }));
   });
 
-  it('publishes full lifecycle evaluations with official grades and ranking history values', async () => {
-    const { MasterProductAbcService } = await serviceModule();
-    const current = policy();
-    const repository = {
-      findPolicy: vi.fn().mockResolvedValue(current),
-      publishGrades: vi.fn().mockResolvedValue({ changedProductCount: 1, policy: current, stale: false }),
-    };
-    const metrics = {
-      readMetricSnapshot: vi.fn().mockResolvedValue({
-        sourceCapturedAt: new Date('2026-07-23T00:00:00Z'),
-        evidence: [evidence(), evidence({
-          masterProductId: '00000000-0000-4000-8000-000000000012',
-          periodMetricValue: null, rankingValue: null, grossRevenue: null, grossCost: null, grossProfit: null,
-          observedCompleteMonths: 0, observationStartMonth: null, eligible: false, eligibilityReason: 'NO_OBSERVATION',
-        })],
-      }),
-    };
-    const service = new MasterProductAbcService(repository as never, metrics as never);
-
-    await expect(service.recalculate(organizationId)).resolves.toMatchObject({
-      changedProductCount: 1, classifiedProductCount: 1, unclassifiedProductCount: 1,
-      grades: expect.arrayContaining([
-        expect.objectContaining({ masterProductId: productId, abcGrade: 'A', evaluation: expect.objectContaining({ grossProfit: 100 }) }),
-      ]),
+  it('retries a stale formula-pointer publication once, then reports a conflict', async () => {
+    const retryRepository = repository({
+      publishEvaluations: vi.fn()
+        .mockResolvedValueOnce({ changedProductCount: 0, stale: true })
+        .mockResolvedValueOnce({ changedProductCount: 1, stale: false }),
     });
-    expect(repository.publishGrades).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId,
-      grades: new Map([[productId, 'A'], ['00000000-0000-4000-8000-000000000012', null]]),
-      metricValues: new Map([[productId, 100], ['00000000-0000-4000-8000-000000000012', null]]),
-      evaluations: expect.any(Map),
-    }));
-  });
+    const profitability = { readMany: vi.fn().mockResolvedValue([evidence()]) };
+    await expect(new MasterProductAbcService(retryRepository as never, profitability as never)
+      .recalculate(organizationId)).resolves.toMatchObject({ changedProductCount: 1 });
 
-  it('retries once from a fresh metric snapshot if another publication wins', async () => {
-    const { MasterProductAbcService } = await serviceModule();
-    const oldPolicy = policy();
-    const latestPolicy = policy({ revision: 1, metric: 'SALES_AMOUNT' as const, periodDays: 90 as const });
-    const repository = {
-      findPolicy: vi.fn().mockResolvedValueOnce(oldPolicy).mockResolvedValueOnce(latestPolicy),
-      publishGrades: vi.fn()
-        .mockResolvedValueOnce({ changedProductCount: 0, policy: latestPolicy, stale: true })
-        .mockResolvedValueOnce({ changedProductCount: 1, policy: latestPolicy, stale: false }),
-    };
-    const metrics = {
-      readMetricSnapshot: vi.fn()
-        .mockResolvedValueOnce({ sourceCapturedAt: null, evidence: [evidence()] })
-        .mockResolvedValueOnce({ sourceCapturedAt: null, evidence: [evidence({ rankingValue: 50, periodMetricValue: 50 })] }),
-    };
-    const service = new MasterProductAbcService(repository as never, metrics as never);
-
-    await expect(service.recalculate(organizationId)).resolves.toMatchObject({ changedProductCount: 1 });
-    expect(metrics.readMetricSnapshot).toHaveBeenNthCalledWith(2, {
-      organizationId, metric: 'GROSS_PROFIT', periodDays: 360,
+    const staleRepository = repository({
+      publishEvaluations: vi.fn().mockResolvedValue({ changedProductCount: 0, stale: true }),
     });
-    expect(repository.publishGrades).toHaveBeenCalledTimes(2);
-  });
-
-  it('leaves publication untouched on collection failure and reports repeated stale publication', async () => {
-    const { MasterProductAbcService } = await serviceModule();
-    const repository = { publishGrades: vi.fn(), findPolicy: vi.fn().mockResolvedValue(policy()) };
-    const unavailable = new MasterProductAbcService(repository as never, {
-      readMetricSnapshot: vi.fn().mockRejectedValue(new Error('source unavailable')),
-    } as never);
-    await expect(unavailable.recalculate(organizationId)).rejects.toThrow('source unavailable');
-    expect(repository.publishGrades).not.toHaveBeenCalled();
-
-    const staleRepository = {
-      findPolicy: vi.fn().mockResolvedValue(policy()),
-      publishGrades: vi.fn().mockResolvedValue({ changedProductCount: 0, policy: policy(), stale: true }),
-    };
-    const stale = new MasterProductAbcService(staleRepository as never, {
-      readMetricSnapshot: vi.fn().mockResolvedValue({ sourceCapturedAt: null, evidence: [] }),
-    } as never);
-    await expect(stale.recalculate(organizationId)).rejects.toBeInstanceOf(ConflictException);
+    await expect(new MasterProductAbcService(staleRepository as never, profitability as never)
+      .recalculate(organizationId)).rejects.toBeInstanceOf(ConflictException);
   });
 });

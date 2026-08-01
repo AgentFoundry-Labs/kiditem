@@ -3,13 +3,12 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   MasterProductOperationsListResponseSchema,
-  type ProductOperationsAbcRiskFilter,
+  type ProductOperationsAbcCalculationStatusFilter,
   type ProductInventoryStatus,
   type ProductOperationsActiveStatus,
   type ProductOperationsAdStatus,
   type ProductOperationsPeriodDays,
 } from '@kiditem/shared/product-operations';
-import type { MasterProductAbcLifecycleStage } from '@kiditem/shared/product-abc';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -38,15 +37,15 @@ const AD_STATUSES: readonly ProductOperationsAdStatus[] = [
   'unconfigured',
 ];
 const PERIOD_DAYS: readonly ProductOperationsPeriodDays[] = [7, 14, 30];
-const ABC_STAGES: readonly MasterProductAbcLifecycleStage[] = [
-  'NEW',
-  'PROVISIONAL',
-  'ESTABLISHED',
-];
-const ABC_RISKS: readonly ProductOperationsAbcRiskFilter[] = [
-  'LOSS',
-  'ZERO_VALUE',
-  'DATA_QUALITY',
+const ABC_CALCULATION_STATUSES: readonly ProductOperationsAbcCalculationStatusFilter[] = [
+  'READY',
+  'INSUFFICIENT_EVIDENCE',
+  'SOURCE_UNMAPPED',
+  'CALIBRATION_PENDING',
+  'RECALCULATING',
+  'SELLPIA_SOURCE_STALE',
+  'AD_SOURCE_STALE',
+  'CALCULATION_ERROR',
 ];
 
 export function useProductHubPageState() {
@@ -78,13 +77,11 @@ export function useProductHubPageState() {
     : 30;
   const category = searchParams.get('category') ?? '';
   const abcGrade = searchParams.get('abcGrade') ?? '';
-  const abcStageParam = searchParams.get('abcStage');
-  const abcRiskParam = searchParams.get('abcRisk');
-  const abcStage: MasterProductAbcLifecycleStage | '' = ABC_STAGES.includes(abcStageParam as MasterProductAbcLifecycleStage)
-    ? abcStageParam as MasterProductAbcLifecycleStage
-    : '';
-  const abcRisk: ProductOperationsAbcRiskFilter | '' = ABC_RISKS.includes(abcRiskParam as ProductOperationsAbcRiskFilter)
-    ? abcRiskParam as ProductOperationsAbcRiskFilter
+  const abcCalculationStatusParam = searchParams.get('abcCalculationStatus');
+  const abcCalculationStatus: ProductOperationsAbcCalculationStatusFilter | '' = ABC_CALCULATION_STATUSES.includes(
+    abcCalculationStatusParam as ProductOperationsAbcCalculationStatusFilter,
+  )
+    ? abcCalculationStatusParam as ProductOperationsAbcCalculationStatusFilter
     : '';
   const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
 
@@ -114,10 +111,9 @@ export function useProductHubPageState() {
     if (urlSearch.trim()) params.set('query', urlSearch.trim());
     if (category.trim()) params.set('category', category.trim());
     if (abcGrade.trim()) params.set('abcGrade', abcGrade.trim());
-    if (abcStage) params.set('abcStage', abcStage);
-    if (abcRisk) params.set('abcRisk', abcRisk);
+    if (abcCalculationStatus) params.set('abcCalculationStatus', abcCalculationStatus);
     return params;
-  }, [abcGrade, abcRisk, abcStage, activeStatus, adStatus, category, inventoryStatus, page, periodDays, urlSearch]);
+  }, [abcCalculationStatus, abcGrade, activeStatus, adStatus, category, inventoryStatus, page, periodDays, urlSearch]);
 
   const queryKeyParams = useMemo(
     () => Object.fromEntries(queryParams.entries()),
@@ -169,8 +165,7 @@ export function useProductHubPageState() {
 
   return {
     abcGrade,
-    abcRisk,
-    abcStage,
+    abcCalculationStatus,
     activeStatus,
     adStatus,
     category,
@@ -195,24 +190,14 @@ export function useProductHubPageState() {
     setAbcGrade: (value: string) => {
       updateListParams({
         abcGrade: value || undefined,
-        abcStage: undefined,
-        abcRisk: undefined,
+        abcCalculationStatus: undefined,
         page: '1',
       });
     },
-    setAbcRisk: (value: ProductOperationsAbcRiskFilter | '') => {
+    setAbcCalculationStatus: (value: ProductOperationsAbcCalculationStatusFilter | '') => {
       updateListParams({
         abcGrade: undefined,
-        abcStage: undefined,
-        abcRisk: value || undefined,
-        page: '1',
-      });
-    },
-    setAbcStage: (value: MasterProductAbcLifecycleStage | '') => {
-      updateListParams({
-        abcGrade: undefined,
-        abcStage: value || undefined,
-        abcRisk: undefined,
+        abcCalculationStatus: value || undefined,
         page: '1',
       });
     },

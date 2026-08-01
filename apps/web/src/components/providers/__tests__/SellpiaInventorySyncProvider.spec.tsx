@@ -525,6 +525,13 @@ describe('SellpiaInventorySyncProvider', () => {
   });
 
   it('ingests product depletion before publishing inventory, then finalizes and invalidates every projection', async () => {
+    api.claimDue.mockResolvedValue({
+      ...claimed,
+      state: {
+        ...claimed.state,
+        activeSync: { ...claimed.state.activeSync, scope: 'full' as const },
+      },
+    });
     api.importBrowser.mockResolvedValue(completedImport([{
       code: `${'a'.repeat(64)}:snapshot_churn`,
       severity: 'warning',
@@ -717,6 +724,13 @@ describe('SellpiaInventorySyncProvider', () => {
   });
 
   it('does not publish inventory when product depletion ingest fails', async () => {
+    api.claimDue.mockResolvedValue({
+      ...claimed,
+      state: {
+        ...claimed.state,
+        activeSync: { ...claimed.state.activeSync, scope: 'full' as const },
+      },
+    });
     productSales.ingest.mockRejectedValue(new Error('product depletion ingest failed'));
 
     renderProvider();

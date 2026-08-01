@@ -16,9 +16,10 @@
 | ChannelListingOption | `channel_listing_options` | One sellable SKU under a channel listing. |
 | LegalEntity | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | `master_products` | KidItem-operated product identity and product-level operating metadata. |
-| MasterProductAbcEvaluation | `master_product_abc_evaluations` | Current Products-owned automatic ABC lifecycle and profit-evidence snapshot for one MasterProduct. |
-| MasterProductAbcGradeHistory | `master_product_abc_grade_histories` | Immutable publication history for automatic MasterProduct ABC grade changes. |
-| MasterProductAbcPolicy | `master_product_abc_policies` | Organization-owned automatic MasterProduct ABC calculation policy. |
+| MasterProductAbcEvaluation | `master_product_abc_evaluations` | Current Products-owned automatic profitability ABC explanation snapshot for one MasterProduct. |
+| MasterProductAbcFormulaState | `master_product_abc_formula_states` | One Prisma-owned current-formula pointer for each organization. |
+| MasterProductAbcFormulaVersion | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for automatic product profitability ABC. |
+| MasterProductAbcGradeHistory | `master_product_abc_grade_histories` | Immutable publication history for automatic product profitability ABC grade changes. |
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductVariant | `product_variants` | Reusable sellable unit beneath one MasterProduct. Code is stable organization-scoped identity. |
@@ -148,49 +149,71 @@ erDiagram
     String id PK
     String organizationId FK
     String masterProductId FK
-    String provisionalGrade
-    String lifecycleStage
-    String confidence
-    String eligibilityReason
-    StringArray riskFlags
-    Int observedCompleteMonths
-    String observationStartMonth
-    Decimal periodMetricValue
-    Decimal rankingValue
-    Int grossRevenue
-    Int grossCost
-    Int grossProfit
-    Decimal grossMarginRate
-    Decimal contributionRate
-    Decimal cumulativeContributionRate
+    String formulaVersionId FK
+    String calculationStatus
+    Decimal rawScore
+    Decimal adjustedScore
+    Decimal reliability
+    Decimal weightedRevenue
+    Decimal weightedOrderTimeCogs
+    Decimal weightedAdSpend
+    Decimal weightedContributionProfit
+    Decimal profitVelocity30
+    Decimal weightedContributionMargin
+    Decimal lossRecurrence
+    Int paidOrderCount
+    Int observationDays
+    DateTime firstValidPaidSaleAt
+    DateTime sourceCoverageStartDate
+    DateTime sourceCoverageEndDate
+    String sellpiaSourceStatus
+    DateTime sellpiaSourceCapturedAt
+    String advertisingSourceStatus
+    DateTime advertisingSourceCapturedAt
+    Json costComponentsJson
+    String statusDetail
+    String runToken
     DateTime calculatedAt
-    DateTime sourceCapturedAt
+  }
+  MasterProductAbcFormulaState {
+    String organizationId PK,FK
+    String activeFormulaVersionId FK
+    DateTime activatedAt
+    Int revision
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  MasterProductAbcFormulaVersion {
+    String id PK
+    String organizationId FK
+    String formulaKey
+    Int version
+    String calculationCodeChecksum
+    Json formulaJson
+    String formulaChecksum
+    DateTime trainingStartDate
+    DateTime trainingEndDate
+    Int sampleCount
+    Int foldCount
+    Json calibrationMetricsJson
+    DateTime firstActivatedAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   MasterProductAbcGradeHistory {
     String id PK
     String organizationId FK
     String masterProductId FK
+    String formulaVersionId FK
     String oldGrade
     String newGrade
-    String metric
-    Int periodDays
-    Decimal metricValue
+    String calculationStatus
+    Decimal adjustedScore
+    Decimal weightedContributionProfit
+    Decimal weightedContributionMargin
+    DateTime sourceCutoffDate
+    String reason
     DateTime calculatedAt
-  }
-  MasterProductAbcPolicy {
-    String id PK
-    String organizationId FK,UK
-    String metric
-    Int periodDays
-    Int aCumulativeThreshold
-    Int bCumulativeThreshold
-    Int minProvisionalMonths
-    Int minClassifiedMonths
-    Int revision
-    DateTime lastCalculatedAt
-    DateTime sourceCapturedAt
-    DateTime createdAt
-    DateTime updatedAt
   }
   Organization {
     String id PK
@@ -284,6 +307,9 @@ erDiagram
   MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
   MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
   MasterProduct ||--o{ ProductVariant : "masterProduct"
+  MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
+  MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
+  MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
   Organization ||--o{ CategoryMapping : "organization"
   Organization ||--o{ ChannelAccount : "organization"
   Organization ||--o{ ChannelListing : "organization"
@@ -291,8 +317,9 @@ erDiagram
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ MasterProduct : "organization"
   Organization ||--o{ MasterProductAbcEvaluation : "organization"
+  Organization ||--o{ MasterProductAbcFormulaState : "organization"
+  Organization ||--o{ MasterProductAbcFormulaVersion : "organization"
   Organization ||--o{ MasterProductAbcGradeHistory : "organization"
-  Organization ||--|| MasterProductAbcPolicy : "organization"
   Organization ||--o{ OrganizationMembership : "organization"
   Organization ||--o{ ProductVariant : "organization"
   Organization ||--o{ ProductVariantComponent : "organization"

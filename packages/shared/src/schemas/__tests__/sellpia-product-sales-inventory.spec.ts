@@ -12,23 +12,57 @@ const PRODUCT_VARIANT_ID = '33333333-3333-4333-8333-333333333333';
 
 const abcEvaluation = {
   abcGrade: 'A' as const,
-  provisionalGrade: null,
-  lifecycleStage: 'ESTABLISHED' as const,
-  confidence: 'HIGH' as const,
-  eligibilityReason: 'ELIGIBLE' as const,
-  riskFlags: [],
-  observedCompleteMonths: 12,
-  observationStartMonth: '2025-07',
-  periodMetricValue: 100,
-  rankingValue: 100,
-  grossRevenue: 200,
-  grossCost: 100,
-  grossProfit: 100,
-  grossMarginRate: 50,
-  contributionRate: 70,
-  cumulativeContributionRate: 70,
+  calculationStatus: 'READY' as const,
+  rawScore: 80,
+  adjustedScore: 75,
+  reliability: 0.8,
+  weightedRevenue: 200,
+  weightedOrderTimeCogs: 100,
+  weightedAdSpend: 0,
+  weightedContributionProfit: 100,
+  profitVelocity30: 50,
+  weightedContributionMargin: 0.5,
+  lossRecurrence: 0,
+  paidOrderCount: 40,
+  observationDays: 60,
+  firstValidPaidSaleAt: '2026-06-01T00:00:00.000Z',
+  formula: {
+    formulaKey: 'ABC_V1' as const,
+    version: 1,
+    calculationCodeChecksum: 'a'.repeat(64),
+    formulaChecksum: 'a'.repeat(64),
+    activatedAt: '2026-07-18T00:00:00.000Z',
+    halfLifeDays: 90,
+    weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
+    orderShrinkK: 20,
+    dayShrinkK: 30,
+    cutoffs: { cToB: 45, bToA: 70 },
+    normalizationKnots: {
+      profitVelocity: [{ value: 0, score: 0 }],
+      contributionMargin: [{ value: 0, score: 0 }],
+      lossRecurrence: [{ value: 0, score: 100 }],
+    },
+    trainingRange: { from: '2025-07-01', to: '2026-07-17' },
+    sampleCount: 100,
+    foldCount: 3,
+    calibrationMetrics: { meanSpearmanRankCorrelation: 0.7, meanExplainedVariance: 0.6, gradeChurnRate: 0.1 },
+  },
+  sourceFreshness: {
+    evaluationCutoffDate: '2026-07-17',
+    sellpia: { status: 'READY' as const, coverageStartDate: '2025-06-12', coverageEndDate: '2026-07-17', capturedAt: '2026-07-18T00:00:00.000Z' },
+    advertising: { status: 'CONFIRMED_ZERO' as const, coverageStartDate: '2025-06-12', coverageEndDate: '2026-07-17', capturedAt: '2026-07-18T00:00:00.000Z' },
+  },
+  costBreakdown: {
+    recognizedRevenue: { amount: 200, status: 'OBSERVED' as const },
+    orderTimeCogs: { amount: 100, status: 'OBSERVED' as const },
+    advertisingSpend: { amount: 0, status: 'CONFIRMED_ZERO' as const },
+    marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' as const },
+    outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' as const },
+    returnLoss: { amount: 0, status: 'NOT_APPLIED' as const },
+    otherVariableCost: { amount: 0, status: 'NOT_APPLIED' as const },
+  },
+  statusDetail: null,
   calculatedAt: '2026-07-18T00:00:00.000Z',
-  sourceCapturedAt: '2026-07-17T00:00:00.000Z',
 };
 
 const destination = {
@@ -110,37 +144,20 @@ describe('Sellpia product-sales inventory contracts', () => {
     expect(SellpiaProductInventoryResolutionSchema.parse(matched)).toEqual(matched);
   });
 
-  it('keeps official, lifecycle, risk, and legacy destinations distinguishable', () => {
-    const newEvaluation = {
+  it('keeps published, observing, and unclassified destinations distinguishable', () => {
+    const observingEvaluation = {
       ...abcEvaluation,
       abcGrade: null,
-      lifecycleStage: 'NEW' as const,
-      confidence: 'LOW' as const,
-      observedCompleteMonths: 2,
-      riskFlags: ['LIMITED_HISTORY'],
-    };
-    const provisionalEvaluation = {
-      ...abcEvaluation,
-      abcGrade: null,
-      lifecycleStage: 'PROVISIONAL' as const,
-      confidence: 'LOW' as const,
-      provisionalGrade: 'B' as const,
-      observedCompleteMonths: 4,
-      riskFlags: ['LIMITED_HISTORY'],
-    };
-    const lossEvaluation = {
-      ...abcEvaluation,
-      abcGrade: null,
-      grossProfit: -10,
-      riskFlags: ['LOSS'],
+      calculationStatus: 'INSUFFICIENT_EVIDENCE' as const,
+      rawScore: null,
+      adjustedScore: null,
+      reliability: null,
+      weightedContributionProfit: null,
+      formula: null,
     };
     expect(SellpiaProductDestinationSchema.parse(destination)).toMatchObject({ abcGrade: 'A' });
-    expect(SellpiaProductDestinationSchema.parse({ ...destination, abcGrade: null, abcEvaluation: newEvaluation }))
-      .toMatchObject({ abcEvaluation: { lifecycleStage: 'NEW' } });
-    expect(SellpiaProductDestinationSchema.parse({ ...destination, abcGrade: null, abcEvaluation: provisionalEvaluation }))
-      .toMatchObject({ abcEvaluation: { provisionalGrade: 'B' } });
-    expect(SellpiaProductDestinationSchema.parse({ ...destination, abcGrade: null, abcEvaluation: lossEvaluation }))
-      .toMatchObject({ abcEvaluation: { riskFlags: ['LOSS'], grossProfit: -10 } });
+    expect(SellpiaProductDestinationSchema.parse({ ...destination, abcGrade: null, abcEvaluation: observingEvaluation }))
+      .toMatchObject({ abcEvaluation: { calculationStatus: 'INSUFFICIENT_EVIDENCE' } });
     expect(SellpiaProductDestinationSchema.parse({ ...destination, abcGrade: null, abcEvaluation: null }))
       .toMatchObject({ abcEvaluation: null });
   });
@@ -197,8 +214,17 @@ describe('Sellpia product-sales inventory contracts', () => {
       deadStockCount: 0,
       anomalyCount: 0,
       abcCounts: { A: 1, B: 0, C: 0 },
-      abcLifecycleCounts: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 1 },
-      abcRiskCounts: { loss: 0, zeroValue: 0, dataQuality: 0 },
+      abcStatusCounts: {
+        READY: 1,
+        INSUFFICIENT_EVIDENCE: 0,
+        SOURCE_UNMAPPED: 0,
+        CALIBRATION_PENDING: 0,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
+      },
+      abcContributionProfitByGrade: { A: 100, B: 0, C: 0 },
       classifiedProductCount: 1,
       unclassifiedProductCount: 0,
       leadTimeMonths: 1,

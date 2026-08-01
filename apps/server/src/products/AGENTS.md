@@ -87,13 +87,16 @@ compatibility CRUD. It never owns physical stock.
 - Creating a product creates supplied variants or one default variant when the
   request omits variants.
 - `MasterProduct.abcGrade` is a nullable automatic result, never operator input.
-  Products calculates it from Analytics metric facts, updates only changed
-  grades with history, and recalculates after authoritative sales ingest using
-  the fixed gross-profit lifecycle policy. Missing, ambiguous, inactive, or insufficient evidence remains
-  `null` rather than synthetic C.
-- Every automatic grade publication increments the internal policy `revision`; publication
-  compares the expected revision under the organization advisory lock so an
-  older metric snapshot cannot overwrite a newer completed publication.
+  Products evaluates Finance's source-freshness and time-decayed contribution-
+  profit evidence, persists its calculation status/formula/evaluation snapshot,
+  updates only changed grades with history, and recalculates after authoritative
+  Sellpia product-profit ingest. Eligibility is 30 inclusive KST days since the
+  first valid paid sale or 20 distinct paid orders; insufficient or unmapped
+  evidence remains `null` rather than synthetic C.
+- Products calibrates an initial frozen formula and preserves its checksum,
+  knots, and version. Evaluation/publication is organization-locked so an
+  older metric snapshot cannot overwrite a newer completed publication; stale
+  source states preserve the latest published grade instead of inventing one.
 - Thumbnail analysis quality grades are AI-owned registration evidence and
   remain independent from the automatic product ABC grade.
 - Category controllers receive `organizationId` from

@@ -4,6 +4,7 @@ import {
   type SellpiaInventoryCollectionFailureCode,
   type SellpiaInventoryFreshnessView,
   type SellpiaInventoryRefreshReason,
+  type SellpiaSyncScope,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   SellpiaInventoryImportResponseSchema,
@@ -81,9 +82,12 @@ export const sellpiaInventoryFreshnessApi = {
   cancel: (claimToken: string) =>
     parseFreshness(apiClient.post(claimPath(claimToken, 'cancel'), {})),
 
-  requestRefresh: (reason: Extract<SellpiaInventoryRefreshReason, 'manual_request' | 'retry'>) =>
+  requestRefresh: (
+    reason: Extract<SellpiaInventoryRefreshReason, 'manual_request' | 'retry'>,
+    scope: SellpiaSyncScope = 'inventory',
+  ) =>
     parseFreshness(
-      apiClient.post(`${FRESHNESS_PATH}/requests`, { reason }),
+      apiClient.post(`${FRESHNESS_PATH}/requests`, { reason, scope }),
     ),
 
   confirmSourceBinding: () =>

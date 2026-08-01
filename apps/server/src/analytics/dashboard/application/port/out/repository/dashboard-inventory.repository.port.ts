@@ -1,11 +1,5 @@
-// Outgoing port for the inventory dashboard read model. Bundles the
-// Prisma reads that hydrate gradeCount, alerts, totalProducts,
-// channelLinkedProducts, per-listing metrics (warnings), Sellpia zero-stock
-// and channel-SKU mapping-attention counts, grade history for the 7-day delta, low-CTR thumbnail
-// count, and A-grade master products with their channel-listing review
-// counts (lowReviewProducts).
-
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
+import type { ProductAbcFormulaSummary } from '@kiditem/shared/product-abc';
 
 export const DASHBOARD_INVENTORY_REPOSITORY_PORT = Symbol(
   'DashboardInventoryRepositoryPort',
@@ -16,22 +10,14 @@ export interface GradeCountRow {
   count: number;
 }
 
-export interface AbcLifecycleCountRow {
-  lifecycleStage: string;
+export interface AbcStatusCountRow {
+  calculationStatus: string;
   count: number;
 }
 
-export interface DashboardAbcRiskCount {
-  loss: number;
-  zeroValue: number;
-  dataQuality: number;
-}
-
-export interface DashboardAbcContextRow {
-  metric: string;
-  periodDays: number;
-  lastCalculatedAt: Date | null;
-  sourceCapturedAt: Date | null;
+export interface AbcContributionRow {
+  abcGrade: string | null;
+  weightedContributionProfit: number | null;
 }
 
 export interface GradeChangeRow {
@@ -52,18 +38,11 @@ export interface DashboardPerListingMetrics {
 
 export interface DashboardInventoryRepositoryPort {
   countActiveProductsByGrade(organizationId: string): Promise<GradeCountRow[]>;
-  countActiveProductsByAbcLifecycle(
-    organizationId: string,
-  ): Promise<AbcLifecycleCountRow[]>;
-  countActiveProductsByAbcRisk(
-    organizationId: string,
-  ): Promise<DashboardAbcRiskCount>;
+  countActiveProductsByAbcStatus(organizationId: string): Promise<AbcStatusCountRow[]>;
+  findActiveAbcContributions(organizationId: string): Promise<AbcContributionRow[]>;
   countUnclassifiedActiveProducts(organizationId: string): Promise<number>;
-  findAbcContext(organizationId: string): Promise<DashboardAbcContextRow | null>;
-  findUnreadAlerts(
-    organizationId: string,
-    limit: number,
-  ): Promise<DashboardAlertItem[]>;
+  findAbcFormula(organizationId: string): Promise<ProductAbcFormulaSummary | null>;
+  findUnreadAlerts(organizationId: string, limit: number): Promise<DashboardAlertItem[]>;
   countActiveProducts(organizationId: string): Promise<number>;
   countChannelLinkedProducts(organizationId: string): Promise<number>;
   fetchPerListingMetrics(
@@ -76,10 +55,7 @@ export interface DashboardInventoryRepositoryPort {
   countChannelSkusByMappingStatus(
     organizationId: string,
   ): Promise<Array<{ mappingStatus: string; count: number }>>;
-  findGradeHistory(
-    organizationId: string,
-    since: Date,
-  ): Promise<GradeChangeRow[]>;
+  findGradeHistory(organizationId: string, since: Date): Promise<GradeChangeRow[]>;
   countLowCtrThumbnails(organizationId: string): Promise<number>;
   findAGradeReviewCounts(organizationId: string): Promise<AGradeReviewRow[]>;
 }

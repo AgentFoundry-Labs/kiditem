@@ -12,11 +12,11 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
+import { ProductAbcFormulaSummarySchema } from '@kiditem/shared/product-abc';
 import type {
   DashboardInventoryRepositoryPort,
-  AbcLifecycleCountRow,
-  DashboardAbcContextRow,
-  DashboardAbcRiskCount,
+  AbcContributionRow,
+  AbcStatusCountRow,
   DashboardPerListingMetrics,
   GradeCountRow,
   GradeChangeRow,
@@ -47,11 +47,11 @@ export class DashboardInventoryRepositoryAdapter
     } satisfies GradeCountRow));
   }
 
-  async countActiveProductsByAbcLifecycle(
+  async countActiveProductsByAbcStatus(
     organizationId: string,
-  ): Promise<AbcLifecycleCountRow[]> {
+  ): Promise<AbcStatusCountRow[]> {
     const rows = await this.prisma.masterProductAbcEvaluation.groupBy({
-      by: ['lifecycleStage'],
+      by: ['calculationStatus'],
       _count: { id: true },
       where: {
         organizationId,
@@ -59,31 +59,25 @@ export class DashboardInventoryRepositoryAdapter
       },
     });
     return rows.map((row) => ({
-      lifecycleStage: row.lifecycleStage,
+      calculationStatus: row.calculationStatus,
       count: row._count.id,
-    } satisfies AbcLifecycleCountRow));
+    } satisfies AbcStatusCountRow));
   }
 
-  async countActiveProductsByAbcRisk(
+  async findActiveAbcContributions(
     organizationId: string,
-  ): Promise<DashboardAbcRiskCount> {
-    const activeProduct = { is: { organizationId, isActive: true } } as const;
-    const [loss, zeroValue, dataQuality] = await Promise.all([
-      this.prisma.masterProductAbcEvaluation.count({
-        where: { organizationId, masterProduct: activeProduct, riskFlags: { has: 'LOSS' } },
-      }),
-      this.prisma.masterProductAbcEvaluation.count({
-        where: { organizationId, masterProduct: activeProduct, riskFlags: { has: 'ZERO_VALUE' } },
-      }),
-      this.prisma.masterProductAbcEvaluation.count({
-        where: {
-          organizationId,
-          masterProduct: activeProduct,
-          eligibilityReason: { not: 'ELIGIBLE' },
-        },
-      }),
-    ]);
-    return { loss, zeroValue, dataQuality } satisfies DashboardAbcRiskCount;
+  ): Promise<AbcContributionRow[]> {
+    const rows = await this.prisma.masterProductAbcEvaluation.findMany({
+      where: { organizationId, masterProduct: { is: { organizationId, isActive: true } } },
+      select: {
+        weightedContributionProfit: true,
+        masterProduct: { select: { abcGrade: true } },
+      },
+    });
+    return rows.map((row) => ({
+      abcGrade: row.masterProduct.abcGrade,
+      weightedContributionProfit: row.weightedContributionProfit?.toNumber() ?? null,
+    } satisfies AbcContributionRow));
   }
 
   countUnclassifiedActiveProducts(organizationId: string): Promise<number> {
@@ -92,31 +86,21 @@ export class DashboardInventoryRepositoryAdapter
         organizationId,
         isActive: true,
         abcGrade: null,
-        abcEvaluation: { is: null },
       },
     });
   }
 
-  async findAbcContext(
+  async findAbcFormula(
     organizationId: string,
-  ): Promise<DashboardAbcContextRow | null> {
-    const policy = await this.prisma.masterProductAbcPolicy.findUnique({
+  ) {
+    const state = await this.prisma.masterProductAbcFormulaState.findUnique({
       where: { organizationId },
-      select: {
-        metric: true,
-        periodDays: true,
-        lastCalculatedAt: true,
-        sourceCapturedAt: true,
-      },
+      include: { activeFormulaVersion: { select: { formulaJson: true } }, },
     });
-    return policy
-      ? {
-        metric: policy.metric,
-        periodDays: policy.periodDays,
-        lastCalculatedAt: policy.lastCalculatedAt,
-        sourceCapturedAt: policy.sourceCapturedAt,
-      } satisfies DashboardAbcContextRow
+    const formula = state?.activeFormulaVersion
+      ? ProductAbcFormulaSummarySchema.safeParse(state.activeFormulaVersion.formulaJson)
       : null;
+    return formula?.success ? formula.data : null;
   }
 
   async findUnreadAlerts(

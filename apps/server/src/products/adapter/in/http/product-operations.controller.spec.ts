@@ -13,11 +13,11 @@ describe('ProductOperationsController', () => {
 
     await expect(controller.listRecipeComponentCandidates(
       '00000000-0000-4000-8000-000000000001',
-      { search: 'SP-001', limit: 20 },
+      { search: 'SP-001', limit: 20, stockStatus: 'in_stock' },
     )).resolves.toEqual({ items: [] });
     expect(candidates.search).toHaveBeenCalledWith(
       '00000000-0000-4000-8000-000000000001',
-      { search: 'SP-001', limit: 20 },
+      { search: 'SP-001', limit: 20, stockStatus: 'in_stock' },
     );
   });
 

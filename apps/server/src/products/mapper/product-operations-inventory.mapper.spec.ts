@@ -66,6 +66,7 @@ function rawListItem() {
     tags: [],
     imageUrls: [],
     abcGrade: null,
+    abcEvaluation: null,
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
@@ -80,6 +81,8 @@ function rawListItem() {
     salesAmount: null,
     adSpend: null,
     profit: null,
+    contributionMargin: null,
+    contributionProfitVelocity30: null,
     variants: [{
       id: '33333333-3333-4333-8333-333333333333',
       code: 'PV-1',

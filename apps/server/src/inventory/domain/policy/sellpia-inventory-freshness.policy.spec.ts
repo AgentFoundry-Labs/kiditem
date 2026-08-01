@@ -53,12 +53,14 @@ describe('Sellpia inventory freshness policy', () => {
     const first = planRefreshRequest(
       active,
       'manual_request',
+      'inventory',
       NOW,
       '00000000-0000-4000-8000-000000000032',
     );
     const joined = planRefreshRequest(
       { ...active, ...first },
       'manual_request',
+      'inventory',
       NOW,
       '00000000-0000-4000-8000-000000000033',
     );
@@ -75,6 +77,7 @@ describe('Sellpia inventory freshness policy', () => {
         failedGeneration: 2n,
       }),
       'retry',
+      'inventory',
       NOW,
       '00000000-0000-4000-8000-000000000040',
     );
@@ -180,17 +183,20 @@ function makeState(
     lastCompletedImportRunId: null,
     refreshRequestedAt: null,
     refreshReason: 'legacy_manual_import',
+    requestedSyncScope: 'inventory',
     syncNotBefore: null,
     activeSyncToken: null,
     activeSyncOwnerUserId: null,
     activeSyncStartedAt: null,
     activeSyncLeaseExpiresAt: null,
+    activeSyncScope: null,
     requestedGeneration: 1n,
     activeGeneration: null,
     verifiedGeneration: 1n,
     failedGeneration: null,
     lastAttemptAt: null,
     lastAttemptStatus: null,
+    lastAttemptSyncScope: null,
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: '00000000-0000-4000-8000-000000000002',

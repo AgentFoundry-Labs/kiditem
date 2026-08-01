@@ -19,10 +19,11 @@ sales, ads, inventory, trends, health, action tasks, and chart panels.
   read-model responsibility.
 - Dashboard action task widgets may read and execute explicit backend action
   endpoints, but action-board workflow ownership remains in automation.
-- ABC cards, lifecycle/risk/freshness context, and Top Products render Products'
-  stored evaluation snapshot. Never rebuild gross profit locally: NEW,
-  PROVISIONAL, loss, zero-value, and data-quality states remain separate from C;
-  only Dashboard's links lead to Product Management policy/evidence controls.
+- ABC cards, calculation-status/source freshness, contribution-profit totals,
+  fixed-formula context, and Top Products render Products' stored evaluation
+  snapshot. Never rebuild contribution profit locally. `INSUFFICIENT_EVIDENCE`,
+  source-stale, mapping, recalculation, and calculation-error states remain
+  separate from C; only Dashboard's links lead to Product Management evidence.
 
 ## Boundary Rules
 

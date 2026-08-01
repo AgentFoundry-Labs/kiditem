@@ -65,6 +65,7 @@ export class SellpiaInventoryFreshnessController {
       organizationId,
       userId: user.id,
       reason: dto.reason,
+      scope: dto.scope,
     });
   }
 

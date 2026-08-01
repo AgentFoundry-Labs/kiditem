@@ -4,6 +4,7 @@ import { Prisma, type SellpiaInventoryState } from '@prisma/client';
 import {
   SellpiaInventoryCollectionFailureCodeSchema,
   SellpiaInventoryRefreshReasonSchema,
+  SellpiaSyncScopeSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -269,17 +270,24 @@ function mapState(row: SellpiaInventoryState): SellpiaInventoryFreshnessState {
     refreshReason: row.refreshReason === null
       ? null
       : SellpiaInventoryRefreshReasonSchema.parse(row.refreshReason),
+    requestedSyncScope: SellpiaSyncScopeSchema.parse(row.requestedSyncScope),
     syncNotBefore: row.syncNotBefore,
     activeSyncToken: row.activeSyncToken,
     activeSyncOwnerUserId: row.activeSyncOwnerUserId,
     activeSyncStartedAt: row.activeSyncStartedAt,
     activeSyncLeaseExpiresAt: row.activeSyncLeaseExpiresAt,
+    activeSyncScope: row.activeSyncScope === null
+      ? null
+      : SellpiaSyncScopeSchema.parse(row.activeSyncScope),
     requestedGeneration: row.requestedGeneration,
     activeGeneration: row.activeGeneration,
     verifiedGeneration: row.verifiedGeneration,
     failedGeneration: row.failedGeneration,
     lastAttemptAt: row.lastAttemptAt,
     lastAttemptStatus: parseAttemptStatus(row.lastAttemptStatus),
+    lastAttemptSyncScope: row.lastAttemptSyncScope === null
+      ? null
+      : SellpiaSyncScopeSchema.parse(row.lastAttemptSyncScope),
     lastErrorCode: row.lastErrorCode === null
       ? null
       : SellpiaInventoryCollectionFailureCodeSchema.parse(row.lastErrorCode),

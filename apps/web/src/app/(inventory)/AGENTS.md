@@ -40,9 +40,10 @@ React Query + inventory API helpers
   print helper.
 - Keep projection helpers pure and covered by focused tests.
 - Sellpia refresh requests are made through explicit action buttons and claimed
-  by the authenticated background coordinator. One user-requested
-  synchronization collects both the physical inventory snapshot and
-  product-level monthly depletion; users do not start those sources separately.
+  by the authenticated background coordinator. The inventory action explicitly
+  requests the `inventory` scope and only collects the physical snapshot. The
+  product-operations action explicitly requests the `full` scope, which also
+  collects the Sellpia product-profit report before automatic ABC recalculation.
   TTL and post-order evidence refreshes remain inventory-only. There is no
   global freshness drawer, status entry, or manual-import UI. Completed
   automatic attempts share one import-run history.

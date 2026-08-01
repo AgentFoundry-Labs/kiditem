@@ -26,13 +26,14 @@ not what an operator does to it. Inventory operations live in
   projection. Matched rows expose physical current stock without separate
   commitment or available-stock columns. Reorder and months-left remain
   backend-owned signals.
-- Its refresh action schedules the shared Sellpia synchronization. The global
-  coordinator owns both inventory and depletion collection; this analysis
-  component must not run a second product-profit collector.
-- Every matched destination renders its stored grade plus current ABC lifecycle
-  snapshot with the shared compact badge; shared SKUs may show multiple states.
-  A/B/C, NEW, PROVISIONAL, loss, zero-value, data-quality, and unpublished
-  filters use destination snapshots without treating any of them as C.
+- Its refresh action explicitly requests the shared Sellpia `inventory` scope.
+  It only collects physical current stock; Product Management's separate
+  `full` scope owns product-profit collection and automatic ABC recalculation.
+- Every matched destination renders its stored grade plus current automatic ABC
+  calculation status with the shared compact badge; shared SKUs may show
+  multiple states. A/B/C, observation, calibration, source-stale, and
+  unpublished filters use destination snapshots without treating any of them
+  as C.
   This is display/filter context only: never alter depletion, stock, or reorder
   formulas and keep policy/profit explanation in Product Management.
 - Destination images are read-only active Coupang catalog media selected for

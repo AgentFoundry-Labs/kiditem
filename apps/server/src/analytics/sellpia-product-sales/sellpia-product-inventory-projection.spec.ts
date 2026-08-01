@@ -39,6 +39,8 @@ describe('Sellpia product inventory projection', () => {
         productVariantCode: 'PV-1',
         productVariantName: 'Variant',
         abcGrade: 'A',
+        abcEvaluation: null,
+        displayImage: null,
       }],
     });
 
@@ -147,6 +149,7 @@ function destination(productVariantId: string, url: string) {
     productVariantCode: productVariantId,
     productVariantName: productVariantId,
     abcGrade: null,
+    abcEvaluation: null,
     displayImage: {
       url,
       source: 'channel_catalog' as const,

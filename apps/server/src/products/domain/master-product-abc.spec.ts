@@ -1,127 +1,198 @@
 import { describe, expect, it } from 'vitest';
+import type { ProductAbcFormulaSummary } from '@kiditem/shared/product-abc';
+import type { MasterProductProfitabilityEvidence } from '../../finance/application/port/in/master-product-profitability-read.port';
+import { evaluateMasterProductAbc } from './master-product-abc';
 
-const modulePath = './master-product-abc.js';
-async function calculator() { return import(modulePath); }
+const calculatedAt = new Date('2026-08-01T00:00:00.000Z');
 
-const policy = {
-  aCumulativeThreshold: 70,
-  bCumulativeThreshold: 90,
-  minProvisionalMonths: 3,
-  minClassifiedMonths: 6,
+const formula: ProductAbcFormulaSummary = {
+  formulaKey: 'ABC_V1',
+  version: 1,
+  calculationCodeChecksum: 'a'.repeat(64),
+  formulaChecksum: 'b'.repeat(64),
+  activatedAt: calculatedAt,
+  halfLifeDays: 90,
+  weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
+  orderShrinkK: 20,
+  dayShrinkK: 30,
+  cutoffs: { cToB: 50, bToA: 80 },
+  normalizationKnots: {
+    profitVelocity: [{ value: 0, score: 0 }, { value: 100, score: 100 }],
+    contributionMargin: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
+    lossRecurrence: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
+  },
+  trainingRange: { from: '2025-07-01', to: '2026-07-01' },
+  sampleCount: 100,
+  foldCount: 4,
+  calibrationMetrics: {
+    meanSpearmanRankCorrelation: 0.7,
+    meanExplainedVariance: 0.5,
+    gradeChurnRate: 0.1,
+  },
 };
-const timestamps = {
-  calculatedAt: new Date('2026-07-24T00:00:00.000Z'),
-  sourceCapturedAt: new Date('2026-07-23T00:00:00.000Z'),
-};
 
-function evidence(input: Partial<{
-  masterProductId: string;
-  periodMetricValue: number | null;
-  rankingValue: number | null;
-  grossRevenue: number | null;
-  grossCost: number | null;
-  grossProfit: number | null;
-  observedCompleteMonths: number;
-  observationStartMonth: string | null;
-  eligible: boolean;
-  eligibilityReason: 'ELIGIBLE' | 'MISSING_COST' | 'INCOMPLETE_MONTHS';
-}> = {}) {
+function evidence(input: Partial<MasterProductProfitabilityEvidence> = {}) {
+  const coverageStartDate = new Date('2026-06-01T00:00:00.000Z');
+  const coverageEndDate = new Date('2026-06-30T00:00:00.000Z');
+  const revenue = 1_000;
+  const sellpiaInAmount = 200;
+  const adSpend = 100;
   return {
-    masterProductId: input.masterProductId ?? 'master-1',
-    periodMetricValue: input.periodMetricValue ?? 100,
-    rankingValue: input.rankingValue ?? input.periodMetricValue ?? 100,
-    grossRevenue: input.grossRevenue ?? 1_000,
-    grossCost: input.grossCost ?? 500,
-    grossProfit: input.grossProfit ?? 500,
-    observedCompleteMonths: input.observedCompleteMonths ?? 12,
-    observationStartMonth: input.observationStartMonth ?? '2025-07',
-    eligible: input.eligible ?? true,
-    eligibilityReason: input.eligibilityReason ?? 'ELIGIBLE',
-    riskFlags: [],
-  } as const;
+    masterProductId: 'master-1',
+    asOfDate: new Date('2026-07-31T00:00:00.000Z'),
+    firstValidPaidSaleAt: new Date('2026-06-01T00:00:00.000Z'),
+    validPaidOrderDates: [],
+    paidOrderCount: 30,
+    observationDays: 61,
+    eligibilityReached: true,
+    sellpiaStatus: 'READY',
+    adStatus: 'READY',
+    sellpiaCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
+    advertisingCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
+    monthlyFacts: [{
+      yearMonth: '2026-06',
+      coverageStartDate,
+      coverageEndDate,
+      coveredDays: 30,
+      coverageMidpointEpochDay: 0,
+      revenue,
+      sellpiaInAmount,
+      adSpend,
+      contributionProfit: revenue - sellpiaInAmount - adSpend,
+      negativeCoveredDays: 0,
+      lossGranularity: 'MONTH_INFERRED',
+      sourceProductCodes: ['P-1'],
+      sourceOptionCodes: ['O-1'],
+      costBreakdown: {
+        recognizedRevenue: { amount: revenue, status: 'OBSERVED' },
+        orderTimeCogs: { amount: sellpiaInAmount, status: 'OBSERVED' },
+        advertisingSpend: { amount: adSpend, status: 'OBSERVED' },
+        marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
+        outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' },
+        returnLoss: { amount: 0, status: 'NOT_APPLIED' },
+        otherVariableCost: { amount: 0, status: 'NOT_APPLIED' },
+      },
+    }],
+    ...input,
+  } satisfies MasterProductProfitabilityEvidence;
 }
 
-describe('calculateMasterProductAbcEvaluations', () => {
-  it('keeps equal-score established evidence in the same official grade group', async () => {
-    const { calculateMasterProductAbcEvaluations } = await calculator();
-    const result = calculateMasterProductAbcEvaluations(policy, [
-      evidence({ masterProductId: 'master-c', rankingValue: 25 }),
-      evidence({ masterProductId: 'master-a', rankingValue: 50 }),
-      evidence({ masterProductId: 'master-b', rankingValue: 25 }),
-    ], timestamps);
-
-    expect(result.grades).toEqual(new Map([
-      ['master-a', 'A'], ['master-b', 'A'], ['master-c', 'A'],
-    ]));
+function evaluate(input: {
+  evidence?: MasterProductProfitabilityEvidence;
+  formula?: ProductAbcFormulaSummary | null;
+  recalculating?: boolean;
+  previousNormalEvaluation?: ReturnType<typeof evaluateMasterProductAbc> | null;
+} = {}) {
+  return evaluateMasterProductAbc({
+    evidence: input.evidence ?? evidence(),
+    formula: input.formula === undefined ? formula : input.formula,
+    calculatedAt,
+    recalculating: input.recalculating,
+    previousNormalEvaluation: input.previousNormalEvaluation,
   });
+}
 
-  it('uses cumulative thresholds before each established score group', async () => {
-    const { calculateMasterProductAbcEvaluations } = await calculator();
-    const result = calculateMasterProductAbcEvaluations(policy, [
-      evidence({ masterProductId: 'master-c', rankingValue: 10 }),
-      evidence({ masterProductId: 'master-a', rankingValue: 70 }),
-      evidence({ masterProductId: 'master-b', rankingValue: 20 }),
-    ], timestamps);
-
-    expect(result.grades).toEqual(new Map([
-      ['master-a', 'A'], ['master-b', 'B'], ['master-c', 'C'],
-    ]));
-    expect(result.evaluations.get('master-a')).toMatchObject({
-      contributionRate: 70,
-      cumulativeContributionRate: 70,
+describe('evaluateMasterProductAbc', () => {
+  it('publishes a frozen-formula grade from source evidence without portfolio ranking', () => {
+    expect(evaluate()).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'READY',
+      formula,
+      weightedContributionProfit: expect.any(Number),
+      costBreakdown: {
+        marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
+      },
     });
   });
 
-  it('uses lifecycle gates and annualizes an established six-to-eleven month product', async () => {
-    const { calculateMasterProductAbcEvaluations, annualizeMetric } = await calculator();
-    const result = calculateMasterProductAbcEvaluations(policy, [
-      evidence({ masterProductId: 'established', periodMetricValue: 60, rankingValue: 60, observedCompleteMonths: 6 }),
-      evidence({ masterProductId: 'provisional', periodMetricValue: 40, rankingValue: 40, observedCompleteMonths: 4 }),
-      evidence({ masterProductId: 'new', periodMetricValue: 20, rankingValue: 20, observedCompleteMonths: 2 }),
-    ], timestamps);
-
-    expect(annualizeMetric(60, 6)).toBe(120);
-    expect(result.evaluations.get('established')).toMatchObject({
-      lifecycleStage: 'ESTABLISHED', confidence: 'MEDIUM', rankingValue: 120, abcGrade: 'A', provisionalGrade: null,
+  it('makes every non-positive weighted contribution a hard C', () => {
+    const value = evidence({
+      monthlyFacts: [{
+        ...evidence().monthlyFacts[0]!,
+        contributionProfit: 0,
+        sellpiaInAmount: 900,
+        costBreakdown: {
+          ...evidence().monthlyFacts[0]!.costBreakdown,
+          orderTimeCogs: { amount: 900, status: 'OBSERVED' },
+        },
+      }],
     });
-    expect(result.evaluations.get('provisional')).toMatchObject({
-      lifecycleStage: 'PROVISIONAL', confidence: 'LOW', rankingValue: 40, abcGrade: null, provisionalGrade: 'C',
-    });
-    expect(result.evaluations.get('new')).toMatchObject({
-      lifecycleStage: 'NEW', confidence: 'LOW', abcGrade: null, provisionalGrade: null,
+    expect(evaluate({ evidence: value })).toMatchObject({
+      abcGrade: 'C',
+      calculationStatus: 'READY',
+      weightedContributionProfit: 0,
     });
   });
 
-  it('does not put loss, zero, or invalid evidence into the official or provisional cohorts', async () => {
-    const { calculateMasterProductAbcEvaluations } = await calculator();
-    const result = calculateMasterProductAbcEvaluations(policy, [
-      evidence({ masterProductId: 'positive', rankingValue: 100 }),
-      evidence({ masterProductId: 'zero', rankingValue: 0 }),
-      evidence({ masterProductId: 'loss', rankingValue: -50 }),
-      evidence({ masterProductId: 'missing-cost', rankingValue: null, eligible: false, eligibilityReason: 'MISSING_COST' }),
-    ], timestamps);
+  it('publishes a valid hard C when a zero-revenue period has no contribution', () => {
+    const value = evidence({
+      monthlyFacts: [{
+        ...evidence().monthlyFacts[0]!,
+        revenue: 0,
+        sellpiaInAmount: 0,
+        adSpend: 0,
+        contributionProfit: 0,
+        costBreakdown: {
+          ...evidence().monthlyFacts[0]!.costBreakdown,
+          recognizedRevenue: { amount: 0, status: 'OBSERVED' },
+          orderTimeCogs: { amount: 0, status: 'OBSERVED' },
+          advertisingSpend: { amount: 0, status: 'OBSERVED' },
+        },
+      }],
+    });
 
-    expect(result.grades).toEqual(new Map([
-      ['loss', null], ['missing-cost', null], ['positive', 'A'], ['zero', null],
-    ]));
-    expect(result.evaluations.get('zero')?.riskFlags).toContain('ZERO_VALUE');
-    expect(result.evaluations.get('loss')?.riskFlags).toContain('LOSS');
-    expect(result.evaluations.get('missing-cost')).toMatchObject({
+    expect(evaluate({ evidence: value })).toMatchObject({
+      abcGrade: 'C', calculationStatus: 'READY', rawScore: 0, adjustedScore: 0,
+    });
+  });
+
+  it('leaves insufficient, unmapped, and uncalibrated products ungraded', () => {
+    expect(evaluate({ evidence: evidence({ eligibilityReached: false, paidOrderCount: 2 }) })).toMatchObject({
       abcGrade: null,
-      provisionalGrade: null,
-      eligibilityReason: 'MISSING_COST',
+      calculationStatus: 'INSUFFICIENT_EVIDENCE',
+    });
+    expect(evaluate({ evidence: evidence({ sellpiaStatus: 'UNMAPPED' }) })).toMatchObject({
+      abcGrade: null,
+      calculationStatus: 'SOURCE_UNMAPPED',
+    });
+    expect(evaluate({ formula: null })).toMatchObject({
+      abcGrade: null,
+      calculationStatus: 'CALIBRATION_PENDING',
     });
   });
 
-  it('keeps provisional products ungraded when no established denominator exists', async () => {
-    const { calculateMasterProductAbcEvaluations } = await calculator();
-    const result = calculateMasterProductAbcEvaluations(policy, [
-      evidence({ masterProductId: 'provisional', observedCompleteMonths: 3, rankingValue: 100 }),
-    ], timestamps);
+  it('retains the last normal grade when a Sellpia or advertising source becomes stale', () => {
+    const prior = evaluate();
+    expect(evaluate({
+      evidence: evidence({ sellpiaStatus: 'STALE' }),
+      previousNormalEvaluation: prior,
+    })).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'SELLPIA_SOURCE_STALE',
+    });
+    expect(evaluate({
+      evidence: evidence({ adStatus: 'STALE' }),
+      previousNormalEvaluation: prior,
+    })).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'AD_SOURCE_STALE',
+    });
+  });
 
-    expect(result.evaluations.get('provisional')).toMatchObject({
-      abcGrade: null,
-      provisionalGrade: null,
+  it('retains a normal grade while recalculating and reports malformed evidence as a calculation error', () => {
+    const prior = evaluate();
+    expect(evaluate({ recalculating: true, previousNormalEvaluation: prior })).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'RECALCULATING',
+    });
+    expect(evaluate({
+      evidence: evidence({
+        monthlyFacts: [{ ...evidence().monthlyFacts[0]!, coveredDays: 29 }],
+      }),
+      previousNormalEvaluation: prior,
+    })).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'CALCULATION_ERROR',
     });
   });
 });

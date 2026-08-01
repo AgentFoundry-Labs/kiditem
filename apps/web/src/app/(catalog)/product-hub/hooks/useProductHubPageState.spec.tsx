@@ -36,7 +36,7 @@ describe('useProductHubPageState', () => {
 
   it('hydrates list filters and pagination from URL state', () => {
     navigation.params = new URLSearchParams(
-      'view=list&search=%EC%9A%B0%EC%82%B0&inventoryStatus=out_of_stock&activeStatus=inactive&periodDays=7&category=%EC%99%84%EA%B5%AC&abcGrade=A&abcStage=NEW&abcRisk=LOSS&adStatus=active&page=4',
+      'view=list&search=%EC%9A%B0%EC%82%B0&inventoryStatus=out_of_stock&activeStatus=inactive&periodDays=7&category=%EC%99%84%EA%B5%AC&abcGrade=A&abcCalculationStatus=INSUFFICIENT_EVIDENCE&adStatus=active&page=4',
     );
 
     const { result } = renderHook(() => useProductHubPageState());
@@ -47,8 +47,7 @@ describe('useProductHubPageState', () => {
     expect(result.current.periodDays).toBe(7);
     expect(result.current.category).toBe('완구');
     expect(result.current.abcGrade).toBe('A');
-    expect(result.current.abcStage).toBe('NEW');
-    expect(result.current.abcRisk).toBe('LOSS');
+    expect(result.current.abcCalculationStatus).toBe('INSUFFICIENT_EVIDENCE');
     expect(result.current.adStatus).toBe('active');
     expect(result.current.page).toBe(4);
   });
@@ -74,7 +73,7 @@ describe('useProductHubPageState', () => {
 
   it('requests the product operations owner with canonical URL filters', () => {
     navigation.params = new URLSearchParams(
-      'search=%EC%9A%B0%EC%82%B0&inventoryStatus=review_required&activeStatus=active&periodDays=14&category=%EC%99%84%EA%B5%AC&abcGrade=B&abcStage=PROVISIONAL&abcRisk=DATA_QUALITY&adStatus=unconfigured&page=2',
+      'search=%EC%9A%B0%EC%82%B0&inventoryStatus=review_required&activeStatus=active&periodDays=14&category=%EC%99%84%EA%B5%AC&abcGrade=B&abcCalculationStatus=SELLPIA_SOURCE_STALE&adStatus=unconfigured&page=2',
     );
 
     renderHook(() => useProductHubPageState());
@@ -97,8 +96,7 @@ describe('useProductHubPageState', () => {
         query: '우산',
         category: '완구',
         abcGrade: 'B',
-        abcStage: 'PROVISIONAL',
-        abcRisk: 'DATA_QUALITY',
+        abcCalculationStatus: 'SELLPIA_SOURCE_STALE',
       },
     ]);
 
@@ -134,18 +132,18 @@ describe('useProductHubPageState', () => {
     expect(overviewOptions.queryFn.toString()).toContain('/api/products/masters');
   });
 
-  it('keeps one ABC filter dimension at a time and returns to the first page', () => {
+  it('keeps one automatic ABC filter dimension at a time and returns to the first page', () => {
     navigation.params = new URLSearchParams('view=list&abcGrade=A&page=4');
     const { result } = renderHook(() => useProductHubPageState());
 
-    act(() => result.current.setAbcStage('NEW'));
-    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?view=list&page=1&abcStage=NEW');
+    act(() => result.current.setAbcCalculationStatus('INSUFFICIENT_EVIDENCE'));
+    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?view=list&page=1&abcCalculationStatus=INSUFFICIENT_EVIDENCE');
 
-    navigation.params = new URLSearchParams('view=list&abcStage=NEW&page=4');
-    act(() => result.current.setAbcRisk('LOSS'));
-    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?view=list&page=1&abcRisk=LOSS');
+    navigation.params = new URLSearchParams('view=list&abcCalculationStatus=INSUFFICIENT_EVIDENCE&page=4');
+    act(() => result.current.setAbcCalculationStatus('SELLPIA_SOURCE_STALE'));
+    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?view=list&page=1&abcCalculationStatus=SELLPIA_SOURCE_STALE');
 
-    navigation.params = new URLSearchParams('view=list&abcRisk=LOSS&page=4');
+    navigation.params = new URLSearchParams('view=list&abcCalculationStatus=SELLPIA_SOURCE_STALE&page=4');
     act(() => result.current.setAbcGrade('unclassified'));
     expect(pushMock).toHaveBeenLastCalledWith('/product-hub?view=list&abcGrade=unclassified&page=1');
   });

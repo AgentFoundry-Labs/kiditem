@@ -39,6 +39,7 @@ import type {
   SellpiaInventoryClaimResponse,
   SellpiaInventoryCollectionFailureCode,
   SellpiaInventoryFreshnessView,
+  SellpiaInventoryRefreshReason,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import type { SellpiaInventoryFreshnessGatePort } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
 import type {
@@ -49,7 +50,9 @@ import type { SellpiaInventoryFreshnessPort } from '../port/in/stock/sellpia-inv
 
 type ActorScope = { organizationId: string; userId: string };
 type ActorRefreshInput = ActorScope & {
-  reason: 'manual_request' | 'retry';
+  reason: SellpiaInventoryRefreshReason;
+  /** Internal callers written before scoped collection remain inventory-only. */
+  scope?: 'full' | 'inventory';
 };
 
 @Injectable()
@@ -114,6 +117,7 @@ implements
           patch: planRefreshRequest(
             state,
             input.reason,
+            input.scope ?? 'inventory',
             now,
             randomUUID(),
           ),
@@ -354,6 +358,7 @@ implements
         patch: planRefreshRequest(
           state,
           'purchase_preflight',
+          'inventory',
           now,
           randomUUID(),
         ),

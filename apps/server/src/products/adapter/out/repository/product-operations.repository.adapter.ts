@@ -10,7 +10,11 @@ import type {
   MasterProductOperationsListQuery,
   ReplaceProductVariantRecipeInput,
 } from '@kiditem/shared/product-operations';
-import type { MasterProductAbcEvaluation } from '@kiditem/shared/product-abc';
+import {
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaSummarySchema,
+  type ProductAbcEvaluation,
+} from '@kiditem/shared/product-abc';
 import type {
   NormalizedCreateMasterProduct,
   NormalizedCreateProductVariant,
@@ -25,7 +29,7 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 function productInclude(organizationId: string, periodStart?: Date) {
   return {
-    abcEvaluation: true,
+    abcEvaluation: { include: { formulaVersion: true } },
     originChannelListing: {
       select: {
         externalId: true,
@@ -637,19 +641,12 @@ function productListWhere(
     ...(query.activeStatus === 'active' ? { isActive: true } : {}),
     ...(query.activeStatus === 'inactive' ? { isActive: false } : {}),
     ...(query.abcGrade === 'unclassified'
-      ? { abcGrade: null, abcEvaluation: { is: null } }
+      ? { abcGrade: null }
       : query.abcGrade
         ? { abcGrade: query.abcGrade }
         : {}),
-    ...(query.abcStage ? {
-      abcEvaluation: { is: { lifecycleStage: query.abcStage } },
-    } : {}),
-    ...(query.abcRisk === 'LOSS' ? {
-      abcEvaluation: { is: { riskFlags: { has: 'LOSS' } } },
-    } : query.abcRisk === 'ZERO_VALUE' ? {
-      abcEvaluation: { is: { riskFlags: { has: 'ZERO_VALUE' } } },
-    } : query.abcRisk === 'DATA_QUALITY' ? {
-      abcEvaluation: { is: { eligibilityReason: { not: 'ELIGIBLE' } } },
+    ...(query.abcCalculationStatus ? {
+      abcEvaluation: { is: { calculationStatus: query.abcCalculationStatus } },
     } : {}),
     ...(query.adStatus === 'active' ? { adTier: { not: null } } : {}),
     ...(query.adStatus === 'inactive' ? { adTier: 'inactive' } : {}),
@@ -791,6 +788,8 @@ function toListItem(
     salesAmount: nullableSum(dailyFacts, (fact) => fact.trafficRevenue),
     adSpend: nullableSum(dailyFacts, (fact) => fact.adSpend),
     profit: nullableSum(profits, (fact) => fact.netProfit),
+    contributionProfitVelocity30: decimalToFinite(row.abcEvaluation?.profitVelocity30 ?? null),
+    contributionMargin: decimalToFinite(row.abcEvaluation?.weightedContributionMargin ?? null),
   };
 }
 
@@ -833,35 +832,50 @@ function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
 function productAbcEvaluation(
   row: ProductRow['abcEvaluation'],
   abcGrade: string | null,
-): MasterProductAbcEvaluation | null {
+) : ProductAbcEvaluation | null {
   if (!row) return null;
-  const riskFlags = row.riskFlags.filter(isRiskFlag);
-  if (!isLifecycleStage(row.lifecycleStage)
-    || !isConfidence(row.confidence)
-    || !isEligibilityReason(row.eligibilityReason)
-    || riskFlags.length !== row.riskFlags.length) {
-    return null;
-  }
-  return {
+  const cutoff = row.sourceCoverageEndDate ?? row.calculatedAt;
+  if (!cutoff || !row.costComponentsJson) return null;
+  const formula = row.formulaVersion
+    ? ProductAbcFormulaSummarySchema.safeParse(row.formulaVersion.formulaJson)
+    : null;
+  const parsed = ProductAbcEvaluationSchema.safeParse({
     abcGrade: productAbcGrade(abcGrade),
-    provisionalGrade: productAbcGrade(row.provisionalGrade),
-    lifecycleStage: row.lifecycleStage,
-    confidence: row.confidence,
-    eligibilityReason: row.eligibilityReason,
-    riskFlags,
-    observedCompleteMonths: row.observedCompleteMonths,
-    observationStartMonth: row.observationStartMonth,
-    periodMetricValue: decimalToFinite(row.periodMetricValue),
-    rankingValue: decimalToFinite(row.rankingValue),
-    grossRevenue: row.grossRevenue,
-    grossCost: row.grossCost,
-    grossProfit: row.grossProfit,
-    grossMarginRate: decimalToFinite(row.grossMarginRate),
-    contributionRate: decimalToFinite(row.contributionRate),
-    cumulativeContributionRate: decimalToFinite(row.cumulativeContributionRate),
+    calculationStatus: row.calculationStatus,
+    rawScore: decimalToFinite(row.rawScore),
+    adjustedScore: decimalToFinite(row.adjustedScore),
+    reliability: decimalToFinite(row.reliability),
+    weightedRevenue: decimalToFinite(row.weightedRevenue),
+    weightedOrderTimeCogs: decimalToFinite(row.weightedOrderTimeCogs),
+    weightedAdSpend: decimalToFinite(row.weightedAdSpend),
+    weightedContributionProfit: decimalToFinite(row.weightedContributionProfit),
+    profitVelocity30: decimalToFinite(row.profitVelocity30),
+    weightedContributionMargin: decimalToFinite(row.weightedContributionMargin),
+    lossRecurrence: decimalToFinite(row.lossRecurrence),
+    paidOrderCount: row.paidOrderCount,
+    observationDays: row.observationDays,
+    firstValidPaidSaleAt: row.firstValidPaidSaleAt,
+    formula: formula?.success ? formula.data : null,
+    sourceFreshness: {
+      evaluationCutoffDate: calendarDate(cutoff),
+      sellpia: {
+        status: row.sellpiaSourceStatus,
+        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
+        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        capturedAt: row.sellpiaSourceCapturedAt,
+      },
+      advertising: {
+        status: row.advertisingSourceStatus,
+        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
+        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        capturedAt: row.advertisingSourceCapturedAt,
+      },
+    },
+    costBreakdown: row.costComponentsJson,
+    statusDetail: row.statusDetail,
     calculatedAt: row.calculatedAt,
-    sourceCapturedAt: row.sourceCapturedAt,
-  } satisfies MasterProductAbcEvaluation;
+  });
+  return parsed.success ? parsed.data : null;
 }
 
 function decimalToFinite(value: Prisma.Decimal | null): number | null {
@@ -870,29 +884,8 @@ function decimalToFinite(value: Prisma.Decimal | null): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
-function isLifecycleStage(value: string): value is MasterProductAbcEvaluation['lifecycleStage'] {
-  return value === 'NEW' || value === 'PROVISIONAL' || value === 'ESTABLISHED';
-}
-
-function isConfidence(value: string): value is MasterProductAbcEvaluation['confidence'] {
-  return value === 'LOW' || value === 'MEDIUM' || value === 'HIGH';
-}
-
-function isEligibilityReason(
-  value: string,
-): value is MasterProductAbcEvaluation['eligibilityReason'] {
-  return value === 'ELIGIBLE'
-    || value === 'INACTIVE_PRODUCT'
-    || value === 'MISSING_RECIPE'
-    || value === 'SHARED_SKU'
-    || value === 'INACTIVE_SKU'
-    || value === 'INCOMPLETE_MONTHS'
-    || value === 'MISSING_COST'
-    || value === 'NO_OBSERVATION';
-}
-
-function isRiskFlag(value: string): value is MasterProductAbcEvaluation['riskFlags'][number] {
-  return value === 'LOSS' || value === 'ZERO_VALUE' || value === 'LIMITED_HISTORY';
+function calendarDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 function toVariantDetail(

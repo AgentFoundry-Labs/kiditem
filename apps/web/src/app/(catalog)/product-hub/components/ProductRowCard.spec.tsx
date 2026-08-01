@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { vi } from 'vitest';
 import { ProductRowCard } from './ProductRowCard';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
+import { productAbcEvaluation } from '@/test/fixtures/product-abc';
 
 describe('ProductRowCard', () => {
   it('renders the calculated channel fallback when raw MasterProduct media is empty', () => {
@@ -38,26 +39,7 @@ function product(): MasterProductOperationsListItem {
     imageUrls: [],
     displayImageUrls: ['https://cdn.example.com/channel.jpg'],
     abcGrade: 'A',
-    abcEvaluation: {
-      abcGrade: 'A',
-      provisionalGrade: null,
-      lifecycleStage: 'ESTABLISHED',
-      confidence: 'HIGH',
-      eligibilityReason: 'ELIGIBLE',
-      riskFlags: [],
-      observedCompleteMonths: 12,
-      observationStartMonth: '2025-08',
-      periodMetricValue: 100_000,
-      rankingValue: 100_000,
-      grossRevenue: 200_000,
-      grossCost: 100_000,
-      grossProfit: 100_000,
-      grossMarginRate: 50,
-      contributionRate: 70,
-      cumulativeContributionRate: 70,
-      calculatedAt: '2026-08-01T00:00:00.000Z',
-      sourceCapturedAt: '2026-07-31T00:00:00.000Z',
-    },
+    abcEvaluation: productAbcEvaluation(),
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,

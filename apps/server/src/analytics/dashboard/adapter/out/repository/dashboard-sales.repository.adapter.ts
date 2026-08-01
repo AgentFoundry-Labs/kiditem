@@ -2,8 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import type { TopProduct, DailyRevenueItem } from '@kiditem/shared/dashboard';
 import {
-  MasterProductAbcEvaluationSchema,
-  type MasterProductAbcEvaluation,
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaSummarySchema,
+  type ProductAbcEvaluation,
 } from '@kiditem/shared/product-abc';
 import type {
   DashboardSalesRepositoryPort,
@@ -15,23 +16,30 @@ interface TopProductRawRow {
   name: string;
   organization: string | null;
   grade: string | null;
-  abcProvisionalGrade: string | null;
-  abcLifecycleStage: string | null;
-  abcConfidence: string | null;
-  abcEligibilityReason: string | null;
-  abcRiskFlags: string[] | null;
-  abcObservedCompleteMonths: number | null;
-  abcObservationStartMonth: string | null;
-  abcPeriodMetricValue: number | string | null;
-  abcRankingValue: number | string | null;
-  abcGrossRevenue: number | null;
-  abcGrossCost: number | null;
-  abcGrossProfit: number | null;
-  abcGrossMarginRate: number | string | null;
-  abcContributionRate: number | string | null;
-  abcCumulativeContributionRate: number | string | null;
+  abcCalculationStatus: string | null;
+  abcRawScore: number | string | null;
+  abcAdjustedScore: number | string | null;
+  abcReliability: number | string | null;
+  abcWeightedRevenue: number | string | null;
+  abcWeightedOrderTimeCogs: number | string | null;
+  abcWeightedAdSpend: number | string | null;
+  abcWeightedContributionProfit: number | string | null;
+  abcProfitVelocity30: number | string | null;
+  abcWeightedContributionMargin: number | string | null;
+  abcLossRecurrence: number | string | null;
+  abcPaidOrderCount: number | null;
+  abcObservationDays: number | null;
+  abcFirstValidPaidSaleAt: Date | string | null;
+  abcSourceCoverageStartDate: Date | string | null;
+  abcSourceCoverageEndDate: Date | string | null;
+  abcSellpiaSourceStatus: string | null;
+  abcSellpiaSourceCapturedAt: Date | string | null;
+  abcAdvertisingSourceStatus: string | null;
+  abcAdvertisingSourceCapturedAt: Date | string | null;
+  abcCostComponents: unknown;
+  abcStatusDetail: string | null;
   abcCalculatedAt: Date | string | null;
-  abcSourceCapturedAt: Date | string | null;
+  abcFormulaJson: unknown;
   revenue: number;
   quantity: number;
 }
@@ -95,23 +103,30 @@ export class DashboardSalesRepositoryAdapter
         COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id) AS name,
         cl.channel_name AS organization,
         mp.abc_grade AS grade,
-        abce.provisional_grade AS "abcProvisionalGrade",
-        abce.lifecycle_stage AS "abcLifecycleStage",
-        abce.confidence AS "abcConfidence",
-        abce.eligibility_reason AS "abcEligibilityReason",
-        abce.risk_flags AS "abcRiskFlags",
-        abce.observed_complete_months AS "abcObservedCompleteMonths",
-        abce.observation_start_month AS "abcObservationStartMonth",
-        abce.period_metric_value AS "abcPeriodMetricValue",
-        abce.ranking_value AS "abcRankingValue",
-        abce.gross_revenue AS "abcGrossRevenue",
-        abce.gross_cost AS "abcGrossCost",
-        abce.gross_profit AS "abcGrossProfit",
-        abce.gross_margin_rate AS "abcGrossMarginRate",
-        abce.contribution_rate AS "abcContributionRate",
-        abce.cumulative_contribution_rate AS "abcCumulativeContributionRate",
+        abce.calculation_status AS "abcCalculationStatus",
+        abce.raw_score AS "abcRawScore",
+        abce.adjusted_score AS "abcAdjustedScore",
+        abce.reliability AS "abcReliability",
+        abce.weighted_revenue AS "abcWeightedRevenue",
+        abce.weighted_order_time_cogs AS "abcWeightedOrderTimeCogs",
+        abce.weighted_ad_spend AS "abcWeightedAdSpend",
+        abce.weighted_contribution_profit AS "abcWeightedContributionProfit",
+        abce.profit_velocity_30 AS "abcProfitVelocity30",
+        abce.weighted_contribution_margin AS "abcWeightedContributionMargin",
+        abce.loss_recurrence AS "abcLossRecurrence",
+        abce.paid_order_count AS "abcPaidOrderCount",
+        abce.observation_days AS "abcObservationDays",
+        abce.first_valid_paid_sale_at AS "abcFirstValidPaidSaleAt",
+        abce.source_coverage_start_date AS "abcSourceCoverageStartDate",
+        abce.source_coverage_end_date AS "abcSourceCoverageEndDate",
+        abce.sellpia_source_status AS "abcSellpiaSourceStatus",
+        abce.sellpia_source_captured_at AS "abcSellpiaSourceCapturedAt",
+        abce.advertising_source_status AS "abcAdvertisingSourceStatus",
+        abce.advertising_source_captured_at AS "abcAdvertisingSourceCapturedAt",
+        abce.cost_components_json AS "abcCostComponents",
+        abce.status_detail AS "abcStatusDetail",
         abce.calculated_at AS "abcCalculatedAt",
-        abce.source_captured_at AS "abcSourceCapturedAt",
+        abcf.formula_json AS "abcFormulaJson",
         SUM(oli.total_price)::int AS revenue,
         SUM(oli.quantity)::int AS quantity
       FROM orders o
@@ -123,6 +138,9 @@ export class DashboardSalesRepositoryAdapter
       LEFT JOIN master_product_abc_evaluations abce
         ON abce.master_product_id = mp.id
         AND abce.organization_id = ${organizationId}::uuid
+      LEFT JOIN master_product_abc_formula_versions abcf
+        ON abcf.id = abce.formula_version_id
+        AND abcf.organization_id = ${organizationId}::uuid
       WHERE o.organization_id = ${organizationId}::uuid
         AND oli.organization_id = ${organizationId}::uuid
         AND clo.organization_id = ${organizationId}::uuid
@@ -131,14 +149,16 @@ export class DashboardSalesRepositoryAdapter
         AND o.ordered_at < ${monthEnd}
         AND o.status NOT IN ('cancelled', 'returned', 'refunded')
       GROUP BY cl.id, mp.name, mp.abc_grade,
-        abce.provisional_grade, abce.lifecycle_stage, abce.confidence,
-        abce.eligibility_reason, abce.risk_flags,
-        abce.observed_complete_months, abce.observation_start_month,
-        abce.period_metric_value, abce.ranking_value,
-        abce.gross_revenue, abce.gross_cost, abce.gross_profit,
-        abce.gross_margin_rate, abce.contribution_rate,
-        abce.cumulative_contribution_rate, abce.calculated_at,
-        abce.source_captured_at
+        abce.calculation_status, abce.raw_score, abce.adjusted_score,
+        abce.reliability, abce.weighted_revenue, abce.weighted_order_time_cogs,
+        abce.weighted_ad_spend, abce.weighted_contribution_profit,
+        abce.profit_velocity_30, abce.weighted_contribution_margin,
+        abce.loss_recurrence, abce.paid_order_count, abce.observation_days,
+        abce.first_valid_paid_sale_at, abce.source_coverage_start_date,
+        abce.source_coverage_end_date, abce.sellpia_source_status,
+        abce.sellpia_source_captured_at, abce.advertising_source_status,
+        abce.advertising_source_captured_at, abce.cost_components_json,
+        abce.status_detail, abce.calculated_at, abcf.formula_json
       ORDER BY revenue DESC
       LIMIT 10
     `;
@@ -196,8 +216,8 @@ export class DashboardSalesRepositoryAdapter
   }
 }
 
-function mapAbcEvaluation(row: TopProductRawRow): MasterProductAbcEvaluation | null {
-  if (!row.abcLifecycleStage) return null;
+function mapAbcEvaluation(row: TopProductRawRow): ProductAbcEvaluation | null {
+  if (!row.abcCalculationStatus || !row.abcCostComponents) return null;
   const grade = row.grade === 'A' || row.grade === 'B' || row.grade === 'C'
     ? row.grade
     : null;
@@ -206,25 +226,50 @@ function mapAbcEvaluation(row: TopProductRawRow): MasterProductAbcEvaluation | n
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   };
-  const evaluation = MasterProductAbcEvaluationSchema.safeParse({
+  const cutoff = row.abcSourceCoverageEndDate ?? row.abcCalculatedAt;
+  if (!cutoff) return null;
+  const formula = row.abcFormulaJson
+    ? ProductAbcFormulaSummarySchema.safeParse(row.abcFormulaJson)
+    : null;
+  const evaluation = ProductAbcEvaluationSchema.safeParse({
     abcGrade: grade,
-    provisionalGrade: row.abcProvisionalGrade,
-    lifecycleStage: row.abcLifecycleStage,
-    confidence: row.abcConfidence,
-    eligibilityReason: row.abcEligibilityReason,
-    riskFlags: Array.isArray(row.abcRiskFlags) ? row.abcRiskFlags : [],
-    observedCompleteMonths: row.abcObservedCompleteMonths ?? 0,
-    observationStartMonth: row.abcObservationStartMonth,
-    periodMetricValue: parseNumber(row.abcPeriodMetricValue),
-    rankingValue: parseNumber(row.abcRankingValue),
-    grossRevenue: row.abcGrossRevenue,
-    grossCost: row.abcGrossCost,
-    grossProfit: row.abcGrossProfit,
-    grossMarginRate: parseNumber(row.abcGrossMarginRate),
-    contributionRate: parseNumber(row.abcContributionRate),
-    cumulativeContributionRate: parseNumber(row.abcCumulativeContributionRate),
+    calculationStatus: row.abcCalculationStatus,
+    rawScore: parseNumber(row.abcRawScore),
+    adjustedScore: parseNumber(row.abcAdjustedScore),
+    reliability: parseNumber(row.abcReliability),
+    weightedRevenue: parseNumber(row.abcWeightedRevenue),
+    weightedOrderTimeCogs: parseNumber(row.abcWeightedOrderTimeCogs),
+    weightedAdSpend: parseNumber(row.abcWeightedAdSpend),
+    weightedContributionProfit: parseNumber(row.abcWeightedContributionProfit),
+    profitVelocity30: parseNumber(row.abcProfitVelocity30),
+    weightedContributionMargin: parseNumber(row.abcWeightedContributionMargin),
+    lossRecurrence: parseNumber(row.abcLossRecurrence),
+    paidOrderCount: row.abcPaidOrderCount ?? 0,
+    observationDays: row.abcObservationDays ?? 0,
+    firstValidPaidSaleAt: row.abcFirstValidPaidSaleAt,
+    formula: formula?.success ? formula.data : null,
+    sourceFreshness: {
+      evaluationCutoffDate: calendarDate(cutoff),
+      sellpia: {
+        status: row.abcSellpiaSourceStatus,
+        coverageStartDate: row.abcSourceCoverageStartDate ? calendarDate(row.abcSourceCoverageStartDate) : null,
+        coverageEndDate: row.abcSourceCoverageEndDate ? calendarDate(row.abcSourceCoverageEndDate) : null,
+        capturedAt: row.abcSellpiaSourceCapturedAt,
+      },
+      advertising: {
+        status: row.abcAdvertisingSourceStatus,
+        coverageStartDate: row.abcSourceCoverageStartDate ? calendarDate(row.abcSourceCoverageStartDate) : null,
+        coverageEndDate: row.abcSourceCoverageEndDate ? calendarDate(row.abcSourceCoverageEndDate) : null,
+        capturedAt: row.abcAdvertisingSourceCapturedAt,
+      },
+    },
+    costBreakdown: row.abcCostComponents,
+    statusDetail: row.abcStatusDetail,
     calculatedAt: row.abcCalculatedAt,
-    sourceCapturedAt: row.abcSourceCapturedAt,
   });
   return evaluation.success ? evaluation.data : null;
+}
+
+function calendarDate(value: Date | string): string {
+  return new Date(value).toISOString().slice(0, 10);
 }

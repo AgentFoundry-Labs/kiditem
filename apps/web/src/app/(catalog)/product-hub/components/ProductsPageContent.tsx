@@ -11,6 +11,7 @@ import { ProductCategoryTabs } from './ProductCategoryTabs';
 import { ProductEditorDialog } from './ProductEditorDialog';
 import { ProductAbcDetailDialog } from './ProductAbcDetailDialog';
 import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter';
+import { ProductProfitabilitySyncAction } from './ProductProfitabilitySyncAction';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
@@ -100,6 +101,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           >
             <Upload size={14} />
           </Link>
+          <ProductProfitabilitySyncAction />
           <button
             type="button"
             onClick={() => setEditorOpen(true)}
@@ -115,8 +117,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           data={state.overviewData}
           onShowOutOfStock={() => state.setInventoryStatus('out_of_stock')}
           onShowAbcGrade={state.setAbcGrade}
-          onShowAbcStage={state.setAbcStage}
-          onShowAbcRisk={state.setAbcRisk}
+          onShowAbcCalculationStatus={state.setAbcCalculationStatus}
         />
       ) : null}
 
@@ -145,22 +146,19 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         </select>
         <select
           aria-label="ABC 상태"
-          value={state.abcStage ? `stage:${state.abcStage}` : state.abcRisk ? `risk:${state.abcRisk}` : ''}
-          onChange={(event) => {
-            const [kind, value] = event.target.value.split(':');
-            if (kind === 'stage') state.setAbcStage(value as typeof state.abcStage);
-            else if (kind === 'risk') state.setAbcRisk(value as typeof state.abcRisk);
-            else state.setAbcStage('');
-          }}
+          value={state.abcCalculationStatus}
+          onChange={(event) => state.setAbcCalculationStatus(event.target.value as typeof state.abcCalculationStatus)}
           className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[14px] font-medium text-[var(--text-secondary)]"
         >
           <option value="">전체 ABC 상태</option>
-          <option value="stage:NEW">신상품 · 3개월 미만</option>
-          <option value="stage:PROVISIONAL">예비 등급 · 3~5개월</option>
-          <option value="stage:ESTABLISHED">정식 평가 · 6개월 이상</option>
-          <option value="risk:LOSS">손실</option>
-          <option value="risk:ZERO_VALUE">가치 0</option>
-          <option value="risk:DATA_QUALITY">데이터 확인 필요</option>
+          <option value="READY">계산 완료</option>
+          <option value="INSUFFICIENT_EVIDENCE">관찰 중</option>
+          <option value="SOURCE_UNMAPPED">셀피아 매핑 필요</option>
+          <option value="CALIBRATION_PENDING">수식 보정 대기</option>
+          <option value="RECALCULATING">재계산 중</option>
+          <option value="SELLPIA_SOURCE_STALE">셀피아 원천 갱신 필요</option>
+          <option value="AD_SOURCE_STALE">광고비 원천 갱신 필요</option>
+          <option value="CALCULATION_ERROR">계산 확인 필요</option>
         </select>
         <div
           className="flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"

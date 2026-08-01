@@ -59,12 +59,25 @@ export class ProductOperationsListQueryDto {
   abcGrade?: 'A' | 'B' | 'C' | 'unclassified';
 
   @IsOptional()
-  @IsIn(['NEW', 'PROVISIONAL', 'ESTABLISHED'])
-  abcStage?: 'NEW' | 'PROVISIONAL' | 'ESTABLISHED';
-
-  @IsOptional()
-  @IsIn(['LOSS', 'ZERO_VALUE', 'DATA_QUALITY'])
-  abcRisk?: 'LOSS' | 'ZERO_VALUE' | 'DATA_QUALITY';
+  @IsIn([
+    'READY',
+    'INSUFFICIENT_EVIDENCE',
+    'SOURCE_UNMAPPED',
+    'CALIBRATION_PENDING',
+    'RECALCULATING',
+    'SELLPIA_SOURCE_STALE',
+    'AD_SOURCE_STALE',
+    'CALCULATION_ERROR',
+  ])
+  abcCalculationStatus?:
+    | 'READY'
+    | 'INSUFFICIENT_EVIDENCE'
+    | 'SOURCE_UNMAPPED'
+    | 'CALIBRATION_PENDING'
+    | 'RECALCULATING'
+    | 'SELLPIA_SOURCE_STALE'
+    | 'AD_SOURCE_STALE'
+    | 'CALCULATION_ERROR';
 
   @IsIn(AD_STATUSES)
   adStatus: (typeof AD_STATUSES)[number] = 'all';

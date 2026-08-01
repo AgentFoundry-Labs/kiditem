@@ -85,6 +85,8 @@ export class MasterProductProfitabilityReadService
         eligibilityReached: observationDays >= 30 || orders.length >= 20,
         sellpiaStatus,
         adStatus,
+        sellpiaCapturedAt: latestCapturedAt(sellpia?.monthlyFacts ?? []),
+        advertisingCapturedAt: ad.capturedAt,
         monthlyFacts,
       } satisfies MasterProductProfitabilityEvidence;
     });
@@ -128,6 +130,7 @@ export class MasterProductProfitabilityReadService
         sellpiaInAmount: number;
         sourceProductCodes: readonly string[];
         sourceOptionCodes: readonly string[];
+        capturedAt: Date;
       }[];
     }[];
   }> {
@@ -334,6 +337,11 @@ function missingAdEvidence(masterProductId: string): MasterProductAdSpendEvidenc
     capturedAt: null,
     dailyFacts: [],
   };
+}
+
+function latestCapturedAt(facts: readonly { capturedAt: Date }[]): Date | null {
+  if (facts.length === 0) return null;
+  return new Date(Math.max(...facts.map((fact) => fact.capturedAt.getTime())));
 }
 
 function atUtcCalendarDay(date: Date): Date {

@@ -136,17 +136,20 @@ erDiagram
     String lastCompletedImportRunId FK
     DateTime refreshRequestedAt
     String refreshReason
+    String requestedSyncScope
     DateTime syncNotBefore
     String activeSyncToken
     String activeSyncOwnerUserId FK
     DateTime activeSyncStartedAt
     DateTime activeSyncLeaseExpiresAt
+    String activeSyncScope
     BigInt requestedGeneration
     BigInt activeGeneration
     BigInt verifiedGeneration
     BigInt failedGeneration
     DateTime lastAttemptAt
     String lastAttemptStatus
+    String lastAttemptSyncScope
     String lastErrorCode
     String lastErrorMessage
     String freshnessFence

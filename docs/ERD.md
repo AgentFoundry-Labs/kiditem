@@ -28,7 +28,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 23 |
-| [Core](erd/core.md) | 16 |
+| [Core](erd/core.md) | 17 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 12 |
 | [Orders](erd/orders.md) | 13 |
@@ -114,9 +114,10 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelListingOption | Core | `channel_listing_options` | One sellable SKU under a channel listing. |
 | LegalEntity | Core | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | Core | `master_products` | KidItem-operated product identity and product-level operating metadata. |
-| MasterProductAbcEvaluation | Core | `master_product_abc_evaluations` | Current Products-owned automatic ABC lifecycle and profit-evidence snapshot for one MasterProduct. |
-| MasterProductAbcGradeHistory | Core | `master_product_abc_grade_histories` | Immutable publication history for automatic MasterProduct ABC grade changes. |
-| MasterProductAbcPolicy | Core | `master_product_abc_policies` | Organization-owned automatic MasterProduct ABC calculation policy. |
+| MasterProductAbcEvaluation | Core | `master_product_abc_evaluations` | Current Products-owned automatic profitability ABC explanation snapshot for one MasterProduct. |
+| MasterProductAbcFormulaState | Core | `master_product_abc_formula_states` | One Prisma-owned current-formula pointer for each organization. |
+| MasterProductAbcFormulaVersion | Core | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for automatic product profitability ABC. |
+| MasterProductAbcGradeHistory | Core | `master_product_abc_grade_histories` | Immutable publication history for automatic product profitability ABC grade changes. |
 | Organization | Core | `organizations` | - |
 | OrganizationMembership | Core | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductVariant | Core | `product_variants` | Reusable sellable unit beneath one MasterProduct. Code is stable organization-scoped identity. |
@@ -1483,49 +1484,71 @@ erDiagram
     String id PK
     String organizationId FK
     String masterProductId FK
-    String provisionalGrade
-    String lifecycleStage
-    String confidence
-    String eligibilityReason
-    StringArray riskFlags
-    Int observedCompleteMonths
-    String observationStartMonth
-    Decimal periodMetricValue
-    Decimal rankingValue
-    Int grossRevenue
-    Int grossCost
-    Int grossProfit
-    Decimal grossMarginRate
-    Decimal contributionRate
-    Decimal cumulativeContributionRate
+    String formulaVersionId FK
+    String calculationStatus
+    Decimal rawScore
+    Decimal adjustedScore
+    Decimal reliability
+    Decimal weightedRevenue
+    Decimal weightedOrderTimeCogs
+    Decimal weightedAdSpend
+    Decimal weightedContributionProfit
+    Decimal profitVelocity30
+    Decimal weightedContributionMargin
+    Decimal lossRecurrence
+    Int paidOrderCount
+    Int observationDays
+    DateTime firstValidPaidSaleAt
+    DateTime sourceCoverageStartDate
+    DateTime sourceCoverageEndDate
+    String sellpiaSourceStatus
+    DateTime sellpiaSourceCapturedAt
+    String advertisingSourceStatus
+    DateTime advertisingSourceCapturedAt
+    Json costComponentsJson
+    String statusDetail
+    String runToken
     DateTime calculatedAt
-    DateTime sourceCapturedAt
+  }
+  MasterProductAbcFormulaState {
+    String organizationId PK,FK
+    String activeFormulaVersionId FK
+    DateTime activatedAt
+    Int revision
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  MasterProductAbcFormulaVersion {
+    String id PK
+    String organizationId FK
+    String formulaKey
+    Int version
+    String calculationCodeChecksum
+    Json formulaJson
+    String formulaChecksum
+    DateTime trainingStartDate
+    DateTime trainingEndDate
+    Int sampleCount
+    Int foldCount
+    Json calibrationMetricsJson
+    DateTime firstActivatedAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   MasterProductAbcGradeHistory {
     String id PK
     String organizationId FK
     String masterProductId FK
+    String formulaVersionId FK
     String oldGrade
     String newGrade
-    String metric
-    Int periodDays
-    Decimal metricValue
+    String calculationStatus
+    Decimal adjustedScore
+    Decimal weightedContributionProfit
+    Decimal weightedContributionMargin
+    DateTime sourceCutoffDate
+    String reason
     DateTime calculatedAt
-  }
-  MasterProductAbcPolicy {
-    String id PK
-    String organizationId FK,UK
-    String metric
-    Int periodDays
-    Int aCumulativeThreshold
-    Int bCumulativeThreshold
-    Int minProvisionalMonths
-    Int minClassifiedMonths
-    Int revision
-    DateTime lastCalculatedAt
-    DateTime sourceCapturedAt
-    DateTime createdAt
-    DateTime updatedAt
   }
   MigrationCheckpoint {
     String id PK
@@ -2088,17 +2111,20 @@ erDiagram
     String lastCompletedImportRunId FK
     DateTime refreshRequestedAt
     String refreshReason
+    String requestedSyncScope
     DateTime syncNotBefore
     String activeSyncToken
     String activeSyncOwnerUserId FK
     DateTime activeSyncStartedAt
     DateTime activeSyncLeaseExpiresAt
+    String activeSyncScope
     BigInt requestedGeneration
     BigInt activeGeneration
     BigInt verifiedGeneration
     BigInt failedGeneration
     DateTime lastAttemptAt
     String lastAttemptStatus
+    String lastAttemptSyncScope
     String lastErrorCode
     String lastErrorMessage
     String freshnessFence
@@ -2165,6 +2191,8 @@ erDiagram
     Int inAmount
     String costBasis
     Boolean vatIncluded
+    DateTime coverageStartDate
+    DateTime coverageEndDate
     String productName
     String optionName
     String providerName
@@ -2819,6 +2847,9 @@ erDiagram
   MasterProduct ||--o{ ProcessingCost : "master"
   MasterProduct ||--o{ ProductVariant : "masterProduct"
   MasterProduct o|--o| SourcingCandidate : "provenanceMasterProduct"
+  MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
+  MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
+  MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
   Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
   Order o|--o{ OrderReturn : "order"
@@ -2892,8 +2923,9 @@ erDiagram
   Organization ||--o{ ManualLedger : "organization"
   Organization ||--o{ MasterProduct : "organization"
   Organization ||--o{ MasterProductAbcEvaluation : "organization"
+  Organization ||--o{ MasterProductAbcFormulaState : "organization"
+  Organization ||--o{ MasterProductAbcFormulaVersion : "organization"
   Organization ||--o{ MasterProductAbcGradeHistory : "organization"
-  Organization ||--|| MasterProductAbcPolicy : "organization"
   Organization ||--o{ NaverKeywordDailySnapshot : "organization"
   Organization ||--o{ NaverPopularKeywordDailySnapshot : "organization"
   Organization ||--o{ Order : "organization"

@@ -18,7 +18,7 @@ const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
 
 // 정렬 키: 고정 지표('avg2m'|'currentStock') 또는 특정 연월("YYYY-MM").
 type SortKey = 'avg2m' | 'currentStock' | string;
-type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C' | 'NEW' | 'PROVISIONAL' | 'LOSS' | 'ZERO_VALUE' | 'DATA_QUALITY' | 'unclassified';
+type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C' | 'INSUFFICIENT_EVIDENCE' | 'CALIBRATION_PENDING' | 'SELLPIA_SOURCE_STALE' | 'AD_SOURCE_STALE' | 'CALCULATION_ERROR' | 'unclassified';
 
 export default function ProductOutflow() {
   const [search, setSearch] = useState('');
@@ -134,11 +134,11 @@ function ProductOutflowTable({
     chips.push({ key: 'A', label: 'A등급', count: summary.abcCounts.A, tone: 'emerald' });
     chips.push({ key: 'B', label: 'B등급', count: summary.abcCounts.B, tone: 'sky' });
     chips.push({ key: 'C', label: 'C등급', count: summary.abcCounts.C, tone: 'slate' });
-    chips.push({ key: 'NEW', label: '신상품', count: summary.abcLifecycleCounts.NEW, tone: 'sky' });
-    chips.push({ key: 'PROVISIONAL', label: '예비 등급', count: summary.abcLifecycleCounts.PROVISIONAL, tone: 'violet' });
-    chips.push({ key: 'LOSS', label: '손실', count: summary.abcRiskCounts.loss, tone: 'rose' });
-    chips.push({ key: 'ZERO_VALUE', label: '가치 0', count: summary.abcRiskCounts.zeroValue, tone: 'amber' });
-    chips.push({ key: 'DATA_QUALITY', label: '데이터 확인', count: summary.abcRiskCounts.dataQuality, tone: 'orange' });
+    chips.push({ key: 'INSUFFICIENT_EVIDENCE', label: '관찰 중', count: summary.abcStatusCounts?.INSUFFICIENT_EVIDENCE ?? 0, tone: 'sky' });
+    chips.push({ key: 'CALIBRATION_PENDING', label: '수식 보정 대기', count: summary.abcStatusCounts?.CALIBRATION_PENDING ?? 0, tone: 'violet' });
+    chips.push({ key: 'SELLPIA_SOURCE_STALE', label: '셀피아 갱신 필요', count: summary.abcStatusCounts?.SELLPIA_SOURCE_STALE ?? 0, tone: 'orange' });
+    chips.push({ key: 'AD_SOURCE_STALE', label: '광고비 갱신 필요', count: summary.abcStatusCounts?.AD_SOURCE_STALE ?? 0, tone: 'orange' });
+    chips.push({ key: 'CALCULATION_ERROR', label: '계산 확인', count: summary.abcStatusCounts?.CALCULATION_ERROR ?? 0, tone: 'rose' });
     chips.push({ key: 'unclassified', label: '미분류', count: summary.unclassifiedProductCount, tone: 'slate' });
     return chips;
   }, [summary, hasStock]);
@@ -161,25 +161,11 @@ function ProductOutflowTable({
     else if (filter === 'A' || filter === 'B' || filter === 'C') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
         && p.inventoryResolution.destinations.some((destination) => destination.abcGrade === filter));
-    } else if (filter === 'NEW' || filter === 'PROVISIONAL') {
+    } else if (filter === 'INSUFFICIENT_EVIDENCE' || filter === 'CALIBRATION_PENDING'
+      || filter === 'SELLPIA_SOURCE_STALE' || filter === 'AD_SOURCE_STALE' || filter === 'CALCULATION_ERROR') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.destinations.some(
-          (destination) => destination.abcEvaluation?.lifecycleStage === filter,
-        ));
-    } else if (filter === 'LOSS' || filter === 'ZERO_VALUE') {
-      list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.destinations.some((destination) => {
-          const evaluation = destination.abcEvaluation;
-          return evaluation?.riskFlags.includes(filter)
-            || (filter === 'LOSS' && (evaluation?.grossProfit ?? 0) < 0)
-            || (filter === 'ZERO_VALUE' && evaluation?.grossProfit === 0);
-        }));
-    } else if (filter === 'DATA_QUALITY') {
-      list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.destinations.some((destination) => {
-          const evaluation = destination.abcEvaluation;
-          return evaluation !== null && evaluation.eligibilityReason !== 'ELIGIBLE';
-        }));
+        && p.inventoryResolution.destinations.some((destination) =>
+          destination.abcEvaluation?.calculationStatus === filter));
     } else if (filter === 'unclassified') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
         && p.inventoryResolution.destinations.some((destination) => destination.abcEvaluation === null));

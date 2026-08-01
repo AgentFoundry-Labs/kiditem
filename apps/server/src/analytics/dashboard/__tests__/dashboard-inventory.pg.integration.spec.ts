@@ -201,76 +201,62 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.unclassifiedProductCount).toBe(1);
   });
 
-  it('reads stored lifecycle, risk, and policy context without turning new or provisional products into C', async () => {
+  it('reads stored automatic calculation states without turning them into C', async () => {
     const official = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-OFFICIAL', name: 'Official', abcGrade: 'A',
     });
-    const fresh = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-NEW', name: 'New', abcGrade: null,
+    const observing = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-OBSERVING', name: 'Observing', abcGrade: null,
     });
-    const provisional = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-PROVISIONAL', name: 'Provisional', abcGrade: null,
+    const stale = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-STALE', name: 'Stale', abcGrade: 'B',
     });
-    const loss = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-LOSS', name: 'Loss', abcGrade: null,
+    const failed = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-ERROR', name: 'Error', abcGrade: null,
     });
     await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-UNPUBLISHED', name: 'Unpublished', abcGrade: null,
     });
     const foreign = await setupMaster(prisma, {
-      organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-ABC-NEW', name: 'Foreign', abcGrade: null,
+      organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-ABC-OBSERVING', name: 'Foreign', abcGrade: null,
     });
     const calculatedAt = new Date('2026-07-31T00:00:00.000Z');
     await prisma.masterProductAbcEvaluation.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID, masterProductId: official.id,
-          lifecycleStage: 'ESTABLISHED', confidence: 'HIGH', eligibilityReason: 'ELIGIBLE',
-          riskFlags: [], observedCompleteMonths: 12, calculatedAt,
+          calculationStatus: 'READY', calculatedAt,
         },
         {
-          organizationId: TEST_ORGANIZATION_ID, masterProductId: fresh.id,
-          lifecycleStage: 'NEW', confidence: 'LOW', eligibilityReason: 'ELIGIBLE',
-          riskFlags: ['LIMITED_HISTORY'], observedCompleteMonths: 2, calculatedAt,
+          organizationId: TEST_ORGANIZATION_ID, masterProductId: observing.id,
+          calculationStatus: 'INSUFFICIENT_EVIDENCE', calculatedAt,
         },
         {
-          organizationId: TEST_ORGANIZATION_ID, masterProductId: provisional.id,
-          provisionalGrade: 'B', lifecycleStage: 'PROVISIONAL', confidence: 'LOW',
-          eligibilityReason: 'ELIGIBLE', riskFlags: ['LIMITED_HISTORY'], observedCompleteMonths: 4, calculatedAt,
+          organizationId: TEST_ORGANIZATION_ID, masterProductId: stale.id,
+          calculationStatus: 'SELLPIA_SOURCE_STALE', calculatedAt,
         },
         {
-          organizationId: TEST_ORGANIZATION_ID, masterProductId: loss.id,
-          lifecycleStage: 'ESTABLISHED', confidence: 'HIGH', eligibilityReason: 'MISSING_COST',
-          riskFlags: ['LOSS'], observedCompleteMonths: 12, calculatedAt,
+          organizationId: TEST_ORGANIZATION_ID, masterProductId: failed.id,
+          calculationStatus: 'CALCULATION_ERROR', calculatedAt,
         },
         {
           organizationId: OTHER_ORGANIZATION_ID, masterProductId: foreign.id,
-          lifecycleStage: 'NEW', confidence: 'LOW', eligibilityReason: 'ELIGIBLE',
-          riskFlags: ['LIMITED_HISTORY'], observedCompleteMonths: 2, calculatedAt,
+          calculationStatus: 'INSUFFICIENT_EVIDENCE', calculatedAt,
         },
       ],
-    });
-    await prisma.masterProductAbcPolicy.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        metric: 'GROSS_PROFIT',
-        periodDays: 360,
-        aCumulativeThreshold: 70,
-        bCumulativeThreshold: 90,
-        minProvisionalMonths: 3,
-        minClassifiedMonths: 6,
-        lastCalculatedAt: calculatedAt,
-        sourceCapturedAt: new Date('2026-07-30T00:00:00.000Z'),
-      },
     });
 
     const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
-    expect(result.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
-    expect(result.abcLifecycleCount).toEqual({ NEW: 1, PROVISIONAL: 1, ESTABLISHED: 2 });
-    expect(result.abcRiskCount).toEqual({ loss: 1, zeroValue: 0, dataQuality: 1 });
-    expect(result.unclassifiedProductCount).toBe(1);
-    expect(result.abcContext).toMatchObject({ metric: 'GROSS_PROFIT', periodDays: 360, lastCalculatedAt: calculatedAt });
+    expect(result.gradeCount).toEqual({ A: 1, B: 1, C: 0 });
+    expect(result.abcStatusCount).toMatchObject({
+      READY: 1,
+      INSUFFICIENT_EVIDENCE: 1,
+      SELLPIA_SOURCE_STALE: 1,
+      CALCULATION_ERROR: 1,
+    });
+    expect(result.unclassifiedProductCount).toBe(3);
+    expect(result.abcFormula).toBeNull();
   });
 
   it('counts only organization-scoped automatic MasterProduct grade history', async () => {
@@ -286,25 +272,37 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       name: 'Foreign History Master',
       abcGrade: 'C',
     });
+    const [ownFormula, foreignFormula] = await Promise.all([
+      createFormula(TEST_ORGANIZATION_ID),
+      createFormula(OTHER_ORGANIZATION_ID),
+    ]);
     await prisma.masterProductAbcGradeHistory.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
           masterProductId: ownMaster.id,
+          formulaVersionId: ownFormula.id,
           oldGrade: null,
           newGrade: 'A',
-          metric: 'SALES_QUANTITY',
-          periodDays: 30,
-          metricValue: 10,
+          calculationStatus: 'READY',
+          adjustedScore: 80,
+          weightedContributionProfit: 10,
+          weightedContributionMargin: 0.5,
+          sourceCutoffDate: new Date('2026-07-31T00:00:00.000Z'),
+          reason: 'automatic_profitability_evaluation',
         },
         {
           organizationId: OTHER_ORGANIZATION_ID,
           masterProductId: foreignMaster.id,
+          formulaVersionId: foreignFormula.id,
           oldGrade: 'A',
           newGrade: 'C',
-          metric: 'SALES_QUANTITY',
-          periodDays: 30,
-          metricValue: 1,
+          calculationStatus: 'READY',
+          adjustedScore: 20,
+          weightedContributionProfit: -1,
+          weightedContributionMargin: -0.1,
+          sourceCutoffDate: new Date('2026-07-31T00:00:00.000Z'),
+          reason: 'automatic_profitability_evaluation',
         },
       ],
     });
@@ -316,6 +314,22 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
 
     expect(result.gradeChanges).toEqual({ upgraded: 1, downgraded: 0, total: 1 });
   });
+
+  async function createFormula(organizationId: string) {
+    return prisma.masterProductAbcFormulaVersion.create({
+      data: {
+        organizationId,
+        formulaKey: 'ABC_V1',
+        version: 1,
+        calculationCodeChecksum: 'a'.repeat(64),
+        formulaChecksum: `${organizationId.slice(0, 1)}${'b'.repeat(63)}`,
+        formulaJson: {},
+        trainingStartDate: new Date('2025-07-01T00:00:00.000Z'),
+        trainingEndDate: new Date('2026-07-31T00:00:00.000Z'),
+        calibrationMetricsJson: {},
+      },
+    });
+  }
 
   it('T4: minusProduct — seeded loss order surfaces in warnings.minusProducts', async () => {
     // Loss order: revenue 50_000, costPrice 80_000, commission 10%, shipping 5_000

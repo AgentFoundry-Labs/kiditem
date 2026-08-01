@@ -543,7 +543,9 @@ model MasterProductAbcEvaluation {
   sourceCoverageStartDate    DateTime? @map("source_coverage_start_date") @db.Date
   sourceCoverageEndDate      DateTime? @map("source_coverage_end_date") @db.Date
   sellpiaSourceStatus        String    @default("MISSING") @map("sellpia_source_status")
+  sellpiaSourceCapturedAt    DateTime? @map("sellpia_source_captured_at") @db.Timestamptz
   advertisingSourceStatus    String    @default("MISSING") @map("advertising_source_status")
+  advertisingSourceCapturedAt DateTime? @map("advertising_source_captured_at") @db.Timestamptz
   costComponentsJson         Json?     @map("cost_components_json") @db.JsonB
   statusDetail               String?   @map("status_detail") @db.VarChar(500)
   runToken                   String?   @map("run_token") @db.Uuid

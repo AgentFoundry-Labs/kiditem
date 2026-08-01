@@ -103,14 +103,21 @@ beforeEach(() => {
         classifiedProductCount: 4,
         unclassifiedProductCount: 6,
         gradeCount: { A: 2, B: 1, C: 1 },
-        abcLifecycleCount: { NEW: 2, PROVISIONAL: 1, ESTABLISHED: 4 },
-        abcRiskCount: { loss: 3, zeroValue: 2, dataQuality: 4 },
-        abcContext: {
-          metric: 'GROSS_PROFIT',
-          periodDays: 360,
-          lastCalculatedAt: '2026-07-31T00:00:00.000Z',
-          sourceCapturedAt: '2026-07-30T00:00:00.000Z',
+        abcStatusCount: {
+          READY: 4,
+          INSUFFICIENT_EVIDENCE: 2,
+          SOURCE_UNMAPPED: 1,
+          CALIBRATION_PENDING: 1,
+          RECALCULATING: 0,
+          SELLPIA_SOURCE_STALE: 2,
+          AD_SOURCE_STALE: 1,
+          CALCULATION_ERROR: 1,
         },
+        abcContributionProfit: {
+          amountByGrade: { A: 12_000, B: 4_000, C: -500 },
+          shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
+        },
+        abcFormula: null,
         mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
         alerts: [],
         warnings: {
@@ -143,7 +150,7 @@ describe('Dashboard automatic ABC grade cards', () => {
 
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
-    expect(screen.getByText('정식 평가 중 50%')).toBeInTheDocument();
+    expect(screen.getByText('계산 완료 4개')).toBeInTheDocument();
     expect(screen.getByText('미분류 6개')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /A등급/ })).toHaveAttribute(
       'href',
@@ -157,18 +164,14 @@ describe('Dashboard automatic ABC grade cards', () => {
       'href',
       '/product-hub?abcGrade=C',
     );
-    expect(screen.getByRole('link', { name: /신상품/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /관찰·보정 대기/ })).toHaveAttribute(
       'href',
-      '/product-hub?abcStage=NEW',
+      '/product-hub?abcCalculationStatus=INSUFFICIENT_EVIDENCE',
     );
-    expect(screen.getByRole('link', { name: /예비 등급/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /원천 확인 필요/ })).toHaveAttribute(
       'href',
-      '/product-hub?abcStage=PROVISIONAL',
+      '/product-hub?abcCalculationStatus=SELLPIA_SOURCE_STALE',
     );
-    expect(screen.getByRole('link', { name: /손실 3개/ })).toHaveAttribute(
-      'href',
-      '/product-hub?abcRisk=LOSS',
-    );
-    expect(screen.getByText(/매출총이익 · 최근 12개월/)).toBeInTheDocument();
+    expect(screen.getByText(/검증 표본을 수집하면 수식 보정을 시작합니다/)).toBeInTheDocument();
   });
 });

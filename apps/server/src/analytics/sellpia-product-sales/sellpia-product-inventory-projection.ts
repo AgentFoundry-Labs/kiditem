@@ -66,8 +66,17 @@ export function projectSellpiaProductInventory(input: {
     matchedSkus: number;
     unlinkedSkus: number;
     abcCounts: { A: number; B: number; C: number };
-    abcLifecycleCounts: { NEW: number; PROVISIONAL: number; ESTABLISHED: number };
-    abcRiskCounts: { loss: number; zeroValue: number; dataQuality: number };
+    abcStatusCounts: {
+      READY: number;
+      INSUFFICIENT_EVIDENCE: number;
+      SOURCE_UNMAPPED: number;
+      CALIBRATION_PENDING: number;
+      RECALCULATING: number;
+      SELLPIA_SOURCE_STALE: number;
+      AD_SOURCE_STALE: number;
+      CALCULATION_ERROR: number;
+    };
+    abcContributionProfitByGrade: { A: number; B: number; C: number };
     classifiedProductCount: number;
     unclassifiedProductCount: number;
   };
@@ -243,8 +252,17 @@ function summarizeDestinationAbc(
   destinations: readonly SellpiaProductDestinationRow[],
 ): {
   abcCounts: { A: number; B: number; C: number };
-  abcLifecycleCounts: { NEW: number; PROVISIONAL: number; ESTABLISHED: number };
-  abcRiskCounts: { loss: number; zeroValue: number; dataQuality: number };
+  abcStatusCounts: {
+    READY: number;
+    INSUFFICIENT_EVIDENCE: number;
+    SOURCE_UNMAPPED: number;
+    CALIBRATION_PENDING: number;
+    RECALCULATING: number;
+    SELLPIA_SOURCE_STALE: number;
+    AD_SOURCE_STALE: number;
+    CALCULATION_ERROR: number;
+  };
+  abcContributionProfitByGrade: { A: number; B: number; C: number };
   classifiedProductCount: number;
   unclassifiedProductCount: number;
 } {
@@ -256,8 +274,17 @@ function summarizeDestinationAbc(
   }
   const summary = {
     abcCounts: { A: 0, B: 0, C: 0 },
-    abcLifecycleCounts: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 0 },
-    abcRiskCounts: { loss: 0, zeroValue: 0, dataQuality: 0 },
+    abcStatusCounts: {
+      READY: 0,
+      INSUFFICIENT_EVIDENCE: 0,
+      SOURCE_UNMAPPED: 0,
+      CALIBRATION_PENDING: 0,
+      RECALCULATING: 0,
+      SELLPIA_SOURCE_STALE: 0,
+      AD_SOURCE_STALE: 0,
+      CALCULATION_ERROR: 0,
+    },
+    abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
     classifiedProductCount: 0,
     unclassifiedProductCount: 0,
   };
@@ -269,11 +296,16 @@ function summarizeDestinationAbc(
       summary.unclassifiedProductCount += 1;
     }
     const evaluation = destination.abcEvaluation;
-    if (!evaluation) continue;
-    summary.abcLifecycleCounts[evaluation.lifecycleStage] += 1;
-    if (evaluation.riskFlags.includes('LOSS')) summary.abcRiskCounts.loss += 1;
-    if (evaluation.riskFlags.includes('ZERO_VALUE')) summary.abcRiskCounts.zeroValue += 1;
-    if (evaluation.eligibilityReason !== 'ELIGIBLE') summary.abcRiskCounts.dataQuality += 1;
+    if (!evaluation) {
+      summary.abcStatusCounts.CALIBRATION_PENDING += 1;
+      continue;
+    }
+    summary.abcStatusCounts[evaluation.calculationStatus] += 1;
+    if (destination.abcGrade && evaluation.weightedContributionProfit !== null) {
+      summary.abcContributionProfitByGrade[destination.abcGrade] += Math.round(
+        evaluation.weightedContributionProfit,
+      );
+    }
   }
   return summary;
 }

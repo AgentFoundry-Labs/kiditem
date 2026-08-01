@@ -129,13 +129,13 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
-| `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements. |
+| `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements, and the read-only contribution-profit evidence port consumed by Products' automatic ABC evaluation. |
 | `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku reads, purchase freshness gate, and record-only transfer/picking/receipt capabilities. |
 | `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, return-transfer operations, and durable Sellpia workbook submission idempotency/audit. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Owner Domain | KidItem MasterProduct operations, reusable ProductVariant units, central ProductVariantComponent recipes, transaction-aware channel-origin identity provisioning, and `/api/categories` compatibility CRUD. |
+| `apps/server/src/products` | Owner Domain | KidItem MasterProduct operations, reusable ProductVariant units, central ProductVariantComponent recipes, transaction-aware channel-origin identity provisioning, automatic profitability ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox), reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
@@ -693,13 +693,17 @@ unique normalized barcode are deterministic resolution signals; missing,
 inactive, or ambiguous candidates remain `mapping_required`, never synthetic
 zero stock. Products reuses this projection for operating-product summary
 badges while `/stock-ops?tab=product-outflow` preserves every linked product/
-variant destination. Products owns the automatic ABC evaluation policy,
-publishes the one nullable `MasterProduct.abcGrade` from Analytics' completed-
-month facts, and records changed-grade history. Product Hub, product-outflow,
-Dashboard, and Advertising consume that stored value; missing evidence remains
-unclassified instead of C. A monotonic policy publication revision fences
-stale concurrent calculations under the organization advisory lock. AI
-thumbnail analysis quality grades remain an
+variant destination. Analytics persists raw Sellpia product-profit coverage;
+Finance assembles source-freshness and time-decayed contribution-profit
+evidence; Products owns the automatic ABC formula calibration, evaluation,
+publication, and changed-grade history. The formula persists its checksum,
+normalization knots, and version. Product Hub's explicit `full` Sellpia scope
+collects product-profit evidence and triggers evaluation, while stock-ops'
+`inventory` scope collects only physical stock. Product Hub, product-outflow,
+Dashboard, and Advertising consume the stored grade/evaluation snapshot;
+missing evidence remains unclassified instead of C and stale source states
+preserve the last published grade. Organization-locked publication fences stale
+concurrent calculations. AI thumbnail analysis quality grades remain an
 independent product-registration signal. Product-outflow may display matched
 active Coupang catalog media through AI's read-only media capability without
 copying image URLs into Inventory.

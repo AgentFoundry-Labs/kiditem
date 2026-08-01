@@ -50,7 +50,7 @@ describe('ProductOperationsService', () => {
       ])),
     };
     const service = new ProductOperationsService(
-      repository,
+      repository as never,
       inventory as never,
       depletion as never,
       makeCatalogDisplayMedia() as never,
@@ -461,7 +461,7 @@ function makeService(
   media = makeCatalogDisplayMedia(),
 ) {
   return new ProductOperationsService(
-    repository,
+    repository as never,
     {
       findBySkuIds: vi.fn().mockResolvedValue({
         snapshot: { collected: false, generation: null, verifiedAt: null },

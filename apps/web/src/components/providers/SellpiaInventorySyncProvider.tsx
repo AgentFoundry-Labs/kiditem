@@ -234,7 +234,7 @@ export function SellpiaInventorySyncProvider({
       });
       return;
     }
-    const includesProductSales = trigger === 'manual_request' || trigger === 'retry';
+    const includesProductSales = claim.state.activeSync?.scope === 'full';
 
     ownerClaimTokenRef.current = claimToken;
     cacheFreshnessIfChanged(queryClient, claim.state);
@@ -262,8 +262,10 @@ export function SellpiaInventorySyncProvider({
       await bestEffortAlert(() => startOperationAlert({
         operationKey: `browser-collection:${claimToken}`,
         type: 'browser_collection',
-        title: 'Sellpia 동기화',
-        message: 'Sellpia 현재고를 수집하고 있습니다.',
+        title: includesProductSales ? 'Sellpia 수익성 데이터 갱신' : 'Sellpia 재고 동기화',
+        message: includesProductSales
+          ? 'Sellpia 현재고와 상품별 이익현황을 수집하고 있습니다.'
+          : 'Sellpia 현재고를 수집하고 있습니다.',
         sourceType: 'browser_collection_session',
         sourceId: 'inventory.sellpia',
         href: '/inventory-hub?tab=sellpia-sync',
@@ -271,6 +273,7 @@ export function SellpiaInventorySyncProvider({
         metadata: nextAlertMetadata(claimToken, {
           claimToken,
           generation: claim.activeGeneration,
+          scope: claim.state.activeSync?.scope ?? 'inventory',
         }),
       }));
       if (claimIsStopped()) return;

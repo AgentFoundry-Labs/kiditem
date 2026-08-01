@@ -38,6 +38,10 @@ export type MasterProductProfitabilityEvidence = Readonly<{
   eligibilityReached: boolean;
   sellpiaStatus: MasterProductSellpiaStatus;
   adStatus: MasterProductAdvertisingStatus;
+  /** Latest upstream capture used for the Sellpia fact window. */
+  sellpiaCapturedAt: Date | null;
+  /** Latest upstream capture used for the advertising-cost window. */
+  advertisingCapturedAt: Date | null;
   monthlyFacts: readonly MonthlyContributionFact[];
 }>;
 

@@ -100,9 +100,9 @@ export function useDepartmentQuickActions() {
     await apiClient.post('/api/sourcing/trend/collect', {});
   }, []);
 
-  // 재고 분석 업데이트 / 셀피아 동기화 — 공용 조정자에 현재고·소진 재수집 요청.
+  // 재고 분석 업데이트 — 공용 조정자에 현재고만 재수집 요청.
   const requestInventoryRefresh = useCallback(async () => {
-    await freshness.requestRefresh('manual_request');
+    await freshness.requestRefresh('manual_request', 'inventory');
   }, [freshness]);
 
   // 주문 전체수집 — 활성·자동수집 가능 몰을 전부 수집. 실패 계정을 반환한다.

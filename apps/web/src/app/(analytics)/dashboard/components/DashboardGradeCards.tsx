@@ -3,156 +3,58 @@ import type { DashboardInventorySummary } from '@kiditem/shared/dashboard';
 import { cn, formatDate, formatNumber } from '@/lib/utils';
 
 type ProductAbcGrade = 'A' | 'B' | 'C';
-
 type DashboardGradeCardsProps = Pick<
   DashboardInventorySummary,
   | 'gradeCount'
   | 'classifiedProductCount'
   | 'unclassifiedProductCount'
-  | 'abcLifecycleCount'
-  | 'abcRiskCount'
-  | 'abcContext'
+  | 'abcStatusCount'
+  | 'abcContributionProfit'
+  | 'abcFormula'
   | 'gradeChanges'
 >;
 
-const GRADE_LABELS: Record<ProductAbcGrade, string> = {
-  A: '핵심상품',
-  B: '성장상품',
-  C: '정리대상',
-};
+const GRADE_LABELS: Record<ProductAbcGrade, string> = { A: '고수익 핵심', B: '수익 성장', C: '수익 개선' };
 
 export function DashboardGradeCards({
-  gradeCount,
-  classifiedProductCount,
-  unclassifiedProductCount,
-  abcLifecycleCount,
-  abcRiskCount,
-  abcContext,
-  gradeChanges,
+  gradeCount, classifiedProductCount, unclassifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula, gradeChanges,
 }: DashboardGradeCardsProps) {
   const changes = gradeChanges ?? { upgraded: 0, downgraded: 0, total: 0 };
+  const sourceAttention = abcStatusCount.SOURCE_UNMAPPED + abcStatusCount.SELLPIA_SOURCE_STALE + abcStatusCount.AD_SOURCE_STALE;
 
-  return (
-    <section className="space-y-2" aria-label="매출총이익 ABC 포트폴리오 현황">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-extrabold text-slate-900">매출총이익 ABC</h2>
-          <p className="mt-0.5 text-xs text-slate-400">상품 관리에서 정책과 개별 근거를 확인합니다.</p>
-        </div>
-        <Link href="/product-hub?abcGrade=unclassified" className="text-xs text-slate-400 hover:text-purple-600">
-          미분류 {formatNumber(unclassifiedProductCount)}개
-        </Link>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {(['A', 'B', 'C'] as const).map((grade) => (
-          <OfficialGradeCard
-            key={grade}
-            grade={grade}
-            count={gradeCount[grade] ?? 0}
-            classifiedProductCount={classifiedProductCount}
-          />
-        ))}
-        <LifecycleCard
-          label="신상품"
-          count={abcLifecycleCount.NEW}
-          description="3개월 미만 관찰"
-          href="/product-hub?abcStage=NEW"
-          tone="sky"
-        />
-        <LifecycleCard
-          label="예비 등급"
-          count={abcLifecycleCount.PROVISIONAL}
-          description="3~5개월 관찰"
-          href="/product-hub?abcStage=PROVISIONAL"
-          tone="violet"
-        />
-      </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-        <Link href="/product-hub?abcRisk=LOSS" className="font-semibold text-rose-600 hover:underline">손실 {formatNumber(abcRiskCount.loss)}개</Link>
-        <span aria-hidden="true">·</span>
-        <Link href="/product-hub?abcRisk=ZERO_VALUE" className="font-semibold text-amber-700 hover:underline">가치 0 {formatNumber(abcRiskCount.zeroValue)}개</Link>
-        <span aria-hidden="true">·</span>
-        <Link href="/product-hub?abcRisk=DATA_QUALITY" className="font-semibold text-amber-700 hover:underline">데이터 확인 {formatNumber(abcRiskCount.dataQuality)}개</Link>
-        <span className="hidden sm:inline" aria-hidden="true">·</span>
-        <span>최근 7일 상승 {formatNumber(changes.upgraded)} / 하락 {formatNumber(changes.downgraded)}</span>
-        <span className="hidden lg:inline" aria-hidden="true">·</span>
-        <span className="text-slate-400">
-          {metricLabel(abcContext.metric)} · 최근 {Math.round(abcContext.periodDays / 30)}개월 · 계산 {formatDate(abcContext.lastCalculatedAt)} · 원본 {formatDate(abcContext.sourceCapturedAt)}
-        </span>
-      </div>
-    </section>
-  );
+  return <section className="space-y-2" aria-label="수익성 ABC 현황">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><h2 className="text-sm font-extrabold text-slate-900">수익성 ABC</h2><p className="mt-0.5 text-xs text-slate-400">고정 수식으로 매출·매입액·광고비 증거를 자동 평가합니다.</p></div>
+      <Link href="/product-hub?abcGrade=unclassified" className="text-xs text-slate-400 hover:text-purple-600">미분류 {formatNumber(unclassifiedProductCount)}개</Link>
+    </div>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      {(['A', 'B', 'C'] as const).map((grade) => <GradeCard key={grade} grade={grade} count={gradeCount[grade]} total={classifiedProductCount} contribution={abcContributionProfit.amountByGrade[grade]} />)}
+      <StatusCard label="관찰·보정 대기" count={abcStatusCount.INSUFFICIENT_EVIDENCE + abcStatusCount.CALIBRATION_PENDING + abcStatusCount.RECALCULATING} description="신상품도 같은 조건을 충족하면 자동 평가" href="/product-hub?abcCalculationStatus=INSUFFICIENT_EVIDENCE" tone="sky" />
+      <StatusCard label="원천 확인 필요" count={sourceAttention + abcStatusCount.CALCULATION_ERROR} description="셀피아·광고비 수집 또는 매핑을 확인" href="/product-hub?abcCalculationStatus=SELLPIA_SOURCE_STALE" tone="amber" />
+    </div>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+      <Link href="/product-hub?abcCalculationStatus=READY" className="font-semibold text-emerald-700 hover:underline">계산 완료 {formatNumber(abcStatusCount.READY)}개</Link>
+      <span aria-hidden="true">·</span><span>최근 7일 상승 {formatNumber(changes.upgraded)} / 하락 {formatNumber(changes.downgraded)}</span>
+      <span className="hidden lg:inline" aria-hidden="true">·</span>
+      <span className="text-slate-400">{abcFormula ? `ABC_V1 v${abcFormula.version} · 반감기 ${abcFormula.halfLifeDays}일 · 활성화 ${formatDate(abcFormula.activatedAt)}` : '검증 표본을 수집하면 수식 보정을 시작합니다.'}</span>
+    </div>
+  </section>;
 }
 
-function OfficialGradeCard({
-  grade,
-  count,
-  classifiedProductCount,
-}: {
-  grade: ProductAbcGrade;
-  count: number;
-  classifiedProductCount: number;
-}) {
-  const percent = classifiedProductCount > 0
-    ? Math.round((count / classifiedProductCount) * 100)
-    : 0;
-  return (
-    <Link
-      href={`/product-hub?abcGrade=${grade}`}
-      className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:shadow-md"
-    >
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-sm font-bold text-slate-900">{grade}등급</span>
-        <span className="text-xs text-slate-400">{GRADE_LABELS[grade]}</span>
-      </div>
-      <div className="text-2xl font-extrabold tabular-nums text-slate-900">
-        {formatNumber(count)}<span className="ml-0.5 text-sm">개</span>
-      </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-        <div
-          className={cn('h-full rounded-full', grade === 'C' ? 'bg-red-500' : 'bg-purple-600')}
-          style={{ width: `${Math.min(percent, 100)}%` }}
-        />
-      </div>
-      <div className="mt-1 text-xs text-slate-400">정식 평가 중 {percent}%</div>
-    </Link>
-  );
+function GradeCard({ grade, count, total, contribution }: { grade: ProductAbcGrade; count: number; total: number; contribution: number }) {
+  const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+  return <Link href={`/product-hub?abcGrade=${grade}`} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:shadow-md">
+    <div className="mb-1 flex items-center justify-between"><span className="text-sm font-bold text-slate-900">{grade}등급</span><span className="text-xs text-slate-400">{GRADE_LABELS[grade]}</span></div>
+    <div className="text-2xl font-extrabold tabular-nums text-slate-900">{formatNumber(count)}<span className="ml-0.5 text-sm">개</span></div>
+    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={cn('h-full rounded-full', grade === 'C' ? 'bg-red-500' : 'bg-purple-600')} style={{ width: `${Math.min(percent, 100)}%` }} /></div>
+    <div className="mt-1 text-xs text-slate-400">가중 공헌이익 {formatNumber(contribution)}원</div>
+  </Link>;
 }
 
-function LifecycleCard({
-  label,
-  count,
-  description,
-  href,
-  tone,
-}: {
-  label: string;
-  count: number;
-  description: string;
-  href: string;
-  tone: 'sky' | 'violet';
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        'rounded-2xl border p-4 shadow-sm transition-all hover:shadow-md',
-        tone === 'sky' ? 'border-sky-100 bg-sky-50/60' : 'border-violet-100 bg-violet-50/60',
-      )}
-    >
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-sm font-bold text-slate-900">{label}</span>
-        <span className="text-xs text-slate-400">관찰 단계</span>
-      </div>
-      <div className="text-2xl font-extrabold tabular-nums text-slate-900">
-        {formatNumber(count)}<span className="ml-0.5 text-sm">개</span>
-      </div>
-      <div className="mt-3 text-xs text-slate-500">{description}</div>
-    </Link>
-  );
-}
-
-function metricLabel(metric: DashboardInventorySummary['abcContext']['metric']): string {
-  if (metric === 'GROSS_PROFIT') return '매출총이익';
-  return metric === 'SALES_AMOUNT' ? '매출액' : '판매 수량';
+function StatusCard({ label, count, description, href, tone }: { label: string; count: number; description: string; href: string; tone: 'sky' | 'amber' }) {
+  return <Link href={href} className={cn('rounded-2xl border p-4 shadow-sm transition-all hover:shadow-md', tone === 'sky' ? 'border-sky-100 bg-sky-50/60' : 'border-amber-100 bg-amber-50/60')}>
+    <div className="mb-1 flex items-center justify-between"><span className="text-sm font-bold text-slate-900">{label}</span><span className="text-xs text-slate-400">자동 계산</span></div>
+    <div className="text-2xl font-extrabold tabular-nums text-slate-900">{formatNumber(count)}<span className="ml-0.5 text-sm">개</span></div>
+    <div className="mt-3 text-xs text-slate-500">{description}</div>
+  </Link>;
 }

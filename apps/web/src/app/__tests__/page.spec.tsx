@@ -89,11 +89,22 @@ const successInv = {
   gradeCount: { A: 2, B: 2, C: 1 },
   classifiedProductCount: 5,
   unclassifiedProductCount: 0,
-  abcLifecycleCount: { NEW: 0, PROVISIONAL: 0, ESTABLISHED: 5 },
-  abcRiskCount: { loss: 0, zeroValue: 0, dataQuality: 0 },
-  abcContext: {
-    metric: 'GROSS_PROFIT', periodDays: 360, lastCalculatedAt: null, sourceCapturedAt: null,
+  abcStatusCount: {
+    READY: 5,
+    INSUFFICIENT_EVIDENCE: 0,
+    SOURCE_UNMAPPED: 0,
+    CALIBRATION_PENDING: 0,
+    RECALCULATING: 0,
+    SELLPIA_SOURCE_STALE: 0,
+    AD_SOURCE_STALE: 0,
+    CALCULATION_ERROR: 0,
   },
+  abcContributionProfit: {
+    amountByGrade: { A: 30_000, B: 10_000, C: -1_000 },
+    shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
+  },
+  abcFormula: null,
+  mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
   alerts: [],
   warnings: {
     minusProducts: 0,
