@@ -107,14 +107,13 @@ export function calculateMasterProductAbcEvaluations(
   let cumulativeValue = 0;
   for (const group of groups) {
     const groupValue = group.rows.reduce((sum, row) => sum + row.rankingValue, 0);
-    const contributionRate = (groupValue / total) * 100;
     const cumulativeContributionRate = ((cumulativeValue + groupValue) / total) * 100;
     for (const row of group.rows) {
       const evaluation = evaluations.get(row.masterProductId)!;
       evaluations.set(row.masterProductId, {
         ...evaluation,
         abcGrade: group.grade,
-        contributionRate,
+        contributionRate: (row.rankingValue / total) * 100,
         cumulativeContributionRate,
       });
     }
