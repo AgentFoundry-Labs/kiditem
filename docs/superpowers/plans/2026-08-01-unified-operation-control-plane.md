@@ -38,6 +38,8 @@ Sellpia snapshot의 `waiting_runtime` cutover, 그리고 전역 Panel의 Operati
 대시보드는 페이지 이동이나 다른 route group 훅 import 없이 OperationRun만 시작한다.
 기존 쿠팡 쉽먼트 화면의 `발송일 조회`도 같은
 `inventory.collect_coupang_shipment_summary` OperationRun을 시작하고, 완료 뒤 기존 달력 데이터를 다시 읽는다.
+기존 로켓 발주 화면의 `이 달 쿠팡 PO 수집·보관`도 계정·기간을 입력으로 같은
+`channels.collect_coupang_rocket_purchase_orders` OperationRun을 시작하고, 완료 뒤 기존 저장본을 다시 읽는다.
 확장은 exact key에 따라 전체 몰 export 수집, 쉽먼트 발송일 요약의 durable upsert,
 로켓 PO 수집과 기존 catalog publication을 수행한다. 주문 export artifact의 화면 간
 fan-out과 advertising/catalog의 나머지 consumer, native Workflow/Agent/AI link,

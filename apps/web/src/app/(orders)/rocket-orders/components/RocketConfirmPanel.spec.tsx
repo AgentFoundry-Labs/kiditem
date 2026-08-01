@@ -12,6 +12,7 @@ import type {
   RocketPurchasePreviewResponse,
 } from "@kiditem/shared/rocket-purchase-preview";
 import { RocketConfirmPanel } from "./RocketConfirmPanel";
+import { operationsApi } from "@/lib/operations-api";
 
 vi.mock(
   "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow",
@@ -22,6 +23,13 @@ vi.mock(
     useRocketPurchaseWorkflow: vi.fn(),
   }),
 );
+vi.mock("@/hooks/useOperationRun", () => ({
+  isTerminalOperationStatus: vi.fn(() => false),
+  useOperationRun: vi.fn(() => ({ data: undefined })),
+}));
+vi.mock("@/lib/operations-api", () => ({
+  operationsApi: { start: vi.fn() },
+}));
 vi.mock("./RocketMatchStatusModal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./RocketMatchStatusModal")>()),
   RocketMatchStatusModal: () => null,
@@ -168,7 +176,10 @@ function renderPanel(options?: {
 }
 
 describe("<RocketConfirmPanel />", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(operationsApi.start).mockReset();
+  });
 
   it("labels saved-date loading separately from a fresh Coupang collection", () => {
     renderPanel({ workflow: { loading: true, collecting: false } });
@@ -176,6 +187,30 @@ describe("<RocketConfirmPanel />", () => {
     expect(
       screen.getByRole("button", { name: "저장본 계산 중…" }),
     ).toBeDisabled();
+  });
+
+  it("starts the same Rocket PO operation as the dashboard action", async () => {
+    vi.mocked(operationsApi.start).mockResolvedValue({
+      id: "11111111-1111-1111-1111-111111111111",
+    } as never);
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "이 달 쿠팡 PO 수집·보관" }));
+
+    await waitFor(() => {
+      expect(operationsApi.start).toHaveBeenCalledWith(
+        "channels.collect_coupang_rocket_purchase_orders",
+        expect.objectContaining({
+          sourceSurface: "domain_screen",
+          input: {
+            channelAccountId: "11111111-1111-4111-8111-111111111111",
+            from: "2026-07-01",
+            to: "2026-07-31",
+          },
+          idempotencyKey: expect.stringMatching(/^rocket-orders:collect:/),
+        }),
+      );
+    });
   });
 
   it("passes the selected delivery date to the preview workflow", () => {

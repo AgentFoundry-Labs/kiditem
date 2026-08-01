@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   Download,
@@ -17,6 +17,9 @@ import {
   type RocketShortageReason,
 } from "@kiditem/shared/rocket-purchase-preview";
 import { toast } from "sonner";
+import { isTerminalOperationStatus, useOperationRun } from "@/hooks/useOperationRun";
+import { operationsApi } from "@/lib/operations-api";
+import { createSecureRandomUuid } from "@/lib/secure-random-uuid";
 import { cn, formatKRW, formatNumber } from "@/lib/utils";
 import {
   clearCoupangCookiesViaExtension,
@@ -153,6 +156,10 @@ export function RocketConfirmPanel({
   >(null);
   const [clearingCookies, setClearingCookies] = useState(false);
   const [rowFilter, setRowFilter] = useState<RowFilter>("all");
+  const [rocketOperationRunId, setRocketOperationRunId] = useState<string | null>(null);
+  const [startingRocketOperation, setStartingRocketOperation] = useState(false);
+  const handledRocketOperationRunId = useRef<string | null>(null);
+  const rocketOperationRun = useOperationRun(rocketOperationRunId);
 
   // ⚠️ 파괴적: supplier 쿠키를 지우면 `.coupang.com` 공용 쿠키까지 걸려 WING·로켓에서 모두
   // 로그아웃된다. 그래서 실행 전에 그 영향 범위를 그대로 알리고 확인을 받는다.
@@ -203,7 +210,6 @@ export function RocketConfirmPanel({
     error,
     collectionWarning,
     canExport,
-    recalculate,
     revalidateEditedQuantities,
     exportAndDownload,
   } = useRocketPurchaseWorkflow({
@@ -216,6 +222,34 @@ export function RocketConfirmPanel({
     onCatalogSaved: onOrdersChanged,
     onActivity,
   });
+
+  const rocketOperationSettled = rocketOperationRun.data
+    && (isTerminalOperationStatus(rocketOperationRun.data.status)
+      || rocketOperationRun.data.status === 'attention_required');
+  const rocketOperationBusy = startingRocketOperation
+    || (rocketOperationRunId !== null && !rocketOperationSettled);
+
+  useEffect(() => {
+    const run = rocketOperationRun.data;
+    const isSettled = run
+      && (isTerminalOperationStatus(run.status) || run.status === 'attention_required');
+    if (!run || !isSettled || handledRocketOperationRunId.current === run.id) return;
+
+    handledRocketOperationRunId.current = run.id;
+    if (run.status === 'succeeded') {
+      const message = '쿠팡 로켓 PO 수집·저장을 완료했습니다.';
+      toast.success(message);
+      onActivity({ status: 'succeeded', message });
+      onOrdersChanged();
+      return;
+    }
+
+    const message = run.error?.message === 'coupang_rocket_session_required'
+      ? '쿠팡 로켓 로그인이 필요합니다.'
+      : run.error?.message ?? '쿠팡 로켓 PO 수집을 완료하지 못했습니다.';
+    toast.error(message);
+    onActivity({ status: 'failed', message });
+  }, [onActivity, onOrdersChanged, rocketOperationRun.data]);
 
   // 매입단가는 검토 대상 밖 행에도 필요하므로 수집본 전체에서 찾고, 없으면 검토 행으로 보완한다.
   const sourceByLineId = useMemo(
@@ -352,7 +386,7 @@ export function RocketConfirmPanel({
   const hasBlockingRows = rows.some((row) =>
     isRocketWorkbookBlockingReason(row.reason),
   );
-  const busy = loading || exporting;
+  const busy = loading || exporting || rocketOperationBusy;
   /**
    * 엑셀은 "거래처확인요청 발주에 납품 가능 수량을 회신"하는 파일이다. 그래서 그 상태의
    * 발주가 없으면 만들 게 없어 버튼이 잠긴다. 이유를 적어두지 않으면 고장으로 보인다.
@@ -382,7 +416,27 @@ export function RocketConfirmPanel({
       toast.error("쿠팡 익스텐션 계정을 자동으로 연결하는 중입니다. 잠시 후 다시 시도해주세요.");
       return;
     }
-    await recalculate();
+    if (rocketOperationBusy) return;
+    setStartingRocketOperation(true);
+    const startedMessage = '쿠팡 로켓 PO 수집을 시작했습니다.';
+    onActivity({ status: 'started', message: startedMessage });
+    try {
+      const run = await operationsApi.start('channels.collect_coupang_rocket_purchase_orders', {
+        sourceSurface: 'domain_screen',
+        input: { channelAccountId, from, to },
+        idempotencyKey: `rocket-orders:collect:${createSecureRandomUuid()}`,
+      });
+      setRocketOperationRunId(run.id);
+      toast.success(startedMessage);
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : '쿠팡 로켓 PO 수집을 시작하지 못했습니다.';
+      toast.error(message);
+      onActivity({ status: 'failed', message });
+    } finally {
+      setStartingRocketOperation(false);
+    }
   }
 
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
@@ -442,7 +496,7 @@ export function RocketConfirmPanel({
               ) : (
                 <RefreshCw size={15} />
               )}
-              {collecting
+              {rocketOperationBusy || collecting
                 ? "쿠팡 수집·저장 중…"
                 : loading
                   ? "저장본 계산 중…"
