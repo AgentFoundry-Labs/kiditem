@@ -200,6 +200,424 @@ async function runSellpiaInventoryOperation(operation) {
   };
 }
 
+async function ordersOperationRequestJson(operation, path, options = {}) {
+  const response = await browserOperationRuntimeEnvironmentContext.authedFetch(
+    operation.environmentId,
+    path,
+    options,
+  );
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`operation_owner_api_${response.status}`);
+  }
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("operation_owner_api_invalid_response");
+  }
+}
+
+async function ordersOperationHeartbeat(operation, progress) {
+  if (typeof operation?.heartbeat !== "function") return;
+  await operation.heartbeat(progress).catch(() => undefined);
+}
+
+function ordersOperationKstDate() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function ordersOperationKstMonthBounds() {
+  const current = ordersOperationKstDate();
+  const [year, month] = current.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return {
+    from: `${year}-${String(month).padStart(2, "0")}-01`,
+    to: `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
+
+function ordersOperationMessage(value, fallback) {
+  const message = typeof value?.error === "string" ? value.error.trim() : "";
+  return (message || fallback).slice(0, 300);
+}
+
+function ordersOperationNeedsAttention(value) {
+  return value?.pendingLogin === true
+    || value?.errorCode === "login_required"
+    || value?.errorCode === "operator_action_required"
+    || value?.errorCode === "coupang_po_session_required"
+    || value?.errorCode === "coupang_shipment_session_required";
+}
+
+function ordersOperationCount(value) {
+  const candidates = [
+    value?.rowCount,
+    value?.count,
+    value?.poCount,
+    Array.isArray(value?.rows) ? value.rows.length : null,
+    Array.isArray(value?.orders) ? value.orders.length : null,
+  ];
+  return candidates.find((count) => Number.isInteger(count) && count >= 0) ?? 0;
+}
+
+function isOperationCollectableMall(account) {
+  if (!account || account.enabled !== true || typeof account.key !== "string") {
+    return false;
+  }
+  return [
+    "icecream-mall",
+    "kidsnote",
+    "kkomangse",
+    "onch",
+    "kakao",
+    "domeggook",
+    "kidkids",
+    "lotte-on",
+    "gs-shop",
+    "always",
+    "boribori",
+    "teacher-mall",
+    "art09",
+    "haebub-mall",
+  ].includes(account.key);
+}
+
+async function collectMarketplaceOrdersForOperation(account, collectionDate, collection) {
+  switch (account.key) {
+    case "icecream-mall":
+      return collectIcecreamMallOrders(collectionDate, null, collection);
+    case "kidsnote":
+      return collectKidsnoteOrders({
+        from: collectionDate,
+        to: collectionDate,
+        status: "",
+        withDetail: true,
+      }, collection);
+    case "kkomangse":
+      return collectKkomangseOrders(collection);
+    case "onch":
+      return collectOnchannelOrders(collectionDate, collection);
+    case "kakao":
+      return collectKakaoOrders(null, collection);
+    case "domeggook":
+      return collectDomeggookOrders(collectionDate, collection);
+    case "kidkids":
+      return collectKidkidsOrders(null, null, collection);
+    case "lotte-on":
+      return collectLotteonOrders(collection);
+    case "gs-shop":
+      return collectGsshopOrders(collection);
+    case "always":
+      return collectAlwayzOrders(collection);
+    case "boribori":
+      return collectBoriboriOrders({}, collection);
+    case "teacher-mall":
+      return collectTeachervilleOrders(collection);
+    case "art09":
+      return collectArt09Orders(collectionDate, collection);
+    case "haebub-mall":
+      return collectHaebeopOrders({ date: collectionDate }, collection);
+    default:
+      return {
+        success: false,
+        errorCode: "unsupported_marketplace",
+        error: "This marketplace is not supported by the browser operation.",
+      };
+  }
+}
+
+async function runMarketplaceOrderCollectionOperation(operation) {
+  let accounts;
+  try {
+    accounts = await ordersOperationRequestJson(
+      operation,
+      "/api/orders/collection/malls",
+    );
+  } catch {
+    return {
+      status: "failed",
+      errorCode: "marketplace_account_list_failed",
+      errorMessage: "Marketplace accounts could not be loaded.",
+    };
+  }
+  const targets = Array.isArray(accounts)
+    ? accounts.filter(isOperationCollectableMall)
+    : [];
+  if (targets.length === 0) {
+    return {
+      status: "attention_required",
+      attentionReason: "marketplace_collection_account_required",
+    };
+  }
+
+  const requestedDate = typeof operation.input?.collectionDate === "string"
+    ? operation.input.collectionDate
+    : ordersOperationKstDate();
+  const collected = await orderCollectionLifecycle.run(
+    { runId: operation.runId, environmentId: operation.environmentId },
+    KidItemOrderCollectionLifecycle.createIdentity("all-marketplaces", requestedDate),
+    async (collection) => {
+      const results = [];
+      for (let index = 0; index < targets.length; index += 1) {
+        const account = targets[index];
+        await ordersOperationHeartbeat(operation, index / targets.length);
+        try {
+          const result = await collectMarketplaceOrdersForOperation(
+            account,
+            requestedDate,
+            collection,
+          );
+          if (result?.success === true) {
+            const count = ordersOperationCount(result);
+            results.push({
+              mallKey: account.key,
+              mallName: typeof account.name === "string" ? account.name.slice(0, 120) : account.key,
+              status: count === 0 || result.empty === true ? "empty" : "succeeded",
+              rowCount: count,
+            });
+          } else {
+            results.push({
+              mallKey: account.key,
+              mallName: typeof account.name === "string" ? account.name.slice(0, 120) : account.key,
+              status: ordersOperationNeedsAttention(result) ? "attention_required" : "failed",
+              rowCount: 0,
+              errorCode: typeof result?.errorCode === "string"
+                ? result.errorCode.slice(0, 120)
+                : "marketplace_collection_failed",
+              message: ordersOperationMessage(result, "Marketplace collection failed."),
+            });
+          }
+        } catch (error) {
+          results.push({
+            mallKey: account.key,
+            mallName: typeof account.name === "string" ? account.name.slice(0, 120) : account.key,
+            status: "failed",
+            rowCount: 0,
+            errorCode: "marketplace_collection_failed",
+            message: ordersOperationMessage(error, "Marketplace collection failed."),
+          });
+        }
+      }
+      const succeededCount = results.filter(({ status }) => status === "succeeded").length;
+      const emptyCount = results.filter(({ status }) => status === "empty").length;
+      const attentionCount = results.filter(({ status }) => status === "attention_required").length;
+      const failedCount = results.filter(({ status }) => status === "failed").length;
+      return {
+        success: succeededCount + emptyCount > 0,
+        pendingLogin: succeededCount + emptyCount === 0 && attentionCount > 0,
+        results,
+        succeededCount,
+        emptyCount,
+        attentionCount,
+        failedCount,
+      };
+    },
+  );
+  await ordersOperationHeartbeat(operation, 1);
+  if (collected?.pendingLogin === true) {
+    return {
+      status: "attention_required",
+      attentionReason: "marketplace_login_required",
+    };
+  }
+  const results = Array.isArray(collected?.results) ? collected.results : [];
+  const succeededCount = Number.isInteger(collected?.succeededCount) ? collected.succeededCount : 0;
+  const emptyCount = Number.isInteger(collected?.emptyCount) ? collected.emptyCount : 0;
+  const attentionCount = Number.isInteger(collected?.attentionCount) ? collected.attentionCount : 0;
+  const failedCount = Number.isInteger(collected?.failedCount) ? collected.failedCount : 0;
+  if (succeededCount + emptyCount === 0 && attentionCount > 0) {
+    return {
+      status: "attention_required",
+      attentionReason: "marketplace_login_required",
+    };
+  }
+  if (succeededCount + emptyCount === 0 && failedCount > 0) {
+    return {
+      status: "failed",
+      errorCode: "marketplace_collection_failed",
+      errorMessage: "Marketplace order collection failed.",
+    };
+  }
+  return {
+    status: "succeeded",
+    result: {
+      collectionDate: requestedDate,
+      targetCount: targets.length,
+      succeededCount,
+      emptyCount,
+      attentionCount,
+      failedCount,
+      rowCount: results.reduce((total, item) => total + item.rowCount, 0),
+      results,
+    },
+  };
+}
+
+async function runCoupangShipmentSummaryOperation(operation) {
+  const maxPages = Number.isInteger(operation.input?.maxPages)
+    ? operation.input.maxPages
+    : 40;
+  await ordersOperationHeartbeat(operation, 0.1);
+  const collected = await collectCoupangShipmentDateSummary({ maxPages });
+  if (collected?.success !== true || !Array.isArray(collected.dates)) {
+    if (ordersOperationNeedsAttention(collected)) {
+      return {
+        status: "attention_required",
+        attentionReason: "coupang_shipment_session_required",
+      };
+    }
+    return {
+      status: "failed",
+      errorCode: typeof collected?.errorCode === "string"
+        ? collected.errorCode.slice(0, 120)
+        : "coupang_shipment_summary_failed",
+      errorMessage: ordersOperationMessage(collected, "Coupang shipment query failed."),
+    };
+  }
+  await ordersOperationHeartbeat(operation, 0.7);
+  try {
+    await ordersOperationRequestJson(operation, "/api/coupang-shipments/date-summary", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: collected.dates }),
+    });
+  } catch {
+    return {
+      status: "failed",
+      errorCode: "coupang_shipment_summary_save_failed",
+      errorMessage: "Coupang shipment query results could not be saved.",
+    };
+  }
+  await ordersOperationHeartbeat(operation, 1);
+  return {
+    status: "succeeded",
+    result: {
+      scannedPages: Number.isInteger(collected.scannedPages) ? collected.scannedPages : 0,
+      totalRows: Number.isInteger(collected.totalRows) ? collected.totalRows : 0,
+      dateCount: collected.dates.length,
+    },
+  };
+}
+
+async function resolveRocketAccountForOperation(operation) {
+  const requestedAccountId = typeof operation.input?.channelAccountId === "string"
+    ? operation.input.channelAccountId
+    : null;
+  let accounts = await ordersOperationRequestJson(operation, "/api/channels/accounts");
+  let rocketAccounts = Array.isArray(accounts)
+    ? accounts.filter((account) => account?.channel === "rocket")
+    : [];
+  if (rocketAccounts.length === 0) {
+    const bootstrapped = await ordersOperationRequestJson(
+      operation,
+      "/api/channels/accounts/rocket/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    rocketAccounts = bootstrapped?.id ? [bootstrapped] : [];
+  }
+  if (requestedAccountId) {
+    return rocketAccounts.find(({ id }) => id === requestedAccountId) ?? null;
+  }
+  return rocketAccounts.length === 1 ? rocketAccounts[0] : null;
+}
+
+async function runCoupangRocketPurchaseOrderOperation(operation) {
+  let account;
+  try {
+    account = await resolveRocketAccountForOperation(operation);
+  } catch {
+    return {
+      status: "failed",
+      errorCode: "rocket_channel_account_lookup_failed",
+      errorMessage: "Rocket channel account could not be loaded.",
+    };
+  }
+  if (!account?.id) {
+    return {
+      status: "attention_required",
+      attentionReason: "rocket_channel_account_selection_required",
+    };
+  }
+  const defaultBounds = ordersOperationKstMonthBounds();
+  const from = typeof operation.input?.from === "string" ? operation.input.from : defaultBounds.from;
+  const to = typeof operation.input?.to === "string" ? operation.input.to : defaultBounds.to;
+  await ordersOperationHeartbeat(operation, 0.1);
+  const collected = await orderCollectionLifecycle.run(
+    { runId: operation.runId, environmentId: operation.environmentId },
+    KidItemOrderCollectionLifecycle.createIdentity("coupang-rocket", to),
+    (collection) => collectRocketPoRows({
+      from,
+      to,
+      status: "",
+      dateType: "WAREHOUSING_PLAN_DATE",
+    }, collection),
+  );
+  if (collected?.success !== true || !Array.isArray(collected.rows) || !collected.evidence) {
+    if (ordersOperationNeedsAttention(collected)) {
+      return {
+        status: "attention_required",
+        attentionReason: "coupang_rocket_session_required",
+      };
+    }
+    return {
+      status: "failed",
+      errorCode: typeof collected?.errorCode === "string"
+        ? collected.errorCode.slice(0, 120)
+        : "coupang_rocket_collection_failed",
+      errorMessage: ordersOperationMessage(collected, "Coupang Rocket PO collection failed."),
+    };
+  }
+  await ordersOperationHeartbeat(operation, 0.75);
+  let preview;
+  try {
+    preview = await ordersOperationRequestJson(operation, "/api/purchase-orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "previewRocket",
+        channelAccountId: account.id,
+        collection: collected.evidence,
+        rows: collected.rows,
+        editedQuantities: {},
+        clampEditedQuantities: true,
+        previewScope: "confirmation_requested",
+      }),
+    });
+  } catch {
+    return {
+      status: "failed",
+      errorCode: "coupang_rocket_catalog_save_failed",
+      errorMessage: "Coupang Rocket PO collection could not be saved.",
+    };
+  }
+  await ordersOperationHeartbeat(operation, 1);
+  return {
+    status: "succeeded",
+    result: {
+      channelAccountId: account.id,
+      from,
+      to,
+      poCount: Number.isInteger(collected.poCount) ? collected.poCount : 0,
+      rowCount: collected.rows.length,
+      sourceImportRunId: typeof preview?.catalog?.run?.id === "string"
+        ? preview.catalog.run.id
+        : null,
+    },
+  };
+}
+
 function handleSellpiaManualMatchPort(port, senderEnvironment) {
   let started = false;
   const finish = (result) => {
@@ -6984,6 +7402,9 @@ KidItemDomains.register({
   },
   operations: {
     "inventory.refresh_sellpia_snapshot": runSellpiaInventoryOperation,
+    "inventory.collect_coupang_shipment_summary": runCoupangShipmentSummaryOperation,
+    "orders.collect_all_marketplace_orders": runMarketplaceOrderCollectionOperation,
+    "channels.collect_coupang_rocket_purchase_orders": runCoupangRocketPurchaseOrderOperation,
   },
   capabilities: {
     orderCollectionIcecreamMall: true,

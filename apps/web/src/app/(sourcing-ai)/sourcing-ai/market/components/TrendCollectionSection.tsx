@@ -2,16 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { isTerminalOperationStatus, useOperationRun } from '@/hooks/useOperationRun';
 import { queryKeys } from '@/lib/query-keys';
-import { cn } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 import {
   TREND_SOURCE_META,
   TREND_SOURCE_ORDER,
   collectTrend,
   fetchTrendSeeds,
+  type TrendCollectResult,
+  type TrendSourceCollectResult,
   type TrendSource,
 } from '../lib/trend-collection-api';
 import { TrendSeedManager } from './TrendSeedManager';
@@ -20,13 +22,14 @@ import { TrendCollectionViews } from './TrendCollectionViews';
 const pressable =
   'transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none';
 
-/** Server-owned OperationRun을 요청하고 결과는 ledger의 terminal state에서 확인한다. */
+/** 기존 수집 화면의 버튼으로 공통 실행 경로를 요청한다. */
 export function TrendCollectionSection() {
   const queryClient = useQueryClient();
   const [collectSources, setCollectSources] = useState<Set<TrendSource>>(
     new Set(TREND_SOURCE_ORDER),
   );
   const [operationRunId, setOperationRunId] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<TrendCollectResult | null>(null);
   const terminalNotificationRunId = useRef<string | null>(null);
   const operationRun = useOperationRun(operationRunId);
 
@@ -43,7 +46,6 @@ export function TrendCollectionSection() {
     ),
     onSuccess: (run) => {
       setOperationRunId(run.id);
-      toast.success('트렌드 수집을 시작했습니다. 완료 상태를 확인 중입니다.');
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : '트렌드 수집을 시작하지 못했습니다.'),
   });
@@ -55,7 +57,19 @@ export function TrendCollectionSection() {
     }
     terminalNotificationRunId.current = run.id;
     if (run.status === 'succeeded') {
-      toast.success('트렌드 수집이 완료되었습니다. 최신 데이터를 불러옵니다.');
+      const result = toTrendCollectResult(run.result);
+      if (result) {
+        setLastResult(result);
+        const total = result.results.reduce((sum, item) => sum + item.collected, 0);
+        const failed = result.results.filter((item) => !item.ok);
+        if (failed.length === 0) {
+          toast.success(`트렌드 수집 완료 · ${formatNumber(total)}건 저장`);
+        } else {
+          toast.warning(`수집 완료 · ${failed.length}개 소스 실패 (${formatNumber(total)}건 저장)`);
+        }
+      } else {
+        toast.success('트렌드 수집이 완료되었습니다. 최신 데이터를 불러옵니다.');
+      }
     } else {
       toast.error(run.error?.message ?? '트렌드 수집이 완료되지 않았습니다.');
     }
@@ -71,8 +85,9 @@ export function TrendCollectionSection() {
     });
   };
 
-  const requestPending = collectMutation.isPending;
-  const canCollect = collectSources.size > 0 && !requestPending;
+  const running = collectMutation.isPending
+    || (operationRun.data !== undefined && !isTerminalOperationStatus(operationRun.data.status));
+  const canCollect = collectSources.size > 0 && !running;
 
   return (
     <div className="space-y-5">
@@ -80,9 +95,6 @@ export function TrendCollectionSection() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-2xl">
             <h2 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">트렌드 수집</h2>
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">
-              선택한 소스는 Agent OS 작업으로 기록되며, 브라우저가 필요하면 안전하게 대기합니다.
-            </p>
           </div>
           <div className="flex flex-col items-stretch gap-3 sm:min-w-[280px]">
             <div>
@@ -96,7 +108,7 @@ export function TrendCollectionSection() {
                       key={source}
                       type="button"
                       aria-pressed={active}
-                      disabled={requestPending}
+                      disabled={running}
                       onClick={() => toggleCollectSource(source)}
                       className={cn(
                         'rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 disabled:opacity-60',
@@ -119,8 +131,8 @@ export function TrendCollectionSection() {
                 pressable,
               )}
             >
-              {requestPending ? <Loader2 size={17} className="animate-spin" /> : <RefreshCw size={17} />}
-              {requestPending ? '수집 중…' : '트렌드 수집'}
+              {running ? <Loader2 size={17} className="animate-spin" /> : <RefreshCw size={17} />}
+              {running ? '수집 중…' : '트렌드 수집'}
             </button>
           </div>
         </div>
@@ -132,16 +144,70 @@ export function TrendCollectionSection() {
           </div>
         )}
 
-        {operationRun.data && (
-          <p className="mt-4 rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-            현재 작업 상태: <strong>{operationRun.data.status}</strong>
-            {operationRun.data.status === 'waiting_runtime' ? ' · 브라우저 런타임 연결을 기다리고 있습니다.' : ''}
-          </p>
+        {lastResult && (
+          <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-[var(--text-secondary)]">최근 수집 결과</p>
+              <span className="text-[11px] font-semibold tabular-nums text-[var(--text-tertiary)]">
+                {lastResult.businessDate}
+              </span>
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {lastResult.results.map((result) => (
+                <CollectResultCard key={result.source} result={result} />
+              ))}
+            </div>
+          </div>
         )}
       </section>
 
       <TrendSeedManager seeds={seedsQuery.data ?? []} isLoading={seedsQuery.isLoading} />
       <TrendCollectionViews />
     </div>
+  );
+}
+
+function toTrendCollectResult(value: unknown): TrendCollectResult | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as { businessDate?: unknown; results?: unknown };
+  if (typeof candidate.businessDate !== 'string' || !Array.isArray(candidate.results)) return null;
+  const results: TrendSourceCollectResult[] = [];
+  for (const item of candidate.results) {
+    if (!item || typeof item !== 'object') return null;
+    const result = item as Record<string, unknown>;
+    if (
+      (result.source !== 'naver' && result.source !== '1688' && result.source !== 'shorts')
+      || typeof result.ok !== 'boolean'
+      || typeof result.collected !== 'number'
+      || (result.error !== undefined && typeof result.error !== 'string')
+    ) return null;
+    results.push({
+      source: result.source,
+      ok: result.ok,
+      collected: result.collected,
+      ...(typeof result.error === 'string' ? { error: result.error } : {}),
+    });
+  }
+  return { businessDate: candidate.businessDate, results };
+}
+
+function CollectResultCard({ result }: { result: TrendSourceCollectResult }) {
+  const meta = TREND_SOURCE_META[result.source];
+  return (
+    <article
+      className={cn(
+        'rounded-lg border px-3 py-2.5',
+        result.ok ? 'border-[var(--border)] bg-[var(--surface-sunken)]' : 'border-rose-200 bg-rose-50',
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold text-[var(--text-primary)]">{meta.label}</span>
+        {result.ok ? <CheckCircle2 size={15} className="text-emerald-600" /> : <XCircle size={15} className="text-rose-600" />}
+      </div>
+      <p className="mt-1 text-lg font-bold tabular-nums text-[var(--text-primary)]">
+        {formatNumber(result.collected)}<span className="ml-1 text-xs font-medium text-[var(--text-tertiary)]">건</span>
+      </p>
+      {result.error ? <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-rose-700" title={result.error}>{result.error}</p> : null}
+    </article>
   );
 }

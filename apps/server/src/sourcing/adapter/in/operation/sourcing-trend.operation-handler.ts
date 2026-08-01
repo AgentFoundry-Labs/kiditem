@@ -50,6 +50,12 @@ export class SourcingTrendOperationHandler
         businessDate: collected.businessDate,
         collected: collected.results.reduce((total, result) => total + result.collected, 0),
         warningCount,
+        results: collected.results.map((result) => ({
+          source: result.source,
+          ok: result.ok,
+          collected: result.collected,
+          ...(result.error ? { error: result.error.slice(0, 2_000) } : {}),
+        })),
       },
     };
   }

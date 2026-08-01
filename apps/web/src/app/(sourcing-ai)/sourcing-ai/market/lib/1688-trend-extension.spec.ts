@@ -369,7 +369,7 @@ describe('1688 trend Chrome extension bridge', () => {
     }
   });
 
-  it('wires the server-owned operation run status into the trend section', () => {
+  it('uses the server-owned operation run without adding a generic status card', () => {
     const source = fs.readFileSync(
       path.resolve(
         'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionSection.tsx',
@@ -380,7 +380,7 @@ describe('1688 trend Chrome extension bridge', () => {
     expect(source).toContain('useOperationRun');
     expect(source).toContain('setOperationRunId(run.id)');
     expect(source).toContain('isTerminalOperationStatus');
-    expect(source).toContain("operationRun.data.status === 'waiting_runtime'");
+    expect(source).not.toContain("operationRun.data.status === 'waiting_runtime'");
     expect(source).not.toContain('useBrowserCollectionSession');
     expect(source).not.toContain('BrowserCollectionRunControls');
     expect(source).not.toContain('recordMissingBrowserCollection');

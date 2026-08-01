@@ -9,7 +9,6 @@ import { toast } from 'sonner';
 import AgentFace from '@/components/AgentFace';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import { AgentOsOperationsPanel } from './agent-os/AgentOsOperationsPanel';
 import {
   useDepartmentQuickActions,
   type DepartmentQuickAction,
@@ -59,6 +58,9 @@ const ACTION_LABEL: Record<DepartmentQuickAction, string> = {
   collectTrend: '시장분석 수집',
   refreshInventory: '재고 분석 업데이트',
   syncSellpia: '셀피아 동기화',
+  collectAllOrders: '몰 주문수집',
+  collectCoupangShipmentSummary: '쿠팡 쉽먼트 조회',
+  collectCoupangRocketPurchaseOrders: '쿠팡 로켓 PO 수집',
 };
 
 const DEPT_MAP: readonly Dept[] = [
@@ -75,11 +77,14 @@ const DEPT_MAP: readonly Dept[] = [
   },
   {
     key: 'order', label: '주문', color: '#f59e0b', faceColor: 'amber', faceRole: 'order',
-    buttons: [{ label: '몰 주문수집', kind: 'link', href: '/order-collection' }],
+    buttons: [{ label: '몰 주문수집', kind: 'action', action: 'collectAllOrders' }],
   },
   {
     key: 'shipping', label: '출고', color: '#0ea5e9', faceColor: 'cyan', faceRole: 'shipping',
-    buttons: [{ label: '쿠팡 쉽먼트', kind: 'link', href: '/coupang-shipments' }],
+    buttons: [
+      { label: '쿠팡 쉽먼트 조회', kind: 'action', action: 'collectCoupangShipmentSummary' },
+      { label: '쿠팡 로켓 PO 수집', kind: 'action', action: 'collectCoupangRocketPurchaseOrders' },
+    ],
   },
   {
     key: 'analysis', label: '분석', color: '#ef4444', faceColor: 'rose', faceRole: 'finance',
@@ -125,11 +130,8 @@ export function DashboardChartPanel({
     const label = ACTION_LABEL[action];
     const toastId = toast.loading(`${label} 실행 중…`);
     try {
-      const run = await quickActions.start(action);
-      toast.success(`${label} 실행을 시작했습니다.`, {
-        id: toastId,
-        description: `작업 ID ${run.id.slice(0, 8)} · Agent OS에서 상태를 확인하세요.`,
-      });
+      await quickActions.start(action);
+      toast.success(`${label} 실행을 시작했습니다.`, { id: toastId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `${label} 실패`, { id: toastId });
     } finally {
@@ -268,7 +270,6 @@ export function DashboardChartPanel({
                 </div>
               ))}
             </div>
-            <AgentOsOperationsPanel />
           </div>
         </div>
       )}

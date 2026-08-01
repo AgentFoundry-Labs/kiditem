@@ -6,12 +6,18 @@ import { operationsApi } from '@/lib/operations-api';
 export type DepartmentQuickAction =
   | 'collectTrend'
   | 'refreshInventory'
-  | 'syncSellpia';
+  | 'syncSellpia'
+  | 'collectAllOrders'
+  | 'collectCoupangShipmentSummary'
+  | 'collectCoupangRocketPurchaseOrders';
 
 export const ACTION_OPERATION_KEY: Record<DepartmentQuickAction, string> = {
   collectTrend: 'sourcing.collect_daily_trends',
   refreshInventory: 'inventory.refresh_sellpia_snapshot',
   syncSellpia: 'inventory.refresh_sellpia_snapshot',
+  collectAllOrders: 'orders.collect_all_marketplace_orders',
+  collectCoupangShipmentSummary: 'inventory.collect_coupang_shipment_summary',
+  collectCoupangRocketPurchaseOrders: 'channels.collect_coupang_rocket_purchase_orders',
 };
 
 function createIdempotencyKey(action: DepartmentQuickAction): string {

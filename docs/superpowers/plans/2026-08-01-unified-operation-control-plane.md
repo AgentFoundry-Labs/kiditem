@@ -4,7 +4,7 @@
 
 **Goal:** 대시보드 Agent OS, 개별 업무 화면, Agent, 서버 예약 실행이 동일한 OperationRun 진입점과 실행 이력을 사용하도록 통합한다.
 
-**Architecture:** 새 플랫폼 소유자인 operations가 코드 소유 Operation 카탈로그, 조직별 예약, 최상위 실행 ledger, 엔진 dispatch, 브라우저 lease를 소유한다. Automation, Agent OS, AI direct job, 브라우저 확장은 기존 실행 엔진과 도메인 책임을 유지하고 OperationRun에 native 실행 또는 하위 실행으로 연결한다. 대시보드의 Agent OS 명칭과 화면은 유지하며, 이 화면은 모든 운영 실행의 상위 제어·관측 인터페이스가 된다.
+**Architecture:** 새 플랫폼 소유자인 operations가 코드 소유 Operation 카탈로그, 조직별 예약, 최상위 실행 ledger, 엔진 dispatch, 브라우저 lease를 소유한다. Automation, Agent OS, AI direct job, 브라우저 확장은 기존 실행 엔진과 도메인 책임을 유지하고 OperationRun에 native 실행 또는 하위 실행으로 연결한다. 대시보드의 Agent OS 명칭과 화면은 그대로 유지하며, 새 범용 작업 제어 UI를 추가하지 않는다. 각 기존 업무 화면의 버튼이 공통 실행 경로를 호출하고 해당 화면의 기존 상태·결과 UI가 이를 표시한다.
 
 **Tech Stack:** NestJS 11, Prisma 7/PostgreSQL, Zod 3, React 19/Next.js, TanStack Query, Chrome Manifest V3, Vitest/Node test, cron-parser
 
@@ -29,15 +29,17 @@
 이번 변경에는 Tasks 1–11의 첫 production slice와 Task 15의 snapshot projection
 기초가 포함된다: operations
 platform/ledger/schedule/API/worker/browser lease, sourcing의 첫 server
-capability, 대시보드 Agent OS의 공통 client·상태·예약 제어, extension runtime,
+capability, 기존 대시보드·업무 화면 버튼의 공통 client 전환, extension runtime,
 Sellpia snapshot의 `waiting_runtime` cutover, 그리고 전역 Panel의 OperationRun
 읽기 전용 투영이 구현됐다.
 
-Orders artifact fan-out, shipment/advertising/catalog browser consumer, native
-Workflow/Agent/AI link, Panel의 transition SSE 발행과 legacy 제거는 다음 slice로
-남긴다. 아직 owner handler가 없는 주문·쉽먼트는 실패하는 dashboard 실행 버튼으로
-바꾸지 않고 기존 업무 화면으로 연결한다. 이 계획은 그 작업을 새 dashboard-local
-로직으로 되돌리지 않도록 여전히 기준 문서로 유지한다.
+이번 slice에서 대시보드의 `몰 주문수집`, `쿠팡 쉽먼트 조회`, `쿠팡 로켓 PO 수집`은
+각각 `orders`, `inventory`, `channels`의 exact browser Operation으로 등록했다.
+대시보드는 페이지 이동이나 다른 route group 훅 import 없이 OperationRun만 시작한다.
+확장은 exact key에 따라 전체 몰 export 수집, 쉽먼트 발송일 요약의 durable upsert,
+로켓 PO 수집과 기존 catalog publication을 수행한다. 주문 export artifact의 화면 간
+fan-out과 advertising/catalog의 나머지 consumer, native Workflow/Agent/AI link,
+Panel transition SSE와 legacy 제거는 다음 slice로 남긴다.
 
 ## 고정 결정
 
@@ -53,7 +55,7 @@ Workflow/Agent/AI link, Panel의 transition SSE 발행과 legacy 제거는 다�
 10. 대용량 파일과 canonical 도메인 결과는 generic Operation JSON에 넣지 않는다. 도메인 ingest API가 저장하고 Operation에는 안전한 참조만 남긴다.
 11. 조직 소유 API는 organizationId를 인증 컨텍스트에서 받고 body/query 입력으로 받지 않는다.
 12. 기존 직접 경로는 새 경로와 회귀 gate가 동작한 뒤에만 삭제한다.
-13. 모든 schedule은 배포 직후 비활성 상태다. 조직 operator가 Agent OS에서 cron과 timezone을 저장하고 활성화해야 실행된다.
+13. 모든 schedule은 배포 직후 비활성 상태다. cron, timezone, 활성 상태는 API 계약으로 유지하며, 새로운 범용 예약 화면은 만들지 않는다. 업무별 기존 설정 화면이 준비될 때 그 화면에 연결한다.
 
 ## 기존 설계와의 관계
 
@@ -84,7 +86,7 @@ Schedule worker ────┘      -> registered operation handler
                               ├─ browser runtime lease
                               └─ child OperationRun fan-out
 
-OperationRun state -> panel SSE projection -> Dashboard Agent OS / global panel
+OperationRun state -> 기존 업무 화면 상태/결과 + global panel projection
 OperationAlert     -> attention/notification projection only
 ~~~
 
@@ -112,9 +114,10 @@ Native owner adapter가 위 상태로 명시적으로 매핑한다. WorkflowRun.
 | sourcing.collect_live_commerce_trends | sourcing | browser | 상위 실행 전용 | sourcing trend ingest |
 | sourcing.collect_tiktok_cc_trends | sourcing | browser | 상위 실행 전용 | sourcing trend ingest |
 | inventory.refresh_sellpia_snapshot | inventory | browser | 가능 | inventory freshness/import |
-| orders.collect_all_malls | orders | composite/browser children | 가능 | order artifacts/imports |
+| orders.collect_all_marketplace_orders | orders | browser | 가능 | marketplace export collection result |
 | orders.collect_mall | orders | browser | 상위 실행 전용 | order artifacts/imports |
-| inventory.collect_coupang_shipments_today | inventory | browser | 가능 | shipment artifact/summary |
+| inventory.collect_coupang_shipment_summary | inventory | browser | 가능 | shipment date-summary |
+| channels.collect_coupang_rocket_purchase_orders | channels | browser | 가능 | Rocket PO catalog snapshot |
 | advertising.collect_daily_facts | advertising | composite/browser | 가능 | advertising ingest |
 | channels.import_coupang_catalog | channels | browser | 가능 | channel catalog import |
 | ai.generate_product_content | ai | ai_direct | 불가 | AI workspace/artifacts |
@@ -155,7 +158,6 @@ Native owner adapter가 위 상태로 명시적으로 매핑한다. WorkflowRun.
 | apps/server/src/sourcing/adapter/in/operation/sourcing-trend.operation-handler.ts | owner incoming capability adapter reference implementation |
 | apps/web/src/lib/operations-api.ts | shared API client |
 | apps/web/src/hooks/useOperationRun.ts | run polling/mutation |
-| apps/web/src/app/(analytics)/dashboard/components/agent-os/AgentOsOperationsPanel.tsx | Agent OS operation surface |
 | extensions/kiditem-os/background/operation-runtime-client.js | claim/heartbeat/report |
 
 ## Task 1: 플랫폼 경계와 회귀 gate 고정
@@ -734,17 +736,13 @@ rtk git add apps/server/src/sourcing apps/server/src/operations
 rtk git commit -m "feat: route sourcing trend collection through operations"
 ~~~
 
-## Task 9: web Operations client와 대시보드 Agent OS 전환
+## Task 9: web Operations client와 기존 버튼 전환
 
 **Files:**
 - Create: apps/web/src/lib/operations-api.ts
 - Create: apps/web/src/lib/__tests__/operations-api.spec.ts
 - Create: apps/web/src/hooks/useOperationRun.ts
 - Create: apps/web/src/hooks/useOperationRun.spec.tsx
-- Create: apps/web/src/app/(analytics)/dashboard/components/agent-os/AgentOsOperationsPanel.tsx
-- Create: apps/web/src/app/(analytics)/dashboard/components/agent-os/AgentOsOperationCard.tsx
-- Create: apps/web/src/app/(analytics)/dashboard/components/agent-os/AgentOsOperationsPanel.spec.tsx
-- Create: apps/web/src/app/(analytics)/dashboard/hooks/use-agent-os-operations.ts
 - Modify: apps/web/src/lib/query-keys.ts
 - Modify: apps/web/src/app/(analytics)/dashboard/hooks/use-department-quick-actions.ts
 - Modify: apps/web/src/app/(analytics)/dashboard/components/DashboardChartPanel.tsx
@@ -792,9 +790,9 @@ const ACTION_OPERATION_KEY = {
 
 hook은 mapping과 operationsApi.start만 호출한다. 주문 concurrency, extension bridge, IndexedDB store import를 제거한다.
 
-- [ ] **Step 5: Agent OS panel 구현**
+- [ ] **Step 5: 기존 화면의 상태·결과 UI 보존**
 
-기존 Agent OS 탭과 명칭을 유지하며 작업명, 마지막 상태/성공, 다음 예약, 실행/취소/재실행, 예약 on/off, cron/timezone, 브라우저 대기, 확인 필요를 표시한다. hard-coded 대기는 active run이 없을 때만 쓴다. 시작 응답으로 성공 toast를 내지 않고 terminal polling 결과와 warningCount로 결정한다.
+새 Agent OS 작업 패널, 범용 실행 카드, 범용 예약 화면을 만들지 않는다. 기존 버튼이 OperationRun을 요청하되, 기존 화면의 진행 상태·완료 결과·오류 표현을 유지한다. 시작 응답으로 완료 toast를 내지 않고 terminal polling 결과와 warningCount로 결정한다.
 
 - [ ] **Step 6: 모든 trend consumer 전환**
 
@@ -1142,7 +1140,6 @@ rtk git commit -m "feat: link native engines to operation runs"
 - Modify: apps/server/src/automation/adapter/out/panel-event/__tests__/panel.service.spec.ts
 - Modify: apps/web/src/components/panel/PanelItemRow.tsx
 - Modify: apps/web/src/components/panel/__tests__/PanelItemRow.spec.tsx
-- Modify: apps/web/src/app/(analytics)/dashboard/components/agent-os/AgentOsOperationsPanel.tsx
 
 - [ ] **Step 1: status mapping 실패 test**
 

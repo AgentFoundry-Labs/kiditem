@@ -6,6 +6,7 @@ import { AutomationModule } from '../../automation/automation.module';
 import { OperationsModule } from '../../operations/operations.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { CoupangShipmentsController } from '../adapter/in/http/coupang-shipments.controller';
+import { CoupangShipmentSummaryOperationHandler } from '../adapter/in/operation/coupang-shipment-summary.operation-handler';
 import { InventorySkuSnapshotController } from '../adapter/in/http/inventory-sku-snapshot.controller';
 import { PickingController } from '../adapter/in/http/picking.controller';
 import { SellpiaInventoryImportController } from '../adapter/in/http/sellpia-inventory-import.controller';
@@ -128,6 +129,7 @@ describe('InventoryModule authoritative capability wiring', () => {
       SellpiaInventoryImportService,
       SellpiaInventoryFileValidator,
       SellpiaInventoryFreshnessService,
+      CoupangShipmentSummaryOperationHandler,
       SellpiaReceiptBatchService,
       UnshippedService,
       WarehousesService,

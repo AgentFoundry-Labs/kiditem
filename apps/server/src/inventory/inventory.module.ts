@@ -8,6 +8,7 @@ import { PickingController } from './adapter/in/http/picking.controller';
 import { SellpiaInventoryImportController } from './adapter/in/http/sellpia-inventory-import.controller';
 import { SellpiaInventoryFreshnessController } from './adapter/in/http/sellpia-inventory-freshness.controller';
 import { SellpiaInventoryOperationHandler } from './adapter/in/operation/sellpia-inventory.operation-handler';
+import { CoupangShipmentSummaryOperationHandler } from './adapter/in/operation/coupang-shipment-summary.operation-handler';
 import { SellpiaReceiptBatchController } from './adapter/in/http/sellpia-receipt-batch.controller';
 import { TransfersController } from './adapter/in/http/transfers.controller';
 import { UnshippedController } from './adapter/in/http/unshipped.controller';
@@ -175,6 +176,7 @@ const APPLICATION_PORT_BINDINGS = [
     SellpiaInventoryFileValidator,
     SellpiaInventoryFreshnessService,
     SellpiaInventoryOperationHandler,
+    CoupangShipmentSummaryOperationHandler,
     SellpiaReceiptBatchService,
     UnshippedService,
     WarehousesService,

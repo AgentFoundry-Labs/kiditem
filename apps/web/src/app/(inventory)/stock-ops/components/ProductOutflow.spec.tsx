@@ -163,7 +163,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
 
     await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
     expect(toastMock.success).toHaveBeenCalledWith(
-      '셀피아 동기화를 시작했습니다. Agent OS에서 진행 상태를 확인할 수 있습니다.',
+      '셀피아 동기화를 시작했습니다.',
     );
     expect(toastMock.error).not.toHaveBeenCalled();
   });
@@ -179,7 +179,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
     await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith(
-      '셀피아 동기화를 시작했습니다. Agent OS에서 진행 상태를 확인할 수 있습니다.',
+      '셀피아 동기화를 시작했습니다.',
     ));
     expect(toastMock.error).not.toHaveBeenCalled();
   });

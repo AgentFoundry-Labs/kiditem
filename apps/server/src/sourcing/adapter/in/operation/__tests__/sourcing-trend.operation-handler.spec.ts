@@ -57,7 +57,14 @@ describe('SourcingTrendOperationHandler', () => {
 
     await expect(handler.execute(context)).resolves.toEqual({
       kind: 'completed',
-      result: expect.objectContaining({ warningCount: 1, collected: 12 }),
+      result: expect.objectContaining({
+        warningCount: 1,
+        collected: 12,
+        results: [
+          { source: 'naver', ok: true, collected: 12 },
+          { source: '1688', ok: false, collected: 0, error: 'rate limited' },
+        ],
+      }),
     });
   });
 });

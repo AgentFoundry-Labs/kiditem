@@ -27,7 +27,7 @@ export function SellpiaSyncAction({ compact = false, showStatus = false }: {
     setRequesting(true);
     try {
       await requestRefresh(state?.status === 'failed' ? 'retry' : 'manual_request');
-      toast.success('셀피아 동기화를 시작했습니다. Agent OS에서 진행 상태를 확인할 수 있습니다.');
+      toast.success('셀피아 동기화를 시작했습니다.');
     } catch {
       toast.error('셀피아 동기화를 시작하지 못했습니다.');
     } finally {
