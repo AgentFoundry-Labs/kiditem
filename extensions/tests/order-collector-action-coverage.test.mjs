@@ -192,6 +192,8 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
   assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
   assert.match(worker, /collectCoupangShipmentDateSummaryValidatedV1:\s*true/);
+  assert.match(worker, /coupangShipmentSummaryCollectionSessionV1:\s*true/);
+  assert.match(worker, /coupangRocketPoCollectionSessionV1:\s*true/);
 });
 
 test('web bridge reaches local, office, and staging KidItem origins', () => {

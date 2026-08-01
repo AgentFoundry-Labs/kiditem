@@ -278,6 +278,36 @@ function requestExtensionIdFromHandshake(
   });
 }
 
+function requestExtensionIdsFromHandshake(
+  options: Pick<DetectExtensionOptions, 'requestType' | 'responseType' | 'timeoutMs'>,
+): Promise<string[]> {
+  return new Promise((resolve) => {
+    const extensionIds = new Set<string>();
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('message', onMessage);
+      resolve([...extensionIds]);
+    };
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; extensionId?: string } | null;
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      if (!data || data.type !== options.responseType || !data.extensionId) return;
+      extensionIds.add(data.extensionId);
+    };
+
+    window.addEventListener('message', onMessage);
+    try {
+      window.postMessage({ type: options.requestType }, window.location.origin);
+    } catch {
+      finish();
+      return;
+    }
+    window.setTimeout(finish, options.timeoutMs);
+  });
+}
+
 async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): Promise<string | null> {
   if (typeof window === 'undefined') return null;
 
@@ -389,17 +419,25 @@ export async function detectOrderCollectionExtensionRuntime(
   const storedStatus = stored ? await probe(stored) : null;
   if (storedStatus?.status === 'ready') return storedStatus;
 
-  const fromHandshake = await requestExtensionIdFromHandshake({
+  const fromHandshake = await requestExtensionIdsFromHandshake({
     requestType: 'kiditem:request-order-ext-id',
     responseType: 'kiditem:order-ext-id',
     timeoutMs,
   });
-  const handshakeStatus = fromHandshake ? await probe(fromHandshake) : null;
-  if (handshakeStatus?.status === 'ready') {
-    safeStorageSet('local', KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY, fromHandshake!);
-    return handshakeStatus;
+  const handshakeStatuses = await Promise.all(
+    fromHandshake
+      .filter((extensionId) => extensionId !== stored)
+      .map((extensionId) => probe(extensionId)),
+  );
+  const ready = handshakeStatuses.find((status) => status?.status === 'ready');
+  if (ready?.status === 'ready') {
+    safeStorageSet('local', KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY, ready.extensionId);
+    return ready;
   }
-  return handshakeStatus ?? storedStatus ?? { status: 'not_found' };
+  const incompatible = handshakeStatuses.find(
+    (status) => status?.status === 'incompatible',
+  );
+  return incompatible ?? storedStatus ?? { status: 'not_found' };
 }
 
 const SellpiaInventoryExtensionReplySchema = z.discriminatedUnion('success', [

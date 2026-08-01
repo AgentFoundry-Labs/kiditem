@@ -4,7 +4,7 @@ import {
   collectAndPersistCoupangShipmentSummary,
 } from '@/lib/coupang-shipment-summary-action';
 import {
-  detectOrderCollectionExtensionId,
+  detectOrderCollectionExtensionRuntime,
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
@@ -14,7 +14,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 vi.mock('@/lib/extension-bridge', () => ({
-  detectOrderCollectionExtensionId: vi.fn(),
+  detectOrderCollectionExtensionRuntime: vi.fn(),
   sendToExtension: vi.fn(),
 }));
 
@@ -27,7 +27,11 @@ const RUN_ID = '11111111-1111-4111-8111-111111111111';
 describe('collectAndPersistCoupangShipmentSummary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(detectOrderCollectionExtensionId).mockResolvedValue('extension-id');
+    vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
+      status: 'ready',
+      extensionId: 'extension-id',
+      version: '0.1.87',
+    });
     vi.mocked(issueBrowserCollectionRunId).mockResolvedValue(RUN_ID);
   });
 
@@ -74,6 +78,22 @@ describe('collectAndPersistCoupangShipmentSummary', () => {
       status: 'succeeded',
       message: '발송일 2일 · 최신 2026-08-01 (2건)',
     });
+    expect(detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1_200, [
+      'collectCoupangShipmentDateSummaryValidatedV1',
+      'coupangShipmentSummaryCollectionSessionV1',
+    ]);
+  });
+
+  it('rejects a cached extension without the dedicated shipment session', async () => {
+    vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
+      status: 'incompatible',
+      extensionId: 'legacy-extension-id',
+      version: '0.1.86',
+      missingCapabilities: ['coupangShipmentSummaryCollectionSessionV1'],
+    });
+
+    await expect(collectAndPersistCoupangShipmentSummary()).rejects.toThrow(/새로고침/);
+    expect(sendToExtension).not.toHaveBeenCalled();
   });
 
   it('keeps an explicit empty result distinct and does not persist it', async () => {

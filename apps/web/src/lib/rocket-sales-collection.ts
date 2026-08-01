@@ -4,7 +4,7 @@ import {
   type RocketPoCatalogRow,
   type RocketPoCollectionEvidence,
 } from '@kiditem/shared/rocket-purchase-preview';
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { detectOrderCollectionExtensionRuntime, sendToExtension } from '@/lib/extension-bridge';
 import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 
 export type RocketPoStatusCode = 'RP' | 'PA' | 'RI' | 'CI' | '';
@@ -26,11 +26,12 @@ export interface FinalizeRocketPoCollectionSessionInput {
 }
 
 export async function detectRocketOrderExtensionId(requiredCapability: string): Promise<string> {
-  const exactId = await detectOrderCollectionExtensionId(1200, requiredCapability);
-  if (exactId) return exactId;
-
-  const compatibleId = await detectOrderCollectionExtensionId();
-  if (compatibleId) {
+  const runtime = await detectOrderCollectionExtensionRuntime(1200, [
+    requiredCapability,
+    'coupangRocketPoCollectionSessionV1',
+  ]);
+  if (runtime.status === 'ready') return runtime.extensionId;
+  if (runtime.status === 'incompatible') {
     throw new Error(
       '주문수집 확장프로그램이 이전 버전입니다. Chrome 확장 관리에서 extensions/kiditem-os 를 새로고침한 뒤 다시 시도해주세요.',
     );

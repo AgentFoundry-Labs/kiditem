@@ -1,6 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 import {
-  detectOrderCollectionExtensionId,
+  detectOrderCollectionExtensionRuntime,
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
@@ -167,17 +167,15 @@ async function finalizeShipmentSummarySession({
 }
 
 async function getValidatedDateSummaryExtensionId(): Promise<string> {
-  const extensionId = await detectOrderCollectionExtensionId(
+  const runtime = await detectOrderCollectionExtensionRuntime(
     1_200,
-    'collectCoupangShipmentDateSummaryValidatedV1',
+    [
+      'collectCoupangShipmentDateSummaryValidatedV1',
+      'coupangShipmentSummaryCollectionSessionV1',
+    ],
   );
-  if (extensionId) return extensionId;
-
-  const legacyExtensionId = await detectOrderCollectionExtensionId(
-    1_200,
-    'collectCoupangShipmentFiles',
-  );
-  if (legacyExtensionId) throw new Error(ORDER_COLLECTOR_RELOAD_MESSAGE);
+  if (runtime.status === 'ready') return runtime.extensionId;
+  if (runtime.status === 'incompatible') throw new Error(ORDER_COLLECTOR_RELOAD_MESSAGE);
 
   if (typeof window !== 'undefined'
     && window.location.hostname === 'localhost'
