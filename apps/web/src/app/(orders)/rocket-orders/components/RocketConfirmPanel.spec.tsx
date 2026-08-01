@@ -168,7 +168,9 @@ function renderPanel(options?: {
 }
 
 describe("<RocketConfirmPanel />", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it("labels saved-date loading separately from a fresh Coupang collection", () => {
     renderPanel({ workflow: { loading: true, collecting: false } });
@@ -176,6 +178,16 @@ describe("<RocketConfirmPanel />", () => {
     expect(
       screen.getByRole("button", { name: "저장본 계산 중…" }),
     ).toBeDisabled();
+  });
+
+  it("runs the shared Rocket collection workflow used by the dashboard", async () => {
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "이 달 쿠팡 PO 수집·보관" }));
+
+    await waitFor(() => {
+      expect(baseWorkflow.recalculate).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("passes the selected delivery date to the preview workflow", () => {

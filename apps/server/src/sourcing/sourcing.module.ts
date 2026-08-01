@@ -6,6 +6,7 @@ import { AdvertisingModule } from "../advertising/advertising.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { InventoryModule } from "../inventory/inventory.module";
+import { OperationsModule } from "../operations/operations.module";
 import { Sourcing1688NewProductModelController } from "./adapter/in/http/sourcing-1688-new-product-model.controller";
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
@@ -25,6 +26,7 @@ import { SourcingMarketModelController } from "./adapter/in/http/sourcing-market
 import { SourcingRisingProductController } from "./adapter/in/http/sourcing-rising-product.controller";
 import { SourcingWorkspaceSnapshotController } from "./adapter/in/http/sourcing-workspace-snapshot.controller";
 import { TrendCollectionController } from "./adapter/in/http/trend-collection.controller";
+import { SourcingTrendOperationHandler } from "./adapter/in/operation/sourcing-trend.operation-handler";
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
 import { NaverKeywordResearchService } from "./application/service/naver-keyword-research.service";
 import { Sourcing1688NewProductModelService } from "./application/service/sourcing-1688-new-product-model.service";
@@ -93,6 +95,7 @@ import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repos
 import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "./application/port/out/repository/market-shadow-snapshot.repository.port";
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-workspace-snapshot.repository.port";
 import { TREND_COLLECTION_REPOSITORY_PORT } from "./application/port/out/repository/trend-collection.repository.port";
+import { TREND_COLLECTION_PORT } from "./application/port/in/trend-collection.port";
 import { LIVE_COMMERCE_REPOSITORY_PORT } from "./application/port/out/repository/live-commerce.repository.port";
 import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "./application/port/out/repository/product-preparation.repository.port";
 import { CHANNEL_PRODUCT_REGISTRATION_PORT } from "./application/port/out/cross-domain/channel-product-registration.port";
@@ -134,6 +137,7 @@ import {
     AutomationModule,
     ChannelsModule,
     InventoryModule,
+    OperationsModule,
   ],
   controllers: [
     SourcingExtensionIngestController,
@@ -168,6 +172,7 @@ import {
     SourcingMarketDiscoveryService,
     SourcingRisingProductService,
     TrendCollectService,
+    SourcingTrendOperationHandler,
     TrendQueryService,
     LiveCommerceService,
     ProductRegistrationService,
@@ -277,6 +282,10 @@ import {
     {
       provide: TREND_COLLECTION_REPOSITORY_PORT,
       useExisting: TrendCollectionRepositoryAdapter,
+    },
+    {
+      provide: TREND_COLLECTION_PORT,
+      useExisting: TrendCollectService,
     },
     {
       provide: LIVE_COMMERCE_REPOSITORY_PORT,

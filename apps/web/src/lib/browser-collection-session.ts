@@ -72,6 +72,16 @@ function alertMetadata(session: BrowserCollectionSessionView) {
   };
 }
 
+function terminalMessage(session: BrowserCollectionSessionView): string | null {
+  if (
+    session.producer === 'inventory.sellpia'
+    && session.status === 'succeeded'
+  ) {
+    return 'Sellpia 현재고 동기화가 완료되었습니다.';
+  }
+  return session.progress.label;
+}
+
 type BrowserCollectionOrdering = Pick<
   BrowserCollectionSessionView,
   'attempt' | 'updatedAt'
@@ -146,7 +156,7 @@ async function updateForSession(
     case 'succeeded':
       return updateOperationAlert(operationKey, {
         status: 'succeeded',
-        message: session.progress.label,
+        message: terminalMessage(session),
         progress: 1,
         severity: 'info',
         metadata,
@@ -154,7 +164,7 @@ async function updateForSession(
     case 'failed':
       return updateOperationAlert(operationKey, {
         status: 'failed',
-        message: session.progress.label,
+        message: terminalMessage(session),
         progress,
         severity: 'error',
         metadata,
@@ -162,7 +172,7 @@ async function updateForSession(
     case 'cancelled':
       return updateOperationAlert(operationKey, {
         status: 'cancelled',
-        message: session.progress.label,
+        message: terminalMessage(session),
         progress,
         severity: 'info',
         metadata,

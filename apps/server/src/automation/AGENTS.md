@@ -39,7 +39,8 @@ automation/
 Browser operation producer policy registers `inventory.sellpia` at
 `/inventory-hub?tab=sellpia-sync` and stable Sellpia quality-warning operation
 keys at `/stock-ops?tab=freshness`. Mall collection alerts return to
-`/order-collection`. The authenticated web freshness coordinator is
+`/order-collection`; Coupang shipment-summary and Rocket PO alerts use distinct
+producers returning to `/coupang-shipments` and `/rocket-orders`. The authenticated web freshness coordinator is
 the owner of live browser alert lifecycle transitions. When an Inventory-owned
 Sellpia lease expires, Inventory may terminalize that same operation key as
 failed through its local operation-alert port; it must not create a replacement

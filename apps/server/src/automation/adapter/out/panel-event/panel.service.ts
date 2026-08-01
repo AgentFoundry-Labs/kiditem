@@ -16,14 +16,9 @@ export class PanelService {
    * - 진행 중 run (pending/running)
    * - 최근 24h terminal run
    * Sources: workflow run, thumbnail generation, alert.
-   *
-   * Agent run projection (formerly `HeartbeatRun + AgentDefinition`) was
-   * removed in the Agent OS migration. Live agent run events should be
-   * emitted by Agent OS itself (`AgentRun.status` transitions on
-   * `AgentRunCoordinator` / `AgentRunExecutor`) — that wiring is not yet
-   * in place. Until it lands, the snapshot only contains the three
-   * remaining sources. See
-   * `automation/adapter/out/panel-event/AGENTS.md` "Not yet wired".
+   * OperationRun remains the internal execution ledger. User-facing progress
+   * comes from each owner workflow's ordinary alert lifecycle, regardless of
+   * whether it was triggered from the dashboard or its domain screen.
    */
   async snapshot(organizationId: string, currentUserId: string): Promise<Array<Omit<PanelItem, 'seq' | 'updatedAt'>>> {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000);

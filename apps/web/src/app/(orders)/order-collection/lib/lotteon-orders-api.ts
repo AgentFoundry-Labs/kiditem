@@ -31,6 +31,7 @@ export async function collectLotteonXlsxFromExtension(run?: OrderCollectionExten
       action: 'collectLotteonOrders',
       date: run?.date,
       runId: await issueBrowserCollectionRunId(run?.runId),
+      deferTerminal: Boolean(run?.runId),
     },
     120000,
   );

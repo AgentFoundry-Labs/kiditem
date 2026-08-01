@@ -34,6 +34,7 @@ import {
   DEFAULT_STATIONERY_TOY_TREND_SEEDS,
   DOUYIN_TREND_TOY_STATIONERY_SEEDS,
 } from '../../domain/stationery-toy-trend';
+import type { TrendCollectionPort } from '../port/in/trend-collection.port';
 
 const TREND_SOURCE_ORDER = ['naver', '1688', 'shorts'] as const;
 export type TrendCollectSource = (typeof TREND_SOURCE_ORDER)[number];
@@ -129,7 +130,7 @@ export interface TiktokCcTrendTarget {
 }
 
 @Injectable()
-export class TrendCollectService {
+export class TrendCollectService implements TrendCollectionPort {
   constructor(
     @Inject(SOURCING_NAVER_KEYWORD_RESEARCH_PORT)
     private readonly keywordResearch: NaverKeywordResearchPort,

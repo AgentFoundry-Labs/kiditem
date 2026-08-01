@@ -14,6 +14,9 @@ needs them.
 - Sellpia freshness state and refresh requests, including authenticated
   `refetchInterval` polling. Import history and current-basis reads stay with
   their owning inventory screens instead of being prefetched globally.
+- `useAllMarketplaceOrderCollection()` composes the exact per-account extension
+  collection, session lifecycle, zero/login classification, and generated-file
+  callback shared by the order screen and dashboard.
 - `useUrlControlledTab()` for allow-listed canonical workspace selection while
   preserving query parameters owned by nested views and filters.
 

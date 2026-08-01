@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { AutomationModule } from '../automation/automation.module';
+import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CoupangShipmentsController } from './adapter/in/http/coupang-shipments.controller';
 import { InventorySkuSnapshotController } from './adapter/in/http/inventory-sku-snapshot.controller';
 import { PickingController } from './adapter/in/http/picking.controller';
 import { SellpiaInventoryImportController } from './adapter/in/http/sellpia-inventory-import.controller';
 import { SellpiaInventoryFreshnessController } from './adapter/in/http/sellpia-inventory-freshness.controller';
+import { SellpiaInventoryOperationHandler } from './adapter/in/operation/sellpia-inventory.operation-handler';
+import { CoupangShipmentSummaryOperationHandler } from './adapter/in/operation/coupang-shipment-summary.operation-handler';
 import { SellpiaReceiptBatchController } from './adapter/in/http/sellpia-receipt-batch.controller';
 import { TransfersController } from './adapter/in/http/transfers.controller';
 import { UnshippedController } from './adapter/in/http/unshipped.controller';
@@ -135,7 +138,7 @@ const APPLICATION_PORT_BINDINGS = [
 ];
 
 @Module({
-  imports: [AutomationModule, PrismaModule],
+  imports: [AutomationModule, OperationsModule, PrismaModule],
   controllers: [
     InventorySkuSnapshotController,
     SellpiaInventoryImportController,
@@ -172,6 +175,8 @@ const APPLICATION_PORT_BINDINGS = [
     SellpiaInventoryImportService,
     SellpiaInventoryFileValidator,
     SellpiaInventoryFreshnessService,
+    SellpiaInventoryOperationHandler,
+    CoupangShipmentSummaryOperationHandler,
     SellpiaReceiptBatchService,
     UnshippedService,
     WarehousesService,

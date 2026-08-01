@@ -10,6 +10,7 @@ vi.mock('@/lib/extension-bridge', () => bridge);
 
 import {
   collectIcecreamMallRowsFromExtension,
+  createOrderCollectionExtensionError,
   detectOrderCollectionSessionExtension,
   detectOrderCollectionSessionExtensionStatus,
   ensureMallLoggedInViaExtension,
@@ -121,6 +122,45 @@ describe('order collection extension session bridge', () => {
       }),
       45000,
     );
+  });
+
+  it('does not classify a missing extension as a marketplace login failure', async () => {
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({ status: 'not_found' });
+
+    await expect(ensureMallLoggedInViaExtension(
+      'kidsnote',
+      { loginId: 'operator', password: 'secret' },
+      { runId: RUN_ID, date: '2026-07-28' },
+    )).resolves.toMatchObject({
+      success: false,
+      pendingLogin: false,
+      errorCode: 'unknown_failure',
+      error: expect.stringContaining('확장프로그램'),
+    });
+  });
+
+  it('preserves structured collection failure evidence on thrown errors', () => {
+    const error = createOrderCollectionExtensionError({
+      success: false,
+      pendingLogin: true,
+      errorCode: 'login_required',
+      error: '로그인이 필요합니다.',
+      failure: {
+        version: 1,
+        provider: 'always',
+        action: ['collect', 'orders'].join('_') as 'collect_orders',
+        code: 'login_required',
+        retryable: true,
+        operatorAction: 'complete_login',
+      },
+    }, '올웨이즈 주문 수집 실패');
+
+    expect(error).toMatchObject({
+      message: '로그인이 필요합니다.',
+      pendingLogin: true,
+      errorCode: 'login_required',
+      failure: expect.objectContaining({ code: 'login_required' }),
+    });
   });
 
   it('finalizes the page-owned session after backend conversion', async () => {

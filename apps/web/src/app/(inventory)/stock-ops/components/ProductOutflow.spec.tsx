@@ -99,7 +99,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith());
     expect(screen.queryByRole('button', { name: '지금 수집' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /재고 동기화/ })).not.toBeInTheDocument();
   });
@@ -115,7 +115,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('retry'));
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith());
   });
 
   it('renders shared syncing freshness as a disabled unified sync action', () => {
@@ -161,14 +161,14 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     expect(screen.queryByText('전송 확인 필요 1')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith());
     expect(toastMock.success).toHaveBeenCalledWith(
-      '셀피아 동기화 요청을 보냈습니다. 곧 시작합니다.',
+      '셀피아 동기화를 시작했습니다.',
     );
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
-  it('reports the settle window when the sync is genuinely queued', async () => {
+  it('uses the operation status message when freshness reports a settle window', async () => {
     requestRefresh.mockResolvedValue({
       status: 'refresh_required',
       syncNotBefore: '2026-07-17T01:02:00.000Z',
@@ -179,7 +179,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
     await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith(
-      '셀피아 동기화 요청을 보냈습니다. 약 120초 후 시작합니다.',
+      '셀피아 동기화를 시작했습니다.',
     ));
     expect(toastMock.error).not.toHaveBeenCalled();
   });

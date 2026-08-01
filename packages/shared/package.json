@@ -255,6 +255,11 @@
       "import": "./dist/operation-cancellation.js",
       "require": "./dist/operation-cancellation.cjs"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.cjs"
+    },
     "./browser-collection-session": {
       "types": "./dist/browser-collection-session.d.ts",
       "import": "./dist/browser-collection-session.js",
@@ -411,6 +416,9 @@
       ],
       "operation-cancellation": [
         "dist/operation-cancellation.d.ts"
+      ],
+      "operations": [
+        "dist/operations.d.ts"
       ],
       "browser-collection-session": [
         "dist/browser-collection-session.d.ts"

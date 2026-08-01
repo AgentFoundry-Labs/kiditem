@@ -19,6 +19,13 @@ export const queryKeys = {
     runs: (id: string) => [...queryKeys.workflows.all, 'runs', id] as const,
     runDetail: (runId: string) => [...queryKeys.workflows.all, 'runDetail', runId] as const,
   },
+  operations: {
+    all: ['operations'] as const,
+    catalog: () => [...queryKeys.operations.all, 'catalog'] as const,
+    runs: () => [...queryKeys.operations.all, 'runs'] as const,
+    run: (runId: string) => [...queryKeys.operations.runs(), runId] as const,
+    schedules: () => [...queryKeys.operations.all, 'schedules'] as const,
+  },
   marketplace: {
     all: ['marketplace'] as const,
     workflows: (query?: { module?: string; category?: string }) =>

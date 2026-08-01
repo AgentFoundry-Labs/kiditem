@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZodError } from 'zod';
 import { ApiError } from '@/lib/api-error';
@@ -11,10 +11,15 @@ const api = vi.hoisted(() => ({
   confirmSourceBinding: vi.fn(),
   importManual: vi.fn(),
 }));
+const operations = vi.hoisted(() => ({
+  startSellpiaInventoryRefreshAction: vi.fn(),
+}));
 
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({
   sellpiaInventoryFreshnessApi: api,
 }));
+
+vi.mock('@/lib/manual-operation-actions', () => operations);
 
 import {
   getSellpiaFreshnessPollInterval,
@@ -34,6 +39,7 @@ describe('useSellpiaInventoryFreshness', () => {
     api.getState.mockResolvedValue({ status: 'fresh' });
     api.getCurrentBasis.mockResolvedValue(null);
     api.listHistory.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    operations.startSellpiaInventoryRefreshAction.mockResolvedValue({ id: 'run-1' });
   });
 
   it('polls active synchronization every 15 seconds and idle state every 60 seconds', () => {
@@ -81,6 +87,27 @@ describe('useSellpiaInventoryFreshness', () => {
     await waitFor(() => expect(api.getState).toHaveBeenCalledTimes(1));
     expect(api.listHistory).not.toHaveBeenCalled();
     expect(api.getCurrentBasis).not.toHaveBeenCalled();
+  });
+
+  it('uses the latest shared state to retry a failed sync from any trigger surface', async () => {
+    api.getState.mockResolvedValue({ status: 'failed' });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => useSellpiaInventoryFreshness({
+        enabled: true,
+        sourceSurface: 'dashboard',
+      }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await result.current.requestRefresh();
+    });
+
+    expect(operations.startSellpiaInventoryRefreshAction).toHaveBeenCalledWith({
+      sourceSurface: 'dashboard',
+      reason: 'retry',
+    });
   });
 
 });

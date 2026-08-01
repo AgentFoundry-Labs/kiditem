@@ -30,6 +30,7 @@ export async function collectKkomangseXlsxFromExtension(run?: OrderCollectionExt
       action: 'collectKkomangseOrders',
       date: run?.date,
       runId: await issueBrowserCollectionRunId(run?.runId),
+      deferTerminal: Boolean(run?.runId),
     },
     90000,
   );

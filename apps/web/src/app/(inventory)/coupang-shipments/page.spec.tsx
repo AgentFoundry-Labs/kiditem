@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CoupangShipmentsPage from './page';
 import {
@@ -6,6 +6,7 @@ import {
   loadCoupangShipmentServerFiles,
 } from './lib/coupang-shipment-api';
 import { loadCoupangShipmentFiles } from './lib/coupang-shipment-store';
+import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
 
 const replaceMock = vi.hoisted(() => vi.fn());
 const navigation = vi.hoisted(() => ({
@@ -17,6 +18,10 @@ vi.mock('next/navigation', () => ({
   usePathname: () => navigation.pathname,
   useRouter: () => ({ replace: replaceMock }),
   useSearchParams: () => navigation.params,
+}));
+
+vi.mock('@/lib/coupang-shipment-summary-action', () => ({
+  collectAndPersistCoupangShipmentSummary: vi.fn(),
 }));
 
 vi.mock('./lib/coupang-shipment-api', () => ({
@@ -47,6 +52,7 @@ describe('<CoupangShipmentsPage /> calendar view persistence', () => {
     sessionStorage.clear();
     navigation.params = new URLSearchParams();
     replaceMock.mockReset();
+    vi.mocked(collectAndPersistCoupangShipmentSummary).mockReset();
     vi.mocked(loadCoupangShipmentFiles).mockResolvedValue([]);
     vi.mocked(loadCoupangShipmentServerFiles).mockResolvedValue({ days: [] });
     vi.mocked(loadCoupangShipmentDateSummary).mockResolvedValue({
@@ -84,6 +90,20 @@ describe('<CoupangShipmentsPage /> calendar view persistence', () => {
         && href.startsWith('/coupang-shipments?')
         && href.includes('month=2026-06')
         && href.includes('date=2026-06-20'))).toBe(true);
+    });
+  });
+
+  it('runs the shared shipment-summary action used by the dashboard', async () => {
+    vi.mocked(collectAndPersistCoupangShipmentSummary).mockResolvedValue({
+      status: 'empty',
+      items: [],
+    });
+    render(<CoupangShipmentsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '다시 조회' }));
+
+    await waitFor(() => {
+      expect(collectAndPersistCoupangShipmentSummary).toHaveBeenCalledTimes(1);
     });
   });
 });

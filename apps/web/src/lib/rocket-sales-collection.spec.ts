@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { detectOrderCollectionExtensionRuntime, sendToExtension } from '@/lib/extension-bridge';
 import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import {
   collectRocketPoRowsFromExtension,
@@ -9,7 +9,7 @@ import {
 } from './rocket-sales-collection';
 
 vi.mock('@/lib/extension-bridge', () => ({
-  detectOrderCollectionExtensionId: vi.fn(),
+  detectOrderCollectionExtensionRuntime: vi.fn(),
   sendToExtension: vi.fn(),
 }));
 
@@ -25,18 +25,20 @@ describe('detectRocketOrderExtensionId', () => {
   });
 
   it('rejects a loaded extension that lacks the evidence response capability', async () => {
-    vi.mocked(detectOrderCollectionExtensionId)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('legacy-extension-id');
+    vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
+      status: 'incompatible',
+      extensionId: 'legacy-extension-id',
+      version: '0.1.86',
+      missingCapabilities: ['coupangRocketPoCollectionSessionV1'],
+    });
 
     await expect(
       detectRocketOrderExtensionId('collectRocketPoRowsEvidenceV1'),
     ).rejects.toThrow(/새로고침/);
-    expect(detectOrderCollectionExtensionId).toHaveBeenNthCalledWith(
-      1,
-      1200,
+    expect(detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, [
       'collectRocketPoRowsEvidenceV1',
-    );
+      'coupangRocketPoCollectionSessionV1',
+    ]);
   });
 });
 
@@ -44,7 +46,11 @@ describe('collectRocketPoRowsFromExtension', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(issueBrowserCollectionRunId).mockResolvedValue(RUN_ID);
-    vi.mocked(detectOrderCollectionExtensionId).mockResolvedValue('extension-id');
+    vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
+      status: 'ready',
+      extensionId: 'extension-id',
+      version: '0.1.87',
+    });
     vi.mocked(sendToExtension).mockResolvedValue({
       success: true,
       rows: [{
@@ -134,10 +140,10 @@ describe('collectRocketPoRowsFromExtension', () => {
       to: '2026-07-07',
     });
 
-    expect(detectOrderCollectionExtensionId).toHaveBeenCalledWith(
-      1200,
+    expect(detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, [
       'collectRocketPoRowsConfirmationV1',
-    );
+      'coupangRocketPoCollectionSessionV1',
+    ]);
     expect(sendToExtension).toHaveBeenCalledWith(
       'extension-id',
       expect.objectContaining({

@@ -3,10 +3,15 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  createOrderCollectionExtensionError,
+  type OrderCollectionExtensionRun,
+  type OrderCollectionFailureResponse,
+} from './order-collection-extension';
 
-interface BoriboriCollectResponse {
-  success?: boolean;
+interface BoriboriCollectResponse extends OrderCollectionFailureResponse {
+  empty?: boolean;
+  rowCount?: number;
   xlsxBase64?: string;
   fileName?: string;
   size?: number;
@@ -20,7 +25,7 @@ interface BoriboriCollectResponse {
 export async function collectBoriboriXlsxFromExtension(options?: {
   password?: string;
   run?: OrderCollectionExtensionRun;
-}): Promise<{ xlsxBase64: string; fileName: string }> {
+}): Promise<{ xlsxBase64: string; fileName: string } | { empty: true }> {
   const extensionId = options?.run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
@@ -34,11 +39,13 @@ export async function collectBoriboriXlsxFromExtension(options?: {
       date: options?.run?.date,
       password: options?.password ?? '',
       runId: await issueBrowserCollectionRunId(options?.run?.runId),
+      deferTerminal: Boolean(options?.run?.runId),
     },
     130000,
   );
+  if (res?.success === true && res.empty === true) return { empty: true };
   if (!res?.success || !res.xlsxBase64) {
-    throw new Error(res?.error ?? '보리보리 주문 수집에 실패했습니다.');
+    throw createOrderCollectionExtensionError(res, '보리보리 주문 수집에 실패했습니다.');
   }
   return { xlsxBase64: res.xlsxBase64, fileName: res.fileName ?? '보리보리.xlsx' };
 }

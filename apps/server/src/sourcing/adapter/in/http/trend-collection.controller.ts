@@ -1,5 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
+import {
+  OPERATION_RUNNER_PORT,
+  type OperationRunnerPort,
+} from '../../../../operations/application/port/in/operation-runner.port';
 import { TrendCollectService } from '../../../application/service/trend-collect.service';
 import { TrendQueryService } from '../../../application/service/trend-query.service';
 import {
@@ -17,14 +23,25 @@ export class TrendCollectionController {
   constructor(
     private readonly collectService: TrendCollectService,
     private readonly queryService: TrendQueryService,
+    @Inject(OPERATION_RUNNER_PORT)
+    private readonly operationRunner: OperationRunnerPort,
   ) {}
 
   @Post('collect')
+  @HttpCode(HttpStatus.ACCEPTED)
   collect(
     @Body() body: CollectTrendDto,
     @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.collectService.collect(organizationId, body.sources);
+    return this.operationRunner.start({
+      organizationId,
+      operationKey: 'sourcing.collect_daily_trends',
+      triggerSource: 'domain_screen',
+      input: body.sources ? { sources: body.sources } : {},
+      requestedByUserId: user.id,
+      idempotencyKey: null,
+    });
   }
 
   @Get('seeds')

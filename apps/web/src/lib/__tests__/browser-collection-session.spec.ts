@@ -208,6 +208,31 @@ describe('browser collection alert synchronization', () => {
     );
   });
 
+  it('uses the canonical Sellpia completion copy for the shared alert row', async () => {
+    await syncBrowserCollectionAlert(
+      session({
+        producer: 'inventory.sellpia',
+        status: 'succeeded',
+        finishedAt: 1_700_000_002_000,
+        progress: {
+          current: 2,
+          total: 2,
+          completed: 2,
+          failed: 0,
+          label: 'Sellpia inventory import completed.',
+        },
+      }),
+    );
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      `browser-collection:${RUN_ID}`,
+      expect.objectContaining({
+        status: 'succeeded',
+        message: 'Sellpia 현재고 동기화가 완료되었습니다.',
+      }),
+    );
+  });
+
   it('keeps alert metadata free of managed tab and window identities', async () => {
     await syncBrowserCollectionAlert(session());
 

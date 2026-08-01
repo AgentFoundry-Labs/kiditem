@@ -24,7 +24,7 @@ describe('retired shared Sellpia drawer', () => {
     }
   });
 
-  it('keeps direct refresh and background collection after removing the drawer', () => {
+  it('keeps direct refresh and operation-runtime background collection after removing the drawer', () => {
     const productOutflow = readFileSync(
       path.join(webSrc, 'app/(inventory)/stock-ops/components/ProductOutflow.tsx'),
       'utf8',
@@ -37,16 +37,32 @@ describe('retired shared Sellpia drawer', () => {
       path.join(webSrc, 'components/providers/SellpiaInventorySyncProvider.tsx'),
       'utf8',
     );
+    const freshnessHook = readFileSync(
+      path.join(webSrc, 'hooks/useSellpiaInventoryFreshness.ts'),
+      'utf8',
+    );
+    const operationRuntime = readFileSync(
+      path.resolve(webSrc, '../../../extensions/kiditem-os/background/operation-runtime-client.js'),
+      'utf8',
+    );
+    const orderWorker = readFileSync(
+      path.resolve(webSrc, '../../../extensions/kiditem-os/background/orders/worker.js'),
+      'utf8',
+    );
 
     expect(productOutflow).toContain(
       "import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';",
     );
     expect(productOutflow).toContain('<SellpiaSyncAction compact showStatus />');
-    expect(syncAction).toContain(
-      "state?.status === 'failed' ? 'retry' : 'manual_request'",
+    expect(syncAction).toContain('await requestRefresh()');
+    expect(freshnessHook).toContain(
+      "latestState.status === 'failed' ? 'retry' : 'manual_request'",
     );
     expect(syncAction).toContain('aria-label="셀피아 동기화"');
-    expect(coordinator).toContain('collectSellpiaInventory');
-    expect(coordinator).toContain('collectSellpiaProductProfitFromExtension');
+    expect(coordinator).toContain('useSellpiaInventoryFreshness');
+    expect(coordinator).not.toContain('collectSellpiaInventory');
+    expect(coordinator).not.toContain('collectSellpiaProductProfitFromExtension');
+    expect(operationRuntime).toContain('domains.runOperation(claim.operationKey)');
+    expect(orderWorker).toContain('"inventory.refresh_sellpia_snapshot": runSellpiaInventoryOperation');
   });
 });

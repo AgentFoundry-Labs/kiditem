@@ -56,6 +56,7 @@ export async function collectKidkidsOrdersFromExtension(
       date: date ?? run?.date,
       planDate,
       runId: run?.runId ?? createSecureRandomUuid(),
+      deferTerminal: Boolean(run?.runId),
     },
     190000,
   );

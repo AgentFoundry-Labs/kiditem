@@ -145,6 +145,28 @@ AGENT_RUNTIME_WORKER_ENABLED
 AGENT_DEFAULT_MODEL
 ```
 
+## Operations Control Plane
+
+The operation worker and scheduler are deliberately disabled unless explicitly
+enabled. This prevents a newly deployed API from replaying scheduled work before
+the operator has confirmed the database migration, connected browser runtime,
+and schedule state. `OperationSchedule.enabled` is the per-workflow control;
+these variables only enable the server processes that honor it.
+
+| Variable | Required when | Consumed by | Notes |
+|---|---:|---|---|
+| `OPERATION_RUNTIME_WORKER_ENABLED` | Domain/composite OperationRuns should execute | Operation run worker | Set `1` only after the control-plane tables are deployed. Default is disabled. Browser operations transition to `waiting_runtime` and are claimed by the extension. |
+| `OPERATION_RUNTIME_WORKER_INTERVAL_MS` | Worker polling cadence needs tuning | Operation run worker | Optional positive integer; defaults to `2000`. |
+| `OPERATION_SCHEDULER_ENABLED` | Enabled cron schedules should create OperationRuns | Operation scheduler | Set `1` only with the runtime worker enabled and browser runtime connected. Default is disabled. |
+| `OPERATION_SCHEDULER_INTERVAL_MS` | Scheduler polling cadence needs tuning | Operation scheduler | Optional positive integer; defaults to `30000`. |
+| `OPERATION_RUN_LEASE_MS` | Operation worker/browser lease duration needs tuning | Operation worker and browser runtime API | Optional positive integer; defaults to `60000`. Extension heartbeats at no slower than one-third of the browser lease. |
+
+Cron expressions use the standard five fields (`minute hour day-of-month month
+day-of-week`) and are evaluated in the schedule's explicit IANA timezone. The
+dashboard stores the cron, timezone, misfire policy, and enabled state per
+operation; disabling a schedule preserves its expression but sets its next run
+to `null`.
+
 Web container, current staging shape:
 
 ```text

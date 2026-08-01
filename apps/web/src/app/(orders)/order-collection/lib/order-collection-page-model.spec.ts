@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  classifyOrderCollectionFailure,
   draftFromMallAccount,
   getOrderCount,
+  getOrderCollectionFailureCode,
   groupHistoryByDay,
   hasSellpiaTransmissionRequest,
   isAuthRequiredMessage,
@@ -120,6 +122,36 @@ describe('isNoNewOrdersMessage', () => {
     expect(isNoNewOrdersMessage('셀피아 송장 조회 시간이 초과되었습니다.')).toBe(false);
     expect(isNoNewOrdersMessage('')).toBe(false);
     expect(isNoNewOrdersMessage(null)).toBe(false);
+  });
+});
+
+describe('getOrderCollectionFailureCode', () => {
+  it('prefers structured failure evidence over display text', () => {
+    expect(getOrderCollectionFailureCode({
+      errorCode: 'login_required',
+      message: '주문이 없습니다.',
+    })).toBe('login_required');
+    expect(getOrderCollectionFailureCode({
+      failure: { code: 'provider_contract_changed' },
+    })).toBe('provider_contract_changed');
+    expect(getOrderCollectionFailureCode(new Error('주문이 없습니다.'))).toBeNull();
+  });
+});
+
+describe('classifyOrderCollectionFailure', () => {
+  it('uses one structured-code-first decision for manual and automatic collection', () => {
+    expect(classifyOrderCollectionFailure(
+      { errorCode: 'login_required' },
+      '신규 주문이 없습니다.',
+    )).toBe('login');
+    expect(classifyOrderCollectionFailure(
+      { errorCode: 'provider_contract_changed' },
+      '로그인을 확인했지만 주문이 없습니다.',
+    )).toBe('error');
+    expect(classifyOrderCollectionFailure(
+      new Error('신규 주문이 없습니다.'),
+      '신규 주문이 없습니다.',
+    )).toBe('empty');
   });
 });
 

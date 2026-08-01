@@ -117,7 +117,6 @@ export function BrowserCollectionProvider({
     const synchronize = async (value: unknown) => {
       const parsed = BrowserCollectionSessionViewSchema.safeParse(value);
       if (!parsed.success || disposed) return;
-      if (parsed.data.producer === 'inventory.sellpia') return;
       const processed = readStoredOrdering(parsed.data.runId);
       if (
         processed &&
