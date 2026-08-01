@@ -17,10 +17,26 @@ assert.notEqual(scraperStart, -1);
 assert.notEqual(scraperEnd, -1);
 const scraperSource = worker.slice(scraperStart, scraperEnd);
 
-async function scrape(responseBody, startDate = '2025-07-01', endDate = '2026-06-30') {
+async function scrape(
+  responseBody,
+  startDate = null,
+  endDate = null,
+  now = '2026-07-01T03:00:00.000Z',
+) {
   let requestBody = null;
+  let requestCount = 0;
+  const NativeDate = Date;
+  class FixedDate extends NativeDate {
+    constructor(...args) {
+      super(args.length === 0 ? now : args[0]);
+    }
+
+    static now() {
+      return new NativeDate(now).getTime();
+    }
+  }
   const context = vm.createContext({
-    Date,
+    Date: FixedDate,
     JSON,
     Number,
     Object,
@@ -28,6 +44,7 @@ async function scrape(responseBody, startDate = '2025-07-01', endDate = '2026-06
     String,
     URLSearchParams,
     fetch: async (_url, init) => {
+      requestCount += 1;
       requestBody = String(init?.body ?? '');
       return {
         ok: true,
@@ -40,11 +57,15 @@ async function scrape(responseBody, startDate = '2025-07-01', endDate = '2026-06
     filename: 'scrapeSellpiaProductProfit.js',
   });
   const result = await parser(startDate, endDate);
-  return { result: JSON.parse(JSON.stringify(result)), body: new URLSearchParams(requestBody) };
+  return {
+    result: JSON.parse(JSON.stringify(result)),
+    body: new URLSearchParams(requestBody),
+    requestCount,
+  };
 }
 
-test('requests whole-range order-time cost and fills every missing calendar month', async () => {
-  const { result, body } = await scrape([{
+test('issues one KST-yesterday request across a continuous 400-day evidence range', async () => {
+  const { result, body, requestCount } = await scrape([{
     product_code: 'SKU-1',
     option_code: 'OPTION-1',
     product_name: '상품',
@@ -52,12 +73,13 @@ test('requests whole-range order-time cost and fills every missing calendar mont
       '2026-04': '400,1000,2',
       '2026-06': '600,1500,3',
     },
-  }]);
+  }], null, null, '2026-07-01T03:00:00.000Z');
 
+  assert.equal(requestCount, 1);
   assert.equal(body.get('mode'), 'stat_prd_profit');
-  assert.equal(body.get('s_date'), '2025-07-01');
+  assert.equal(body.get('s_date'), '2025-05-26');
   assert.equal(body.get('e_date'), '2026-06-30');
-  assert.equal(body.get('in_s_date'), '2025-07-01');
+  assert.equal(body.get('in_s_date'), '2025-05-26');
   assert.equal(body.get('in_e_date'), '2026-06-30');
   assert.equal(body.get('buy_point'), 'R');
   assert.equal(body.get('vat_tp'), '1');
@@ -67,9 +89,9 @@ test('requests whole-range order-time cost and fills every missing calendar mont
     costBasis: 'ORDER_TIME_SUPPLY_COST',
     vatIncluded: true,
   });
-  assert.deepEqual(result.payload.products[0].months.slice(-3), [
+  assert.deepEqual(result.payload.range, { from: '2025-05-26', to: '2026-06-30' });
+  assert.deepEqual(result.payload.products[0].months, [
     { yearMonth: '2026-04', inAmount: 400, orderAmount: 1000, orderQty: 2, inQty: 0 },
-    { yearMonth: '2026-05', inAmount: 0, orderAmount: 0, orderQty: 0, inQty: 0 },
     { yearMonth: '2026-06', inAmount: 600, orderAmount: 1500, orderQty: 3, inQty: 0 },
   ]);
 });

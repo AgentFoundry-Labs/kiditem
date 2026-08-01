@@ -358,10 +358,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   // 상품별 이익현황(월별 소진) 수집 — 읽기 전용. 재고 분석 '상품별 소진' 적재용.
   if (msg?.action === "collectSellpiaProductProfit") {
-    collectSellpiaProductProfit({
-      startDate: typeof msg.startDate === "string" ? msg.startDate : null,
-      endDate: typeof msg.endDate === "string" ? msg.endDate : null,
-    })
+    // 이 capability는 임의 기간 조회가 아니라, 수익성 평가에 필요한 연속 증거
+    // 창을 한 번 읽는 전용 계약이다. 기간은 페이지 컨텍스트가 KST 기준으로 정한다.
+    collectSellpiaProductProfit()
       .then((result) => sendResponse(result))
       .catch((error) => {
         sendResponse({ success: false, error: error?.message || "셀피아 상품별 소진 수집 실패" });
@@ -6076,7 +6075,7 @@ async function findOrCreateSellpiaProductProfitTab() {
 }
 
 // 셀피아 상품별 이익현황(stat_prd_profit) 월별 소진 수집. 읽기 전용(비파괴).
-async function collectSellpiaProductProfit(options = {}) {
+async function collectSellpiaProductProfit() {
   const { tab, created } = await findOrCreateSellpiaProductProfitTab();
   if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
   let keepOpen = false;
@@ -6087,14 +6086,14 @@ async function collectSellpiaProductProfit(options = {}) {
         target: { tabId: tab.id },
         world: "MAIN", // 페이지 컨텍스트 fetch(로그인 세션 쿠키).
         func: scrapeSellpiaProductProfit,
-        args: [options.startDate || null, options.endDate || null],
+        args: [null, null],
       }),
       90000,
       "셀피아 상품별 이익현황 조회 시간이 초과되었습니다.",
     );
     return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created && options.keepTabOnLoginError === true; return mallAccessErrorResult("셀피아"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("셀피아"); }
     return mallGenericErrorResult("셀피아", e);
   } finally {
     if (created && tab.id && !keepOpen) {
@@ -6108,13 +6107,18 @@ async function collectSellpiaProductProfit(options = {}) {
 async function scrapeSellpiaProductProfit(startDate, endDate) {
   try {
     const p = (n) => String(n).padStart(2, "0");
-    const d = new Date();
-    // 어제까지의 마감기준(페이지 안내). 기본 최근 약 400일(≈13개월) — 완결 12개월 확보로
-    // 1/2개월 평균·추세·ABC·시즌 분류 근거 마련(재고관리).
-    const y = new Date(d.getTime() - 24 * 60 * 60 * 1000);
-    const end = endDate || `${y.getFullYear()}-${p(y.getMonth() + 1)}-${p(y.getDate())}`;
-    const s0 = new Date(d.getTime() - 400 * 24 * 60 * 60 * 1000);
-    const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
+    const toYmd = (date) => `${date.getUTCFullYear()}-${p(date.getUTCMonth() + 1)}-${p(date.getUTCDate())}`;
+    // 브라우저/운영체제 시간대와 무관하게 KST 달력을 기준으로 어제까지의 연속
+    // 400일 증거창을 만든다. 끝점에서 400일을 빼므로 양 끝 포함 401일이다.
+    const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const defaultEnd = new Date(Date.UTC(
+      nowKst.getUTCFullYear(), nowKst.getUTCMonth(), nowKst.getUTCDate() - 1,
+    ));
+    const defaultStart = new Date(Date.UTC(
+      defaultEnd.getUTCFullYear(), defaultEnd.getUTCMonth(), defaultEnd.getUTCDate() - 400,
+    ));
+    const end = endDate || toYmd(defaultEnd);
+    const start = startDate || toYmd(defaultStart);
     const dateKey = /^\d{4}-\d{2}-\d{2}$/;
     const toValidDate = (value) => {
       if (typeof value !== "string" || !dateKey.test(value)) return null;
@@ -6128,14 +6132,14 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
     if (!startValue || !endValue || startValue > endValue) {
       return { success: false, error: "셀피아 상품별 이익현황 조회 기간이 올바르지 않습니다." };
     }
-    const rangeMonths = [];
+    const rangeMonths = new Set();
     for (
       let monthIndex = startValue.getUTCFullYear() * 12 + startValue.getUTCMonth();
       monthIndex <= endValue.getUTCFullYear() * 12 + endValue.getUTCMonth();
       monthIndex += 1
     ) {
       const year = Math.floor(monthIndex / 12);
-      rangeMonths.push(`${year}-${String(monthIndex % 12 + 1).padStart(2, "0")}`);
+      rangeMonths.add(`${year}-${String(monthIndex % 12 + 1).padStart(2, "0")}`);
     }
     const body = new URLSearchParams({
       mode: "stat_prd_profit",
@@ -6220,7 +6224,7 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
       const monthValues = new Map();
       for (const key of Object.keys(graph)) {
         const ym = normYm(key);
-        if (!ym || !rangeMonths.includes(ym) || typeof graph[key] !== "string") {
+        if (!ym || !rangeMonths.has(ym) || typeof graph[key] !== "string") {
           return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
         }
         const parts = graph[key].split(",");
@@ -6235,11 +6239,15 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
         }
         monthValues.set(ym, { inAmount, orderAmount, orderQty });
       }
-      const months = rangeMonths.map((yearMonth) => ({
-        yearMonth,
-        ...(monthValues.get(yearMonth) ?? { inAmount: 0, orderAmount: 0, orderQty: 0 }),
-        inQty: 0, // graph 에는 매입수량이 없어 0 (총계는 total_in_qty)
-      }));
+      // 응답에 없는 월을 0으로 꾸며 내지 않는다. 서버는 이 실제 월 버킷과
+      // payload-level request range의 교집합을 저장해, 누락을 정상 0으로 오인하지 않는다.
+      const months = [...monthValues.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([yearMonth, values]) => ({
+          yearMonth,
+          ...values,
+          inQty: 0, // graph 에는 매입수량이 없어 0 (총계는 total_in_qty)
+        }));
       products.push({
         productCode,
         optionCode,

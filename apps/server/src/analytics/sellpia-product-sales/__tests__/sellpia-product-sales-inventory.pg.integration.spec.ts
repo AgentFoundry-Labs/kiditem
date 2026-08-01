@@ -4,7 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
-import { SellpiaMasterProductAbcMetricReader } from '../sellpia-master-product-abc-metric.reader';
+import { SellpiaMasterProductProfitFactReader } from '../sellpia-master-product-profit-fact.reader';
 import { SELLPIA_PRODUCT_SALES_EVENTS } from '../sellpia-product-sales.events';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import { InventoryCommitmentRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
@@ -21,7 +21,7 @@ import {
 describe('SellpiaProductSalesService canonical inventory projection (PG)', () => {
   let prisma: PrismaClient;
   let service: SellpiaProductSalesService;
-  let metricReader: SellpiaMasterProductAbcMetricReader;
+  let profitFactReader: SellpiaMasterProductProfitFactReader;
   let eventEmitter: EventEmitter2;
 
   beforeAll(async () => {
@@ -41,7 +41,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       ),
       eventEmitter,
     );
-    metricReader = new SellpiaMasterProductAbcMetricReader(prismaService);
+    profitFactReader = new SellpiaMasterProductProfitFactReader(prismaService);
   });
 
   afterAll(async () => {
@@ -252,7 +252,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     });
   });
 
-  it('reads complete organization-scoped completed-month evidence and rejects incomplete or shared recipes', async () => {
+  it('reads exact organization-scoped Sellpia profit facts and keeps ambiguous recipes out of numeric evidence', async () => {
     const eligibleSku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -311,58 +311,70 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       code: 'METRIC-MASTER-FOREIGN',
     });
     const completedMonth = previousKstYearMonth();
-    const currentMonth = currentKstYearMonth();
     const capturedAt = new Date('2026-07-20T01:00:00.000Z');
+    const coverageStartDate = new Date(`${completedMonth}-01T00:00:00.000Z`);
+    const coverageEndDate = new Date(Date.UTC(
+      coverageStartDate.getUTCFullYear(), coverageStartDate.getUTCMonth() + 1, 0,
+    ));
     await prisma.sellpiaProductMonthlySales.createMany({
       data: [
         {
           ...metricSales('METRIC-ELIGIBLE', completedMonth, 12, 100),
           capturedAt,
+          coverageStartDate,
+          coverageEndDate,
         },
         {
           ...metricSales('METRIC-SHARED', completedMonth, 30, 100),
           capturedAt,
-        },
-        {
-          ...metricSales('METRIC-ELIGIBLE', currentMonth, 999, 100),
-          capturedAt: new Date('2026-07-24T01:00:00.000Z'),
+          coverageStartDate,
+          coverageEndDate,
         },
         {
           ...metricSales('METRIC-ELIGIBLE', completedMonth, 999, 100),
           organizationId: OTHER_ORGANIZATION_ID,
           productName: 'Foreign metric',
           capturedAt: new Date('2026-07-23T01:00:00.000Z'),
+          coverageStartDate,
+          coverageEndDate,
         },
       ],
     });
 
-    const snapshot = await metricReader.readMetricSnapshot({
+    const snapshot = await profitFactReader.readProfitFacts({
       organizationId: TEST_ORGANIZATION_ID,
-      metric: 'SALES_QUANTITY',
-      periodDays: 30,
+      masterProductIds: [
+        eligible.masterProductId,
+        incomplete.masterProductId,
+        sharedOne.masterProductId,
+        sharedTwo.masterProductId,
+      ],
+      range: { from: coverageStartDate, to: coverageEndDate },
     });
     const evidence = new Map(snapshot.evidence.map((row) => [row.masterProductId, row]));
 
-    expect(snapshot.sourceCapturedAt).toEqual(capturedAt);
     expect(evidence.get(eligible.masterProductId)).toMatchObject({
       masterProductId: eligible.masterProductId,
-      periodMetricValue: 12,
-      rankingValue: 12,
-      grossRevenue: 1200,
-      grossCost: 0,
-      grossProfit: 1200,
-      observedCompleteMonths: 1,
-      eligible: true,
-      eligibilityReason: 'ELIGIBLE',
+      mappingStatus: 'MAPPED',
+      monthlyFacts: [{
+        yearMonth: completedMonth,
+        coverageStartDate,
+        coverageEndDate,
+        revenue: 1200,
+        sellpiaInAmount: 0,
+        capturedAt,
+      }],
     });
     expect(evidence.get(incomplete.masterProductId)).toMatchObject({
       masterProductId: incomplete.masterProductId,
-      periodMetricValue: null,
-      eligible: false,
-      eligibilityReason: 'NO_OBSERVATION',
+      mappingStatus: 'MAPPED',
+      monthlyFacts: [],
     });
-    expect(evidence.get(sharedOne.masterProductId)?.eligible).toBe(false);
-    expect(evidence.get(sharedTwo.masterProductId)?.eligible).toBe(false);
+    expect(evidence.get(sharedOne.masterProductId)).toMatchObject({ mappingStatus: 'UNMAPPED', monthlyFacts: [] });
+    expect(evidence.get(sharedTwo.masterProductId)).toMatchObject({ mappingStatus: 'UNMAPPED', monthlyFacts: [] });
+    expect(snapshot.orphanFacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productCode: 'METRIC-SHARED', reason: 'AMBIGUOUS_MASTER_PRODUCT' }),
+    ]));
     expect(evidence.has(foreign.masterProductId)).toBe(false);
   });
 
@@ -575,11 +587,6 @@ function previousKstYearMonth(): string {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
   const previous = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth() - 1, 1));
   return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function currentKstYearMonth(): string {
-  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function previousKstYearMonths(count: number): string[] {

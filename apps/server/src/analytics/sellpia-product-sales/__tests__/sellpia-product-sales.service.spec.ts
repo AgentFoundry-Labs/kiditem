@@ -154,6 +154,8 @@ describe('SellpiaProductSalesService.ingest', () => {
         orderQty: 13030,
         costBasis: 'ORDER_TIME_SUPPLY_COST',
         vatIncluded: true,
+        coverageStartDate: new Date('2026-06-01T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-06-30T00:00:00.000Z'),
         productName: '2000바풍투톤슬라임',
       }),
     );
@@ -225,6 +227,42 @@ describe('SellpiaProductSalesService.ingest', () => {
     const inserted = prisma.$transaction.mock.calls.length ? createMany.mock.calls.flatMap((c) => (c[0] as { data: { orderQty: number }[] }).data) : [];
     expect(inserted).toHaveLength(1); // 중복 병합
     expect(inserted[0].orderQty).toBe(9); // 마지막 값
+  });
+
+  it('payload-level request range와 월의 실제 교집합을 서버에서 저장한다', async () => {
+    const { service, createMany } = makePrisma();
+    await service.ingest(ORGANIZATION_ID, {
+      range: { from: '2026-05-16', to: '2026-07-15' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
+      products: [{
+        productCode: 'SKU-1', optionCode: '', productName: '상품', salePrice: 1, buyPrice: 1,
+        months: [
+          { yearMonth: '2026-05', orderQty: 1, orderAmount: 100, inQty: 0, inAmount: 50 },
+          { yearMonth: '2026-06', orderQty: 2, orderAmount: 200, inQty: 0, inAmount: 100 },
+          { yearMonth: '2026-07', orderQty: 3, orderAmount: 300, inQty: 0, inAmount: 150 },
+        ],
+      }],
+    });
+    const inserted = createMany.mock.calls.flatMap((call) =>
+      (call[0] as { data: Array<{ yearMonth: string; coverageStartDate: Date; coverageEndDate: Date }> }).data);
+    expect(inserted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ yearMonth: '2026-05', coverageStartDate: new Date('2026-05-16T00:00:00.000Z'), coverageEndDate: new Date('2026-05-31T00:00:00.000Z') }),
+      expect.objectContaining({ yearMonth: '2026-06', coverageStartDate: new Date('2026-06-01T00:00:00.000Z'), coverageEndDate: new Date('2026-06-30T00:00:00.000Z') }),
+      expect.objectContaining({ yearMonth: '2026-07', coverageStartDate: new Date('2026-07-01T00:00:00.000Z'), coverageEndDate: new Date('2026-07-15T00:00:00.000Z') }),
+    ]));
+  });
+
+  it('요청 범위 밖의 월을 조용히 무시하지 않는다', async () => {
+    const { service, prisma } = makePrisma();
+    await expect(service.ingest(ORGANIZATION_ID, {
+      range: { from: '2026-06-01', to: '2026-06-30' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
+      products: [{
+        productCode: 'SKU-1', optionCode: '', productName: '상품', salePrice: 1, buyPrice: 1,
+        months: [{ yearMonth: '2026-05', orderQty: 1, orderAmount: 100, inQty: 0, inAmount: 50 }],
+      }],
+    })).rejects.toThrow('outside request range');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
 

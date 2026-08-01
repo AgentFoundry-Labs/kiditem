@@ -302,8 +302,8 @@ Source readiness is coverage-based, not a loose age threshold. Sellpia is ready 
 
 ### Step 1: Lock the one-request extension contract
 
-- [ ] Extend the existing extension tests to prove exactly one product-profit request is issued, the end date is yesterday in KST, the start date covers at least 400 days, and both sale/purchase ranges are identical with `mode=stat_prd_profit`, `buy_point=R`, and `vat_tp=1`.
-- [ ] Assert the collection result includes request-range provenance and aggregated months without fabricating a full 13-month payload. Keep `collectSellpiaProductProfitEvidenceV1` as the capability gate.
+- [x] Extend the existing extension tests to prove exactly one product-profit request is issued, the end date is yesterday in KST, the start date covers at least 400 days, and both sale/purchase ranges are identical with `mode=stat_prd_profit`, `buy_point=R`, and `vat_tp=1`.
+- [x] Assert the collection result includes request-range provenance and aggregated months without fabricating a full 13-month payload. Keep `collectSellpiaProductProfitEvidenceV1` as the capability gate.
 - [ ] Run:
 
   ```bash
@@ -314,8 +314,8 @@ Source readiness is coverage-based, not a loose age threshold. Sellpia is ready 
 
 ### Step 2: Write failing Analytics coverage and resolved-fact tests
 
-- [ ] Add service cases for a request beginning mid-month and ending yesterday. Require each persisted month to use the intersection of request range and month range rather than month-end assumptions.
-- [ ] Replace old fixed-period reader tests with a `MasterProductProfitFactReadPort` contract returning monthly resolved facts:
+- [x] Add service cases for a request beginning mid-month and ending yesterday. Require each persisted month to use the intersection of request range and month range rather than month-end assumptions.
+- [x] Replace old fixed-period reader tests with a `MasterProductProfitFactReadPort` contract returning monthly resolved facts:
 
   ```ts
   type MasterProductMonthlyProfitFact = {
@@ -338,15 +338,15 @@ Source readiness is coverage-based, not a loose age threshold. Sellpia is ready 
   };
   ```
 
-- [ ] Require the port to accept the active `masterProductIds` and return one evidence result per requested product. A product without a confirmed Sellpia identity returns `mappingStatus: 'UNMAPPED'` and no numeric facts. Option/product rows mapped to one `MasterProduct` aggregate once per month and preserve all source identities for audit; orphan source rows return in a separate audit collection rather than being dropped or assigned to a product.
+- [x] Require the port to accept the active `masterProductIds` and return one evidence result per requested product. A product without a confirmed Sellpia identity returns `mappingStatus: 'UNMAPPED'` and no numeric facts. Option/product rows mapped to one `MasterProduct` aggregate once per month and preserve all source identities for audit; orphan source rows return in a separate audit collection rather than being dropped or assigned to a product.
 - [ ] Run the two selected server test files. Expected: FAIL because coverage bounds and the new read port do not exist.
 
 ### Step 3: Store coverage and expose source facts
 
-- [ ] Keep one trusted payload-level request range in the ingest DTO and do not accept client-supplied per-month coverage bounds. Compute persisted `coverageStartDate`/`coverageEndDate` server-side from that range plus `yearMonth`; reject a row whose month does not intersect the requested range.
-- [ ] Keep the existing atomic replacement and idempotency behavior. The outflow 1/2-month projection may keep its own query logic but must not be reused as the ABC evidence window.
-- [ ] Replace the old metric reader/port with `master-product-profit-fact-read.port.ts` and `sellpia-master-product-profit-fact.reader.ts`. Resolve SKU/variant/listing identities to `MasterProduct`, aggregate monthly revenue and Sellpia inbound amount, and return exact coverage/freshness.
-- [ ] Export only the new source-fact read port from `SellpiaProductSalesModule`; remove the old ABC metric token and fixed period parameters.
+- [x] Keep one trusted payload-level request range in the ingest DTO and do not accept client-supplied per-month coverage bounds. Compute persisted `coverageStartDate`/`coverageEndDate` server-side from that range plus `yearMonth`; reject a row whose month does not intersect the requested range.
+- [x] Keep the existing atomic replacement and idempotency behavior. The outflow 1/2-month projection may keep its own query logic but must not be reused as the ABC evidence window.
+- [x] Replace the old metric reader/port with `master-product-profit-fact-read.port.ts` and `sellpia-master-product-profit-fact.reader.ts`. Resolve SKU/variant/listing identities to `MasterProduct`, aggregate monthly revenue and Sellpia inbound amount, and return exact coverage/freshness.
+- [x] Export only the new source-fact read port from `SellpiaProductSalesModule`; remove the old ABC metric token and fixed period parameters.
 - [ ] Run:
 
   ```bash

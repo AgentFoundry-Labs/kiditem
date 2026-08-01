@@ -61,13 +61,19 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       organizationId: string; productCode: string; optionCode: string; yearMonth: string;
       orderQty: number; orderAmount: number; inQty: number; inAmount: number;
       costBasis: 'ORDER_TIME_SUPPLY_COST'; vatIncluded: true;
+      coverageStartDate: Date; coverageEndDate: Date;
       productName: string; optionName: string | null; providerName: string | null;
       salePrice: number; buyPrice: number; barcode: string | null; capturedAt: Date;
     }>();
     for (const p of body.products) {
       for (const m of p.months) {
-        if (!/^\d{4}-\d{2}$/.test(m.yearMonth)) continue;
-        if (!authoritativeMonthSet.has(m.yearMonth)) continue;
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m.yearMonth)) {
+          throw new BadRequestException('Invalid Sellpia product-sales month');
+        }
+        if (!authoritativeMonthSet.has(m.yearMonth)) {
+          throw new BadRequestException('Sellpia product-sales month is outside request range');
+        }
+        const coverage = monthCoverageIntersection(body.range, m.yearMonth);
         byKey.set(`${p.productCode} ${p.optionCode} ${m.yearMonth}`, {
           organizationId,
           productCode: p.productCode,
@@ -79,6 +85,8 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
           inAmount: clampInt(m.inAmount),
           costBasis: body.provenance.costBasis,
           vatIncluded: body.provenance.vatIncluded,
+          coverageStartDate: coverage.start,
+          coverageEndDate: coverage.end,
           productName: p.productName,
           optionName: p.optionName ?? null,
           providerName: p.providerName ?? null,
@@ -397,6 +405,26 @@ function clampInt(n: number): number {
   const v = Math.round(n);
   if (v <= 0) return 0;
   return v > INT4_MAX ? INT4_MAX : v;
+}
+
+function monthCoverageIntersection(
+  range: { from: string; to: string },
+  yearMonth: string,
+): { start: Date; end: Date } {
+  const start = parseCalendarDate(range.from);
+  const end = parseCalendarDate(range.to);
+  if (!start || !end) {
+    throw new BadRequestException('Invalid Sellpia product-sales range');
+  }
+  const [year, month] = yearMonth.split('-').map(Number);
+  const monthStart = Date.UTC(year, month - 1, 1);
+  const monthEnd = Date.UTC(year, month, 0);
+  const coverageStart = Math.max(start.timestamp, monthStart);
+  const coverageEnd = Math.min(end.timestamp, monthEnd);
+  if (coverageStart > coverageEnd) {
+    throw new BadRequestException('Sellpia product-sales month does not intersect request range');
+  }
+  return { start: new Date(coverageStart), end: new Date(coverageEnd) };
 }
 
 function currentKstYearMonth(): string {

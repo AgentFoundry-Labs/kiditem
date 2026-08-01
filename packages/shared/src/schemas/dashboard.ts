@@ -456,7 +456,9 @@ export const SellpiaProductSalesIngestItemSchema = z.object({
   salePrice: SellpiaProductSalesNonnegativeIntSchema,
   buyPrice: SellpiaProductSalesNonnegativeIntSchema,
   barcode: z.string().max(64).optional(),
-  months: z.array(SellpiaProductSalesIngestMonthSchema).min(1).max(24),
+  // 응답에 없는 월을 클라이언트가 0으로 만들어 내지 않는다. 수집된 실제 월 버킷만
+  // 전송하며, 서버는 payload-level request range로 증거 범위를 계산한다.
+  months: z.array(SellpiaProductSalesIngestMonthSchema).max(24),
 }).strict();
 export const SellpiaProductSalesProvenanceSchema = z.object({
   source: z.literal('sellpia_stat_prd_profit'),

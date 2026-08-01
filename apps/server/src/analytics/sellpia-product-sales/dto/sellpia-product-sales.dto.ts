@@ -1,7 +1,6 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   Equals,
   IsArray,
   IsInt,
@@ -81,7 +80,6 @@ export class SellpiaProductSalesIngestItemDto {
   barcode?: string;
 
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(24)
   @ValidateNested({ each: true })
   @Type(() => SellpiaProductSalesIngestMonthDto)
