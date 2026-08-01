@@ -118,23 +118,31 @@ describe('BrowserCollectionProvider', () => {
     ).toEqual(current);
   });
 
-  it('leaves inventory.sellpia sessions to the authenticated freshness coordinator', async () => {
+  it('projects inventory.sellpia through the same browser collection alert lifecycle', async () => {
     const sellpia = session({ producer: 'inventory.sellpia' });
     mockListSessions.mockResolvedValue([sellpia]);
     const { queryClient } = renderProvider();
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-    expect(mockSyncAlert).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledWith(sellpia));
     expect(
       queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
-    ).toBeUndefined();
+    ).toEqual(sellpia);
+
+    mockSyncAlert.mockClear();
+    const newerSellpia = session({
+      producer: 'inventory.sellpia',
+      status: 'succeeded',
+      updatedAt: sellpia.updatedAt + 1,
+      finishedAt: sellpia.updatedAt + 1,
+    });
 
     act(() => {
       window.dispatchEvent(
-        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: sellpia }),
+        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: newerSellpia }),
       );
     });
-    expect(mockSyncAlert).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledWith(newerSellpia));
   });
 
   it('rejects malformed custom session events before alert synchronization', async () => {

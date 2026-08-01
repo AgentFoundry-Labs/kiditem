@@ -132,7 +132,85 @@ function runSellpiaManualMatchCollection(message) {
   );
 }
 
+function sellpiaInventoryOperationAlertContext(operation) {
+  return {
+    operationKey: `browser-collection:${operation.runId}`,
+    attempt: Number.isInteger(operation.attempt) && operation.attempt > 0
+      ? operation.attempt
+      : 1,
+    updatedAt: Date.now(),
+  };
+}
+
+function sellpiaInventoryOperationAlertMetadata(operation, alertContext, patch = {}) {
+  alertContext.updatedAt = Math.max(Date.now(), alertContext.updatedAt + 1);
+  return {
+    browserCollection: true,
+    runId: operation.runId,
+    producer: "inventory.sellpia",
+    collectionAttempt: alertContext.attempt,
+    collectionUpdatedAt: alertContext.updatedAt,
+    attentionReason: patch.attentionReason || null,
+  };
+}
+
+async function startSellpiaInventoryOperationAlert(operation) {
+  const alertContext = sellpiaInventoryOperationAlertContext(operation);
+  await browserOperationRuntimeEnvironmentContext.authedFetch(
+    operation.environmentId,
+    "/api/operation-alerts/start",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        operationKey: alertContext.operationKey,
+        type: "browser_collection",
+        title: "Sellpia 재고 갱신",
+        message: "Sellpia 현재고 동기화를 실행하고 있습니다.",
+        sourceType: "browser_collection_session",
+        sourceId: "inventory.sellpia",
+        href: "/inventory-hub?tab=sellpia-sync",
+        severity: "info",
+        progress: 0,
+        metadata: sellpiaInventoryOperationAlertMetadata(
+          operation,
+          alertContext,
+        ),
+      }),
+    },
+  ).catch(() => undefined);
+  return alertContext;
+}
+
+async function updateSellpiaInventoryOperationAlert(
+  operation,
+  alertContext,
+  patch,
+) {
+  const operationKey = alertContext.operationKey;
+  await browserOperationRuntimeEnvironmentContext.authedFetch(
+    operation.environmentId,
+    `/api/operation-alerts/${encodeURIComponent(operationKey)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: patch.status,
+        message: patch.message,
+        progress: patch.progress,
+        severity: patch.severity,
+        metadata: sellpiaInventoryOperationAlertMetadata(
+          operation,
+          alertContext,
+          patch,
+        ),
+      }),
+    },
+  ).catch(() => undefined);
+}
+
 async function runSellpiaInventoryOperation(operation) {
+  const alertContext = await startSellpiaInventoryOperationAlert(operation);
   const claimResponse = await browserOperationRuntimeEnvironmentContext.authedFetch(
     operation.environmentId,
     "/api/inventory/sellpia-freshness/claims",
@@ -143,6 +221,12 @@ async function runSellpiaInventoryOperation(operation) {
     },
   );
   if (!claimResponse.ok) {
+    await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+      status: "failed",
+      message: "Sellpia 현재고 동기화를 시작하지 못했습니다.",
+      progress: 0,
+      severity: "error",
+    });
     return {
       status: "failed",
       errorCode: "sellpia_freshness_claim_failed",
@@ -151,6 +235,13 @@ async function runSellpiaInventoryOperation(operation) {
   }
   const freshnessClaim = await claimResponse.json().catch(() => null);
   if (!freshnessClaim?.claimed) {
+    await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+      status: "pending",
+      message: "Sellpia 현재고 갱신 상태를 확인해주세요.",
+      progress: 0,
+      severity: "warning",
+      attentionReason: "sellpia_refresh_not_claimable",
+    });
     return {
       status: "attention_required",
       attentionReason: "sellpia_refresh_not_claimable",
@@ -171,11 +262,24 @@ async function runSellpiaInventoryOperation(operation) {
   );
   if (collected?.success !== true || !collected.snapshot) {
     if (collected?.pendingLogin || collected?.collectionSession?.status === "attention_required") {
+      await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+        status: "pending",
+        message: "Sellpia 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
+        progress: 0,
+        severity: "warning",
+        attentionReason: "sellpia_login_required",
+      });
       return {
         status: "attention_required",
         attentionReason: "sellpia_login_required",
       };
     }
+    await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+      status: "failed",
+      message: "Sellpia 현재고 동기화에 실패했습니다.",
+      progress: 0,
+      severity: "error",
+    });
     return {
       status: "failed",
       errorCode: typeof collected?.errorCode === "string"
@@ -212,6 +316,12 @@ async function runSellpiaInventoryOperation(operation) {
       "failed",
       "Sellpia snapshot import failed.",
     ).catch(() => undefined);
+    await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+      status: "failed",
+      message: "Sellpia 현재고 동기화 결과를 저장하지 못했습니다.",
+      progress: 0.5,
+      severity: "error",
+    });
     return {
       status: "failed",
       errorCode: "sellpia_import_failed",
@@ -224,6 +334,12 @@ async function runSellpiaInventoryOperation(operation) {
     "succeeded",
     "Sellpia inventory import completed.",
   ).catch(() => undefined);
+  await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+    status: "succeeded",
+    message: "Sellpia 현재고 동기화가 완료되었습니다.",
+    progress: 1,
+    severity: "info",
+  });
   return {
     status: "succeeded",
     result: {

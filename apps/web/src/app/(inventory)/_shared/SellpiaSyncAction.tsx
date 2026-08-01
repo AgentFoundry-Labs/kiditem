@@ -26,7 +26,7 @@ export function SellpiaSyncAction({ compact = false, showStatus = false }: {
   const runSync = async () => {
     setRequesting(true);
     try {
-      await requestRefresh(state?.status === 'failed' ? 'retry' : 'manual_request');
+      await requestRefresh();
       toast.success('셀피아 동기화를 시작했습니다.');
     } catch {
       toast.error('셀피아 동기화를 시작하지 못했습니다.');

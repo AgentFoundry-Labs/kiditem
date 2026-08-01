@@ -57,7 +57,7 @@ describe('PanelService', () => {
     expect(items[0].id).toBe('workflow:r1');
   });
 
-  it('queries with organizationId + pending/running OR updatedAt window', async () => {
+  it('queries workflow rows without projecting the internal OperationRun ledger', async () => {
     await service.snapshot('co-1', 'user-a');
     expect(prisma.workflowRun.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -75,24 +75,10 @@ describe('PanelService', () => {
         include: { template: { select: { name: true } } },
       }),
     );
-    expect(prisma.operationRun.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: 'co-1',
-          OR: expect.arrayContaining([
-            { status: { in: ['queued', 'waiting_runtime', 'running', 'attention_required'] } },
-            expect.objectContaining({
-              updatedAt: expect.objectContaining({ gte: expect.any(Date) }),
-            }),
-          ]),
-        }),
-        take: 100,
-        orderBy: { createdAt: 'desc' },
-      }),
-    );
+    expect(prisma.operationRun.findMany).not.toHaveBeenCalled();
   });
 
-  it('projects the canonical OperationRun ledger into the panel snapshot', async () => {
+  it('keeps OperationRun execution state out of notifications', async () => {
     const now = new Date();
     prisma.operationRun.findMany.mockResolvedValue([{
       id: '11111111-1111-1111-1111-111111111111',
@@ -129,13 +115,8 @@ describe('PanelService', () => {
       requestedBy: null,
     }]);
 
-    await expect(service.snapshot('co-1', 'user-a')).resolves.toContainEqual(
-      expect.objectContaining({
-        id: 'operation:11111111-1111-1111-1111-111111111111',
-        source: 'operation',
-        phase: 'waiting_runtime',
-        subtitle: '실행 중',
-      }),
+    await expect(service.snapshot('co-1', 'user-a')).resolves.not.toContainEqual(
+      expect.objectContaining({ source: 'operation' }),
     );
   });
 

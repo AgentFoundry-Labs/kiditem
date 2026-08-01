@@ -27,6 +27,8 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     const sharedOrderAction = source('src/hooks/useAllMarketplaceOrderCollection.ts');
 
     expect(dashboard).toContain('usePersistedAllMarketplaceOrderCollection');
+    expect(dashboard).toContain('useSellpiaInventoryFreshness');
+    expect(dashboard).toContain("sourceSurface: 'dashboard'");
     expect(sharedOrderAction).toContain('useAllMarketplaceOrderCollection');
     expect(orderScreen).toContain('useAllMarketplaceOrderCollection');
 
@@ -34,10 +36,10 @@ describe('useDepartmentQuickActions execution boundaries', () => {
       ['collectAndPersistCoupangShipmentSummary', shipmentScreen],
       ['collectAndPersistRocketPurchaseOrders', rocketWorkflow],
       ['startTrendCollectionAction', trendScreen],
-      ['startSellpiaInventoryRefreshAction', sellpiaScreen],
     ] as const) {
       expect(dashboard).toContain(sharedAction);
       expect(domainSource).toContain(sharedAction);
     }
+    expect(sellpiaScreen).toContain('startSellpiaInventoryRefreshAction');
   });
 });

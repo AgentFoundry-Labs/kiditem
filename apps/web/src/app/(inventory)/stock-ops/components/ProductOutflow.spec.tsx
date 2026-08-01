@@ -99,7 +99,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith());
     expect(screen.queryByRole('button', { name: '지금 수집' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /재고 동기화/ })).not.toBeInTheDocument();
   });
@@ -115,7 +115,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('retry'));
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith());
   });
 
   it('renders shared syncing freshness as a disabled unified sync action', () => {
@@ -161,7 +161,7 @@ describe('ProductOutflow canonical Sellpia refresh', () => {
     expect(screen.queryByText('전송 확인 필요 1')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /셀피아 동기화/ }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('manual_request'));
+    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith());
     expect(toastMock.success).toHaveBeenCalledWith(
       '셀피아 동기화를 시작했습니다.',
     );

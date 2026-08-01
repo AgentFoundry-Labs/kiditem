@@ -5,11 +5,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { usePersistedAllMarketplaceOrderCollection } from '@/hooks/useAllMarketplaceOrderCollection';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
+import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
 import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
-import {
-  startSellpiaInventoryRefreshAction,
-  startTrendCollectionAction,
-} from '@/lib/manual-operation-actions';
+import { startTrendCollectionAction } from '@/lib/manual-operation-actions';
 import { queryKeys } from '@/lib/query-keys';
 import { collectAndPersistRocketPurchaseOrders } from '@/lib/rocket-purchase-collection-action';
 import { formatNumber } from '@/lib/utils';
@@ -49,6 +47,11 @@ export function useDepartmentQuickActions() {
   const { collectAllOrders } = usePersistedAllMarketplaceOrderCollection({
     rocketChannelAccountId: rocketAccountId,
   });
+  const { requestRefresh: requestSellpiaInventoryRefresh } =
+    useSellpiaInventoryFreshness({
+      enabled: true,
+      sourceSurface: 'dashboard',
+    });
 
   const collectShipmentSummary = useCallback(async () => {
     const result = await collectAndPersistCoupangShipmentSummary();
@@ -103,12 +106,14 @@ export function useDepartmentQuickActions() {
       toast.success('트렌드 수집을 시작했습니다.');
       return;
     }
-    await startSellpiaInventoryRefreshAction({
-      sourceSurface: 'dashboard',
-      reason: 'manual_request',
-    });
+    await requestSellpiaInventoryRefresh();
     toast.success('셀피아 동기화를 시작했습니다.');
-  }, [collectAllOrders, collectRocketPurchaseOrders, collectShipmentSummary]);
+  }, [
+    collectAllOrders,
+    collectRocketPurchaseOrders,
+    collectShipmentSummary,
+    requestSellpiaInventoryRefresh,
+  ]);
 
   return { start };
 }

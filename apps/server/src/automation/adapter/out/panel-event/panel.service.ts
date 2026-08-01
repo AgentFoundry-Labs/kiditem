@@ -5,8 +5,6 @@ import type { PanelItem } from '@kiditem/shared/panel';
 import { workflowPanelMapper } from '../../../mapper/panel-event/workflow.mapper';
 import { imagePanelMapper } from '../../../mapper/panel-event/image.mapper';
 import { alertPanelMapper } from '../../../mapper/panel-event/alert.mapper';
-import { mapOperationRunToPanelItem } from '../../../../operations/adapter/out/panel/operation-panel.mapper';
-import { mapOperationRunRow } from '../../../../operations/adapter/out/repository/operation.repository.adapter';
 
 @Injectable()
 export class PanelService {
@@ -17,10 +15,10 @@ export class PanelService {
    * 현재 Panel에 표시되어야 할 아이템 전체.
    * - 진행 중 run (pending/running)
    * - 최근 24h terminal run
-   * Sources: workflow run, thumbnail generation, OperationRun, alert.
-   *
-   * Agent-native runs remain their own owner ledger. When they are started
-   * through Operations, the linked OperationRun is the single panel row.
+   * Sources: workflow run, thumbnail generation, alert.
+   * OperationRun remains the internal execution ledger. User-facing progress
+   * comes from each owner workflow's ordinary alert lifecycle, regardless of
+   * whether it was triggered from the dashboard or its domain screen.
    */
   async snapshot(organizationId: string, currentUserId: string): Promise<Array<Omit<PanelItem, 'seq' | 'updatedAt'>>> {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000);
@@ -64,27 +62,6 @@ export class PanelService {
           organizationId,
         ),
       );
-    }
-
-    // ── Operations source ──
-    // The OperationRun ledger is organization-scoped and is the canonical
-    // execution envelope for dashboard, domain-screen, agent, and schedule
-    // entries. Native references will be deduplicated here when their owners
-    // are linked in the next integration slice.
-    const operationRuns = await this.prisma.operationRun.findMany({
-      where: {
-        organizationId,
-        OR: [
-          { status: { in: ['queued', 'waiting_runtime', 'running', 'attention_required'] } },
-          { updatedAt: { gte: twentyFourHoursAgo } },
-        ],
-      },
-      include: { requestedBy: { select: { id: true, name: true, email: true } } },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    for (const run of operationRuns) {
-      items.push(mapOperationRunToPanelItem(mapOperationRunRow(run)));
     }
 
     // ── Alert source ──

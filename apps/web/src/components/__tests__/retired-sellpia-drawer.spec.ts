@@ -37,6 +37,10 @@ describe('retired shared Sellpia drawer', () => {
       path.join(webSrc, 'components/providers/SellpiaInventorySyncProvider.tsx'),
       'utf8',
     );
+    const freshnessHook = readFileSync(
+      path.join(webSrc, 'hooks/useSellpiaInventoryFreshness.ts'),
+      'utf8',
+    );
     const operationRuntime = readFileSync(
       path.resolve(webSrc, '../../../extensions/kiditem-os/background/operation-runtime-client.js'),
       'utf8',
@@ -50,8 +54,9 @@ describe('retired shared Sellpia drawer', () => {
       "import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';",
     );
     expect(productOutflow).toContain('<SellpiaSyncAction compact showStatus />');
-    expect(syncAction).toContain(
-      "state?.status === 'failed' ? 'retry' : 'manual_request'",
+    expect(syncAction).toContain('await requestRefresh()');
+    expect(freshnessHook).toContain(
+      "latestState.status === 'failed' ? 'retry' : 'manual_request'",
     );
     expect(syncAction).toContain('aria-label="셀피아 동기화"');
     expect(coordinator).toContain('useSellpiaInventoryFreshness');
