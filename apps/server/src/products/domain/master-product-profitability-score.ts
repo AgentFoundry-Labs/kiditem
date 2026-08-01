@@ -47,6 +47,7 @@ export type ProfitabilityScore = Readonly<{
 }>;
 
 const MILLISECONDS_PER_DAY = 86_400_000;
+const NORMALIZATION_VALUE_EPSILON = 1e-12;
 
 export function calculateWeightedProfitabilityMetrics(input: {
   facts: readonly ProfitabilityContributionFact[];
@@ -270,23 +271,27 @@ function normalizeKnots(knots: readonly NormalizationKnot[]): NormalizationKnot[
   if (knots.length === 0) throw new Error('At least one normalization knot is required');
   const sorted = [...knots].map((knot) => ({ ...knot })).sort((left, right) =>
     left.value - right.value || left.score - right.score);
-  const merged: NormalizationKnot[] = [];
+  const groups: NormalizationKnot[][] = [];
   for (const knot of sorted) {
     if (!Number.isFinite(knot.value) || !Number.isFinite(knot.score) || knot.score < 0 || knot.score > 100) {
       throw new Error('Normalization knots must be finite scores in [0, 100]');
     }
-    const prior = merged[merged.length - 1];
-    if (prior && prior.value === knot.value) {
-      const sameValue = sorted.filter((candidate) => candidate.value === knot.value);
-      merged[merged.length - 1] = {
-        value: prior.value,
-        score: sameValue.reduce((sum, candidate) => sum + candidate.score, 0) / sameValue.length,
-      };
+    const group = groups[groups.length - 1];
+    if (group && nearlyEqual(group[0]!.value, knot.value)) {
+      group.push(knot);
     } else {
-      merged.push({ ...knot });
+      groups.push([knot]);
     }
   }
-  return merged;
+  return groups.map((group) => ({
+    value: group.reduce((sum, knot) => sum + knot.value, 0) / group.length,
+    score: group.reduce((sum, knot) => sum + knot.score, 0) / group.length,
+  }));
+}
+
+function nearlyEqual(left: number, right: number): boolean {
+  const scale = Math.max(1, Math.abs(left), Math.abs(right));
+  return Math.abs(left - right) <= NORMALIZATION_VALUE_EPSILON * scale;
 }
 
 function quantile(sorted: readonly number[], probability: number): number {
