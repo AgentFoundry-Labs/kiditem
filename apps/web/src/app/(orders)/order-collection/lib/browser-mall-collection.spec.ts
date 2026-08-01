@@ -20,6 +20,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('sonner', () => ({ toast: mocks.toast }));
 vi.mock('./order-collection-extension', () => ({
   collectIcecreamMallRowsFromExtension: vi.fn(),
+  createOrderCollectionExtensionError: (
+    response: { error?: string; errorCode?: string; pendingLogin?: boolean; failure?: unknown },
+    fallback: string,
+  ) => Object.assign(new Error(response.error ?? fallback), response),
   detectOrderCollectionSessionExtension: mocks.detectExtension,
   ensureMallLoggedInViaExtension: mocks.ensureLogin,
 }));
@@ -160,6 +164,8 @@ describe('createBrowserMallCollector', () => {
     expect(source).not.toMatch(/toast\.(error|warning)\([^)]*주문[^)]*없/);
     // 모든 몰 분기가 헬퍼를 거친다.
     expect((source.match(/toastNoNewOrders\(/g) ?? []).length).toBeGreaterThanOrEqual(13);
+    expect(source).not.toContain('/주문이 없|없습니다/');
+    expect(source).toContain('isNoNewOrdersMessage(msg)');
   });
 
   it('derives every generated-file collection date from the resolved run', () => {

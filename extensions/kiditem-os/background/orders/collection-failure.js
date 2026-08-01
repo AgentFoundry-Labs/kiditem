@@ -6,6 +6,13 @@
     "icecream-mall": [/로그인 후 화면으로 넘어가지 않았습니다/],
     art09: [/주문목록에서 주문번호를 찾지 못했습니다/],
   });
+  const STABLE_CODES = new Set([
+    "login_required",
+    "operator_action_required",
+    "provider_contract_changed",
+    "network_failed",
+    "unknown_failure",
+  ]);
 
   function messageOf(value) {
     if (typeof value?.error === "string") return value.error;
@@ -27,6 +34,14 @@
       code = "operator_action_required";
       retryable = true;
       operatorAction = "complete_sms_auth";
+    } else if (STABLE_CODES.has(value?.errorCode)) {
+      code = value.errorCode;
+      retryable = code === "login_required" || code === "operator_action_required" || code === "network_failed";
+      operatorAction = code === "login_required"
+        ? "complete_login"
+        : code === "operator_action_required" && provider === "gs-shop"
+          ? "complete_sms_auth"
+          : null;
     } else if (providerPatterns.some((pattern) => pattern.test(message))) {
       code = "provider_contract_changed";
     } else if (

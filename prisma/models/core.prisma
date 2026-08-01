@@ -33,6 +33,8 @@ model Organization {
   thumbnailTrackingDailySnapshots ThumbnailTrackingDailySnapshot[]
   reviews                         Review[]
   alerts                          Alert[]
+  operationRuns                   OperationRun[]
+  operationSchedules              OperationSchedule[]
 
   // Sourcing & Content
   contentGenerations                  ContentGeneration[]
@@ -228,6 +230,8 @@ model User {
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")
   claimedDetailPageImageRenderIntents        DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentClaimedBy")
   actorAlerts                                Alert[]                                        @relation("AlertActor")
+  requestedOperationRuns                     OperationRun[]                                 @relation("OperationRunRequestedBy")
+  createdOperationSchedules                  OperationSchedule[]                            @relation("OperationScheduleCreatedBy")
   assignedActionTasks                        ActionTask[]                                   @relation("ActionTaskAssignee")
   activeSellpiaInventoryStates               SellpiaInventoryState[]                        @relation("SellpiaInventoryStateActiveSyncOwner")
   createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]               @relation("SellpiaOrderTransmissionIntentCreator")

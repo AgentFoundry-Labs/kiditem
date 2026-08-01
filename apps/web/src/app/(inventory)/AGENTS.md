@@ -39,10 +39,12 @@ React Query + inventory API helpers
 - Barcode printing may use browser print APIs only in the existing inventory
   print helper.
 - Keep projection helpers pure and covered by focused tests.
-- Sellpia refresh requests are made through explicit action buttons and claimed
-  by the authenticated background coordinator. One user-requested
-  synchronization collects both the physical inventory snapshot and
-  product-level monthly depletion; users do not start those sources separately.
+- Sellpia refresh requests are made through explicit action buttons as a
+  server-owned `inventory.refresh_sellpia_snapshot` OperationRun. The extension
+  browser runtime claims it; a web-tab lifecycle never owns collection or
+  finalization. One user-requested synchronization collects both the physical
+  inventory snapshot and product-level monthly depletion; users do not start
+  those sources separately.
   TTL and post-order evidence refreshes remain inventory-only. There is no
   global freshness drawer, status entry, or manual-import UI. Completed
   automatic attempts share one import-run history.
@@ -75,8 +77,8 @@ React Query + inventory API helpers
 - `/inventory` keeps its own operator-facing composition. Shared projections
   may reuse components, but that route does not become a redirect.
 - Do not add a shared freshness drawer or app-wide/inline status entry. Direct
-  refresh actions schedule work through the shared hook, while the background
-  coordinator owns claim, collection, upload, and finalization.
+  refresh actions start the shared OperationRun; the browser runtime owns
+  claim, collection, upload, and finalization.
 - Sellpia import-run history has exactly one screen (`?tab=sellpia-sync`). Do
   not reintroduce a separate audit or freshness tab rendering the same
   `ImportFreshness` projection.
@@ -85,9 +87,9 @@ React Query + inventory API helpers
   reconcile them; the order-collection resend flow owns any required recovery.
   An unresolved intent protects only that file and never changes freshness or
   blocks independent stock synchronization.
-- Refresh buttons report the classified outcome of the returned freshness state,
-  never HTTP success. A non-throwing refresh request does not mean work was
-  scheduled. Use `_shared/sellpia-sync-outcome.ts` so every surface agrees.
+- Refresh buttons report request acceptance only; terminal success/failure is
+  read from OperationRun and freshness history, never inferred from HTTP
+  success.
 - Stock asset reporting has exactly one component (`StockAssets`). Do not add
   a second, reduced asset projection alongside it.
 

@@ -3,6 +3,7 @@ import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { formatNumber } from '@/lib/utils';
 import {
   collectIcecreamMallRowsFromExtension,
+  createOrderCollectionExtensionError,
   detectOrderCollectionSessionExtension,
   ensureMallLoggedInViaExtension,
   type OrderCollectionExtensionRun,
@@ -14,6 +15,7 @@ import {
 import {
   ICECREAM_MALL_KEY,
   isBrowserCollectableMall,
+  isNoNewOrdersMessage,
   todayYmd,
   type ConversionHistoryItem,
 } from './order-collection-page-model';
@@ -83,7 +85,10 @@ export function createBrowserMallCollector({
     if (!credentials) return;
     const result = await ensureMallLoggedInViaExtension(mallKey, credentials, run);
     if (!result.success) {
-      throw new Error(result.error ?? `${mallKey} 로그인을 완료하지 못했습니다.`);
+      throw createOrderCollectionExtensionError(
+        result,
+        `${mallKey} 로그인을 완료하지 못했습니다.`,
+      );
     }
   };
 
@@ -135,7 +140,7 @@ export function createBrowserMallCollector({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('꼬망세');
         return 0;
       }
@@ -179,7 +184,7 @@ export function createBrowserMallCollector({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('도매꾹', `조회일 ${collectionDate}`);
         return 0;
       }
@@ -279,7 +284,7 @@ export function createBrowserMallCollector({
       result = await convertLotteonToSellpiaFile(xlsxBase64, fileName, { download: false });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('롯데ON');
         return 0;
       }
@@ -318,7 +323,7 @@ export function createBrowserMallCollector({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('GS샵');
         return 0;
       }
@@ -357,7 +362,7 @@ export function createBrowserMallCollector({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('올웨이즈');
         return 0;
       }
@@ -384,13 +389,18 @@ export function createBrowserMallCollector({
       './boribori-orders-api'
     );
     await ensureMallLogin('boribori', run);
-    const { xlsxBase64, fileName } = await collectBoriboriXlsxFromExtension({ run });
+    const collected = await collectBoriboriXlsxFromExtension({ run });
+    if ('empty' in collected) {
+      toastNoNewOrders('보리보리', '결제완료 상태 기준');
+      return 0;
+    }
+    const { xlsxBase64, fileName } = collected;
     let result: Awaited<ReturnType<typeof convertBoriboriToSellpiaFile>>;
     try {
       result = await convertBoriboriToSellpiaFile(xlsxBase64, fileName, { download: false });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('보리보리', '결제완료 상태 기준');
         return 0;
       }
@@ -417,13 +427,18 @@ export function createBrowserMallCollector({
       './teacherville-orders-api'
     );
     await ensureMallLogin('teacher-mall', run);
-    const { xlsxBase64, fileName } = await collectTeachervilleXlsxFromExtension(run);
+    const collected = await collectTeachervilleXlsxFromExtension(run);
+    if ('empty' in collected) {
+      toastNoNewOrders('티쳐몰', '출고 전 상태 기준');
+      return 0;
+    }
+    const { xlsxBase64, fileName } = collected;
     let result: Awaited<ReturnType<typeof convertTeachervilleToSellpiaFile>>;
     try {
       result = await convertTeachervilleToSellpiaFile(xlsxBase64, fileName, { download: false });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/주문이 없|없습니다/.test(msg)) {
+      if (isNoNewOrdersMessage(msg)) {
         toastNoNewOrders('티쳐몰', '출고 전 상태 기준');
         return 0;
       }

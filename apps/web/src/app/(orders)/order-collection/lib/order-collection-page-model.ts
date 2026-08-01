@@ -1,4 +1,5 @@
 import { formatNumber } from '@/lib/utils';
+import type { OrderCollectionFailureCode } from './order-collection-extension';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
 
@@ -150,6 +151,26 @@ export function isNoNewOrdersMessage(message: string | null | undefined): boolea
 }
 
 /**
+ * 확장프로그램이 보낸 구조화 실패 코드를 읽는다. 표시 문구는 운영자 안내용이며
+ * 실행 상태 판정에는 이 코드를 우선 사용한다.
+ */
+export function getOrderCollectionFailureCode(value: unknown): OrderCollectionFailureCode | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as {
+    errorCode?: unknown;
+    failure?: { code?: unknown } | null;
+  };
+  const code = candidate.failure?.code ?? candidate.errorCode;
+  return code === 'login_required' ||
+    code === 'operator_action_required' ||
+    code === 'provider_contract_changed' ||
+    code === 'network_failed' ||
+    code === 'unknown_failure'
+    ? code
+    : null;
+}
+
+/**
  * 수집 실패가 "추가 인증 필요"(SMS 등)인지 판별한다. 예: GS샵 SMS 인증방식.
  * 활동 피드에서 일반 오류가 아니라 "인증 필요"로 표기하기 위해 사용하며,
  * 로그인 필요 판별보다 먼저 분기해야 한다(인증 안내에도 "로그인" 단어가 섞이므로).
@@ -179,6 +200,23 @@ export function isLoginRequiredMessage(message: string | null | undefined): bool
   if (!message) return false;
   if (isNetworkFailureMessage(message)) return true;
   return /로그인|세션이?\s*만료|세션\s*만료/.test(message);
+}
+
+export type OrderCollectionFailureKind = 'empty' | 'auth' | 'login' | 'error';
+
+/** Manual collection and auto-detection classify the same extension result identically. */
+export function classifyOrderCollectionFailure(
+  value: unknown,
+  message: string | null | undefined,
+): OrderCollectionFailureKind {
+  const code = getOrderCollectionFailureCode(value);
+  if (code === 'operator_action_required') return 'auth';
+  if (code === 'login_required') return 'login';
+  if (code) return 'error';
+  if (isNoNewOrdersMessage(message)) return 'empty';
+  if (isAuthRequiredMessage(message)) return 'auth';
+  if (isLoginRequiredMessage(message)) return 'login';
+  return 'error';
 }
 
 /**

@@ -9,9 +9,10 @@ import { toast } from 'sonner';
 import AgentFace from '@/components/AgentFace';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { AgentOsOperationsPanel } from './agent-os/AgentOsOperationsPanel';
 import {
   useDepartmentQuickActions,
-  type OrderCollectionMallAccount,
+  type DepartmentQuickAction,
 } from '../hooks/use-department-quick-actions';
 
 const DashboardCharts = dynamic(
@@ -40,14 +41,8 @@ type IndustryBenchmark = {
 };
 
 // 인라인 실행 액션 — 대시보드에서 바로 실행한다(페이지 이동 없음).
-type DeptAction =
-  | 'collectTrend'
-  | 'refreshInventory'
-  | 'syncSellpia'
-  | 'collectAllOrders'
-  | 'collectShipmentToday';
 type DeptButton =
-  | { label: string; kind: 'action'; action: DeptAction }
+  | { label: string; kind: 'action'; action: DepartmentQuickAction }
   // 링크 — 관리 화면(상품)은 해당 페이지로 이동.
   | { label: string; kind: 'link'; href: string };
 
@@ -60,12 +55,10 @@ type Dept = {
   buttons: readonly DeptButton[];
 };
 
-const ACTION_LABEL: Record<DeptAction, string> = {
+const ACTION_LABEL: Record<DepartmentQuickAction, string> = {
   collectTrend: '시장분석 수집',
   refreshInventory: '재고 분석 업데이트',
   syncSellpia: '셀피아 동기화',
-  collectAllOrders: '몰 주문 전체수집',
-  collectShipmentToday: '금일 쿠팡 쉽먼트 다운',
 };
 
 const DEPT_MAP: readonly Dept[] = [
@@ -82,11 +75,11 @@ const DEPT_MAP: readonly Dept[] = [
   },
   {
     key: 'order', label: '주문', color: '#f59e0b', faceColor: 'amber', faceRole: 'order',
-    buttons: [{ label: '몰 주문수집 (전체수집)', kind: 'action', action: 'collectAllOrders' }],
+    buttons: [{ label: '몰 주문수집', kind: 'link', href: '/order-collection' }],
   },
   {
     key: 'shipping', label: '출고', color: '#0ea5e9', faceColor: 'cyan', faceRole: 'shipping',
-    buttons: [{ label: '금일 쿠팡 쉽먼트 다운', kind: 'action', action: 'collectShipmentToday' }],
+    buttons: [{ label: '쿠팡 쉽먼트', kind: 'link', href: '/coupang-shipments' }],
   },
   {
     key: 'analysis', label: '분석', color: '#ef4444', faceColor: 'rose', faceRole: 'finance',
@@ -124,56 +117,21 @@ export function DashboardChartPanel({
 
   const quickActions = useDepartmentQuickActions();
   const [runningAction, setRunningAction] = useState<string | null>(null);
-  // 주문 전체수집 후 실패한 몰 — 주문 카드 하단에 재수집 버튼을 동적으로 노출한다.
-  const [orderFailedAccounts, setOrderFailedAccounts] = useState<OrderCollectionMallAccount[]>([]);
 
-  const runAction = async (deptKey: string, action: DeptAction) => {
+  const runAction = async (deptKey: string, action: DepartmentQuickAction) => {
     const id = `${deptKey}:${action}`;
     if (runningAction) return;
     setRunningAction(id);
     const label = ACTION_LABEL[action];
     const toastId = toast.loading(`${label} 실행 중…`);
     try {
-      if (action === 'collectTrend') {
-        await quickActions.collectTrend();
-        toast.success('시장분석 트렌드 수집을 완료했습니다.', { id: toastId });
-      } else if (action === 'refreshInventory' || action === 'syncSellpia') {
-        await quickActions.requestInventoryRefresh();
-        toast.success(`${label}을(를) 요청했습니다.`, { id: toastId });
-      } else if (action === 'collectAllOrders') {
-        const result = await quickActions.collectAllOrders();
-        setOrderFailedAccounts(result.failedAccounts);
-        if (result.failedAccounts.length > 0) {
-          toast.warning(`전체수집 완료 · 성공 ${result.success}/${result.total} (실패 ${result.failedAccounts.length})`, { id: toastId });
-        } else {
-          toast.success(`전체수집 완료 · ${result.success}개 몰`, { id: toastId });
-        }
-      } else {
-        const result = await quickActions.collectShipmentToday();
-        const failedNote = result.failed > 0 ? ` (실패 ${result.failed})` : '';
-        toast.success(`쿠팡 쉽먼트 완료 · ${result.date} 쉽먼트 ${result.shipments}건 → 파일 ${result.files}개${failedNote}`, { id: toastId });
-      }
+      const run = await quickActions.start(action);
+      toast.success(`${label} 실행을 시작했습니다.`, {
+        id: toastId,
+        description: `작업 ID ${run.id.slice(0, 8)} · Agent OS에서 상태를 확인하세요.`,
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `${label} 실패`, { id: toastId });
-    } finally {
-      setRunningAction(null);
-    }
-  };
-
-  const retryFailedOrders = async () => {
-    if (runningAction || orderFailedAccounts.length === 0) return;
-    setRunningAction('order:retry');
-    const toastId = toast.loading(`실패 몰 재수집 중… (${orderFailedAccounts.length}개)`);
-    try {
-      const result = await quickActions.retryOrders(orderFailedAccounts);
-      setOrderFailedAccounts(result.failedAccounts);
-      if (result.failedAccounts.length > 0) {
-        toast.warning(`재수집 · ${result.success}개 성공, ${result.failedAccounts.length}개 여전히 실패`, { id: toastId });
-      } else {
-        toast.success('실패 몰 재수집 완료', { id: toastId });
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '실패 몰 재수집 실패', { id: toastId });
     } finally {
       setRunningAction(null);
     }
@@ -305,27 +263,12 @@ export function DashboardChartPanel({
                           </Link>
                         );
                       })}
-
-                      {/* 주문 전체수집 후 실패한 몰이 있으면 동적으로 재수집 버튼 노출. */}
-                      {dept.key === 'order' && orderFailedAccounts.length > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => void retryFailedOrders()}
-                          disabled={runningAction !== null}
-                          className="w-full text-left rounded-lg px-2.5 py-2 flex items-center gap-2 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors disabled:opacity-60"
-                        >
-                          <span className="w-2 h-2 rounded-full shrink-0 bg-red-500" />
-                          <span className="text-[15px] text-red-700 flex-1 leading-snug font-semibold">실패 몰 수집 ({orderFailedAccounts.length})</span>
-                          <span className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md bg-red-100 text-red-600" title="실패 몰 재수집">
-                            {runningAction === 'order:retry' ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-                          </span>
-                        </button>
-                      ) : null}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
+            <AgentOsOperationsPanel />
           </div>
         </div>
       )}

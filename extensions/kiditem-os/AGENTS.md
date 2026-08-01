@@ -51,8 +51,10 @@ scope and one `chrome.storage.local`. These rules keep them from colliding.
   `openCollectionAttentionTab`). A domain worker that also answers them creates
   competing responses to the same message, and the first responder wins
   non-deterministically.
-- A domain worker publishes its capabilities and its cancel/restart/finalize
-  implementations through `KidItemDomains.register`. Capabilities are merged
+- A domain worker publishes its capabilities, exact browser-operation handlers,
+  and its cancel/restart/finalize implementations through `KidItemDomains.register`.
+  Browser handlers are dispatched only by exact operation key; never accept a
+  generic action or URL executor. Capabilities are merged
   into one `ping` response; the web app would otherwise see only the first
   responder's domain and treat the rest as "extension not installed".
 - Producer prefixes are the routing key and must stay disjoint: `orders` and

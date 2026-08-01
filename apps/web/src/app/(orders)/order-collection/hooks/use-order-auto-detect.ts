@@ -18,10 +18,8 @@ import {
 } from '../lib/order-detect';
 import {
   ICECREAM_MALL_KEY,
-  isAuthRequiredMessage,
+  classifyOrderCollectionFailure,
   isAutoDetectableMall,
-  isLoginRequiredMessage,
-  isNoNewOrdersMessage,
   todayYmd,
   type ConversionHistoryItem,
 } from '../lib/order-collection-page-model';
@@ -120,13 +118,7 @@ export function useOrderAutoDetect({
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : '자동 감지 실패';
-          const kind = isNoNewOrdersMessage(message)
-            ? 'empty'
-            : isAuthRequiredMessage(message)
-              ? 'auth'
-              : isLoginRequiredMessage(message)
-                ? 'login'
-                : 'error';
+          const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, message);
           logActivity(kind, account.name, kind === 'empty' ? undefined : message);
           console.warn('[order-auto-detect]', account.key, err);
         } finally {

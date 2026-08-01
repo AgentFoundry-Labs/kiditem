@@ -16,6 +16,11 @@ export const PANEL_RUN_SOURCES = {
     iconName: 'Image',
     deepLinkPattern: '/product-pipeline/thumbnail-generation?generationId=:id',
   },
+  operation: {
+    label: '운영 실행',
+    iconName: 'Activity',
+    deepLinkPattern: '/dashboard?tab=agent-os&operationRunId=:id',
+  },
 } as const;
 
 export type PanelRunSource = keyof typeof PANEL_RUN_SOURCES;

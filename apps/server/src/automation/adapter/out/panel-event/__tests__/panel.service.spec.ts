@@ -10,6 +10,7 @@ describe('PanelService', () => {
   beforeEach(async () => {
     prisma = {
       workflowRun: { findMany: vi.fn().mockResolvedValue([]) },
+      operationRun: { findMany: vi.fn().mockResolvedValue([]) },
       thumbnailGeneration: { findMany: vi.fn().mockResolvedValue([]) },
       alert: { findMany: vi.fn().mockResolvedValue([]) },
     };
@@ -72,6 +73,68 @@ describe('PanelService', () => {
         take: 100,
         orderBy: { createdAt: 'desc' },
         include: { template: { select: { name: true } } },
+      }),
+    );
+    expect(prisma.operationRun.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: 'co-1',
+          OR: expect.arrayContaining([
+            { status: { in: ['queued', 'waiting_runtime', 'running', 'attention_required'] } },
+            expect.objectContaining({
+              updatedAt: expect.objectContaining({ gte: expect.any(Date) }),
+            }),
+          ]),
+        }),
+        take: 100,
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+  });
+
+  it('projects the canonical OperationRun ledger into the panel snapshot', async () => {
+    const now = new Date();
+    prisma.operationRun.findMany.mockResolvedValue([{
+      id: '11111111-1111-1111-1111-111111111111',
+      organizationId: 'co-1',
+      operationKey: 'inventory.refresh_sellpia_snapshot',
+      definitionVersion: 1,
+      title: '셀피아 재고 스냅샷 갱신',
+      ownerDomain: 'inventory',
+      engineType: 'browser',
+      status: 'waiting_runtime',
+      triggerSource: 'dashboard',
+      requestedByUserId: null,
+      parentRunId: null,
+      scheduleId: null,
+      idempotencyKey: null,
+      input: {},
+      result: null,
+      progress: null,
+      nativeRunType: null,
+      nativeRunId: null,
+      attempts: 0,
+      maxAttempts: 3,
+      claimedBy: null,
+      attemptToken: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+      scheduledFor: null,
+      errorCode: null,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      requestedBy: null,
+    }]);
+
+    await expect(service.snapshot('co-1', 'user-a')).resolves.toContainEqual(
+      expect.objectContaining({
+        id: 'operation:11111111-1111-1111-1111-111111111111',
+        source: 'operation',
+        phase: 'waiting_runtime',
+        subtitle: '브라우저 연결 대기',
       }),
     );
   });

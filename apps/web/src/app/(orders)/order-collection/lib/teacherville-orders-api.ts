@@ -3,10 +3,15 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  createOrderCollectionExtensionError,
+  type OrderCollectionExtensionRun,
+  type OrderCollectionFailureResponse,
+} from './order-collection-extension';
 
-interface TeachervilleCollectResponse {
-  success?: boolean;
+interface TeachervilleCollectResponse extends OrderCollectionFailureResponse {
+  empty?: boolean;
+  rowCount?: number;
   xlsxBase64?: string;
   fileName?: string;
   size?: number;
@@ -17,10 +22,9 @@ interface TeachervilleCollectResponse {
  * order-collector 확장이 티쳐몰(퍼스트몰 selleradmin) 출고 전 주문을 셀피아 양식(엑셀 템플릿 117 "티쳐몰 주문서")
  * 으로 다운로드한다. order_process/excel_down 페이지-fetch → SpreadsheetML(36컬럼) base64 반환.
  */
-export async function collectTeachervilleXlsxFromExtension(run?: OrderCollectionExtensionRun): Promise<{
-  xlsxBase64: string;
-  fileName: string;
-}> {
+export async function collectTeachervilleXlsxFromExtension(
+  run?: OrderCollectionExtensionRun,
+): Promise<{ xlsxBase64: string; fileName: string } | { empty: true }> {
   const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
@@ -36,8 +40,9 @@ export async function collectTeachervilleXlsxFromExtension(run?: OrderCollection
     },
     130000,
   );
+  if (res?.success === true && res.empty === true) return { empty: true };
   if (!res?.success || !res.xlsxBase64) {
-    throw new Error(res?.error ?? '티쳐몰 주문 수집에 실패했습니다.');
+    throw createOrderCollectionExtensionError(res, '티쳐몰 주문 수집에 실패했습니다.');
   }
   return { xlsxBase64: res.xlsxBase64, fileName: res.fileName ?? '티쳐몰.xls' };
 }

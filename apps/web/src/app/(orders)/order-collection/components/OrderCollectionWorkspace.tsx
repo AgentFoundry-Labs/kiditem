@@ -38,12 +38,10 @@ import {
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
   EMPTY_MALL_DRAFT,
+  classifyOrderCollectionFailure,
   draftFromMallAccount,
-  isAuthRequiredMessage,
   isBrowserCollectableMall,
   hasSellpiaTransmissionRequest,
-  isLoginRequiredMessage,
-  isNoNewOrdersMessage,
   mallCollectionFailureMessage,
   todayYmd,
   type ConversionHistoryItem,
@@ -408,11 +406,14 @@ export function OrderCollectionWorkspace() {
           account.name,
           friendlyError(err) ?? '브라우저 수집 실패',
         );
-        // 일부 몰(티쳐몰·보리보리 등)은 신규 주문이 없을 때 throw 한다. 이는 오류가 아니라
-        // "신규 주문 없음"이므로, 주문 0건을 반환하는 다른 몰과 동일하게 빈 결과로 처리해
-        // 활동 피드에 오류로 뜨지 않게 한다.
-        const noNewOrders = !activeRun?.signal?.aborted && isNoNewOrdersMessage(message);
-        if (activeRun) {
+        const failureKind = classifyOrderCollectionFailure(err, message);
+        const attentionKind = failureKind === 'auth' || failureKind === 'login'
+          ? failureKind
+          : null;
+        // 구조화 실패가 없는 레거시 백엔드 변환 오류만 문장으로 빈 결과를 판정한다.
+        const noNewOrders = !activeRun?.signal?.aborted && failureKind === 'empty';
+        // 로그인/SMS 인증은 확장 lifecycle이 이미 attention_required로 기록했다. 이를 failed로 덮지 않는다.
+        if (activeRun && !attentionKind) {
           await sessionControls.finalizeRun(
             activeRun,
             noNewOrders ? 'succeeded' : 'failed',
@@ -428,11 +429,7 @@ export function OrderCollectionWorkspace() {
         }
         if (!activeRun?.signal?.aborted) {
           // 로그인/인증(SMS 등) 필요는 시스템 오류가 아니라 조치 필요 상태이므로 별도 분류로 표기한다.
-          const kind = isAuthRequiredMessage(message)
-            ? 'auth'
-            : isLoginRequiredMessage(message)
-              ? 'login'
-              : 'error';
+          const kind = attentionKind ?? 'error';
           logActivity(kind, account.name, message);
         }
         throw err;

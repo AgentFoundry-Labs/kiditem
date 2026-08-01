@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AutomationModule } from '../../automation/automation.module';
+import { OperationsModule } from '../../operations/operations.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { CoupangShipmentsController } from '../adapter/in/http/coupang-shipments.controller';
 import { InventorySkuSnapshotController } from '../adapter/in/http/inventory-sku-snapshot.controller';
@@ -83,9 +84,9 @@ const FORBIDDEN_LEGACY_FILES = [
 ] as const;
 
 describe('InventoryModule authoritative capability wiring', () => {
-  it('imports only Prisma and the Automation alert capability', () => {
+  it('imports Prisma plus the Automation alert and Operations capabilities', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, InventoryModule) ?? [];
-    expect(new Set(imports)).toEqual(new Set([AutomationModule, PrismaModule]));
+    expect(new Set(imports)).toEqual(new Set([AutomationModule, OperationsModule, PrismaModule]));
   });
 
   it('mounts only snapshot/import and record-only capability controllers', () => {

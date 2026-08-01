@@ -19,6 +19,22 @@ already stored as strings, and the implementation extends their shared/domain
 validation and lifecycle behavior. No `VERSION` bump, data migration, or
 backfill is required.
 
+## Unified Operations Supersession (2026-08-01)
+
+The server-owned queue, schedule, and browser-work claim portions of this
+design are superseded by
+`docs/superpowers/plans/2026-08-01-unified-operation-control-plane.md`.
+`OperationRun` becomes the server-issued run identity and the server schedules
+work for an extension to claim; an always-open logged-in KidItem tab is no
+longer a prerequisite for that scheduling or claim path.
+
+This supersession does not change this document's background-execution,
+attention, security, or extension-local session-control contracts. Extensions
+still run collection in inactive tabs/windows, keep managed tab/window handles
+private in `chrome.storage.local`, never transmit marketplace credentials or
+raw responses, and surface login/CAPTCHA/permission blockers as
+`attention_required`.
+
 ## Context
 
 KidItem browser collectors do not follow one tab-visibility or failure policy.
@@ -60,7 +76,9 @@ References:
 ## Operating Assumptions
 
 - Chrome is running.
-- At least one KidItem web tab remains open and logged in.
+- A connected extension can claim server-issued browser work without an
+  always-open KidItem web tab; an interactive web tab is required only when a
+  user opens a managed marketplace tab or starts a manual collection.
 - Supabase access-token refresh remains owned by the KidItem web session and
   synchronized to extensions that call KidItem APIs.
 - The relevant extension is installed and enabled.
@@ -88,8 +106,8 @@ References:
 
 ## Non-goals
 
-- Moving browser collection into a server-only queue.
-- Running after Chrome or the always-open logged-in KidItem tab closes.
+- Running browser collection without Chrome, the relevant extension, or a
+  valid marketplace session.
 - Bypassing marketplace authentication, CAPTCHA, or anti-automation controls.
 - Making interactive product editing, thumbnail registration, advertising
   mutation, file upload, or destructive actions run invisibly.
@@ -114,13 +132,13 @@ separate loadable roots and no common runtime bundle. Shared schemas and
 regression tests keep the adapters compatible without adding a new extension
 build system.
 
-### Server-central browser command queue
+### Server-central browser command queue — superseded decision
 
-Make NestJS own all schedules and commands while extensions poll for work.
-This gives stronger central orchestration but cannot remove the dependency on
-the user's browser and marketplace sessions. It is unnecessary for the
-approved always-open web-tab model and would create a much larger security and
-operations boundary.
+The original design rejected a NestJS-owned queue. The unified Operations
+control plane now adopts it for schedule issuance, durable run state, and
+browser-work claim. Extensions still execute against the user's browser and
+marketplace sessions, so this change does not turn browser work into a
+server-only collector or weaken the attention/security constraints above.
 
 ## Collection Classification
 

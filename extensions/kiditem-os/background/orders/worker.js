@@ -23,7 +23,11 @@ const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   },
   classifyFailure(value) {
     const error = value?.error || value;
-    return value?.pendingLogin === true || isMallAccessError(error)
+    return value?.pendingLogin === true
+      || value?.pendingAuth === true
+      || value?.errorCode === "login_required"
+      || value?.errorCode === "operator_action_required"
+      || isMallAccessError(error)
       ? "marketplace_login"
       : null;
   },
@@ -91,6 +95,109 @@ function runSellpiaManualMatchCollection(message) {
     },
     (collection) => sellpiaManualMatch.collect(collection, message.targetCodes),
   );
+}
+
+async function runSellpiaInventoryOperation(operation) {
+  const claimResponse = await browserOperationRuntimeEnvironmentContext.authedFetch(
+    operation.environmentId,
+    "/api/inventory/sellpia-freshness/claims",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    },
+  );
+  if (!claimResponse.ok) {
+    return {
+      status: "failed",
+      errorCode: "sellpia_freshness_claim_failed",
+      errorMessage: "Sellpia freshness lease could not be claimed.",
+    };
+  }
+  const freshnessClaim = await claimResponse.json().catch(() => null);
+  if (!freshnessClaim?.claimed) {
+    return {
+      status: "attention_required",
+      attentionReason: "sellpia_refresh_not_claimable",
+    };
+  }
+
+  const collected = await sellpiaInventoryLifecycle.run(
+    {
+      runId: operation.runId,
+      environmentId: operation.environmentId,
+      deferTerminal: true,
+    },
+    {
+      sourceOrigin: "https://kiditem.sellpia.com",
+      sourceAccountKey: "kiditem",
+    },
+    (collection) => sellpiaInventory.collect(collection),
+  );
+  if (collected?.success !== true || !collected.snapshot) {
+    if (collected?.pendingLogin || collected?.collectionSession?.status === "attention_required") {
+      return {
+        status: "attention_required",
+        attentionReason: "sellpia_login_required",
+      };
+    }
+    return {
+      status: "failed",
+      errorCode: typeof collected?.errorCode === "string"
+        ? collected.errorCode.slice(0, 120)
+        : "sellpia_collection_failed",
+      errorMessage: "Sellpia inventory collection failed.",
+    };
+  }
+
+  const trigger = typeof freshnessClaim?.state?.refreshReason === "string"
+    ? freshnessClaim.state.refreshReason
+    : "manual_request";
+  const formData = new FormData();
+  formData.append(
+    "file",
+    new Blob([JSON.stringify(collected.snapshot)], { type: "application/json" }),
+    "sellpia-inventory-snapshot-v1.json",
+  );
+  formData.append("kind", "browser");
+  formData.append("claimToken", freshnessClaim.claimToken);
+  formData.append("activeGeneration", freshnessClaim.activeGeneration);
+  formData.append("trigger", trigger);
+  formData.append("sourceOrigin", "https://kiditem.sellpia.com");
+  formData.append("sourceAccountKey", "kiditem");
+
+  const importResponse = await browserOperationRuntimeEnvironmentContext.authedFetch(
+    operation.environmentId,
+    "/api/inventory/sellpia-sync/import",
+    { method: "POST", body: formData },
+  );
+  if (!importResponse.ok) {
+    await sellpiaInventoryLifecycle.finalize(
+      operation.runId,
+      "failed",
+      "Sellpia snapshot import failed.",
+    ).catch(() => undefined);
+    return {
+      status: "failed",
+      errorCode: "sellpia_import_failed",
+      errorMessage: "Sellpia snapshot import failed.",
+    };
+  }
+  const imported = await importResponse.json().catch(() => ({}));
+  await sellpiaInventoryLifecycle.finalize(
+    operation.runId,
+    "succeeded",
+    "Sellpia inventory import completed.",
+  ).catch(() => undefined);
+  return {
+    status: "succeeded",
+    result: {
+      rowCount: Number.isInteger(collected.snapshot.rowCount)
+        ? collected.snapshot.rowCount
+        : 0,
+      importRunId: typeof imported?.run?.id === "string" ? imported.run.id : null,
+    },
+  };
 }
 
 function handleSellpiaManualMatchPort(port, senderEnvironment) {
@@ -2311,13 +2418,34 @@ async function collectTeachervilleOrders(collection) {
 async function scrapeTeachervilleOrders() {
   try {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const loginRequired = () => ({
+      success: false,
+      pendingLogin: true,
+      errorCode: "login_required",
+      error: "티쳐몰 로그인이 필요합니다. selleradmin에 로그인한 뒤 다시 수집해주세요.",
+    });
+    const providerContractChanged = (message) => ({
+      success: false,
+      errorCode: "provider_contract_changed",
+      error: message,
+    });
+    const pageLooksLikeLogin = () => {
+      const bodyText = document.body ? document.body.innerText || "" : "";
+      const href = typeof location !== "undefined" ? String(location.href || "") : "";
+      return (
+        /login|로그인|세션.*(?:만료|없)/i.test(bodyText + " " + href)
+        || Boolean(document.querySelector('input[type="password"]'))
+      );
+    };
     // 페이지/jQuery/엑셀폼 로딩 대기
     for (let i = 0; i < 30 && !(document.querySelector("form#excel_down_form") && (window.$ || window.jQuery)); i += 1) {
       await sleep(300);
     }
     const form = document.querySelector("form#excel_down_form");
     if (!form) {
-      return { success: false, error: "티쳐몰 주문 폼을 찾지 못했습니다. selleradmin/order/catalog 로그인을 확인하세요." };
+      return pageLooksLikeLogin()
+        ? loginRequired()
+        : providerContractChanged("티쳐몰 주문 다운로드 폼을 찾지 못했습니다. 주문관리 화면 구조를 확인해주세요.");
     }
     // 목록(catalog_ajax)이 채워질 때까지 잠깐 더 대기 — 주문 행 체크박스가 지연 렌더된다.
     for (let i = 0; i < 20 && document.querySelectorAll('input[type="checkbox"][name="order_seq[]"]').length === 0; i += 1) {
@@ -2333,7 +2461,14 @@ async function scrapeTeachervilleOrders() {
       if (step && PRE_SHIP.includes(step[1]) && c.value) seqs.push(c.value);
     });
     if (seqs.length === 0) {
-      return { success: false, error: "출고 전 티쳐몰 신규 주문이 없습니다." };
+      if (pageLooksLikeLogin()) return loginRequired();
+      const bodyText = document.body ? document.body.innerText || "" : "";
+      if (/조회[^\n]{0,30}(?:주문|결과|데이터)[^\n]{0,20}(?:없|0건)|(?:주문|결과|데이터)[^\n]{0,30}(?:없|0건)/i.test(bodyText)) {
+        return { success: true, empty: true, rowCount: 0 };
+      }
+      return providerContractChanged(
+        "티쳐몰 주문 목록의 로딩 완료 여부를 확인하지 못했습니다. 주문관리 화면을 새로고침한 뒤 다시 수집해주세요.",
+      );
     }
     // excel_down: 양식 117(티쳐몰 주문서) + 체크박스 order_seq 파이프 목록 + 다운로드 사유(5~50자).
     // excel_provider_seq(입점사 seq)/ship_set 은 폼 히든값을 그대로 사용. excel_type/step/params 는 보내지 않는다.
@@ -2352,12 +2487,22 @@ async function scrapeTeachervilleOrders() {
       credentials: "include",
       body,
     });
+    if (res.status === 401 || res.status === 403 || /login/i.test(String(res.url || ""))) {
+      return loginRequired();
+    }
     if (!res.ok) {
-      return { success: false, error: "티쳐몰 엑셀 다운로드 실패 (HTTP " + res.status + "). teacherville 로그인을 확인하세요." };
+      return providerContractChanged("티쳐몰 엑셀 다운로드 응답을 확인하지 못했습니다 (HTTP " + res.status + ").");
     }
     const buf = new Uint8Array(await res.arrayBuffer());
     if (buf.length < 100) {
-      return { success: false, error: "티쳐몰 엑셀 응답이 비어 있습니다. 출고 전 주문이 없거나 로그인이 필요합니다." };
+      const responseText = new TextDecoder().decode(buf);
+      if (/login|로그인|세션.*(?:만료|없)|type=["']?password/i.test(responseText)) {
+        return loginRequired();
+      }
+      if (/(?:주문|결과|데이터)[^\n]{0,30}(?:없|0건)|no\s*(?:orders?|data)/i.test(responseText)) {
+        return { success: true, empty: true, rowCount: 0 };
+      }
+      return providerContractChanged("티쳐몰 엑셀 응답 형식을 확인하지 못했습니다.");
     }
     // SpreadsheetML(XML) 텍스트 → base64 그대로 전달 (백엔드 SheetJS 가 파싱). btoa 는 latin1 바이트 기준.
     let bin = "";
@@ -2365,7 +2510,16 @@ async function scrapeTeachervilleOrders() {
     for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
     return { success: true, xlsxBase64: btoa(bin), fileName: "티쳐몰.xls", size: buf.length, orderCount: seqs.length };
   } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
+    const message = String((e && e.message) || e);
+    return {
+      success: false,
+      errorCode: /failed to fetch|networkerror|network request failed|load failed/i.test(message)
+        ? "network_failed"
+        : "unknown_failure",
+      error: /failed to fetch|networkerror|network request failed|load failed/i.test(message)
+        ? "티쳐몰 주문 수집 요청에 실패했습니다. 네트워크 상태를 확인해주세요."
+        : message,
+    };
   }
 }
 
@@ -2776,6 +2930,7 @@ async function scrapeBoriboriOrders(downloadPassword) {
   const boriboriLoginRequired = () => ({
     success: false,
     pendingLogin: true,
+    errorCode: "login_required",
     error:
       "보리보리 로그인이 필요합니다. seller-club.co.kr 에 로그인한 뒤 다시 수집해주세요.",
   });
@@ -2819,7 +2974,7 @@ async function scrapeBoriboriOrders(downloadPassword) {
       "/order/rest/deli/downloadPkgOrdDeliList/excel-xlsx",
       "/order/rest/deli/downloadPkgOrdDeliList",
     ];
-    let lastError = "";
+    let lastFailure = null;
     for (const body of uniqueJsonBodies(bodies)) {
       for (const endpoint of endpoints) {
         let res = null;
@@ -2838,7 +2993,9 @@ async function scrapeBoriboriOrders(downloadPassword) {
           break; // 404(결제완료 0건)·그 외 상태는 재시도 무의미 (빠른 실패)
         }
         if (!res || !res.ok) {
-          lastError = boriboriHttpError(res, endpoint);
+          const failure = await boriboriHttpFailure(res);
+          if (failure.empty || failure.pendingLogin) return failure;
+          lastFailure = failure;
           continue;
         }
         const ct = res.headers.get("content-type") || "";
@@ -2854,20 +3011,35 @@ async function scrapeBoriboriOrders(downloadPassword) {
             size: buf.length,
           };
         }
-        lastError = boriboriDownloadError(buf, password);
-        if (/비밀번호.*저장|로그인.*확인/.test(lastError)) break;
+        const downloadError = boriboriDownloadError(buf, password);
+        if (/로그인.*확인/.test(downloadError)) return boriboriLoginRequired();
+        lastFailure = {
+          success: false,
+          errorCode: /비밀번호.*저장/.test(downloadError)
+            ? "operator_action_required"
+            : "provider_contract_changed",
+          error: downloadError,
+        };
+        if (/비밀번호.*저장/.test(downloadError)) break;
       }
-      if (/비밀번호.*저장|로그인.*확인/.test(lastError)) break;
+      if (lastFailure?.errorCode === "operator_action_required") break;
     }
-    return { success: false, error: lastError || "보리보리 다운로드가 거부되었습니다. 사유/비밀번호를 확인하세요." };
+    return lastFailure || {
+      success: false,
+      errorCode: "unknown_failure",
+      error: "보리보리 다운로드가 거부되었습니다. 사유/비밀번호를 확인하세요.",
+    };
   } catch (e) {
     const message = String((e && e.message) || e);
-    // 같은 오리진 요청이 네트워크 레벨에서 죽으면(로그인 페이지/타 오리진 리다이렉트) 미로그인으로 본다.
-    // raw "Failed to fetch" 를 그대로 올리면 사용자는 원인도 조치 방법도 알 수 없다.
+    // 주문 경로/401/403/로그인 응답으로 확인되지 않은 네트워크 오류를 로그인으로 추정하지 않는다.
     if (/failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
-      return boriboriLoginRequired();
+      return {
+        success: false,
+        errorCode: "network_failed",
+        error: "보리보리 주문 수집 요청에 실패했습니다. 네트워크 상태를 확인해주세요.",
+      };
     }
-    return { success: false, error: "보리보리 수집 오류: " + message };
+    return { success: false, errorCode: "unknown_failure", error: "보리보리 수집 오류: " + message };
   }
 
   function uniqueJsonBodies(items) {
@@ -2895,16 +3067,42 @@ async function scrapeBoriboriOrders(downloadPassword) {
     return null;
   }
 
-  function boriboriHttpError(response, endpoint) {
-    if (!response) return "보리보리 엑셀 다운로드 응답이 없습니다. seller-club 화면을 확인해주세요.";
+  async function boriboriHttpFailure(response) {
+    if (!response) {
+      return {
+        success: false,
+        errorCode: "network_failed",
+        error: "보리보리 엑셀 다운로드 응답이 없습니다. 네트워크 상태를 확인해주세요.",
+      };
+    }
     if (response.status === 401 || response.status === 403) {
-      return "보리보리 seller-club 로그인을 확인한 뒤 다시 수집해주세요.";
+      return boriboriLoginRequired();
+    }
+    let responseText = "";
+    try {
+      responseText = String(await response.text()).slice(0, 4000);
+    } catch (e) {
+      /* 상태 코드만으로 분류한다. */
+    }
+    if (/login|로그인|session|세션.*(?:만료|없)|unauthori/i.test(responseText)) {
+      return boriboriLoginRequired();
     }
     if (response.status === 404) {
-      // excel-xlsx 는 조회 결과가 0건이면 404(JSON 에러바디)를 반환한다 → 결제완료 신규 주문 없음.
-      return "결제완료 보리보리 신규 주문이 없습니다.";
+      // 404 자체는 라우트 변경/인증 초기화 실패일 수도 있다. 제공사 응답이 주문 없음임을 명시할 때만 empty다.
+      if (/(?:조회|결제완료|주문|결과|데이터)[^\n]{0,40}(?:없|0건)|no\s*(?:orders?|data)/i.test(responseText)) {
+        return { success: true, empty: true, rowCount: 0 };
+      }
+      return {
+        success: false,
+        errorCode: "provider_contract_changed",
+        error: "보리보리 주문 다운로드 경로를 확인하지 못했습니다. seller-club 화면 구조를 확인해주세요.",
+      };
     }
-    return "보리보리 엑셀 다운로드 실패 (" + response.status + ").";
+    return {
+      success: false,
+      errorCode: "unknown_failure",
+      error: "보리보리 엑셀 다운로드 실패 (" + response.status + ").",
+    };
   }
 
   function boriboriDownloadError(bytes, sentPassword) {
@@ -3235,18 +3433,31 @@ async function scrapeGsshopOrders() {
     if (!searchBtn) {
       // 로그인/인증 벽 구분: SMS 인증방식이 걸리면 협력사 로그인 화면(인증번호 받기)이 뜬다.
       const bodyText = document.body ? document.body.innerText || "" : "";
+      const href = typeof location !== "undefined" ? String(location.href || "") : "";
       if (/인증번호\s*받기|SMS\s*인증|인증방식/.test(bodyText)) {
         return {
           success: false,
           pendingAuth: true,
+          errorCode: "operator_action_required",
           error:
             "GS샵 SMS 인증이 필요합니다. GS샵 협력사 로그인에서 [인증번호 받기]로 인증을 완료한 뒤 다시 '수집하기'를 눌러주세요.",
         };
       }
+      if (
+        /login|로그인|세션.*(?:만료|없)/i.test(bodyText + " " + href)
+        || document.querySelector('input[type="password"]')
+      ) {
+        return {
+          success: false,
+          pendingLogin: true,
+          errorCode: "login_required",
+          error: "GS샵 로그인이 필요합니다. 로그인한 뒤 다시 수집해주세요.",
+        };
+      }
       return {
         success: false,
-        pendingLogin: true,
-        error: "GS샵 협력사 배송관리 화면을 불러오지 못했습니다. GS샵에 로그인되어 있는지 확인하세요.",
+        errorCode: "provider_contract_changed",
+        error: "GS샵 배송관리 화면에서 조회 버튼을 찾지 못했습니다. 화면 구조를 확인해주세요.",
       };
     }
     // 스트레이 경고 다이얼로그 닫기
@@ -3276,7 +3487,14 @@ async function scrapeGsshopOrders() {
     await sleep(700);
     // 3) 조회
     const sb = btnByText("조회");
-    if (!sb) return { success: false, error: "GS샵 조회 버튼을 찾지 못했습니다." };
+    if (!sb) {
+      URL.createObjectURL = origCOU;
+      return {
+        success: false,
+        errorCode: "provider_contract_changed",
+        error: "GS샵 조회 버튼을 찾지 못했습니다. 배송관리 화면 구조를 확인해주세요.",
+      };
+    }
     sb.click();
     await sleep(4500); // query/list 응답 대기
     // 4) 조회결과 건수 — 총주문(n)
@@ -3288,10 +3506,40 @@ async function scrapeGsshopOrders() {
       8000,
       400,
     );
-    const cnt = cntEl ? Number((cntEl.textContent.match(/\((\d+)\)/) || [])[1]) : 0;
-    if (!cnt) {
+    if (!cntEl) {
       URL.createObjectURL = origCOU; // 후킹 원복
-      return { success: true, empty: true }; // 조회결과 없음 = 주문 없음
+      const bodyText = document.body ? document.body.innerText || "" : "";
+      const href = typeof location !== "undefined" ? String(location.href || "") : "";
+      if (
+        /login|로그인|세션.*(?:만료|없)|인증번호\s*받기|SMS\s*인증|인증방식/i.test(bodyText + " " + href)
+        || document.querySelector('input[type="password"]')
+      ) {
+        return {
+          success: false,
+          pendingLogin: true,
+          errorCode: "login_required",
+          error: "GS샵 로그인 세션을 확인하지 못했습니다. 로그인 또는 SMS 인증을 완료한 뒤 다시 수집해주세요.",
+        };
+      }
+      return {
+        success: false,
+        errorCode: "provider_contract_changed",
+        error: "GS샵 주문 조회 결과 건수를 확인하지 못했습니다. 배송관리 화면 구조를 확인해주세요.",
+      };
+    }
+    const countMatch = (cntEl.textContent || "").match(/\((\d+)\)/);
+    const cnt = countMatch ? Number(countMatch[1]) : Number.NaN;
+    if (!Number.isFinite(cnt)) {
+      URL.createObjectURL = origCOU;
+      return {
+        success: false,
+        errorCode: "provider_contract_changed",
+        error: "GS샵 주문 조회 건수 형식을 확인하지 못했습니다.",
+      };
+    }
+    if (cnt === 0) {
+      URL.createObjectURL = origCOU;
+      return { success: true, empty: true, rowCount: 0 };
     }
     // 4.5) 총주문 탭 클릭 — 다운로드는 활성 서브탭의 그리드 데이터를 읽으므로 전체(총주문)를 활성화해야
     //      "먼저 조회를 실행해주세요" 경고 없이 데이터가 실린다. (탭 미활성 시 활성 그리드가 비어 다운로드 실패)
@@ -3404,22 +3652,90 @@ async function scrapeAlwayzOrders() {
     // 0) 엑셀추출하기 버튼 뜰 때까지 SPA 렌더 대기
     const exBtn = await waitFor(() => btnByText("엑셀추출하기"), 30000, 400);
     if (!exBtn) {
-      return { success: false, error: "올웨이즈 배송관리 화면(엑셀추출하기)을 불러오지 못했습니다. 로그인을 확인하세요." };
+      const bodyText = document.body ? document.body.innerText || "" : "";
+      const href = typeof location !== "undefined" ? String(location.href || "") : "";
+      if (
+        /login|로그인|세션.*(?:만료|없)/i.test(bodyText + " " + href)
+        || document.querySelector('input[type="password"]')
+      ) {
+        return {
+          success: false,
+          pendingLogin: true,
+          errorCode: "login_required",
+          error: "올웨이즈 로그인이 필요합니다. 로그인한 뒤 다시 수집해주세요.",
+        };
+      }
+      return {
+        success: false,
+        errorCode: "provider_contract_changed",
+        error: "올웨이즈 배송관리 화면에서 엑셀추출하기 버튼을 찾지 못했습니다.",
+      };
     }
     // 1) pre-excel API 로 신규주문(엑셀추출 이전) 건수 확인 (0이면 추출 안 함)
     const token = localStorage.getItem("@alwayz@seller@token@") || "";
-    let cnt = -1;
-    try {
-      const pre = await (
-        await fetch("https://alwayz-seller-back.ilevit.com/sellers/items/pre-shipping/pre-excel", {
-          headers: { "x-access-token": token },
-        })
-      ).json();
-      if (pre && Array.isArray(pre.data)) cnt = pre.data.length;
-    } catch (e) {
-      /* 건수 확인 실패 — 그냥 진행 */
+    if (!token) {
+      return {
+        success: false,
+        pendingLogin: true,
+        errorCode: "login_required",
+        error: "올웨이즈 로그인 세션이 없습니다. 로그인한 뒤 다시 수집해주세요.",
+      };
     }
-    if (cnt === 0) return { success: true, empty: true }; // 팀모집완료 신규주문 없음
+    let preResponse;
+    try {
+      preResponse = await fetch("https://alwayz-seller-back.ilevit.com/sellers/items/pre-shipping/pre-excel", {
+        headers: { "x-access-token": token },
+      });
+    } catch (e) {
+      return {
+        success: false,
+        errorCode: "network_failed",
+        error: "올웨이즈 신규 주문 조회 요청에 실패했습니다. 네트워크 상태를 확인해주세요.",
+      };
+    }
+    if (preResponse.status === 401 || preResponse.status === 403) {
+      return {
+        success: false,
+        pendingLogin: true,
+        errorCode: "login_required",
+        error: "올웨이즈 로그인 세션이 만료되었습니다. 다시 로그인한 뒤 수집해주세요.",
+      };
+    }
+    if (!preResponse.ok) {
+      return {
+        success: false,
+        errorCode: "provider_contract_changed",
+        error: `올웨이즈 신규 주문 조회 응답을 확인하지 못했습니다 (HTTP ${preResponse.status}).`,
+      };
+    }
+    let pre;
+    try {
+      pre = await preResponse.json();
+    } catch (e) {
+      return {
+        success: false,
+        errorCode: "provider_contract_changed",
+        error: "올웨이즈 신규 주문 조회 응답 형식이 변경되었습니다.",
+      };
+    }
+    if (!pre || !Array.isArray(pre.data)) {
+      const message = String((pre && (pre.message || pre.error || pre.msg)) || "");
+      if (/login|로그인|token|토큰|unauthori|세션/i.test(message)) {
+        return {
+          success: false,
+          pendingLogin: true,
+          errorCode: "login_required",
+          error: "올웨이즈 로그인 세션을 확인하지 못했습니다. 다시 로그인한 뒤 수집해주세요.",
+        };
+      }
+      return {
+        success: false,
+        errorCode: "provider_contract_changed",
+        error: "올웨이즈 신규 주문 조회 데이터 형식이 변경되었습니다.",
+      };
+    }
+    const cnt = pre.data.length;
+    if (cnt === 0) return { success: true, empty: true, rowCount: 0 }; // 인증된 팀모집완료 신규주문 없음
     // 2) createObjectURL 후킹 (클라이언트 조립 xlsx blob 캡처)
     const blobs = [];
     const origCOU = URL.createObjectURL.bind(URL);
@@ -6665,6 +6981,9 @@ KidItemDomains.register({
   externalPorts: {
     [SELLPIA_MANUAL_MATCH_PORT_NAME]: (port, senderEnvironment) =>
       handleSellpiaManualMatchPort(port, senderEnvironment),
+  },
+  operations: {
+    "inventory.refresh_sellpia_snapshot": runSellpiaInventoryOperation,
   },
   capabilities: {
     orderCollectionIcecreamMall: true,

@@ -122,6 +122,9 @@ function loadWorker(globals = {}) {
     crypto: {
       randomUUID: () => uuid(999),
     },
+    fetch: async () => {
+      throw new Error('Unexpected fetch in order collection session test');
+    },
     setTimeout,
     clearTimeout,
     structuredClone,
@@ -388,6 +391,27 @@ test('every automatic mall access failure requires personal attention without fo
 
   assert.deepEqual(runtime.calls.tabsUpdate, []);
   assert.deepEqual(runtime.calls.windowsUpdate, []);
+});
+
+test('structured operator authentication remains attention instead of a failed run', async () => {
+  const runtime = loadWorker();
+  installCollectorResult(runtime, 'collectGsshopOrders', () => ({
+    success: false,
+    pendingAuth: true,
+    errorCode: 'operator_action_required',
+    error: 'GS샵 SMS 인증이 필요합니다.',
+  }));
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectGsshopOrders',
+    date: '2026-07-15',
+    runId: uuid(200),
+  });
+
+  assert.equal(response.collectionSession.status, 'attention_required');
+  assert.equal(response.collectionSession.attention.reason, 'marketplace_login');
+  assert.equal(response.failure.code, 'operator_action_required');
+  assert.equal(response.failure.operatorAction, 'complete_sms_auth');
 });
 
 test('web restart keeps the run, closes the old attention tab, and increments its attempt', async () => {

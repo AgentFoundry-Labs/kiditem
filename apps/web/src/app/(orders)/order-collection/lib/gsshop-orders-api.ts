@@ -3,11 +3,15 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  createOrderCollectionExtensionError,
+  type OrderCollectionExtensionRun,
+  type OrderCollectionFailureResponse,
+} from './order-collection-extension';
 
-interface GsshopCollectResponse {
-  success?: boolean;
+interface GsshopCollectResponse extends OrderCollectionFailureResponse {
   empty?: boolean;
+  rowCount?: number;
   xlsxBase64?: string;
   fileName?: string;
   size?: number;
@@ -37,9 +41,9 @@ export async function collectGsshopXlsxFromExtension(run?: OrderCollectionExtens
     },
     150000, // GS 는 조회+상세 fetch 후 클라이언트 엑셀 조립이라 넉넉히
   );
-  if (res?.empty) return { empty: true };
+  if (res?.success === true && res.empty === true) return { empty: true };
   if (!res?.success || !res.xlsxBase64) {
-    throw new Error(res?.error ?? 'GS샵 주문 수집에 실패했습니다.');
+    throw createOrderCollectionExtensionError(res, 'GS샵 주문 수집에 실패했습니다.');
   }
   return { xlsxBase64: res.xlsxBase64, fileName: res.fileName ?? 'GS샵.xlsx' };
 }

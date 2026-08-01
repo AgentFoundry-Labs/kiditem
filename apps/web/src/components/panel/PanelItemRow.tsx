@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Bot, Box, Image, Workflow } from 'lucide-react';
+import { Activity, Bot, Box, Image, Workflow } from 'lucide-react';
 import { PANEL_RUN_SOURCES } from '@kiditem/shared/panel';
 import { cn } from '@/lib/utils';
 import { PanelAlertRow } from './PanelAlertRow';
@@ -10,6 +10,7 @@ import type { PanelItem, PanelRunItem } from '@kiditem/shared/panel';
 
 const PANEL_ICONS: Record<string, LucideIcon> = {
   Bot,
+  Activity,
   Box,
   Image,
   Workflow,

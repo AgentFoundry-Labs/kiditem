@@ -58,6 +58,12 @@ describe('PanelItemRow', () => {
     expect(screen.getByText('워크플로우 실행')).toBeInTheDocument();
   });
 
+  it('renders an OperationRun panel source through the common row contract', () => {
+    render(<PanelItemRow item={makeRunItem({ source: 'operation', subtitle: '브라우저 연결 대기' })} />);
+
+    expect(screen.getByText('브라우저 연결 대기')).toBeInTheDocument();
+  });
+
   it('routes kind=alert to alert renderer (renders alert title)', () => {
     render(<PanelItemRow item={makeAlertItem()} />);
     expect(screen.getByText('규칙 위반 감지')).toBeInTheDocument();

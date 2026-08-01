@@ -438,6 +438,8 @@ erDiagram
 | Organization | organization | referenced by external | System | ActivityEvent |
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | BusinessRule |
+| Organization | organization | referenced by external | System | OperationRun |
+| Organization | organization | referenced by external | System | OperationSchedule |
 | Organization | organization | referenced by external | System | SystemSetting |
 | ProductVariant | productVariant | referenced by external | Supply | RocketPurchaseConfirmationLine |
 | ProductVariantComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
@@ -459,6 +461,7 @@ erDiagram
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | createdBy | referenced by external | AgentOS | AgentConversation |
 | User | createdBy | referenced by external | AI | DetailPageImageArtifact |
+| User | createdBy | referenced by external | System | OperationSchedule |
 | User | createdByUser | referenced by external | AI | ContentAsset |
 | User | createdByUser | referenced by external | AI | ContentWorkspace |
 | User | createdByUser | referenced by external | AI | ContentWorkspaceThumbnailSelection |
@@ -478,6 +481,7 @@ erDiagram
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
+| User | requestedBy | referenced by external | System | OperationRun |
 | User | requestedByUser | referenced by external | Channels | ChannelListingDeletionOperation |
 | User | requestedByUser | referenced by external | Sourcing | ProductRegistrationExecution |
 | User | settler | referenced by external | Inventory | InventoryCommitment |

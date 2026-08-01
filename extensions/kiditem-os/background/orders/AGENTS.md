@@ -66,6 +66,9 @@ conversion.
 
 ## Collection Failure Contract
 
+- Return explicit zero (`success: true`, `empty: true`, `rowCount: 0`) only when
+  authenticated content proves it. Missing, invalid, unloaded, or bare-404
+  content is `provider_contract_changed`; auth evidence is `login_required`.
 - Advertise `orderCollectionFailureEvidenceV1` only when every automatic mall
   failure leaving the common lifecycle includes versioned evidence with
   `provider`, `action`, `code`, `retryable`, and `operatorAction`.

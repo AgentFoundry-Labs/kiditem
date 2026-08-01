@@ -3,11 +3,15 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  createOrderCollectionExtensionError,
+  type OrderCollectionExtensionRun,
+  type OrderCollectionFailureResponse,
+} from './order-collection-extension';
 
-interface AlwayzCollectResponse {
-  success?: boolean;
+interface AlwayzCollectResponse extends OrderCollectionFailureResponse {
   empty?: boolean;
+  rowCount?: number;
   xlsxBase64?: string;
   fileName?: string;
   size?: number;
@@ -37,9 +41,9 @@ export async function collectAlwayzXlsxFromExtension(run?: OrderCollectionExtens
     },
     130000, // 엑셀추출(클라이언트 조립)이라 넉넉히
   );
-  if (res?.empty) return { empty: true };
+  if (res?.success === true && res.empty === true) return { empty: true };
   if (!res?.success || !res.xlsxBase64) {
-    throw new Error(res?.error ?? '올웨이즈 주문 수집에 실패했습니다.');
+    throw createOrderCollectionExtensionError(res, '올웨이즈 주문 수집에 실패했습니다.');
   }
   return { xlsxBase64: res.xlsxBase64, fileName: res.fileName ?? '올웨이즈.xlsx' };
 }

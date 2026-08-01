@@ -111,3 +111,23 @@ test('treats an explicit pending-login result as login evidence for every provid
     },
   );
 });
+
+test('preserves explicit stable collector error codes without re-parsing display text', () => {
+  const helper = loadHelper();
+
+  assert.deepEqual(
+    plain(helper.createEvidence('gs-shop', {
+      success: false,
+      errorCode: 'provider_contract_changed',
+      error: 'GS샵 주문 조회 결과를 확인하지 못했습니다.',
+    })),
+    {
+      version: 1,
+      provider: 'gs-shop',
+      action: 'collect_orders',
+      code: 'provider_contract_changed',
+      retryable: false,
+      operatorAction: null,
+    },
+  );
+});

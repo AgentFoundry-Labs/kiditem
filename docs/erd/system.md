@@ -17,6 +17,8 @@
 | FeatureGate | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
 | MigrationCheckpoint | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
+| OperationRun | `operation_runs` | Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work. |
+| OperationSchedule | `operation_schedules` | Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled. |
 | SystemSetting | `system_settings` | - |
 
 ## Mermaid ER Diagram
@@ -161,6 +163,54 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  OperationRun {
+    String id PK
+    String organizationId FK
+    String operationKey
+    Int definitionVersion
+    String ownerDomain
+    String title
+    String engineType
+    String status
+    String triggerSource
+    String requestedByUserId FK
+    String parentRunId FK
+    String scheduleId FK
+    String idempotencyKey
+    Json input
+    Json result
+    Float progress
+    String nativeRunType
+    String nativeRunId
+    Int attempts
+    Int maxAttempts
+    String claimedBy
+    String attemptToken
+    DateTime claimedAt
+    DateTime leaseExpiresAt
+    DateTime scheduledFor
+    String errorCode
+    String errorMessage
+    DateTime startedAt
+    DateTime finishedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  OperationSchedule {
+    String id PK
+    String organizationId FK
+    String operationKey
+    String cronExpression
+    String timeZone
+    String misfirePolicy
+    Json input
+    Boolean enabled
+    DateTime nextRunAt
+    DateTime lastScheduledFor
+    String createdByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SystemSetting {
     String id PK
     String organizationId FK
@@ -170,6 +220,8 @@ erDiagram
     DateTime updatedAt
   }
   ActionTask o|--o{ Alert : "actionTask"
+  OperationRun o|--o{ OperationRun : "parentRun"
+  OperationSchedule o|--o{ OperationRun : "schedule"
 ```
 
 ## External References
@@ -183,4 +235,8 @@ erDiagram
 | Alert | organization | references external | Core | Organization |
 | BusinessRule | organization | references external | Core | Organization |
 | Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
+| OperationRun | organization | references external | Core | Organization |
+| OperationRun | requestedBy | references external | Core | User |
+| OperationSchedule | createdBy | references external | Core | User |
+| OperationSchedule | organization | references external | Core | Organization |
 | SystemSetting | organization | references external | Core | Organization |
