@@ -313,7 +313,7 @@ test('Haebeop fails collection instead of producing a zero-value order when deta
   );
 });
 
-test('all automatic order actions publish safe orders.mall sessions from inactive tabs', async () => {
+test('automatic order actions publish safe domain-specific sessions from inactive tabs', async () => {
   const runtime = loadWorker();
   for (const [, functionName] of AUTOMATIC_ACTIONS) {
     installCollectorResult(runtime, functionName, () => ({
@@ -341,7 +341,13 @@ test('all automatic order actions publish safe orders.mall sessions from inactiv
 
     assert.equal(response.runId, runId, action);
     assert.equal(response.collectionSession.status, 'succeeded', action);
-    assert.equal(response.collectionSession.producer, 'orders.mall', action);
+    assert.equal(
+      response.collectionSession.producer,
+      action === 'collectRocketPoRows' || action === 'listRocketPos'
+        ? 'orders.coupang_rocket_po'
+        : 'orders.mall',
+      action,
+    );
     assert.deepEqual(
       JSON.parse(JSON.stringify(response.collectionSession.inputIdentity)),
       { mallKey, date: input.date ?? input.to ?? input.endDate ?? null },
@@ -368,6 +374,34 @@ test('all automatic order actions publish safe orders.mall sessions from inactiv
   ]) {
     assert.equal(stored.includes(forbidden), false, forbidden);
   }
+});
+
+test('shipment summary publishes one deferred shipment-specific session', async () => {
+  const runtime = loadWorker();
+  runtime.context.collectCoupangShipmentDateSummary = async () => ({
+    success: true,
+    scannedPages: 1,
+    totalRows: 0,
+    dates: [],
+  });
+
+  const runId = uuid(90);
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectCoupangShipmentDateSummary',
+    runId,
+    deferTerminal: true,
+  });
+
+  assert.equal(response.runId, runId);
+  assert.equal(response.collectionSession.status, 'running');
+  assert.equal(
+    response.collectionSession.producer,
+    'orders.coupang_shipment_summary',
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(response.collectionSession.inputIdentity)),
+    { source: 'coupang-shipment-summary' },
+  );
 });
 
 test('every automatic mall access failure requires personal attention without focusing', async () => {

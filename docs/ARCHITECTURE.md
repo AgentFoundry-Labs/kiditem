@@ -69,6 +69,10 @@ Business owners register handlers and retain their own result sinks.
 `OperationAlert` remains a personal notification projection, not the source of
 truth for an operation run. Browser runtime attempts are fenced by an
 `attemptToken` so stale extension reports cannot change a newer attempt.
+The global notification sheet is one chronological list: Alert rows and run
+projections share the same compact row presentation, with no separate Agent OS
+or `내 작업` card section. Manual shipment and Rocket actions publish distinct
+browser collection producers so their titles and return links remain stable.
 
 ## Monorepo Shape
 

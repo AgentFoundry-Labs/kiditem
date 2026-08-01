@@ -74,6 +74,14 @@ const COLLECTION_PRODUCERS = new Map<
   ],
   ['orders.mall', { title: '주문 데이터 수집', href: '/order-collection' }],
   [
+    'orders.coupang_shipment_summary',
+    { title: '쿠팡 쉽먼트 조회', href: '/coupang-shipments' },
+  ],
+  [
+    'orders.coupang_rocket_po',
+    { title: '쿠팡 로켓 PO 수집', href: '/rocket-orders' },
+  ],
+  [
     'orders.sellpia_manual_match',
     { title: 'Sellpia 상품 매칭', href: '/product-hub/matching' },
   ],

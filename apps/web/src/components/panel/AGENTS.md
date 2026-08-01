@@ -19,6 +19,9 @@ fallback/recovery
 
 ## State Rules
 
+- Render one chronological notification list. Do not split Agent/Operation runs
+  into a dedicated `내 작업` card section; run projections and Alert rows use
+  the same compact status/message/source/time/link visual language.
 - `PanelSseClient` uses `fetchEventSource` with `credentials: 'include'` and an
   Authorization header when a KidItem opaque session token is available.
 - Parse stream messages with `PanelEventSchema` before writing to panel state.

@@ -32,6 +32,41 @@ const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
       : null;
   },
 });
+const coupangShipmentSummaryLifecycle = KidItemOrderCollectionLifecycle.create({
+  sessions: collectionSessions,
+  producer: "orders.coupang_shipment_summary",
+  classification: "background_preferred",
+  restartStrategy: "web",
+  requireRunId: true,
+  forceDeferredTerminal: true,
+  deferredLabel: "쿠팡 쉽먼트 조회 완료 · 서버 저장 중",
+  failedLabel: "쿠팡 쉽먼트 조회 실패",
+  succeededLabel: "쿠팡 쉽먼트 조회 완료",
+  classifyFailure(value) {
+    return value?.pendingLogin === true
+      || value?.errorCode === "coupang_shipment_session_required"
+      ? "marketplace_login"
+      : null;
+  },
+});
+const coupangRocketPoLifecycle = KidItemOrderCollectionLifecycle.create({
+  sessions: collectionSessions,
+  producer: "orders.coupang_rocket_po",
+  classification: "background_preferred",
+  restartStrategy: "web",
+  requireRunId: true,
+  deferredLabel: "쿠팡 로켓 PO 수집 완료 · 서버 저장 중",
+  failedLabel: "쿠팡 로켓 PO 수집 실패",
+  succeededLabel: "쿠팡 로켓 PO 수집 완료",
+  classifyFailure(value) {
+    const error = value?.error || value;
+    return value?.pendingLogin === true
+      || value?.errorCode === "coupang_po_session_required"
+      || isMallAccessError(error)
+      ? "marketplace_login"
+      : null;
+  },
+});
 const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
   producer: "inventory.sellpia",
@@ -662,6 +697,12 @@ function handleSellpiaManualMatchPort(port, senderEnvironment) {
 async function lifecycleForRun(runId, environmentId) {
   const session = await collectionSessions.getOwned(runId, environmentId);
   if (session?.producer === "inventory.sellpia") return sellpiaInventoryLifecycle;
+  if (session?.producer === "orders.coupang_shipment_summary") {
+    return coupangShipmentSummaryLifecycle;
+  }
+  if (session?.producer === "orders.coupang_rocket_po") {
+    return coupangRocketPoLifecycle;
+  }
   if (session?.producer === "orders.sellpia_manual_match") {
     return sellpiaManualMatchLifecycle;
   }
@@ -1036,6 +1077,13 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록(센터순) + Label/내역서 PDF 직접 fetch ──
   if (msg?.action === "collectCoupangShipmentDateSummary") {
+    if (KidItemOrderCollectionLifecycle.validRunId(msg.runId)) {
+      return respond(coupangShipmentSummaryLifecycle.run(
+        msg,
+        { source: "coupang-shipment-summary" },
+        () => collectCoupangShipmentDateSummary({ maxPages: msg.maxPages }),
+      ));
+    }
     collectCoupangShipmentDateSummary({ maxPages: msg.maxPages })
       .then((result) => sendResponse(result))
       .catch((error) => {
@@ -1088,7 +1136,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.action === "collectRocketPoRows") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(coupangRocketPoLifecycle.run(
       msg,
       KidItemOrderCollectionLifecycle.createIdentity(
         "coupang-rocket",
@@ -1107,7 +1155,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.action === "listRocketPos") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(coupangRocketPoLifecycle.run(
       msg,
       KidItemOrderCollectionLifecycle.createIdentity(
         "coupang-rocket",

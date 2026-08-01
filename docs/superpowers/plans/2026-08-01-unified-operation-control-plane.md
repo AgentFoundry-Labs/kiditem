@@ -801,7 +801,7 @@ if (action === 'collectCoupangRocketPurchaseOrders') return collectRocketPurchas
 
 - [x] **Step 5: 기존 화면의 상태·결과 UI 보존**
 
-새 Agent OS 작업 패널, 범용 실행 카드, 범용 예약 화면을 만들지 않는다. 기존 화면의 진행 상태·완료 결과·오류 표현을 유지한다. 대시보드는 같은 action의 toast와 browser collection alert를 사용하고 별도 “요청 중” 알림을 덧붙이지 않는다.
+새 Agent OS 작업 패널, 범용 실행 카드, 범용 예약 화면을 만들지 않는다. 기존 화면의 진행 상태·완료 결과·오류 표현을 유지한다. 대시보드는 같은 action의 toast와 browser collection alert를 사용하고 별도 “요청 중” 알림을 덧붙이지 않는다. 전역 알림 패널은 `내 작업` 전용 카드 구역 없이 하나의 알림 행 목록으로 렌더하며, Shipment/Rocket은 각각 고유 producer로 동일 행 lifecycle을 연다.
 
 - [ ] **Step 6: 모든 trend consumer 전환**
 

@@ -66,6 +66,25 @@ describe('browser operation producer policy', () => {
     });
   });
 
+  it.each([
+    ['orders.coupang_shipment_summary', '쿠팡 쉽먼트 조회', '/coupang-shipments'],
+    ['orders.coupang_rocket_po', '쿠팡 로켓 PO 수집', '/rocket-orders'],
+  ] as const)('routes %s to its operational screen', (sourceId, title, href) => {
+    const runId = '66666666-6666-4666-8666-666666666666';
+
+    expect(
+      resolveBrowserOperationProducer({
+        operationKey: `browser-collection:${runId}`,
+        type: 'browser_collection',
+        sourceType: 'browser_collection_session',
+        sourceId,
+      }),
+    ).toEqual({
+      title,
+      href: `${href}?collectionRun=${runId}`,
+    });
+  });
+
   it('routes Sellpia manual matching to the product matching center', () => {
     const runId = '55555555-5555-4555-8555-555555555555';
 

@@ -18,7 +18,9 @@ integration, generated shipment files, and browser download/print helpers.
   browser-side collection.
 - Manual date-summary lookup and verified persistence go through
   `@/lib/coupang-shipment-summary-action`. The shipment screen and dashboard
-  call the same action and render their existing UI around its result.
+  call the same action and render their existing UI around its result. The
+  action owns the deferred `orders.coupang_shipment_summary` browser session
+  and closes it only after server read-back verification.
 - Blob/download behavior may use browser APIs; durable shipment data remains
   backend-owned.
 

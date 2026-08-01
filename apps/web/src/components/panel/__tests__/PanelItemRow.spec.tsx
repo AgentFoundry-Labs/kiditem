@@ -52,10 +52,13 @@ const makeAlertItem = (overrides = {}): PanelItem => ({
 });
 
 describe('PanelItemRow', () => {
-  it('routes kind=run to run renderer (renders button with title)', () => {
+  it('renders a run with the same compact notification-row structure', () => {
     render(<PanelItemRow item={makeRunItem()} />);
-    expect(screen.getByRole('button')).toBeInTheDocument();
+
+    expect(screen.getByRole('link', { name: '이동' })).toHaveAttribute('href', '/workflows');
     expect(screen.getByText('워크플로우 실행')).toBeInTheDocument();
+    expect(screen.getByLabelText('상태: 진행 중')).toBeInTheDocument();
+    expect(screen.getByText('워크플로우')).toBeInTheDocument();
   });
 
   it('renders an OperationRun panel source through the common row contract', () => {

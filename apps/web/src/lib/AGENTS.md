@@ -47,7 +47,9 @@ multiple route groups.
 - `coupang-shipment-summary-action.ts` and
   `rocket-purchase-collection-action.ts` own manual browser actions promoted
   across route groups. Keep extension collection, persistence verification,
-  and session terminalization inside these shared boundaries.
+  and session terminalization inside these shared boundaries. Each action uses
+  its own browser collection producer so both trigger surfaces create one
+  identically titled row in the global notification panel.
 
 ## Boundary Rules
 

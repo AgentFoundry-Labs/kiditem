@@ -3,6 +3,8 @@ import {
   detectOrderCollectionExtensionId,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
+import { formatNumber } from '@/lib/utils';
 
 export const COUPANG_COOKIE_BLOAT_CODE = 'coupang_cookie_bloat';
 export const COUPANG_SHIPMENT_SESSION_REQUIRED_CODE = 'coupang_shipment_session_required';
@@ -66,35 +68,74 @@ export function isCoupangShipmentSessionRequiredError(error: unknown): boolean {
 export async function collectAndPersistCoupangShipmentSummary(): Promise<
   CoupangShipmentSummaryActionResult
 > {
-  const collected = await collectCoupangShipmentDateSummaryViaExtension();
-  if (collected.length === 0) return { status: 'empty', items: [] };
-
-  await apiClient.put<PersistedDateSummaryResponse>('/api/coupang-shipments/date-summary', {
-    items: collected,
-  });
-  const persisted = await apiClient.get<PersistedDateSummaryResponse>(
-    '/api/coupang-shipments/date-summary',
-  );
-  const persistedByDate = new Map(persisted.items.map((item) => [item.date, item]));
-  for (const expected of collected) {
-    const actual = persistedByDate.get(expected.date);
-    if (!actual || actual.count !== expected.count || actual.boxes !== expected.boxes) {
-      throw new Error(VERIFICATION_ERROR_MESSAGE);
+  const runId = await issueBrowserCollectionRunId();
+  const extensionId = await getValidatedDateSummaryExtensionId();
+  try {
+    const collected = await requestCoupangShipmentDateSummary(extensionId, {
+      runId,
+      deferTerminal: true,
+    });
+    if (collected.length === 0) {
+      await finalizeShipmentSummarySession({
+        extensionId,
+        runId,
+        status: 'succeeded',
+        message: '새로 조회된 쉽먼트가 없습니다.',
+      });
+      return { status: 'empty', items: [] };
     }
-  }
 
-  const items = persisted.items.map(({ date, count, boxes }) => ({ date, count, boxes }));
-  const latest = [...collected].sort((left, right) => right.date.localeCompare(left.date))[0]!;
-  return { status: 'collected', items, latest };
+    await apiClient.put<PersistedDateSummaryResponse>('/api/coupang-shipments/date-summary', {
+      items: collected,
+    });
+    const persisted = await apiClient.get<PersistedDateSummaryResponse>(
+      '/api/coupang-shipments/date-summary',
+    );
+    const persistedByDate = new Map(persisted.items.map((item) => [item.date, item]));
+    for (const expected of collected) {
+      const actual = persistedByDate.get(expected.date);
+      if (!actual || actual.count !== expected.count || actual.boxes !== expected.boxes) {
+        throw new Error(VERIFICATION_ERROR_MESSAGE);
+      }
+    }
+
+    const items = persisted.items.map(({ date, count, boxes }) => ({ date, count, boxes }));
+    const latest = [...collected].sort((left, right) => right.date.localeCompare(left.date))[0]!;
+    await finalizeShipmentSummarySession({
+      extensionId,
+      runId,
+      status: 'succeeded',
+      message: `발송일 ${formatNumber(items.length)}일 · 최신 ${latest.date} (${formatNumber(latest.count)}건)`,
+    });
+    return { status: 'collected', items, latest };
+  } catch (error) {
+    await finalizeShipmentSummarySession({
+      extensionId,
+      runId,
+      status: 'failed',
+      message: error instanceof Error ? error.message : '쿠팡 쉽먼트 조회에 실패했습니다.',
+    });
+    throw error;
+  }
 }
 
 export async function collectCoupangShipmentDateSummaryViaExtension(): Promise<
   CoupangShipmentDateSummaryItem[]
 > {
   const extensionId = await getValidatedDateSummaryExtensionId();
+  return requestCoupangShipmentDateSummary(extensionId);
+}
+
+async function requestCoupangShipmentDateSummary(
+  extensionId: string,
+  lifecycle?: { runId: string; deferTerminal: true },
+): Promise<CoupangShipmentDateSummaryItem[]> {
   const response = await sendToExtension<CoupangShipmentDateSummaryResult>(
     extensionId,
-    { action: 'collectCoupangShipmentDateSummary' },
+    {
+      action: 'collectCoupangShipmentDateSummary',
+      ...(lifecycle ?? {}),
+    },
     90_000,
   );
   if (!response?.success) {
@@ -104,6 +145,25 @@ export async function collectCoupangShipmentDateSummaryViaExtension(): Promise<
     );
   }
   return validateDateSummaryResponse(response);
+}
+
+async function finalizeShipmentSummarySession({
+  extensionId,
+  runId,
+  status,
+  message,
+}: {
+  extensionId: string;
+  runId: string;
+  status: 'succeeded' | 'failed';
+  message: string;
+}): Promise<void> {
+  await sendToExtension(extensionId, {
+    action: 'finalizeCollectionSession',
+    runId,
+    status,
+    message: message.slice(0, 300),
+  }).catch(() => undefined);
 }
 
 async function getValidatedDateSummaryExtensionId(): Promise<string> {
