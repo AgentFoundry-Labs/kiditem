@@ -28,23 +28,42 @@ Company Chrome extension
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 
-### Unified Operation Control Plane
+### Operation Control Plane And Manual Action Parity
 
 `apps/server/src/operations` is the platform control plane for operational
-work. Dashboard Agent OS, individual domain screens, Agent OS tools, and
-server schedules use the same operation-run entrypoint. Operations owns the
-code-owned catalog, organization-scoped schedules, top-level `OperationRun`
-ledger, engine dispatch, and browser-runtime leases; it does not write
-canonical business rows.
+work that needs a durable server-side run envelope: schedules, Agent OS tools,
+and Operation-backed manual actions. Operations owns the code-owned catalog,
+organization-scoped schedules, top-level `OperationRun` ledger, engine
+dispatch, and browser-runtime leases; it does not write canonical business
+rows.
+
+Manual browser work has a stricter UI parity rule. The dashboard Agent OS
+button and its individual domain-screen button call the same shared frontend
+action. The trigger surface may differ, but extension command, account/date
+defaults, empty-vs-login classification, persistence, generated artifacts, and
+browser-session alerts do not. A dashboard button must not replace an existing
+screen action with a count-only Operation handler.
 
 ```text
-screen / schedule / agent-os
-  -> operations
-       -> owner incoming capability
-       -> automation workflow port | agent-os runner port | ai direct-job port
+dashboard button ─┐
+                  ├─> shared manual action -> extension + owner API/sink
+domain button ────┘
+
+schedule / agent-os -> operations
+                       -> owner incoming capability
+                       -> automation workflow port | agent-os runner port
+                          | ai direct-job port
 
 automation -X-> agent-os
 ```
+
+Trend collection and Sellpia refresh are Operation-backed shared manual
+actions because their durable result already lives behind owner APIs. Order
+collection, Coupang shipment-summary lookup, and Rocket PO collection keep
+their existing browser action contracts so dashboard execution preserves the
+same generated files, saved summaries/catalogs, and operator-facing results as
+their screens. Scheduled variants may use Operations, but they do not redefine
+manual-button behavior or browser-local artifact ownership.
 
 Business owners register handlers and retain their own result sinks.
 `OperationAlert` remains a personal notification projection, not the source of

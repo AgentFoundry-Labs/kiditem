@@ -10,6 +10,10 @@ manage local generated-file history.
 
 - Extension collection goes through `lib/order-collection-extension.ts` and
   `@/lib/extension-bridge`.
+- Account-level execution, session finalization, file generation, and
+  empty-vs-login classification are composed by
+  `@/hooks/useAllMarketplaceOrderCollection`. The order screen and dashboard
+  must use that same hook; do not maintain a count-only dashboard collector.
 - Session startup requires both `browserCollectionSessions` and
   `orderCollectionFailureEvidenceV1`. Preserve `ready`, `incompatible`, and
   `not_found` discovery states so a loaded stale extension reports its version

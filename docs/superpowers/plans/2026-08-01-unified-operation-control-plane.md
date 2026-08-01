@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 대시보드 Agent OS, 개별 업무 화면, Agent, 서버 예약 실행이 동일한 OperationRun 진입점과 실행 이력을 사용하도록 통합한다.
+**Goal:** 대시보드 Agent OS와 개별 업무 화면의 수동 버튼은 동일한 실행 액션을 사용하고, Agent·서버 예약 실행은 Operations 제어면에서 동일 도메인 capability를 호출하도록 정리한다.
 
-**Architecture:** 새 플랫폼 소유자인 operations가 코드 소유 Operation 카탈로그, 조직별 예약, 최상위 실행 ledger, 엔진 dispatch, 브라우저 lease를 소유한다. Automation, Agent OS, AI direct job, 브라우저 확장은 기존 실행 엔진과 도메인 책임을 유지하고 OperationRun에 native 실행 또는 하위 실행으로 연결한다. 대시보드의 Agent OS 명칭과 화면은 그대로 유지하며, 새 범용 작업 제어 UI를 추가하지 않는다. 각 기존 업무 화면의 버튼이 공통 실행 경로를 호출하고 해당 화면의 기존 상태·결과 UI가 이를 표시한다.
+**Architecture:** 새 플랫폼 소유자인 operations가 코드 소유 Operation 카탈로그, 조직별 예약, 최상위 실행 ledger, 엔진 dispatch, 브라우저 lease를 소유한다. 수동 브라우저 업무는 대시보드와 기존 화면이 같은 frontend action을 호출하며, extension command·기본 입력·0건/로그인 판별·저장·생성 파일·알림 lifecycle을 공유한다. Trend와 Sellpia처럼 이미 durable owner sink 뒤에 있는 수동 업무는 그 action 내부에서 OperationRun을 시작한다. Agent·예약은 Operations를 통해 동일 owner capability를 호출한다. 대시보드의 Agent OS 명칭과 화면은 그대로 유지하며 새 범용 작업 제어 UI를 추가하지 않는다.
 
 **Tech Stack:** NestJS 11, Prisma 7/PostgreSQL, Zod 3, React 19/Next.js, TanStack Query, Chrome Manifest V3, Vitest/Node test, cron-parser
 
@@ -26,24 +26,28 @@
 
 ## 구현 현황 (2026-08-01)
 
-이번 변경에는 Tasks 1–11의 첫 production slice와 Task 15의 snapshot projection
-기초가 포함된다: operations
-platform/ledger/schedule/API/worker/browser lease, sourcing의 첫 server
-capability, 기존 대시보드·업무 화면 버튼의 공통 client 전환, extension runtime,
-Sellpia snapshot의 `waiting_runtime` cutover, 그리고 전역 Panel의 OperationRun
-읽기 전용 투영이 구현됐다.
+이번 변경에는 operations platform/ledger/schedule/API/worker/browser lease,
+sourcing과 Sellpia의 Operation-backed 수동 action, extension runtime, 전역 Panel의
+OperationRun 읽기 전용 투영이 포함된다.
 
-이번 slice에서 대시보드의 `몰 주문수집`, `쿠팡 쉽먼트 조회`, `쿠팡 로켓 PO 수집`은
-각각 `orders`, `inventory`, `channels`의 exact browser Operation으로 등록했다.
-대시보드는 페이지 이동이나 다른 route group 훅 import 없이 OperationRun만 시작한다.
-기존 쿠팡 쉽먼트 화면의 `발송일 조회`도 같은
-`inventory.collect_coupang_shipment_summary` OperationRun을 시작하고, 완료 뒤 기존 달력 데이터를 다시 읽는다.
-기존 로켓 발주 화면의 `이 달 쿠팡 PO 수집·보관`도 계정·기간을 입력으로 같은
-`channels.collect_coupang_rocket_purchase_orders` OperationRun을 시작하고, 완료 뒤 기존 저장본을 다시 읽는다.
-확장은 exact key에 따라 전체 몰 export 수집, 쉽먼트 발송일 요약의 durable upsert,
-로켓 PO 수집과 기존 catalog publication을 수행한다. 주문 export artifact의 화면 간
-fan-out과 advertising/catalog의 나머지 consumer, native Workflow/Agent/AI link,
-Panel transition SSE와 legacy 제거는 다음 slice로 남긴다.
+수동 버튼 parity는 다음처럼 고정했다.
+
+- `몰 주문수집`: 대시보드와 `/order-collection`이
+  `useAllMarketplaceOrderCollection`을 사용한다. 동일 extension session과 몰별
+  collector를 실행하고 동일 변환 파일을 IndexedDB history에 저장하며, 신규 주문
+  0건과 로그인 필요를 같은 구조화 실패 근거로 구분한다.
+- `쿠팡 쉽먼트 조회`: 두 화면이
+  `collectAndPersistCoupangShipmentSummary`를 사용한다. 동일 validated extension
+  command를 실행하고 서버 upsert 뒤 재조회 검증까지 완료한다.
+- `쿠팡 로켓 PO 수집`: 두 화면이
+  `collectAndPersistRocketPurchaseOrders`를 사용한다. 동일 월 범위 collector와
+  catalog publication, collection-session terminal 처리를 수행한다.
+- `시장분석`, `셀피아 동기화`: 두 화면이 각각
+  `startTrendCollectionAction`, `startSellpiaInventoryRefreshAction`을 사용하고
+  `sourceSurface`만 dashboard/domain_screen으로 다르다.
+
+서버에 등록된 주문·쉽먼트·로켓 browser Operation은 Agent/예약 실행용이다. 수동
+버튼의 기존 파일·달력·미리보기 결과를 count-only Operation 결과로 대체하지 않는다.
 
 ## 고정 결정
 
@@ -51,11 +55,11 @@ Panel transition SSE와 legacy 제거는 다음 slice로 남긴다.
 2. Agent OS는 UI 상위 개념이면서 자율 판단 runtime이다. 모든 작업을 AgentRun으로 바꾸지는 않는다.
 3. Automation은 결정론적 workflow runtime이다. Automation node는 Agent OS run을 만들지 않는다.
 4. 고정 AI 생성은 기존 AiDirectJob을 유지한다. 자율 판단이 최상위 소유자인 경우에만 Agent OS에서 시작한다.
-5. 화면, Agent, 예약은 모두 POST /api/operations/:operationKey/runs 또는 동일 incoming port를 사용한다.
+5. 대시보드와 업무 화면의 수동 버튼은 동일 frontend action을 사용한다. Agent와 예약은 POST /api/operations/:operationKey/runs 또는 동일 incoming port를 사용한다.
 6. 단순 CRUD와 짧은 동기 조회는 OperationRun을 만들지 않는다.
 7. OperationAlert는 사용자 알림 projection이다. 실행 source of truth로 승격하지 않는다.
 8. 브라우저 확장의 업무별 chrome.alarms는 서버 예약으로 이전한다. 확장은 서버 작업을 찾기 위한 단일 runtime wake alarm만 유지할 수 있다.
-9. OperationRun.id가 브라우저 수집 runId가 된다. UUID만 발급하고 버리는 /api/browser-collection-runs는 제거한다.
+9. 예약/Agent browser Operation에서는 OperationRun.id가 브라우저 attempt의 상위 runId가 된다. 수동 브라우저 action의 기존 collection session ID는 화면 알림·취소·로그인 복구 계약을 위해 유지한다.
 10. 대용량 파일과 canonical 도메인 결과는 generic Operation JSON에 넣지 않는다. 도메인 ingest API가 저장하고 Operation에는 안전한 참조만 남긴다.
 11. 조직 소유 API는 organizationId를 인증 컨텍스트에서 받고 body/query 입력으로 받지 않는다.
 12. 기존 직접 경로는 새 경로와 회귀 gate가 동작한 뒤에만 삭제한다.
@@ -80,15 +84,18 @@ Panel transition SSE와 legacy 제거는 다음 slice로 남긴다.
 
 ~~~text
 Dashboard Agent OS ─┐
-Domain screen ──────┼─> Operations incoming port
-Agent tool ─────────┤      -> OperationRun
-Schedule worker ────┘      -> registered operation handler
-                              ├─ deterministic domain capability
-                              ├─ WorkflowRun
-                              ├─ AgentRunRequest / AgentRun
-                              ├─ AiDirectJob
-                              ├─ browser runtime lease
-                              └─ child OperationRun fan-out
+Domain screen ──────┴─> shared manual action
+                          ├─ extension + owner API/sink
+                          └─ OperationRun when that action is Operation-backed
+
+Agent tool ─────────┐
+Schedule worker ────┴─> Operations incoming port -> OperationRun
+                                                   ├─ deterministic domain capability
+                                                   ├─ WorkflowRun
+                                                   ├─ AgentRunRequest / AgentRun
+                                                   ├─ AiDirectJob
+                                                   ├─ browser runtime lease
+                                                   └─ child OperationRun fan-out
 
 OperationRun state -> 기존 업무 화면 상태/결과 + global panel projection
 OperationAlert     -> attention/notification projection only
@@ -773,30 +780,28 @@ expect(mockApiPost).toHaveBeenCalledWith(
 
 operationsApi는 catalog, runs, run, start, cancel, schedules, upsertSchedule, disableSchedule만 노출한다. query keys는 operations/catalog, operations/runs, operations/run/:id, operations/schedules다.
 
-- [ ] **Step 3: dashboard cross-route import 실패 test 작성**
+- [x] **Step 3: dashboard/domain 공통 action 회귀 test 작성**
 
 ~~~typescript
-expect(source).not.toContain("@/app/(orders)/");
-expect(source).not.toContain("@/app/(inventory)/");
+expect(dashboardSource).toContain('useAllMarketplaceOrderCollection');
+expect(orderScreenSource).toContain('useAllMarketplaceOrderCollection');
+expect(dashboardSource).toContain('collectAndPersistCoupangShipmentSummary');
+expect(shipmentScreenSource).toContain('collectAndPersistCoupangShipmentSummary');
 ~~~
 
-- [ ] **Step 4: quick actions를 key mapping으로 축소**
+- [x] **Step 4: quick actions를 공통 수동 action dispatcher로 정리**
 
 ~~~typescript
-const ACTION_OPERATION_KEY = {
-  collectTrend: 'sourcing.collect_daily_trends',
-  refreshInventory: 'inventory.refresh_sellpia_snapshot',
-  syncSellpia: 'inventory.refresh_sellpia_snapshot',
-  collectAllOrders: 'orders.collect_all_malls',
-  collectShipmentToday: 'inventory.collect_coupang_shipments_today',
-} as const;
+if (action === 'collectAllOrders') return collectAllOrders();
+if (action === 'collectCoupangShipmentSummary') return collectShipmentSummary();
+if (action === 'collectCoupangRocketPurchaseOrders') return collectRocketPurchaseOrders();
 ~~~
 
-hook은 mapping과 operationsApi.start만 호출한다. 주문 concurrency, extension bridge, IndexedDB store import를 제거한다.
+주문·쉽먼트·로켓은 기존 화면과 동일 action을 호출한다. Trend·Sellpia action만 내부에서 operationsApi.start를 호출한다.
 
-- [ ] **Step 5: 기존 화면의 상태·결과 UI 보존**
+- [x] **Step 5: 기존 화면의 상태·결과 UI 보존**
 
-새 Agent OS 작업 패널, 범용 실행 카드, 범용 예약 화면을 만들지 않는다. 기존 버튼이 OperationRun을 요청하되, 기존 화면의 진행 상태·완료 결과·오류 표현을 유지한다. 시작 응답으로 완료 toast를 내지 않고 terminal polling 결과와 warningCount로 결정한다.
+새 Agent OS 작업 패널, 범용 실행 카드, 범용 예약 화면을 만들지 않는다. 기존 화면의 진행 상태·완료 결과·오류 표현을 유지한다. 대시보드는 같은 action의 toast와 browser collection alert를 사용하고 별도 “요청 중” 알림을 덧붙이지 않는다.
 
 - [ ] **Step 6: 모든 trend consumer 전환**
 
@@ -806,7 +811,7 @@ hook은 mapping과 operationsApi.start만 호출한다. 주문 concurrency, exte
 
 Run: rtk npm exec --workspace=apps/web vitest -- run src/lib src/hooks 'src/app/(analytics)/dashboard' 'src/app/(sourcing-ai)/sourcing-ai' && rtk npm run build --workspace=apps/web
 
-Expected: PASS; dashboard에는 다른 route group 실행 import가 없다.
+Expected: PASS; dashboard와 업무 화면이 같은 action symbol을 호출한다.
 
 ~~~bash
 rtk git add apps/web
@@ -939,7 +944,7 @@ rtk git add apps/server/src/inventory apps/web/src/hooks apps/web/src/components
 rtk git commit -m "refactor: run sellpia inventory through browser operations"
 ~~~
 
-## Task 12: 주문 전체수집과 artifact를 서버 기준으로 전환
+## Task 12: 예약 주문 전체수집의 durable artifact 전환 (수동 버튼과 별도)
 
 **Files:**
 - Modify: prisma/models/orders.prisma, prisma/models/core.prisma
@@ -981,9 +986,9 @@ enabled/collectable mall마다 child run을 만든다. child 모두 terminal이�
 
 POST /api/orders/collection-runs/:runId/artifacts는 size/hash/mall ownership/attemptToken을 검증한다. generic browser report에는 base64/file rows를 허용하지 않는다.
 
-- [ ] **Step 5: Orders 화면 전환**
+- [ ] **Step 5: 예약 결과 조회 연결**
 
-전체수집과 실패 몰 재수집은 parent OperationRun을 만든다. 파일 목록은 서버 API가 source of truth다. IndexedDB store는 다운로드 캐시만 맡는다.
+예약 전체수집은 parent OperationRun과 서버 artifact를 만든다. 수동 전체수집과 실패 몰 재수집은 기존 화면과 대시보드가 공유하는 browser action을 유지하며 IndexedDB 생성 파일 history를 보존한다. 예약 artifact가 준비되기 전까지 수동 결과를 count-only Operation으로 바꾸지 않는다.
 
 - [ ] **Step 6: 검증과 커밋**
 
@@ -1041,9 +1046,9 @@ sourcing.collect_daily_trends가 요청 sources에 따라 sourcing.collect_1688_
 
 channels.import_coupang_catalog를 기존 account-scoped catalog import run에 연결하여 chunk/finalize completeness와 attempt fence를 보존한다.
 
-- [ ] **Step 6: 개별 화면 전환**
+- [ ] **Step 6: 예약 producer 연결**
 
-Shipment, advertising, channel catalog 실행 버튼은 operationsApi.start를 사용한다. interactive-only registration/edit/upload는 schedule 대상에서 제외한다.
+Shipment, advertising, channel catalog의 예약 producer는 Operations를 사용한다. 수동 Shipment/Rocket 버튼은 대시보드와 기존 화면이 공유하는 browser action을 유지한다. interactive-only registration/edit/upload는 schedule 대상에서 제외한다.
 
 - [ ] **Step 7: alarm regression test**
 
@@ -1306,6 +1311,9 @@ Expected: Nest boots without unresolved provider or circular dependency. API pro
 |---|---|
 | Dashboard trend button | one OperationRun, sourcing handler once |
 | Sourcing screen same action | same definition/handler, domain_screen source |
+| Dashboard mall-order button | same shared collector/session/file persistence as order screen |
+| Dashboard shipment button | same validated extension command and persisted summary as shipment screen |
+| Dashboard Rocket button | same collection/catalog-save command as Rocket screen |
 | Agent deterministic collect | child OperationRun, no duplicate logic |
 | Daily schedule | derived idempotency key, one run across workers |
 | Chrome offline | waiting_runtime visible in Agent OS |
@@ -1342,12 +1350,13 @@ rtk git commit -m "refactor: complete unified operation control plane"
 
 ## 완료 조건
 
-- 대시보드 Agent OS, 개별 업무 화면, Agent, schedule이 동일 definition과 incoming port를 사용한다.
+- 대시보드 Agent OS와 개별 업무 화면의 수동 버튼이 동일 shared action을 사용한다.
+- Agent와 schedule은 Operations를 통해 동일 owner capability를 사용한다.
 - Automation, Agent OS, AI direct job, browser native ledger는 유지되고 OperationRun에 연결된다.
 - 서버 예약이 business schedule의 유일한 source of truth다.
 - extension 업무 alarm과 web-mounted silent flush가 제거된다.
 - browser offline/login/CAPTCHA가 waiting_runtime 또는 attention_required로 보인다.
-- 결과 파일은 server/domain storage에서 조회할 수 있고 IndexedDB만이 유일한 원본인 파일이 없다.
+- 예약 결과 파일은 server/domain storage에서 조회할 수 있다. 수동 주문 화면의 기존 IndexedDB 생성 파일 history는 UI 계약으로 유지한다.
 - cancel/retry/idempotency/lease fencing/tenant isolation이 integration test로 증명된다.
 - Agent OS 명칭과 대시보드 상위 UI가 유지된다.
 - Capability와 Operation catalog scanner가 오류 0건이다.

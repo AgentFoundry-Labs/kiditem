@@ -6,6 +6,7 @@ import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
+import { useAllMarketplaceOrderCollection } from '@/hooks/useAllMarketplaceOrderCollection';
 import { useAuth } from '@/hooks/useAuth';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
@@ -25,24 +26,19 @@ import {
   AUTO_INTERVAL_OPTIONS_MIN,
   useOrderAutoDetect,
 } from '../hooks/use-order-auto-detect';
-import { useOrderCollectionSessionControls } from '../hooks/use-order-collection-session-controls';
 import { useSellpiaOrderTransmission } from '../hooks/use-sellpia-order-transmission';
-import { createBrowserMallCollector } from '../lib/browser-mall-collection';
 import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
-import { runWithConcurrency } from '../lib/order-collection-concurrency';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import {
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
   EMPTY_MALL_DRAFT,
-  classifyOrderCollectionFailure,
   draftFromMallAccount,
   isBrowserCollectableMall,
   hasSellpiaTransmissionRequest,
-  mallCollectionFailureMessage,
   todayYmd,
   type ConversionHistoryItem,
   type ConversionState,
@@ -69,7 +65,6 @@ import {
   uploadTrackingForMall,
 } from '../lib/order-tracking-actions';
 
-const COLLECT_ALL_CONCURRENCY = 4;
 import { CoupangDirectCalendarModal } from './CoupangDirectCalendarModal';
 import type { CoupangDirectPo } from '../lib/coupang-directship-api';
 import {
@@ -148,25 +143,6 @@ export function OrderCollectionWorkspace() {
     writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, stored);
     return stored;
   };
-  const sessionControls = useOrderCollectionSessionControls(mallAccounts);
-  const collectionSession = sessionControls.session;
-  // 수집 조치 안내(로그인/세션 필요 등)는 몰 카드 위 배너 대신 알림(토스트)으로만 띄운다.
-  // 같은 실행의 같은 안내가 폴링마다 반복 토스트되지 않도록 마지막으로 알린 내용을 기억한다.
-  const notifiedAttentionRef = useRef<string | null>(null);
-  useEffect(() => {
-    const attentionMessage =
-      collectionSession?.status === 'attention_required'
-        ? collectionSession.attention?.message ?? null
-        : null;
-    if (!attentionMessage) {
-      notifiedAttentionRef.current = null;
-      return;
-    }
-    const signature = `${collectionSession?.runId ?? ''}:${attentionMessage}`;
-    if (notifiedAttentionRef.current === signature) return;
-    notifiedAttentionRef.current = signature;
-    toast.warning(attentionMessage);
-  }, [collectionSession]);
   const mallLoading = mallAccountsQuery.isLoading;
   const mallError = mallAccountsQuery.error instanceof Error
     ? mallAccountsQuery.error.message
@@ -321,15 +297,38 @@ export function OrderCollectionWorkspace() {
     }));
   }, [addGeneratedFile]);
 
-  const collectBrowserMall = useMemo(
-    () => createBrowserMallCollector({
-      mallAccounts,
-      rocketChannelAccountId: selectedRocketAccount?.id ?? null,
-      addGeneratedFile,
-      setPreviewId,
-    }),
-    [addGeneratedFile, mallAccounts, selectedRocketAccount?.id],
-  );
+  const {
+    collectAccount,
+    collectAccounts,
+    collectAll,
+    sessionControls,
+  } = useAllMarketplaceOrderCollection({
+    mallAccounts,
+    rocketChannelAccountId: selectedRocketAccount?.id ?? null,
+    addGeneratedFile,
+    setPreviewId,
+    markCollecting,
+    clearMallErrorActivity,
+    logActivity,
+  });
+  const collectionSession = sessionControls.session;
+  // 수집 조치 안내(로그인/세션 필요 등)는 몰 카드 위 배너 대신 알림(토스트)으로만 띄운다.
+  // 같은 실행의 같은 안내가 폴링마다 반복 토스트되지 않도록 마지막으로 알린 내용을 기억한다.
+  const notifiedAttentionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const attentionMessage =
+      collectionSession?.status === 'attention_required'
+        ? collectionSession.attention?.message ?? null
+        : null;
+    if (!attentionMessage) {
+      notifiedAttentionRef.current = null;
+      return;
+    }
+    const signature = `${collectionSession?.runId ?? ''}:${attentionMessage}`;
+    if (notifiedAttentionRef.current === signature) return;
+    notifiedAttentionRef.current = signature;
+    toast.warning(attentionMessage);
+  }, [collectionSession]);
 
   const refreshMallAccounts = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
@@ -374,73 +373,6 @@ export function OrderCollectionWorkspace() {
     selectedMall?.siteUrl,
   ]);
 
-  const collectAccount = useCallback(
-    async (
-      account: OrderCollectionMallAccount,
-      run?: OrderCollectionExtensionRun,
-      directship?: { eddDates: string[] },
-    ) => {
-      markCollecting(account.key, true);
-      let activeRun = run;
-      try {
-        if (!activeRun) {
-          activeRun = await sessionControls.prepareRun(account) ?? undefined;
-        }
-        if (!activeRun) {
-          throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
-        }
-        const collected = await collectBrowserMall(account, activeRun, { directship });
-        await sessionControls.finalizeRun(
-          activeRun,
-          'succeeded',
-          collected.rowCount === 0
-            ? `${account.name} 배송준비전 주문 없음`
-            : `${account.name} 수집 및 파일 생성 완료 (${formatNumber(collected.rowCount)}행)`,
-        );
-        clearMallErrorActivity(account.name);
-        if (collected.rowCount === 0) logActivity('empty', account.name);
-        return collected;
-      } catch (err) {
-        // raw 네트워크 오류("Failed to fetch")는 원인/조치를 알 수 없으므로 안내 문구로 바꾼다.
-        const message = mallCollectionFailureMessage(
-          account.name,
-          friendlyError(err) ?? '브라우저 수집 실패',
-        );
-        const failureKind = classifyOrderCollectionFailure(err, message);
-        const attentionKind = failureKind === 'auth' || failureKind === 'login'
-          ? failureKind
-          : null;
-        // 구조화 실패가 없는 레거시 백엔드 변환 오류만 문장으로 빈 결과를 판정한다.
-        const noNewOrders = !activeRun?.signal?.aborted && failureKind === 'empty';
-        // 로그인/SMS 인증은 확장 lifecycle이 이미 attention_required로 기록했다. 이를 failed로 덮지 않는다.
-        if (activeRun && !attentionKind) {
-          await sessionControls.finalizeRun(
-            activeRun,
-            noNewOrders ? 'succeeded' : 'failed',
-            noNewOrders ? `${account.name} 신규 주문 없음` : `${account.name} 파일 생성 실패: ${message}`,
-          ).catch((finalizeError) => {
-            console.warn('[order-collection] failed to finalize collection session', finalizeError);
-          });
-        }
-        if (noNewOrders) {
-          clearMallErrorActivity(account.name);
-          logActivity('empty', account.name);
-          return { rowCount: 0, masked: false, date: activeRun?.date ?? null };
-        }
-        if (!activeRun?.signal?.aborted) {
-          // 로그인/인증(SMS 등) 필요는 시스템 오류가 아니라 조치 필요 상태이므로 별도 분류로 표기한다.
-          const kind = attentionKind ?? 'error';
-          logActivity(kind, account.name, message);
-        }
-        throw err;
-      } finally {
-        if (activeRun) sessionControls.releaseRun(account.key, activeRun.runId);
-        markCollecting(account.key, false);
-      }
-    },
-    [clearMallErrorActivity, collectBrowserMall, logActivity, markCollecting, sessionControls],
-  );
-
   const autoDetect = useOrderAutoDetect({
     mallAccounts,
     addGeneratedFile,
@@ -460,16 +392,7 @@ export function OrderCollectionWorkspace() {
 
     setBrowserCollecting(true);
     setState('converting');
-    let successCount = 0;
-    let failedCount = 0;
-    await runWithConcurrency(targets, COLLECT_ALL_CONCURRENCY, async (account) => {
-      try {
-        await collectAccount(account);
-        successCount += 1;
-      } catch {
-        failedCount += 1;
-      }
-    });
+    const { successCount, failedCount } = await collectAll();
     setBrowserCollecting(false);
     setState(failedCount > 0 ? 'error' : 'success');
     if (failedCount > 0) {
@@ -486,17 +409,7 @@ export function OrderCollectionWorkspace() {
   const handleRetryFailedMalls = async () => {
     if (failedMallAccounts.length === 0) return;
     setBrowserCollecting(true);
-    await runWithConcurrency(
-      failedMallAccounts,
-      COLLECT_ALL_CONCURRENCY,
-      async (account) => {
-        try {
-          await collectAccount(account);
-        } catch {
-          // The error remains in the activity feed for another retry.
-        }
-      },
-    );
+    await collectAccounts(failedMallAccounts);
     setBrowserCollecting(false);
   };
 

@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SellpiaInventoryFreshnessStatus } from '@kiditem/shared/sellpia-inventory-freshness';
 import { ZodError } from 'zod';
 import { isApiError } from '@/lib/api-error';
-import { operationsApi } from '@/lib/operations-api';
+import { startSellpiaInventoryRefreshAction } from '@/lib/manual-operation-actions';
 import { queryKeys } from '@/lib/query-keys';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 
@@ -59,9 +59,9 @@ export function useSellpiaInventoryFreshness({ enabled }: { enabled: boolean }) 
   }, [queryClient]);
 
   const requestRefresh = useCallback(async (reason: 'manual_request' | 'retry') => {
-    const run = await operationsApi.start('inventory.refresh_sellpia_snapshot', {
+    const run = await startSellpiaInventoryRefreshAction({
       sourceSurface: 'domain_screen',
-      input: { reason },
+      reason,
     });
     await invalidateFreshness();
     return run;

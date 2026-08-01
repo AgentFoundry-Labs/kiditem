@@ -3,8 +3,8 @@
 // 직접 수집하고, 1688은 로그인된 Chrome 확장 배치를 우선 사용한 뒤 서버에 저장한다.
 
 import type { OperationRun } from '@kiditem/shared/operations';
+import { startTrendCollectionAction } from '@/lib/manual-operation-actions';
 import { apiClient } from '@/lib/api-client';
-import { operationsApi } from '@/lib/operations-api';
 
 // 서버가 POST /collect 로 직접 수집하는 소스.
 export type TrendSource = 'naver' | '1688' | 'shorts';
@@ -141,9 +141,9 @@ export interface TiktokCcRegionView {
 }
 
 export function collectTrend(sources?: TrendSource[]): Promise<OperationRun> {
-  return operationsApi.start('sourcing.collect_daily_trends', {
+  return startTrendCollectionAction({
     sourceSurface: 'domain_screen',
-    input: sources?.length ? { sources } : {},
+    sources,
   });
 }
 

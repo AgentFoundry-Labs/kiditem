@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, ExternalLink, Loader2, PackageCheck, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { downloadBlob } from '@/lib/browser-download';
 import { formatNumber } from '@/lib/utils';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
 import {
   COUPANG_SHIPMENT_PAGE_URL,
   displayKind,
@@ -14,8 +15,6 @@ import {
   type CoupangShipmentMergedFile,
 } from './lib/coupang-shipment-files';
 import {
-  COUPANG_SHIPMENT_SESSION_REQUIRED_CODE,
-  CoupangShipmentExtensionError,
   clearCoupangCookiesViaExtension,
   collectCoupangShipmentDraftsViaExtension,
   isCoupangCookieBloatError,
@@ -43,8 +42,6 @@ import {
   saveCoupangShipmentFiles,
 } from './lib/coupang-shipment-store';
 import { useCoupangShipmentViewState } from './hooks/useCoupangShipmentViewState';
-import { isTerminalOperationStatus, useOperationRun } from '@/hooks/useOperationRun';
-import { operationsApi } from '@/lib/operations-api';
 
 type ResultKind = CoupangShipmentFileKind | CoupangShipmentServerFileKind;
 
@@ -85,10 +82,7 @@ export default function CoupangShipmentsPage() {
   const [dateSummary, setDateSummary] = useState<CoupangShipmentDateSummaryItem[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryLoaded, setSummaryLoaded] = useState(false);
-  const [summaryOperationRunId, setSummaryOperationRunId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<ShipmentNotification[]>([]);
-  const handledSummaryOperationRunId = useRef<string | null>(null);
-  const summaryOperationRun = useOperationRun(summaryOperationRunId);
 
   const notify = useCallback((status: ShipmentNotificationStatus, message: string) => {
     setNotifications((prev) =>
@@ -239,67 +233,28 @@ export default function CoupangShipmentsPage() {
     setSummaryLoading(true);
     notify('started', '발송일 조회를 시작합니다…');
     try {
-      const run = await operationsApi.start('inventory.collect_coupang_shipment_summary', {
-        sourceSurface: 'domain_screen',
-        input: {},
-        idempotencyKey: `coupang-shipments:summary:${createSecureRandomUuid()}`,
+      const result = await collectAndPersistCoupangShipmentSummary();
+      if (result.status === 'empty') {
+        setSummaryLoaded(true);
+        toast.info('새로 조회된 쉽먼트가 없습니다.');
+        notify('info', '새로 조회된 쉽먼트가 없습니다.');
+        return;
+      }
+
+      setCalendarView({
+        month: result.latest.date.slice(0, 7),
+        date: result.latest.date,
       });
-      setSummaryOperationRunId(run.id);
-      toast.success('발송일 조회를 시작했습니다.');
+      applyDateSummary(result.items);
+      const message = `발송일 ${formatNumber(result.items.length)}일 · 최신 ${result.latest.date} (${formatNumber(result.latest.count)}건)`;
+      toast.success(message);
+      notify('succeeded', message);
     } catch (error) {
       showExtensionErrorToast(error, '발송일 조회·저장 실패');
+    } finally {
       setSummaryLoading(false);
     }
   };
-
-  useEffect(() => {
-    const run = summaryOperationRun.data;
-    const isSettled = run
-      && (isTerminalOperationStatus(run.status) || run.status === 'attention_required');
-    if (!run || !isSettled || handledSummaryOperationRunId.current === run.id) return;
-
-    handledSummaryOperationRunId.current = run.id;
-    if (run.status !== 'succeeded') {
-      const attentionCode = run.status === 'attention_required'
-        ? run.error?.message
-        : undefined;
-      const message = attentionCode === COUPANG_SHIPMENT_SESSION_REQUIRED_CODE
-        ? '쿠팡 Supplier Hub 로그인이 필요합니다.'
-        : run.error?.message ?? '발송일 조회·저장 실패';
-      showExtensionErrorToast(
-        new CoupangShipmentExtensionError(message, attentionCode),
-        '발송일 조회·저장 실패',
-      );
-      setSummaryLoading(false);
-      return;
-    }
-
-    void loadCoupangShipmentDateSummary()
-      .then((response) => {
-        applyDateSummary(
-          response.items.map((item) => ({
-            date: item.date,
-            count: item.count,
-            boxes: item.boxes,
-          })),
-          { autoSelect: true },
-        );
-        const result = shipmentSummaryOperationResult(run.result);
-        const message = result && result.dateCount === 0
-          ? '새로 조회된 쉽먼트가 없습니다.'
-          : result
-            ? `발송일 ${formatNumber(result.dateCount)}일 · 쉽먼트 ${formatNumber(result.totalRows)}건 조회 완료`
-            : '발송일 조회를 완료했습니다.';
-        toast.success(message);
-        notify('succeeded', message);
-      })
-      .catch((error) => {
-        showExtensionErrorToast(error, '발송일 조회 결과를 불러오지 못했습니다.');
-      })
-      .finally(() => {
-        setSummaryLoading(false);
-      });
-  }, [applyDateSummary, notify, showExtensionErrorToast, summaryOperationRun.data]);
 
   const collectAndMerge = async () => {
     if (!selectedDate) {
@@ -553,26 +508,6 @@ function resultKindRank(kind: ResultKind): number {
   if (kind === 'all') return 0;
   if (kind === 'label') return 1;
   return 2;
-}
-
-function shipmentSummaryOperationResult(value: unknown): {
-  dateCount: number;
-  totalRows: number;
-} | null {
-  if (!value || typeof value !== 'object') return null;
-  const result = value as Record<string, unknown>;
-  if (
-    !Number.isInteger(result.dateCount)
-    || !Number.isInteger(result.totalRows)
-    || (result.dateCount as number) < 0
-    || (result.totalRows as number) < 0
-  ) {
-    return null;
-  }
-  return {
-    dateCount: result.dateCount as number,
-    totalRows: result.totalRows as number,
-  };
 }
 
 function formatFileSize(sizeBytes: number): string {

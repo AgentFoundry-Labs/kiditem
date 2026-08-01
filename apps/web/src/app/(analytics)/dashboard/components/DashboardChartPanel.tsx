@@ -82,7 +82,7 @@ const DEPT_MAP: readonly Dept[] = [
   {
     key: 'shipping', label: '출고', color: '#0ea5e9', faceColor: 'cyan', faceRole: 'shipping',
     buttons: [
-      { label: '쿠팡 쉽먼트 조회', kind: 'action', action: 'collectCoupangShipmentSummary' },
+      { label: '쿠팡 쉽먼트', kind: 'action', action: 'collectCoupangShipmentSummary' },
       { label: '쿠팡 로켓 PO 수집', kind: 'action', action: 'collectCoupangRocketPurchaseOrders' },
     ],
   },
@@ -130,7 +130,6 @@ export function DashboardChartPanel({
     const label = ACTION_LABEL[action];
     try {
       await quickActions.start(action);
-      toast.success(`${label} 실행을 시작했습니다.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `${label} 실패`);
     } finally {

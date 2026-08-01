@@ -6,7 +6,7 @@ import {
   loadCoupangShipmentServerFiles,
 } from './lib/coupang-shipment-api';
 import { loadCoupangShipmentFiles } from './lib/coupang-shipment-store';
-import { operationsApi } from '@/lib/operations-api';
+import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
 
 const replaceMock = vi.hoisted(() => vi.fn());
 const navigation = vi.hoisted(() => ({
@@ -20,13 +20,8 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => navigation.params,
 }));
 
-vi.mock('@/hooks/useOperationRun', () => ({
-  isTerminalOperationStatus: vi.fn(() => false),
-  useOperationRun: vi.fn(() => ({ data: undefined })),
-}));
-
-vi.mock('@/lib/operations-api', () => ({
-  operationsApi: { start: vi.fn() },
+vi.mock('@/lib/coupang-shipment-summary-action', () => ({
+  collectAndPersistCoupangShipmentSummary: vi.fn(),
 }));
 
 vi.mock('./lib/coupang-shipment-api', () => ({
@@ -57,7 +52,7 @@ describe('<CoupangShipmentsPage /> calendar view persistence', () => {
     sessionStorage.clear();
     navigation.params = new URLSearchParams();
     replaceMock.mockReset();
-    vi.mocked(operationsApi.start).mockReset();
+    vi.mocked(collectAndPersistCoupangShipmentSummary).mockReset();
     vi.mocked(loadCoupangShipmentFiles).mockResolvedValue([]);
     vi.mocked(loadCoupangShipmentServerFiles).mockResolvedValue({ days: [] });
     vi.mocked(loadCoupangShipmentDateSummary).mockResolvedValue({
@@ -98,23 +93,17 @@ describe('<CoupangShipmentsPage /> calendar view persistence', () => {
     });
   });
 
-  it('starts the same shipment-summary operation as the dashboard action', async () => {
-    vi.mocked(operationsApi.start).mockResolvedValue({
-      id: '11111111-1111-1111-1111-111111111111',
-    } as never);
+  it('runs the shared shipment-summary action used by the dashboard', async () => {
+    vi.mocked(collectAndPersistCoupangShipmentSummary).mockResolvedValue({
+      status: 'empty',
+      items: [],
+    });
     render(<CoupangShipmentsPage />);
 
     fireEvent.click(await screen.findByRole('button', { name: '다시 조회' }));
 
     await waitFor(() => {
-      expect(operationsApi.start).toHaveBeenCalledWith(
-        'inventory.collect_coupang_shipment_summary',
-        expect.objectContaining({
-          sourceSurface: 'domain_screen',
-          input: {},
-          idempotencyKey: expect.stringMatching(/^coupang-shipments:summary:/),
-        }),
-      );
+      expect(collectAndPersistCoupangShipmentSummary).toHaveBeenCalledTimes(1);
     });
   });
 });
