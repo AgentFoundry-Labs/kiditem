@@ -383,19 +383,19 @@ Source readiness is coverage-based, not a loose age threshold. Sellpia is ready 
 
 ### Step 1: Write failing advertising ownership tests
 
-- [ ] Define an Advertising read port that returns daily additive `ChannelListingDailySnapshot.adSpend` per resolved master product with one of `OBSERVED`, `CONFIRMED_ZERO`, `STALE`, or `MISSING` and exact coverage/freshness.
-- [ ] Test that a source row explicitly reporting no spend is `CONFIRMED_ZERO`, while no snapshot, a gap inside the requested product/listing day range, cutoff mismatch, stale snapshot, unmapped listing, or repository failure is never converted to zero.
-- [ ] Test additive aggregation across listing options without double-counting a listing-level daily fact.
+- [x] Define an Advertising read port that returns daily additive `ChannelListingDailySnapshot.adSpend` per resolved master product with one of `OBSERVED`, `CONFIRMED_ZERO`, `STALE`, or `MISSING` and exact coverage/freshness.
+- [x] Test that a source row explicitly reporting no spend is `CONFIRMED_ZERO`, while no snapshot, a gap inside the requested product/listing day range, cutoff mismatch, stale snapshot, unmapped listing, or repository failure is never converted to zero.
+- [x] Test additive aggregation across listing options without double-counting a listing-level daily fact.
 - [ ] Run the new adapter test. Expected: FAIL because the port and isolated module do not exist.
 
 ### Step 2: Add a cycle-free Advertising read module
 
-- [ ] Implement the adapter against Prisma and export it from `AdvertisingProfitabilityReadModule`. This module must not import `ProductsModule`; Finance imports this narrow module instead of the full Advertising module to avoid `Products -> Finance -> Advertising -> Products`.
+- [x] Implement the adapter against Prisma and export it from `AdvertisingProfitabilityReadModule`. This module must not import `ProductsModule`; Finance imports this narrow module instead of the full Advertising module to avoid `Products -> Finance -> Advertising -> Products`.
 - [ ] Run the adapter test. Expected: PASS for observed, confirmed-zero, missing/stale, mapping, aggregation, and organization isolation.
 
 ### Step 3: Write failing Finance evidence tests
 
-- [ ] Define `MasterProductProfitabilityReadPort` to return source-ready monthly facts and eligibility evidence, not grades or normalized scores:
+- [x] Define `MasterProductProfitabilityReadPort` to return source-ready monthly facts and eligibility evidence, not grades or normalized scores:
 
   ```ts
   type MasterProductProfitabilityEvidence = {
@@ -412,19 +412,19 @@ Source readiness is coverage-based, not a loose age threshold. Sellpia is ready 
   };
   ```
 
-- [ ] Define the port method as `readMany({ organizationId, masterProductIds, asOfDate, scope })`, where `scope` is `ACTIVE_EVALUATION` or `HISTORICAL_CALIBRATION`. It returns facts/order dates only through `asOfDate`; active evaluation requires explicit active IDs, while historical calibration includes inactive products with valid historical facts to avoid survivorship bias. The caller never supplies an organization through HTTP input.
+- [x] Define the port method as `readMany({ organizationId, masterProductIds, asOfDate, scope })`, where `scope` is `ACTIVE_EVALUATION` or `HISTORICAL_CALIBRATION`. It returns facts/order dates only through `asOfDate`; active evaluation requires explicit active IDs, while historical calibration includes inactive products with valid historical facts to avoid survivorship bias. The caller never supplies an organization through HTTP input.
 
-- [ ] Test valid paid orders as distinct organization-scoped orders linked through `OrderLineItem -> ChannelListingOption -> ChannelListing -> MasterProduct`, using `paidAt`, excluding cancelled and fully refunded orders, and not excluding a merely partial return/refund as if the whole paid order never existed.
-- [ ] Test eligibility at exactly 30 KST calendar observation days or exactly 20 distinct paid orders, whichever occurs first; multiple line items in one order count once.
-- [ ] Test the exact seven-component formula. Require deferred components to persist `{ amount: 0, status: 'NOT_APPLIED' }` and required source failures to produce source status instead of a numeric zero.
-- [ ] Test month/day allocation of additive ad spend to the exact Sellpia coverage intersection.
+- [x] Test valid paid orders as distinct organization-scoped orders linked through `OrderLineItem -> ChannelListingOption -> ChannelListing -> MasterProduct`, using `paidAt`, excluding cancelled and fully refunded orders, and not excluding a merely partial return/refund as if the whole paid order never existed.
+- [x] Test eligibility at exactly 30 KST calendar observation days or exactly 20 distinct paid orders, whichever occurs first; multiple line items in one order count once.
+- [x] Test the exact seven-component formula. Require deferred components to persist `{ amount: 0, status: 'NOT_APPLIED' }` and required source failures to produce source status instead of a numeric zero.
+- [x] Test month/day allocation of additive ad spend to the exact Sellpia coverage intersection.
 - [ ] Run the Finance service test. Expected: FAIL because evidence assembly is not implemented.
 
 ### Step 4: Implement and export Finance evidence assembly
 
-- [ ] Inject `MasterProductProfitFactReadPort`, `MasterProductAdSpendReadPort`, and Prisma order reads into `MasterProductProfitabilityReadService`. Keep organization fencing in every join and return distinct valid paid-order dates so Products can reconstruct eligibility at each rolling origin without querying Orders directly.
-- [ ] Emit monthly contribution facts with revenue, Sellpia inbound amount, ad spend, each deferred component, contribution profit, negative covered days, coverage midpoint, and source provenance.
-- [ ] When daily data is not sufficient to know exact negative days, derive `negativeCoveredDays` as `coveredDays` only when the entire monthly fact contribution profit is negative and `0` otherwise; record `lossGranularity: 'MONTH_INFERRED'` in source metadata so v1 limitations are explicit.
+- [x] Inject `MasterProductProfitFactReadPort`, `MasterProductAdSpendReadPort`, and Prisma order reads into `MasterProductProfitabilityReadService`. Keep organization fencing in every join and return distinct valid paid-order dates so Products can reconstruct eligibility at each rolling origin without querying Orders directly.
+- [x] Emit monthly contribution facts with revenue, Sellpia inbound amount, ad spend, each deferred component, contribution profit, negative covered days, coverage midpoint, and source provenance.
+- [x] When daily data is not sufficient to know exact negative days, derive `negativeCoveredDays` as `coveredDays` only when the entire monthly fact contribution profit is negative and `0` otherwise; record `lossGranularity: 'MONTH_INFERRED'` in source metadata so v1 limitations are explicit.
 - [ ] Export the Finance port from `FinanceModule`, then run:
 
   ```bash
@@ -434,7 +434,7 @@ Source readiness is coverage-based, not a loose age threshold. Sellpia is ready 
 
   Expected: all evidence/source semantics pass and Nest compilation has no module cycle.
 
-- [ ] Update `apps/server/src/finance/AGENTS.md` to record that Finance combines profitability evidence but Products remains the only ABC grade/formula owner.
+- [x] Update `apps/server/src/finance/AGENTS.md` to record that Finance combines profitability evidence but Products remains the only ABC grade/formula owner.
 - [ ] Commit:
 
   ```bash
