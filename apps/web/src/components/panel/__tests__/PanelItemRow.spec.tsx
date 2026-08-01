@@ -59,9 +59,9 @@ describe('PanelItemRow', () => {
   });
 
   it('renders an OperationRun panel source through the common row contract', () => {
-    render(<PanelItemRow item={makeRunItem({ source: 'operation', subtitle: '브라우저 연결 대기' })} />);
+    render(<PanelItemRow item={makeRunItem({ source: 'operation', subtitle: '실행 중' })} />);
 
-    expect(screen.getByText('브라우저 연결 대기')).toBeInTheDocument();
+    expect(screen.getByText('실행 중')).toBeInTheDocument();
   });
 
   it('routes kind=alert to alert renderer (renders alert title)', () => {

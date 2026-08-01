@@ -134,7 +134,7 @@ describe('PanelService', () => {
         id: 'operation:11111111-1111-1111-1111-111111111111',
         source: 'operation',
         phase: 'waiting_runtime',
-        subtitle: '브라우저 연결 대기',
+        subtitle: '실행 중',
       }),
     );
   });

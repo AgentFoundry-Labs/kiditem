@@ -128,12 +128,11 @@ export function DashboardChartPanel({
     if (runningAction) return;
     setRunningAction(id);
     const label = ACTION_LABEL[action];
-    const toastId = toast.loading(`${label} 실행 중…`);
     try {
       await quickActions.start(action);
-      toast.success(`${label} 실행을 시작했습니다.`, { id: toastId });
+      toast.success(`${label} 실행을 시작했습니다.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : `${label} 실패`, { id: toastId });
+      toast.error(error instanceof Error ? error.message : `${label} 실패`);
     } finally {
       setRunningAction(null);
     }

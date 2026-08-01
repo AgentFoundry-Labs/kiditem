@@ -41,13 +41,13 @@ function run(status: OperationRunRecord['status']): OperationRunRecord {
 }
 
 describe('mapOperationRunToPanelItem', () => {
-  it('maps browser waiting work to a pending panel row with its detailed phase', () => {
+  it('maps browser waiting work to the same visible running state', () => {
     expect(mapOperationRunToPanelItem(run('waiting_runtime'))).toMatchObject({
       kind: 'run',
       source: 'operation',
-      status: 'pending',
+      status: 'running',
       phase: 'waiting_runtime',
-      subtitle: '브라우저 연결 대기',
+      subtitle: '실행 중',
     });
   });
 
