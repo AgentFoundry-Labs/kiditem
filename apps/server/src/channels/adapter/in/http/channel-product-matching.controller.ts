@@ -9,10 +9,12 @@ import {
   Query,
 } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { ChannelProductMatchingService } from '../../../application/service/channel-product-matching.service';
 import { ChannelRecipeSuggestionService } from '../../../application/service/channel-recipe-suggestion.service';
 import { ChannelRecipeAutomationService } from '../../../application/service/channel-recipe-automation.service';
 import { SellpiaManualMatchService } from '../../../application/service/sellpia-manual-match.service';
+import type { AuthUser } from '../../../../auth/auth.types';
 import {
   ChannelMatchCandidateQueryDto,
   ChannelProductMatchingQueryDto,
@@ -103,6 +105,21 @@ export class ChannelProductMatchingController {
     @CurrentOrganization() organizationId: string,
   ) {
     return this.recipeSuggestions.suggest(organizationId, channelListingOptionId);
+  }
+
+  @Put('options/:channelListingOptionId/recipe')
+  linkOptionRecipe(
+    @Param('channelListingOptionId', new ParseUUIDPipe()) channelListingOptionId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: unknown,
+  ) {
+    return this.recipeAutomation.linkOptionRecipe(
+      organizationId,
+      user.id,
+      channelListingOptionId,
+      body,
+    );
   }
 
   @Put('options/:channelListingOptionId/product-variant')

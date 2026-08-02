@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
   ApplyChannelRecipeAutomationInputSchema,
   ApplyChannelRecipeAutomationResponseSchema,
@@ -9,6 +9,14 @@ import {
   type ChannelRecipeAutomationProductGroup,
   type ChannelRecipeAutomationReason,
 } from '@kiditem/shared/channel-recipe-automation';
+import {
+  LinkChannelListingOptionRecipeInputSchema,
+  LinkChannelListingOptionRecipeResponseSchema,
+} from '@kiditem/shared/channel-product-matching';
+import {
+  PRODUCT_VARIANT_RECIPE_PORT,
+  type ProductVariantRecipePort,
+} from '../../../products/application/port/in/product-variant-recipe.port';
 import {
   PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT,
   type ProductVariantRecipeAutomationPort,
@@ -30,6 +38,8 @@ export class ChannelRecipeAutomationService {
     private readonly suggestions: ChannelRecipeSuggestionService,
     @Inject(PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT)
     private readonly products: ProductVariantRecipeAutomationPort,
+    @Inject(PRODUCT_VARIANT_RECIPE_PORT)
+    private readonly productRecipes: ProductVariantRecipePort,
   ) {}
 
   async preview(organizationId: string, channelAccountId: string) {
@@ -157,6 +167,53 @@ export class ChannelRecipeAutomationService {
       blockedProducts: countDecision(productGroups, 'blocked'),
       alreadyConfiguredProducts: countDecision(productGroups, 'already_configured'),
       skippedExistingVariants: result.skippedExistingProductVariantIds.length,
+    });
+  }
+
+  async linkOptionRecipe(
+    organizationId: string,
+    userId: string,
+    channelListingOptionId: string,
+    body: unknown,
+  ) {
+    const parsed = LinkChannelListingOptionRecipeInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        message: 'Invalid ChannelListingOption recipe link',
+        errors: parsed.error.flatten(),
+      });
+    }
+    const suggestion = await this.suggestions.suggest(
+      organizationId,
+      channelListingOptionId,
+    );
+    if (!suggestion.productVariantId) {
+      throw new BadRequestException(
+        'Confirm the ChannelListingOption ProductVariant before linking Sellpia stock',
+      );
+    }
+
+    const result = await this.productRecipes.createIfEmpty(
+      organizationId,
+      userId,
+      {
+        recipes: [{
+          productVariantId: suggestion.productVariantId,
+          components: [{
+            sellpiaInventorySkuId: parsed.data.sellpiaInventorySkuId,
+            quantity: parsed.data.quantity,
+          }],
+        }],
+      },
+    );
+    return LinkChannelListingOptionRecipeResponseSchema.parse({
+      channelListingOptionId,
+      productVariantId: suggestion.productVariantId,
+      sellpiaInventorySkuId: parsed.data.sellpiaInventorySkuId,
+      quantity: parsed.data.quantity,
+      status: result.appliedProductVariantIds.includes(suggestion.productVariantId)
+        ? 'created'
+        : 'unchanged',
     });
   }
 }

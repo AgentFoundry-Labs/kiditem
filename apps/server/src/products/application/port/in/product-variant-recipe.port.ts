@@ -4,6 +4,8 @@ import type {
   ProductVariantDetail,
 } from '@kiditem/shared/product-operations';
 
+export const PRODUCT_VARIANT_RECIPE_PORT = Symbol('PRODUCT_VARIANT_RECIPE_PORT');
+
 export interface ProductVariantRecipePort {
   planCreateIfEmpty(
     organizationId: string,

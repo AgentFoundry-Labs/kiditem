@@ -88,10 +88,11 @@ channels/
   Catalog publication may reuse identity only from unique, non-conflicting typed
   seller-SKU or safely normalized physical-barcode evidence; names, raw aliases,
   and AI never confirm product or variant identity.
-- Matching has one explicit version-fenced recipe command. It may create an
-  empty central recipe with one active Sellpia SKU and the policy's verified
-  positive integer channel-to-Sellpia pack ratio. It never overwrites an
-  existing recipe or changes identity links.
+- Matching has explicit create-if-empty recipe commands. Automatic apply is
+  version-fenced. Operator-reviewed option recipe linking may create the same
+  one-SKU empty recipe from a selected active Sellpia SKU and positive integer
+  quantity. Neither command overwrites an existing different recipe or changes
+  identity links.
 - Automatic recipe evidence must be unique and non-conflicting. Exact
   identifiers/names or threshold-clearing names may apply; incompatible,
   ambiguous, unverifiable, raw-alias, and AI evidence requires review. Read
@@ -123,6 +124,7 @@ channels/
 - `GET /api/channels/sku-availability`
 - `GET /api/channels/product-mappings/recipe-automation/preview`
 - `POST /api/channels/product-mappings/recipe-automation/apply`
+- `PUT /api/channels/product-mappings/options/:channelListingOptionId/recipe`
 - Matching queue reads retain product and option relations, while the operator
   workspace groups option rows beneath their product.
 - Product link commands accept only nullable `masterProductId`; option link
@@ -161,9 +163,8 @@ explicit deterministic command through that Products port.
 - Per-listing sync transactions continue on individual failure and increment
   result errors.
 - Product/option link commands never create a recipe or write
-  `SellpiaInventorySku.currentStock`; only the separate version-fenced recipe
-  automation command may invoke Products' create-if-empty writer under the
-  deterministic policy above.
+  `SellpiaInventorySku.currentStock`; only the separate recipe commands may
+  invoke Products' create-if-empty writers under the policy above.
 - Wing catalog collection attaches provider media to the listing content
   workspace. In the same publication transaction it may call Products to
   create/reuse channel-origin identities, then write only still-null listing

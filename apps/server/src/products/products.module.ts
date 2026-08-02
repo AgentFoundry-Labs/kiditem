@@ -14,6 +14,7 @@ import { ProductRecipeComponentCandidateService } from './application/service/pr
 import { ProductVariantRecipeService } from './application/service/product-variant-recipe.service';
 import { CategoriesModule } from './categories/categories.module';
 import { PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT } from './application/port/in/product-variant-recipe-automation.port';
+import { PRODUCT_VARIANT_RECIPE_PORT } from './application/port/in/product-variant-recipe.port';
 import { ProductVariantRecipeAutomationService } from './application/service/product-variant-recipe-automation.service';
 import { MasterProductAbcService } from './application/service/master-product-abc.service';
 import { MasterProductAbcSalesIngestedBridge } from './application/service/master-product-abc-sales-ingested.bridge';
@@ -54,6 +55,10 @@ import { PRODUCT_VARIANT_ABC_GRADE_READ_PORT } from './application/port/in/produ
       useExisting: ProductVariantRecipeAutomationService,
     },
     {
+      provide: PRODUCT_VARIANT_RECIPE_PORT,
+      useExisting: ProductVariantRecipeService,
+    },
+    {
       provide: MASTER_PRODUCT_ABC_REPOSITORY_PORT,
       useExisting: MasterProductAbcRepositoryAdapter,
     },
@@ -66,6 +71,7 @@ import { PRODUCT_VARIANT_ABC_GRADE_READ_PORT } from './application/port/in/produ
     ProductOperationsService,
     ProductVariantRecipeService,
     CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT,
+    PRODUCT_VARIANT_RECIPE_PORT,
     PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT,
     PRODUCT_VARIANT_ABC_GRADE_READ_PORT,
   ],
