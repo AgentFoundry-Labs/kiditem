@@ -7236,6 +7236,15 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
         ? parsed
         : null;
     };
+    const signedInt = (value) => {
+      if (typeof value === "string" && !/^-?\d+$/.test(value)) return null;
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed)
+        && parsed >= -2147483648
+        && parsed <= 2147483647
+        ? parsed
+        : null;
+    };
     const boundedString = (value, max, allowEmpty = false) => {
       if (typeof value !== "string" && typeof value !== "number") return null;
       const normalized = String(value).trim();
@@ -7244,6 +7253,7 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
     };
     const products = [];
     const identities = new Set();
+    let skippedAdjustmentCount = 0;
     for (const p2 of data) {
       if (!p2 || typeof p2 !== "object" || Array.isArray(p2)) {
         return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
@@ -7266,7 +7276,7 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
       if (!graph || typeof graph !== "object" || Array.isArray(graph)) {
         return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
       }
-      const monthValues = new Map();
+      const rawMonthValues = [];
       for (const key of Object.keys(graph)) {
         const ym = normYm(key);
         if (!ym || !rangeMonths.has(ym) || typeof graph[key] !== "string") {
@@ -7276,13 +7286,47 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
         if (parts.length !== 3) {
           return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
         }
-        const inAmount = int(parts[0]);
-        const orderAmount = int(parts[1]);
-        const orderQty = int(parts[2]);
-        if (inAmount === null || orderAmount === null || orderQty === null || monthValues.has(ym)) {
+        const inAmount = signedInt(parts[0]);
+        const orderAmount = signedInt(parts[1]);
+        const orderQty = signedInt(parts[2]);
+        if (inAmount === null || orderAmount === null || orderQty === null) {
           return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
         }
-        monthValues.set(ym, { inAmount, orderAmount, orderQty });
+        rawMonthValues.push({ yearMonth: ym, inAmount, orderAmount, orderQty });
+      }
+      // Sellpia includes financial-only rows such as `할인` in the product
+      // report. They have no unit price, barcode, or inbound value and carry
+      // negative revenue only. They are not inventory products and cannot be
+      // mapped to a MasterProduct, so exclude only this narrow adjustment
+      // shape. Negative revenue on an inventory-bearing product remains a
+      // contract failure instead of being silently erased.
+      const pureFinancialAdjustment = salePrice === 0
+        && buyPrice === 0
+        && barcode === undefined
+        && rawMonthValues.some((month) => month.orderAmount < 0)
+        && rawMonthValues.every((month) =>
+          month.inAmount === 0
+          && month.orderAmount <= 0
+          && month.orderQty >= 0,
+        );
+      if (pureFinancialAdjustment) {
+        skippedAdjustmentCount += 1;
+        continue;
+      }
+      const monthValues = new Map();
+      for (const month of rawMonthValues) {
+        const inAmount = int(month.inAmount);
+        const orderAmount = int(month.orderAmount);
+        const orderQty = int(month.orderQty);
+        if (
+          inAmount === null
+          || orderAmount === null
+          || orderQty === null
+          || monthValues.has(month.yearMonth)
+        ) {
+          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+        }
+        monthValues.set(month.yearMonth, { inAmount, orderAmount, orderQty });
       }
       // 응답에 없는 월을 0으로 꾸며 내지 않는다. 서버는 이 실제 월 버킷과
       // payload-level request range의 교집합을 저장해, 누락을 정상 0으로 오인하지 않는다.
@@ -7317,6 +7361,7 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
         products,
       },
       productCount: products.length,
+      skippedAdjustmentCount,
       range: { start, end },
     };
   } catch (e) {

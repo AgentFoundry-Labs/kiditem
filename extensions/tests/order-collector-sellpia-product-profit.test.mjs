@@ -115,3 +115,53 @@ test('fails the entire collection for malformed, partial, or oversized provider 
     assert.equal(result.payload, undefined);
   }
 });
+
+test('ignores pure Sellpia financial adjustment rows without discarding product evidence', async () => {
+  const { result } = await scrape([
+    {
+      product_code: 'SKU-1',
+      option_code: 'OPTION-1',
+      product_name: '정상 상품',
+      sale_price: 12_000,
+      buy_price: 7_000,
+      dp_code: '8800000000001',
+      graph: { '2026-06': '7000,12000,1' },
+    },
+    {
+      product_code: '7382',
+      option_code: '1',
+      product_name: '할인',
+      sale_price: 0,
+      buy_price: 0,
+      dp_code: '',
+      graph: {
+        '2025-09': '0,-27225,1',
+        '2025-11': '0,-4950,1',
+        '2026-06': '0,0,0',
+      },
+    },
+  ]);
+
+  assert.equal(result.success, true);
+  assert.equal(result.productCount, 1);
+  assert.equal(result.skippedAdjustmentCount, 1);
+  assert.deepEqual(
+    result.payload.products.map((product) => product.productCode),
+    ['SKU-1'],
+  );
+});
+
+test('does not silently drop negative revenue from an inventory-bearing product', async () => {
+  const { result } = await scrape([{
+    product_code: 'SKU-RETURN',
+    option_code: 'OPTION-1',
+    product_name: '반품 발생 상품',
+    sale_price: 12_000,
+    buy_price: 7_000,
+    dp_code: '8800000000002',
+    graph: { '2026-06': '0,-12000,1' },
+  }]);
+
+  assert.equal(result.success, false);
+  assert.equal(result.payload, undefined);
+});

@@ -183,6 +183,9 @@
       if (installed) return;
       installed = true;
       installAlarms();
+      for (const environmentId of environmentContext.environmentIds) {
+        void tick(environmentId);
+      }
       chromeApi.alarms.onAlarm.addListener((alarm) => {
         const environmentId = environmentContext.parseAlarmName(ALARM_BASE, alarm?.name);
         if (environmentId) void tick(environmentId);
