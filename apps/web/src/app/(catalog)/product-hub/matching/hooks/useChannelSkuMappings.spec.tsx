@@ -9,7 +9,9 @@ import {
   getSellpiaManualMatchTargets,
   importSellpiaManualMatchSnapshot,
   linkChannelListingOption,
+  linkChannelListingOptionRecipe,
   linkChannelListingProduct,
+  listRecipeComponentCandidates,
   listChannelProductCandidates,
   listChannelProductMappings,
   listChannelVariantCandidates,
@@ -24,7 +26,9 @@ import {
   useChannelProductMappings,
   useChannelVariantCandidates,
   useLinkChannelListingOption,
+  useLinkChannelListingOptionRecipe,
   useLinkChannelListingProduct,
+  useRecipeComponentCandidates,
   useRunChannelProductMatching,
 } from './useChannelSkuMappings';
 
@@ -35,10 +39,12 @@ vi.mock('../lib/channel-sku-matching-api', () => ({
   getSellpiaManualMatchTargets: vi.fn(),
   importSellpiaManualMatchSnapshot: vi.fn(),
   linkChannelListingOption: vi.fn(),
+  linkChannelListingOptionRecipe: vi.fn(),
   linkChannelListingProduct: vi.fn(),
   listChannelAccounts: vi.fn(),
   listChannelProductCandidates: vi.fn(),
   listChannelProductMappings: vi.fn(),
+  listRecipeComponentCandidates: vi.fn(),
   listChannelVariantCandidates: vi.fn(),
 }));
 vi.mock('../lib/sellpia-manual-match-collection', () => ({
@@ -103,6 +109,23 @@ describe('channel product matching hooks', () => {
     expect(linkChannelListingOption).not.toHaveBeenCalled();
   });
 
+  it('searches recipe component candidates without writing a recipe', async () => {
+    vi.mocked(listRecipeComponentCandidates).mockResolvedValue({ items: [] });
+    const client = createClient();
+    const hook = renderHook(
+      () => useRecipeComponentCandidates(' SP-001 ', true, true),
+      { wrapper: wrapper(client) },
+    );
+
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+
+    expect(listRecipeComponentCandidates).toHaveBeenCalledWith({
+      search: 'SP-001',
+      includeOutOfStock: true,
+    });
+    expect(linkChannelListingOptionRecipe).not.toHaveBeenCalled();
+  });
+
   it('invalidates the shared queue after separate product and option confirmations', async () => {
     vi.mocked(linkChannelListingProduct).mockResolvedValue(undefined);
     vi.mocked(linkChannelListingOption).mockResolvedValue(undefined);
@@ -120,6 +143,38 @@ describe('channel product matching hooks', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelSkuAvailability'] });
     expect(product.result.current.isError).toBe(false);
     expect(option.result.current.isError).toBe(false);
+  });
+
+  it('invalidates matching and inventory state after linking an option recipe', async () => {
+    vi.mocked(linkChannelListingOptionRecipe).mockResolvedValue({
+      channelListingOptionId: OPTION_ID,
+      productVariantId: '44444444-4444-4444-8444-444444444444',
+      sellpiaInventorySkuId: '55555555-5555-4555-8555-555555555555',
+      quantity: 2,
+      status: 'created',
+    });
+    const client = createClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const hook = renderHook(() => useLinkChannelListingOptionRecipe(), {
+      wrapper: wrapper(client),
+    });
+
+    await act(async () => {
+      await hook.result.current.mutateAsync({
+        channelListingOptionId: OPTION_ID,
+        sellpiaInventorySkuId: '55555555-5555-4555-8555-555555555555',
+        quantity: 2,
+      });
+    });
+
+    expect(linkChannelListingOptionRecipe).toHaveBeenCalledWith(OPTION_ID, {
+      sellpiaInventorySkuId: '55555555-5555-4555-8555-555555555555',
+      quantity: 2,
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelProductMappings'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelSkuAvailability'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['products', 'operations'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['inventory'] });
   });
 
   it('waits for an account before previewing recipe automation', async () => {

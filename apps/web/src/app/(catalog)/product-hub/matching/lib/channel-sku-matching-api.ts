@@ -5,15 +5,23 @@ import {
   ChannelProductCandidateListResponseSchema,
   ChannelProductMatchingQueueResponseSchema,
   ChannelVariantCandidateListResponseSchema,
+  LinkChannelListingOptionRecipeInputSchema,
+  LinkChannelListingOptionRecipeResponseSchema,
   LinkChannelListingOptionInputSchema,
   LinkChannelListingProductInputSchema,
   type ChannelRecipeSuggestionResponse,
   type ChannelProductCandidateListResponse,
   type ChannelProductMatchingQueueResponse,
   type ChannelVariantCandidateListResponse,
+  type LinkChannelListingOptionRecipeInput,
+  type LinkChannelListingOptionRecipeResponse,
   type LinkChannelListingOptionInput,
   type LinkChannelListingProductInput,
 } from '@kiditem/shared/channel-product-matching';
+import {
+  ProductRecipeComponentCandidateListResponseSchema,
+  type ProductRecipeComponentCandidateListResponse,
+} from '@kiditem/shared/product-operations';
 import { CoupangWingCatalogImportResponseSchema, type CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 import {
   SellpiaManualMatchImportResponseSchema,
@@ -95,6 +103,21 @@ export function getChannelRecipeSuggestion(
   );
 }
 
+export function listRecipeComponentCandidates(params: {
+  search: string;
+  includeOutOfStock?: boolean;
+}): Promise<ProductRecipeComponentCandidateListResponse> {
+  const query = new URLSearchParams({
+    search: params.search.trim(),
+    limit: '20',
+    stockStatus: params.includeOutOfStock ? 'all' : 'in_stock',
+  });
+  return apiClient.getParsed(
+    `/api/products/recipe-component-candidates?${query.toString()}`,
+    ProductRecipeComponentCandidateListResponseSchema,
+  );
+}
+
 export async function linkChannelListingProduct(
   channelListingId: string,
   input: LinkChannelListingProductInput,
@@ -115,6 +138,18 @@ export async function linkChannelListingOption(
     `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/product-variant`,
     body,
   );
+}
+
+export async function linkChannelListingOptionRecipe(
+  channelListingOptionId: string,
+  input: LinkChannelListingOptionRecipeInput,
+): Promise<LinkChannelListingOptionRecipeResponse> {
+  const body = LinkChannelListingOptionRecipeInputSchema.parse(input);
+  const response = await apiClient.put<unknown>(
+    `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/recipe`,
+    body,
+  );
+  return LinkChannelListingOptionRecipeResponseSchema.parse(response);
 }
 
 export function importCoupangWingCatalog(

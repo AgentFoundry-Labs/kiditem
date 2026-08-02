@@ -10,7 +10,9 @@ import {
   importCoupangWingCatalog,
   importSellpiaManualMatchSnapshot,
   linkChannelListingOption,
+  linkChannelListingOptionRecipe,
   linkChannelListingProduct,
+  listRecipeComponentCandidates,
   listChannelAccounts,
   listChannelProductCandidates,
   listChannelProductMappings,
@@ -167,6 +169,27 @@ export function useChannelVariantCandidates(channelListingOptionId: string | nul
   });
 }
 
+export function useRecipeComponentCandidates(
+  search: string,
+  includeOutOfStock: boolean,
+  enabled: boolean,
+) {
+  const normalized = search.trim();
+  const params = {
+    search: normalized,
+    stockStatus: includeOutOfStock ? 'all' : 'in_stock',
+    limit: '20',
+  };
+  return useQuery({
+    queryKey: queryKeys.products.operations.recipeCandidates(params),
+    queryFn: () => listRecipeComponentCandidates({
+      search: normalized,
+      includeOutOfStock,
+    }),
+    enabled: enabled && normalized.length >= 2,
+  });
+}
+
 export function useLinkChannelListingProduct() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -187,6 +210,30 @@ export function useLinkChannelListingOption() {
     onSuccess: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
+    ]),
+  });
+}
+
+export function useLinkChannelListingOptionRecipe() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelListingOptionId,
+      sellpiaInventorySkuId,
+      quantity,
+    }: {
+      channelListingOptionId: string;
+      sellpiaInventorySkuId: string;
+      quantity: number;
+    }) => linkChannelListingOptionRecipe(channelListingOptionId, {
+      sellpiaInventorySkuId,
+      quantity,
+    }),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
     ]),
   });
 }

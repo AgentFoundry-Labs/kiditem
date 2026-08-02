@@ -447,3 +447,22 @@ export const LinkChannelListingOptionInputSchema = z.object({
 export type LinkChannelListingOptionInput = z.infer<
   typeof LinkChannelListingOptionInputSchema
 >;
+
+export const LinkChannelListingOptionRecipeInputSchema = z.object({
+  sellpiaInventorySkuId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+}).strict();
+export type LinkChannelListingOptionRecipeInput = z.infer<
+  typeof LinkChannelListingOptionRecipeInputSchema
+>;
+
+export const LinkChannelListingOptionRecipeResponseSchema = z.object({
+  channelListingOptionId: z.string().uuid(),
+  productVariantId: z.string().uuid(),
+  sellpiaInventorySkuId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+  status: z.enum(['created', 'unchanged']),
+}).strict();
+export type LinkChannelListingOptionRecipeResponse = z.infer<
+  typeof LinkChannelListingOptionRecipeResponseSchema
+>;

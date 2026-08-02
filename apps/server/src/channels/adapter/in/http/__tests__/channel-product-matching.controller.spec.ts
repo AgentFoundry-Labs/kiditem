@@ -7,6 +7,7 @@ const organizationId = '00000000-0000-4000-8000-000000000001';
 const listingId = '00000000-0000-4000-8000-000000000002';
 const optionId = '00000000-0000-4000-8000-000000000003';
 const channelAccountId = '00000000-0000-4000-8000-000000000004';
+const userId = '00000000-0000-4000-8000-000000000005';
 
 describe('ChannelProductMatchingController', () => {
   it('publishes recipe suggestion and explicit preview/apply routes with matching routes', () => {
@@ -23,6 +24,7 @@ describe('ChannelProductMatchingController', () => {
       ['linkProduct', ':channelListingId/master-product', RequestMethod.PUT],
       ['variantCandidates', 'options/:channelListingOptionId/candidates', RequestMethod.GET],
       ['recipeSuggestionsForOption', 'options/:channelListingOptionId/recipe-suggestions', RequestMethod.GET],
+      ['linkOptionRecipe', 'options/:channelListingOptionId/recipe', RequestMethod.PUT],
       ['linkOption', 'options/:channelListingOptionId/product-variant', RequestMethod.PUT],
     ] as const;
     for (const [methodName, path, method] of routes) {
@@ -43,7 +45,7 @@ describe('ChannelProductMatchingController', () => {
       linkOption: vi.fn(),
     };
     const recipeSuggestions = { suggest: vi.fn() };
-    const recipeAutomation = { preview: vi.fn(), apply: vi.fn() };
+    const recipeAutomation = { preview: vi.fn(), apply: vi.fn(), linkOptionRecipe: vi.fn() };
     const sellpiaManualMatches = { targets: vi.fn(), import: vi.fn() };
     const controller = new ChannelProductMatchingController(
       service as never,
@@ -58,6 +60,12 @@ describe('ChannelProductMatchingController', () => {
     await controller.linkProduct(listingId, organizationId, { masterProductId: null });
     await controller.linkOption(optionId, organizationId, { productVariantId: null });
     await controller.recipeSuggestionsForOption(optionId, organizationId);
+    await controller.linkOptionRecipe(
+      optionId,
+      organizationId,
+      { id: userId } as never,
+      { sellpiaInventorySkuId: listingId, quantity: 2 },
+    );
     await controller.previewRecipeAutomation(organizationId, channelAccountId);
     await controller.applyRecipeAutomation(organizationId, {
       channelAccountId,
@@ -80,6 +88,12 @@ describe('ChannelProductMatchingController', () => {
       { productVariantId: null },
     );
     expect(recipeSuggestions.suggest).toHaveBeenCalledWith(organizationId, optionId);
+    expect(recipeAutomation.linkOptionRecipe).toHaveBeenCalledWith(
+      organizationId,
+      userId,
+      optionId,
+      { sellpiaInventorySkuId: listingId, quantity: 2 },
+    );
     expect(recipeAutomation.preview).toHaveBeenCalledWith(organizationId, channelAccountId);
     expect(recipeAutomation.apply).toHaveBeenCalledWith(organizationId, {
       channelAccountId,

@@ -11,6 +11,7 @@ const productB = '00000000-0000-4000-8000-000000000202';
 const optionA = '00000000-0000-4000-8000-000000000301';
 const optionB = '00000000-0000-4000-8000-000000000302';
 const skuId = '00000000-0000-4000-8000-000000000401';
+const userId = '00000000-0000-4000-8000-000000000402';
 
 describe('ChannelRecipeAutomationService', () => {
   it('sorts variant items and builds stable preview counts and a SHA-256 fence', async () => {
@@ -189,20 +190,74 @@ describe('ChannelRecipeAutomationService', () => {
       }],
     });
   });
+
+  it('creates an operator-reviewed single-Sellpia recipe for a linked option', async () => {
+    const { service, suggestions, productRecipes } = makeService();
+    suggestions.suggest.mockResolvedValue(
+      suggestion(optionA, variantA, productA, 'quantity_review', 'operator_review'),
+    );
+    productRecipes.createIfEmpty.mockResolvedValue({
+      appliedProductVariantIds: [variantA],
+      unchangedProductVariantIds: [],
+    });
+
+    await expect(service.linkOptionRecipe(
+      organizationId,
+      userId,
+      optionA,
+      { sellpiaInventorySkuId: skuId, quantity: 3 },
+    )).resolves.toEqual({
+      channelListingOptionId: optionA,
+      productVariantId: variantA,
+      sellpiaInventorySkuId: skuId,
+      quantity: 3,
+      status: 'created',
+    });
+    expect(productRecipes.createIfEmpty).toHaveBeenCalledWith(
+      organizationId,
+      userId,
+      {
+        recipes: [{
+          productVariantId: variantA,
+          components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
+        }],
+      },
+    );
+  });
+
+  it('rejects recipe creation before the channel option is linked to a variant', async () => {
+    const { service, suggestions, productRecipes } = makeService();
+    suggestions.suggest.mockResolvedValue({
+      ...suggestion(optionA, variantA, productA, 'quantity_review', 'operator_review'),
+      productVariantId: null,
+      masterProductId: null,
+    });
+
+    await expect(service.linkOptionRecipe(
+      organizationId,
+      userId,
+      optionA,
+      { sellpiaInventorySkuId: skuId, quantity: 1 },
+    )).rejects.toThrow('Confirm the ChannelListingOption ProductVariant');
+    expect(productRecipes.createIfEmpty).not.toHaveBeenCalled();
+  });
 });
 
 function makeService() {
   const contextRepository = { listContexts: vi.fn() };
-  const suggestions = { suggestBatch: vi.fn() };
+  const suggestions = { suggest: vi.fn(), suggestBatch: vi.fn() };
   const products = { applyIfEmpty: vi.fn() };
+  const productRecipes = { createIfEmpty: vi.fn() };
   return {
     contextRepository,
     suggestions,
     products,
+    productRecipes,
     service: new ChannelRecipeAutomationService(
       contextRepository as never,
       suggestions as never,
       products as never,
+      productRecipes as never,
     ),
   };
 }
