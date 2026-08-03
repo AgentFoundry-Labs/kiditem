@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { AutomationModule } from '../automation/automation.module';
 import { OperationsModule } from '../operations/operations.module';
 import { AiModule } from '../ai/ai.module';
-import { ProductsModule } from '../products/products.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
@@ -26,7 +25,6 @@ import { ChannelCatalogCollectionRepositoryAdapter } from './adapter/out/reposit
 import { ChannelCatalogPublicationRepositoryAdapter } from './adapter/out/repository/channel-catalog-publication.repository.adapter';
 import { ChannelProductMatchingRepositoryAdapter } from './adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelRecipeSuggestionContextRepositoryAdapter } from './adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
-import { ChannelRecipeAutomationContextRepositoryAdapter } from './adapter/out/repository/channel-recipe-automation-context.repository.adapter';
 import { SellpiaManualMatchRepositoryAdapter } from './adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { SellpiaRecipeEvidenceAdapter } from './adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelSyncService } from './application/service/channel-sync.service';
@@ -43,7 +41,6 @@ import { ChannelCatalogImportService } from './application/service/channel-catal
 import { ChannelCatalogCollectionService } from './application/service/channel-catalog-collection.service';
 import { ChannelProductMatchingService } from './application/service/channel-product-matching.service';
 import { ChannelRecipeSuggestionService } from './application/service/channel-recipe-suggestion.service';
-import { ChannelRecipeAutomationService } from './application/service/channel-recipe-automation.service';
 import { SellpiaManualMatchService } from './application/service/sellpia-manual-match.service';
 import { ChannelSkuAvailabilityService } from './application/service/channel-sku-availability.service';
 import { RocketPoCatalogService } from './application/service/rocket-po-catalog.service';
@@ -73,12 +70,11 @@ import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from './application/port/out
 import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 import { SELLPIA_RECIPE_EVIDENCE_PORT } from './application/port/out/cross-domain/sellpia-recipe-evidence.port';
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-suggestion-context.repository.port';
-import { CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-automation-context.repository.port';
 import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-manual-match.repository.port';
 import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operation/coupang-rocket-purchase-order.operation-handler';
 
 @Module({
-  imports: [AutomationModule, AiModule, ProductsModule, InventoryModule, OperationsModule, OrganizationsModule],
+  imports: [AutomationModule, AiModule, InventoryModule, OperationsModule, OrganizationsModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -104,7 +100,6 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
     ChannelCatalogCollectionService,
     ChannelProductMatchingService,
     ChannelRecipeSuggestionService,
-    ChannelRecipeAutomationService,
     SellpiaManualMatchService,
     ChannelSkuAvailabilityService,
     RocketPoCatalogService,
@@ -121,7 +116,6 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
     ChannelCatalogPublicationRepositoryAdapter,
     ChannelProductMatchingRepositoryAdapter,
     ChannelRecipeSuggestionContextRepositoryAdapter,
-    ChannelRecipeAutomationContextRepositoryAdapter,
     SellpiaManualMatchRepositoryAdapter,
     SellpiaRecipeEvidenceAdapter,
     RocketPoCatalogRepositoryAdapter,
@@ -169,10 +163,6 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
     {
       provide: CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT,
       useExisting: ChannelRecipeSuggestionContextRepositoryAdapter,
-    },
-    {
-      provide: CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT,
-      useExisting: ChannelRecipeAutomationContextRepositoryAdapter,
     },
     {
       provide: SELLPIA_MANUAL_MATCH_REPOSITORY_PORT,

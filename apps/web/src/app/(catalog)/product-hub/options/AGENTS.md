@@ -21,16 +21,16 @@ React Query + apiClient
   `/product-hub` and URL-authoritative.
 - Render Sellpia ID, code, name, option, barcode, current stock, source prices,
   active state, import provenance, and linked destinations as read-only facts.
-- Product and variant destinations come only from confirmed,
-  organization-fenced `ProductVariantComponent` relations. Never infer a link;
+- Destinations come only from confirmed, organization-fenced
+  `ChannelListingOptionInventoryComponent` relations. Never infer a link;
   unlinked inventory stays visible and filterable.
 - Inventory import work links to `/inventory-hub?tab=sellpia-sync`; channel
   matching work links to `/product-hub/matching`.
 
 ## Boundary Rules
 
-- Do not mutate Sellpia stock, price, active state, product identity, variant
-  identity, or recipe quantity from this route.
+- Do not mutate Sellpia stock, price, active state, product identity, or
+  component quantity from this route.
 - Do not reuse product-operations list state or call `/api/products/masters` to
   build this collection.
 - All API calls use `apiClient` + React Query and never send `organizationId`.

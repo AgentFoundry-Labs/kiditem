@@ -31,13 +31,15 @@ describe('Sellpia product inventory projection', () => {
       },
       destinations: [{
         sellpiaInventorySkuId: SKU_ID,
-        unitsPerVariant: 1,
+        unitsPerSale: 1,
         masterProductId: '22222222-2222-4222-8222-222222222222',
         masterProductCode: 'MP-1',
         masterProductName: 'Product',
-        productVariantId: '33333333-3333-4333-8333-333333333333',
-        productVariantCode: 'PV-1',
-        productVariantName: 'Variant',
+        channelListingOptionId: '33333333-3333-4333-8333-333333333333',
+        channelListingId: '44444444-4444-4444-8444-444444444444',
+        channel: 'coupang',
+        externalOptionId: 'option-1',
+        optionName: 'Variant',
         abcGrade: 'A',
         abcEvaluation: null,
         displayImage: null,
@@ -120,8 +122,8 @@ describe('Sellpia product inventory projection', () => {
     expect(result.byProductKey.get('row-1')?.inventoryResolution).toMatchObject({
       status: 'matched',
       destinations: [
-        { productVariantId: 'variant-1', abcGrade: null, displayImage: { url: 'https://cdn.example/one.jpg' } },
-        { productVariantId: 'variant-2', abcGrade: null, displayImage: { url: 'https://cdn.example/two.jpg' } },
+        { channelListingOptionId: 'variant-1', abcGrade: null, displayImage: { url: 'https://cdn.example/one.jpg' } },
+        { channelListingOptionId: 'variant-2', abcGrade: null, displayImage: { url: 'https://cdn.example/two.jpg' } },
       ],
     });
   });
@@ -138,16 +140,18 @@ function product(key: string, code: string, quantities: number[]) {
   };
 }
 
-function destination(productVariantId: string, url: string) {
+function destination(channelListingOptionId: string, url: string) {
   return {
     sellpiaInventorySkuId: SKU_ID,
-    unitsPerVariant: 1,
+    unitsPerSale: 1,
     masterProductId: '22222222-2222-4222-8222-222222222222',
     masterProductCode: 'MP-1',
     masterProductName: 'Product',
-    productVariantId,
-    productVariantCode: productVariantId,
-    productVariantName: productVariantId,
+    channelListingOptionId,
+    channelListingId: '44444444-4444-4444-8444-444444444444',
+    channel: 'coupang',
+    externalOptionId: channelListingOptionId,
+    optionName: channelListingOptionId,
     abcGrade: null,
     abcEvaluation: null,
     displayImage: {

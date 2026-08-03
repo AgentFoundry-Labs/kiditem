@@ -66,11 +66,9 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/channels/__tests__/channel-catalog-import.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-publication.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-product-matching.pg.integration.spec.ts",
-  "apps/server/src/channels/__tests__/channel-recipe-automation.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-recipe-suggestion.pg.integration.spec.ts",
-  "apps/server/src/channels/__tests__/rocket-po-catalog-auto-recipe.pg.integration.spec.ts",
+  "apps/server/src/channels/__tests__/product-sync.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts",
-  "apps/server/src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts",
   "apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-commitment.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-snapshot-detail.repository.pg.integration.spec.ts",
@@ -78,9 +76,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/stock-transfers-tenant-boundary.pg.integration.spec.ts",
-  "apps/server/src/products/__tests__/channel-catalog-product-provisioning.repository.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts",
-  "apps/server/src/products/__tests__/product-variant-recipe-automation.pg.integration.spec.ts",
   "apps/server/src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts",
   "apps/server/src/test-helpers/finance-seeds.ts",
   "apps/server/src/supply/__tests__/purchase-order-submission.pg.integration.spec.ts",
@@ -359,8 +355,8 @@ describe("Sellpia authoritative final-schema contract", () => {
     const master = modelBlock(core, "MasterProduct");
     assert.match(master, /^\s*code\s+String\s*$/m);
     assert.match(master, /^\s*name\s+String\s*$/m);
-    assert.match(master, /^\s*variants\s+ProductVariant\[\]/m);
     assert.match(master, /^\s*channelListings\s+ChannelListing\[\]/m);
+    assert.doesNotMatch(core, /model ProductVariant\b/);
     assert.match(
       master,
       /^\s*isActive\s+Boolean\s+@default\(true\)\s+@map\("is_active"\)/m,

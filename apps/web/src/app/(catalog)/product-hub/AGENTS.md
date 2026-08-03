@@ -3,11 +3,11 @@
 `app/(catalog)/product-hub/` owns the KidItem product operations workflows:
 
 - `/product-hub` lists and manages `MasterProduct` metadata;
-- `/product-hub/[masterProductId]` shows product metadata, variants, inherited
-  Sellpia recipe capacity, bottlenecks, and component identity;
+- `/product-hub/[masterProductId]` shows product metadata, linked channel
+  listings/options, direct Sellpia consumption rules, capacity, and bottlenecks;
 - `/product-hub/options` is the full read-only Sellpia inventory table;
-- `/product-hub/matching` explicitly links channel products and options to
-  KidItem products and variants.
+- `/product-hub/matching` explicitly links channel listings to KidItem products
+  and configures option-level Sellpia consumption rules.
 
 ## Data Flow
 
@@ -23,8 +23,8 @@
 
 /product-hub/matching
   -> /api/channels/product-mappings
-  -> /api/channels/product-mappings/recipe-automation/preview
-  -> /api/channels/product-mappings/recipe-automation/apply
+  -> /api/channels/product-mappings/auto-match
+  -> /api/products/channel-options/:channelListingOptionId/inventory-components
   -> queryKeys.channelProductMappings
 ```
 
@@ -32,7 +32,7 @@
 
 - Preserve the operations-center composition: header controls, command cards,
   category strip, filters, metric columns, and product rows. Metrics without a
-  product/variant fact source render `미수집`; do not derive them from
+  product fact source render `미수집`; do not derive them from
   organization/date/seller aggregates.
 - Command-center counts use a dedicated unfiltered operations-list summary for
   the whole catalog. Search, category, active, advertising, inventory, ABC, and
@@ -48,26 +48,25 @@
   `abcGrade` and `abcCalculationStatus` are exclusive; unclassified is not C.
 - `수익성 데이터 갱신` requests `full` (product-profit then ABC),
   separately from inventory refresh.
-- Product detail owns manual complete recipe replacement through the focused
-  physical Inventory candidate search. Manual variant recipe edits are complete
+- Product detail owns manual complete channel-option component replacement
+  through the focused physical Inventory candidate search. Manual edits are complete
   atomic replacements: operators select confirmed physical Inventory identities,
   and a component is saved by `sellpiaInventorySkuId` and positive integer
-  quantity. Matching may invoke the separate version-fenced create-if-empty
-  command for one component with a backend-verified positive integer quantity.
+  quantity. Matching and Rocket may invoke the same expected-component-fenced
+  endpoint; existing confirmed components are never silently overwritten.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
 - Candidate generation on `/product-hub/matching` never confirms an identity
-  link. Product/variant link mutations and deterministic recipe application
-  require explicit operator confirmation.
-- Products owns transaction-aware creation or exact reuse of channel-origin
-  products and variants during catalog publication. Channels owns typed exact
-  evidence extraction and the final still-null listing/option link writes.
-- Channel-origin rows without a confirmed Sellpia component recipe remain
+  link. Product link mutations and component replacement require explicit
+  operator confirmation.
+- Channel catalog publication preserves existing `ChannelListing ->
+  MasterProduct` links and option consumption rules. It does not create
+  channel-origin MasterProducts or infer a product link.
+- Channel options without a confirmed Sellpia component rule remain
   visible here as `재고 연결 필요`; matching is the operator correction and
-  recipe-attention workspace.
-- List, detail, and channel-origin edit surfaces render product and variant
-  `displayReference` values. Never expose deterministic internal `CP-*` or
-  `CP-SKU-*` codes as operator-facing product or option identifiers.
+  component-attention workspace.
+- List and detail surfaces render product `displayReference` values. Never
+  expose deterministic internal codes as operator-facing product identifiers.
 - Product list/detail display surfaces render calculated `displayImageUrls`.
   Product create/edit forms read and submit only operator-managed `imageUrls`;
   they never promote a channel fallback into direct product metadata.
@@ -76,17 +75,17 @@
 
 - Product list/detail never read `/api/inventory/sellpia-skus`; options is the
   only product-hub route that owns the Sellpia inventory collection. The detail
-  recipe picker uses the Products-owned focused candidate endpoint.
+  inventory picker uses the Products-owned focused candidate endpoint.
 - Product operations and product-outflow are separate views of one automatic
   `MasterProduct.abcGrade`; do not add manual or secondary sales grades.
 - Do not create catalog-owned stock balances or editable Sellpia stock/price
   inputs.
-- Do not infer identity from display text, normalized names, or AI. The nested
-  matching guide owns the narrower recipe-evidence and pack-ratio policy.
-- Channel rows may show inherited recipe status and capacity; the catalog guide
-  owns recipe and matching safety policy. Manual complete recipe edits belong to
-  `/product-hub/[masterProductId]`; matching owns only the narrow
-  create-if-empty automation workflow.
+- Do not infer product identity from display text, normalized names, or AI. The
+  nested matching guide owns the narrower component-evidence and pack-ratio
+  policy.
+- Channel rows may show component status and capacity. Manual complete component
+  edits belong to `/product-hub/[masterProductId]`; matching uses the same
+  direct option-component contract.
 - All API calls use `apiClient` + React Query and never send `organizationId`.
 - Keep all edited UI light-only; do not add `dark:` variants.
 

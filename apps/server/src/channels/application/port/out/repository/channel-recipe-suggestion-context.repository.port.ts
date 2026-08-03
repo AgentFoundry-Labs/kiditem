@@ -4,7 +4,6 @@ export const CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT = Symbol(
 
 export type ChannelRecipeSuggestionContext = {
   channelListingOptionId: string;
-  productVariantId: string | null;
   masterProductId: string | null;
   options: Array<{
     channelListingOptionId: string;

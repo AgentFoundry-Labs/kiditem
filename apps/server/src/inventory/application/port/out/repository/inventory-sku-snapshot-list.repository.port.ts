@@ -1,6 +1,6 @@
 import type {
   InventorySkuLinkedProduct,
-  InventorySkuLinkedVariant,
+  InventorySkuLinkedChannelOption,
   InventorySkuSnapshotSummary,
   InventorySkuStockStatus,
   SellpiaInventorySkuActiveStatus,
@@ -33,10 +33,10 @@ export type InventorySkuSnapshotRepositoryRow = {
   isActive: boolean;
   lastImportRunId: string | null;
   lastImportedAt: Date | null;
-  linkedVariantCount: number;
+  linkedChannelOptionCount: number;
   linkedProductCount: number;
   linkedProducts: InventorySkuLinkedProduct[];
-  linkedVariants: InventorySkuLinkedVariant[];
+  linkedChannelOptions: InventorySkuLinkedChannelOption[];
 };
 
 export type SellpiaImportRunRepositoryRow = Omit<

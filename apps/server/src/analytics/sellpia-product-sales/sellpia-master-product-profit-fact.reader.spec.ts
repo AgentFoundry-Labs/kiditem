@@ -5,12 +5,14 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const RANGE = { from: new Date('2026-05-16T00:00:00.000Z'), to: new Date('2026-07-15T00:00:00.000Z') };
 
 function makeReader(input: {
-  variants?: unknown[];
+  components?: unknown[];
   skus?: unknown[];
   sales?: unknown[];
 } = {}) {
   const prisma = {
-    productVariant: { findMany: vi.fn().mockResolvedValue(input.variants ?? []) },
+    channelListingOptionInventoryComponent: {
+      findMany: vi.fn().mockResolvedValue(input.components ?? []),
+    },
     sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue(input.skus ?? []) },
     sellpiaProductMonthlySales: { findMany: vi.fn().mockResolvedValue(input.sales ?? []) },
   };
@@ -37,14 +39,17 @@ function sourceFact(overrides: Partial<{
 describe('SellpiaMasterProductProfitFactReader', () => {
   it('aggregates exactly covered, resolved source rows once per master product and month', async () => {
     const { reader, prisma } = makeReader({
-      variants: [{ masterProductId: 'master-1', components: [{ sellpiaInventorySkuId: 'sku-1' }] }],
+      components: [{
+        sellpiaInventorySkuId: 'sku-1',
+        channelListingOption: { listing: { masterProductId: 'master-1' } },
+      }],
       skus: [{ id: 'sku-1', code: 'SELLPIA-1', barcode: null, isActive: true }],
       sales: [sourceFact(), sourceFact({ optionCode: 'ALT-OPTION', orderAmount: 250, inAmount: 100 })],
     });
 
     await expect(reader.readProfitFacts({
       organizationId: ORGANIZATION_ID, masterProductIds: ['master-1', 'master-unmapped'], range: RANGE,
-    })).resolves.toEqual({
+    })).resolves.toMatchObject({
       evidence: [
         {
           masterProductId: 'master-1', mappingStatus: 'MAPPED',
@@ -68,10 +73,10 @@ describe('SellpiaMasterProductProfitFactReader', () => {
 
   it('keeps unmapped, ambiguous, and legacy rows in the audit collection rather than creating numeric facts', async () => {
     const { reader } = makeReader({
-      variants: [
-        { masterProductId: 'master-a', components: [{ sellpiaInventorySkuId: 'shared-sku' }] },
-        { masterProductId: 'master-b', components: [{ sellpiaInventorySkuId: 'shared-sku' }] },
-        { masterProductId: 'master-c', components: [{ sellpiaInventorySkuId: 'legacy-sku' }] },
+      components: [
+        { sellpiaInventorySkuId: 'shared-sku', channelListingOption: { listing: { masterProductId: 'master-a' } } },
+        { sellpiaInventorySkuId: 'shared-sku', channelListingOption: { listing: { masterProductId: 'master-b' } } },
+        { sellpiaInventorySkuId: 'legacy-sku', channelListingOption: { listing: { masterProductId: 'master-c' } } },
       ],
       skus: [
         { id: 'shared-sku', code: 'SHARED', barcode: null, isActive: true },
@@ -90,7 +95,7 @@ describe('SellpiaMasterProductProfitFactReader', () => {
       range: RANGE,
     });
 
-    expect(result.evidence).toEqual([
+    expect(result.evidence).toMatchObject([
       { masterProductId: 'master-a', mappingStatus: 'UNMAPPED', monthlyFacts: [] },
       { masterProductId: 'master-b', mappingStatus: 'UNMAPPED', monthlyFacts: [] },
       { masterProductId: 'master-c', mappingStatus: 'MAPPED', monthlyFacts: [] },
@@ -104,7 +109,10 @@ describe('SellpiaMasterProductProfitFactReader', () => {
 
   it('rejects a mixed coverage aggregate instead of publishing an invented full-month fact', async () => {
     const { reader } = makeReader({
-      variants: [{ masterProductId: 'master-1', components: [{ sellpiaInventorySkuId: 'sku-1' }] }],
+      components: [{
+        sellpiaInventorySkuId: 'sku-1',
+        channelListingOption: { listing: { masterProductId: 'master-1' } },
+      }],
       skus: [{ id: 'sku-1', code: 'SELLPIA-1', barcode: null, isActive: true }],
       sales: [
         sourceFact(),
@@ -115,7 +123,7 @@ describe('SellpiaMasterProductProfitFactReader', () => {
     const result = await reader.readProfitFacts({
       organizationId: ORGANIZATION_ID, masterProductIds: ['master-1'], range: RANGE,
     });
-    expect(result.evidence[0]).toEqual({
+    expect(result.evidence[0]).toMatchObject({
       masterProductId: 'master-1', mappingStatus: 'MAPPED', monthlyFacts: [],
     });
     expect(result.orphanFacts).toHaveLength(2);

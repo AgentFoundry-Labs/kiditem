@@ -1,217 +1,136 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ProductInventoryMatchingTable } from '../ProductInventoryMatchingTable';
 import type {
   ChannelOptionMatchingQueueRow,
   ChannelProductMatchingQueueRow,
 } from '@kiditem/shared/channel-product-matching';
-import type {
-  ChannelRecipeAutomationItem,
-  ChannelRecipeAutomationProductGroup,
-} from '@kiditem/shared/channel-recipe-automation';
+import {
+  ProductInventoryMatchingTable,
+  productMatchingStatus,
+} from '../ProductInventoryMatchingTable';
 
-const LISTING_ID = '11111111-1111-4111-8111-111111111111';
-const PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
-const VARIANT_ID = '33333333-3333-4333-8333-333333333333';
-const OPTION_A = '44444444-4444-4444-8444-444444444444';
-const OPTION_B = '55555555-5555-4555-8555-555555555555';
+const account = {
+  id: '11111111-1111-4111-8111-111111111111',
+  channel: 'coupang',
+  name: '쿠팡 본계정',
+};
+const listingId = '22222222-2222-4222-8222-222222222222';
+const masterProductId = '33333333-3333-4333-8333-333333333333';
+const optionId = '44444444-4444-4444-8444-444444444444';
 
-describe('<ProductInventoryMatchingTable>', () => {
-  it('shows one product status row and reveals child actions only after product expansion', async () => {
-    const user = userEvent.setup();
-    const onEditProduct = vi.fn();
-    const onEditVariant = vi.fn();
-    const onShowRecipeSuggestion = vi.fn();
-    render(
-      <ProductInventoryMatchingTable
-        products={[product()]}
-        options={[
-          option(OPTION_A, '블루', VARIANT_ID),
-          option(OPTION_B, '핑크', null),
-        ]}
-        productGroups={[group()]}
-        automationItemsByOptionId={new Map([[OPTION_A, automationItem()]])}
-        onEditProduct={onEditProduct}
-        onEditVariant={onEditVariant}
-        onShowRecipeSuggestion={onShowRecipeSuggestion}
-      />,
-    );
-
-    expect(screen.getByText('채널 우산')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: '채널 우산 상품 이미지' })).toHaveAttribute('src', 'https://cdn.example.com/channel-umbrella.jpg');
-    expect(screen.queryByRole('img', { name: '키즈 우산 상품 이미지' })).not.toBeInTheDocument();
-    expect(screen.getByText('옵션 2개')).toBeInTheDocument();
-    expect(screen.getByText('미매칭 상품')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '운영 상품 연결' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '운영 옵션 연결' })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: '상품별 확인' }));
-
-    expect(screen.getByText('블루')).toBeInTheDocument();
-    expect(screen.getByText('핑크')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '운영 상품 연결' }));
-    expect(onEditProduct).toHaveBeenCalledWith(expect.objectContaining({
-      listing: expect.objectContaining({ id: LISTING_ID }),
-    }));
-    expect(screen.getAllByRole('button', { name: '운영 옵션 연결' })).toHaveLength(2);
-    await user.click(screen.getByRole('button', { name: 'Sellpia 후보' }));
-    expect(onShowRecipeSuggestion).toHaveBeenCalledWith(expect.objectContaining({
-      option: expect.objectContaining({ id: OPTION_A }),
-    }));
-  });
-
-  it('shows the inferred component quantity for an automatic name match', async () => {
-    const user = userEvent.setup();
-    render(
-      <ProductInventoryMatchingTable
-        products={[product()]}
-        options={[option(OPTION_A, '블루', VARIANT_ID)]}
-        productGroups={[{ ...group(), decision: 'auto_apply', autoApplyProductVariantIds: [VARIANT_ID] }]}
-        automationItemsByOptionId={new Map([[OPTION_A, {
-          ...automationItem(),
-          decision: 'auto_apply',
-          reason: 'high_confidence_name',
-          recommendedQuantity: 2,
-        }]])}
-        onEditProduct={vi.fn()}
-        onEditVariant={vi.fn()}
-        onShowRecipeSuggestion={vi.fn()}
-      />,
-    );
-
-    await user.click(screen.getByRole('button', { name: '상품별 확인' }));
-    expect(screen.getByText('자동 매칭 가능 · 고신뢰 상품명 일치 · 수량 2')).toBeInTheDocument();
-  });
-
-  it('keeps a confirmed product with unresolved quantity out of the unmatched state', async () => {
-    const user = userEvent.setup();
-    render(
-      <ProductInventoryMatchingTable
-        products={[product()]}
-        options={[option(OPTION_A, '18개입', VARIANT_ID)]}
-        productGroups={[{ ...group(), decision: 'quantity_review' }]}
-        automationItemsByOptionId={new Map([[OPTION_A, {
-          ...automationItem(),
-          decision: 'quantity_review',
-        }]])}
-        onEditProduct={vi.fn()}
-        onEditVariant={vi.fn()}
-        onShowRecipeSuggestion={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText('매칭 수량 검토')).toBeInTheDocument();
-    expect(screen.queryByText('미매칭 상품')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '상품별 확인' }));
-    expect(screen.getByText('매칭 수량 검토 · 상품 연결 완료')).toBeInTheDocument();
-  });
-
-  it('auto-expands and highlights the exact option requested by the Rocket preview', () => {
-    render(
-      <ProductInventoryMatchingTable
-        products={[product()]}
-        options={[
-          option(OPTION_A, '블루', VARIANT_ID),
-          option(OPTION_B, '핑크', null),
-        ]}
-        productGroups={[group()]}
-        automationItemsByOptionId={new Map()}
-        focusOptionId={OPTION_B}
-        onEditProduct={vi.fn()}
-        onEditVariant={vi.fn()}
-        onShowRecipeSuggestion={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText('핑크')).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: '선택된 채널 옵션' })).toHaveTextContent('핑크');
-    expect(screen.getByRole('button', { name: '상품별 확인' })).toHaveAttribute('aria-expanded', 'true');
-  });
-});
-
-function product(): ChannelProductMatchingQueueRow {
+function product(linked = true): ChannelProductMatchingQueueRow {
   return {
-    channelAccount: {
-      id: '66666666-6666-4666-8666-666666666666',
-      channel: 'rocket',
-      name: 'Coupang Rocket',
-    },
+    channelAccount: account,
     listing: {
-      id: LISTING_ID,
-      externalId: 'rocket-product-1',
-      displayName: '채널 우산',
+      id: listingId,
+      externalId: '13712531060',
+      displayName: '동물 친구들 블록',
       status: 'active',
-      masterProductId: PRODUCT_ID,
-      channelImageUrl: 'https://cdn.example.com/channel-umbrella.jpg',
-      updatedAt: '2026-07-18T00:00:00.000Z',
+      saleStatus: '판매중',
+      masterProductId: linked ? masterProductId : null,
+      channelImageUrl: null,
+      updatedAt: '2026-08-03T00:00:00.000Z',
     },
-    linkedProduct: {
-      id: PRODUCT_ID,
-      code: 'KI-1',
-      name: '키즈 우산',
-      displayImageUrl: 'https://cdn.example.com/kiditem-umbrella.jpg',
-    },
-    optionCount: 2,
-    linkedOptionCount: 1,
+    linkedProduct: linked ? {
+      id: masterProductId,
+      code: 'CP-100',
+      name: '동물 친구들 블록',
+      displayImageUrl: null,
+    } : null,
+    optionCount: 1,
+    configuredOptionCount: linked ? 1 : 0,
   };
 }
 
-function option(
-  id: string,
-  itemName: string,
-  productVariantId: string | null,
-): ChannelOptionMatchingQueueRow {
-  const linkedVariant = productVariantId ? {
-    id: productVariantId,
-    masterProductId: PRODUCT_ID,
-    code: 'KI-1-BLUE',
-    name: itemName,
-    optionLabel: `색상: ${itemName}`,
-  } : null;
+function option({ configured = true, capacity = 8 }: { configured?: boolean; capacity?: number | null } = {}): ChannelOptionMatchingQueueRow {
   return {
-    channelAccount: product().channelAccount,
+    channelAccount: account,
     listing: {
-      id: LISTING_ID,
-      externalId: 'rocket-product-1',
-      masterProductId: PRODUCT_ID,
+      id: listingId,
+      externalId: '13712531060',
+      masterProductId,
     },
     option: {
-      id,
-      externalOptionId: `rocket-${id}`,
-      itemName,
-      sellerSku: productVariantId ? 'SP-001' : null,
+      id: optionId,
+      externalOptionId: '13712531060-10',
+      itemName: '10개 묶음',
+      sellerSku: 'PACK-10',
       barcode: null,
-      productVariantId,
-      updatedAt: '2026-07-18T00:00:00.000Z',
+      updatedAt: '2026-08-03T00:00:00.000Z',
+      inventoryComponents: configured ? [{
+        id: '55555555-5555-4555-8555-555555555555',
+        sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+        code: 'SP-100',
+        name: '동물 블록 낱개',
+        optionName: null,
+        barcode: null,
+        currentStock: 85,
+        availableStock: 85,
+        isActive: true,
+        quantity: 10,
+      }] : [],
     },
-    linkedVariant,
-    recipeStatus: productVariantId ? 'configuration_required' : 'unmatched',
-    capacity: null,
+    capacity: configured ? capacity : null,
   };
 }
 
-function group(): ChannelRecipeAutomationProductGroup {
-  return {
-    channelListingId: LISTING_ID,
-    masterProductId: PRODUCT_ID,
-    channelListingOptionIds: [OPTION_A, OPTION_B],
-    productVariantIds: [VARIANT_ID],
-    decision: 'operator_review',
-    autoApplyProductVariantIds: [],
-  };
-}
+describe('<ProductInventoryMatchingTable />', () => {
+  it('shows one product row and reveals direct channel option actions on expansion', () => {
+    const onEditProduct = vi.fn();
+    const onEditInventory = vi.fn();
+    render(
+      <ProductInventoryMatchingTable
+        products={[product()]}
+        options={[option()]}
+        onEditProduct={onEditProduct}
+        onEditInventory={onEditInventory}
+      />,
+    );
 
-function automationItem(): ChannelRecipeAutomationItem {
-  return {
-    productVariantId: VARIANT_ID,
-    masterProductId: PRODUCT_ID,
-    channelListingOptionIds: [OPTION_A],
-    decision: 'operator_review',
-    reason: 'quantity_review',
-    sellpiaInventorySkuId: '77777777-7777-4777-8777-777777777777',
-    sellpiaCode: 'SP-001',
-    recommendedQuantity: null,
-    evidenceLabels: ['seller_sku_code: SP-001'],
-  };
-}
+    expect(screen.getByText('매칭 완료')).toBeInTheDocument();
+    expect(screen.queryByText('SP-100')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '확인' }));
+    expect(screen.getByText('SP-100').closest('p')).toHaveTextContent('차감 10');
+    expect(screen.getByText('8개')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '재고 구성' }));
+    expect(onEditInventory).toHaveBeenCalledWith(expect.objectContaining({ option: expect.objectContaining({ id: optionId }) }));
+  });
+
+  it('requires the MasterProduct link before inventory configuration', () => {
+    const unlinkedProduct = product(false);
+    const unlinkedOption = option({ configured: false });
+    unlinkedOption.listing.masterProductId = null;
+    render(
+      <ProductInventoryMatchingTable
+        products={[unlinkedProduct]}
+        options={[unlinkedOption]}
+        onEditProduct={vi.fn()}
+        onEditInventory={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('매칭 필요')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '확인' }));
+    expect(screen.getByRole('button', { name: '재고 구성' })).toBeDisabled();
+    expect(screen.getByText('재고 연결 필요')).toBeInTheDocument();
+  });
+
+  it('keeps configured but unavailable stock in inventory review instead of unmatched', () => {
+    expect(productMatchingStatus(product(), [option({ capacity: null })])).toBe('quantity_review');
+  });
+
+  it('auto-expands and highlights the exact channel option requested by a deep link', () => {
+    render(
+      <ProductInventoryMatchingTable
+        products={[product()]}
+        options={[option()]}
+        focusOptionId={optionId}
+        onEditProduct={vi.fn()}
+        onEditInventory={vi.fn()}
+      />,
+    );
+
+    const optionRow = within(screen.getByText('PACK-10').closest('tr')!);
+    expect(optionRow.getByRole('button', { name: '재고 구성' })).toBeInTheDocument();
+  });
+});

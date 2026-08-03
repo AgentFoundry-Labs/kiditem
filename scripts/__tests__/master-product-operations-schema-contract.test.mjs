@@ -46,7 +46,6 @@ describe('master-product operations final schema contract', () => {
       'healthUpdatedAt',
       'isActive',
       'originChannelListingId',
-      'variants',
       'channelListings',
       'originChannelListing',
       'provenanceCandidate',
@@ -70,54 +69,31 @@ describe('master-product operations final schema contract', () => {
     ]);
   });
 
-  it('defines reusable organization-fenced product variants', () => {
-    const variant = modelBlock(core, 'ProductVariant');
-    expectFields(variant, [
-      'organizationId',
-      'masterProductId',
-      'code',
-      'name',
-      'optionLabel',
-      'isDefault',
-      'isActive',
-      'masterProduct',
-      'components',
-      'channelListingOptions',
-    ]);
-    assert.match(variant, /@@unique\(\[organizationId, code\]\)/);
-    assert.match(variant, /@@unique\(\[id, organizationId\]/);
-    assert.match(
-      variant,
-      /@@unique\(\[masterProductId\][^\n]+map: "product_variants_active_default_master_key"[^\n]+is_default = true AND is_active = true/,
-    );
-    assert.match(
-      variant,
-      /@relation\(fields: \[masterProductId, organizationId\], references: \[id, organizationId\]/,
-    );
+  it('removes the redundant operating-option layer beneath MasterProduct', () => {
+    assert.doesNotMatch(core, /model ProductVariant\b/);
+    assert.doesNotMatch(core, /model ProductVariantComponent\b/);
+    assert.doesNotMatch(core, /product_variants/);
+    assert.doesNotMatch(core, /product_variant_components/);
   });
 
-  it('stores one central positive component recipe per variant and Sellpia SKU', () => {
-    const component = modelBlock(core, 'ProductVariantComponent');
+  it('stores one direct positive component recipe per channel option and Sellpia SKU', () => {
+    const component = modelBlock(core, 'ChannelListingOptionInventoryComponent');
     expectFields(component, [
       'organizationId',
-      'productVariantId',
+      'channelListingOptionId',
       'sellpiaInventorySkuId',
       'quantity',
-      'source',
-      'confirmedBy',
-      'confirmedAt',
-      'productVariant',
+      'channelListingOption',
       'sellpiaInventorySku',
     ]);
-    assert.match(component, /^\s*quantity\s+Int[^\n]*positive/m);
-    assert.match(component, /manual \| deterministic/);
+    assert.match(component, /^\s*quantity\s+Int\s*$/m);
     assert.match(
       component,
-      /@@unique\(\[productVariantId, sellpiaInventorySkuId\]\)/,
+      /@@unique\(\[channelListingOptionId, sellpiaInventorySkuId\]\)/,
     );
     assert.match(
       component,
-      /@relation\(fields: \[productVariantId, organizationId\], references: \[id, organizationId\]/,
+      /@relation\(fields: \[channelListingOptionId, organizationId\], references: \[id, organizationId\]/,
     );
     assert.match(
       component,
@@ -140,7 +116,7 @@ describe('master-product operations final schema contract', () => {
       'rawJson',
       'lastImportRunId',
       'lastImportRun',
-      'variantComponents',
+      'channelListingOptionInventoryComponents',
     ]);
     assert.match(sku, /@@unique\(\[organizationId, code\]\)/);
     assert.match(sku, /@@unique\(\[id, organizationId\]/);
@@ -149,7 +125,7 @@ describe('master-product operations final schema contract', () => {
     rejectFields(sku, ['masterProductId']);
   });
 
-  it('keeps channel product and option links nullable and organization-fenced', () => {
+  it('keeps only the channel product link nullable and organization-fenced', () => {
     const listing = modelBlock(core, 'ChannelListing');
     const option = modelBlock(core, 'ChannelListingOption');
     assert.match(listing, /^\s*masterProductId\s+String\?/m);
@@ -158,12 +134,8 @@ describe('master-product operations final schema contract', () => {
       /@relation\("ChannelListingOperationalProduct", fields: \[masterProductId, organizationId\], references: \[id, organizationId\]/,
     );
     assert.match(listing, /^\s*originatedMasterProduct\s+MasterProduct\?/m);
-    assert.match(option, /^\s*productVariantId\s+String\?/m);
-    assert.match(
-      option,
-      /@relation\(fields: \[productVariantId, organizationId\], references: \[id, organizationId\]/,
-    );
-    rejectFields(option, ['mappingStatus']);
+    assert.match(option, /^\s*inventoryComponents\s+ChannelListingOptionInventoryComponent\[\]/m);
+    rejectFields(option, ['productVariantId', 'mappingStatus']);
   });
 
   it('removes every channel-owned component recipe', () => {

@@ -98,11 +98,11 @@ function mapSnapshotRow(row: InventorySkuSnapshotRepositoryRow): InventorySkuSna
       : row.currentStock * row.purchasePrice,
     lastImportRunId: row.lastImportRunId,
     lastImportedAt: row.lastImportedAt?.toISOString() ?? null,
-    linkedVariantCount: row.linkedVariantCount,
+    linkedChannelOptionCount: row.linkedChannelOptionCount,
     linkedProductCount: row.linkedProductCount,
     linkedProducts: row.linkedProducts,
-    linkedVariants: row.linkedVariants,
-    linkStatus: row.linkedVariantCount > 0 ? 'linked' : 'unlinked',
+    linkedChannelOptions: row.linkedChannelOptions,
+    linkStatus: row.linkedChannelOptionCount > 0 ? 'linked' : 'unlinked',
   } satisfies InventorySkuSnapshotItem;
 }
 

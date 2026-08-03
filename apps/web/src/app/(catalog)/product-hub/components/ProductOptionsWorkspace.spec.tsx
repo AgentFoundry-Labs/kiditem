@@ -31,27 +31,29 @@ const data = {
       stockValue: 60000,
       lastImportRunId: null,
       lastImportedAt: '2026-07-14T01:00:00.000Z',
-      linkedVariantCount: 2,
+      linkedChannelOptionCount: 2,
       linkedProductCount: 1,
       linkedProducts: [{
         id: '10000000-0000-4000-8000-000000000001',
         code: 'CP-10000000-0000-4000-8000-000000000001',
         name: '키즈 반팔 티셔츠',
       }],
-      linkedVariants: [
+      linkedChannelOptions: [
         {
           id: '20000000-0000-4000-8000-000000000001',
           masterProductId: '10000000-0000-4000-8000-000000000001',
-          code: 'CP-SKU-20000000-0000-4000-8000-000000000001',
-          name: '보라 / 120',
-          optionLabel: '색상: 보라 / 사이즈: 120',
+          channelListingId: '30000000-0000-4000-8000-000000000001',
+          channel: 'coupang',
+          externalOptionId: '13712531060-120',
+          itemName: '보라 / 120',
         },
         {
           id: '20000000-0000-4000-8000-000000000002',
           masterProductId: '10000000-0000-4000-8000-000000000001',
-          code: 'CP-SKU-20000000-0000-4000-8000-000000000002',
-          name: '보라 / 130',
-          optionLabel: '색상: 보라 / 사이즈: 130',
+          channelListingId: '30000000-0000-4000-8000-000000000001',
+          channel: 'coupang',
+          externalOptionId: '13712531060-130',
+          itemName: '보라 / 130',
         },
       ],
       linkStatus: 'linked' as const,
@@ -69,10 +71,10 @@ const data = {
       stockValue: null,
       lastImportRunId: null,
       lastImportedAt: '2026-07-14T01:00:00.000Z',
-      linkedVariantCount: 0,
+      linkedChannelOptionCount: 0,
       linkedProductCount: 0,
       linkedProducts: [],
-      linkedVariants: [],
+      linkedChannelOptions: [],
       linkStatus: 'unlinked' as const,
     },
   ],
@@ -139,11 +141,11 @@ describe('<ProductOptionsWorkspace>', () => {
       'href',
       '/product-hub/10000000-0000-4000-8000-000000000001',
     );
-    expect(screen.getByRole('link', { name: '보라 / 120' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'coupang · 보라 / 120' })).toHaveAttribute(
       'href',
-      '/product-hub/10000000-0000-4000-8000-000000000001#variant-20000000-0000-4000-8000-000000000001',
+      '/product-hub/10000000-0000-4000-8000-000000000001',
     );
-    expect(within(screen.getByRole('table')).getByText('상품 1 · 옵션 2')).toBeInTheDocument();
+    expect(within(screen.getByRole('table')).getByText('상품 1 · 채널 옵션 2')).toBeInTheDocument();
     expect(screen.queryByText(/CP-(?:SKU-)?/)).not.toBeInTheDocument();
     expect(screen.getAllByText('미연결').length).toBeGreaterThan(0);
     expect(screen.getByText('읽기 전용')).toBeInTheDocument();

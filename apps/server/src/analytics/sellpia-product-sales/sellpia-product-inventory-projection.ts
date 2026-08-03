@@ -225,27 +225,30 @@ function groupDestinations(
 ): Map<string, SellpiaProductDestination[]> {
   const grouped = new Map<string, Map<string, SellpiaProductDestination>>();
   for (const row of rows) {
-    const byVariant = grouped.get(row.sellpiaInventorySkuId) ?? new Map();
-    byVariant.set(row.productVariantId, {
+    const byOption = grouped.get(row.sellpiaInventorySkuId) ?? new Map();
+    byOption.set(row.channelListingOptionId, {
       masterProductId: row.masterProductId,
       masterProductCode: row.masterProductCode,
       masterProductName: row.masterProductName,
-      productVariantId: row.productVariantId,
-      productVariantCode: row.productVariantCode,
-      productVariantName: row.productVariantName,
-      unitsPerVariant: row.unitsPerVariant,
+      channelListingOptionId: row.channelListingOptionId,
+      channelListingId: row.channelListingId,
+      channel: row.channel,
+      externalOptionId: row.externalOptionId,
+      optionName: row.optionName,
+      unitsPerSale: row.unitsPerSale,
       abcGrade: row.abcGrade,
       abcEvaluation: row.abcEvaluation,
       displayImage: row.displayImage,
     });
-    grouped.set(row.sellpiaInventorySkuId, byVariant);
+    grouped.set(row.sellpiaInventorySkuId, byOption);
   }
-  return new Map([...grouped.entries()].map(([skuId, byVariant]) => [
+  return new Map([...grouped.entries()].map(([skuId, byOption]) => [
     skuId,
-    [...byVariant.values()].sort((left, right) =>
+    [...byOption.values()].sort((left, right) =>
       left.masterProductCode.localeCompare(right.masterProductCode)
-      || left.productVariantCode.localeCompare(right.productVariantCode)
-      || left.productVariantId.localeCompare(right.productVariantId)),
+      || left.channel.localeCompare(right.channel)
+      || left.externalOptionId.localeCompare(right.externalOptionId)
+      || left.channelListingOptionId.localeCompare(right.channelListingOptionId)),
   ]));
 }
 

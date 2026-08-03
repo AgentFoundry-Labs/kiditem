@@ -1,53 +1,51 @@
 import type {
   CreateMasterProductInput,
-  CreateProductVariantInput,
-  CreateProductVariantRecipesIfEmptyInput,
-  CreateProductVariantRecipesIfEmptyResponse,
   MasterProductOperationsDetail,
   MasterProductOperationsListItem,
   MasterProductOperationsListQuery,
-  MasterProductOperationsListResponse,
-  ProductVariantDetail,
-  ProductVariantComponentDetail,
-  ReplaceProductVariantRecipeInput,
-  ProductVariantRecipeComponentInput,
-  PlanProductVariantRecipesIfEmptyResponse,
+  ReplaceChannelOptionInventoryInput,
   UpdateMasterProductInput,
-  UpdateProductVariantInput,
 } from '@kiditem/shared/product-operations';
-import type {
-  DeterministicVariantRecipeApplyResult,
-  DeterministicVariantRecipeInput,
-} from '../../in/product-variant-recipe-automation.port';
+
+type ProductChannelListing = MasterProductOperationsDetail['channelListings'][number];
+type ProductChannelOption = ProductChannelListing['options'][number];
+type ProductChannelInventoryComponent = ProductChannelOption['inventoryComponents'][number];
 
 export type ProductOperationsRepositoryComponent = Omit<
-  ProductVariantComponentDetail,
-  'currentStock' | 'activeCommitmentQuantity' | 'availableStock' | 'isActive'
+  ProductChannelInventoryComponent,
+  'currentStock' | 'availableStock' | 'isActive'
 >;
 
-export type ProductOperationsRepositoryVariant = Omit<
-  ProductVariantDetail,
-  'components' | 'capacity' | 'warningState'
+export type ProductOperationsRepositoryOption = Omit<
+  ProductChannelOption,
+  'capacity' | 'inventoryComponents'
 > & {
-  components: ProductOperationsRepositoryComponent[];
+  inventoryComponents: ProductOperationsRepositoryComponent[];
+};
+
+export type ProductOperationsRepositoryListing = Omit<
+  ProductChannelListing,
+  'options'
+> & {
+  options: ProductOperationsRepositoryOption[];
 };
 
 export type ProductOperationsRepositoryDetail = Omit<
   MasterProductOperationsDetail,
-  'displayImageUrls' | 'inventoryStatus' | 'inventoryUnits' | 'variants'
+  'displayImageUrls' | 'inventoryStatus' | 'inventoryUnits' | 'channelListings'
 > & {
-  variants: ProductOperationsRepositoryVariant[];
+  channelListings: ProductOperationsRepositoryListing[];
 };
 
 export type ProductOperationsRepositoryListItem = Omit<
   MasterProductOperationsListItem,
   | 'depletion'
   | 'displayImageUrls'
-  | 'variantSummary'
+  | 'channelOptionSummary'
   | 'inventoryUnits'
   | 'inventoryStatus'
 > & {
-  variants: ProductOperationsRepositoryVariant[];
+  inventoryOptions: ProductOperationsRepositoryOption[];
 };
 
 export type ProductOperationsRepositoryListResult = {
@@ -64,23 +62,6 @@ export type ProductOperationsDisplayMediaTarget = Readonly<{
   listingExternalId: string;
 }>;
 
-export type NormalizedCreateProductVariant = Omit<
-  CreateProductVariantInput,
-  'optionLabel' | 'isDefault' | 'isActive' | 'components'
-> & {
-  optionLabel: string | null;
-  isDefault: boolean;
-  isActive: boolean;
-  components: ProductVariantRecipeComponentInput[];
-};
-
-export type NormalizedCreateMasterProduct = Omit<
-  CreateMasterProductInput,
-  'variants'
-> & {
-  variants: NormalizedCreateProductVariant[];
-};
-
 export const PRODUCT_OPERATIONS_REPOSITORY_PORT = Symbol(
   'PRODUCT_OPERATIONS_REPOSITORY_PORT',
 );
@@ -90,19 +71,6 @@ export interface ProductOperationsRepositoryPort {
     organizationId: string,
     masterProductIds: string[],
   ): Promise<ProductOperationsDisplayMediaTarget[]>;
-  planManualRecipesIfEmpty(input: {
-    organizationId: string;
-    recipes: CreateProductVariantRecipesIfEmptyInput['recipes'];
-  }): Promise<PlanProductVariantRecipesIfEmptyResponse>;
-  createManualRecipesIfEmpty(input: {
-    organizationId: string;
-    userId: string;
-    recipes: CreateProductVariantRecipesIfEmptyInput['recipes'];
-  }): Promise<CreateProductVariantRecipesIfEmptyResponse>;
-  applyDeterministicRecipesIfEmpty(input: {
-    organizationId: string;
-    recipes: DeterministicVariantRecipeInput[];
-  }): Promise<DeterministicVariantRecipeApplyResult>;
   listProducts(
     organizationId: string,
     query: MasterProductOperationsListQuery,
@@ -113,30 +81,16 @@ export interface ProductOperationsRepositoryPort {
   ): Promise<ProductOperationsRepositoryDetail>;
   createProduct(input: {
     organizationId: string;
-    userId: string;
-    product: NormalizedCreateMasterProduct;
+    product: CreateMasterProductInput;
   }): Promise<ProductOperationsRepositoryDetail>;
   updateProduct(
     organizationId: string,
     masterProductId: string,
     input: UpdateMasterProductInput,
   ): Promise<ProductOperationsRepositoryDetail>;
-  createVariant(input: {
+  replaceChannelOptionInventory(input: {
     organizationId: string;
-    userId: string;
-    masterProductId: string;
-    variant: NormalizedCreateProductVariant;
-  }): Promise<ProductOperationsRepositoryVariant>;
-  updateVariant(
-    organizationId: string,
-    productVariantId: string,
-    input: UpdateProductVariantInput,
-  ): Promise<ProductOperationsRepositoryVariant>;
-  replaceRecipe(input: {
-    organizationId: string;
-    userId: string;
-    productVariantId: string;
-    components: ProductVariantRecipeComponentInput[];
-    expectedRecipe: ReplaceProductVariantRecipeInput['expectedRecipe'];
-  }): Promise<ProductOperationsRepositoryVariant>;
+    channelListingOptionId: string;
+    components: ReplaceChannelOptionInventoryInput['components'];
+  }): Promise<ProductOperationsRepositoryDetail>;
 }

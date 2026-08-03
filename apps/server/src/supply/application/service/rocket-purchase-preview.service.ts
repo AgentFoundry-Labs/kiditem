@@ -76,9 +76,8 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
             maxQuantity: 0,
             editedQuantity,
             reason: catalog.blockingReason,
-            channelSkuId: null,
+            channelListingOptionId: null,
             masterProductId: null,
-            productVariantId: null,
             components: [],
           };
         }),
@@ -96,9 +95,6 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     const previewRows = selectedRows.map((row) => {
       const channelSkuId = identityByLine.get(row.poLineId) ?? null;
       const item = channelSkuId ? availabilityBySku.get(channelSkuId) : undefined;
-      const hasConfirmedVariantIdentity = Boolean(
-        item?.masterProductId && item.productVariantId,
-      );
       return {
         poLineId: row.poLineId,
         poNumber: row.poNumber,
@@ -106,9 +102,8 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
         productName: row.productName,
         plannedDeliveryDate: row.plannedDeliveryDate,
         orderQuantity: row.orderQty,
-        channelSkuId,
-        masterProductId: hasConfirmedVariantIdentity ? item!.masterProductId : null,
-        productVariantId: hasConfirmedVariantIdentity ? item!.productVariantId : null,
+        channelListingOptionId: channelSkuId,
+        masterProductId: item?.masterProductId ?? null,
         recipeStatus: item?.recipeStatus ?? 'unmatched' as const,
         components: item?.components.map((component) => ({
           sellpiaInventorySkuId: component.sellpiaInventorySkuId,

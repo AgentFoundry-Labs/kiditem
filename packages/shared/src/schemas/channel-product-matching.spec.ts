@@ -1,594 +1,170 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ChannelMatchCandidateReasonSchema,
-  ChannelOptionMatchingQueueRowSchema,
-  ChannelProductMatchCandidateSchema,
+  ChannelProductAutoMatchResponseSchema,
+  ChannelProductCandidateListResponseSchema,
   ChannelProductMatchingCountsSchema,
-  ChannelProductMatchingQueueRowSchema,
+  ChannelProductMatchingQueueResponseSchema,
   ChannelRecipeSuggestionResponseSchema,
-  ChannelVariantMatchCandidateSchema,
-  LinkChannelListingOptionInputSchema,
   LinkChannelListingProductInputSchema,
 } from './channel-product-matching';
 
-const listingId = '00000000-0000-4000-8000-000000000001';
-const optionId = '00000000-0000-4000-8000-000000000002';
-const productId = '00000000-0000-4000-8000-000000000003';
-const variantId = '00000000-0000-4000-8000-000000000004';
+const accountId = '11111111-1111-4111-8111-111111111111';
+const listingId = '22222222-2222-4222-8222-222222222222';
+const productId = '33333333-3333-4333-8333-333333333333';
+const optionId = '44444444-4444-4444-8444-444444444444';
+const componentId = '55555555-5555-4555-8555-555555555555';
+const inventorySkuId = '66666666-6666-4666-8666-666666666666';
 
-const evidence = {
-  providerIdentity: null,
-  code: 'KI-001',
-  barcode: null,
-  normalizedName: '키즈식판',
-  aiExplanation: null,
-  score: null,
-};
+describe('direct channel product and inventory matching contracts', () => {
+  it('requires typed evidence for every product candidate', () => {
+    expect(ChannelProductCandidateListResponseSchema.parse({
+      items: [{
+        masterProductId: productId,
+        code: 'MP-1',
+        name: '운영 상품',
+        category: null,
+        brand: null,
+        reason: 'exact_code',
+        evidence: {
+          providerIdentity: null,
+          code: 'MP-1',
+          barcode: null,
+          normalizedName: null,
+          aiExplanation: null,
+          score: null,
+        },
+        rank: 1,
+      }],
+    }).items).toHaveLength(1);
+    expect(() => ChannelProductCandidateListResponseSchema.parse({
+      items: [{
+        masterProductId: productId,
+        code: 'MP-1',
+        name: '운영 상품',
+        category: null,
+        brand: null,
+        reason: 'exact_code',
+        evidence: {
+          providerIdentity: null,
+          code: null,
+          barcode: null,
+          normalizedName: null,
+          aiExplanation: null,
+          score: null,
+        },
+        rank: 1,
+      }],
+    })).toThrow();
+  });
 
-const createOptionQueueRow = ({
-  linked,
-  recipeStatus,
-  capacity,
-}: {
-  linked: boolean;
-  recipeStatus: 'unmatched' | 'matched' | 'configuration_required' | 'review_required';
-  capacity: number | null;
-}) => ({
-  channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
-  listing: { id: listingId, externalId: 'P-001', masterProductId: productId },
-  option: {
-    id: optionId,
-    externalOptionId: 'S-001',
-    itemName: '기본',
-    sellerSku: 'KI-001-DEFAULT',
-    barcode: null,
-    productVariantId: linked ? variantId : null,
-    updatedAt: '2026-07-16T00:00:00.000Z',
-  },
-  linkedVariant: linked
-    ? {
-      id: variantId,
-      masterProductId: productId,
-      code: 'KI-001-DEFAULT',
-      name: '기본',
-      optionLabel: null,
-    }
-    : null,
-  recipeStatus,
-  capacity,
-});
+  it('parses one MasterProduct link and one direct channel option inventory recipe', () => {
+    const parsed = ChannelProductMatchingQueueResponseSchema.parse({
+      products: [{
+        channelAccount: { id: accountId, channel: 'coupang', name: '쿠팡 본계정' },
+        listing: {
+          id: listingId,
+          externalId: '13712531060',
+          displayName: '채널 상품',
+          status: 'active',
+          saleStatus: '판매중',
+          masterProductId: productId,
+          channelImageUrl: '/uploads/channel.jpg',
+          updatedAt: '2026-08-03T00:00:00.000Z',
+        },
+        linkedProduct: {
+          id: productId,
+          code: 'MP-1',
+          name: '운영 상품',
+          displayImageUrl: '/uploads/master.jpg',
+        },
+        optionCount: 1,
+        configuredOptionCount: 1,
+      }],
+      options: [{
+        channelAccount: { id: accountId, channel: 'coupang', name: '쿠팡 본계정' },
+        listing: { id: listingId, externalId: '13712531060', masterProductId: productId },
+        option: {
+          id: optionId,
+          externalOptionId: 'option-10',
+          itemName: '10개 묶음',
+          sellerSku: 'PACK-10',
+          barcode: null,
+          updatedAt: '2026-08-03T00:00:00.000Z',
+          inventoryComponents: [{
+            id: componentId,
+            sellpiaInventorySkuId: inventorySkuId,
+            code: 'SP-100',
+            name: '낱개 재고',
+            optionName: null,
+            barcode: null,
+            currentStock: 85,
+            availableStock: 85,
+            isActive: true,
+            quantity: 10,
+          }],
+        },
+        capacity: 8,
+      }],
+      counts: {
+        products: { all: 1, linked: 1, unlinked: 0 },
+        options: { all: 1, configured: 1, unconfigured: 0 },
+      },
+    });
 
-describe('channel product and variant matching contracts', () => {
-  it('accepts a quantity-one automatic proposal and rejects incomplete automatic evidence', () => {
-    const response = {
+    expect(parsed.options[0]?.option.inventoryComponents[0]).toMatchObject({
+      sellpiaInventorySkuId: inventorySkuId,
+      quantity: 10,
+    });
+    expect(parsed.options[0]?.capacity).toBe(8);
+    expect(parsed.options[0]?.option).not.toHaveProperty('productVariantId');
+  });
+
+  it('requires configured and unconfigured counts to partition all options', () => {
+    expect(ChannelProductMatchingCountsSchema.parse({
+      products: { all: 2, linked: 1, unlinked: 1 },
+      options: { all: 3, configured: 2, unconfigured: 1 },
+    }).options.configured).toBe(2);
+    expect(() => ChannelProductMatchingCountsSchema.parse({
+      products: { all: 2, linked: 1, unlinked: 1 },
+      options: { all: 3, configured: 3, unconfigured: 1 },
+    })).toThrow();
+  });
+
+  it('accepts only the nullable listing-to-MasterProduct command', () => {
+    expect(LinkChannelListingProductInputSchema.parse({ masterProductId: productId })).toEqual({ masterProductId: productId });
+    expect(LinkChannelListingProductInputSchema.parse({ masterProductId: null })).toEqual({ masterProductId: null });
+    expect(() => LinkChannelListingProductInputSchema.parse({ productVariantId: optionId })).toThrow();
+  });
+
+  it('publishes direct auto-match totals', () => {
+    expect(ChannelProductAutoMatchResponseSchema.parse({
+      evaluatedListings: 4,
+      matchedListings: 2,
+      configuredOptions: 3,
+    })).toEqual({ evaluatedListings: 4, matchedListings: 2, configuredOptions: 3 });
+  });
+
+  it('keeps deterministic inventory evidence bounded to one channel option', () => {
+    const parsed = ChannelRecipeSuggestionResponseSchema.parse({
       channelListingOptionId: optionId,
-      productVariantId: variantId,
       masterProductId: productId,
       status: 'unique_code',
       automationDecision: 'auto_apply',
       recommendedQuantity: 1,
-      reason: 'One exact Sellpia code candidate was found',
+      reason: '판매자 SKU와 Sellpia 코드가 일치합니다.',
       existingComponents: [],
       proposals: [{
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
-        code: 'SP-001', name: '키즈 식판', optionName: null, currentStock: 7,
-        evidence: [{
-          kind: 'seller_sku_code', channelValue: 'SP-001', normalizedValue: 'SP-001',
-        }],
+        sellpiaInventorySkuId: inventorySkuId,
+        code: 'SP-100',
+        name: '낱개 재고',
+        optionName: null,
+        currentStock: 85,
+        evidence: [{ kind: 'seller_sku_code', channelValue: 'SP-100', normalizedValue: 'SP-100' }],
         requiresQuantityConfirmation: false,
         recommendedQuantity: 1,
       }],
-    };
-    expect(ChannelRecipeSuggestionResponseSchema.parse(response)).toEqual(response);
-    expect(() => ChannelRecipeSuggestionResponseSchema.parse({
-      ...response,
-      recommendedQuantity: null,
-      proposals: [{ ...response.proposals[0], recommendedQuantity: null }],
-    })).toThrow();
-    expect(() => ChannelRecipeSuggestionResponseSchema.parse({
-      ...response,
-      proposals: [{
-        ...response.proposals[0],
-        evidence: [{
-          ...response.proposals[0].evidence[0],
-          sellpiaInventorySkuId: response.proposals[0].sellpiaInventorySkuId,
-        }],
-      }],
-    })).toThrow();
-  });
-
-  it('keeps review proposals quantity-unconfirmed and exposes configured source metadata', () => {
-    const review = {
-      channelListingOptionId: optionId,
-      productVariantId: variantId,
-      masterProductId: productId,
-      status: 'quantity_review',
-      automationDecision: 'operator_review',
-      recommendedQuantity: null,
-      reason: 'Pack quantity requires review',
-      existingComponents: [],
-      proposals: [{
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
-        code: 'SP-001', name: '키즈 식판', optionName: null, currentStock: 7,
-        evidence: [{
-          kind: 'model_number_code', channelValue: 'SP-001', normalizedValue: 'SP-001',
-        }],
-        requiresQuantityConfirmation: true,
-        recommendedQuantity: null,
-      }],
-    };
-    expect(ChannelRecipeSuggestionResponseSchema.parse(review)).toEqual(review);
-
-    expect(ChannelRecipeSuggestionResponseSchema.parse({
-      ...review,
-      status: 'already_configured',
-      automationDecision: 'already_configured',
-      reason: 'Existing recipe components are preserved',
-      existingComponents: [{
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
-        code: 'SP-001',
-        quantity: 1,
-        source: 'deterministic',
-        confirmedBy: null,
-        confirmedAt: '2026-07-18T00:00:00.000Z',
-      }],
-      proposals: [],
-    }).existingComponents[0]?.source).toBe('deterministic');
-  });
-  it('freezes candidate reasons without treating suggestions as confirmation', () => {
-    expect(ChannelMatchCandidateReasonSchema.options).toEqual([
-      'existing_identity',
-      'exact_code',
-      'unique_barcode',
-      'confirmed_manual_match_alias',
-      'exact_normalized_name',
-      'ai_suggestion',
-      'manual_search',
-    ]);
-    expect(ChannelProductMatchCandidateSchema.parse({
-      masterProductId: productId,
-      code: 'KI-001',
-      name: '키즈 식판',
-      category: null,
-      brand: null,
-      reason: 'exact_normalized_name',
-      evidence,
-      rank: 1,
-    })).toBeDefined();
-    expect(() => ChannelProductMatchCandidateSchema.parse({
-      masterProductId: productId,
-      code: 'KI-001',
-      name: '키즈 식판',
-      category: null,
-      brand: null,
-      reason: 'ai_suggestion',
-      evidence,
-      rank: 1,
-      confirmed: true,
-    })).toThrow();
-  });
-
-  it('requires evidence on every variant candidate', () => {
-    expect(ChannelVariantMatchCandidateSchema.parse({
-      productVariantId: variantId,
-      masterProductId: productId,
-      code: 'KI-001-DEFAULT',
-      name: '기본',
-      optionLabel: null,
-      reason: 'exact_code',
-      evidence,
-      rank: 1,
-    })).toBeDefined();
-    expect(() => ChannelVariantMatchCandidateSchema.parse({
-      productVariantId: variantId,
-      masterProductId: productId,
-      code: 'KI-001-DEFAULT',
-      name: '기본',
-      optionLabel: null,
-      reason: 'exact_code',
-      rank: 1,
-    })).toThrow();
-    expect(() => ChannelVariantMatchCandidateSchema.parse({
-      productVariantId: variantId,
-      masterProductId: productId,
-      code: 'KI-001-DEFAULT',
-      name: '기본',
-      optionLabel: null,
-      reason: 'unique_barcode',
-      evidence: {
-        providerIdentity: null,
-        code: null,
-        barcode: null,
-        normalizedName: null,
-        aiExplanation: null,
-        score: null,
-      },
-      rank: 1,
-    })).toThrow();
-    expect(() => ChannelVariantMatchCandidateSchema.parse({
-      productVariantId: variantId,
-      masterProductId: productId,
-      code: 'KI-001-DEFAULT',
-      name: '기본',
-      optionLabel: null,
-      reason: 'ai_suggestion',
-      evidence,
-      rank: 1,
-    })).toThrow();
-  });
-
-  it('parses product-level and option-level queue rows independently', () => {
-    expect(ChannelProductMatchingQueueRowSchema.parse({
-      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
-      listing: {
-        id: listingId,
-        externalId: 'P-001',
-        displayName: '키즈 식판',
-        status: 'approved',
-        saleStatus: '판매중',
-        masterProductId: productId,
-        channelImageUrl: 'https://cdn.example.com/channel.jpg',
-        updatedAt: '2026-07-16T00:00:00.000Z',
-      },
-      linkedProduct: {
-        id: productId,
-        code: 'KI-001',
-        name: '키즈 식판',
-        displayImageUrl: 'https://cdn.example.com/operator.jpg',
-      },
-      optionCount: 1,
-      linkedOptionCount: 0,
-    }).listing.masterProductId).toBe(productId);
-
-    expect(ChannelProductMatchingQueueRowSchema.parse({
-      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
-      listing: {
-        id: listingId,
-        externalId: 'P-001',
-        displayName: '키즈 식판',
-        status: 'approved',
-        saleStatus: null,
-        masterProductId: productId,
-        channelImageUrl: 'https://cdn.example.com/channel.jpg',
-        updatedAt: '2026-07-16T00:00:00.000Z',
-      },
-      linkedProduct: {
-        id: productId,
-        code: 'KI-001',
-        name: '키즈 식판',
-        displayImageUrl: 'https://cdn.example.com/channel.jpg',
-      },
-      optionCount: 1,
-      linkedOptionCount: 0,
-    }).linkedProduct?.displayImageUrl).toBe('https://cdn.example.com/channel.jpg');
-
-    expect(ChannelOptionMatchingQueueRowSchema.parse({
-      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
-      listing: { id: listingId, externalId: 'P-001', masterProductId: productId },
-      option: {
-        id: optionId,
-        externalOptionId: 'S-001',
-        itemName: '기본',
-        sellerSku: 'KI-001-DEFAULT',
-        barcode: null,
-        productVariantId: variantId,
-        updatedAt: '2026-07-16T00:00:00.000Z',
-      },
-      linkedVariant: {
-        id: variantId,
-        masterProductId: productId,
-        code: 'KI-001-DEFAULT',
-        name: '기본',
-        optionLabel: null,
-      },
-      recipeStatus: 'configuration_required',
-      capacity: null,
-    }).option.productVariantId).toBe(variantId);
-  });
-
-  it('accepts existing relative image paths in matching display fields', () => {
-    const parsed = ChannelProductMatchingQueueRowSchema.parse({
-      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
-      listing: {
-        id: listingId,
-        externalId: 'P-001',
-        displayName: '키즈 식판',
-        status: 'approved',
-        saleStatus: null,
-        masterProductId: productId,
-        channelImageUrl: '/uploads/channel.jpg',
-        updatedAt: '2026-07-16T00:00:00.000Z',
-      },
-      linkedProduct: {
-        id: productId,
-        code: 'KI-001',
-        name: '키즈 식판',
-        displayImageUrl: '/uploads/operator.jpg',
-      },
-      optionCount: 1,
-      linkedOptionCount: 0,
     });
-
-    expect(parsed.listing.channelImageUrl).toBe('/uploads/channel.jpg');
-    expect(parsed.linkedProduct?.displayImageUrl).toBe('/uploads/operator.jpg');
-  });
-
-  it('rejects queue rows whose linked identities disagree with persisted links', () => {
-    expect(() => ChannelProductMatchingQueueRowSchema.parse({
-      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
-      listing: {
-        id: listingId,
-        externalId: 'P-001',
-        displayName: '키즈 식판',
-        status: 'approved',
-        saleStatus: null,
-        masterProductId: productId,
-        channelImageUrl: 'https://cdn.example.com/channel.jpg',
-        updatedAt: '2026-07-16T00:00:00.000Z',
-      },
-      linkedProduct: {
-        id: '00000000-0000-4000-8000-000000000099',
-        code: 'KI-099',
-        name: '다른 상품',
-        displayImageUrl: 'https://cdn.example.com/operator.jpg',
-      },
-      optionCount: 1,
-      linkedOptionCount: 0,
-    })).toThrow();
-
-    const queueRow = {
-      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
-      listing: {
-        id: listingId,
-        externalId: 'P-001',
-        displayName: '키즈 식판',
-        status: 'approved',
-        saleStatus: null,
-        masterProductId: productId,
-        channelImageUrl: 'https://cdn.example.com/channel.jpg',
-        updatedAt: '2026-07-16T00:00:00.000Z',
-      },
-      linkedProduct: {
-        id: productId,
-        code: 'KI-001',
-        name: '키즈 식판',
-        displayImageUrl: 'https://cdn.example.com/operator.jpg',
-      },
-      optionCount: 1,
-      linkedOptionCount: 0,
-    };
-    const { channelImageUrl: _channelImageUrl, ...listingWithoutImage } = queueRow.listing;
-    expect(() => ChannelProductMatchingQueueRowSchema.parse({
-      ...queueRow,
-      listing: listingWithoutImage,
-    })).toThrow();
-    const { displayImageUrl: _displayImageUrl, ...linkedProductWithoutImage } = queueRow.linkedProduct;
-    expect(() => ChannelProductMatchingQueueRowSchema.parse({
-      ...queueRow,
-      linkedProduct: linkedProductWithoutImage,
-    })).toThrow();
-
-    expect(() => ChannelOptionMatchingQueueRowSchema.parse({
-      channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
-      listing: { id: listingId, externalId: 'P-001', masterProductId: productId },
-      option: {
-        id: optionId,
-        externalOptionId: 'S-001',
-        itemName: '기본',
-        sellerSku: 'KI-001-DEFAULT',
-        barcode: null,
-        productVariantId: variantId,
-        updatedAt: '2026-07-16T00:00:00.000Z',
-      },
-      linkedVariant: {
-        id: '00000000-0000-4000-8000-000000000098',
-        masterProductId: '00000000-0000-4000-8000-000000000099',
-        code: 'KI-099-DEFAULT',
-        name: '다른 기본',
-        optionLabel: null,
-      },
-      recipeStatus: 'matched',
-      capacity: 1,
-    })).toThrow();
-  });
-
-  it.each([
-    ['unmatched with a linked variant', true, 'unmatched', null],
-    ['unmatched with capacity', false, 'unmatched', 1],
-    ['matched without capacity', true, 'matched', null],
-    ['matched without a linked variant', false, 'matched', 1],
-    ['configuration required with capacity', true, 'configuration_required', 1],
-    ['configuration required without a linked variant', false, 'configuration_required', null],
-    ['review required with capacity', true, 'review_required', 1],
-    ['review required without a linked variant', false, 'review_required', null],
-  ] as const)('rejects contradictory option recipe state: %s', (
-    _description,
-    linked,
-    recipeStatus,
-    capacity,
-  ) => {
-    expect(() => ChannelOptionMatchingQueueRowSchema.parse(createOptionQueueRow({
-      linked,
-      recipeStatus,
-      capacity,
-    }))).toThrow();
-  });
-
-  it('publishes explicit direct-link and recipe matching counts', () => {
-    expect(ChannelProductMatchingCountsSchema.parse({
-      products: { all: 3, linked: 1, unlinked: 2 },
-      options: {
-        all: 4,
-        linked: 3,
-        unlinked: 1,
-        recipeConfirmed: 1,
-        configurationRequired: 1,
-        reviewRequired: 1,
-      },
-    })).toBeDefined();
-  });
-
-  it('rejects missing, legacy, and internally inconsistent matching counts', () => {
-    expect(() => ChannelProductMatchingCountsSchema.parse({
-      products: { all: 3, linked: 1, unlinked: 2 },
-      options: {
-        all: 4,
-        linked: 3,
-        unlinked: 1,
-        recipeConfirmed: 1,
-        configurationRequired: 1,
-      },
-    })).toThrow();
-    expect(() => ChannelProductMatchingCountsSchema.parse({
-      products: { all: 3, matched: 1, unmatched: 2 },
-      options: {
-        all: 4,
-        matched: 1,
-        unmatched: 1,
-        configurationRequired: 1,
-        reviewRequired: 1,
-      },
-    })).toThrow();
-    expect(() => ChannelProductMatchingCountsSchema.parse({
-      products: { all: 3, linked: 1, unlinked: 1 },
-      options: {
-        all: 4,
-        linked: 3,
-        unlinked: 1,
-        recipeConfirmed: 2,
-        configurationRequired: 1,
-        reviewRequired: 1,
-      },
-    })).toThrow();
-  });
-
-  it('reports legacy count aliases as unrecognized keys on an otherwise valid fixture', () => {
-    const result = ChannelProductMatchingCountsSchema.safeParse({
-      products: { all: 3, linked: 1, unlinked: 2, matched: 1, unmatched: 2 },
-      options: {
-        all: 4,
-        linked: 3,
-        unlinked: 1,
-        recipeConfirmed: 1,
-        configurationRequired: 1,
-        reviewRequired: 1,
-        matched: 1,
-        unmatched: 1,
-      },
-    });
-
-    expect(result.success).toBe(false);
-    if (result.success) throw new Error('legacy aliases must be rejected');
-    expect(result.error.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        code: 'unrecognized_keys',
-        path: ['products'],
-        keys: ['matched', 'unmatched'],
-      }),
-      expect.objectContaining({
-        code: 'unrecognized_keys',
-        path: ['options'],
-        keys: ['matched', 'unmatched'],
-      }),
-    ]));
-  });
-
-  it.each([
-    ['products.linked', {
-      products: { all: 0, unlinked: 0 },
-      options: {
-        all: 0,
-        linked: 0,
-        unlinked: 0,
-        recipeConfirmed: 0,
-        configurationRequired: 0,
-        reviewRequired: 0,
-      },
-    }, ['products', 'linked']],
-    ['products.unlinked', {
-      products: { all: 0, linked: 0 },
-      options: {
-        all: 0,
-        linked: 0,
-        unlinked: 0,
-        recipeConfirmed: 0,
-        configurationRequired: 0,
-        reviewRequired: 0,
-      },
-    }, ['products', 'unlinked']],
-    ['options.linked', {
-      products: { all: 0, linked: 0, unlinked: 0 },
-      options: {
-        all: 0,
-        unlinked: 0,
-        recipeConfirmed: 0,
-        configurationRequired: 0,
-        reviewRequired: 0,
-      },
-    }, ['options', 'linked']],
-    ['options.unlinked', {
-      products: { all: 0, linked: 0, unlinked: 0 },
-      options: {
-        all: 0,
-        linked: 0,
-        recipeConfirmed: 0,
-        configurationRequired: 0,
-        reviewRequired: 0,
-      },
-    }, ['options', 'unlinked']],
-    ['options.recipeConfirmed', {
-      products: { all: 0, linked: 0, unlinked: 0 },
-      options: {
-        all: 0,
-        linked: 0,
-        unlinked: 0,
-        configurationRequired: 0,
-        reviewRequired: 0,
-      },
-    }, ['options', 'recipeConfirmed']],
-    ['options.configurationRequired', {
-      products: { all: 0, linked: 0, unlinked: 0 },
-      options: {
-        all: 0,
-        linked: 0,
-        unlinked: 0,
-        recipeConfirmed: 0,
-        reviewRequired: 0,
-      },
-    }, ['options', 'configurationRequired']],
-    ['options.reviewRequired', {
-      products: { all: 0, linked: 0, unlinked: 0 },
-      options: {
-        all: 0,
-        linked: 0,
-        unlinked: 0,
-        recipeConfirmed: 0,
-        configurationRequired: 0,
-      },
-    }, ['options', 'reviewRequired']],
-  ] as const)('reports a missing required canonical count at %s', (_field, fixture, path) => {
-    const result = ChannelProductMatchingCountsSchema.safeParse(fixture);
-
-    expect(result.success).toBe(false);
-    if (result.success) throw new Error('missing canonical count must be rejected');
-    expect(result.error.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        code: 'invalid_type',
-        path,
-        message: 'Required',
-      }),
-    ]));
-  });
-
-  it('accepts only explicit nullable link commands', () => {
-    expect(LinkChannelListingProductInputSchema.parse({ masterProductId: null }))
-      .toEqual({ masterProductId: null });
-    expect(LinkChannelListingOptionInputSchema.parse({ productVariantId: variantId }))
-      .toEqual({ productVariantId: variantId });
-    expect(() => LinkChannelListingProductInputSchema.parse({
-      masterProductId: productId,
-      reason: 'exact_code',
-    })).toThrow();
-    expect(() => LinkChannelListingOptionInputSchema.parse({})).toThrow();
+    expect(parsed.channelListingOptionId).toBe(optionId);
+    expect(parsed).not.toHaveProperty('productVariantId');
   });
 });

@@ -91,15 +91,17 @@ Route shape is frozen.
   allocation order, so rows sharing a component cannot each retain an
   independently valid but collectively impossible quantity.
 - `exportRocketWorkbook` reruns the canonical preview from the submitted collection,
-  requires a confirmed active `ChannelListingOption -> ProductVariant ->
-  ProductVariantComponent` recipe for every official line (including a
+  requires a confirmed active `ChannelListingOption ->
+  ChannelListingOptionInventoryComponent -> SellpiaInventorySku` consumption
+  rule for every official line (including a
   zero-quantity line), and requires an explicit reviewed quantity for every
   line. Mapping, configuration, and recipe-review blockers cannot be
   exported; only a recipe-backed insufficient-capacity row may continue with
   a controlled shortage reason.
 - Rocket workbook export uses one organization advisory lock, the current
   Inventory generation, the completed Rocket source artifact, and unchanged
-  `ChannelListingOption -> ProductVariant -> ProductVariantComponent` identity
+  `ChannelListingOption -> ChannelListingOptionInventoryComponent ->
+  SellpiaInventorySku` identity
   before persisting the exact uploaded workbook bytes and immutable line audit
   evidence. One organization may have at most one non-terminal workflow.
 - A caller-stable UUID idempotency key returns the same workbook only for the

@@ -1,4 +1,4 @@
-export type VariantCapacityComponent = Readonly<{
+export type ChannelOptionCapacityComponent = Readonly<{
   sellpiaInventorySkuId: string;
   currentStock: number | null;
   activeCommitmentQuantity: number | null;
@@ -7,15 +7,15 @@ export type VariantCapacityComponent = Readonly<{
   isActive: boolean | null;
 }>;
 
-export type VariantCapacityProjection = Readonly<{
+export type ChannelOptionCapacityProjection = Readonly<{
   capacity: number | null;
   warningState: 'none' | 'configuration_required' | 'review_required';
   bottleneckSellpiaInventorySkuIds: readonly string[];
 }>;
 
-export type ProductInventoryVariant = Readonly<{
+export type ProductInventoryOption = Readonly<{
   isActive: boolean;
-  components: readonly VariantCapacityComponent[];
+  components: readonly ChannelOptionCapacityComponent[];
 }>;
 
 export type ProductInventoryProjection = Readonly<{
@@ -26,12 +26,12 @@ export type ProductInventoryProjection = Readonly<{
     | 'out_of_stock'
     | 'configuration_required'
     | 'review_required';
-  variants: readonly VariantCapacityProjection[];
+  options: readonly ChannelOptionCapacityProjection[];
 }>;
 
-export function projectVariantCapacity(
-  components: readonly VariantCapacityComponent[],
-): VariantCapacityProjection {
+export function projectChannelOptionCapacity(
+  components: readonly ChannelOptionCapacityComponent[],
+): ChannelOptionCapacityProjection {
   if (components.length === 0) {
     return {
       capacity: null,
@@ -40,7 +40,7 @@ export function projectVariantCapacity(
     };
   }
   if (components.some((component) => component.quantity <= 0)) {
-    throw new Error('Product variant component quantity must be positive');
+    throw new Error('Channel option inventory quantity must be positive');
   }
   if (components.some(
     (component) => component.isActive !== true || component.availableStock === null,
@@ -67,15 +67,15 @@ export function projectVariantCapacity(
 }
 
 export function projectProductInventory(
-  variants: readonly ProductInventoryVariant[],
+  options: readonly ProductInventoryOption[],
 ): ProductInventoryProjection {
-  const activeVariants = variants.filter((variant) => variant.isActive);
-  const projections = activeVariants.map((variant) =>
-    projectVariantCapacity(variant.components),
+  const activeOptions = options.filter((option) => option.isActive);
+  const projections = activeOptions.map((option) =>
+    projectChannelOptionCapacity(option.components),
   );
   const physicalStock = new Map<string, number>();
-  for (const variant of activeVariants) {
-    for (const component of variant.components) {
+  for (const option of activeOptions) {
+    for (const component of option.components) {
       if (component.isActive === true && component.availableStock !== null) {
         physicalStock.set(component.sellpiaInventorySkuId, component.availableStock);
       }
@@ -104,6 +104,6 @@ export function projectProductInventory(
   return {
     inventoryUnits: [...physicalStock.values()].reduce((sum, stock) => sum + stock, 0),
     inventoryStatus,
-    variants: projections,
+    options: projections,
   };
 }

@@ -16,7 +16,7 @@ export interface RocketMatchStatusRow {
   barcode: string;
   orderQuantity: number;
   reason: RocketPurchasePreviewReason | null;
-  channelSkuId: string | null;
+  channelListingOptionId: string | null;
   components: RocketPurchasePreviewComponent[];
 }
 
@@ -81,10 +81,10 @@ const BUCKET_META: Record<MatchBucket, { label: string; chip: string; order: num
 export function rocketProductMatchingHref({
   channelAccountId,
   productNo,
-  channelSkuId,
-}: Pick<RocketMatchStatusRow, 'productNo' | 'channelSkuId'> & { channelAccountId: string }) {
+  channelListingOptionId,
+}: Pick<RocketMatchStatusRow, 'productNo' | 'channelListingOptionId'> & { channelAccountId: string }) {
   const params = new URLSearchParams({ channelAccountId, search: productNo });
-  if (channelSkuId) params.set('focusOptionId', channelSkuId);
+  if (channelListingOptionId) params.set('focusOptionId', channelListingOptionId);
   return `/product-hub/matching?${params.toString()}`;
 }
 
@@ -231,7 +231,7 @@ export function RocketMatchStatusModal({
                             href={rocketProductMatchingHref({
                               channelAccountId,
                               productNo: row.productNo,
-                              channelSkuId: row.channelSkuId,
+                              channelListingOptionId: row.channelListingOptionId,
                             })}
                             target="_blank"
                             rel="noreferrer"

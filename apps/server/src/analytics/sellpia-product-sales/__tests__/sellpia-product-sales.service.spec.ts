@@ -41,7 +41,7 @@ function makePrisma() {
   const prisma = {
     sellpiaProductMonthlySales: { upsert, createMany, deleteMany, findMany },
     sellpiaInventorySku: { findMany: inventoryFindMany },
-    productVariantComponent: { findMany: destinationFindMany },
+    channelListingOptionInventoryComponent: { findMany: destinationFindMany },
     $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => {
       const result = await callback(tx);
       callOrder.push('commit');
@@ -545,19 +545,22 @@ function destinationRow(
   return {
     sellpiaInventorySkuId,
     quantity: 1,
-    productVariant: {
+    channelListingOption: {
       id: variantId,
-      code: variantId,
-      name: variantId,
-      masterProduct: {
-        id: masterProductId,
-        code: masterProductId,
-        name: masterProductId,
-        abcGrade,
-        abcEvaluation: null,
-        originChannelListingId: null,
+      externalOptionId: variantId,
+      itemName: variantId,
+      listing: {
+        id: `listing-${variantId}`,
+        externalId: variantId,
+        masterProduct: {
+          id: masterProductId,
+          code: masterProductId,
+          name: masterProductId,
+          abcGrade,
+          abcEvaluation: null,
+        },
+        channelAccount: { channel: 'coupang', isPrimary: true },
       },
-      channelListingOptions: [],
     },
   };
 }

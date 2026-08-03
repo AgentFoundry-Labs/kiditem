@@ -562,25 +562,48 @@ async function seedMasterRecipe(
       abcGrade: input.abcGrade ?? null,
     },
   });
-  const variant = await prisma.productVariant.create({
+  const account = await prisma.channelAccount.upsert({
+    where: {
+      organizationId_channel_externalAccountId: {
+        organizationId: input.organizationId,
+        channel: 'coupang',
+        externalAccountId: 'sales-inventory-test',
+      },
+    },
+    create: {
+      organizationId: input.organizationId,
+      channel: 'coupang',
+      name: 'Sales inventory test',
+      externalAccountId: 'sales-inventory-test',
+    },
+    update: {},
+  });
+  const listing = await prisma.channelListing.create({
     data: {
       organizationId: input.organizationId,
+      channelAccountId: account.id,
       masterProductId: master.id,
-      code: `${input.code}-VARIANT`,
-      name: `${input.code} variant`,
-      isDefault: true,
+      externalId: `${input.code}-LISTING`,
+      displayName: input.code,
     },
   });
-  await prisma.productVariantComponent.create({
+  const option = await prisma.channelListingOption.create({
     data: {
       organizationId: input.organizationId,
-      productVariantId: variant.id,
+      listingId: listing.id,
+      externalOptionId: `${input.code}-OPTION`,
+      itemName: `${input.code} option`,
+    },
+  });
+  await prisma.channelListingOptionInventoryComponent.create({
+    data: {
+      organizationId: input.organizationId,
+      channelListingOptionId: option.id,
       sellpiaInventorySkuId: input.skuId,
       quantity: 1,
-      source: 'manual',
     },
   });
-  return { masterProductId: master.id, productVariantId: variant.id };
+  return { masterProductId: master.id, channelListingOptionId: option.id };
 }
 
 function previousKstYearMonth(): string {

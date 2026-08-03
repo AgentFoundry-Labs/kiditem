@@ -186,7 +186,8 @@ export interface MarketplaceRegistrationRepositoryPort {
     masterProductId?: string;
     optionLinks: Array<{
       externalOptionId: string;
-      productVariantId: string;
+      sellpiaInventorySkuId: string;
+      quantity: number;
       providerOptionKey: string;
     }>;
   }): Promise<void>;
@@ -202,7 +203,8 @@ export interface MarketplaceRegistrationRepositoryPort {
       masterProductId?: string;
       optionLinks?: Array<{
         externalOptionId: string;
-        productVariantId: string;
+        sellpiaInventorySkuId: string;
+        quantity: number;
       }>;
     },
   ): Promise<{

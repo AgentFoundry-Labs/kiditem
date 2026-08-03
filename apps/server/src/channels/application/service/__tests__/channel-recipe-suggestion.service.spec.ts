@@ -9,7 +9,6 @@ describe('ChannelRecipeSuggestionService', () => {
   it('uses Sellpia manual-match quantity as the authoritative physical-unit recipe', async () => {
     const context = {
       channelListingOptionId: optionId,
-      productVariantId: '00000000-0000-4000-8000-000000000003',
       masterProductId: '00000000-0000-4000-8000-000000000004',
       options: [{
         channelListingOptionId: optionId,
@@ -92,7 +91,6 @@ describe('ChannelRecipeSuggestionService', () => {
       itemName: null,
     })).resolves.toMatchObject({
       channelListingOptionId: optionId,
-      productVariantId: null,
       masterProductId: null,
       status: 'high_confidence_name',
       automationDecision: 'auto_apply',
@@ -110,7 +108,6 @@ describe('ChannelRecipeSuggestionService', () => {
   it('batches code, typed barcode, and product-name evidence across all options linked to the variant', async () => {
     const context = {
       channelListingOptionId: optionId,
-      productVariantId: '00000000-0000-4000-8000-000000000003',
       masterProductId: '00000000-0000-4000-8000-000000000004',
       options: [{
         channelListingOptionId: optionId, listingName: '키즈 식판', itemName: '기본',
@@ -143,7 +140,6 @@ describe('ChannelRecipeSuggestionService', () => {
   it('classifies a strict product-and-option match as automatic', async () => {
     const context = {
       channelListingOptionId: optionId,
-      productVariantId: '00000000-0000-4000-8000-000000000003',
       masterProductId: '00000000-0000-4000-8000-000000000004',
       options: [{
         channelListingOptionId: optionId,
@@ -181,7 +177,6 @@ describe('ChannelRecipeSuggestionService', () => {
   it('keeps duplicate typed barcodes ambiguous and detects code/name disagreement', async () => {
     const context = {
       channelListingOptionId: optionId,
-      productVariantId: '00000000-0000-4000-8000-000000000003',
       masterProductId: '00000000-0000-4000-8000-000000000004',
       options: [{
         channelListingOptionId: optionId,
@@ -244,14 +239,12 @@ describe('ChannelRecipeSuggestionService', () => {
 
     const results = await service.suggestBatch(organizationId, [
       {
-        productVariantId: '00000000-0000-4000-8000-000000000003',
         masterProductId: '00000000-0000-4000-8000-000000000004',
         selectedChannelListingOptionIds: [optionId],
         allLinkedOptions: [sharedOption],
         existingComponents: [],
       },
       {
-        productVariantId: '00000000-0000-4000-8000-000000000006',
         masterProductId: '00000000-0000-4000-8000-000000000007',
         selectedChannelListingOptionIds: ['00000000-0000-4000-8000-000000000008'],
         allLinkedOptions: [{ ...sharedOption, channelListingOptionId: '00000000-0000-4000-8000-000000000008' }],
@@ -269,7 +262,6 @@ describe('ChannelRecipeSuggestionService', () => {
   it('auto-applies one unique high-confidence active-inventory name candidate', async () => {
     const context = {
       channelListingOptionId: optionId,
-      productVariantId: '00000000-0000-4000-8000-000000000003',
       masterProductId: '00000000-0000-4000-8000-000000000004',
       options: [{
         channelListingOptionId: optionId,
@@ -300,7 +292,6 @@ describe('ChannelRecipeSuggestionService', () => {
   it('cross-checks an exact code candidate against the channel product name', async () => {
     const context = {
       channelListingOptionId: optionId,
-      productVariantId: '00000000-0000-4000-8000-000000000003',
       masterProductId: '00000000-0000-4000-8000-000000000004',
       options: [{
         channelListingOptionId: optionId,

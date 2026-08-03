@@ -1,12 +1,9 @@
 import type {
   CreateMasterProductInput,
-  CreateProductVariantInput,
   MasterProductOperationsDetail,
-  MasterProductOperationsListQuery,
   MasterProductOperationsListResponse,
-  ProductVariantDetail,
+  ReplaceChannelOptionInventoryInput,
   UpdateMasterProductInput,
-  UpdateProductVariantInput,
 } from '@kiditem/shared/product-operations';
 
 export interface ProductOperationsPort {
@@ -28,15 +25,9 @@ export interface ProductOperationsPort {
     masterProductId: string,
     input: UpdateMasterProductInput,
   ): Promise<MasterProductOperationsDetail>;
-  createVariant(
+  replaceChannelOptionInventory(
     organizationId: string,
-    userId: string,
-    masterProductId: string,
-    input: CreateProductVariantInput,
-  ): Promise<ProductVariantDetail>;
-  updateVariant(
-    organizationId: string,
-    productVariantId: string,
-    input: UpdateProductVariantInput,
-  ): Promise<ProductVariantDetail>;
+    channelListingOptionId: string,
+    input: ReplaceChannelOptionInventoryInput,
+  ): Promise<MasterProductOperationsDetail>;
 }

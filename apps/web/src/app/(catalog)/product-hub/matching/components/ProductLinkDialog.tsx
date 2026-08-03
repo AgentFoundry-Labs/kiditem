@@ -128,7 +128,7 @@ export function ProductLinkDialog({ open, onOpenChange, row }: Props) {
                 type="button"
                 disabled={linkMutation.isPending}
                 onClick={() => {
-                  if (window.confirm('상품 연결을 해제하면 하위 옵션 연결도 해제될 수 있습니다. 계속할까요?')) {
+                  if (window.confirm('상품 연결만 해제합니다. 채널 옵션의 재고 구성은 유지됩니다. 계속할까요?')) {
                     void confirm(null);
                   }
                 }}

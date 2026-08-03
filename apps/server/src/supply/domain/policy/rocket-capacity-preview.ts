@@ -22,9 +22,8 @@ export type RocketCapacityPreviewInputRow = {
   productName: string;
   plannedDeliveryDate: string;
   orderQuantity: number;
-  channelSkuId: string | null;
+  channelListingOptionId: string | null;
   masterProductId: string | null;
-  productVariantId: string | null;
   recipeStatus:
     | 'unmatched'
     | 'configuration_required'
@@ -44,9 +43,8 @@ export type RocketCapacityPreviewRow = {
   maxQuantity: number;
   editedQuantity: number | null;
   reason: RocketPurchasePreviewReason | null;
-  channelSkuId: string | null;
+  channelListingOptionId: string | null;
   masterProductId: string | null;
-  productVariantId: string | null;
   components: RocketPurchasePreviewComponent[];
 };
 
@@ -83,7 +81,7 @@ function allocateRow(
   clampEditedQuantities: boolean,
 ): RocketCapacityPreviewRow {
   const requestedEditedQuantity = editedQuantities[row.poLineId] ?? null;
-  if (!row.channelSkuId || row.recipeStatus === 'unmatched') {
+  if (!row.channelListingOptionId || row.recipeStatus === 'unmatched') {
     const editedQuantity = resolveRocketPreviewEditedQuantity(
       row.poLineId,
       requestedEditedQuantity,
@@ -192,9 +190,8 @@ function result(
     maxQuantity,
     editedQuantity,
     reason,
-    channelSkuId: row.channelSkuId,
+    channelListingOptionId: row.channelListingOptionId,
     masterProductId: row.masterProductId,
-    productVariantId: row.productVariantId,
     components: row.components,
   };
 }

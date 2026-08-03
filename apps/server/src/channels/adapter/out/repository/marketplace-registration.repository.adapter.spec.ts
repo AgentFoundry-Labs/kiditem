@@ -58,12 +58,12 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
     })).rejects.toThrow('multiple active channel listings');
   });
 
-  it('preflights tenant-owned active product and variant identities', async () => {
+  it('preflights tenant-owned active product and inventory SKU identities', async () => {
     const prisma = {
       masterProduct: {
         findFirst: vi.fn().mockResolvedValue({ id: '00000000-0000-4000-8000-000000000001' }),
       },
-      productVariant: { findMany: vi.fn().mockResolvedValue([]) },
+      sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([]) },
     };
     const repository = new MarketplaceRegistrationRepositoryAdapter(prisma as never);
 
@@ -72,11 +72,12 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
       masterProductId: '00000000-0000-4000-8000-000000000001',
       optionLinks: [{
         externalOptionId: 'BLUE',
-        productVariantId: '00000000-0000-4000-8000-000000000002',
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000002',
+        quantity: 1,
         providerOptionKey: 'submission-key',
       }],
     })).rejects.toThrow(
-      'Every KidItem-first ProductVariant must belong to the linked MasterProduct.',
+      'Every KidItem-first inventory SKU must be active and belong to the organization.',
     );
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
       where: {
@@ -233,7 +234,7 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
   });
 
   it('normalizes exact option identities before enforcing uniqueness', async () => {
-    const findVariants = vi.fn().mockResolvedValue([]);
+    const findSkus = vi.fn().mockResolvedValue([]);
     const tx = {
       channelAccount: {
         findFirst: vi.fn().mockResolvedValue({ id: 'account-1', channel: 'coupang' }),
@@ -244,7 +245,7 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
       masterProduct: {
         findFirst: vi.fn().mockResolvedValue({ id: '00000000-0000-4000-8000-000000000001' }),
       },
-      productVariant: { findMany: findVariants },
+      sellpiaInventorySku: { findMany: findSkus },
     };
     const repository = new MarketplaceRegistrationRepositoryAdapter({} as never);
 
@@ -259,14 +260,16 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
       optionLinks: [
         {
           externalOptionId: 'OPTION-1',
-          productVariantId: '00000000-0000-4000-8000-000000000002',
+          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000002',
+          quantity: 1,
         },
         {
           externalOptionId: 'ＯＰＴＩＯＮ－１',
-          productVariantId: '00000000-0000-4000-8000-000000000002',
+          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000002',
+          quantity: 1,
         },
       ],
     })).rejects.toBeInstanceOf(BadRequestException);
-    expect(findVariants).not.toHaveBeenCalled();
+    expect(findSkus).not.toHaveBeenCalled();
   });
 });

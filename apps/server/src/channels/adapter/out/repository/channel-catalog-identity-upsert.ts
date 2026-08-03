@@ -65,7 +65,6 @@ export type PersistedChannelCatalogListing = {
   options: Array<{
     id: string;
     externalOptionId: string;
-    productVariantId: string | null;
   }>;
 };
 
@@ -253,7 +252,6 @@ export async function upsertChannelCatalogIdentities(
         select: {
           id: true,
           externalOptionId: true,
-          productVariantId: true,
         },
         orderBy: { externalOptionId: 'asc' },
       },

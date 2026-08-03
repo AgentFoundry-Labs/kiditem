@@ -175,17 +175,11 @@ export class DashboardInventoryRepositoryAdapter
         isActive: true,
         listing: { is: { organizationId, isActive: true } },
         OR: [
-          { productVariantId: null },
           { listing: { is: { organizationId, masterProductId: null } } },
-          { productVariant: { is: { isActive: false } } },
-          { productVariant: { is: { components: { none: {} } } } },
+          { inventoryComponents: { none: {} } },
           {
-            productVariant: {
-              is: {
-                components: {
-                  some: { sellpiaInventorySku: { is: { isActive: false } } },
-                },
-              },
+            inventoryComponents: {
+              some: { sellpiaInventorySku: { is: { isActive: false } } },
             },
           },
         ],
@@ -205,27 +199,18 @@ export class DashboardInventoryRepositoryAdapter
       this.prisma.channelListingOption.count({
         where: {
           ...base,
-          OR: [
-            { productVariantId: null },
-            { listing: { is: { organizationId, masterProductId: null } } },
-          ],
+          listing: { is: { organizationId, isActive: true, masterProductId: null } },
         },
       }),
       this.prisma.channelListingOption.count({
         where: {
           ...base,
-          productVariantId: { not: null },
           listing: { is: { organizationId, isActive: true, masterProductId: { not: null } } },
           OR: [
-            { productVariant: { is: { isActive: false } } },
-            { productVariant: { is: { components: { none: {} } } } },
+            { inventoryComponents: { none: {} } },
             {
-              productVariant: {
-                is: {
-                  components: {
-                    some: { sellpiaInventorySku: { is: { isActive: false } } },
-                  },
-                },
+              inventoryComponents: {
+                some: { sellpiaInventorySku: { is: { isActive: false } } },
               },
             },
           ],

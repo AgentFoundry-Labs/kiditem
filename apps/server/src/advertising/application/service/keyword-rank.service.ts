@@ -17,10 +17,6 @@ import {
   type UpdateKeywordTrackerInput,
   type UpsertKeywordTrackerInput,
 } from "../port/out/repository/keyword-rank.repository.port";
-import {
-  PRODUCT_VARIANT_ABC_GRADE_READ_PORT,
-  type ProductVariantAbcGradeReadPort,
-} from "../../../products/application/port/in/product-variant-abc-grade-read.port";
 import type { ProductAbcGrade } from "@kiditem/shared/product-abc";
 
 export type ProductKeywordRankStatus =
@@ -83,8 +79,6 @@ export class KeywordRankService {
   constructor(
     @Inject(KEYWORD_RANK_REPOSITORY_PORT)
     private readonly keywordRankRepo: KeywordRankRepositoryPort,
-    @Inject(PRODUCT_VARIANT_ABC_GRADE_READ_PORT)
-    private readonly productVariantAbcGrades: ProductVariantAbcGradeReadPort,
   ) {}
 
   listTrackers(organizationId: string): Promise<KeywordTrackerRow[]> {
@@ -167,17 +161,6 @@ export class KeywordRankService {
     const ownByVendorItemId = new Map(
       dedupedOwnItems.map((item) => [item.vendorItemId, item]),
     );
-    const abcGradesByVariant =
-      await this.productVariantAbcGrades.findAbcGradesByProductVariantIds({
-        organizationId,
-        productVariantIds: [
-          ...new Set(
-            dedupedOwnItems.flatMap((item) =>
-              item.productVariantId ? [item.productVariantId] : [],
-            ),
-          ),
-        ],
-      });
     const products = applyObservedCategories(dedupedOwnItems, snapshots);
     const manualKeywordByVendorItemId = new Map(
       overrides.map((override) => [override.vendorItemId, override.keyword]),
@@ -244,9 +227,7 @@ export class KeywordRankService {
         // Wing 스냅샷 productName 은 SERP 수집 과정에서 옵션값("1개")이 섞여
         // 들어오는 경우가 있어 후순위로 둔다.
         productName: ownItem?.productName ?? latest?.productName ?? null,
-        abcGrades: ownItem?.productVariantId
-          ? (abcGradesByVariant.get(ownItem.productVariantId) ?? [])
-          : [],
+        abcGrades: ownItem?.abcGrade ? [ownItem.abcGrade] : [],
         currentSalesRank,
         previousSalesRank,
         rankChange,

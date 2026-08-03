@@ -82,7 +82,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
   });
 
   it('preflights exact KidItem identities before dispatching the provider create', async () => {
-    const preflightError = new Error('ProductVariant is inactive or foreign.');
+    const preflightError = new Error('Sellpia inventory SKU is inactive or foreign.');
     const repository = {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
       preflightExactProductLinks: vi.fn().mockRejectedValue(preflightError),
@@ -102,7 +102,8 @@ describe('MarketplaceRegistrationService application orchestration', () => {
           masterProductId: '00000000-0000-4000-8000-000000000011',
           optionLinks: [{
             externalOptionId: ' BLUE ',
-            productVariantId: '00000000-0000-4000-8000-000000000012',
+            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000012',
+            quantity: 2,
           }],
           listingPayload: { items: [{ itemName: 'Blue' }] },
         },
@@ -119,7 +120,8 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       masterProductId: '00000000-0000-4000-8000-000000000011',
       optionLinks: [{
         externalOptionId: 'BLUE',
-        productVariantId: '00000000-0000-4000-8000-000000000012',
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000012',
+        quantity: 2,
         providerOptionKey: 'submission-key-1',
       }],
     });

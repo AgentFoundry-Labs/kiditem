@@ -29,7 +29,7 @@ describe('ProductOutflowDestinations', () => {
     expect(screen.getByText('이미지 없음')).toBeInTheDocument();
     fireEvent.error(screen.getByRole('img', { name: '깨진 이미지 상품 · 대형' }));
     expect(screen.getAllByText('이미지 없음')).toHaveLength(2);
-    expect(screen.getByText('수식 보정 대기')).toBeInTheDocument();
+    expect(screen.getByText('미분류')).toBeInTheDocument();
     expect(screen.getByText('C등급')).toBeInTheDocument();
   });
 
@@ -46,7 +46,7 @@ describe('ProductOutflowDestinations', () => {
       })),
     ]} />);
 
-    expect(screen.getByText('관찰 중')).toBeInTheDocument();
+    expect(screen.getByText('미분류')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '관찰 상품 · 기본' }))
       .toHaveAttribute('title', expect.stringContaining('INSUFFICIENT_EVIDENCE'));
   });
@@ -60,7 +60,7 @@ describe('ProductOutflowDestinations', () => {
 function destination(
   suffix: string,
   masterProductName: string,
-  productVariantName: string,
+  optionName: string,
   url: string | null,
   abcGrade: 'A' | 'B' | 'C' | null,
   abcEvaluation = abcGrade
@@ -71,10 +71,12 @@ function destination(
     masterProductId: `master-${suffix}`,
     masterProductCode: `MP-${suffix}`,
     masterProductName,
-    productVariantId: `variant-${suffix}`,
-    productVariantCode: `PV-${suffix}`,
-    productVariantName,
-    unitsPerVariant: 1,
+    channelListingOptionId: `option-${suffix}`,
+    channelListingId: `listing-${suffix}`,
+    channel: 'coupang',
+    externalOptionId: `external-option-${suffix}`,
+    optionName,
+    unitsPerSale: 1,
     abcGrade,
     abcEvaluation,
     displayImage: url ? {

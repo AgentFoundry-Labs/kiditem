@@ -36,7 +36,7 @@ const state = vi.hoisted(() => ({
         reorderSkuCount: 1,
         minMonthsOfAvailableStockLeft: 0.5,
       },
-      variantSummary: { total: 2, active: 2, configured: 1, warning: 1 },
+      channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 17,
       inventoryStatus: 'configuration_required' as const,
       channelCount: 1,

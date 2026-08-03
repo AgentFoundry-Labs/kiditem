@@ -36,7 +36,12 @@ async function reconcileProductDetailOption(
       listingId: input.listingId,
       externalOptionId: input.externalOptionId,
     },
-    select: { id: true, productVariantId: true },
+    select: {
+      id: true,
+      inventoryComponents: {
+        select: { sellpiaInventorySkuId: true, quantity: true },
+      },
+    },
   });
   const provisionalCandidates = input.providerOptionKey && input.registrationSourceCandidateId
     ? await tx.channelListingOption.findMany({
@@ -44,11 +49,15 @@ async function reconcileProductDetailOption(
         organizationId: input.organizationId,
         listingId: input.listingId,
         sellerSku: input.providerOptionKey,
-        productVariantId: { not: null },
         rawJson: { equals: Prisma.DbNull },
         ...(actual ? { id: { not: actual.id } } : {}),
       },
-      select: { id: true, productVariantId: true },
+      select: {
+        id: true,
+        inventoryComponents: {
+          select: { sellpiaInventorySkuId: true, quantity: true },
+        },
+      },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: 2,
     })
@@ -73,7 +82,6 @@ async function reconcileProductDetailOption(
           organizationId: input.organizationId,
           listingId: input.listingId,
           sellerSku: input.providerOptionKey,
-          productVariantId: provisional.productVariantId,
           rawJson: { equals: Prisma.DbNull },
         },
         data: {
@@ -94,11 +102,24 @@ async function reconcileProductDetailOption(
       },
       data: {
         ...commonData,
-        productVariantId: actual.productVariantId ?? provisional.productVariantId,
       },
     });
     if (actualUpdated.count !== 1) {
       throw new BadRequestException('ChannelListingOption changed concurrently.');
+    }
+    if (
+      actual.inventoryComponents.length === 0
+      && provisional.inventoryComponents.length > 0
+    ) {
+      await tx.channelListingOptionInventoryComponent.createMany({
+        data: provisional.inventoryComponents.map((component) => ({
+          organizationId: input.organizationId,
+          channelListingOptionId: actual.id,
+          sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+          quantity: component.quantity,
+        })),
+        skipDuplicates: true,
+      });
     }
     const provisionalRetired = await tx.channelListingOption.updateMany({
       where: {
@@ -106,7 +127,6 @@ async function reconcileProductDetailOption(
         organizationId: input.organizationId,
         listingId: input.listingId,
         sellerSku: input.providerOptionKey,
-        productVariantId: provisional.productVariantId,
         rawJson: { equals: Prisma.DbNull },
       },
       data: { isActive: false },

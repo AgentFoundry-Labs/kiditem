@@ -46,77 +46,43 @@ export class SellpiaProductInventoryReader {
       sellpiaInventorySkuIds: resolved.matchedSkuIds,
     });
     const destinationRows = resolved.matchedSkuIds.length > 0
-      ? await this.prisma.productVariantComponent.findMany({
+      ? await this.prisma.channelListingOptionInventoryComponent.findMany({
         where: {
           organizationId,
           sellpiaInventorySkuId: { in: resolved.matchedSkuIds },
-          productVariant: {
-            is: {
+          channelListingOption: {
+            organizationId,
+            isActive: true,
+            listing: {
               organizationId,
               isActive: true,
-              masterProduct: {
-                is: { organizationId, isActive: true },
-              },
+              masterProduct: { organizationId, isActive: true },
+              channelAccount: { organizationId, status: 'active' },
             },
           },
         },
         select: {
           sellpiaInventorySkuId: true,
           quantity: true,
-          productVariant: {
+          channelListingOption: {
             select: {
               id: true,
-              code: true,
-              name: true,
-              masterProduct: {
+              externalOptionId: true,
+              itemName: true,
+              listing: {
                 select: {
                   id: true,
-                  code: true,
-                  name: true,
-                  abcGrade: true,
-                  abcEvaluation: { include: { formulaVersion: true } },
-                  originChannelListingId: true,
-                },
-              },
-              channelListingOptions: {
-                where: {
-                  organizationId,
-                  isActive: true,
-                  listing: {
-                    is: {
-                      organizationId,
-                      isActive: true,
-                      channelAccount: {
-                        is: {
-                          organizationId,
-                          status: 'active',
-                        },
-                      },
-                    },
-                  },
-                },
-                select: {
-                  organizationId: true,
-                  productVariantId: true,
-                  externalOptionId: true,
-                  isActive: true,
-                  listing: {
+                  externalId: true,
+                  masterProduct: {
                     select: {
                       id: true,
-                      organizationId: true,
-                      masterProductId: true,
-                      externalId: true,
-                      isActive: true,
-                      channelAccount: {
-                        select: {
-                          organizationId: true,
-                          channel: true,
-                          status: true,
-                          isPrimary: true,
-                        },
-                      },
+                      code: true,
+                      name: true,
+                      abcGrade: true,
+                      abcEvaluation: { include: { formulaVersion: true } },
                     },
                   },
+                  channelAccount: { select: { channel: true, isPrimary: true } },
                 },
               },
             },
@@ -125,12 +91,12 @@ export class SellpiaProductInventoryReader {
       })
       : [];
     const mediaRequests = uniqueMediaRequests(organizationId, destinationRows);
-    let mediaByVariantId = new Map<string, Awaited<ReturnType<
+    let mediaByOptionId = new Map<string, Awaited<ReturnType<
       CatalogDisplayMediaPort['findDisplayMedia']
     >> extends Map<string, infer Media> ? Media : never>();
     if (mediaRequests.length > 0) {
       try {
-        mediaByVariantId = await this.catalogDisplayMedia.findDisplayMedia({
+        mediaByOptionId = await this.catalogDisplayMedia.findDisplayMedia({
           organizationId,
           requests: mediaRequests,
         });
@@ -147,24 +113,26 @@ export class SellpiaProductInventoryReader {
       availability,
       destinations: destinationRows.map((row) => ({
         sellpiaInventorySkuId: row.sellpiaInventorySkuId,
-        unitsPerVariant: row.quantity,
-        masterProductId: row.productVariant.masterProduct.id,
-        masterProductCode: row.productVariant.masterProduct.code,
-        masterProductName: row.productVariant.masterProduct.name,
-        productVariantId: row.productVariant.id,
-        productVariantCode: row.productVariant.code,
-        productVariantName: row.productVariant.name,
+        unitsPerSale: row.quantity,
+        masterProductId: row.channelListingOption.listing.masterProduct!.id,
+        masterProductCode: row.channelListingOption.listing.masterProduct!.code,
+        masterProductName: row.channelListingOption.listing.masterProduct!.name,
+        channelListingOptionId: row.channelListingOption.id,
+        channelListingId: row.channelListingOption.listing.id,
+        channel: row.channelListingOption.listing.channelAccount.channel,
+        externalOptionId: row.channelListingOption.externalOptionId,
+        optionName: row.channelListingOption.itemName,
         abcGrade:
-          row.productVariant.masterProduct.abcGrade === 'A'
-          || row.productVariant.masterProduct.abcGrade === 'B'
-          || row.productVariant.masterProduct.abcGrade === 'C'
-            ? row.productVariant.masterProduct.abcGrade
+          row.channelListingOption.listing.masterProduct!.abcGrade === 'A'
+          || row.channelListingOption.listing.masterProduct!.abcGrade === 'B'
+          || row.channelListingOption.listing.masterProduct!.abcGrade === 'C'
+            ? row.channelListingOption.listing.masterProduct!.abcGrade
             : null,
         abcEvaluation: toAbcEvaluation(
-          row.productVariant.masterProduct.abcEvaluation,
-          row.productVariant.masterProduct.abcGrade,
+          row.channelListingOption.listing.masterProduct!.abcEvaluation,
+          row.channelListingOption.listing.masterProduct!.abcGrade,
         ),
-        displayImage: mediaByVariantId.get(row.productVariant.id) ?? null,
+        displayImage: mediaByOptionId.get(row.channelListingOption.id) ?? null,
       })),
     });
     return { availability, projection };
@@ -189,10 +157,21 @@ function toAbcEvaluation(
     firstValidPaidSaleAt: Date | null;
     sourceCoverageStartDate: Date | null;
     sourceCoverageEndDate: Date | null;
+    sellpiaCoverageStartDate: Date | null;
+    sellpiaCoverageEndDate: Date | null;
     sellpiaSourceStatus: string;
     sellpiaSourceCapturedAt: Date | null;
+    advertisingCoverageStartDate: Date | null;
+    advertisingCoverageEndDate: Date | null;
     advertisingSourceStatus: string;
     advertisingSourceCapturedAt: Date | null;
+    ordersSourceStatus: string;
+    ordersCoverageStartDate: Date | null;
+    ordersCoverageEndDate: Date | null;
+    ordersSourceCapturedAt: Date | null;
+    mappingSourceStatus: string;
+    mappingInventoryGeneration: bigint | null;
+    mappingVerifiedAt: Date | null;
     costComponentsJson: unknown;
     statusDetail: string | null;
     calculatedAt: Date | null;
@@ -227,15 +206,38 @@ function toAbcEvaluation(
       evaluationCutoffDate: calendarDate(cutoff),
       sellpia: {
         status: row.sellpiaSourceStatus,
-        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
-        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        coverageStartDate: row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate
+          ? calendarDate((row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate)!)
+          : null,
+        coverageEndDate: row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate
+          ? calendarDate((row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate)!)
+          : null,
         capturedAt: row.sellpiaSourceCapturedAt,
       },
       advertising: {
         status: row.advertisingSourceStatus,
-        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
-        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        coverageStartDate: row.advertisingCoverageStartDate
+          ? calendarDate(row.advertisingCoverageStartDate)
+          : null,
+        coverageEndDate: row.advertisingCoverageEndDate
+          ? calendarDate(row.advertisingCoverageEndDate)
+          : null,
         capturedAt: row.advertisingSourceCapturedAt,
+      },
+      orders: {
+        status: row.ordersSourceStatus,
+        coverageStartDate: row.ordersCoverageStartDate
+          ? calendarDate(row.ordersCoverageStartDate)
+          : null,
+        coverageEndDate: row.ordersCoverageEndDate
+          ? calendarDate(row.ordersCoverageEndDate)
+          : null,
+        capturedAt: row.ordersSourceCapturedAt,
+      },
+      mapping: {
+        status: row.mappingSourceStatus,
+        inventoryGeneration: row.mappingInventoryGeneration?.toString() ?? null,
+        verifiedAt: row.mappingVerifiedAt,
       },
     },
     costBreakdown: row.costComponentsJson,
@@ -277,86 +279,37 @@ export function compareOptionTargets(
 }
 
 function uniqueMediaRequests(
-  organizationId: string,
+  _organizationId: string,
   rows: readonly {
-    productVariant: {
+    channelListingOption: {
       id: string;
-      masterProduct: { id: string; originChannelListingId?: string | null };
-      channelListingOptions?: readonly DestinationOptionSource[];
+      externalOptionId: string;
+      listing: {
+        id: string;
+        externalId: string;
+        channelAccount: { isPrimary: boolean };
+      };
     };
   }[],
 ) {
-  const candidatesByVariantId = new Map<string, DestinationOptionTarget[]>();
+  const byOptionId = new Map<string, DestinationOptionTarget>();
   for (const row of rows) {
-    const variant = row.productVariant;
-    const candidates = selectDestinationOptionTargets({
-      organizationId,
-      productVariantId: variant.id,
-      masterProductId: variant.masterProduct.id,
-      originChannelListingId: variant.masterProduct.originChannelListingId ?? null,
-      options: variant.channelListingOptions ?? [],
-    });
-    if (candidates.length > 0 && !candidatesByVariantId.has(variant.id)) {
-      candidatesByVariantId.set(variant.id, candidates);
+    const option = row.channelListingOption;
+    if (!byOptionId.has(option.id)) {
+      byOptionId.set(option.id, {
+        channelListingId: option.listing.id,
+        externalOptionId: option.externalOptionId,
+        isOrigin: false,
+        isPrimaryAccount: option.listing.channelAccount.isPrimary,
+        listingExternalId: option.listing.externalId,
+      });
     }
   }
-  return [...candidatesByVariantId.entries()].map(([key, candidates]) => ({
+  return [...byOptionId.entries()].map(([key, candidate]) => ({
     key,
-    candidates: candidates.map(({ channelListingId, externalOptionId }) => ({
-      channelListingId,
-      externalOptionId,
-    })),
+    candidates: [{
+      channelListingId: candidate.channelListingId,
+      externalOptionId: candidate.externalOptionId,
+    }],
   }));
-}
-
-type DestinationOptionSource = {
-  organizationId: string;
-  productVariantId: string | null;
-  externalOptionId: string;
-  isActive: boolean;
-  listing: {
-    id: string;
-    organizationId: string;
-    masterProductId: string | null;
-    externalId: string;
-    isActive: boolean;
-    channelAccount: {
-      organizationId: string;
-      channel: string;
-      status: string;
-      isPrimary: boolean;
-    };
-  };
-};
-
-function selectDestinationOptionTargets(input: {
-  organizationId: string;
-  productVariantId: string;
-  masterProductId: string;
-  originChannelListingId: string | null;
-  options: readonly DestinationOptionSource[];
-}): DestinationOptionTarget[] {
-  return input.options.flatMap((option) => {
-    const listing = option.listing;
-    const account = listing.channelAccount;
-    if (
-      option.organizationId !== input.organizationId
-      || option.productVariantId !== input.productVariantId
-      || !option.isActive
-      || !option.externalOptionId.trim()
-      || listing.organizationId !== input.organizationId
-      || listing.masterProductId !== input.masterProductId
-      || !listing.isActive
-      || account.organizationId !== input.organizationId
-      || !account.channel.trim()
-      || account.status !== 'active'
-    ) return [];
-    return [{
-      channelListingId: listing.id,
-      externalOptionId: option.externalOptionId,
-      isOrigin: listing.id === input.originChannelListingId,
-      isPrimaryAccount: account.isPrimary,
-      listingExternalId: listing.externalId,
-    }];
-  }).sort(compareOptionTargets);
 }

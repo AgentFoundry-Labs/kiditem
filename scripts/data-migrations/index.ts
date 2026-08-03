@@ -13,6 +13,7 @@ import { removeAmbiguousAdCampaignAccountKpis } from "./v0.1.25/005_remove_ambig
 import { initializeMasterProductAbcPolicy } from "./v0.1.26/001_initialize_master_product_abc_policy";
 import { resetLegacyProductAbcGrades } from "./v0.1.30/001_reset_legacy_product_abc_grades";
 import { backfillProfitabilitySourceFreshness } from "./v0.1.30/002_backfill_profitability_source_freshness";
+import { moveVariantRecipesToChannelOptions } from "./v0.1.30/003_move_variant_recipes_to_channel_options";
 import type { DataMigration } from "./types";
 
 export {
@@ -40,6 +41,7 @@ export const dataMigrations: readonly DataMigration[] = [
   initializeMasterProductAbcPolicy,
   resetLegacyProductAbcGrades,
   backfillProfitabilitySourceFreshness,
+  moveVariantRecipesToChannelOptions,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

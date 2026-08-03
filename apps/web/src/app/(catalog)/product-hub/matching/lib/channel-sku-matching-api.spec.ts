@@ -1,16 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
-  linkChannelListingOption,
+  autoMatchChannelProducts,
   linkChannelListingProduct,
-  applyChannelRecipeAutomation,
-  getChannelRecipeSuggestion,
-  getChannelRecipeAutomationPreview,
   getSellpiaManualMatchTargets,
   importSellpiaManualMatchSnapshot,
   listChannelProductCandidates,
   listChannelProductMappings,
-  listChannelVariantCandidates,
 } from './channel-sku-matching-api';
 
 vi.mock('@/lib/api-client', () => ({
@@ -18,16 +14,14 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 const LISTING_ID = '11111111-1111-4111-8111-111111111111';
-const OPTION_ID = '22222222-2222-4222-8222-222222222222';
 const PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
-const VARIANT_ID = '44444444-4444-4444-8444-444444444444';
 const ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
 
 describe('channel product matching API', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('reads the two-level queue with canonical account and search filters', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({ products: [], options: [], counts: { products: { all: 0, linked: 0, unlinked: 0 }, options: { all: 0, linked: 0, unlinked: 0, recipeConfirmed: 0, configurationRequired: 0, reviewRequired: 0 } } });
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ products: [], options: [], counts: { products: { all: 0, linked: 0, unlinked: 0 }, options: { all: 0, configured: 0, unconfigured: 0 } } });
 
     await listChannelProductMappings({ channelAccountId: 'account/unsafe', search: '  우산  ' });
 
@@ -37,111 +31,48 @@ describe('channel product matching API', () => {
     );
   });
 
-  it('keeps product and variant candidate lookup side-effect-free', async () => {
+  it('keeps product candidate lookup side-effect-free', async () => {
     vi.mocked(apiClient.getParsed).mockResolvedValue({ items: [] });
 
     await listChannelProductCandidates(`${LISTING_ID}/unsafe`, ' KI-1 ');
-    await listChannelVariantCandidates(`${OPTION_ID}/unsafe`, ' 분홍 ');
 
-    expect(apiClient.getParsed).toHaveBeenNthCalledWith(1,
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
       `/api/channels/product-mappings/${encodeURIComponent(`${LISTING_ID}/unsafe`)}/candidates?search=KI-1`,
       expect.any(Object),
     );
-    expect(apiClient.getParsed).toHaveBeenNthCalledWith(2,
-      `/api/channels/product-mappings/options/${encodeURIComponent(`${OPTION_ID}/unsafe`)}/candidates?search=${encodeURIComponent('분홍')}`,
-      expect.any(Object),
-    );
     expect(apiClient.put).not.toHaveBeenCalled();
   });
 
-  it('reads a recipe suggestion without issuing a mutation', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({
-      channelListingOptionId: OPTION_ID,
-      productVariantId: VARIANT_ID,
-      masterProductId: PRODUCT_ID,
-      status: 'no_match',
-      reason: 'No evidence matched an active Sellpia SKU.',
-      channelEvidence: [],
-      existingComponents: [],
-      proposals: [],
-    });
-
-    await getChannelRecipeSuggestion(`${OPTION_ID}/unsafe`);
-
-    expect(apiClient.getParsed).toHaveBeenCalledWith(
-      `/api/channels/product-mappings/options/${encodeURIComponent(`${OPTION_ID}/unsafe`)}/recipe-suggestions`,
-      expect.any(Object),
-    );
-    expect(apiClient.put).not.toHaveBeenCalled();
-  });
-
-  it('reads and applies a version-fenced account recipe preview', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({
-      channelAccountId: ACCOUNT_ID,
-      proposalVersion: 'a'.repeat(64),
-      generatedAt: '2026-07-18T00:00:00.000Z',
-      summary: {
-        products: 0,
-        autoApplyProducts: 0,
-        quantityReviewProducts: 0,
-        operatorReviewProducts: 0,
-        blockedProducts: 0,
-        alreadyConfiguredProducts: 0,
-        variants: 0,
-        affectedOptions: 0,
-        autoApply: 0,
-        quantityReview: 0,
-        operatorReview: 0,
-        blocked: 0,
-        alreadyConfigured: 0,
-      },
-      productGroups: [],
-      items: [],
-    });
-    vi.mocked(apiClient.post).mockResolvedValue({
-      proposalVersion: 'a'.repeat(64),
-      appliedProducts: 1,
-      skippedProducts: 0,
-      appliedVariants: 1,
-      affectedOptions: 2,
-      skippedExistingVariants: 0,
-    });
-
-    await getChannelRecipeAutomationPreview(`${ACCOUNT_ID}/unsafe`);
-    await applyChannelRecipeAutomation({
-      channelAccountId: ACCOUNT_ID,
-      proposalVersion: 'a'.repeat(64),
-    });
-
-    expect(apiClient.getParsed).toHaveBeenCalledWith(
-      `/api/channels/product-mappings/recipe-automation/preview?channelAccountId=${encodeURIComponent(`${ACCOUNT_ID}/unsafe`)}`,
-      expect.any(Object),
-    );
-    expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/channels/product-mappings/recipe-automation/apply',
-      { channelAccountId: ACCOUNT_ID, proposalVersion: 'a'.repeat(64) },
-    );
-  });
-
-  it('confirms listing-to-product and option-to-variant separately', async () => {
+  it('confirms only listing-to-MasterProduct identity', async () => {
     vi.mocked(apiClient.put).mockResolvedValue(undefined);
 
     await expect(linkChannelListingProduct(
       LISTING_ID,
       { masterProductId: PRODUCT_ID },
     )).resolves.toBeUndefined();
-    await expect(linkChannelListingOption(
-      OPTION_ID,
-      { productVariantId: VARIANT_ID },
-    )).resolves.toBeUndefined();
 
-    expect(apiClient.put).toHaveBeenNthCalledWith(1,
+    expect(apiClient.put).toHaveBeenCalledWith(
       `/api/channels/product-mappings/${LISTING_ID}/master-product`,
       { masterProductId: PRODUCT_ID },
     );
-    expect(apiClient.put).toHaveBeenNthCalledWith(2,
-      `/api/channels/product-mappings/options/${OPTION_ID}/product-variant`,
-      { productVariantId: VARIANT_ID },
+  });
+
+  it('runs deterministic direct matching for one account', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({
+      evaluatedListings: 3,
+      matchedListings: 2,
+      configuredOptions: 4,
+    });
+
+    await expect(autoMatchChannelProducts(ACCOUNT_ID)).resolves.toEqual({
+      evaluatedListings: 3,
+      matchedListings: 2,
+      configuredOptions: 4,
+    });
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/channels/product-mappings/auto-match',
+      { channelAccountId: ACCOUNT_ID },
     );
   });
 

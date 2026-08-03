@@ -31,7 +31,7 @@ describe('channel Sellpia final schema contract', () => {
     assert.match(listing, /@@unique\(\[organizationId, channelAccountId, externalId\]\)/);
   });
 
-  it('keeps marketplace SKU metadata independent from physical stock with a nullable variant link', () => {
+  it('keeps marketplace option metadata independent from physical stock and variants', () => {
     const option = modelBlock(core, 'ChannelListingOption');
     for (const field of [
       'externalOptionId',
@@ -39,18 +39,26 @@ describe('channel Sellpia final schema contract', () => {
       'salePrice',
       'sellerSku',
       'barcode',
-      'productVariantId',
       'attributesJson',
       'rawJson',
+      'inventoryComponents',
     ]) {
       assert.match(option, new RegExp(`^\\s*${field}\\s+`, 'm'));
     }
     assert.doesNotMatch(option, /^\s*(?:optionId|channelAccountId|isUnmatched|mappingStatus|currentStock)\s+/m);
+    assert.doesNotMatch(option, /^\s*productVariantId\s+/m);
   });
 
-  it('removes channel-owned recipes in favor of the linked variant recipe', () => {
+  it('stores the inventory consumption recipe only on the channel listing option', () => {
+    const component = modelBlock(core, 'ChannelListingOptionInventoryComponent');
+    for (const field of ['channelListingOptionId', 'sellpiaInventorySkuId', 'quantity']) {
+      assert.match(component, new RegExp(`^\\s*${field}\\s+`, 'm'));
+    }
+    assert.match(component, /@@unique\(\[channelListingOptionId, sellpiaInventorySkuId\]\)/);
     assert.doesNotMatch(channels, /model ChannelSkuComponent\b/);
     assert.doesNotMatch(channels, /channel_sku_components/);
+    assert.doesNotMatch(core, /model ProductVariant\b/);
+    assert.doesNotMatch(core, /model ProductVariantComponent\b/);
   });
 
   it('retains raw channel scrape evidence for selective reset replay', () => {

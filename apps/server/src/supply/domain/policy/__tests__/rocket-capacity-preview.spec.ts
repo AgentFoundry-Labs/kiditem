@@ -9,9 +9,8 @@ const earlierRow = {
   productName: 'Earlier',
   plannedDeliveryDate: '2026-07-20',
   orderQuantity: 4,
-  channelSkuId: 'sku-1',
+  channelListingOptionId: 'sku-1',
   masterProductId: 'master-1',
-  productVariantId: 'variant-1',
   recipeStatus: 'matched' as const,
   components: [{
     sellpiaInventorySkuId: 'sellpia-sku-1',
@@ -139,7 +138,7 @@ describe('previewRocketCapacity', () => {
     const rows = previewRocketCapacity({
       editedQuantities: {},
       rows: [
-        { ...earlierRow, poLineId: 'unmapped', channelSkuId: null, components: [] },
+        { ...earlierRow, poLineId: 'unmapped', channelListingOptionId: null, components: [] },
         {
           ...laterRow,
           poLineId: 'inactive',
@@ -156,7 +155,7 @@ describe('previewRocketCapacity', () => {
   it.each([
     {
       name: 'unmapped',
-      row: { ...earlierRow, channelSkuId: null, components: [] },
+      row: { ...earlierRow, channelListingOptionId: null, components: [] },
       quantity: 1,
     },
     {

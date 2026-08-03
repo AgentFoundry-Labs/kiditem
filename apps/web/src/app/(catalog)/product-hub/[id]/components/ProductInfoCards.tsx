@@ -43,7 +43,7 @@ export default function ProductInfoCards({
       <InfoCard title="재고 요약" icon={<Boxes size={16} />}>
         <InfoRow label="물리 재고 합계" value={`${formatNumber(product.inventoryUnits)}개`} />
         <InfoRow label="재고 상태" value={INVENTORY_LABELS[product.inventoryStatus]} />
-        <InfoRow label="판매 옵션" value={`${formatNumber(product.variants.length)}개`} />
+        <InfoRow label="채널 판매 옵션" value={`${formatNumber(product.channelListings.reduce((sum, listing) => sum + listing.options.length, 0))}개`} />
         <p className="pt-2 text-xs leading-5 text-[var(--text-tertiary)]">
           재고 수량은 확인된 옵션 레시피의 Sellpia SKU를 중복 없이 합산합니다.
         </p>

@@ -91,18 +91,15 @@ describe('channel SKU matching query keys', () => {
 });
 
 describe('channel product matching query keys', () => {
-  it('separates queue, product candidates, and variant candidates', () => {
+  it('separates the queue, product candidates, and Sellpia match evidence', () => {
     expect(queryKeys.channelProductMappings.list({ channelAccountId: 'account-1' })).toEqual([
       'channelProductMappings', 'list', { channelAccountId: 'account-1' },
     ]);
     expect(queryKeys.channelProductMappings.productCandidates('listing-1', { search: 'KI-1' })).toEqual([
       'channelProductMappings', 'product-candidates', 'listing-1', { search: 'KI-1' },
     ]);
-    expect(queryKeys.channelProductMappings.variantCandidates('option-1', { search: '분홍' })).toEqual([
-      'channelProductMappings', 'variant-candidates', 'option-1', { search: '분홍' },
-    ]);
-    expect(queryKeys.channelProductMappings.recipeSuggestion('option-1')).toEqual([
-      'channelProductMappings', 'recipe-suggestion', 'option-1',
+    expect(queryKeys.channelProductMappings.sellpiaManualMatchTargets()).toEqual([
+      'channelProductMappings', 'sellpia-manual-match-targets',
     ]);
   });
 });

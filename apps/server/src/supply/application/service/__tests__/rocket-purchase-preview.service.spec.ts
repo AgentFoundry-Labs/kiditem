@@ -12,7 +12,6 @@ const channelAccountId = '33333333-3333-4333-8333-333333333333';
 const poLineId = '1001:P-1:8801234567890:1';
 const channelSkuId = '44444444-4444-4444-8444-444444444444';
 const masterProductId = '55555555-5555-4555-8555-555555555555';
-const productVariantId = '77777777-7777-4777-8777-777777777777';
 const sellpiaInventorySkuId = '88888888-8888-4888-8888-888888888888';
 
 function request() {
@@ -55,9 +54,6 @@ function dependencies() {
       product: { id: 'product-1', externalProductId: 'P-1', registeredName: 'Rocket item', displayName: null, status: 'observed' },
       sku: { id: channelSkuId, externalSkuId: 'P-1', sellerSku: 'P-1', optionName: 'Rocket item', barcode: '8801234567890', modelNumber: null, salePrice: null, status: 'observed', mappingStatus: 'matched', sellableStock: 5, updatedAt: '2026-07-16T00:00:00.000Z' },
       masterProductId,
-      productVariantId,
-      variantCode: 'VAR-1',
-      variantName: 'Default',
       recipeStatus: 'matched',
       components: [{ sellpiaInventorySkuId, code: 'SP-1', name: 'Sellpia', optionName: null, barcode: '8801234567890', currentStock: 5, activeCommitmentQuantity: 0, availableStock: 5, purchasePrice: null, isActive: true, quantity: 1, source: 'manual', componentCapacity: 5, isBottleneck: true }],
       warnings: [],
@@ -131,7 +127,7 @@ describe('RocketPurchasePreviewService', () => {
       recommendedQuantity: 4,
       reason: null,
       masterProductId,
-      productVariantId,
+      channelListingOptionId: channelSkuId,
       components: [{
         sellpiaInventorySkuId,
         code: 'SP-1',
@@ -164,7 +160,7 @@ describe('RocketPurchasePreviewService', () => {
     }).readFreshCapacityOrRequest).not.toHaveBeenCalled();
   });
 
-  it('does not expose a product identity without a confirmed variant identity', async () => {
+  it('preserves the channel option while withholding an unconfirmed MasterProduct link', async () => {
     const deps = dependencies();
     const [linked] = await deps.availability.findByChannelSkuIds(
       organizationId,
@@ -172,10 +168,7 @@ describe('RocketPurchasePreviewService', () => {
     );
     vi.mocked(deps.availability.findByChannelSkuIds).mockResolvedValue([{
       ...linked!,
-      masterProductId,
-      productVariantId: null,
-      variantCode: null,
-      variantName: null,
+      masterProductId: null,
       recipeStatus: 'unmatched',
       components: [],
       sku: {
@@ -197,7 +190,7 @@ describe('RocketPurchasePreviewService', () => {
     expect(result.rows[0]).toMatchObject({
       reason: 'mapping_required',
       masterProductId: null,
-      productVariantId: null,
+      channelListingOptionId: channelSkuId,
     });
   });
 

@@ -1,63 +1,67 @@
 import {
+  projectChannelOptionCapacity,
   projectProductInventory,
-  projectVariantCapacity,
-} from '../domain/product-variant-capacity';
+} from '../domain/channel-option-capacity';
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-commitment';
 import type {
   MasterProductOperationsDetail,
   MasterProductOperationsListItem,
   ProductDepletionProjection,
-  ProductVariantDetail,
 } from '@kiditem/shared/product-operations';
 import type {
   ProductOperationsRepositoryDetail,
   ProductOperationsRepositoryListItem,
-  ProductOperationsRepositoryVariant,
+  ProductOperationsRepositoryOption,
 } from '../application/port/out/repository/product-operations.repository.port';
 
 type AvailabilityBySkuId = ReadonlyMap<string, InventorySkuAvailability>;
 
-export function mapProductOperationsVariant(
-  variant: ProductOperationsRepositoryVariant,
+function hydrateOption(
+  option: ProductOperationsRepositoryOption,
   inventoryBySkuId: AvailabilityBySkuId,
-): ProductVariantDetail {
-  const components = variant.components.map((component) => {
+) {
+  const inventoryComponents = option.inventoryComponents.map((component) => {
     const availability = inventoryBySkuId.get(component.sellpiaInventorySkuId);
     return {
       ...component,
       currentStock: availability?.currentStock ?? 0,
-      activeCommitmentQuantity: availability?.activeCommitmentQuantity ?? 0,
       availableStock: availability?.availableStock ?? 0,
       isActive: availability?.isActive ?? false,
     };
   });
-  const projection = projectVariantCapacity(components.map((component) => ({
+  const capacity = projectChannelOptionCapacity(inventoryComponents.map((component) => ({
     sellpiaInventorySkuId: component.sellpiaInventorySkuId,
     currentStock: component.currentStock,
-    activeCommitmentQuantity: component.activeCommitmentQuantity,
+    activeCommitmentQuantity: inventoryBySkuId.get(component.sellpiaInventorySkuId)
+      ?.activeCommitmentQuantity ?? 0,
     availableStock: component.availableStock,
     quantity: component.quantity,
     isActive: component.isActive,
   })));
-  return {
-    ...variant,
-    components,
-    capacity: projection.capacity,
-    warningState: projection.warningState,
-  };
+  return { ...option, inventoryComponents, capacity: capacity.capacity };
 }
 
 export function mapProductOperationsDetail(
   product: ProductOperationsRepositoryDetail,
   inventoryBySkuId: AvailabilityBySkuId,
 ): MasterProductOperationsDetail {
-  const variants = product.variants.map((variant) =>
-    mapProductOperationsVariant(variant, inventoryBySkuId));
-  const inventory = projectProductInventory(variants.map(toInventoryVariant));
+  const channelListings = product.channelListings.map((listing) => ({
+    ...listing,
+    options: listing.options.map((option) => hydrateOption(option, inventoryBySkuId)),
+  }));
+  const options = channelListings.flatMap((listing) => listing.options.map((option) => ({
+    isActive: listing.isActive && option.isActive,
+    components: option.inventoryComponents.map((component) => ({
+      ...component,
+      activeCommitmentQuantity: inventoryBySkuId.get(component.sellpiaInventorySkuId)
+        ?.activeCommitmentQuantity ?? 0,
+    })),
+  })));
+  const inventory = projectProductInventory(options);
   return {
     ...product,
     displayImageUrls: [...product.imageUrls],
-    variants,
+    channelListings,
     inventoryUnits: inventory.inventoryUnits,
     inventoryStatus: inventory.inventoryStatus,
   };
@@ -68,40 +72,34 @@ export function mapProductOperationsListItem(
   inventoryBySkuId: AvailabilityBySkuId,
   depletion: ProductDepletionProjection,
 ): MasterProductOperationsListItem {
-  const { variants: rawVariants, ...metadata } = product;
-  const variants = rawVariants.map((variant) =>
-    mapProductOperationsVariant(variant, inventoryBySkuId));
-  const activeVariants = variants.filter((variant) => variant.isActive);
-  const inventory = projectProductInventory(variants.map(toInventoryVariant));
+  const { inventoryOptions: rawOptions, ...metadata } = product;
+  const options = rawOptions.map((option) => hydrateOption(option, inventoryBySkuId));
+  const projections = options.map((option) => projectChannelOptionCapacity(
+    option.inventoryComponents.map((component) => ({
+      ...component,
+      activeCommitmentQuantity: inventoryBySkuId.get(component.sellpiaInventorySkuId)
+        ?.activeCommitmentQuantity ?? 0,
+    })),
+  ));
+  const inventory = projectProductInventory(options.map((option) => ({
+    isActive: option.isActive,
+    components: option.inventoryComponents.map((component) => ({
+      ...component,
+      activeCommitmentQuantity: inventoryBySkuId.get(component.sellpiaInventorySkuId)
+        ?.activeCommitmentQuantity ?? 0,
+    })),
+  })));
   return {
     ...metadata,
     displayImageUrls: [...product.imageUrls],
     depletion,
-    variantSummary: {
-      total: variants.length,
-      active: activeVariants.length,
-      configured: activeVariants.filter(
-        ({ warningState }) => warningState === 'none',
-      ).length,
-      warning: activeVariants.filter(
-        ({ warningState }) => warningState !== 'none',
-      ).length,
+    channelOptionSummary: {
+      total: options.length,
+      active: options.filter((option) => option.isActive).length,
+      configured: projections.filter(({ warningState }) => warningState === 'none').length,
+      warning: projections.filter(({ warningState }) => warningState !== 'none').length,
     },
     inventoryUnits: inventory.inventoryUnits,
     inventoryStatus: inventory.inventoryStatus,
-  };
-}
-
-function toInventoryVariant(variant: ProductVariantDetail) {
-  return {
-    isActive: variant.isActive,
-    components: variant.components.map((component) => ({
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-      currentStock: component.currentStock,
-      activeCommitmentQuantity: component.activeCommitmentQuantity,
-      availableStock: component.availableStock,
-      quantity: component.quantity,
-      isActive: component.isActive,
-    })),
   };
 }

@@ -1,17 +1,12 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   CompletedSourceArtifactRun,
 } from '@kiditem/shared/source-import';
 import type { RocketPoCatalogRow } from '@kiditem/shared/rocket-purchase-preview';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import {
-  CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT,
-  type ChannelCatalogProductProvisioningPort,
-} from '../../../../products/application/port/in/channel-catalog-product-provisioning.port';
 import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
-import { publishCatalogOperationalProducts } from './channel-catalog-operational-product-publication';
 import {
   ensureRocketPoCatalogSnapshot,
   listSavedRocketPos,
@@ -27,11 +22,7 @@ type PublishInput = Parameters<RocketPoCatalogRepositoryPort['publish']>[0];
 @Injectable()
 export class RocketPoCatalogRepositoryAdapter
 implements RocketPoCatalogRepositoryPort {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT)
-    private readonly productProvisioner: ChannelCatalogProductProvisioningPort,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findActiveRocketAccount(input: {
     organizationId: string;
@@ -162,7 +153,7 @@ implements RocketPoCatalogRepositoryPort {
           createdBy: input.userId,
         },
       });
-      const identities = await publishIdentities(tx, this.productProvisioner, input, {
+      const identities = await publishIdentities(tx, input, {
         sourceImportRunId: sourceRun.id,
         products,
       });
@@ -197,7 +188,6 @@ implements RocketPoCatalogRepositoryPort {
 
 async function publishIdentities(
   tx: Prisma.TransactionClient,
-  productProvisioner: ChannelCatalogProductProvisioningPort,
   input: PublishInput,
   context: {
     sourceImportRunId: string;
@@ -210,12 +200,6 @@ async function publishIdentities(
     lastImportRunId: context.sourceImportRunId,
     rawSource: SOURCE_TYPE,
     products: context.products,
-  });
-  await publishCatalogOperationalProducts(tx, productProvisioner, {
-    organizationId: input.organizationId,
-    userId: input.userId,
-    products: context.products,
-    persistedListings: identities.persistedListings,
   });
   return identities;
 }

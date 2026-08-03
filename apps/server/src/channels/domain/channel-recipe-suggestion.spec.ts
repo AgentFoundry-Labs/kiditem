@@ -15,7 +15,6 @@ const sku = (overrides: Partial<ChannelRecipeSuggestionInput['codeEvidence'][num
 
 const input = (overrides: Partial<ChannelRecipeSuggestionInput> = {}): ChannelRecipeSuggestionInput => ({
   channelListingOptionId: '00000000-0000-4000-8000-000000000001',
-  productVariantId: '00000000-0000-4000-8000-000000000002',
   masterProductId: '00000000-0000-4000-8000-000000000003',
   options: [{
     channelListingOptionId: '00000000-0000-4000-8000-000000000001',

@@ -224,7 +224,6 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(afterFirst.map((o) => o.externalOptionId)).toEqual(['9001', '9002']);
     expect(afterFirst[0].itemName).toBe('Pink');
     expect(afterFirst[0].salePrice).toBe(10000);
-    expect(afterFirst[0].productVariantId).toBeNull();
 
     const r2 = await service.syncProducts(organizationId);
     expect(r2.synced).toBe(1);
@@ -248,21 +247,20 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(deliveryInfoState?.isNull).toBe(true);
   });
 
-  it('promotes the KidItem-first provisional option to vendorItemId without losing its variant link', async () => {
+  it('promotes the KidItem-first provisional option to vendorItemId without losing its direct inventory recipe', async () => {
     const product = await prisma.masterProduct.create({
       data: {
         organizationId,
         code: 'KI-REGISTER-SYNC',
         name: 'Registered sync',
-        variants: {
-          create: {
-            code: 'KI-REGISTER-SYNC-BLUE',
-            name: 'Blue',
-            isDefault: true,
-          },
-        },
       },
-      include: { variants: true },
+    });
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId,
+        code: 'KI-REGISTER-SYNC-BLUE',
+        name: 'Blue',
+      },
     });
     const candidate = await prisma.sourcingCandidate.create({
       data: {
@@ -286,7 +284,8 @@ describe('Product sync (PG integration, Wave C1)', () => {
         masterProductId: product.id,
         optionLinks: [{
           externalOptionId: 'BLUE-LOGICAL',
-          productVariantId: product.variants[0]!.id,
+          sellpiaInventorySkuId: sku.id,
+          quantity: 2,
         }],
       }));
     const provisional = await prisma.channelListingOption.findFirstOrThrow({
@@ -295,8 +294,10 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(provisional).toMatchObject({
       externalOptionId: 'BLUE-LOGICAL',
       sellerSku: 'registration-key',
-      productVariantId: product.variants[0]!.id,
     });
+    await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: provisional.id },
+    })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
 
     vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
       listOk([{ sellerProductId: 250, statusName: 'APPROVED' }]),
@@ -323,40 +324,34 @@ describe('Product sync (PG integration, Wave C1)', () => {
       id: provisional.id,
       externalOptionId: '9250',
       sellerSku: 'registration-key',
-      productVariantId: product.variants[0]!.id,
       itemName: 'Blue approved',
       salePrice: 10_500,
     });
+    await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: provisional.id },
+    })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
   });
 
-  it('keeps an existing actual option manual link and retires the conflicting provisional option', async () => {
+  it('keeps an existing actual option recipe and retires the conflicting provisional option', async () => {
     const product = await prisma.masterProduct.create({
       data: {
         organizationId,
         code: 'KI-REGISTER-CONFLICT',
         name: 'Registered conflict',
-        variants: {
-          create: [
-            {
-              code: 'KI-REGISTER-CONFLICT-PROVISIONAL',
-              name: 'Provisional',
-              isDefault: true,
-            },
-            {
-              code: 'KI-REGISTER-CONFLICT-MANUAL',
-              name: 'Manual actual',
-            },
-          ],
-        },
       },
-      include: { variants: { orderBy: { code: 'asc' } } },
     });
-    const provisionalVariant = product.variants.find(
-      (variant) => variant.code === 'KI-REGISTER-CONFLICT-PROVISIONAL',
-    )!;
-    const manualVariant = product.variants.find(
-      (variant) => variant.code === 'KI-REGISTER-CONFLICT-MANUAL',
-    )!;
+    const [provisionalSku, actualSku] = await Promise.all([
+      prisma.sellpiaInventorySku.create({ data: {
+        organizationId,
+        code: 'KI-REGISTER-CONFLICT-PROVISIONAL',
+        name: 'Provisional',
+      } }),
+      prisma.sellpiaInventorySku.create({ data: {
+        organizationId,
+        code: 'KI-REGISTER-CONFLICT-ACTUAL',
+        name: 'Actual',
+      } }),
+    ]);
     const candidate = await prisma.sourcingCandidate.create({
       data: {
         organizationId,
@@ -379,7 +374,8 @@ describe('Product sync (PG integration, Wave C1)', () => {
         masterProductId: product.id,
         optionLinks: [{
           externalOptionId: 'PROVISIONAL-LOGICAL',
-          productVariantId: provisionalVariant.id,
+          sellpiaInventorySkuId: provisionalSku.id,
+          quantity: 2,
         }],
       }));
     const provisional = await prisma.channelListingOption.findFirstOrThrow({
@@ -390,8 +386,15 @@ describe('Product sync (PG integration, Wave C1)', () => {
         organizationId,
         listingId: registered.listingId,
         externalOptionId: '9251',
-        productVariantId: manualVariant.id,
         isActive: true,
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId,
+        channelListingOptionId: actual.id,
+        sellpiaInventorySkuId: actualSku.id,
+        quantity: 3,
       },
     });
 
@@ -417,15 +420,16 @@ describe('Product sync (PG integration, Wave C1)', () => {
     })).resolves.toMatchObject({
       isActive: true,
       sellerSku: 'registration-conflict-key',
-      productVariantId: manualVariant.id,
       itemName: 'Manual actual approved',
       salePrice: 11_500,
     });
+    await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: actual.id },
+    })).resolves.toMatchObject({ sellpiaInventorySkuId: actualSku.id, quantity: 3 });
     await expect(prisma.channelListingOption.findUniqueOrThrow({
       where: { id: provisional.id },
     })).resolves.toMatchObject({
       isActive: false,
-      productVariantId: provisionalVariant.id,
     });
     await expect(prisma.channelListingOption.count({
       where: { listingId: registered.listingId, isActive: true },

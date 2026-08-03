@@ -11,7 +11,6 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
-import { ChannelCatalogProductProvisioningRepositoryAdapter } from '../../products/adapter/out/repository/channel-catalog-product-provisioning.repository.adapter';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const VENDOR_ID = 'ROCKET-VENDOR-1';
@@ -25,7 +24,6 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
     await prisma.$connect();
     repository = new RocketPoCatalogRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new ChannelCatalogProductProvisioningRepositoryAdapter(),
     );
   });
 
@@ -69,32 +67,17 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
         name: 'KidItem product',
       },
     });
-    const variant = await prisma.productVariant.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: master.id,
-        code: 'KI-1-DEFAULT',
-        name: 'Default variant',
-        isDefault: true,
-      },
-    });
-    const component = await prisma.productVariantComponent.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        productVariantId: variant.id,
-        sellpiaInventorySkuId: inventorySku.id,
-        quantity: 1,
-        source: 'manual',
-        confirmedBy: TEST_USER_ID,
-      },
-    });
     await prisma.channelListing.update({
       where: { id: firstOption.listingId },
       data: { masterProductId: master.id },
     });
-    await prisma.channelListingOption.update({
-      where: { id: firstOption.id },
-      data: { productVariantId: variant.id },
+    const component = await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: firstOption.id,
+        sellpiaInventorySkuId: inventorySku.id,
+        quantity: 1,
+      },
     });
 
     await repository.publish(publishInput('b'.repeat(64), row('P-2')));
@@ -117,10 +100,14 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
     })).toMatchObject({ isActive: true, masterProductId: master.id });
     expect(await prisma.channelListingOption.findUniqueOrThrow({
       where: { id: firstOption.id },
-    })).toMatchObject({ isActive: true, productVariantId: variant.id });
-    expect(await prisma.productVariantComponent.findUniqueOrThrow({
+    })).toMatchObject({ isActive: true });
+    expect(await prisma.channelListingOptionInventoryComponent.findUniqueOrThrow({
       where: { id: component.id },
-    })).toMatchObject({ productVariantId: variant.id, quantity: 1 });
+    })).toMatchObject({
+      channelListingOptionId: firstOption.id,
+      sellpiaInventorySkuId: inventorySku.id,
+      quantity: 1,
+    });
   });
 
   it('rechecks the active organization/account/vendor boundary in publication', async () => {
@@ -305,7 +292,7 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
     })).resolves.toBeNull();
   });
 
-  it('provisions exact barcode identities and channel-origin fallbacks during Rocket publication', async () => {
+  it('preserves confirmed direct mappings but never provisions products from Rocket evidence', async () => {
     const inventorySku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -323,23 +310,28 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
         name: 'Exact barcode item',
       },
     });
-    const variant = await prisma.productVariant.create({
+    const listing = await prisma.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_ID,
         masterProductId: master.id,
-        code: 'KI-BARCODE-DEFAULT',
-        name: 'Exact barcode item',
-        isDefault: true,
+        externalId: 'P-EXACT',
       },
     });
-    await prisma.productVariantComponent.create({
+    const option = await prisma.channelListingOption.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        productVariantId: variant.id,
+        listingId: listing.id,
+        externalOptionId: 'P-EXACT',
+        barcode: '8801234567890',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
         sellpiaInventorySkuId: inventorySku.id,
         quantity: 1,
-        source: 'manual',
-        confirmedBy: TEST_USER_ID,
       },
     });
 
@@ -352,22 +344,29 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
     await expect(prisma.channelListingOption.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'P-EXACT' },
       select: {
-        productVariantId: true,
         listing: { select: { masterProductId: true } },
+        inventoryComponents: {
+          select: { sellpiaInventorySkuId: true, quantity: true },
+        },
       },
     })).resolves.toEqual({
-      productVariantId: variant.id,
       listing: { masterProductId: master.id },
+      inventoryComponents: [{ sellpiaInventorySkuId: inventorySku.id, quantity: 1 }],
     });
     const fallback = await prisma.channelListingOption.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'P-ORIGIN' },
       select: {
-        productVariantId: true,
         listing: { select: { masterProductId: true } },
+        inventoryComponents: { select: { id: true } },
       },
     });
-    expect(fallback.productVariantId).not.toBeNull();
-    expect(fallback.listing.masterProductId).not.toBeNull();
+    expect(fallback).toEqual({
+      listing: { masterProductId: null },
+      inventoryComponents: [],
+    });
+    expect(await prisma.masterProduct.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toBe(1);
   });
 
   function publishInput(hash: string, catalogRow: ReturnType<typeof row>) {

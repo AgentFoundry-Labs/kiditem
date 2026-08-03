@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ConflictException } from '@nestjs/common';
 import { ProductOperationsController } from './product-operations.controller';
 
 describe('ProductOperationsController', () => {
   it('passes the authenticated organization to recipe component candidate search', async () => {
     const candidates = { search: vi.fn().mockResolvedValue({ items: [] }) };
     const controller = new ProductOperationsController(
-      {} as never,
       {} as never,
       candidates as never,
       {} as never,
@@ -22,51 +20,28 @@ describe('ProductOperationsController', () => {
     );
   });
 
-  it('forwards recipe snapshots and preserves a 409 current projection', async () => {
-    const conflict = new ConflictException({ message: 'changed', currentRecipe: [{ id: 'component-1' }] });
-    const recipes = { replaceRecipe: vi.fn().mockRejectedValue(conflict) };
-    const controller = new ProductOperationsController(
-      {} as never,
-      recipes as never,
-      {} as never,
-      {} as never,
-    );
-    const organizationId = '00000000-0000-4000-8000-000000000001';
-    const user = { id: '00000000-0000-4000-8000-000000000002' };
-    const variantId = '00000000-0000-4000-8000-000000000003';
-    const body = { components: [], expectedRecipe: [] };
-
-    await expect(controller.replaceRecipe(organizationId, user as never, variantId, body)).rejects.toBe(conflict);
-    expect(recipes.replaceRecipe).toHaveBeenCalledWith(organizationId, user.id, variantId, body);
-    expect(conflict.getStatus()).toBe(409);
-    expect(conflict.getResponse()).toMatchObject({ currentRecipe: [{ id: 'component-1' }] });
-  });
-
-  it('forwards an authenticated create-if-empty recipe batch', async () => {
-    const recipes = {
-      planCreateIfEmpty: vi.fn().mockResolvedValue({
-        pendingProductVariantIds: [],
-        unchangedProductVariantIds: [],
-      }),
-      createIfEmpty: vi.fn().mockResolvedValue({
-        appliedProductVariantIds: [],
-        unchangedProductVariantIds: [],
-      }),
+  it('forwards a direct channel-option inventory replacement', async () => {
+    const products = {
+      replaceChannelOptionInventory: vi.fn().mockResolvedValue({ id: 'product-1' }),
     };
     const controller = new ProductOperationsController(
-      {} as never,
-      recipes as never,
+      products as never,
       {} as never,
       {} as never,
     );
     const organizationId = '00000000-0000-4000-8000-000000000001';
-    const user = { id: '00000000-0000-4000-8000-000000000002' };
-    const body = { recipes: [] };
+    const optionId = '00000000-0000-4000-8000-000000000003';
+    const body = { components: [] };
 
-    await controller.planRecipesIfEmpty(organizationId, body);
-    await controller.createRecipesIfEmpty(organizationId, user as never, body);
-
-    expect(recipes.planCreateIfEmpty).toHaveBeenCalledWith(organizationId, body);
-    expect(recipes.createIfEmpty).toHaveBeenCalledWith(organizationId, user.id, body);
+    await expect(controller.replaceChannelOptionInventory(
+      organizationId,
+      optionId,
+      body,
+    )).resolves.toEqual({ id: 'product-1' });
+    expect(products.replaceChannelOptionInventory).toHaveBeenCalledWith(
+      organizationId,
+      optionId,
+      body,
+    );
   });
 });

@@ -82,7 +82,7 @@ export function ProductRowCard({
               {product.displayReference.label} {product.displayReference.value} · {product.brand ?? '브랜드 미등록'}
             </p>
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              옵션 {formatNumber(product.variantSummary.total)}개 · 구성 완료 {formatNumber(product.variantSummary.configured)}개
+              옵션 {formatNumber(product.channelOptionSummary.total)}개 · 구성 완료 {formatNumber(product.channelOptionSummary.configured)}개
             </p>
           </div>
         </div>
@@ -111,7 +111,7 @@ export function ProductRowCard({
           {INVENTORY_LABELS[product.inventoryStatus]}
         </span>
         <span>채널 {formatNumber(product.channelCount)}개</span>
-        <span>활성 옵션 {formatNumber(product.variantSummary.active)}개</span>
+        <span>활성 옵션 {formatNumber(product.channelOptionSummary.active)}개</span>
         <span>{product.depletion.minMonthsOfAvailableStockLeft === null ? '가용재고 소진 미계산' : `가용재고 ${product.depletion.minMonthsOfAvailableStockLeft}개월`}</span>
         <span>광고비 {product.adSpend === null ? '—' : `${formatKRW(product.adSpend)}원`}</span>
         <span>이익 {product.profit === null ? '—' : `${formatKRW(product.profit)}원`}</span>

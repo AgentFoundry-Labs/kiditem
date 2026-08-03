@@ -13,7 +13,7 @@ export type ProductOutflowDestinationsProps = {
 export function ProductOutflowDestinations({
   destinations,
 }: ProductOutflowDestinationsProps) {
-  const [failedImageVariantIds, setFailedImageVariantIds] = useState<Set<string>>(
+  const [failedImageOptionIds, setFailedImageOptionIds] = useState<Set<string>>(
     () => new Set(),
   );
   if (destinations.length === 0) {
@@ -24,17 +24,17 @@ export function ProductOutflowDestinations({
     <div
       className="min-w-0 space-y-1"
       title={destinations.map((destination) => (
-        `${destination.masterProductName} · ${destination.productVariantName}`
+        `${destination.masterProductName} · ${destination.optionName ?? destination.externalOptionId}`
       )).join('\n')}
     >
       {destinations.slice(0, 2).map((destination) => {
-        const alt = `${destination.masterProductName} · ${destination.productVariantName}`;
+        const alt = `${destination.masterProductName} · ${destination.optionName ?? destination.externalOptionId}`;
         const displayImage = destination.displayImage;
         const showImage = displayImage
-          && !failedImageVariantIds.has(destination.productVariantId);
+          && !failedImageOptionIds.has(destination.channelListingOptionId);
         return (
           <Link
-            key={destination.productVariantId}
+            key={destination.channelListingOptionId}
           href={`/product-hub/${destination.masterProductId}`}
           aria-label={alt}
           title={destinationTitle(destination)}
@@ -45,9 +45,9 @@ export function ProductOutflowDestinations({
                 src={displayImage.url}
                 alt={alt}
                 className="h-9 w-9 shrink-0 rounded object-cover bg-slate-100"
-                onError={() => setFailedImageVariantIds((current) => {
+                onError={() => setFailedImageOptionIds((current) => {
                   const next = new Set(current);
-                  next.add(destination.productVariantId);
+                  next.add(destination.channelListingOptionId);
                   return next;
                 })}
               />
@@ -75,7 +75,7 @@ export function ProductOutflowDestinations({
 }
 
 function destinationTitle(destination: SellpiaProductDestination): string {
-  const identity = `${destination.masterProductName} · ${destination.productVariantName}`;
+  const identity = `${destination.masterProductName} · ${destination.optionName ?? destination.externalOptionId}`;
   const evaluation = destination.abcEvaluation;
   if (!evaluation) return `${identity} · ABC 평가 미발행`;
   return `${identity} · 수익성 ABC · ${evaluation.calculationStatus} · 수익 데이터 관찰 ${evaluation.observationDays}일`;

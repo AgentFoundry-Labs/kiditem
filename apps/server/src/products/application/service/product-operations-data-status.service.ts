@@ -88,9 +88,17 @@ function markFailedSource(
     run.parentRunId === parentRunId
       && (run.status === 'failed' || run.status === 'attention_required'));
   const key = sourceKeyForOperation(child?.operationKey) ?? 'abc';
+  const actionRequired = child?.status === 'attention_required';
   return {
     ...sources,
-    [key]: { ...sources[key], status: 'FAILED', lastErrorAt: failedAt },
+    [key]: {
+      ...sources[key],
+      status: actionRequired ? 'ACTION_REQUIRED' : 'FAILED',
+      lastErrorAt: failedAt,
+      attentionReason: actionRequired
+        ? child.error?.message ?? 'operator_action_required'
+        : null,
+    },
   };
 }
 

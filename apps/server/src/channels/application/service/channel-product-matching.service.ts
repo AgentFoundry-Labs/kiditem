@@ -6,22 +6,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  LinkChannelListingOptionInputSchema,
   LinkChannelListingProductInputSchema,
   type ChannelProductCandidateListResponse,
-  type ChannelVariantCandidateListResponse,
 } from '@kiditem/shared/channel-product-matching';
+import { z } from 'zod';
 import { rankChannelProductCandidates } from '../../domain/channel-product-candidate-ranking';
-import { rankChannelVariantCandidates } from '../../domain/channel-variant-candidate-ranking';
 import {
   CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT,
   type ChannelProductMatchingQuery,
   type ChannelProductMatchingRepositoryPort,
 } from '../port/out/repository/channel-product-matching.repository.port';
-import {
-  CHANNEL_SKU_AVAILABILITY_PORT,
-  type ChannelSkuAvailabilityPort,
-} from '../port/in/channel-sku-availability.port';
 import {
   CATALOG_DISPLAY_MEDIA_PORT,
   type CatalogDisplayMediaPort,
@@ -34,8 +28,6 @@ export class ChannelProductMatchingService {
   constructor(
     @Inject(CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT)
     private readonly repository: ChannelProductMatchingRepositoryPort,
-    @Inject(CHANNEL_SKU_AVAILABILITY_PORT)
-    private readonly channelAvailability: ChannelSkuAvailabilityPort,
     @Inject(CATALOG_DISPLAY_MEDIA_PORT)
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
   ) {}
@@ -60,23 +52,7 @@ export class ChannelProductMatchingService {
         } : null,
       };
     });
-    const linkedOptionIds = queue.options
-      .filter((row) => row.option.productVariantId !== null)
-      .map((row) => row.option.id);
-    const availability = await this.channelAvailability.findByChannelSkuIds(
-      organizationId,
-      linkedOptionIds,
-    );
-    const byOptionId = new Map(availability.map((item) => [item.sku.id, item]));
-    const options = queue.options.map((row) => {
-      const item = byOptionId.get(row.option.id);
-      if (!item) return row;
-      return {
-        ...row,
-        recipeStatus: item.recipeStatus,
-        capacity: item.recipeStatus === 'matched' ? item.sku.sellableStock : null,
-      };
-    });
+    const options = queue.options;
     return {
       products,
       options,
@@ -88,13 +64,12 @@ export class ChannelProductMatchingService {
         },
         options: {
           all: options.length,
-          linked: options.filter((row) => row.option.productVariantId !== null).length,
-          unlinked: options.filter((row) => row.option.productVariantId === null).length,
-          recipeConfirmed: options.filter((row) => row.recipeStatus === 'matched').length,
-          configurationRequired: options.filter(
-            (row) => row.recipeStatus === 'configuration_required',
+          configured: options.filter(
+            (row) => row.option.inventoryComponents.length > 0,
           ).length,
-          reviewRequired: options.filter((row) => row.recipeStatus === 'review_required').length,
+          unconfigured: options.filter(
+            (row) => row.option.inventoryComponents.length === 0,
+          ).length,
         },
       },
     };
@@ -145,38 +120,6 @@ export class ChannelProductMatchingService {
     };
   }
 
-  async variantCandidates(
-    organizationId: string,
-    channelListingOptionId: string,
-    query: { search?: string },
-  ): Promise<ChannelVariantCandidateListResponse> {
-    const search = query.search?.trim() || undefined;
-    const context = await this.repository.getVariantCandidateContext(
-      organizationId,
-      channelListingOptionId,
-      search,
-    );
-    if (!context) throw new NotFoundException('ChannelListingOption was not found');
-    if (!context.masterProductId) {
-      throw new BadRequestException(
-        'Confirm the parent ChannelListing MasterProduct before matching options',
-      );
-    }
-    return {
-      items: rankChannelVariantCandidates({
-        candidates: context.candidates,
-        confirmedMasterProductId: context.masterProductId,
-        confirmedProductVariantId: context.productVariantId,
-        providerIdentity: context.externalOptionId,
-        explicitCode: context.sellerSku,
-        barcode: context.barcode,
-        name: context.itemName,
-        aiSuggestion: context.aiSuggestion,
-        manualSearch: search,
-      }),
-    };
-  }
-
   async linkProduct(
     organizationId: string,
     channelListingId: string,
@@ -196,22 +139,19 @@ export class ChannelProductMatchingService {
     });
   }
 
-  async linkOption(
-    organizationId: string,
-    channelListingOptionId: string,
-    rawInput: unknown,
-  ): Promise<void> {
-    const parsed = LinkChannelListingOptionInputSchema.safeParse(rawInput);
+  async autoMatch(organizationId: string, rawInput: unknown) {
+    const parsed = z.object({
+      channelAccountId: z.string().uuid().optional(),
+    }).strict().safeParse(rawInput ?? {});
     if (!parsed.success) {
       throw new BadRequestException({
-        message: 'Invalid ChannelListingOption variant link',
+        message: 'Invalid automatic product matching request',
         errors: parsed.error.flatten(),
       });
     }
-    return this.repository.linkOption({
+    return this.repository.autoMatch({
       organizationId,
-      channelListingOptionId,
-      productVariantId: parsed.data.productVariantId,
+      channelAccountId: parsed.data.channelAccountId,
     });
   }
 }

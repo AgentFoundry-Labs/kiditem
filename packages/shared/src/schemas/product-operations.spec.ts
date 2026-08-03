@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   CreateMasterProductInputSchema,
-  CreateProductVariantRecipesIfEmptyInputSchema,
-  CreateProductVariantInputSchema,
   MasterProductOperationsMetadataSchema,
   MasterProductOperationsDetailSchema,
   MasterProductOperationsListItemSchema,
@@ -15,13 +13,12 @@ import {
   ProductInventoryStatusSchema,
   ProductRecipeComponentCandidateListResponseSchema,
   ProductRecipeComponentCandidateQuerySchema,
-  ReplaceProductVariantRecipeInputSchema,
+  ReplaceChannelOptionInventoryInputSchema,
   UpdateMasterProductInputSchema,
-  UpdateProductVariantInputSchema,
 } from './product-operations';
 
 const productId = '00000000-0000-4000-8000-000000000001';
-const variantId = '00000000-0000-4000-8000-000000000002';
+const optionId = '00000000-0000-4000-8000-000000000002';
 const skuId = '00000000-0000-4000-8000-000000000003';
 
 const metadataFixture = {
@@ -239,7 +236,7 @@ describe('product operations contracts', () => {
         reorderSkuCount: 2,
         minMonthsOfAvailableStockLeft: 0.5,
       },
-      variantSummary: { total: 2, active: 2, configured: 1, warning: 1 },
+      channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 80,
       inventoryStatus: 'configuration_required',
       channelCount: 2,
@@ -324,7 +321,7 @@ describe('product operations contracts', () => {
     });
   });
 
-  it('parses detail variants with central components, capacity, and warnings', () => {
+  it('parses direct channel option components and capacity in product detail', () => {
     const detail = MasterProductOperationsDetailSchema.parse({
       id: productId,
       code: 'KI-001',
@@ -361,45 +358,36 @@ describe('product operations contracts', () => {
         displayName: '키즈 식판',
         status: 'approved',
         isActive: true,
-      }],
-      variants: [{
-        id: variantId,
-        code: 'KI-001-DEFAULT',
-        displayReference: {
-          type: 'product_variant_code',
-          label: '옵션 코드',
-          value: 'KI-001-DEFAULT',
-        },
-        name: '기본',
-        optionLabel: null,
-        isDefault: true,
-        isActive: true,
-        capacity: 10,
-        warningState: 'none',
-        components: [{
-          id: '00000000-0000-4000-8000-000000000006',
-          sellpiaInventorySkuId: skuId,
-          code: 'SP-001',
-          name: '식판',
-          optionName: null,
+        options: [{
+          id: optionId,
+          externalOptionId: 'P-001-DEFAULT',
+          itemName: '기본',
+          sellerSku: 'SP-001',
           barcode: null,
-          currentStock: 80,
-          activeCommitmentQuantity: 16,
-          availableStock: 64,
+          status: 'approved',
           isActive: true,
-          quantity: 8,
-          source: 'manual',
-          confirmedBy: null,
-          confirmedAt: '2026-07-16T00:00:00.000Z',
+          capacity: 8,
+          inventoryComponents: [{
+            id: '00000000-0000-4000-8000-000000000006',
+            sellpiaInventorySkuId: skuId,
+            code: 'SP-001',
+            name: '식판',
+            optionName: null,
+            barcode: null,
+            currentStock: 80,
+            availableStock: 64,
+            isActive: true,
+            quantity: 8,
+          }],
         }],
       }],
     });
-    expect(detail.variants[0]?.capacity).toBe(10);
-    expect(detail.variants[0]?.components[0]?.sellpiaInventorySkuId).toBe(skuId);
+    expect(detail.channelListings[0]?.options[0]?.capacity).toBe(8);
+    expect(detail.channelListings[0]?.options[0]?.inventoryComponents[0]?.sellpiaInventorySkuId).toBe(skuId);
     expect(detail.displayReference.value).toBe('13712531060');
   });
 
-  it('rejects inconsistent component availability in product detail', () => {
+  it('rejects negative component availability in product detail', () => {
     expect(() => MasterProductOperationsDetailSchema.parse({
       id: productId,
       code: 'KI-001',
@@ -423,48 +411,48 @@ describe('product operations contracts', () => {
       updatedAt: '2026-07-16T00:00:00.000Z',
       inventoryStatus: 'sellable',
       inventoryUnits: 80,
-      channelListings: [],
-      variants: [{
-        id: variantId,
-        code: 'KI-001-DEFAULT',
-        displayReference: {
-          type: 'product_variant_code',
-          label: '옵션 코드',
-          value: 'KI-001-DEFAULT',
-        },
-        name: '기본',
-        optionLabel: null,
-        isDefault: true,
+      channelListings: [{
+        id: '00000000-0000-4000-8000-000000000004',
+        channelAccountId: '00000000-0000-4000-8000-000000000005',
+        channel: 'coupang',
+        channelAccountName: 'Wing',
+        externalId: 'P-001',
+        displayName: '키즈 식판',
+        status: 'approved',
         isActive: true,
-        capacity: 10,
-        warningState: 'none',
-        components: [{
-          id: '00000000-0000-4000-8000-000000000006',
-          sellpiaInventorySkuId: skuId,
-          code: 'SP-001',
-          name: '식판',
-          optionName: null,
+        options: [{
+          id: optionId,
+          externalOptionId: 'P-001-DEFAULT',
+          itemName: '기본',
+          sellerSku: 'SP-001',
           barcode: null,
-          currentStock: 80,
-          activeCommitmentQuantity: 16,
-          availableStock: 80,
+          status: 'approved',
           isActive: true,
-          quantity: 8,
-          source: 'manual',
-          confirmedBy: null,
-          confirmedAt: '2026-07-16T00:00:00.000Z',
+          capacity: null,
+          inventoryComponents: [{
+            id: '00000000-0000-4000-8000-000000000006',
+            sellpiaInventorySkuId: skuId,
+            code: 'SP-001',
+            name: '식판',
+            optionName: null,
+            barcode: null,
+            currentStock: 80,
+            availableStock: -1,
+            isActive: true,
+            quantity: 8,
+          }],
         }],
       }],
     })).toThrow(/availableStock/i);
   });
 
-  it('enforces product and variant code normalization and mutation strictness', () => {
+  it('enforces product code normalization and mutation strictness', () => {
     expect(CreateMasterProductInputSchema.parse({
       code: '  KI-001  ',
       name: '  키즈 식판  ',
     })).toMatchObject({ code: 'KI-001', name: '키즈 식판' });
-    expect(CreateMasterProductInputSchema.parse({ code: 'KI-001', name: '식판' }).variants)
-      .toBeUndefined();
+    expect(CreateMasterProductInputSchema.parse({ code: 'KI-001', name: '식판' }))
+      .not.toHaveProperty('variants');
     expect(() => CreateMasterProductInputSchema.parse({
       code: 'KI-001',
       name: '식판',
@@ -474,87 +462,28 @@ describe('product operations contracts', () => {
       code: 'x'.repeat(101),
       name: '식판',
     })).toThrow();
-    expect(() => CreateProductVariantInputSchema.parse({
-      code: ' ',
-      name: '기본',
-    })).toThrow();
     expect(() => UpdateMasterProductInputSchema.parse({})).toThrow();
-    expect(() => UpdateProductVariantInputSchema.parse({ unknown: true })).toThrow();
   });
 
-  it('accepts only complete bounded recipes with positive integer quantities', () => {
-    expect(ReplaceProductVariantRecipeInputSchema.parse({
+  it('accepts bounded direct channel option recipes with positive integer quantities', () => {
+    expect(ReplaceChannelOptionInventoryInputSchema.parse({
       components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
-      expectedRecipe: [],
     }).components).toHaveLength(1);
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
-      components: [],
-    })).toThrow();
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+    expect(ReplaceChannelOptionInventoryInputSchema.parse({ components: [] }).components).toEqual([]);
+    expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
       components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }],
-      expectedRecipe: [],
     })).toThrow();
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+    expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
       components: Array.from({ length: 51 }, (_, index) => ({
         sellpiaInventorySkuId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
         quantity: 1,
       })),
-      expectedRecipe: [],
     })).toThrow();
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+    expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
       components: [
         { sellpiaInventorySkuId: skuId, quantity: 1 },
         { sellpiaInventorySkuId: skuId, quantity: 2 },
       ],
-      expectedRecipe: [],
-    })).toThrow();
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
-      components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-      expectedRecipe: [{
-        id: '00000000-0000-4000-8000-000000000006',
-        sellpiaInventorySkuId: skuId,
-        quantity: 1,
-        source: 'manual',
-        confirmedBy: null,
-        confirmedAt: 'not-a-date',
-      }],
-    })).toThrow();
-  });
-
-  it('bounds create-if-empty recipe imports and rejects duplicate variants', () => {
-    const secondVariantId = '00000000-0000-4000-8000-000000000004';
-    expect(CreateProductVariantRecipesIfEmptyInputSchema.parse({
-      recipes: [
-        {
-          productVariantId: variantId,
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-        },
-        {
-          productVariantId: secondVariantId,
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
-        },
-      ],
-    }).recipes).toHaveLength(2);
-    expect(() => CreateProductVariantRecipesIfEmptyInputSchema.parse({
-      recipes: [{ productVariantId: variantId, components: [] }],
-    })).toThrow();
-    expect(() => CreateProductVariantRecipesIfEmptyInputSchema.parse({
-      recipes: [
-        {
-          productVariantId: variantId,
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-        },
-        {
-          productVariantId: variantId,
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-        },
-      ],
-    })).toThrow(/distinct ProductVariant/);
-    expect(() => CreateProductVariantRecipesIfEmptyInputSchema.parse({
-      recipes: Array.from({ length: 101 }, (_, index) => ({
-        productVariantId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-      })),
     })).toThrow();
   });
 });

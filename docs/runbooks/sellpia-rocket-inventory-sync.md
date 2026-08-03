@@ -37,8 +37,9 @@ authenticated Rocket PO collection
 
 Inventory owns freshness, publication, physical `SellpiaInventorySku`, and
 `currentStock`. Channels owns Rocket `ChannelAccount` and observed listing/SKU
-identity. Products owns the operator-confirmed `ProductVariantComponent`
-recipes. Supply owns the preview calculation and Rocket decision/workbook audit.
+identity. Products owns the operator-confirmed direct
+`ChannelListingOptionInventoryComponent` rules. Supply owns the preview
+calculation and Rocket decision/workbook audit.
 Orders owns PA persistence in the general order spine. Inventory owns freshness
 and physical stock; Supply and Orders do not derive freshness or write inventory
 state.
@@ -62,7 +63,7 @@ state.
    server. A duplicate completed artifact is reused.
 6. Publication upserts observed Rocket identities without inactivating older
    Rocket identities that are absent from a later PO collection. Existing
-   confirmed recipes are preserved.
+   confirmed option-component rules are preserved.
 7. Confirmation-capable collection additionally requires the allowlisted
    official-workbook fields for every line. Missing fields block confirmation;
    they are never synthesized from names or copied from another PO.
@@ -75,7 +76,7 @@ missing evidence manually.
 
 Before final stockout allocation, Supply requires a fresh Inventory read
 containing one verified generation, active state, and `currentStock` for every
-confirmed recipe component. When inventory is stale, the server first returns
+confirmed option component. When inventory is stale, the server first returns
 a `freshness_pending` checkpoint containing rows calculated from the last stored
 snapshot. The UI shows those collected rows immediately, labels their quantities
 as advisory, joins the automatic refresh, then replaces them with the target
@@ -105,7 +106,7 @@ treated as a confirmed zero-capacity recipe.
    quantity below the PO order quantity must use one controlled shortage reason.
 2. Choose **쿠팡 엑셀 다운로드**. The browser uses a stable UUID idempotency key.
 3. Supply reruns the canonical preview against fresh Inventory capacity, verifies
-   the completed source run and unchanged option/variant/component recipes, and
+   the completed source run and unchanged option/component rules, and
    persists the exact uploaded workbook bytes plus immutable line evidence.
 4. Replaying the same key and input returns the same workbook bytes; changed
    input with the same key is rejected.
@@ -135,7 +136,7 @@ of Coupang acceptance and does not call a marketplace provider.
 |---|---|
 | `/rocket-orders` | Preserved `c9e7caf8` calendar/list/file-history UI with the stale capacity-decision placeholder replaced by authenticated collection, completeness evidence, editable deterministic preview, confirmation/workbook, and release. |
 | `/purchase-orders` | General supplier purchase-order operations only. |
-| `/product-hub/matching` | Baseline Coupang/Rocket SKU queue and exact Sellpia component-recipe confirmation workspace. |
+| `/product-hub/matching` | Baseline Coupang/Rocket listing queue and exact Sellpia option-component confirmation workspace. |
 | `/inventory-hub?tab=sellpia-sync` | Shared Sellpia freshness status, current basis, attempts, warnings, and manual fallback. |
 | `/stock-ops?tab=product-outflow` | Direct Sellpia SKU sales/depletion with current stock, mapping state, and operating-product destinations. |
 
@@ -174,11 +175,11 @@ for a real-world stock change.
 | Rocket account missing/inactive | Select or configure an active organization-owned `channel='rocket'` account. |
 | Vendor mismatch | Sign in to the intended Coupang supplier account or select the matching Rocket ChannelAccount. Recollect; do not override the ID. |
 | Missing/truncated details | Narrow the date range, restore the provider page/session, and recollect until completeness evidence is clean. |
-| SKU is unmapped | Open `/product-hub/matching` and confirm the entire recipe; do not infer quantity from a title. |
-| Recipe component inactive | Review and replace/confirm the recipe. Persisted mapping remains diagnosable and appears in `needs_review`. |
+| SKU is unmapped | Open `/product-hub/matching` and confirm the entire option-component rule; do not infer quantity from a title. |
+| Component inactive | Review and replace/confirm the option-component rule. Persisted mapping remains diagnosable and appears in `needs_review`. |
 | Freshness pending | Keep the collected rows visible as advisory, wait for automatic Sellpia refresh, and recompute from the requested generation before export. |
 | Edited quantity rejected | Keep the preview dirty, run **수량 다시 검증**, and use the jointly returned effective quantities. |
-| Confirmation reports stale generation/source/recipe | Recollect and recompute. Do not reuse old rows or override the fence. |
+| Confirmation reports stale generation/source/components | Recollect and recompute. Do not reuse old rows or override the fence. |
 | Idempotency conflict | Keep the existing decision or create a new confirmation intent with a new UUID after operator review. |
 | Workbook generation/download fails after persistence | Retry the same idempotency key to download the exact stored artifact; do not recalculate silently. |
 | PA row does not match the active workbook | Keep it in the generated Sellpia candidate file and report it as unmatched metadata; do not discard the order. |

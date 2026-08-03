@@ -13,7 +13,7 @@ export type ChannelRecipeSuggestionStatus =
   | 'name_review_only'
   | 'no_match';
 
-export type ChannelRecipeAutomationDecision =
+export type ChannelRecipeSuggestionDecision =
   | 'auto_apply'
   | 'quantity_review'
   | 'operator_review'
@@ -84,7 +84,6 @@ type ManualMatchEvidence = {
 
 export type ChannelRecipeSuggestionInput = {
   channelListingOptionId: string;
-  productVariantId: string | null;
   masterProductId: string | null;
   options: Array<{
     channelListingOptionId: string;
@@ -127,10 +126,9 @@ type StrongEvidence = {
 
 export type ChannelRecipeSuggestionResponse = {
   channelListingOptionId: string;
-  productVariantId: string | null;
   masterProductId: string | null;
   status: ChannelRecipeSuggestionStatus;
-  automationDecision: ChannelRecipeAutomationDecision;
+  automationDecision: ChannelRecipeSuggestionDecision;
   recommendedQuantity: number | null;
   reason: string;
   existingComponents: ChannelRecipeSuggestionInput['existingComponents'];
@@ -170,7 +168,6 @@ export function classifyChannelRecipeSuggestion(
 ): ChannelRecipeSuggestionResponse {
   const base = {
     channelListingOptionId: input.channelListingOptionId,
-    productVariantId: input.productVariantId,
     masterProductId: input.masterProductId,
     existingComponents: input.existingComponents,
   };
@@ -366,10 +363,10 @@ function identifierNameMismatch(input: ChannelRecipeSuggestionInput): boolean {
 
 function looseNameDecision(
   base: Pick<ChannelRecipeSuggestionResponse,
-    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+    'channelListingOptionId' | 'masterProductId' | 'existingComponents'>,
   evidence: NameEvidence[],
   status: ChannelRecipeSuggestionStatus,
-  automationDecision: ChannelRecipeAutomationDecision,
+  automationDecision: ChannelRecipeSuggestionDecision,
   recommendedQuantity: number | null,
   reason: string,
 ): ChannelRecipeSuggestionResponse {
@@ -385,7 +382,7 @@ function looseNameDecision(
 
 function decideSimilarity(
   base: Pick<ChannelRecipeSuggestionResponse,
-    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+    'channelListingOptionId' | 'masterProductId' | 'existingComponents'>,
   input: ChannelRecipeSuggestionInput,
 ): ChannelRecipeSuggestionResponse | null {
   const evidence = bestSimilarityPerSku(input.similarityEvidence);
@@ -441,10 +438,10 @@ function similarityPriority(kind: SimilarityEvidence['kind']): number {
 
 function similarityDecision(
   base: Pick<ChannelRecipeSuggestionResponse,
-    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+    'channelListingOptionId' | 'masterProductId' | 'existingComponents'>,
   evidence: SimilarityEvidence[],
   status: ChannelRecipeSuggestionStatus,
-  automationDecision: ChannelRecipeAutomationDecision,
+  automationDecision: ChannelRecipeSuggestionDecision,
   recommendedQuantity: number | null,
   reason: string,
 ): ChannelRecipeSuggestionResponse {
@@ -477,10 +474,10 @@ function automaticStatus(
 
 function decision(
   base: Pick<ChannelRecipeSuggestionResponse,
-    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+    'channelListingOptionId' | 'masterProductId' | 'existingComponents'>,
   evidence: StrongEvidence[],
   status: ChannelRecipeSuggestionStatus,
-  automationDecision: ChannelRecipeAutomationDecision,
+  automationDecision: ChannelRecipeSuggestionDecision,
   recommendedQuantity: number | null,
   reason: string,
 ): ChannelRecipeSuggestionResponse {

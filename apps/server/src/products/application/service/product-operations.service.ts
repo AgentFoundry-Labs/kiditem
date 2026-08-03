@@ -1,22 +1,14 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import {
   CreateMasterProductInputSchema,
-  CreateProductVariantRecipesIfEmptyInputSchema,
-  CreateProductVariantInputSchema,
   MasterProductOperationsListQuerySchema,
+  ReplaceChannelOptionInventoryInputSchema,
   UpdateMasterProductInputSchema,
-  UpdateProductVariantInputSchema,
-  ReplaceProductVariantRecipeInputSchema,
-  type CreateMasterProductInput,
-  type CreateProductVariantInput,
-  type UpdateMasterProductInput,
-  type UpdateProductVariantInput,
   type ProductDepletionProjection,
   type ProductOperationsListSummary,
 } from '@kiditem/shared/product-operations';
 import {
   PRODUCT_OPERATIONS_REPOSITORY_PORT,
-  type NormalizedCreateProductVariant,
   type ProductOperationsRepositoryPort,
 } from '../port/out/repository/product-operations.repository.port';
 import {
@@ -30,7 +22,6 @@ import {
 import {
   mapProductOperationsDetail,
   mapProductOperationsListItem,
-  mapProductOperationsVariant,
 } from '../../mapper/product-operations-inventory.mapper';
 import {
   CATALOG_DISPLAY_MEDIA_PORT,
@@ -71,7 +62,7 @@ export class ProductOperationsService implements ProductOperationsPort {
     ]);
     const inventoryBySkuId = await this.loadInventory(
       organizationId,
-      raw.items.flatMap(({ variants }) => variants),
+      raw.items.flatMap(({ inventoryOptions }) => inventoryOptions),
     );
     const placeholder = noDirectSales();
     const hydrated = raw.items.map((item) =>
@@ -107,7 +98,10 @@ export class ProductOperationsService implements ProductOperationsPort {
     const product = await this.repository.getProduct(organizationId, masterProductId);
     const mapped = mapProductOperationsDetail(
       product,
-      await this.loadInventory(organizationId, product.variants),
+      await this.loadInventory(
+        organizationId,
+        product.channelListings.flatMap(({ options }) => options),
+      ),
     );
     return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
@@ -122,22 +116,13 @@ export class ProductOperationsService implements ProductOperationsPort {
       omitLegacyAbcGrade(rawInput),
       'Invalid MasterProduct creation',
     );
-    const variants = input.variants?.map(normalizeVariant) ?? [{
-      code: `${input.code.slice(0, 92)}-DEFAULT`,
-      name: input.name,
-      optionLabel: null,
-      isDefault: true,
-      isActive: true,
-      components: [],
-    }];
     const product = await this.repository.createProduct({
       organizationId,
-      userId,
-      product: { ...input, variants },
+      product: input,
     });
     const mapped = mapProductOperationsDetail(
       product,
-      await this.loadInventory(organizationId, product.variants),
+      new Map(),
     );
     return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
@@ -159,117 +144,42 @@ export class ProductOperationsService implements ProductOperationsPort {
     );
     const mapped = mapProductOperationsDetail(
       product,
-      await this.loadInventory(organizationId, product.variants),
+      await this.loadInventory(
+        organizationId,
+        product.channelListings.flatMap(({ options }) => options),
+      ),
     );
     return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
 
-  async createVariant(
+  async replaceChannelOptionInventory(
     organizationId: string,
-    userId: string,
-    masterProductId: string,
+    channelListingOptionId: string,
     rawInput: unknown,
   ) {
     const input = parseOrBadRequest(
-      CreateProductVariantInputSchema,
+      ReplaceChannelOptionInventoryInputSchema,
       rawInput,
-      'Invalid ProductVariant creation',
+      'Invalid channel option inventory replacement',
     );
-    const variant = await this.repository.createVariant({
+    const product = await this.repository.replaceChannelOptionInventory({
       organizationId,
-      userId,
-      masterProductId,
-      variant: normalizeVariant(input),
-    });
-    return mapProductOperationsVariant(
-      variant,
-      await this.loadInventory(organizationId, [variant]),
-    );
-  }
-
-  async updateVariant(
-    organizationId: string,
-    productVariantId: string,
-    rawInput: unknown,
-  ) {
-    const input = parseOrBadRequest(
-      UpdateProductVariantInputSchema,
-      rawInput,
-      'Invalid ProductVariant update',
-    );
-    const variant = await this.repository.updateVariant(
-      organizationId,
-      productVariantId,
-      input,
-    );
-    return mapProductOperationsVariant(
-      variant,
-      await this.loadInventory(organizationId, [variant]),
-    );
-  }
-
-  async replaceRecipe(
-    organizationId: string,
-    userId: string,
-    productVariantId: string,
-    rawInput: unknown,
-  ) {
-    const input = parseOrBadRequest(
-      ReplaceProductVariantRecipeInputSchema,
-      rawInput,
-      'Invalid ProductVariant recipe replacement',
-    );
-    const variant = await this.repository.replaceRecipe({
-      organizationId,
-      userId,
-      productVariantId,
+      channelListingOptionId,
       components: input.components,
-      expectedRecipe: input.expectedRecipe,
     });
-    return mapProductOperationsVariant(
-      variant,
-      await this.loadInventory(organizationId, [variant]),
+    const options = product.channelListings.flatMap(({ options }) => options);
+    return mapProductOperationsDetail(
+      product,
+      await this.loadInventory(organizationId, options),
     );
-  }
-
-  async planRecipesIfEmpty(
-    organizationId: string,
-    rawInput: unknown,
-  ) {
-    const input = parseOrBadRequest(
-      CreateProductVariantRecipesIfEmptyInputSchema,
-      rawInput,
-      'Invalid create-if-empty ProductVariant recipe plan',
-    );
-    return this.repository.planManualRecipesIfEmpty({
-      organizationId,
-      recipes: input.recipes,
-    });
-  }
-
-  async createRecipesIfEmpty(
-    organizationId: string,
-    userId: string,
-    rawInput: unknown,
-  ) {
-    const input = parseOrBadRequest(
-      CreateProductVariantRecipesIfEmptyInputSchema,
-      rawInput,
-      'Invalid create-if-empty ProductVariant recipe batch',
-    );
-    return this.repository.createManualRecipesIfEmpty({
-      organizationId,
-      userId,
-      recipes: input.recipes,
-    });
   }
 
   private async loadInventory(
     organizationId: string,
-    variants: Array<{ components: Array<{ sellpiaInventorySkuId: string }> }>,
+    options: Array<{ inventoryComponents: Array<{ sellpiaInventorySkuId: string }> }>,
   ) {
-    const sellpiaInventorySkuIds = [...new Set(variants.flatMap(({ components }) =>
-      components.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))].sort(
+    const sellpiaInventorySkuIds = [...new Set(options.flatMap(({ inventoryComponents }) =>
+      inventoryComponents.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))].sort(
         (left, right) => left.localeCompare(right),
       );
     const availability = await this.inventory.findBySkuIds({
@@ -432,18 +342,6 @@ function conservativeDisplayDataAsOf(
     product.abcEvaluation?.sourceFreshness.evaluationCutoffDate ?? null,
   ]).filter((date): date is string => date !== null);
   return dates.length > 0 ? dates.reduce((earliest, date) => date < earliest ? date : earliest) : null;
-}
-
-function normalizeVariant(
-  input: CreateProductVariantInput,
-): NormalizedCreateProductVariant {
-  return {
-    ...input,
-    optionLabel: input.optionLabel ?? null,
-    isDefault: input.isDefault ?? false,
-    isActive: input.isActive ?? true,
-    components: input.components ?? [],
-  };
 }
 
 function parseOrBadRequest<T>(

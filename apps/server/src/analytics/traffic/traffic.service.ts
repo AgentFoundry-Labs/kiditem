@@ -22,7 +22,7 @@ interface DayRevenue {
 }
 
 /**
- * Pricing 원천 — ChannelListingOption + 연결된 ProductVariant 구성표.
+ * Pricing 원천 — ChannelListingOption의 Sellpia 재고 구성표.
  * Listing 의 첫 활성 SKU를 대표값으로 사용.
  * 멀티 option listing 은 listing 단위 일별 트래픽이 listing 단위 집계라
  * 첫 option 기준으로 충분.
@@ -37,14 +37,10 @@ const LISTING_PRICING_SELECT = {
       commissionRate: true,
       shippingCost: true,
       otherCost: true,
-      productVariant: {
+      inventoryComponents: {
         select: {
-          components: {
-            select: {
-              quantity: true,
-              sellpiaInventorySku: { select: { purchasePrice: true } },
-            },
-          },
+          quantity: true,
+          sellpiaInventorySku: { select: { purchasePrice: true } },
         },
       },
     },
@@ -340,14 +336,12 @@ function resolveListingOptionPricing(option: {
   commissionRate: { toString(): string } | number | null;
   shippingCost: number | null;
   otherCost: number | null;
-  productVariant: {
-    components: Array<{
-      quantity: number;
-      sellpiaInventorySku: { purchasePrice: number | null };
-    }>;
-  } | null;
+  inventoryComponents: Array<{
+    quantity: number;
+    sellpiaInventorySku: { purchasePrice: number | null };
+  }>;
 }) {
-  const componentCost = (option.productVariant?.components ?? []).reduce(
+  const componentCost = option.inventoryComponents.reduce(
     (sum, component) =>
       sum +
       (component.sellpiaInventorySku.purchasePrice ?? 0) * component.quantity,

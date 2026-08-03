@@ -256,7 +256,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         confirmationLineId: line.id,
         sellpiaInventorySkuId: SKU_ID,
-        unitsPerVariant: 1,
+        unitsPerSale: 1,
         quantity,
       },
     });

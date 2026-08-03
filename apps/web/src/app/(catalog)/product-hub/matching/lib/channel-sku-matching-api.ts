@@ -1,17 +1,13 @@
 import { z } from 'zod';
 import { ChannelAccountListItemSchema, type ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import {
-  ChannelRecipeSuggestionResponseSchema,
+  ChannelProductAutoMatchResponseSchema,
   ChannelProductCandidateListResponseSchema,
   ChannelProductMatchingQueueResponseSchema,
-  ChannelVariantCandidateListResponseSchema,
-  LinkChannelListingOptionInputSchema,
   LinkChannelListingProductInputSchema,
-  type ChannelRecipeSuggestionResponse,
+  type ChannelProductAutoMatchResponse,
   type ChannelProductCandidateListResponse,
   type ChannelProductMatchingQueueResponse,
-  type ChannelVariantCandidateListResponse,
-  type LinkChannelListingOptionInput,
   type LinkChannelListingProductInput,
 } from '@kiditem/shared/channel-product-matching';
 import { CoupangWingCatalogImportResponseSchema, type CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
@@ -24,11 +20,6 @@ import {
   type SellpiaManualMatchTargetsResponse,
 } from '@kiditem/shared/sellpia-manual-match';
 import { apiClient } from '@/lib/api-client';
-export {
-  applyChannelRecipeAutomation,
-  getChannelRecipeAutomationPreview,
-} from '@/lib/channel-recipe-automation-api';
-
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 export function listChannelAccounts(): Promise<ChannelAccountListItem[]> {
@@ -76,25 +67,6 @@ export function listChannelProductCandidates(
   );
 }
 
-export function listChannelVariantCandidates(
-  channelListingOptionId: string,
-  search = '',
-): Promise<ChannelVariantCandidateListResponse> {
-  return apiClient.getParsed(
-    candidateUrl(`/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/candidates`, search),
-    ChannelVariantCandidateListResponseSchema,
-  );
-}
-
-export function getChannelRecipeSuggestion(
-  channelListingOptionId: string,
-): Promise<ChannelRecipeSuggestionResponse> {
-  return apiClient.getParsed(
-    `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/recipe-suggestions`,
-    ChannelRecipeSuggestionResponseSchema,
-  );
-}
-
 export async function linkChannelListingProduct(
   channelListingId: string,
   input: LinkChannelListingProductInput,
@@ -106,15 +78,14 @@ export async function linkChannelListingProduct(
   );
 }
 
-export async function linkChannelListingOption(
-  channelListingOptionId: string,
-  input: LinkChannelListingOptionInput,
-): Promise<void> {
-  const body = LinkChannelListingOptionInputSchema.parse(input);
-  await apiClient.put<void>(
-    `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/product-variant`,
-    body,
+export async function autoMatchChannelProducts(
+  channelAccountId?: string,
+): Promise<ChannelProductAutoMatchResponse> {
+  const response = await apiClient.post<unknown>(
+    '/api/channels/product-mappings/auto-match',
+    channelAccountId ? { channelAccountId } : {},
   );
+  return ChannelProductAutoMatchResponseSchema.parse(response);
 }
 
 export function importCoupangWingCatalog(

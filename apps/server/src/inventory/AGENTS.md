@@ -85,7 +85,7 @@ Route shape is frozen.
 `SellpiaInventorySku.currentStock`. It is an organization-scoped full snapshot
 replacement: one valid source-artifact row maps to one physical `SellpiaInventorySku`, and a
 completed import marks absent known Sellpia codes inactive with zero stock
-without deleting their identity or `ProductVariantComponent` references.
+without deleting their identity or direct channel-option component references.
 
 Automatic browser refresh imports a versioned, deterministic Sellpia JSON full
 snapshot. Manual XLS/XLSX/CSV upload remains an operator recovery path; both
@@ -166,7 +166,7 @@ change stock.
 - Product operations reads must enter through Products APIs. The Inventory SKU
   list may expose linked/unlinked projections, but it must not manufacture or
   mutate `MasterProduct` rows.
-- Inventory SKU linked product/variant destinations are distinct read-only
-  projections of actual, active, organization-fenced
-  `ProductVariantComponent` relations; never infer destinations from codes,
-  names, or barcodes.
+- Inventory SKU linked product/channel-option destinations are distinct
+  read-only projections of actual, active, organization-fenced
+  `ChannelListingOptionInventoryComponent` relations; never infer destinations
+  from codes, names, or barcodes.

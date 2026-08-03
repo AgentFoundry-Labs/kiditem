@@ -1,6 +1,13 @@
 import { z } from 'zod';
-import { ChannelRecipeAutomationDecisionSchema } from './channel-recipe-automation.js';
 import { zIsoDate } from './common.js';
+
+export const ChannelRecipeSuggestionDecisionSchema = z.enum([
+  'auto_apply',
+  'quantity_review',
+  'operator_review',
+  'blocked',
+  'already_configured',
+]);
 
 export const ChannelMatchCandidateReasonSchema = z.enum([
   'existing_identity',
@@ -81,20 +88,6 @@ export type ChannelProductMatchCandidate = z.infer<
   typeof ChannelProductMatchCandidateSchema
 >;
 
-export const ChannelVariantMatchCandidateSchema = z.object({
-  productVariantId: z.string().uuid(),
-  masterProductId: z.string().uuid(),
-  code: z.string().min(1),
-  name: z.string().min(1),
-  optionLabel: z.string().nullable(),
-  reason: ChannelMatchCandidateReasonSchema,
-  evidence: ChannelMatchEvidenceSchema,
-  rank: z.number().int().positive(),
-}).strict().superRefine(requireCandidateEvidence);
-export type ChannelVariantMatchCandidate = z.infer<
-  typeof ChannelVariantMatchCandidateSchema
->;
-
 export const ChannelMatchingAccountSchema = z.object({
   id: z.string().uuid(),
   channel: z.string().min(1),
@@ -123,7 +116,7 @@ export const ChannelProductMatchingQueueRowSchema = z.object({
     displayImageUrl: DisplayImageUrlSchema,
   }).strict().nullable(),
   optionCount: z.number().int().nonnegative(),
-  linkedOptionCount: z.number().int().nonnegative(),
+  configuredOptionCount: z.number().int().nonnegative(),
 }).strict().superRefine((row, ctx) => {
   if ((row.listing.masterProductId === null) !== (row.linkedProduct === null)) {
     ctx.addIssue({
@@ -148,14 +141,28 @@ export type ChannelProductMatchingQueueRow = z.infer<
   typeof ChannelProductMatchingQueueRowSchema
 >;
 
-export const ChannelOptionRecipeStatusSchema = z.enum([
-  'unmatched',
-  'matched',
-  'configuration_required',
-  'review_required',
-]);
-export type ChannelOptionRecipeStatus = z.infer<
-  typeof ChannelOptionRecipeStatusSchema
+export const ChannelOptionInventoryComponentSchema = z.object({
+  id: z.string().uuid(),
+  sellpiaInventorySkuId: z.string().uuid(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  optionName: z.string().nullable(),
+  barcode: z.string().nullable(),
+  currentStock: z.number().int().nonnegative(),
+  availableStock: z.number().int().nonnegative(),
+  isActive: z.boolean(),
+  quantity: z.number().int().positive(),
+}).strict().superRefine((component, ctx) => {
+  if (component.availableStock > component.currentStock) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['availableStock'],
+      message: 'availableStock cannot exceed currentStock',
+    });
+  }
+});
+export type ChannelOptionInventoryComponent = z.infer<
+  typeof ChannelOptionInventoryComponentSchema
 >;
 
 export const ChannelOptionMatchingQueueRowSchema = z.object({
@@ -171,91 +178,16 @@ export const ChannelOptionMatchingQueueRowSchema = z.object({
     itemName: z.string().nullable(),
     sellerSku: z.string().nullable(),
     barcode: z.string().nullable(),
-    productVariantId: z.string().uuid().nullable(),
     updatedAt: zIsoDate,
+    inventoryComponents: z.array(ChannelOptionInventoryComponentSchema).max(50),
   }).strict(),
-  linkedVariant: z.object({
-    id: z.string().uuid(),
-    masterProductId: z.string().uuid(),
-    code: z.string().min(1),
-    name: z.string().min(1),
-    optionLabel: z.string().nullable(),
-  }).strict().nullable(),
-  recipeStatus: ChannelOptionRecipeStatusSchema,
   capacity: z.number().int().nonnegative().nullable(),
 }).strict().superRefine((row, ctx) => {
-  if ((row.option.productVariantId === null) !== (row.linkedVariant === null)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['linkedVariant'],
-      message: 'linkedVariant must agree with productVariantId',
-    });
-  }
-  if (row.option.productVariantId !== null && row.listing.masterProductId === null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['option', 'productVariantId'],
-      message: 'An option cannot be linked while its listing is unmatched',
-    });
-  }
-  if (
-    row.option.productVariantId !== null
-    && row.linkedVariant !== null
-    && row.option.productVariantId !== row.linkedVariant.id
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['linkedVariant', 'id'],
-      message: 'linkedVariant id must equal productVariantId',
-    });
-  }
-  if (
-    row.listing.masterProductId !== null
-    && row.linkedVariant !== null
-    && row.listing.masterProductId !== row.linkedVariant.masterProductId
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['linkedVariant', 'masterProductId'],
-      message: 'linkedVariant must belong to the linked listing product',
-    });
-  }
-  if (row.recipeStatus === 'unmatched') {
-    if (row.option.productVariantId !== null || row.linkedVariant !== null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['recipeStatus'],
-        message: 'unmatched options cannot have a linked variant',
-      });
-    }
-    if (row.capacity !== null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['capacity'],
-        message: 'unmatched options cannot have capacity',
-      });
-    }
-    return;
-  }
-  if (row.option.productVariantId === null || row.linkedVariant === null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['recipeStatus'],
-      message: `${row.recipeStatus} options require a linked variant`,
-    });
-  }
-  if (row.recipeStatus === 'matched' && row.capacity === null) {
+  if (row.option.inventoryComponents.length === 0 && row.capacity !== null) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['capacity'],
-      message: 'matched options require capacity',
-    });
-  }
-  if (row.recipeStatus !== 'matched' && row.capacity !== null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['capacity'],
-      message: `${row.recipeStatus} options cannot have capacity`,
+      message: 'An option without inventory components cannot have capacity',
     });
   }
 });
@@ -271,11 +203,8 @@ export const ChannelProductMatchingCountsSchema = z.object({
   }).strict(),
   options: z.object({
     all: z.number().int().nonnegative(),
-    linked: z.number().int().nonnegative(),
-    unlinked: z.number().int().nonnegative(),
-    recipeConfirmed: z.number().int().nonnegative(),
-    configurationRequired: z.number().int().nonnegative(),
-    reviewRequired: z.number().int().nonnegative(),
+    configured: z.number().int().nonnegative(),
+    unconfigured: z.number().int().nonnegative(),
   }).strict(),
 }).strict().superRefine((counts, ctx) => {
   if (counts.products.linked + counts.products.unlinked !== counts.products.all) {
@@ -285,23 +214,11 @@ export const ChannelProductMatchingCountsSchema = z.object({
       message: 'linked and unlinked products must equal all products',
     });
   }
-  if (counts.options.linked + counts.options.unlinked !== counts.options.all) {
+  if (counts.options.configured + counts.options.unconfigured !== counts.options.all) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['options'],
-      message: 'linked and unlinked options must equal all options',
-    });
-  }
-  if (
-    counts.options.recipeConfirmed
-    + counts.options.configurationRequired
-    + counts.options.reviewRequired
-    !== counts.options.linked
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['options'],
-      message: 'recipe states must equal linked options',
+      message: 'configured and unconfigured options must equal all options',
     });
   }
 });
@@ -349,10 +266,9 @@ export type ChannelRecipeSuggestionEvidence = z.infer<
 
 export const ChannelRecipeSuggestionResponseSchema = z.object({
   channelListingOptionId: z.string().uuid(),
-  productVariantId: z.string().uuid().nullable(),
   masterProductId: z.string().uuid().nullable(),
   status: ChannelRecipeSuggestionStatusSchema,
-  automationDecision: ChannelRecipeAutomationDecisionSchema,
+  automationDecision: ChannelRecipeSuggestionDecisionSchema,
   recommendedQuantity: z.number().int().positive().nullable(),
   reason: z.string().min(1),
   existingComponents: z.array(z.object({
@@ -427,13 +343,6 @@ export type ChannelProductCandidateListResponse = z.infer<
   typeof ChannelProductCandidateListResponseSchema
 >;
 
-export const ChannelVariantCandidateListResponseSchema = z.object({
-  items: z.array(ChannelVariantMatchCandidateSchema),
-}).strict();
-export type ChannelVariantCandidateListResponse = z.infer<
-  typeof ChannelVariantCandidateListResponseSchema
->;
-
 export const LinkChannelListingProductInputSchema = z.object({
   masterProductId: z.string().uuid().nullable(),
 }).strict();
@@ -441,9 +350,11 @@ export type LinkChannelListingProductInput = z.infer<
   typeof LinkChannelListingProductInputSchema
 >;
 
-export const LinkChannelListingOptionInputSchema = z.object({
-  productVariantId: z.string().uuid().nullable(),
+export const ChannelProductAutoMatchResponseSchema = z.object({
+  evaluatedListings: z.number().int().nonnegative(),
+  matchedListings: z.number().int().nonnegative(),
+  configuredOptions: z.number().int().nonnegative(),
 }).strict();
-export type LinkChannelListingOptionInput = z.infer<
-  typeof LinkChannelListingOptionInputSchema
+export type ChannelProductAutoMatchResponse = z.infer<
+  typeof ChannelProductAutoMatchResponseSchema
 >;

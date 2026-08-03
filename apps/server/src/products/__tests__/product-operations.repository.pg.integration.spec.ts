@@ -72,20 +72,14 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('atomically creates a default variant and fences product reads by organization', async () => {
+  it('creates only the MasterProduct and fences product reads by organization', async () => {
     const created = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'KI-001',
       name: 'Simple product',
     });
 
-    expect(created.variants).toEqual([
-      expect.objectContaining({
-        code: 'KI-001-DEFAULT',
-        isDefault: true,
-        warningState: 'configuration_required',
-        capacity: null,
-      }),
-    ]);
+    expect(created.channelListings).toEqual([]);
+    expect(created.inventoryStatus).toBe('configuration_required');
     expect(created.displayReference).toEqual({
       type: 'product_code',
       label: '상품 코드',
@@ -126,27 +120,16 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         originChannelListingId: listing.id,
         code: internalCode,
         name: 'Channel-origin product',
-        variants: {
-          create: {
-            code: `CP-SKU-${randomUUID()}`,
-            name: 'Channel-origin option',
-            isDefault: true,
-          },
-        },
       },
     });
     await prisma.channelListing.update({
       where: { id: listing.id },
       data: { masterProductId: product.id },
     });
-    const variant = await prisma.productVariant.findFirstOrThrow({
-      where: { masterProductId: product.id },
-    });
-    await prisma.channelListingOption.create({
+    const option = await prisma.channelListingOption.create({
       data: {
         listingId: listing.id,
         organizationId: TEST_ORGANIZATION_ID,
-        productVariantId: variant.id,
         externalOptionId: '13684204503001',
       },
     });
@@ -174,13 +157,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         label: 'Coupang Wing 상품번호',
         value: '13712531060',
       },
-      variants: [{
-        code: variant.code,
-        displayReference: {
-          type: 'channel_option',
-          label: 'Coupang Wing 옵션번호',
-          value: '13684204503001',
-        },
+      channelListings: [{
+        id: listing.id,
+        options: [{ id: option.id, externalOptionId: '13684204503001' }],
       }],
     });
   });
@@ -210,13 +189,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         code: 'DISPLAY-MP-1',
         name: 'Channel image fallback',
         imageUrls: [],
-        variants: {
-          create: {
-            code: 'DISPLAY-PV-1',
-            name: 'Default option',
-            isDefault: true,
-          },
-        },
       },
     });
     await prisma.channelListing.update({
@@ -403,65 +375,60 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(all.items.map((item) => item.id)).toContain(unpublished.id);
   });
 
-  it('allows organization-local codes and rejects organization-local variant collisions', async () => {
+  it('allows the same product code in different organizations', async () => {
     await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'KI-SHARED',
       name: 'Test product',
-      variants: [{ code: 'VAR-SHARED', name: 'Test variant' }],
     });
     await service.createProduct(OTHER_ORGANIZATION_ID, OTHER_USER_ID, {
       code: 'KI-SHARED',
       name: 'Other product',
-      variants: [{ code: 'VAR-SHARED', name: 'Other variant' }],
     });
 
-    await expect(service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
-      code: 'KI-002',
-      name: 'Collision',
-      variants: [{ code: 'VAR-SHARED', name: 'Collision' }],
-    })).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.masterProduct.count({
+      where: { code: 'KI-SHARED' },
+    })).toBe(2);
   });
 
-  it('deduplicates shared physical SKU stock while retaining variant capacities', async () => {
+  it('projects direct channel-option recipes and deduplicates shared physical stock', async () => {
     const sku = await inventorySku('SP-SHARED', 7);
-    const created = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
-      code: 'KI-BUNDLE',
-      name: 'Bundle',
-      variants: [
-        {
-          code: 'KI-BUNDLE-1',
-          name: 'Single',
-          components: [{ sellpiaInventorySkuId: sku.id, quantity: 1 }],
-        },
-        {
-          code: 'KI-BUNDLE-2',
-          name: 'Double',
-          components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }],
-        },
-      ],
-    });
+    const { product, options } = await linkedProductWithOptions('KI-BUNDLE', 2);
 
-    expect(created.inventoryUnits).toBe(7);
-    expect(created.inventoryStatus).toBe('sellable');
-    expect(created.variants.map((variant) => variant.capacity)).toEqual([7, 3]);
-    expect(created.variants[0]?.components[0]).toMatchObject({
+    await service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[0]!.id,
+      { components: [{ sellpiaInventorySkuId: sku.id, quantity: 1 }] },
+    );
+    const detail = await service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[1]!.id,
+      { components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }] },
+    );
+
+    expect(detail.inventoryUnits).toBe(7);
+    expect(detail.inventoryStatus).toBe('sellable');
+    expect(detail.channelListings[0]!.options.map((option) => option.capacity).sort()).toEqual([3, 7]);
+    const single = detail.channelListings[0]!.options.find(({ id }) => id === options[0]!.id);
+    expect(single?.inventoryComponents).toMatchObject([{
       sellpiaInventorySkuId: sku.id,
-      source: 'manual',
-      confirmedBy: TEST_USER_ID,
-    });
+      quantity: 1,
+      currentStock: 7,
+      availableStock: 7,
+    }]);
+    expect(await prisma.masterProduct.findUniqueOrThrow({
+      where: { id: product.id },
+      select: { id: true },
+    })).toEqual({ id: product.id });
   });
 
-  it('preserves physical stock while common commitments reduce operational capacity', async () => {
+  it('preserves physical stock while common commitments reduce option capacity', async () => {
     const sku = await inventorySku('SP-COMMITTED', 100);
-    const created = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
-      code: 'KI-COMMITTED',
-      name: 'Committed stock product',
-      variants: [{
-        code: 'KI-COMMITTED-1',
-        name: 'Single',
-        components: [{ sellpiaInventorySkuId: sku.id, quantity: 1 }],
-      }],
-    });
+    const { product, options } = await linkedProductWithOptions('KI-COMMITTED', 1);
+    await service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[0]!.id,
+      { components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }] },
+    );
     const commitment = await prisma.inventoryCommitment.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -484,236 +451,110 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    const detail = await service.getProduct(TEST_ORGANIZATION_ID, created.id);
+    const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
 
     expect(detail).toMatchObject({
       inventoryUnits: 20,
       inventoryStatus: 'sellable',
-      variants: [{
-        capacity: 20,
-        components: [{
+      channelListings: [{ options: [{
+        capacity: 10,
+        inventoryComponents: [{
           currentStock: 100,
-          activeCommitmentQuantity: 80,
           availableStock: 20,
+          quantity: 2,
         }],
-      }],
+      }] }],
     });
+    expect(await prisma.sellpiaInventorySku.findUniqueOrThrow({
+      where: { id: sku.id },
+      select: { currentStock: true },
+    })).toEqual({ currentStock: 100 });
   });
 
-  it('replaces recipes atomically and preserves the old recipe on inactive or foreign input', async () => {
+  it('atomically replaces direct recipes and preserves the old recipe on invalid input', async () => {
     const active = await inventorySku('SP-ACTIVE', 8);
     const inactive = await inventorySku('SP-INACTIVE', 10, false);
     const foreign = await inventorySku('SP-FOREIGN', 10, true, OTHER_ORGANIZATION_ID);
-    const created = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
-      code: 'KI-RECIPE',
-      name: 'Recipe',
-    });
-    const variantId = created.variants[0]!.id;
+    const { product, options } = await linkedProductWithOptions('KI-RECIPE', 1);
+    const optionId = options[0]!.id;
 
-    const replaced = await service.replaceRecipe(
+    const replaced = await service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
-      TEST_USER_ID,
-      variantId,
-      { components: [{ sellpiaInventorySkuId: active.id, quantity: 3 }], expectedRecipe: [] },
+      optionId,
+      { components: [{ sellpiaInventorySkuId: active.id, quantity: 3 }] },
     );
-    expect(replaced).toMatchObject({ capacity: 2, warningState: 'none' });
-    expect(replaced.components[0]?.confirmedAt).toEqual(expect.any(Date));
+    expect(replaced.channelListings[0]!.options[0]).toMatchObject({
+      capacity: 2,
+      inventoryComponents: [{ sellpiaInventorySkuId: active.id, quantity: 3 }],
+    });
 
-    await expect(service.replaceRecipe(
+    await expect(service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
-      TEST_USER_ID,
-      variantId,
-      { components: [{ sellpiaInventorySkuId: inactive.id, quantity: 1 }], expectedRecipe: recipeSnapshot(replaced) },
+      optionId,
+      { components: [{ sellpiaInventorySkuId: inactive.id, quantity: 1 }] },
     )).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.replaceRecipe(
+    await expect(service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
-      TEST_USER_ID,
-      variantId,
-      { components: [{ sellpiaInventorySkuId: foreign.id, quantity: 1 }], expectedRecipe: recipeSnapshot(replaced) },
+      optionId,
+      { components: [{ sellpiaInventorySkuId: foreign.id, quantity: 1 }] },
     )).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.replaceChannelOptionInventory(
+      OTHER_ORGANIZATION_ID,
+      optionId,
+      { components: [] },
+    )).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(await prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: optionId },
+      select: { sellpiaInventorySkuId: true, quantity: true },
+    })).toEqual([{ sellpiaInventorySkuId: active.id, quantity: 3 }]);
+
     await prisma.sellpiaInventorySku.update({
       where: { id: active.id },
       data: { isActive: false },
     });
-    const afterInactivation = await service.getProduct(
-      TEST_ORGANIZATION_ID,
-      created.id,
-    );
-    expect(afterInactivation.variants[0]?.components.map(
-      (component) => component.sellpiaInventorySkuId,
-    )).toEqual([active.id]);
-    expect(afterInactivation.variants[0]).toMatchObject({
-      capacity: null,
-      warningState: 'review_required',
+    const afterInactivation = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
+    expect(afterInactivation).toMatchObject({
+      inventoryStatus: 'review_required',
+      channelListings: [{ options: [{
+        capacity: null,
+        inventoryComponents: [{ sellpiaInventorySkuId: active.id, isActive: false }],
+      }] }],
     });
   });
 
-  it('creates reviewed manual recipe batches only when variants are empty and remains idempotent', async () => {
-    const skuA = await inventorySku('SP-BATCH-A', 8);
-    const skuB = await inventorySku('SP-BATCH-B', 8);
-    const first = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
-      code: 'KI-BATCH-A', name: 'Batch A',
+  it('rejects a recipe for an unlinked channel listing', async () => {
+    const sku = await inventorySku('SP-UNLINKED', 5);
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Unlinked Wing',
+      },
     });
-    const second = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
-      code: 'KI-BATCH-B', name: 'Batch B',
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        externalId: 'UNLINKED-P',
+      },
     });
-    const recipes = [{
-      productVariantId: first.variants[0]!.id,
-      components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }],
-    }, {
-      productVariantId: second.variants[0]!.id,
-      components: [{ sellpiaInventorySkuId: skuB.id, quantity: 2 }],
-    }];
+    const option = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId: 'UNLINKED-O',
+      },
+    });
 
-    await expect(service.planRecipesIfEmpty(
+    await expect(service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
-      { recipes },
-    )).resolves.toEqual({
-      pendingProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
-      unchangedProductVariantIds: [],
-    });
-
-    await expect(service.createRecipesIfEmpty(
-      TEST_ORGANIZATION_ID,
-      TEST_USER_ID,
-      { recipes },
-    )).resolves.toEqual({
-      appliedProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
-      unchangedProductVariantIds: [],
-    });
-    await expect(service.createRecipesIfEmpty(
-      TEST_ORGANIZATION_ID,
-      TEST_USER_ID,
-      { recipes },
-    )).resolves.toEqual({
-      appliedProductVariantIds: [],
-      unchangedProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
-    });
-    await expect(service.planRecipesIfEmpty(
-      TEST_ORGANIZATION_ID,
-      { recipes },
-    )).resolves.toEqual({
-      pendingProductVariantIds: [],
-      unchangedProductVariantIds: recipes.map(({ productVariantId }) => productVariantId).sort(),
-    });
-    expect(await prisma.productVariantComponent.findMany({
-      where: { productVariantId: { in: recipes.map(({ productVariantId }) => productVariantId) } },
-      select: { source: true, confirmedBy: true },
-    })).toEqual([
-      { source: 'manual', confirmedBy: TEST_USER_ID },
-      { source: 'manual', confirmedBy: TEST_USER_ID },
-    ]);
-
-    const third = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
-      code: 'KI-BATCH-C', name: 'Batch C',
-    });
-    await expect(service.createRecipesIfEmpty(
-      TEST_ORGANIZATION_ID,
-      TEST_USER_ID,
-      { recipes: [{
-        productVariantId: first.variants[0]!.id,
-        components: [{ sellpiaInventorySkuId: skuB.id, quantity: 1 }],
-      }, {
-        productVariantId: third.variants[0]!.id,
-        components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }],
-      }] },
-    )).rejects.toBeInstanceOf(ConflictException);
-    expect(await prisma.productVariantComponent.count({
-      where: { productVariantId: third.variants[0]!.id },
+      option.id,
+      { components: [{ sellpiaInventorySkuId: sku.id, quantity: 1 }] },
+    )).rejects.toBeInstanceOf(BadRequestException);
+    expect(await prisma.channelListingOptionInventoryComponent.count({
+      where: { channelListingOptionId: option.id },
     })).toBe(0);
-  });
-
-  it('serializes competing full recipe replacements without merging component sets', async () => {
-    const skuA = await inventorySku('SP-RACE-A', 9);
-    const skuB = await inventorySku('SP-RACE-B', 12);
-    const created = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
-      code: 'KI-RACE',
-      name: 'Concurrent recipe',
-    });
-    const variantId = created.variants[0]!.id;
-    let releaseLock!: () => void;
-    let signalLocked!: () => void;
-    const locked = new Promise<void>((resolve) => { signalLocked = resolve; });
-    const release = new Promise<void>((resolve) => { releaseLock = resolve; });
-    const blocker = prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`
-        SELECT id
-        FROM product_variants
-        WHERE id = ${variantId}::uuid
-          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
-        FOR UPDATE
-      `;
-      signalLocked();
-      await release;
-    });
-    await locked;
-
-    let settled = 0;
-    const replacements = [
-      service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
-        components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }],
-        expectedRecipe: [],
-      }),
-      service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
-        components: [{ sellpiaInventorySkuId: skuB.id, quantity: 2 }],
-        expectedRecipe: [],
-      }),
-    ].map((promise) => promise.finally(() => { settled += 1; }));
-
-    try {
-      await prisma.$queryRaw`SELECT pg_sleep(0.1)::text AS slept`;
-      expect(settled).toBe(0);
-    } finally {
-      releaseLock();
-      await blocker;
-    }
-    const results = await Promise.allSettled(replacements);
-    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-    expect(results.filter((result) => result.status === 'rejected')[0]).toMatchObject({
-      reason: expect.any(ConflictException),
-    });
-    const componentIds = (await service.getProduct(TEST_ORGANIZATION_ID, created.id))
-      .variants[0]!.components.map((component) => component.sellpiaInventorySkuId);
-    expect([[skuA.id], [skuB.id]]).toContainEqual(componentIds);
-  });
-
-  it('rejects stale recipe snapshots while allowing an intentional matching replacement', async () => {
-    const skuA = await inventorySku('SP-SNAPSHOT-A', 8);
-    const skuB = await inventorySku('SP-SNAPSHOT-B', 8);
-    const skuC = await inventorySku('SP-SNAPSHOT-C', 8);
-    const created = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
-      code: 'KI-SNAPSHOT', name: 'Snapshot recipe',
-    });
-    const variantId = created.variants[0]!.id;
-    const first = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
-      components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }], expectedRecipe: [],
-    });
-    const staleEmpty = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
-      components: [{ sellpiaInventorySkuId: skuB.id, quantity: 1 }], expectedRecipe: [],
-    }).catch((error) => error);
-    expect(staleEmpty).toBeInstanceOf(ConflictException);
-    expect((staleEmpty as ConflictException).getResponse()).toMatchObject({
-      currentRecipe: [{ id: first.components[0]!.id, sellpiaInventorySkuId: skuA.id, quantity: 1 }],
-    });
-    expect((await service.getProduct(TEST_ORGANIZATION_ID, created.id)).variants[0]!.components)
-      .toMatchObject([{ sellpiaInventorySkuId: skuA.id }]);
-
-    const second = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
-      components: [{ sellpiaInventorySkuId: skuB.id, quantity: 2 }], expectedRecipe: recipeSnapshot(first),
-    });
-    expect(second.components).toMatchObject([{ sellpiaInventorySkuId: skuB.id, quantity: 2 }]);
-    const third = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
-      components: [{ sellpiaInventorySkuId: skuC.id, quantity: 3 }], expectedRecipe: recipeSnapshot(second),
-    });
-    const staleNonEmpty = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
-      components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }], expectedRecipe: recipeSnapshot(second),
-    }).catch((error) => error);
-    expect(staleNonEmpty).toBeInstanceOf(ConflictException);
-    expect((staleNonEmpty as ConflictException).getResponse()).toMatchObject({
-      currentRecipe: [{ id: third.components[0]!.id, sellpiaInventorySkuId: skuC.id, quantity: 3 }],
-    });
-    expect((await service.getProduct(TEST_ORGANIZATION_ID, created.id)).variants[0]!.components)
-      .toMatchObject([{ sellpiaInventorySkuId: skuC.id, quantity: 3 }]);
   });
 
   it('keeps product metrics null without facts and aggregates linked listing facts when present', async () => {
@@ -794,6 +635,40 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       profit: 12_000,
     });
   });
+
+  async function linkedProductWithOptions(code: string, optionCount: number) {
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code,
+        name: code,
+      },
+    });
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: `${code} Wing`,
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: product.id,
+        externalId: `${code}-P`,
+      },
+    });
+    const options = await Promise.all(Array.from({ length: optionCount }, (_, index) =>
+      prisma.channelListingOption.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.id,
+          externalOptionId: `${code}-O-${index + 1}`,
+        },
+      })));
+    return { product, listing, options };
+  }
 
   function inventorySku(
     code: string,
@@ -877,21 +752,4 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   }
 
-  function recipeSnapshot(variant: { components: Array<{
-    id: string;
-    sellpiaInventorySkuId: string;
-    quantity: number;
-    source: 'manual' | 'deterministic';
-    confirmedBy: string | null;
-    confirmedAt: Date | string;
-  }> }) {
-    return variant.components.map((component) => ({
-      id: component.id,
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-      quantity: component.quantity,
-      source: component.source,
-      confirmedBy: component.confirmedBy,
-      confirmedAt: component.confirmedAt,
-    }));
-  }
 });

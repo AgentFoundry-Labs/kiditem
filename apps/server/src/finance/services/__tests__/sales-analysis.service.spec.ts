@@ -40,7 +40,7 @@ const mkLineItem = (
     commissionRate: p.commissionRate,
     shippingCost: null,
     otherCost: p.otherCost,
-    components: [],
+    inventoryComponents: [],
     listing: {
       id: listing.id,
       channelAccount: { channel: listing.channel },

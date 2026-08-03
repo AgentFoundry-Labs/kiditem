@@ -23,48 +23,36 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
       },
       select: {
         id: true,
-        productVariantId: true,
-        listing: { select: { displayName: true, channelName: true } },
-        productVariant: {
+        listing: {
           select: {
             masterProductId: true,
-            components: {
-              where: { organizationId },
-              orderBy: { createdAt: 'asc' },
-              select: {
-                quantity: true,
-                source: true,
-                confirmedBy: true,
-                confirmedAt: true,
-                sellpiaInventorySku: { select: { id: true, code: true } },
-              },
-            },
+            displayName: true,
+            channelName: true,
+          },
+        },
+        inventoryComponents: {
+          where: { organizationId },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            quantity: true,
+            createdAt: true,
+            sellpiaInventorySku: { select: { id: true, code: true } },
           },
         },
       },
     });
     if (!selected) return null;
 
-    const options = selected.productVariantId
-      ? await this.prisma.channelListingOption.findMany({
-        where: { organizationId, productVariantId: selected.productVariantId, isActive: true },
-        select: {
-          id: true, itemName: true, sellerSku: true, modelNumber: true, barcode: true,
-          listing: { select: { displayName: true, channelName: true } },
-        },
-        orderBy: { id: 'asc' },
-      })
-      : await this.prisma.channelListingOption.findMany({
-        where: { id: selected.id, organizationId },
-        select: {
-          id: true, itemName: true, sellerSku: true, modelNumber: true, barcode: true,
-          listing: { select: { displayName: true, channelName: true } },
-        },
-      });
+    const options = await this.prisma.channelListingOption.findMany({
+      where: { id: selected.id, organizationId },
+      select: {
+        id: true, itemName: true, sellerSku: true, modelNumber: true, barcode: true,
+        listing: { select: { displayName: true, channelName: true } },
+      },
+    });
     return {
       channelListingOptionId: selected.id,
-      productVariantId: selected.productVariantId,
-      masterProductId: selected.productVariant?.masterProductId ?? null,
+      masterProductId: selected.listing.masterProductId,
       options: options.map((option) => ({
         channelListingOptionId: option.id,
         listingName: option.listing.displayName ?? option.listing.channelName,
@@ -73,19 +61,14 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
         modelNumber: option.modelNumber,
         barcode: option.barcode,
       })),
-      existingComponents: (selected.productVariant?.components ?? []).map((component) => ({
+      existingComponents: selected.inventoryComponents.map((component) => ({
         sellpiaInventorySkuId: component.sellpiaInventorySku.id,
         code: component.sellpiaInventorySku.code,
         quantity: component.quantity,
-        source: recipeSource(component.source),
-        confirmedBy: component.confirmedBy,
-        confirmedAt: component.confirmedAt,
+        source: 'manual' as const,
+        confirmedBy: null,
+        confirmedAt: component.createdAt,
       })),
     };
   }
-}
-
-function recipeSource(value: string): 'manual' | 'deterministic' {
-  if (value === 'manual' || value === 'deterministic') return value;
-  throw new Error(`Unsupported product variant component source: ${value}`);
 }

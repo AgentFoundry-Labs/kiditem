@@ -14,6 +14,7 @@ const STATUS_LABEL: Record<ProductOperationsDataSourceStatus['status'], string> 
   OUTDATED: '갱신 필요',
   NOT_COLLECTED: '미수집',
   UPDATING: '갱신 중',
+  ACTION_REQUIRED: '확인 필요',
   FAILED: '실패',
 };
 
@@ -106,17 +107,46 @@ function SourceRow({
   recoveryHref?: string;
   recoveryLabel?: string;
 }) {
+  const attention = source.status === 'ACTION_REQUIRED'
+    ? sourceAttention(source.attentionReason)
+    : null;
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3">
       <div className="min-w-[92px] text-sm font-extrabold text-[var(--text-primary)]">{label}</div>
-      <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{STATUS_LABEL[source.status]}</span>
+      <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{attention?.label ?? STATUS_LABEL[source.status]}</span>
       <div className="min-w-0 flex-1 text-right text-xs text-[var(--text-tertiary)]">
         <p>{source.coverageEndDate ? `${source.coverageEndDate}까지` : '수집 기준일 없음'}</p>
         <p>{source.capturedAt ? formatDateTime(source.capturedAt) : '수집 시각 없음'}</p>
       </div>
       {recoveryHref && recoveryLabel ? <Link href={recoveryHref} className="text-xs font-bold text-[var(--primary)] hover:underline">{recoveryLabel}</Link> : null}
+      {attention ? <p className="basis-full text-xs font-bold text-amber-700">{attention.message}</p> : null}
     </div>
   );
+}
+
+function sourceAttention(reason?: string | null): { label: string; message: string } {
+  if (reason === 'marketplace_login') {
+    return {
+      label: '로그인 필요',
+      message: '쿠팡 광고센터에 로그인한 뒤 수익성 데이터를 다시 갱신해 주세요.',
+    };
+  }
+  if (reason === 'sellpia_login_required') {
+    return {
+      label: '로그인 필요',
+      message: 'Sellpia에 로그인한 뒤 수익성 데이터를 다시 갱신해 주세요.',
+    };
+  }
+  if (reason === 'captcha') {
+    return {
+      label: '보안문자 확인 필요',
+      message: '열린 수집 화면에서 보안문자를 확인한 뒤 다시 갱신해 주세요.',
+    };
+  }
+  return {
+    label: STATUS_LABEL.ACTION_REQUIRED,
+    message: '열린 수집 화면에서 필요한 조치를 마친 뒤 다시 갱신해 주세요.',
+  };
 }
 
 function Count({ label, value }: { label: string; value: number }) {

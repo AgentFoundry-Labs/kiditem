@@ -54,7 +54,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('atomically publishes physical SKUs without manufacturing products or variants', async () => {
+  it('atomically publishes physical SKUs without manufacturing operating products', async () => {
     const execution = await activateGeneration(1n, 'initial_snapshot');
 
     const result = await service.importInventory(browserInput(workbook([
@@ -62,7 +62,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       row('SP-002', 3),
     ]), execution));
 
-    const [skus, state, run, masterProductCount, productVariantCount] = await Promise.all([
+    const [skus, state, run, masterProductCount] = await Promise.all([
       prisma.sellpiaInventorySku.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID },
         orderBy: { code: 'asc' },
@@ -72,14 +72,12 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       }),
       prisma.sourceImportRun.findUniqueOrThrow({ where: { id: result.run.id } }),
       prisma.masterProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
-      prisma.productVariant.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
     ]);
     expect(skus.map(({ code, currentStock }) => [code, currentStock])).toEqual([
       ['SP-001', 7],
       ['SP-002', 3],
     ]);
     expect(masterProductCount).toBe(0);
-    expect(productVariantCount).toBe(0);
     expect(run).toMatchObject({
       status: 'completed',
       verificationCount: 1,

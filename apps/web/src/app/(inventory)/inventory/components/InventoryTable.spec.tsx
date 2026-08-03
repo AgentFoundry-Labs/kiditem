@@ -17,10 +17,10 @@ describe('InventoryTable', () => {
     stockValue: null,
     lastImportRunId: null,
     lastImportedAt: null,
-    linkedVariantCount: 0,
+    linkedChannelOptionCount: 0,
     linkedProductCount: 0,
     linkedProducts: [],
-    linkedVariants: [],
+    linkedChannelOptions: [],
     linkStatus: 'unlinked',
   };
 

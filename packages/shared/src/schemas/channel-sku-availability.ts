@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
-import { ProductVariantComponentSourceSchema } from './product-operations.js';
 
 export const ChannelSkuAvailabilityStatusSchema = z.enum([
   'all',
@@ -44,7 +43,6 @@ export const ChannelSkuAvailabilityMappingStatusSchema = z.enum([
 export const ChannelSkuAvailabilityWarningSchema = z.enum([
   'component_inactive',
   'configuration_required',
-  'variant_inactive',
 ]);
 
 export const ChannelSkuAvailabilityComponentSchema = z.object({
@@ -59,7 +57,6 @@ export const ChannelSkuAvailabilityComponentSchema = z.object({
   purchasePrice: z.number().int().nonnegative().nullable(),
   isActive: z.boolean(),
   quantity: z.number().int().positive().max(2_147_483_647),
-  source: ProductVariantComponentSourceSchema,
   componentCapacity: z.number().int().nonnegative(),
   isBottleneck: z.boolean(),
 }).strict().superRefine((component, ctx) => {
@@ -106,27 +103,10 @@ export const ChannelSkuAvailabilityItemSchema = z.object({
       updatedAt: zIsoDate,
     }).strict(),
     masterProductId: z.string().uuid().nullable(),
-    productVariantId: z.string().uuid().nullable(),
-    variantCode: z.string().min(1).nullable(),
-    variantName: z.string().min(1).nullable(),
     recipeStatus: ChannelSkuAvailabilityRecipeStatusSchema,
     components: z.array(ChannelSkuAvailabilityComponentSchema),
     warnings: z.array(ChannelSkuAvailabilityWarningSchema).max(1),
   }).strict().superRefine((item, ctx) => {
-    const linkFields = [
-      item.masterProductId,
-      item.productVariantId,
-      item.variantCode,
-      item.variantName,
-    ];
-    const nullCount = linkFields.filter((value) => value === null).length;
-    if (nullCount !== 0 && nullCount !== linkFields.length) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['productVariantId'],
-        message: 'Variant identity fields must be present or null together',
-      });
-    }
     const expectedMappingStatus = item.recipeStatus === 'matched'
       ? 'matched'
       : item.recipeStatus === 'unmatched'
@@ -140,13 +120,13 @@ export const ChannelSkuAvailabilityItemSchema = z.object({
       });
     }
     if (
-      (item.recipeStatus === 'unmatched' && item.productVariantId !== null)
-      || (item.recipeStatus !== 'unmatched' && item.productVariantId === null)
+      (item.recipeStatus === 'unmatched' && item.masterProductId !== null)
+      || (item.recipeStatus !== 'unmatched' && item.masterProductId === null)
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['recipeStatus'],
-        message: 'recipeStatus must agree with the ProductVariant link',
+        message: 'recipeStatus must agree with the MasterProduct link',
       });
     }
   });

@@ -35,47 +35,6 @@ describe('ChannelProductMatchingRepositoryAdapter candidate search', () => {
     expect(findMany.mock.calls[0]![0]).not.toHaveProperty('take');
   });
 
-  it('pushes option manual search into the confirmed product variant query', async () => {
-    const findMany = vi.fn().mockResolvedValue([]);
-    const repository = new ChannelProductMatchingRepositoryAdapter({
-      channelListingOption: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: 'option-1',
-          externalOptionId: 'O-1',
-          productVariantId: null,
-          sellerSku: null,
-          barcode: null,
-          itemName: 'Large',
-          rawJson: null,
-          listing: { masterProductId: 'product-1' },
-        }),
-      },
-      productVariant: { findMany },
-    } as never);
-
-    await repository.getVariantCandidateContext(organizationId, 'option-1', 'large');
-
-    expect((repository as unknown as { prisma: {
-      channelListingOption: { findFirst: ReturnType<typeof vi.fn> };
-    } }).prisma.channelListingOption.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ isActive: true }),
-      }),
-    );
-
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        organizationId,
-        masterProductId: 'product-1',
-        OR: expect.arrayContaining([
-          { code: { contains: 'large', mode: 'insensitive' } },
-          { optionLabel: { contains: 'large', mode: 'insensitive' } },
-        ]),
-      }),
-      orderBy: [{ code: 'asc' }, { id: 'asc' }],
-    }));
-    expect(findMany.mock.calls[0]![0]).not.toHaveProperty('take');
-  });
 });
 
 describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
@@ -93,7 +52,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     expect(query.include.options).not.toHaveProperty('where');
   });
 
-  it('counts direct links independently from linked-variant recipe readiness', async () => {
+  it('counts product links independently from direct option recipe readiness', async () => {
     const repository = new ChannelProductMatchingRepositoryAdapter({
       channelListing: {
         findMany: vi.fn().mockResolvedValue([
@@ -107,9 +66,9 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
               imageUrls: ['https://cdn.example.com/operator.jpg'],
             },
             options: [
-              linkedOption({ productVariant: variant([]) }),
-              linkedOption({ productVariant: variant([component({ isActive: false })]) }),
-              linkedOption({ productVariant: variant([component({ currentStock: 8, quantity: 2 })]) }),
+              linkedOption([]),
+              linkedOption([component({ isActive: false })]),
+              linkedOption([component({ currentStock: 8, quantity: 2 })]),
             ],
           }),
         ]),
@@ -123,11 +82,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
         products: { all: 2, linked: 1, unlinked: 1 },
         options: {
           all: 4,
-          linked: 3,
-          unlinked: 1,
-          recipeConfirmed: 1,
-          configurationRequired: 1,
-          reviewRequired: 1,
+          configured: 2,
+          unconfigured: 2,
         },
       },
     });
@@ -208,9 +164,11 @@ function listing({
     displayName: 'Channel listing',
     status: status ?? 'active',
     rawJson: rawJson ?? null,
+    channelName: 'Channel listing',
     masterProductId,
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelAccount: { id: 'account-1', channel: 'coupang', name: 'Wing' },
+    channelListingDailySnapshots: [],
     masterProduct,
     options,
   };
@@ -224,31 +182,17 @@ function unlinkedOption(overrides: { status?: string | null } = {}) {
     sellerSku: null,
     barcode: null,
     status: overrides.status ?? null,
-    productVariantId: null,
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
-    productVariant: null,
+    inventoryComponents: [],
   };
 }
 
-function linkedOption({ productVariant }: { productVariant: ReturnType<typeof variant> }) {
+function linkedOption(inventoryComponents: ReturnType<typeof component>[]) {
   return {
     ...unlinkedOption(),
-    id: `option-${productVariant.components.length}-${productVariant.components[0]?.sellpiaInventorySku.isActive ?? 'empty'}`,
-    externalOptionId: `option-${productVariant.components.length}-${productVariant.components[0]?.sellpiaInventorySku.isActive ?? 'empty'}`,
-    productVariantId: productVariant.id,
-    productVariant,
-  };
-}
-
-function variant(components: ReturnType<typeof component>[]) {
-  return {
-    id: `variant-${components.length}-${components[0]?.sellpiaInventorySku.isActive ?? 'empty'}`,
-    masterProductId: 'product-1',
-    code: 'KI-1-OPTION',
-    name: 'Linked option',
-    optionLabel: null,
-    isActive: true,
-    components,
+    id: `option-${inventoryComponents.length}-${inventoryComponents[0]?.sellpiaInventorySku.isActive ?? 'empty'}`,
+    externalOptionId: `option-${inventoryComponents.length}-${inventoryComponents[0]?.sellpiaInventorySku.isActive ?? 'empty'}`,
+    inventoryComponents,
   };
 }
 

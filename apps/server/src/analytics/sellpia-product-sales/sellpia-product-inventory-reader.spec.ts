@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 
 describe('SellpiaProductInventoryReader display-media enrichment', () => {
-  it('batches one ordered request per destination variant and retains the returned image', async () => {
+  it('batches one request per destination channel option and retains the returned image', async () => {
     const skuId = '11111111-1111-4111-8111-111111111111';
-    const findDisplayMedia = vi.fn(async () => new Map([['variant-1', {
+    const findDisplayMedia = vi.fn(async () => new Map([['channel-option-1', {
       url: 'https://cdn.example/exact.jpg',
       source: 'channel_catalog' as const,
       channel: 'coupang',
@@ -14,13 +14,13 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     const destinationFindMany = vi.fn(async (_input: unknown) => [{
       sellpiaInventorySkuId: skuId,
       quantity: 1,
-      productVariant: variant(),
+      channelListingOption: channelOption(),
     }]);
     const reader = new SellpiaProductInventoryReader({
       sellpiaInventorySku: {
         findMany: vi.fn(async () => [{ id: skuId, code: 'SKU-1', barcode: null, isActive: true }]),
       },
-      productVariantComponent: {
+      channelListingOptionInventoryComponent: {
         findMany: destinationFindMany,
       },
     } as never, {
@@ -39,12 +39,8 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     expect(findDisplayMedia).toHaveBeenCalledWith({
       organizationId: 'org-1',
       requests: [{
-        key: 'variant-1',
-        candidates: [
-          { channelListingId: 'listing-origin', externalOptionId: 'option-origin' },
-          { channelListingId: 'listing-primary', externalOptionId: 'option-primary' },
-          { channelListingId: 'listing-naver', externalOptionId: 'option-naver' },
-        ],
+        key: 'channel-option-1',
+        candidates: [{ channelListingId: 'listing-primary', externalOptionId: 'option-primary' }],
       }],
     });
     expect(result.projection.byProductKey.get('SKU-1')?.inventoryResolution).toMatchObject({
@@ -57,27 +53,25 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     expect(destinationFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         organizationId: 'org-1',
-        productVariant: {
-          is: expect.objectContaining({
-            organizationId: 'org-1',
-            isActive: true,
-            masterProduct: {
-              is: expect.objectContaining({ organizationId: 'org-1', isActive: true }),
-            },
-          }),
-        },
+        channelListingOption: expect.objectContaining({
+          organizationId: 'org-1',
+          isActive: true,
+        }),
       }),
     }));
-    expect(destinationFindMany.mock.calls[0]?.[0]).not.toHaveProperty(
-      'select.productVariant.select.channelListingOptions.where.listing.is.channelAccount.is.channel',
-    );
   });
 
   it('logs media failure and preserves the inventory projection with null images', async () => {
     const skuId = '11111111-1111-4111-8111-111111111111';
     const reader = new SellpiaProductInventoryReader({
       sellpiaInventorySku: { findMany: vi.fn(async () => [{ id: skuId, code: 'SKU-1', barcode: null, isActive: true }]) },
-      productVariantComponent: { findMany: vi.fn(async () => [{ sellpiaInventorySkuId: skuId, quantity: 1, productVariant: variant() }]) },
+      channelListingOptionInventoryComponent: {
+        findMany: vi.fn(async () => [{
+          sellpiaInventorySkuId: skuId,
+          quantity: 1,
+          channelListingOption: channelOption(),
+        }]),
+      },
     } as never, {
       findBySkuIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
@@ -98,12 +92,18 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
 
   it('projects the stored automatic evaluation beside the official nullable grade', async () => {
     const skuId = '11111111-1111-4111-8111-111111111111';
-    const row = variant();
-    row.masterProduct.abcGrade = null;
-    row.masterProduct.abcEvaluation = evaluationRow();
+    const row = channelOption();
+    row.listing.masterProduct.abcGrade = null;
+    row.listing.masterProduct.abcEvaluation = evaluationRow();
     const reader = new SellpiaProductInventoryReader({
       sellpiaInventorySku: { findMany: vi.fn(async () => [{ id: skuId, code: 'SKU-1', barcode: null, isActive: true }]) },
-      productVariantComponent: { findMany: vi.fn(async () => [{ sellpiaInventorySkuId: skuId, quantity: 1, productVariant: row }]) },
+      channelListingOptionInventoryComponent: {
+        findMany: vi.fn(async () => [{
+          sellpiaInventorySkuId: skuId,
+          quantity: 1,
+          channelListingOption: row,
+        }]),
+      },
     } as never, {
       findBySkuIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
@@ -131,32 +131,29 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
   });
 });
 
-function variant(): {
+function channelOption(): {
   id: string;
-  code: string;
-  name: string;
-  masterProduct: {
-    id: string;
-    code: string;
-    name: string;
-    abcGrade: string | null;
-    abcEvaluation: ReturnType<typeof evaluationRow> | null;
-    originChannelListingId: string;
-  };
-  channelListingOptions: ReturnType<typeof option>[];
+  externalOptionId: string;
+  itemName: string;
+  listing: ReturnType<typeof listing>;
 } {
   return {
-    id: 'variant-1', code: 'VAR-1', name: 'Variant',
+    id: 'channel-option-1',
+    externalOptionId: 'option-primary',
+    itemName: 'Variant',
+    listing: listing(),
+  };
+}
+
+function listing() {
+  return {
+    id: 'listing-primary',
+    externalId: 'LISTING-1',
     masterProduct: {
       id: 'master-1', code: 'MASTER-1', name: 'Master', abcGrade: 'B',
       abcEvaluation: null,
-      originChannelListingId: 'listing-origin',
     },
-    channelListingOptions: [
-      option('listing-primary', 'option-primary', 'B', true),
-      option('listing-origin', 'option-origin', 'A', false),
-      option('listing-naver', 'option-naver', 'C', false, 'naver'),
-    ],
+    channelAccount: { channel: 'coupang', isPrimary: true },
   };
 }
 
@@ -178,10 +175,21 @@ function evaluationRow() {
     firstValidPaidSaleAt: new Date('2026-07-08T00:00:00.000Z'),
     sourceCoverageStartDate: new Date('2025-06-15T00:00:00.000Z'),
     sourceCoverageEndDate: new Date('2026-07-17T00:00:00.000Z'),
+    sellpiaCoverageStartDate: new Date('2025-06-15T00:00:00.000Z'),
+    sellpiaCoverageEndDate: new Date('2026-07-17T00:00:00.000Z'),
     sellpiaSourceStatus: 'READY',
     sellpiaSourceCapturedAt: new Date('2026-07-17T00:00:00.000Z'),
+    advertisingCoverageStartDate: new Date('2025-06-15T00:00:00.000Z'),
+    advertisingCoverageEndDate: new Date('2026-07-17T00:00:00.000Z'),
     advertisingSourceStatus: 'CONFIRMED_ZERO',
     advertisingSourceCapturedAt: new Date('2026-07-17T00:00:00.000Z'),
+    ordersSourceStatus: 'NOT_APPLIED',
+    ordersCoverageStartDate: null,
+    ordersCoverageEndDate: null,
+    ordersSourceCapturedAt: null,
+    mappingSourceStatus: 'READY',
+    mappingInventoryGeneration: 1n,
+    mappingVerifiedAt: new Date('2026-07-17T00:00:00.000Z'),
     costComponentsJson: {
       recognizedRevenue: { amount: 0, status: 'OBSERVED' },
       orderTimeCogs: { amount: 0, status: 'OBSERVED' },
@@ -194,21 +202,5 @@ function evaluationRow() {
     statusDetail: '최초 유효 유료 판매 후 30일 또는 유효 유료 주문 20건이 필요합니다.',
     calculatedAt: new Date('2026-07-18T00:00:00.000Z'),
     formulaVersion: null,
-  };
-}
-
-function option(
-  listingId: string,
-  externalOptionId: string,
-  externalId: string,
-  isPrimary: boolean,
-  channel = 'coupang',
-) {
-  return {
-    organizationId: 'org-1', productVariantId: 'variant-1', externalOptionId, isActive: true,
-    listing: {
-      id: listingId, organizationId: 'org-1', masterProductId: 'master-1', externalId, isActive: true,
-      channelAccount: { organizationId: 'org-1', channel, status: 'active', isPrimary },
-    },
   };
 }

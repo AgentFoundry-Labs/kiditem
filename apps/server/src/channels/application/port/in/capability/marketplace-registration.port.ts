@@ -33,7 +33,8 @@ export interface ResolveProductRegistrationCapabilityInput
   masterProductId?: string;
   optionLinks?: Array<{
     externalOptionId: string;
-    productVariantId: string;
+    sellpiaInventorySkuId: string;
+    quantity: number;
   }>;
 }
 

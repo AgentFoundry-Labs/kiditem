@@ -7,6 +7,7 @@ import { AiModule } from "../../ai/ai.module";
 import { AutomationModule } from "../../automation/automation.module";
 import { ChannelsModule } from "../../channels/channels.module";
 import { ProductsModule } from "../../products/products.module";
+import { OperationsModule } from "../../operations/operations.module";
 
 import { AdvertisingActionsController } from "../adapter/in/http/advertising-actions.controller";
 import { AdvertisingCampaignsController } from "../adapter/in/http/advertising-campaigns.controller";
@@ -21,6 +22,7 @@ import { AdKeywordAgentController } from "../adapter/in/http/ad-keyword-agent.co
 import { KeywordRankController } from "../adapter/in/http/keyword-rank.controller";
 import { CompetitorTrackingController } from "../adapter/in/http/competitor-tracking.controller";
 import { WingTrackedProductController } from "../adapter/in/http/wing-tracked-product.controller";
+import { ProfitabilityAdRefreshController } from "../adapter/in/http/profitability-ad-refresh.controller";
 
 // adapter/out/repository
 import { ScrapeTargetRepositoryAdapter } from "../adapter/out/repository/scrape-target.repository.adapter";
@@ -96,7 +98,7 @@ describe("AdvertisingModule capability wiring", () => {
   it("imports owner modules for channel stock, stored product ABC, and keyword judgement capabilities", () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, AdvertisingModule) ?? [];
-    expect(imports).toHaveLength(6);
+    expect(imports).toHaveLength(7);
     expect(new Set(imports)).toEqual(
       new Set([
         PrismaModule,
@@ -106,6 +108,7 @@ describe("AdvertisingModule capability wiring", () => {
         AutomationModule,
         ChannelsModule,
         ProductsModule,
+        OperationsModule,
       ]),
     );
   });
@@ -121,6 +124,7 @@ describe("AdvertisingModule capability wiring", () => {
         KeywordRankController,
         CompetitorTrackingController,
         WingTrackedProductController,
+        ProfitabilityAdRefreshController,
       ]),
     );
   });
@@ -196,7 +200,7 @@ describe("AdvertisingModule capability wiring", () => {
       (p): p is { provide: unknown; useExisting?: unknown } =>
         typeof p === "object" && p !== null && "provide" in p,
     );
-    expect(tokenProviders).toHaveLength(20);
+    expect(tokenProviders).toHaveLength(22);
     for (const provider of tokenProviders) {
       expect(provider.useExisting).toBeDefined();
       expect((provider.useExisting as { name?: string }).name).not.toBe(

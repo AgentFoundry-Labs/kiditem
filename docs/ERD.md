@@ -28,7 +28,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 23 |
-| [Core](erd/core.md) | 17 |
+| [Core](erd/core.md) | 16 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 12 |
 | [Orders](erd/orders.md) | 13 |
@@ -112,6 +112,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelAccount | Core | `channel_accounts` | Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization. |
 | ChannelListing | Core | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
 | ChannelListingOption | Core | `channel_listing_options` | One sellable SKU under a channel listing. |
+| ChannelListingOptionInventoryComponent | Core | `channel_listing_option_inventory_components` | Confirmed Sellpia inventory consumption for one channel sellable option. |
 | LegalEntity | Core | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | Core | `master_products` | KidItem-operated product identity and product-level operating metadata. |
 | MasterProductAbcEvaluation | Core | `master_product_abc_evaluations` | Current Products-owned automatic profitability ABC explanation snapshot for one MasterProduct. |
@@ -120,8 +121,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | MasterProductAbcGradeHistory | Core | `master_product_abc_grade_histories` | Immutable publication history for automatic product profitability ABC grade changes. |
 | Organization | Core | `organizations` | - |
 | OrganizationMembership | Core | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
-| ProductVariant | Core | `product_variants` | Reusable sellable unit beneath one MasterProduct. Code is stable organization-scoped identity. |
-| ProductVariantComponent | Core | `product_variant_components` | Central confirmed variant recipe. source: manual \| deterministic; quantity is positive and validated by shared/service contracts. |
 | SourceImportRun | Core | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
 | User | Core | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
 | GradeHistory | Finance | `grade_histories` | ABC 등급 변경 추적. |
@@ -834,7 +833,6 @@ erDiagram
     String id PK
     String listingId FK
     String organizationId FK
-    String productVariantId FK
     String externalOptionId
     String itemName
     Int salePrice
@@ -876,6 +874,15 @@ erDiagram
     DateTime lastObservedAt
     String rawSnapshotId FK
     Json metaJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelListingOptionInventoryComponent {
+    String id PK
+    String organizationId FK
+    String channelListingOptionId FK
+    String sellpiaInventorySkuId FK
+    Int quantity
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1859,30 +1866,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  ProductVariant {
-    String id PK
-    String organizationId FK
-    String masterProductId FK,UK
-    String code
-    String name
-    String optionLabel
-    Boolean isDefault
-    Boolean isActive
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ProductVariantComponent {
-    String id PK
-    String organizationId FK
-    String productVariantId FK
-    String sellpiaInventorySkuId FK
-    Int quantity
-    String source
-    String confirmedBy
-    DateTime confirmedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   ProfitLoss {
     String id PK
     String organizationId FK
@@ -2066,7 +2049,7 @@ erDiagram
     String organizationId FK
     String confirmationLineId FK
     String sellpiaInventorySkuId FK
-    Int unitsPerVariant
+    Int unitsPerSale
     Int quantity
     DateTime createdAt
   }
@@ -2083,7 +2066,6 @@ erDiagram
     Int confirmedQuantity
     String shortageReason
     String channelListingOptionId FK
-    String productVariantId FK
     String collectedOrderLineItemId
     DateTime collectedAt
     DateTime createdAt
@@ -2861,6 +2843,7 @@ erDiagram
   ChannelListingOption o|--o{ AdAction : "listingOption"
   ChannelListingOption o|--o{ ChannelAdTargetDailySnapshot : "listingOption"
   ChannelListingOption ||--o{ ChannelListingOptionDailySnapshot : "listingOption"
+  ChannelListingOption ||--o{ ChannelListingOptionInventoryComponent : "channelListingOption"
   ChannelListingOption o|--o{ ChannelScrapeSnapshot : "listingOption"
   ChannelListingOption o|--o{ OrderLineItem : "listingOption"
   ChannelListingOption o|--o{ OrderReturnLineItem : "listingOption"
@@ -2913,7 +2896,6 @@ erDiagram
   MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
   MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
   MasterProduct ||--o{ ProcessingCost : "master"
-  MasterProduct ||--o{ ProductVariant : "masterProduct"
   MasterProduct o|--o| SourcingCandidate : "provenanceMasterProduct"
   MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
@@ -2959,6 +2941,7 @@ erDiagram
   Organization ||--o{ ChannelListingDeletionOperation : "organization"
   Organization ||--o{ ChannelListingOption : "organization"
   Organization ||--o{ ChannelListingOptionDailySnapshot : "organization"
+  Organization ||--o{ ChannelListingOptionInventoryComponent : "organization"
   Organization ||--o{ ChannelScrapeChunk : "organization"
   Organization ||--o{ ChannelScrapeRun : "organization"
   Organization ||--o{ ChannelScrapeSnapshot : "organization"
@@ -3010,8 +2993,6 @@ erDiagram
   Organization ||--o{ ProcessingCost : "organization"
   Organization ||--o{ ProductPreparation : "organization"
   Organization ||--o{ ProductRegistrationExecution : "organization"
-  Organization ||--o{ ProductVariant : "organization"
-  Organization ||--o{ ProductVariantComponent : "organization"
   Organization ||--o{ ProfitLoss : "organization"
   Organization ||--o{ PurchaseOrder : "organization"
   Organization ||--o{ PurchaseOrderItem : "organization"
@@ -3067,9 +3048,6 @@ erDiagram
   Organization ||--o{ WorkflowTemplate : "organization"
   PickingList ||--o{ PickingItem : "pickingList"
   ProductPreparation ||--o{ ProductRegistrationExecution : "productPreparation"
-  ProductVariant o|--o{ ChannelListingOption : "productVariant"
-  ProductVariant ||--o{ ProductVariantComponent : "productVariant"
-  ProductVariant o|--o{ RocketPurchaseConfirmationLine : "productVariant"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
@@ -3077,9 +3055,9 @@ erDiagram
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationTransmission : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
+  SellpiaInventorySku ||--o{ ChannelListingOptionInventoryComponent : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ InventoryCommitmentAllocation : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ ProductVariantComponent : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PurchaseOrderItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ RocketPurchaseConfirmationAllocation : "sellpiaInventorySku"

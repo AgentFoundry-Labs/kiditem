@@ -66,7 +66,7 @@ function product(): MasterProductOperationsListItem {
       reorderSkuCount: 0,
       minMonthsOfAvailableStockLeft: null,
     },
-    variantSummary: { total: 1, active: 1, configured: 0, warning: 1 },
+    channelOptionSummary: { total: 1, active: 1, configured: 0, warning: 1 },
     inventoryUnits: 0,
     inventoryStatus: 'configuration_required',
     channelCount: 1,

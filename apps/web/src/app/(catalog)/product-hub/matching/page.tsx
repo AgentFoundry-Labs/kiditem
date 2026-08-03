@@ -6,20 +6,17 @@ import { Check, Loader2, Search, Upload, X } from 'lucide-react';
 import { friendlyError } from '@/lib/api-error';
 import {
   ProductInventoryMatchingTable,
-  operatorMatchingStatus,
-  productMatchingDecision,
+  productMatchingStatus,
 } from './components/ProductInventoryMatchingTable';
 import { CoupangWingCatalogImportDialog } from './components/CoupangWingCatalogImportDialog';
 import { ProductLinkDialog } from './components/ProductLinkDialog';
-import { VariantLinkDialog } from './components/VariantLinkDialog';
-import { RecipeSuggestionDialog } from './components/RecipeSuggestionDialog';
-import { RecipeAutomationPanel } from './components/RecipeAutomationPanel';
+import { ChannelOptionInventoryDialog } from '../[id]/components/ChannelOptionInventoryDialog';
 import { isChannelListingOnSale } from './lib/channel-listing-sale-status';
 import { Pagination } from '@/components/ui/Pagination';
 import {
   useChannelAccounts,
   useChannelProductMappings,
-  useChannelRecipeAutomationPreviews,
+  useRunChannelProductMatching,
 } from './hooks/useChannelSkuMappings';
 import type {
   ChannelOptionMatchingQueueRow,
@@ -52,8 +49,7 @@ export default function MatchingPage() {
   const pendingInternalSearch = useRef<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [productTarget, setProductTarget] = useState<ChannelProductMatchingQueueRow | null>(null);
-  const [variantTarget, setVariantTarget] = useState<ChannelOptionMatchingQueueRow | null>(null);
-  const [suggestionTarget, setSuggestionTarget] = useState<ChannelOptionMatchingQueueRow | null>(null);
+  const [inventoryTarget, setInventoryTarget] = useState<ChannelOptionMatchingQueueRow | null>(null);
 
   const updateUrl = (changes: Record<string, string | null>, resetPage = true) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -115,19 +111,7 @@ export default function MatchingPage() {
     search: debouncedSearch,
     enabled: channelAccounts.length > 0,
   });
-  const automationPreviewQueries = useChannelRecipeAutomationPreviews(selectedAccountIds);
-  const automationPreviews = automationPreviewQueries.flatMap((query) =>
-    query.data ? [query.data] : []);
-  const automationItemsByOptionId = useMemo(() => new Map(
-    automationPreviews.flatMap((preview) => preview.items).flatMap((item) =>
-      item.channelListingOptionIds.map((optionId) => [optionId, item] as const)),
-  ), [automationPreviews]);
-  const automationGroupsByListingId = useMemo(() => new Map(
-    automationPreviews.flatMap((preview) => preview.productGroups).map((group) => [
-      group.channelListingId,
-      group,
-    ] as const),
-  ), [automationPreviews]);
+  const autoMatch = useRunChannelProductMatching();
   const data = mappingsQuery.data;
   const selectedProducts = useMemo(() => (data?.products ?? []).filter((row) =>
     selectedAccountIdSet.has(row.channelAccount.id)), [data?.products, selectedAccountIdSet]);
@@ -136,10 +120,6 @@ export default function MatchingPage() {
   const onSaleListingIdSet = useMemo(() => new Set((data?.products ?? [])
     .filter((row) => isChannelListingOnSale(row.listing.saleStatus))
     .map((row) => row.listing.id)), [data?.products]);
-  const onSaleListingIds = useMemo(
-    () => [...onSaleListingIdSet].sort(),
-    [onSaleListingIdSet],
-  );
   const visibleProductCountByAccountId = useMemo(() => {
     const counts = new Map<string, number>();
     for (const row of data?.products ?? []) {
@@ -161,12 +141,11 @@ export default function MatchingPage() {
   const filteredProducts = useMemo(() => selectedProducts.filter((row) => {
     if (activeOnly && !onSaleListingIdSet.has(row.listing.id)) return false;
     if (status === 'all') return true;
-    return operatorMatchingStatus(productMatchingDecision(
-        row,
-        optionsByListingId.get(row.listing.id) ?? [],
-        automationGroupsByListingId.get(row.listing.id),
-      )) === status;
-  }), [activeOnly, automationGroupsByListingId, onSaleListingIdSet, optionsByListingId, selectedProducts, status]);
+    return productMatchingStatus(
+      row,
+      optionsByListingId.get(row.listing.id) ?? [],
+    ) === status;
+  }), [activeOnly, onSaleListingIdSet, optionsByListingId, selectedProducts, status]);
   const pageRows = filteredProducts.slice((page - 1) * 50, page * 50);
   const pageListingIds = new Set(pageRows.map((row) => row.listing.id));
   const pageOptions = selectedOptions.filter((row) => pageListingIds.has(row.listing.id));
@@ -209,6 +188,14 @@ export default function MatchingPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <h1 className="text-2xl font-bold text-slate-900">상품 매칭 센터</h1>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            disabled={autoMatch.isPending || selectedAccountIds.length === 0}
+            onClick={() => autoMatch.mutate({ channelAccountIds: selectedAccountIds })}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-600 bg-white px-3 py-2 text-sm font-bold text-purple-700 disabled:opacity-50"
+          >
+            {autoMatch.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} 자동 매칭
+          </button>
           {selectedAccount?.channel === 'coupang' ? (
             <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm text-white hover:bg-purple-700">
               <Upload size={14} /> 쿠팡 Wing 상품 엑셀 가져오기
@@ -217,13 +204,8 @@ export default function MatchingPage() {
         </div>
       </div>
 
-      {!accountsQuery.error && selectedAccountIds.length > 0 && !mappingsQuery.error ? (
-        <RecipeAutomationPanel
-          channelAccountIds={selectedAccountIds}
-          includedChannelListingIds={activeOnly ? onSaleListingIds : undefined}
-          inclusionFilterLoading={activeOnly && mappingsQuery.isLoading}
-        />
-      ) : null}
+      {autoMatch.error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{friendlyError(autoMatch.error)}</p> : null}
+      {autoMatch.data ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">상품 {autoMatch.data.matchedListings}개 · 재고 구성 {autoMatch.data.configuredOptions}개를 자동 매칭했습니다.</p> : null}
 
       <section aria-label="상품 매칭 필터" className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5">
         <fieldset className="space-y-3">
@@ -329,12 +311,9 @@ export default function MatchingPage() {
         <ProductInventoryMatchingTable
           products={pageRows}
           options={pageOptions}
-          productGroups={automationPreviews.flatMap((preview) => preview.productGroups)}
           loading={mappingsQuery.isLoading && !data}
           onEditProduct={setProductTarget}
-          onEditVariant={setVariantTarget}
-          onShowRecipeSuggestion={setSuggestionTarget}
-          automationItemsByOptionId={automationItemsByOptionId}
+          onEditInventory={setInventoryTarget}
           focusOptionId={focusOptionId}
         />
       ) : null}
@@ -342,8 +321,7 @@ export default function MatchingPage() {
 
       <CoupangWingCatalogImportDialog open={importOpen} account={selectedAccount?.channel === 'coupang' ? selectedAccount : null} onOpenChange={setImportOpen} onSuccess={() => void mappingsQuery.refetch()} />
       {productTarget ? <ProductLinkDialog open row={productTarget} onOpenChange={(next) => { if (!next) setProductTarget(null); }} /> : null}
-      {variantTarget ? <VariantLinkDialog open row={variantTarget} onOpenChange={(next) => { if (!next) setVariantTarget(null); }} /> : null}
-      {suggestionTarget ? <RecipeSuggestionDialog open row={suggestionTarget} onOpenChange={(next) => { if (!next) setSuggestionTarget(null); }} /> : null}
+      {inventoryTarget ? <ChannelOptionInventoryDialog open option={inventoryTarget.option} onOpenChange={(next) => { if (!next) setInventoryTarget(null); }} /> : null}
     </div>
   );
 }

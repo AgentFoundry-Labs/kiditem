@@ -104,12 +104,19 @@ describe('Statistics flow (PG integration)', () => {
       data: {
         organizationId,
         listingId: listingL1.listingId,
-        productVariantId: optM1b,
         externalOptionId: `${prefix}-VI-L1B`,
         costPriceOverride: 4_000,
         commissionRate: 0.1,
       },
       select: { id: true },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId,
+        channelListingOptionId: listingL1b.id,
+        sellpiaInventorySkuId: optM1b,
+        quantity: 1,
+      },
     });
     await prisma.channelListingOption.update({
       where: { id: listingL1.listingOptionId },

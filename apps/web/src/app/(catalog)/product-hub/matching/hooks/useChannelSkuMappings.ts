@@ -1,20 +1,17 @@
 'use client';
 
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import {
-  applyChannelRecipeAutomation,
+  autoMatchChannelProducts,
   getSellpiaManualMatchTargets,
-  getChannelRecipeAutomationPreview,
   importCoupangWingCatalog,
   importSellpiaManualMatchSnapshot,
-  linkChannelListingOption,
   linkChannelListingProduct,
   listChannelAccounts,
   listChannelProductCandidates,
   listChannelProductMappings,
-  listChannelVariantCandidates,
 } from '../lib/channel-sku-matching-api';
 import {
   collectSellpiaManualMatchSnapshot,
@@ -42,19 +39,6 @@ export function useChannelProductMappings(params: {
       search: normalizedSearch,
     }),
     enabled: params.enabled ?? Boolean(params.channelAccountId),
-  });
-}
-
-export function useChannelRecipeAutomationPreviews(channelAccountIds: string[]) {
-  const uniqueIds = [...new Set(channelAccountIds)].sort();
-  return useQueries({
-    queries: uniqueIds.map((channelAccountId) => ({
-      queryKey: queryKeys.channelProductMappings.recipeAutomationPreview(
-        channelAccountId,
-      ),
-      queryFn: () => getChannelRecipeAutomationPreview(channelAccountId),
-      enabled: Boolean(channelAccountId),
-    })),
   });
 }
 
@@ -91,31 +75,16 @@ export function useRunChannelProductMatching() {
         throw error;
       }
 
-      const result = {
-        collectedAliases,
-        evaluatedAccounts: uniqueAccountIds.length,
-        appliedProducts: 0,
-        skippedProducts: 0,
-        appliedVariants: 0,
-        affectedOptions: 0,
-        skippedExistingVariants: 0,
-      };
+      const result = { collectedAliases, evaluatedListings: 0, matchedListings: 0, configuredOptions: 0 };
       for (const channelAccountId of uniqueAccountIds) {
-        const preview = await getChannelRecipeAutomationPreview(channelAccountId);
-        if (preview.summary.autoApply === 0) continue;
-        const applied = await applyChannelRecipeAutomation({
-          channelAccountId,
-          proposalVersion: preview.proposalVersion,
-        });
-        result.appliedProducts += applied.appliedProducts;
-        result.skippedProducts += applied.skippedProducts;
-        result.appliedVariants += applied.appliedVariants;
-        result.affectedOptions += applied.affectedOptions;
-        result.skippedExistingVariants += applied.skippedExistingVariants;
+        const applied = await autoMatchChannelProducts(channelAccountId);
+        result.evaluatedListings += applied.evaluatedListings;
+        result.matchedListings += applied.matchedListings;
+        result.configuredOptions += applied.configuredOptions;
       }
       return result;
     },
-    onSettled: (_data, _error, input) => Promise.all([
+    onSettled: () => Promise.all([
       queryClient.invalidateQueries({
         queryKey: queryKeys.channelProductMappings.sellpiaManualMatchTargets(),
       }),
@@ -125,23 +94,7 @@ export function useRunChannelProductMatching() {
       queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
-      ...[...new Set(input.channelAccountIds)].map((channelAccountId) =>
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.channelProductMappings.recipeAutomationPreview(
-            channelAccountId,
-          ),
-        })),
     ]),
-  });
-}
-
-export function useChannelRecipeAutomationPreview(channelAccountId?: string) {
-  return useQuery({
-    queryKey: queryKeys.channelProductMappings.recipeAutomationPreview(
-      channelAccountId ?? '',
-    ),
-    queryFn: () => getChannelRecipeAutomationPreview(channelAccountId!),
-    enabled: Boolean(channelAccountId),
   });
 }
 
@@ -156,16 +109,6 @@ export function useChannelProductCandidates(channelListingId: string | null, sea
   });
 }
 
-export function useChannelVariantCandidates(channelListingOptionId: string | null, search: string, enabled: boolean) {
-  const normalized = search.trim();
-  return useQuery({
-    queryKey: queryKeys.channelProductMappings.variantCandidates(channelListingOptionId ?? '', { search: normalized }),
-    queryFn: () => listChannelVariantCandidates(channelListingOptionId ?? '', normalized),
-    enabled: enabled && Boolean(channelListingOptionId),
-    staleTime: 0,
-    refetchOnMount: 'always',
-  });
-}
 
 export function useLinkChannelListingProduct() {
   const queryClient = useQueryClient();
@@ -179,17 +122,6 @@ export function useLinkChannelListingProduct() {
   });
 }
 
-export function useLinkChannelListingOption() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ channelListingOptionId, productVariantId }: { channelListingOptionId: string; productVariantId: string | null }) =>
-      linkChannelListingOption(channelListingOptionId, { productVariantId }),
-    onSuccess: () => Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
-    ]),
-  });
-}
 
 export function useImportCoupangWingCatalog() {
   const queryClient = useQueryClient();

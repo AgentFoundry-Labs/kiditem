@@ -13,7 +13,6 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { ProductOperationsService } from '../../../application/service/product-operations.service';
 import { ProductRecipeComponentCandidateService } from '../../../application/service/product-recipe-component-candidate.service';
-import { ProductVariantRecipeService } from '../../../application/service/product-variant-recipe.service';
 import {
   ProductOperationsDataStatusQueryDto,
   ProductOperationsListQueryDto,
@@ -26,7 +25,6 @@ import { ProductOperationsDataStatusService } from '../../../application/service
 export class ProductOperationsController {
   constructor(
     private readonly products: ProductOperationsService,
-    private readonly recipes: ProductVariantRecipeService,
     private readonly recipeCandidates: ProductRecipeComponentCandidateService,
     private readonly dataStatus: ProductOperationsDataStatusService,
   ) {}
@@ -81,59 +79,16 @@ export class ProductOperationsController {
     return this.products.updateProduct(organizationId, masterProductId, body);
   }
 
-  @Post('masters/:masterProductId/variants')
-  createVariant(
+  @Put('channel-options/:channelListingOptionId/inventory-components')
+  replaceChannelOptionInventory(
     @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Param('masterProductId', new ParseUUIDPipe()) masterProductId: string,
+    @Param('channelListingOptionId', new ParseUUIDPipe()) channelListingOptionId: string,
     @Body() body: unknown,
   ) {
-    return this.products.createVariant(
+    return this.products.replaceChannelOptionInventory(
       organizationId,
-      user.id,
-      masterProductId,
+      channelListingOptionId,
       body,
     );
-  }
-
-  @Patch('variants/:productVariantId')
-  updateVariant(
-    @CurrentOrganization() organizationId: string,
-    @Param('productVariantId', new ParseUUIDPipe()) productVariantId: string,
-    @Body() body: unknown,
-  ) {
-    return this.products.updateVariant(organizationId, productVariantId, body);
-  }
-
-  @Put('variants/:productVariantId/components')
-  replaceRecipe(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Param('productVariantId', new ParseUUIDPipe()) productVariantId: string,
-    @Body() body: unknown,
-  ) {
-    return this.recipes.replaceRecipe(
-      organizationId,
-      user.id,
-      productVariantId,
-      body,
-    );
-  }
-
-  @Post('variant-recipes/create-if-empty/plan')
-  planRecipesIfEmpty(
-    @CurrentOrganization() organizationId: string,
-    @Body() body: unknown,
-  ) {
-    return this.recipes.planCreateIfEmpty(organizationId, body);
-  }
-
-  @Post('variant-recipes/create-if-empty')
-  createRecipesIfEmpty(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Body() body: unknown,
-  ) {
-    return this.recipes.createIfEmpty(organizationId, user.id, body);
   }
 }

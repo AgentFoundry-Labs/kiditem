@@ -35,18 +35,24 @@ export class SellpiaMasterProductProfitFactReader
     const masterProductIds = [...new Set(input.masterProductIds)];
     if (masterProductIds.length === 0) return { evidence: [], orphanFacts: [] };
     const months = yearMonthsIntersecting(input.range);
-    const [variants, candidates, facts] = await Promise.all([
-      this.prisma.productVariant.findMany({
+    const [components, candidates, facts] = await Promise.all([
+      this.prisma.channelListingOptionInventoryComponent.findMany({
         where: {
           organizationId: input.organizationId,
-          masterProductId: { in: masterProductIds },
-          isActive: true,
+          channelListingOption: {
+            organizationId: input.organizationId,
+            isActive: true,
+            listing: {
+              organizationId: input.organizationId,
+              isActive: true,
+              masterProductId: { in: masterProductIds },
+            },
+          },
         },
         select: {
-          masterProductId: true,
-          components: {
-            where: { organizationId: input.organizationId },
-            select: { sellpiaInventorySkuId: true },
+          sellpiaInventorySkuId: true,
+          channelListingOption: {
+            select: { listing: { select: { masterProductId: true } } },
           },
         },
       }),
@@ -74,12 +80,12 @@ export class SellpiaMasterProductProfitFactReader
     ]);
 
     const ownersBySku = new Map<string, Set<string>>();
-    for (const variant of variants) {
-      for (const component of variant.components) {
-        const owners = ownersBySku.get(component.sellpiaInventorySkuId) ?? new Set();
-        owners.add(variant.masterProductId);
-        ownersBySku.set(component.sellpiaInventorySkuId, owners);
-      }
+    for (const component of components) {
+      const masterProductId = component.channelListingOption.listing.masterProductId;
+      if (!masterProductId) continue;
+      const owners = ownersBySku.get(component.sellpiaInventorySkuId) ?? new Set();
+      owners.add(masterProductId);
+      ownersBySku.set(component.sellpiaInventorySkuId, owners);
     }
     const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
     const mappedSkuIdsByMaster = new Map(masterProductIds.map((id) => [id, new Set<string>()]));

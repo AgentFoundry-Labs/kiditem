@@ -6,7 +6,7 @@ import type { ProductOperationsRepositoryPort } from '../port/out/repository/pro
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const userId = '00000000-0000-4000-8000-000000000002';
 const productId = '00000000-0000-4000-8000-000000000003';
-const variantId = '00000000-0000-4000-8000-000000000004';
+const channelListingOptionId = '00000000-0000-4000-8000-000000000004';
 const skuId = '00000000-0000-4000-8000-000000000005';
 
 describe('ProductOperationsService', () => {
@@ -96,7 +96,7 @@ describe('ProductOperationsService', () => {
     });
   });
 
-  it('creates one default variant when variants are omitted', async () => {
+  it('creates only the MasterProduct without a synthetic option layer', async () => {
     const repository = makeRepository();
     const service = makeService(repository);
 
@@ -107,19 +107,12 @@ describe('ProductOperationsService', () => {
 
     expect(repository.createProduct).toHaveBeenCalledWith({
       organizationId,
-      userId,
       product: expect.objectContaining({
         code: 'KI-001',
         name: 'Product',
-        variants: [expect.objectContaining({
-          code: 'KI-001-DEFAULT',
-          name: 'Product',
-          isDefault: true,
-          isActive: true,
-          components: [],
-        })],
       }),
     });
+    expect(repository.createProduct.mock.calls[0]?.[0].product).not.toHaveProperty('variants');
   });
 
   it('keeps direct product images ahead of channel display media', async () => {
@@ -311,55 +304,26 @@ describe('ProductOperationsService', () => {
     );
   });
 
-  it('atomically forwards supplied variants and their recipes', async () => {
+  it('rejects duplicate and non-positive option inventory components before persistence', async () => {
     const repository = makeRepository();
     const service = makeService(repository);
 
-    await service.createProduct(organizationId, userId, {
-      code: 'KI-002',
-      name: 'Bundle',
-      variants: [{
-        code: 'KI-002-2PK',
-        name: '2 pack',
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
-      }],
-    });
-
-    expect(repository.createProduct).toHaveBeenCalledWith({
+    await expect(service.replaceChannelOptionInventory(
       organizationId,
-      userId,
-      product: expect.objectContaining({
-        variants: [expect.objectContaining({
-          code: 'KI-002-2PK',
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
-        })],
-      }),
-    });
-  });
-
-  it('rejects duplicate and non-positive recipe components before persistence', async () => {
-    const repository = makeRepository();
-    const service = makeService(repository);
-
-    await expect(service.replaceRecipe(
-      organizationId,
-      userId,
-      variantId,
+      channelListingOptionId,
       {
         components: [
           { sellpiaInventorySkuId: skuId, quantity: 1 },
           { sellpiaInventorySkuId: skuId, quantity: 2 },
         ],
-        expectedRecipe: [],
       },
     )).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.replaceRecipe(
+    await expect(service.replaceChannelOptionInventory(
       organizationId,
-      userId,
-      variantId,
-      { components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }], expectedRecipe: [] },
+      channelListingOptionId,
+      { components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }] },
     )).rejects.toBeInstanceOf(BadRequestException);
-    expect(repository.replaceRecipe).not.toHaveBeenCalled();
+    expect(repository.replaceChannelOptionInventory).not.toHaveBeenCalled();
   });
 
   it('passes every detail and mutation through an organization fence', async () => {
@@ -368,26 +332,8 @@ describe('ProductOperationsService', () => {
 
     await service.getProduct(organizationId, productId);
     await service.updateProduct(organizationId, productId, { name: 'Renamed' });
-    await service.createVariant(organizationId, userId, productId, {
-      code: 'KI-001-L',
-      name: 'Large',
-    });
-    await service.updateVariant(organizationId, variantId, { name: 'Large+' });
-    await service.replaceRecipe(organizationId, userId, variantId, {
+    await service.replaceChannelOptionInventory(organizationId, channelListingOptionId, {
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      expectedRecipe: [],
-    });
-    await service.createRecipesIfEmpty(organizationId, userId, {
-      recipes: [{
-        productVariantId: variantId,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      }],
-    });
-    await service.planRecipesIfEmpty(organizationId, {
-      recipes: [{
-        productVariantId: variantId,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      }],
     });
 
     expect(repository.getProduct).toHaveBeenCalledWith(organizationId, productId);
@@ -396,45 +342,16 @@ describe('ProductOperationsService', () => {
       productId,
       { name: 'Renamed' },
     );
-    expect(repository.createVariant).toHaveBeenCalledWith({
+    expect(repository.replaceChannelOptionInventory).toHaveBeenCalledWith({
       organizationId,
-      userId,
-      masterProductId: productId,
-      variant: expect.objectContaining({ code: 'KI-001-L' }),
-    });
-    expect(repository.updateVariant).toHaveBeenCalledWith(
-      organizationId,
-      variantId,
-      { name: 'Large+' },
-    );
-    expect(repository.replaceRecipe).toHaveBeenCalledWith({
-      organizationId,
-      userId,
-      productVariantId: variantId,
+      channelListingOptionId,
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      expectedRecipe: [],
-    });
-    expect(repository.createManualRecipesIfEmpty).toHaveBeenCalledWith({
-      organizationId,
-      userId,
-      recipes: [{
-        productVariantId: variantId,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      }],
-    });
-    expect(repository.planManualRecipesIfEmpty).toHaveBeenCalledWith({
-      organizationId,
-      recipes: [{
-        productVariantId: variantId,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      }],
     });
   });
 });
 
 function makeRepository() {
   const product = rawProduct();
-  const variant = product.variants[0]!;
   return {
     listProducts: vi.fn().mockResolvedValue({
       items: [],
@@ -445,17 +362,7 @@ function makeRepository() {
     getProduct: vi.fn().mockResolvedValue(product),
     createProduct: vi.fn().mockResolvedValue(product),
     updateProduct: vi.fn().mockResolvedValue(product),
-    createVariant: vi.fn().mockResolvedValue(variant),
-    updateVariant: vi.fn().mockResolvedValue(variant),
-    replaceRecipe: vi.fn().mockResolvedValue(variant),
-    createManualRecipesIfEmpty: vi.fn().mockResolvedValue({
-      appliedProductVariantIds: [],
-      unchangedProductVariantIds: [variant.id],
-    }),
-    planManualRecipesIfEmpty: vi.fn().mockResolvedValue({
-      pendingProductVariantIds: [],
-      unchangedProductVariantIds: [variant.id],
-    }),
+    replaceChannelOptionInventory: vi.fn().mockResolvedValue(product),
   } as unknown as {
     [K in keyof ProductOperationsRepositoryPort]: ReturnType<typeof vi.fn>;
   };
@@ -513,16 +420,6 @@ function rawProduct() {
     createdAt: new Date('2026-07-17T00:00:00.000Z'),
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelListings: [],
-    variants: [{
-      id: variantId,
-      code: 'PV-1',
-      displayReference: { type: 'product_variant_code' as const, label: '옵션 코드', value: 'PV-1' },
-      name: 'Variant',
-      optionLabel: null,
-      isDefault: true,
-      isActive: true,
-      components: [],
-    }],
   };
 }
 
@@ -559,9 +456,13 @@ function rawListProduct(id: string) {
       },
     },
     profit: null,
-    variants: product.variants.map((variant) => ({
-      ...variant,
-      components: [{
+    inventoryOptions: [{
+      id: channelListingOptionId,
+      externalOptionId: 'OPTION-1',
+      sellerSku: 'SELLER-1',
+      itemName: 'Inventory option',
+      isActive: true,
+      inventoryComponents: [{
         id: '00000000-0000-4000-8000-000000000007',
         sellpiaInventorySkuId: skuId,
         code: 'SKU-1',
@@ -573,6 +474,6 @@ function rawListProduct(id: string) {
         confirmedBy: null,
         confirmedAt: new Date('2026-07-17T00:00:00.000Z'),
       }],
-    })),
+    }],
   };
 }

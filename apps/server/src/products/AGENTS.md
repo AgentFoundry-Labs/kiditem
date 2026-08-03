@@ -2,107 +2,71 @@ Consult this document first instead of relying on memorized knowledge.
 
 # products — Product Operations + Categories Compatibility
 
-`src/products/` owns KidItem product operations, reusable variants, and the
-central variant-to-Sellpia recipe. It also retains `/api/categories`
-compatibility CRUD. It never owns physical stock.
+`src/products/` owns `MasterProduct` operations, automatic profitability ABC,
+and the direct inventory composition of channel listing options. It also retains
+`/api/categories` compatibility CRUD. It never owns physical stock.
 
 ## Owned Surface
 
 - `/api/products/masters` product-operations list/detail and metadata mutations
-- product variant create/update capabilities
-- complete `ProductVariantComponent` recipe replacement
-- reviewed manual recipe batch plan/create-if-empty capabilities for private
-  stable-identity environment transfers
-- create-if-empty deterministic recipe capability consumed by Channels after a
-  version-fenced, explicitly confirmed preview
-- transaction-aware channel-origin `MasterProduct` / `ProductVariant`
-  provisioning through the exported Products incoming port
-- focused active Sellpia recipe candidates:
+- `PUT /api/products/channel-options/:channelListingOptionId/inventory-components`
+  for complete direct inventory-composition replacement
+- focused active Sellpia inventory candidates:
   `GET /api/products/recipe-component-candidates`
+- automatic profitability ABC formula, evaluation, publication, and history
 - `/api/categories`
 
 ## Final Owners
 
-- KidItem product metadata: Products `MasterProduct`.
-- Automatic product ABC policy, current evaluation snapshot, grade publication, and grade history: Products.
-- Reusable sellable units and component recipes: Products `ProductVariant` and
-  `ProductVariantComponent`.
-- Sellpia physical identity and imported quantity: Inventory
+- Cross-channel operating product and ABC: Products `MasterProduct`.
+- Marketplace product/option identity: Channels `ChannelListing` and
+  `ChannelListingOption`.
+- One marketplace product link: `ChannelListing.masterProductId`.
+- Per-sale inventory consumption: Products-owned
+  `ChannelListingOptionInventoryComponent`, keyed by channel option and
   `SellpiaInventorySku`.
-- Marketplace product/option source metadata and confirmed links: Channels
-  `ChannelListing.masterProductId` and
-  `ChannelListingOption.productVariantId`.
+- Physical identity, stock, purchase price, and provider imports: Inventory
+  `SellpiaInventorySku`.
 - Collected sourcing candidates and product preparation: Sourcing.
-- Registered thumbnail/detail content: AI `ContentWorkspace` and its
-  generations/revisions.
+- Registered thumbnail/detail content: AI `ContentWorkspace` and its revisions.
 
 ## Boundary Rules
 
-- Do not add physical stock, source price/barcode/raw import fields, or direct
-  Inventory writers to `MasterProduct`.
-- `MasterProduct.imageUrls` is operator-managed product metadata. Channel
-  collection and matching do not copy listing media into it. Product read
-  responses may expose calculated `displayImageUrls`, preferring non-empty
-  `imageUrls` and otherwise using active matched channel catalog media through
-  AI's read-only display-media port.
-- Manual recipe writes replace the complete `ProductVariantComponent` set and
-  validate positive quantities and tenant ownership. An explicitly reviewed
-  manual batch may plan or create exact recipes only for empty variants;
-  identical recipes are idempotent and different recipes conflict. The only
-  automatic writer is the locked create-if-empty capability: it accepts one active,
-  organization-owned Sellpia component with a positive integer quantity, marks its source
-  deterministic, and preserves every existing recipe. Channels may invoke it
-  only from a matching version-fenced preview based on a unique,
-  non-conflicting identifier with name cross-check, exact normalized identity,
-  or high-confidence unique name match. Quantities above one require an
-  explicit integer pack ratio. Unverifiable pack/BOM composition, duplicates,
-  conflicts, close-ranked names, raw aliases, and AI remain non-automatic.
-- Product-level inventory is a read projection over distinct linked
-  `SellpiaInventorySku` rows hydrated through `InventoryAvailabilityPort`.
-  Variant capacity uses common `availableStock`; physical stock and active
-  commitments remain separately visible. Products never creates a second
-  ledger.
-- Product list pagination returns operating summary counts over the complete
-  filtered result before page slicing, including ABC grades, channel
-  connection, inventory status, negative profit, and Analytics-owned depletion
-  coverage/reorder signals; consumers must not reconstruct those counts from
-  the current page.
+- Do not recreate `ProductVariant`, `ProductVariantComponent`, an operating
+  option table, a master-level inventory recipe, or a second stock balance.
+- `MasterProduct` is the only ABC owner. Channel option inventory composition is
+  logistics data and does not create a second product grade.
+- A channel option recipe is an atomic complete replacement of distinct,
+  organization-owned Sellpia SKU IDs with positive integer quantities. An empty
+  replacement explicitly clears the composition. Physical stock is never
+  mutated by this endpoint.
+- Capacity is derived from the option's direct components using common
+  `availableStock`; physical stock and commitments remain Inventory-owned.
+- Product-level inventory is a read projection over distinct Sellpia SKUs used
+  by linked channel options. Products never creates a second ledger.
 - Recipe candidate search enters Inventory only through the exported
-  `SELLPIA_INVENTORY_SKU_READ_PORT`, passes session-owned `organizationId`, and
-  returns physical identity/stock facts without source prices or writers.
-- Channel-origin provisioning receives a caller-owned transaction, validates
-  every listing/option/current-link identity against `organizationId`, and may
-  create or reuse Products-owned identities. It never writes Channels-owned
-  link columns, physical stock, or inferred component recipes.
-- Automatic reuse accepts only unique, non-conflicting typed seller SKU or
-  safely normalized barcode evidence. Names, untyped raw payload fields, rank,
-  and AI never confirm an existing product, variant, or recipe.
-- A recollection never overwrites operator-edited product metadata, active
-  state, confirmed links, or recipes. Inactive origin/current products and
-  deterministic code collisions are explicit conflicts, not reactivation or
-  reuse shortcuts.
-- Deterministic `CP-*` and `CP-SKU-*` codes remain internal stable identities.
-  Product-operations responses expose channel-origin display references from
-  the origin listing and option external IDs; they do not replace stored codes.
-- Creating a product creates supplied variants or one default variant when the
-  request omits variants.
-- `MasterProduct.abcGrade` is a nullable automatic result, never operator input.
-  Products evaluates Finance's source-freshness and time-decayed contribution-
-  profit evidence, persists its calculation status/formula/evaluation snapshot,
-  updates only changed grades with history, and recalculates after authoritative
-  Sellpia product-profit ingest. Every currently selling mapped product is
-  evaluated immediately when complete Sellpia and Advertising evidence and an
-  active formula exist. Paid-order count and first-paid-sale age do not gate
-  grading. The earliest nonzero Sellpia profit bucket supplies observation age
-  for score shrinkage only; unresolved identity remains `null` rather than a
-  synthetic C or provisional grade.
-- Products calibrates an initial frozen formula and preserves its checksum,
-  knots, and version. Evaluation/publication is organization-locked so an
-  older metric snapshot cannot overwrite a newer completed publication; stale
-  source states preserve the latest published grade instead of inventing one.
-- Thumbnail analysis quality grades are AI-owned registration evidence and
-  remain independent from the automatic product ABC grade.
+  `SELLPIA_INVENTORY_SKU_READ_PORT`, passes the session-owned `organizationId`,
+  and returns physical identities without a writer.
+- Product list pagination returns summary counts over the complete filtered
+  result before page slicing. Consumers do not rebuild counts from one page.
+- `MasterProduct.imageUrls` is operator-managed metadata. Read responses may
+  expose calculated `displayImageUrls`; channel collection never copies media
+  into the product.
+- Channel import creates or updates only Channels-owned listing identities and
+  preserves an existing `masterProductId`. It does not auto-provision
+  `MasterProduct` rows.
+- Candidate rank, display text, untyped payload fields, and AI never confirm
+  product identity. Channels owns conservative typed auto-match and explicit
+  operator confirmation.
+- `MasterProduct.abcGrade` is nullable automatic output, never operator input.
+  Products evaluates Finance-owned profitability evidence for currently selling
+  mapped products, persists formula/evaluation provenance, and publishes only
+  changed grades with history. Missing or stale evidence stays unclassified;
+  it is never synthesized as C.
+- Evaluation/publication is organization-locked so an older snapshot cannot
+  overwrite a newer completed publication.
+- Thumbnail analysis quality grades remain AI registration evidence and are
+  independent from automatic product ABC.
 - Category controllers receive `organizationId` from
-  `@CurrentOrganization()` and never accept tenant identity from the client.
-- Product and category mutations scope every single-resource operation by
-  `{ id, organizationId }`.
+  `@CurrentOrganization()` and never accept tenant identity from clients.
+- Product and category mutations scope each resource by `{ id, organizationId }`.

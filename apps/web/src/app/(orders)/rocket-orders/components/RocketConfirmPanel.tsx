@@ -346,7 +346,7 @@ export function RocketConfirmPanel({
     barcode: sourceByLineId.get(row.poLineId)?.barcode ?? "",
     orderQuantity: row.orderQuantity,
     reason: row.reason,
-    channelSkuId: row.channelSkuId,
+    channelListingOptionId: row.channelListingOptionId,
     components: row.components,
   }));
   const hasBlockingRows = rows.some((row) =>
@@ -778,7 +778,7 @@ export function RocketConfirmPanel({
                             >
                               {matchStateLabel}
                             </span>
-                            {row.masterProductId && row.productVariantId ? (
+                            {row.masterProductId && row.channelListingOptionId ? (
                               <button
                                 type="button"
                                 aria-label={`${row.productName} Sellpia 재고 ${row.components.length > 0 ? "수정" : "연결"}`}
@@ -803,7 +803,7 @@ export function RocketConfirmPanel({
                                 href={rocketProductMatchingHref({
                                   channelAccountId,
                                   productNo: row.productNo,
-                                  channelSkuId: row.channelSkuId,
+                                  channelListingOptionId: row.channelListingOptionId,
                                 })}
                                 target="_blank"
                                 rel="noreferrer"
@@ -944,12 +944,12 @@ export function RocketConfirmPanel({
                         </td>
                       </tr>
                       {editingRecipePoLineId === row.poLineId &&
-                      row.masterProductId && row.productVariantId ? (
+                      row.masterProductId && row.channelListingOptionId ? (
                         <tr className="border-t border-purple-100 bg-purple-50/30">
                           <td colSpan={9} className="px-3 py-3">
                             <RocketInlineRecipeEditor
                               masterProductId={row.masterProductId}
-                              productVariantId={row.productVariantId}
+                              channelListingOptionId={row.channelListingOptionId}
                               productName={row.productName}
                               existingComponents={row.components}
                               onCancel={() => setEditingRecipePoLineId(null)}

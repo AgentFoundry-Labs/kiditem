@@ -15,7 +15,6 @@ import { Loader2, Plus, Search, Trash2, X } from 'lucide-react';
 import {
   ProductRecipeComponentCandidateListResponseSchema,
   type ProductRecipeComponentCandidate,
-  type ProductVariantDetail,
 } from '@kiditem/shared/product-operations';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -32,30 +31,45 @@ type DraftComponent = {
   currentStock: number;
 };
 
-export function VariantRecipeDialog({
+export type ChannelOptionInventoryEditorTarget = {
+  id: string;
+  externalOptionId: string;
+  itemName: string | null;
+  inventoryComponents: Array<{
+    id: string;
+    sellpiaInventorySkuId: string;
+    code: string;
+    name: string;
+    optionName: string | null;
+    currentStock: number;
+    quantity: number;
+  }>;
+};
+
+export function ChannelOptionInventoryDialog({
   open,
   onOpenChange,
-  variant,
+  option,
   initialInventorySearch,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  variant: ProductVariantDetail;
+  option: ChannelOptionInventoryEditorTarget;
   initialInventorySearch?: string;
 }) {
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<DraftComponent[]>(() => toDraft(variant));
+  const [draft, setDraft] = useState<DraftComponent[]>(() => toDraft(option));
   const [inventorySearch, setInventorySearch] = useState(initialInventorySearch ?? '');
   const [includeOutOfStock, setIncludeOutOfStock] = useState(false);
   const nextDraftId = useRef(0);
 
   useEffect(() => {
     if (open) {
-      setDraft(toDraft(variant));
+      setDraft(toDraft(option));
       setInventorySearch(initialInventorySearch ?? '');
       setIncludeOutOfStock(false);
     }
-  }, [initialInventorySearch, open, variant]);
+  }, [initialInventorySearch, open, option]);
 
   const candidateParams = useMemo(() => {
     const params = new URLSearchParams({
@@ -80,19 +94,11 @@ export function VariantRecipeDialog({
 
   const mutation = useMutation({
     mutationFn: () => apiClient.put<{ id: string }>(
-      `/api/products/variants/${variant.id}/components`,
+      `/api/products/channel-options/${option.id}/inventory-components`,
       {
         components: draft.map((component) => ({
           sellpiaInventorySkuId: component.sellpiaInventorySkuId.trim(),
           quantity: component.quantity,
-        })),
-        expectedRecipe: variant.components.map((component) => ({
-          id: component.id,
-          sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-          quantity: component.quantity,
-          source: component.source,
-          confirmedBy: component.confirmedBy,
-          confirmedAt: component.confirmedAt,
         })),
       },
     ),
@@ -125,7 +131,7 @@ export function VariantRecipeDialog({
         return current;
       }
       return [...current, {
-        clientId: `recipe-${variant.id}-${nextDraftId.current++}`,
+        clientId: `recipe-${option.id}-${nextDraftId.current++}`,
         sellpiaInventorySkuId: item.sellpiaInventorySkuId,
         quantity: null,
         code: item.code,
@@ -150,7 +156,7 @@ export function VariantRecipeDialog({
             <div>
               <Dialog.Title className="text-lg font-extrabold text-[var(--text-primary)]">구성 레시피 편집</Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-[var(--text-secondary)]">
-                {variant.name} 옵션이 소비하는 Sellpia SKU 전체 구성을 한 번에 교체합니다.
+                {option.itemName ?? option.externalOptionId} 채널 옵션이 소비하는 Sellpia SKU 전체 구성을 한 번에 교체합니다.
               </Dialog.Description>
             </div>
             <Dialog.Close aria-label="닫기" className="rounded-lg p-2 text-[var(--text-tertiary)] hover:bg-[var(--surface-sunken)]"><X size={18} /></Dialog.Close>
@@ -268,8 +274,8 @@ export function VariantRecipeDialog({
   );
 }
 
-function toDraft(variant: ProductVariantDetail): DraftComponent[] {
-  return variant.components.map((component) => ({
+function toDraft(option: ChannelOptionInventoryEditorTarget): DraftComponent[] {
+  return option.inventoryComponents.map((component) => ({
     clientId: component.id,
     sellpiaInventorySkuId: component.sellpiaInventorySkuId,
     quantity: component.quantity,

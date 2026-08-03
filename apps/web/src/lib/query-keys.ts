@@ -229,12 +229,6 @@ export const queryKeys = {
       [...queryKeys.channelProductMappings.all, 'list', params] as const,
     productCandidates: (channelListingId: string, params: Record<string, string>) =>
       [...queryKeys.channelProductMappings.all, 'product-candidates', channelListingId, params] as const,
-    variantCandidates: (channelListingOptionId: string, params: Record<string, string>) =>
-      [...queryKeys.channelProductMappings.all, 'variant-candidates', channelListingOptionId, params] as const,
-    recipeSuggestion: (channelListingOptionId: string) =>
-      [...queryKeys.channelProductMappings.all, 'recipe-suggestion', channelListingOptionId] as const,
-    recipeAutomationPreview: (channelAccountId: string) =>
-      [...queryKeys.channelProductMappings.all, 'recipe-automation-preview', channelAccountId] as const,
     sellpiaManualMatchTargets: () =>
       [...queryKeys.channelProductMappings.all, 'sellpia-manual-match-targets'] as const,
   },

@@ -32,10 +32,22 @@ interface TopProductRawRow {
   abcFirstValidPaidSaleAt: Date | string | null;
   abcSourceCoverageStartDate: Date | string | null;
   abcSourceCoverageEndDate: Date | string | null;
+  abcEvaluationCutoffDate: Date | string | null;
+  abcSellpiaCoverageStartDate: Date | string | null;
+  abcSellpiaCoverageEndDate: Date | string | null;
   abcSellpiaSourceStatus: string | null;
   abcSellpiaSourceCapturedAt: Date | string | null;
+  abcAdvertisingCoverageStartDate: Date | string | null;
+  abcAdvertisingCoverageEndDate: Date | string | null;
   abcAdvertisingSourceStatus: string | null;
   abcAdvertisingSourceCapturedAt: Date | string | null;
+  abcOrdersSourceStatus: string | null;
+  abcOrdersCoverageStartDate: Date | string | null;
+  abcOrdersCoverageEndDate: Date | string | null;
+  abcOrdersSourceCapturedAt: Date | string | null;
+  abcMappingSourceStatus: string | null;
+  abcMappingInventoryGeneration: bigint | string | null;
+  abcMappingVerifiedAt: Date | string | null;
   abcCostComponents: unknown;
   abcStatusDetail: string | null;
   abcCalculatedAt: Date | string | null;
@@ -98,6 +110,11 @@ export class DashboardSalesRepositoryAdapter
     monthEnd: Date,
   ): Promise<TopProduct[]> {
     const rows = await this.prisma.$queryRaw<TopProductRawRow[]>`
+      WITH scoped_orders AS (
+        SELECT *
+        FROM orders
+        WHERE organization_id = ${organizationId}::uuid
+      )
       SELECT
         cl.id::text AS id,
         COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id) AS name,
@@ -119,17 +136,29 @@ export class DashboardSalesRepositoryAdapter
         abce.first_valid_paid_sale_at AS "abcFirstValidPaidSaleAt",
         abce.source_coverage_start_date AS "abcSourceCoverageStartDate",
         abce.source_coverage_end_date AS "abcSourceCoverageEndDate",
+        abce.evaluation_cutoff_date AS "abcEvaluationCutoffDate",
+        abce.sellpia_coverage_start_date AS "abcSellpiaCoverageStartDate",
+        abce.sellpia_coverage_end_date AS "abcSellpiaCoverageEndDate",
         abce.sellpia_source_status AS "abcSellpiaSourceStatus",
         abce.sellpia_source_captured_at AS "abcSellpiaSourceCapturedAt",
+        abce.advertising_coverage_start_date AS "abcAdvertisingCoverageStartDate",
+        abce.advertising_coverage_end_date AS "abcAdvertisingCoverageEndDate",
         abce.advertising_source_status AS "abcAdvertisingSourceStatus",
         abce.advertising_source_captured_at AS "abcAdvertisingSourceCapturedAt",
+        abce.orders_source_status AS "abcOrdersSourceStatus",
+        abce.orders_coverage_start_date AS "abcOrdersCoverageStartDate",
+        abce.orders_coverage_end_date AS "abcOrdersCoverageEndDate",
+        abce.orders_source_captured_at AS "abcOrdersSourceCapturedAt",
+        abce.mapping_source_status AS "abcMappingSourceStatus",
+        abce.mapping_inventory_generation AS "abcMappingInventoryGeneration",
+        abce.mapping_verified_at AS "abcMappingVerifiedAt",
         abce.cost_components_json AS "abcCostComponents",
         abce.status_detail AS "abcStatusDetail",
         abce.calculated_at AS "abcCalculatedAt",
         abcf.formula_json AS "abcFormulaJson",
         SUM(oli.total_price)::int AS revenue,
         SUM(oli.quantity)::int AS quantity
-      FROM orders o
+      FROM scoped_orders o
       JOIN order_line_items oli ON oli.order_id = o.id
       JOIN channel_listing_options clo ON clo.id = oli.listing_option_id
       JOIN channel_listings cl ON cl.id = clo.listing_id
@@ -155,9 +184,15 @@ export class DashboardSalesRepositoryAdapter
         abce.profit_velocity_30, abce.weighted_contribution_margin,
         abce.loss_recurrence, abce.paid_order_count, abce.observation_days,
         abce.first_valid_paid_sale_at, abce.source_coverage_start_date,
-        abce.source_coverage_end_date, abce.sellpia_source_status,
-        abce.sellpia_source_captured_at, abce.advertising_source_status,
-        abce.advertising_source_captured_at, abce.cost_components_json,
+        abce.source_coverage_end_date, abce.evaluation_cutoff_date,
+        abce.sellpia_coverage_start_date, abce.sellpia_coverage_end_date,
+        abce.sellpia_source_status, abce.sellpia_source_captured_at,
+        abce.advertising_coverage_start_date, abce.advertising_coverage_end_date,
+        abce.advertising_source_status, abce.advertising_source_captured_at,
+        abce.orders_source_status, abce.orders_coverage_start_date,
+        abce.orders_coverage_end_date, abce.orders_source_captured_at,
+        abce.mapping_source_status, abce.mapping_inventory_generation,
+        abce.mapping_verified_at, abce.cost_components_json,
         abce.status_detail, abce.calculated_at, abcf.formula_json
       ORDER BY revenue DESC
       LIMIT 10
@@ -226,7 +261,9 @@ function mapAbcEvaluation(row: TopProductRawRow): ProductAbcEvaluation | null {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   };
-  const cutoff = row.abcSourceCoverageEndDate ?? row.abcCalculatedAt;
+  const cutoff = row.abcEvaluationCutoffDate
+    ?? row.abcSourceCoverageEndDate
+    ?? row.abcCalculatedAt;
   if (!cutoff) return null;
   const formula = row.abcFormulaJson
     ? ProductAbcFormulaSummarySchema.safeParse(row.abcFormulaJson)
@@ -252,15 +289,40 @@ function mapAbcEvaluation(row: TopProductRawRow): ProductAbcEvaluation | null {
       evaluationCutoffDate: calendarDate(cutoff),
       sellpia: {
         status: row.abcSellpiaSourceStatus,
-        coverageStartDate: row.abcSourceCoverageStartDate ? calendarDate(row.abcSourceCoverageStartDate) : null,
-        coverageEndDate: row.abcSourceCoverageEndDate ? calendarDate(row.abcSourceCoverageEndDate) : null,
+        coverageStartDate: row.abcSellpiaCoverageStartDate ?? row.abcSourceCoverageStartDate
+          ? calendarDate((row.abcSellpiaCoverageStartDate ?? row.abcSourceCoverageStartDate)!)
+          : null,
+        coverageEndDate: row.abcSellpiaCoverageEndDate ?? row.abcSourceCoverageEndDate
+          ? calendarDate((row.abcSellpiaCoverageEndDate ?? row.abcSourceCoverageEndDate)!)
+          : null,
         capturedAt: row.abcSellpiaSourceCapturedAt,
       },
       advertising: {
         status: row.abcAdvertisingSourceStatus,
-        coverageStartDate: row.abcSourceCoverageStartDate ? calendarDate(row.abcSourceCoverageStartDate) : null,
-        coverageEndDate: row.abcSourceCoverageEndDate ? calendarDate(row.abcSourceCoverageEndDate) : null,
+        coverageStartDate: row.abcAdvertisingCoverageStartDate
+          ? calendarDate(row.abcAdvertisingCoverageStartDate)
+          : null,
+        coverageEndDate: row.abcAdvertisingCoverageEndDate
+          ? calendarDate(row.abcAdvertisingCoverageEndDate)
+          : null,
         capturedAt: row.abcAdvertisingSourceCapturedAt,
+      },
+      orders: {
+        status: row.abcOrdersSourceStatus,
+        coverageStartDate: row.abcOrdersCoverageStartDate
+          ? calendarDate(row.abcOrdersCoverageStartDate)
+          : null,
+        coverageEndDate: row.abcOrdersCoverageEndDate
+          ? calendarDate(row.abcOrdersCoverageEndDate)
+          : null,
+        capturedAt: row.abcOrdersSourceCapturedAt,
+      },
+      mapping: {
+        status: row.abcMappingSourceStatus,
+        inventoryGeneration: row.abcMappingInventoryGeneration === null
+          ? null
+          : String(row.abcMappingInventoryGeneration),
+        verifiedAt: row.abcMappingVerifiedAt,
       },
     },
     costBreakdown: row.abcCostComponents,
