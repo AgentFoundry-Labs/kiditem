@@ -12,12 +12,10 @@ import { ProductOperationsDataStatusDialog } from './ProductOperationsDataStatus
 export function ProductOperationsDataStatusAction({
   open,
   onOpenChange,
-  displayDataAsOf,
   periodDays,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  displayDataAsOf: string | null;
   periodDays: ProductOperationsPeriodDays;
 }) {
   const queryClient = useQueryClient();
@@ -39,7 +37,7 @@ export function ProductOperationsDataStatusAction({
     <>
       <button type="button" onClick={() => onOpenChange(true)} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 text-[13px] font-bold text-[var(--text-secondary)] hover:border-[var(--primary)] hover:text-[var(--primary)]">
         <CalendarClock size={14} />
-        {displayDataAsOf ? `데이터 기준 ${displayDataAsOf.replaceAll('-', '.')}` : '데이터 기준 없음'}
+        데이터 갱신
       </button>
       <ProductOperationsDataStatusDialog
         open={open}

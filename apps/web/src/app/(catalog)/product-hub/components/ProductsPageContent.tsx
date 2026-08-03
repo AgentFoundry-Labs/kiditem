@@ -76,7 +76,6 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           <ProductOperationsDataStatusAction
             open={state.dataStatusOpen}
             onOpenChange={state.setDataStatusOpen}
-            displayDataAsOf={state.overviewData?.summary.displayDataAsOf ?? null}
             periodDays={state.periodDays}
           />
         </div>

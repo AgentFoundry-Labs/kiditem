@@ -138,7 +138,7 @@ vi.mock('./ProductAbcDetailDialog', () => ({
 }));
 
 vi.mock('./ProductOperationsDataStatusAction', () => ({
-  ProductOperationsDataStatusAction: ({ displayDataAsOf }: { displayDataAsOf: string | null }) => <button type="button">{displayDataAsOf ? `데이터 기준 ${displayDataAsOf}` : '데이터 기준 없음'}</button>,
+  ProductOperationsDataStatusAction: () => <button type="button">데이터 갱신</button>,
 }));
 
 describe('<ProductsPageContent>', () => {
@@ -184,7 +184,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('점검 대상')).toBeInTheDocument();
     expect(screen.getByText('A등급 이익')).toBeInTheDocument();
     expect(screen.getByText('B등급 이익')).toBeInTheDocument();
-    expect(screen.getByText('데이터 기준 2026-07-31')).toBeInTheDocument();
+    expect(screen.getByText('데이터 갱신')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '전체 카테고리' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '완구/놀이' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '상품' })).toBeInTheDocument();
@@ -226,7 +226,7 @@ describe('<ProductsPageContent>', () => {
   it('keeps the staged header focused on period and data controls without manual product creation', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
-    expect(screen.getByRole('button', { name: '데이터 기준 2026-07-31' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '데이터 갱신' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: '트래픽 업로드' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '7일' }));

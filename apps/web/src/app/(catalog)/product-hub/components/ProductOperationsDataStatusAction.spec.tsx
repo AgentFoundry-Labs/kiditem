@@ -48,6 +48,19 @@ vi.mock('../hooks/useProductOperationsDataStatus', () => ({
 }));
 
 describe('ProductOperationsDataStatusAction', () => {
+  it('labels the data status entry point as a refresh action', () => {
+    render(
+      <ProductOperationsDataStatusAction
+        open={false}
+        onOpenChange={vi.fn()}
+        periodDays={30}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '데이터 갱신' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /데이터 기준/ })).not.toBeInTheDocument();
+  });
+
   it('closes the status dialog after the profitability refresh has started', async () => {
     mocks.startRefresh.mockResolvedValue({ id: 'operation-1' });
     const onOpenChange = vi.fn();
@@ -56,7 +69,6 @@ describe('ProductOperationsDataStatusAction', () => {
       <ProductOperationsDataStatusAction
         open
         onOpenChange={onOpenChange}
-        displayDataAsOf="2026-08-02"
         periodDays={30}
       />,
     );
