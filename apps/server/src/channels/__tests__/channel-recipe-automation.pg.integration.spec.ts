@@ -46,6 +46,9 @@ describe('ChannelRecipeAutomationService (PG integration)', () => {
       new ProductVariantRecipeAutomationService(
         new ProductOperationsRepositoryAdapter(prismaService),
       ),
+      { createIfEmpty: async () => {
+        throw new Error('manual recipe creation is not used in this suite');
+      } } as never,
     );
   });
 

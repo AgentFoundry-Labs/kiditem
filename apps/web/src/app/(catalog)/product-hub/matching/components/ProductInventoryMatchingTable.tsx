@@ -322,7 +322,7 @@ function ProductDetails({
                           onClick={() => onShowRecipeSuggestion(row)}
                           className="rounded-xl border border-slate-300 px-3 py-2 font-bold text-slate-700"
                         >
-                          Sellpia 후보
+                          재고 연결
                         </button>
                       ) : null}
                     </div>

@@ -9,7 +9,11 @@ describe('TrendCollectionController', () => {
         { label: '완구', keyword: '儿童玩具' },
       ]),
     };
-    const controller = new TrendCollectionController(collectService as never, {} as never);
+    const controller = new TrendCollectionController(
+      collectService as never,
+      {} as never,
+      {} as never,
+    );
 
     const result = await controller.get1688Targets('org-1');
 

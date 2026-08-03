@@ -24,11 +24,67 @@ export interface IcecreamMallExtensionCredentials {
   password: string;
 }
 
-interface IcecreamMallExtensionResponse extends Partial<IcecreamMallExtensionRows> {
+export type OrderCollectionFailureCode =
+  | 'login_required'
+  | 'operator_action_required'
+  | 'provider_contract_changed'
+  | 'network_failed'
+  | 'unknown_failure';
+type OrderCollectionFailureAction = 'collect_orders';
+
+export interface OrderCollectionFailureEvidence {
+  version: 1;
+  provider: string;
+  action: OrderCollectionFailureAction;
+  code: OrderCollectionFailureCode;
+  retryable: boolean;
+  operatorAction: 'complete_login' | 'complete_sms_auth' | null;
+}
+
+export interface OrderCollectionFailureResponse {
   success?: boolean;
   pendingLogin?: boolean;
+  errorCode?: OrderCollectionFailureCode;
+  failure?: OrderCollectionFailureEvidence;
   error?: string;
 }
+
+export class OrderCollectionExtensionError extends Error {
+  readonly pendingLogin: boolean;
+  readonly errorCode: OrderCollectionFailureCode;
+  readonly failure: OrderCollectionFailureEvidence | null;
+
+  constructor(
+    message: string,
+    options: {
+      pendingLogin: boolean;
+      errorCode: OrderCollectionFailureCode;
+      failure: OrderCollectionFailureEvidence | null;
+    },
+  ) {
+    super(message);
+    this.name = 'OrderCollectionExtensionError';
+    this.pendingLogin = options.pendingLogin;
+    this.errorCode = options.errorCode;
+    this.failure = options.failure;
+  }
+}
+
+export function createOrderCollectionExtensionError(
+  response: OrderCollectionFailureResponse | null | undefined,
+  fallbackMessage: string,
+): OrderCollectionExtensionError {
+  const errorCode = response?.failure?.code ?? response?.errorCode ??
+    (response?.pendingLogin ? 'login_required' : 'unknown_failure');
+  return new OrderCollectionExtensionError(response?.error ?? fallbackMessage, {
+    pendingLogin: response?.pendingLogin === true || errorCode === 'login_required',
+    errorCode,
+    failure: response?.failure ?? null,
+  });
+}
+
+interface IcecreamMallExtensionResponse
+  extends Partial<IcecreamMallExtensionRows>, OrderCollectionFailureResponse {}
 
 export interface OrderCollectionExtensionRun {
   runId: string;
@@ -37,11 +93,9 @@ export interface OrderCollectionExtensionRun {
   signal?: AbortSignal;
 }
 
-export interface MallLoginEnsureResult {
+export interface MallLoginEnsureResult extends OrderCollectionFailureResponse {
   success: boolean;
   submitted?: boolean;
-  pendingLogin?: boolean;
-  error?: string;
 }
 
 export async function finalizeOrderCollectionSession(
@@ -100,14 +154,15 @@ export async function collectIcecreamMallRowsFromExtension(
     date,
     credentials,
     runId,
+    deferTerminal: Boolean(run?.runId),
   }, 90000);
 
   if (!response?.success || !response.headers || !response.rows) {
-    throw new Error(
-      response?.error ??
-        (response?.pendingLogin
-          ? '아이스크림몰 로그인 후 배송 조회 화면을 열어주세요.'
-          : '아이스크림몰 주문 수집 실패'),
+    throw createOrderCollectionExtensionError(
+      response,
+      response?.pendingLogin
+        ? '아이스크림몰 로그인 후 배송 조회 화면을 열어주세요.'
+        : '아이스크림몰 주문 수집 실패',
     );
   }
 
@@ -140,6 +195,7 @@ export async function ensureMallLoggedInViaExtension(
       return {
         success: false,
         pendingLogin: false,
+        errorCode: 'unknown_failure',
         error: orderCollectionExtensionUnavailableMessage(status),
       };
     }
@@ -147,7 +203,8 @@ export async function ensureMallLoggedInViaExtension(
   if (!extensionId) {
     return {
       success: false,
-      pendingLogin: true,
+      pendingLogin: false,
+      errorCode: 'unknown_failure',
       error: '주문수집 확장프로그램을 찾을 수 없습니다.',
     };
   }
@@ -161,6 +218,7 @@ export async function ensureMallLoggedInViaExtension(
         credentials,
         runId,
         date: run?.date ?? null,
+        deferTerminal: Boolean(run?.runId),
       },
       45000,
     );
@@ -168,7 +226,8 @@ export async function ensureMallLoggedInViaExtension(
   } catch (error) {
     return {
       success: false,
-      pendingLogin: true,
+      pendingLogin: false,
+      errorCode: 'unknown_failure',
       error: error instanceof Error ? error.message : '자동 로그인 실패',
     };
   }

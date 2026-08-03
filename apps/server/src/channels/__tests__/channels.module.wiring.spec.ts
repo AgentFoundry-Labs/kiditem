@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AutomationModule } from '../../automation/automation.module';
+import { OperationsModule } from '../../operations/operations.module';
 import { ProductsModule } from '../../products/products.module';
 import { InventoryModule } from '../../inventory/inventory.module';
 import { CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT } from '../../products/application/port/in/channel-catalog-product-provisioning.port';
@@ -57,6 +58,7 @@ import { RocketPoCatalogService } from '../application/service/rocket-po-catalog
 import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
 import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog.port';
 import { ROCKET_PO_CATALOG_REPOSITORY_PORT } from '../application/port/out/repository/rocket-po-catalog.repository.port';
+import { CoupangRocketPurchaseOrderOperationHandler } from '../adapter/in/operation/coupang-rocket-purchase-order.operation-handler';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -115,6 +117,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(imports).toContain(AutomationModule);
     expect(imports).toContain(ProductsModule);
     expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(OperationsModule);
     const exports_: unknown[] = Reflect.getMetadata('exports', ChannelsModule) ?? [];
     expect(exports_).not.toContain(CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT);
   });
@@ -144,6 +147,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(SellpiaRecipeEvidenceAdapter);
     expect(providers).toContain(RocketPoCatalogService);
     expect(providers).toContain(RocketPoCatalogRepositoryAdapter);
+    expect(providers).toContain(CoupangRocketPurchaseOrderOperationHandler);
 
     expectBinding(providers, CHANNEL_ACCOUNT_REPOSITORY_PORT, ChannelAccountRepositoryAdapter);
     expectBinding(providers, COUPANG_CREDENTIALS_PORT, ChannelAccountRepositoryAdapter);

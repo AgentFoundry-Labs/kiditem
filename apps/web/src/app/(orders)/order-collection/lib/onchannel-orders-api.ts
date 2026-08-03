@@ -43,7 +43,12 @@ export async function collectOnchannelOrdersFromExtension(date?: string, run?: O
   }
   const res = await sendToExtension<OnchannelCollectResponse>(
     extensionId,
-    { action: 'collectOnchannelOrders', date, runId: await issueBrowserCollectionRunId(run?.runId) }, // "YYYY-MM-DD" 면 그날 주문만
+    {
+      action: 'collectOnchannelOrders',
+      date,
+      runId: await issueBrowserCollectionRunId(run?.runId),
+      deferTerminal: Boolean(run?.runId),
+    }, // "YYYY-MM-DD" 면 그날 주문만
     130000,
   );
   if (!res?.success || !Array.isArray(res.orders)) {

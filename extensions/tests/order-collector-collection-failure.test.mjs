@@ -55,6 +55,11 @@ test('normalizes provider failures into stable operator evidence', () => {
       expected: ['provider_contract_changed', false, null],
     },
     {
+      provider: 'domeggook',
+      value: { success: false, error: '엑셀다운로드 버튼을 찾지 못했습니다. (로그인/화면 확인)' },
+      expected: ['login_required', true, 'complete_login'],
+    },
+    {
       provider: 'icecream-mall',
       value: { success: false, error: '로그인 후 화면으로 넘어가지 않았습니다.' },
       expected: ['provider_contract_changed', false, null],
@@ -108,6 +113,26 @@ test('treats an explicit pending-login result as login evidence for every provid
       code: 'login_required',
       retryable: true,
       operatorAction: 'complete_login',
+    },
+  );
+});
+
+test('preserves explicit stable collector error codes without re-parsing display text', () => {
+  const helper = loadHelper();
+
+  assert.deepEqual(
+    plain(helper.createEvidence('gs-shop', {
+      success: false,
+      errorCode: 'provider_contract_changed',
+      error: 'GS샵 주문 조회 결과를 확인하지 못했습니다.',
+    })),
+    {
+      version: 1,
+      provider: 'gs-shop',
+      action: 'collect_orders',
+      code: 'provider_contract_changed',
+      retryable: false,
+      operatorAction: null,
     },
   );
 });

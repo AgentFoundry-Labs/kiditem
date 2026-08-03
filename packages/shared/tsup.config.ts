@@ -52,6 +52,7 @@ export default defineConfig({
     'src/coupang-category.ts',
     'src/auth.ts',
     'src/operation-cancellation.ts',
+    'src/operations.ts',
     'src/browser-collection-session.ts',
   ],
   format: ['esm', 'cjs'],

@@ -192,6 +192,22 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
   assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
   assert.match(worker, /collectCoupangShipmentDateSummaryValidatedV1:\s*true/);
+  assert.match(worker, /coupangShipmentSummaryCollectionSessionV1:\s*true/);
+  assert.match(worker, /coupangRocketPoCollectionSessionV1:\s*true/);
+});
+
+test('server-owned Sellpia sync publishes the ordinary browser collection alert lifecycle', () => {
+  const worker = readFileSync(workerPath, 'utf8');
+  const start = worker.indexOf('async function runSellpiaInventoryOperation(');
+  const end = worker.indexOf('\nasync function ', start + 1);
+  const body = worker.slice(start, end === -1 ? worker.length : end);
+
+  assert.notEqual(start, -1);
+  assert.match(worker, /\/api\/operation-alerts\/start/);
+  assert.match(worker, /\/api\/operation-alerts\/\$\{encodeURIComponent\(operationKey\)\}/);
+  assert.match(worker, /sourceType:\s*["']browser_collection_session["']/);
+  assert.match(worker, /sourceId:\s*["']inventory\.sellpia["']/);
+  assert.match(body, /Sellpia 현재고 동기화가 완료되었습니다\./);
 });
 
 test('web bridge reaches local, office, and staging KidItem origins', () => {

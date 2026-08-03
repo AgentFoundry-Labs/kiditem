@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AutomationModule } from '../automation/automation.module';
+import { OperationsModule } from '../operations/operations.module';
 import { AiModule } from '../ai/ai.module';
 import { ProductsModule } from '../products/products.module';
 import { InventoryModule } from '../inventory/inventory.module';
@@ -74,9 +75,10 @@ import { SELLPIA_RECIPE_EVIDENCE_PORT } from './application/port/out/cross-domai
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-suggestion-context.repository.port';
 import { CHANNEL_RECIPE_AUTOMATION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-automation-context.repository.port';
 import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-manual-match.repository.port';
+import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operation/coupang-rocket-purchase-order.operation-handler';
 
 @Module({
-  imports: [AutomationModule, AiModule, ProductsModule, InventoryModule, OrganizationsModule],
+  imports: [AutomationModule, AiModule, ProductsModule, InventoryModule, OperationsModule, OrganizationsModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -123,6 +125,7 @@ import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/rep
     SellpiaManualMatchRepositoryAdapter,
     SellpiaRecipeEvidenceAdapter,
     RocketPoCatalogRepositoryAdapter,
+    CoupangRocketPurchaseOrderOperationHandler,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
     { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
     { provide: CHANNEL_ACCOUNT_REPOSITORY_PORT, useExisting: ChannelAccountRepositoryAdapter },

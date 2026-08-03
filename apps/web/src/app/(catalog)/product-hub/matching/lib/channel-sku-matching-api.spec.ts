@@ -8,6 +8,8 @@ import {
   getChannelRecipeAutomationPreview,
   getSellpiaManualMatchTargets,
   importSellpiaManualMatchSnapshot,
+  linkChannelListingOptionRecipe,
+  listRecipeComponentCandidates,
   listChannelProductCandidates,
   listChannelProductMappings,
   listChannelVariantCandidates,
@@ -73,6 +75,20 @@ describe('channel product matching API', () => {
       expect.any(Object),
     );
     expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
+  it('searches active Sellpia recipe candidates through the Products API', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ items: [] });
+
+    await listRecipeComponentCandidates({
+      search: ' SP-1 ',
+      includeOutOfStock: true,
+    });
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      '/api/products/recipe-component-candidates?search=SP-1&limit=20&stockStatus=all',
+      expect.any(Object),
+    );
   });
 
   it('reads and applies a version-fenced account recipe preview', async () => {
@@ -142,6 +158,32 @@ describe('channel product matching API', () => {
     expect(apiClient.put).toHaveBeenNthCalledWith(2,
       `/api/channels/product-mappings/options/${OPTION_ID}/product-variant`,
       { productVariantId: VARIANT_ID },
+    );
+  });
+
+  it('links one Sellpia recipe component to a confirmed channel option', async () => {
+    vi.mocked(apiClient.put).mockResolvedValue({
+      channelListingOptionId: OPTION_ID,
+      productVariantId: VARIANT_ID,
+      sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+      quantity: 2,
+      status: 'created',
+    });
+
+    await expect(linkChannelListingOptionRecipe(
+      OPTION_ID,
+      {
+        sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+        quantity: 2,
+      },
+    )).resolves.toMatchObject({ status: 'created' });
+
+    expect(apiClient.put).toHaveBeenCalledWith(
+      `/api/channels/product-mappings/options/${OPTION_ID}/recipe`,
+      {
+        sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+        quantity: 2,
+      },
     );
   });
 

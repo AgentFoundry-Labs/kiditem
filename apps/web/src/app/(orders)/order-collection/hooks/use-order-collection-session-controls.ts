@@ -8,6 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import {
+  findBrowserCollectionSession,
   recordMissingBrowserCollection,
   issueBrowserCollectionRunId,
   sendBrowserCollectionControl,
@@ -121,6 +122,10 @@ export function useOrderCollectionSessionControls(
     message: string,
   ) => syncSession(await finalizeOrderCollectionSession(run, status, message)), [syncSession]);
 
+  const syncRun = useCallback(async (targetRunId: string) => (
+    syncSession(await findBrowserCollectionSession(targetRunId))
+  ), [syncSession]);
+
   const releaseRun = useCallback((mallKey: string, expectedRunId?: string) => {
     const current = activeRunsRef.current.get(mallKey);
     if (!expectedRunId || current?.run.runId === expectedRunId) {
@@ -141,6 +146,7 @@ export function useOrderCollectionSessionControls(
     releaseRun,
     restartAccount,
     session,
+    syncRun,
     webRestartUnavailableMessage: session && !restartAccount
       ? UNMAPPED_RESTART_MESSAGE
       : undefined,

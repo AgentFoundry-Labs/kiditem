@@ -71,10 +71,19 @@
       throw new Error("Collection producer is required");
     }
 
-    function attentionReason(value) {
+    function attentionReason(value, inputIdentity) {
       const classified = classifyFailure(value);
       if (typeof classified === "string" && classified.length > 0) {
         return classified;
+      }
+      if (normalizeFailure) {
+        const failure = normalizeFailure(inputIdentity?.mallKey || producer, value);
+        if (
+          failure?.code === "login_required"
+          || failure?.code === "operator_action_required"
+        ) {
+          return "marketplace_login";
+        }
       }
       return null;
     }
@@ -166,7 +175,7 @@
         if (current?.status === "cancelled") {
           return cancelledResult(runId, current);
         }
-        const resultAttention = attentionReason(result);
+        const resultAttention = attentionReason(result, inputIdentity);
         if (resultAttention) {
           const collectionSession = await sessions.requireAttention(runId, {
             reason: resultAttention,
@@ -203,7 +212,7 @@
         if (current?.status === "cancelled") {
           return cancelledResult(runId, current);
         }
-        const errorAttention = attentionReason(error);
+        const errorAttention = attentionReason(error, inputIdentity);
         if (errorAttention) {
           const message = errorMessage(error);
           const collectionSession = await sessions.requireAttention(runId, {

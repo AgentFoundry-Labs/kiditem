@@ -8,6 +8,8 @@ import {
   ChannelRecipeSuggestionResponseSchema,
   ChannelVariantMatchCandidateSchema,
   LinkChannelListingOptionInputSchema,
+  LinkChannelListingOptionRecipeInputSchema,
+  LinkChannelListingOptionRecipeResponseSchema,
   LinkChannelListingProductInputSchema,
 } from './channel-product-matching';
 
@@ -135,6 +137,31 @@ describe('channel product and variant matching contracts', () => {
       proposals: [],
     }).existingComponents[0]?.source).toBe('deterministic');
   });
+
+  it('accepts one Sellpia SKU and quantity for the option recipe link command', () => {
+    const input = {
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+      quantity: 3,
+    };
+    expect(LinkChannelListingOptionRecipeInputSchema.parse(input)).toEqual(input);
+    expect(() => LinkChannelListingOptionRecipeInputSchema.parse({
+      ...input,
+      quantity: 0,
+    })).toThrow();
+    expect(() => LinkChannelListingOptionRecipeInputSchema.parse({
+      ...input,
+      components: [],
+    })).toThrow();
+
+    expect(LinkChannelListingOptionRecipeResponseSchema.parse({
+      channelListingOptionId: optionId,
+      productVariantId: variantId,
+      sellpiaInventorySkuId: input.sellpiaInventorySkuId,
+      quantity: input.quantity,
+      status: 'created',
+    }).status).toBe('created');
+  });
+
   it('freezes candidate reasons without treating suggestions as confirmation', () => {
     expect(ChannelMatchCandidateReasonSchema.options).toEqual([
       'existing_identity',

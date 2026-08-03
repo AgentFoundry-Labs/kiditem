@@ -163,9 +163,8 @@ export function SourcingHomeHero() {
 
   const collectMutation = useMutation({
     mutationFn: () => collectTrend(),
-    onSuccess: (result) => {
-      const total = result.results.reduce((sum, r) => sum + (r.collected ?? 0), 0);
-      toast.success(`데이터 수집 완료 · ${formatNumber(total)}건 갱신`);
+    onSuccess: () => {
+      toast.success('데이터 수집을 시작했습니다. 완료되면 최신 소싱 데이터가 반영됩니다.');
     },
     onError: (error) => toast.error(friendlyError(error) ?? '데이터 수집에 실패했습니다.'),
     // 성공/실패와 무관하게 전체 소싱 데이터를 다시 불러온다.

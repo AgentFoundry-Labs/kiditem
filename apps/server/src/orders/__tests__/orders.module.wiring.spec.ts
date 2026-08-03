@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { OperationsModule } from '../../operations/operations.module';
 import { SupplyModule } from '../../supply/supply.module';
 import { OrdersModule } from '../orders.module';
 import { CoupangDirectOrderCollectionService } from '../application/service/coupang-direct-order-collection.service';
@@ -12,6 +13,7 @@ import { SellpiaOrderTransmissionService } from '../application/service/sellpia-
 import { SellpiaOrderTransmissionRepositoryAdapter } from '../adapter/out/repository/sellpia-order-transmission.repository.adapter';
 import { SELLPIA_ORDER_TRANSMISSION_PORT } from '../application/port/in/sellpia-order-transmission.port';
 import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-order-transmission.repository.port';
+import { MarketplaceOrderCollectionOperationHandler } from '../adapter/in/operation/marketplace-order-collection.operation-handler';
 
 describe('OrdersModule owner wiring', () => {
   it('binds Coupang PA collection through Orders -> Supply -> Inventory', () => {
@@ -21,11 +23,13 @@ describe('OrdersModule owner wiring', () => {
 
     expect(imports).toContain(PrismaModule);
     expect(imports).toContain(SupplyModule);
+    expect(imports).toContain(OperationsModule);
     expect(controllers).toContain(SellpiaOrderTransmissionController);
     expect(providers).toContain(CoupangDirectOrderCollectionService);
     expect(providers).toContain(CoupangDirectOrderCollectionTransactionAdapter);
     expect(providers).toContain(SellpiaOrderTransmissionService);
     expect(providers).toContain(SellpiaOrderTransmissionRepositoryAdapter);
+    expect(providers).toContain(MarketplaceOrderCollectionOperationHandler);
     expect(providers).toContainEqual({
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,

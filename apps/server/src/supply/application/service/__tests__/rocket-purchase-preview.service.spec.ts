@@ -164,6 +164,43 @@ describe('RocketPurchasePreviewService', () => {
     }).readFreshCapacityOrRequest).not.toHaveBeenCalled();
   });
 
+  it('does not expose a product identity without a confirmed variant identity', async () => {
+    const deps = dependencies();
+    const [linked] = await deps.availability.findByChannelSkuIds(
+      organizationId,
+      [channelSkuId],
+    );
+    vi.mocked(deps.availability.findByChannelSkuIds).mockResolvedValue([{
+      ...linked!,
+      masterProductId,
+      productVariantId: null,
+      variantCode: null,
+      variantName: null,
+      recipeStatus: 'unmatched',
+      components: [],
+      sku: {
+        ...linked!.sku,
+        mappingStatus: 'unmatched',
+        sellableStock: null,
+      },
+    }]);
+    const service = previewService(deps);
+
+    const result = await service.preview({
+      organizationId,
+      userId,
+      inventoryRequirement: 'advisory',
+      request: request(),
+    });
+
+    if (result.status !== 'ready') throw new Error('Expected ready preview');
+    expect(result.rows[0]).toMatchObject({
+      reason: 'mapping_required',
+      masterProductId: null,
+      productVariantId: null,
+    });
+  });
+
   it('publishes the full monthly archive but previews only confirmation-requested rows', async () => {
     const deps = dependencies();
     const completedLineId = '1002:P-2:8801234567891:1';

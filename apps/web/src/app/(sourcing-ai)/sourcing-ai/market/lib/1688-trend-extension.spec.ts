@@ -369,7 +369,7 @@ describe('1688 trend Chrome extension bridge', () => {
     }
   });
 
-  it('wires generic run controls and personal missing-extension alerts in the trend section', () => {
+  it('uses the server-owned operation run without adding a generic status card', () => {
     const source = fs.readFileSync(
       path.resolve(
         'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionSection.tsx',
@@ -377,10 +377,13 @@ describe('1688 trend Chrome extension bridge', () => {
       'utf8',
     );
 
-    expect(source).toContain('useBrowserCollectionSession');
-    expect(source).toContain('enabled: !collectMutation.isPending');
-    expect(source).toContain('BrowserCollectionRunControls');
-    expect(source).toContain("recordMissingBrowserCollection('sourcing.1688_trend'");
+    expect(source).toContain('useOperationRun');
+    expect(source).toContain('setOperationRunId(run.id)');
+    expect(source).toContain('isTerminalOperationStatus');
+    expect(source).not.toContain("operationRun.data.status === 'waiting_runtime'");
+    expect(source).not.toContain('useBrowserCollectionSession');
+    expect(source).not.toContain('BrowserCollectionRunControls');
+    expect(source).not.toContain('recordMissingBrowserCollection');
     expect(source).not.toContain('최대 2분');
   });
 });

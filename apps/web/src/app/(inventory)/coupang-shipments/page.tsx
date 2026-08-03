@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { downloadBlob } from '@/lib/browser-download';
 import { formatNumber } from '@/lib/utils';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
 import {
   COUPANG_SHIPMENT_PAGE_URL,
   displayKind,
@@ -15,7 +16,6 @@ import {
 } from './lib/coupang-shipment-files';
 import {
   clearCoupangCookiesViaExtension,
-  collectCoupangShipmentDateSummaryViaExtension,
   collectCoupangShipmentDraftsViaExtension,
   isCoupangCookieBloatError,
   isCoupangShipmentSessionRequiredError,
@@ -32,12 +32,10 @@ import {
   downloadCoupangShipmentServerFile,
   loadCoupangShipmentDateSummary,
   loadCoupangShipmentServerFiles,
-  saveCoupangShipmentDateSummary,
   type CoupangShipmentServerDay,
   type CoupangShipmentServerFile,
   type CoupangShipmentServerFileKind,
 } from './lib/coupang-shipment-api';
-import { persistAndVerifyCoupangShipmentDateSummary } from './lib/coupang-shipment-date-summary';
 import {
   deleteCoupangShipmentFile,
   loadCoupangShipmentFiles,
@@ -235,25 +233,20 @@ export default function CoupangShipmentsPage() {
     setSummaryLoading(true);
     notify('started', '발송일 조회를 시작합니다…');
     try {
-      const dates = await collectCoupangShipmentDateSummaryViaExtension();
-      if (dates.length === 0) {
+      const result = await collectAndPersistCoupangShipmentSummary();
+      if (result.status === 'empty') {
         setSummaryLoaded(true);
         toast.info('새로 조회된 쉽먼트가 없습니다.');
         notify('info', '새로 조회된 쉽먼트가 없습니다.');
         return;
       }
 
-      const latest = [...dates].sort((a, b) => b.date.localeCompare(a.date))[0];
-
-      // 저장 직후 서버에서 다시 읽어 영속 여부를 확인한 값만 달력과 성공 상태에 반영한다.
-      const persisted = await persistAndVerifyCoupangShipmentDateSummary(dates, {
-        save: saveCoupangShipmentDateSummary,
-        load: loadCoupangShipmentDateSummary,
+      setCalendarView({
+        month: result.latest.date.slice(0, 7),
+        date: result.latest.date,
       });
-      setCalendarView({ month: latest.date.slice(0, 7), date: latest.date });
-      applyDateSummary(persisted);
-
-      const message = `발송일 ${formatNumber(persisted.length)}일 · 최신 ${latest.date} (${formatNumber(latest.count)}건)`;
+      applyDateSummary(result.items);
+      const message = `발송일 ${formatNumber(result.items.length)}일 · 최신 ${result.latest.date} (${formatNumber(result.latest.count)}건)`;
       toast.success(message);
       notify('succeeded', message);
     } catch (error) {

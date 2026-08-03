@@ -31,7 +31,12 @@ export async function collectDomeggookCsvFromExtension(
   }
   const res = await sendToExtension<DomeggookCollectResponse>(
     extensionId,
-    { action: 'collectDomeggookOrders', date, runId: await issueBrowserCollectionRunId(run?.runId) },
+    {
+      action: 'collectDomeggookOrders',
+      date,
+      runId: await issueBrowserCollectionRunId(run?.runId),
+      deferTerminal: Boolean(run?.runId),
+    },
     260000, // 도매꾹은 엑셀 생성(비동기, 최대 4분 폴링) 후 다운로드라 넉넉히
   );
   if (res?.success && res.empty) {

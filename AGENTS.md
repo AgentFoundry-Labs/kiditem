@@ -30,7 +30,7 @@ Before editing, use `rg --files -g AGENTS.md` to read root-to-target guides;
 rerun when scope moves or nests. Keep `Folder Map` only for structural
 contracts, exceptions, or ownership; use `rg --files` for ordinary exploration.
 
-Keep every active root-to-leaf instruction chain below 28 KiB. Run
+Keep active AGENTS chains below 28 KiB. Run
 `npm run check:agents-hygiene` after changing `AGENTS.md` or `CLAUDE.md`.
 
 ## Session Boundaries
@@ -40,9 +40,13 @@ Keep every active root-to-leaf instruction chain below 28 KiB. Run
   exports, dependencies, instruction cleanup, or a declared incident hotfix for
   one operator workflow. State the exception and exclude unrelated cleanup.
 - Apply all in-scope changes now; do not defer follow-ups.
-- Research major OSS projects before introducing new architectural patterns.
+- Research OSS before new architecture.
 - Maintain plans/specs in `docs/superpowers/`; keep scratch and agent logs out
   of git.
+
+## Platform Ownership
+
+| `operations` | operation catalog, schedules, run envelope, engine dispatch |
 
 ## Core Contracts
 

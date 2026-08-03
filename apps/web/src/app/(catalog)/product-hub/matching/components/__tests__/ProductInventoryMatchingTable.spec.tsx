@@ -55,7 +55,7 @@ describe('<ProductInventoryMatchingTable>', () => {
       listing: expect.objectContaining({ id: LISTING_ID }),
     }));
     expect(screen.getAllByRole('button', { name: '운영 옵션 연결' })).toHaveLength(2);
-    await user.click(screen.getByRole('button', { name: 'Sellpia 후보' }));
+    await user.click(screen.getByRole('button', { name: '재고 연결' }));
     expect(onShowRecipeSuggestion).toHaveBeenCalledWith(expect.objectContaining({
       option: expect.objectContaining({ id: OPTION_A }),
     }));

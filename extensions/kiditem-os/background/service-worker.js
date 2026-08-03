@@ -21,6 +21,7 @@ importScripts(
   "collection-session.js",
   "interactive-tabs.js",
   "external-dispatch.js",
+  "operation-runtime-client.js",
   // 세 도메인이 같은 값으로 각자 만들던 전역을 여기서 한 번만 만든다.
   "worker-globals.js",
   // 쿠팡 도메인 모듈
@@ -60,5 +61,13 @@ KidItemExternalDispatch.create({
   chrome,
   environmentContext: sharedEnvironmentContext,
   sessions: collectionSessions,
+  domains: KidItemDomains,
+}).install();
+
+// 서버가 발행한 browser Operation만 claim한다. 도메인 worker의 독자 cron은
+// 여기로 옮기지 않으며, 이 alarm은 실행 payload를 보관하지 않는 wake-up 용도다.
+KidItemOperationRuntimeClient.create({
+  chrome,
+  environmentContext: browserOperationRuntimeEnvironmentContext,
   domains: KidItemDomains,
 }).install();

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ArchiveX, Bell, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { useAuth } from '@/hooks/useAuth';
 import { isActivePanelItem, usePanelStore } from './lib/panel-store';
 import { recoverStalePanelOperations } from './lib/panel-recovery';
 import { PanelItemRow } from './PanelItemRow';
@@ -20,9 +19,6 @@ export function PanelSheet() {
   const recoveryLastRunRef = useRef(0);
   const recoveryInFlightRef = useRef(false);
 
-  const { user } = useAuth();
-  const currentUserId = user?.id ?? null;
-
   // byId ref만 의존하면 안정적 — Object.values()를 selector 안에서 호출하면
   // 매 렌더 새 배열 레퍼런스로 infinite loop (useSyncExternalStore getSnapshot 경고).
   const { active, recent, runningCount } = useMemo(
@@ -33,11 +29,7 @@ export function PanelSheet() {
     () => [...active, ...recent].filter(isDismissablePanelAlert),
     [active, recent],
   );
-
-  const { myItems, attentionItems, teamItems } = useMemo(
-    () => partitionPanelItems([...active, ...recent], currentUserId),
-    [active, recent, currentUserId],
-  );
+  const visibleItems = [...active, ...recent];
 
   useEffect(() => {
     if (!isOpen) return;
@@ -119,7 +111,7 @@ export function PanelSheet() {
             </div>
           </div>
           <Dialog.Description className="sr-only">
-            진행 중인 작업과 최근 알림을 확인하고 정리합니다.
+            진행 중인 작업과 최근 알림을 한 목록에서 확인하고 정리합니다.
           </Dialog.Description>
 
           {connectionStatus !== 'connected' && (
@@ -131,38 +123,13 @@ export function PanelSheet() {
           )}
 
           <div className="flex-1 overflow-y-auto">
-            {/* 내 작업 section */}
-            <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-              내 작업
-            </div>
-            {myItems.length > 0
-              ? myItems.map((i) => <PanelItemRow key={i.id} item={i} />)
-              : (
-                <div className="px-4 py-6 text-center text-sm text-slate-400">
-                  진행 중인 내 작업이 없습니다
-                </div>
-              )}
-
-            {/* 조직 알림 section — 조직/시스템 알림을 팀 작업과 분리 */}
-            <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-              조직 알림
-            </div>
-            {attentionItems.length > 0
-              ? attentionItems.map((i) => <PanelItemRow key={i.id} item={i} />)
-              : (
-                <div className="px-4 py-6 text-center text-sm text-slate-400">
-                  조직 알림이 없습니다
-                </div>
-              )}
-
-            {/* 팀 작업 section — empty 시 헤더도 숨김 */}
-            {teamItems.length > 0 && (
-              <>
-                <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-                  팀 작업
-                </div>
-                {teamItems.map((i) => <PanelItemRow key={i.id} item={i} />)}
-              </>
+            {visibleItems.map((item) => (
+              <PanelItemRow key={item.id} item={item} />
+            ))}
+            {visibleItems.length === 0 && (
+              <div className="px-4 py-8 text-center text-sm text-slate-400">
+                표시할 알림이 없습니다
+              </div>
             )}
           </div>
         </Dialog.Content>
@@ -191,24 +158,4 @@ function partitionByStatus(items: PanelItem[]) {
 
 function isDismissablePanelAlert(item: PanelItem) {
   return item.kind === 'alert' && !isActivePanelItem(item);
-}
-
-function partitionPanelItems(items: PanelItem[], currentUserId: string | null) {
-  const myItems: PanelItem[] = [];
-  const attentionItems: PanelItem[] = [];
-  const teamItems: PanelItem[] = [];
-  for (const item of items) {
-    if (currentUserId !== null && item.actorUserId === currentUserId) {
-      myItems.push(item);
-    } else if (isAttentionPanelItem(item)) {
-      attentionItems.push(item);
-    } else {
-      teamItems.push(item);
-    }
-  }
-  return { myItems, attentionItems, teamItems };
-}
-
-function isAttentionPanelItem(item: PanelItem) {
-  return item.kind === 'alert' && item.actorUserId === null;
 }

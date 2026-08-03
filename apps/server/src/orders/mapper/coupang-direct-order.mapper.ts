@@ -93,9 +93,11 @@ function stableLineId(poNumber: string, productNo: string): string {
 
 function parseProviderDate(value: string): Date {
   const normalized = value.trim().replace(' ', 'T');
-  const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized)
-    ? normalized
-    : `${normalized}+09:00`;
+  const zoned = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? `${normalized}T00:00:00+09:00`
+    : /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized)
+      ? normalized
+      : `${normalized}+09:00`;
   const parsed = new Date(zoned);
   if (Number.isNaN(parsed.getTime())) {
     throw new Error('Coupang direct order registration date is invalid');

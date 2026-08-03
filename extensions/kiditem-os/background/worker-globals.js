@@ -25,6 +25,15 @@ const sharedEnvironmentContext = KidItemEnvironmentContext.create({
   requiresAuth: false,
 });
 
+// Server-owned browser Operation claim/report calls always require the opaque
+// KidItem session. This context shares the same per-environment profile store
+// with the domain workers, but is intentionally separate from the unauthenticated
+// session-broadcast context above.
+const browserOperationRuntimeEnvironmentContext = KidItemEnvironmentContext.create({
+  chrome,
+  fetchFn: fetch,
+});
+
 const collectionSessions = KidItemCollectionSession.create({
   chrome,
   storageKey: "kiditem_collection_sessions",

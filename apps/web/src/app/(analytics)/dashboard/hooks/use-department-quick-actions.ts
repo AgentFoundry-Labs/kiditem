@@ -1,159 +1,119 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api-client';
-import { queryKeys } from '@/lib/query-keys';
+import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { usePersistedAllMarketplaceOrderCollection } from '@/hooks/useAllMarketplaceOrderCollection';
+import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
 import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
-// 부서 버튼 인라인 실행 — 각 페이지의 기존 수집 로직을 그대로 재사용한다(중복 구현 금지).
-import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
-import { orderMallAccountApi } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
-import { createBrowserMallCollector } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
-import { isBrowserCollectableMall } from '@/app/(orders)/order-collection/lib/order-collection-page-model';
-import { runWithConcurrency } from '@/app/(orders)/order-collection/lib/order-collection-concurrency';
-import { saveGeneratedOrderFile } from '@/app/(orders)/order-collection/lib/order-generated-file-store';
-import type { OrderCollectionMallAccount } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
+import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
+import { startTrendCollectionAction } from '@/lib/manual-operation-actions';
+import { queryKeys } from '@/lib/query-keys';
+import { collectAndPersistRocketPurchaseOrders } from '@/lib/rocket-purchase-collection-action';
+import { formatNumber } from '@/lib/utils';
 
-export type { OrderCollectionMallAccount };
-import { collectCoupangShipmentDraftsViaExtension } from '@/app/(inventory)/coupang-shipments/lib/coupang-shipment-extension';
-import { mergeCoupangShipmentFiles } from '@/app/(inventory)/coupang-shipments/lib/coupang-shipment-files';
-import { saveCoupangShipmentFiles } from '@/app/(inventory)/coupang-shipments/lib/coupang-shipment-store';
+export type DepartmentQuickAction =
+  | 'collectTrend'
+  | 'refreshInventory'
+  | 'syncSellpia'
+  | 'collectAllOrders'
+  | 'collectCoupangShipmentSummary'
+  | 'collectCoupangRocketPurchaseOrders';
 
-const COLLECT_ALL_CONCURRENCY = 4;
-
-function kstTodayYmd(): string {
+function currentMonthRange(): { from: string; to: string } {
   const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
-export interface OrderCollectResult {
-  total: number;
-  success: number;
-  /** 재수집 대상이 되도록 실패한 몰 계정을 그대로 반환한다. */
-  failedAccounts: OrderCollectionMallAccount[];
-}
-
-export interface ShipmentCollectResult {
-  date: string;
-  shipments: number;
-  files: number;
-  failed: number;
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const format = (date: Date) => [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+  return {
+    from: format(new Date(year, month, 1)),
+    to: format(new Date(year, month + 1, 0)),
+  };
 }
 
 /**
- * 대시보드 부서 버튼의 인라인 실행 액션. 주문 전체수집·쿠팡 쉽먼트는 각 페이지의
- * 수집/병합 로직(확장 브릿지 + 세션 컨트롤)을 그대로 재사용한다.
- * ⚠️ 확장(익스텐션)이 있어야 실제 수집이 동작한다.
+ * Dashboard buttons call the same executable browser actions as their domain
+ * screens. Only Operation-backed actions retain dashboard source metadata.
  */
 export function useDepartmentQuickActions() {
-  const { data: mallAccounts = [] } = useQuery({
-    queryKey: queryKeys.orders.collectionMalls(),
-    queryFn: orderMallAccountApi.list,
-    staleTime: 60_000,
+  const queryClient = useQueryClient();
+  const { rocketAccounts, isBootstrapping: rocketAccountBootstrapping } =
+    useRocketChannelAccounts();
+  const rocketAccountId = rocketAccounts[0]?.id ?? null;
+  const { collectAllOrders } = usePersistedAllMarketplaceOrderCollection({
+    rocketChannelAccountId: rocketAccountId,
   });
-  const sessionControls = useOrderCollectionSessionControls(mallAccounts);
-  const freshness = useSellpiaInventoryFreshness({ enabled: true });
+  const { requestRefresh: requestSellpiaInventoryRefresh } =
+    useSellpiaInventoryFreshness({
+      enabled: true,
+      sourceSurface: 'dashboard',
+    });
 
-  const collectBrowserMall = useMemo(
-    () => createBrowserMallCollector({
-      mallAccounts,
-      rocketChannelAccountId: null,
-      // 수집 결과 파일은 서버/스토어에 영속화만 한다(대시보드엔 파일 목록 UI 없음).
-      addGeneratedFile: (item) => {
-        void saveGeneratedOrderFile(item).catch(() => undefined);
-      },
-      setPreviewId: () => undefined,
-    }),
-    [mallAccounts],
-  );
-
-  // 여러 몰 계정을 동시성 풀로 수집하고, 실패한 계정 목록을 반환한다.
-  const collectAccounts = useCallback(
-    async (accounts: OrderCollectionMallAccount[]): Promise<OrderCollectionMallAccount[]> => {
-      const failed: OrderCollectionMallAccount[] = [];
-      await runWithConcurrency(accounts, COLLECT_ALL_CONCURRENCY, async (account) => {
-        const run = (await sessionControls.prepareRun(account)) ?? undefined;
-        if (!run) {
-          failed.push(account);
-          return;
-        }
-        try {
-          await collectBrowserMall(account, run);
-          await sessionControls.finalizeRun(run, 'succeeded', `${account.name} 수집 완료`);
-        } catch {
-          await sessionControls
-            .finalizeRun(run, 'failed', `${account.name} 수집 실패`)
-            .catch(() => undefined);
-          failed.push(account);
-        } finally {
-          sessionControls.releaseRun(account.key, run.runId);
-        }
-      });
-      return failed;
-    },
-    [sessionControls, collectBrowserMall],
-  );
-
-  // 소싱 시장분석 — 서버가 네이버·1688·쇼츠 트렌드를 수집한다.
-  const collectTrend = useCallback(async () => {
-    await apiClient.post('/api/sourcing/trend/collect', {});
-  }, []);
-
-  // 재고 분석 업데이트 / 셀피아 동기화 — 공용 조정자에 현재고·소진 재수집 요청.
-  const requestInventoryRefresh = useCallback(async () => {
-    await freshness.requestRefresh('manual_request');
-  }, [freshness]);
-
-  // 주문 전체수집 — 활성·자동수집 가능 몰을 전부 수집. 실패 계정을 반환한다.
-  const collectAllOrders = useCallback(async (): Promise<OrderCollectResult> => {
-    const targets = mallAccounts.filter(
-      (account) => account.enabled && isBrowserCollectableMall(account),
-    );
-    if (targets.length === 0) {
-      throw new Error('현재 자동 수집 가능한 몰 계정이 없습니다.');
+  const collectShipmentSummary = useCallback(async () => {
+    const result = await collectAndPersistCoupangShipmentSummary();
+    if (result.status === 'empty') {
+      toast.info('새로 조회된 쉽먼트가 없습니다.');
+      return;
     }
-    const failedAccounts = await collectAccounts(targets);
-    return { total: targets.length, success: targets.length - failedAccounts.length, failedAccounts };
-  }, [mallAccounts, collectAccounts]);
-
-  // 실패한 몰만 재수집. 여전히 실패한 계정을 반환한다.
-  const retryOrders = useCallback(
-    async (accounts: OrderCollectionMallAccount[]): Promise<OrderCollectResult> => {
-      if (accounts.length === 0) return { total: 0, success: 0, failedAccounts: [] };
-      const failedAccounts = await collectAccounts(accounts);
-      return {
-        total: accounts.length,
-        success: accounts.length - failedAccounts.length,
-        failedAccounts,
-      };
-    },
-    [collectAccounts],
-  );
-
-  // 출고 금일 쿠팡 쉽먼트 — 오늘 발송일 기준: 쿠팡 수집 → 병합 → 파일 저장.
-  const collectShipmentToday = useCallback(async (): Promise<ShipmentCollectResult> => {
-    const date = kstTodayYmd();
-    const { shipments, failed, drafts } = await collectCoupangShipmentDraftsViaExtension(
-      date,
-      () => undefined,
+    toast.success(
+      `발송일 ${formatNumber(result.items.length)}일 · 최신 ${result.latest.date} (${formatNumber(result.latest.count)}건)`,
     );
-    const results = await mergeCoupangShipmentFiles(drafts);
-    const mergedFiles = results.flatMap((result) => result.files);
-    await saveCoupangShipmentFiles(mergedFiles);
-    return {
-      date,
-      shipments: shipments.length,
-      files: mergedFiles.length,
-      failed: failed.length,
-    };
   }, []);
 
-  return {
-    collectTrend,
-    requestInventoryRefresh,
+  const collectRocketPurchaseOrders = useCallback(async () => {
+    if (!rocketAccountId) {
+      throw new Error(rocketAccountBootstrapping
+        ? '쿠팡 익스텐션 계정을 자동으로 연결하는 중입니다. 잠시 후 다시 시도해주세요.'
+        : '쿠팡 로켓 계정을 먼저 연결해주세요.');
+    }
+    const { from, to } = currentMonthRange();
+    const result = await collectAndPersistRocketPurchaseOrders({
+      from,
+      to,
+      onCatalogSaved: () => {
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.orders.all }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
+        ]);
+      },
+      createPreviewRequest: (collected) => ({
+        channelAccountId: rocketAccountId,
+        collection: collected.collection,
+        rows: collected.rows,
+        editedQuantities: {},
+        clampEditedQuantities: true,
+        previewScope: 'confirmation_requested',
+      }),
+    });
+    toast.success(
+      `로켓 PO ${result.collected.collection.detailPoCount}/${result.collected.poCount}건 수집·저장 완료`,
+    );
+  }, [queryClient, rocketAccountBootstrapping, rocketAccountId]);
+
+  const start = useCallback(async (action: DepartmentQuickAction): Promise<void> => {
+    if (action === 'collectAllOrders') return collectAllOrders();
+    if (action === 'collectCoupangShipmentSummary') return collectShipmentSummary();
+    if (action === 'collectCoupangRocketPurchaseOrders') {
+      return collectRocketPurchaseOrders();
+    }
+
+    if (action === 'collectTrend') {
+      await startTrendCollectionAction({ sourceSurface: 'dashboard' });
+      toast.success('트렌드 수집을 시작했습니다.');
+      return;
+    }
+    await requestSellpiaInventoryRefresh();
+    toast.success('셀피아 동기화를 시작했습니다.');
+  }, [
     collectAllOrders,
-    retryOrders,
-    collectShipmentToday,
-  };
+    collectRocketPurchaseOrders,
+    collectShipmentSummary,
+    requestSellpiaInventoryRefresh,
+  ]);
+
+  return { start };
 }

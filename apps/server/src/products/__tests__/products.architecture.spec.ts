@@ -15,7 +15,9 @@ import { InventoryModule } from '../../inventory/inventory.module';
 import { AnalyticsModule } from '../../analytics/analytics.module';
 import { AiModule } from '../../ai/ai.module';
 import { PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT } from '../application/port/in/product-variant-recipe-automation.port';
+import { PRODUCT_VARIANT_RECIPE_PORT } from '../application/port/in/product-variant-recipe.port';
 import { ProductVariantRecipeAutomationService } from '../application/service/product-variant-recipe-automation.service';
+import { ProductVariantRecipeService } from '../application/service/product-variant-recipe.service';
 
 describe('Products architecture', () => {
   it('publishes the organization-scoped WING category suggestion route', () => {
@@ -89,5 +91,16 @@ describe('Products architecture', () => {
     const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
     expect(exports).toContain(PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT);
     expect(exports).not.toContain(ProductVariantRecipeAutomationService);
+  });
+
+  it('exports the Products-owned reviewed recipe create-if-empty capability', () => {
+    const providers = Reflect.getMetadata('providers', ProductsModule) ?? [];
+    expect(providers).toContain(ProductVariantRecipeService);
+    expect(providers).toContainEqual({
+      provide: PRODUCT_VARIANT_RECIPE_PORT,
+      useExisting: ProductVariantRecipeService,
+    });
+    const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
+    expect(exports).toContain(PRODUCT_VARIANT_RECIPE_PORT);
   });
 });

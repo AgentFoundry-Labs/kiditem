@@ -13,6 +13,7 @@ React Query + apiClient
   -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
   -> /api/channels/product-mappings (queue, candidates, confirmations)
   -> /api/channels/product-mappings/recipe-automation (preview, apply)
+  -> PUT /api/channels/product-mappings/options/:id/recipe
   -> /api/channels/product-mappings/sellpia-manual-match (targets, import)
 ```
 
@@ -24,11 +25,11 @@ React Query + apiClient
   be linked; both actions live inside the expanded product row.
 - Variant candidates are limited to the listing's confirmed `MasterProduct`.
 - Link/unlink actions invalidate product-mapping and channel-availability.
-- Recipe status/capacity are inherited summaries. Manual replacement links to
-  `/product-hub/[masterProductId]#variants`; the single `상품 매칭 실행`
-  command internally refreshes Sellpia manual-match aliases, recalculates the
-  version-fenced proposal, and may fill empty recipes without a second dialog.
-  Do not expose alias collection as a separate operator action.
+- Recipe status/capacity are inherited summaries. Replacement links to
+  `/product-hub/[masterProductId]#variants`. `재고 연결` may create an empty
+  option recipe as one active Sellpia SKU plus quantity;
+  different recipes stay in product detail. `상품 매칭 실행` refreshes
+  Sellpia aliases, recalculates the proposal, and may fill empty recipes.
 - Coupang/Rocket share the queue; only Coupang imports Wing workbooks. The
   account checklist combines queues; recipe apply requires one selected account.
 - Browser catalog publication may arrive already linked through Products-owned
@@ -44,11 +45,10 @@ React Query + apiClient
 ## Boundary Rules
 
 - Recipe and identity safety policy is inherited from the catalog guide; this
-  route adds no arbitrary quantity or component editor.
-- Do not recreate channel-owned component recipes or arbitrary quantity inputs.
-  The only recipe mutation here is the explicit version-fenced command that
-  creates an empty central recipe as one active Sellpia SKU with a backend-
-  verified positive integer quantity.
+  route adds no multi-component editor or complete recipe replacement.
+- Do not recreate channel-owned recipes. Only create-if-empty commands may add
+  one active Sellpia SKU with backend-verified positive quantity. Operator
+  SKU/quantity input belongs only inside `재고 연결`.
 - The automatic command refreshes Sellpia evidence once, then independently
   applies safe children for every selected account while unresolved siblings
   remain review/blocked; confirmed links and recipes stay untouched.

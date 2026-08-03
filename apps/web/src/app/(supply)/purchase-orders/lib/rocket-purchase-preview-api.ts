@@ -1,13 +1,9 @@
 import {
-  RocketPurchasePreviewRequestSchema,
-  RocketPurchasePreviewResponseSchema,
   RocketSavedPoCollectionSchema,
   RocketSavedPoSnapshotSchema,
   RocketSavedPoListRequestSchema,
   RocketSavedPoSummarySchema,
   ROCKET_SAVED_PO_RESPONSE_PROFILE,
-  type RocketPurchasePreviewRequest,
-  type RocketPurchasePreviewResponse,
   type RocketSavedPoCollection,
   type RocketSavedPoListRequest,
   type RocketSavedPoSummary,
@@ -15,6 +11,8 @@ import {
 import { z, type ZodType } from 'zod';
 import { apiClient } from '@/lib/api-client';
 import { friendlyError, isApiError } from '@/lib/api-error';
+
+export { previewRocketPurchases } from '@/lib/rocket-purchase-preview-api';
 
 const LoadSavedRocketCollectionRequestSchema = z.object({
   channelAccountId: z.string().uuid(),
@@ -34,25 +32,6 @@ export function rocketPreviewErrorMessage(cause: unknown, fallback: string): str
       + ' 주문 수집 결과는 보존되므로 셀피아 상태를 확인한 뒤 저장된 수집본으로 다시 시도해 주세요.';
   }
   return friendlyError(cause) ?? fallback;
-}
-
-export async function previewRocketPurchases(
-  input: RocketPurchasePreviewRequest,
-  options?: { inventoryRequirement?: 'advisory' | 'fresh' },
-): Promise<RocketPurchasePreviewResponse> {
-  const request = RocketPurchasePreviewRequestSchema.parse(input);
-  const response = await apiClient.post('/api/purchase-orders', {
-    action: 'previewRocket',
-    ...(options?.inventoryRequirement && {
-      inventoryRequirement: options.inventoryRequirement,
-    }),
-    ...request,
-  });
-  return parseRocketResponse(
-    'previewRocket',
-    RocketPurchasePreviewResponseSchema,
-    response,
-  );
 }
 
 export async function listSavedRocketPos(
