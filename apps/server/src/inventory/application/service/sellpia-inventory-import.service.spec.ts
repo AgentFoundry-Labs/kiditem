@@ -86,7 +86,7 @@ describe('SellpiaInventoryImportService', () => {
   });
 
   it('verifies the bounded same-hash confirmation without scheduling a third run', async () => {
-    const { service, repository, publication } = makeService();
+    const { service, repository, publication, eventEmitter } = makeService();
     const confirmationInput: ImportSellpiaInventoryInput = {
       ...browserInput,
       execution: { ...browserInput.execution, trigger: 'same_hash_confirmation' },
@@ -102,10 +102,18 @@ describe('SellpiaInventoryImportService', () => {
     });
     expect(publication.verifySameHash).toHaveBeenCalledOnce();
     expect(publication.publishSnapshot).not.toHaveBeenCalled();
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      'inventory.sellpia-snapshot.verified.v1',
+      {
+        organizationId: ORGANIZATION_ID,
+        runId: RUN_ID,
+        generation: '1',
+      },
+    );
   });
 
   it('computes the hash before parsing, claims raw provenance, and publishes parsed rows', async () => {
-    const { service, repository, publication, references } = makeService();
+    const { service, repository, publication, references, eventEmitter } = makeService();
     repository.claimFileRun.mockResolvedValue({
       kind: 'started',
       runId: RUN_ID,
@@ -137,6 +145,14 @@ describe('SellpiaInventoryImportService', () => {
         currentStock: 4,
       })],
     }));
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      'inventory.sellpia-snapshot.verified.v1',
+      {
+        organizationId: ORGANIZATION_ID,
+        runId: RUN_ID,
+        generation: '1',
+      },
+    );
   });
 
   it('maps private SKU publication counters to the temporary HTTP compatibility names', async () => {
@@ -294,15 +310,20 @@ function makeService() {
       .fn<ConfirmedChannelComponentReferencePort['listReferencedSellpiaProductCodes']>()
       .mockResolvedValue([]),
   };
+  const eventEmitter = {
+    emitAsync: vi.fn().mockResolvedValue([]),
+  };
   return {
     service: new SellpiaInventoryImportService(
       repository,
       publication,
       references,
       new SellpiaInventoryFileValidator(),
+      eventEmitter as never,
     ),
     repository,
     publication,
     references,
+    eventEmitter,
   };
 }

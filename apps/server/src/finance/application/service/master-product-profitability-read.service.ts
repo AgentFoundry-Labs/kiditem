@@ -237,16 +237,14 @@ function toContributionFact(
     ? ad.dailyFacts
       .filter((daily) => daily.businessDate >= fact.coverageStartDate && daily.businessDate <= fact.coverageEndDate)
       .reduce((sum, daily) => sum + daily.adSpend, 0)
-    : null;
+    : 0;
   const costBreakdown = buildCostBreakdown({
     revenue: fact.revenue,
     sellpiaInAmount: fact.sellpiaInAmount,
     adSpend,
     adStatus,
   });
-  const contributionProfit = adSpend === null
-    ? null
-    : fact.revenue - fact.sellpiaInAmount - adSpend;
+  const contributionProfit = fact.revenue - fact.sellpiaInAmount - adSpend;
   return {
     yearMonth: fact.yearMonth,
     coverageStartDate: fact.coverageStartDate,
@@ -258,7 +256,7 @@ function toContributionFact(
     adSpend,
     costBreakdown,
     contributionProfit,
-    negativeCoveredDays: contributionProfit === null ? null : contributionProfit < 0 ? fact.coveredDays : 0,
+    negativeCoveredDays: contributionProfit < 0 ? fact.coveredDays : 0,
     lossGranularity: 'MONTH_INFERRED',
     sourceProductCodes: fact.sourceProductCodes,
     sourceOptionCodes: fact.sourceOptionCodes,
@@ -268,15 +266,15 @@ function toContributionFact(
 function buildCostBreakdown(input: {
   revenue: number;
   sellpiaInAmount: number;
-  adSpend: number | null;
+  adSpend: number;
   adStatus: MasterProductAdvertisingStatus;
 }): ProductAbcCostBreakdown {
   return {
     recognizedRevenue: observedComponent(input.revenue, 'OBSERVED'),
     orderTimeCogs: observedComponent(input.sellpiaInAmount, 'OBSERVED'),
-    advertisingSpend: input.adSpend === null
-      ? unavailableAdComponent(input.adStatus)
-      : observedComponent(input.adSpend, input.adStatus === 'CONFIRMED_ZERO' ? 'CONFIRMED_ZERO' : 'OBSERVED'),
+    advertisingSpend: input.adStatus === 'READY' || input.adStatus === 'CONFIRMED_ZERO'
+      ? observedComponent(input.adSpend, input.adStatus === 'CONFIRMED_ZERO' ? 'CONFIRMED_ZERO' : 'OBSERVED')
+      : unavailableAdComponent(input.adStatus),
     marketplaceCommission: DEFERRED_ZERO,
     outboundFulfillment: DEFERRED_ZERO,
     returnLoss: DEFERRED_ZERO,
@@ -289,7 +287,7 @@ function observedComponent(amount: number, status: Extract<ProductAbcCostStatus,
 }
 
 function unavailableAdComponent(status: MasterProductAdvertisingStatus) {
-  return { amount: null, status: status === 'STALE' ? 'STALE' : 'MISSING' } as const;
+  return { amount: 0, status: status === 'STALE' ? 'STALE' : 'MISSING' } as const;
 }
 
 function missingAdEvidence(masterProductId: string): MasterProductAdSpendEvidence {

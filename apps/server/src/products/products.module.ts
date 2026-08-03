@@ -20,6 +20,7 @@ import {
   ProductProfitabilityAbcOperationHandler,
   ProductProfitabilityRefreshOperationHandler,
 } from './adapter/in/operation/product-profitability.operation-handler';
+import { MasterProductInventoryActivityListener } from './adapter/in/event/master-product-inventory-activity.listener';
 
 @Module({
   imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule, OperationsModule],
@@ -32,6 +33,7 @@ import {
     ProductProfitabilityAbcOperationHandler,
     ProductRecipeComponentCandidateService,
     MasterProductAbcService,
+    MasterProductInventoryActivityListener,
     MasterProductAbcRepositoryAdapter,
     ProductOperationsRepositoryAdapter,
     {

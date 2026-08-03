@@ -70,11 +70,29 @@ function repository(overrides = {}) {
     listSellingMasterProductIds: vi.fn().mockResolvedValue([productId]),
     findCurrentEvaluations: vi.fn().mockResolvedValue(new Map()),
     publishEvaluations: vi.fn().mockResolvedValue({ changedProductCount: 1, stale: false }),
+    reconcileInventoryActivity: vi.fn().mockResolvedValue({
+      deactivatedMasterProductIds: [productId],
+      reactivatedMasterProductIds: [],
+    }),
     ...overrides,
   };
 }
 
 describe('MasterProductAbcService', () => {
+  it('delegates stock activity reconciliation to the product repository', async () => {
+    const products = repository();
+    const profitability = { readMany: vi.fn() };
+    const service = new MasterProductAbcService(products as never, profitability as never);
+
+    await expect(
+      (service as unknown as {
+        reconcileInventoryActivity(organizationId: string): Promise<unknown>;
+      }).reconcileInventoryActivity(organizationId),
+    ).resolves.toEqual({ deactivatedMasterProductIds: [productId], reactivatedMasterProductIds: [] });
+    expect(products.reconcileInventoryActivity).toHaveBeenCalledWith(organizationId);
+    expect(profitability.readMany).not.toHaveBeenCalled();
+  });
+
   it('evaluates active products from Finance evidence and publishes with the frozen formula pointer', async () => {
     const products = repository();
     const profitability = { readMany: vi.fn().mockResolvedValue([evidence()]) };
@@ -92,7 +110,7 @@ describe('MasterProductAbcService', () => {
     }));
   });
 
-  it('creates an initial formula only when calibration has enough historical evidence', async () => {
+  it('creates an initial fixed formula only when historical evidence is sufficient', async () => {
     const products = repository({
       getFormulaState: vi.fn().mockResolvedValue({ revision: 0, formulaVersionId: null, formula: null }),
     });

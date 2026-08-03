@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   type ImportSellpiaInventoryInput,
   type SellpiaInventoryImportPort,
@@ -21,6 +22,10 @@ import {
 import { SellpiaInventoryFileValidator } from './sellpia-inventory-file.validator';
 import { parseSellpiaInventoryArtifact } from './sellpia-inventory-workbook.parser';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
+import {
+  SELLPIA_INVENTORY_EVENTS,
+  type SellpiaInventorySnapshotVerifiedEvent,
+} from '../event/sellpia-inventory.events';
 
 @Injectable()
 export class SellpiaInventoryImportService implements SellpiaInventoryImportPort {
@@ -32,6 +37,7 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
     @Inject(CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT)
     private readonly references: ConfirmedChannelComponentReferencePort,
     private readonly fileValidator: SellpiaInventoryFileValidator,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async importInventory(
@@ -79,13 +85,15 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
     }
 
     if (claim.kind === 'completed') {
-      return toHttpResponse(await this.publication.verifySameHash({
+      const result = await this.publication.verifySameHash({
         organizationId: input.organizationId,
         userId: input.userId,
         runId: claim.runId,
         fileHash,
         execution,
-      }));
+      });
+      await this.emitVerifiedSnapshot(input.organizationId, result);
+      return toHttpResponse(result);
     }
 
     // Confirmed references affect warning evidence only. Publication integrity
@@ -94,7 +102,7 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
       await this.references.listReferencedSellpiaProductCodes(
         input.organizationId,
       );
-    return toHttpResponse(await this.publication.publishSnapshot({
+    const result = await this.publication.publishSnapshot({
       organizationId: input.organizationId,
       userId: input.userId,
       runId: claim.runId,
@@ -104,7 +112,24 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
       rows: parsed.rows,
       qualityFacts: parsed.qualityFacts,
       confirmedReferencedProductCodes,
-    }));
+    });
+    await this.emitVerifiedSnapshot(input.organizationId, result);
+    return toHttpResponse(result);
+  }
+
+  private async emitVerifiedSnapshot(
+    organizationId: string,
+    result: Awaited<ReturnType<SellpiaSnapshotPublicationRepositoryPort['publishSnapshot']>>,
+  ): Promise<void> {
+    if (result.outcome !== 'published' && result.outcome !== 'same_hash_verified') return;
+    await this.eventEmitter.emitAsync(
+      SELLPIA_INVENTORY_EVENTS.SNAPSHOT_VERIFIED,
+      {
+        organizationId,
+        runId: result.run.id,
+        generation: result.run.freshnessGeneration,
+      } satisfies SellpiaInventorySnapshotVerifiedEvent,
+    );
   }
 }
 

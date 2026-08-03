@@ -20,6 +20,92 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
     return sellingMasterProductIds(this.prisma, organizationId);
   }
 
+  async reconcileInventoryActivity(organizationId: string): Promise<{
+    deactivatedMasterProductIds: readonly string[];
+    reactivatedMasterProductIds: readonly string[];
+  }> {
+    const deactivatedMasterProductIds = await this.deactivateZeroStockProducts(organizationId);
+    const reactivatedMasterProductIds = await this.reactivateInStockProducts(organizationId);
+    return { deactivatedMasterProductIds, reactivatedMasterProductIds };
+  }
+
+  private async deactivateZeroStockProducts(organizationId: string): Promise<readonly string[]> {
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      UPDATE master_products mp
+      SET is_active = FALSE,
+          abc_grade = NULL,
+          updated_at = NOW()
+      WHERE mp.organization_id = ${organizationId}::uuid
+        AND mp.is_active = TRUE
+        AND EXISTS (
+          SELECT 1
+          FROM channel_listings cl
+          JOIN channel_listing_options clo
+            ON clo.organization_id = cl.organization_id
+           AND clo.listing_id = cl.id
+           AND clo.is_active = TRUE
+          JOIN channel_listing_option_inventory_components component
+            ON component.organization_id = clo.organization_id
+           AND component.channel_listing_option_id = clo.id
+          WHERE cl.organization_id = mp.organization_id
+            AND cl.master_product_id = mp.id
+            AND cl.is_active = TRUE
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM channel_listings cl
+          JOIN channel_listing_options clo
+            ON clo.organization_id = cl.organization_id
+           AND clo.listing_id = cl.id
+           AND clo.is_active = TRUE
+          JOIN channel_listing_option_inventory_components component
+            ON component.organization_id = clo.organization_id
+           AND component.channel_listing_option_id = clo.id
+          JOIN sellpia_inventory_skus sku
+            ON sku.organization_id = component.organization_id
+           AND sku.id = component.sellpia_inventory_sku_id
+           AND sku.is_active = TRUE
+           AND sku.current_stock > 0
+          WHERE cl.organization_id = mp.organization_id
+            AND cl.master_product_id = mp.id
+            AND cl.is_active = TRUE
+        )
+      RETURNING mp.id
+    `);
+    return rows.map(({ id }) => id).sort();
+  }
+
+  private async reactivateInStockProducts(organizationId: string): Promise<readonly string[]> {
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      UPDATE master_products mp
+      SET is_active = TRUE,
+          updated_at = NOW()
+      WHERE mp.organization_id = ${organizationId}::uuid
+        AND mp.is_active = FALSE
+        AND EXISTS (
+          SELECT 1
+          FROM channel_listings cl
+          JOIN channel_listing_options clo
+            ON clo.organization_id = cl.organization_id
+           AND clo.listing_id = cl.id
+           AND clo.is_active = TRUE
+          JOIN channel_listing_option_inventory_components component
+            ON component.organization_id = clo.organization_id
+           AND component.channel_listing_option_id = clo.id
+          JOIN sellpia_inventory_skus sku
+            ON sku.organization_id = component.organization_id
+           AND sku.id = component.sellpia_inventory_sku_id
+           AND sku.is_active = TRUE
+           AND sku.current_stock > 0
+          WHERE cl.organization_id = mp.organization_id
+            AND cl.master_product_id = mp.id
+            AND cl.is_active = TRUE
+        )
+      RETURNING mp.id
+    `);
+    return rows.map(({ id }) => id).sort();
+  }
+
   async getFormulaState(organizationId: string): Promise<MasterProductAbcFormulaStateRecord> {
     const state = await this.prisma.masterProductAbcFormulaState.findUnique({
       where: { organizationId },

@@ -78,7 +78,11 @@ const ProductAbcObservedCostComponentSchema = z.object({
 }).strict();
 
 const ProductAbcUnavailableCostComponentSchema = z.object({
-  amount: z.null(),
+  // A missing advertising source is counted as 0 KRW for the current ABC
+  // calculation, while its source state remains MISSING or STALE. Other
+  // unavailable components may continue to use null until their collection is
+  // introduced.
+  amount: z.union([z.null(), z.literal(0)]),
   status: z.enum(['STALE', 'MISSING']),
 }).strict();
 
@@ -149,6 +153,13 @@ const ProductAbcNormalizationKnotsSchema = z.object({
   lossRecurrence: z.array(ProductAbcNormalizationKnotSchema).min(1).max(7),
 }).strict();
 
+export const ProductAbcCalibrationMethodSchema = z.enum([
+  'FIXED_QUANTILE',
+]);
+export type ProductAbcCalibrationMethod = z.infer<
+  typeof ProductAbcCalibrationMethodSchema
+>;
+
 export const ProductAbcFormulaSummarySchema = z.object({
   formulaKey: z.literal('ABC_V1'),
   version: z.number().int().positive(),
@@ -166,6 +177,7 @@ export const ProductAbcFormulaSummarySchema = z.object({
   }).strict(),
   sampleCount: z.number().int().nonnegative(),
   foldCount: z.number().int().nonnegative(),
+  calibrationMethod: ProductAbcCalibrationMethodSchema.optional(),
   calibrationMetrics: z.object({
     meanSpearmanRankCorrelation: FiniteNumberSchema.min(-1).max(1),
     meanExplainedVariance: FiniteNumberSchema.min(0).max(1),

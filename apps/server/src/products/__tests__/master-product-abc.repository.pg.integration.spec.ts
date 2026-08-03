@@ -184,4 +184,117 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
     await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: stopped.id } }))
       .resolves.toMatchObject({ abcGrade: null });
   });
+
+  it('reconciles mapped product activity from verified Sellpia physical stock', async () => {
+    const account = await prisma.channelAccount.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Inventory activity account' },
+    });
+    const zeroStock = await createMappedProductWithStock({
+      prisma,
+      accountId: account.id,
+      code: `ZERO-${randomUUID()}`,
+      currentStock: 0,
+      abcGrade: 'A',
+    });
+    const positiveStock = await createMappedProductWithStock({
+      prisma,
+      accountId: account.id,
+      code: `POSITIVE-${randomUUID()}`,
+      currentStock: 3,
+      abcGrade: 'B',
+    });
+    const restocked = await createMappedProductWithStock({
+      prisma,
+      accountId: account.id,
+      code: `RESTOCKED-${randomUUID()}`,
+      currentStock: 2,
+      abcGrade: null,
+      isActive: false,
+    });
+    const unmapped = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: `UNMAPPED-${randomUUID()}`,
+        name: 'Unmapped product',
+        abcGrade: 'C',
+      },
+    });
+
+    const inventoryActivityRepository = repository as unknown as {
+      reconcileInventoryActivity(organizationId: string): Promise<{
+        deactivatedMasterProductIds: readonly string[];
+        reactivatedMasterProductIds: readonly string[];
+      }>;
+    };
+    await expect(inventoryActivityRepository.reconcileInventoryActivity(TEST_ORGANIZATION_ID))
+      .resolves.toEqual({
+        deactivatedMasterProductIds: [zeroStock.id],
+        reactivatedMasterProductIds: [restocked.id],
+      });
+
+    await expect(prisma.masterProduct.findMany({
+      where: { id: { in: [zeroStock.id, positiveStock.id, restocked.id, unmapped.id] } },
+      orderBy: { code: 'asc' },
+      select: { id: true, isActive: true, abcGrade: true },
+    })).resolves.toEqual(expect.arrayContaining([
+      { id: zeroStock.id, isActive: false, abcGrade: null },
+      { id: positiveStock.id, isActive: true, abcGrade: 'B' },
+      { id: restocked.id, isActive: true, abcGrade: null },
+      { id: unmapped.id, isActive: true, abcGrade: 'C' },
+    ]));
+  });
 });
+
+async function createMappedProductWithStock(input: {
+  prisma: PrismaClient;
+  accountId: string;
+  code: string;
+  currentStock: number;
+  abcGrade: 'A' | 'B' | 'C' | null;
+  isActive?: boolean;
+}) {
+  const product = await input.prisma.masterProduct.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: input.code,
+      name: input.code,
+      abcGrade: input.abcGrade,
+      isActive: input.isActive ?? true,
+    },
+  });
+  const listing = await input.prisma.channelListing.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: input.accountId,
+      masterProductId: product.id,
+      externalId: `LISTING-${randomUUID()}`,
+      status: 'active',
+    },
+  });
+  const option = await input.prisma.channelListingOption.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: listing.id,
+      externalOptionId: `OPTION-${randomUUID()}`,
+      status: '판매중',
+    },
+  });
+  const sku = await input.prisma.sellpiaInventorySku.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: `SKU-${randomUUID()}`,
+      name: input.code,
+      currentStock: input.currentStock,
+      isActive: true,
+    },
+  });
+  await input.prisma.channelListingOptionInventoryComponent.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingOptionId: option.id,
+      sellpiaInventorySkuId: sku.id,
+      quantity: 1,
+    },
+  });
+  return product;
+}

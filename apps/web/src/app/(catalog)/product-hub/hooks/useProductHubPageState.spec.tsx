@@ -52,10 +52,10 @@ describe('useProductHubPageState', () => {
     expect(result.current.page).toBe(4);
   });
 
-  it('defaults to the staged all-products view', () => {
+  it('defaults to the selling-products view', () => {
     const { result } = renderHook(() => useProductHubPageState());
 
-    expect(result.current.activeStatus).toBe('all');
+    expect(result.current.activeStatus).toBe('active');
     expect(result.current.inventoryStatus).toBe('all');
     expect(result.current.periodDays).toBe(30);
   });

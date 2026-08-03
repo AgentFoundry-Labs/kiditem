@@ -170,7 +170,7 @@ describe('MasterProductProfitabilityReadService', () => {
     expect(evidence).toMatchObject({ paidOrderCount: 0, observationDays: 0, eligibilityReached: true });
   });
 
-  it('keeps unavailable advertising evidence non-numeric instead of treating it as zero spend', async () => {
+  it('uses a zero advertising cost while preserving stale advertising provenance', async () => {
     const { service } = makeService({
       ad: [{
         masterProductId: MASTER_ID,
@@ -191,9 +191,31 @@ describe('MasterProductProfitabilityReadService', () => {
 
     expect(evidence.adStatus).toBe('STALE');
     expect(evidence.monthlyFacts[0]).toMatchObject({
-      adSpend: null,
-      contributionProfit: null,
-      costBreakdown: { advertisingSpend: { amount: null, status: 'STALE' } },
+      adSpend: 0,
+      contributionProfit: 600,
+      costBreakdown: { advertisingSpend: { amount: 0, status: 'STALE' } },
+    });
+  });
+
+  it('uses a zero advertising cost for calculation while preserving a missing advertising source', async () => {
+    const { service } = makeService({ ad: [] });
+
+    const [evidence] = await service.readMany({
+      organizationId: ORGANIZATION_ID,
+      masterProductIds: [MASTER_ID],
+      asOfDate: AS_OF,
+      scope: 'ACTIVE_EVALUATION',
+    });
+
+    expect(evidence).toMatchObject({
+      adStatus: 'MISSING',
+      monthlyFacts: [expect.objectContaining({
+        adSpend: 0,
+        contributionProfit: 600,
+        costBreakdown: expect.objectContaining({
+          advertisingSpend: { amount: 0, status: 'MISSING' },
+        }),
+      })],
     });
   });
 

@@ -47,6 +47,7 @@ const metadataFixture = {
 describe('product operations contracts', () => {
   it('uses calculation status instead of lifecycle/risk filters and exposes profitability summary', () => {
     expect(ProductOperationsAbcCalculationStatusFilterSchema.parse('AD_SOURCE_STALE')).toBe('AD_SOURCE_STALE');
+    expect(MasterProductOperationsListQuerySchema.parse({}).activeStatus).toBe('active');
     expect(MasterProductOperationsListQuerySchema.parse({
       abcCalculationStatus: 'READY',
     }).abcCalculationStatus).toBe('READY');

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
@@ -42,6 +43,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       publication,
       new ConfirmedChannelComponentReferenceRepositoryAdapter(prismaService),
       new SellpiaInventoryFileValidator(),
+      new EventEmitter2(),
     );
   });
 

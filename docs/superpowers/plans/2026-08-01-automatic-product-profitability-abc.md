@@ -8,6 +8,12 @@
 
 **Tech Stack:** Prisma 7/PostgreSQL, NestJS, TypeScript, Zod and focused `@kiditem/shared/*` exports, Next.js App Router, React Query, Chrome Extension Manifest V3, Vitest, Node test runner.
 
+> **Superseded ABC policy (2026-08-03):** Do not implement rolling-origin,
+> predictive, candidate-grid, or bootstrap-model behavior in this plan. The
+> live policy is fixed 50/30/20 score weights, a 90-day half-life, a 30-day
+> shrinkage constant, and A/B/C score quantiles of 20%/50%/30% among currently
+> selling positive-profit products; non-positive weighted contribution is C.
+
 ---
 
 ## Implementation Constraints

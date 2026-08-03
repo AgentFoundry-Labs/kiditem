@@ -72,7 +72,7 @@ export const MasterProductOperationsListQuerySchema = z.object({
   query: z.string().trim().min(1).max(200).optional(),
   periodDays: ProductOperationsPeriodDaysSchema.default(30),
   category: z.string().trim().min(1).max(100).optional(),
-  activeStatus: ProductOperationsActiveStatusSchema.default('all'),
+  activeStatus: ProductOperationsActiveStatusSchema.default('active'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
   abcGrade: ProductOperationsAbcGradeFilterSchema.optional(),
   abcCalculationStatus: ProductOperationsAbcCalculationStatusFilterSchema.optional(),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ProductAbcFormulaSummary } from '@kiditem/shared/product-abc';
 import type { MasterProductProfitabilityEvidence } from '../../finance/application/port/in/master-product-profitability-read.port';
-import { evaluateMasterProductAbc } from './master-product-abc';
+import { applyMasterProductAbcQuantiles, evaluateMasterProductAbc } from './master-product-abc';
 
 const calculatedAt = new Date('2026-08-01T00:00:00.000Z');
 
@@ -134,6 +134,33 @@ describe('evaluateMasterProductAbc', () => {
     });
   });
 
+  it('assigns A/B/C by the fixed 20/50/30 score quantiles and keeps losses in C', () => {
+    const evaluations = new Map(
+      [95, 90, 85, 80, 75, 70, 65, 60, 55, 50].map((adjustedScore, index) => [
+        `positive-${index}`,
+        {
+          ...evaluate(),
+          adjustedScore,
+          weightedContributionProfit: 1,
+        },
+      ] as const).concat([[
+        'loss',
+        {
+          ...evaluate(),
+          adjustedScore: 100,
+          weightedContributionProfit: 0,
+        },
+      ] as const]),
+    );
+
+    const ranked = applyMasterProductAbcQuantiles(evaluations);
+
+    expect([...ranked.values()].filter((value) => value.abcGrade === 'A')).toHaveLength(2);
+    expect([...ranked.values()].filter((value) => value.abcGrade === 'B')).toHaveLength(5);
+    expect([...ranked.values()].filter((value) => value.abcGrade === 'C')).toHaveLength(4);
+    expect(ranked.get('loss')).toMatchObject({ abcGrade: 'C' });
+  });
+
   it('publishes a valid hard C when a zero-revenue period has no contribution', () => {
     const value = evidence({
       monthlyFacts: [{
@@ -177,7 +204,7 @@ describe('evaluateMasterProductAbc', () => {
     });
   });
 
-  it('leaves unmapped and uncalibrated products ungraded', () => {
+  it('leaves unmapped products and products without a formula ungraded', () => {
     expect(evaluate({ evidence: evidence({ sellpiaStatus: 'UNMAPPED' }) })).toMatchObject({
       abcGrade: null,
       calculationStatus: 'SOURCE_UNMAPPED',
@@ -188,7 +215,7 @@ describe('evaluateMasterProductAbc', () => {
     });
   });
 
-  it('retains the last normal grade when a Sellpia or advertising source becomes stale', () => {
+  it('retains the last normal grade when the Sellpia source becomes stale', () => {
     const prior = evaluate();
     expect(evaluate({
       evidence: evidence({ sellpiaStatus: 'STALE' }),
@@ -197,12 +224,27 @@ describe('evaluateMasterProductAbc', () => {
       abcGrade: 'B',
       calculationStatus: 'SELLPIA_SOURCE_STALE',
     });
-    expect(evaluate({
-      evidence: evidence({ adStatus: 'STALE' }),
-      previousNormalEvaluation: prior,
-    })).toMatchObject({
-      abcGrade: 'B',
-      calculationStatus: 'AD_SOURCE_STALE',
+  });
+
+  it('calculates a grade with zero advertising cost when the advertising source is stale', () => {
+    const value = evidence({
+      adStatus: 'STALE',
+      monthlyFacts: [{
+        ...evidence().monthlyFacts[0]!,
+        adSpend: 0,
+        contributionProfit: 800,
+        costBreakdown: {
+          ...evidence().monthlyFacts[0]!.costBreakdown,
+          advertisingSpend: { amount: 0, status: 'STALE' },
+        },
+      }],
+    });
+
+    expect(evaluate({ evidence: value })).toMatchObject({
+      abcGrade: expect.any(String),
+      calculationStatus: 'READY',
+      sourceFreshness: { advertising: { status: 'STALE' } },
+      costBreakdown: { advertisingSpend: { amount: 0, status: 'STALE' } },
     });
   });
 

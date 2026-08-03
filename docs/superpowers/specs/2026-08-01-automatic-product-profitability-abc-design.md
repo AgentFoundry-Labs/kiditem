@@ -50,9 +50,11 @@ there is no provisional-versus-official grade system.
   formula inputs with a value of zero and status `NOT_APPLIED`.
 - Collection returns one continuous history. Fixed 1/2/3/6/12-month scoring
   windows and the legacy cumulative 70/90 contribution policy are removed.
-- Time decay, score weights, shrinkage strength, and grade boundaries are
-  calibrated from historical outcomes, validated out of time, and frozen in a
-  versioned formula. They are not recalculated on every sync.
+- The operating policy is fixed: 90-day time-decay half-life, score weights of
+  profit velocity 50% / contribution margin 30% / inverse loss recurrence
+  20%, and a 30-day observation shrinkage constant. A/B/C are assigned from
+  the current selling positive-profit cohort by fixed 20% / 50% / 30% score
+  quantiles; zero or negative weighted contribution is always C.
 - `수익성 데이터 갱신` is one Products-owned composite operation. It runs a
   full Sellpia evidence collection, authoritative Advertising backfill, and
   exactly one Products ABC calculation in that order. A successful Sellpia
@@ -70,7 +72,7 @@ there is no provisional-versus-official grade system.
 - There is no policy-selection modal, manual grade mutation, fixed grade
   quota, or requirement that every organization always contain all three
   grades.
-- No LLM or Agent OS run participates in collection, calibration, or grading.
+- No LLM or Agent OS run participates in collection, fixed-formula creation, or grading.
 - This design does not introduce direct database access from the web app.
 
 ## Source Contract
@@ -122,10 +124,12 @@ typed Advertising read port and aggregates the authoritative additive spend to
 `MasterProduct` through `ChannelListing.masterProductId`; it does not sum
 non-additive trailing keyword snapshots or duplicate owner streams.
 
-A confirmed no-ad product contributes zero actual ad spend. Missing or failed
-advertising coverage is not equivalent to zero: publication retains the last
-normal grade and exposes `AD_SOURCE_STALE` until a complete source snapshot is
-available. The browser collector uses Coupang's official advertising-report
+A confirmed no-ad product contributes zero actual ad spend. In V1, missing or
+failed advertising coverage also contributes **0 KRW for the ABC calculation**
+so that authoritative Sellpia profit facts can still receive an A/B/C grade.
+The evidence preserves `MISSING` or `STALE` advertising provenance; a later
+authoritative advertising refresh recalculates the grade with the collected
+amount. The browser collector uses Coupang's official advertising-report
 surface, one calendar-month range at a time, with `일별`, all campaigns, and
 `캠페인 > 광고그룹 > 상품` fixed. It joins every virtualized grid row, requires
 the collected count to equal the provider row count, and requires product-row
@@ -226,8 +230,8 @@ formula shape or silently reinterpreting historical zeroes.
 All eligible covered history up to the approximately 400-day collection limit
 is considered. The evaluator does not select a named trailing window. For a
 monthly bucket `i`, let `ageDays_i` be the number of days from the bucket's
-coverage midpoint to the evaluation date and let `h` be the calibrated decay
-half-life:
+coverage midpoint to the evaluation date and let the fixed decay half-life
+`h = 90` days:
 
 ```text
 weight_i = 2 ^ (-ageDays_i / h)
@@ -256,19 +260,18 @@ weightedLossRecurrence =
 ```
 
 The three explainable score inputs are profit velocity, contribution margin,
-and the inverse of loss recurrence. Profit velocity remains the primary axis;
-calibration constrains its coefficient to be at least as large as the margin
-coefficient. Every coefficient is monotone: more profit or margin cannot lower
-the score, and more loss recurrence cannot raise it.
+and the inverse of loss recurrence, with fixed coefficients of 50%, 30%, and
+20%. Every coefficient is monotone: more profit or margin cannot lower the
+score, and more loss recurrence cannot raise it.
 
 Before combination, each raw input is mapped to a 0-to-100 value through the
-organization's historical empirical distribution reconstructed by the
-calibration dataset. The quantile knots and interpolation rule are frozen in
-the formula version. Evaluation therefore compares a product with the
-organization's calibrated operating history, not with only the products that
+organization's complete Sellpia history when the formula is first created. The
+quantile knots and interpolation rule are frozen in the formula version.
+Evaluation therefore compares a product with the organization's fixed operating
+history, not with only the products that
 happen to be active in the current sync. Another product entering or leaving
 the current portfolio cannot by itself change an unchanged product's score.
-Values beyond the calibrated range clamp to 0 or 100.
+Values beyond the frozen historical range clamp to 0 or 100.
 
 ### Sparse-evidence shrinkage
 
@@ -280,44 +283,22 @@ separate provisional grade:
 adjustedScore = 50 + reliability * (rawScore - 50)
 ```
 
-Reliability is a deterministic function of observation days. Its strength
-parameter is selected during calibration, stored in the formula version, and
-constrained to increase monotonically as observed history grows.
+Reliability is a deterministic function of observation days with a fixed
+30-day shrinkage constant.
 
-### Calibration dataset
+### Fixed quantile publication
 
-Calibration reconstructs each historical complete month-end as an `asOf`
-snapshot using only facts that would have been available then. The next
-complete source month is the primary realized-profit outcome because a
-calendar month is the natural independent grain returned by Sellpia. Later
-available months are robustness checks, not hard-coded scoring windows.
+The initial formula is created from at least three usable complete Sellpia
+profitability observations. It freezes the historical score-normalization
+knots, but it does not fit or validate a predictive model.
 
-Rolling-origin validation selects:
-
-- decay half-life within the available 30-to-365-day evidence range;
-- monotone non-negative score coefficients;
-- sparse-evidence shrinkage strength; and
-- two ordered score boundaries.
-
-Candidate formulas are compared out of time. Selection prioritizes:
-
-1. rank agreement between score and subsequently realized profit velocity;
-2. ordered realized outcomes (`A > B > C`) in every viable validation fold;
-3. separation of the three realized-profit bands; and
-4. lower month-to-month grade churn as the tie-breaker.
-
-The boundaries are obtained by ordered one-dimensional segmentation of score
-against subsequently realized profit, minimizing within-grade outcome error.
-They are not cumulative-contribution percentages, fixed population
-percentiles, or per-run clusters. A weighted contribution profit at or below
-zero is a hard C guard regardless of score.
-
-Calibration must emit a reproducible report containing the data cutoff,
-eligible sample counts, selected parameters, fold metrics, grade distribution,
-grade transition matrix, and formula checksum. A candidate that cannot keep
-ordered grade outcomes out of time is not activated. The last active formula
-remains in force; initial rollout stays `CALIBRATION_PENDING` until one formula
-passes.
+Each publication ranks only currently selling, mapped, source-ready products
+with positive weighted contribution profit by adjusted score. The upper 20%
+are A; the next 50% are B; the remaining 30% are C. Equal scores at a boundary
+remain together, so collection order cannot split equivalent products. A
+weighted contribution profit at or below zero bypasses the rank and is always
+C. The 20/50/30 policy is fixed, while its score thresholds are recalculated
+from that publication cohort.
 
 ### Formula versioning
 
@@ -327,17 +308,15 @@ An active formula version contains:
 - calculation-code version/checksum;
 - decay half-life;
 - organization-owned feature-normalization knots;
-- ordered score coefficients;
-- shrinkage parameters;
-- C/B and B/A score boundaries;
-- calibration cutoff and summary metrics; and
+- fixed score coefficients and shrinkage parameter;
+- C/B and B/A quantile boundaries (30th and 80th percentiles); and
+- fixed-quantile method marker and summary metrics; and
 - activation time.
 
 Each formula is organization-owned and has at most one active version per
-organization. Grades recalculate automatically from the active version, but
-calibration does not silently alter the active version during a sync. A newly
-validated formula is activated as a deliberate versioned release so grade
-history can explain formula-driven changes.
+organization. Grades recalculate automatically from the active version. The
+formula stays unchanged during a sync; only the current selling cohort's fixed
+quantile grade assignment changes with its score facts.
 
 ## Result and State Contract
 
@@ -387,7 +366,7 @@ flowchart LR
 - Advertising owns authoritative additive ad-spend facts.
 - Finance exposes an organization-scoped profitability evidence port that
   combines source-owner reads without creating a second grade.
-- Products owns calibration orchestration, the active formula, deterministic
+- Products owns fixed-formula initialization, the active formula, deterministic
   evaluation, current snapshot, grade history, and
   `MasterProduct.abcGrade` publication.
 - Dashboard and web product/inventory screens are read-only consumers through
@@ -408,7 +387,7 @@ transition, but the persisted semantics become:
   provenance needed for partial-bucket evaluation.
 - automatic ABC formula record: replace operator-style
   `MasterProductAbcPolicy` metric/period/70/90/provisional fields with immutable
-  versioned formula parameters and calibration evidence. No mutation API is
+  versioned formula parameters and fixed-formula evidence. No mutation API is
   exposed to operators.
 - `MasterProductAbcEvaluation`: replace lifecycle/provisional and cumulative
   contribution fields with result state, formula version, observation range,
@@ -490,10 +469,11 @@ The existing Sellpia sync location displays separate `전체 동기화` and
 
 ## Failure Semantics
 
-- Sellpia or ad collection failure preserves the last successful evaluation
-  and exposes source staleness.
+- Sellpia collection failure preserves the last successful evaluation and
+  exposes source staleness. Advertising collection failure preserves its source
+  state but uses the V1 calculation-only 0 KRW advertising amount.
 - Source/product resolution failure stays explicit and does not create a zero
-  revenue, zero cost, or C product.
+  revenue or C product.
 - Calculation failure is retryable and cannot partially publish grade rows.
 - Replaying identical facts and formula versions is idempotent and creates no
   duplicate history.
@@ -511,8 +491,8 @@ The existing Sellpia sync location displays separate `전체 동기화` and
    policy can publish a new grade.
 3. Backfill approximately 400 days through a full Sellpia sync and reconcile
    source totals.
-4. Run calibration, persist its reproducible report, and activate the first
-   passing `ABC_V1` formula.
+4. Create and activate the fixed-quantile `ABC_V1` formula from complete
+   Sellpia history.
 5. Run shadow evaluation and verify invariants without exposing legacy grades
    as new grades.
 6. Execute the registered `v0.1.30` semantic-reset migration and publish all
@@ -536,14 +516,15 @@ runtime overlap must remain safe until the contract step.
   and VAT provenance.
 - Prove partial first/current month coverage uses actual covered dates.
 - Prove authoritative advertising spend maps once to the correct
-  `MasterProduct`; no-ad zero and missing coverage are distinct.
+  `MasterProduct`; no-ad zero and missing coverage retain distinct provenance,
+  while both use their defined calculation amount.
 - Prove all four deferred costs equal zero with `NOT_APPLIED` provenance.
 - Prove repeated ingest and calculation are idempotent.
 
 ### Calibration and grading
 
-- Reproduce the active formula from its calibration report and checksum.
-- Prove rolling-origin folds preserve ordered realized outcomes.
+- Reproduce the active fixed formula from its source history and checksum.
+- Prove the 50/30/20 weights, 90-day half-life, and 30-day shrinkage are fixed.
 - Prove increasing profit or margin cannot lower score with other inputs held
   constant, and increasing loss recurrence cannot raise it.
 - Prove zero/negative weighted contribution profit is C.
@@ -601,5 +582,5 @@ age and sparse early history:
   retail":
   <https://arxiv.org/abs/2007.05278>
 
-These sources motivate the direction; KidItem's own rolling-origin calibration
+These sources motivate the direction; KidItem's fixed-quantile policy
 determines the operational parameters.

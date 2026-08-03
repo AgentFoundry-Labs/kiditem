@@ -61,8 +61,15 @@ and the direct inventory composition of channel listing options. It also retains
 - `MasterProduct.abcGrade` is nullable automatic output, never operator input.
   Products evaluates Finance-owned profitability evidence for currently selling
   mapped products, persists formula/evaluation provenance, and publishes only
-  changed grades with history. Missing or stale evidence stays unclassified;
-  it is never synthesized as C.
+  changed grades with history. Missing or stale Sellpia/mapping evidence stays
+  unclassified; V1 missing or stale advertising evidence is a calculation-only
+  0 KRW cost with its source provenance preserved. Neither case is synthesized
+  as C.
+- ABC uses fixed operating policy, not a predictive model: a 90-day half-life,
+  50% profit velocity / 30% contribution margin / 20% inverse loss-recurrence
+  score, and a 30-day shrinkage constant. On each publication, source-ready
+  selling products with positive weighted contribution receive score quantiles
+  of A top 20%, B next 50%, C remaining 30%; non-positive contribution is C.
 - Evaluation/publication is organization-locked so an older snapshot cannot
   overwrite a newer completed publication.
 - Thumbnail analysis quality grades remain AI registration evidence and are

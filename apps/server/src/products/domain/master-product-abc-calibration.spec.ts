@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  calibrateProductAbcFormula,
+  createFixedProductAbcFormula,
   PRODUCT_ABC_CALCULATION_CODE_CHECKSUM,
-  productAbcCandidateGrid,
 } from './master-product-abc-calibration';
 
 function examples() {
@@ -32,26 +31,18 @@ function examples() {
     }));
 }
 
-const candidates = [{
-  halfLifeDays: 90,
-  weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-  dayShrinkK: 30,
-}] as const;
-
-describe('Product ABC deterministic calibration', () => {
-  it('refuses calibration below the evidence or rolling-origin minimum', () => {
-    expect(calibrateProductAbcFormula({
-      examples: examples().slice(0, 29), version: 1, activatedAt: new Date('2026-08-01T00:00:00.000Z'), candidates,
-    })).toBeNull();
-    expect(calibrateProductAbcFormula({
-      examples: examples().filter((example) => example.originMonth === '2026-01' || example.originMonth === '2026-02'), version: 1,
-      activatedAt: new Date('2026-08-01T00:00:00.000Z'), candidates,
+describe('Product ABC fixed quantile formula', () => {
+  it('refuses to create a formula without three usable profitability observations', () => {
+    expect(createFixedProductAbcFormula({
+      observations: examples().slice(0, 2),
+      version: 1,
+      activatedAt: new Date('2026-08-01T00:00:00.000Z'),
     })).toBeNull();
   });
 
-  it('fits frozen knots and tie-safe ordered cutoffs from training-only rolling origins', () => {
-    const result = calibrateProductAbcFormula({
-      examples: examples(), version: 1, activatedAt: new Date('2026-08-01T00:00:00.000Z'), candidates,
+  it('creates a stable fixed-weight formula from the available Sellpia history', () => {
+    const result = createFixedProductAbcFormula({
+      observations: examples(), version: 1, activatedAt: new Date('2026-08-01T00:00:00.000Z'),
     });
     expect(result).not.toBeNull();
     expect(result!.formula).toMatchObject({
@@ -59,25 +50,20 @@ describe('Product ABC deterministic calibration', () => {
       version: 1,
       calculationCodeChecksum: PRODUCT_ABC_CALCULATION_CODE_CHECKSUM,
       sampleCount: 40,
-      foldCount: 3,
+      foldCount: 0,
+      calibrationMethod: 'FIXED_QUANTILE',
+      halfLifeDays: 90,
+      weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
+      dayShrinkK: 30,
+      cutoffs: { cToB: 30, bToA: 80 },
     });
-    expect(result!.formula.cutoffs.bToA).toBeGreaterThan(result!.formula.cutoffs.cToB);
   });
 
-  it('is stable for shuffled inputs and keeps the formula unchanged when the portfolio changes later', () => {
-    const input = { version: 1, activatedAt: new Date('2026-08-01T00:00:00.000Z'), candidates };
-    const first = calibrateProductAbcFormula({ ...input, examples: examples() });
-    const second = calibrateProductAbcFormula({ ...input, examples: [...examples()].reverse() });
+  it('is stable for shuffled observations', () => {
+    const input = { version: 1, activatedAt: new Date('2026-08-01T00:00:00.000Z') };
+    const first = createFixedProductAbcFormula({ ...input, observations: examples() });
+    const second = createFixedProductAbcFormula({ ...input, observations: [...examples()].reverse() });
     expect(first?.formula.formulaChecksum).toBe(second?.formula.formulaChecksum);
     expect(first?.formula.normalizationKnots).toEqual(second?.formula.normalizationKnots);
-  });
-
-  it('uses exact integer-tick candidate weights that always sum to one', () => {
-    const grid = productAbcCandidateGrid();
-    expect(grid).not.toHaveLength(0);
-    expect(grid.every((candidate) =>
-      Math.abs(candidate.weights.profit + candidate.weights.margin + candidate.weights.persistence - 1) < Number.EPSILON
-      && candidate.weights.profit >= candidate.weights.margin
-      && candidate.weights.profit >= candidate.weights.persistence)).toBe(true);
   });
 });

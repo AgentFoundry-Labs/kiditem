@@ -5,8 +5,14 @@ import {
   type MasterProductProfitabilityEvidence,
   type MasterProductProfitabilityReadPort,
 } from '../../../finance/application/port/in/master-product-profitability-read.port';
-import { calibrateProductAbcFormula, type ProductAbcCalibrationExample } from '../../domain/master-product-abc-calibration';
-import { evaluateMasterProductAbc } from '../../domain/master-product-abc';
+import {
+  createFixedProductAbcFormula,
+  type ProductAbcFormulaObservation,
+} from '../../domain/master-product-abc-calibration';
+import {
+  applyMasterProductAbcQuantiles,
+  evaluateMasterProductAbc,
+} from '../../domain/master-product-abc';
 import {
   MASTER_PRODUCT_ABC_REPOSITORY_PORT,
   type MasterProductAbcFormulaStateRecord,
@@ -23,6 +29,15 @@ export class MasterProductAbcService {
     @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
     private readonly profitability: MasterProductProfitabilityReadPort,
   ) {}
+
+  async reconcileInventoryActivity(
+    organizationId: string,
+  ): Promise<{
+    deactivatedMasterProductIds: readonly string[];
+    reactivatedMasterProductIds: readonly string[];
+  }> {
+    return this.repository.reconcileInventoryActivity(organizationId);
+  }
 
   /** Rebuilds active products from persisted source facts and the frozen formula. */
   async recalculate(organizationId: string): Promise<ProductAbcRecalculationResult> {
@@ -43,12 +58,13 @@ export class MasterProductAbcService {
           }),
         this.repository.findCurrentEvaluations({ organizationId, masterProductIds: activeIds }),
       ]);
-      const evaluations = new Map(evidence.map((row) => [row.masterProductId, evaluateMasterProductAbc({
+      const evaluated = new Map(evidence.map((row) => [row.masterProductId, evaluateMasterProductAbc({
         evidence: row,
         formula: state.formula,
         calculatedAt,
         previousNormalEvaluation: previous.get(row.masterProductId),
       })] as const));
+      const evaluations = applyMasterProductAbcQuantiles(evaluated);
       const published = await this.repository.publishEvaluations({
         organizationId,
         expectedFormulaStateRevision: state.revision,
@@ -73,61 +89,46 @@ export class MasterProductAbcService {
       asOfDate: input.asOfDate,
       scope: 'HISTORICAL_CALIBRATION',
     });
-    const calibration = calibrateProductAbcFormula({
-      examples: calibrationExamples(historical),
+    const formula = createFixedProductAbcFormula({
+      observations: formulaObservations(historical),
       version: 1,
       activatedAt: input.calculatedAt,
     });
-    if (!calibration) return input.state;
+    if (!formula) return input.state;
     const stored = await this.repository.ensureInitialFormula({
       organizationId: input.organizationId,
       expectedRevision: input.state.revision,
-      formula: calibration.formula,
+      formula: formula.formula,
     });
     return stored.state;
   }
 }
 
-function calibrationExamples(
+function formulaObservations(
   evidence: readonly MasterProductProfitabilityEvidence[],
-): ProductAbcCalibrationExample[] {
+): ProductAbcFormulaObservation[] {
   return evidence.flatMap((product) => {
-    if (product.sellpiaStatus !== 'READY'
-      || (product.adStatus !== 'READY' && product.adStatus !== 'CONFIRMED_ZERO')
-      || product.mappingStatus !== 'READY') return [];
+    if (product.sellpiaStatus !== 'READY' || product.mappingStatus !== 'READY') return [];
     const facts = [...product.monthlyFacts]
       .filter((fact) => fact.contributionProfit !== null && fact.adSpend !== null && fact.negativeCoveredDays !== null)
-      .sort((left, right) => left.coverageEndDate.getTime() - right.coverageEndDate.getTime());
-    const examples: ProductAbcCalibrationExample[] = [];
-    for (let index = 0; index < facts.length - 1; index += 1) {
-      const origin = facts[index]!;
-      const next = facts[index + 1]!;
-      const observationStart = facts
-        .slice(0, index + 1)
-        .find((fact) => fact.revenue > 0 || fact.sellpiaInAmount > 0)
-        ?.coverageStartDate ?? null;
-      const observationDays = observationStart
-        ? kstCalendarDaysInclusive(observationStart, origin.coverageEndDate)
-        : 0;
-      examples.push({
-        masterProductId: product.masterProductId,
-        originMonth: origin.yearMonth,
-        asOfDate: origin.coverageEndDate,
-        facts: facts.slice(0, index + 1).map((fact) => ({
-          coverageStartDate: fact.coverageStartDate,
-          coverageEndDate: fact.coverageEndDate,
-          coveredDays: fact.coveredDays,
-          revenue: fact.revenue,
-          orderTimeCogs: fact.sellpiaInAmount,
-          adSpend: fact.adSpend!,
-          contributionProfit: fact.contributionProfit!,
-          negativeCoveredDays: fact.negativeCoveredDays!,
-        })),
-        observationDays,
-        nextMonthProfitVelocity: 30 * next.contributionProfit! / next.coveredDays,
-      });
-    }
-    return examples;
+      .sort((left, right) => left.coverageEndDate.getTime() - right.coverageEndDate.getTime())
+      .map((fact) => ({
+        coverageStartDate: fact.coverageStartDate,
+        coverageEndDate: fact.coverageEndDate,
+        coveredDays: fact.coveredDays,
+        revenue: fact.revenue,
+        orderTimeCogs: fact.sellpiaInAmount,
+        adSpend: fact.adSpend!,
+        contributionProfit: fact.contributionProfit!,
+        negativeCoveredDays: fact.negativeCoveredDays!,
+      }));
+    if (facts.length === 0) return [];
+    return [{
+      masterProductId: product.masterProductId,
+      facts,
+      asOfDate: product.asOfDate,
+      observationDays: product.observationDays,
+    }];
   });
 }
 
@@ -153,17 +154,4 @@ function resultFor(
 function completedKstCalendarDate(now: Date): Date {
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   return new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() - 1));
-}
-
-function kstCalendarDaysInclusive(first: Date, last: Date): number {
-  const firstDay = kstEpochDay(first);
-  const lastDay = kstEpochDay(last);
-  return Math.max(0, lastDay - firstDay + 1);
-}
-
-function kstEpochDay(date: Date): number {
-  const shifted = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-  return Math.floor(Date.UTC(
-    shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate(),
-  ) / 86_400_000);
 }

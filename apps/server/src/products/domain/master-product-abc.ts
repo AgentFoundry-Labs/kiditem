@@ -22,9 +22,11 @@ export type MasterProductAbcEvaluationInput = Readonly<{
 }>;
 
 /**
- * Products owns the grade decision. Finance supplies evidence only; this
- * function never changes a formula, derives a portfolio rank, or invents a
- * cost for an unavailable source.
+ * Products owns the grade decision. Finance supplies evidence only. This
+ * function calculates one product's ready score; the service assigns the
+ * fixed A/B/C quantiles across the current active positive-profit cohort.
+ * Finance keeps unavailable advertising provenance while supplying its
+ * calculation-only 0 KRW treatment.
  */
 export function evaluateMasterProductAbc(
   input: MasterProductAbcEvaluationInput,
@@ -52,14 +54,6 @@ export function evaluateMasterProductAbc(
       base,
       status: 'SELLPIA_SOURCE_STALE',
       detail: '셀피아 상품별 이익현황 원천이 최신 전체 범위를 충족하지 않습니다.',
-      previous: input.previousNormalEvaluation,
-    });
-  }
-  if (evidence.adStatus !== 'READY' && evidence.adStatus !== 'CONFIRMED_ZERO') {
-    return retainOrUnavailable({
-      base,
-      status: 'AD_SOURCE_STALE',
-      detail: '광고비 원천이 최신 전체 범위를 충족하지 않습니다.',
       previous: input.previousNormalEvaluation,
     });
   }
@@ -114,6 +108,52 @@ export function evaluateMasterProductAbc(
       fallbackFormula: input.formula,
     });
   }
+}
+
+const ABC_QUANTILE_POLICY = {
+  aTopShare: 0.2,
+  bTopShare: 0.7,
+} as const;
+
+/**
+ * Assigns the fixed operating distribution after every product has an
+ * independently calculated score. Equal scores at a boundary stay together,
+ * so input order cannot split equivalent products across grades.
+ */
+export function applyMasterProductAbcQuantiles(
+  evaluations: ReadonlyMap<string, ProductAbcEvaluation>,
+): ReadonlyMap<string, ProductAbcEvaluation> {
+  const ranked = [...evaluations.entries()]
+    .filter(([, evaluation]) => (
+      evaluation.calculationStatus === 'READY'
+      && evaluation.adjustedScore !== null
+      && (evaluation.weightedContributionProfit ?? 0) > 0
+    ))
+    .sort(([leftId, left], [rightId, right]) => (
+      right.adjustedScore! - left.adjustedScore! || leftId.localeCompare(rightId)
+    ));
+  const aCutoff = scoreAtShare(ranked, ABC_QUANTILE_POLICY.aTopShare);
+  const bCutoff = scoreAtShare(ranked, ABC_QUANTILE_POLICY.bTopShare);
+
+  return new Map([...evaluations.entries()].map(([masterProductId, evaluation]) => {
+    if (evaluation.calculationStatus !== 'READY') return [masterProductId, evaluation] as const;
+    if ((evaluation.weightedContributionProfit ?? 0) <= 0 || evaluation.adjustedScore === null) {
+      return [masterProductId, { ...evaluation, abcGrade: 'C' }] as const;
+    }
+    const abcGrade = aCutoff !== null && evaluation.adjustedScore >= aCutoff
+      ? 'A'
+      : bCutoff !== null && evaluation.adjustedScore >= bCutoff ? 'B' : 'C';
+    return [masterProductId, { ...evaluation, abcGrade }] as const;
+  }));
+}
+
+function scoreAtShare(
+  ranked: readonly (readonly [string, ProductAbcEvaluation])[],
+  topShare: number,
+): number | null {
+  if (ranked.length === 0) return null;
+  const index = Math.min(ranked.length - 1, Math.max(0, Math.ceil(ranked.length * topShare) - 1));
+  return ranked[index]![1].adjustedScore;
 }
 
 function readyEvaluation(input: {
@@ -306,11 +346,17 @@ function aggregateCostBreakdown(evidence: MasterProductProfitabilityEvidence): P
 }
 
 function aggregateComponents(components: readonly ProductAbcCostComponent[]): ProductAbcCostComponent {
-  if (components.some((component) => component.status === 'STALE')) return { amount: null, status: 'STALE' };
-  if (components.length === 0 || components.some((component) => component.status === 'MISSING')) {
-    return { amount: null, status: 'MISSING' };
-  }
   const amount = components.reduce((sum, component) => sum + (component.amount ?? 0), 0);
+  const unavailableAmount = components.length > 0
+    && components.every((component) => component.amount === 0)
+    ? 0
+    : null;
+  if (components.some((component) => component.status === 'STALE')) {
+    return { amount: unavailableAmount, status: 'STALE' };
+  }
+  if (components.length === 0 || components.some((component) => component.status === 'MISSING')) {
+    return { amount: unavailableAmount, status: 'MISSING' };
+  }
   if (components.some((component) => component.status === 'OBSERVED')) return { amount, status: 'OBSERVED' };
   if (components.some((component) => component.status === 'CONFIRMED_ZERO')) return { amount, status: 'CONFIRMED_ZERO' };
   return { amount, status: 'NOT_APPLIED' };

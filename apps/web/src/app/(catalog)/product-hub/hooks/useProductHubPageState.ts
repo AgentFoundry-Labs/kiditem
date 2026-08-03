@@ -56,7 +56,7 @@ export function useProductHubPageState() {
     activeStatusParam as ProductOperationsActiveStatus,
   )
     ? activeStatusParam as ProductOperationsActiveStatus
-    : 'all';
+    : 'active';
   const adStatus = AD_STATUSES.includes(adStatusParam as ProductOperationsAdStatus)
     ? adStatusParam as ProductOperationsAdStatus
     : 'all';

@@ -54,7 +54,7 @@ export class ProductOperationsListQueryDto {
   category?: string;
 
   @IsIn(ACTIVE_STATUSES)
-  activeStatus: (typeof ACTIVE_STATUSES)[number] = 'all';
+  activeStatus: (typeof ACTIVE_STATUSES)[number] = 'active';
 
   @IsOptional()
   @IsIn(INVENTORY_STATUSES)
