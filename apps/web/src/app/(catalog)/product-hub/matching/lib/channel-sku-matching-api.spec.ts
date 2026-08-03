@@ -7,6 +7,8 @@ import {
   importSellpiaManualMatchSnapshot,
   listChannelProductCandidates,
   listChannelProductMappings,
+  listRecipeComponentCandidates,
+  saveProductInventoryMatching,
 } from './channel-sku-matching-api';
 
 vi.mock('@/lib/api-client', () => ({
@@ -16,6 +18,7 @@ vi.mock('@/lib/api-client', () => ({
 const LISTING_ID = '11111111-1111-4111-8111-111111111111';
 const PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
 const ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
+const OPTION_ID = '44444444-4444-4444-8444-444444444444';
 
 describe('channel product matching API', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -74,6 +77,38 @@ describe('channel product matching API', () => {
       '/api/channels/product-mappings/auto-match',
       { channelAccountId: ACCOUNT_ID },
     );
+  });
+
+  it('searches Products-owned Sellpia inventory candidates', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ items: [] });
+
+    await listRecipeComponentCandidates({ search: ' SP-100 ', includeOutOfStock: true });
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      '/api/products/recipe-component-candidates?search=SP-100&limit=20&stockStatus=all',
+      expect.any(Object),
+    );
+  });
+
+  it('saves the operating product before direct option inventory compositions', async () => {
+    vi.mocked(apiClient.put).mockResolvedValue(undefined);
+
+    await saveProductInventoryMatching({
+      channelListingId: LISTING_ID,
+      masterProductId: PRODUCT_ID,
+      options: [{
+        channelListingOptionId: OPTION_ID,
+        components: [{
+          sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+          quantity: 10,
+        }],
+      }],
+    });
+
+    expect(apiClient.put.mock.calls).toEqual([
+      [`/api/channels/product-mappings/${LISTING_ID}/master-product`, { masterProductId: PRODUCT_ID }],
+      [`/api/products/channel-options/${OPTION_ID}/inventory-components`, { components: [{ sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666', quantity: 10 }] }],
+    ]);
   });
 
   it('reads and imports the bounded Sellpia manual-match snapshot', async () => {

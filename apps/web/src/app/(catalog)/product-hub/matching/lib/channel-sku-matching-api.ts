@@ -10,6 +10,11 @@ import {
   type ChannelProductMatchingQueueResponse,
   type LinkChannelListingProductInput,
 } from '@kiditem/shared/channel-product-matching';
+import {
+  ProductRecipeComponentCandidateListResponseSchema,
+  type ProductRecipeComponentCandidateListResponse,
+  type ReplaceChannelOptionInventoryInput,
+} from '@kiditem/shared/product-operations';
 import { CoupangWingCatalogImportResponseSchema, type CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 import {
   SellpiaManualMatchImportResponseSchema,
@@ -86,6 +91,45 @@ export async function autoMatchChannelProducts(
     channelAccountId ? { channelAccountId } : {},
   );
   return ChannelProductAutoMatchResponseSchema.parse(response);
+}
+
+export function listRecipeComponentCandidates(input: {
+  search: string;
+  includeOutOfStock: boolean;
+}): Promise<ProductRecipeComponentCandidateListResponse> {
+  const query = new URLSearchParams({
+    search: input.search.trim(),
+    limit: '20',
+    stockStatus: input.includeOutOfStock ? 'all' : 'in_stock',
+  });
+  return apiClient.getParsed(
+    `/api/products/recipe-component-candidates?${query.toString()}`,
+    ProductRecipeComponentCandidateListResponseSchema,
+  );
+}
+
+export type ProductInventoryMatchingSaveInput = {
+  channelListingId: string;
+  masterProductId: string;
+  options: Array<{
+    channelListingOptionId: string;
+    components: ReplaceChannelOptionInventoryInput['components'];
+  }>;
+};
+
+export async function saveProductInventoryMatching(
+  input: ProductInventoryMatchingSaveInput,
+): Promise<void> {
+  await linkChannelListingProduct(input.channelListingId, {
+    masterProductId: input.masterProductId,
+  });
+  for (const option of [...input.options].sort((left, right) =>
+    left.channelListingOptionId.localeCompare(right.channelListingOptionId))) {
+    await apiClient.put(
+      `/api/products/channel-options/${encodeURIComponent(option.channelListingOptionId)}/inventory-components`,
+      { components: option.components },
+    );
+  }
 }
 
 export function importCoupangWingCatalog(

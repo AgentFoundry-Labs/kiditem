@@ -16,7 +16,6 @@ type Props = {
   products: ChannelProductMatchingQueueRow[];
   options: ChannelOptionMatchingQueueRow[];
   onEditProduct: (row: ChannelProductMatchingQueueRow) => void;
-  onEditInventory: (row: ChannelOptionMatchingQueueRow) => void;
   focusOptionId?: string;
   loading?: boolean;
 };
@@ -25,7 +24,6 @@ export function ProductInventoryMatchingTable({
   products,
   options,
   onEditProduct,
-  onEditInventory,
   focusOptionId,
   loading = false,
 }: Props) {
@@ -61,7 +59,7 @@ export function ProductInventoryMatchingTable({
                   <td className="px-4 py-4"><StatusBadge status={status} /></td>
                   <td className="px-4 py-4"><button type="button" aria-expanded={expanded} onClick={() => setExpandedIds((current) => { const next = new Set(current); if (next.has(product.listing.id)) next.delete(product.listing.id); else next.add(product.listing.id); return next; })} className="inline-flex items-center gap-1 rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">확인 {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></td>
                 </tr>
-                {expanded ? <tr><td colSpan={5} className="bg-slate-50/70 p-0"><ProductDetails product={product} options={childOptions} focusOptionId={focusOptionId} onEditProduct={onEditProduct} onEditInventory={onEditInventory} /></td></tr> : null}
+                {expanded ? <tr><td colSpan={5} className="bg-slate-50/70 p-0"><ProductDetails product={product} options={childOptions} focusOptionId={focusOptionId} onEditProduct={onEditProduct} /></td></tr> : null}
               </Fragment>;
             })}
           </tbody>
@@ -78,21 +76,19 @@ export function productMatchingStatus(product: ChannelProductMatchingQueueRow, o
   return 'matched';
 }
 
-function ProductDetails({ product, options, focusOptionId, onEditProduct, onEditInventory }: {
+function ProductDetails({ product, options, focusOptionId, onEditProduct }: {
   product: ChannelProductMatchingQueueRow;
   options: ChannelOptionMatchingQueueRow[];
   focusOptionId?: string;
   onEditProduct: Props['onEditProduct'];
-  onEditInventory: Props['onEditInventory'];
 }) {
   return <div className="space-y-4 px-4 py-5">
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4"><div className="min-w-0"><p className="text-xs font-bold text-slate-500">운영 상품 연결</p><p className="mt-1 truncate font-semibold text-slate-900">{product.linkedProduct ? operatorProductReference(product.linkedProduct.code, product.linkedProduct.name) : '연결된 KidItem 상품이 없습니다.'}</p></div><button type="button" onClick={() => onEditProduct(product)} className="rounded-xl border border-purple-600 px-3 py-2 text-xs font-bold text-purple-700">운영 상품 연결</button></div>
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white"><table className="w-full min-w-[800px] table-fixed text-left text-xs"><colgroup><col className="w-[30%]" /><col className="w-[42%]" /><col className="w-[14%]" /><col className="w-[14%]" /></colgroup><thead className="bg-slate-100/80 font-bold text-slate-600"><tr><th className="px-3 py-2.5">채널 판매 옵션</th><th className="px-3 py-2.5">차감할 Sellpia 재고</th><th className="px-3 py-2.5">판매 가능</th><th className="px-3 py-2.5">작업</th></tr></thead><tbody className="divide-y divide-slate-200">
-      {options.length === 0 ? <tr><td colSpan={4} className="px-3 py-8 text-center text-slate-500">수집된 하위 옵션이 없습니다.</td></tr> : options.map((row) => <tr key={row.option.id} className={cn('align-top', row.option.id === focusOptionId && 'bg-purple-50 ring-1 ring-inset ring-purple-300')}>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4"><div className="min-w-0"><p className="text-xs font-bold text-slate-500">운영상품·재고 매칭</p><p className="mt-1 truncate font-semibold text-slate-900">{product.linkedProduct ? operatorProductReference(product.linkedProduct.code, product.linkedProduct.name) : '연결된 KidItem 상품이 없습니다.'}</p><p className="mt-1 text-xs text-slate-500">운영상품, Sellpia 재고, 차감 수량을 한 모달에서 관리합니다.</p></div><button type="button" onClick={() => onEditProduct(product)} className="rounded-xl border border-purple-600 px-3 py-2 text-xs font-bold text-purple-700">운영상품 연결</button></div>
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white"><table className="w-full min-w-[720px] table-fixed text-left text-xs"><colgroup><col className="w-[32%]" /><col className="w-[50%]" /><col className="w-[18%]" /></colgroup><thead className="bg-slate-100/80 font-bold text-slate-600"><tr><th className="px-3 py-2.5">채널 판매 옵션</th><th className="px-3 py-2.5">차감할 Sellpia 재고</th><th className="px-3 py-2.5">판매 가능</th></tr></thead><tbody className="divide-y divide-slate-200">
+      {options.length === 0 ? <tr><td colSpan={3} className="px-3 py-8 text-center text-slate-500">수집된 하위 옵션이 없습니다.</td></tr> : options.map((row) => <tr key={row.option.id} className={cn('align-top', row.option.id === focusOptionId && 'bg-purple-50 ring-1 ring-inset ring-purple-300')}>
         <td className="overflow-hidden px-3 py-3"><p className="truncate font-semibold text-slate-900">{row.option.itemName ?? '옵션명 없음'}</p><p className="mt-1 break-all font-mono text-slate-500">{row.option.sellerSku ?? row.option.externalOptionId}</p></td>
         <td className="overflow-hidden px-3 py-3">{row.option.inventoryComponents.length === 0 ? <span className="font-semibold text-amber-700">재고 연결 필요</span> : <div className="space-y-1">{row.option.inventoryComponents.map((component) => <p key={component.id} className="truncate text-slate-700"><span className="font-mono font-bold">{component.code}</span> · {component.name}{component.optionName ? ` / ${component.optionName}` : ''} · 차감 {component.quantity}</p>)}</div>}</td>
         <td className="px-3 py-3 font-bold text-slate-700">{row.capacity === null ? '미확정' : `${formatNumber(row.capacity)}개`}</td>
-        <td className="px-3 py-3"><button type="button" disabled={!row.listing.masterProductId} title={!row.listing.masterProductId ? '상품을 먼저 연결해 주세요.' : undefined} onClick={() => onEditInventory(row)} className="rounded-xl border border-purple-600 px-3 py-2 font-bold text-purple-700 disabled:border-slate-200 disabled:text-slate-400">재고 구성</button></td>
       </tr>)}
     </tbody></table></div>
   </div>;

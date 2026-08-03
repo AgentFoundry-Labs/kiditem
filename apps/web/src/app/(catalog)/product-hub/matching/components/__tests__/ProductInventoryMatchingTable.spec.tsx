@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   ChannelOptionMatchingQueueRow,
@@ -77,13 +77,11 @@ function option({ configured = true, capacity = 8 }: { configured?: boolean; cap
 describe('<ProductInventoryMatchingTable />', () => {
   it('shows one product row and reveals direct channel option actions on expansion', () => {
     const onEditProduct = vi.fn();
-    const onEditInventory = vi.fn();
     render(
       <ProductInventoryMatchingTable
         products={[product()]}
         options={[option()]}
         onEditProduct={onEditProduct}
-        onEditInventory={onEditInventory}
       />,
     );
 
@@ -92,8 +90,9 @@ describe('<ProductInventoryMatchingTable />', () => {
     fireEvent.click(screen.getByRole('button', { name: '확인' }));
     expect(screen.getByText('SP-100').closest('p')).toHaveTextContent('차감 10');
     expect(screen.getByText('8개')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '재고 구성' }));
-    expect(onEditInventory).toHaveBeenCalledWith(expect.objectContaining({ option: expect.objectContaining({ id: optionId }) }));
+    expect(screen.queryByRole('button', { name: '재고 구성' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '운영상품 연결' }));
+    expect(onEditProduct).toHaveBeenCalledWith(expect.objectContaining({ listing: expect.objectContaining({ id: listingId }) }));
   });
 
   it('requires the MasterProduct link before inventory configuration', () => {
@@ -105,14 +104,13 @@ describe('<ProductInventoryMatchingTable />', () => {
         products={[unlinkedProduct]}
         options={[unlinkedOption]}
         onEditProduct={vi.fn()}
-        onEditInventory={vi.fn()}
       />,
     );
 
     expect(screen.getByText('매칭 필요')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '확인' }));
-    expect(screen.getByRole('button', { name: '재고 구성' })).toBeDisabled();
     expect(screen.getByText('재고 연결 필요')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '운영상품 연결' })).toBeInTheDocument();
   });
 
   it('keeps configured but unavailable stock in inventory review instead of unmatched', () => {
@@ -126,11 +124,9 @@ describe('<ProductInventoryMatchingTable />', () => {
         options={[option()]}
         focusOptionId={optionId}
         onEditProduct={vi.fn()}
-        onEditInventory={vi.fn()}
       />,
     );
 
-    const optionRow = within(screen.getByText('PACK-10').closest('tr')!);
-    expect(optionRow.getByRole('button', { name: '재고 구성' })).toBeInTheDocument();
+    expect(screen.getByText('PACK-10').closest('tr')).toHaveTextContent('차감 10');
   });
 });

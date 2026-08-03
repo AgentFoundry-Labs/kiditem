@@ -58,4 +58,5 @@ describe('Products architecture', () => {
     const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
     expect(exports).toEqual([expect.any(Function)]);
   });
+
 });

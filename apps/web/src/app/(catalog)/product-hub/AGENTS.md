@@ -48,12 +48,10 @@
   `abcGrade` and `abcCalculationStatus` are exclusive; unclassified is not C.
 - `수익성 데이터 갱신` requests `full` (product-profit then ABC),
   separately from inventory refresh.
-- Product detail owns manual complete channel-option component replacement
-  through the focused physical Inventory candidate search. Manual edits are complete
-  atomic replacements: operators select confirmed physical Inventory identities,
-  and a component is saved by `sellpiaInventorySkuId` and positive integer
-  quantity. Matching and Rocket may invoke the same expected-component-fenced
-  endpoint; existing confirmed components are never silently overwritten.
+- Product detail and matching use the same complete channel-option component
+  replacement contract. The matching page exposes one listing-level
+  `운영상품 연결` modal for the MasterProduct link plus all child option Sellpia
+  identities and positive integer quantities; it has no separate quantity action.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
 - Candidate generation on `/product-hub/matching` never confirms an identity
@@ -83,9 +81,9 @@
 - Do not infer product identity from display text, normalized names, or AI. The
   nested matching guide owns the narrower component-evidence and pack-ratio
   policy.
-- Channel rows may show component status and capacity. Manual complete component
-  edits belong to `/product-hub/[masterProductId]`; matching uses the same
-  direct option-component contract.
+- Channel rows show component status and capacity. Manual complete component
+  edits are available both in product detail and the matching page's unified
+  operating-product modal through the same direct option-component contract.
 - All API calls use `apiClient` + React Query and never send `organizationId`.
 - Keep all edited UI light-only; do not add `dark:` variants.
 

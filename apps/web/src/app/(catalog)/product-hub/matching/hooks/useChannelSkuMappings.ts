@@ -12,6 +12,8 @@ import {
   listChannelAccounts,
   listChannelProductCandidates,
   listChannelProductMappings,
+  listRecipeComponentCandidates,
+  saveProductInventoryMatching,
 } from '../lib/channel-sku-matching-api';
 import {
   collectSellpiaManualMatchSnapshot,
@@ -109,6 +111,26 @@ export function useChannelProductCandidates(channelListingId: string | null, sea
   });
 }
 
+export function useRecipeComponentCandidates(
+  search: string,
+  includeOutOfStock: boolean,
+  enabled: boolean,
+) {
+  const normalized = search.trim();
+  const params = {
+    search: normalized,
+    stockStatus: includeOutOfStock ? 'all' : 'in_stock',
+    limit: '20',
+  };
+  return useQuery({
+    queryKey: queryKeys.products.operations.recipeCandidates(params),
+    queryFn: () => listRecipeComponentCandidates({
+      search: normalized,
+      includeOutOfStock,
+    }),
+    enabled: enabled && normalized.length >= 2,
+  });
+}
 
 export function useLinkChannelListingProduct() {
   const queryClient = useQueryClient();
@@ -122,6 +144,18 @@ export function useLinkChannelListingProduct() {
   });
 }
 
+export function useSaveProductInventoryMatching() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: saveProductInventoryMatching,
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
+    ]),
+  });
+}
 
 export function useImportCoupangWingCatalog() {
   const queryClient = useQueryClient();

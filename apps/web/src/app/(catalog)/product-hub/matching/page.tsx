@@ -10,7 +10,6 @@ import {
 } from './components/ProductInventoryMatchingTable';
 import { CoupangWingCatalogImportDialog } from './components/CoupangWingCatalogImportDialog';
 import { ProductLinkDialog } from './components/ProductLinkDialog';
-import { ChannelOptionInventoryDialog } from '../[id]/components/ChannelOptionInventoryDialog';
 import { isChannelListingOnSale } from './lib/channel-listing-sale-status';
 import { Pagination } from '@/components/ui/Pagination';
 import {
@@ -49,7 +48,6 @@ export default function MatchingPage() {
   const pendingInternalSearch = useRef<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [productTarget, setProductTarget] = useState<ChannelProductMatchingQueueRow | null>(null);
-  const [inventoryTarget, setInventoryTarget] = useState<ChannelOptionMatchingQueueRow | null>(null);
 
   const updateUrl = (changes: Record<string, string | null>, resetPage = true) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -120,6 +118,20 @@ export default function MatchingPage() {
   const onSaleListingIdSet = useMemo(() => new Set((data?.products ?? [])
     .filter((row) => isChannelListingOnSale(row.listing.saleStatus))
     .map((row) => row.listing.id)), [data?.products]);
+  const matchingSummary = useMemo(() => {
+    const products = selectedProducts.filter((row) =>
+      !activeOnly || onSaleListingIdSet.has(row.listing.id));
+    const listingIds = new Set(products.map(({ listing }) => listing.id));
+    const options = selectedOptions.filter(({ listing }) => listingIds.has(listing.id));
+    return {
+      productCount: products.length,
+      linkedProductCount: products.filter(({ listing }) => Boolean(listing.masterProductId)).length,
+      optionCount: options.length,
+      configuredOptionCount: options.filter(({ option }) => option.inventoryComponents.length > 0).length,
+      quantityReviewCount: options.filter(({ option, capacity }) =>
+        option.inventoryComponents.length > 0 && capacity === null).length,
+    };
+  }, [activeOnly, onSaleListingIdSet, selectedOptions, selectedProducts]);
   const visibleProductCountByAccountId = useMemo(() => {
     const counts = new Map<string, number>();
     for (const row of data?.products ?? []) {
@@ -206,6 +218,8 @@ export default function MatchingPage() {
 
       {autoMatch.error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{friendlyError(autoMatch.error)}</p> : null}
       {autoMatch.data ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">상품 {autoMatch.data.matchedListings}개 · 재고 구성 {autoMatch.data.configuredOptions}개를 자동 매칭했습니다.</p> : null}
+
+      <MatchingSummaryCards summary={matchingSummary} />
 
       <section aria-label="상품 매칭 필터" className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5">
         <fieldset className="space-y-3">
@@ -313,17 +327,33 @@ export default function MatchingPage() {
           options={pageOptions}
           loading={mappingsQuery.isLoading && !data}
           onEditProduct={setProductTarget}
-          onEditInventory={setInventoryTarget}
           focusOptionId={focusOptionId}
         />
       ) : null}
       {selectedAccountIds.length > 0 && !mappingsQuery.error && filteredProducts.length > 50 ? <Pagination page={page} limit={50} total={filteredProducts.length} onPageChange={(nextPage) => updateUrl({ page: String(nextPage) }, false)} /> : null}
 
       <CoupangWingCatalogImportDialog open={importOpen} account={selectedAccount?.channel === 'coupang' ? selectedAccount : null} onOpenChange={setImportOpen} onSuccess={() => void mappingsQuery.refetch()} />
-      {productTarget ? <ProductLinkDialog open row={productTarget} onOpenChange={(next) => { if (!next) setProductTarget(null); }} /> : null}
-      {inventoryTarget ? <ChannelOptionInventoryDialog open option={inventoryTarget.option} onOpenChange={(next) => { if (!next) setInventoryTarget(null); }} /> : null}
+      {productTarget ? <ProductLinkDialog open row={productTarget} options={selectedOptions.filter(({ listing }) => listing.id === productTarget.listing.id)} onOpenChange={(next) => { if (!next) setProductTarget(null); }} /> : null}
     </div>
   );
+}
+
+function MatchingSummaryCards({ summary }: {
+  summary: {
+    productCount: number;
+    linkedProductCount: number;
+    optionCount: number;
+    configuredOptionCount: number;
+    quantityReviewCount: number;
+  };
+}) {
+  const cards = [
+    ['조회 상품', formatCount(summary.productCount), '현재 계정·판매 상태 기준'],
+    ['운영상품 연결', `${formatCount(summary.linkedProductCount)} / ${formatCount(summary.productCount)}`, 'ChannelListing → MasterProduct'],
+    ['재고 매칭', `${formatCount(summary.configuredOptionCount)} / ${formatCount(summary.optionCount)}`, '채널 옵션 → Sellpia 재고'],
+    ['수량 검토', formatCount(summary.quantityReviewCount), '재고 연결 후 판매 가능 미확정'],
+  ] as const;
+  return <section aria-label="상품 매칭 요약" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value, detail]) => <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-1 text-2xl font-extrabold text-slate-900">{value}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>)}</section>;
 }
 
 function formatCount(value: number): string {

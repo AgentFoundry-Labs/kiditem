@@ -71,5 +71,4 @@ export class ChannelProductMatchingController {
   ) {
     return this.matching.linkProduct(organizationId, channelListingId, body);
   }
-
 }

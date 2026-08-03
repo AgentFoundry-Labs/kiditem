@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MatchingPage from './page';
 
@@ -37,7 +37,6 @@ vi.mock('./components/ProductInventoryMatchingTable', async (importOriginal) => 
 });
 vi.mock('./components/CoupangWingCatalogImportDialog', () => ({ CoupangWingCatalogImportDialog: () => null }));
 vi.mock('./components/ProductLinkDialog', () => ({ ProductLinkDialog: () => null }));
-vi.mock('../[id]/components/ChannelOptionInventoryDialog', () => ({ ChannelOptionInventoryDialog: () => null }));
 
 const accounts = [{
   id: '11111111-1111-4111-8111-111111111111',
@@ -99,6 +98,9 @@ describe('/product-hub/matching', () => {
     expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).toBeChecked();
     expect(screen.getByText('external-3333')).toBeInTheDocument();
     expect(screen.queryByText('external-4444')).not.toBeInTheDocument();
+    const summary = within(screen.getByRole('region', { name: '상품 매칭 요약' }));
+    expect(summary.getByText('조회 상품').parentElement).toHaveTextContent('1');
+    expect(summary.getByText('운영상품 연결').parentElement).toHaveTextContent('1 / 1');
   });
 
   it('restores an explicit all-sale-status view from the URL', () => {
