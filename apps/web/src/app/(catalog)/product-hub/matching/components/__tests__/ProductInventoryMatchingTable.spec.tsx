@@ -91,7 +91,9 @@ describe('<ProductInventoryMatchingTable />', () => {
     expect(screen.getByText('SP-100').closest('p')).toHaveTextContent('차감 10');
     expect(screen.getByText('8개')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '재고 구성' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '운영상품 연결' }));
+    expect(screen.getByText('기본 옵션')).toBeInTheDocument();
+    expect(screen.getByText('상품 연결됨')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '재고 매칭' }));
     expect(onEditProduct).toHaveBeenCalledWith(expect.objectContaining({ listing: expect.objectContaining({ id: listingId }) }));
   });
 

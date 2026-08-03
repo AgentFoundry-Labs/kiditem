@@ -48,6 +48,7 @@ const REASON_LABEL: Record<ChannelMatchCandidateReason, string> = {
 };
 
 export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
+  const needsProductSelection = !row.listing.masterProductId || !row.linkedProduct;
   const [productSearch, setProductSearch] = useState('');
   const [selectedMasterProductId, setSelectedMasterProductId] = useState<string | null>(
     row.listing.masterProductId,
@@ -55,6 +56,7 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
   const [activeOptionId, setActiveOptionId] = useState<string | null>(options[0]?.option.id ?? null);
   const [inventorySearch, setInventorySearch] = useState('');
   const [includeOutOfStock, setIncludeOutOfStock] = useState(false);
+  const [isChangingProduct, setIsChangingProduct] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, DraftComponent[]>>(() => draftsFrom(options));
   const optionResetKey = options.map(({ option }) => `${option.id}:${option.updatedAt}`).join('|');
 
@@ -67,9 +69,15 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
     setActiveOptionId(firstAttention?.option.id ?? null);
     setInventorySearch(optionSearch(firstAttention));
     setIncludeOutOfStock(false);
+    setIsChangingProduct(false);
   }, [open, optionResetKey, row.listing.id, row.listing.masterProductId]);
 
-  const candidates = useChannelProductCandidates(row.listing.id, productSearch, open);
+  const showProductPicker = needsProductSelection || isChangingProduct;
+  const candidates = useChannelProductCandidates(
+    row.listing.id,
+    productSearch,
+    open && showProductPicker,
+  );
   const inventoryCandidates = useRecipeComponentCandidates(
     inventorySearch,
     includeOutOfStock,
@@ -87,6 +95,8 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
     : row.linkedProduct?.id === selectedMasterProductId
       ? operatorProductReference(row.linkedProduct.code, row.linkedProduct.name)
       : null;
+  const productChanged = selectedMasterProductId !== row.listing.masterProductId;
+  const isSingleOption = options.length === 1;
 
   const changedOptions = useMemo(() => options.flatMap((optionRow) => {
     const draft = drafts[optionRow.option.id] ?? [];
@@ -139,7 +149,9 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
         masterProductId: selectedMasterProductId,
         options: changedOptions,
       });
-      toast.success(`운영상품과 옵션 재고 매칭을 저장했습니다. 재고 구성 ${changedOptions.length}개 반영`);
+      toast.success(needsProductSelection || productChanged
+        ? `운영상품과 재고 매칭을 저장했습니다. 변경 옵션 ${changedOptions.length}개`
+        : `재고 매칭을 저장했습니다. 변경 옵션 ${changedOptions.length}개`);
       onOpenChange(false);
     } catch (error) {
       toast.error(friendlyError(error) ?? '운영상품 연결을 저장하지 못했습니다. 반영 상태를 새로고침해 확인해 주세요.');
@@ -164,9 +176,13 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
         <Dialog.Content className="fixed left-1/2 top-1/2 z-[130] flex max-h-[94vh] w-[min(96vw,980px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
           <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
             <div className="min-w-0">
-              <Dialog.Title className="text-lg font-extrabold text-slate-900">운영상품 연결</Dialog.Title>
+              <Dialog.Title className="text-lg font-extrabold text-slate-900">
+                {needsProductSelection ? '운영상품 연결' : '재고 매칭'}
+              </Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-slate-600">
-                KidItem 운영상품과 옵션별 Sellpia 재고·차감 수량을 한 번에 확정합니다.
+                {needsProductSelection
+                  ? 'KidItem 상품을 연결한 뒤 옵션별 Sellpia 재고와 차감 수량을 저장합니다.'
+                  : 'Sellpia 재고 상품을 선택하고 판매 1개당 차감 수량을 저장합니다.'}
               </Dialog.Description>
               <p className="mt-3 truncate text-sm font-semibold text-slate-900">
                 {row.listing.displayName ?? '상품명 없음'} · <span className="font-mono">{row.listing.externalId}</span>
@@ -178,56 +194,88 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
           </header>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
-            <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold text-slate-500">선택한 KidItem 운영상품</p>
-                  <p className="mt-1 font-extrabold text-slate-900">{selectedProductLabel ?? '운영상품을 선택해 주세요.'}</p>
+            {!needsProductSelection ? (
+              <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-emerald-700">연결된 KidItem 상품</p>
+                  <p className="mt-1 truncate text-sm font-extrabold text-slate-900">{selectedProductLabel}</p>
                 </div>
-                {selectedMasterProductId ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800"><Check size={13} /> 선택됨</span> : null}
-              </div>
-              <label className="mt-4 block text-xs font-bold text-slate-600">
-                운영상품 검색
-                <span className="relative mt-1.5 block">
-                  <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="상품 코드 또는 상품명" className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-purple-600" />
-                </span>
-              </label>
-              <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
-                {candidates.isLoading ? <LoadingLabel>운영상품 후보를 찾는 중입니다.</LoadingLabel>
-                  : candidates.error ? <ErrorLabel message={friendlyError(candidates.error) ?? '운영상품 후보를 불러오지 못했습니다.'} />
-                    : (candidates.data?.items.length ?? 0) === 0 ? <EmptyLabel message="표시할 운영상품 후보가 없습니다." />
-                      : candidates.data?.items.map((candidate) => {
-                        const selected = candidate.masterProductId === selectedMasterProductId;
-                        return <button key={candidate.masterProductId} type="button" onClick={() => setSelectedMasterProductId(candidate.masterProductId)} className={`flex w-full items-start justify-between gap-3 rounded-xl border p-3 text-left ${selected ? 'border-purple-500 bg-purple-50' : 'border-slate-200 bg-white'}`}>
-                          <span className="min-w-0"><span className="block truncate text-sm font-bold text-slate-900">{operatorProductReference(candidate.code, candidate.name)}</span><span className="mt-1 block text-xs text-slate-500">{REASON_LABEL[candidate.reason]}{candidate.category ? ` · ${candidate.category}` : ''}</span></span>
-                          <span className="shrink-0 text-xs font-bold text-purple-700">{selected ? '선택됨' : '선택'}</span>
-                        </button>;
-                      })}
-              </div>
-            </section>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-emerald-800"><Check size={13} /> {productChanged ? '변경할 상품 선택됨' : '상품 연결됨'}</span>
+                  <button type="button" onClick={() => {
+                    if (isChangingProduct) {
+                      setSelectedMasterProductId(row.listing.masterProductId);
+                      setProductSearch('');
+                    }
+                    setIsChangingProduct((current) => !current);
+                  }} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800">
+                    {isChangingProduct ? '변경 취소' : '연결 상품 변경'}
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
+            {showProductPicker ? (
+              <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-slate-500">{needsProductSelection ? '연결할 KidItem 상품' : '변경할 KidItem 상품'}</p>
+                    <p className="mt-1 font-extrabold text-slate-900">{selectedProductLabel ?? '상품을 선택해 주세요.'}</p>
+                  </div>
+                  {selectedMasterProductId ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800"><Check size={13} /> 선택됨</span> : null}
+                </div>
+                <label className="mt-4 block text-xs font-bold text-slate-600">
+                  운영상품 검색
+                  <span className="relative mt-1.5 block">
+                    <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="상품 코드 또는 상품명" className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-purple-600" />
+                  </span>
+                </label>
+                <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+                  {candidates.isLoading ? <LoadingLabel>운영상품 후보를 찾는 중입니다.</LoadingLabel>
+                    : candidates.error ? <ErrorLabel message={friendlyError(candidates.error) ?? '운영상품 후보를 불러오지 못했습니다.'} />
+                      : (candidates.data?.items.length ?? 0) === 0 ? <EmptyLabel message="표시할 운영상품 후보가 없습니다." />
+                        : candidates.data?.items.map((candidate) => {
+                          const selected = candidate.masterProductId === selectedMasterProductId;
+                          return <button key={candidate.masterProductId} type="button" onClick={() => setSelectedMasterProductId(candidate.masterProductId)} className={`flex w-full items-start justify-between gap-3 rounded-xl border p-3 text-left ${selected ? 'border-purple-500 bg-purple-50' : 'border-slate-200 bg-white'}`}>
+                            <span className="min-w-0"><span className="block truncate text-sm font-bold text-slate-900">{operatorProductReference(candidate.code, candidate.name)}</span><span className="mt-1 block text-xs text-slate-500">{REASON_LABEL[candidate.reason]}{candidate.category ? ` · ${candidate.category}` : ''}</span></span>
+                            <span className="shrink-0 text-xs font-bold text-purple-700">{selected ? '선택됨' : '선택'}</span>
+                          </button>;
+                        })}
+                </div>
+              </section>
+            ) : null}
 
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div><h3 className="font-extrabold text-slate-900">옵션별 재고 매칭</h3><p className="mt-1 text-xs text-slate-500">Sellpia 재고 SKU와 판매 1개당 차감 수량을 같은 화면에서 입력합니다.</p></div>
+                <div><h3 className="font-extrabold text-slate-900">Sellpia 재고 매칭</h3><p className="mt-1 text-xs text-slate-500">재고 상품을 선택하고 판매 1개당 차감 수량을 입력합니다.</p></div>
                 <span className="text-xs font-bold text-slate-500">옵션 {formatNumber(options.length)}개 · 변경 {formatNumber(changedOptions.length)}개</span>
               </div>
               {options.length === 0 ? <EmptyLabel message="수집된 채널 옵션이 없습니다. 운영상품 연결만 저장할 수 있습니다." /> : (
-                <div className="mt-4 grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-                  <div className="max-h-[430px] space-y-2 overflow-y-auto">
+                <div className={`mt-4 grid gap-4 ${isSingleOption ? '' : 'lg:grid-cols-[260px_minmax(0,1fr)]'}`}>
+                  {!isSingleOption ? <div className="max-h-[430px] space-y-2 overflow-y-auto">
                     {options.map((optionRow) => {
                       const components = drafts[optionRow.option.id] ?? [];
                       const active = optionRow.option.id === activeOptionId;
                       return <button key={optionRow.option.id} type="button" onClick={() => selectOption(optionRow)} className={`w-full rounded-xl border p-3 text-left ${active ? 'border-purple-500 bg-purple-50' : 'border-slate-200 bg-white'}`}>
                         <span className="block truncate text-sm font-bold text-slate-900">{optionRow.option.itemName ?? '옵션명 없음'}</span>
                         <span className="mt-1 block truncate font-mono text-xs text-slate-500">{optionRow.option.sellerSku ?? optionRow.option.externalOptionId}</span>
-                        <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${components.length ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{components.length ? `재고 ${components.length}개 연결` : '재고 연결 필요'}</span>
+                        <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${components.length ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{selectedMasterProductId ? '상품 연결됨' : '상품 연결 필요'} · {components.length ? `재고 ${components.length}개 연결` : '재고 연결 필요'}</span>
                       </button>;
                     })}
-                  </div>
+                  </div> : null}
                   {activeOption ? (
                     <div className="min-w-0 space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <div><p className="font-bold text-slate-900">{activeOption.option.itemName ?? '옵션명 없음'}</p><p className="mt-1 font-mono text-xs text-slate-500">{activeOption.option.sellerSku ?? activeOption.option.externalOptionId}</p></div>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-slate-900">{isSingleOption ? '기본 옵션' : activeOption.option.itemName ?? '옵션명 없음'}</p>
+                          {isSingleOption && activeOption.option.itemName ? <p className="mt-1 text-xs text-slate-600">{activeOption.option.itemName}</p> : null}
+                          <p className="mt-1 font-mono text-xs text-slate-500">{activeOption.option.sellerSku ?? activeOption.option.externalOptionId}</p>
+                        </div>
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${selectedMasterProductId ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                          {selectedMasterProductId ? <Check size={13} /> : null}{selectedMasterProductId ? '상품 연결됨' : '상품 연결 필요'}
+                        </span>
+                      </div>
                       <label className="block text-xs font-bold text-slate-600">Sellpia 재고 검색<span className="relative mt-1.5 block"><Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input aria-label="Sellpia 재고 검색" value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} placeholder="상품코드 · 상품명 · 옵션명 · 바코드" className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-purple-600" /></span></label>
                       <SellpiaOutOfStockToggle checked={includeOutOfStock} onCheckedChange={setIncludeOutOfStock} />
                       <div className="max-h-44 space-y-2 overflow-y-auto">
@@ -258,7 +306,7 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
 
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
             <div>{row.linkedProduct ? <button type="button" disabled={isPending} onClick={() => void unlink()} className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 disabled:opacity-50">운영상품 연결 해제</button> : null}</div>
-            <div className="flex gap-2"><Dialog.Close asChild><button type="button" className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700">취소</button></Dialog.Close><button type="button" disabled={!canSave} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saveMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} 운영상품·재고 매칭 저장</button></div>
+            <div className="flex gap-2"><Dialog.Close asChild><button type="button" className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700">취소</button></Dialog.Close><button type="button" disabled={!canSave} onClick={() => void save()} className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saveMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} {needsProductSelection ? '운영상품·재고 매칭 저장' : productChanged ? '상품 연결·재고 매칭 저장' : '재고 매칭 저장'}</button></div>
           </footer>
         </Dialog.Content>
       </Dialog.Portal>

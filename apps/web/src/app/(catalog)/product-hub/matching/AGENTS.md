@@ -20,9 +20,10 @@ React Query + apiClient
 
 - React Query owns accounts, queue rows, candidates, import, and confirmations.
 - Candidate reads never change confirmed identity.
-- The expanded listing row has one `운영상품 연결` command. Its single modal
-  confirms the listing's `MasterProduct` and edits every child option's direct
-  Sellpia component quantities; do not restore separate option/quantity buttons.
+- One row command edits listing identity and child option inventory. A confirmed
+  listing link owns every option automatically. Linked rows go straight to
+  inventory and expose the product picker only for explicit correction; one
+  option renders as `기본 옵션`. Do not split these actions.
 - Link/unlink actions invalidate product-mapping and channel-availability.
 - Component status/capacity are direct option summaries. Manual replacement
   uses the option's expected-component-fenced complete replacement contract.
@@ -43,8 +44,8 @@ React Query + apiClient
 ## Boundary Rules
 
 - Component and identity safety policy is inherited from the catalog guide. The
-  unified modal accepts only Products-owned active Sellpia candidates and
-  positive integer quantities; it never edits provider stock.
+  modal accepts only active Sellpia candidates and positive integer quantities;
+  it never edits provider stock or flattens multi-component bundles.
 - The direct option editor replaces the complete component list using active
   Sellpia SKU identities, positive integer quantities, and expected current
   components. Never silently merge or overwrite the confirmed rule.

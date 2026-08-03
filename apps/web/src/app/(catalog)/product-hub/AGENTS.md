@@ -48,10 +48,10 @@
   `abcGrade` and `abcCalculationStatus` are exclusive; unclassified is not C.
 - `수익성 데이터 갱신` requests `full` (product-profit then ABC),
   separately from inventory refresh.
-- Product detail and matching use the same complete channel-option component
-  replacement contract. The matching page exposes one listing-level
-  `운영상품 연결` modal for the MasterProduct link plus all child option Sellpia
-  identities and positive integer quantities; it has no separate quantity action.
+- Product detail and matching share the complete option-component replacement
+  contract. Matching uses one listing modal for product identity plus child
+  Sellpia identities and quantities. Linked options inherit the product, hide
+  its picker until explicit correction, and a sole option renders as `기본 옵션`.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
 - Candidate generation on `/product-hub/matching` never confirms an identity
