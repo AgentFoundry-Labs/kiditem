@@ -13,7 +13,6 @@ import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter
 import { ProductOperationsDataStatusAction } from './ProductOperationsDataStatusAction';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
-import { SellpiaSyncAction } from '@/app/(inventory)/_shared/SellpiaSyncAction';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
 
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
@@ -82,7 +81,6 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
             displayDataAsOf={state.overviewData?.summary.displayDataAsOf ?? null}
             periodDays={state.periodDays}
           />
-          <SellpiaSyncAction compact />
           <button
             type="button"
             onClick={() => setEditorOpen(true)}

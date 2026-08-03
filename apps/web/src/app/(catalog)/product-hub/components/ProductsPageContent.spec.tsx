@@ -135,10 +135,6 @@ vi.mock('./ProductOperationsDataStatusAction', () => ({
   ProductOperationsDataStatusAction: ({ displayDataAsOf }: { displayDataAsOf: string | null }) => <button type="button">{displayDataAsOf ? `데이터 기준 ${displayDataAsOf}` : '데이터 기준 없음'}</button>,
 }));
 
-vi.mock('@/app/(inventory)/_shared/SellpiaSyncAction', () => ({
-  SellpiaSyncAction: () => <button type="button">재고 동기화</button>,
-}));
-
 describe('<ProductsPageContent>', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -152,7 +148,7 @@ describe('<ProductsPageContent>', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     expect(screen.getByRole('heading', { level: 1, name: '상품 운영 센터' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '재고 동기화' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '재고 동기화' })).not.toBeInTheDocument();
     expect(screen.getByText('매출 · 광고 · 재고 · 수익성 통합 관리')).toBeInTheDocument();
     expect(screen.getByText('카탈로그 상품 전체')).toBeInTheDocument();
     expect(screen.getByText('채널 연결')).toBeInTheDocument();
